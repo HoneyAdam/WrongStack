@@ -1,0 +1,176 @@
+import type { Context } from '../../core/context.js';
+import type { PermissionDecision } from '../../types/permission.js';
+import type { RiskTier, Tool, ToolErrorCategory, ToolProgressEvent } from '../../types/tool.js';
+import type { ToolOutputMetadata } from '../../types/context-evidence.js';
+
+export interface ToolEventMap {
+  'tool.started': {
+    sessionId?: string | undefined;
+    name: string;
+    id: string;
+    input?: unknown | undefined;
+  };
+  /**
+   * Fired when a tool call finishes successfully. Metrics collectors can count
+   * calls and build latency histograms without parsing renderer output.
+   */
+  'tool.completed': {
+    name: string;
+    id: string;
+    sessionId: string;
+    traceId?: string | undefined;
+    agentId: string;
+    durationMs: number;
+    outputChars: number;
+  };
+  /**
+   * Fired when a tool call throws. Does not include raw tool input/output.
+   */
+  'tool.failed': {
+    name: string;
+    id: string;
+    sessionId: string;
+    traceId?: string | undefined;
+    agentId: string;
+    durationMs: number;
+    category: ToolErrorCategory;
+    retryable: boolean;
+    detail?: string | undefined;
+    errorCode?: string | undefined;
+    errorSubsystem?: string | undefined;
+    errorSeverity?: string | undefined;
+  };
+  /**
+   * Fired for each ToolProgressEvent yielded by `Tool.executeStream`. UIs
+   * subscribe to render incremental progress (streaming bash output, file
+   * tree counts, etc.) without the tool having to know about the UI.
+   */
+  'tool.progress': {
+    sessionId?: string | undefined;
+    name: string;
+    id: string;
+    event: ToolProgressEvent;
+  };
+  /**
+   * Fired when a tool call needs confirmation
+   * is registered on the executor. The TUI renders a confirmation dialog
+   * from this event. Resolution is driven by calling the resolve function
+   * passed in the payload with a decision string ('yes' | 'no' | 'always' | 'deny').
+   */
+  'tool.confirm_needed': {
+    sessionId?: string | undefined;
+    tool: Tool;
+    input: unknown;
+    toolUseId: string;
+    suggestedPattern: string;
+    decisionSource?: PermissionDecision['source'] | undefined;
+    riskTier?: RiskTier | undefined;
+    resolve: (decision: 'yes' | 'no' | 'always' | 'deny') => void;
+  };
+  /**
+   * Fired when the agent loop detects that the model is repeating itself —
+   * a tight loop that would otherwise burn iterations indefinitely. In the
+   * default `steer-then-cut` mode the first detection injects a corrective
+   * note into the conversation (`action: 'steer'`) and lets the run
+   * continue; persistent repetition cuts the turn with status
+   * `max_iterations` (`action: 'cut'`). Legacy `cut` mode hard-stops on
+   * first detection.
+   *
+   * Flavours caught by the same safety valve:
+   *  - `kind: 'tool'` — the same tool(s) called with effectively the same
+   *    inputs (catches k2p7's tendency to retry identical tool calls when
+   *    a tool returns an unexpected empty result).
+   *  - `kind: 'message'` — the same assistant text repeated, with no tool
+   *    calls. K2P7 and other weak-instruction-following models can echo
+   *    their last assistant turn verbatim across many iterations in
+   *    autonomous-continue mode. The fingerprint also matches this case
+   *    so the safety valve catches it too.
+   *  - `kind: 'mixed'` — both: the response contains tool calls AND text,
+   *    and the combined fingerprint (tool names + text) repeats.
+   *
+   * UIs can render a warning chip. The `kind`, `action`, and `scope` fields
+   * are additive — older subscribers that only read `tools` continue to work.
+   */
+  'tool.loop_detected': {
+    sessionId?: string | undefined;
+    ctx: Context;
+    /** Comma-separated tool names involved in the loop, or empty string for pure message loops. */
+    tools: string;
+    /** Number of repeats detected (consecutive iterations, or identical calls within the window for `scope: 'call'`). */
+    repeatCount: number;
+    /** 0-based iteration index where the loop was detected. */
+    iteration: number;
+    /**
+     * Shape of the loop. `tool` = identical tool calls; `message` = identical
+     * text-only response; `mixed` = both tool calls and text repeated.
+     * Defaults to `tool` for backward compatibility with subscribers that
+     * pre-date the field.
+     */
+    kind?: 'tool' | 'message' | 'mixed' | undefined;
+    /**
+     * What the detector did. `steer` = a corrective note was folded into the
+     * conversation and the run continues; `cut` = the turn was ended with
+     * status `max_iterations`. Defaults to `cut` for subscribers that
+     * pre-date the field.
+     */
+    action?: 'steer' | 'cut' | undefined;
+    /**
+     * Which detector fired. `iteration` = consecutive effectively-identical
+     * iterations; `call` = the same (tool name + canonicalized args) call
+     * repeated within the sliding window, possibly interleaved with other
+     * calls (e.g. re-reading the same file for the 4th time).
+     */
+    scope?: 'iteration' | 'call' | undefined;
+  };
+  /**
+   * `output` is a truncated preview of the tool's serialized result text
+   * (capped at ~400 chars by the emitter). UIs render this inline in the
+   * tool history line without re-fetching from the session log.
+   */
+  'tool.executed': {
+    sessionId?: string | undefined;
+    /**
+     * The tool_use id (e.g. "toolu_…") issued by the provider for this call.
+     * Pairs with `tool.started.id` so subscribers can correlate start/finish
+     * even when the model fires multiple tools in parallel with identical
+     * inputs. Optional only for legacy emit sites — new code should always
+     * set it.
+     */
+    id?: string | undefined;
+    name: string;
+    durationMs: number;
+    ok: boolean;
+    input?: unknown | undefined;
+    output?: string | undefined;
+    /**
+     * Full UTF-8 byte length of the serialized tool result that the model
+     * actually sees (post-cap, post-scrub). The `output` preview is capped
+     * at ~400 chars for transport; this number lets UIs surface what the
+     * model is really paying tokens for. Optional only for legacy emit
+     * sites that may not yet populate it.
+     */
+    outputBytes?: number | undefined;
+    /**
+     * Estimated token count for the full result body the model sees.
+     * Computed from `outputBytes` with the standard ~3.5 chars/token
+     * heuristic. Cheap to show in the TUI; not authoritative — the real
+     * provider count lives in `provider.response.usage`. */
+    outputTokens?: number | undefined;
+    /**
+     * For tools whose output has a clear "line" notion (file reads with
+     * numbered prefixes, grep hits, bash stdout), the agent counts the
+     * actual lines the model received and forwards it here. Undefined
+     * for tools without a meaningful line count. */
+    outputLines?: number | undefined;
+    /**
+     * Parsed context-management metadata for the result the model saw. This is
+     * intentionally compact: file/symbol/error/path-integrity hints, not the
+     * full output body. Compaction uses it to distinguish seen information from
+     * information later referenced by the assistant.
+     */
+    metadata?: ToolOutputMetadata | undefined;
+  };
+  'mcp.server.connected': { name: string; toolCount: number };
+  'mcp.server.reconnected': { name: string; toolCount: number };
+  'mcp.server.disconnected': { name: string; reason: string };
+}
