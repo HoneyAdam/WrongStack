@@ -22,7 +22,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect } from 'react';
-import ReactMarkdown from 'react-markdown';
+import { LazyMarkdown as ReactMarkdown } from './MessageBubble/LazyMarkdown.js';
 import { cn } from '@/lib/utils';
 import { useAppTranslation, i18n } from '@/i18n';
 import { showPanel } from '@/lib/view-navigation';

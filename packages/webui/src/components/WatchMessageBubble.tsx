@@ -6,7 +6,7 @@
  * error status, and full-length markdown for user/assistant messages.
  */
 
-import ReactMarkdown from 'react-markdown';
+import { LazyMarkdown as ReactMarkdown } from './MessageBubble/LazyMarkdown.js';
 import remarkGfm from 'remark-gfm';
 import { AlertCircle, Bot, Clock, Terminal, User } from 'lucide-react';
 import { cn } from '@/lib/utils';

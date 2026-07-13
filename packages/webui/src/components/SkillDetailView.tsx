@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import TextareaCodeEditor from '@uiw/react-textarea-code-editor';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
+import { LazyMarkdown as ReactMarkdown } from './MessageBubble/LazyMarkdown.js';
 import rehypeHighlight from 'rehype-highlight';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';

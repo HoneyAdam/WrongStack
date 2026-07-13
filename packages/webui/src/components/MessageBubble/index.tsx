@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { memo, useEffect, useMemo, useState } from 'react';
 import { useAppTranslation } from '@/i18n';
-import ReactMarkdown from 'react-markdown';
+import { LazyMarkdown as ReactMarkdown } from './LazyMarkdown.js';
 import remarkGfm from 'remark-gfm';
 import { ToolDiffView, diffFromToolInput } from '../DiffView';
 import { ToolResult } from '../ToolResult';

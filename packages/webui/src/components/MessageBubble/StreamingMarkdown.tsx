@@ -1,5 +1,5 @@
 import { memo, useMemo } from 'react';
-import ReactMarkdown from 'react-markdown';
+import { LazyMarkdown as ReactMarkdown } from './LazyMarkdown.js';
 import remarkGfm from 'remark-gfm';
 import { markdownComponents, rehypePlugins } from './utils.js';
 
