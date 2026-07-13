@@ -70,6 +70,15 @@ export class Agent {
   private readonly _loopHandler: AgentLoopHandler;
   private readonly _logger: Logger;
 
+  /**
+   * Guards against concurrent `run()` calls on the same Agent instance.
+   * `run()` mutates shared state (`ctx.signal`, `ctx.messages`, token
+   * bookkeeping, compaction state) and a second concurrent call would
+   * interleave those mutations with the first, producing an invalid
+   * conversation or racing abort signals.
+   */
+  private _runInProgress = false;
+
   constructor(init: AgentInit) {
     this.container = init.container;
     this.tools = init.tools;
@@ -166,6 +175,17 @@ export class Agent {
   }
 
   async run(userInput: AgentInput, opts: RunOptions = {}): Promise<RunResult> {
+    // Reject concurrent runs: shared mutable state (ctx.signal, messages,
+    // session, token bookkeeping, compaction) would race between two
+    // simultaneous runs.
+    if (this._runInProgress) {
+      throw new AgentError({
+        message: 'Agent.run() is already in progress on this instance. Concurrent runs are not supported.',
+        code: 'AGENT_RUN_FAILED',
+        context: { phase: 'concurrency-guard' },
+      });
+    }
+    this._runInProgress = true;
     const controller = new RunController({ parentSignal: opts.signal });
     const signal = controller.signal;
     this.ctx.signal = signal;
@@ -262,6 +282,7 @@ export class Agent {
       });
       return result;
     } finally {
+      this._runInProgress = false;
       span?.end();
       await controller.dispose();
     }
