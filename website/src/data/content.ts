@@ -378,7 +378,7 @@ export const moreNav = [
     label: 'Workflows',
     description: 'Goals, SDD, AutoPhase and reviews',
     icon: Workflow,
-    group: 'work',
+    group: 'learn',
   },
   {
     href: '/sdd',
@@ -415,7 +415,14 @@ export const moreNav = [
     icon: GitCommitHorizontal,
     group: 'work',
   },
-  // coordinate: fleet → agents → comms → collaboration
+  {
+    href: '/checkpoints',
+    label: 'Checkpoints',
+    description: 'File state snapshots, rollback safety',
+    icon: FileClock,
+    group: 'work',
+  },
+  // coordinate: fleet → agents
   {
     href: '/fleet',
     label: 'Fleet & Brain',
@@ -470,7 +477,7 @@ export const moreNav = [
     label: 'Collab debugging',
     description: 'BugHunter, RefactorPlanner, and Critic',
     icon: ScanSearch,
-    group: 'coordinate',
+    group: 'work',
   },
   {
     href: '/hq',
@@ -486,7 +493,7 @@ export const moreNav = [
     icon: MessageSquareMore,
     group: 'coordinate',
   },
-  // extend: tools → plugins → protocols → customization
+  // extend: tools → plugins → customization
   {
     href: '/tools',
     label: 'Built-in tools',
@@ -548,16 +555,16 @@ export const moreNav = [
     label: 'Skills',
     description: 'Installable agent knowledge packages',
     icon: Puzzle,
-    group: 'extend',
+    group: 'operate',
   },
   {
     href: '/prompts',
     label: 'Prompts library',
     description: 'Reusable steering templates',
     icon: Sparkles,
-    group: 'extend',
+    group: 'operate',
   },
-  // operate: memory → security → diagnostics → sync
+  // operate: knowledge → memory → security → sync
   {
     href: '/memory',
     label: 'Memory & sessions',
