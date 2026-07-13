@@ -605,10 +605,32 @@ const VALID_PRIORITIES = new Set(['low', 'normal', 'high']);
 /** Reserved agent ids that external (HTTP-bridge) agents must NOT
  *  impersonate. These belong to internal WrongStack processes; an
  *  external agent using them could inject fake steer/control messages
- *  into the leader's conversation. */
+ *  into the leader's conversation. Also includes wildcard/broadcast
+ *  (`*`) which must not be used as a sender identity, and `hq`
+ *  which is reserved for the HQ command channel. */
 const RESERVED_FROM_IDS = new Set([
-  'leader', 'fleet', 'mailbox-bridge-watchdog', 'tech-stack-consumer',
+  'leader', 'fleet', 'hq', 'mailbox-bridge', 'mailbox-bridge-watchdog',
+  'tech-stack-consumer', '*',
 ]);
+
+/** Reserved reader/agent ids that HTTP-bridge callers must not use
+ *  for `readerId`, `agentId`, or `clientId`. Same set as sender
+ *  reservations — an external agent must not be able to ack messages
+ *  on behalf of internal processes or broadcast itself as HQ. */
+const RESERVED_READER_IDS = new Set([
+  'leader', 'fleet', 'hq', 'mailbox-bridge', 'mailbox-bridge-watchdog',
+  'tech-stack-consumer',
+]);
+
+/** Reject a readerId that matches a reserved internal agent identity.
+ *  External agents must use their own identity, not impersonate
+ *  internal processes. */
+function validateReaderId(id: string): void {
+  const base = id.split('@')[0]!.toLowerCase();
+  if (RESERVED_READER_IDS.has(base)) {
+    throw validationError(`"readerId" must not use reserved internal agent id "${base}"`);
+  }
+}
 
 function validateSend(body: unknown): MailboxSendInput {
   if (typeof body !== 'object' || body === null) throw validationError('expected JSON object body');
@@ -735,9 +757,11 @@ function validateCheck(body: unknown): MailboxCheckInput {
 function validateAck(body: unknown): MailboxAckInput {
   if (typeof body !== 'object' || body === null) throw validationError('expected JSON object body');
   const o = body as Record<string, unknown>;
+  const readerId = requireString(o, 'readerId');
+  validateReaderId(readerId);
   const result: MailboxAckInput = {
     messageId: requireString(o, 'messageId'),
-    readerId: requireString(o, 'readerId'),
+    readerId,
   };
   const read = optionalBoolean(o, 'read');
   const completed = optionalBoolean(o, 'completed');
@@ -766,8 +790,10 @@ function validateAgentRegistration(body: unknown): AgentRegistrationInput {
   // sessionId defaults to 'external' so external agents that don't model a
   // real WrongStack session still register consistently with the mailbox.
   const sessionId = optionalString(o, 'sessionId') ?? 'external';
+  const agentId = requireString(o, 'agentId');
+  validateReaderId(agentId);
   const result: AgentRegistrationInput = {
-    agentId: requireString(o, 'agentId'),
+    agentId,
     sessionId,
     name: requireString(o, 'name'),
     pid: requireNumber(o, 'pid'),
