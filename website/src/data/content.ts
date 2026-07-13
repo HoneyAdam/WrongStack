@@ -1,5 +1,6 @@
 import {
   AppWindow,
+  Bell,
   Blocks,
   Bot,
   BrainCircuit,
@@ -22,6 +23,7 @@ import {
   type LucideIcon,
   MemoryStick,
   MessageSquareMore,
+  Monitor,
   Network,
   PackageOpen,
   Palette,
@@ -403,7 +405,7 @@ export const moreNav = [
     href: '/features/kanban-work-queue',
     label: 'Kanban work queue',
     description: 'Durable tasks, dependencies and dispatch',
-    icon: PanelTop,
+    icon: AppWindow,
     group: 'work',
   },
   {
@@ -474,7 +476,7 @@ export const moreNav = [
     href: '/hq',
     label: 'HQ Command Center',
     description: 'Web-based fleet control panel',
-    icon: PanelTop,
+    icon: Monitor,
     group: 'coordinate',
   },
   {
@@ -524,7 +526,7 @@ export const moreNav = [
     href: '/coding-plans',
     label: 'Connect with',
     description: 'ChatGPT login and coding-plan keys',
-    icon: Cable,
+    icon: Globe2,
     group: 'extend',
   },
   {
@@ -567,7 +569,7 @@ export const moreNav = [
     href: '/super-memory',
     label: 'Super Memory',
     description: 'Structured knowledge, scoring and graph',
-    icon: BrainCircuit,
+    icon: Database,
     group: 'operate',
   },
   {
@@ -588,7 +590,7 @@ export const moreNav = [
     href: '/telegram',
     label: 'Telegram',
     description: 'Notifications and approval prompts',
-    icon: MessageSquareMore,
+    icon: Bell,
     group: 'operate',
   },
   {
