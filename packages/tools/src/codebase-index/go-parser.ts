@@ -7,10 +7,11 @@
  * Extracts: package, func, type, const, var
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
+import { resolveWin32Command } from '../_win32-resolve.js';
 import type { FileSymbols, Symbol as IndexSymbol, SymbolLang } from './schema.js';
 
 // ─── Public API ─────────────────────────────────────────────────────────────
@@ -364,31 +365,54 @@ async function syncGoParse(
 
     // argv-array form (no shell): avoids any quoting/metachar issues in the
     // temp script path. The target source is fed via stdin, not as an arg.
-    const proc = spawn('go', ['run', scriptPath], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      windowsHide: true,
-    });
+    // Resolve the Go binary via PATHEXT on Windows so ENOENT is impossible.
+    const goBinary = resolveWin32Command('go');
 
-    let stdout = '';
-    proc.stdout?.on('data', (chunk: Buffer) => {
-      stdout += chunk.toString();
-    });
+    const goResult = await new Promise<{ code: number | null; stdout: string }>(
+      (resolve, reject) => {
+        let settled = false;
 
-    // Write source via stdin so `go run` receives it without touching disk
-    proc.stdin?.write(content);
-    proc.stdin?.end();
+        const proc: ChildProcess = spawn(goBinary, ['run', scriptPath], {
+          stdio: ['pipe', 'pipe', 'pipe'],
+          windowsHide: true,
+        });
 
-    const { code } = await Promise.race([
-      new Promise<{ code: number | null }>((resolve) => {
-        proc.on('close', (c) => resolve({ code: c }));
-      }),
-      new Promise<{ code: number | null }>((_, reject) =>
-        setTimeout(() => {
+        proc.on('error', (err) => {
+          if (settled) return;
+          settled = true;
+          reject(err);
+        });
+
+        let stdout = '';
+        proc.stdout?.on('data', (chunk: Buffer) => {
+          stdout += chunk.toString();
+        });
+        // Drain stderr to avoid backpressure deadlocks from Go toolchain
+        // diagnostics (e.g. "found packages …").
+        proc.stderr?.resume();
+
+        // Write source via stdin so `go run` receives it without touching disk
+        proc.stdin?.write(content);
+        proc.stdin?.end();
+
+        const timer = setTimeout(() => {
+          if (settled) return;
+          settled = true;
           proc.kill('SIGKILL');
           reject(new Error('timeout'));
-        }, 15_000),
-      ),
-    ]).catch(() => ({ code: -1 }));
+        }, 15_000);
+        timer.unref?.();
+
+        proc.on('close', (code) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve({ code, stdout });
+        });
+      },
+    );
+
+    const { code, stdout } = goResult;
 
     if (code !== 0 || !stdout.trim()) {
       return { file: filePath, lang, symbols: [], mtimeMs: Date.now() };

@@ -7,10 +7,11 @@
  * Extracts: class, function, async function, const, var, import, import_from
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { resolveWin32Command } from '../_win32-resolve.js';
 import type { FileSymbols, Symbol as IndexSymbol, SymbolLang } from './schema.js';
 
 // ─── Public API ─────────────────────────────────────────────────────────────
@@ -236,8 +237,103 @@ print(json.dumps([s.to_dict() for s in syms]))
 
 // ─── Synchronous Python parse via child process ─────────────────────────────
 
-// Cache the temp script path so we don't rewrite it on every file.
+/**
+ * Cross-platform Python binary resolver.
+ *
+ * Windows: walks PATHEXT via `resolveWin32Command` (handles .exe/.cmd/.bat).
+ *          A match means a real file on disk — return it immediately.
+ * macOS / Linux: `resolveWin32Command` is a pass-through. We verify each
+ *          candidate with `spawnSync --version` — the only reliable way to
+ *          check that a binary actually exists on PATH. Cost is a single
+ *          short-lived process per lookup, cached for the process lifetime.
+ *
+ * Candidates in priority order:
+ *   Windows:  python3 → python → py (Python launcher)
+ *   Unix:     python3 → python
+ */
+function resolvePython(): string | null {
+	const candidates = process.platform === 'win32'
+		? ['python3', 'python', 'py']
+		: ['python3', 'python'];
+	for (const name of candidates) {
+		const resolved = resolveWin32Command(name);
+		// On Windows: if resolution changed the name, a real .exe was found.
+		// On Unix: resolved === name always; verify with spawnSync.
+		if (process.platform === 'win32' && resolved !== name) return resolved;
+		const result = spawnSync(resolved, ['--version'], {
+			stdio: 'pipe',
+			timeout: 5_000,
+		});
+		if (result.error) continue; // ENOENT or similar — try next
+		if (result.status !== 0) continue; // binary exists but broken
+		return resolved;
+	}
+	return null;
+}
+
+/**
+ * Spawn the Python parser child process with proper error handling.
+ *
+ * Returns a promise that resolves to { code, stdout } or rejects with an
+ * Error (ENOENT, timeout, spawn error) that the caller converts to empty
+ * results. The 'error' event listener is critical: without it, a spawn
+ * ENOENT on Windows crashes as an unhandled exception because
+ * ChildProcess emits 'error' asynchronously and the Promise.race only
+ * listens on 'close'.
+ */
+function spawnPyParser(
+	pyBinary: string,
+	scriptPath: string,
+	filePath: string,
+	content: string,
+): Promise<{ code: number | null; stdout: string }> {
+	return new Promise((resolve, reject) => {
+		let settled = false;
+
+		const proc: ChildProcess = spawn(pyBinary, [scriptPath, filePath], {
+			stdio: ['pipe', 'pipe', 'pipe'],
+			windowsHide: true,
+		});
+
+		// Mandatory: catch ENOENT / permission-denied / spawn failures.
+		proc.on('error', (err) => {
+			if (settled) return;
+			settled = true;
+			reject(err);
+		});
+
+		// Write source content via stdin so the child doesn't reopen the file.
+		proc.stdin?.write(content);
+		proc.stdin?.end();
+
+		let stdout = '';
+		proc.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+
+		// Discard stderr to avoid backpressure deadlocks when Python emits
+		// warnings (e.g. deprecation notices).
+		proc.stderr?.resume();
+
+		const timer = setTimeout(() => {
+			if (settled) return;
+			settled = true;
+			proc.kill('SIGKILL');
+			reject(new Error('timeout'));
+		}, 15_000);
+		timer.unref?.();
+
+		proc.on('close', (code) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			resolve({ code, stdout });
+		});
+	});
+}
+
+// Cache the temp script path + resolved Python binary so we don't rewrite
+// or re-resolve on every file.
 let _cachedScriptPath: string | null = null;
+let _cachedPyBinary: string | null = null;
 
 async function syncPyParse(filePath: string, content: string, lang: SymbolLang): Promise<FileSymbols> {
 	try {
@@ -252,27 +348,20 @@ async function syncPyParse(filePath: string, content: string, lang: SymbolLang):
 			await fs.writeFile(_cachedScriptPath, PY_PARSE_SCRIPT, 'utf8');
 		}
 
+		// Resolve Python binary once (expensive: walks PATH on Windows).
+		if (!_cachedPyBinary) {
+			_cachedPyBinary = resolvePython();
+			if (!_cachedPyBinary) return { file: filePath, lang, symbols: [], mtimeMs: Date.now() };
+		}
+
 		// argv-array form: no shell, so a hostile filename cannot inject commands.
 		// Content is piped via stdin — avoids a second file read in the child.
-		const proc = spawn('python', [_cachedScriptPath, filePath], {
-			stdio: ['pipe', 'pipe', 'pipe'],
-			windowsHide: true,
-		});
-
-		// Write the already-read file content to stdin so the Python child
-		// doesn't reopen the file — eliminates one disk read per Python file.
-		proc.stdin?.write(content);
-		proc.stdin?.end();
-
-		let stdout = '';
-		proc.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
-
-		const { code } = await Promise.race([
-			new Promise<{ code: number | null }>((resolve) => { proc.on('close', (c) => resolve({ code: c })); }),
-			new Promise<{ code: number | null }>((_, reject) =>
-				setTimeout(() => { proc.kill('SIGKILL'); reject(new Error('timeout')); }, 15_000)
-			),
-		]).catch(() => ({ code: -1 }));
+		const { code, stdout } = await spawnPyParser(
+			_cachedPyBinary,
+			_cachedScriptPath,
+			filePath,
+			content,
+		);
 
 		if (code !== 0 || !stdout.trim()) {
 			return { file: filePath, lang, symbols: [], mtimeMs: Date.now() };

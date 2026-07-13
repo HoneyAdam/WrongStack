@@ -11,6 +11,7 @@ import { expectDefined } from '@wrongstack/core';
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { resolveWin32Command } from '../_win32-resolve.js';
 import type { FileSymbols, Symbol as IndexSymbol, SymbolLang } from './schema.js';
 // ─── Public API ─────────────────────────────────────────────────────────────
 
@@ -73,27 +74,51 @@ async function tryNativeParse(file: string, content: string): Promise<FileSymbol
     await fs.writeFile(tmpFile, content, 'utf8');
 
     // Use spawn for full async control with timeout via Promise.race + setTimeout kill
-    const proc: ChildProcessWithoutNullStreams = spawn(
-      'cargo',
-      ['run', '--manifest-path', path.join(toolsDir, 'Cargo.toml')],
-      {
-        cwd: process.cwd(),
-        stdio: ['pipe', 'pipe', 'pipe'],
-        windowsHide: true,
+    // Resolve via PATHEXT on Windows so ENOENT is impossible (cargo is a .cmd wrapper).
+    const cargoBinary = resolveWin32Command('cargo');
+
+    const result = await new Promise<{ code: number | null; stdout: string }>(
+      (resolve, reject) => {
+        let settled = false;
+
+        const proc: ChildProcessWithoutNullStreams = spawn(
+          cargoBinary,
+          ['run', '--manifest-path', path.join(toolsDir, 'Cargo.toml')],
+          {
+            cwd: process.cwd(),
+            stdio: ['pipe', 'pipe', 'pipe'],
+            windowsHide: true,
+          },
+        );
+
+        proc.on('error', (err) => {
+          if (settled) return;
+          settled = true;
+          reject(err);
+        });
+
+        let stdout = '';
+        proc.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+        proc.stderr?.resume();
+
+        const timer = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          proc.kill('SIGKILL');
+          reject(new Error('timeout'));
+        }, 15_000);
+        timer.unref?.();
+
+        proc.on('close', (c: number | null) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve({ code: c, stdout });
+        });
       },
     );
 
-    let stdout = '';
-    proc.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
-
-    const { code } = await Promise.race([
-      new Promise<{ code: number | null }>((resolve) => {
-        proc.on('close', (c: number | null) => resolve({ code: c }));
-      }),
-      new Promise<{ code: number | null }>((_, reject) =>
-        setTimeout(() => { proc.kill('SIGKILL'); reject(new Error('timeout')); }, 15_000)
-      ),
-    ]).catch(() => ({ code: -1 }));
+    const { code, stdout } = result;
 
     if (code === 0 && stdout.trim()) {
       const symbols: IndexSymbol[] = JSON.parse(stdout.trim());
