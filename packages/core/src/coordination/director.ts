@@ -1613,12 +1613,20 @@ export class Director implements ICoordinator {
       this.coordinator.off('task.completed', this.taskCompletedListener);
       this.taskCompletedListener = null;
     }
-    // Drop any-await waiters: clear their timeout timers so nothing keeps
-    // the event loop alive past shutdown. The promises themselves stay
-    // pending — same contract as `taskWaiters`, whose awaiters also never
-    // resolve once the director is gone.
-    for (const aw of this.anyWaiters) {
+    // Drop any-await waiters: clear their timeout timers and resolve
+    // each pending promise with a synthetic 'stopped' result so callers
+    // don't hang forever. The same applies to taskWaiters below.
+    for (const aw of [...this.anyWaiters]) {
       if (aw.timer) clearTimeout(aw.timer);
+      const firstId = [...aw.ids][0];
+      aw.resolve({
+        taskId: firstId ?? 'unknown',
+        subagentId: 'director',
+        status: 'stopped' as const,
+        iterations: 0,
+        toolCalls: 0,
+        durationMs: 0,
+      });
     }
     this.anyWaiters.clear();
     // Detach the FleetBus filters installed in the constructor. Same
@@ -1637,6 +1645,20 @@ export class Director implements ICoordinator {
     for (const timer of this.subagentIdleTimers.values()) clearTimeout(timer);
     this.subagentIdleTimers.clear();
     await this.coordinator.stopAll();
+    // Resolve any remaining task waiters that weren't settled by the
+    // (now-detached) taskCompletedListener during coordinator stopAll.
+    // Without this, awaitTasks() callers hang forever after shutdown.
+    for (const [id, waiter] of this.taskWaiters) {
+      waiter.resolve({
+        taskId: id,
+        subagentId: 'director',
+        status: 'stopped' as const,
+        iterations: 0,
+        toolCalls: 0,
+        durationMs: 0,
+      });
+    }
+    this.taskWaiters.clear();
     for (const b of this.subagentBridges.values()) {
       await b.stop().catch((err) => this.logShutdownError('subagent_bridge_stop', err));
     }
