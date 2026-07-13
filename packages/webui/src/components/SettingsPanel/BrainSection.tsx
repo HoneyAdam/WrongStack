@@ -224,7 +224,7 @@ export function BrainSection(): ReactElement {
 
       {/* Risk ceiling */}
       <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 p-3">
-        <label className="text-sm font-medium">Autonomy ceiling</label>
+        <span className="text-sm font-medium">Autonomy ceiling</span>
         <div className="flex gap-2 flex-wrap">
           {RISK_LEVELS.map((level) => (
             <Button
@@ -247,7 +247,7 @@ export function BrainSection(): ReactElement {
         <>
           {/* Escalation */}
           <div className="space-y-1 rounded-md border border-border/70 bg-muted/20 p-3">
-            <label className="text-sm font-medium">Escalation</label>
+            <span className="text-sm font-medium">Escalation</span>
             <PreferenceSelect
               label="Mode"
               hint="Headless: the Brain never blocks on a human — unanswered escalations resolve via the safe terminal policy. Applies to CLI/TUI sessions; the standalone WebUI Brain is always headless."
@@ -279,7 +279,7 @@ export function BrainSection(): ReactElement {
           {/* Decision models */}
           <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 p-3">
             <div className="flex items-center justify-between">
-              <label className="text-sm font-medium">Decision models</label>
+              <span className="text-sm font-medium">Decision models</span>
               <Badge variant="outline" className="text-[10px]">
                 {config.usingSessionModel
                   ? 'session model'
@@ -373,7 +373,7 @@ export function BrainSection(): ReactElement {
           {/* Council */}
           <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 p-3">
             <div className="flex items-center justify-between">
-              <label className="text-sm font-medium">Council</label>
+              <span className="text-sm font-medium">Council</span>
               <Badge variant={config.council.enabled ? 'default' : 'outline'} className="text-[10px]">
                 {config.council.enabled ? 'convened' : 'disabled'}
               </Badge>
@@ -514,7 +514,7 @@ export function BrainSection(): ReactElement {
 
           {/* Ledger */}
           <div className="space-y-1 rounded-md border border-border/70 bg-muted/20 p-3">
-            <label className="text-sm font-medium">Decision ledger</label>
+            <span className="text-sm font-medium">Decision ledger</span>
             <PreferenceToggle
               label="Record decisions + outcomes"
               hint="Persists every decision and its observed outcome; similar past outcomes are fed back into future Brain prompts."
@@ -551,7 +551,7 @@ export function BrainSection(): ReactElement {
 
       {/* Recent decisions */}
       <div className="space-y-2 rounded-md border border-border/70 bg-card/70 p-3">
-        <label className="text-sm font-medium">Recent decisions ({log.length})</label>
+        <span className="text-sm font-medium">Recent decisions ({log.length})</span>
         <div className="space-y-1 max-h-[300px] overflow-y-auto">
           {log.length === 0 ? (
             <p className="text-xs text-muted-foreground py-2">

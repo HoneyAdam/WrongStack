@@ -345,7 +345,7 @@ function ServerDialog({
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div className="space-y-2">
-            <label className="text-sm font-medium">{t('settings:mcp.fieldName')}</label>
+            <span className="text-sm font-medium">{t('settings:mcp.fieldName')}</span>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -354,7 +354,7 @@ function ServerDialog({
             />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium">{t('settings:mcp.fieldTransport')}</label>
+            <span className="text-sm font-medium">{t('settings:mcp.fieldTransport')}</span>
             <select
               className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
               value={transport}
@@ -369,7 +369,7 @@ function ServerDialog({
           </div>
           {(transport === 'streamable-http' || transport === 'sse' || transport === 'http') && (
             <div className="space-y-2">
-              <label className="text-sm font-medium">{t('settings:mcp.fieldUrl')}</label>
+              <span className="text-sm font-medium">{t('settings:mcp.fieldUrl')}</span>
               <Input
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
@@ -381,7 +381,7 @@ function ServerDialog({
           {transport === 'stdio' && (
             <>
               <div className="space-y-2">
-                <label className="text-sm font-medium">{t('settings:mcp.fieldCommand')}</label>
+                <span className="text-sm font-medium">{t('settings:mcp.fieldCommand')}</span>
                 <Input
                   value={command}
                   onChange={(e) => setCommand(e.target.value)}
@@ -390,9 +390,9 @@ function ServerDialog({
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">
+                <span className="text-sm font-medium">
                   {t('settings:mcp.fieldArgs')} <span className="text-muted-foreground font-normal">{t('settings:mcp.fieldArgsHint')}</span>
-                </label>
+                </span>
                 <Input
                   value={args}
                   onChange={(e) => setArgs(e.target.value)}
@@ -403,10 +403,10 @@ function ServerDialog({
             </>
           )}
           <div className="space-y-2">
-            <label className="text-sm font-medium">
+            <span className="text-sm font-medium">
               {t('settings:mcp.fieldEnv')}{' '}
               <span className="text-muted-foreground font-normal">{t('settings:mcp.fieldEnvHint')}</span>
-            </label>
+            </span>
             <textarea
               className="w-full h-20 px-3 py-2 rounded-md border border-input bg-background text-sm font-mono resize-none"
               value={env}
@@ -417,7 +417,7 @@ function ServerDialog({
             />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium">{t('settings:mcp.fieldDescription')}</label>
+            <span className="text-sm font-medium">{t('settings:mcp.fieldDescription')}</span>
             <Input
               value={description}
               onChange={(e) => setDescription(e.target.value)}
