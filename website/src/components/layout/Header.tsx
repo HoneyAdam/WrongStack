@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowUpRight, ChevronDown, Menu, Moon, Sun, X } from 'lucide-react';
 import { useTheme } from 'next-themes';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { BrandMark } from '@/components/site/BrandMark';
 import { SiteSearch } from '@/components/site/SiteSearch';
 import { Button } from '@/components/ui/button';
@@ -51,7 +51,10 @@ export function Header() {
   const [open, setOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [activeGroup, setActiveGroup] = useState<(typeof moreNavGroups)[number]['id']>(moreNavGroups[0]!.id);
   const moreRef = useRef<HTMLDivElement>(null);
+  const hoverTimer = useRef<number | undefined>(undefined);
+  const leaveTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12);
@@ -80,6 +83,18 @@ export function Header() {
     };
   }, []);
 
+  const handleMoreEnter = useCallback(() => {
+    if (leaveTimer.current) clearTimeout(leaveTimer.current);
+    hoverTimer.current = setTimeout(() => setMoreOpen(true), 120);
+  }, []);
+
+  const handleMoreLeave = useCallback(() => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    leaveTimer.current = setTimeout(() => setMoreOpen(false), 250);
+  }, []);
+
+  const activeItems = moreNav.filter((item) => item.group === activeGroup);
+
   return (
     <header
       className={cn(
@@ -104,7 +119,7 @@ export function Header() {
               {item.label}
             </Link>
           ))}
-          <div ref={moreRef} className="relative">
+          <div ref={moreRef} className="relative" onMouseEnter={handleMoreEnter} onMouseLeave={handleMoreLeave}>
             <button
               type="button"
               onClick={() => setMoreOpen((value) => !value)}
@@ -128,67 +143,76 @@ export function Header() {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 8, scale: 0.98 }}
                   transition={{ duration: 0.16 }}
-                  className="fixed left-1/2 top-[82px] w-[min(1120px,calc(100vw-2rem))] -translate-x-1/2 overflow-hidden rounded-2xl border border-line bg-surface shadow-2xl shadow-black/20"
+                  className="fixed left-1/2 top-[82px] w-[min(1080px,calc(100vw-2rem))] -translate-x-1/2 overflow-hidden rounded-2xl border border-line bg-surface shadow-2xl shadow-black/20"
                 >
                   <div className="manual-grid absolute inset-0 opacity-35" aria-hidden="true" />
-                  <div className="relative grid grid-cols-5 gap-px bg-line">
-                    {moreNavGroups.map((group, groupIndex) => (
-                      <div key={group.id} className="bg-surface p-4">
-                        <div className="px-2 pb-3">
-                          <span
+                  <div className="relative flex">
+                    {/* ── Left rail: category tabs ── */}
+                    <div className="w-[210px] shrink-0 border-r border-line bg-bg/40 py-3">
+                      {moreNavGroups.map((group) => (
+                        <button
+                          key={group.id}
+                          type="button"
+                          onMouseEnter={() => setActiveGroup(group.id)}
+                          className={cn(
+                            'relative w-full px-4 py-3 text-left transition-colors',
+                            activeGroup === group.id
+                              ? 'bg-card text-fg'
+                              : 'text-muted hover:bg-card/50 hover:text-fg',
+                          )}
+                        >
+                          <span className="block text-[13px] font-black">{group.label}</span>
+                          <span className="mt-0.5 block text-[10px] leading-4 text-faint">
+                            {group.description}
+                          </span>
+                          {activeGroup === group.id && (
+                            <span className="absolute right-0 top-1/2 h-8 w-[3px] -translate-y-1/2 rounded-l-sm bg-brand" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* ── Right panel: card grid ── */}
+                    <div className="min-w-0 flex-1 p-5">
+                      <div className="mb-3 flex items-center gap-2 px-1">
+                        <span className="font-mono text-[10px] font-black uppercase tracking-[0.16em] text-brand">
+                          {moreNavGroups.find((g) => g.id === activeGroup)?.label}
+                        </span>
+                        <span className="font-mono text-[10px] text-faint">
+                          {activeItems.length} pages
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {activeItems.map((item) => (
+                          <Link
+                            key={item.href}
+                            href={item.href}
                             className={cn(
-                              'font-mono text-[10px] font-black uppercase tracking-[0.18em]',
-                              groupIndex % 2 ? 'text-brand-2' : 'text-brand',
+                              'group flex gap-3 rounded-xl p-3 transition-colors hover:bg-card',
+                              path === item.href && 'bg-card',
                             )}
                           >
-                            0{groupIndex + 1} / {group.label}
-                          </span>
-                          <p className="mt-1 text-[11px] leading-5 text-faint">
-                            {group.description}
-                          </p>
-                        </div>
-                        <div className="space-y-0.5">
-                          {moreNav
-                            .filter((item) => item.group === group.id)
-                            .map((item, itemIndex) => (
-                              <Link
-                                key={item.href}
-                                href={item.href}
-                                className={cn(
-                                  'group flex gap-3 rounded-xl p-2.5 transition-all hover:bg-card',
-                                  path === item.href && 'bg-card',
-                                )}
-                              >
-                                <span
-                                  className={cn(
-                                    'grid size-8 shrink-0 place-items-center rounded-lg border border-line bg-bg',
-                                    (groupIndex + itemIndex) % 2 ? 'text-brand-2' : 'text-brand',
-                                  )}
-                                >
-                                  <item.icon className="size-3.5" />
-                                </span>
-                                <span className="min-w-0">
-                                  <span className="block text-[13px] font-black text-fg group-hover:text-brand">
-                                    {item.label}
-                                  </span>
-                                  <span className="mt-0.5 block text-[10px] leading-4 text-muted">
-                                    {item.description}
-                                  </span>
-                                </span>
-                              </Link>
-                            ))}
-                        </div>
+                            <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-line bg-bg text-brand">
+                              <item.icon className="size-4" />
+                            </span>
+                            <span className="min-w-0 pt-0.5">
+                              <span className="block text-[13px] font-black text-fg group-hover:text-brand transition-colors">
+                                {item.label}
+                              </span>
+                              <span className="mt-0.5 block text-[10px] leading-[1.35] text-muted">
+                                {item.description}
+                              </span>
+                            </span>
+                          </Link>
+                        ))}
                       </div>
-                    ))}
+                    </div>
                   </div>
-                  <div className="relative flex items-center justify-between gap-6 border-t border-line bg-ink px-5 py-3.5 text-white">
+                  <div className="relative flex items-center justify-between gap-6 border-t border-line bg-ink px-5 py-3 text-white">
                     <div className="flex items-center gap-3">
                       <span className="size-2 rounded-sm bg-brand-2 shadow-[13px_0_0_#ff3154]" />
                       <span className="ml-3 font-mono text-[10px] font-black uppercase tracking-[0.16em]">
                         Open source · Free · MIT licensed
-                      </span>
-                      <span className="hidden text-[11px] text-zinc-500 xl:inline">
-                        Bring a provider. Keep the source.
                       </span>
                     </div>
                     <a
