@@ -10,12 +10,13 @@
 // keyed by ToolIconId, which already covers every built-in.
 
 import { getToolIcon, TOOL_ICON_CONFIG, type ToolIconId } from '@wrongstack/tools/tool-icons';
+import { resolveIconStyle } from './ui-glyphs.js';
 
 /**
  * Canonical ToolIconId → single-width terminal glyph. Chosen from ranges with
  * broad monospace coverage (Geometric Shapes / Dingbats / Math Operators).
  */
-export const TOOL_GLYPHS: Record<ToolIconId, string> = {
+const UNICODE_TOOL_GLYPHS: Record<ToolIconId, string> = {
   file: '▤',
   edit: '✎',
   search: '⌕',
@@ -41,6 +42,45 @@ export const TOOL_GLYPHS: Record<ToolIconId, string> = {
   brain: '✦',
   fallback: '•',
 };
+
+const NERD_TOOL_GLYPHS: Record<ToolIconId, string> = {
+  file: '󰈙',
+  edit: '󰏫',
+  search: '',
+  folder: '󰉋',
+  terminal: '',
+  web: '󰖟',
+  git: '',
+  tree: '󰙅',
+  code: '',
+  test: '󰙨',
+  package: '',
+  document: '󰈙',
+  scaffold: '󰛦',
+  todo: '󰄬',
+  plan: '󰈙',
+  task: '󰄬',
+  meta: '󰒓',
+  index: '󰌨',
+  json: '',
+  diff: '',
+  logs: '󰌱',
+  settings: '󰒓',
+  brain: '󰧑',
+  fallback: '•',
+};
+
+const ASCII_TOOL_GLYPHS: Record<ToolIconId, string> = Object.fromEntries(
+  (Object.keys(UNICODE_TOOL_GLYPHS) as ToolIconId[]).map((id) => [id, '*']),
+) as Record<ToolIconId, string>;
+
+/** Active per-tool glyph profile, selected once at TUI startup. */
+export const TOOL_GLYPHS: Record<ToolIconId, string> =
+  resolveIconStyle() === 'nerd'
+    ? NERD_TOOL_GLYPHS
+    : resolveIconStyle() === 'ascii'
+      ? ASCII_TOOL_GLYPHS
+      : UNICODE_TOOL_GLYPHS;
 
 export interface ToolVisual {
   /** Single-width terminal glyph for the tool. */

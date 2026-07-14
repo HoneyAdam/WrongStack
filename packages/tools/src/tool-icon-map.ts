@@ -172,6 +172,13 @@ export const TOOL_ICON_MAP: Record<string, ToolIconId> = {
   reason: 'brain',
   analyze: 'brain',
   reasoning: 'brain',
+
+  // Language intelligence
+  lsp_diagnostics: 'code',
+  lsp_definition: 'search',
+  lsp_completion: 'code',
+  lsp_rename: 'edit',
+  'codebase-lsp-search': 'index',
 };
 
 /**

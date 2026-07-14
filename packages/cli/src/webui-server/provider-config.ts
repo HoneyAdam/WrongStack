@@ -39,7 +39,7 @@ export {
  *
  * Note: `writeKeysBack` and `normalizeKeys` (used by
  * the per-handler key ops) are *already* imported from
- * `@wrongstack/webui/server`. This PR does not move
+ * `@wrongstack/webui-server`. This PR does not move
  * them — they were never inlined in `webui-server.ts`.
  * Per the plan body's update after PR #51, they are
  * not part of this extraction.

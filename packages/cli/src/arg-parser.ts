@@ -23,6 +23,8 @@ export const BOOLEAN_FLAGS = new Set([
   'prompt',
   'metrics',
   'webui',
+  'simpleui',
+  'full-auto',
   'desktop',
   'open',
   'webui-require-token',
@@ -95,6 +97,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
 /**
  * Keep the user-facing launch shapes equivalent:
  *   wstack --webui      == wstack webui
+ *   wstack --simpleui   == wstack simpleui
  *   wstack --desktop    == wstack desktop
  *   wstack --hq         == wstack hq / wstack hq serve
  *
@@ -105,7 +108,18 @@ function normalizeSurfaceAliases(
   flags: Record<string, string | boolean>,
   positional: string[],
 ): void {
+  // SimpleUI deliberately reuses the WebUI backend/runtime path. Keep its own
+  // flag so dispatch can select the independent frontend build, while also
+  // setting `webui` so every existing non-interactive surface guard applies.
+  if (flags['simpleui']) flags['webui'] = true;
+
   const first = positional[0];
+  if (first === 'simpleui') {
+    flags['simpleui'] = true;
+    flags['webui'] = true;
+    positional.splice(0, 1);
+    return;
+  }
   if (first === 'webui' || first === 'desktop') {
     flags[first] = true;
     positional.splice(0, 1);

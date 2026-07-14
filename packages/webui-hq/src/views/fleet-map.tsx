@@ -2,32 +2,35 @@ import type { NodeProps } from '@xyflow/react';
 import {
   Background,
   Controls,
+  type Edge,
   Handle,
   MarkerType,
   MiniMap,
+  type Node,
   Position,
   ReactFlow,
   ReactFlowProvider,
   useEdgesState,
   useNodesState,
   useReactFlow,
-  type Edge,
-  type Node,
 } from '@xyflow/react';
-import { Bot, FolderGit2, GitBranch, LayoutGrid, MonitorSmartphone, SquareTerminal } from 'lucide-react';
+import {
+  Bot,
+  FolderGit2,
+  GitBranch,
+  LayoutGrid,
+  MonitorSmartphone,
+  SquareTerminal,
+} from 'lucide-react';
 import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { selectAgent, selectSession, useHqStore } from '../store.js';
-import {
-  chatTargetFromNode,
-  FleetChatDrawer,
-  type FleetChatTarget,
-} from './fleet-chat-drawer.js';
+import { useHqStore } from '../store.js';
+import { chatTargetFromNode, FleetChatDrawer, type FleetChatTarget } from './fleet-chat-drawer.js';
 import {
   buildFleetTopology,
-  layoutFleetTopology,
   type FleetTopology,
   type FleetTopologyNode,
+  layoutFleetTopology,
 } from './fleet-topology.js';
 
 const NODE_WIDTH = 220;
@@ -52,10 +55,15 @@ function isLiveStatus(status: string | undefined): boolean {
   return status === 'active' || status === 'running' || status === 'streaming';
 }
 
-function FleetFlowNode({ data, selected }: NodeProps<Node<FleetTopologyNode, 'fleet'>>): React.ReactElement {
+function FleetFlowNode({
+  data,
+  selected,
+}: NodeProps<Node<FleetTopologyNode, 'fleet'>>): React.ReactElement {
   const clickable = data.kind === 'terminal' || data.kind === 'agent';
   return (
-    <div className={`hq-flow-node ${data.kind}${selected ? ' selected' : ''}${clickable ? ' clickable' : ''}`}>
+    <div
+      className={`hq-flow-node ${data.kind}${selected ? ' selected' : ''}${clickable ? ' clickable' : ''}`}
+    >
       <Handle type="target" position={Position.Left} className="hq-flow-handle" />
       <div className="hq-flow-title">
         {data.kind === 'agent' ? (
@@ -142,6 +150,7 @@ function FleetFlow({ topology }: { topology: FleetTopology }): React.ReactElemen
   // "Console" button (and the Console tab itself) land on the same
   // conversation.
   const [chatTarget, setChatTarget] = useState<FleetChatTarget | null>(null);
+  const closeChat = useCallback(() => setChatTarget(null), []);
 
   return (
     <div className="hq-flow-canvas" data-testid="hq-react-flow-fleet">
@@ -172,36 +181,34 @@ function FleetFlow({ topology }: { topology: FleetTopology }): React.ReactElemen
         onNodeClick={(_, node) => {
           const target = chatTargetFromNode(node.data);
           if (target === null) return;
-          if (target.agentId !== null) selectAgent(target.sessionId, target.agentId);
-          else selectSession(target.sessionId);
+          if (target.agentId !== null)
+            useHqStore.getState().selectAgent(target.sessionId, target.agentId);
+          else useHqStore.getState().selectSession(target.sessionId);
           setChatTarget(target);
         }}
       >
-        <Background color="rgba(148, 163, 184, 0.16)" gap={22} />
+        <Background color="rgba(245, 242, 233, 0.12)" gap={22} />
         <MiniMap
           pannable
           zoomable
           className="hq-flow-minimap"
           nodeColor={(node) => {
             const kind = (node.data as FleetTopologyNode | undefined)?.kind;
-            if (kind === 'machine') return 'hsl(190 86% 54%)';
-            if (kind === 'project') return 'hsl(258 84% 74%)';
-            if (kind === 'terminal') return 'hsl(38 94% 58%)';
-            return 'hsl(150 64% 46%)';
+            if (kind === 'machine') return '#fe2e5f';
+            if (kind === 'project') return '#fd9f02';
+            if (kind === 'terminal') return '#f5f2e9';
+            return '#22c77a';
           }}
         />
         <Controls className="hq-flow-controls" />
       </ReactFlow>
-      {chatTarget !== null && (
-        <FleetChatDrawer target={chatTarget} onClose={() => setChatTarget(null)} />
-      )}
+      {chatTarget !== null && <FleetChatDrawer target={chatTarget} onClose={closeChat} />}
     </div>
   );
 }
 
 export function FleetMapView(): React.ReactElement {
-  const state = useHqStore(['snapshot', 'selectedSessionId']);
-  const snap = state.snapshot;
+  const snap = useHqStore((state) => state.snapshot);
   const topology = useMemo(() => buildFleetTopology(snap), [snap]);
 
   if (snap === null) {
@@ -217,10 +224,13 @@ export function FleetMapView(): React.ReactElement {
     );
   }
 
-  const machines = snap.machines?.length ?? new Set(topology.nodes.map((n) => n.machineId).filter(Boolean)).size;
+  const machines =
+    snap.machines?.length ?? new Set(topology.nodes.map((n) => n.machineId).filter(Boolean)).size;
   const terminals = topology.nodes.filter((n) => n.kind === 'terminal').length;
   const agents = topology.nodes.filter((n) => n.kind === 'agent').length;
-  const liveAgents = topology.nodes.filter((n) => n.kind === 'agent' && isLiveStatus(n.status)).length;
+  const liveAgents = topology.nodes.filter(
+    (n) => n.kind === 'agent' && isLiveStatus(n.status),
+  ).length;
 
   return (
     <div className="hq-flow-shell">
@@ -246,11 +256,21 @@ export function FleetMapView(): React.ReactElement {
         <FleetFlow topology={topology} />
       </ReactFlowProvider>
       <div className="hq-flow-legend">
-        <span><MonitorSmartphone size={12} /> machine</span>
-        <span><FolderGit2 size={12} /> project</span>
-        <span><SquareTerminal size={12} /> terminal / TUI / CLI / WebUI</span>
-        <span><GitBranch size={12} /> branch shown as chip when known</span>
-        <span><Bot size={12} /> AMK agent</span>
+        <span>
+          <MonitorSmartphone size={12} /> machine
+        </span>
+        <span>
+          <FolderGit2 size={12} /> project
+        </span>
+        <span>
+          <SquareTerminal size={12} /> terminal / TUI / CLI / WebUI
+        </span>
+        <span>
+          <GitBranch size={12} /> branch shown as chip when known
+        </span>
+        <span>
+          <Bot size={12} /> agent
+        </span>
       </div>
     </div>
   );

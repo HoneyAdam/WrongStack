@@ -166,7 +166,7 @@ export function ContextModePicker() {
       </div>
 
       {open && (
-        <div className="absolute top-full left-0 mt-1 w-80 rounded-md border bg-popover shadow-lg z-30 py-1">
+        <div className="absolute top-full right-0 mt-1 w-80 rounded-md border bg-popover shadow-lg z-30 py-1">
           <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground border-b">
             {t('activity:ctxMode.windowHeading')}
           </div>

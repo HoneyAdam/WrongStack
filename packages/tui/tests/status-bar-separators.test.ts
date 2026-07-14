@@ -23,7 +23,7 @@ function frameOf(props: Partial<StatusBarProps>): string {
 }
 
 /**
- * Regression tests for the declarative `joinChips` separator refactor. The old
+ * Regression tests for the segmented Powerline rail. The old
  * code recomputed "did any earlier chip render?" inline per chip by OR-ing every
  * preceding condition; those chains drifted and dropped separators in real
  * combinations. These tests pin the corrected behavior.
@@ -40,8 +40,8 @@ describe('StatusBar chip separators', () => {
       startedAt: undefined,
     });
     expect(frame).toContain('∞ AUTO');
-    expect(frame).toContain('📁 proj');
-    expect(frame).toMatch(/AUTO\s*│\s*📁 proj/);
+    expect(frame).toContain('▣ proj');
+    expect(frame).toMatch(/AUTO\s*▶\s*▣ proj/);
   });
 
   it('line 3: separates the task chip from the fleet chip without todos/plan present', () => {
@@ -51,16 +51,16 @@ describe('StatusBar chip separators', () => {
       tasks: { pending: 1, inProgress: 0, completed: 0, blocked: 0, failed: 0 },
       fleet: { running: 1, idle: 0, pending: 0, completed: 0 },
     });
-    expect(frame).toMatch(/⚡[^│]*│[^│]*🌐/);
+    expect(frame).toMatch(/◆[^▶]*▶[^▶]*◈/);
   });
 
   it('never emits a leading separator on line 3 (single visible chip)', () => {
     const frame = frameOf({
       todos: { pending: 2, inProgress: 1, completed: 0 },
     });
-    // The todos chip is the only one on line 3 — there must be no stray │.
+    // The todos chip is the only one on line 3 — there must be no transition.
     const line = frame.split('\n').find((l) => l.includes('todos')) ?? '';
-    expect(line).not.toContain('│');
+    expect(line).not.toContain('▶');
   });
 
   it('inserts exactly one separator between every adjacent pair on line 2', () => {
@@ -72,9 +72,9 @@ describe('StatusBar chip separators', () => {
       startedAt: undefined,
     });
     const line = frame.split('\n').find((l) => l.includes('YOLO')) ?? '';
-    // 3 visible chips (YOLO, ∞ ETERNAL, 📁 proj) → exactly 2 separators.
-    expect((line.match(/│/g) ?? []).length).toBe(2);
-    expect(line).toMatch(/YOLO\s*│\s*∞ ETERNAL\s*│\s*📁 proj/);
+    // 3 visible chips (YOLO, ∞ ETERNAL, ▣ proj) → exactly 2 transitions.
+    expect((line.match(/▶/g) ?? []).length).toBe(2);
+    expect(line).toMatch(/YOLO\s*▶\s*∞ ETERNAL\s*▶\s*▣ proj/);
   });
 
   it('hides mailbox line content when mailbox is disabled', () => {
@@ -116,6 +116,6 @@ describe('StatusBar chip separators', () => {
     });
 
     expect(frame).toContain('✉ 0');
-    expect(frame).toContain('🌐 WebUI');
+    expect(frame).toContain('◈ WebUI');
   });
 });

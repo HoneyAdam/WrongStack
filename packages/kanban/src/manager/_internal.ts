@@ -143,6 +143,7 @@ export function createTaskObject(board: KanbanBoard, input: CreateKanbanTaskInpu
     columnId,
     order,
     priority: input.priority ?? 'medium',
+    ...(input.type !== undefined ? { type: input.type } : {}),
     status: input.status ?? statusForColumn(columnId),
     createdAt: now,
     updatedAt: now,
@@ -275,6 +276,7 @@ export function applyTaskPatch(board: KanbanBoard, task: KanbanTask, input: Upda
     task.order = nextTaskOrder(board, task.columnId, task.id);
   }
   if (input.priority !== undefined) task.priority = input.priority;
+  if (input.type !== undefined) task.type = input.type;
   if (input.status !== undefined) {
     task.status = input.status;
   }
@@ -822,6 +824,7 @@ export function taskInputFromGraphNode(
     description: node.description,
     columnId: columnIdForTaskGraphStatus(board, node.status),
     priority: node.priority,
+    type: node.type,
     status: taskGraphStatusToKanbanStatus(node.status),
     ...(node.assignee !== undefined
       ? { assignee: node.assignee, assignedAgent: node.assignee }
@@ -853,6 +856,7 @@ export function applyGraphNodeToTask(
   task.title = requireNonBlank(node.title, 'Kanban task title');
   task.description = node.description;
   task.priority = node.priority;
+  task.type = node.type;
   task.status = taskGraphStatusToKanbanStatus(node.status);
   task.columnId = columnIdForTaskGraphStatus(board, node.status);
   if (node.assignee !== undefined) {
@@ -964,7 +968,7 @@ export function taskToTaskGraphNode(
     id: nodeId,
     title: task.title,
     description: task.description ?? '',
-    type: inferTaskType(task),
+    type: task.type ?? inferTaskType(task),
     priority: task.priority,
     status: kanbanStatusToTaskGraphStatus(task),
     createdAt,

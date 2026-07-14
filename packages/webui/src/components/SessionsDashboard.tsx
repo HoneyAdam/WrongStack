@@ -1,5 +1,5 @@
 /**
- * SessionsDashboard — live session viewer for the WebUI.
+ * SessionsDashboard — history and live-session workspace for the WebUI.
  *
  * Fetches GET /api/sessions every 5s when the hosting server exposes that API
  * and renders every active WrongStack session across processes, with per-agent
@@ -14,6 +14,7 @@ import {
   Clock,
   Cpu,
   FolderGit2,
+  History as HistoryIcon,
   Loader2,
   PauseCircle,
   Radio,
@@ -21,8 +22,13 @@ import {
   WifiOff,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
+import { useWebSocket } from '@/hooks/useWebSocket';
 import { i18n, useAppTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
+import { useConfigStore, useHistoryStore, useSessionStore } from '@/stores';
+import { SessionList } from './SidePanel/SessionList';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -160,7 +166,87 @@ function fmtTimeAgo(iso: string): string {
 
 // ── Component ──────────────────────────────────────────────────────────
 
+function HistoryWorkspace() {
+  const wsConnected = useConfigStore((state) => state.wsConnected);
+  const activeSessionId = useSessionStore((state) => state.session?.id);
+  const { entries, loading, error } = useHistoryStore(
+    useShallow((state) => ({
+      entries: state.entries,
+      loading: state.loading,
+      error: state.error,
+    })),
+  );
+  const { listSessions, resumeSession, deleteSession, renameSession } = useWebSocket();
+  const [query, setQuery] = useState('');
+
+  useEffect(() => {
+    void activeSessionId;
+    if (wsConnected) listSessions(200);
+  }, [activeSessionId, listSessions, wsConnected]);
+
+  return (
+    <SessionList
+      historyQuery={query}
+      setHistoryQuery={setQuery}
+      historyEntries={entries}
+      historyLoading={loading}
+      historyError={error}
+      wsConnected={wsConnected}
+      listSessions={listSessions}
+      resumeSession={resumeSession}
+      deleteSession={deleteSession}
+      renameSession={renameSession}
+      variant="workspace"
+    />
+  );
+}
+
 export function SessionsDashboard() {
+  const { t } = useAppTranslation();
+
+  return (
+    <Tabs
+      defaultValue="history"
+      className="flex h-full min-h-0 flex-col bg-background"
+      data-testid="sessions-workspace"
+    >
+      <header className="flex shrink-0 flex-col gap-3 border-b border-border/75 bg-card px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">
+            {t('activity:sessions.workspaceEyebrow', { defaultValue: 'Conversation control' })}
+          </div>
+          <h1 className="mt-0.5 text-lg font-semibold tracking-tight">
+            {t('activity:sessions.workspaceTitle', { defaultValue: 'Sessions' })}
+          </h1>
+        </div>
+        <TabsList className="h-9 min-h-9 justify-start border-border/75 bg-background p-0 shadow-none">
+          <TabsTrigger
+            value="history"
+            className="h-9 gap-1.5 border-r border-border/75 px-3 text-xs shadow-none data-[state=active]:bg-foreground data-[state=active]:text-background data-[state=active]:ring-0"
+          >
+            <HistoryIcon className="h-3.5 w-3.5" />
+            {t('activity:sessions.tabs.history', { defaultValue: 'History' })}
+          </TabsTrigger>
+          <TabsTrigger
+            value="live"
+            className="h-9 gap-1.5 px-3 text-xs shadow-none data-[state=active]:bg-foreground data-[state=active]:text-background data-[state=active]:ring-0"
+          >
+            <Radio className="h-3.5 w-3.5" />
+            {t('activity:sessions.tabs.live', { defaultValue: 'Live sessions' })}
+          </TabsTrigger>
+        </TabsList>
+      </header>
+      <TabsContent value="history" className="mt-0 min-h-0 flex-1 overflow-hidden ring-0">
+        <HistoryWorkspace />
+      </TabsContent>
+      <TabsContent value="live" className="mt-0 min-h-0 flex-1 overflow-hidden ring-0">
+        <LiveSessionsDashboard />
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+function LiveSessionsDashboard() {
   const { t } = useAppTranslation();
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const [loading, setLoading] = useState(true);
@@ -241,7 +327,7 @@ export function SessionsDashboard() {
   if (loading) {
     return (
       <div className="flex h-full min-h-0 items-center justify-center bg-[hsl(var(--surface-2)/0.45)] p-4">
-        <div className="ws-surface flex items-center gap-2 rounded-xl px-4 py-3 text-sm text-muted-foreground">
+        <div className="ws-surface flex items-center gap-2 px-4 py-3 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin text-primary" />
           {t('activity:liveSessions.loading')}
         </div>
@@ -252,7 +338,7 @@ export function SessionsDashboard() {
   if (error) {
     return (
       <div className="flex h-full min-h-0 items-center justify-center bg-[hsl(var(--surface-2)/0.45)] p-4">
-        <div className="ws-surface max-w-lg rounded-xl p-5 text-center">
+        <div className="ws-surface max-w-lg p-5 text-center">
           <AlertCircle className="mx-auto h-8 w-8 text-warning" />
           <p className="mt-3 text-sm font-medium">{t('activity:liveSessions.apiUnavailable')}</p>
           <p className="mt-1 break-words text-xs text-muted-foreground">{error}</p>
@@ -264,9 +350,11 @@ export function SessionsDashboard() {
   if (sessions.length === 0) {
     return (
       <div className="flex h-full min-h-0 items-center justify-center bg-[hsl(var(--surface-2)/0.45)] p-4">
-        <div className="ws-surface max-w-md rounded-xl p-6 text-center text-muted-foreground">
+        <div className="ws-surface max-w-md p-6 text-center text-muted-foreground">
           <WifiOff className="mx-auto h-9 w-9 opacity-50" />
-          <p className="mt-3 text-sm font-medium text-foreground">{t('activity:liveSessions.empty')}</p>
+          <p className="mt-3 text-sm font-medium text-foreground">
+            {t('activity:liveSessions.empty')}
+          </p>
           <p className="mt-1 text-xs">{t('activity:liveSessions.autoRefresh')}</p>
         </div>
       </div>
@@ -276,7 +364,7 @@ export function SessionsDashboard() {
   return (
     <div className="h-full min-h-0 overflow-y-auto bg-[hsl(var(--surface-2)/0.45)] p-4 sm:p-6">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
-        <header className="rounded-xl border border-border/70 bg-card/75 p-4 shadow-sm">
+        <header className="border border-border/70 bg-card/75 p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
@@ -290,17 +378,17 @@ export function SessionsDashboard() {
               </p>
             </div>
             <div className="grid grid-cols-3 gap-2 text-center sm:min-w-[22rem]">
-              <div className="rounded-lg border border-border/70 bg-background/60 px-3 py-2">
+              <div className="border border-border/70 bg-background/60 px-3 py-2">
                 <div className="text-lg font-semibold tabular-nums">{sessions.length}</div>
                 <div className="text-[10px] uppercase text-muted-foreground">Sessions</div>
               </div>
-              <div className="rounded-lg border border-border/70 bg-background/60 px-3 py-2">
+              <div className="border border-border/70 bg-background/60 px-3 py-2">
                 <div className="text-lg font-semibold tabular-nums text-success">
                   {activeSessions}
                 </div>
                 <div className="text-[10px] uppercase text-muted-foreground">Active</div>
               </div>
-              <div className="rounded-lg border border-border/70 bg-background/60 px-3 py-2">
+              <div className="border border-border/70 bg-background/60 px-3 py-2">
                 <div className="text-lg font-semibold tabular-nums">{totalAgents}</div>
                 <div className="text-[10px] uppercase text-muted-foreground">Agents</div>
               </div>
@@ -312,10 +400,7 @@ export function SessionsDashboard() {
           {sessions.map((s) => {
             const meta = sessionMeta(s.status);
             return (
-              <article
-                key={s.sessionId}
-                className="rounded-xl border border-border/70 bg-card/75 p-3 shadow-sm sm:p-4"
-              >
+              <article key={s.sessionId} className="border border-border/70 bg-card/75 p-3 sm:p-4">
                 <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -323,11 +408,11 @@ export function SessionsDashboard() {
                       <h3 className="min-w-0 truncate text-sm font-semibold" title={s.projectName}>
                         {s.projectName}
                       </h3>
-                      <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                      <span className="bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
                         {s.projectSlug}
                       </span>
                       <span
-                        className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold uppercase ${meta.badge}`}
+                        className={`inline-flex items-center border px-1.5 py-0.5 text-[10px] font-semibold uppercase ${meta.badge}`}
                       >
                         {s.status}
                       </span>
@@ -351,28 +436,30 @@ export function SessionsDashboard() {
                           <Clock className="h-3.5 w-3.5" />
                           {fmtDuration(s.startedAt)}
                         </span>
-                        <span className="font-mono">{t('activity:liveSessions.pidLabel', { pid: s.pid })}</span>
+                        <span className="font-mono">
+                          {t('activity:liveSessions.pidLabel', { pid: s.pid })}
+                        </span>
                       </div>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3 lg:w-64">
-                    <div className="rounded-lg border border-border/70 bg-background/50 px-2 py-1.5">
+                    <div className="border border-border/70 bg-background/50 px-2 py-1.5">
                       <div className="text-[10px] text-muted-foreground">Agents</div>
                       <div className="font-semibold tabular-nums">{s.agentCount}</div>
                     </div>
-                    <div className="rounded-lg border border-border/70 bg-background/50 px-2 py-1.5">
+                    <div className="border border-border/70 bg-background/50 px-2 py-1.5">
                       <div className="text-[10px] text-muted-foreground">Status</div>
                       <div className="truncate font-mono font-semibold">{s.status}</div>
                     </div>
-                    <div className="rounded-lg border border-border/70 bg-background/50 px-2 py-1.5">
+                    <div className="border border-border/70 bg-background/50 px-2 py-1.5">
                       <div className="text-[10px] text-muted-foreground">Runtime</div>
                       <div className="font-mono font-semibold">{fmtDuration(s.startedAt)}</div>
                     </div>
                   </div>
                 </div>
 
-                <div className="mt-3 overflow-hidden rounded-lg border border-border/70 bg-background/45">
+                <div className="mt-3 overflow-hidden border border-border/70 bg-background/45">
                   {s.agents.length === 0 ? (
                     <div className="px-3 py-3 text-xs text-muted-foreground">
                       {t('activity:liveSessions.noAgents')}
@@ -388,7 +475,9 @@ export function SessionsDashboard() {
                           >
                             <span className={cn('mt-0.5 shrink-0', agent.cls)}>{agent.icon}</span>
                             <div className="min-w-0">
-                              <div className="truncate font-medium" title={a.name}>{a.name}</div>
+                              <div className="truncate font-medium" title={a.name}>
+                                {a.name}
+                              </div>
                               <div className="font-mono text-[10px] text-muted-foreground">
                                 {t('activity:liveSessions.agentMeta', {
                                   iter: a.iterations,
@@ -399,7 +488,9 @@ export function SessionsDashboard() {
                             </div>
                             <div className="min-w-0 font-mono text-[10px] text-muted-foreground sm:text-xs">
                               {a.currentTool ? (
-                                <span className="block truncate" title={a.currentTool}>{a.currentTool}</span>
+                                <span className="block truncate" title={a.currentTool}>
+                                  {a.currentTool}
+                                </span>
                               ) : (
                                 <span className="text-muted-foreground/75">{a.status}</span>
                               )}

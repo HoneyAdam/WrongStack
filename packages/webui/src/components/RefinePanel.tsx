@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppTranslation } from '@/i18n';
 import { useUIStore } from '@/stores';
+import { useLocalPrefs } from '@/stores/local-prefs';
 import { cn } from '@/lib/utils';
+import { useWebSocket } from '@/hooks/useWebSocket';
 import { Button } from './ui/button';
-import { Check, Edit3, Globe, X } from 'lucide-react';
+import { Check, Edit3, Globe, X, Zap } from 'lucide-react';
 
 export type RefineDecision = 'refined' | 'english' | 'original' | 'edit';
 
@@ -37,6 +39,21 @@ export function RefinePanel({
 }: RefinePanelProps) {
   const setRefinePanel = useUIStore((s) => s.setRefinePanel);
   const { t } = useAppTranslation();
+  const enhanceLanguage = useLocalPrefs((s) => s.enhanceLanguage);
+  const yolo = useLocalPrefs((s) => s.yolo);
+  const { updatePrefs } = useWebSocket();
+
+  const toggleLanguage = useCallback(() => {
+    const next = enhanceLanguage === 'original' ? 'english' : 'original';
+    useLocalPrefs.getState().set({ enhanceLanguage: next });
+    updatePrefs({ enhanceLanguage: next });
+  }, [enhanceLanguage, updatePrefs]);
+
+  const toggleYolo = useCallback(() => {
+    const next = !yolo;
+    useLocalPrefs.getState().set({ yolo: next });
+    updatePrefs({ yolo: next });
+  }, [yolo, updatePrefs]);
   const [countdown, setCountdown] = useState(autoSendDelayMs > 0 ? Math.ceil(autoSendDelayMs / 1000) : null);
   const [editText, setEditText] = useState(refined);
   const [isEditing, setIsEditing] = useState(false);
@@ -244,46 +261,86 @@ export function RefinePanel({
         )}
       </div>
 
-      {/* Footer with action buttons */}
+      {/* Footer with inline quick-toggles + action buttons */}
       {!isEditing && (
-        <div className="flex items-center justify-between gap-2 px-4 py-3 border-t bg-muted/20">
-          <div className="flex gap-1 text-xs text-muted-foreground">
-            <kbd className="px-1.5 py-0.5 rounded bg-muted border font-mono">Enter</kbd>
-            <span>{t('activity:refine.hintRefined')}</span>
-            <kbd className="px-1.5 py-0.5 rounded bg-muted border font-mono ml-2">e</kbd>
-            <span>{t('activity:refine.hintEnglish')}</span>
-            <kbd className="px-1.5 py-0.5 rounded bg-muted border font-mono ml-2">o</kbd>
-            <span>{t('activity:refine.hintOriginal')}</span>
-            <kbd className="px-1.5 py-0.5 rounded bg-muted border font-mono ml-2">t</kbd>
-            <span>{t('activity:refine.hintEdit')}</span>
+        <div className="flex flex-col gap-2 px-4 py-3 border-t bg-muted/20">
+          {/* Inline quick-toggles — language mode + yolo */}
+          <div className="flex items-center gap-3 text-[11px] text-muted-foreground/75">
+            <button
+              type="button"
+              onClick={toggleLanguage}
+              className="inline-flex items-center gap-1 hover:text-foreground/80 transition-colors"
+              title={t('activity:refine.languageTitle')}
+            >
+              <Globe className="h-3 w-3" />
+              <span>{enhanceLanguage === 'original' ? t('activity:refine.langOriginal') : t('activity:refine.langEnglish')}</span>
+            </button>
+            <span className="opacity-30">|</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={yolo}
+              onClick={toggleYolo}
+              className="inline-flex items-center gap-1 hover:text-foreground/80 transition-colors"
+              title={t('activity:refine.yoloTitle')}
+            >
+              <Zap className={cn('h-3 w-3', yolo && 'text-warning')} />
+              <span>{t('activity:refine.yolo')}</span>
+              <span
+                className={cn(
+                  'relative inline-block h-3 w-5 rounded-full border transition-colors',
+                  yolo ? 'bg-primary border-primary/60' : 'bg-muted/70 border-border/60',
+                )}
+              >
+                <span
+                  className={cn(
+                    'absolute top-[0.5px] left-[0.5px] h-2 w-2 rounded-full bg-background shadow transition-transform',
+                    yolo && 'translate-x-2.5',
+                  )}
+                />
+              </span>
+            </button>
           </div>
-          <div className="flex gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => handleDecision('original')}
-              className="text-xs"
-            >
-              <X className="h-3 w-3 mr-1" />
-              {t('activity:refine.original')}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsEditing(true)}
-              className="text-xs"
-            >
-              <Edit3 className="h-3 w-3 mr-1" />
-              {t('activity:refine.edit')}
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => handleDecision('refined')}
-              className="text-xs bg-warning hover:bg-warning/90 text-primary-foreground"
-            >
-              <Check className="h-3 w-3 mr-1" />
-              {t('activity:refine.useRefined')}
-            </Button>
+          {/* Keyboard hints + action buttons */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex gap-1 text-xs text-muted-foreground">
+              <kbd className="px-1.5 py-0.5 rounded bg-muted border font-mono">Enter</kbd>
+              <span>{t('activity:refine.hintRefined')}</span>
+              <kbd className="px-1.5 py-0.5 rounded bg-muted border font-mono ml-2">e</kbd>
+              <span>{t('activity:refine.hintEnglish')}</span>
+              <kbd className="px-1.5 py-0.5 rounded bg-muted border font-mono ml-2">o</kbd>
+              <span>{t('activity:refine.hintOriginal')}</span>
+              <kbd className="px-1.5 py-0.5 rounded bg-muted border font-mono ml-2">t</kbd>
+              <span>{t('activity:refine.hintEdit')}</span>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleDecision('original')}
+                className="text-xs"
+              >
+                <X className="h-3 w-3 mr-1" />
+                {t('activity:refine.original')}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsEditing(true)}
+                className="text-xs"
+              >
+                <Edit3 className="h-3 w-3 mr-1" />
+                {t('activity:refine.edit')}
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => handleDecision('refined')}
+                className="text-xs bg-warning hover:bg-warning/90 text-primary-foreground"
+              >
+                <Check className="h-3 w-3 mr-1" />
+                {t('activity:refine.useRefined')}
+              </Button>
+            </div>
           </div>
         </div>
       )}

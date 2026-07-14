@@ -5,7 +5,7 @@ import {
   resolveContextWindowPolicy,
   TOKENS,
 } from '@wrongstack/core';
-import type { CustomModeStore } from '@wrongstack/webui/server';
+import type { CustomModeStore } from '@wrongstack/webui-server';
 import type { WebSocket } from 'ws';
 import {
   estimateContextBreakdown,

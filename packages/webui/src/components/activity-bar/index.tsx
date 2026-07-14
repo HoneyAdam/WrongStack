@@ -184,10 +184,9 @@ export function ActivityBar({ desktopShell = false }: { desktopShell?: boolean |
     (s) => Array.from(s.agents.values()).filter((a) => a.status === 'running').length,
   );
   const unreadMail = useMailboxStore(selectUnreadCount);
-  // Subscribe (not getState()) so the Fleet/Agents monitor icons re-render and
-  // update their active highlight when the inspector opens/closes or switches tab.
+  // Subscribe (not getState()) so the utility trigger updates its active
+  // highlight when the inspector opens or closes.
   const inspectorOpen = useUIStore((s) => s.inspectorOpen);
-  const inspectorTab = useUIStore((s) => s.inspectorTab);
   const desktopCapacity = useDesktopActivityCapacity(desktopShell);
   const desktopSplit = useMemo(
     () => splitDesktopActivityBarItems(desktopCapacity),
@@ -272,9 +271,7 @@ export function ActivityBar({ desktopShell = false }: { desktopShell?: boolean |
           className={cn(
             'inline-block w-1.5 h-1.5 rounded-full',
             desktopShell ? 'mt-1.5' : 'mt-1',
-            wsConnected
-              ? 'bg-success shadow-[0_0_4px_hsl(var(--success)/0.6)]'
-              : 'bg-warning',
+            wsConnected ? 'bg-success shadow-[0_0_4px_hsl(var(--success)/0.6)]' : 'bg-warning',
           )}
           title={wsConnected ? t('activity:status.connected') : t('activity:status.disconnected')}
         />
@@ -300,9 +297,7 @@ export function ActivityBar({ desktopShell = false }: { desktopShell?: boolean |
         ))}
 
         {/* Divider between panels and main-view switchers */}
-        {visibleViews.length > 0 && (
-          <div className="my-1.5 h-px w-6 shrink-0 bg-border/70" />
-        )}
+        {visibleViews.length > 0 && <div className="my-1.5 h-px w-6 shrink-0 bg-border/70" />}
 
         {/* Main-view icons */}
         {visibleViews.map((def) => (
@@ -324,7 +319,7 @@ export function ActivityBar({ desktopShell = false }: { desktopShell?: boolean |
       <div className="flex flex-col items-center shrink-0 pt-1 pb-2 border-t border-border/60">
         <UtilitiesMenu
           compact={desktopShell}
-          monitorOpen={inspectorOpen && (inspectorTab === 'fleet' || inspectorTab === 'agents')}
+          monitorOpen={inspectorOpen}
           overflowPanels={overflowPanels}
           overflowViews={overflowViews}
         />
@@ -362,7 +357,7 @@ function UtilitiesMenu({
   const hiddenViewActive = overflowViews.some((def) => currentView === def.id);
   const hiddenActive = hiddenPanelActive || hiddenViewActive;
 
-  const toggleInspectorTab = (tab: 'fleet' | 'agents') => {
+  const toggleInspectorTab = (tab: 'fleet' | 'agents' | 'sideEffects') => {
     const ui = useUIStore.getState();
     if (ui.inspectorOpen && ui.inspectorTab === tab) {
       ui.setInspectorOpen(false);
@@ -508,6 +503,13 @@ function UtilitiesMenu({
           ) : (
             <DropdownMenuShortcut>⇧⌘A</DropdownMenuShortcut>
           )}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => toggleInspectorTab('sideEffects')}>
+          <Zap size={16} />
+          <span>{t('activity:inspector.tabAudit')}</span>
+          {inspectorOpen && inspectorTab === 'sideEffects' ? (
+            <span className="ml-auto h-1.5 w-1.5 bg-primary" />
+          ) : null}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

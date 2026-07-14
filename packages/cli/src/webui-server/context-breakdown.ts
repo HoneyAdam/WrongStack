@@ -7,7 +7,7 @@
 //   - `estimateContextBreakdown` consumes three
 //     `estimateTokens` / `messageTokens` /
 //     `messagePreview` primitives that already live in
-//     `@wrongstack/webui/server`. The function is the
+//     `@wrongstack/webui-server`. The function is the
 //     "shape stitching" — the report structure that says
 //     "system prompt + tool schemas + message history = X
 //     tokens". The underlying math is the standalone
@@ -15,7 +15,7 @@
 //
 //   - Lifting it out of `webui-server.ts` makes the
 //     dependency direction explicit: this file imports
-//     from `@wrongstack/webui/server` (the source of
+//     from `@wrongstack/webui-server` (the source of
 //     truth for token math), and nothing imports from
 //     this file except the CLI's own WS handler that
 //     serves the `context.breakdown` message. That's
@@ -41,7 +41,7 @@ import {
   messagePreview,
   messageTokens,
   stringifyContent,
-} from '@wrongstack/webui/server';
+} from '@wrongstack/webui-server';
 
 interface PromptBlock {
   text?: string | undefined;

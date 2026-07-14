@@ -136,6 +136,7 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
     sddSubagentFactory,
     onKanbanDispatch,
   } = ctx;
+  const isSimpleUi = flags['simpleui'] === true;
 
   // Route permission confirmations to the browser (tool.confirm_needed
   // events) instead of inline terminal prompts — runWebUI forwards them to
@@ -191,6 +192,7 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
   let webuiPublicUrl: string | undefined;
   let webuiPublicWsUrl: string | undefined;
   let webuiRequireToken: boolean;
+  let frontendDistDir: string | undefined;
   try {
     webuiHost =
       flagValue(['webui-host', 'host']) ??
@@ -215,6 +217,10 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
       flagValue(['webui-public-ws-url', 'public-ws-url']) ?? process.env['WEBUI_PUBLIC_WS_URL'];
     webuiRequireToken =
       flagBoolean(['webui-require-token', 'require-token']) ?? envFlag('WEBUI_REQUIRE_TOKEN');
+    if (isSimpleUi) {
+      const { resolveSimpleUiDistDir } = await import('../simpleui-dist.js');
+      frontendDistDir = resolveSimpleUiDistDir();
+    }
   } catch (err) {
     renderer.setSilent(false);
     renderer.writeInfo(color.red(`  ${err instanceof Error ? err.message : String(err)}`));
@@ -228,6 +234,7 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
     host: webuiHost,
     port: webuiWsPort,
     httpPort: webuiHttpPort,
+    frontendDistDir,
     accessToken: webuiAccessToken,
     publicUrl: webuiPublicUrl,
     publicWsUrl: webuiPublicWsUrl,
@@ -269,8 +276,11 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
     // busy ports inside runWebUI, so a banner printed up-front lies whenever
     // 3456/3457 are taken (a second instance, leftover sockets).
     onListening: ({ url }) => {
-      renderer.writeInfo(color.green(`  ✦ WebUI running → ${color.bold(url)}`));
-      renderer.writeInfo(color.dim('  Press Ctrl+C in this terminal to stop the WebUI server.\n'));
+      const surface = isSimpleUi ? 'SimpleUI' : 'WebUI';
+      renderer.writeInfo(color.green(`  ✦ ${surface} running → ${color.bold(url)}`));
+      renderer.writeInfo(
+        color.dim(`  Press Ctrl+C in this terminal to stop the ${surface} server.\n`),
+      );
     },
     // Make autonomy.switch from the browser flip the CLI's real
     // autonomy mode — context.meta alone never reaches the run loop.
@@ -308,7 +318,9 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
       .then(() => {
         renderer.setSilent(false);
         renderer.write('\n');
-        renderer.writeInfo(color.yellow('  Shutting down WebUI server…'));
+        renderer.writeInfo(
+          color.yellow(`  Shutting down ${isSimpleUi ? 'SimpleUI' : 'WebUI'} server…`),
+        );
         resolve(0);
       })
       .catch((err) => {

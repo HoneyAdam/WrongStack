@@ -210,6 +210,10 @@ export const BUILTIN_PLUGIN_FACTORIES: (() => Promise<Plugin>)[] = [
     return createChimeraPlugin();
   },
   async () => {
+    const { createAutoReviewPlugin } = await import('@wrongstack/core');
+    return createAutoReviewPlugin();
+  },
+  async () => {
     const { createSkillsPlugin } = await import('@wrongstack/core');
     return createSkillsPlugin();
   },

@@ -108,7 +108,11 @@ import type { WorktreeWebSocketHandler } from './worktree-ws-handler.js';
 import type { CollaborationWebSocketHandler } from './collaboration-ws-handler.js';
 import type { TerminalWebSocketHandler } from './terminal-ws-handler.js';
 import { broadcast, errMessage, send, sendResult } from './ws-utils.js';
-import { createProviderHandlers, projectSavedProviders } from './provider-handlers.js';
+import {
+  createProviderHandlers,
+  probeModelDescriptors,
+  projectSavedProviders,
+} from './provider-handlers.js';
 import { createModeHandlers } from './mode-handlers.js';
 import { createProjectHandlers } from './project-handlers.js';
 import { createSessionHandlers } from './session-handlers.js';
@@ -331,6 +335,35 @@ export function buildRoutes(
     modelsRegistry: deps.modelsRegistry,
   });
 
+  // Apply a provider+model switch to the live session: sync config, rebuild the
+  // provider, refresh the auto-compaction denominator, persist, and broadcast a
+  // fresh session.start. Shared by the `model.switch` handler and the
+  // adopt-on-first-add path. Throws on provider-construction failure.
+  async function applyModelSwitchCore(newProvider: string, newModel: string): Promise<void> {
+    const cur = state.getConfig();
+    state.setConfig(patchConfig(cur, { provider: newProvider, model: newModel }));
+    deps.configStore.update({ provider: newProvider, model: newModel });
+    deps.context.model = newModel;
+
+    const newCfg = state.getConfig();
+    const providerCfg: ProviderConfig = newCfg.providers?.[newProvider] ?? { type: newProvider };
+    const newProv = deps.providerRegistry.has(newProvider)
+      ? deps.providerRegistry.create({ ...providerCfg, type: newProvider } as never)
+      : makeProviderFromConfig(newProvider, providerCfg);
+    deps.context.provider = newProv;
+
+    await cb.updateAutoCompactionMaxContext(newProv, newProvider, providerCfg);
+    await cb.updateGlobalConfig((config) => {
+      config.provider = newProvider;
+      config.model = newModel;
+    }, 'model.switch');
+
+    broadcast(state.getClients(), {
+      type: 'session.start',
+      payload: await cb.sessionStartPayload(),
+    });
+  }
+
   const providerRoutes: ProviderRouteHandlers = {
     providerHandlers,
     listProviders: async (ws) => {
@@ -387,11 +420,24 @@ export function buildRoutes(
         siblingId && siblingId !== providerId
           ? await deps.modelsRegistry.getProvider(siblingId).catch(() => undefined)
           : undefined;
+      let resolved = resolveProviderModelList(
+        cfg?.models,
+        provider,
+        cfg?.type ?? providerId,
+        siblingCatalog,
+      );
+      // A config-only custom provider with no saved `models` allowlist and no
+      // catalog entry resolves to an EMPTY list → the dropdown shows "no
+      // models". If it exposes an OpenAI-compatible `/v1/models`, probe live so
+      // the user can pick a model. Best-effort: a down server leaves it empty.
+      if (resolved.length === 0 && cfg?.baseUrl) {
+        resolved = await probeModelDescriptors(cfg);
+      }
       const models = await enrichProviderModelDescriptors(
         deps.modelsRegistry,
         providerId,
         cfg,
-        resolveProviderModelList(cfg?.models, provider, cfg?.type ?? providerId, siblingCatalog),
+        resolved,
       );
       send(ws, {
         type: 'provider.models',
@@ -409,36 +455,10 @@ export function buildRoutes(
       }
       const { provider: newProvider, model: newModel } = parsed.value;
       try {
-        // Update config
-        const cur = state.getConfig();
-        state.setConfig(patchConfig(cur, { provider: newProvider, model: newModel }));
-        deps.configStore.update({ provider: newProvider, model: newModel });
-        deps.context.model = newModel;
-
-        // Create new provider instance — fail loudly if the user picks a
-        // provider with no creds rather than silently keeping the old one.
-        const newCfg = state.getConfig();
-        const providerCfg: ProviderConfig = newCfg.providers?.[newProvider] ?? {
-          type: newProvider,
-        };
-        const newProv = deps.providerRegistry.has(newProvider)
-          ? deps.providerRegistry.create({ ...providerCfg, type: newProvider } as never)
-          : makeProviderFromConfig(newProvider, providerCfg);
-        deps.context.provider = newProv;
-
-        // Update AutoCompactionMiddleware with the new model's maxContext so
-        // backend threshold triggers (warn/soft/hard) use the correct denominator.
-        // sessionStartPayload is called below (after this block) and uses
-        // the new provider for its modelsRegistry lookup.
-        await cb.updateAutoCompactionMaxContext(newProv, newProvider, providerCfg);
-
-        // Persist to global config file via the unified config mutation helper.
-        await cb.updateGlobalConfig((config) => {
-          config.provider = newProvider;
-          config.model = newModel;
-        }, 'model.switch');
-
-        // Toast for the SettingsPanel
+        // Fail loudly if the user picks a provider with no creds rather than
+        // silently keeping the old one. `applyModelSwitchCore` broadcasts the
+        // fresh session.start on success.
+        await applyModelSwitchCore(newProvider, newModel);
         send(ws, {
           type: 'key.operation_result',
           payload: { success: true, message: `Switched to ${newProvider} / ${newModel}` },
@@ -451,13 +471,38 @@ export function buildRoutes(
             message: `Switch failed: ${errMessage(err)}`,
           },
         });
-        return;
       }
+    },
+    adoptDefaultProviderIfUnset: async (providerId: string) => {
+      // In-session counterpart to the boot auto-select: when the session has
+      // no usable model yet, adopt the just-added provider as the live default
+      // so it's immediately usable instead of leaving a blank model. Never
+      // hijacks once a model is active.
+      if (state.getConfig().model) return;
+      // handleProviderAdd wrote to disk, not the in-memory state — reload so
+      // the provider build below sees the new entry's baseUrl/family/keys.
+      const saved = await providerHandlers.loadConfigProviders();
+      state.setConfig(patchConfig(state.getConfig(), { providers: saved }));
+      const cfg = saved[providerId];
+      if (!cfg) return;
 
-      broadcast(state.getClients(), {
-        type: 'session.start',
-        payload: await cb.sessionStartPayload(),
-      });
+      let model = cfg.models?.[0];
+      if (!model) {
+        const catalogId = cfg.type && cfg.type !== providerId ? cfg.type : providerId;
+        const catalog = await deps.modelsRegistry.getProvider(catalogId).catch(() => undefined);
+        model = catalog?.models?.[0]?.id;
+      }
+      if (!model) {
+        const probed = await probeModelDescriptors(cfg);
+        model = probed[0]?.id;
+      }
+      if (!model) return;
+
+      try {
+        await applyModelSwitchCore(providerId, model);
+      } catch {
+        /* best-effort — the model becomes the default on the next session start */
+      }
     },
     refineModel: async (ws, msg) => {
       const { text } = (msg as { payload: { text: string } }).payload;

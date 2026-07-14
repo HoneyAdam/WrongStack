@@ -2,20 +2,44 @@ import type { KanbanBoard, KanbanColumn, KanbanTask } from '@wrongstack/kanban';
 import {
   ArrowLeft,
   Check,
+  ChevronDown,
   Columns3,
   Copy,
   MoveRight,
+  Pause,
+  Play,
   Plus,
   RefreshCw,
+  RotateCcw,
+  Rocket,
   Send,
+  Square,
   Trash2,
   UserPlus,
   X,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { useKanbanMeta } from '@/hooks/useKanbanMeta';
+import { type ModelCandidate, useProviderModels } from '@/hooks/useProviderModels';
 import { cn } from '@/lib/utils';
 import { getWSClient } from '@/lib/ws-client';
 import { useConfigStore, useKanbanStore } from '@/stores';
+import { ChipMultiSelect, type ChipOption } from './ChipMultiSelect';
+import { ModelPicker } from './ModelPicker';
+
+/** A kanban board that mirrors a live AutoPhase/SDD run, detected from its tags. */
+interface RunLink {
+  engine: 'sdd' | 'autophase';
+  runId?: string | undefined;
+}
+
+function parseRunLink(board: { tags?: string[] | undefined } | null | undefined): RunLink | null {
+  const tags = board?.tags ?? [];
+  const engine = tags.includes('sdd') ? 'sdd' : tags.includes('autophase') ? 'autophase' : null;
+  if (!engine) return null;
+  const runId = tags.find((t) => t.startsWith('run:'))?.slice(4);
+  return { engine, ...(runId ? { runId } : {}) };
+}
 
 export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) {
   const wsUrl = useConfigStore((s) => s.wsUrl);
@@ -44,6 +68,14 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
     setLoading(true);
     ws.send({ type, payload });
   };
+
+  // Raw send for run-control messages (sdd.board.* / autophase.*) — these steer
+  // the live run, which mirrors back into this board; no kanban response.
+  const sendRaw = (type: string, payload: Record<string, unknown> = {}) => {
+    (ws.send as (m: { type: string; payload?: unknown }) => void)({ type, payload });
+  };
+
+  const runLink = useMemo(() => parseRunLink(activeBoard), [activeBoard]);
 
   const refreshBoards = () => sendKanban('kanban.list');
   const refreshBoard = (boardId = activeBoardId) => {
@@ -77,14 +109,18 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
     if (activeBoardId) sendKanban('kanban.health', { boardId: activeBoardId });
   }, [activeBoardId]);
 
-  // ── Live polling — refresh board every 5s while a board is active ──
+  // ── Live polling — refresh board + queue health every 3s while active ──
+  // Sent raw (not via sendKanban) so the background poll doesn't flip the
+  // loading spinner on every tick; agents that mutate tasks mid-run (status,
+  // assignment) surface here, complementing the server's dispatch broadcasts.
   useEffect(() => {
     if (!activeBoardId) return;
     const interval = setInterval(() => {
-      sendKanban('kanban.get', { boardId: activeBoardId });
-    }, 5000);
+      ws.send({ type: 'kanban.get', payload: { boardId: activeBoardId } });
+      ws.send({ type: 'kanban.health', payload: { boardId: activeBoardId } });
+    }, 3000);
     return () => clearInterval(interval);
-  }, [activeBoardId]);
+  }, [activeBoardId, ws]);
 
   const createBoard = () => {
     const title = newBoardTitle.trim();
@@ -283,6 +319,11 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
           )}
         </header>
 
+        {activeBoard && runLink && <RunControlBar runLink={runLink} sendRaw={sendRaw} />}
+        {activeBoard && !runLink && activeBoard.tasks.length > 0 && (
+          <StartAsBar boardId={activeBoard.id} sendKanban={sendKanban} />
+        )}
+
         {error && (
           <div className="flex h-9 shrink-0 items-center gap-2 border-b border-destructive/30 bg-destructive/10 px-4 text-sm text-destructive">
             <X size={15} />
@@ -373,10 +414,198 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
         boards={boards}
         board={activeBoard}
         task={selectedTask}
+        runLink={runLink}
         onClose={() => setSelectedTaskId(null)}
         sendKanban={sendKanban}
+        sendRaw={sendRaw}
         refreshBoard={refreshBoard}
       />
+    </div>
+  );
+}
+
+function RunControlBar({
+  runLink,
+  sendRaw,
+}: {
+  runLink: RunLink;
+  sendRaw: (type: string, payload?: Record<string, unknown>) => void;
+}) {
+  const isSdd = runLink.engine === 'sdd';
+  const pfx = isSdd ? 'sdd.board' : 'autophase';
+  const btn =
+    'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium hover:bg-muted';
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b bg-primary/5 px-4 py-1.5">
+      <span className="inline-flex items-center gap-1 rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-primary">
+        <Rocket size={11} /> {runLink.engine}
+      </span>
+      <span className="text-[11px] text-muted-foreground">Live run — steer it from here</span>
+      <div className="ml-auto flex items-center gap-1">
+        <button type="button" className={btn} onClick={() => sendRaw(`${pfx}.pause`)}>
+          <Pause size={12} /> Pause
+        </button>
+        <button type="button" className={btn} onClick={() => sendRaw(`${pfx}.resume`)}>
+          <Play size={12} /> Resume
+        </button>
+        {isSdd && (
+          <button
+            type="button"
+            className={btn}
+            onClick={() => sendRaw('sdd.board.retry_all_failed')}
+          >
+            <RotateCcw size={12} /> Retry failed
+          </button>
+        )}
+        <button
+          type="button"
+          className={cn(btn, 'text-destructive hover:bg-destructive/10')}
+          onClick={() => sendRaw(`${pfx}.stop`)}
+        >
+          <Square size={12} /> Stop
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function StartAsBar({
+  boardId,
+  sendKanban,
+}: {
+  boardId: string;
+  sendKanban: (type: `kanban.${string}`, payload?: Record<string, unknown>) => void;
+}) {
+  const btn =
+    'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium text-primary hover:bg-primary/10';
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b bg-muted/30 px-4 py-1.5">
+      <Rocket size={13} className="text-primary" />
+      <span className="text-[11px] text-muted-foreground">Run this board as a live agent job:</span>
+      <div className="ml-auto flex items-center gap-1">
+        <button
+          type="button"
+          className={btn}
+          onClick={() => sendKanban('kanban.run.start', { boardId, engine: 'autophase' })}
+        >
+          Start as AutoPhase
+        </button>
+        <button
+          type="button"
+          className={btn}
+          onClick={() => sendKanban('kanban.run.start', { boardId, engine: 'sdd' })}
+        >
+          Start as SDD
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Run-native per-task controls shown in the inspector for run-linked boards. */
+function RunTaskControls({
+  runLink,
+  runTaskId,
+  modelCandidates,
+  sendRaw,
+}: {
+  runLink: RunLink;
+  runTaskId: string;
+  modelCandidates: ModelCandidate[];
+  sendRaw: (type: string, payload?: Record<string, unknown>) => void;
+}) {
+  const isSdd = runLink.engine === 'sdd';
+  const [reassigning, setReassigning] = useState(false);
+  const [reassignName, setReassignName] = useState('');
+  const btn =
+    'inline-flex flex-1 items-center justify-center gap-1 rounded-md border py-1.5 text-xs font-medium hover:bg-muted';
+  const submitReassign = () => {
+    const n = reassignName.trim();
+    if (!n) return;
+    sendRaw(isSdd ? 'sdd.board.reassign' : 'autophase.assignTask', {
+      taskId: runTaskId,
+      agentName: n,
+    });
+    setReassigning(false);
+    setReassignName('');
+  };
+  return (
+    <div className="mt-4 rounded-md border bg-primary/5 p-2.5">
+      <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-primary">
+        Run controls
+      </div>
+      {isSdd && (
+        <div className="mb-2">
+          <div className="mb-1 text-[10px] uppercase text-muted-foreground">Worker model</div>
+          <ModelPicker
+            candidates={modelCandidates}
+            placeholder="Set model for this task…"
+            onPick={(model, provider) =>
+              sendRaw('sdd.board.set_task_model', { taskId: runTaskId, model, provider })
+            }
+          />
+        </div>
+      )}
+      {reassigning ? (
+        <div className="flex items-center gap-1.5">
+          <input
+            value={reassignName}
+            onChange={(e) => setReassignName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') submitReassign();
+              if (e.key === 'Escape') setReassigning(false);
+            }}
+            placeholder="New worker name"
+            className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1.5 text-xs outline-none focus:border-primary"
+          />
+          <button
+            type="button"
+            onClick={submitReassign}
+            className="rounded-md bg-primary/10 px-2 py-1.5 text-primary"
+          >
+            <Check size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setReassigning(false)}
+            className="rounded-md bg-muted px-2 py-1.5"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className={btn}
+            onClick={() =>
+              sendRaw(isSdd ? 'sdd.board.retry' : 'autophase.retryTask', { taskId: runTaskId })
+            }
+          >
+            <RotateCcw size={13} /> Retry
+          </button>
+          <button type="button" className={btn} onClick={() => setReassigning(true)}>
+            <UserPlus size={13} /> Reassign
+          </button>
+          {isSdd ? (
+            <button
+              type="button"
+              className={cn(btn, 'text-destructive hover:bg-destructive/10')}
+              onClick={() => sendRaw('sdd.board.cancel_task', { taskId: runTaskId })}
+            >
+              <Square size={13} /> Cancel
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={btn}
+              onClick={() => sendRaw('autophase.runTask', { taskId: runTaskId })}
+            >
+              <Play size={13} /> Run now
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -490,35 +719,9 @@ function KanbanColumnView({
 }
 
 // ── Constants for select fields ──
-const KNOWN_PROVIDERS = [
-  'openai',
-  'anthropic',
-  'google',
-  'groq',
-  'together',
-  'fireworks',
-  'deepseek',
-  'mistral',
-  'cohere',
-  'perplexity',
-  'xai',
-  'custom',
-] as const;
-
-const MODELS_BY_PROVIDER: Record<string, string[]> = {
-  openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo', 'o1', 'o1-mini', 'o3-mini'],
-  anthropic: ['claude-sonnet-4-20250514', 'claude-sonnet-4', 'claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest', 'claude-opus-4-20250514', 'claude-opus-4'],
-  google: ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-pro', 'gemini-1.5-flash'],
-  groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768'],
-  together: ['mixtral-8x22b', 'llama-3.3-70b', 'deepseek-coder', 'deepseek-r1'],
-  fireworks: ['llama-3.1-405b', 'deepseek-r1', 'mixtral-8x22b'],
-  deepseek: ['deepseek-chat', 'deepseek-reasoner', 'deepseek-r1'],
-  mistral: ['mistral-large-latest', 'mistral-small-latest', 'codestral-latest'],
-  cohere: ['command-r-plus', 'command-r'],
-  perplexity: ['sonar-pro', 'sonar'],
-  xai: ['grok-2', 'grok-2-mini'],
-};
-
+// Roles and fallback profiles are fixed WrongStack semantics (not provider data),
+// so they stay static. Providers and models are loaded live from the user's saved
+// configuration via useProviderModels() — never hardcoded.
 const KNOWN_ROLES = [
   'architect', 'developer', 'reviewer', 'tester', 'verifier',
   'security', 'documenter', 'external', 'leader', 'shadow', 'subagent',
@@ -528,19 +731,44 @@ const KNOWN_FALLBACK_PROFILES = [
   'default', 'fast', 'cheap', 'quality', 'balanced', 'experimental',
 ] as const;
 
+// Fixed capability vocabulary mirroring core's `ToolCapabilities` — a stable
+// security enum (like roles), NOT provider data. Blank = the safe subagent
+// default grant (WIDE_SUBAGENT_CAPABILITIES) applied server-side.
+const KNOWN_CAPABILITIES: ChipOption[] = [
+  { value: 'fs.read', label: 'Read files', description: 'fs.read' },
+  { value: 'fs.write', label: 'Write files (in project)', description: 'fs.write' },
+  { value: 'fs.write.outside-project', label: 'Write outside project', description: 'fs.write.outside-project' },
+  { value: 'net.outbound', label: 'Outbound network', description: 'net.outbound' },
+  { value: 'shell.exec', label: 'Run project commands', description: 'shell.exec' },
+  { value: 'shell.restricted', label: 'Restricted shell', description: 'shell.restricted' },
+  { value: 'shell.arbitrary', label: 'Arbitrary shell', description: 'shell.arbitrary' },
+  { value: 'session.todo', label: 'Session todos', description: 'session.todo' },
+  { value: 'tool.meta', label: 'Tool metadata', description: 'tool.meta' },
+  { value: 'tool.mutate.any', label: 'Invoke any tool', description: 'tool.mutate.any' },
+  { value: 'memory.read', label: 'Read memory', description: 'memory.read' },
+  { value: 'memory.write', label: 'Write memory', description: 'memory.write' },
+  { value: 'package.install', label: 'Install packages', description: 'package.install' },
+  { value: 'subagent.spawn', label: 'Spawn subagents', description: 'subagent.spawn' },
+  { value: 'config.mutate', label: 'Mutate config / trust', description: 'config.mutate' },
+];
+
 function TaskInspector({
   boards,
   board,
   task,
+  runLink,
   onClose,
   sendKanban,
+  sendRaw,
   refreshBoard,
 }: {
   boards: Array<{ id: string; title: string }>;
   board: KanbanBoard | null;
   task: KanbanTask | null;
+  runLink: RunLink | null;
   onClose: () => void;
   sendKanban: (type: `kanban.${string}`, payload?: Record<string, unknown>) => void;
+  sendRaw: (type: string, payload?: Record<string, unknown>) => void;
   refreshBoard: (boardId?: string | null) => void;
 }) {
   const [agentId, setAgentId] = useState('');
@@ -553,6 +781,16 @@ function TaskInspector({
   const [tools, setTools] = useState<string[]>([]);
   const [allowedCapabilities, setAllowedCapabilities] = useState<string[]>([]);
   const [targetBoardId, setTargetBoardId] = useState('');
+  // Real provider/model catalogue — the user's saved providers and their live
+  // model lists. Only fetches while a task is selected (the panel is open).
+  const modelCandidates = useProviderModels(Boolean(task));
+  // Real registered tools + the live session provider/model (the dispatch
+  // fallback so nothing has to be typed by hand).
+  const meta = useKanbanMeta(Boolean(task));
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  // Explicit pick wins; otherwise fall back to the current session's provider/model.
+  const effectiveProvider = provider || meta.sessionProvider;
+  const effectiveModel = model || meta.sessionModel;
 
   useEffect(() => {
     setAgentId(task?.assignment?.agentId ?? task?.assignedAgent ?? '');
@@ -573,8 +811,8 @@ function TaskInspector({
     ...(agentId.trim() ? { agentId: agentId.trim() } : {}),
     ...(name.trim() ? { name: name.trim() } : {}),
     ...(role.trim() ? { role: role.trim() } : {}),
-    ...(provider.trim() ? { provider: provider.trim() } : {}),
-    ...(model.trim() ? { model: model.trim() } : {}),
+    ...(effectiveProvider.trim() ? { provider: effectiveProvider.trim() } : {}),
+    ...(effectiveModel.trim() ? { model: effectiveModel.trim() } : {}),
     ...(fallbackProfile.trim() ? { fallbackProfile: fallbackProfile.trim() } : {}),
     ...(fallbackModels.length > 0 ? { fallbackModels } : {}),
     ...(tools.length > 0 ? { tools } : {}),
@@ -636,12 +874,80 @@ function TaskInspector({
             <Metric label="Status" value={task.status} />
             <Metric label="Priority" value={task.priority} />
             <Metric label="Run" value={task.assignment?.status ?? 'unassigned'} />
-            <Metric label="Column" value={task.columnId} />
+            <Metric label="Column" value={columnTitle(board, task.columnId)} />
           </div>
 
+          {task.assignment && <AgentRunPanel assignment={task.assignment} />}
+
+          {runLink && task.origin?.taskId && (
+            <RunTaskControls
+              runLink={runLink}
+              runTaskId={task.origin.taskId}
+              modelCandidates={modelCandidates}
+              sendRaw={sendRaw}
+            />
+          )}
+
+          {!runLink && (
+            <>
           <div className="mt-4 space-y-3">
-            <Field label="Agent ID" value={agentId} onChange={setAgentId} />
-            <Field label="Name" value={name} onChange={setName} />
+            {/* Model — real provider/model; blank uses the live session model. */}
+            <div>
+              <div className="mb-1 flex items-center gap-1.5">
+                <span className="text-[11px] font-medium text-muted-foreground">Model</span>
+                {!model && meta.sessionModel && (
+                  <span className="truncate text-[10px] text-muted-foreground">
+                    · session: {meta.sessionProvider ? `${meta.sessionProvider}/` : ''}
+                    {meta.sessionModel}
+                  </span>
+                )}
+              </div>
+              <ModelPicker
+                value={model || undefined}
+                provider={provider || undefined}
+                candidates={modelCandidates}
+                placeholder={
+                  meta.sessionModel
+                    ? `Session: ${meta.sessionProvider ? `${meta.sessionProvider}/` : ''}${meta.sessionModel}`
+                    : modelCandidates.length === 0
+                      ? 'Loading providers…'
+                      : 'Select provider / model…'
+                }
+                resetLabel="Use session model"
+                onPick={(m, p) => {
+                  setModel(m);
+                  setProvider(p);
+                }}
+                onReset={
+                  model || provider
+                    ? () => {
+                        setModel('');
+                        setProvider('');
+                      }
+                    : undefined
+                }
+              />
+            </div>
+
+            {/* Fallback models — real multi-pick from the same live catalogue. */}
+            <div>
+              <span className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                Fallback models
+              </span>
+              <ChipMultiSelect
+                options={modelCandidates.map((c) => ({
+                  value: c.model,
+                  label: c.label,
+                  description: c.description,
+                  tag: c.provider,
+                }))}
+                selected={fallbackModels}
+                onChange={setFallbackModels}
+                placeholder="Add fallback model…"
+                emptyLabel="No models — add a provider in Settings"
+              />
+            </div>
+
             <SelectField
               label="Role"
               value={role}
@@ -650,40 +956,62 @@ function TaskInspector({
               onChange={setRole}
             />
             <SelectField
-              label="Provider"
-              value={provider}
-              options={KNOWN_PROVIDERS}
-              placeholder="Select provider…"
-              onChange={(v) => {
-                setProvider(v);
-                setModel(''); // Reset model when provider changes
-              }}
-            />
-            <SelectField
-              label="Model"
-              value={model}
-              options={
-                provider && MODELS_BY_PROVIDER[provider]
-                  ? MODELS_BY_PROVIDER[provider]
-                  : allModels()
-              }
-              placeholder={
-                provider
-                  ? `Select ${provider} model…`
-                  : 'Select a provider first…'
-              }
-              onChange={setModel}
-            />
-            <SelectField
               label="Fallback profile"
               value={fallbackProfile}
               options={KNOWN_FALLBACK_PROFILES}
               placeholder="None"
               onChange={setFallbackProfile}
             />
-            <TagField label="Fallback models" tags={fallbackModels} onChange={setFallbackModels} />
-            <TagField label="Tools" tags={tools} onChange={setTools} />
-            <TagField label="Capabilities" tags={allowedCapabilities} onChange={setAllowedCapabilities} />
+
+            {/* Tools — real registered tools from the running agent. */}
+            <div>
+              <span className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                Tools <span className="text-muted-foreground/70">· blank = full default toolset</span>
+              </span>
+              <ChipMultiSelect
+                options={meta.tools.map((tool) => ({
+                  value: tool.name,
+                  label: tool.name,
+                  description: tool.description,
+                }))}
+                selected={tools}
+                onChange={setTools}
+                placeholder="Restrict to specific tools…"
+                emptyLabel="Tool list unavailable on this server"
+              />
+            </div>
+
+            {/* Advanced — optional name override + capability grants. */}
+            <div className="rounded-md border bg-background/60">
+              <button
+                type="button"
+                onClick={() => setShowAdvanced((v) => !v)}
+                className="flex w-full items-center justify-between px-2 py-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+              >
+                Advanced
+                <ChevronDown
+                  size={13}
+                  className={cn('transition-transform', showAdvanced && 'rotate-180')}
+                />
+              </button>
+              {showAdvanced && (
+                <div className="space-y-3 border-t p-2">
+                  <Field label="Agent name (optional)" value={name} onChange={setName} />
+                  <div>
+                    <span className="mb-1 block text-[11px] font-medium text-muted-foreground">
+                      Capabilities{' '}
+                      <span className="text-muted-foreground/70">· blank = safe defaults</span>
+                    </span>
+                    <ChipMultiSelect
+                      options={KNOWN_CAPABILITIES}
+                      selected={allowedCapabilities}
+                      onChange={setAllowedCapabilities}
+                      placeholder="Grant a capability…"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="mt-4 grid grid-cols-2 gap-2">
@@ -704,8 +1032,10 @@ function TaskInspector({
               Dispatch
             </button>
           </div>
+            </>
+          )}
 
-          {boards.length > 1 ? (
+          {boards.length > 1 && !runLink ? (
             <div className="mt-4 space-y-2 rounded-md border bg-background p-2">
               <label className="block">
                 <span className="mb-1 block text-[11px] font-medium text-muted-foreground">
@@ -782,6 +1112,123 @@ function TaskInspector({
   );
 }
 
+function columnTitle(board: KanbanBoard | null, columnId: string): string {
+  return board?.columns.find((c) => c.id === columnId)?.title ?? columnId;
+}
+
+// Colored badge classes per real KanbanAgentRunStatus.
+const RUN_STATUS_STYLE: Record<string, string> = {
+  assigned: 'bg-info/10 text-info',
+  queued: 'bg-info/10 text-info',
+  running: 'bg-warning/10 text-warning',
+  completed: 'bg-success/10 text-success',
+  failed: 'bg-destructive/10 text-destructive',
+  cancelled: 'bg-muted text-muted-foreground',
+};
+
+function fmtElapsed(fromIso?: string, toIso?: string): string | null {
+  if (!fromIso) return null;
+  const from = Date.parse(fromIso);
+  if (Number.isNaN(from)) return null;
+  const to = toIso ? Date.parse(toIso) : Date.now();
+  if (Number.isNaN(to)) return null;
+  const secs = Math.max(0, Math.round((to - from) / 1000));
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ${secs % 60}s`;
+  const hrs = Math.floor(mins / 60);
+  return `${hrs}h ${mins % 60}m`;
+}
+
+/**
+ * AgentRunPanel — the *real* runtime of the agent working this task, straight
+ * from `task.assignment`. Not a hardcoded placeholder: run status, the actual
+ * spawned subagent id, dispatch/finish timing, retry attempts, cost ceiling,
+ * the last result and any error.
+ */
+function AgentRunPanel({ assignment }: { assignment: NonNullable<KanbanTask['assignment']> }) {
+  const running = assignment.status === 'running';
+  const elapsed = fmtElapsed(assignment.dispatchedAt, assignment.completedAt);
+  const rows: Array<{ label: string; value: React.ReactNode }> = [];
+  if (assignment.name || assignment.agentId) {
+    rows.push({ label: 'Agent', value: assignment.name ?? assignment.agentId });
+  }
+  if (assignment.role) rows.push({ label: 'Role', value: assignment.role });
+  if (assignment.provider || assignment.model) {
+    rows.push({
+      label: 'Model',
+      value: (
+        <span className="font-mono text-[11px]">
+          {assignment.provider ? `${assignment.provider}/` : ''}
+          {assignment.model ?? '—'}
+        </span>
+      ),
+    });
+  }
+  if (assignment.subagentId) {
+    rows.push({
+      label: 'Subagent',
+      value: <span className="font-mono text-[11px]">{assignment.subagentId}</span>,
+    });
+  }
+  if (elapsed) {
+    rows.push({ label: assignment.completedAt ? 'Duration' : 'Elapsed', value: elapsed });
+  }
+  if (typeof assignment.attempt === 'number') {
+    rows.push({
+      label: 'Attempt',
+      value: `${assignment.attempt}${assignment.maxAttempts ? ` / ${assignment.maxAttempts}` : ''}`,
+    });
+  }
+  if (assignment.costCeilingUsd) {
+    rows.push({ label: 'Cost ceiling', value: `$${assignment.costCeilingUsd.toFixed(2)}` });
+  }
+
+  return (
+    <div className="mt-4 rounded-md border bg-background p-2.5">
+      <div className="mb-2 flex items-center gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Live run
+        </span>
+        <span
+          className={cn(
+            'ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium capitalize',
+            RUN_STATUS_STYLE[assignment.status] ?? 'bg-muted text-muted-foreground',
+          )}
+        >
+          {running && (
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" aria-hidden />
+          )}
+          {assignment.status}
+        </span>
+      </div>
+      {rows.length > 0 && (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+          {rows.map((row) => (
+            <div key={row.label} className="contents">
+              <dt className="text-muted-foreground">{row.label}</dt>
+              <dd className="min-w-0 truncate text-right text-foreground">{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {assignment.lastResult && (
+        <div className="mt-2">
+          <div className="mb-1 text-[10px] uppercase text-muted-foreground">Last result</div>
+          <div className="max-h-24 overflow-y-auto whitespace-pre-wrap rounded bg-muted px-2 py-1 text-[11px] leading-relaxed text-foreground">
+            {assignment.lastResult}
+          </div>
+        </div>
+      )}
+      {assignment.error && (
+        <div className="mt-2 rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-[11px] text-destructive">
+          {assignment.error}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border bg-background px-2 py-1.5">
@@ -810,10 +1257,6 @@ function Field({
       />
     </label>
   );
-}
-
-function allModels(): string[] {
-  return [...new Set(Object.values(MODELS_BY_PROVIDER).flat())];
 }
 
 function SelectField({
@@ -846,72 +1289,6 @@ function SelectField({
           </option>
         ))}
       </select>
-    </label>
-  );
-}
-
-function TagField({
-  label,
-  tags,
-  onChange,
-}: {
-  label: string;
-  tags: string[];
-  onChange: (tags: string[]) => void;
-}) {
-  const [input, setInput] = useState('');
-
-  const addTag = () => {
-    const trimmed = input.trim();
-    if (!trimmed) return;
-    if (!tags.includes(trimmed)) {
-      onChange([...tags, trimmed]);
-    }
-    setInput('');
-  };
-
-  const removeTag = (tag: string) => {
-    onChange(tags.filter((t) => t !== tag));
-  };
-
-  return (
-    <label className="block">
-      <span className="mb-1 block text-[11px] font-medium text-muted-foreground">{label}</span>
-      <div className="rounded-md border bg-background px-2 py-1.5 focus-within:border-primary">
-        <div className="flex flex-wrap gap-1">
-          {tags.map((tag) => (
-            <span
-              key={tag}
-              className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[11px]"
-            >
-              <span className="max-w-[120px] truncate">{tag}</span>
-              <button
-                type="button"
-                onClick={() => removeTag(tag)}
-                className="text-muted-foreground hover:text-destructive"
-              >
-                <X size={12} />
-              </button>
-            </span>
-          ))}
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ',') {
-                e.preventDefault();
-                addTag();
-              }
-              if (e.key === 'Backspace' && !input && tags.length > 0) {
-                removeTag(tags[tags.length - 1]);
-              }
-            }}
-            onBlur={addTag}
-            placeholder={tags.length === 0 ? 'Type and press Enter to add…' : 'Add…'}
-            className="min-w-[60px] flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-          />
-        </div>
-      </div>
     </label>
   );
 }

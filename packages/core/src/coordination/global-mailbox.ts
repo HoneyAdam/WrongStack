@@ -39,7 +39,6 @@ import {
   isAckRecord,
   normalizeMailboxMessageType,
   parseMailboxLine,
-  parseMailboxMessageLine,
   serializeAckRecord,
 } from './mailbox-message-codec.js';
 import type {
@@ -455,7 +454,6 @@ export class GlobalMailbox implements Mailbox {
     // ── Pre-lock snapshot for cross-process desync detection ──
     const preLockMtime = this._messageCacheMtime;
     const preLockSize = this._messageCacheSize;
-    const preLockCacheLen = this._messageCache?.length ?? -1;
     this.diag.ackManyPreLockMtime = preLockMtime;
     this.diag.ackManyPreLockSize = preLockSize;
 
@@ -1264,14 +1262,6 @@ export class GlobalMailbox implements Mailbox {
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
       throw err;
-    }
-  }
-
-  private _parseLine(line: string): MailboxMessage | null {
-    try {
-      return parseMailboxMessageLine(line);
-    } catch {
-      return null;
     }
   }
 

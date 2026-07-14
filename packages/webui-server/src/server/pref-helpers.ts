@@ -71,6 +71,7 @@ export const PREF_KEYS = [
   // these were browser-editable there but rejected as unknown keys here).
   'refinerProvider',
   'refinerModel',
+  'refinerFallbackProfile',
   'thinkingWord',
   'statuslineMode',
   'animationStyle',
@@ -204,6 +205,8 @@ export async function persistPrefsToConfig(
       setAutonomy('refinerProvider', payload['refinerProvider']);
     if (typeof payload['refinerModel'] === 'string')
       setAutonomy('refinerModel', payload['refinerModel']);
+    if (typeof payload['refinerFallbackProfile'] === 'string')
+      setAutonomy('refinerFallbackProfile', payload['refinerFallbackProfile']);
     if (typeof payload['thinkingWord'] === 'string')
       setAutonomy('thinkingWord', payload['thinkingWord']);
     if (typeof payload['statuslineMode'] === 'string')

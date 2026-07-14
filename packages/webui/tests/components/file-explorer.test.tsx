@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TreeNode } from '../../src/stores/file-store';
 import { useFileStore } from '../../src/stores/file-store';
 import { useSessionStore } from '../../src/stores';
+import { useFileReferenceStore } from '../../src/stores/file-reference-store';
 
 // The tree is virtualized with virtua; jsdom has no layout, so windowing
 // would render an unpredictable subset. Mock VList as a passthrough — these
@@ -17,6 +18,11 @@ vi.mock('virtua', () => ({
     useImperativeHandle(ref, () => ({ scrollToIndex: () => {} }));
     return <div {...rest}>{children}</div>;
   }),
+}));
+
+// Mock the view-navigation module so showPanel('chat') is a no-op.
+vi.mock('@/lib/view-navigation', () => ({
+  showPanel: vi.fn(),
 }));
 
 import { FileExplorer } from '../../src/components/FileExplorer';
@@ -126,5 +132,38 @@ describe('FileExplorer (virtualized tree)', () => {
     // Watcher-style refresh: same cwd, new tree objects.
     useFileStore.getState().setTree('/proj', makeTree());
     expect(screen.getByText('util.ts')).toBeTruthy();
+  });
+
+  it('right-click menu → Mention in chat adds a file reference to the store', () => {
+    useFileReferenceStore.setState({ refs: [] });
+    render(<FileExplorer />);
+
+    // Right-click on a file node (app.ts).
+    const fileNode = screen.getByText('app.ts');
+    fireEvent.contextMenu(fileNode);
+
+    // Context menu should appear with "Mention in chat".
+    const menuItem = screen.getByText('Mention in chat');
+    expect(menuItem).toBeTruthy();
+
+    // Click it.
+    fireEvent.click(menuItem);
+
+    // The store should now have a file ref for this path.
+    const refs = useFileReferenceStore.getState().refs;
+    expect(refs).toHaveLength(1);
+    expect(refs[0]).toMatchObject({ kind: 'file', path: '/proj/src/app.ts' });
+  });
+
+  it('right-click menu on a directory does not show Mention in chat', () => {
+    useFileReferenceStore.setState({ refs: [] });
+    render(<FileExplorer />);
+
+    // Right-click on a directory node.
+    const dirNode = screen.getByText('src');
+    fireEvent.contextMenu(dirNode);
+
+    // "Mention in chat" should NOT be in the context menu for directories.
+    expect(screen.queryByText('Mention in chat')).toBeNull();
   });
 });

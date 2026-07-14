@@ -162,7 +162,7 @@ describe('usePasteDrop', () => {
       expect(result.current.draggingOver).toBe(false);
     });
 
-    it('onDrop adds dropped files as reference chips (no text insertion)', () => {
+    it('onDrop shows a toast for non-image files (browser strips paths)', () => {
       const { options, setInput } = makeHookOptions({ input: 'hello', selectionStart: 5 });
 
       const { result } = renderHook(() => usePasteDrop(options));
@@ -176,11 +176,10 @@ describe('usePasteDrop', () => {
       act(() => result.current.onDrop(event));
 
       expect(event.preventDefault).toHaveBeenCalled();
-      // Drop no longer edits the textarea text — the file becomes a chip.
+      // Non-image drops no longer create ref chips (browser strips the path).
       expect(setInput).not.toHaveBeenCalled();
       const refs = useFileReferenceStore.getState().refs;
-      expect(refs).toHaveLength(1);
-      expect(refs[0]).toMatchObject({ kind: 'file', path: 'test.ts' });
+      expect(refs).toHaveLength(0);
     });
 
     it('onDrop with an image file attaches it instead of inserting an @mention', async () => {

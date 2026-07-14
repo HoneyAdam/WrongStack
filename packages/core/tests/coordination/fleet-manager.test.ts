@@ -323,6 +323,52 @@ describe('FleetManager', () => {
   });
 
   // -------------------------------------------------------------------------
+  // closeManifest() — teardown freeze (regression: ENOTEMPTY on rmdir)
+  // -------------------------------------------------------------------------
+
+  describe('closeManifest()', () => {
+    it('writes the final manifest then freezes further writes', async () => {
+      const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'fm-close-'));
+      const manifestPath = path.join(tmpDir, 'fleet.json');
+      const fm = new FleetManager({ manifestPath });
+      fm.recordSpawn('sub-1', makeConfig({ name: 'worker' }));
+
+      await fm.closeManifest();
+      const afterClose = await fsp.readFile(manifestPath, 'utf-8');
+
+      // A late fire-and-forget flush — the exact call the Director issues on
+      // task completion — must NOT start a new write once frozen. Without the
+      // freeze this atomicWrite (temp sibling + rename) races a caller that
+      // deletes the directory next, producing ENOTEMPTY on rmdir (Windows).
+      fm.addTaskToSubagent('sub-1', 'late-task');
+      await fm.flushManifest();
+      await fm.writeManifest();
+
+      // On-disk manifest is unchanged by the frozen writes.
+      expect(await fsp.readFile(manifestPath, 'utf-8')).toBe(afterClose);
+
+      await fsp.rm(tmpDir, { recursive: true, force: true });
+    });
+
+    it('lifts the freeze on the next recordSpawn (stop-then-spawn-again)', async () => {
+      const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'fm-close-'));
+      const manifestPath = path.join(tmpDir, 'fleet.json');
+      const fm = new FleetManager({ manifestPath });
+      fm.recordSpawn('sub-1', makeConfig({ name: 'first' }));
+      await fm.closeManifest();
+
+      // New activity after the stop re-enables persistence.
+      fm.recordSpawn('sub-2', makeConfig({ name: 'second' }));
+      const written = await fm.writeManifest();
+      expect(written).toBe(manifestPath);
+      const content = JSON.parse(await fsp.readFile(manifestPath, 'utf-8'));
+      expect(content.children.map((c: { id: string }) => c.id)).toContain('sub-2');
+
+      await fsp.rm(tmpDir, { recursive: true, force: true });
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // snapshot() — delegation to FleetUsageAggregator
   // -------------------------------------------------------------------------
 

@@ -42,9 +42,22 @@ process.exit(exitCode);
 ## What you get
 
 ```
-┌─ banner ─────────────────────────────────────────────┐
-│  wrongstack 0.286.0 — anthropic · anthropic-test-model  │
-└──────────────────────────────────────────────────────┘
+╭──────────────────────────────────────────────────────────────────────────────╮
+│  WrongStack  // TERMINAL AI ENGINE                         ● READY v0.287.0  │
+│                                                                              │
+│          █   █ ████   ███  █   █  ████  ████ █████  ███   ████ █   █         │
+│          █   █ █   █ █   █ ██  █ █     █       █   █   █ █     █  █          │
+│          █ █ █ ████  █   █ █ █ █ █  ██  ███    █   █████ █     ███           │
+│          █ █ █ █  █  █   █ █  ██ █   █     █   █   █   █ █     █  █          │
+│           █ █  █   █  ███  █   █  ███  ████    █   █   █  ████ █   █         │
+│                                                                              │
+│  ━━━━━━━━━━ BUILT ON THE WRONG STACK. SHIPPED ANYWAY.                        │
+│                                                                              │
+│  ◆ ROUTE     anthropic › anthropic-test-model                                │
+│  ◇ FAMILY    anthropic                                                       │
+│  ⌁ WORKSPACE /workspace/wrongstack                                           │
+│  ⌘ COMMANDS  /help · F1 projects · F10 sessions · /exit                      │
+╰──────────────────────────────────────────────────────────────────────────────╯
   user> refactor auth.ts to async/await
   ⠋ thinking (3 tools used · 4.2k tokens · 1.3s)
   …
@@ -60,6 +73,27 @@ process.exit(exitCode);
 - **Permission dialog** — modal y/n/always/deny for `confirm`-permission tools
 - **Todo list** — sidebar reflecting `ctx.todos`
 - **Attachments** — images and files dropped into the input become inline content blocks
+
+## Terminal icons and Powerline
+
+The TUI defaults to a portable Unicode icon set, so the segmented status rail,
+composer frame, and tool cards work without installing a special font. Two
+additional profiles are available through `WRONGSTACK_TUI_ICON_STYLE`:
+
+```powershell
+# Rich Powerline + development icons (requires a Nerd Font in the terminal)
+$env:WRONGSTACK_TUI_ICON_STYLE = 'nerd'
+wstack --tui
+
+# Strict compatibility for basic terminals and CI captures
+$env:WRONGSTACK_TUI_ICON_STYLE = 'ascii'
+wstack --tui
+```
+
+For the `nerd` profile, select a current Nerd Font such as **CaskaydiaCove Nerd
+Font** or **MesloLGS Nerd Font** in Windows Terminal, WezTerm, Kitty, or the
+terminal host you use. Font selection belongs to the terminal; WrongStack does
+not silently install or change system fonts.
 
 ## Key bindings
 

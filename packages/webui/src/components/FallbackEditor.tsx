@@ -1,6 +1,5 @@
 import { ArrowDown, ArrowUp, Plus, X } from 'lucide-react';
 import type { ModelCandidate } from '@/hooks/useProviderModels';
-import { useState } from 'react';
 import { useAppTranslation } from '@/i18n';
 import { ModelPicker } from './ModelPicker';
 
@@ -24,7 +23,6 @@ export function FallbackEditor({
   emptyHint?: string | undefined;
 }): React.ReactElement {
   const { t } = useAppTranslation();
-  const [manualRef, setManualRef] = useState('');
   const move = (i: number, dir: -1 | 1) => {
     const j = i + dir;
     if (j < 0 || j >= value.length) return;
@@ -36,12 +34,6 @@ export function FallbackEditor({
   const add = (model: string, provider: string) => {
     const ref = `${provider}/${model}`;
     if (!value.includes(ref)) onChange([...value, ref]);
-  };
-  const addManual = () => {
-    const ref = manualRef.trim().replace(/\s*\/\s*/g, '/').replace(/\s+/g, ' ');
-    if (!ref) return;
-    if (!value.includes(ref)) onChange([...value, ref]);
-    setManualRef('');
   };
 
   return (
@@ -86,25 +78,6 @@ export function FallbackEditor({
         </ol>
       )}
       <ModelPicker candidates={candidates} placeholder={placeholder ?? t('activity:fallback.placeholder')} onPick={add} />
-      <div className="flex gap-1.5">
-        <input
-          value={manualRef}
-          onChange={(e) => setManualRef(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') addManual();
-          }}
-          placeholder={t('activity:fallback.manualPlaceholder')}
-          className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 font-mono text-xs outline-none placeholder:text-muted-foreground"
-        />
-        <button
-          type="button"
-          onClick={addManual}
-          className="rounded-md border border-border px-2 py-1.5 text-xs hover:bg-muted"
-          title={t('activity:fallback.addTitle')}
-        >
-          <Plus className="h-3.5 w-3.5" />
-        </button>
-      </div>
       {value.length === 0 && (
         <p className="flex items-center gap-1 text-[10px] text-muted-foreground">
           <Plus className="h-2.5 w-2.5" /> {emptyHint ?? t('activity:fallback.emptyHint')}

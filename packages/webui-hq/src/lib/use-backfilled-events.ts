@@ -17,7 +17,7 @@ export function useBackfilledEvents(
   type: string,
   limit = 200,
 ): { events: HqEventEnvelope[]; loading: boolean } {
-  const state = useHqStore(['events']);
+  const liveEvents = useHqStore((s) => s.events);
   const [persisted, setPersisted] = useState<HqEventEnvelope[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -49,13 +49,13 @@ export function useBackfilledEvents(
       seen.add(e.id);
       out.push(e);
     }
-    for (const e of state.events) {
+    for (const e of liveEvents) {
       if (e.type !== type || seen.has(e.id)) continue;
       seen.add(e.id);
       out.push(e);
     }
     return out;
-  }, [persisted, state.events, type]);
+  }, [persisted, liveEvents, type]);
 
   return { events, loading };
 }

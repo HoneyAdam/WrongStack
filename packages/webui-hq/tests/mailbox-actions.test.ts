@@ -165,7 +165,7 @@ describe('mailboxActions', () => {
       // We need to check that store.markAuthRequired was called.
       // Import the store module's spy.
       const store = await import('../src/store.js');
-      const markAuthRequiredSpy = vi.spyOn(store, 'markAuthRequired');
+      const markAuthRequiredSpy = vi.spyOn(store.useHqStore.getState(), 'markAuthRequired');
 
       const fetchMock = vi.fn().mockResolvedValue(
         new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401, statusText: 'Unauthorized' }),

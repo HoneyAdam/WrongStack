@@ -29,7 +29,7 @@ import type { WsCommon } from './index.js';
  * module uses `ok`/`error` — structural unification awaits a decision on
  * which format is canonical.
  *
- * The shared handlers live at `@wrongstack/webui/server/handlers` and are
+ * The shared handlers live at `@wrongstack/webui-server/handlers` and are
  * used by the standalone WebUI server (`startWebUI`).
  */
 

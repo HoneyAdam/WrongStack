@@ -88,6 +88,16 @@ export class FleetManager implements IFleetManager {
   private manifestTimer: NodeJS.Timeout | null = null;
   private manifestWriteChain: Promise<unknown> = Promise.resolve();
   private disposed = false;
+  /**
+   * Teardown freeze. Set by `closeManifest()` after the final manifest is
+   * flushed; makes any subsequent `scheduleManifest`/`writeManifest`/
+   * `flushManifest` a no-op so a late fire-and-forget write (e.g. the
+   * task-completion flush the Director issues via `void flushManifest()`)
+   * cannot land an `atomicWrite` in the manifest directory while a caller is
+   * deleting it. Cleared by `recordSpawn` so a stop-then-spawn-again host
+   * resumes writing.
+   */
+  private closing = false;
   private readonly manifestDebounceMs: number;
   /** Fleet-wide cost cap. Infinity = no cap. Distinct from SubagentBudget limits,
    *  which track per-subagent spend — this field caps the entire fleet total. */
@@ -344,6 +354,9 @@ export class FleetManager implements IFleetManager {
       cacheWrite?: number | undefined;
     },
   ): void {
+    // New fleet activity after a stop lifts the teardown freeze so manifest
+    // writes resume.
+    this.closing = false;
     this.spawnCount += 1;
     this.subagentMeta.set(subagentId, {
       provider: config.provider,
@@ -383,6 +396,10 @@ export class FleetManager implements IFleetManager {
 
   async writeManifest(): Promise<string | null> {
     if (!this.manifestPath) return null;
+    // Frozen for teardown — refuse to start a new write. The final manifest
+    // was already flushed by `closeManifest()`; a late caller just gets the
+    // path back so it isn't mistaken for an unconfigured manager.
+    if (this.closing) return this.manifestPath;
     this.clearManifestTimer();
     const write = this.manifestWriteChain
       .catch(() => undefined)
@@ -437,7 +454,7 @@ export class FleetManager implements IFleetManager {
    * When `manifestDebounceMs` is 0, writes are synchronous (no debounce).
    */
   scheduleManifest(): void {
-    if (this.disposed) return;
+    if (this.disposed || this.closing) return;
     if (!this.manifestPath) return;
     if (this.manifestDebounceMs === 0) {
       // 0 means instant flush — write synchronously, no timer.
@@ -473,6 +490,27 @@ export class FleetManager implements IFleetManager {
       const detail = toErrorMessage(err);
       process.emitWarning(`FleetManager manifest write failed: ${detail}`, 'FleetManagerWarning');
     });
+  }
+
+  /**
+   * Teardown flush for callers that will delete the manifest directory next
+   * (host `stopAll`/`dispose`). Writes the final manifest, then freezes the
+   * writer so no later fire-and-forget write can start, and drains anything
+   * still in flight. After this resolves it is safe to `rm -rf` the manifest
+   * directory: no `atomicWrite` (temp sibling + rename) can race the removal.
+   *
+   * The freeze is lifted by the next `recordSpawn`, so a stop-then-spawn-again
+   * host keeps persisting manifests.
+   */
+  async closeManifest(): Promise<void> {
+    if (!this.manifestPath) return;
+    // Final canonical write, fully awaited, while writes are still allowed.
+    await this.flushManifest();
+    // Freeze: subsequent schedule/write/flush become no-ops (see guards).
+    this.closing = true;
+    // Drain any write that slipped into the chain between the flush above and
+    // the freeze (e.g. a task-completion `void flushManifest()` racing in).
+    await this.manifestWriteChain.catch(() => undefined);
   }
 
   private clearManifestTimer(): void {

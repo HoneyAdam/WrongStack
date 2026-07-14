@@ -57,7 +57,7 @@ import * as HqServerWs from './hq-server/ws.js';
 import * as HqServerSnapshot from './hq-server/snapshot.js';
 
 
-// Inlined from @wrongstack/webui/server — avoids a hard dependency on the webui package.
+// Inlined from @wrongstack/webui-server — avoids a hard dependency on the webui package.
 import { WebSocket, WebSocketServer } from 'ws';
 import { HQ_HTML } from './hq-dashboard-html.js';
 import { resolveHqDistDir, serveHqStatic } from './hq-static-serve.js';

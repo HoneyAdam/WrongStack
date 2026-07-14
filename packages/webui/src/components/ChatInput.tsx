@@ -1,12 +1,13 @@
 import { expectDefined, toErrorMessage } from '@wrongstack/core';
-import { Bell, ImagePlus, ListPlus, Pencil, RotateCw, Send, Sparkles, Square } from 'lucide-react';
+import { Bell, BookOpen, ImagePlus, ListPlus, Pencil, RotateCw, Send, Sparkles, Square } from 'lucide-react';
 import type React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useAppTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
-import { useChatStore, useFileReferenceStore, useSessionStore, useUIStore } from '@/stores';
+import { useChatStore, useFileReferenceStore, useFileStore, useSessionStore, useUIStore } from '@/stores';
+import { useLocalPrefs } from '@/stores/local-prefs';
 import { useAutoSubmitStreak } from '@/stores/auto-submit-streak.js';
 import type { QueueMode } from '@/stores/chat-store';
 import { refsToMarkdown } from '@/stores/file-reference-store.js';
@@ -42,6 +43,7 @@ export function ChatInput({
     })),
   );
   const messages = useChatStore((s) => s.messages);
+  const openFiles = useFileStore((s) => s.openFiles);
   /** A "started" chat is one that already has at least one message — i.e.
    *  the user has sent a prompt at some point and is now either waiting
    *  for a response or has finished one. While the chat hasn't started yet
@@ -54,16 +56,16 @@ export function ChatInput({
   const removeQueued = useChatStore((s) => s.removeQueued);
   const clearQueue = useChatStore((s) => s.clearQueue);
   const setCurrentView = useUIStore((s) => s.setCurrentView);
+  const setPromptLibraryOpen = useUIStore((s) => s.setPromptLibraryOpen);
   const pushPrompt = useUIStore((s) => s.pushPrompt);
   const promptHistory = useUIStore((s) => s.promptHistory);
   const ws = useWebSocket();
-  const { sendMessage, sendAbort, client, refineModel } = ws;
+  const { sendMessage, sendAbort, client, refineModel, updatePrefs } = ws;
   const { t } = useAppTranslation();
-  const refineEnabled = useUIStore((s) => s.refineEnabled);
+  const enhanceEnabled = useLocalPrefs((s) => s.enhanceEnabled);
   const refinePanel = useUIStore((s) => s.refinePanel);
   const promptInsertRequest = useUIStore((s) => s.promptInsertRequest);
   const clearPromptInsert = useUIStore((s) => s.clearPromptInsert);
-  const toggleRefineEnabled = useUIStore((s) => s.toggleRefineEnabled);
   const setRefinePanel = useUIStore((s) => s.setRefinePanel);
   const setProcessMonitorOpen = useUIStore((s) => s.setProcessMonitorOpen);
   const setQueuePanelOpen = useUIStore((s) => s.setQueuePanelOpen);
@@ -149,6 +151,12 @@ export function ChatInput({
     requestAnimationFrame(() => textareaRef.current?.focus());
   }, [promptInsertRequest, clearPromptInsert]);
 
+  const handleToggleEnhance = useCallback(() => {
+    const next = !enhanceEnabled;
+    useLocalPrefs.getState().set({ enhanceEnabled: next });
+    updatePrefs({ enhanceEnabled: next });
+  }, [enhanceEnabled, updatePrefs]);
+
   const runSlashCommand = useCallback(
     (raw: string): boolean =>
       runChatSlashCommand({
@@ -161,7 +169,7 @@ export function ChatInput({
         sendMsg,
         setLoading,
         setCurrentView,
-        toggleRefineEnabled,
+        toggleRefineEnabled: handleToggleEnhance,
         setProcessMonitorOpen,
         setQueuePanelOpen,
         ws,
@@ -177,7 +185,7 @@ export function ChatInput({
       sendAbort,
       setLoading,
       setCurrentView,
-      toggleRefineEnabled,
+      handleToggleEnhance,
       setProcessMonitorOpen,
       setQueuePanelOpen,
       ws,
@@ -375,7 +383,11 @@ export function ChatInput({
       if (!input.trim() && pendingImagesRef.current.length === 0 && fileRefs.length === 0) return;
 
       const content = input.trim();
-      const refsMarkdown = refsToMarkdown(fileRefs);
+      // Build a content map from files already open in the editor so whole-file
+      // refs can include the actual source code rather than just a bare @path.
+      const fileContents: Record<string, string> = {};
+      for (const f of openFiles) fileContents[f.path] = f.content;
+      const refsMarkdown = refsToMarkdown(fileRefs, fileContents);
       const combined = [content, refsMarkdown].filter(Boolean).join('\n\n');
       // Snapshot refs and clear them immediately so a rapid second submit
       // doesn't duplicate the references.
@@ -440,7 +452,7 @@ export function ChatInput({
         if (client?.isConnected) {
           // Refine only rewrites text — with images attached, send directly
           // so the attachments can't be dropped by the refine round-trip.
-          if (refineEnabled && refineModel && images.length === 0) {
+          if (enhanceEnabled && refineModel && images.length === 0) {
             setRefinePanel({
               original: combined,
               refined: combined, // Will be replaced when backend responds
@@ -495,7 +507,7 @@ export function ChatInput({
       sendMessage,
       sendAbort,
       refineModel,
-      refineEnabled,
+      enhanceEnabled,
       setRefinePanel,
       addMessage,
       setLoading,
@@ -795,8 +807,24 @@ export function ChatInput({
           queue can be cleared. The hook below drains them after run.result. */}
       <QueuedMessages queue={queue} onClear={clearQueue} onRemove={removeQueued} />
 
+      {/* When the user toggles enhance OFF while a refine panel is open,
+          close the panel and send the original text immediately. */}
+      {refinePanel && !enhanceEnabled && (() => {
+        const panel = refinePanel;
+        setRefinePanel(null);
+        if (client?.isConnected) {
+          addMessage({ role: 'user', content: panel.original });
+          setLoading(true);
+          sendMessage(panel.original);
+        } else {
+          setInput(panel.original);
+          toast.error(t('chat:input.notConnectedDraftKept'));
+        }
+        return null;
+      })()}
+
       {/* Prompt-refinement panel — shown when the user submits and refine is enabled */}
-      {refinePanel && (
+      {refinePanel && enhanceEnabled && (
         <RefinePanel
           original={refinePanel.original}
           refined={refinePanel.refined}
@@ -830,6 +858,19 @@ export function ChatInput({
         />
       )}
 
+      {/* Prompt library trigger — opens the browse/insert modal */}
+      <div className="flex items-center gap-2 px-1">
+        <button
+          type="button"
+          onClick={() => setPromptLibraryOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border/50 bg-card/50 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-primary/30 hover:bg-accent/50 transition-all duration-200"
+          title={t('chat:input.openPromptLibrary')}
+        >
+          <BookOpen className="h-3.5 w-3.5" />
+          Prompt library
+        </button>
+      </div>
+
       {/* File reference chips queued for the next message. */}
       {hasFileRefs && (
         <div className="flex flex-wrap items-center gap-2 px-1">
@@ -837,7 +878,7 @@ export function ChatInput({
             {t('chat:input.referencesLabel')}
           </span>
           {fileRefs.map((ref) => (
-            <FileReferenceChip key={ref.id} ref={ref} onRemove={() => removeRef(ref.id)} />
+            <FileReferenceChip key={ref.id} reference={ref} onRemove={() => removeRef(ref.id)} />
           ))}
           <button
             type="button"
@@ -935,6 +976,7 @@ export function ChatInput({
             })()}
           <textarea
             ref={textareaRef}
+            data-chat-textarea
             value={input}
             onChange={(e) => {
               const v = e.target.value;
@@ -1075,15 +1117,19 @@ export function ChatInput({
             <Button
               type="button"
               size="icon"
-              variant={refineEnabled ? 'default' : 'outline'}
+              variant={enhanceEnabled ? 'default' : 'outline'}
               disabled={!client?.isConnected}
-              onClick={toggleRefineEnabled}
+              onClick={() => {
+                const next = !enhanceEnabled;
+                useLocalPrefs.getState().set({ enhanceEnabled: next });
+                updatePrefs({ enhanceEnabled: next });
+              }}
               className={cn(
                 'h-[44px] w-[44px] shrink-0 rounded-md transition-colors',
-                refineEnabled && 'bg-warning/20 hover:bg-warning/30 text-warning border-warning/50',
+                enhanceEnabled && 'bg-warning/20 hover:bg-warning/30 text-warning border-warning/50',
               )}
               title={
-                refineEnabled
+                enhanceEnabled
                   ? t('chat:input.refineEnabledTitle')
                   : t('chat:input.refineDisabledTitle')
               }

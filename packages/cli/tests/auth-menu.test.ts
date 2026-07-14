@@ -497,6 +497,68 @@ describe('runAuthMenu', () => {
     expect(raw.providers['local-llama'].baseUrl).toBe('http://localhost:11434/v1');
   });
 
+  it('c with a blank id auto-names the provider custom-N', async () => {
+    const { deps, configPath } = await setupDeps({
+      // c -> custom flow; id blank (Enter) => auto custom-1; family; empty
+      // baseUrl/models/envVars; empty label (default); then q.
+      scripted: {
+        lines: ['c', '', 'openai-compatible', '', '', '', '', 'q'],
+        secrets: ['blank-id-key'],
+      },
+    });
+    const code = await runAuthMenu(deps);
+    expect(code).toBe(0);
+    const raw = JSON.parse(await fs.readFile(configPath, 'utf8'));
+    expect(raw.providers['custom-1']).toBeDefined();
+    expect(raw.providers['custom-1'].family).toBe('openai-compatible');
+    expect(raw.providers['']).toBeUndefined();
+  });
+
+  it('c adopts the provider as default when no provider/model is set', async () => {
+    const { deps, configPath } = await setupDeps({
+      // c -> custom flow; id=proxy; family; baseUrl; models=gpt-x,gpt-y; envVars empty;
+      // label empty; then q. No prior config → adoption should fire.
+      scripted: {
+        lines: ['c', 'proxy', 'openai-compatible', 'https://p/v1', 'gpt-x,gpt-y', '', '', 'q'],
+        secrets: ['proxy-key'],
+      },
+    });
+    const code = await runAuthMenu(deps);
+    expect(code).toBe(0);
+    const raw = JSON.parse(await fs.readFile(configPath, 'utf8'));
+    expect(raw.provider).toBe('proxy');
+    expect(raw.model).toBe('gpt-x'); // first model in the list
+    // Encrypted providers preserved alongside the new default pointers
+    expect(raw.providers.proxy).toBeDefined();
+  });
+
+  it('c does NOT override an existing default provider/model', async () => {
+    const { deps, configPath } = await setupDeps({
+      // A realistic non-stale default: the provider it points at exists and
+      // has a usable key (otherwise mutateConfigProviders would clear it).
+      preExisting: {
+        provider: 'anthropic',
+        model: 'claude-x',
+        providers: {
+          anthropic: {
+            type: 'anthropic',
+            apiKeys: [{ label: 'default', apiKey: 'sk-existing', createdAt: '2020-01-01' }],
+            activeKey: 'default',
+          },
+        },
+      },
+      scripted: {
+        lines: ['c', 'proxy', 'openai-compatible', 'https://p/v1', 'gpt-x', '', '', 'q'],
+        secrets: ['proxy-key'],
+      },
+    });
+    await runAuthMenu(deps);
+    const raw = JSON.parse(await fs.readFile(configPath, 'utf8'));
+    expect(raw.provider).toBe('anthropic'); // untouched
+    expect(raw.model).toBe('claude-x');
+    expect(raw.providers.proxy).toBeDefined(); // still added
+  });
+
   it('c rejects an invalid family', async () => {
     const { deps } = await setupDeps({
       scripted: { lines: ['c', 'local-llama', 'bogus-family', 'q'] },

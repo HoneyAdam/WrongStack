@@ -264,6 +264,7 @@ describe('Sprint 2 reliable queue (consolidated)', () => {
     });
     const events = await listKanbanEvents(tmpDir, board.id);
     expect(events.map((e) => e.type)).toEqual([
+      'task.created',
       'task.claimed',
       'task.assignment.running',
       'task.assignment.heartbeat',

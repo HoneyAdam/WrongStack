@@ -1,13 +1,15 @@
-@import 'tailwindcss';
+@import "tailwindcss";
 
 /* ===========================================================================
-   WrongStack WebUI — Operations Console
-   IBM Plex typography · quiet neutral surfaces · clear status color.
+   WrongStack WebUI — Operator Workbench
+   Website-aligned warm surfaces · crisp geometry · two brand signals.
    =========================================================================== */
 
 @theme {
-  --font-sans: 'IBM Plex Sans Variable', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-sans: "Manrope Variable", "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-display:
+    "Space Grotesk Variable", "Space Grotesk", "Manrope Variable", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
   /* shadcn-compatible color tokens bridged to Tailwind 4 */
   --color-border: hsl(var(--border));
@@ -34,90 +36,104 @@
   --color-card: hsl(var(--card));
   --color-card-foreground: hsl(var(--card-foreground));
 
-  --radius-lg: var(--radius);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-sm: calc(var(--radius) - 4px);
+  /* Product UI uses the website's crisp operator-manual geometry. */
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+  --radius-2xl: 0;
+  --radius-3xl: 0;
+  --radius-4xl: 0;
 }
 
 @layer base {
   :root {
-    /* Light: crisp workstation neutral */
-    --background: 210 24% 97%;
-    --foreground: 225 22% 12%;
-    --card: 0 0% 100%;
-    --card-foreground: 225 22% 12%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 225 22% 12%;
+    /* Website light palette: warm paper, precise ink, signal pink. */
+    --background: 45 36.4% 95.7%;
+    --foreground: 60 7% 8.4%;
+    --card: 42.9 100% 98.6%;
+    --card-foreground: 60 7% 8.4%;
+    --popover: 42.9 100% 98.6%;
+    --popover-foreground: 60 7% 8.4%;
 
-    --primary: 194 84% 38%;
+    --primary: 344.8 74.6% 47.8%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 214 22% 93%;
-    --secondary-foreground: 225 22% 14%;
-    --muted: 214 18% 92%;
-    --muted-foreground: 222 10% 38%;
-    --accent: 166 36% 90%;
-    --accent-foreground: 180 64% 24%;
+    --secondary: 43.6 26.8% 92%;
+    --secondary-foreground: 60 7% 8.4%;
+    --muted: 43.6 26.8% 92%;
+    --muted-foreground: 43.6 5.8% 37.1%;
+    --accent: 38 70% 90%;
+    --accent-foreground: 33.9 100% 30.2%;
     --destructive: 0 72% 48%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 214 16% 84%;
-    --input: 214 16% 84%;
-    --ring: 194 84% 38%;
+    --border: 42.9 17.9% 84.7%;
+    --input: 40 14.3% 75.3%;
+    --ring: 344.8 74.6% 47.8%;
 
     --success: 150 58% 36%;
     --warning: 32 92% 44%;
     --info: 200 80% 40%;
-    --running: 194 84% 38%;
+    --running: 344.8 74.6% 47.8%;
 
-    --radius: 0.5rem;
-    --font-sans: 'IBM Plex Sans Variable', ui-sans-serif, system-ui, sans-serif;
-    --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    --radius: 0;
+    --font-sans: "Manrope Variable", "Manrope", ui-sans-serif, system-ui, sans-serif;
+    --font-display:
+      "Space Grotesk Variable", "Space Grotesk", "Manrope Variable", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
-    --surface-1: 0 0% 100%;
-    --surface-2: 214 26% 96%;
-    --surface-3: 214 20% 91%;
-    --shadow-color: 218 26% 36%;
+    --surface-1: 42.9 100% 98.6%;
+    --surface-2: 43.6 26.8% 92%;
+    --surface-3: 42.9 17.9% 84.7%;
+    --shadow-color: 60 5.9% 6.7%;
   }
 
   .dark {
-    /* Dark: neutral command center with distinct status accents */
-    --background: 240 5% 9%;
-    --foreground: 210 14% 92%;
-    --card: 240 5% 12%;
-    --card-foreground: 210 14% 92%;
-    --popover: 240 5% 11%;
-    --popover-foreground: 210 14% 92%;
+    /* Website dark palette: warm graphite, cream ink, exact brand signals. */
+    --background: 90 3.7% 10.6%;
+    --foreground: 45 37.5% 93.7%;
+    --card: 75 5% 15.7%;
+    --card-foreground: 45 37.5% 93.7%;
+    --popover: 75 6.1% 12.9%;
+    --popover-foreground: 45 37.5% 93.7%;
 
-    --primary: 190 86% 54%;
-    --primary-foreground: 240 7% 7%;
-    --secondary: 240 5% 17%;
-    --secondary-foreground: 210 14% 92%;
-    --muted: 240 5% 16%;
-    --muted-foreground: 220 8% 70%;
-    --accent: 164 36% 18%;
-    --accent-foreground: 164 72% 66%;
+    --primary: 345.9 99% 58.8%;
+    --primary-foreground: 60 5.9% 6.7%;
+    --secondary: 75 6.1% 12.9%;
+    --secondary-foreground: 45 37.5% 93.7%;
+    --muted: 75 5% 15.7%;
+    --muted-foreground: 42.9 8.8% 68.6%;
+    --accent: 37.5 42% 19%;
+    --accent-foreground: 37.5 98.4% 50%;
     --destructive: 0 70% 55%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 240 5% 22%;
-    --input: 240 5% 22%;
-    --ring: 190 86% 54%;
+    --border: 70 5.3% 22.4%;
+    --input: 66.7 5.8% 30.4%;
+    --ring: 345.9 99% 58.8%;
 
     --success: 150 64% 46%;
     --warning: 38 94% 58%;
     --info: 198 82% 56%;
-    --running: 190 86% 54%;
+    --running: 345.9 99% 58.8%;
 
-    --surface-1: 240 5% 12%;
-    --surface-2: 240 5% 15%;
-    --surface-3: 240 5% 19%;
-    --shadow-color: 240 16% 3%;
+    --surface-1: 75 5% 15.7%;
+    --surface-2: 75 6.1% 12.9%;
+    --surface-3: 70 5.3% 22.4%;
+    --shadow-color: 60 5.9% 6.7%;
   }
 }
 
 @layer base {
-  * {
+  *,
+  *::before,
+  *::after {
     @apply border-border;
+    /* Design invariant: every WebUI surface, control, indicator and progress
+       track is square. This also neutralises legacy `rounded-full` utilities
+       while components are migrated incrementally. */
+    border-radius: 0 !important;
   }
 
   html {
@@ -133,7 +149,19 @@
     min-height: 0;
     overflow: hidden;
     font-family: var(--font-sans);
-    font-feature-settings: 'liga' 1, 'calt' 1, 'ss03' 1;
+    font-feature-settings:
+      "liga" 1,
+      "calt" 1,
+      "ss03" 1;
+    letter-spacing: -0.012em;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
   }
 
   /* Content sits above the app surface. */
@@ -151,8 +179,11 @@
     /* biome-ignore lint/suspicious/noDuplicateProperties: 100vh above is the fallback for browsers without dvh support */
     height: 100dvh;
     max-height: 100dvh;
-    background:
-      linear-gradient(180deg, hsl(var(--background)) 0%, hsl(var(--surface-2) / 0.74) 100%);
+    background: linear-gradient(
+      180deg,
+      hsl(var(--background)) 0%,
+      hsl(var(--surface-2) / 0.74) 100%
+    );
   }
 
   .ws-desktop-shell .ws-shortcut-hints {
@@ -199,7 +230,7 @@
     letter-spacing: 0;
   }
 
-  [class*='tracking-'] {
+  [class*="tracking-"] {
     letter-spacing: 0;
   }
 
@@ -243,7 +274,9 @@
     width: 0.5rem;
     height: 0.5rem;
     background: currentColor;
-    box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 8px 0 currentColor;
+    box-shadow:
+      0 0 0 2px hsl(var(--background)),
+      0 0 8px 0 currentColor;
   }
   .led-pulse {
     animation: ledPulse 1.4s ease-in-out infinite;
@@ -251,8 +284,19 @@
 }
 
 @keyframes ledPulse {
-  0%, 100% { opacity: 1; box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 7px 0 currentColor; }
-  50% { opacity: 0.55; box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 13px 1px currentColor; }
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow:
+      0 0 0 2px hsl(var(--background)),
+      0 0 7px 0 currentColor;
+  }
+  50% {
+    opacity: 0.55;
+    box-shadow:
+      0 0 0 2px hsl(var(--background)),
+      0 0 13px 1px currentColor;
+  }
 }
 
 /* — Scrollbars — */
@@ -265,7 +309,7 @@
 }
 ::-webkit-scrollbar-thumb {
   background-color: hsl(var(--muted-foreground) / 0.28);
-  border-radius: 9999px;
+  border-radius: 0;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
@@ -284,11 +328,11 @@
 }
 .kanban-scroll-area::-webkit-scrollbar-track {
   background: hsl(var(--muted-foreground) / 0.08);
-  border-radius: 4px;
+  border-radius: 0;
 }
 .kanban-scroll-area::-webkit-scrollbar-thumb {
   background-color: hsl(var(--muted-foreground) / 0.35);
-  border-radius: 9999px;
+  border-radius: 0;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
@@ -310,7 +354,10 @@
 
 /* — Message bubble depth — */
 .msg-bubble {
-  transition: box-shadow 0.18s ease, transform 0.15s ease, background-color 0.18s ease;
+  transition:
+    box-shadow 0.18s ease,
+    transform 0.15s ease,
+    background-color 0.18s ease;
 }
 .msg-bubble:hover {
   box-shadow: 0 10px 30px -24px hsl(var(--shadow-color) / 0.45);
@@ -328,8 +375,14 @@
   animation: toolExpand 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 @keyframes toolExpand {
-  from { opacity: 0; max-height: 0; }
-  to { opacity: 1; max-height: 2000px; }
+  from {
+    opacity: 0;
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    max-height: 2000px;
+  }
 }
 
 /* — Jump-to-bottom button pulse — */
@@ -337,8 +390,13 @@
   animation: jumpPulse 2s ease-in-out infinite;
 }
 @keyframes jumpPulse {
-  0%, 100% { transform: translateX(-50%) translateY(0); }
-  50% { transform: translateX(-50%) translateY(-2px); }
+  0%,
+  100% {
+    transform: translateX(-50%) translateY(0);
+  }
+  50% {
+    transform: translateX(-50%) translateY(-2px);
+  }
 }
 
 /* — Keyboard shortcut bar at bottom — */
@@ -348,46 +406,206 @@
 
 /* — Better stream cursor — */
 .streaming-cursor::after {
-  content: '▍';
+  content: "▍";
   animation: blink 1s step-end infinite;
   color: hsl(var(--primary));
   opacity: 0.8;
 }
 @keyframes blink {
-  50% { opacity: 0; }
+  50% {
+    opacity: 0;
+  }
 }
 
 /* — Motion — */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 @keyframes slideIn {
-  from { opacity: 0; transform: translateX(-12px); }
-  to { opacity: 1; transform: translateX(0); }
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 @keyframes shimmer {
-  100% { transform: translateX(100%); }
+  100% {
+    transform: translateX(100%);
+  }
 }
-.animate-message { animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
-.animate-tool { animation: slideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1); }
-.animate-drawer-up { animation: drawerUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+.animate-message {
+  animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.animate-tool {
+  animation: slideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.animate-drawer-up {
+  animation: drawerUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
 @keyframes drawerUp {
-  from { transform: translateY(100%); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 /* Sidebar panel slide-in from the right edge. */
 @keyframes slideInRight {
-  from { transform: translateX(100%); }
-  to { transform: translateX(0); }
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
 }
-.animate-slide-in-right { animation: slideInRight 0.25s cubic-bezier(0.16, 1, 0.3, 1); }
+.animate-slide-in-right {
+  animation: slideInRight 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Radix Sheet motion. The old primitive referenced `animate-in` /
+   `slide-in-from-*` utilities without importing an animation plugin, leaving
+   those classes inert. State + side attributes make the motion explicit and
+   keep it available to both modal sheets and the non-modal right inspector. */
+.ws-sheet-overlay[data-state="open"] {
+  animation: ws-sheet-overlay-in 180ms ease-out both;
+}
+.ws-sheet-overlay[data-state="closed"] {
+  animation: ws-sheet-overlay-out 140ms ease-in both;
+}
+.ws-sheet-content[data-state="open"][data-side="right"] {
+  animation: ws-sheet-right-in 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.ws-sheet-content[data-state="closed"][data-side="right"] {
+  animation: ws-sheet-right-out 180ms ease-in both;
+}
+.ws-sheet-content[data-state="open"][data-side="left"] {
+  animation: ws-sheet-left-in 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.ws-sheet-content[data-state="closed"][data-side="left"] {
+  animation: ws-sheet-left-out 180ms ease-in both;
+}
+.ws-sheet-content[data-state="open"][data-side="top"] {
+  animation: ws-sheet-top-in 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.ws-sheet-content[data-state="closed"][data-side="top"] {
+  animation: ws-sheet-top-out 180ms ease-in both;
+}
+.ws-sheet-content[data-state="open"][data-side="bottom"] {
+  animation: ws-sheet-bottom-in 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.ws-sheet-content[data-state="closed"][data-side="bottom"] {
+  animation: ws-sheet-bottom-out 180ms ease-in both;
+}
+
+@keyframes ws-sheet-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes ws-sheet-overlay-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@keyframes ws-sheet-right-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes ws-sheet-right-out {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+@keyframes ws-sheet-left-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes ws-sheet-left-out {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+@keyframes ws-sheet-top-in {
+  from {
+    transform: translateY(-100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes ws-sheet-top-out {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-100%);
+  }
+}
+@keyframes ws-sheet-bottom-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes ws-sheet-bottom-out {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ws-sheet-overlay,
+  .ws-sheet-content {
+    animation-duration: 1ms !important;
+  }
+}
 
 /* Indeterminate progress sweep for "working" bars. */
-.bar-sweep { position: relative; overflow: hidden; }
+.bar-sweep {
+  position: relative;
+  overflow: hidden;
+}
 .bar-sweep::after {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
   transform: translateX(-100%);
@@ -396,8 +614,12 @@
 }
 
 /* — Markdown content — */
-.markdown-content { @apply leading-relaxed; }
-.markdown-content p { @apply mb-3; }
+.markdown-content {
+  @apply leading-relaxed;
+}
+.markdown-content p {
+  @apply mb-3;
+}
 .markdown-content code {
   font-family: var(--font-mono);
   @apply px-1.5 py-0.5 rounded text-[0.85em];
@@ -408,13 +630,29 @@
   @apply p-4 rounded-lg overflow-x-auto mb-3;
   border: 1px solid hsl(var(--border));
 }
-.markdown-content pre code { @apply p-0; border: 0; }
-.markdown-content ul, .markdown-content ol { @apply mb-3 pl-6; }
-.markdown-content ul { list-style: disc; }
-.markdown-content ol { list-style: decimal; }
-.markdown-content li { @apply mb-1; }
-.markdown-content a { @apply text-primary underline underline-offset-2; }
-.markdown-content h1, .markdown-content h2, .markdown-content h3 {
+.markdown-content pre code {
+  @apply p-0;
+  border: 0;
+}
+.markdown-content ul,
+.markdown-content ol {
+  @apply mb-3 pl-6;
+}
+.markdown-content ul {
+  list-style: disc;
+}
+.markdown-content ol {
+  list-style: decimal;
+}
+.markdown-content li {
+  @apply mb-1;
+}
+.markdown-content a {
+  @apply text-primary underline underline-offset-2;
+}
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3 {
   @apply font-semibold mt-4 mb-2;
   letter-spacing: 0;
 }
@@ -444,14 +682,17 @@
 [data-message-id][data-focused="true"] {
   position: relative;
   background-color: hsl(var(--primary) / 0.05);
-  border-radius: 0.5rem;
+  border-radius: 0;
   transition: background-color 0.15s ease-out;
 }
 [data-message-id][data-focused="true"]::before {
   content: "";
   position: absolute;
-  left: -8px; top: 4px; bottom: 4px;
-  width: 3px; border-radius: 2px;
+  left: -8px;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  border-radius: 0;
   background-color: hsl(var(--primary));
   box-shadow: 0 0 10px 0 hsl(var(--primary) / 0.6);
   pointer-events: none;
@@ -492,58 +733,130 @@ kbd {
 
 /* A running task node: breathing amber glow + a slow rotating conic ring. */
 @keyframes sddRunPulse {
-  0%, 100% { box-shadow: 0 0 0 1px hsl(38 95% 55% / 0.55), 0 0 16px 1px hsl(38 95% 55% / 0.35); }
-  50%      { box-shadow: 0 0 0 1px hsl(38 95% 60% / 0.85), 0 0 28px 4px hsl(38 95% 55% / 0.6); }
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px hsl(38 95% 55% / 0.55),
+      0 0 16px 1px hsl(38 95% 55% / 0.35);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px hsl(38 95% 60% / 0.85),
+      0 0 28px 4px hsl(38 95% 55% / 0.6);
+  }
 }
-.sdd-node-running { animation: sddRunPulse 1.8s ease-in-out infinite; }
+.sdd-node-running {
+  animation: sddRunPulse 1.8s ease-in-out infinite;
+}
 
 /* Completion flash — a one-shot emerald burst when a task finishes. */
 @keyframes sddCompleteFlash {
-  0%   { box-shadow: 0 0 0 1px hsl(152 60% 45% / 0.9), 0 0 30px 6px hsl(152 70% 45% / 0.7); }
-  100% { box-shadow: 0 0 0 1px hsl(152 45% 40% / 0.5), 0 0 0 0 transparent; }
+  0% {
+    box-shadow:
+      0 0 0 1px hsl(152 60% 45% / 0.9),
+      0 0 30px 6px hsl(152 70% 45% / 0.7);
+  }
+  100% {
+    box-shadow:
+      0 0 0 1px hsl(152 45% 40% / 0.5),
+      0 0 0 0 transparent;
+  }
 }
-.sdd-node-complete { animation: sddCompleteFlash 0.9s ease-out; }
+.sdd-node-complete {
+  animation: sddCompleteFlash 0.9s ease-out;
+}
 
 /* Failure shake. */
 @keyframes sddFail {
-  0%, 100% { transform: translateX(0); }
-  20%, 60% { transform: translateX(-3px); }
-  40%, 80% { transform: translateX(3px); }
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20%,
+  60% {
+    transform: translateX(-3px);
+  }
+  40%,
+  80% {
+    transform: translateX(3px);
+  }
 }
-.sdd-node-failed { animation: sddFail 0.45s ease-in-out; }
+.sdd-node-failed {
+  animation: sddFail 0.45s ease-in-out;
+}
 
 /* Node pop-in when the graph first materializes (decomposition reveal). */
 @keyframes sddPopIn {
-  from { opacity: 0; transform: scale(0.82) translateY(6px); }
-  to   { opacity: 1; transform: scale(1) translateY(0); }
+  from {
+    opacity: 0;
+    transform: scale(0.82) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
 }
-.sdd-node-enter { animation: sddPopIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+.sdd-node-enter {
+  animation: sddPopIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
 
 /* Live agent dot — a pulsing presence ring around the worker avatar. */
 @keyframes sddAgentPing {
-  0%   { box-shadow: 0 0 0 0 hsl(199 89% 60% / 0.7); }
-  70%  { box-shadow: 0 0 0 6px hsl(199 89% 60% / 0); }
-  100% { box-shadow: 0 0 0 0 hsl(199 89% 60% / 0); }
+  0% {
+    box-shadow: 0 0 0 0 hsl(199 89% 60% / 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 6px hsl(199 89% 60% / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 hsl(199 89% 60% / 0);
+  }
 }
-.sdd-agent-live { animation: sddAgentPing 1.6s ease-out infinite; }
+.sdd-agent-live {
+  animation: sddAgentPing 1.6s ease-out infinite;
+}
 
 /* Conic sweep behind a running node's header (the "working" shimmer). */
-@keyframes sddConic { to { transform: rotate(360deg); } }
+@keyframes sddConic {
+  to {
+    transform: rotate(360deg);
+  }
+}
 .sdd-conic {
-  background: conic-gradient(from 0deg, transparent 0deg, hsl(38 95% 55% / 0.5) 40deg, transparent 80deg);
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    hsl(38 95% 55% / 0.5) 40deg,
+    transparent 80deg
+  );
   animation: sddConic 2.4s linear infinite;
 }
 
 /* Animated dependency edge — flowing dashes (React Flow strokeDashoffset). */
-@keyframes sddDash { to { stroke-dashoffset: -16; } }
-.sdd-edge-flow { stroke-dasharray: 6 6; animation: sddDash 0.6s linear infinite; }
+@keyframes sddDash {
+  to {
+    stroke-dashoffset: -16;
+  }
+}
+.sdd-edge-flow {
+  stroke-dasharray: 6 6;
+  animation: sddDash 0.6s linear infinite;
+}
 
 /* Wizard phase panel transition. */
 @keyframes sddRise {
-  from { opacity: 0; transform: translateY(14px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
-.sdd-rise { animation: sddRise 0.45s cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+.sdd-rise {
+  animation: sddRise 0.45s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
 
 /* Gradient sheen header used across the SDD surfaces. */
 .sdd-sheen {

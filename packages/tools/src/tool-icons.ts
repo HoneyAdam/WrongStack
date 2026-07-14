@@ -150,6 +150,12 @@ export const TOOL_ICON_MAP: Record<string, ToolIconId> = {
   memory_verify: 'brain',
   memory_hygiene: 'brain',
   memory_candidates: 'brain',
+  // ── language intelligence ──
+  lsp_diagnostics: 'code',
+  lsp_definition: 'search',
+  lsp_completion: 'code',
+  lsp_rename: 'edit',
+  'codebase-lsp-search': 'index',
 };
 
 /**

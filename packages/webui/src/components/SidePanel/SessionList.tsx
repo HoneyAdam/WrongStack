@@ -1,24 +1,37 @@
-import type { useWebSocket } from '@/hooks/useWebSocket';
-import { cn } from '@/lib/utils';
-import { type useHistoryStore, useUIStore } from '@/stores';
 import {
+  Activity,
+  AlertTriangle,
+  CheckCircle2,
+  CircleStop,
+  Clock3,
+  FileCode2,
   History,
   Loader2,
   Pencil,
+  Play,
   RefreshCw,
   Search,
   Star,
   Trash2,
+  Wrench,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useAppTranslation, i18n } from '@/i18n';
-import { confirmModal } from '../ConfirmModal';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { confirmModal } from '@/components/ConfirmModal';
+import type { useWebSocket } from '@/hooks/useWebSocket';
+import { i18n, useAppTranslation } from '@/i18n';
+import { cn } from '@/lib/utils';
+import type { SessionHistoryEntry } from '@/stores';
+import { useUIStore } from '@/stores';
+
+export type HistoryFilter = 'all' | 'favorites' | 'active' | 'completed' | 'issues';
+export type HistorySort = 'recent' | 'tokens' | 'activity';
+export type HistoryListVariant = 'sidebar' | 'workspace';
 
 interface SessionListProps {
   historyQuery: string;
-  setHistoryQuery: (v: string) => void;
-  historyEntries: ReturnType<typeof useHistoryStore.getState>['entries'];
+  setHistoryQuery: (value: string) => void;
+  historyEntries: SessionHistoryEntry[];
   historyLoading: boolean;
   historyError: string | null;
   wsConnected: boolean;
@@ -26,25 +39,297 @@ interface SessionListProps {
   resumeSession: ReturnType<typeof useWebSocket>['resumeSession'];
   deleteSession: ReturnType<typeof useWebSocket>['deleteSession'];
   renameSession: ReturnType<typeof useWebSocket>['renameSession'];
+  variant?: HistoryListVariant | undefined;
 }
+
+interface HistoryViewOptions {
+  query: string;
+  filter: HistoryFilter;
+  sort: HistorySort;
+  favoriteIds: readonly string[];
+}
+
+export interface SessionHistoryGroup {
+  label: 'favorites' | 'today' | 'yesterday' | 'thisWeek' | 'earlier';
+  rows: SessionHistoryEntry[];
+  favorite?: boolean | undefined;
+}
+
+export interface SessionHistoryStats {
+  sessions: number;
+  active: number;
+  tokens: number;
+  tools: number;
+  files: number;
+  errors: number;
+}
+
+const timestamp = (iso: string | undefined): number => {
+  if (!iso) return 0;
+  const value = Date.parse(iso);
+  return Number.isNaN(value) ? 0 : value;
+};
+
+const activityScore = (entry: SessionHistoryEntry): number =>
+  (entry.iterationCount ?? 0) + (entry.toolCallCount ?? 0) + (entry.fileChangeCount ?? 0);
 
 export const formatRelative = (iso: string): string => {
   const ts = Date.parse(iso);
   if (Number.isNaN(ts)) return '';
-  const diff = Date.now() - ts;
+  const diff = Math.max(0, Date.now() - ts);
   if (diff < 60_000) return i18n.t('common:time.justNow');
-  if (diff < 3_600_000) return i18n.t('common:time.minutesAgo', { count: Math.floor(diff / 60_000) });
-  if (diff < 86_400_000) return i18n.t('common:time.hoursAgo', { count: Math.floor(diff / 3_600_000) });
+  if (diff < 3_600_000) {
+    return i18n.t('common:time.minutesAgo', { count: Math.floor(diff / 60_000) });
+  }
+  if (diff < 86_400_000) {
+    return i18n.t('common:time.hoursAgo', { count: Math.floor(diff / 3_600_000) });
+  }
   const days = Math.floor(diff / 86_400_000);
   if (days < 7) return i18n.t('common:time.daysAgo', { count: days });
   return new Date(ts).toLocaleDateString();
 };
 
-/** Pure function: returns IDs of sessions with tokenTotal === 0, excluding the active session. */
+export function formatSessionDuration(entry: SessionHistoryEntry): string {
+  const start = timestamp(entry.startedAt);
+  if (!start) return '';
+  const end = entry.isCurrent ? Date.now() : timestamp(entry.endedAt) || start;
+  const minutes = Math.max(0, Math.floor((end - start) / 60_000));
+  if (minutes < 1) return '<1m';
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ${minutes % 60}m`;
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`;
+}
+
+export function formatCompactNumber(value: number): string {
+  return new Intl.NumberFormat(undefined, {
+    notation: value >= 1_000 ? 'compact' : 'standard',
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+/** Pure function: returns empty non-active sessions that are safe to offer for cleanup. */
 export function getEmptySessionIds(
   entries: Array<{ id: string; tokenTotal: number; isCurrent: boolean }>,
 ): string[] {
-  return entries.filter((e) => e.tokenTotal === 0 && !e.isCurrent).map((e) => e.id);
+  return entries
+    .filter((entry) => entry.tokenTotal === 0 && !entry.isCurrent)
+    .map((entry) => entry.id);
+}
+
+export function filterAndSortSessions(
+  entries: readonly SessionHistoryEntry[],
+  options: HistoryViewOptions,
+): SessionHistoryEntry[] {
+  const query = options.query.trim().toLocaleLowerCase();
+  const favorites = new Set(options.favoriteIds);
+  const visible = entries.filter((entry) => {
+    const matchesQuery =
+      !query ||
+      [
+        entry.name,
+        entry.title,
+        entry.model,
+        entry.provider,
+        entry.id,
+        ...Object.keys(entry.toolBreakdown ?? {}),
+      ].some((value) => value?.toLocaleLowerCase().includes(query));
+    if (!matchesQuery) return false;
+
+    switch (options.filter) {
+      case 'favorites':
+        return favorites.has(entry.id);
+      case 'active':
+        return entry.isCurrent;
+      case 'completed':
+        return (
+          !entry.isCurrent &&
+          (entry.outcome === 'completed' || (entry.outcome === undefined && Boolean(entry.endedAt)))
+        );
+      case 'issues':
+        return (
+          entry.outcome === 'error' ||
+          entry.outcome === 'timeout' ||
+          entry.outcome === 'aborted' ||
+          (entry.toolErrorCount ?? 0) > 0
+        );
+      default:
+        return true;
+    }
+  });
+
+  return [...visible].sort((a, b) => {
+    if (options.sort === 'tokens' && b.tokenTotal !== a.tokenTotal) {
+      return b.tokenTotal - a.tokenTotal;
+    }
+    if (options.sort === 'activity') {
+      const difference = activityScore(b) - activityScore(a);
+      if (difference !== 0) return difference;
+    }
+    return timestamp(b.startedAt) - timestamp(a.startedAt);
+  });
+}
+
+export function groupSessionHistory(
+  entries: readonly SessionHistoryEntry[],
+  favoriteIds: readonly string[],
+  now = Date.now(),
+): SessionHistoryGroup[] {
+  const day = new Date(now);
+  day.setHours(0, 0, 0, 0);
+  const todayStart = day.getTime();
+  const yesterdayStart = todayStart - 86_400_000;
+  const weekStart = todayStart - 6 * 86_400_000;
+  const favorites = new Set(favoriteIds);
+  const favoriteRows = entries.filter((entry) => favorites.has(entry.id));
+  const buckets: Record<'today' | 'yesterday' | 'thisWeek' | 'earlier', SessionHistoryEntry[]> = {
+    today: [],
+    yesterday: [],
+    thisWeek: [],
+    earlier: [],
+  };
+
+  for (const entry of entries) {
+    if (favorites.has(entry.id)) continue;
+    const startedAt = timestamp(entry.startedAt);
+    if (startedAt >= todayStart) buckets.today.push(entry);
+    else if (startedAt >= yesterdayStart) buckets.yesterday.push(entry);
+    else if (startedAt >= weekStart) buckets.thisWeek.push(entry);
+    else buckets.earlier.push(entry);
+  }
+
+  const groups: SessionHistoryGroup[] = [];
+  if (favoriteRows.length > 0) {
+    groups.push({ label: 'favorites', rows: favoriteRows, favorite: true });
+  }
+  for (const label of ['today', 'yesterday', 'thisWeek', 'earlier'] as const) {
+    if (buckets[label].length > 0) groups.push({ label, rows: buckets[label] });
+  }
+  return groups;
+}
+
+export function getSessionHistoryStats(
+  entries: readonly SessionHistoryEntry[],
+): SessionHistoryStats {
+  return entries.reduce<SessionHistoryStats>(
+    (stats, entry) => ({
+      sessions: stats.sessions + 1,
+      active: stats.active + (entry.isCurrent ? 1 : 0),
+      tokens: stats.tokens + entry.tokenTotal,
+      tools: stats.tools + (entry.toolCallCount ?? 0),
+      files: stats.files + (entry.fileChangeCount ?? 0),
+      errors: stats.errors + (entry.toolErrorCount ?? 0) + (entry.outcome === 'error' ? 1 : 0),
+    }),
+    { sessions: 0, active: 0, tokens: 0, tools: 0, files: 0, errors: 0 },
+  );
+}
+
+function outcomeMeta(entry: SessionHistoryEntry): {
+  icon: typeof Activity;
+  label: 'active' | 'completed' | 'error' | 'timeout' | 'aborted' | 'saved';
+  defaultLabel: string;
+  className: string;
+} {
+  if (entry.isCurrent) {
+    return { icon: Activity, label: 'active', defaultLabel: 'Active', className: 'text-primary' };
+  }
+  switch (entry.outcome) {
+    case 'completed':
+      return {
+        icon: CheckCircle2,
+        label: 'completed',
+        defaultLabel: 'Completed',
+        className: 'text-success',
+      };
+    case 'error':
+      return {
+        icon: AlertTriangle,
+        label: 'error',
+        defaultLabel: 'Error',
+        className: 'text-destructive',
+      };
+    case 'timeout':
+      return {
+        icon: Clock3,
+        label: 'timeout',
+        defaultLabel: 'Timed out',
+        className: 'text-warning',
+      };
+    case 'aborted':
+      return {
+        icon: CircleStop,
+        label: 'aborted',
+        defaultLabel: 'Aborted',
+        className: 'text-muted-foreground',
+      };
+    default:
+      return entry.endedAt
+        ? {
+            icon: CheckCircle2,
+            label: 'completed',
+            defaultLabel: 'Completed',
+            className: 'text-success',
+          }
+        : {
+            icon: History,
+            label: 'saved',
+            defaultLabel: 'Saved session',
+            className: 'text-muted-foreground',
+          };
+  }
+}
+
+function HistoryStats({ stats }: { stats: SessionHistoryStats }) {
+  const { t } = useAppTranslation();
+  const items = [
+    {
+      label: t('activity:sessions.stats.sessions', { defaultValue: 'Sessions' }),
+      value: stats.sessions,
+      icon: History,
+    },
+    {
+      label: t('activity:sessions.stats.tokens', { defaultValue: 'Tokens' }),
+      value: stats.tokens,
+      icon: Activity,
+    },
+    {
+      label: t('activity:sessions.stats.tools', { defaultValue: 'Tool calls' }),
+      value: stats.tools,
+      icon: Wrench,
+    },
+    {
+      label: t('activity:sessions.stats.files', { defaultValue: 'Files changed' }),
+      value: stats.files,
+      icon: FileCode2,
+    },
+    {
+      label: t('activity:sessions.stats.errors', { defaultValue: 'Errors' }),
+      value: stats.errors,
+      icon: AlertTriangle,
+    },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 border-b border-border/75 bg-card md:grid-cols-5">
+      {items.map((item) => {
+        const Icon = item.icon;
+        return (
+          <div
+            key={item.label}
+            className="border-b border-r border-border/75 px-4 py-3 md:border-b-0"
+          >
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              <Icon className="h-3 w-3" />
+              {item.label}
+            </div>
+            <div className="mt-1 font-mono text-xl font-semibold tabular-nums">
+              {formatCompactNumber(item.value)}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 export function SessionList({
@@ -58,50 +343,91 @@ export function SessionList({
   resumeSession,
   deleteSession,
   renameSession,
+  variant = 'sidebar',
 }: SessionListProps) {
-  const favoriteSessionIds = useUIStore((s) => s.favoriteSessionIds);
   const { t } = useAppTranslation();
-  const toggleFavoriteSession = useUIStore((s) => s.toggleFavoriteSession);
-  const sessionNicknames = useUIStore((s) => s.sessionNicknames);
-  const setSessionNickname = useUIStore((s) => s.setSessionNickname);
+  const favoriteSessionIds = useUIStore((state) => state.favoriteSessionIds);
+  const toggleFavoriteSession = useUIStore((state) => state.toggleFavoriteSession);
+  const sessionNicknames = useUIStore((state) => state.sessionNicknames);
+  const setSessionNickname = useUIStore((state) => state.setSessionNickname);
+  const [filter, setFilter] = useState<HistoryFilter>('all');
+  const [sort, setSort] = useState<HistorySort>('recent');
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
+  const [resumingId, setResumingId] = useState<string | null>(null);
+  const resumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const renameInput = useRef<HTMLInputElement | null>(null);
+  const workspace = variant === 'workspace';
 
-  // Persist a rename: keep the local nickname cache in sync (instant label
-  // feedback) AND send it to the server so it survives reload/other clients.
-  // An empty draft clears the name (the auto-derived title takes over again).
-  const commitRename = useCallback(
-    (id: string, draft: string) => {
-      setRenamingId(null);
-      setSessionNickname(id, draft);
-      renameSession(id, draft);
-    },
-    [renameSession, setSessionNickname],
+  const displayName = useCallback(
+    (entry: SessionHistoryEntry) =>
+      entry.name || sessionNicknames[entry.id] || entry.title || t('activity:sessions.empty'),
+    [sessionNicknames, t],
   );
 
-  // Resume-in-flight feedback: mark the clicked row until the server's
-  // session.start lands (the refreshed list flips isCurrent) and block
-  // double-resumes meanwhile. A failed resume only toasts, so a timeout
-  // releases the lock.
-  const [resumingId, setResumingId] = useState<string | null>(null);
+  const beginRename = useCallback(
+    (entry: SessionHistoryEntry) => {
+      setRenamingId(entry.id);
+      setRenameDraft(entry.name ?? sessionNicknames[entry.id] ?? entry.title ?? '');
+    },
+    [sessionNicknames],
+  );
+
+  const commitRename = useCallback(
+    (id: string) => {
+      setRenamingId(null);
+      setSessionNickname(id, renameDraft);
+      renameSession(id, renameDraft);
+    },
+    [renameDraft, renameSession, setSessionNickname],
+  );
+
   useEffect(() => {
-    if (resumingId && historyEntries.some((e) => e.id === resumingId && e.isCurrent)) {
+    if (resumingId && historyEntries.some((entry) => entry.id === resumingId && entry.isCurrent)) {
       setResumingId(null);
+      if (resumeTimer.current) clearTimeout(resumeTimer.current);
     }
-  }, [resumingId, historyEntries]);
+  }, [historyEntries, resumingId]);
+
+  useEffect(() => {
+    if (!renamingId) return;
+    renameInput.current?.focus();
+    renameInput.current?.select();
+  }, [renamingId]);
+
+  useEffect(
+    () => () => {
+      if (resumeTimer.current) clearTimeout(resumeTimer.current);
+    },
+    [],
+  );
+
   const handleResume = useCallback(
     (id: string) => {
       setResumingId(id);
       resumeSession(id);
-      setTimeout(() => setResumingId((cur) => (cur === id ? null : cur)), 10_000);
+      if (resumeTimer.current) clearTimeout(resumeTimer.current);
+      resumeTimer.current = setTimeout(() => setResumingId(null), 10_000);
     },
     [resumeSession],
   );
 
-  const emptySessionIds = useMemo(
-    () => getEmptySessionIds(historyEntries),
-    [historyEntries],
+  const emptySessionIds = useMemo(() => getEmptySessionIds(historyEntries), [historyEntries]);
+  const visibleEntries = useMemo(
+    () =>
+      filterAndSortSessions(historyEntries, {
+        query: historyQuery,
+        filter,
+        sort,
+        favoriteIds: favoriteSessionIds,
+      }),
+    [favoriteSessionIds, filter, historyEntries, historyQuery, sort],
   );
+  const groupedHistory = useMemo(
+    () => groupSessionHistory(visibleEntries, favoriteSessionIds),
+    [favoriteSessionIds, visibleEntries],
+  );
+  const stats = useMemo(() => getSessionHistoryStats(historyEntries), [historyEntries]);
 
   const handleDeleteEmpty = useCallback(async () => {
     if (emptySessionIds.length === 0) return;
@@ -114,200 +440,377 @@ export function SessionList({
     if (ok) {
       for (const id of emptySessionIds) deleteSession(id);
     }
-  }, [emptySessionIds, deleteSession]);
+  }, [deleteSession, emptySessionIds, t]);
 
-  const groupedHistory = (() => {
-    const q = historyQuery.trim().toLowerCase();
-    const filtered = q
-      ? historyEntries.filter(
-          (e) =>
-            (e.name?.toLowerCase().includes(q) ?? false) ||
-            e.title.toLowerCase().includes(q) ||
-            e.model.toLowerCase().includes(q) ||
-            e.provider.toLowerCase().includes(q) ||
-            e.id.toLowerCase().includes(q),
-        )
-      : historyEntries;
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    const todayStart = startOfDay.getTime();
-    const yesterdayStart = todayStart - 86_400_000;
-    const weekStart = todayStart - 6 * 86_400_000;
-    const buckets = { today: [] as typeof historyEntries, yesterday: [] as typeof historyEntries, week: [] as typeof historyEntries, older: [] as typeof historyEntries };
-    for (const e of filtered) {
-      const ts = Date.parse(e.startedAt);
-      if (Number.isNaN(ts)) { buckets.older.push(e); continue; }
-      if (ts >= todayStart) buckets.today.push(e);
-      else if (ts >= yesterdayStart) buckets.yesterday.push(e);
-      else if (ts >= weekStart) buckets.week.push(e);
-      else buckets.older.push(e);
-    }
-    const favSet = new Set(favoriteSessionIds);
-    const favorites = filtered.filter((e) => favSet.has(e.id));
-    const out: Array<{ label: string; rows: typeof historyEntries; star?: boolean | undefined }> = [];
-    if (favorites.length) out.push({ label: 'favorites', rows: favorites, star: true });
-    const dedupe = (arr: typeof historyEntries) => arr.filter((e) => !favSet.has(e.id));
-    const today = dedupe(buckets.today);
-    const yesterday = dedupe(buckets.yesterday);
-    const week = dedupe(buckets.week);
-    const older = dedupe(buckets.older);
-    if (today.length) out.push({ label: 'today', rows: today });
-    if (yesterday.length) out.push({ label: 'yesterday', rows: yesterday });
-    if (week.length) out.push({ label: 'thisWeek', rows: week });
-    if (older.length) out.push({ label: 'earlier', rows: older });
-    return out;
-  })();
+  const filterOptions: Array<{ id: HistoryFilter; label: string }> = [
+    { id: 'all', label: t('activity:sessions.filters.all', { defaultValue: 'All' }) },
+    {
+      id: 'favorites',
+      label: t('activity:sessions.filters.favorites', { defaultValue: 'Pinned' }),
+    },
+    { id: 'active', label: t('activity:sessions.filters.active', { defaultValue: 'Active' }) },
+    {
+      id: 'completed',
+      label: t('activity:sessions.filters.completed', { defaultValue: 'Completed' }),
+    },
+    { id: 'issues', label: t('activity:sessions.filters.issues', { defaultValue: 'Issues' }) },
+  ];
 
   return (
-    <>
-      <div className="flex items-center justify-between px-4 py-2 border-b">
-        <span className="text-xs uppercase tracking-wider text-muted-foreground">{t('activity:sessions.recentSessions')}</span>
-        <div className="flex items-center gap-1">
-          {emptySessionIds.length > 0 && (
+    <div
+      className="flex min-h-0 min-w-0 flex-1 flex-col bg-background"
+      data-history-variant={variant}
+    >
+      {workspace ? <HistoryStats stats={stats} /> : null}
+
+      <div
+        className={cn('border-b border-border/75 bg-card', workspace ? 'px-4 py-3' : 'px-3 py-2')}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              {t('activity:sessions.recentSessions')}
+            </div>
+            {workspace ? (
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {t('activity:sessions.workspaceHint', {
+                  defaultValue: 'Search, inspect, pin and resume every project conversation.',
+                })}
+              </p>
+            ) : null}
+          </div>
+          <div className="flex shrink-0 items-center border border-border/75">
+            {emptySessionIds.length > 0 ? (
+              <button
+                type="button"
+                className="inline-flex h-8 items-center justify-center gap-1 border-r border-border/75 px-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
+                onClick={handleDeleteEmpty}
+                disabled={!wsConnected}
+                title={t('activity:sessions.deleteEmptyTitle', { count: emptySessionIds.length })}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                {workspace ? <span className="text-[10px]">{emptySessionIds.length}</span> : null}
+              </button>
+            ) : null}
             <button
               type="button"
-              className="h-6 w-6 inline-flex items-center justify-center rounded-md hover:bg-muted text-muted-foreground hover:text-destructive"
-              onClick={handleDeleteEmpty}
+              className="inline-flex h-8 w-8 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+              onClick={() => listSessions(200)}
               disabled={!wsConnected}
-              title={t('activity:sessions.deleteEmptyTitle', { count: emptySessionIds.length })}
+              title={t('common:action.refresh')}
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              {historyLoading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
             </button>
+          </div>
+        </div>
+
+        <div
+          className={cn(
+            'grid gap-2',
+            workspace ? 'mt-3 lg:grid-cols-[minmax(18rem,1fr)_auto_auto]' : 'mt-2',
           )}
-          <button
-            type="button"
-            className="h-6 w-6 inline-flex items-center justify-center rounded-md hover:bg-muted"
-            onClick={() => listSessions(50)}
-            disabled={!wsConnected}
-            title={t('common:action.refresh')}
+        >
+          <div className="relative min-w-0">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="search"
+              value={historyQuery}
+              onChange={(event) => setHistoryQuery(event.target.value)}
+              placeholder={t('activity:sessions.filterPlaceholder')}
+              aria-label={t('activity:sessions.filterPlaceholder')}
+              className="h-9 w-full border border-border/75 bg-background pl-8 pr-8 text-xs outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-primary focus:ring-1 focus:ring-primary"
+            />
+            {historyQuery ? (
+              <button
+                type="button"
+                onClick={() => setHistoryQuery('')}
+                className="absolute right-0 top-0 inline-flex h-9 w-8 items-center justify-center text-muted-foreground hover:text-foreground"
+                title={t('activity:sessions.clearFilter')}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+          </div>
+
+          <fieldset className="flex min-w-0 overflow-x-auto border border-border/75">
+            <legend className="sr-only">History filters</legend>
+            {filterOptions.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setFilter(option.id)}
+                aria-pressed={filter === option.id}
+                className={cn(
+                  'h-9 shrink-0 border-r border-border/75 px-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] transition-colors last:border-r-0',
+                  filter === option.id
+                    ? 'bg-foreground text-background'
+                    : 'bg-background text-muted-foreground hover:bg-muted hover:text-foreground',
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </fieldset>
+
+          <select
+            value={sort}
+            onChange={(event) => setSort(event.target.value as HistorySort)}
+            aria-label={t('activity:sessions.sort.label', { defaultValue: 'Sort sessions' })}
+            className="h-9 border border-border/75 bg-background px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground outline-none focus:border-primary"
           >
-            {historyLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-          </button>
+            <option value="recent">
+              {t('activity:sessions.sort.recent', { defaultValue: 'Recent' })}
+            </option>
+            <option value="tokens">
+              {t('activity:sessions.sort.tokens', { defaultValue: 'Most tokens' })}
+            </option>
+            <option value="activity">
+              {t('activity:sessions.sort.activity', { defaultValue: 'Most activity' })}
+            </option>
+          </select>
         </div>
       </div>
-      {historyEntries.length > 3 && (
-        <div className="px-3 py-2 border-b">
-          <div className="relative">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/75" />
-            <input
-              type="text"
-              value={historyQuery}
-              onChange={(e) => setHistoryQuery(e.target.value)}
-              placeholder={t('activity:sessions.filterPlaceholder')}
-              className="w-full pl-7 pr-7 py-1 text-xs rounded-md bg-muted/40 border border-transparent focus:bg-background focus:border-input focus:outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/70"
-            />
-            {historyQuery && (
-              <button type="button" onClick={() => setHistoryQuery('')} className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground/75 hover:text-foreground p-0.5" title={t('activity:sessions.clearFilter')}>
-                <X className="h-3 w-3" />
-              </button>
-            )}
-          </div>
+
+      {historyError ? (
+        <div className="border-b border-destructive/30 bg-destructive/5 px-4 py-2 text-xs text-destructive">
+          {historyError}
         </div>
-      )}
-      {historyError && (
-        <div className="px-4 py-2 text-xs text-destructive bg-destructive/5 border-b">{historyError}</div>
-      )}
+      ) : null}
+
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
         {historyEntries.length === 0 && !historyLoading ? (
-          <div className="text-center text-muted-foreground py-8 px-4">
-            <History className="h-8 w-8 mx-auto mb-3 opacity-20" />
-            <p className="text-sm font-medium">{t('activity:sessions.noHistory')}</p>
-            <p className="text-xs mt-1">{t('activity:sessions.noHistoryHint')}</p>
+          <div className="flex min-h-56 flex-col items-center justify-center px-4 py-10 text-center text-muted-foreground">
+            <History className="h-9 w-9 opacity-25" />
+            <p className="mt-3 text-sm font-medium text-foreground">
+              {t('activity:sessions.noHistory')}
+            </p>
+            <p className="mt-1 text-xs">{t('activity:sessions.noHistoryHint')}</p>
           </div>
         ) : groupedHistory.length === 0 ? (
-          <div className="text-center text-muted-foreground py-8 px-4">
-            <Search className="h-8 w-8 mx-auto mb-3 opacity-20" />
-            <p className="text-sm font-medium">{t('activity:sessions.noMatches')}</p>
-            <p className="text-xs mt-1">{t('activity:sessions.noMatchesHint')}</p>
+          <div className="flex min-h-56 flex-col items-center justify-center px-4 py-10 text-center text-muted-foreground">
+            <Search className="h-9 w-9 opacity-25" />
+            <p className="mt-3 text-sm font-medium text-foreground">
+              {t('activity:sessions.noMatches')}
+            </p>
+            <p className="mt-1 text-xs">{t('activity:sessions.noMatchesHint')}</p>
           </div>
         ) : (
-          <div className="p-2 space-y-3">
-            {groupedHistory.map((group) => (
-              <div key={group.label} className="space-y-1">
-                <div className={cn('sticky top-0 z-[1] px-1 pb-1 text-[10px] uppercase tracking-wider font-semibold bg-card/90 backdrop-blur-sm flex items-center gap-1', group.star ? 'text-warning' : 'text-muted-foreground/80')}>
-                  {group.star && <Star className="h-3 w-3 fill-current" />}
-                  {t(`activity:sessions.group.${group.label}`)} <span className="text-muted-foreground/70 font-normal normal-case ml-1">({group.rows.length})</span>
-                </div>
-                {group.rows.map((entry) => (
-                  <div key={entry.id} className={cn('group relative rounded-md border text-sm transition-colors', entry.isCurrent ? 'bg-primary/5 border-primary/40' : 'bg-card border-border/60 hover:bg-muted/40 hover:border-primary/40')}>
-                    <button
-                      type="button"
-                      disabled={entry.isCurrent || renamingId === entry.id || resumingId !== null}
-                      onClick={() => handleResume(entry.id)}
-                      onDoubleClick={(e) => { e.stopPropagation(); setRenamingId(entry.id); setRenameDraft(sessionNicknames[entry.id] ?? entry.name ?? entry.title ?? ''); }}
-                      className="block w-full rounded-md px-3 py-2 pr-16 text-left disabled:cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      <div className="min-w-0 flex-1">
-                        {renamingId === entry.id ? (
-                          <input
-                            value={renameDraft}
-                            onChange={(e) => setRenameDraft(e.target.value)}
-                            onClick={(e) => e.stopPropagation()}
-                            onBlur={() => commitRename(entry.id, renameDraft)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitRename(entry.id, renameDraft); } else if (e.key === 'Escape') { e.preventDefault(); setRenamingId(null); } }}
-                            placeholder={entry.title || t('activity:sessions.nicknamePlaceholder')}
-                            className="w-full text-sm bg-background border border-input rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-ring"
-                          />
-                        ) : (
-                          <div className="font-medium truncate text-foreground" title={sessionNicknames[entry.id] ?? entry.name ?? entry.title ? t('activity:sessions.renameTitleNickname', { nickname: sessionNicknames[entry.id] ?? entry.name ?? entry.title, title: entry.title }) : t('activity:sessions.renameTitle', { title: entry.title })}>
-                            {sessionNicknames[entry.id] || entry.name || entry.title || t('activity:sessions.empty')}
-                          </div>
-                        )}
-                        <div className="text-[10px] text-muted-foreground font-mono truncate mt-0.5">{entry.provider}/{entry.model}</div>
-                        <div className="flex items-center gap-2 text-[10px] text-muted-foreground/80 mt-0.5">
-                          {resumingId === entry.id ? (
-                            <span className="flex items-center gap-1 text-primary font-medium">
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                              {t('activity:sessions.resuming')}
-                            </span>
-                          ) : (
-                            <span>{formatRelative(entry.startedAt)}</span>
-                          )}
-                          {entry.tokenTotal > 0 && <><span className="opacity-50">·</span><span className="tabular-nums">{entry.tokenTotal.toLocaleString()} tok</span></>}
-                          {entry.isCurrent && <><span className="opacity-50">·</span><span className="text-primary font-medium">{t('activity:sessions.active')}</span></>}
-                        </div>
-                      </div>
-                    </button>
-                    <div className="absolute right-2 top-2 flex items-center gap-1">
-                      <button type="button" onClick={() => toggleFavoriteSession(entry.id)} className={cn('transition-opacity hover:text-warning', favoriteSessionIds.includes(entry.id) ? 'opacity-100 text-warning' : 'opacity-0 group-hover:opacity-100 text-muted-foreground')} title={favoriteSessionIds.includes(entry.id) ? t('activity:sessions.unfavorite') : t('activity:sessions.markFavorite')}>
-                        <Star className={cn('h-3.5 w-3.5', favoriteSessionIds.includes(entry.id) && 'fill-current')} />
-                      </button>
-                      {renamingId !== entry.id && (
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); setRenamingId(entry.id); setRenameDraft(sessionNicknames[entry.id] ?? entry.name ?? entry.title ?? ''); }}
-                          className={cn('transition-opacity hover:text-primary', (entry.name || sessionNicknames[entry.id]) ? 'opacity-100 text-primary/70' : 'opacity-0 group-hover:opacity-100 text-muted-foreground')}
-                          title={t('activity:sessions.rename', { defaultValue: 'Rename' })}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                      {!entry.isCurrent && (
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            const ok = await confirmModal({
-                              title: t('activity:sessions.deleteSessionConfirmTitle'),
-                              message: t('activity:sessions.deleteSessionConfirmBody', { name: sessionNicknames[entry.id] || entry.title || t('activity:sessions.empty') }),
-                              confirmLabel: t('common:action.delete'),
-                              danger: true,
-                            });
-                            if (ok) deleteSession(entry.id);
-                          }}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
-                          title={t('activity:sessions.deleteSessionTitle')}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      )}
-                    </div>
+          <div className={cn(workspace ? 'mx-auto w-full max-w-7xl p-4 lg:p-6' : 'p-2')}>
+            <div className={cn('space-y-5', workspace && 'grid gap-x-5 space-y-0 xl:grid-cols-2')}>
+              {groupedHistory.map((group) => (
+                <section key={group.label} className="min-w-0">
+                  <div
+                    className={cn(
+                      'sticky top-0 z-[1] flex items-center gap-1 border-b border-border/75 bg-background/95 px-1 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] backdrop-blur-sm',
+                      group.favorite ? 'text-warning' : 'text-muted-foreground',
+                    )}
+                  >
+                    {group.favorite ? <Star className="h-3 w-3 fill-current" /> : null}
+                    {t(`activity:sessions.group.${group.label}`)}
+                    <span className="ml-1 font-mono font-normal text-muted-foreground">
+                      {group.rows.length}
+                    </span>
                   </div>
-                ))}
-              </div>
-            ))}
+
+                  <div className="divide-y divide-border/75 border-x border-b border-border/75">
+                    {group.rows.map((entry) => {
+                      const favorite = favoriteSessionIds.includes(entry.id);
+                      const meta = outcomeMeta(entry);
+                      const StatusIcon = meta.icon;
+                      const isRenaming = renamingId === entry.id;
+                      const isResuming = resumingId === entry.id;
+
+                      return (
+                        <article
+                          key={entry.id}
+                          className={cn(
+                            'group grid min-w-0 grid-cols-[minmax(0,1fr)_auto] bg-card transition-colors',
+                            entry.isCurrent
+                              ? 'border-l-2 border-l-primary bg-primary/5'
+                              : 'border-l-2 border-l-transparent hover:bg-muted/45',
+                          )}
+                          data-session-id={entry.id}
+                        >
+                          {isRenaming ? (
+                            <div className="min-w-0 px-3 py-3">
+                              <label
+                                className="block text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground"
+                                htmlFor={`session-name-${entry.id}`}
+                              >
+                                {t('activity:sessions.rename', { defaultValue: 'Session name' })}
+                              </label>
+                              <input
+                                ref={renameInput}
+                                id={`session-name-${entry.id}`}
+                                value={renameDraft}
+                                onChange={(event) => setRenameDraft(event.target.value)}
+                                onBlur={() => commitRename(entry.id)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter') {
+                                    event.preventDefault();
+                                    commitRename(entry.id);
+                                  } else if (event.key === 'Escape') {
+                                    event.preventDefault();
+                                    setRenamingId(null);
+                                  }
+                                }}
+                                placeholder={
+                                  entry.title || t('activity:sessions.nicknamePlaceholder')
+                                }
+                                className="mt-1 h-8 w-full border border-primary bg-background px-2 text-sm outline-none ring-1 ring-primary"
+                              />
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={entry.isCurrent || resumingId !== null}
+                              onClick={() => handleResume(entry.id)}
+                              onDoubleClick={() => beginRename(entry)}
+                              aria-current={entry.isCurrent ? 'page' : undefined}
+                              className="min-w-0 px-3 py-3 text-left outline-none focus-visible:bg-muted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary disabled:cursor-default"
+                            >
+                              <div className="flex min-w-0 items-start gap-2">
+                                <span
+                                  className={cn('mt-0.5 shrink-0', meta.className)}
+                                  title={t(`activity:sessions.status.${meta.label}`, {
+                                    defaultValue: meta.defaultLabel,
+                                  })}
+                                >
+                                  <StatusIcon
+                                    className={cn(
+                                      'h-3.5 w-3.5',
+                                      entry.isCurrent && 'animate-pulse',
+                                    )}
+                                  />
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                  <div
+                                    className="truncate text-sm font-semibold text-foreground"
+                                    title={displayName(entry)}
+                                  >
+                                    {displayName(entry)}
+                                  </div>
+                                  <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+                                    {entry.provider}/{entry.model}
+                                  </div>
+                                  <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10px] text-muted-foreground">
+                                    {isResuming ? (
+                                      <span className="inline-flex items-center gap-1 font-sans font-semibold text-primary">
+                                        <Loader2 className="h-3 w-3 animate-spin" />
+                                        {t('activity:sessions.resuming')}
+                                      </span>
+                                    ) : (
+                                      <span title={new Date(entry.startedAt).toLocaleString()}>
+                                        {formatRelative(entry.startedAt)}
+                                      </span>
+                                    )}
+                                    <span aria-hidden="true">·</span>
+                                    <span>{formatSessionDuration(entry)}</span>
+                                    {entry.tokenTotal > 0 ? (
+                                      <span>{formatCompactNumber(entry.tokenTotal)} tok</span>
+                                    ) : null}
+                                    {(entry.toolCallCount ?? 0) > 0 ? (
+                                      <span className="inline-flex items-center gap-1">
+                                        <Wrench className="h-3 w-3" />
+                                        {entry.toolCallCount}
+                                      </span>
+                                    ) : null}
+                                    {(entry.fileChangeCount ?? 0) > 0 ? (
+                                      <span className="inline-flex items-center gap-1">
+                                        <FileCode2 className="h-3 w-3" />
+                                        {entry.fileChangeCount}
+                                      </span>
+                                    ) : null}
+                                    {(entry.toolErrorCount ?? 0) > 0 ? (
+                                      <span className="inline-flex items-center gap-1 text-destructive">
+                                        <AlertTriangle className="h-3 w-3" />
+                                        {entry.toolErrorCount}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              </div>
+                            </button>
+                          )}
+
+                          <div className="flex items-start gap-0.5 p-2">
+                            {!entry.isCurrent && workspace && !isRenaming ? (
+                              <button
+                                type="button"
+                                onClick={() => handleResume(entry.id)}
+                                disabled={resumingId !== null}
+                                className="inline-flex h-7 items-center gap-1 border border-border/75 px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground hover:border-primary hover:text-primary disabled:opacity-40"
+                                title={t('activity:sessions.resume', {
+                                  defaultValue: 'Resume session',
+                                })}
+                              >
+                                <Play className="h-3 w-3" />
+                                {t('activity:sessions.resumeShort', { defaultValue: 'Resume' })}
+                              </button>
+                            ) : null}
+                            <button
+                              type="button"
+                              onClick={() => toggleFavoriteSession(entry.id)}
+                              aria-pressed={favorite}
+                              className={cn(
+                                'inline-flex h-7 w-7 items-center justify-center transition-colors hover:bg-warning/10 hover:text-warning',
+                                favorite ? 'text-warning' : 'text-muted-foreground',
+                              )}
+                              title={
+                                favorite
+                                  ? t('activity:sessions.unfavorite')
+                                  : t('activity:sessions.markFavorite')
+                              }
+                            >
+                              <Star className={cn('h-3.5 w-3.5', favorite && 'fill-current')} />
+                            </button>
+                            {!isRenaming ? (
+                              <button
+                                type="button"
+                                onClick={() => beginRename(entry)}
+                                className="inline-flex h-7 w-7 items-center justify-center text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                                title={t('activity:sessions.renameAction', {
+                                  defaultValue: 'Rename',
+                                })}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            ) : null}
+                            {!entry.isCurrent ? (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const ok = await confirmModal({
+                                    title: t('activity:sessions.deleteSessionConfirmTitle'),
+                                    message: t('activity:sessions.deleteSessionConfirmBody', {
+                                      name: displayName(entry),
+                                    }),
+                                    confirmLabel: t('common:action.delete'),
+                                    danger: true,
+                                  });
+                                  if (ok) deleteSession(entry.id);
+                                }}
+                                className="inline-flex h-7 w-7 items-center justify-center text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                                title={t('activity:sessions.deleteSessionTitle')}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            ) : null}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+            </div>
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 }

@@ -184,6 +184,12 @@ const profiles = {
   },
   '@wrongstack/sdd': standard(['@wrongstack/core']),
   '@wrongstack/security-scanner': standard(['@wrongstack/core']),
+  '@wrongstack/simpleui': {
+    entries: { index: 'src/index.ts' },
+    target: 'es2022',
+    platform: 'browser',
+    clean: false,
+  },
   '@wrongstack/super-memory': standard(['@wrongstack/core', '@wrongstack/core/utils']),
   '@wrongstack/telegram': standard(['@wrongstack/core']),
   '@wrongstack/tools': {

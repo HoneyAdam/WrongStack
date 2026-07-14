@@ -5,7 +5,7 @@ import type { FileReference } from '@/stores/file-reference-store';
 import { X } from 'lucide-react';
 
 interface FileReferenceChipProps {
-  ref: FileReference;
+  reference: FileReference;
   onRemove: () => void;
 }
 
@@ -20,18 +20,18 @@ function tooltipText(ref: FileReference): string {
   return `${ref.path}:${ref.startLine}-${ref.endLine}\n${lines}${preview.split('\n').length > 6 ? '\n…' : ''}`;
 }
 
-export function FileReferenceChip({ ref, onRemove }: FileReferenceChipProps) {
+export function FileReferenceChip({ reference, onRemove }: FileReferenceChipProps) {
   const { t } = useAppTranslation();
-  const name = basename(ref.path);
+  const name = basename(reference.path);
   const Icon = fileIcon(name);
   const colorClass = fileIconColor(name, false);
-  const label = ref.kind === 'file' ? name : `${name}:${ref.startLine}-${ref.endLine}`;
-  const lineCount = ref.kind === 'snippet' ? ref.content.split('\n').length : 0;
+  const label = reference.kind === 'file' ? name : `${name}:${reference.startLine}-${reference.endLine}`;
+  const lineCount = reference.kind === 'snippet' ? reference.content.split('\n').length : 0;
   const snippetBadge = lineCount > 0 ? t('activity:fileRef.linesCount', { count: lineCount }) : null;
 
   return (
     <div
-      title={tooltipText(ref)}
+      title={tooltipText(reference)}
       className={cn(
         'inline-flex items-center gap-1.5 max-w-[180px] shrink-0',
         'rounded-full border border-border bg-muted/60 pl-2 pr-1 py-0.5',

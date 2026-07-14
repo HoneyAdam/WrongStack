@@ -10,6 +10,7 @@ import {
   nowIso,
   writeKeysBack,
 } from '../provider-config.js';
+import { type AgentConfigContext, applyModelSwitch } from './agent-config.js';
 import type { WsHandlerContext } from './index.js';
 
 /**
@@ -33,6 +34,33 @@ function sendResult(ctx: WsHandlerContext, ws: WebSocket, success: boolean, mess
 
 /** Shared scrubber for provider health probes — redacts secrets from probe detail. */
 const probeScrubber = new DefaultSecretScrubber();
+
+/**
+ * Probe a saved provider's OpenAI-compatible `/v1/models` and map the
+ * discovered ids into the same descriptor shape `resolveProviderModelList`
+ * emits, so the WebUI model dropdown can render them. Returns `[]` on any
+ * failure (unreachable, auth error, non-OpenAI shape) — the caller treats
+ * that identically to "no models resolved".
+ */
+async function probeModelDescriptors(
+  cfg: ProviderConfig,
+): Promise<Array<{ id: string; name: string; capabilities: [] }>> {
+  if (!cfg.baseUrl) return [];
+  try {
+    const keys = normalizeKeys(cfg);
+    const active = keys.find((k) => k.label === cfg.activeKey) ?? keys[0];
+    const result = await probeLocalLlm({
+      baseUrl: cfg.baseUrl,
+      apiKey: active?.apiKey,
+      noAuth: false,
+      scrubber: probeScrubber,
+    });
+    if (!result.ok || !result.modelIds) return [];
+    return result.modelIds.map((id) => ({ id, name: id, capabilities: [] as [] }));
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Re-broadcast the saved-providers projection to every client. Shared by the
@@ -134,12 +162,23 @@ export async function handleProviderModels(
       siblingId && siblingId !== providerId
         ? await ctx.modelsRegistry.getProvider(siblingId).catch(() => undefined)
         : undefined;
+    let models = resolveProviderModelList(
+      cfg?.models,
+      provider,
+      cfg?.type ?? providerId,
+      siblingCatalog,
+    );
+    // A config-only custom provider with no saved `models` allowlist and no
+    // catalog entry resolves to an EMPTY list — the WebUI model dropdown then
+    // shows "no models". If it exposes an OpenAI-compatible `/v1/models`, probe
+    // it live so the user can actually pick a model. Best-effort: a down server
+    // just leaves the list empty (unchanged from before).
+    if (models.length === 0 && cfg?.baseUrl) {
+      models = await probeModelDescriptors(cfg);
+    }
     ctx.send(ws, {
       type: 'provider.models',
-      payload: {
-        provider: providerId,
-        models: resolveProviderModelList(cfg?.models, provider, cfg?.type ?? providerId, siblingCatalog),
-      },
+      payload: { provider: providerId, models },
     });
   } catch (err) {
     sendResult(ctx, ws, false, toErrorMessage(err));
@@ -282,6 +321,43 @@ export async function handleProviderAdd(
     broadcastSaved(ctx, providers);
   } catch (err) {
     sendResult(ctx, ws, false, toErrorMessage(err));
+  }
+}
+
+/**
+ * Adopt `providerId` as the live agent's active provider/model when the agent
+ * has no usable model yet — the in-session counterpart to the boot auto-select,
+ * so the first provider a user adds in the WebUI is immediately usable instead
+ * of leaving a blank model. No-op (never hijacks) once any model is active.
+ * Resolves the model from the saved allowlist, then the catalog, then a live
+ * `/v1/models` probe. Best-effort: a failure just leaves the state unchanged.
+ */
+export async function adoptDefaultProviderIfUnset(
+  agentCtx: AgentConfigContext,
+  wsCtx: WsHandlerContext,
+  providerId: string,
+): Promise<void> {
+  if (agentCtx.agent.ctx.model) return; // already has a usable default
+  const saved = await wsCtx.providerStore.load();
+  const cfg = saved[providerId];
+  if (!cfg) return;
+
+  let model = cfg.models?.[0];
+  if (!model && wsCtx.modelsRegistry) {
+    const catalogId = cfg.type && cfg.type !== providerId ? cfg.type : providerId;
+    const catalog = await wsCtx.modelsRegistry.getProvider(catalogId).catch(() => undefined);
+    model = catalog?.models?.[0]?.id;
+  }
+  if (!model) {
+    const probed = await probeModelDescriptors(cfg);
+    model = probed[0]?.id;
+  }
+  if (!model) return;
+
+  try {
+    await applyModelSwitch(agentCtx, providerId, model);
+  } catch {
+    /* best-effort — the model becomes the default on the next session start */
   }
 }
 

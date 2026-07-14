@@ -1,6 +1,5 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { toErrorMessage } from '@wrongstack/core/utils';
 import {
   type Agent,
   DefaultSessionRewinder,
@@ -8,6 +7,8 @@ import {
   type SessionWriter,
 } from '@wrongstack/core';
 import { DefaultSessionStore } from '@wrongstack/core/storage';
+import { toErrorMessage } from '@wrongstack/core/utils';
+import { toSessionHistoryEntries } from '@wrongstack/webui-server';
 import type { WebSocket } from 'ws';
 import type { WsCommon } from './index.js';
 
@@ -52,7 +53,8 @@ function sessionPayload<T extends Record<string, unknown>>(
   payload: T,
 ): T & { sessionId: string } {
   const provided = payload['sessionId'];
-  const sessionId = typeof provided === 'string' && provided.length > 0 ? provided : currentSessionId(ctx);
+  const sessionId =
+    typeof provided === 'string' && provided.length > 0 ? provided : currentSessionId(ctx);
   return { ...payload, sessionId };
 }
 
@@ -91,15 +93,7 @@ export async function handleSessionsList(
     ctx.send(ws, {
       type: 'sessions.list',
       payload: {
-        sessions: list.map((s) => ({
-          id: s.id,
-          title: s.title,
-          startedAt: s.startedAt,
-          model: s.model,
-          provider: s.provider,
-          tokenTotal: s.tokenTotal,
-          isCurrent: s.id === currentId,
-        })),
+        sessions: toSessionHistoryEntries(list, currentId),
       },
     });
   } catch (err) {
@@ -172,7 +166,10 @@ export async function handleSessionCheckpoints(ctx: SessionsContext, ws: WebSock
     const checkpoints = await rewinder.listCheckpoints(liveId);
     ctx.send(ws, { type: 'session.checkpoints', payload: sessionPayload(ctx, { checkpoints }) });
   } catch {
-    ctx.send(ws, { type: 'session.checkpoints', payload: sessionPayload(ctx, { checkpoints: [] }) });
+    ctx.send(ws, {
+      type: 'session.checkpoints',
+      payload: sessionPayload(ctx, { checkpoints: [] }),
+    });
   }
 }
 
@@ -208,8 +205,18 @@ export async function handleSessionDelete(
     return;
   }
   try {
-    await storeFor(ctx.opts).delete(id);
+    const store = storeFor(ctx.opts);
+    await store.delete(id);
     sendResult(ctx, ws, true, `Session ${id} deleted`);
+    try {
+      const list = await store.list(200);
+      ctx.broadcast({
+        type: 'sessions.list',
+        payload: { sessions: toSessionHistoryEntries(list, currentSessionId(ctx)) },
+      });
+    } catch {
+      // The delete succeeded; a transient refresh failure must not reverse its result.
+    }
   } catch (err) {
     sendResult(ctx, ws, false, toErrorMessage(err));
   }
@@ -230,23 +237,18 @@ export async function handleSessionRename(
     await store.rename(id, name);
     sendResult(ctx, ws, true, name ? `Renamed session to "${name}"` : `Cleared session name`);
     // Broadcast the refreshed list so every open WebUI reflects the new name.
-    const list = await store.list(50);
-    const currentId = currentSessionId(ctx);
-    ctx.broadcast({
-      type: 'sessions.list',
-      payload: {
-        sessions: list.map((s) => ({
-          id: s.id,
-          name: s.name,
-          title: s.title,
-          startedAt: s.startedAt,
-          model: s.model,
-          provider: s.provider,
-          tokenTotal: s.tokenTotal,
-          isCurrent: s.id === currentId,
-        })),
-      },
-    });
+    try {
+      const list = await store.list(200);
+      const currentId = currentSessionId(ctx);
+      ctx.broadcast({
+        type: 'sessions.list',
+        payload: {
+          sessions: toSessionHistoryEntries(list, currentId),
+        },
+      });
+    } catch {
+      // The rename succeeded; keep the optimistic name and allow manual refresh.
+    }
   } catch (err) {
     sendResult(ctx, ws, false, toErrorMessage(err));
   }

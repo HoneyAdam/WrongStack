@@ -8,9 +8,9 @@ import { LayoutGrid } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { useAppTranslation } from '@/i18n';
 import { useConfigStore, useHistoryStore, useSessionStore, useUIStore } from '@/stores';
 import { SessionList } from './SessionList';
-import { useAppTranslation } from '@/i18n';
 
 export function HistoryPanel() {
   const wsConnected = useConfigStore((s) => s.wsConnected);
@@ -29,7 +29,7 @@ export function HistoryPanel() {
   useEffect(() => {
     // activeSessionId is a re-run trigger, not an input.
     void activeSessionId;
-    if (wsConnected) listSessions(50);
+    if (wsConnected) listSessions(200);
   }, [wsConnected, activeSessionId, listSessions]);
 
   return (
@@ -45,6 +45,7 @@ export function HistoryPanel() {
         resumeSession={resumeSession}
         deleteSession={deleteSession}
         renameSession={renameSession}
+        variant="sidebar"
       />
       <div className="border-t px-3 py-2 shrink-0">
         <button
@@ -54,7 +55,7 @@ export function HistoryPanel() {
             ui.setCurrentView('sessions');
             ui.setSidebarOpen(false);
           }}
-          className="w-full flex items-center justify-center gap-1.5 h-7 rounded-md border border-border text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          className="flex h-8 w-full items-center justify-center gap-1.5 border border-border text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
           <LayoutGrid className="h-3 w-3" />
           {t('activity:history.openDashboard')}

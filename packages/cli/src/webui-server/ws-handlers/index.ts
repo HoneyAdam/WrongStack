@@ -113,6 +113,7 @@ export {
   type ProjectsOptions,
 } from './projects.js';
 export {
+  adoptDefaultProviderIfUnset,
   handleKeyDelete,
   handleKeySetActive,
   handleKeyUpsert,

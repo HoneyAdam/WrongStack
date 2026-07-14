@@ -19,8 +19,8 @@ import type {
   SpecsWebSocketHandler,
   TerminalWebSocketHandler,
   WorktreeWebSocketHandler,
-} from '@wrongstack/webui/server';
-import { verifyClient as verifyWsClient } from '@wrongstack/webui/server';
+} from '@wrongstack/webui-server';
+import { verifyClient as verifyWsClient } from '@wrongstack/webui-server';
 import type { WebSocket } from 'ws';
 import { resolveAllPendingConfirms, type PendingConfirm } from './ws-handlers/index.js';
 import type { WSClientMessage, WSServerMessage } from '../webui-server.js';

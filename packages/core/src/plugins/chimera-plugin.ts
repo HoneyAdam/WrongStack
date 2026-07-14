@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
+import type { EventBus } from '../kernel/events.js';
 import type { Plugin } from '../types/plugin.js';
 import type { SlashCommand } from '../types/slash-command.js';
 import { toErrorMessage } from '../utils/error.js';
@@ -15,6 +16,13 @@ interface ChimeraConfig {
   model?: string | undefined;
   maxFiles?: number | undefined;
   /**
+   * How to handle chimera review findings:
+   * - `off` (default): Send result to mailbox; leader waits for user command.
+   * - `ask`: Send ask to mailbox; leader prompts user for permission.
+   * - `auto`: Spawn a fix subagent automatically with the review report.
+   */
+  autoFix?: 'off' | 'ask' | 'auto' | undefined;
+  /**
    * @deprecated Removed. The subagent's `Request.maxTokens` now defaults to
    * the provider's `capabilities.maxOutput`, so Chimera reports can run up
    * to the selected model's native ceiling. Kept on the config interface as an `unknown` sink
@@ -28,6 +36,7 @@ export interface ResolvedChimeraConfig {
   provider: string;
   model: string;
   maxFiles: number;
+  autoFix: 'off' | 'ask' | 'auto';
 }
 
 const DEFAULT_MAX_FILES = 15;
@@ -42,6 +51,7 @@ export function resolveChimeraConfig(
     provider: cfg.provider ?? sessionProvider,
     model: cfg.model ?? sessionModel,
     maxFiles: cfg.maxFiles ?? DEFAULT_MAX_FILES,
+    autoFix: cfg.autoFix ?? 'off',
   };
 }
 
@@ -124,7 +134,10 @@ async function getChangedFiles(cwd: string): Promise<ChangedFile[]> {
 // ---------------------------------------------------------------------------
 // Slash command
 // ---------------------------------------------------------------------------
-function buildChimeraCommand(getConfig: () => ResolvedChimeraConfig): SlashCommand {
+function buildChimeraCommand(
+  getConfig: () => ResolvedChimeraConfig,
+  events: EventBus,
+): SlashCommand {
   return {
     name: 'chimera',
     category: 'Session',
@@ -144,19 +157,45 @@ function buildChimeraCommand(getConfig: () => ResolvedChimeraConfig): SlashComma
       '  extensions.wstack-chimera.provider   provider id',
       '  extensions.wstack-chimera.model      model id',
       '  extensions.wstack-chimera.maxFiles   max files (default 15)',
+      '  extensions.wstack-chimera.autoFix    off | ask | auto (default off)',
       '',
       'Output cap: the subagent runs up to the provider\'s model-native',
       'output ceiling (Anthropic 64K, OpenAI 16K, Gemini 8K). No manual cap.',
     ].join('\n'),
-    async run() {
+    async run(args) {
       const cfg = getConfig();
+      const trimmed = (args ?? '').trim();
+
+      // Subcommand: /chimera autoFix <off|ask|auto>
+      if (trimmed.startsWith('autoFix') || trimmed.startsWith('autofix')) {
+        const mode = trimmed.split(/\s+/)[1]?.toLowerCase();
+        if (!mode || !['off', 'ask', 'auto'].includes(mode)) {
+          return {
+            message: [
+              `Usage: /chimera autoFix <off|ask|auto>`,
+              `Current: ${cfg.autoFix}`,
+              '',
+              '  off  — send review result to mailbox; leader waits for your command.',
+              '  ask  — send review as an ask; leader prompts you for permission.',
+              '  auto — send review result AND spawn a fix subagent automatically.',
+            ].join('\n'),
+          };
+        }
+        // Emit a custom event so the execution layer can update agent.ctx.meta in real time.
+        (events as never as { emit: (name: string, payload: { mode: string }) => void }).emit('chimera.set_autofix', { mode });
+        return {
+          message: `✅ Chimera autoFix set to "${mode}" for this session (config file unchanged).`,
+        };
+      }
+
       return {
         message: [
           `🦂 Chimera — ${cfg.enabled ? 'enabled' : 'disabled'}`,
           '',
-          `  Provider:  ${cfg.provider}`,
-          `  Model:     ${cfg.model}`,
-          `  Max files: ${cfg.maxFiles}`,
+          `  Provider:   ${cfg.provider}`,
+          `  Model:      ${cfg.model}`,
+          `  Max files:  ${cfg.maxFiles}`,
+          `  Auto-fix:   ${cfg.autoFix}`,
           `  Max output: model-native (no cap)`,
           '',
           cfg.enabled
@@ -209,7 +248,7 @@ export function createChimeraPlugin(): Plugin {
       );
 
       // ── /chimera command ──────────────────────────────────────────
-      api.slashCommands.register(buildChimeraCommand(() => resolved));
+      api.slashCommands.register(buildChimeraCommand(() => resolved, api.events));
 
       // ── session.ended → emit review event ─────────────────────────
       api.onEvent('session.ended', async () => {

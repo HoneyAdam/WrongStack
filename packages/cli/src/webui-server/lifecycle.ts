@@ -5,7 +5,7 @@ import {
   registerInstance,
   unregisterInstance,
   type WebUIInstanceRecord,
-} from '@wrongstack/webui/server';
+} from '@wrongstack/webui-server';
 
 /**
  * PR 7 of Issue #30 (webui-server 8-PR refactor): process lifecycle.

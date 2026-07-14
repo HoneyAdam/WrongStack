@@ -116,12 +116,28 @@ function truncateContent(content: string, maxLines = 20, maxChars = 2000): strin
   return result;
 }
 
-export function refsToMarkdown(refs: FileReference[]): string {
+/**
+ * Convert file references to markdown text. When a whole-file ref's content
+ * is available in `fileContents` (map of path→content), it is rendered as
+ * a code block instead of a bare `@path` mention so the LLM sees the actual
+ * source code without needing an extra read call.
+ */
+export function refsToMarkdown(
+  refs: FileReference[],
+  fileContents?: Record<string, string>,
+): string {
   if (refs.length === 0) return '';
   const blocks: string[] = [];
   for (const ref of refs) {
     if (ref.kind === 'file') {
-      blocks.push(`@${ref.path}`);
+      const content = fileContents?.[ref.path];
+      if (content) {
+        const lang = languageFromPath(ref.path);
+        const fence = lang ? `\`\`\`${lang}` : '```';
+        blocks.push(`${fence}\n// ${ref.path} (entire file)\n${truncateContent(content)}\n\`\`\``);
+      } else {
+        blocks.push(`@${ref.path}`);
+      }
       continue;
     }
     const lang = languageFromPath(ref.path);

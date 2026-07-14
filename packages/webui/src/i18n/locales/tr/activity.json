@@ -200,7 +200,46 @@
     "markFavorite": "Favori olarak işaretle",
     "deleteSessionConfirmTitle": "Oturum silinsin mi?",
     "deleteSessionConfirmBody": "\"{{name}}\" diskten kaldırılacak. Bu geri alınamaz.",
-    "deleteSessionTitle": "Oturumu sil"
+    "deleteSessionTitle": "Oturumu sil",
+    "rename": "Oturum adı",
+    "renameAction": "Yeniden adlandır",
+    "resume": "Oturumu sürdür",
+    "resumeShort": "Sürdür",
+    "workspaceEyebrow": "Konuşma kontrolü",
+    "workspaceTitle": "Oturumlar",
+    "workspaceHint": "Projeye ait tüm konuşmaları ara, incele, sabitle ve kaldığın yerden sürdür.",
+    "tabs": {
+      "history": "Geçmiş",
+      "live": "Canlı oturumlar"
+    },
+    "filters": {
+      "all": "Tümü",
+      "favorites": "Sabitlenen",
+      "active": "Aktif",
+      "completed": "Tamamlanan",
+      "issues": "Sorunlu"
+    },
+    "status": {
+      "active": "Aktif",
+      "completed": "Tamamlandı",
+      "error": "Hata",
+      "timeout": "Zaman aşımı",
+      "aborted": "Durduruldu",
+      "saved": "Kayıtlı oturum"
+    },
+    "sort": {
+      "label": "Oturumları sırala",
+      "recent": "En yeni",
+      "tokens": "En çok token",
+      "activity": "En hareketli"
+    },
+    "stats": {
+      "sessions": "Oturum",
+      "tokens": "Token",
+      "tools": "Araç çağrısı",
+      "files": "Değişen dosya",
+      "errors": "Hata"
+    }
   },
   "sessionPanel": {
     "actions": {
@@ -378,7 +417,12 @@
     "hintOriginal": "orijinal",
     "hintEdit": "düzenle",
     "edit": "Düzenle",
-    "useRefined": "İyileştirilmişi Kullan"
+    "useRefined": "İyileştirilmişi Kullan",
+    "langOriginal": "Original",
+    "langEnglish": "English",
+    "languageTitle": "Switch default refine language — Original vs English",
+    "yolo": "YOLO",
+    "yoloTitle": "Bypass tool confirmation prompts"
   },
   "specs": {
     "heading": "Spesifikasyonlar",
@@ -1005,9 +1049,7 @@
     "placeholder": "Yedek model ekle…",
     "emptyHint": "Birincil model hız sınırladığında veya takıldığında sırayla denenir.",
     "moveUp": "Yukarı taşı",
-    "moveDown": "Aşağı taşı",
-    "manualPlaceholder": "sağlayıcı/model",
-    "addTitle": "Model referansı ekle"
+    "moveDown": "Aşağı taşı"
   },
   "liveSessions": {
     "loading": "Oturumler yükleniyor...",

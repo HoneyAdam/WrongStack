@@ -18,6 +18,7 @@ import { parseNextSteps } from '@wrongstack/tools/next-steps';
 import type { ParsedNextStep } from '@wrongstack/tools/next-steps';
 import type { HistoryEntry } from './types.js';
 import { AssistantBody, assistantContentWidth } from './assistant.js';
+import { ToolCard } from './tool-card.js';
 import {
   fmtBytes,
   fmtDuration,
@@ -350,18 +351,19 @@ export const Entry = React.memo(function Entry({
         // bullet onto its own row.
         const targetBudget = Math.max(24, termWidth - mutation.verb.length - 16);
         const hasCounts = mutation.added > 0 || mutation.removed > 0;
+        const toolContentWidth = Math.max(20, termWidth - 2);
         return (
-          <Box flexDirection="column">
+          <ToolCard
+            glyph={glyph}
+            color={color}
+            title={`${mutation.verb}(${shortenPath(mutation.target, targetBudget)})`}
+            meta={fmtDuration(entry.durationMs)}
+            ok={entry.ok}
+            termWidth={termWidth}
+            hasBody
+          >
             <Text>
-              <Text color={color}>{glyph}</Text>
-              <Text> </Text>
-              <Text bold color={color}>
-                {`${mutation.verb}(${shortenPath(mutation.target, targetBudget)})`}
-              </Text>
-              <Text dimColor>{`  ·  ${fmtDuration(entry.durationMs)}`}</Text>
-            </Text>
-            <Text>
-              <Text dimColor>{'  ⎿  '}</Text>
+              <Text dimColor>{'⎿  '}</Text>
               {mutation.added > 0 ? (
                 <Text bold color={theme.success}>{`+${mutation.added}`}</Text>
               ) : null}
@@ -389,7 +391,7 @@ export const Entry = React.memo(function Entry({
                     path={item.path}
                     preview={item.preview}
                     useColor={theme.supportsBackground}
-                    contentWidth={termWidth}
+                    contentWidth={toolContentWidth}
                   />
                 ))}
               </Box>
@@ -404,29 +406,29 @@ export const Entry = React.memo(function Entry({
                 useColor={theme.supportsBackground}
                 lang={mutation.lang}
                 showStats={false}
-                contentWidth={termWidth}
+                contentWidth={toolContentWidth}
               />
             ) : null}
-          </Box>
+          </ToolCard>
         );
       }
+      const toolContentWidth = Math.max(20, termWidth - 2);
+      const hasToolBody = Boolean(
+        (visualLines && visualLines.length > 0) ||
+          (entry.resultRenderMode !== 'simple' && outLines.length > 0) ||
+          (entry.resultRenderMode !== 'simple' && (diff || multiDiffs)),
+      );
       return (
-        <Box flexDirection="column">
-          <Text>
-            <Text color={color}>{glyph}</Text>
-            <Text>{' '}</Text>
-            <Text bold color={color}>
-              {entry.name}
-            </Text>
-            {argSummary ? (
-              <>
-                <Text>{'  '}</Text>
-                <Text dimColor>{argSummary}</Text>
-              </>
-            ) : null}
-            <Text dimColor>{`  ·  ${fmtDuration(entry.durationMs)}`}</Text>
-            {sizeChip ? <Text dimColor>{`  ·  ${sizeChip}`}</Text> : null}
-          </Text>
+        <ToolCard
+          glyph={glyph}
+          color={color}
+          title={entry.name}
+          detail={argSummary || undefined}
+          meta={[fmtDuration(entry.durationMs), sizeChip].filter(Boolean).join(' · ')}
+          ok={entry.ok}
+          termWidth={termWidth}
+          hasBody={hasToolBody}
+        >
           {visualLines && entry.resultRenderMode !== 'simple' ? (
             <ToolOutputLines lines={visualLines} hasFollowingBlock={Boolean(diff || multiDiffs)} />
           ) : visualLines ? (
@@ -463,7 +465,7 @@ export const Entry = React.memo(function Entry({
                 ) : null;
               })()}
               {multiDiffs.map((item) => (
-                <DiffFileBlock key={item.path} path={item.path} preview={item.preview} useColor={theme.supportsBackground} contentWidth={termWidth} />
+                <DiffFileBlock key={item.path} path={item.path} preview={item.preview} useColor={theme.supportsBackground} contentWidth={toolContentWidth} />
               ))}
             </Box>
           ) : entry.resultRenderMode !== 'simple' && diff ? (
@@ -475,10 +477,10 @@ export const Entry = React.memo(function Entry({
               hiddenAdded={diff.hiddenAdded}
               hiddenRemoved={diff.hiddenRemoved}
               useColor={theme.supportsBackground}
-              contentWidth={termWidth}
+              contentWidth={toolContentWidth}
             />
           ) : null}
-        </Box>
+        </ToolCard>
       );
     }
     case 'info': {
@@ -571,7 +573,7 @@ export const Entry = React.memo(function Entry({
         </Box>
       );
     case 'banner':
-      return <Banner entry={entry} />;
+      return <Banner entry={entry} termWidth={termWidth} />;
     case 'subagent': {
       const lines = entry.text.split('\n');
       return (

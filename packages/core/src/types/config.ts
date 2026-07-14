@@ -799,6 +799,14 @@ export interface AutonomyConfig {
    * Default: unset (uses the main session model).
    */
   refinerModel?: string | undefined;
+  /**
+   * Named fallback profile to use for goal refinement. When set, the
+   * refiner uses the first valid entry from the named chain (stored in
+   * top-level `fallbackProfiles`) instead of `refinerProvider`+`refinerModel`.
+   * Falls back to the session model when the profile is empty or missing.
+   * Default: unset (uses refinerProvider+refinerModel, or session defaults).
+   */
+  refinerFallbackProfile?: string | undefined;
   /** Prompt-refinement preview countdown in ms. Default: 60000. */
   enhanceDelayMs?: number | undefined;
   /** Prompt-refinement language mode. Default: "original". */

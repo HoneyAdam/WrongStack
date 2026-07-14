@@ -1594,6 +1594,24 @@ export class Director implements ICoordinator {
   }
 
   /**
+   * Cancel the pending manifest debounce timer and drain any in-flight
+   * manifest write so that, once this resolves, no Director-owned manifest
+   * write is armed or running.
+   *
+   * Unlike `shutdown()`, this does NOT tear down the coordinator, bridges,
+   * or waiters — it is the lightweight quiesce that `MultiAgentHost.stopAll()`
+   * needs. `stopAll()` flushes the FleetManager's manifest but never touched
+   * the Director's own writer, leaving its armed debounce timer to fire ~2s
+   * later. Under CPU starvation that late, un-awaited `atomicWrite` (temp
+   * sibling + rename) races a caller that deletes the manifest directory,
+   * producing an `ENOTEMPTY` on the parent `rmdir` (Windows especially).
+   */
+  async quiesceManifest(): Promise<void> {
+    this.clearManifestTimer();
+    await this.manifestWriteChain.catch(() => undefined);
+  }
+
+  /**
    * Tear down the director: stop every subagent, close every bridge
    * endpoint, and (when configured) write the final manifest. Idempotent
    * — calling shutdown twice is a no-op on the second invocation.
@@ -1663,6 +1681,12 @@ export class Director implements ICoordinator {
       await this.fleetManager
         .flushManifest()
         .catch((err) => this.logShutdownError('fleet_manifest_flush', err));
+      // The FleetManager owns the canonical manifest here, but the Director
+      // may still have a Director-format write in flight (a debounce timer
+      // that fired just before `clearManifestTimer` above). Drain it so no
+      // un-awaited `atomicWrite` outlives shutdown and races a directory
+      // teardown by the caller.
+      await this.manifestWriteChain.catch(() => undefined);
     } else if (this.manifestPath) {
       await this.writeManifest().catch((err) => this.logShutdownError('manifest_write', err));
     }

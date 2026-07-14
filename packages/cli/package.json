@@ -56,12 +56,14 @@
     "@wrongstack/providers": "workspace:*",
     "@wrongstack/runtime": "workspace:*",
     "@wrongstack/sdd": "workspace:*",
+    "@wrongstack/simpleui": "workspace:*",
     "@wrongstack/super-memory": "workspace:*",
     "@wrongstack/telegram": "workspace:*",
     "@wrongstack/tools": "workspace:*",
     "@wrongstack/tui": "workspace:*",
     "@wrongstack/webui": "workspace:*",
     "@wrongstack/webui-hq": "workspace:*",
+    "@wrongstack/webui-server": "workspace:*",
     "ws": "^8.21.0"
   },
   "optionalDependencies": {

@@ -1,13 +1,15 @@
 /**
- * HQ dashboard store — a lightweight React-based global store (no zustand
- * dependency). Holds the latest snapshot, recent events, active alerts, and
- * UI state (selected node, active view). Subscribes to the WS client once.
+ * HQ dashboard store — zustand-based global store, matching the pattern
+ * used by the main @wrongstack/webui package. Holds the latest snapshot,
+ * recent events, active alerts, and UI state.
+ *
+ * WS wiring moved to main.tsx; API helpers (fetchJson, postMailboxSend,
+ * postCommand) remain as standalone exports that access store state via
+ * useHqStore.getState().
  */
-
 import type { HqAlertMessage, HqEventEnvelope, HqSnapshot } from '@wrongstack/core';
-import { useEffect, useSyncExternalStore } from 'react';
+import { create } from 'zustand';
 import { authorizedFetch } from './lib/auth.js';
-import { getHqClient } from './lib/hq-ws-client.js';
 
 export type ViewId =
   | 'cockpit'
@@ -30,17 +32,59 @@ interface HqState {
   selectedAgentId: string | null;
   selectedClientId: string | null;
   connected: boolean;
-  /**
-   * True once any API call came back 401 — the server runs in browser-token
-   * mode and this tab has no (valid) token. The app swaps to the token gate.
-   */
   authRequired: boolean;
+}
+
+interface HqActions {
+  setActiveView: (view: ViewId) => void;
+  selectSession: (sessionId: string | null, agentId?: string | null) => void;
+  selectAgent: (sessionId: string, agentId: string) => void;
+  selectClient: (clientId: string | null) => void;
+  markAuthRequired: () => void;
+  /** Seed the first render from HTTP without claiming the WebSocket is live. */
+  _hydrateSnapshot: (snapshot: HqSnapshot) => void;
+  _onSnapshot: (snapshot: HqSnapshot) => void;
+  _onEvent: (event: HqEventEnvelope) => void;
+  _onAlert: (alert: HqAlertMessage) => void;
+  _setConnected: (connected: boolean) => void;
 }
 
 const MAX_EVENTS = 500;
 const MAX_ALERTS = 100;
 
-let state: HqState = {
+function snapshotPatch(state: HqState, snapshot: HqSnapshot): Partial<HqState> {
+  const liveSessions = snapshot.liveSessions ?? [];
+  const selectedSession =
+    state.selectedSessionId === null
+      ? undefined
+      : liveSessions.find((session) => session.sessionId === state.selectedSessionId);
+  const selectedAgentStillExists =
+    state.selectedAgentId === null ||
+    selectedSession?.agents.some((agent) => agent.id === state.selectedAgentId) === true;
+  const selectedClientStillExists =
+    state.selectedClientId === null ||
+    snapshot.clients.some((client) => client.clientId === state.selectedClientId);
+
+  return {
+    snapshot,
+    ...(state.selectedSessionId !== null && selectedSession === undefined
+      ? { selectedSessionId: null, selectedAgentId: null }
+      : !selectedAgentStillExists
+        ? { selectedAgentId: null }
+        : {}),
+    ...(!selectedClientStillExists ? { selectedClientId: null } : {}),
+  };
+}
+
+function sameAlert(left: HqAlertMessage, right: HqAlertMessage): boolean {
+  return (
+    left.timestamp === right.timestamp &&
+    left.severity === right.severity &&
+    left.message === right.message
+  );
+}
+
+export const useHqStore = create<HqState & HqActions>()((set) => ({
   snapshot: null,
   events: [],
   alerts: [],
@@ -50,139 +94,51 @@ let state: HqState = {
   selectedClientId: null,
   connected: false,
   authRequired: false,
-};
 
-const listeners = new Set<() => void>();
-/** Maps each listener to the keys it cares about (null = all keys). */
-const listenerKeys = new Map<() => void, string[] | null>();
+  setActiveView: (view) => set({ activeView: view }),
 
-function notify(changedKeys: string[]): void {
-  // Only invoke listeners whose key filter intersects the changed keys.
-  // Listeners registered without a filter (null) are always notified.
-  for (const l of listeners) {
-    const keys = listenerKeys.get(l);
-    if (keys == null || keys.some((k) => changedKeys.includes(k))) {
-      l();
-    }
-  }
-}
+  selectSession: (sessionId, agentId = null) =>
+    set({ selectedSessionId: sessionId, selectedAgentId: agentId }),
 
-function subscribe(listener: () => void, keys?: string[]): () => void {
-  listeners.add(listener);
-  listenerKeys.set(listener, keys ?? null);
-  return () => {
-    listeners.delete(listener);
-    listenerKeys.delete(listener);
-  };
-}
+  selectAgent: (sessionId, agentId) =>
+    set({ selectedSessionId: sessionId, selectedAgentId: agentId }),
 
-function getSnapshotState(): HqState {
-  return state;
-}
+  selectClient: (clientId) => set({ selectedClientId: clientId }),
 
-function setState(patch: Partial<HqState>): void {
-  state = { ...state, ...patch };
-  notify(Object.keys(patch));
-}
+  markAuthRequired: () => set((s) => (s.authRequired ? {} : { authRequired: true })),
 
-// ── WS wiring (once) ────────────────────────────────────────────────────────
+  _hydrateSnapshot: (snapshot) =>
+    set((state) =>
+      // A live frame may win the race against the boot-time HTTP request.
+      // Never let that older response replace the WebSocket snapshot.
+      state.snapshot === null ? snapshotPatch(state, snapshot) : {},
+    ),
 
-let wired = false;
-function wireClient(): void {
-  if (wired) return;
-  wired = true;
-  const client = getHqClient();
-  client.onStateChange((connectionState) => {
-    setState({ connected: connectionState === 'connected' });
-  });
-  client.on((msg) => {
-    if (msg.type === 'hq.snapshot') {
-      const liveSessions = msg.snapshot.liveSessions ?? [];
-      const selectedSession = state.selectedSessionId === null
-        ? undefined
-        : liveSessions.find((session) => session.sessionId === state.selectedSessionId);
-      const selectedAgentStillExists =
-        state.selectedAgentId === null ||
-        selectedSession?.agents.some((agent) => agent.id === state.selectedAgentId) === true;
-      const selectedClientStillExists =
-        state.selectedClientId === null ||
-        msg.snapshot.clients.some((client) => client.clientId === state.selectedClientId);
-      setState({
-        snapshot: msg.snapshot,
-        connected: true,
-        ...(state.selectedSessionId !== null && selectedSession === undefined
-          ? { selectedSessionId: null, selectedAgentId: null }
-          : !selectedAgentStillExists
-            ? { selectedAgentId: null }
-            : {}),
-        ...(!selectedClientStillExists ? { selectedClientId: null } : {}),
-      });
-    } else if (msg.type === 'hq.event') {
-      setState({ events: [...state.events, msg.event].slice(-MAX_EVENTS) });
-    } else if (msg.type === 'hq.alert') {
-      setState({ alerts: [...state.alerts, msg].slice(-MAX_ALERTS) });
-    }
-  });
-}
+  _onSnapshot: (snapshot) =>
+    set((state) => ({ ...snapshotPatch(state, snapshot), connected: true })),
 
-// ── Hooks ───────────────────────────────────────────────────────────────────
+  _onEvent: (event) =>
+    set((state) =>
+      state.events.some((candidate) => candidate.id === event.id)
+        ? {}
+        : { events: [...state.events, event].slice(-MAX_EVENTS) },
+    ),
 
-export function useHqStore(keys?: string[]): HqState {
-  useEffect(() => {
-    wireClient();
-  }, []);
-  return useSyncExternalStore((cb) => subscribe(cb, keys), getSnapshotState, getSnapshotState);
-}
+  _onAlert: (alert) =>
+    set((state) =>
+      state.alerts.some((candidate) => sameAlert(candidate, alert))
+        ? {}
+        : { alerts: [...state.alerts, alert].slice(-MAX_ALERTS) },
+    ),
 
-export function setActiveView(view: ViewId): void {
-  setState({ activeView: view });
-}
+  _setConnected: (connected) => set({ connected }),
+}));
 
-export function selectSession(sessionId: string | null, agentId: string | null = null): void {
-  setState({ selectedSessionId: sessionId, selectedAgentId: agentId });
-}
+// ── API helpers ──────────────────────────────────────────────────────
 
-export function selectAgent(sessionId: string, agentId: string): void {
-  setState({ selectedSessionId: sessionId, selectedAgentId: agentId });
-}
-
-export function selectClient(clientId: string | null): void {
-  setState({ selectedClientId: clientId });
-}
-
-// ── API helpers ─────────────────────────────────────────────────────────────
-
-/** Flip the token gate on. Idempotent — repeated 401s notify once. */
-export function markAuthRequired(): void {
-  if (!state.authRequired) setState({ authRequired: true });
-}
-
-export async function fetchJson<T>(path: string): Promise<T> {
-  let res: Response;
-  try {
-    res = await authorizedFetch(path);
-  } catch {
-    throw new Error(`Network error fetching ${path}`);
-  }
-  if (res.status === 401) {
-    markAuthRequired();
-    throw new Error(`401 Unauthorized fetching ${path} — browser token required`);
-  }
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  try {
-    return (await res.json()) as T;
-  } catch {
-    throw new Error(`Invalid JSON response from ${path}: ${res.status}`);
-  }
-}
-
-/** Input for POST /api/mailbox-send — HQ's zero-client mailbox delivery. */
 export interface MailboxSendInput {
-  /** Target project (HQ projectId — sha-derived or registry slug). */
   projectId?: string | undefined;
-  /** Alternative target: resolve the project from a live session. */
   sessionId?: string | undefined;
-  /** `queue` is delivered as a `note`; `broadcast` goes to all agents. */
   type: 'steer' | 'btw' | 'queue' | 'broadcast';
   to?: string | undefined;
   subject?: string | undefined;
@@ -197,11 +153,25 @@ export interface MailboxSendResult {
   type: string;
 }
 
-/**
- * Write a prompt straight into a project's GlobalMailbox via the HQ server —
- * works even when no agent is currently connected: the next agent to run
- * picks the message up from the mailbox file.
- */
+export async function fetchJson<T>(path: string): Promise<T> {
+  let res: Response;
+  try {
+    res = await authorizedFetch(path);
+  } catch {
+    throw new Error(`Network error fetching ${path}`);
+  }
+  if (res.status === 401) {
+    useHqStore.getState().markAuthRequired();
+    throw new Error(`401 Unauthorized fetching ${path} — browser token required`);
+  }
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  try {
+    return (await res.json()) as T;
+  } catch {
+    throw new Error(`Invalid JSON response from ${path}: ${res.status}`);
+  }
+}
+
 export async function postMailboxSend(input: MailboxSendInput): Promise<MailboxSendResult> {
   let res: Response;
   try {
@@ -214,7 +184,7 @@ export async function postMailboxSend(input: MailboxSendInput): Promise<MailboxS
     throw new Error('Network error sending mailbox message');
   }
   if (res.status === 401) {
-    markAuthRequired();
+    useHqStore.getState().markAuthRequired();
     throw new Error('401 Unauthorized — browser token required');
   }
   if (!res.ok) {
@@ -246,7 +216,7 @@ export async function postCommand(
     throw new Error('Network error sending command');
   }
   if (res.status === 401) {
-    markAuthRequired();
+    useHqStore.getState().markAuthRequired();
     throw new Error('401 Unauthorized — browser token required');
   }
   if (!res.ok) {

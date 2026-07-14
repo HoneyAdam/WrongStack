@@ -146,7 +146,7 @@ export async function handleHqShortCircuit(
   }
   if (flags['open'] === true) {
     try {
-      const { openBrowser } = await import('@wrongstack/webui/server');
+      const { openBrowser } = await import('@wrongstack/webui-server');
       openBrowser(handle.firstRunSetup?.browserUrl ?? `http://${handle.host}:${handle.port}`);
     } catch {
       // best-effort

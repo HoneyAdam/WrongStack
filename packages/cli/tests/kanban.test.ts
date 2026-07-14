@@ -473,6 +473,7 @@ describe('kanban storage and manager', () => {
     const events = await listKanbanEvents(tmpDir, board.id);
 
     expect(events.map((event) => event.type)).toEqual([
+      'task.created',
       'task.claimed',
       'task.assignment.running',
       'task.assignment.heartbeat',

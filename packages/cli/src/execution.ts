@@ -313,6 +313,102 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
             stopReason: 'end_turn' as import('@wrongstack/core').StopReason,
             usage: { input: 0, output: 0 },
           });
+
+          // ── autoFix mode dispatch ──────────────────────────────────
+          // The review report is always sent to the mailbox so the leader
+          // can see it regardless of mode. The type and follow-up action
+          // depend on p.config.autoFix:
+          //
+          //   off  → type:result  — leader sees it, waits for user command
+          //   ask  → type:ask     — leader prompts user for permission
+          //   auto → type:result  — plus spawn a fix subagent immediately
+          const autoFix = (agent.ctx.meta['chimeraAutoFix'] as string | undefined)
+            ?? p.config.autoFix ?? 'off';
+          const mailboxType = autoFix === 'ask' ? 'ask' : 'result';
+          const subject =
+            autoFix === 'ask'
+              ? `🦂 Chimera review — ${p.files.length} file(s) changed. Shall I fix the findings?`
+              : `🦂 Chimera review — ${p.files.length} file(s) changed`;
+
+          try {
+            await mailbox.send({
+              from: 'chimera-review',
+              to: '*',
+              type: mailboxType,
+              subject,
+              body: reviewText.length > 8000
+                ? reviewText.slice(0, 8000) + '\n\n…(truncated, full report in session transcript)'
+                : reviewText,
+              priority: 'normal',
+            });
+          } catch (mailErr) {
+            console.error(
+              JSON.stringify({
+                level: 'error',
+                event: 'execution.chimera_mailbox_failed',
+                message: mailErr instanceof Error ? mailErr.message : String(mailErr),
+                timestamp: new Date().toISOString(),
+              }),
+            );
+          }
+
+          // auto mode: spawn a fix subagent with the review + file list
+          if (autoFix === 'auto' && reviewText.length > 0) {
+            const fixTaskDesc = [
+              `You are a fix agent. Apply the fixes requested in this review report.`,
+              ``,
+              `Repository: ${p.cwd}`,
+              ``,
+              `--- Review report ---`,
+              reviewText.slice(0, 12_000),
+              ``,
+              `--- Changed files ---`,
+              p.files.map((f) => `- ${f.path}`).join('\n'),
+              ``,
+              `Read each file, understand the issue, apply fixes using the edit tool.`,
+              `After fixing, run the project's typecheck and linter to verify.`,
+              `Do NOT remove or reorder existing code unless the bug requires it.`,
+            ].join('\n');
+
+            try {
+              const fixCfg: SubagentConfig = {
+                name: 'chimera-fix',
+                provider: p.config.provider,
+                model: p.config.model,
+                maxIterations: 25,
+                maxToolCalls: 120,
+                timeoutMs: 600_000,
+              };
+              const fixSubagentId = await dir.spawn(fixCfg);
+              const fixTaskId = (await import('node:crypto')).randomUUID();
+              await dir.assign({ id: fixTaskId, description: fixTaskDesc, subagentId: fixSubagentId });
+              const fixResults = await dir.awaitTasks([fixTaskId]);
+              const fixResult = fixResults[0];
+              if (fixResult?.status === 'success') {
+                await session.append({
+                  type: 'llm_response',
+                  ts: new Date().toISOString(),
+                  content: [{ type: 'text', text: `Chimera fix subagent completed: ${fixResult.result}` }],
+                  stopReason: 'end_turn' as import('@wrongstack/core').StopReason,
+                  usage: { input: 0, output: 0 },
+                });
+              } else {
+                await session.append({
+                  type: 'error',
+                  ts: new Date().toISOString(),
+                  message: `Chimera fix subagent ${fixResult?.status ?? 'unknown'}: ${fixResult?.error?.message ?? 'no result'}`,
+                  phase: 'agent',
+                });
+              }
+            } catch (fixErr) {
+              await session.append({
+                type: 'error',
+                ts: new Date().toISOString(),
+                message: `🦂 Chimera auto-fix failed: ${fixErr instanceof Error ? fixErr.message : String(fixErr)}`,
+                phase: 'agent',
+              });
+            }
+          }
         }
       } catch (err) {
         // Subagent spawn/assign failed — log and ignore

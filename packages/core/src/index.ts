@@ -363,6 +363,7 @@ export {
   buildMailboxBtwAwarenessBlock,
   createMailboxChecker,
   injectPendingMailboxMessages,
+  type MailboxDeliveryMode,
   type MailboxLoopOptions,
 } from './core/mailbox-loop.js';
 export { runProviderWithRetry } from './core/provider-runner.js';
@@ -526,6 +527,7 @@ export {
 } from './plugins/chimera-plugin.js';
 
 // Built-in plugins
+export { createAutoReviewPlugin } from './plugins/auto-review-plugin.js';
 export { createPromptsPlugin } from './plugins/prompts-plugin.js';
 export { createSecurityPlugin } from './plugins/security-plugin.js';
 export { createSkillsPlugin } from './plugins/skills-plugin.js';

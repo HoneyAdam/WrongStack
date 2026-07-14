@@ -45,7 +45,8 @@
     "btwIdleTitle": "btw — send (Enter)",
     "steerRunningTitle": "steer — interrupt the running agent and redirect",
     "steerIdleTitle": "steer — send (no interrupt target while idle)",
-    "addQueueTitle": "add queue — hold until the current run completes"
+    "addQueueTitle": "add queue — hold until the current run completes",
+    "openPromptLibrary": "Open prompt library — browse ready-made and saved prompts"
   },
   "header": {
     "openSidebarTitle": "Open sidebar (Ctrl+\\)",

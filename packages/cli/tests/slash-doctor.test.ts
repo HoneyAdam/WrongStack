@@ -133,6 +133,49 @@ describe('diagnoseConfig', () => {
     expect(unknown?.fix).toBeUndefined();
   });
 
+  it('renames a blank provider id to custom-N and preserves its value', () => {
+    const report = diagnoseConfig({
+      providers: {
+        '': { type: 'custom', family: 'openai-compatible', baseUrl: 'http://localhost:1234/v1' },
+        anthropic: { type: 'anthropic' },
+      },
+    });
+    const providers = report.fixed['providers'] as Record<string, Record<string, unknown>>;
+    expect('' in providers).toBe(false);
+    expect(providers['custom-1']?.['baseUrl']).toBe('http://localhost:1234/v1');
+    expect('anthropic' in providers).toBe(true);
+    const finding = report.findings.find((f) => f.path === 'providers.(empty)');
+    expect(finding?.severity).toBe('error');
+    expect(finding?.fix).toBe('renamed to "custom-1"');
+    expect(report.changed).toBe(true);
+  });
+
+  it('skips custom-N ids already taken when renaming blanks', () => {
+    const report = diagnoseConfig({
+      providers: {
+        '': { type: 'a' },
+        ' ': { type: 'b' },
+        'custom-1': { type: 'c' },
+      },
+    });
+    const providers = report.fixed['providers'] as Record<string, unknown>;
+    expect(Object.keys(providers).sort()).toEqual(['custom-1', 'custom-2', 'custom-3']);
+  });
+
+  it('leaves a healthy providers map untouched', () => {
+    const report = diagnoseConfig({ providers: { anthropic: { type: 'anthropic' } } });
+    expect(report.findings.some((f) => f.path.startsWith('providers'))).toBe(false);
+    expect(report.changed).toBe(false);
+  });
+
+  it('reports a non-object providers value without fixing it', () => {
+    const report = diagnoseConfig({ providers: 'nope' });
+    const finding = report.findings.find((f) => f.path === 'providers');
+    expect(finding?.severity).toBe('error');
+    expect(finding?.fix).toBeUndefined();
+    expect(report.fixed['providers']).toBe('nope');
+  });
+
   it('warns on plaintext secrets but never rewrites them', () => {
     const report = diagnoseConfig({ apiKey: 'sk-plain', sync: { githubToken: 'enc:v1:abc' } });
     const warning = report.findings.find((f) => f.path === 'apiKey');

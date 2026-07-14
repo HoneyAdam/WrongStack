@@ -82,6 +82,7 @@ export function seedContextMeta(
   // SettingsPanel shows persisted values on the standalone server too.
   meta['refinerProvider'] = (autonomyCfg['refinerProvider'] as string) ?? '';
   meta['refinerModel'] = (autonomyCfg['refinerModel'] as string) ?? '';
+  meta['refinerFallbackProfile'] = (autonomyCfg['refinerFallbackProfile'] as string) ?? '';
   meta['thinkingWord'] = (autonomyCfg['thinkingWord'] as string) ?? 'thinking';
   meta['statuslineMode'] = (autonomyCfg['statuslineMode'] as string) ?? 'detailed';
   meta['animationStyle'] = (autonomyCfg['animationStyle'] as string) ?? 'rainbow';

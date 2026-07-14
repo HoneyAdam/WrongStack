@@ -37,7 +37,7 @@ import { ShortcutsOverlay } from './components/ShortcutsOverlay';
 import { SidePanel } from './components/SidePanel';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
 import { Toaster } from './components/Toaster';
-import { WorkspaceDock } from './components/WorkspaceDock';
+import { WorkspaceDock, WorkspaceDockInspector } from './components/WorkspaceDock';
 
 // ── Lazy-loaded views ──────────────────────────────────────────────────────
 // These pull heavy libraries (Monaco ~4MB, @xyflow, xterm) or are themselves
@@ -441,22 +441,11 @@ function AppInner() {
         {currentView !== 'setup' && <ConnectionBanner />}
         {currentView === 'chat' && (
           <>
-            {/* WorkspaceDock — one slim chip strip (AutoPhase, Goal, Fleet,
-                Work, Worktrees, Collab); at most one panel expands below it
-                instead of the old always-on vertical pile. */}
-            {/* shrink-0 + capped height + own scroll: an expanded dock section
-                (Work tasks, Fleet, AutoPhase board, …) must never grow tall
-                enough to push the chat transcript off-screen and kill its
-                scroll. The dock scrolls internally past the cap; ChatView keeps
-                the remaining height as its own scroll region. */}
+            {/* The dock stays above chat as a compact control strip; selected
+                content opens in the right-side workspace inspector. */}
             {sessionId && (
-              <div
-                className={cn(
-                  'ws-workspace-dock-wrap px-3 sm:px-4 pt-2 shrink-0 overflow-y-auto overscroll-contain',
-                  terminalOpen ? 'max-h-[28dvh]' : 'max-h-[45dvh]',
-                )}
-              >
-                <WorkspaceDock sessionId={sessionId} />
+              <div className="ws-workspace-dock-wrap shrink-0 px-3 pt-2 sm:px-4">
+                <WorkspaceDock />
               </div>
             )}
             <ErrorBoundary level="panel" name="Chat">
@@ -649,13 +638,20 @@ function AppInner() {
         )}
       </main>
 
-      {/* Global right inspector — overlays the active work surface without
-          shrinking chat/editor/board layout. It remains available across
-          main views so detail targets can migrate into one shared drawer. */}
+      {/* Right-side inspectors overlay the work surface without shrinking it.
+          Workspace dock content owns the foreground while a dock section is
+          selected; the global Fleet/Agents/Audit inspector remains separate. */}
       {currentView !== 'setup' && (
-        <ErrorBoundary level="panel" name="Inspector">
-          <InspectorPanel />
-        </ErrorBoundary>
+        <>
+          <ErrorBoundary level="panel" name="Inspector">
+            <InspectorPanel />
+          </ErrorBoundary>
+          {sessionId && currentView === 'chat' && (
+            <ErrorBoundary level="panel" name="Workspace Inspector">
+              <WorkspaceDockInspector sessionId={sessionId} />
+            </ErrorBoundary>
+          )}
+        </>
       )}
 
       {/* Process Monitor overlay — triggered by /kill */}

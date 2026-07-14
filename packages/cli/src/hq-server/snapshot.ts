@@ -4,7 +4,6 @@
  * @module hq-server/snapshot
  */
 
-import { WebSocket } from 'ws';
 import type {
   HqBrowserMessage,
   HqClientCapability,
@@ -22,6 +21,7 @@ import type {
   HqSessionSummary,
   HqSnapshot,
 } from '@wrongstack/core';
+import { WebSocket } from 'ws';
 import type { ConnectedClient, HqSnapshotBroadcaster, ProjectDetail } from './types.js';
 import { hqMachineKey } from './utils.js';
 
@@ -41,7 +41,10 @@ export function buildSnapshot(clients: Map<WebSocket, ConnectedClient>): HqSnaps
   // Live sessions, deduped by sessionId across sockets (latest wins).
   const sessionById = new Map<string, HqSessionSnapshotPayload>();
   // Fleet snapshots, deduped by runId across sockets (latest wins).
-  const fleetByRunId = new Map<string, { payload: HqFleetSnapshotPayload; clientId: string; projectId: string; lastActivityAt: string }>();
+  const fleetByRunId = new Map<
+    string,
+    { payload: HqFleetSnapshotPayload; clientId: string; projectId: string; lastActivityAt: string }
+  >();
 
   for (const client of clients.values()) {
     const machineId = client.machineId || client.project.machineId || '';
@@ -335,6 +338,7 @@ export function createSnapshotBroadcaster(
   let cached = '';
   let dirty = true;
   let timer: NodeJS.Timeout | null = null;
+  let closed = false;
 
   const serialize = (): string => {
     if (!dirty && cached.length > 0) return cached;
@@ -361,12 +365,17 @@ export function createSnapshotBroadcaster(
   return {
     currentSerialized: serialize,
     broadcast: () => {
+      // Socket close callbacks can arrive after the HQ handle has begun
+      // shutting down. Do not let those callbacks recreate the debounce
+      // timer and write snapshot.json after close() has already drained it.
+      if (closed) return;
       dirty = true;
       if (timer !== null) return;
       timer = setTimeout(flush, HQ_SNAPSHOT_BROADCAST_DEBOUNCE_MS);
       timer.unref?.();
     },
     close: () => {
+      closed = true;
       if (timer !== null) {
         clearTimeout(timer);
         timer = null;

@@ -14,7 +14,7 @@ describe('FileReferenceChip', () => {
 
   it('renders the basename for a file ref', () => {
     const ref: FileReference = { id: '1', kind: 'file', path: 'src/foo/bar.ts' };
-    render(<FileReferenceChip ref={ref} onRemove={() => {}} />);
+    render(<FileReferenceChip reference={ref} onRemove={() => {}} />);
     expect(screen.getByText('bar.ts')).toBeTruthy();
   });
 
@@ -27,7 +27,7 @@ describe('FileReferenceChip', () => {
       endLine: 20,
       content: 'const x = 1;',
     };
-    render(<FileReferenceChip ref={ref} onRemove={() => {}} />);
+    render(<FileReferenceChip reference={ref} onRemove={() => {}} />);
     expect(screen.getByText('bar.ts:10-20')).toBeTruthy();
   });
 
@@ -40,14 +40,14 @@ describe('FileReferenceChip', () => {
       endLine: 3,
       content: 'a\nb\nc',
     };
-    render(<FileReferenceChip ref={ref} onRemove={() => {}} />);
+    render(<FileReferenceChip reference={ref} onRemove={() => {}} />);
     expect(screen.getByText('3 lines')).toBeTruthy();
   });
 
   it('calls onRemove when the remove button is clicked', () => {
     const onRemove = vi.fn();
     const ref: FileReference = { id: '4', kind: 'file', path: 'src/foo/bar.ts' };
-    render(<FileReferenceChip ref={ref} onRemove={onRemove} />);
+    render(<FileReferenceChip reference={ref} onRemove={onRemove} />);
     const removeBtn = screen.getByTitle('Remove reference');
     fireEvent.click(removeBtn);
     expect(onRemove).toHaveBeenCalledTimes(1);

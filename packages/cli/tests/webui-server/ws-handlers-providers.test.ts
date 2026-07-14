@@ -1,8 +1,18 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WebSocket } from 'ws';
+
+// Mock the local-LLM probe so the "empty list → probe /v1/models" fallback is
+// deterministic (no real network). Default = unreachable; success tests
+// override per-call. Only handleProviderModels' fallback and handleProviderProbe
+// use it — and the probe tests here exercise the pre-network no_provider /
+// no_base_url branches, so this default never changes their outcome.
+const probeMock = vi.hoisted(() => ({
+  probeLocalLlm: vi.fn(async () => ({ ok: false, status: 'unreachable' })),
+}));
+vi.mock('@wrongstack/runtime/probe', () => probeMock);
 import {
   createProviderConfigStore,
   loadSavedProviders,
@@ -11,7 +21,9 @@ import type {
   WsHandlerContext,
   WsServerMessage,
 } from '../../src/webui-server/ws-handlers/index.js';
+import type { AgentConfigContext } from '../../src/webui-server/ws-handlers/index.js';
 import {
+  adoptDefaultProviderIfUnset,
   handleKeyDelete,
   handleKeySetActive,
   handleKeyUpsert,
@@ -166,6 +178,113 @@ describe('ws-handlers/providers (PR 5 of #30)', () => {
       models: unknown[];
     };
     expect(msg.models).toEqual([]);
+  });
+
+  it('handleProviderModels: config-only custom provider (baseUrl, no models) probes /v1/models', async () => {
+    // Save a custom provider absent from the catalog with a baseUrl but no
+    // saved `models` allowlist → resolveProviderModelList yields [] → fallback.
+    await createProviderConfigStore(configPath).save({
+      'custom-1': { type: 'custom-1', family: 'openai-compatible', baseUrl: 'http://localhost:9/v1' },
+    });
+    probeMock.probeLocalLlm.mockResolvedValueOnce({
+      ok: true,
+      status: 'ok',
+      modelIds: ['probed-a', 'probed-b'],
+    } as never);
+    const emptyRegistry = {
+      getProvider: async () => undefined,
+    } as never as WsHandlerContext['modelsRegistry'];
+    const { ctx, cap } = makeCtx(configPath, emptyRegistry);
+    await handleProviderModels(ctx, FAKE_WS, 'custom-1');
+    const msg = cap.sent.find((m) => m.type === 'provider.models')?.payload as {
+      models: { id: string }[];
+    };
+    expect(msg.models.map((m) => m.id)).toEqual(['probed-a', 'probed-b']);
+  });
+
+  it('handleProviderModels: probe failure leaves the list empty (no toast)', async () => {
+    await createProviderConfigStore(configPath).save({
+      'custom-1': { type: 'custom-1', family: 'openai-compatible', baseUrl: 'http://localhost:9/v1' },
+    });
+    // Default mock returns unreachable → fallback yields [].
+    const emptyRegistry = {
+      getProvider: async () => undefined,
+    } as never as WsHandlerContext['modelsRegistry'];
+    const { ctx, cap } = makeCtx(configPath, emptyRegistry);
+    await handleProviderModels(ctx, FAKE_WS, 'custom-1');
+    expect(cap.sent.some((m) => m.type === 'key.operation_result')).toBe(false);
+    const msg = cap.sent.find((m) => m.type === 'provider.models')?.payload as {
+      models: unknown[];
+    };
+    expect(msg.models).toEqual([]);
+  });
+
+  function makeAgentCtx(model = ''): {
+    ctx: AgentConfigContext;
+    persisted: Array<Record<string, unknown>>;
+    broadcasts: WsServerMessage[];
+  } {
+    const persisted: Array<Record<string, unknown>> = [];
+    const broadcasts: WsServerMessage[] = [];
+    const actx = {
+      model,
+      provider: { id: 'stub', capabilities: { maxContext: 0 } },
+      meta: {} as Record<string, unknown>,
+      session: { id: 's1' },
+    };
+    const ctx = {
+      agent: { ctx: actx },
+      modeStore: undefined,
+      globalConfigPath: configPath,
+      buildSessionStart: async () => ({ sessionId: 's1' }),
+      modelsRegistry: { refresh: async () => {}, getModel: async () => undefined },
+      persistPrefs: async (p: Record<string, unknown>) => {
+        persisted.push(p);
+      },
+      send: () => {},
+      broadcast: (m: WsServerMessage) => broadcasts.push(m),
+      log: () => {},
+    } as never as AgentConfigContext;
+    return { ctx, persisted, broadcasts };
+  }
+
+  it('adoptDefaultProviderIfUnset: adopts a just-added provider when no model is active', async () => {
+    await createProviderConfigStore(configPath).save({
+      'custom-1': {
+        type: 'custom-1',
+        family: 'openai-compatible',
+        baseUrl: 'http://localhost:9/v1',
+        models: ['m-a', 'm-b'],
+        apiKeys: [{ label: 'default', apiKey: 'sk-x', createdAt: '2020-01-01' }],
+        activeKey: 'default',
+      },
+    });
+    const wsRegistry = {
+      getProvider: async () => undefined,
+    } as never as WsHandlerContext['modelsRegistry'];
+    const { ctx: wsCtx } = makeCtx(configPath, wsRegistry);
+    const { ctx: agentCtx, persisted, broadcasts } = makeAgentCtx('');
+
+    await adoptDefaultProviderIfUnset(agentCtx, wsCtx, 'custom-1');
+
+    expect(agentCtx.agent.ctx.model).toBe('m-a'); // first saved model
+    expect(persisted).toContainEqual({ provider: 'custom-1', model: 'm-a' });
+    expect(broadcasts.some((m) => m.type === 'session.start')).toBe(true);
+  });
+
+  it('adoptDefaultProviderIfUnset: no-op when a model is already active', async () => {
+    await createProviderConfigStore(configPath).save({
+      'custom-1': { type: 'custom-1', family: 'openai-compatible', baseUrl: 'http://x/v1', models: ['m-a'] },
+    });
+    const { ctx: wsCtx } = makeCtx(configPath, {
+      getProvider: async () => undefined,
+    } as never as WsHandlerContext['modelsRegistry']);
+    const { ctx: agentCtx, persisted } = makeAgentCtx('existing-model');
+
+    await adoptDefaultProviderIfUnset(agentCtx, wsCtx, 'custom-1');
+
+    expect(agentCtx.agent.ctx.model).toBe('existing-model'); // untouched
+    expect(persisted).toEqual([]);
   });
 
   it('handleProvidersSaved: empty config → empty providers list', async () => {

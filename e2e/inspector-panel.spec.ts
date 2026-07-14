@@ -1,137 +1,75 @@
-import { test, expect } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
 /**
- * InspectorPanel E2E tests — verify the bottom dock panel opens,
- * shows fleet/agent tabs, and responds to interactions.
+ * Global workbench inspector contract.
  *
- * InspectorPanel is a sliding bottom dock (not a modal overlay).
- * It shows a tabbed interface: Fleet | Agents.
+ * The inspector is a fixed right-side Radix drawer. It overlays the active
+ * work surface (no layout shift), exposes the three consolidated monitor tabs,
+ * restores focus when closed, and follows the square WebUI geometry invariant.
  */
-test.describe('InspectorPanel', () => {
+test.describe('global inspector drawer', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
+    await expect(page.getByTestId('inspector-trigger')).toBeVisible();
   });
 
-  test('panel opens and collapses via toggle handle', async ({ page }) => {
-    // Look for the inspector toggle handle at the bottom of the page
-    const handle = page.locator('[class*="inspector"], [class*="bottom-dock"], [class*="panel-handle"]').first();
-    if (await handle.isVisible()) {
-      await handle.click();
-      await page.waitForTimeout(500);
-      // Panel should expand or collapse
-    }
-    // No assertion needed — just verify no crash
-    expect(true).toBeTruthy();
+  test('opens on the right without shrinking the work surface', async ({ page }) => {
+    const trigger = page.getByTestId('inspector-trigger');
+    const main = page.locator('#main-content');
+    const widthBefore = (await main.boundingBox())?.width;
+
+    await trigger.click();
+
+    const drawer = page.getByTestId('inspector-drawer');
+    await expect(drawer).toBeVisible();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(drawer).toHaveCSS('border-radius', '0px');
+    await expect(trigger).toHaveCSS('border-radius', '0px');
+
+    await expect
+      .poll(async () => {
+        const box = await drawer.boundingBox();
+        if (!box) return Number.POSITIVE_INFINITY;
+        return Math.abs(box.x + box.width - page.viewportSize()!.width);
+      })
+      .toBeLessThanOrEqual(1);
+    expect((await main.boundingBox())?.width).toBe(widthBefore);
   });
 
-  test('shows Fleet tab with content', async ({ page }) => {
-    // Open inspector panel
-    const handle = page.locator('[class*="inspector"], [class*="bottom-dock"], [class*="panel-handle"]').first();
-    if (await handle.isVisible()) {
-      await handle.click();
-      await page.waitForTimeout(500);
-    }
-    // Click Fleet tab
-    const fleetTab = page.getByRole('tab', { name: /fleet/i }).first();
-    if (await fleetTab.isVisible()) {
-      await fleetTab.click();
-      await page.waitForTimeout(300);
-      // Should show fleet-related content
-      const hasFleet = await page.getByText(/fleet|agent|concurr/i).first().isVisible().catch(() => false);
-      expect(hasFleet || true).toBeTruthy();
-    }
+  test('provides keyboard-accessible Fleet, Agents and Audit tabs', async ({ page }) => {
+    await page.getByTestId('inspector-trigger').click();
+
+    const fleet = page.getByRole('tab', { name: /^Fleet/ });
+    const agents = page.getByRole('tab', { name: /^Agents/ });
+    const audit = page.getByRole('tab', { name: /^Audit/ });
+
+    await expect(fleet).toHaveAttribute('aria-selected', 'true');
+    await agents.click();
+    await expect(agents).toHaveAttribute('aria-selected', 'true');
+
+    await agents.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(audit).toBeFocused();
+    await expect(audit).toHaveAttribute('aria-selected', 'true');
   });
 
-  test('shows Agents tab with content', async ({ page }) => {
-    const handle = page.locator('[class*="inspector"], [class*="bottom-dock"], [class*="panel-handle"]').first();
-    if (await handle.isVisible()) {
-      await handle.click();
-      await page.waitForTimeout(500);
-    }
-    const agentsTab = page.getByRole('tab', { name: /agent/i }).first();
-    if (await agentsTab.isVisible()) {
-      await agentsTab.click();
-      await page.waitForTimeout(300);
-      const hasAgents = await page.getByText(/agent|bot|subagent/i).first().isVisible().catch(() => false);
-      expect(hasAgents || true).toBeTruthy();
-    }
+  test('closes with the labelled action and restores trigger focus', async ({ page }) => {
+    const trigger = page.getByTestId('inspector-trigger');
+    await trigger.click();
+    await page.getByTestId('inspector-close').click();
+
+    await expect(page.getByTestId('inspector-drawer')).toBeHidden();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(trigger).toBeFocused();
   });
 
-  test('tab keyboard navigation works', async ({ page }) => {
-    const handle = page.locator('[class*="inspector"], [class*="bottom-dock"], [class*="panel-handle"]').first();
-    if (!await handle.isVisible()) {
-      test.skip();
-    }
-    await handle.click();
-    await page.waitForTimeout(500);
+  test('closes with Escape', async ({ page }) => {
+    await page.getByTestId('inspector-trigger').click();
+    await expect(page.getByTestId('inspector-drawer')).toBeVisible();
 
-    // Tab through tabs
-    await page.keyboard.press('Tab');
-    await page.waitForTimeout(100);
-    await page.keyboard.press('Tab');
-    await page.waitForTimeout(100);
-    // No crash
-    expect(true).toBeTruthy();
-  });
+    await page.keyboard.press('Escape');
 
-  test('panel slides to fixed height', async ({ page }) => {
-    const handle = page.locator('[class*="inspector"], [class*="bottom-dock"], [class*="panel-handle"]').first();
-    if (!await handle.isVisible()) {
-      test.skip();
-    }
-    // Open panel
-    await handle.click();
-    await page.waitForTimeout(500);
-
-    // Panel should have a measurable height
-    const panel = page.locator('[class*="inspector"], [class*="bottom-dock"]').first();
-    const box = await panel.boundingBox();
-    // Height should be > 0 when open
-    if (box) {
-      expect(box.height).toBeGreaterThan(0);
-    } else {
-      expect(true).toBeTruthy(); // No box = element not visible, that's ok
-    }
-  });
-
-  test('agent row is clickable', async ({ page }) => {
-    const handle = page.locator('[class*="inspector"], [class*="bottom-dock"], [class*="panel-handle"]').first();
-    if (!await handle.isVisible()) {
-      test.skip();
-    }
-    await handle.click();
-    await page.waitForTimeout(500);
-
-    // Look for agent rows
-    const agentRow = page.locator('[class*="agent"], [class*="subagent"]').first();
-    if (await agentRow.isVisible()) {
-      await agentRow.click();
-      await page.waitForTimeout(300);
-      // Should switch to Agents tab or show agent detail
-      const agentsTab = page.getByRole('tab', { name: /agent/i }).first();
-      if (await agentsTab.isVisible()) {
-        // Tab should be active
-        const _isActive = await agentsTab.getAttribute('aria-selected');
-        // Any outcome is fine — just verify no crash
-      }
-    }
-    expect(true).toBeTruthy();
-  });
-
-  test('no crash when opening/closing rapidly', async ({ page }) => {
-    const handle = page.locator('[class*="inspector"], [class*="bottom-dock"], [class*="panel-handle"]').first();
-    if (!await handle.isVisible()) {
-      test.skip();
-    }
-    // Rapid open/close
-    for (let i = 0; i < 3; i++) {
-      await handle.click();
-      await page.waitForTimeout(100);
-      await handle.click();
-      await page.waitForTimeout(100);
-    }
-    // No crash = pass
-    expect(true).toBeTruthy();
+    await expect(page.getByTestId('inspector-drawer')).toBeHidden();
   });
 });

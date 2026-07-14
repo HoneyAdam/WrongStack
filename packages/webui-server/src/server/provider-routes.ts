@@ -9,6 +9,8 @@ export interface ProviderRouteHandlers {
   listProviderModels: (ws: WebSocket, msg: WSClientMessage) => Promise<void>;
   switchModel: (ws: WebSocket, msg: WSClientMessage) => Promise<void>;
   refineModel: (ws: WebSocket, msg: WSClientMessage) => Promise<void>;
+  /** Adopt a just-added provider as the live default when no model is active. */
+  adoptDefaultProviderIfUnset: (providerId: string) => Promise<void>;
   providerHandlers: ReturnType<typeof createProviderHandlers>;
 }
 
@@ -115,6 +117,9 @@ export async function handleProviderRoute(
         baseUrl: baseUrl as string | undefined,
         apiKey: apiKey as string | undefined,
       });
+      // Adopt the just-added provider as the live default when nothing is
+      // active yet — parity with the boot auto-select (immediately usable).
+      await routes.adoptDefaultProviderIfUnset(id);
       return true;
     }
 

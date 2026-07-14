@@ -51,6 +51,7 @@ vi.mock('@/components/ChatInput/file-mention-picker', () => ({
 
 import { ChatInput } from '../../src/components/ChatInput.js';
 import { useChatStore } from '../../src/stores/chat-store.js';
+import { useLocalPrefs } from '../../src/stores/local-prefs.js';
 import { useUIStore } from '../../src/stores/ui-store.js';
 
 beforeEach(() => {
@@ -65,13 +66,12 @@ beforeEach(() => {
     queue: [],
     isLoading: false,
   });
-  // Refinement defaults to enabled in the persisted UI store, but
-  // these tests focus on the plain send path. Force it off so the
-  // refine branch doesn't swallow our assertions.
-  useUIStore.setState({
-    refineEnabled: false,
-    refinePanel: null,
-  });
+  // Refinement (enhance) defaults to enabled, but these tests focus on the
+  // plain send path. Force it off so the refine branch doesn't swallow our
+  // assertions. The enhance gate lives in local-prefs (`enhanceEnabled`); the
+  // open-panel state stays in the UI store (`refinePanel`).
+  useLocalPrefs.setState({ enhanceEnabled: false });
+  useUIStore.setState({ refinePanel: null });
 });
 
 afterEach(() => {

@@ -1,18 +1,26 @@
 /**
  * WorkspaceDock — the strip between the chat header and the transcript.
  *
- * Replaces the old vertical pile of panels (Collab, Goal, AutoPhase
- * quick-start, Fleet, WorkDashboard, Worktrees) that pushed the chat
- * history off-screen. One slim row of labeled chips with live numbers;
- * clicking a chip expands exactly one panel below it, clicking again
- * collapses. Chips only appear when their subsystem has something to show.
+ * The dock itself stays compact above chat. Selecting Goal, Fleet, Work,
+ * Worktrees, or Collab opens its content in WorkspaceDockInspector on the
+ * right, so the transcript never loses vertical space.
  *
- * WorkDashboard and CollabPanel stay mounted (hidden) while collapsed —
- * their Tasks/Plan/collab WebSocket subscriptions must survive.
+ * WorkDashboard and CollabPanel stay mounted (hidden) in the inspector while
+ * collapsed — their Tasks/Plan/collab WebSocket subscriptions must survive.
  */
 
-import { Bot, GitBranch, ListTodo, Rocket, SlidersHorizontal, Target, Users } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import {
+  Bot,
+  GitBranch,
+  ListTodo,
+  PanelRightOpen,
+  Rocket,
+  SlidersHorizontal,
+  Target,
+  Users,
+  X,
+} from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAppTranslation } from '@/i18n';
 import { openMainView } from '@/lib/view-navigation';
 import { cn } from '@/lib/utils';
@@ -120,7 +128,7 @@ function DockChip({
 
 // ── Dock ──────────────────────────────────────────────────────────────
 
-export function WorkspaceDock({ sessionId }: { sessionId: string }) {
+export function WorkspaceDock() {
   const dockSection = useUIStore((s) => s.dockSection);
   const { t } = useAppTranslation();
   const toggleDockSection = useUIStore((s) => s.toggleDockSection);
@@ -138,13 +146,10 @@ export function WorkspaceDock({ sessionId }: { sessionId: string }) {
   const overallPercent = useAutoPhaseStore((s) => s.overallPercent);
   const activePhaseId = useAutoPhaseStore((s) => s.activePhaseId);
   const worktrees = useWorktreeStore((s) => s.worktrees);
-  const baseBranch = useWorktreeStore((s) => s.baseBranch);
   const todos = useSessionStore((s) => s.todos);
   const fleetAgents = useFleetStore((s) => s.agents);
 
   const gitInfo = useGitInfo();
-
-  const [worktreeView, setWorktreeView] = useState<'graph' | 'lanes'>('graph');
 
   const fleetTotal = fleetAgents.size;
   const fleetRunning = useMemo(
@@ -178,7 +183,7 @@ export function WorkspaceDock({ sessionId }: { sessionId: string }) {
   const open = dockSection && visible[dockSection] ? dockSection : null;
 
   return (
-    <div className="space-y-2">
+    <div>
       {/* ── Chip strip ── */}
       <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border/70 bg-card/70 px-2 py-1.5 shadow-sm">
         {visible.autophase && (
@@ -310,52 +315,117 @@ export function WorkspaceDock({ sessionId }: { sessionId: string }) {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-
-      {/* ── Expanded section — exactly one, or nothing ── */}
-      {open && <div className="border-t border-border/40 pt-2" />}
-      {open === 'goal' && (
-        goal ? (
-          <GoalPanel goal={goal} />
-        ) : (
-          <DockEmptyState title={t('activity:dock.noActiveGoal')} detail={t('activity:dock.noActiveGoalDetail')} />
-        )
-      )}
-      {open === 'fleet' && <FleetPanel />}
-      {open === 'worktrees' && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            {(['graph', 'lanes'] as const).map((v) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => setWorktreeView(v)}
-                className={cn(
-                  'text-xs px-2.5 py-0.5 rounded-md border transition-colors capitalize',
-                  worktreeView === v
-                    ? 'bg-primary/10 border-primary/30 text-primary'
-                    : 'border-border text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {v}
-              </button>
-            ))}
-          </div>
-          <WorktreeOrphans />
-          {worktreeView === 'graph' ? (
-            <WorktreeGraph worktrees={worktrees} baseBranch={baseBranch || 'HEAD'} />
-          ) : (
-            <WorktreeLanes worktrees={worktrees} baseBranch={baseBranch || 'HEAD'} />
-          )}
-        </div>
-      )}
-      {/* Work + Collab stay mounted so their WS subscriptions survive. */}
-      <div className={cn(open === 'work' ? 'block' : 'hidden')} id="panel-work">
-        <WorkDashboard />
-      </div>
-      <div className={cn(open === 'collab' ? 'block' : 'hidden')}>
-        <CollabPanel sessionId={sessionId} />
-      </div>
     </div>
+  );
+}
+
+const DOCK_INSPECTOR_META: Record<Exclude<DockSection, 'autophase'>, { title: string; detail: string }> = {
+  goal: { title: 'Goal', detail: 'Active objective and progress' },
+  fleet: { title: 'Fleet', detail: 'Live agent roster and activity' },
+  work: { title: 'Work', detail: 'Todos, tasks, and plan' },
+  worktrees: { title: 'Worktrees', detail: 'Parallel branches and lanes' },
+  collab: { title: 'Collab', detail: 'Session participants and controls' },
+};
+
+export function WorkspaceDockInspector({ sessionId }: { sessionId: string }): React.ReactElement {
+  const dockSection = useUIStore((s) => s.dockSection);
+  const setDockSection = useUIStore((s) => s.setDockSection);
+  const goal = useGoalStore((s) => s.goal);
+  const worktrees = useWorktreeStore((s) => s.worktrees);
+  const baseBranch = useWorktreeStore((s) => s.baseBranch);
+  const [worktreeView, setWorktreeView] = useState<'graph' | 'lanes'>('graph');
+  const { t } = useAppTranslation();
+
+  const open = dockSection !== null && dockSection !== 'autophase';
+  const section = open ? dockSection : null;
+  const meta = section ? DOCK_INSPECTOR_META[section] : null;
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setDockSection(null);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [open, setDockSection]);
+
+  return (
+    <aside
+      id="workspace-dock-inspector"
+      data-testid={open ? 'workspace-dock-inspector' : undefined}
+      aria-hidden={!open}
+      inert={!open || undefined}
+      aria-label={meta ? `${meta.title} workspace inspector` : 'Workspace inspector'}
+      className={cn(
+        'fixed inset-y-0 right-0 z-50 flex w-[calc(100vw-3rem)] max-w-none flex-col overflow-hidden border-l border-border/80 bg-card/96 shadow-[-24px_0_64px_-36px_hsl(var(--shadow-color)/0.65)] backdrop-blur-xl transition-transform duration-200 sm:w-[min(680px,48vw)] sm:max-w-[680px]',
+        open ? 'translate-x-0' : 'pointer-events-none translate-x-full',
+      )}
+    >
+      <header className="relative shrink-0 border-b border-border/70 bg-muted/20 px-4 py-3 pr-12">
+        <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+          <PanelRightOpen className="h-4 w-4 text-primary" />
+          {meta?.title ?? 'Workspace'}
+        </div>
+        <p className="mt-1 text-[11px] text-muted-foreground">{meta?.detail ?? 'Workspace details'}</p>
+        <button
+          type="button"
+          data-testid="workspace-dock-inspector-close"
+          onClick={() => setDockSection(null)}
+          className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          aria-label="Close workspace inspector"
+          title="Close workspace inspector"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </header>
+
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3 sm:p-4">
+        {section === 'goal' &&
+          (goal ? (
+            <GoalPanel goal={goal} />
+          ) : (
+            <DockEmptyState
+              title={t('activity:dock.noActiveGoal')}
+              detail={t('activity:dock.noActiveGoalDetail')}
+            />
+          ))}
+        {section === 'fleet' && <FleetPanel />}
+        {section === 'worktrees' && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              {(['graph', 'lanes'] as const).map((view) => (
+                <button
+                  key={view}
+                  type="button"
+                  onClick={() => setWorktreeView(view)}
+                  className={cn(
+                    'rounded-md border px-2.5 py-1 text-xs capitalize transition-colors',
+                    worktreeView === view
+                      ? 'border-primary/30 bg-primary/10 text-primary'
+                      : 'border-border text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {view}
+                </button>
+              ))}
+            </div>
+            <WorktreeOrphans />
+            {worktreeView === 'graph' ? (
+              <WorktreeGraph worktrees={worktrees} baseBranch={baseBranch || 'HEAD'} />
+            ) : (
+              <WorktreeLanes worktrees={worktrees} baseBranch={baseBranch || 'HEAD'} />
+            )}
+          </div>
+        )}
+        {/* These stay mounted to preserve their subscriptions and local state. */}
+        <div className={cn(section === 'work' ? 'block' : 'hidden')} id="panel-work">
+          <WorkDashboard />
+        </div>
+        <div className={cn(section === 'collab' ? 'block' : 'hidden')}>
+          <CollabPanel sessionId={sessionId} />
+        </div>
+      </div>
+    </aside>
   );
 }
 

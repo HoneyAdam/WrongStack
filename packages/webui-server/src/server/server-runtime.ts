@@ -314,8 +314,8 @@ export function resolveWebuiDistDir(fromUrl: string, explicitDistDir?: string | 
   if (explicitDistDir) return path.resolve(explicitDistDir);
   try {
     const requireFromHere = createRequire(fromUrl);
-    const serverEntry = requireFromHere.resolve('@wrongstack/webui/server');
-    return path.resolve(path.dirname(serverEntry), '..'); // .../dist
+    const serverEntry = requireFromHere.resolve('@wrongstack/webui');
+    return path.dirname(serverEntry); // .../dist
   } catch {
     // Legacy fallback: assume the webui dist is co-located with the server
     // runtime (the pre-extraction layout). This path is wrong for the

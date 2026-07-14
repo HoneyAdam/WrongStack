@@ -1,6 +1,5 @@
 import type React from 'react';
 import { useEffect, useRef, useState } from 'react';
-import { useFileReferenceStore } from '@/stores/file-reference-store.js';
 import { toast } from '../Toaster.js';
 import { autoFenceCode } from './code-detect.js';
 import {
@@ -151,13 +150,11 @@ export function usePasteDrop({ input, textareaRef, setInput, errorText }: UsePas
       return;
     }
 
-    // Add dropped files as reference chips. Browsers strip the full path for
-    // security, so we use the basename only — the user can refine the path
-    // via the @-mention picker if needed.
-    const { addRef } = useFileReferenceStore.getState();
-    for (const file of files) {
-      addRef({ kind: 'file', path: file.name });
-    }
+    // Non-image file drops: inform the user that the path is just the
+    // basename (browsers strip the full path for security), and suggest
+    // the @-mention picker to pick the correct project file.
+    const basenames = files.map((f) => f.name).join(', ');
+    toast.info(`Dropped file(s): ${basenames} — use @ in chat to pick the correct project path.`);
   };
 
   const onTextPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>): void => {

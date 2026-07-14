@@ -39,9 +39,9 @@ export function LiveMailboxView({
   snapshot: snapshotOverride,
   events: eventsOverride,
 }: LiveMailboxViewProps = {}): React.ReactElement {
-  const store = useHqStore(['snapshot', 'events']);
-  const snapshot = snapshotOverride !== undefined ? snapshotOverride : store.snapshot;
-  const events = eventsOverride !== undefined ? eventsOverride : store.events;
+  const storeSnapshot = useHqStore((s) => s.snapshot);
+  const snapshot = snapshotOverride !== undefined ? snapshotOverride : storeSnapshot;
+  const events = eventsOverride !== undefined ? eventsOverride : useHqStore.getState().events;
 
   const persisted = useHqLocalPrefs();
   const initialFilters = useMemo(() => {

@@ -39,7 +39,7 @@
  * the matching `handleXxx(ctx, …)`. The per-group contexts are all built
  * once (before the WS connection handler is wired, so a fast client message
  * can't reach a handler before its context initializes). The file/memory/
- * mailbox/shell cases delegate to the shared `@wrongstack/webui/server`
+ * mailbox/shell cases delegate to the shared `@wrongstack/webui-server`
  * handlers.
  *
  * Public surface: `runWebUI` plus the `WSServerMessage` / `WSClientMessage`
@@ -77,6 +77,7 @@ import { SkillInstaller } from '@wrongstack/core/skills';
 import { toErrorMessage } from '@wrongstack/core/utils/error';
 import type { MCPRegistry } from '@wrongstack/mcp';
 import { makeProviderFromConfig } from '@wrongstack/providers';
+import { createKanbanRunMirror } from './webui-server/kanban-run-mirror.js';
 import {
   AutoPhaseWebSocketHandler,
   buildSddWizardDeps,
@@ -94,7 +95,7 @@ import {
   SpecsWebSocketHandler,
   TerminalWebSocketHandler,
   WorktreeWebSocketHandler,
-} from '@wrongstack/webui/server';
+} from '@wrongstack/webui-server';
 import { WebSocket, WebSocketServer } from 'ws';
 import { createWebuiClientRegistration } from './webui-server/client-registration.js';
 import {
@@ -154,14 +155,14 @@ export interface WSClientMessage {
 
 /**
  * CLI-shaped webui options. Distinct from the standalone
- * `WebUIOptions` exported by `@wrongstack/webui/server` (which is the
+ * `WebUIOptions` exported by `@wrongstack/webui-server` (which is the
  * type `startWebUI` accepts): the CLI builds its own agent/events/
  * session/etc. up front because the same instances power the
  * eternal-autonomy loop, and just hands the webui the surfaces it
  * needs. This type used to be called `WebUIOptions` too, which
  * caused a name collision with the standalone one whenever both
  * were imported into the same module (the CLI here imports from
- * `@wrongstack/webui/server` for shared helpers, so the collision
+ * `@wrongstack/webui-server` for shared helpers, so the collision
  * was a real source of confusion when reading this file).
  */
 export interface CliWebUIOptions {
@@ -174,6 +175,8 @@ export interface CliWebUIOptions {
   host?: string | undefined;
   /** HTTP port serving the React frontend. Defaults to 3456 (auto-advances). */
   httpPort?: number | undefined;
+  /** Alternate frontend dist directory (used by the independent SimpleUI surface). */
+  frontendDistDir?: string | undefined;
   /** Fixed access token/password. Defaults to WEBUI_TOKEN or random per process. */
   accessToken?: string | undefined;
   /** Browser-facing HTTP URL, used when WebUI is exposed behind a tunnel/proxy. */
@@ -373,6 +376,17 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   const autoPhaseStoreDir = opts.projectRoot
     ? path.join(opts.projectRoot, '.wrongstack', 'autophase')
     : path.join(os.tmpdir(), '.wrongstack', 'autophase');
+  // KanbanRunMirror — projects live SDD (via the shared bus) and AutoPhase (via
+  // the handler callback below) runs into kanban boards, so the kanban view is
+  // the unified live surface. Needs a project root (kanban boards are project-scoped).
+  const kanbanRunMirror = opts.projectRoot
+    ? createKanbanRunMirror({
+        projectRoot: opts.projectRoot,
+        events: opts.events,
+        broadcast,
+        log: (m) => consoleLogger.info(m),
+      })
+    : null;
   const autoPhaseHandler = new AutoPhaseWebSocketHandler(
     opts.agent,
     opts.agent.ctx as Context,
@@ -380,6 +394,9 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     autoPhaseStoreDir,
     opts.events,
     opts.projectRoot,
+    kanbanRunMirror
+      ? (graphId, state) => kanbanRunMirror.onAutophaseState(graphId, state)
+      : undefined,
   );
   const worktreeHandler = new WorktreeWebSocketHandler(opts.events, consoleLogger);
 
@@ -594,6 +611,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     httpPort,
     wsPort,
     globalRoot,
+    distDir: opts.frontendDistDir,
     onFleetPing: () => {
       void fleetBroadcastCli?.();
     },
@@ -980,6 +998,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     sddWizardHandler,
     worktreeHandler,
     terminalHandler,
+    kanbanRunMirror: kanbanRunMirror ?? undefined,
   });
 
   const stopped = new Promise<void>((resolve) => {
@@ -1107,6 +1126,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     flushAllStreamBuffers();
     worktreeHandler.dispose();
     terminalHandler.dispose();
+    kanbanRunMirror?.dispose();
     unregisterWebuiClient();
     httpServer?.server.close();
     opts.onExit?.();

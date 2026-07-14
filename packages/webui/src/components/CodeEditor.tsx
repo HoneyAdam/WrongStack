@@ -302,9 +302,7 @@ export function CodeEditor() {
   const focusChat = useCallback(() => {
     showPanel('chat');
     requestAnimationFrame(() => {
-      const ta = document.querySelector<HTMLTextAreaElement>(
-        'textarea[placeholder*="agent"], textarea[placeholder*="follow-up"]',
-      );
+      const ta = document.querySelector<HTMLTextAreaElement>('[data-chat-textarea]');
       ta?.focus();
     });
   }, []);

@@ -1,5 +1,5 @@
 import type { ProviderConfig, ResolvedProvider, WireFamily } from '@wrongstack/core';
-import { color } from '@wrongstack/core';
+import { atomicWrite, color } from '@wrongstack/core';
 import {
   mutateConfigProviders,
   normalizeKeys,
@@ -11,7 +11,9 @@ import {
   renderOAuthLoginOptions,
   runOAuthLoginChoice,
 } from './oauth-menu.js';
+import * as fs from 'node:fs/promises';
 import { runLiveProviderPicker } from '../picker.js';
+import { nextCustomProviderId } from '../provider-id.js';
 import { readKeyInput, suggestLabel, validateFamily } from './shared.js';
 import type { AuthMenuDeps } from './types.js';
 
@@ -157,15 +159,22 @@ export async function addCustomProvider(deps: AuthMenuDeps): Promise<boolean> {
     `\n${color.bold('Custom provider')} ${color.dim('— for local models or proxies not in the catalog.')}\n`,
   );
 
-  const type = (
+  const providersNow = await loadProviders(deps);
+  const idRaw = (
     await deps.reader.readLine(
-      `  ${color.amber('?')} Provider id ${color.dim('(e.g. "local-llama", "my-proxy", q to quit)')}: `,
+      `  ${color.amber('?')} Provider id ${color.dim('(e.g. "local-llama", "my-proxy"; blank = auto custom-N, q to quit)')}: `,
     )
   ).trim();
-  if (!type || type === 'q') return false;
+  if (idRaw === 'q') return false;
 
-  const existing = (await loadProviders(deps))[type];
-  if (existing) {
+  let type = idRaw;
+  if (!type) {
+    // Blank id → assign a non-colliding custom-N name instead of rejecting,
+    // so a hastily-added provider still gets a stable, unique id that won't
+    // clash with (or overwrite) another entry.
+    type = nextCustomProviderId(Object.keys(providersNow));
+    deps.renderer.write(`  ${color.dim('Using generated id:')} ${color.bold(type)}\n`);
+  } else if (providersNow[type]) {
     deps.renderer.writeWarning(`"${type}" already exists. Pick it from the main menu to edit.`);
     return false;
   }
@@ -299,7 +308,69 @@ export async function addKeyForProvider(
     `  ${color.green('✓')} Saved ${color.bold(providerId)}/${color.bold(label)}.\n`,
   );
   deps.renderer.write(color.dim(`  Launch: wstack --provider ${providerId} "<task>"\n`));
+
+  // If the user has no active default yet, adopt this provider as the default
+  // so the very first provider they add is immediately usable — the WebUI
+  // otherwise shows a "no model / needs setup" screen when config.provider or
+  // config.model is unset (the TUI tolerates it via its own picker). Never
+  // overrides an existing default; best-effort so a miss just defers the pick.
+  try {
+    await adoptAsDefaultIfUnset(deps, providerId, template);
+  } catch {
+    /* best-effort — the user can still pick a default via the picker */
+  }
   return true;
+}
+
+/**
+ * Resolve a sensible default model id for a just-added provider: an explicit
+ * saved model wins, otherwise the first model the catalog knows for it.
+ * Returns undefined when neither source yields a model (e.g. a custom provider
+ * with no `models` list and no catalog entry) — the caller then skips adoption.
+ */
+async function resolveDefaultModelId(
+  deps: AuthMenuDeps,
+  providerId: string,
+  template: Partial<ProviderConfig>,
+): Promise<string | undefined> {
+  if (template.models && template.models.length > 0) return template.models[0];
+  const catalogId = template.type && template.type !== providerId ? template.type : providerId;
+  const provider = await deps.modelsRegistry.getProvider(catalogId).catch(() => undefined);
+  return provider?.models?.[0]?.id;
+}
+
+/**
+ * Adopt `providerId` as the global default provider/model when none is set.
+ * Reads the raw config (provider/model are plaintext top-level keys) so we
+ * never clobber an existing choice, then persists via {@link saveToGlobalConfig}.
+ */
+async function adoptAsDefaultIfUnset(
+  deps: AuthMenuDeps,
+  providerId: string,
+  template: Partial<ProviderConfig>,
+): Promise<void> {
+  let cfg: Record<string, unknown> = {};
+  try {
+    cfg = JSON.parse(await fs.readFile(deps.globalConfigPath, 'utf8')) as Record<string, unknown>;
+  } catch {
+    // Missing/unparsable config — treat as "no default set" and continue.
+  }
+  if (cfg['provider'] && cfg['model']) return; // already has a usable default
+
+  const modelId = await resolveDefaultModelId(deps, providerId, template);
+  if (!modelId) return; // nothing concrete to point the default at
+
+  // Write straight to the same config path we just saved the provider into.
+  // Re-serialising the parsed object preserves the vault-encrypted provider
+  // blobs verbatim (we never decrypt here), and scoping the write to
+  // `globalConfigPath` keeps it path-honest — unlike saveToGlobalConfig, whose
+  // backup step targets the real ~/.wrongstack regardless of the path passed.
+  cfg['provider'] = providerId;
+  cfg['model'] = modelId;
+  await atomicWrite(deps.globalConfigPath, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+  deps.renderer.write(
+    `  ${color.green('✓')} Set ${color.bold(providerId)}/${color.bold(modelId)} as the default.\n`,
+  );
 }
 
 async function promptForLabel(deps: AuthMenuDeps, usedLabels: Set<string>): Promise<string | null> {

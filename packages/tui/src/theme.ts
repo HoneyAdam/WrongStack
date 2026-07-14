@@ -83,6 +83,20 @@ export function detectSupportsBackground(
 }
 
 export interface Theme {
+  /** Primary readable foreground used by framed chrome. */
+  textPrimary: string;
+  /** Secondary foreground for arguments and supporting labels. */
+  textSecondary: string;
+  /** Quiet metadata foreground that remains readable without ANSI dim quirks. */
+  textMuted: string;
+  /** WrongStack's warm brand orange, shared with the startup wordmark. */
+  brandPrimary: string;
+  /** WrongStack's hot-pink companion accent. */
+  brandAccent: string;
+  /** Low-contrast panel surface (used only when background support is safe). */
+  surface: string;
+  /** Raised surface for focused chrome. */
+  surfaceRaised: string;
   /** Primary accent — prompts, links, tool names, assistant label. */
   accent: string;
   /** USER: label + the user's own message text marker. */
@@ -133,6 +147,13 @@ export interface Theme {
 // Single tuned pastel palette. Semantic tokens point at the `pastel` hexes
 // above, so re-skinning is a one-line edit there that propagates everywhere.
 export const theme: Theme = Object.freeze({
+  textPrimary: pastel.white,
+  textSecondary: '#bac2de',
+  textMuted: '#6c7086',
+  brandPrimary: '#FD9F02',
+  brandAccent: '#FE2E5F',
+  surface: '#181825',
+  surfaceRaised: '#1e1e2e',
   accent: pastel.cyan,
   user: pastel.yellow,
   assistant: pastel.cyan,

@@ -91,7 +91,7 @@ import { FleetPanel } from './components/fleet-panel.js';
 import { GoalPanel } from './components/goal-panel.js';
 import { HelpOverlay } from './components/help-overlay.js';
 import { History, type HistoryEntry } from './components/history.js';
-import { Input, type KeyEvent } from './components/input.js';
+import { composerStatusLabel, DEFAULT_INPUT_PROMPT, Input, inputContentWidth, type KeyEvent } from './components/input.js';
 import { KanbanPanel } from './components/kanban-panel.js';
 import { KeyHintBar, type KeyHintContext } from './components/key-hint-bar.js';
 import { MailboxPanel } from './components/mailbox-panel.js';
@@ -193,7 +193,7 @@ export {
 
 /** Input prompt — mirrors the <Input> default so click-to-position-cursor maps
  *  columns the same way the input renders them. */
-const INPUT_PROMPT = '› ';
+const INPUT_PROMPT = DEFAULT_INPUT_PROMPT;
 
 export function selectedSlashCommandLine(picker: {
   open: boolean;
@@ -827,8 +827,8 @@ const PASTE_THRESHOLD_CHARS = 200;
  */
 const CONTINUE_CONFIRM_DELAY_MS = 4000;
 
-/** Horizontal padding used by StatusBar line content (column where chips start). Must match the SB_PADX constant in status-bar.tsx. */
-const SB_PADX = 2;
+/** Powerline rails begin at the terminal edge; local hit-tests use no outer padding. */
+const SB_PADX = 0;
 
 // `buildGoalPreamble` was relocated to @wrongstack/core so headless and
 // WebUI callers (which depend on @wrongstack/cli but not @wrongstack/tui)
@@ -5530,7 +5530,7 @@ export function App({
     // (e.g. AgentsMonitor's own useInput handles ↑↓ for list navigation).
     // (overlayOpen is defined above, before the ?-handler.)
     if (!overlayOpen && (key.upArrow || key.downArrow || key.pageUp || key.pageDown)) {
-      const width = stdout?.columns ?? 80;
+      const width = inputContentWidth(stdout?.columns ?? 80);
       const rows = layoutInputRows(INPUT_PROMPT, buffer, cursor, width);
       if (rows.length <= 1) {
         // Single-line — fall through to left/right arrow character movement.
@@ -5650,7 +5650,7 @@ export function App({
             termRows,
             statusBarHeight: sbHeight,
             belowHeight,
-            headerRows: 1,
+            headerRows: 0,
             line,
           });
         const inSpan = (span: { start: number; len: number }) =>
@@ -6830,6 +6830,12 @@ export function App({
     return '';
   }, [state.buffer, state.status, state.picker.open]);
 
+  const inputStatusLabel = composerStatusLabel(
+    state.status,
+    state.confirmQueue.length,
+    state.queue.length,
+  );
+
   // True while a prompt-refinement call is in flight or its preview panel is
   // open. Used to blank the live input row (so the un-cleared draft can't bleed
   // into scrollback) and to drive the per-tick live-region erase below.
@@ -6843,9 +6849,9 @@ export function App({
     INPUT_PROMPT,
     state.buffer,
     state.cursor,
-    stdout?.columns ?? 80,
+    inputContentWidth(stdout?.columns ?? 80),
   );
-  const inputHeight = Math.max(1, inputCellRows.length);
+  const inputHeight = Math.max(3, inputCellRows.length + 2);
 
   // The chat input stays LIVE underneath the read-only monitor panels (fleet,
   // agents, worktree, todos, queue, goal) so the user can keep typing and
@@ -6957,6 +6963,7 @@ export function App({
             prompt={INPUT_PROMPT}
             value={state.buffer}
             cursor={state.cursor}
+            statusLabel={inputStatusLabel}
             hidden={hideInput}
             placeholderHeight={inputHeight}
             disabled={

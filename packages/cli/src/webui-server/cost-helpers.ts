@@ -1,6 +1,6 @@
 // PR 2 of Issue #30 (webui-server 8-PR refactor):
 // cost computation helpers, inlined from
-// `@wrongstack/webui/server/usage-cost.ts`.
+// `@wrongstack/webui-server/usage-cost.ts`.
 //
 // Why this split:
 //
@@ -13,7 +13,7 @@
 //     a deterministic output.
 //
 //   - The two implementations (`getCostRates` here, the
-//     same-named helper in `@wrongstack/webui/server`)
+//     same-named helper in `@wrongstack/webui-server`)
 //     must not drift apart. The plan body of Issue #30
 //     calls this out explicitly: "Phase 2 of the refactor
 //     plan continues this pattern for the rest of the
@@ -34,7 +34,7 @@
 // What is *not* in this file:
 //
 //   - The `TokenUsage` / `CostRates` interfaces are also
-//     defined by `@wrongstack/webui/server`. We duplicate
+//     defined by `@wrongstack/webui-server`. We duplicate
 //     the shape here intentionally so the CLI can evolve
 //     the helpers without round-tripping every change
 //     through the webui package. The plan body's "the two

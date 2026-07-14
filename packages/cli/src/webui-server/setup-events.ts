@@ -12,7 +12,7 @@
  * PR 12 of Issue #30: extracted from `webui-server.ts`.
  */
 import type { Context, EventBus, JournalEntry, SecretScrubber } from '@wrongstack/core';
-import { createEternalSubscription } from '@wrongstack/webui/server';
+import { createEternalSubscription } from '@wrongstack/webui-server';
 import type { StreamCoalescer } from './stream-coalescer.js';
 import type { PendingConfirm } from './ws-handlers/index.js';
 
@@ -691,7 +691,7 @@ export function createSetupEvents(deps: SetupEventsDeps): () => void {
       // eternal-autonomy iteration events. Each iteration the engine
       // completes lands here and is fanned out to every connected client
       // so the frontend can render a live timeline of the autonomous loop.
-      // Wired through `createEternalSubscription` (shared with `@wrongstack/webui/server`'s
+      // Wired through `createEternalSubscription` (shared with `@wrongstack/webui-server`'s
       // standalone `startWebUI`) so the `eternal.iteration` payload shape stays
       // in lockstep across the two entry points — earlier revisions spelled out
       // every field by hand here, which drifted from the standalone shape

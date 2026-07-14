@@ -48,6 +48,10 @@ import { createDefaultContainer } from '@wrongstack/runtime';
 import { builtinToolsPack } from '@wrongstack/tools';
 import { parseArgs } from './arg-parser.js';
 import { discoverAndMergeProviders } from './boot/auto-discover-providers.js';
+import {
+  applySimpleUiFullAutoProfile,
+  isSimpleUiFullAuto,
+} from './boot/simpleui-full-auto.js';
 import { bootConfig } from './boot-config.js';
 import { ReadlineInputReader } from './input-reader.js';
 import { printLaunchHints } from './launch-hints.js';
@@ -103,6 +107,38 @@ async function validateSavedProviderModel(
     return { ok: false, reason: `model "${modelId}" is no longer available for provider "${providerId}"` };
   }
   return { ok: true };
+}
+
+/**
+ * Resolve a usable `{ provider, model }` from saved config when the active
+ * pointers are unset — the non-interactive (WebUI / --no-interactive) analogue
+ * of the TUI's interactive picker. Mirrors the standalone WebUI's auto-select
+ * (packages/webui-server start-webui.ts) so a config whose only entry is a
+ * custom provider still boots instead of erroring out. Prefers an already-set
+ * `config.provider`, otherwise the first saved provider; the model comes from
+ * the provider's saved `models` allowlist, falling back to the catalog's first
+ * model. Returns undefined when no provider yields a concrete model.
+ */
+export async function autoSelectSavedProvider(
+  config: Config,
+  modelsRegistry: ModelsRegistry,
+): Promise<{ provider: string; model: string } | undefined> {
+  const providers = config.providers ?? {};
+  const entries =
+    config.provider && providers[config.provider]
+      ? ([[config.provider, providers[config.provider]]] as const)
+      : Object.entries(providers);
+  for (const [id, cfg] of entries) {
+    if (!cfg) continue;
+    let model = cfg.models?.[0];
+    if (!model) {
+      const catalogId = cfg.type && cfg.type !== id ? cfg.type : id;
+      const catalog = await modelsRegistry.getProvider(catalogId).catch(() => undefined);
+      model = catalog?.models?.[0]?.id;
+    }
+    if (model) return { provider: id, model };
+  }
+  return undefined;
 }
 
 export interface BootContext {
@@ -168,6 +204,8 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
   }
   const { paths, config: _config, vault } = bootResult;
   let config = _config;
+  config = applySimpleUiFullAutoProfile(config, flags);
+  const simpleUiFullAuto = isSimpleUiFullAuto(flags);
   const { cwd, projectRoot, userHome, wpaths, pathResolver } = paths;
   void pathResolver; // used by callers via container binding
   const first = positional[0];
@@ -315,6 +353,14 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
   const modelFlag = typeof flags['model'] === 'string' ? flags['model'] : undefined;
   // When --webui or --no-interactive is active, skip interactive picker and require config values
   const noInteractiveMode = flags['webui'] || flags['no-interactive'];
+  // Non-interactive surfaces can't run the picker, so adopt a saved provider
+  // (e.g. a custom one added via /auth) when the active pointers are unset —
+  // otherwise a custom-provider-only config fails the presence check below and
+  // shows "No provider or model configured". The TUI reaches the picker instead.
+  if (noInteractiveMode && (!config.provider || !config.model)) {
+    const picked = await autoSelectSavedProvider(config, modelsRegistry);
+    if (picked) config = patchConfig(config, picked);
+  }
   if (!(!!providerFlag && !!modelFlag)) {
     if (isStdinTTY() && !noInteractiveMode) {
       let picked: PickerResult | undefined;
@@ -510,13 +556,15 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
     // but we must NOT persist that choice — the user's last non-webui mode
     // (likely TUI) should survive so the next plain `wstack` session returns
     // to their preferred surface instead of silently landing in REPL.
-    try {
-      const toPersist = flags['webui']
-        ? { ...choices, mode: lastChoices?.mode ?? config.launch?.mode ?? 'tui' }
-        : choices;
-      await persistLaunchChoices(wpaths.globalConfig, toPersist);
-    } catch {
-      // Best-effort — never blocks launch.
+    if (!simpleUiFullAuto) {
+      try {
+        const toPersist = flags['webui']
+          ? { ...choices, mode: lastChoices?.mode ?? config.launch?.mode ?? 'tui' }
+          : choices;
+        await persistLaunchChoices(wpaths.globalConfig, toPersist);
+      } catch {
+        // Best-effort — never blocks launch.
+      }
     }
 
     await printLaunchHints(renderer, flags, {
@@ -532,20 +580,21 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
     // Respect an explicit opt-out (--no-autonomy or defaultMode 'off'); otherwise
     // default to 'auto' so non-interactive sessions self-drive too.
     const nonInteractiveAutonomy: 'off' | 'auto' =
-      flags['no-autonomy'] === true || config.autonomy?.defaultMode === 'off'
+      !simpleUiFullAuto &&
+      (flags['no-autonomy'] === true || config.autonomy?.defaultMode === 'off')
         ? 'off'
         : 'auto';
     const effectiveChoices = config.launch
       ? {
           mode: flags['no-tui'] ? 'repl' : (config.launch.mode ?? 'tui'),
           yolo: config.yolo ?? true,
-          director: false, // Disable director in non-interactive mode
+          director: simpleUiFullAuto,
           autonomy: nonInteractiveAutonomy,
         }
       : {
           mode: 'repl',
           yolo: true,
-          director: false,
+          director: simpleUiFullAuto,
           autonomy: nonInteractiveAutonomy,
         };
 

@@ -18,17 +18,20 @@ import type { SlashCommandContext } from './index.js';
 export function buildRefinerCommand(opts: SlashCommandContext): SlashCommand {
   const help = [
     'Usage:',
-    '  /refiner                         Show current refiner config',
-    '  /refiner show                    Show current refiner config',
-    '  /refiner set provider <id>       Set the refiner provider (e.g. "opencode-go")',
-    '  /refiner set model <id>          Set the refiner model (e.g. "deepseek-v4-flash")',
-    '  /refiner clear                   Clear both refiner provider and model (use session defaults)',
+    '  /refiner                                    Show current refiner config',
+    '  /refiner show                               Show current refiner config',
+    '  /refiner set provider <id>                   Set the refiner provider (e.g. "opencode-go")',
+    '  /refiner set model <id>                      Set the refiner model (e.g. "deepseek-v4-flash")',
+    '  /refiner set fallback-profile <name>         Set the refiner fallback profile (e.g. "default")',
+    '  /refiner clear                               Clear all refiner config (use session defaults)',
     '',
-    'When both refiner-provider and refiner-model are set, goal refinement uses that',
-    'dedicated provider+model instead of the session main model. Falls back to the',
-    'session model when either is unset or when the dedicated provider is unavailable.',
+    'When refiner-provider and refiner-model are set, goal refinement uses that',
+    'dedicated provider+model instead of the session main model. When a fallback-profile',
+    'is set, the first valid entry from that named profile chain is used instead.',
+    'Falls back to the session model when all are unset or unavailable.',
     '',
-    'Also configurable via /settings refiner-provider <id> and /settings refiner-model <id>.',
+    'Also configurable via /settings refiner-provider <id>, /settings refiner-model <id>,',
+    'and /settings refiner-fallback-profile <name>.',
   ].join('\n');
 
   return {
@@ -54,13 +57,15 @@ export function buildRefinerCommand(opts: SlashCommandContext): SlashCommand {
         const autonomy = cfg.autonomy as Record<string, unknown> | undefined;
         const provider = autonomy?.refinerProvider as string | undefined;
         const model = autonomy?.refinerModel as string | undefined;
+        const fallbackProfile = autonomy?.refinerFallbackProfile as string | undefined;
         const msg = [
           `${color.bold('Refiner Config')}`,
           '',
-          `  provider:  ${provider ? color.cyan(provider) : color.dim('(unset — uses session provider)')}`,
-          `  model:     ${model ? color.cyan(model) : color.dim('(unset — uses session model)')}`,
+          `  provider:         ${provider ? color.cyan(provider) : color.dim('(unset — uses session provider)')}`,
+          `  model:            ${model ? color.cyan(model) : color.dim('(unset — uses session model)')}`,
+          `  fallback-profile: ${fallbackProfile ? color.cyan(fallbackProfile) : color.dim('(unset)')}`,
           '',
-          color.dim('Change: /refiner set provider <id> · /refiner set model <id> · /refiner clear'),
+          color.dim('Change: /refiner set provider|model|fallback-profile <value> · /refiner clear'),
         ].join('\n');
         return { message: msg };
       }
@@ -72,7 +77,7 @@ export function buildRefinerCommand(opts: SlashCommandContext): SlashCommand {
 
         if (!field) {
           return {
-            message: `${color.amber('Usage:')} /refiner set provider|model <value>`,
+            message: `${color.amber('Usage:')} /refiner set provider|model|fallback-profile <value>`,
           };
         }
 
@@ -108,8 +113,17 @@ export function buildRefinerCommand(opts: SlashCommandContext): SlashCommand {
             };
           }
 
+          if (field === 'fallback-profile' || field === 'fallbackprofile' || field === 'profile') {
+            await persistAutonomySetting(persistDeps, (autonomy) => {
+              (autonomy as Record<string, unknown>).refinerFallbackProfile = value;
+            });
+            return {
+              message: `${color.green('✓')} refiner-fallback-profile → ${color.cyan(value)}   ${color.dim('goal refinement will use the first valid entry from this profile chain')}`,
+            };
+          }
+
           return {
-            message: `${color.red('Unknown field')} "${field}". ${unknownSubcommand(field, ['provider', 'model'], 'refiner set')}`,
+            message: `${color.red('Unknown field')} "${field}". ${unknownSubcommand(field, ['provider', 'model', 'fallback-profile'], 'refiner set')}`,
           };
         } catch (err) {
           return {
@@ -130,6 +144,7 @@ export function buildRefinerCommand(opts: SlashCommandContext): SlashCommand {
           await persistAutonomySetting(persistDeps, (autonomy) => {
             (autonomy as Record<string, unknown>).refinerProvider = undefined;
             (autonomy as Record<string, unknown>).refinerModel = undefined;
+            (autonomy as Record<string, unknown>).refinerFallbackProfile = undefined;
           });
           return {
             message: `${color.green('✓')} Refiner config cleared   ${color.dim('goal refinement will use the session provider+model')}`,

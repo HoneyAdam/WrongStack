@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mutateBoard, readBoard } from '../storage.js';
 import {
   type KanbanBoard,
+  type KanbanEvent,
   type KanbanSearchInput,
   type KanbanSearchResult,
   type KanbanTask,
@@ -13,6 +14,8 @@ import { searchKanban } from './serialization.js';
 import {
   addDependencyToTask,
   cloneChecks,
+  createKanbanEvent,
+  emitKanbanEvent,
   cloneGoalMetrics,
   createTaskObject,
   existingColumnId,
@@ -38,6 +41,7 @@ export async function addDependency(
   taskId: string,
   dependencyTaskId: string,
 ): Promise<KanbanBoard | null> {
+  let event: KanbanEvent | undefined;
   const updated = await mutateBoard(projectRoot, boardId, (board) => {
     const task = findTask(board, taskId);
     const dependency = findTask(board, dependencyTaskId);
@@ -45,8 +49,12 @@ export async function addDependency(
     addDependencyToTask(board, task, dependency);
     task.updatedAt = nowIso();
     board.updatedAt = task.updatedAt;
+    event = createKanbanEvent(board.id, task, 'task.dependency.added', {
+      after: { dependsOn: dependency.id },
+    });
     return task;
   });
+  if (updated?.result && event) await emitKanbanEvent(projectRoot, event);
   return updated?.result ? updated.board : null;
 }
 
@@ -56,6 +64,7 @@ export async function splitTask(
   taskId: string,
   input: SplitKanbanTaskInput,
 ): Promise<{ board: KanbanBoard; parent: KanbanTask; children: KanbanTask[] } | null> {
+  let event: KanbanEvent | undefined;
   const updated = await mutateBoard(projectRoot, boardId, (board) => {
     const parent = findTask(board, taskId);
     if (!parent) return null;
@@ -119,8 +128,12 @@ export async function splitTask(
     }
     normalizeColumnTaskOrders(board, columnId);
     board.updatedAt = now;
+    event = createKanbanEvent(board.id, parent, 'task.split', {
+      after: { children: children.map((child) => child.id) },
+    });
     return { parent, children };
   });
+  if (updated?.result && event) await emitKanbanEvent(projectRoot, event);
   return updated?.result ? { board: updated.board, ...updated.result } : null;
 }
 
@@ -129,6 +142,7 @@ export async function mergeTasks(
   boardId: string,
   input: MergeKanbanTasksInput,
 ): Promise<{ board: KanbanBoard; task: KanbanTask; sourceTasks: KanbanTask[] } | null> {
+  let event: KanbanEvent | undefined;
   const updated = await mutateBoard(projectRoot, boardId, (board) => {
     const sourceTasks = resolveTaskRefs(board, input.taskIds);
     if (sourceTasks.length < 2) throw new Error('mergeTasks requires at least two tasks.');
@@ -172,8 +186,12 @@ export async function mergeTasks(
     }
     rewireDependents(board, [...sourceIds], [merged.id], [merged.id, ...sourceIds]);
     board.updatedAt = now;
+    event = createKanbanEvent(board.id, merged, 'task.merged', {
+      note: `merged ${sourceTasks.length} tasks`,
+    });
     return { task: merged, sourceTasks };
   });
+  if (updated?.result && event) await emitKanbanEvent(projectRoot, event);
   return updated?.result ? { board: updated.board, ...updated.result } : null;
 }
 
@@ -182,6 +200,7 @@ export async function setTaskChain(
   boardId: string,
   input: SetKanbanTaskChainInput,
 ): Promise<{ board: KanbanBoard; chainId: string; tasks: KanbanTask[] } | null> {
+  let event: KanbanEvent | undefined;
   const updated = await mutateBoard(projectRoot, boardId, (board) => {
     const tasks = resolveTaskRefs(board, input.taskIds);
     if (!tasks.length) throw new Error('setTaskChain requires at least one task.');
@@ -196,8 +215,11 @@ export async function setTaskChain(
     const now = nowIso();
     for (const task of tasks) task.updatedAt = now;
     board.updatedAt = now;
+    const head = tasks[0];
+    if (head) event = createKanbanEvent(board.id, head, 'task.chain.set', { after: { chainId } });
     return { chainId, tasks };
   });
+  if (updated?.result && event) await emitKanbanEvent(projectRoot, event);
   return updated?.result ? { board: updated.board, ...updated.result } : null;
 }
 

@@ -138,6 +138,71 @@ describe('file-reference-store', () => {
       ]);
       expect(md).toBe('@src/a.ts\n\n@src/b.ts');
     });
+
+    it('renders a file ref as a code block when fileContents are provided', () => {
+      const md = refsToMarkdown(
+        [{ id: '1', kind: 'file', path: 'src/a.ts' }],
+        { 'src/a.ts': 'export const x = 1;' },
+      );
+      expect(md).toContain('```typescript');
+      expect(md).toContain('// src/a.ts (entire file)');
+      expect(md).toContain('export const x = 1;');
+      expect(md).toContain('```');
+    });
+
+    it('falls back to @-mention when fileContents does not include the ref path', () => {
+      const md = refsToMarkdown(
+        [{ id: '1', kind: 'file', path: 'src/a.ts' }],
+        { 'src/other.ts': 'some content' },
+      );
+      expect(md).toBe('@src/a.ts');
+    });
+
+    it('uses fileContents for some refs and @-mention for others in a mixed list', () => {
+      const md = refsToMarkdown(
+        [
+          { id: '1', kind: 'file', path: 'src/a.ts' },
+          { id: '2', kind: 'file', path: 'src/b.ts' },
+          { id: '3', kind: 'file', path: 'src/c.ts' },
+        ],
+        { 'src/a.ts': 'alpha', 'src/c.ts': 'gamma' },
+      );
+      const parts = md.split('\n\n');
+      expect(parts).toHaveLength(3);
+      expect(parts[0]).toContain('```');
+      expect(parts[0]).toContain('alpha');
+      expect(parts[1]).toBe('@src/b.ts');
+      expect(parts[2]).toContain('gamma');
+    });
+
+    it('does not change snippet rendering when fileContents is provided', () => {
+      const md = refsToMarkdown(
+        [{
+          id: '1',
+          kind: 'snippet',
+          path: 'src/a.ts',
+          startLine: 1,
+          endLine: 2,
+          content: 'const a = 1;',
+        }],
+        { 'src/a.ts': 'full file content here' },
+      );
+      // Snippet should still use its own content, not the fileContents map
+      expect(md).toContain('const a = 1;');
+      expect(md).not.toContain('full file content here');
+    });
+
+    it('handles empty fileContents map gracefully', () => {
+      const md = refsToMarkdown(
+        [{ id: '1', kind: 'file', path: 'src/a.ts' }],
+        {},
+      );
+      expect(md).toBe('@src/a.ts');
+    });
+
+    it('returns empty string when fileContents is provided but no refs exist', () => {
+      expect(refsToMarkdown([], { 'src/a.ts': 'hello' })).toBe('');
+    });
   });
 
   describe('refLabel', () => {

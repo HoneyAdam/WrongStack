@@ -1,5 +1,5 @@
 import { Layers } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   formatModelMatrixRouteLabel,
   MODEL_MATRIX_DEFAULT_ROUTE,
@@ -9,7 +9,6 @@ import {
 import { useAppTranslation } from '@/i18n';
 import { useLocalPrefs, type LocalPrefs } from '@/stores/local-prefs';
 import { Button } from '../ui/button';
-import { Input } from '../ui/input';
 
 type ModelRouteEntry = LocalPrefs['modelMatrix'][string];
 type ModelRouteRuntime = NonNullable<ModelRouteEntry['modelRuntime']>;
@@ -73,11 +72,19 @@ function routeRuntimeParts(reasoning: ModelRouteReasoning | undefined): string[]
   ].filter(Boolean);
 }
 
-interface RoutingSectionProps {
-  syncPref: (key: string, value: unknown) => void;
+interface ModelCandidate {
+  provider: string;
+  model: string;
+  label: string;
 }
 
-export function RoutingSection({ syncPref }: RoutingSectionProps) {
+interface RoutingSectionProps {
+  syncPref: (key: string, value: unknown) => void;
+  /** Candidate models for the route target dropdown. */
+  candidates?: ModelCandidate[] | undefined;
+}
+
+export function RoutingSection({ syncPref, candidates }: RoutingSectionProps) {
   const localPrefs = useLocalPrefs();
   const { t } = useAppTranslation();
 
@@ -235,15 +242,32 @@ export function RoutingSection({ syncPref }: RoutingSectionProps) {
             </optgroup>
           ) : null}
         </select>
-        <Input
+        <select
+          aria-label={t('settings:agent.routingTargetAria')}
           value={newRouteTarget}
           onChange={(e) => setNewRouteTarget(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') addModelRoute();
-          }}
-          placeholder={t('settings:agent.routingTargetPlaceholder')}
-          className="font-mono text-sm"
-        />
+          className="h-9 min-w-0 rounded-md border bg-background px-3 font-mono text-sm"
+        >
+          <option value="">{t('settings:agent.routingTargetEmpty')}</option>
+          {Object.keys(localPrefs.fallbackProfiles).length > 0 && (
+            <optgroup label={t('settings:agent.routingTargetProfilesGroup')}>
+              {Object.keys(localPrefs.fallbackProfiles).map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {candidates && candidates.length > 0 && (
+            <optgroup label={t('settings:agent.routingTargetModelsGroup')}>
+              {candidates.map((c) => (
+                <option key={`${c.provider}/${c.model}`} value={`${c.provider}/${c.model}`}>
+                  {c.provider}/{c.model}
+                </option>
+              ))}
+            </optgroup>
+          )}
+        </select>
         <Button type="button" variant="outline" onClick={addModelRoute}>
           {t('settings:agent.routingSet')}
         </Button>

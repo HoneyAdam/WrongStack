@@ -5,6 +5,8 @@ import ReactDOM from 'react-dom/client';
 // engineering-instrument character — Plex Sans (variable) for UI text, Plex
 // Mono for data readouts, labels, and code.
 import '@fontsource-variable/ibm-plex-sans';
+import '@fontsource-variable/manrope';
+import '@fontsource-variable/space-grotesk';
 import '@fontsource/ibm-plex-mono/400.css';
 import '@fontsource/ibm-plex-mono/500.css';
 import '@fontsource/ibm-plex-mono/600.css';

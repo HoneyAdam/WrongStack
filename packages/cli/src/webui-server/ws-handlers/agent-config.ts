@@ -125,6 +125,61 @@ export async function handleModeSwitch(
   }
 }
 
+/**
+ * Apply a provider+model switch to the live agent: rebuild the provider from
+ * saved config, resolve the model's maxContext, persist the choice, and
+ * broadcast a fresh `session.start`. Shared by the `model.switch` handler and
+ * the "adopt on first provider add" path so both mutate the agent identically.
+ * Throws on provider-construction failure (the caller decides how to report).
+ */
+export async function applyModelSwitch(
+  ctx: AgentConfigContext,
+  newProvider: string,
+  newModel: string,
+): Promise<void> {
+  const actx = ctx.agent.ctx;
+  actx.model = newModel;
+
+  // Create a new provider instance from the saved config.
+  const saved = await loadSavedProviders(ctx.globalConfigPath);
+  const providerCfg = saved[newProvider] ?? { type: newProvider };
+  actx.provider = makeProviderFromConfig(newProvider, providerCfg);
+  await ctx.modelsRegistry?.refresh().catch((err) => {
+    ctx.log(
+      JSON.stringify({
+        level: 'warn',
+        event: 'models.refresh_failed',
+        provider: newProvider,
+        model: newModel,
+        message: toErrorMessage(err),
+        timestamp: new Date().toISOString(),
+      }),
+    );
+  });
+  const catalogId =
+    providerCfg.type && providerCfg.type !== newProvider ? providerCfg.type : newProvider;
+  const resolved = await ctx.modelsRegistry?.getModel(catalogId, newModel).catch(() => undefined);
+  const maxContext = resolved?.capabilities.maxContext ?? actx.provider.capabilities.maxContext;
+  actx.provider.capabilities.maxContext = maxContext;
+
+  // Persist the new provider+model to config.json so the choice survives a
+  // restart (the standalone server does this in its own model.switch handler).
+  await ctx.persistPrefs?.({ provider: newProvider, model: newModel });
+
+  if (ctx.onMaxContextResolved) {
+    ctx.onMaxContextResolved(newProvider, newModel, maxContext);
+  } else {
+    if (maxContext > 0) actx.meta['effectiveMaxContext'] = maxContext;
+    else delete actx.meta['effectiveMaxContext'];
+    ctx.broadcast({
+      type: 'ctx.max_context',
+      payload: { sessionId: actx.session.id, providerId: newProvider, modelId: newModel, maxContext },
+    });
+  }
+  const payloadOut = await ctx.buildSessionStart();
+  ctx.broadcast({ type: 'session.start', payload: payloadOut });
+}
+
 export async function handleModelSwitch(
   ctx: AgentConfigContext,
   ws: WebSocket,
@@ -132,50 +187,8 @@ export async function handleModelSwitch(
 ): Promise<void> {
   const { provider: newProvider, model: newModel } = payload;
   try {
-    const actx = ctx.agent.ctx;
-    actx.model = newModel;
-
-    // Create a new provider instance from the saved config.
-    const saved = await loadSavedProviders(ctx.globalConfigPath);
-    const providerCfg = saved[newProvider] ?? { type: newProvider };
-    actx.provider = makeProviderFromConfig(newProvider, providerCfg);
-    await ctx.modelsRegistry?.refresh().catch((err) => {
-      ctx.log(
-        JSON.stringify({
-          level: 'warn',
-          event: 'models.refresh_failed',
-          provider: newProvider,
-          model: newModel,
-          message: toErrorMessage(err),
-          timestamp: new Date().toISOString(),
-        }),
-      );
-    });
-    const catalogId =
-      providerCfg.type && providerCfg.type !== newProvider ? providerCfg.type : newProvider;
-    const resolved = await ctx.modelsRegistry
-      ?.getModel(catalogId, newModel)
-      .catch(() => undefined);
-    const maxContext = resolved?.capabilities.maxContext ?? actx.provider.capabilities.maxContext;
-    actx.provider.capabilities.maxContext = maxContext;
-
-    // Persist the new provider+model to config.json so the choice survives a
-    // restart (the standalone server does this in its own model.switch handler).
-    await ctx.persistPrefs?.({ provider: newProvider, model: newModel });
-
+    await applyModelSwitch(ctx, newProvider, newModel);
     sendResult(ctx, ws, true, `Switched to ${newProvider} / ${newModel}`);
-    if (ctx.onMaxContextResolved) {
-      ctx.onMaxContextResolved(newProvider, newModel, maxContext);
-    } else {
-      if (maxContext > 0) actx.meta['effectiveMaxContext'] = maxContext;
-      else delete actx.meta['effectiveMaxContext'];
-      ctx.broadcast({
-        type: 'ctx.max_context',
-        payload: { sessionId: actx.session.id, providerId: newProvider, modelId: newModel, maxContext },
-      });
-    }
-    const payloadOut = await ctx.buildSessionStart();
-    ctx.broadcast({ type: 'session.start', payload: payloadOut });
   } catch (err) {
     sendResult(ctx, ws, false, `Switch failed: ${toErrorMessage(err)}`);
   }

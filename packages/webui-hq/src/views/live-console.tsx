@@ -14,21 +14,28 @@ import { ArrowDownToLine, Bot, History, MessageSquareText } from 'lucide-react';
 import type React from 'react';
 import { useMemo } from 'react';
 import { VList } from 'virtua';
+import { useShallow } from 'zustand/react/shallow';
 import { turnKey, useSessionTranscript } from '../lib/use-session-transcript.js';
 import { useHqStore } from '../store.js';
 import { FleetNav } from './fleet-nav.js';
 import { TranscriptTurn } from './transcript-turn.js';
 
 export function LiveConsoleView(): React.ReactElement {
-  const state = useHqStore(['selectedSessionId', 'selectedAgentId', 'snapshot']);
-  const sessionId = state.selectedSessionId;
-  const agentId = state.selectedAgentId;
+  const { selectedSessionId, selectedAgentId, snapshot } = useHqStore(
+    useShallow((s) => ({
+      selectedSessionId: s.selectedSessionId,
+      selectedAgentId: s.selectedAgentId,
+      snapshot: s.snapshot,
+    })),
+  );
+  const sessionId = selectedSessionId;
+  const agentId = selectedAgentId;
   const viewingAgent = agentId !== null;
 
   const chat = useSessionTranscript(sessionId, agentId);
   const { entries, meta, stats } = chat;
 
-  const sessions = state.snapshot?.liveSessions ?? [];
+  const sessions = snapshot?.liveSessions ?? [];
   const selectedAgent = useMemo(
     () => sessions.flatMap((s) => s.agents).find((a) => a.id === agentId) ?? null,
     [agentId, sessions],
@@ -37,7 +44,7 @@ export function LiveConsoleView(): React.ReactElement {
   return (
     <div className="hq-console-shell">
       <FleetNav
-        snapshot={state.snapshot ?? null}
+        snapshot={snapshot ?? null}
         selectedSessionId={sessionId}
         selectedAgentId={agentId}
       />

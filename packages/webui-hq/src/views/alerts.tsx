@@ -6,6 +6,7 @@
 import type { HqAlert } from '@wrongstack/core';
 import type React from 'react';
 import { useEffect, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { fetchJson, useHqStore } from '../store.js';
 
 interface AlertsApiResponse {
@@ -14,7 +15,9 @@ interface AlertsApiResponse {
 }
 
 export function AlertsView(): React.ReactElement {
-  const state = useHqStore(['alerts', 'snapshot']);
+  const { alerts, snapshot } = useHqStore(
+    useShallow((s) => ({ alerts: s.alerts, snapshot: s.snapshot })),
+  );
   const [apiActive, setApiActive] = useState<HqAlert[]>([]);
   const [apiHistory, setApiHistory] = useState<HqAlert[]>([]);
 
@@ -40,7 +43,7 @@ export function AlertsView(): React.ReactElement {
     };
   }, []);
 
-  const liveAlerts = state.alerts.slice(-50).reverse();
+  const liveAlerts = alerts.slice(-50).reverse();
 
   return (
     <div>

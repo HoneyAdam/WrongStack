@@ -674,10 +674,19 @@ export interface WSSessionsList {
     sessions: Array<{
       id: string;
       title: string;
+      name?: string | undefined;
       startedAt: string;
+      endedAt?: string | undefined;
       model: string;
       provider: string;
       tokenTotal: number;
+      iterationCount?: number | undefined;
+      toolCallCount?: number | undefined;
+      toolErrorCount?: number | undefined;
+      fileChangeCount?: number | undefined;
+      toolBreakdown?: Record<string, number> | undefined;
+      compactionCount?: number | undefined;
+      outcome?: 'completed' | 'error' | 'timeout' | 'aborted' | undefined;
       isCurrent: boolean;
     }>;
     error?: string | undefined;

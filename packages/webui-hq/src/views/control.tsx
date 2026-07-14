@@ -22,7 +22,8 @@ import {
 } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { fetchJson, postCommand, selectClient, useHqStore } from '../store.js';
+import { useShallow } from 'zustand/react/shallow';
+import { fetchJson, postCommand, useHqStore } from '../store.js';
 import { setHqControlPrefs, useHqLocalPrefs } from '../stores/hq-local-prefs.js';
 
 type CmdType = 'steer' | 'btw' | 'queue' | 'abort' | 'spawn' | 'broadcast' | 'run-command';
@@ -98,11 +99,13 @@ const CMD_META: Record<
 };
 
 export function ControlView(): React.ReactElement {
-  const state = useHqStore(['snapshot', 'selectedClientId']);
-  const clients = (state.snapshot?.clients ?? []).filter((c) =>
+  const { snapshot, selectedClientId } = useHqStore(
+    useShallow((s) => ({ snapshot: s.snapshot, selectedClientId: s.selectedClientId })),
+  );
+  const clients = (snapshot?.clients ?? []).filter((c) =>
     c.capabilities.includes('control.receive'),
   );
-  const selected = state.selectedClientId ?? clients[0]?.clientId ?? null;
+  const selected = selectedClientId ?? clients[0]?.clientId ?? null;
   const selectedClient = clients.find((c) => c.clientId === selected) ?? clients[0] ?? null;
 
   const persisted = useHqLocalPrefs();
@@ -319,7 +322,7 @@ export function ControlView(): React.ReactElement {
             className="hq-select"
             value={selected ?? ''}
             onChange={(e) => {
-              selectClient(e.target.value);
+              useHqStore.getState().selectClient(e.target.value);
               resetPreview();
             }}
           >

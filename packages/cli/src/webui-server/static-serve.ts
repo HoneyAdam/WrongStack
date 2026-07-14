@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import type { Server } from 'node:http';
-import { type CreateHttpServerOptions, createHttpServer } from '@wrongstack/webui/server';
+import { type CreateHttpServerOptions, createHttpServer } from '@wrongstack/webui-server';
 
 /**
  * PR 6 of Issue #30 (webui-server 8-PR refactor):
@@ -36,6 +36,8 @@ export interface StaticServeOptions {
   httpPort: number;
   wsPort: number;
   globalRoot: string;
+  /** Explicit frontend build. Omitted for the regular @wrongstack/webui app. */
+  distDir?: string | undefined;
   /** Push-on-write hook for `POST /api/fleet/ping` (immediate fleet re-broadcast). */
   onFleetPing?: (() => void) | undefined;
   /** Public browser-facing WS URL injected into the React app. */
@@ -61,11 +63,12 @@ export interface StaticServeOptions {
  * can exercise the resolution (and stub it) without
  * binding a socket.
  */
-export function resolveDistDir(): string | null {
+export function resolveDistDir(explicitDistDir?: string): string | null {
+  if (explicitDistDir) return path.resolve(explicitDistDir);
   try {
     const requireFromHere = createRequire(import.meta.url);
-    const serverEntry = requireFromHere.resolve('@wrongstack/webui/server');
-    return path.resolve(path.dirname(serverEntry), '..'); // .../dist
+    const serverEntry = requireFromHere.resolve('@wrongstack/webui');
+    return path.dirname(serverEntry); // .../dist
   } catch {
     return null;
   }
@@ -78,7 +81,7 @@ export function resolveDistDir(): string | null {
  * a real port.
  */
 export interface StaticServeDeps {
-  resolveDist?: () => string | null;
+  resolveDist?: (explicitDistDir?: string) => string | null;
   createServer?: (opts: CreateHttpServerOptions) => Server;
 }
 
@@ -89,7 +92,7 @@ export function startStaticServe(
   const resolveDist = deps.resolveDist ?? resolveDistDir;
   const create = deps.createServer ?? createHttpServer;
 
-  const distDir = resolveDist();
+  const distDir = resolveDist(opts.distDir);
   if (distDir === null) return null;
 
   const server = create({

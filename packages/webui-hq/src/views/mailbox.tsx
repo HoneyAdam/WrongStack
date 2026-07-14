@@ -4,7 +4,7 @@
  * Two data planes feed this view:
  *   1. `snapshot.mailboxes[]` — per-project aggregate counters
  *      (messages, unread, incomplete, high-priority, online agents).
- *   2. `state.events` — every `mailbox.event` envelope from connected
+ *   2. `storeEvents` — every `mailbox.event` envelope from connected
  *      clients. Each envelope carries a full `HqMailboxMessageSummary`
  *      (subject, bodyPreview, from, to, type, priority, timestamp, …)
  *      plus the projectId it came from. We group those events by project
@@ -21,6 +21,7 @@ import type {
   HqMailboxMessageSummary,
 } from '@wrongstack/core';
 import { useMemo, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useBackfilledEvents } from '../lib/use-backfilled-events.js';
 import { useHqStore } from '../store.js';
 import { MailboxComposer } from './mailbox-composer.js';
@@ -40,8 +41,9 @@ const ACTION_LABEL: Record<HqMailboxEventPayload['action'], string> = {
 };
 
 export function MailboxView(): React.ReactElement {
-  const state = useHqStore(['snapshot', 'events']);
-  const snapshot = state.snapshot;
+  const { snapshot, events: storeEvents } = useHqStore(
+    useShallow((s) => ({ snapshot: s.snapshot, events: s.events })),
+  );
   const [mode, setMode] = useState<'grouped' | 'live'>('live');
 
   // Seed mailbox activity from the persisted event log so a freshly-connected
@@ -49,8 +51,8 @@ export function MailboxView(): React.ReactElement {
   // envelopes received AFTER this browser connected), then fold in live ones.
   const { events: mailboxEvents } = useBackfilledEvents('mailbox.event', 300);
   const events = useMemo(
-    () => [...mailboxEvents, ...state.events.filter((e) => e.type !== 'mailbox.event')],
-    [mailboxEvents, state.events],
+    () => [...mailboxEvents, ...storeEvents.filter((e) => e.type !== 'mailbox.event')],
+    [mailboxEvents, storeEvents],
   );
 
   const { projects, hasAnyActivity } = useMemo(
@@ -215,9 +217,9 @@ function Count({
 // Re-export the latest mailbox events for callers that want to surface
 // them in tooltips (e.g. the nav badge). Keeps the view self-contained.
 export function useLatestMailboxEvent(): HqEventEnvelope<HqMailboxEventPayload> | null {
-  const state = useHqStore(['events']);
-  for (let i = state.events.length - 1; i >= 0; i--) {
-    const evt = state.events[i];
+  const storeEvents = useHqStore((s) => s.events);
+  for (let i = storeEvents.length - 1; i >= 0; i--) {
+    const evt = storeEvents[i];
     if (
       evt !== undefined &&
       evt.type === 'mailbox.event' &&

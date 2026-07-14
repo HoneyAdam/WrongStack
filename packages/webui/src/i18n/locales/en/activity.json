@@ -200,7 +200,46 @@
     "markFavorite": "Mark as favorite",
     "deleteSessionConfirmTitle": "Delete session?",
     "deleteSessionConfirmBody": "\"{{name}}\" will be removed from disk. This cannot be undone.",
-    "deleteSessionTitle": "Delete session"
+    "deleteSessionTitle": "Delete session",
+    "rename": "Session name",
+    "renameAction": "Rename",
+    "resume": "Resume session",
+    "resumeShort": "Resume",
+    "workspaceEyebrow": "Conversation control",
+    "workspaceTitle": "Sessions",
+    "workspaceHint": "Search, inspect, pin and resume every project conversation.",
+    "tabs": {
+      "history": "History",
+      "live": "Live sessions"
+    },
+    "filters": {
+      "all": "All",
+      "favorites": "Pinned",
+      "active": "Active",
+      "completed": "Completed",
+      "issues": "Issues"
+    },
+    "status": {
+      "active": "Active",
+      "completed": "Completed",
+      "error": "Error",
+      "timeout": "Timed out",
+      "aborted": "Aborted",
+      "saved": "Saved session"
+    },
+    "sort": {
+      "label": "Sort sessions",
+      "recent": "Recent",
+      "tokens": "Most tokens",
+      "activity": "Most activity"
+    },
+    "stats": {
+      "sessions": "Sessions",
+      "tokens": "Tokens",
+      "tools": "Tool calls",
+      "files": "Files changed",
+      "errors": "Errors"
+    }
   },
   "sessionPanel": {
     "actions": {
@@ -378,7 +417,12 @@
     "hintOriginal": "original",
     "hintEdit": "edit",
     "edit": "Edit",
-    "useRefined": "Use Refined"
+    "useRefined": "Use Refined",
+    "langOriginal": "Original",
+    "langEnglish": "English",
+    "languageTitle": "Switch default refine language — Original vs English",
+    "yolo": "YOLO",
+    "yoloTitle": "Bypass tool confirmation prompts"
   },
   "specs": {
     "heading": "Specifications",
@@ -1005,9 +1049,7 @@
     "placeholder": "Add a fallback model…",
     "emptyHint": "Tried in order when the primary model rate-limits or stalls.",
     "moveUp": "Move up",
-    "moveDown": "Move down",
-    "manualPlaceholder": "provider/model",
-    "addTitle": "Add model reference"
+    "moveDown": "Move down"
   },
   "liveSessions": {
     "loading": "Loading sessions...",

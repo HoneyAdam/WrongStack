@@ -94,6 +94,7 @@ export const PREF_KEYS = [
   'hqRawContent',
   'refinerProvider',
   'refinerModel',
+  'refinerFallbackProfile',
   'thinkingWord',
   'statuslineMode',
   'animationStyle',
@@ -107,6 +108,8 @@ export const PREF_KEYS = [
   'breakerAutoKillResetMs',
   'fsAccess',
   'debugStream',
+  'chimeraAutoFix',
+  'pluginsEnabled',
 ] as const;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -188,6 +191,7 @@ export async function seedConfigToMeta(opts: CliWebUIOptions): Promise<void> {
     meta['hqRawContent'] = hqCfg['rawContent'] === true;
     meta['refinerProvider'] = (autonomyCfg['refinerProvider'] as string) ?? '';
     meta['refinerModel'] = (autonomyCfg['refinerModel'] as string) ?? '';
+    meta['refinerFallbackProfile'] = (autonomyCfg['refinerFallbackProfile'] as string) ?? '';
     meta['thinkingWord'] = (autonomyCfg['thinkingWord'] as string) ?? 'thinking';
     meta['statuslineMode'] = (autonomyCfg['statuslineMode'] as string) ?? 'detailed';
     meta['animationStyle'] = (autonomyCfg['animationStyle'] as string) ?? 'rainbow';
@@ -387,10 +391,11 @@ export function createPrefsSeeding(opts: CliWebUIOptions): PrefsSeeding {
       // Refiner + TUI visual prefs → autonomy block
       if ('refinerProvider' in payload) autonomy['refinerProvider'] = payload['refinerProvider'];
       if ('refinerModel' in payload) autonomy['refinerModel'] = payload['refinerModel'];
+      if ('refinerFallbackProfile' in payload) autonomy['refinerFallbackProfile'] = payload['refinerFallbackProfile'];
       if ('thinkingWord' in payload) autonomy['thinkingWord'] = payload['thinkingWord'];
       if ('statuslineMode' in payload) autonomy['statuslineMode'] = payload['statuslineMode'];
       if ('animationStyle' in payload) autonomy['animationStyle'] = payload['animationStyle'];
-      if ('refinerProvider' in payload || 'refinerModel' in payload || 'thinkingWord' in payload || 'statuslineMode' in payload || 'animationStyle' in payload) {
+      if ('refinerProvider' in payload || 'refinerModel' in payload || 'refinerFallbackProfile' in payload || 'thinkingWord' in payload || 'statuslineMode' in payload || 'animationStyle' in payload) {
         decrypted['autonomy'] = autonomy;
       }
 
@@ -492,6 +497,25 @@ export function createPrefsSeeding(opts: CliWebUIOptions): PrefsSeeding {
         if (typeof payload['tgLongToolMs'] === 'number')
           tg['longToolThresholdMs'] = payload['tgLongToolMs'];
         ext['telegram'] = tg;
+        decrypted.extensions = ext;
+      }
+
+      // Per-plugin enable/disable → extensions.<name>.enabled
+      if (typeof payload['pluginsEnabled'] === 'object' && payload['pluginsEnabled'] !== null) {
+        const ext = (decrypted.extensions as Record<string, Record<string, unknown>>) ?? {};
+        for (const [pluginName, enabled] of Object.entries(payload['pluginsEnabled'] as Record<string, boolean>)) {
+          const pExt = ext[pluginName] ?? {};
+          pExt['enabled'] = enabled;
+          ext[pluginName] = pExt;
+        }
+        decrypted.extensions = ext;
+      }
+      // chimeraAutoFix → extensions.wstack-chimera.autoFix
+      if (typeof payload['chimeraAutoFix'] === 'string') {
+        const ext = (decrypted.extensions as Record<string, Record<string, unknown>>) ?? {};
+        const chimera = ext['wstack-chimera'] ?? {};
+        chimera['autoFix'] = payload['chimeraAutoFix'];
+        ext['wstack-chimera'] = chimera;
         decrypted.extensions = ext;
       }
 

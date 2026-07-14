@@ -80,6 +80,34 @@ export function projectSavedProviders(
 /** Shared scrubber for probe error/body redaction. */
 const probeScrubber = new DefaultSecretScrubber();
 
+/**
+ * Probe a saved provider's OpenAI-compatible `/v1/models` and map the
+ * discovered ids into the minimal model-descriptor shape the WebUI dropdown
+ * needs. Used as a fallback when a config-only custom provider (no saved
+ * `models` allowlist, absent from models.dev) would otherwise resolve to an
+ * empty list. Returns `[]` on any failure — the caller treats that as "no
+ * models" (unchanged behaviour).
+ */
+export async function probeModelDescriptors(
+  cfg: ProviderConfig,
+): Promise<Array<{ id: string; name: string; capabilities: [] }>> {
+  if (!cfg.baseUrl) return [];
+  try {
+    const keys = normalizeKeys(cfg);
+    const active = keys.find((k) => k.label === cfg.activeKey) ?? keys[0];
+    const result = await probeLocalLlm({
+      baseUrl: cfg.baseUrl,
+      apiKey: active?.apiKey,
+      noAuth: false,
+      scrubber: probeScrubber,
+    });
+    if (!result.ok || !result.modelIds) return [];
+    return result.modelIds.map((id) => ({ id, name: id, capabilities: [] as [] }));
+  } catch {
+    return [];
+  }
+}
+
 export interface ProviderHandlerDeps {
   globalConfigPath: string;
   vault: import('@wrongstack/core').SecretVault;

@@ -43,9 +43,11 @@ export async function assignTask(
   taskId: string,
   input: AssignKanbanTaskInput,
 ): Promise<KanbanBoard | null> {
-  return mutateBoard(projectRoot, boardId, (board) => {
+  let event: KanbanEvent | undefined;
+  const updated = await mutateBoard(projectRoot, boardId, (board) => {
     const task = findTask(board, taskId);
     if (!task) return null;
+    const before = task.assignment ? { ...task.assignment } : undefined;
     const assignment = buildAssignment(input);
     task.assignment = assignment;
     task.assignedAgent = assignment.agentId ?? assignment.role ?? assignment.name;
@@ -55,8 +57,16 @@ export async function assignTask(
     if (input.costCeilingUsd !== undefined) task.costCeilingUsd = input.costCeilingUsd;
     task.updatedAt = nowIso();
     board.updatedAt = task.updatedAt;
+    // `assign` is distinct from `claim` — record the routing decision (provider/
+    // model/role) so it leaves an audit trail like claim/release do.
+    event = createKanbanEvent(board.id, task, 'task.assigned', {
+      ...(before ? { before } : {}),
+      after: { ...assignment },
+    });
     return task;
-  }).then((updated) => (updated?.result ? updated.board : null));
+  });
+  if (updated?.result && event) await emitKanbanEvent(projectRoot, event);
+  return updated?.result ? updated.board : null;
 }
 
 export async function updateTaskAssignment(
@@ -89,6 +99,10 @@ export async function updateTaskAssignment(
       task.completedAt = task.assignment.completedAt;
       if (patch.error === undefined) delete task.assignment.error;
     } else if (task.assignment.status === 'running') {
+      // A dispatch that goes straight to `running` (mark_assignment, not via
+      // claim) must still stamp when work started — otherwise the run panel and
+      // queue-health `lastDispatchedAt` have no start time.
+      task.assignment.dispatchedAt = task.assignment.dispatchedAt ?? nowIso();
       delete task.assignment.completedAt;
       if (patch.error === undefined) delete task.assignment.error;
       task.status = 'in_progress';

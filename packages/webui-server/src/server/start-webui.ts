@@ -138,8 +138,21 @@ export async function startWebUI(
     Object.keys(config.providers).length > 0
   ) {
     const firstKey = expectDefined(Object.keys(config.providers)[0]);
-    config = patchConfig(config, { provider: firstKey });
-    console.log('[WebUI] No active provider — auto-selected:', firstKey);
+    // Also adopt a model when the provider carries a saved `models` allowlist.
+    // Without this the auto-selected provider lands with a BLANK active model
+    // (needsProvider stays true → chat opens with no model in the header).
+    // A provider without a saved allowlist (e.g. a custom one to be probed)
+    // still gets the provider; the model dropdown is populated on demand.
+    const adoptModel = !config.model ? config.providers[firstKey]?.models?.[0] : undefined;
+    config = patchConfig(config, {
+      provider: firstKey,
+      ...(adoptModel ? { model: adoptModel } : {}),
+    });
+    console.log(
+      '[WebUI] No active provider — auto-selected:',
+      firstKey,
+      adoptModel ? `/ ${adoptModel}` : '',
+    );
   }
 
   // If still no provider, the frontend will show a setup screen.

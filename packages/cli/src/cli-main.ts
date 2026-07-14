@@ -57,6 +57,7 @@ import { initializeCli } from './cli-context.js';
 import { createAuthPanelHost } from './auth-menu/panel-service.js';
 import { createAutoPhaseHost } from './autophase-host.js';
 import { registerBuiltinTools } from './boot/tool-registry.js';
+import { configureSimpleUiRuntimeContext } from './boot/simpleui-full-auto.js';
 import { launchEternalFromFlag } from './cli-eternal-flag.js';
 import { promptRecovery } from './cli-recovery-prompt.js';
 import { bindSystemPromptBuilder } from './boot/system-prompt-builder.js';
@@ -289,11 +290,13 @@ export async function main(argv: string[]): Promise<number> {
   // HQ telemetry is owned by setupHqTelemetry below; opening a publisher here
   // created a second client for the same process with no live session bridge.
   let onlineAgents: Awaited<ReturnType<GlobalMailbox['getAgentStatuses']>> = [];
-  try {
-    const systemMailbox = new GlobalMailbox(wpaths.projectDir);
-    onlineAgents = await systemMailbox.getAgentStatuses();
-  } catch {
-    // Non-fatal — mailbox errors should not block prompt building
+  if (flags['simpleui'] !== true) {
+    try {
+      const systemMailbox = new GlobalMailbox(wpaths.projectDir);
+      onlineAgents = await systemMailbox.getAgentStatuses();
+    } catch {
+      // Non-fatal — mailbox errors should not block prompt building
+    }
   }
 
   const systemPrompt = await promptBuilder.build({
@@ -328,6 +331,7 @@ export async function main(argv: string[]): Promise<number> {
   const session = sessResult.session;
   sessionRef.current = session;
   const context = sessResult.context;
+  configureSimpleUiRuntimeContext(context.meta, flags);
   const attachments = sessResult.attachments;
   const recoveryLock = sessResult.recoveryLock;
   const queueStore = sessResult.queueStore;
@@ -2022,6 +2026,25 @@ export async function main(argv: string[]): Promise<number> {
       };
     });
   };
+
+  // Listen for runtime autoFix changes from the /chimera autoFix slash command.
+  evOn('chimera.set_autofix', (payload) => {
+    const mode = (payload as { mode?: string })?.mode;
+    if (mode && ['off', 'ask', 'auto'].includes(mode)) {
+      agent.ctx.meta['chimeraAutoFix'] = mode;
+    }
+  });
+
+  // Seed agent.ctx.meta from CLI flags before dispatching to execution.
+  // The chimera autoFix handler reads from meta first, then falls back to
+  // the config file setting. This lets --chimera-auto-fix override the
+  // persisted config for the current session.
+  if (typeof flags['chimera-auto-fix'] === 'string') {
+    const v = (flags['chimera-auto-fix'] as string).toLowerCase();
+    if (v === 'off' || v === 'ask' || v === 'auto') {
+      agent.ctx.meta['chimeraAutoFix'] = v;
+    }
+  }
 
   // Dispatch to execution phase — single-shot, TUI, REPL, or WebUI.
   const savedProviderCfg = config.providers?.[config.provider];

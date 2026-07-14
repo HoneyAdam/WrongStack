@@ -9,7 +9,8 @@
 import type { HqAlert } from '@wrongstack/core';
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { fetchJson, postCommand, setActiveView, useHqStore, type ViewId } from '../store.js';
+import { useShallow } from 'zustand/react/shallow';
+import { fetchJson, postCommand, useHqStore, type ViewId } from '../store.js';
 
 interface CockpitAlertEntry {
   severity: 'info' | 'warn' | 'error' | 'critical' | string;
@@ -33,8 +34,15 @@ interface CockpitSection {
 type CockpitQuickAction = 'pause-noisy' | 'status-request';
 
 export function CockpitView(): React.ReactElement {
-  const state = useHqStore(['snapshot', 'alerts']);
-  const snapshot = state.snapshot;
+  const { snapshot: snap, alerts, selectedClientId, connected } = useHqStore(
+    useShallow((s) => ({
+      snapshot: s.snapshot,
+      alerts: s.alerts,
+      selectedClientId: s.selectedClientId,
+      connected: s.connected,
+    })),
+  );
+  const snapshot = snap;
   const totals = snapshot?.totals;
   const machines = snapshot?.machines ?? [];
   const projects = snapshot?.projects ?? [];
@@ -44,7 +52,7 @@ export function CockpitView(): React.ReactElement {
   const controllableClients = clients.filter((client) =>
     client.capabilities.includes('control.receive'),
   );
-  const quickActionClientId = state.selectedClientId ?? controllableClients[0]?.clientId ?? null;
+  const quickActionClientId = selectedClientId ?? controllableClients[0]?.clientId ?? null;
   const quickActionClient =
     controllableClients.find((client) => client.clientId === quickActionClientId) ??
     controllableClients[0] ??
@@ -83,7 +91,7 @@ export function CockpitView(): React.ReactElement {
   }, []);
 
   const liveAlerts: CockpitAlertEntry[] = useMemo(() => {
-    const liveRecent = state.alerts
+    const liveRecent = alerts
       .slice(-30)
       .reverse()
       .map<CockpitAlertEntry>((alert) => ({
@@ -117,7 +125,7 @@ export function CockpitView(): React.ReactElement {
       if (deduped.length >= 12) break;
     }
     return deduped;
-  }, [state.alerts, apiActive, apiHistory]);
+  }, [alerts, apiActive, apiHistory]);
 
   const agentRollup = useMemo(() => {
     let total = 0;
@@ -290,7 +298,7 @@ export function CockpitView(): React.ReactElement {
       <div className="hq-card-title">Cockpit</div>
       <div className="hq-card hq-cockpit-summary">
         <div className="hq-row">
-          <span className="hq-pill info">{state.connected ? 'connected' : 'reconnecting'}</span>
+          <span className="hq-pill info">{connected ? 'connected' : 'reconnecting'}</span>
           <span className="hq-pill">{totals?.activeMachines ?? 0} machines</span>
           <span className="hq-pill">{totals?.activeSessions ?? 0} sessions</span>
           <span className="hq-pill">{totals?.activeAgents ?? 0} agents</span>
@@ -303,7 +311,7 @@ export function CockpitView(): React.ReactElement {
             type="button"
             className="hq-btn secondary"
             style={{ marginLeft: 'auto' }}
-            onClick={() => setActiveView('fleet')}
+            onClick={() => useHqStore.getState().setActiveView('fleet')}
           >
             Open Fleet
           </button>
@@ -339,7 +347,7 @@ export function CockpitView(): React.ReactElement {
             <button
               type="button"
               className="hq-btn secondary"
-              onClick={() => setActiveView('control')}
+              onClick={() => useHqStore.getState().setActiveView('control')}
             >
               Open Control
             </button>
@@ -359,7 +367,7 @@ export function CockpitView(): React.ReactElement {
               type="button"
               className="hq-btn secondary"
               style={{ marginLeft: 'auto' }}
-              onClick={() => setActiveView(section.view)}
+              onClick={() => useHqStore.getState().setActiveView(section.view)}
             >
               {section.cta}
             </button>

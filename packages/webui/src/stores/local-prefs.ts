@@ -60,6 +60,9 @@ export interface LocalPrefs {
   featureModelsRegistry: boolean;
   indexOnStart: boolean;
 
+  /** Per-plugin enabled/disabled state. Keys are plugin names (e.g. "wstack-chimera"). */
+  pluginsEnabled: Record<string, boolean>;
+
   // --- Context ---
   contextAutoCompact: boolean;
   /** Compactor strategy — matches core's config.context.strategy. */
@@ -84,6 +87,8 @@ export interface LocalPrefs {
   refinerProvider: string;
   /** Model id for goal refinement. Empty = use session model. */
   refinerModel: string;
+  /** Named fallback profile for goal refinement. Empty = use refinerProvider+refinerModel or session defaults. */
+  refinerFallbackProfile: string;
 
   /** TUI status-chip word (e.g. "thinking", "vibing"). */
   thinkingWord: string;
@@ -136,6 +141,9 @@ export interface LocalPrefs {
    */
   uiLocale: string;
 
+  /** How Chimera review findings are handled. */
+  chimeraAutoFix: 'off' | 'ask' | 'auto';
+
   set: (patch: Partial<LocalPrefs>) => void;
   reset: () => void;
 }
@@ -179,6 +187,7 @@ const DEFAULTS: Omit<LocalPrefs, 'set' | 'reset'> = {
   enhanceLanguage: 'original',
   refinerProvider: '',
   refinerModel: '',
+  refinerFallbackProfile: '',
   thinkingWord: 'thinking',
   statuslineMode: 'detailed',
   animationStyle: 'rainbow',
@@ -201,6 +210,8 @@ const DEFAULTS: Omit<LocalPrefs, 'set' | 'reset'> = {
   tgDelegate: true,
   tgLongToolMs: 30_000,
   uiLocale: detectLocale(),
+  chimeraAutoFix: 'off',
+  pluginsEnabled: {},
 };
 
 export const useLocalPrefs = create<LocalPrefs>()(

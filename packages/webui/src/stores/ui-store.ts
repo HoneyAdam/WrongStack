@@ -146,7 +146,7 @@ interface UIState {
   fileExplorerWidth: number;
   /** When true, free-text prompts are run through the prompt refiner before sending. */
   refineEnabled: boolean;
-  /** Which WorkspaceDock section is expanded above the chat. Null = all collapsed. */
+  /** WorkspaceDock section shown in the right inspector. Null = no dock detail open. */
   dockSection: DockSection | null;
   /** Active tab in the Work dock section. Mirrors TUI F5/F6 panel jumps. */
   workDashboardTab: WorkDashboardTab;
@@ -156,13 +156,13 @@ interface UIState {
   hiddenChips: DockSection[];
   /** Controlled open state for the dock chip customization menu. */
   dockCustomizeOpen: boolean;
-  /** Full-screen Fleet Monitor overlay. */
+  /** @deprecated Compatibility field; Fleet now opens in the global inspector. */
   fleetMonitorOpen: boolean;
-  /** Full-screen Agents Monitor overlay. */
+  /** @deprecated Compatibility field; Agents now opens in the global inspector. */
   agentsMonitorOpen: boolean;
-  /** Bottom inspector panel open (DevTools-style docked panel). */
+  /** Global right inspector drawer open (non-modal overlay on desktop). */
   inspectorOpen: boolean;
-  /** Active tab inside the bottom inspector panel. */
+  /** Active tab inside the global right inspector drawer. */
   inspectorTab: 'fleet' | 'agents' | 'sideEffects';
   /** Process Monitor overlay — triggered by /kill slash command. */
   processMonitorOpen: boolean;
@@ -435,10 +435,14 @@ export const useUIStore = create<UIState>()(
       setPromptLibraryOpen: (open) => set({ promptLibraryOpen: open }),
       requestPromptInsert: (text) => set({ promptInsertRequest: text, promptLibraryOpen: false }),
       clearPromptInsert: () => set({ promptInsertRequest: null }),
-      setDockSection: (section) => set({ dockSection: section }),
+      setDockSection: (section) =>
+        set({ dockSection: section, ...(section ? { inspectorOpen: false } : {}) }),
       setWorkDashboardTab: (tab) => set({ workDashboardTab: tab }),
       toggleDockSection: (section) =>
-        set((s) => ({ dockSection: s.dockSection === section ? null : section })),
+        set((s) => {
+          const dockSection = s.dockSection === section ? null : section;
+          return { dockSection, ...(dockSection ? { inspectorOpen: false } : {}) };
+        }),
       toggleChipHidden: (section) =>
         set((s) => {
           const hidden = s.hiddenChips.includes(section);
@@ -455,11 +459,30 @@ export const useUIStore = create<UIState>()(
           hiddenChips: s.hiddenChips.filter((candidate) => candidate !== section),
         })),
       setDockCustomizeOpen: (open) => set({ dockCustomizeOpen: open }),
-      setFleetMonitorOpen: (open: boolean) => set({ fleetMonitorOpen: open }),
-      setAgentsMonitorOpen: (open: boolean) => set({ agentsMonitorOpen: open }),
-      setInspectorOpen: (open: boolean) => set({ inspectorOpen: open }),
+      // Compatibility entry points used by slash routes and Desktop commands.
+      // The legacy booleans remain false so no second overlay can be mounted.
+      setFleetMonitorOpen: (open: boolean) =>
+        set((s) => ({
+          fleetMonitorOpen: false,
+          inspectorOpen: open ? true : s.inspectorTab === 'fleet' ? false : s.inspectorOpen,
+          inspectorTab: open ? 'fleet' : s.inspectorTab,
+          ...(open ? { dockSection: null } : {}),
+        })),
+      setAgentsMonitorOpen: (open: boolean) =>
+        set((s) => ({
+          agentsMonitorOpen: false,
+          inspectorOpen: open ? true : s.inspectorTab === 'agents' ? false : s.inspectorOpen,
+          inspectorTab: open ? 'agents' : s.inspectorTab,
+          ...(open ? { dockSection: null } : {}),
+        })),
+      setInspectorOpen: (open: boolean) =>
+        set({ inspectorOpen: open, ...(open ? { dockSection: null } : {}) }),
       setInspectorTab: (tab: 'fleet' | 'agents' | 'sideEffects') => set({ inspectorTab: tab }),
-      toggleInspector: () => set((s) => ({ inspectorOpen: !s.inspectorOpen })),
+      toggleInspector: () =>
+        set((s) => ({
+          inspectorOpen: !s.inspectorOpen,
+          ...(!s.inspectorOpen ? { dockSection: null } : {}),
+        })),
       setProcessMonitorOpen: (open: boolean) => set({ processMonitorOpen: open }),
       setQueuePanelOpen: (open: boolean) => set({ queuePanelOpen: open }),
       setTerminalOpen: (open: boolean) => set({ terminalOpen: open }),

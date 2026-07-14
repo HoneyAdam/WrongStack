@@ -1,7 +1,8 @@
+import { Cpu, Loader2, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores';
 import { useAppTranslation } from '@/i18n';
-import { CheckCircle2, Cpu, Loader2, RefreshCw } from 'lucide-react';
+import { PickerCardList } from '../ui/PickerCardList';
 import { Button } from '../ui/button';
 
 interface CatalogModel {
@@ -76,49 +77,23 @@ export function ModelSection({
               <span className="ml-2 text-muted-foreground">{t('settings:model.loading')}</span>
             </div>
           ) : (
-            <div className="space-y-1">
-              {(catalogModels[provider] || []).map((m) => (
-                <button
-                  type="button"
-                  key={m.id}
-                  onClick={() => onModelSelect(m.id)}
-                  className={cn(
-                    'w-full flex items-center justify-between p-3 rounded-lg border text-left transition-all',
-                    model === m.id
-                      ? 'border-primary bg-primary/5 ring-2 ring-primary/20'
-                      : 'border-border hover:bg-muted',
-                  )}
-                >
-                  <div>
-                    <span className="font-medium">{m.name || m.id}</span>
-                    <div className="flex gap-2 mt-1">
-                      {m.capabilities.map((cap) => (
-                        <span key={cap} className="text-xs bg-muted px-1.5 py-0.5 rounded">
-                          {cap}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="text-right text-xs text-muted-foreground">
-                    {m.contextWindow && <div>{t('settings:model.context', { count: m.contextWindow / 1000 })}</div>}
-                    {m.inputCost && m.outputCost && (
-                      <div>
-                        ${m.inputCost}/${m.outputCost}
-                      </div>
-                    )}
-                    {model === m.id && (
-                      <CheckCircle2 className="h-4 w-4 text-primary mt-1" />
-                    )}
-                  </div>
-                </button>
-              ))}
-
-              {catalogModels[provider]?.length === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  {t('settings:model.notFound')}
-                </p>
-              )}
-            </div>
+            <PickerCardList
+              options={(catalogModels[provider] || []).map((m) => ({
+                id: m.id,
+                label: m.name || m.id,
+                badges: m.capabilities,
+                detail: [
+                  m.contextWindow ? `${Math.round(m.contextWindow / 1000)}k` : '',
+                  m.inputCost != null ? `\${m.inputCost}/\${m.outputCost}` : '',
+                ]
+                  .filter(Boolean)
+                  .join(' · '),
+                detailHighlight: true,
+              }))}
+              selectedId={model}
+              onSelect={onModelSelect}
+              emptyMessage={t('settings:model.notFound')}
+            />
           )}
         </>
       ) : (

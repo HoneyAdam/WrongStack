@@ -4,7 +4,10 @@ import {
   type Agent,
   type AgentFactory,
   type BrainArbiter,
+  DefaultTaskStore,
   type EventBus,
+  type TaskGraph,
+  TaskTracker,
   WorktreeManager,
   ToolValidationError,
 } from '@wrongstack/core';
@@ -13,6 +16,7 @@ import {
   makeCommandVerifier,
   makeLlmSubtaskGenerator,
   SddBoardStore,
+  type SddRunHandle,
   SddInterviewDriver,
   SddRunRegistry,
   SddSupervisor,
@@ -21,6 +25,111 @@ import {
   TaskGraphStore,
 } from '@wrongstack/sdd';
 import type { SddWizardDeps } from './sdd-wizard-ws-handler.js';
+
+/** Config knobs shared by the wizard start and the launch-from-board start. */
+export interface StartSddRunFromGraphConfig {
+  parallelSlots?: number | undefined;
+  defaultModel?: string | undefined;
+  defaultProvider?: string | undefined;
+  fallbackModels?: string[] | undefined;
+  /** Per-run git-worktree isolation. Omit → env default (WRONGSTACK_SDD_WORKTREES). */
+  worktrees?: boolean | undefined;
+}
+
+export interface StartSddRunFromGraphDeps {
+  agent: Agent;
+  events: EventBus;
+  projectRoot: string;
+  subagentFactory: AgentFactory;
+  brain?: BrainArbiter | undefined;
+  projectSddBoards: string;
+  registry?: SddRunRegistry | undefined;
+  /** Isolated read-only LLM turn for the supervisor's auto-split. Omit → no split. */
+  runIsolatedTurn?: ((prompt: string, name: string) => Promise<string>) | undefined;
+}
+
+/**
+ * Start a multi-agent SDD run from a ready TaskGraph — the shared core behind
+ * BOTH the wizard's `startRun` and launching a run from a kanban board. Builds a
+ * TaskTracker from the graph (when none is supplied), sets up worktree isolation,
+ * the completion-gate verifier and the Brain failure supervisor, then defers to
+ * `startSddRun` (which owns the projector + cross-process control drain, so the
+ * run is steerable from any surface). Returns the run handle.
+ */
+export function startSddRunFromGraph(
+  graph: TaskGraph,
+  deps: StartSddRunFromGraphDeps,
+  config: StartSddRunFromGraphConfig = {},
+  tracker?: TaskTracker,
+): SddRunHandle {
+  const runTracker =
+    tracker ??
+    (() => {
+      const t = new TaskTracker({ store: new DefaultTaskStore() });
+      t.setGraph(graph);
+      return t;
+    })();
+
+  // Per-task git-worktree isolation (per-run toggle wins; env default otherwise).
+  const worktreesEnabled = config.worktrees ?? process.env['WRONGSTACK_SDD_WORKTREES'] !== '0';
+  let worktrees: WorktreeManager | undefined;
+  if (worktreesEnabled) {
+    const inGit =
+      spawnSync('git', ['rev-parse', '--is-inside-work-tree'], {
+        cwd: deps.projectRoot,
+        encoding: 'utf8',
+        windowsHide: true,
+      }).stdout?.trim() === 'true';
+    if (inGit) {
+      void cleanupStaleSddWorktrees({
+        projectRoot: deps.projectRoot,
+        boardsDir: deps.projectSddBoards,
+      }).catch(() => undefined);
+      worktrees = new WorktreeManager({
+        projectRoot: deps.projectRoot,
+        events: deps.events,
+        sessionId: () => deps.agent.ctx.session?.id,
+      });
+    }
+  }
+
+  const superviseFailure =
+    deps.brain && deps.runIsolatedTurn
+      ? new SddSupervisor({
+          brain: deps.brain,
+          reassignModels: config.fallbackModels,
+          generateSubtasks: makeLlmSubtaskGenerator({
+            run: (prompt) => deps.runIsolatedTurn!(prompt, 'Task Splitter'),
+          }),
+          requestLlmVerdict: true,
+        }).superviseFailure
+      : deps.brain
+        ? new SddSupervisor({
+            brain: deps.brain,
+            reassignModels: config.fallbackModels,
+            requestLlmVerdict: true,
+          }).superviseFailure
+        : undefined;
+
+  return startSddRun({
+    tracker: runTracker,
+    graph,
+    agent: deps.agent,
+    projectRoot: deps.projectRoot,
+    events: deps.events,
+    sessionId: () => deps.agent.ctx.session?.id,
+    subagentFactory: deps.subagentFactory,
+    boardStore: new SddBoardStore({ baseDir: deps.projectSddBoards }),
+    registry: deps.registry ?? new SddRunRegistry(),
+    verifyTask: makeCommandVerifier(),
+    ...(superviseFailure ? { superviseFailure } : {}),
+    ...(config.parallelSlots !== undefined ? { parallelSlots: config.parallelSlots } : {}),
+    ...(config.defaultModel !== undefined ? { defaultModel: config.defaultModel } : {}),
+    ...(config.defaultProvider !== undefined ? { defaultProvider: config.defaultProvider } : {}),
+    ...(config.fallbackModels !== undefined ? { fallbackModels: config.fallbackModels } : {}),
+    ...(worktrees ? { worktrees } : {}),
+  });
+}
 
 export interface SddWizardWiringOptions {
   /** Leader agent — seeds the run's default factory + project context. */
@@ -123,79 +232,29 @@ export function buildSddWizardDeps(opts: SddWizardWiringOptions): SddWizardDeps 
         });
       }
 
-      // Per-task git-worktree isolation. The per-run UI toggle wins; when it is
-      // omitted we fall back to the env default (disable with
-      // WRONGSTACK_SDD_WORKTREES=0). Mirrors the CLI /sdd execute path.
-      const worktreesEnabled = useWorktrees ?? process.env['WRONGSTACK_SDD_WORKTREES'] !== '0';
-      let worktrees: WorktreeManager | undefined;
-      if (worktreesEnabled) {
-        const inGit =
-          spawnSync('git', ['rev-parse', '--is-inside-work-tree'], {
-            cwd: opts.projectRoot,
-            encoding: 'utf8',
-            windowsHide: true,
-          }).stdout?.trim() === 'true';
-        if (inGit) {
-          // Clean slate: sweep any orphaned worktrees/branches a prior crashed or
-          // abandoned run left behind BEFORE this run allocates. Liveness-guarded
-          // so it never touches a run that is still live in another process.
-          await cleanupStaleSddWorktrees({
-            projectRoot: opts.projectRoot,
-            boardsDir: opts.paths.projectSddBoards,
-          }).catch(() => undefined);
-          worktrees = new WorktreeManager({
-            projectRoot: opts.projectRoot,
-            events: opts.events,
-            sessionId: () => opts.agent.ctx.session?.id,
-          });
-        }
-      }
-
-      const boardStore = new SddBoardStore({ baseDir: opts.paths.projectSddBoards });
-
-      // Parity with the CLI `/sdd parallel` path: gate completion on a per-task
-      // verificationCommand and let the Brain rescue a retry-exhausted task
-      // instead of dead-ending. Both are shared with cli-main.ts.
-      const verifyTask = makeCommandVerifier();
-      const superviseFailure = opts.brain
-        ? new SddSupervisor({
-            brain: opts.brain,
-            // The run-level fallback chain (chosen in the wizard) doubles as the
-            // supervisor's reassign options — a `reassign` verdict rotates the
-            // worker model on retry. Empty/undefined → reassign option dropped.
-            reassignModels: fallbackModels,
-            // LLM auto-split: decompose a retry-exhausted task into smaller
-            // sub-tasks on an isolated read-only turn. Heavily validated +
-            // bounded; an empty result degrades the split into a retry.
-            generateSubtasks: makeLlmSubtaskGenerator({
-              run: (prompt) => runIsolatedTurn(prompt, 'Task Splitter'),
-            }),
-            // The standalone brain is a tiered policy→LLM arbiter with NO
-            // human-escalation wrapper (see index.ts), so it never blocks on a
-            // human prompt — an unresolved verdict degrades to a bounded retry.
-            // Safe to let the LLM layer actually pick reassign/split.
-            requestLlmVerdict: true,
-          }).superviseFailure
-        : undefined;
-
-      const handle = startSddRun({
-        tracker,
+      // Shared with launch-from-board: builds worktrees + verifier + supervisor
+      // and defers to startSddRun (parity with the CLI /sdd parallel path).
+      const handle = startSddRunFromGraph(
         graph,
-        agent: opts.agent,
-        projectRoot: opts.projectRoot,
-        events: opts.events,
-        sessionId: () => opts.agent.ctx.session?.id,
-        subagentFactory: opts.subagentFactory,
-        worktrees,
-        boardStore,
-        registry,
-        parallelSlots,
-        defaultModel,
-        defaultProvider,
-        fallbackModels,
-        verifyTask,
-        superviseFailure,
-      });
+        {
+          agent: opts.agent,
+          events: opts.events,
+          projectRoot: opts.projectRoot,
+          subagentFactory: opts.subagentFactory,
+          projectSddBoards: opts.paths.projectSddBoards,
+          registry,
+          runIsolatedTurn,
+          ...(opts.brain ? { brain: opts.brain } : {}),
+        },
+        {
+          ...(parallelSlots !== undefined ? { parallelSlots } : {}),
+          ...(defaultModel !== undefined ? { defaultModel } : {}),
+          ...(defaultProvider !== undefined ? { defaultProvider } : {}),
+          ...(fallbackModels !== undefined ? { fallbackModels } : {}),
+          ...(useWorktrees !== undefined ? { worktrees: useWorktrees } : {}),
+        },
+        tracker,
+      );
       // The board surfaces progress (events + disk); we don't block the wizard
       // on completion. Swallow rejections so a failed run can't crash the server.
       void handle.completion.catch(() => {});

@@ -107,6 +107,14 @@ export class AutoPhaseWebSocketHandler {
     storeDir: string,
     private events?: EventBus | undefined,
     private projectRoot?: string | undefined,
+    /**
+     * Optional tap invoked on every board-state broadcast with the live
+     * `buildState()` projection. Lets a KanbanRunMirror project the AutoPhase
+     * run into a kanban board without this handler knowing about kanban. The
+     * WebUI orchestrator does NOT emit PhaseEventMap on the shared bus, so this
+     * callback is the mirror's only live signal for AutoPhase.
+     */
+    private onBoardState?: ((graphId: string, state: Record<string, unknown>) => void) | undefined,
   ) {
     this.store = new PhaseStore({ baseDir: storeDir });
   }
@@ -539,6 +547,17 @@ export class AutoPhaseWebSocketHandler {
 
     const state = this.buildState(activePhaseId);
     this.broadcast({ type: 'autophase.state', payload: state });
+    // Feed the run mirror (if any) the same projection so it can sync a kanban
+    // board. Best-effort — a mirror error must never break the live broadcast.
+    if (this.onBoardState) {
+      try {
+        this.onBoardState(this.graph.id, state);
+      } catch (err) {
+        this.logger.error(
+          `[AutoPhase] board-state tap failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
   }
 
   private buildState(activePhaseId?: string): Record<string, unknown> {

@@ -13,14 +13,14 @@ import {
 describe('statusBarModelSpan (hit-test geometry)', () => {
   it('places the model chip after the state chip (no version)', () => {
     const span = statusBarModelSpan({ state: 'idle', model: 'anthropic/claude' });
-    // padX(1) + "● idle"(6) + gap(2) + "│"(1) + gap(2) = 12
-    expect(span).toEqual({ start: 12, len: 'anthropic/claude'.length });
+    // cap(1) + segment padding(1) + "● idle"(6) + transition(1) + padding(1) = 10
+    expect(span).toEqual({ start: 11, len: 'anthropic/claude'.length });
   });
 
   it('accounts for the leading WS version chip', () => {
     const span = statusBarModelSpan({ version: '0.10.0', state: 'idle', model: 'x/y' });
-    // + "WS v0.10.0"(10) + gap(2) + "│"(1) + gap(2) = 15 before the state chip
-    expect(span.start).toBe(12 + 15);
+    // A leading version segment adds content + two pads + one transition.
+    expect(span.start).toBe(26);
   });
 
   it('widens the offset for the longer "thinking…" state label', () => {
@@ -46,15 +46,15 @@ describe('statusBarAutonomySpan (hit-test geometry)', () => {
 
   it('starts at the left padding when YOLO is not shown', () => {
     expect(statusBarAutonomySpan({ autonomy: 'auto' })).toEqual({
-      start: 1,
+      start: 2,
       len: 2 + 'AUTO'.length,
     });
   });
 
   it('shifts right past the YOLO chip + separator', () => {
     const span = statusBarAutonomySpan({ yolo: true, autonomy: 'eternal' });
-    // padX(1) + "⚠ YOLO"(6) + gap(2) + "│"(1) + gap(2) = 12
-    expect(span).toEqual({ start: 12, len: 2 + 'ETERNAL'.length });
+    // cap(1) + " ! YOLO "(8) + transition(1) + next segment padding(1) = 11
+    expect(span).toEqual({ start: 11, len: 2 + 'ETERNAL'.length });
   });
 });
 

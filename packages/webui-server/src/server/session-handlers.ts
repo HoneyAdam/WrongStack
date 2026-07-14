@@ -9,29 +9,31 @@
  * as getters/setters so this stays a pure function of its context. Handler
  * bodies are a verbatim lift — only dependency references changed.
  */
-import type { WebSocket } from 'ws';
+
 import {
   type Context,
-  DEFAULT_CONTEXT_WINDOW_MODE_ID,
-  type SessionStore,
-  type ToolRegistry,
   type createStrategyCompactor,
+  DEFAULT_CONTEXT_WINDOW_MODE_ID,
   repairToolUseAdjacency,
   resolveContextWindowPolicy,
+  type SessionStore,
+  type ToolRegistry,
 } from '@wrongstack/core';
 import type { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { sessionScopedPath } from '@wrongstack/core/utils';
-import type { ConnectedClient } from './types.js';
-import type { SessionRouteHandlers } from './session-routes.js';
+import type { WebSocket } from 'ws';
 import type { CustomModeStore } from './custom-context-modes.js';
-import { broadcast, errMessage, send, sendResult } from './ws-utils.js';
+import { toSessionHistoryEntries } from './session-history.js';
+import type { SessionRouteHandlers } from './session-routes.js';
 import { estimateContextBreakdown } from './token-estimator.js';
+import type { ConnectedClient } from './types.js';
 import {
   validateContextModeCreatePayload,
   validateContextModeDeletePayload,
   validateContextModeSwitchPayload,
   validateContextModeUpdatePayload,
 } from './ws-payload-validation.js';
+import { broadcast, errMessage, send, sendResult } from './ws-utils.js';
 
 type Session = Awaited<ReturnType<SessionStore['create']>>;
 type WSMessageLike = { type: string; payload?: unknown | undefined };
@@ -72,14 +74,19 @@ export interface SessionHandlersContext {
 
 export function createSessionHandlers(ctx: SessionHandlersContext): SessionRouteHandlers {
   const currentSessionId = (): string => ctx.getSession().id;
-  const sessionPayload = <T extends Record<string, unknown>>(payload: T): T & { sessionId: string } => {
+  const sessionPayload = <T extends Record<string, unknown>>(
+    payload: T,
+  ): T & { sessionId: string } => {
     const provided = payload['sessionId'];
-    const sessionId = typeof provided === 'string' && provided.length > 0 ? provided : currentSessionId();
+    const sessionId =
+      typeof provided === 'string' && provided.length > 0 ? provided : currentSessionId();
     return { ...payload, sessionId };
   };
   const requestedSessionId = (msg: WSMessageLike): string | undefined => {
     const payload = msg.payload;
-    return payload && typeof payload === 'object' && typeof (payload as { sessionId?: unknown }).sessionId === 'string'
+    return payload &&
+      typeof payload === 'object' &&
+      typeof (payload as { sessionId?: unknown }).sessionId === 'string'
       ? (payload as { sessionId: string }).sessionId
       : undefined;
   };
@@ -177,7 +184,8 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
     },
     compactContext: async (ws, msg) => {
       if (!ensureCurrentSession(ws, msg, 'context.compact')) return;
-      const aggressive = !!(msg as { payload?: { aggressive?: boolean | undefined } }).payload?.aggressive;
+      const aggressive = !!(msg as { payload?: { aggressive?: boolean | undefined } }).payload
+        ?.aggressive;
       try {
         const report = await ctx.compactor.compact(ctx.context, { aggressive });
         send(ws, {
@@ -216,7 +224,9 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
       };
       broadcast(ctx.clients, { type: 'context.repaired', payload: sessionPayload(payload) });
       const removed =
-        payload.removedToolUses.length + payload.removedToolResults.length + payload.removedMessages;
+        payload.removedToolUses.length +
+        payload.removedToolResults.length +
+        payload.removedMessages;
       sendResult(
         ws,
         true,
@@ -227,7 +237,9 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
     },
     listContextModes: async (ws, msg) => {
       if (!ensureCurrentSession(ws, msg, 'context.modes.list')) return;
-      const active = String(ctx.context.meta['contextWindowMode'] ?? DEFAULT_CONTEXT_WINDOW_MODE_ID);
+      const active = String(
+        ctx.context.meta['contextWindowMode'] ?? DEFAULT_CONTEXT_WINDOW_MODE_ID,
+      );
       const allModes = ctx.customModeStore.list().map((m) => ({
         id: m.id,
         name: m.name,
@@ -238,7 +250,10 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
         eliseThreshold: m.eliseThreshold,
         custom: (m as { custom?: boolean }).custom === true,
       }));
-      send(ws, { type: 'context.modes.list', payload: sessionPayload({ activeId: active, modes: allModes }) });
+      send(ws, {
+        type: 'context.modes.list',
+        payload: sessionPayload({ activeId: active, modes: allModes }),
+      });
     },
     switchContextMode: async (ws, msg) => {
       if (!ensureCurrentSession(ws, msg, 'context.mode.switch')) return;
@@ -250,7 +265,9 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
       const { id } = parsed.value;
       let policy = resolveContextWindowPolicy({}, id);
       if (policy.id !== id) {
-        const customModes = ctx.customModeStore.list().filter((m) => (m as { custom?: boolean }).custom === true);
+        const customModes = ctx.customModeStore
+          .list()
+          .filter((m) => (m as { custom?: boolean }).custom === true);
         const custom = customModes.find((m) => m.id === id);
         if (!custom) {
           sendResult(ws, false, `Unknown context mode "${id}"`);
@@ -322,7 +339,10 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
       const { id } = parsed.value;
       if (String(ctx.context.meta['contextWindowMode'] ?? '') === id) {
         ctx.context.meta['contextWindowMode'] = DEFAULT_CONTEXT_WINDOW_MODE_ID;
-        ctx.context.meta['contextWindowPolicy'] = resolveContextWindowPolicy({}, DEFAULT_CONTEXT_WINDOW_MODE_ID);
+        ctx.context.meta['contextWindowPolicy'] = resolveContextWindowPolicy(
+          {},
+          DEFAULT_CONTEXT_WINDOW_MODE_ID,
+        );
       }
       const result = ctx.customModeStore.remove(id);
       sendResult(ws, result.ok, result.error ?? `Mode "${id}" deleted`);
@@ -335,15 +355,7 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
         send(ws, {
           type: 'sessions.list',
           payload: {
-            sessions: list.map((s) => ({
-              id: s.id,
-              title: s.title,
-              startedAt: s.startedAt,
-              model: s.model,
-              provider: s.provider,
-              tokenTotal: s.tokenTotal,
-              isCurrent: s.id === currentId,
-            })),
+            sessions: toSessionHistoryEntries(list, currentId),
           },
         });
       } catch (err) {
@@ -357,8 +369,18 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
           sendResult(ws, false, 'Cannot delete the active session');
           return;
         }
-        await ctx.getSessionStore().delete(id);
+        const store = ctx.getSessionStore();
+        await store.delete(id);
         sendResult(ws, true, `Session ${id} deleted`);
+        try {
+          const list = await store.list(200);
+          broadcast(ctx.clients, {
+            type: 'sessions.list',
+            payload: { sessions: toSessionHistoryEntries(list, ctx.getSession().id) },
+          });
+        } catch {
+          // The delete succeeded; a transient refresh failure must not reverse its result.
+        }
       } catch (err) {
         sendResult(ws, false, errMessage(err));
       }
@@ -375,23 +397,18 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
         await ctx.getSessionStore().rename(id, name);
         sendResult(ws, true, name ? `Renamed session to "${name}"` : `Cleared session name`);
         // Broadcast the refreshed list so every open WebUI reflects the new name.
-        const list = await ctx.getSessionStore().list(50);
-        const currentId = ctx.getSession().id;
-        broadcast(ctx.clients, {
-          type: 'sessions.list',
-          payload: {
-            sessions: list.map((s) => ({
-              id: s.id,
-              name: s.name,
-              title: s.title,
-              startedAt: s.startedAt,
-              model: s.model,
-              provider: s.provider,
-              tokenTotal: s.tokenTotal,
-              isCurrent: s.id === currentId,
-            })),
-          },
-        });
+        try {
+          const list = await ctx.getSessionStore().list(200);
+          const currentId = ctx.getSession().id;
+          broadcast(ctx.clients, {
+            type: 'sessions.list',
+            payload: {
+              sessions: toSessionHistoryEntries(list, currentId),
+            },
+          });
+        } catch {
+          // The rename succeeded; keep the optimistic name and allow manual refresh.
+        }
       } catch (err) {
         sendResult(ws, false, errMessage(err));
       }

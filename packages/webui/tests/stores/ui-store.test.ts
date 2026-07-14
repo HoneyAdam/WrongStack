@@ -144,10 +144,11 @@ describe('dockSection', () => {
     expect(useUIStore.getState().dockSection).toBeNull();
   });
 
-  it('toggleDockSection opens a section and re-toggling collapses it', () => {
-    useUIStore.getState().setDockSection(null);
+  it('toggleDockSection opens a section in place of the global inspector and re-toggling collapses it', () => {
+    useUIStore.setState({ dockSection: null, inspectorOpen: true });
     useUIStore.getState().toggleDockSection('work');
     expect(useUIStore.getState().dockSection).toBe('work');
+    expect(useUIStore.getState().inspectorOpen).toBe(false);
     useUIStore.getState().toggleDockSection('work');
     expect(useUIStore.getState().dockSection).toBeNull();
   });
@@ -339,42 +340,48 @@ describe('setRefinePanel', () => {
   });
 });
 
-// ── fleetMonitorOpen ─────────────────────────────────────────────────
+// ── legacy monitor entry points → global inspector ───────────────────
 
 describe('setFleetMonitorOpen', () => {
-  it('opens the fleet monitor', () => {
+  it('opens the Fleet tab in the global inspector', () => {
     useUIStore.getState().setFleetMonitorOpen(true);
-    expect(useUIStore.getState().fleetMonitorOpen).toBe(true);
+    expect(useUIStore.getState().fleetMonitorOpen).toBe(false);
+    expect(useUIStore.getState().inspectorOpen).toBe(true);
+    expect(useUIStore.getState().inspectorTab).toBe('fleet');
   });
 
-  it('closes the fleet monitor', () => {
+  it('closes the inspector when Fleet is the active tab', () => {
     useUIStore.getState().setFleetMonitorOpen(true);
     useUIStore.getState().setFleetMonitorOpen(false);
     expect(useUIStore.getState().fleetMonitorOpen).toBe(false);
+    expect(useUIStore.getState().inspectorOpen).toBe(false);
   });
 });
 
-// ── agentsMonitorOpen ───────────────────────────────────────────────
-
 describe('setAgentsMonitorOpen', () => {
-  it('opens the agents monitor', () => {
+  it('opens the Agents tab in the global inspector', () => {
     useUIStore.getState().setAgentsMonitorOpen(true);
-    expect(useUIStore.getState().agentsMonitorOpen).toBe(true);
+    expect(useUIStore.getState().agentsMonitorOpen).toBe(false);
+    expect(useUIStore.getState().inspectorOpen).toBe(true);
+    expect(useUIStore.getState().inspectorTab).toBe('agents');
   });
 
-  it('closes the agents monitor', () => {
+  it('closes the inspector when Agents is the active tab', () => {
     useUIStore.getState().setAgentsMonitorOpen(true);
     useUIStore.getState().setAgentsMonitorOpen(false);
     expect(useUIStore.getState().agentsMonitorOpen).toBe(false);
+    expect(useUIStore.getState().inspectorOpen).toBe(false);
   });
 });
 
 // ── inspectorOpen / inspectorTab / toggleInspector ───────────────────
 
 describe('setInspectorOpen', () => {
-  it('opens the inspector', () => {
+  it('opens the inspector in place of workspace dock content', () => {
+    useUIStore.setState({ inspectorOpen: false, dockSection: 'work' });
     useUIStore.getState().setInspectorOpen(true);
     expect(useUIStore.getState().inspectorOpen).toBe(true);
+    expect(useUIStore.getState().dockSection).toBeNull();
   });
 
   it('closes the inspector', () => {
@@ -393,6 +400,11 @@ describe('setInspectorTab', () => {
   it('sets to agents tab', () => {
     useUIStore.getState().setInspectorTab('agents');
     expect(useUIStore.getState().inspectorTab).toBe('agents');
+  });
+
+  it('sets to audit tab', () => {
+    useUIStore.getState().setInspectorTab('sideEffects');
+    expect(useUIStore.getState().inspectorTab).toBe('sideEffects');
   });
 });
 
@@ -766,7 +778,12 @@ describe('F5 resilience — currentView + dockSection persistence', () => {
       }
     ).persist;
     const result = api?.getOptions?.().merge?.(
-      { currentView: 'sessions', activeActivity: 'history', sidebarOpen: true, dockSection: 'work' },
+      {
+        currentView: 'sessions',
+        activeActivity: 'history',
+        sidebarOpen: true,
+        dockSection: 'work',
+      },
       useUIStore.getState(),
     ) as ReturnType<typeof useUIStore.getState>;
 

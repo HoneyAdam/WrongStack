@@ -781,6 +781,12 @@ export async function handleKanbanMessage(
                 type: 'kanban.task.update',
                 payload: { success: true, data: { boardId: board.id, task: completedTask } },
               });
+              if (completed) {
+                ctx.broadcast({
+                  type: 'kanban.get',
+                  payload: { success: true, data: { board: completed } },
+                });
+              }
               ctx.broadcast({
                 type: 'kanban.list',
                 payload: { success: true, data: await listBoards(projectRoot) },
@@ -794,9 +800,22 @@ export async function handleKanbanMessage(
             ...(subagentId ? { subagentId } : {}),
             lastResult: summary,
           });
+          const runningTask = updated?.tasks.find((candidate) => candidate.id === task.id) ?? task;
+          // Broadcast the running transition so every connected client sees the
+          // agent go live immediately, not on the next poll tick.
+          ctx.broadcast({
+            type: 'kanban.task.update',
+            payload: { success: true, data: { boardId: board.id, task: runningTask } },
+          });
+          if (updated) {
+            ctx.broadcast({
+              type: 'kanban.get',
+              payload: { success: true, data: { board: updated } },
+            });
+          }
           ok(ctx, ws, 'kanban.task.dispatch', {
             boardId: board.id,
-            task: updated?.tasks.find((candidate) => candidate.id === task.id) ?? task,
+            task: runningTask,
             summary,
           });
         } catch (err) {

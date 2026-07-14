@@ -1,5 +1,6 @@
 import type { Server } from 'node:http';
 import { EventEmitter } from 'node:events';
+import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   type StaticServeHandle,
@@ -35,6 +36,10 @@ class FakeServer extends EventEmitter {
 }
 
 describe('resolveDistDir', () => {
+  it('uses an explicit frontend directory without resolving the webui package', () => {
+    expect(resolveDistDir('./custom-simpleui')).toBe(path.resolve('./custom-simpleui'));
+  });
+
   it('resolves the webui dist directory in the monorepo', () => {
     const dir = resolveDistDir();
     // The webui package is a workspace dep of the cli, so the
@@ -96,6 +101,22 @@ describe('startStaticServe', () => {
     // Returns the requested http port (see function doc).
     expect(handle.port).toBe(3456);
     expect(handle.server).toBe(fake);
+  });
+
+  it('threads an explicit frontend directory through the resolver', () => {
+    const fake = new FakeServer();
+    const resolveDist = vi.fn(() => '/resolved/simpleui-dist');
+    const createServer = vi.fn(() => fake as never as Server);
+
+    startStaticServe(
+      { ...baseOpts, distDir: '/packages/simpleui/dist' },
+      { resolveDist, createServer },
+    );
+
+    expect(resolveDist).toHaveBeenCalledWith('/packages/simpleui/dist');
+    expect(createServer).toHaveBeenCalledWith(
+      expect.objectContaining({ distDir: '/resolved/simpleui-dist' }),
+    );
   });
 
   it('passes apiToken to createHttpServer when provided', () => {

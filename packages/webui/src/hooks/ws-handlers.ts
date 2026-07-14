@@ -362,6 +362,7 @@ export const WS_HANDLERS: Partial<Record<WSServerMessage['type'], (msg: WSServer
     'kanban.task.get': handleKanbanResult,
     'kanban.column.add': handleKanbanResult,
     'kanban.column.remove': handleKanbanResult,
+    'kanban.run.start': handleKanbanResult,
     'tools.list': handleToolsList,
     'memory.list': handleMemoryList,
     'skills.list': handleSkillsList,

@@ -11,6 +11,16 @@ declare module '@fontsource-variable/ibm-plex-sans' {
   export default _;
 }
 
+declare module '@fontsource-variable/manrope' {
+  const _: string;
+  export default _;
+}
+
+declare module '@fontsource-variable/space-grotesk' {
+  const _: string;
+  export default _;
+}
+
 declare module '@fontsource/ibm-plex-mono/400.css' {
   const _: string;
   export default _;

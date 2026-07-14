@@ -52,7 +52,7 @@ export interface BrowserOpenOptions {
 
 export interface BrowserManagerOptions {
   artifactRoot: string;
-  /** @deprecated Test-only broad bypass. Production hosts use exact origins. */
+  /** Allow navigation to private/loopback addresses (localhost, 127.0.0.1, etc.). True by default. */
   allowPrivateHosts?: boolean | undefined;
   allowedPrivateOrigins?: string[] | undefined;
   headless?: boolean | undefined;

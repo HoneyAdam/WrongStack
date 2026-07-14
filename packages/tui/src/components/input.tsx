@@ -4,12 +4,40 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { fnKey } from '../fn-keys.js';
 import { type InputCell, layoutInputRows } from '../input-tokens.js';
 import { type MouseEventInfo, isLeakedMouseInput, parseMouseEvents } from '../mouse.js';
+import { displayWidth, frameRule } from '../terminal-width.js';
+import { theme } from '../theme.js';
+import { glyphs } from '../ui-glyphs.js';
+
+export const DEFAULT_INPUT_PROMPT = `${glyphs.prompt} `;
+
+/** Columns available to input tokens inside the two-sided composer rail. */
+export function inputContentWidth(termColumns: number): number {
+  return Math.max(8, termColumns - 4);
+}
+
+export function composerStatusLabel(
+  status: string,
+  confirmCount: number,
+  queueCount: number,
+): string {
+  if (confirmCount > 0) return 'CONFIRM';
+  if (status === 'running' || status === 'streaming') return 'WORKING';
+  if (status === 'aborting') return 'ABORTING';
+  return queueCount > 0 ? `QUEUED ${queueCount}` : 'READY';
+}
+
 export interface InputProps {
   prompt?: string | undefined;
   value: string;
   cursor: number;
   disabled?: boolean | undefined;
   hint?: string | undefined;
+  /** Label embedded in the composer's top rail. */
+  title?: string | undefined;
+  /** Right-aligned state label embedded in the composer's top rail. */
+  statusLabel?: string | undefined;
+  /** Stable bottom-rail help; a non-empty `hint` temporarily replaces it. */
+  footerHint?: string | undefined;
   /**
    * When true the visible prompt rows are replaced by an empty placeholder of
    * `placeholderHeight` rows, but BOTH keyboard listeners (the Ink `useInput`
@@ -170,11 +198,14 @@ export const EMPTY_KEY: KeyEvent = {
 };
 
 export const Input = memo(function Input({
-  prompt = '› ',
+  prompt = DEFAULT_INPUT_PROMPT,
   value,
   cursor,
   disabled,
   hint,
+  title = 'ASK WRONGSTACK',
+  statusLabel,
+  footerHint = 'Enter send · Shift+Enter newline · @ file · / commands',
   hidden,
   placeholderHeight,
   onKey,
@@ -361,32 +392,43 @@ export const Input = memo(function Input({
 
   // Disabled (aborting an iteration) is the only signal that needs a
   // hard visual cue — paint the prompt red.
-  const promptColor = disabled ? 'red' : 'cyan';
+  const promptColor = disabled ? theme.error : theme.brandAccent;
 
   // One <Text> per wrapped row: the column box's height becomes the row count,
   // so a long message that soft-wraps (or any embedded newlines) gives the
   // input area a correct, line-count-driven height instead of clipping or
   // overflowing. layoutInputRows keeps the cursor on the right row/column.
-  const rows = layoutInputRows(prompt, value, cursor, cols);
+  const contentWidth = inputContentWidth(cols);
+  const rows = layoutInputRows(prompt, value, cursor, contentWidth);
 
   // Hidden mode: keep the listeners above mounted, but render only an empty
   // placeholder of the same height the visible input would occupy. The bottom
   // region stays a constant height (so Ink's log-update never bleeds the live
   // region into native scrollback) while keyboard handling stays alive.
   if (hidden) {
-    return <Box height={Math.max(1, placeholderHeight ?? rows.length)} />;
+    return <Box height={Math.max(3, placeholderHeight ?? rows.length + 2)} />;
   }
+
+  const stateLabel = statusLabel ?? (disabled ? 'ABORTING' : 'READY');
+  const topRule = frameRule(cols, `${glyphs.brand} ${title}`, stateLabel, 'top');
+  const bottomRule = frameRule(cols, hint || footerHint, '', 'bottom');
 
   return (
     <Box flexDirection="column">
-      {rows.map((row, i) =>
-        row.length === 0 ? (
-          <Text key={i}> </Text> // keep blank lines one row tall
-        ) : (
-          <Text key={i}>{renderRow(row, `r${i}`, promptColor)}</Text>
-        ),
-      )}
-      {hint ? <Text dimColor>{hint}</Text> : null}
+      <Text bold color={disabled ? theme.error : theme.brandPrimary}>{topRule}</Text>
+      {rows.map((row, i) => {
+        const rowWidth = displayWidth(row.map((cell) => cell.ch).join(''));
+        const padding = ' '.repeat(Math.max(0, contentWidth - rowWidth));
+        return (
+          <Text key={i}>
+            <Text color={disabled ? theme.error : theme.borderDefault}>{'│ '}</Text>
+            {row.length === 0 ? null : renderRow(row, `r${i}`, promptColor)}
+            <Text>{padding}</Text>
+            <Text color={disabled ? theme.error : theme.borderDefault}>{' │'}</Text>
+          </Text>
+        );
+      })}
+      <Text color={disabled ? theme.error : theme.borderDefault}>{bottomRule}</Text>
     </Box>
   );
 });

@@ -31,9 +31,10 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
     '  /settings refine on|off       Enable/disable prompt refinement',
     '  /settings refine-delay <seconds>   Countdown duration for refine preview',
     '  /settings refine-language original|english   Default language for refinement',
-    '  /settings refiner-provider <providerId>   Provider for goal refinement (`/goal set`)',
-    '  /settings refiner-model <modelId>         Model for goal refinement (must be favorite or active model)',
-    '  /settings refiner-clear                    Clear both refiner provider and model (use session default)',
+    '  /settings refiner-provider <providerId>          Provider for goal refinement (`/goal set`)',
+    '  /settings refiner-model <modelId>                Model for goal refinement (must be favorite or active model)',
+    '  /settings refiner-fallback-profile <name>        Named fallback profile for goal refinement',
+    '  /settings refiner-clear                           Clear all refiner config (use session default)',
     '  /settings semver-part patch|minor|major|auto   Default part for /semver and the semver_bump tool',
     '  /settings breaker on|off   Enable/disable the process circuit breaker (gates bash/exec)',
     '  /settings breaker-timeout <seconds>   Auto kill/reset delay when the breaker trips (0 = manual)',
@@ -146,6 +147,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
       `  refine-language:            ${color.cyan(enhanceLanguage)}   ${color.dim('change: /settings refine-language original|english')}`,
       `  refiner-provider:           ${color.cyan(au?.refinerProvider as string ?? color.dim('(unset)'))}   ${color.dim('change: /settings refiner-provider <id>')}`,
       `  refiner-model:              ${color.cyan(au?.refinerModel as string ?? color.dim('(unset)'))}   ${color.dim('change: /settings refiner-model <model>')}`,
+      `  refiner-fallback-profile:   ${color.cyan(au?.refinerFallbackProfile as string ?? color.dim('(unset)'))}   ${color.dim('change: /settings refiner-fallback-profile <name>')}`,
       `  semver default part:        ${color.cyan(semverPart)}   ${color.dim('change: /settings semver-part patch|minor|major|auto')}`,
       `  circuit breaker:            ${breakerEnabled ? color.cyan('on') : color.dim('off')} (${breakerTimeout > 0 ? formatDelay(breakerTimeout) : color.dim('manual')})   ${color.dim('change: /settings breaker on|off')}`,
       `  context mode:               ${color.cyan(contextMode)}   ${color.dim('change: /settings context-mode balanced|frugal|deep|archival')}`,
@@ -483,10 +485,29 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
           };
         }
 
+        if (sub === 'refiner-fallback-profile') {
+          const raw = rest.join(' ').trim();
+          const currentProfile = (
+            opts.configStore.get().autonomy as Record<string, unknown> | undefined
+          )?.refinerFallbackProfile as string | undefined;
+          if (!raw) {
+            return {
+              message: `${color.amber('Usage:')} /settings refiner-fallback-profile <name>   ${color.dim('(e.g. "default")' + (currentProfile ? ` Current: ${currentProfile}` : ''))}`,
+            };
+          }
+          await persistAutonomySetting(persistDeps, (autonomy) => {
+            (autonomy as Record<string, unknown>).refinerFallbackProfile = raw;
+          });
+          return {
+            message: `${color.green('✓')} refiner-fallback-profile → ${color.cyan(raw)}   ${color.dim('goal refinement will use the first valid entry from this profile chain')}`,
+          };
+        }
+
         if (sub === 'refiner-clear') {
           await persistAutonomySetting(persistDeps, (autonomy) => {
             (autonomy as Record<string, unknown>).refinerProvider = undefined;
             (autonomy as Record<string, unknown>).refinerModel = undefined;
+            (autonomy as Record<string, unknown>).refinerFallbackProfile = undefined;
           });
           return {
             message: `${color.green('✓')} Refiner config cleared   ${color.dim('goal refinement will use the session provider+model')}`,
@@ -932,7 +953,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
         }
 
         return {
-          message: `${color.red('Unknown setting')} "${sub}". ${unknownSubcommand(sub, ['delay', 'mode', 'hints', 'debug-stream', 'config-scope', 'fs-access', 'refine', 'refine-delay', 'refine-language', 'refiner-provider', 'refiner-model', 'refiner-clear', 'semver-part', 'breaker', 'breaker-timeout', 'context-mode', 'context-strategy', 'context-auto-compact', 'token-saving', 'max-concurrent', 'title-animation', 'reasoning', 'reasoning-effort', 'reasoning-preserve', 'cache-ttl', 'stream-fleet', 'chime', 'confirm-exit', 'mcp', 'plugins', 'memory', 'skills', 'models-registry', 'max-iterations', 'auto-proceed-max-iterations', 'index-on-start', 'log-level', 'audit-level', 'thinking-word', 'statusline', 'animation', 'defaults'], 'settings')}`,
+          message: `${color.red('Unknown setting')} "${sub}". ${unknownSubcommand(sub, ['delay', 'mode', 'hints', 'debug-stream', 'config-scope', 'fs-access', 'refine', 'refine-delay', 'refine-language', 'refiner-provider', 'refiner-model', 'refiner-fallback-profile', 'refiner-clear', 'semver-part', 'breaker', 'breaker-timeout', 'context-mode', 'context-strategy', 'context-auto-compact', 'token-saving', 'max-concurrent', 'title-animation', 'reasoning', 'reasoning-effort', 'reasoning-preserve', 'cache-ttl', 'stream-fleet', 'chime', 'confirm-exit', 'mcp', 'plugins', 'memory', 'skills', 'models-registry', 'max-iterations', 'auto-proceed-max-iterations', 'index-on-start', 'log-level', 'audit-level', 'thinking-word', 'statusline', 'animation', 'defaults'], 'settings')}`,
         };
       } catch (err) {
         return {

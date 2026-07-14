@@ -80,6 +80,8 @@ export function createAgentLoopHandler(
   })();
   const getFleetPulse = attachFleetPulse(a, fleetPulseCfg);
   const pulseEveryN = Math.max(1, fleetPulseCfg?.everyNIterations ?? 5);
+  const backgroundCoordination = () =>
+    a.ctx.meta['coordinationContextMode'] === 'background';
 
   /**
    * Run context window pipeline — but skip the pipeline call entirely
@@ -642,7 +644,7 @@ export function createAgentLoopHandler(
         // Fold the fleet-pulse peer digest in on its cadence (i=1, then
         // every N). Best-effort: the provider returns null on throttle,
         // no-change, no-peers, or any failure.
-        if (i % pulseEveryN === 1 || pulseEveryN === 1) {
+        if (!backgroundCoordination() && (i % pulseEveryN === 1 || pulseEveryN === 1)) {
           try {
             const pulse = await getFleetPulse();
             if (pulse) foldBlockIntoConversation(pulse);
@@ -664,6 +666,7 @@ export function createAgentLoopHandler(
             },
             logger: a.logger as never as { debug?: (...args: unknown[]) => void },
           },
+          backgroundCoordination() ? 'background' : 'inline',
         );
         // Cooperative interrupt: an operator (e.g. Fleet HQ) dropped a
         // `control:interrupt` message in our mailbox. Stop gracefully at this

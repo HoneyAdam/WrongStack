@@ -17,6 +17,7 @@
 import type { JSONSchema } from '@wrongstack/core';
 import { validateAgainstSchema } from '@wrongstack/core';
 import { isSecretField } from '@wrongstack/core/security';
+import { nextCustomProviderId } from './provider-id.js';
 import {
   MAX_TUI_THINKING_WORD_LENGTH,
   normalizeTuiThinkingWord,
@@ -427,7 +428,42 @@ export function diagnoseConfig(
     }
   }
 
-  // ── 10. Plaintext secret scan (warning only — never rewrites values) ──
+  // ── 10. providers — blank ids get a generated custom-N name ──────────
+  // JSON object keys are unique, so true duplicates can't survive a parse; a
+  // blank or whitespace-only id can (e.g. a custom provider saved before the
+  // `/auth` guard existed). Rename it to a non-colliding custom-N so it stops
+  // shadowing the "no id" slot and can be selected with --provider. The value
+  // (keys, family, baseUrl, …) is preserved — a provider entry may hold
+  // credentials, so we rename rather than drop it.
+  if ('providers' in fixed) {
+    if (!isPlainObject(fixed['providers'])) {
+      findings.push({
+        path: 'providers',
+        problem: `expected an object of provider entries, got ${JSON.stringify(fixed['providers'])} — set it manually`,
+        severity: 'error',
+      });
+    } else {
+      const providers = fixed['providers'];
+      const blanks = Object.keys(providers).filter((k) => k.trim() === '');
+      if (blanks.length > 0) {
+        const taken = new Set(Object.keys(providers).filter((k) => k.trim() !== ''));
+        for (const blank of blanks) {
+          const name = nextCustomProviderId(taken);
+          taken.add(name);
+          providers[name] = providers[blank];
+          delete providers[blank];
+          findings.push({
+            path: `providers.${blank === '' ? '(empty)' : JSON.stringify(blank)}`,
+            problem: 'provider id is blank',
+            severity: 'error',
+            fix: `renamed to "${name}"`,
+          });
+        }
+      }
+    }
+  }
+
+  // ── 11. Plaintext secret scan (warning only — never rewrites values) ──
   scanPlaintextSecrets(fixed, '', findings);
 
   const changed = JSON.stringify(fixed) !== JSON.stringify(cfg);

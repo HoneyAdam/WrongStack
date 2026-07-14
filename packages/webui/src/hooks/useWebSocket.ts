@@ -160,13 +160,7 @@ export function useWebSocket() {
     },
     [client],
   );
-  const deleteSession = useCallback(
-    (id: string) => {
-      useHistoryStore.getState().removeEntry(id);
-      client.deleteSession(id);
-    },
-    [client],
-  );
+  const deleteSession = useCallback((id: string) => client.deleteSession(id), [client]);
   const renameSession = useCallback(
     (id: string, name: string) => {
       useHistoryStore.getState().updateEntryName(id, name);

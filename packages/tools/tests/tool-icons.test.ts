@@ -52,6 +52,9 @@ describe('tool-icons', () => {
     expect(getToolIcon('tool_use')).toBe('meta');
     expect(getToolIcon('batch_tool_use')).toBe('meta');
     expect(getToolIcon('search_memory')).toBe('brain');
+    expect(getToolIcon('lsp_diagnostics')).toBe('code');
+    expect(getToolIcon('lsp_definition')).toBe('search');
+    expect(getToolIcon('lsp_rename')).toBe('edit');
   });
 
   it('performs case-insensitive lookups', () => {

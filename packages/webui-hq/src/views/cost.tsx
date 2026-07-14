@@ -4,7 +4,7 @@
  */
 import type React from 'react';
 import { useMemo } from 'react';
-import { selectSession, setActiveView, useHqStore } from '../store.js';
+import { useHqStore } from '../store.js';
 
 function fmtTokens(v: number): string {
   if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
@@ -13,10 +13,10 @@ function fmtTokens(v: number): string {
 }
 
 export function CostView(): React.ReactElement {
-  const state = useHqStore(['snapshot']);
-  const projects = state.snapshot?.projects ?? [];
-  const sessions = state.snapshot?.liveSessions ?? [];
-  const total = state.snapshot?.totals.totalCostUsd ?? 0;
+  const snapshot = useHqStore((s) => s.snapshot);
+  const projects = snapshot?.projects ?? [];
+  const sessions = snapshot?.liveSessions ?? [];
+  const total = snapshot?.totals.totalCostUsd ?? 0;
 
   const sessionRows = useMemo(() => {
     const rows = sessions.map((s) => {
@@ -89,8 +89,8 @@ export function CostView(): React.ReactElement {
                 type="button"
                 className="hq-row hq-row-click"
                 onClick={() => {
-                  selectSession(s.sessionId);
-                  setActiveView('console');
+                  useHqStore.getState().selectSession(s.sessionId);
+                  useHqStore.getState().setActiveView('console');
                 }}
                 title="Open in Console"
               >

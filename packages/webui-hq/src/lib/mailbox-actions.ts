@@ -14,7 +14,7 @@
  * component so the server remains the source of truth.
  */
 import type { MailboxActionInput, MailboxActionResult } from '@wrongstack/core';
-import { markAuthRequired } from '../store.js';
+import { useHqStore } from '../store.js';
 import { authorizedFetch } from './auth.js';
 
 /** Wire input: the core action input + the HQ project routing key. */
@@ -43,7 +43,7 @@ async function postAction(input: HqMailboxActionInput): Promise<MailboxActionRes
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
-  if (res.status === 401) markAuthRequired();
+  if (res.status === 401) useHqStore.getState().markAuthRequired();
   if (!res.ok) {
     let detail = `${res.status} ${res.statusText}`;
     try {

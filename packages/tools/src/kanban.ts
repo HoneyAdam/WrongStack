@@ -16,6 +16,7 @@ import type {
   KanbanTask,
   KanbanTaskPriority,
   KanbanTaskStatus,
+  KanbanTaskType,
 } from '@wrongstack/kanban';
 import {
   addCheckToTask,
@@ -29,6 +30,7 @@ import {
   claimReadyTask,
   copyTaskToBoard,
   createBoard,
+  createBoardFromTaskGraph,
   duplicateBoard,
   exportBoardAsMarkdown,
   exportBoardToTaskGraph,
@@ -74,6 +76,7 @@ type KanbanAction =
   | 'export_markdown'
   | 'export_task_graph'
   | 'sync_task_graph'
+  | 'create_from_graph'
   | 'search_tasks'
   | 'ready_tasks'
   | 'snapshot'
@@ -120,6 +123,7 @@ interface KanbanToolInput extends Omit<AssignKanbanTaskInput, 'status'> {
   tags?: string[] | undefined;
   labels?: string[] | undefined;
   priority?: KanbanTaskPriority | undefined;
+  taskType?: KanbanTaskType | undefined;
   status?: KanbanTaskStatus | undefined;
   order?: number | undefined;
   targetColumnId?: string | undefined;
@@ -191,6 +195,10 @@ interface KanbanToolInput extends Omit<AssignKanbanTaskInput, 'status'> {
   includeArchived?: boolean | undefined;
   archiveMissingTasks?: boolean | undefined;
   preserveManualDependencies?: boolean | undefined;
+  /** Full dependency id list for add_task/update_task (superset of dependencyTaskId). */
+  dependsOn?: string[] | undefined;
+  /** Estimated effort in hours for add_task/update_task. */
+  estimatedHours?: number | undefined;
 }
 
 interface KanbanToolOutput {
@@ -238,6 +246,7 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
           'export_markdown',
           'export_task_graph',
           'sync_task_graph',
+          'create_from_graph',
           'search_tasks',
           'ready_tasks',
           'snapshot',
@@ -284,6 +293,10 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
       tags: { type: 'array', items: { type: 'string' } },
       labels: { type: 'array', items: { type: 'string' } },
       priority: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] },
+      taskType: {
+        type: 'string',
+        enum: ['feature', 'bugfix', 'refactor', 'docs', 'test', 'chore'],
+      },
       status: {
         type: 'string',
         enum: [
@@ -326,8 +339,21 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
       releaseStatus: { type: 'string', enum: ['pending', 'ready', 'blocked'] },
       releaseReason: { type: 'string' },
       clearAssignee: { type: 'boolean' },
-      recoveryMode: { type: 'string', enum: ['release', 'retry', 'fail'] },
+      recoveryMode: { type: 'string', enum: ['auto', 'release', 'retry', 'fail'] },
       recoveryNow: { type: 'string' },
+      recoveryPolicyFailOnCostCeiling: { type: 'boolean' },
+      recoveryPolicyReleaseOnFailureKinds: { type: 'array', items: { type: 'string' } },
+      recoveryPolicyReleaseOnHeartbeatDue: { type: 'boolean' },
+      recoveryPolicyRetryPolicyOverride: {
+        type: 'string',
+        enum: ['off', 'incremental', 'exponential'],
+      },
+      assignee: { type: 'string' },
+      costCeilingUsd: { type: 'number' },
+      retryPolicy: { type: 'string', enum: ['off', 'incremental', 'exponential'] },
+      lastFailureKind: { type: 'string' },
+      dependsOn: { type: 'array', items: { type: 'string' } },
+      estimatedHours: { type: 'number' },
       taskGraph: { type: 'object' },
       graphId: { type: 'string' },
       specId: { type: 'string' },
@@ -507,6 +533,26 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
                 board: result.board,
               }
             : fail('Board not found.');
+        }
+        case 'create_from_graph': {
+          if (!input.taskGraph) return fail('create_from_graph requires taskGraph.');
+          const graph = deserializeTaskGraph(input.taskGraph as SerializableTaskGraph);
+          const { board } = await createBoardFromTaskGraph(projectRoot, graph, {
+            ...(input.title !== undefined ? { title: input.title } : {}),
+            ...(input.description !== undefined ? { description: input.description } : {}),
+            ...(input.tags !== undefined ? { tags: input.tags } : {}),
+            ...(input.generatedBy !== undefined ? { generatedBy: input.generatedBy } : {}),
+            ...(input.sourceSystem !== undefined ? { sourceSystem: input.sourceSystem } : {}),
+            ...(input.phaseId !== undefined ? { phaseId: input.phaseId } : {}),
+            ...(input.includeCompletedTasks !== undefined
+              ? { includeCompletedTasks: input.includeCompletedTasks }
+              : {}),
+          });
+          return {
+            ok: true,
+            message: `Created board "${board.title}" from task graph with ${board.tasks.length} tasks.`,
+            board,
+          };
         }
         case 'search_tasks': {
           const tasks = await searchKanban(projectRoot, {
@@ -1023,6 +1069,7 @@ function taskInput(input: KanbanToolInput) {
     columnId: input.columnId,
     description: input.description,
     priority: input.priority,
+    ...(input.taskType !== undefined ? { type: input.taskType } : {}),
     status: input.status,
     labels: input.labels,
     ...((assignment?.agentId ?? assignment?.role ?? assignment?.name)
@@ -1031,9 +1078,19 @@ function taskInput(input: KanbanToolInput) {
     ...((input.assignee ?? assignment?.name ?? assignment?.agentId)
       ? { assignee: input.assignee ?? assignment?.name ?? assignment?.agentId }
       : {}),
-    ...(input.dependencyTaskId !== undefined ? { dependsOn: [input.dependencyTaskId] } : {}),
+    ...(mergedDependsOn(input) ? { dependsOn: mergedDependsOn(input) } : {}),
+    ...(input.estimatedHours !== undefined ? { estimatedHours: input.estimatedHours } : {}),
     ...(assignment ? { assignment } : {}),
   };
+}
+
+/** Union of the single `dependencyTaskId` and the multi `dependsOn[]` inputs. */
+function mergedDependsOn(input: KanbanToolInput): string[] | undefined {
+  const ids = [
+    ...(input.dependsOn ?? []),
+    ...(input.dependencyTaskId !== undefined ? [input.dependencyTaskId] : []),
+  ].filter((id, i, arr) => id && arr.indexOf(id) === i);
+  return ids.length > 0 ? ids : undefined;
 }
 
 function taskPatch(input: KanbanToolInput) {
@@ -1043,10 +1100,12 @@ function taskPatch(input: KanbanToolInput) {
     columnId: input.columnId,
     order: input.order,
     priority: input.priority,
+    ...(input.taskType !== undefined ? { type: input.taskType } : {}),
     status: input.status,
     labels: input.labels,
     assignedAgent: input.agentId,
-    ...(input.dependencyTaskId !== undefined ? { dependsOn: [input.dependencyTaskId] } : {}),
+    ...(mergedDependsOn(input) ? { dependsOn: mergedDependsOn(input) } : {}),
+    ...(input.estimatedHours !== undefined ? { estimatedHours: input.estimatedHours } : {}),
   };
 }
 

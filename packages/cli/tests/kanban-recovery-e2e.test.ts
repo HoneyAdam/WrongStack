@@ -221,6 +221,8 @@ describe('Kanban recovery E2E (file-backed dispatch + recover_stale + retry)', (
     // ---------------------------------------------------------------------
     const events = await listKanbanEvents(tmpDir, board.id);
     expect(events.map((event) => event.type)).toEqual([
+      'task.created',
+      'task.assigned',
       'task.claimed',
       'task.assignment.running',
       'task.stale_recovered',

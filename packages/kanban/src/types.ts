@@ -8,6 +8,10 @@
 
 export type KanbanTaskPriority = 'critical' | 'high' | 'medium' | 'low';
 
+/** Kind of work a task represents (mirrors core's TaskType). Optional/persisted;
+ *  when unset it is inferred at task-graph export from the title/description. */
+export type KanbanTaskType = 'feature' | 'bugfix' | 'refactor' | 'docs' | 'test' | 'chore';
+
 export type KanbanTaskStatus =
   | 'pending'
   | 'ready'
@@ -173,6 +177,8 @@ export interface KanbanTask {
   columnId: string;
   order: number;
   priority: KanbanTaskPriority;
+  /** Kind of work (feature/bugfix/…); persisted when set, else inferred on export. */
+  type?: KanbanTaskType | undefined;
   status: KanbanTaskStatus;
   assignedAgent?: string | undefined;
   assignee?: string | undefined;
@@ -304,6 +310,7 @@ export interface CreateKanbanTaskInput {
   columnId?: string | undefined;
   order?: number | undefined;
   priority?: KanbanTaskPriority | undefined;
+  type?: KanbanTaskType | undefined;
   status?: KanbanTaskStatus | undefined;
   assignedAgent?: string | undefined;
   assignee?: string | undefined;
@@ -330,6 +337,7 @@ export interface UpdateKanbanTaskInput {
   columnId?: string | undefined;
   order?: number | undefined;
   priority?: KanbanTaskPriority | undefined;
+  type?: KanbanTaskType | undefined;
   status?: KanbanTaskStatus | undefined;
   assignedAgent?: string | null | undefined;
   assignee?: string | null | undefined;

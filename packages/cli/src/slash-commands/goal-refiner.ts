@@ -52,11 +52,17 @@ export interface ResolvedRefinerTarget {
 /**
  * Validate and resolve a dedicated refiner provider+model from the user
  * config. Returns undefined when:
+ *   - refinerFallbackProfile resolves to a valid profile entry (tried first)
  *   - Neither refinerProvider nor refinerModel is configured
  *   - The configured provider is unavailable (createProvider returns
  *     undefined, meaning the provider doesn't exist or has no credentials)
  *   - The configured model is not a favorite model AND is not the
  *     currently active session model
+ *
+ * Precedence (first wins):
+ *   1. refinerFallbackProfile → first valid entry from the named profile chain
+ *   2. refinerProvider + refinerModel  (both set)
+ *   3. refinerModel on the active session provider
  *
  * When only `refinerModel` is set (no provider), the model is used on
  * the active session provider — validated against the same constraints.
@@ -72,6 +78,16 @@ export function resolveRefinerTarget(
   activeProviderId: string,
   activeModel: string,
 ): ResolvedRefinerTarget | undefined {
+  // ── Tier 1: fallback profile ──
+  const refinerFallback = cfg.autonomy?.refinerFallbackProfile;
+  if (refinerFallback) {
+    const profileChain = (cfg.fallbackProfiles ?? {})[refinerFallback];
+    if (profileChain && profileChain.length > 0 && profileChain[0]) {
+      const resolved = resolveProfileEntry(profileChain[0], cfg, createProvider, activeProviderId, activeModel);
+      if (resolved) return resolved;
+    }
+  }
+
   const refinerProviderId = cfg.autonomy?.refinerProvider;
   const refinerModel = cfg.autonomy?.refinerModel;
   if (!refinerProviderId && !refinerModel) return undefined;
@@ -93,6 +109,39 @@ export function resolveRefinerTarget(
   if (!provider) return undefined;
 
   return { provider, model };
+}
+
+/**
+ * Resolve a single fallback-profile entry (a string like "provider/model"
+ * or bare "model") into a valid provider+model pair.
+ * Returns undefined when the entry cannot be resolved.
+ */
+function resolveProfileEntry(
+  entry: string,
+  cfg: Config,
+  createProvider: ((providerId: string) => Provider | undefined) | undefined,
+  activeProviderId: string,
+  activeModel: string,
+): ResolvedRefinerTarget | undefined {
+  if (!entry || !createProvider) return undefined;
+  const slash = entry.indexOf('/');
+  let providerId: string;
+  let modelId: string;
+  if (slash > 0) {
+    providerId = entry.slice(0, slash);
+    modelId = entry.slice(slash + 1);
+  } else {
+    providerId = activeProviderId;
+    modelId = entry;
+  }
+  // Validate model against favorites
+  const favorites = cfg.favoriteModels ?? [];
+  const isFavorite = favorites.length === 0 || favorites.includes(modelId);
+  const isActive = modelId === activeModel;
+  if (!isFavorite && !isActive) return undefined;
+  const provider = createProvider(providerId);
+  if (!provider) return undefined;
+  return { provider, model: modelId };
 }
 
 /**

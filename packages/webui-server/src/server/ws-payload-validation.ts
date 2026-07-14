@@ -321,6 +321,7 @@ const STRING_PREF_KEYS = new Set([
   'thinkingWord',
   'refinerProvider',
   'refinerModel',
+  'refinerFallbackProfile',
 ]);
 
 const ENUM_PREF_KEYS: Record<string, Set<string>> = {

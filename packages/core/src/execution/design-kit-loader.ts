@@ -75,17 +75,17 @@ function parseKitFrontmatter(raw: string): KitFrontmatter {
   };
   for (const line of lines) {
     // Block-list item under an open list key.
-    const item = /^\s*-\s+(.*)$/.exec(line);
-    if (listKey && item) {
-      const parsed = parseList(item[1] ?? '');
+    const bulletMatch = /^\s*-\s+(.*)$/.exec(line);
+    if (listKey && bulletMatch) {
+      const parsed = parseList(bulletMatch[1] ?? '');
       if (listKey === 'stacks') out.stacks.push(...parsed.filter(isDesignStack));
       else out[listKey].push(...parsed);
       continue;
     }
-    const m = /^([a-zA-Z_]+):\s*(.*)$/.exec(line);
-    if (!m) continue;
-    const key = m[1] ?? '';
-    const rest = (m[2] ?? '').trim();
+    const kvMatch = /^([a-zA-Z_]+):\s*(.*)$/.exec(line);
+    if (!kvMatch) continue;
+    const key = kvMatch[1] ?? '';
+    const rest = (kvMatch[2] ?? '').trim();
     if (key === 'tags' || key === 'stacks' || key === 'themes') {
       if (rest) {
         setList(key, parseList(rest));
@@ -108,23 +108,26 @@ function parseKitFrontmatter(raw: string): KitFrontmatter {
  */
 function narrowStackSections(body: string, stack?: DesignStack): string {
   if (!stack) return body;
-  const re = /^##\s+Stack:\s*([a-z-]+)\s*$/gim;
-  const matches: { id: string; start: number }[] = [];
-  let m: RegExpExecArray | null;
+  const stackHeading = /^##\s+Stack:\s*([a-z-]+)\s*$/gim;
+  const sections: { id: string; start: number }[] = [];
+  let match: RegExpExecArray | null;
   // biome-ignore lint/suspicious/noAssignInExpressions: standard regex exec loop
-  while ((m = re.exec(body)) !== null) {
-    matches.push({ id: (m[1] ?? '').trim(), start: m.index });
+  while ((match = stackHeading.exec(body)) !== null) {
+    sections.push({ id: (match[1] ?? '').trim(), start: match.index });
   }
-  if (matches.length === 0) return body;
-  const firstStart = matches[0]?.start ?? body.length;
-  let result = body.slice(0, firstStart).trimEnd();
-  for (let i = 0; i < matches.length; i++) {
-    const cur = matches[i];
-    if (!cur) continue;
-    const next = matches[i + 1];
-    const sectionEnd = next ? next.start : body.length;
-    if (cur.id === stack) {
-      result += `\n\n${body.slice(cur.start, sectionEnd).trimEnd()}`;
+  if (sections.length === 0) return body;
+
+  // Everything before the first `## Stack:` heading is cross-cutting content.
+  const preambleEnd = sections[0]!.start;
+  let result = body.slice(0, preambleEnd).trimEnd();
+
+  let sectionEnd: number;
+  for (let i = 0; i < sections.length; i++) {
+    const current = sections[i]!;
+    // Each section runs from its heading to the next heading (or end-of-body).
+    sectionEnd = i + 1 < sections.length ? sections[i + 1]!.start : body.length;
+    if (current.id === stack) {
+      result += `\n\n${body.slice(current.start, sectionEnd).trimEnd()}`;
     }
   }
   return `${result}\n`;

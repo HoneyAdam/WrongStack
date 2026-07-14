@@ -1529,6 +1529,55 @@ describe('formatToolVisualOutput — edit-style tools', () => {
   });
 });
 
+describe('formatToolVisualOutput — LSP tools', () => {
+  it('turns diagnostics into path, severity, location, and total rows', () => {
+    const out = formatToolVisualOutput(
+      'lsp_diagnostics',
+      [
+        'src/app.ts (2):',
+        '  L4:7 ERROR ts(2322): Type string is not assignable to number',
+        '  L9:2 WARN eslint(no-unused-vars): unused value',
+        '',
+        'Total: 2 diagnostics in 1 files.',
+      ].join('\n'),
+      true,
+    );
+    expect(out?.[0]).toMatchObject({ kind: 'path', path: 'src/app.ts' });
+    expect(out?.[1]).toMatchObject({ kind: 'error', marker: '× ', lineNo: '4' });
+    expect(out?.[1]?.text).toContain('ts(2322)');
+    expect(out?.[2]).toMatchObject({ kind: 'warn', marker: '! ', lineNo: '9' });
+    expect(out?.at(-1)).toMatchObject({ kind: 'ok', marker: '✓ ' });
+  });
+
+  it('renders rename workspace edits as successful file rows', () => {
+    const out = formatToolVisualOutput(
+      'lsp_rename',
+      'Workspace edit:\n  src/format.ts 1 edit(s)\n  src/report.ts 2 edit(s)\nTotal: 3 edits across 2 files.\nApplied: 3 edits across 2 files.',
+      true,
+    );
+    expect(out?.[0]).toMatchObject({ kind: 'ok', path: 'src/format.ts', text: '1 edit(s)' });
+    expect(out?.[1]).toMatchObject({ kind: 'ok', path: 'src/report.ts', text: '2 edit(s)' });
+    expect(out?.at(-1)?.text).toContain('Applied: 3 edits');
+  });
+
+  it('renders definitions and completion kinds with semantic markers', () => {
+    const definitions = formatToolVisualOutput(
+      'lsp_definition',
+      'src/format.ts:1:17\nsrc/report.ts:8:10',
+      true,
+    );
+    expect(definitions?.[0]).toMatchObject({ kind: 'path', path: 'src/format.ts', lineNo: '1' });
+
+    const completions = formatToolVisualOutput(
+      'lsp_completion',
+      '1. formatBytes [Function] — (bytes: number) => string\n2. Formatter [Class]',
+      true,
+    );
+    expect(completions?.[0]).toMatchObject({ kind: 'code', marker: 'ƒ ' });
+    expect(completions?.[1]).toMatchObject({ kind: 'code', marker: '◇ ' });
+  });
+});
+
 describe('fmtDuration', () => {
   it('renders ms below 1s', () => {
     expect(fmtDuration(0)).toBe('0ms');

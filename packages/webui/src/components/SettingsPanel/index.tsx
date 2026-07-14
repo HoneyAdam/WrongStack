@@ -1,6 +1,7 @@
 import {
   Activity,
   Bot,
+  CheckCircle2,
   Cpu,
   ListPlus,
   Globe,
@@ -10,6 +11,7 @@ import {
   Network,
   Palette,
   Puzzle,
+  RefreshCw,
   Send,
   Server,
   Shield,
@@ -26,11 +28,13 @@ import { toast } from '@/components/Toaster';
 import { useProviderModels } from '@/hooks/useProviderModels';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { i18n, LANGUAGES, useAppTranslation } from '@/i18n';
+import { cn } from '@/lib/utils';
 import { showPanel } from '@/lib/view-navigation';
 import { useConfigStore, useUIStore } from '@/stores';
 import { useLocalPrefs } from '@/stores/local-prefs';
 import type { WSServerMessage } from '@/types';
 import { FallbackEditor } from '../FallbackEditor';
+import { ModelSelectDialog } from '../ModelSelectDialog';
 import { useTheme } from '../ThemeProvider';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -39,6 +43,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { MCPSection } from './MCPSection';
 import { ToolsSection } from './ToolsSection';
 import { BrainSection } from './BrainSection';
+import { PluginToggleList } from './PluginToggleList';
 import { ShadowSection } from './ShadowSection';
 import { ModelSection } from './ModelSection';
 import { PreferenceSelect, PreferenceSlider } from './PreferenceControls';
@@ -119,6 +124,7 @@ export function SettingsPanel() {
   const [providerTab, setProviderTab] = useState<ProviderTab>('catalog');
   const [catalogQuery, setCatalogQuery] = useState('');
   const [newFallbackProfileName, setNewFallbackProfileName] = useState('');
+  const [refinerPickerOpen, setRefinerPickerOpen] = useState(false);
   const currentCatalogProvider = catalogProviders.find((p) => p.id === provider);
 
   // WS event subscriptions
@@ -620,6 +626,66 @@ export function SettingsPanel() {
                   ]}
                   onChange={(v) => syncPref('enhanceLanguage', v)}
                 />
+
+                {/* ── Refiner config — unified selector ── */}
+                <div className="pt-2">
+                  <p className="text-sm font-medium mb-1">{t('settings:agent.refineHeading')}</p>
+                  <div
+                    className="flex items-center justify-between gap-3 rounded-lg border border-border p-3 cursor-pointer hover:bg-muted/50 transition-colors"
+                    onClick={() => setRefinerPickerOpen(true)}
+                  >
+                    <div className="min-w-0 flex-1">
+                      {localPrefs.refinerFallbackProfile ? (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+                            {localPrefs.refinerFallbackProfile}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {(localPrefs.fallbackProfiles[localPrefs.refinerFallbackProfile] ?? []).slice(0, 2).join(' → ')}
+                            {((localPrefs.fallbackProfiles[localPrefs.refinerFallbackProfile] ?? []).length > 2) ? ' …' : ''}
+                          </span>
+                        </div>
+                      ) : localPrefs.refinerProvider && localPrefs.refinerModel ? (
+                        <span className="text-xs font-mono">{localPrefs.refinerProvider}/{localPrefs.refinerModel}</span>
+                      ) : localPrefs.refinerProvider ? (
+                        <span className="text-xs font-mono">{localPrefs.refinerProvider} / <span className="text-muted-foreground">(session model)</span></span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">{t('settings:agent.refinerProviderDefault')}</span>
+                      )}
+                    </div>
+                    <Cpu className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">{t('settings:agent.refineDelayHint')}</p>
+                </div>
+
+                {/* Unified picker dialog */}
+                {refinerPickerOpen && (
+                  <ModelSelectDialog
+                    open={refinerPickerOpen}
+                    mode="both"
+                    title={t('settings:agent.refineHeading')}
+                    hint={t('settings:agent.refinerProviderHint')}
+                    fallbackProfiles={localPrefs.fallbackProfiles}
+                    clearLabel={t('common:action.clear')}
+                    onPick={(result) => {
+                      if (result.type === 'clear') {
+                        syncPref('refinerProvider', '');
+                        syncPref('refinerModel', '');
+                        syncPref('refinerFallbackProfile', '');
+                      } else if (result.type === 'provider-model') {
+                        syncPref('refinerProvider', result.provider);
+                        syncPref('refinerModel', result.model);
+                        syncPref('refinerFallbackProfile', '');
+                      } else if (result.type === 'fallback-profile') {
+                        syncPref('refinerProvider', '');
+                        syncPref('refinerModel', '');
+                        syncPref('refinerFallbackProfile', result.name);
+                      }
+                      setRefinerPickerOpen(false);
+                    }}
+                    onClose={() => setRefinerPickerOpen(false)}
+                  />
+                )}
               </div>
 
               <div className="pt-2 border-t">
@@ -802,7 +868,7 @@ export function SettingsPanel() {
                 />
               </div>
 
-              <RoutingSection syncPref={syncPref} />
+              <RoutingSection syncPref={syncPref} candidates={fallbackCandidates} />
 
               <div className="pt-2 border-t">
                 <h3 className="text-sm font-semibold mb-3 mt-3 flex items-center gap-2">
@@ -994,6 +1060,26 @@ export function SettingsPanel() {
                   onChange={() => syncPref('indexOnStart', !localPrefs.indexOnStart)}
                 />
               </div>
+
+              <div className="pt-2 border-t">
+                <h3 className="text-sm font-semibold mb-3 mt-3 flex items-center gap-2">
+                  <Zap className="h-4 w-4 text-muted-foreground" />
+                  {t('settings:features.chimeraHeading')}
+                </h3>
+                <PreferenceSelect
+                  label={t('settings:features.chimeraAutoFixLabel')}
+                  hint={t('settings:features.chimeraAutoFixHint')}
+                  value={localPrefs.chimeraAutoFix}
+                  options={[
+                    { value: 'off' as const, label: t('settings:features.chimeraAutoFixOff') },
+                    { value: 'ask' as const, label: t('settings:features.chimeraAutoFixAsk') },
+                    { value: 'auto' as const, label: t('settings:features.chimeraAutoFixAuto') },
+                  ]}
+                  onChange={(v) => syncPref('chimeraAutoFix', v)}
+                />
+              </div>
+
+              <PluginToggleList />
 
               <div className="pt-2 border-t">
                 <h3 className="text-sm font-semibold mb-3 mt-3 flex items-center gap-2">

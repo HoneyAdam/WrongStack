@@ -1,6 +1,6 @@
-import type { FullConfig } from '@playwright/test';
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
+import type { FullConfig } from '@playwright/test';
 
 /**
  * Starts the WrongStack CLI in webui mode and waits for the HTTP server
@@ -26,16 +26,15 @@ export default async function globalSetup(config: FullConfig) {
   const server = spawn('node', [cliPath, '--webui'], {
     cwd: process.cwd(),
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, PORT: '0' }, // PORT=0 = auto-assign
+    // The CLI validates ports as 1..65535 and already auto-advances when the
+    // default HTTP/WS pair is occupied. Passing PORT=0 made global setup exit
+    // before any browser test actually ran.
+    env: { ...process.env },
   });
 
   // Capture server output for debugging.
-  server.stdout?.on('data', (chunk) =>
-    process.stdout.write(`[webui:stdout] ${chunk}`),
-  );
-  server.stderr?.on('data', (chunk) =>
-    process.stderr.write(`[webui:stderr] ${chunk}`),
-  );
+  server.stdout?.on('data', (chunk) => process.stdout.write(`[webui:stdout] ${chunk}`));
+  server.stderr?.on('data', (chunk) => process.stderr.write(`[webui:stderr] ${chunk}`));
 
   // Wait for the HTTP server URL to appear in stdout.
   const url = await waitForServerOutput(server, 60_000);

@@ -116,7 +116,7 @@ export function useSessionTranscript(
   sessionId: string | null,
   agentId: string | null,
 ): SessionTranscript {
-  const state = useHqStore(['events']);
+  const storeEvents = useHqStore((s) => s.events);
   // The session LEADER (id 'leader') is the main terminal agent — its
   // conversation IS the session transcript, not a per-agent ring (only
   // director-spawned subagents get their own agent.message ring). So a
@@ -175,7 +175,7 @@ export function useSessionTranscript(
 
   const agentEntries = useMemo(() => {
     if (!viewingSubagent || agentId === null) return [];
-    const live = state.events
+    const live = storeEvents
       .filter(
         (event) =>
           event.type === 'agent.message' &&
@@ -198,7 +198,7 @@ export function useSessionTranscript(
     }
     // Fold the per-delta stream back into whole turns.
     return coalesceStreamedText(merged);
-  }, [agentSeed, state.events, agentId, sessionId, viewingSubagent]);
+  }, [agentSeed, storeEvents, agentId, sessionId, viewingSubagent]);
 
   // ── Initial (re)fetch ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -237,14 +237,14 @@ export function useSessionTranscript(
   useEffect(() => {
     if (sessionId === null || viewingSubagent) return;
     let next = transcriptRef.current;
-    for (const e of state.events) {
+    for (const e of storeEvents) {
       if (e.type !== 'session.transcript' || e.sessionId !== sessionId) continue;
       const payload = e.payload as HqTranscriptAppendPayload;
       if (!Array.isArray(payload.entries)) continue;
       next = applyLiveBatch(next, payload.fromSeq, payload.entries);
     }
     if (next !== transcriptRef.current) setTranscript(next);
-  }, [state.events, sessionId, viewingSubagent]);
+  }, [storeEvents, sessionId, viewingSubagent]);
 
   // ── Follow the newest turn while pinned ───────────────────────────────────
   // Both planes stream text one delta per entry; fold them into whole turns.

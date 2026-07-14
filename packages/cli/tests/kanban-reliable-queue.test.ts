@@ -313,6 +313,7 @@ describe('Kanban reliable queue semantics (Sprint 1 focused package)', () => {
     const events = await listKanbanEvents(tmpDir, board.id);
 
     expect(events.map((event) => event.type)).toEqual([
+      'task.created',
       'task.claimed',
       'task.assignment.running',
       'task.assignment.heartbeat',
@@ -518,6 +519,8 @@ describe('Kanban reliable queue semantics (Sprint 1 focused package)', () => {
 
     const events = await listKanbanEvents(tmpDir, board.id);
     expect(events.map((event) => event.type)).toEqual([
+      'task.created',
+      'task.assigned',
       'task.claimed',
       'task.assignment.running',
       'task.assignment.completed',

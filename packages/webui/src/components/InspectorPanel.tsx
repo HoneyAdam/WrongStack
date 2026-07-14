@@ -1,31 +1,38 @@
 /**
- * InspectorPanel — a DevTools-style bottom dock that slides up/down.
+ * InspectorPanel — the global right-side workbench inspector.
  *
- * Replaces the old fixed BottomDock (which floated over and blocked the chat
- * input) and the two modal FleetDrawer/AgentsDrawer overlays. The panel
- * participates in normal flex layout: when collapsed only a slim handle bar is
- * visible; when expanded it takes a fixed slice of the main column and the
- * chat transcript above shrinks to fit. No backdrop, no modal — the chat
- * input stays fully usable while the panel is open.
- *
- * Tabs: Fleet (agent list + stats) | Agents (per-agent detail card).
+ * It is intentionally a non-modal Radix Sheet on desktop-sized workspaces:
+ * the drawer overlays the main surface instead of shrinking chat/editor/board
+ * layout, while the rest of the workbench stays visible and interactive.
+ * Fleet, agent detail and side-effect audit are the first migrated targets;
+ * task, node and message detail surfaces can join the same shell next.
  */
 
-import { Bot, ChevronDown, ChevronUp, Users, Activity } from 'lucide-react';
-import { useMemo, useState, type ReactNode } from 'react';
+import { Activity, Bot, PanelRightOpen, Users, X } from 'lucide-react';
+import { type ReactNode, useMemo, useState } from 'react';
+import {
+  ConcurrencyGauge,
+  EventTimeline,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@/components/ui';
+import { useAppTranslation } from '@/i18n';
+import { cn } from '@/lib/utils';
+import type { FleetTimelineEvent, SubagentView } from '@/stores';
+import { useFleetStore, useSideEffectStore, useUIStore } from '@/stores';
 import { AgentCard } from './AgentsMonitor';
-import { ConcurrencyGauge, EventTimeline } from '@/components/ui';
 import { FleetAgentRow } from './FleetMonitor';
 import { SideEffectTimeline } from './SideEffectTimeline';
-import { cn } from '@/lib/utils';
-import { useAppTranslation } from '@/i18n';
-import { useFleetStore, useSideEffectStore, useUIStore } from '@/stores';
-import type { FleetTimelineEvent, SubagentView } from '@/stores';
-
-/** Expanded panel height (px). Tall enough for a useful agent list without
- *  eating the whole chat surface. The outer container animates between this
- *  and 0 for the slide effect. */
-const PANEL_HEIGHT = 320;
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from './ui/sheet';
 
 function fmtCost(v: number): string {
   if (v <= 0) return '$0';
@@ -40,7 +47,10 @@ function fmtTok(n: number): string {
 }
 
 /** Shared fleet sort: leader first, then running, then by start time. */
-function sortFleet(agents: Map<string, SubagentView>, leaderId: string | undefined): SubagentView[] {
+function sortFleet(
+  agents: Map<string, SubagentView>,
+  leaderId: string | undefined,
+): SubagentView[] {
   const arr = Array.from(agents.values());
   arr.sort((x, y) => {
     if (x.id === leaderId) return -1;
@@ -53,10 +63,47 @@ function sortFleet(agents: Map<string, SubagentView>, leaderId: string | undefin
   return arr;
 }
 
+/** Compact shell action used by the top bar. Keeping its subscriptions here
+ * avoids making the App root re-render for every fleet/audit counter update. */
+export function InspectorTrigger(): React.ReactElement {
+  const { t } = useAppTranslation();
+  const inspectorOpen = useUIStore((s) => s.inspectorOpen);
+  const setInspectorOpen = useUIStore((s) => s.setInspectorOpen);
+  const runningCount = useFleetStore(
+    (s) => Array.from(s.agents.values()).filter((agent) => agent.status === 'running').length,
+  );
+  const sideEffectCount = useSideEffectStore((s) => s.sideEffects.length);
+  const badge = runningCount + sideEffectCount;
+
+  return (
+    <button
+      type="button"
+      data-testid="inspector-trigger"
+      aria-expanded={inspectorOpen}
+      aria-controls="workbench-inspector"
+      onClick={() => setInspectorOpen(!inspectorOpen)}
+      className={cn(
+        'relative inline-flex h-8 items-center gap-1.5 rounded-md border px-2 text-xs transition-colors',
+        inspectorOpen
+          ? 'border-primary/40 bg-primary/10 text-primary'
+          : 'border-border/70 bg-background/60 text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+      )}
+      title={inspectorOpen ? t('activity:inspector.hidePanel') : t('activity:inspector.showPanel')}
+    >
+      <PanelRightOpen className="h-3.5 w-3.5" />
+      <span className="hidden lg:inline">{t('activity:inspector.label')}</span>
+      {badge > 0 ? (
+        <span className="min-w-4 bg-primary/15 px-1 text-[10px] font-semibold tabular-nums text-primary">
+          {badge > 99 ? '99+' : badge}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
 export function InspectorPanel() {
   const inspectorOpen = useUIStore((s) => s.inspectorOpen);
   const inspectorTab = useUIStore((s) => s.inspectorTab);
-  const toggleInspector = useUIStore((s) => s.toggleInspector);
   const setInspectorOpen = useUIStore((s) => s.setInspectorOpen);
   const setInspectorTab = useUIStore((s) => s.setInspectorTab);
   const { t } = useAppTranslation();
@@ -71,10 +118,7 @@ export function InspectorPanel() {
   const fleetConcurrencyMax = useFleetStore((s) => s.fleetConcurrencyMax);
   const eventTimeline = useFleetStore((s) => s.eventTimeline);
 
-  const fleetList = useMemo(
-    () => sortFleet(fleetAgents, leaderId),
-    [fleetAgents, leaderId],
-  );
+  const fleetList = useMemo(() => sortFleet(fleetAgents, leaderId), [fleetAgents, leaderId]);
 
   const runningCount = fleetList.filter((a) => a.status === 'running').length;
   const totalCost = fleetList.reduce((sum, a) => sum + a.costUsd, 0);
@@ -89,208 +133,153 @@ export function InspectorPanel() {
     return fleetAgents.get(selectedAgentId) ?? fleetList[0] ?? null;
   }, [selectedAgentId, fleetList, fleetAgents]);
 
-  const openFleetTab = () => setInspectorTab('fleet');
-  const openAgentsTab = () => setInspectorTab('agents');
-  const openSideEffectsTab = () => setInspectorTab('sideEffects');
-
   const sideEffectCount = useSideEffectStore((s) => s.sideEffects.length);
 
   // Clicking a row in the fleet list jumps to that agent's detail card.
   const handleSelectAgent = (agent: SubagentView) => {
     setSelectedAgentId(agent.id);
-    openAgentsTab();
+    setInspectorTab('agents');
   };
 
   return (
-    <div className="shrink-0 border-t bg-card flex flex-col">
-      {/* ── Toggle handle — always visible, sits at the bottom edge ── */}
-      <button type="button"
-        
-        onClick={toggleInspector}
-        className={cn(
-          'group w-full flex items-center justify-between gap-2 px-3 h-7 text-[11px]',
-          'text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors',
-        )}
-        title={inspectorOpen ? t('activity:inspector.hidePanel') : t('activity:inspector.showPanel')}
-        aria-label={inspectorOpen ? t('activity:inspector.hidePanel') : t('activity:inspector.showPanel')}
+    <Sheet open={inspectorOpen} onOpenChange={setInspectorOpen} modal={false}>
+      <SheetContent
+        id="workbench-inspector"
+        data-testid="inspector-drawer"
+        side="right"
+        showOverlay={false}
+        showCloseButton={false}
+        onPointerDownOutside={(event) => event.preventDefault()}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          document.querySelector<HTMLElement>('[data-testid="inspector-trigger"]')?.focus();
+        }}
+        className="flex w-[calc(100vw-3rem)] max-w-none flex-col gap-0 overflow-hidden border-l border-border/80 bg-card/96 p-0 shadow-[-24px_0_64px_-36px_hsl(var(--shadow-color)/0.65)] backdrop-blur-xl sm:w-[min(680px,48vw)] sm:max-w-[680px]"
       >
-        <span className="flex items-center gap-2 min-w-0">
-          {inspectorOpen ? (
-            <ChevronDown className="h-3.5 w-3.5 shrink-0" />
-          ) : (
-            <ChevronUp className="h-3.5 w-3.5 shrink-0" />
-          )}
-          <span className="font-medium uppercase tracking-wider">{t('activity:inspector.label')}</span>
-          {/* Live summary — running count + tokens, even while collapsed */}
-          {fleetTotal > 0 && (
-            <>
-              <span className="opacity-40">·</span>
-              <span className="flex items-center gap-1">
-                <span
-                  className={cn(
-                    'h-1.5 w-1.5 rounded-full',
-                    runningCount > 0 ? 'bg-success animate-pulse' : 'bg-muted-foreground/50',
-                  )}
-                />
-                <span className="tabular-nums">
-                  {runningCount}/{fleetTotal}
+        <SheetHeader className="relative gap-1 border-b border-border/70 bg-muted/20 px-4 py-3 pr-12">
+          <SheetTitle className="flex items-center gap-2 text-sm">
+            <PanelRightOpen className="h-4 w-4 text-primary" />
+            {t('activity:inspector.label')}
+          </SheetTitle>
+          <SheetDescription className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+            {fleetTotal > 0 ? (
+              <>
+                <span className="inline-flex items-center gap-1">
+                  <span
+                    className={cn(
+                      'h-1.5 w-1.5 rounded-full',
+                      runningCount > 0 ? 'bg-success animate-pulse' : 'bg-muted-foreground/50',
+                    )}
+                  />
+                  <span className="tabular-nums">
+                    {runningCount}/{fleetTotal}
+                  </span>
                 </span>
-              </span>
-              <span className="opacity-40 hidden sm:inline">·</span>
-              <span className="tabular-nums font-mono hidden sm:inline">
-                ↓{fmtTok(fleetTokensIn)} ↑{fmtTok(fleetTokensOut)} · {fmtCost(totalCost)}
-              </span>
-            </>
-          )}
-          {/* Side-effect count — clickable to jump to Audit tab */}
-          {sideEffectCount > 0 && (
-            <>
-              <span className="opacity-40">·</span>
-              <button type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setInspectorOpen(true);
-                  setInspectorTab('sideEffects');
-                }}
-                className="flex items-center gap-1 text-warning hover:text-warning/85 transition-colors"
-                title={t('activity:inspector.openAudit')}
-              >
-                <Activity className="h-3 w-3" />
-                <span className="tabular-nums">{sideEffectCount}</span>
-              </button>
-            </>
-          )}
-        </span>
-        <span className="flex items-center gap-1 shrink-0 opacity-70 group-hover:opacity-100">
-          <Bot className="h-3 w-3" />
-          <Users className="h-3 w-3" />
-          <Activity className="h-3 w-3" />
-        </span>
-      </button>
+                <span className="font-mono tabular-nums">
+                  ↓{fmtTok(fleetTokensIn)} ↑{fmtTok(fleetTokensOut)} · {fmtCost(totalCost)}
+                </span>
+              </>
+            ) : (
+              <span>{t('activity:inspector.agentsAppearHint')}</span>
+            )}
+          </SheetDescription>
+          <SheetClose asChild>
+            <button
+              type="button"
+              data-testid="inspector-close"
+              className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              aria-label={t('activity:inspector.collapseAria')}
+              title={t('activity:inspector.collapseTitle')}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </SheetClose>
+        </SheetHeader>
 
-      {/* ── Slide-up panel — height animates between 0 and PANEL_HEIGHT ──
-          The inner wrapper keeps a fixed height so its content never
-          squishes during the transition; only the outer clip animates. */}
-      <div
-        className="overflow-hidden transition-[height] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
-        style={{ height: inspectorOpen ? PANEL_HEIGHT : 0 }}
-      >
-        <div className="flex flex-col" style={{ height: PANEL_HEIGHT }}>
-          {/* Tab bar */}
-          <div className="flex items-center gap-1 px-2 h-8 border-b bg-muted/30 shrink-0" role="tablist" aria-label={t('activity:inspector.label')}>
+        <Tabs
+          value={inspectorTab}
+          onValueChange={(value) => setInspectorTab(value as 'fleet' | 'agents' | 'sideEffects')}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <TabsList
+            className="flex h-10 min-h-10 shrink-0 justify-start gap-1 border-x-0 border-t-0 border-b border-border/70 bg-muted/30 p-2 shadow-none"
+            aria-label={t('activity:inspector.label')}
+          >
             <TabButton
-              active={inspectorTab === 'fleet'}
-              onClick={openFleetTab}
+              value="fleet"
               icon={<Bot className="h-3.5 w-3.5" />}
               label={t('activity:inspector.tabFleet')}
               count={fleetTotal}
               running={runningCount}
-              tabId="inspector-tab-fleet"
-              panelId="inspector-panel-fleet"
             />
             <TabButton
-              active={inspectorTab === 'agents'}
-              onClick={openAgentsTab}
+              value="agents"
               icon={<Users className="h-3.5 w-3.5" />}
               label={t('activity:inspector.tabAgents')}
               count={fleetTotal}
-              tabId="inspector-tab-agents"
-              panelId="inspector-panel-agents"
             />
             <TabButton
-              active={inspectorTab === 'sideEffects'}
-              onClick={openSideEffectsTab}
+              value="sideEffects"
               icon={<Activity className="h-3.5 w-3.5" />}
               label={t('activity:inspector.tabAudit')}
               count={sideEffectCount}
-              tabId="inspector-tab-sideEffects"
-              panelId="inspector-panel-sideEffects"
             />
-            <div className="flex-1" />
-            <button 
-              type="button"
-              onClick={() => setInspectorOpen(false)}
-              className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-              aria-label={t('activity:inspector.collapseAria')}
-              title={t('activity:inspector.collapseTitle')}
-            >
-              <ChevronDown className="h-4 w-4" />
-            </button>
-          </div>
+          </TabsList>
 
-          {/* Content */}
-          <div
-            className="flex-1 min-h-0 overflow-y-auto"
-            role="tabpanel"
-            id={`inspector-panel-${inspectorTab}`}
-            aria-labelledby={`inspector-tab-${inspectorTab}`}
-          >
-            {inspectorTab === 'fleet' ? (
-              <FleetTabContent
-                fleetList={fleetList}
-                leaderId={leaderId}
-                selectedAgentId={selectedAgentId}
-                runningCount={runningCount}
-                fleetConcurrency={fleetConcurrency}
-                fleetConcurrencyMax={fleetConcurrencyMax}
-                fleetTokensIn={fleetTokensIn}
-                fleetTokensOut={fleetTokensOut}
-                totalCost={totalCost}
-                eventTimeline={eventTimeline}
-                onSelectAgent={handleSelectAgent}
-              />
-            ) : inspectorTab === 'agents' ? (
-              <AgentsTabContent
-                fleetList={fleetList}
-                selectedAgent={selectedAgent}
-                leaderId={leaderId}
-                selectedAgentId={selectedAgent?.id ?? null}
-                onSelectAgent={setSelectedAgentId}
-              />
-            ) : (
-              <SideEffectTimeline />
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
+          <TabsContent value="fleet" className="mt-0 min-h-0 min-w-0 flex-1 overflow-y-auto">
+            <FleetTabContent
+              fleetList={fleetList}
+              leaderId={leaderId}
+              selectedAgentId={selectedAgentId}
+              runningCount={runningCount}
+              fleetConcurrency={fleetConcurrency}
+              fleetConcurrencyMax={fleetConcurrencyMax}
+              fleetTokensIn={fleetTokensIn}
+              fleetTokensOut={fleetTokensOut}
+              totalCost={totalCost}
+              eventTimeline={eventTimeline}
+              onSelectAgent={handleSelectAgent}
+            />
+          </TabsContent>
+          <TabsContent value="agents" className="mt-0 min-h-0 min-w-0 flex-1 overflow-y-auto">
+            <AgentsTabContent
+              fleetList={fleetList}
+              selectedAgent={selectedAgent}
+              leaderId={leaderId}
+              selectedAgentId={selectedAgent?.id ?? null}
+              onSelectAgent={setSelectedAgentId}
+            />
+          </TabsContent>
+          <TabsContent value="sideEffects" className="mt-0 min-h-0 min-w-0 flex-1 overflow-y-auto">
+            <SideEffectTimeline />
+          </TabsContent>
+        </Tabs>
+      </SheetContent>
+    </Sheet>
   );
 }
 
 // ── Tab button ─────────────────────────────────────────────────────────
 
 function TabButton({
-  active,
-  onClick,
+  value,
   icon,
   label,
   count,
   running,
-  tabId,
-  panelId,
 }: {
-  active: boolean;
-  onClick: () => void;
+  value: 'fleet' | 'agents' | 'sideEffects';
   icon: ReactNode;
   label: string;
   count: number;
   running?: number;
-  tabId: string;
-  panelId: string;
 }) {
   return (
-    <button 
-      type="button"
-      onClick={onClick}
-      role="tab"
-      id={tabId}
-      aria-selected={active}
-      aria-controls={panelId}
+    <TabsTrigger
+      value={value}
       className={cn(
-        'flex items-center gap-1.5 px-2.5 h-6 rounded-md text-[11px] font-medium transition-colors',
-        active
-          ? 'bg-background text-foreground shadow-sm ring-1 ring-border'
-          : 'text-muted-foreground hover:text-foreground hover:bg-background/60',
+        'flex h-6 items-center gap-1.5 rounded-md px-2.5 py-0 text-[11px] font-medium text-muted-foreground shadow-none transition-colors',
+        'hover:bg-background/60 hover:text-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm data-[state=active]:ring-1 data-[state=active]:ring-border',
       )}
     >
       {icon}
@@ -307,7 +296,7 @@ function TabButton({
           {running !== undefined ? `${running}/${count}` : count}
         </span>
       )}
-    </button>
+    </TabsTrigger>
   );
 }
 
@@ -348,7 +337,8 @@ function FleetTabContent({
             <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
           )}
           <span className="tabular-nums">
-            {t('activity:agents.runningCount', { count: runningCount })} · {t('activity:agents.totalCount', { count: fleetList.length })}
+            {t('activity:agents.runningCount', { count: runningCount })} ·{' '}
+            {t('activity:agents.totalCount', { count: fleetList.length })}
           </span>
         </span>
         <ConcurrencyGauge current={fleetConcurrency} max={fleetConcurrencyMax} showLabel />
@@ -433,7 +423,7 @@ function AgentsTabContent({
       <div className="border-t px-2 py-1.5 shrink-0">
         <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
           {fleetList.map((agent, i) => (
-            <button 
+            <button
               key={agent.id}
               type="button"
               onClick={() => onSelectAgent(agent.id)}
@@ -443,7 +433,11 @@ function AgentsTabContent({
                   ? 'bg-primary/15 text-primary ring-1 ring-primary/40'
                   : 'hover:bg-accent text-muted-foreground',
               )}
-              title={i === selectedIdx ? t('activity:inspector.selected', { name: agent.name }) : agent.name}
+              title={
+                i === selectedIdx
+                  ? t('activity:inspector.selected', { name: agent.name })
+                  : agent.name
+              }
             >
               <span
                 className={cn(

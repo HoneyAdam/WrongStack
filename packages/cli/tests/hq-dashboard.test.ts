@@ -1,20 +1,18 @@
 // @vitest-environment jsdom
 
-import { HQ_AUTH_FILE_VERSION, writeHqAuthFile } from '@wrongstack/core';
-import { JSDOM } from 'jsdom';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { HQ_AUTH_FILE_VERSION, writeHqAuthFile } from '@wrongstack/core';
+import { JSDOM } from 'jsdom';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type HqServerHandle, startHqServer } from '../src/hq-server.js';
 
 /**
- * The HQ dashboard is a single self-contained document that loads React +
- * React Flow from a CDN (with a dependency-free offline fallback). It can't be
- * meaningfully executed in jsdom (top-level `await import()` from esm.sh, React
- * Flow), so these tests validate the *served document shell* and the data-plane
- * wiring referenced by its module script — the parts that must be correct for
- * the browser app to boot and reach the server.
+ * Server-to-dashboard contract tests for the built React HQ application.
+ * Component behavior lives in @wrongstack/webui-hq tests; this suite verifies
+ * that the CLI exposes that build, its split assets, SPA fallback and gated
+ * data plane correctly.
  */
 
 let handle: HqServerHandle | null = null;
@@ -25,7 +23,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  if (handle) {
+  if (handle !== null) {
     await handle.close();
     handle = null;
   }
@@ -46,156 +44,102 @@ async function startServer(): Promise<HqServerHandle> {
   return startHqServer({ port: getPort(), dataDir });
 }
 
-describe('HQ dashboard document', () => {
-  it('serves a parseable document with the React mount point and CDN assets', async () => {
+function assetPath(document: Document, selector: string, attribute: 'href' | 'src'): string {
+  const value = document.querySelector(selector)?.getAttribute(attribute);
+  expect(value).toMatch(/^\/assets\//);
+  return value as string;
+}
+
+describe('HQ React dashboard delivery', () => {
+  it('serves a local, split React shell with no CDN dependency', async () => {
     handle = await startServer();
-    const html = await (await fetch(`http://127.0.0.1:${handle.port}/`)).text();
-    const dom = new JSDOM(html);
-    const doc = dom.window.document;
+    const response = await fetch(`http://127.0.0.1:${handle.port}/`);
+    const html = await response.text();
+    const document = new JSDOM(html).window.document;
 
-    expect(doc.querySelector('title')?.textContent).toContain('WrongStack HQ');
-    // React mount point + initial boot placeholder.
-    expect(doc.getElementById('root')).not.toBeNull();
-    expect(doc.getElementById('boot')).not.toBeNull();
-    // React Flow stylesheet preloaded.
-    const link = doc.querySelector('link[rel="stylesheet"]');
-    expect(link?.getAttribute('href')).toContain('reactflow');
-    // The app is an ES module so it can `import` React + React Flow.
-    const mod = doc.querySelector('script[type="module"]');
-    expect(mod).not.toBeNull();
-  });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('text/html');
+    expect(document.querySelector('title')?.textContent).toContain('WrongStack HQ');
+    expect(document.getElementById('root')).not.toBeNull();
+    expect(document.getElementById('boot')).toBeNull();
+    expect(html).not.toMatch(/https?:\/\//);
 
-  it('wires the module script to the live fleet + transcript endpoints', async () => {
-    handle = await startServer();
-    const html = await (await fetch(`http://127.0.0.1:${handle.port}/`)).text();
-    const dom = new JSDOM(html);
-    const script = dom.window.document.querySelector('script[type="module"]')?.textContent ?? '';
+    const scriptPath = assetPath(document, 'script[type="module"]', 'src');
+    const stylePath = assetPath(document, 'link[rel="stylesheet"]', 'href');
+    expect(document.querySelectorAll('link[rel="modulepreload"]').length).toBeGreaterThan(0);
 
-    // Data plane: WS browser channel + REST seed + full-history fetch.
+    const [scriptResponse, styleResponse] = await Promise.all([
+      fetch(`http://127.0.0.1:${handle.port}${scriptPath}`),
+      fetch(`http://127.0.0.1:${handle.port}${stylePath}`),
+    ]);
+    const [script, style] = await Promise.all([scriptResponse.text(), styleResponse.text()]);
+
+    expect(scriptResponse.status).toBe(200);
+    expect(scriptResponse.headers.get('content-type')).toContain('application/javascript');
+    expect(script).toContain('hq-workbench');
     expect(script).toContain('/ws/browser');
-    expect(script).toContain('/api/fleet');
-    expect(script).toContain('/api/sessions/');
-    expect(script).toContain('?full=1');
-    // Fleet tree builders + offline fallback.
-    expect(script).toContain('buildTree');
-    expect(script).toContain('buildGraph');
-    expect(script).toContain('renderFallback');
-    // Auto-layout (dagre) + draggable nodes + mode toolbar.
-    expect(script).toContain('esm.sh/dagre');
-    expect(script).toContain('layoutTree');
-    expect(script).toContain('nodesDraggable: true');
-    expect(script).toContain('Auto-arrange');
-    // Live transcript streaming handler.
-    expect(script).toContain('session.transcript');
+    expect(script).not.toContain('hq-activity-rail');
+    expect(styleResponse.status).toBe(200);
+    expect(styleResponse.headers.get('content-type')).toContain('text/css');
+    expect(style).toContain('.hq-secondary-nav');
+    expect(style).toContain('border-radius:0!important');
+    expect(style).not.toContain('.hq-activity-rail');
   });
 
-  it('wires the per-tool chat-history view (icon + input summary, WebUI-style)', async () => {
+  it('returns the React shell for client-side routes', async () => {
     handle = await startServer();
-    const html = await (await fetch(`http://127.0.0.1:${handle.port}/`)).text();
-    const dom = new JSDOM(html);
-    const script = dom.window.document.querySelector('script[type="module"]')?.textContent ?? '';
-    // Per-tool visual identity (mirrors @wrongstack/tools/tool-icons).
-    expect(script).toContain('TOOL_ICON_MAP');
-    expect(script).toContain('TOOL_ICON_INFO');
-    expect(script).toContain('function toolIconInfo');
-    // Human-readable input summary is INJECTED from @wrongstack/tools (shared
-    // with the WebUI) — the placeholder must be gone and the real function in.
-    expect(script).not.toContain('__TOOL_SUMMARY_SRC__');
-    expect(script).toContain('function toolInputSummary');
-    // A signature line unique to the shared browser transcription.
-    expect(script).toContain('function __clip(');
-    // A couple of canonical name->id mappings must survive minification-free embed.
-    expect(script).toContain("read:'file'");
-    expect(script).toContain("bash:'terminal'");
-    // The new head classes the CSS + renderer rely on.
-    expect(script).toContain('tool-cat');
-    expect(script).toContain('tool-summary');
+    const [rootHtml, routeResponse] = await Promise.all([
+      fetch(`http://127.0.0.1:${handle.port}/`).then((response) => response.text()),
+      fetch(`http://127.0.0.1:${handle.port}/fleet/map`),
+    ]);
+
+    expect(routeResponse.status).toBe(200);
+    expect(routeResponse.headers.get('content-type')).toContain('text/html');
+    expect(await routeResponse.text()).toBe(rootHtml);
   });
 
-  it('injects the shared tool-output diff model and renders edit/write/patch diffs', async () => {
+  it('keeps API routes out of the SPA fallback', async () => {
     handle = await startServer();
-    const html = await (await fetch(`http://127.0.0.1:${handle.port}/`)).text();
-    const dom = new JSDOM(html);
-    const script = dom.window.document.querySelector('script[type="module"]')?.textContent ?? '';
-    // Diff model is INJECTED from @wrongstack/tools/tool-diff — placeholder gone.
-    expect(script).not.toContain('__TOOL_DIFF_SRC__');
-    expect(script).toContain('function diffFromToolInput');
-    expect(script).toContain('function computeLineDiff');
-    expect(script).toContain('function parseUnifiedDiff');
-    expect(script).toContain('function diffRowsFromToolInput');
-    // HQ-side renderer + its CSS hooks.
-    expect(script).toContain('function renderToolDiff');
-    // The diff CSS classes must be present in the served <style>.
-    expect(html).toContain('.tool-diff');
-    expect(html).toContain('.tdrow.add');
-    expect(html).toContain('.tdrow.del');
+    const [fleetResponse, eventsResponse, sessionsResponse] = await Promise.all([
+      fetch(`http://127.0.0.1:${handle.port}/api/fleet`),
+      fetch(`http://127.0.0.1:${handle.port}/api/events?limit=2`),
+      fetch(`http://127.0.0.1:${handle.port}/api/sessions`),
+    ]);
+
+    expect(fleetResponse.headers.get('content-type')).toContain('application/json');
+    expect(eventsResponse.headers.get('content-type')).toContain('application/json');
+    expect(sessionsResponse.headers.get('content-type')).toContain('application/json');
+
+    const fleet = (await fleetResponse.json()) as { clients: unknown[]; totals: unknown };
+    const events = (await eventsResponse.json()) as { events: unknown[] };
+    const sessions = (await sessionsResponse.json()) as unknown[];
+    expect(fleet.clients).toEqual([]);
+    expect(fleet.totals).toBeTypeOf('object');
+    expect(events.events).toEqual([]);
+    expect(sessions).toBeInstanceOf(Array);
   });
 
-  it('preserves the browser token when wiring WS and fetch URLs', async () => {
-    // Token mode on — the dashboard must thread ?token= through every call.
+  it('serves the auth gate publicly while protecting telemetry in token mode', async () => {
+    const token = 'browser-token-for-test';
     await writeHqAuthFile(dataDir, {
       version: HQ_AUTH_FILE_VERSION,
       updatedAt: new Date().toISOString(),
-      browserTokens: [{ id: 'bt', token: 'tok-123', createdAt: new Date().toISOString() }],
+      browserTokens: [{ id: 'browser-test', token, createdAt: new Date().toISOString() }],
       clientTokens: [],
     });
     handle = await startHqServer({ port: getPort(), dataDir });
-    const html = await (await fetch(`http://127.0.0.1:${handle.port}/?token=tok-123`)).text();
-    const dom = new JSDOM(html);
-    const script = dom.window.document.querySelector('script[type="module"]')?.textContent ?? '';
-    expect(script).toContain('withTok');
-    expect(script).toContain("searchParams.get('token')");
-  });
-});
 
-/**
- * Regression lock for the PromptDock subject-derivation fix (#235). The
- * `effectiveSubject` expression in the served module script must map each
- * send-type to the matching subject, so a steer never ships with a
- * "queue"-flavored subject again.
- *
- * The dashboard JS can't run in jsdom, but the derivation is a pure nested
- * ternary over `effectiveType`. We extract that exact expression from the
- * served document and execute it in isolation against each type — this locks
- * the *logic* (branch order, fallthrough), not just the presence of strings.
- */
-describe('HQ PromptDock subject derivation (#235 regression)', () => {
-  /** Pull the `effectiveSubject = <ternary>;` RHS out of the served script. */
-  function extractSubjectFn(script: string): (effectiveType: string) => string {
-    const match = script.match(/var\s+effectiveSubject\s*=\s*([\s\S]*?);/);
-    if (match === null) {
-      throw new Error('effectiveSubject derivation not found in served dashboard script');
-    }
-    const expr = match[1];
-    // Evaluate the extracted RHS with `effectiveType` bound as the sole input.
-    return new Function('effectiveType', `return (${expr});`) as (t: string) => string;
-  }
+    const shellResponse = await fetch(`http://127.0.0.1:${handle.port}/`);
+    const unauthorized = await fetch(`http://127.0.0.1:${handle.port}/api/fleet`);
+    const authorized = await fetch(`http://127.0.0.1:${handle.port}/api/fleet`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
-  const cases: Array<[type: string, subject: string]> = [
-    ['steer', 'HQ steer'],
-    ['btw', 'HQ note'],
-    ['broadcast', 'HQ broadcast'],
-    ['queue', 'HQ prompt'],
-  ];
-
-  it.each(cases)('maps send-type %s to subject "%s"', async (type, subject) => {
-    handle = await startServer();
-    const html = await (await fetch(`http://127.0.0.1:${handle.port}/`)).text();
-    const dom = new JSDOM(html);
-    const script = dom.window.document.querySelector('script[type="module"]')?.textContent ?? '';
-    const subjectFor = extractSubjectFn(script);
-    expect(subjectFor(type)).toBe(subject);
-  });
-
-  it('falls through unknown send-types to the queue subject "HQ prompt"', async () => {
-    handle = await startServer();
-    const html = await (await fetch(`http://127.0.0.1:${handle.port}/`)).text();
-    const dom = new JSDOM(html);
-    const script = dom.window.document.querySelector('script[type="module"]')?.textContent ?? '';
-    const subjectFor = extractSubjectFn(script);
-    // Any type outside steer/btw/broadcast — including the literal 'queue' —
-    // must resolve to the fallthrough subject.
-    expect(subjectFor('queue')).toBe('HQ prompt');
-    expect(subjectFor('something-new')).toBe('HQ prompt');
+    expect(shellResponse.status).toBe(200);
+    expect(await shellResponse.text()).not.toContain(token);
+    expect(unauthorized.status).toBe(401);
+    expect(unauthorized.headers.get('content-type')).toContain('application/json');
+    expect(authorized.status).toBe(200);
+    expect(authorized.headers.get('content-type')).toContain('application/json');
   });
 });

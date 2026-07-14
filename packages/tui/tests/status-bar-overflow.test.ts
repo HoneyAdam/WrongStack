@@ -126,7 +126,7 @@ describe('StatusBar overflow handling (width-budget)', () => {
       tokenSavingMode: 'medium',
     });
     const line = frame.split('\n').find((l) => l.includes('YOLO')) ?? '';
-    expect(line).toContain('⚠ YOLO');
+    expect(line).toContain('! YOLO');
     expect(line).toContain('∞ ETERNAL');
   });
 });

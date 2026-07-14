@@ -1979,7 +1979,17 @@ export class MultiAgentHost {
     if (this.director) {
       await this.getCoordinator().stopAll();
     }
-    await this.fleetManager?.flushManifest();
+    // Cancel + drain the Director's own manifest writer BEFORE the final
+    // FleetManager close. stopAll() (unlike dispose()) never calls
+    // director.shutdown(), so without this the Director's armed 2s debounce
+    // timer survives stopAll and fires later — its un-awaited atomicWrite
+    // then races a caller that deletes the manifest dir (ENOTEMPTY on rmdir,
+    // seen on Windows under load).
+    await this.director?.quiesceManifest();
+    // closeManifest() (not flushManifest()) freezes the FleetManager writer
+    // after its final flush so a late task-completion `void flushManifest()`
+    // can't land a write while the caller deletes the manifest directory.
+    await this.fleetManager?.closeManifest();
   }
 
   /**
@@ -2055,7 +2065,9 @@ export class MultiAgentHost {
     if (this.director) {
       await this.director.shutdown();
     }
-    await this.fleetManager?.flushManifest();
+    // Freeze + drain the manifest writer so no late fire-and-forget write
+    // outlives dispose and races a caller deleting the manifest directory.
+    await this.fleetManager?.closeManifest();
     this.fleetManager?.dispose();
     this.fleetManager = undefined;
     // Stop the AgentMonitorService

@@ -8,7 +8,7 @@ import type {
   WSServerMessage,
 } from '@/types';
 import { cn } from '@/lib/utils';
-import { ModelPickDialog } from '../ModelPickDialog';
+import { ModelSelectDialog } from '../ModelSelectDialog';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { PreferenceSelect } from './PreferenceControls';
@@ -193,11 +193,15 @@ export function BrainSection(): ReactElement {
 
   return (
     <div className="space-y-4">
-      <ModelPickDialog
+      <ModelSelectDialog
         open={pickTarget !== null}
+        mode="provider-model"
         title={pickTarget ? PICK_TITLES[pickTarget].title : ''}
         hint={pickTarget ? PICK_TITLES[pickTarget].hint : undefined}
-        onPick={handleModelPicked}
+        onPick={(result) => {
+          if (result.type !== 'provider-model') return;
+          return handleModelPicked(result);
+        }}
         onClose={() => setPickTarget(null)}
       />
       <div className="flex items-center gap-3">

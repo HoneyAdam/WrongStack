@@ -9,7 +9,7 @@ import type { HqSnapshot } from '@wrongstack/core';
 import { Bot, ChevronRight, FolderGit2, MonitorSmartphone, SquareTerminal } from 'lucide-react';
 import type React from 'react';
 import { useMemo, useState } from 'react';
-import { selectAgent, selectSession } from '../store.js';
+import { useHqStore } from '../store.js';
 import { buildFleetTopology, type FleetTopologyNode } from './fleet-topology.js';
 
 interface NavAgent {
@@ -191,7 +191,7 @@ export function FleetNav({
                               <button
                                 type="button"
                                 className={'hq-nav-row client' + (clientSelected ? ' selected' : '')}
-                                onClick={() => selectSession(client.sessionId)}
+                                onClick={() => useHqStore.getState().selectSession(client.sessionId)}
                                 title={client.synthetic ? 'waiting for session telemetry' : client.label}
                               >
                                 <span className={'hq-nav-dot ' + dotClass(client.status)} />
@@ -217,7 +217,7 @@ export function FleetNav({
                                     className={
                                       'hq-nav-row agent' + (agentSelected ? ' selected' : '')
                                     }
-                                    onClick={() => selectAgent(client.sessionId, agent.id)}
+                                    onClick={() => useHqStore.getState().selectAgent(client.sessionId, agent.id)}
                                     title={agent.label}
                                   >
                                     <span className={'hq-nav-dot ' + dotClass(agent.status)} />

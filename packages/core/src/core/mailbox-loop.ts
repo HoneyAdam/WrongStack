@@ -3,9 +3,9 @@
  *
  * Integrates the inter-agent mailbox into the agent's iteration cycle.
  * Before each LLM call, checks for unread messages from subagents and other
- * agents. ALL message types are injected inline so the leader sees and acts
- * on them even when mid-task — subagent results, asks, assigns, and
- * steer/btw are all folded into the conversation with a call to action.
+ * agents. Normal surfaces inject message content inline. Minimal surfaces may
+ * use background delivery: routine chatter remains telemetry-only, while
+ * actionable asks/results/steers still reach the agent.
  *
  * Uses the project-level GlobalMailbox for cross-session communication.
  *
@@ -244,10 +244,21 @@ export interface MailboxInjectResult {
   interruptReason?: string | undefined;
 }
 
+export type MailboxDeliveryMode = 'inline' | 'background';
+
+const ACTIONABLE_BACKGROUND_TYPES = new Set<MailboxMessage['type']>([
+  'steer',
+  'ask',
+  'assign',
+  'result',
+  'review',
+]);
+
 export async function injectPendingMailboxMessages(
   checkMailbox: () => Promise<MailboxMessage[]>,
   foldFn: (block: { type: 'text'; text: string }) => void,
   a: { events: { emit: (type: string, payload: unknown) => void }; logger: { debug?: (...args: unknown[]) => void } },
+  deliveryMode: MailboxDeliveryMode = 'inline',
 ): Promise<MailboxInjectResult> {
   let messages: MailboxMessage[];
   try {
@@ -272,9 +283,13 @@ export async function injectPendingMailboxMessages(
   // and acts on it even mid-task.
   const control = messages.filter((m) => m.type === 'control');
   const content = messages.filter((m) => m.type !== 'control');
+  const deliveredContent =
+    deliveryMode === 'background'
+      ? content.filter((message) => ACTIONABLE_BACKGROUND_TYPES.has(message.type))
+      : content;
 
-  if (content.length > 0) {
-    try { foldFn(buildMailboxBlock(content)); } catch (err) {
+  if (deliveredContent.length > 0) {
+    try { foldFn(buildMailboxBlock(deliveredContent)); } catch (err) {
       (a.logger.debug ?? console.debug)?.(
         `mailbox: failed to fold messages: ${toErrorMessage(err)}`,
       );

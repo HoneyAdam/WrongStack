@@ -5,7 +5,7 @@
  * the former 112-case switch statement. Each route is a closure that calls
  * the matching `handleXxx(ctx, ws, ...)` from the shared ws-handlers groups
  * (or, for file/mcp/skills/prompts/design/shell, the handlers shared with
- * the standalone `@wrongstack/webui/server`). Prefix-based message types
+ * the standalone `@wrongstack/webui-server`). Prefix-based message types
  * (`autophase.*`, `specs.*`, `sdd.board.*`, `sdd.spec.*`/`sdd.run.*`,
  * `worktree.*`) fall through to their dedicated handler instance instead of
  * a route-table entry.
@@ -16,7 +16,11 @@
  *
  * PR 15 of Issue #30: extracted from `webui-server.ts`.
  */
-import type { TodoItem } from '@wrongstack/core';
+import type { PhaseTemplate, TodoItem } from '@wrongstack/core';
+import { PhaseGraphBuilder, resolveWstackPaths } from '@wrongstack/core';
+import { exportBoardToTaskGraph } from '@wrongstack/kanban';
+import { startSddRunFromGraph } from '@wrongstack/webui-server';
+import type { KanbanRunMirror } from './kanban-run-mirror.js';
 import type {
   AutoPhaseWebSocketHandler,
   DesignContext,
@@ -27,7 +31,7 @@ import type {
   SpecsWebSocketHandler,
   TerminalWebSocketHandler,
   WorktreeWebSocketHandler,
-} from '@wrongstack/webui/server';
+} from '@wrongstack/webui-server';
 import {
   createToolLspCompletionSource,
   handleCompletionRequest,
@@ -76,7 +80,7 @@ import {
   handleSkillsInstall,
   handleSkillsUninstall,
   handleSkillsUpdate,
-} from '@wrongstack/webui/server';
+} from '@wrongstack/webui-server';
 import type { WebSocket } from 'ws';
 import type { CliWebUIOptions, WSClientMessage, WSServerMessage } from '../webui-server.js';
 import type { ConnectedClient } from './connection-handler.js';
@@ -132,6 +136,7 @@ import {
   handlePrefsUpdate,
   handleProcessKill,
   handleProcessKillAll,
+  adoptDefaultProviderIfUnset,
   handleProcessList,
   handleProjectsAdd,
   handleProjectsList,
@@ -206,6 +211,8 @@ export interface MessageRouterDeps {
   sddWizardHandler: SddWizardWebSocketHandler | null;
   worktreeHandler: WorktreeWebSocketHandler;
   terminalHandler: TerminalWebSocketHandler;
+  /** Live run↔kanban mirror; used by kanban.run.start to bind a launched run's board. */
+  kanbanRunMirror?: KanbanRunMirror | undefined;
 }
 
 export type MessageRouter = (
@@ -383,13 +390,16 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
       const m = msg as { payload: { providerId: string; label: string } };
       handleKeySetActive(wsHandlerCtx, ws, m.payload.providerId, m.payload.label);
     },
-    'provider.add': (msg, ws) =>
-      handleProviderAdd(
-        wsHandlerCtx,
-        ws,
-        (msg as { payload: { id: string; family: string; baseUrl?: string; apiKey?: string } })
-          .payload,
-      ),
+    'provider.add': async (msg, ws) => {
+      const payload = (
+        msg as { payload: { id: string; family: string; baseUrl?: string; apiKey?: string } }
+      ).payload;
+      await handleProviderAdd(wsHandlerCtx, ws, payload);
+      // Adopt the just-added provider as the live default when the agent has
+      // no usable model yet — parity with the boot auto-select so the first
+      // provider added in the WebUI is immediately usable, not blank.
+      await adoptDefaultProviderIfUnset(agentConfigCtx, wsHandlerCtx, payload.id);
+    },
     'provider.remove': (msg, ws) =>
       handleProviderRemove(
         wsHandlerCtx,
@@ -612,6 +622,110 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
     'tool.disable': (msg, ws) => handleToolDisable(introspectionCtx, ws, msg.payload),
     'tool.enable': (msg, ws) => handleToolEnable(introspectionCtx, ws, msg.payload),
 
+    // ── Kanban inspector metadata (quiet — unlike tools.list it does NOT
+    //    print to chat). Feeds the task inspector's real tool picker and the
+    //    live session provider/model so nothing has to be typed by hand. ──
+    'kanban.meta': (_msg, ws) => {
+      const tools = (opts.agent.ctx.tools ?? []).map((tool) => ({
+        name: tool.name,
+        description: (tool as { description?: string }).description ?? '',
+      }));
+      send(ws, {
+        type: 'kanban.meta',
+        payload: {
+          success: true,
+          data: {
+            tools,
+            sessionProvider: opts.agent.ctx.provider,
+            sessionModel: opts.agent.ctx.model,
+          },
+        },
+      });
+    },
+
+    // ── Launch a run FROM a kanban board (phase 4). AutoPhase runs in-process
+    //    here; the mirror binds the launched run back to the SAME board so it
+    //    updates live. SDD launch is deferred (needs the CLI run-start machinery)
+    //    — SDD runs started via /sdd still mirror + are controllable here. ──
+    'kanban.run.start': async (msg, ws) => {
+      const p = (msg.payload ?? {}) as {
+        boardId?: string;
+        engine?: string;
+        autonomous?: boolean;
+      };
+      const boardId = p.boardId;
+      const engine = p.engine === 'autophase' ? 'autophase' : p.engine === 'sdd' ? 'sdd' : undefined;
+      const projectRoot = opts.projectRoot ?? '';
+      const failRun = (error: string) =>
+        send(ws, { type: 'kanban.run.start', payload: { success: false, error } });
+      if (!boardId || !engine) return failRun('boardId and engine required');
+      if (!projectRoot) return failRun('No project root');
+      try {
+        const exported = await exportBoardToTaskGraph(projectRoot, boardId, {
+          preserveOriginTaskIds: true,
+        });
+        if (!exported) return failRun(`Board not found: ${boardId}`);
+        if (exported.graph.nodes.size === 0) return failRun('Board has no tasks to run');
+        if (engine === 'autophase') {
+          const pg = await PhaseGraphBuilder.fromTaskGraph(exported.graph, {
+            title: exported.board.title,
+            description: exported.board.description ?? exported.board.title,
+          });
+          const phases: PhaseTemplate[] = Array.from(pg.phases.values()).map((ph) => ({
+            name: ph.name,
+            description: ph.description,
+            priority: ph.priority,
+            estimateHours: ph.estimateHours,
+            parallelizable: ph.parallelizable,
+            taskTemplates: Array.from(ph.taskGraph.nodes.values()).map((t) => ({
+              title: t.title,
+              description: t.description,
+              type: t.type,
+              priority: t.priority,
+              estimateHours: t.estimateHours ?? 0,
+              ...(t.tags ? { tags: t.tags } : {}),
+            })),
+          }));
+          // The run mirrors into a FRESH live board (reusing this hand-built
+          // board would duplicate tasks — its cards have no run `origin` to
+          // reconcile against). This board stays as the recipe.
+          await autoPhaseHandler.handleMessage({
+            type: 'autophase.start',
+            payload: { title: exported.board.title, phases, autonomous: p.autonomous ?? false },
+          });
+          send(ws, {
+            type: 'kanban.run.start',
+            payload: { success: true, data: { engine: 'autophase', boardId } },
+          });
+          return;
+        }
+        // engine === 'sdd'
+        if (!opts.sddSubagentFactory) {
+          return failRun('SDD runs need the multi-agent host, which is not available here.');
+        }
+        const paths = resolveWstackPaths({ projectRoot });
+        const handle = startSddRunFromGraph(
+          exported.graph,
+          {
+            agent: opts.agent,
+            events: opts.events,
+            projectRoot,
+            subagentFactory: opts.sddSubagentFactory,
+            projectSddBoards: paths.projectSddBoards,
+            ...(opts.brain ? { brain: opts.brain } : {}),
+          },
+          { worktrees: true },
+        );
+        void handle.completion.catch(() => {});
+        send(ws, {
+          type: 'kanban.run.start',
+          payload: { success: true, data: { engine: 'sdd', boardId, runId: handle.runId } },
+        });
+      } catch (err) {
+        failRun(err instanceof Error ? err.message : String(err));
+      }
+    },
+
     // ── Autonomy ──
     'autonomy.switch': (msg, ws) =>
       handleAutonomySwitch(prefsCtx, ws, (msg as { payload: { mode: string } }).payload.mode),
@@ -677,7 +791,7 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
       return handleMemoryForget(ws, msg, opts.memoryStore);
     },
 
-    // ── MCP operations (shared handlers from @wrongstack/webui/server) ──
+    // ── MCP operations (shared handlers from @wrongstack/webui-server) ──
     'mcp.list': (msg, ws) => handleMcpList(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
     'mcp.add': (msg, ws) => handleMcpAdd(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
     'mcp.remove': (msg, ws) =>

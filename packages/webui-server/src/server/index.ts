@@ -104,8 +104,19 @@ export {
   writeKeysBack,
 } from './provider-keys.js';
 export { SddBoardWebSocketHandler } from './sdd-board-ws-handler.js';
-export { buildSddWizardDeps, type SddWizardWiringOptions } from './sdd-wizard-wiring.js';
+export {
+  buildSddWizardDeps,
+  type SddWizardWiringOptions,
+  startSddRunFromGraph,
+  type StartSddRunFromGraphConfig,
+  type StartSddRunFromGraphDeps,
+} from './sdd-wizard-wiring.js';
 export { type SddWizardDeps, SddWizardWebSocketHandler } from './sdd-wizard-ws-handler.js';
+export {
+  type SessionHistoryWireEntry,
+  toSessionHistoryEntries,
+  toSessionHistoryEntry,
+} from './session-history.js';
 export {
   handleShellOpen,
   type ShellOpenRequest,

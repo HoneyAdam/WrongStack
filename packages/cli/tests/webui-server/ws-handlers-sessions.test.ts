@@ -8,6 +8,7 @@ import {
   handleGoalGet,
   handleSessionDelete,
   handleSessionNew,
+  handleSessionRename,
   handleSessionResume,
   handleSessionSave,
   handleSessionsList,
@@ -125,7 +126,20 @@ describe('handleSessionsList', () => {
   it('marks the current session and maps the wire shape', async () => {
     const store = {
       list: async () => [
-        { id: 'startup', title: 'a', startedAt: 1, model: 'm', provider: 'p', tokenTotal: 5 },
+        {
+          id: 'startup',
+          title: 'a',
+          name: 'Pinned operator session',
+          startedAt: '2026-01-15T10:00:00.000Z',
+          endedAt: '2026-01-15T11:00:00.000Z',
+          model: 'm',
+          provider: 'p',
+          tokenTotal: 5,
+          toolCallCount: 8,
+          toolErrorCount: 1,
+          fileChangeCount: 3,
+          outcome: 'completed',
+        },
         { id: 'other', title: 'b', startedAt: 2, model: 'm', provider: 'p', tokenTotal: 9 },
       ],
     };
@@ -133,11 +147,24 @@ describe('handleSessionsList', () => {
     await handleSessionsList(ctx, FAKE_WS, 50);
     const list = (
       lastOf(sent, 'sessions.list')?.payload as {
-        sessions: Array<{ id: string; isCurrent: boolean }>;
+        sessions: Array<{
+          id: string;
+          name?: string;
+          isCurrent: boolean;
+          toolCallCount?: number;
+          fileChangeCount?: number;
+          outcome?: string;
+        }>;
       }
     ).sessions;
     expect(list.find((s) => s.id === 'startup')?.isCurrent).toBe(true);
     expect(list.find((s) => s.id === 'other')?.isCurrent).toBe(false);
+    expect(list.find((s) => s.id === 'startup')).toMatchObject({
+      name: 'Pinned operator session',
+      toolCallCount: 8,
+      fileChangeCount: 3,
+      outcome: 'completed',
+    });
   });
 });
 
@@ -163,11 +190,31 @@ describe('handleSessionDelete', () => {
 
   it('deletes a non-active session via the store', async () => {
     const deleted: string[] = [];
-    const store = { delete: async (id: string) => void deleted.push(id) };
-    const { ctx, sent } = makeCtx({ sessionStore: store as never });
+    const store = {
+      delete: async (id: string) => void deleted.push(id),
+      list: async () => [],
+    };
+    const { ctx, sent, bc } = makeCtx({ sessionStore: store as never });
     await handleSessionDelete(ctx, FAKE_WS, 'other');
     expect(deleted).toEqual(['other']);
     expect(result(sent)?.success).toBe(true);
+    expect(lastOf(bc, 'sessions.list')?.payload).toEqual({ sessions: [] });
+  });
+});
+
+describe('handleSessionRename', () => {
+  it('keeps a successful rename successful when the follow-up refresh fails', async () => {
+    const renamed: Array<{ id: string; name: string }> = [];
+    const store = {
+      rename: async (id: string, name: string) => void renamed.push({ id, name }),
+      list: async () => {
+        throw new Error('index temporarily unavailable');
+      },
+    };
+    const { ctx, sent } = makeCtx({ sessionStore: store as never });
+    await handleSessionRename(ctx, FAKE_WS, 'other', 'Operator session');
+    expect(renamed).toEqual([{ id: 'other', name: 'Operator session' }]);
+    expect(result(sent)).toMatchObject({ success: true });
   });
 });
 

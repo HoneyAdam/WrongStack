@@ -52,7 +52,7 @@ export class BrowserSessionManager {
     private readonly launcher: BrowserLauncher = defaultLauncher,
   ) {
     this.artifacts = new BrowserArtifactStore(options.artifactRoot);
-    this.allowPrivateHosts = options.allowPrivateHosts ?? false;
+    this.allowPrivateHosts = options.allowPrivateHosts ?? true;
     this.allowedPrivateOrigins = options.allowedPrivateOrigins ?? [];
     this.networkProxy = new BrowserNetworkGuardProxy({
       allowPrivateHosts: this.allowPrivateHosts,

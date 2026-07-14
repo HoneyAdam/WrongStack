@@ -18,6 +18,7 @@ export const helpCmd: SubcommandHandler = async (_args, deps) => {
     '  wstack "<task>"              Run task and exit',
     '  wstack desktop               Open WrongStack Desktop (alias: --desktop)',
     '  wstack webui                 Serve the project WebUI (alias: --webui)',
+    '  wstack simpleui              Serve the minimal chat UI (alias: --simpleui)',
     '  wstack hq                    Start HQ command center (alias: --hq)',
     '  wstack --eternal "<mission>" Launch eternal-autonomy loop against a goal — Ctrl+C to stop',
     '  wstack resume [<id>]         Resume a session',
@@ -59,9 +60,14 @@ export const helpCmd: SubcommandHandler = async (_args, deps) => {
     '          [--webui-public-url <url>] [--webui-public-ws-url <url>] [--webui-require-token]',
     '                               Serve the browser UI + WS bridge (prints a token URL,',
     "                               --open pops the browser; shares this terminal's agent)",
+    '  --simpleui [same network flags as --webui] [--open]',
+    '                               Serve the independent minimal chat UI',
+    '  --full-auto                   SimpleUI: runtime-only YOLO + Director + autonomy override',
     '  --eternal "<mission>"        Start an eternal-autonomy loop',
     '  --no-hints                   Hide launch hints',
     '  --skip-index                 Skip codebase indexing and the large-codebase prompt',
+    '  --chimera-auto-fix off|ask|auto',
+    '                               How to handle Chimera review findings (default: config value)',
   ];
   deps.renderer.write(lines.join('\n') + '\n');
   return 0;

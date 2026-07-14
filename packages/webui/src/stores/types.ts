@@ -1,5 +1,4 @@
-import type { Usage } from '@wrongstack/core';
-import type { ContentBlock } from '@wrongstack/core';
+import type { ContentBlock, Usage } from '@wrongstack/core';
 
 // ============================================
 // Shared Types
@@ -75,13 +74,15 @@ export interface ChatMessage {
   /** Archived extended-thinking text captured during one agent iteration.
    *  The live thinking bubble is transient; this metadata keeps the final
    *  process log in chat history once the iteration completes. */
-  thinkingLog?: {
-    iteration: number;
-    text: string;
-    startedAt: number;
-    durationMs: number;
-    replayed?: boolean | undefined;
-  } | undefined;
+  thinkingLog?:
+    | {
+        iteration: number;
+        text: string;
+        startedAt: number;
+        durationMs: number;
+        replayed?: boolean | undefined;
+      }
+    | undefined;
   /**
    * Delivery status for user messages. `'sent'` (default) means the WS
    * round-trip succeeded. `'failed'` means the message could not be
@@ -111,11 +112,19 @@ export interface SessionHistoryEntry {
   id: string;
   title: string;
   /** Optional user-set name; takes precedence over `title` when present. */
-  name?: string;
+  name?: string | undefined;
   startedAt: string;
+  endedAt?: string | undefined;
   model: string;
   provider: string;
   tokenTotal: number;
+  iterationCount?: number | undefined;
+  toolCallCount?: number | undefined;
+  toolErrorCount?: number | undefined;
+  fileChangeCount?: number | undefined;
+  toolBreakdown?: Record<string, number> | undefined;
+  compactionCount?: number | undefined;
+  outcome?: 'completed' | 'error' | 'timeout' | 'aborted' | undefined;
   isCurrent: boolean;
 }
 
