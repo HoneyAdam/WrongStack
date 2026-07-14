@@ -200,7 +200,46 @@
     "markFavorite": "Als Favorit markieren",
     "deleteSessionConfirmTitle": "Sitzung löschen?",
     "deleteSessionConfirmBody": "\"{{name}}\" wird von der Festplatte entfernt. Dies kann nicht rückgängig gemacht werden.",
-    "deleteSessionTitle": "Sitzung löschen"
+    "deleteSessionTitle": "Sitzung löschen",
+    "rename": "Sitzung umbenennen",
+    "renameAction": "Umbenennen",
+    "resume": "Sitzung fortsetzen",
+    "resumeShort": "Fortsetzen",
+    "workspaceEyebrow": "Sitzungssteuerung",
+    "workspaceTitle": "Sitzungen",
+    "workspaceHint": "Alle Projektgespräche durchsuchen, prüfen, anheften und fortsetzen.",
+    "tabs": {
+      "history": "Verlauf",
+      "live": "Live-Sitzungen"
+    },
+    "filters": {
+      "all": "Alle",
+      "favorites": "Favoriten",
+      "active": "Aktiv",
+      "completed": "Abgeschlossen",
+      "issues": "Probleme"
+    },
+    "status": {
+      "active": "Aktiv",
+      "completed": "Abgeschlossen",
+      "error": "Fehler",
+      "timeout": "Zeitüberschreitung",
+      "aborted": "Abgebrochen",
+      "saved": "Gespeicherte Sitzung"
+    },
+    "sort": {
+      "label": "Sitzungen sortieren",
+      "recent": "Neueste",
+      "tokens": "Meiste Token",
+      "activity": "Meiste Aktivität"
+    },
+    "stats": {
+      "sessions": "Sitzungen",
+      "tokens": "Token",
+      "tools": "Werkzeugaufrufe",
+      "files": "Geänderte Dateien",
+      "errors": "Fehler"
+    }
   },
   "sessionPanel": {
     "actions": {
@@ -1005,9 +1044,7 @@
     "placeholder": "Ausweichmodell hinzufügen…",
     "emptyHint": "Wird in Reihenfolge versucht, wenn das primäre Modell ratelimitiert oder hängt.",
     "moveUp": "Nach oben",
-    "moveDown": "Nach unten",
-    "manualPlaceholder": "anbieter/modell",
-    "addTitle": "Modellreferenz hinzufügen"
+    "moveDown": "Nach unten"
   },
   "liveSessions": {
     "loading": "Sitzungen werden geladen...",

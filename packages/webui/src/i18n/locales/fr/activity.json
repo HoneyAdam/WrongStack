@@ -200,7 +200,46 @@
     "markFavorite": "Marquer comme favori",
     "deleteSessionConfirmTitle": "Supprimer la session ?",
     "deleteSessionConfirmBody": "\"{{name}}\" sera supprimée du disque. Action irréversible.",
-    "deleteSessionTitle": "Supprimer la session"
+    "deleteSessionTitle": "Supprimer la session",
+    "rename": "Renommer la session",
+    "renameAction": "Renommer",
+    "resume": "Reprendre la session",
+    "resumeShort": "Reprendre",
+    "workspaceEyebrow": "Contrôle de session",
+    "workspaceTitle": "Sessions",
+    "workspaceHint": "Recherchez, inspectez, épinglez et reprenez toutes les conversations du projet.",
+    "tabs": {
+      "history": "Historique",
+      "live": "Sessions en direct"
+    },
+    "filters": {
+      "all": "Toutes",
+      "favorites": "Favoris",
+      "active": "Actives",
+      "completed": "Terminées",
+      "issues": "Problèmes"
+    },
+    "status": {
+      "active": "Active",
+      "completed": "Terminée",
+      "error": "Erreur",
+      "timeout": "Expiration",
+      "aborted": "Annulée",
+      "saved": "Session sauvegardée"
+    },
+    "sort": {
+      "label": "Trier les sessions",
+      "recent": "Plus récentes",
+      "tokens": "Plus de jetons",
+      "activity": "Plus d'activité"
+    },
+    "stats": {
+      "sessions": "Sessions",
+      "tokens": "Jetons",
+      "tools": "Appels d'outils",
+      "files": "Fichiers modifiés",
+      "errors": "Erreurs"
+    }
   },
   "sessionPanel": {
     "actions": {
@@ -1005,9 +1044,7 @@
     "placeholder": "Ajouter un modèle de repli…",
     "emptyHint": "Essayés dans l'ordre quand le modèle principal est limité ou bloqué.",
     "moveUp": "Monter",
-    "moveDown": "Descendre",
-    "manualPlaceholder": "fournisseur/modèle",
-    "addTitle": "Ajouter une référence de modèle"
+    "moveDown": "Descendre"
   },
   "liveSessions": {
     "loading": "Chargement des sessions...",

@@ -45,7 +45,8 @@
     "btwIdleTitle": "btw — enviar (Enter)",
     "steerRunningTitle": "steer — interromper o agente em execução e redirecionar",
     "steerIdleTitle": "steer — enviar (sem alvo de interrupção em repouso)",
-    "addQueueTitle": "adicionar fila — reter até o run atual terminar"
+    "addQueueTitle": "adicionar fila — reter até o run atual terminar",
+    "openPromptLibrary": "Abrir biblioteca de prompts — navegar por prompts prontos e salvos"
   },
   "header": {
     "openSidebarTitle": "Abrir barra lateral (Ctrl+\\)",

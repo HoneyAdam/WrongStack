@@ -200,7 +200,46 @@
     "markFavorite": "Segna come preferito",
     "deleteSessionConfirmTitle": "Eliminare la sessione?",
     "deleteSessionConfirmBody": "\"{{name}}\" verrà rimossa dal disco. Operazione irreversibile.",
-    "deleteSessionTitle": "Elimina sessione"
+    "deleteSessionTitle": "Elimina sessione",
+    "rename": "Rinomina sessione",
+    "renameAction": "Rinomina",
+    "resume": "Riprendi sessione",
+    "resumeShort": "Riprendi",
+    "workspaceEyebrow": "Controllo sessione",
+    "workspaceTitle": "Sessioni",
+    "workspaceHint": "Cerca, ispeziona, fissa e riprendi tutte le conversazioni del progetto.",
+    "tabs": {
+      "history": "Cronologia",
+      "live": "Sessioni attive"
+    },
+    "filters": {
+      "all": "Tutte",
+      "favorites": "Preferite",
+      "active": "Attive",
+      "completed": "Completate",
+      "issues": "Problemi"
+    },
+    "status": {
+      "active": "Attiva",
+      "completed": "Completata",
+      "error": "Errore",
+      "timeout": "Timeout",
+      "aborted": "Annullata",
+      "saved": "Sessione salvata"
+    },
+    "sort": {
+      "label": "Ordina sessioni",
+      "recent": "Più recenti",
+      "tokens": "Più token",
+      "activity": "Più attività"
+    },
+    "stats": {
+      "sessions": "Sessioni",
+      "tokens": "Token",
+      "tools": "Chiamate strumenti",
+      "files": "File modificati",
+      "errors": "Errori"
+    }
   },
   "sessionPanel": {
     "actions": {
@@ -1005,9 +1044,7 @@
     "placeholder": "Aggiungi un modello di fallback…",
     "emptyHint": "Provati in ordine quando il modello primario è limitato o si blocca.",
     "moveUp": "Sposta su",
-    "moveDown": "Sposta giù",
-    "manualPlaceholder": "provider/modello",
-    "addTitle": "Aggiungi riferimento modello"
+    "moveDown": "Sposta giù"
   },
   "liveSessions": {
     "loading": "Caricamento sessioni...",

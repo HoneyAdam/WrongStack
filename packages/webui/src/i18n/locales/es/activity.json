@@ -200,7 +200,46 @@
     "markFavorite": "Marcar como favorito",
     "deleteSessionConfirmTitle": "¿Eliminar la sesión?",
     "deleteSessionConfirmBody": "\"{{name}}\" se eliminará del disco. Esto no se puede deshacer.",
-    "deleteSessionTitle": "Eliminar sesión"
+    "deleteSessionTitle": "Eliminar sesión",
+    "rename": "Renombrar sesión",
+    "renameAction": "Renombrar",
+    "resume": "Reanudar sesión",
+    "resumeShort": "Reanudar",
+    "workspaceEyebrow": "Control de sesión",
+    "workspaceTitle": "Sesiones",
+    "workspaceHint": "Busca, inspecciona, fija y reanuda todas las conversaciones del proyecto.",
+    "tabs": {
+      "history": "Historial",
+      "live": "Sesiones activas"
+    },
+    "filters": {
+      "all": "Todas",
+      "favorites": "Favoritas",
+      "active": "Activas",
+      "completed": "Completadas",
+      "issues": "Problemas"
+    },
+    "status": {
+      "active": "Activa",
+      "completed": "Completada",
+      "error": "Error",
+      "timeout": "Tiempo agotado",
+      "aborted": "Abortada",
+      "saved": "Sesión guardada"
+    },
+    "sort": {
+      "label": "Ordenar sesiones",
+      "recent": "Más recientes",
+      "tokens": "Más tokens",
+      "activity": "Más actividad"
+    },
+    "stats": {
+      "sessions": "Sesiones",
+      "tokens": "Tokens",
+      "tools": "Llamadas a herramientas",
+      "files": "Archivos modificados",
+      "errors": "Errores"
+    }
   },
   "sessionPanel": {
     "actions": {
@@ -1005,9 +1044,7 @@
     "placeholder": "Añadir modelo de respaldo…",
     "emptyHint": "Se prueban en orden cuando el modelo principal limita o se atasca.",
     "moveUp": "Subir",
-    "moveDown": "Bajar",
-    "manualPlaceholder": "proveedor/modelo",
-    "addTitle": "Añadir referencia de modelo"
+    "moveDown": "Bajar"
   },
   "liveSessions": {
     "loading": "Cargando sesiones...",

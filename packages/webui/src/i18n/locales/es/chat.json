@@ -45,7 +45,8 @@
     "btwIdleTitle": "btw — enviar (Enter)",
     "steerRunningTitle": "steer — interrumpir el agente en ejecución y redirigir",
     "steerIdleTitle": "steer — enviar (sin objetivo de interrupción en reposo)",
-    "addQueueTitle": "añadir cola — retener hasta que termine el run actual"
+    "addQueueTitle": "añadir cola — retener hasta que termine el run actual",
+    "openPromptLibrary": "Abrir biblioteca de prompts — explorar prompts prefabricados y guardados"
   },
   "header": {
     "openSidebarTitle": "Abrir barra lateral (Ctrl+\\)",

@@ -45,7 +45,8 @@
     "btwIdleTitle": "btw — senden (Enter)",
     "steerRunningTitle": "steer — laufenden Agenten unterbrechen und umleiten",
     "steerIdleTitle": "steer — senden (kein Unterbrechungsziel im Leerlauf)",
-    "addQueueTitle": "zur Warteschlange — halten bis der aktuelle Run endet"
+    "addQueueTitle": "zur Warteschlange — halten bis der aktuelle Run endet",
+    "openPromptLibrary": "Prompt-Bibliothek öffnen — vorgefertigte und gespeicherte Prompts durchsuchen"
   },
   "header": {
     "openSidebarTitle": "Seitenleiste öffnen (Ctrl+\\)",
