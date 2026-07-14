@@ -1,8 +1,10 @@
 import type { TodoItem } from '@wrongstack/core';
-import { Box, Text, useStdout } from '../ink.js';
 import type React from 'react';
 import { useEffect, useState } from 'react';
 import type { FleetEntry } from '../app.js';
+import { Box, Text, useStdout } from '../ink.js';
+import { theme } from '../theme.js';
+import { glyphs } from '../ui-glyphs.js';
 
 export interface FleetPanelProps {
   /** Per-subagent state, keyed by subagentId. */
@@ -11,11 +13,11 @@ export interface FleetPanelProps {
   totalCost: number;
   /** Optional roster for resolving role ids to display names. */
   roster?: Record<string, { name: string }> | undefined;
-  /** Live leader todo board, rendered as a compact preview below the swarm. */
+  /** Live leader todo board, rendered as a compact mission queue. */
   todos?: readonly TodoItem[] | undefined;
   /** 1s clock tick so activity meters and elapsed labels stay live. */
   nowTick?: number | undefined;
-  /** When set, the LEADER row is always shown (even when idle) with a collab session indicator. */
+  /** When set, LEADER remains visible with a collab-session badge. */
   collabSession?: {
     sessionId: string | null;
     bugCount: number;
@@ -29,8 +31,13 @@ type SwarmColor = 'blue' | 'cyan' | 'green' | 'gray' | 'red' | 'yellow';
 export interface SwarmCell {
   id: string;
   index: string;
+  name: string;
   meter: string;
-  text: string;
+  activity: string;
+  metrics: string;
+  statusIcon: string;
+  statusLabel: string;
+  elapsed: string;
   color: SwarmColor;
   dim?: boolean | undefined;
 }
@@ -50,19 +57,38 @@ export interface TodoPreviewRow {
   dim?: boolean | undefined;
 }
 
-const METER_WIDTH = 10;
+const METER_WIDTH = 7;
+const CARD_GAP = 1;
 
 function isLeaderEntry(entry: FleetEntry): boolean {
   return entry.id === 'leader' || entry.name === 'LEADER';
 }
 
-function statusColor(status: FleetEntry['status']): SwarmColor {
-  if (status === 'running') return 'green';
-  if (status === 'success') return 'green';
-  if (status === 'failed') return 'red';
-  if (status === 'timeout') return 'yellow';
-  if (status === 'stopped') return 'gray';
-  return 'gray';
+function statusVisual(entry: FleetEntry): {
+  color: SwarmColor;
+  icon: string;
+  label: string;
+  dim?: boolean;
+} {
+  if (entry.status === 'running' && entry.budgetWarning) {
+    return { color: 'yellow', icon: glyphs.warning, label: 'PRESSURE' };
+  }
+  if (entry.status === 'running') {
+    return { color: 'green', icon: '●', label: 'LIVE' };
+  }
+  if (entry.status === 'success') {
+    return { color: 'green', icon: glyphs.success, label: 'DONE' };
+  }
+  if (entry.status === 'failed') {
+    return { color: 'red', icon: glyphs.failure, label: 'FAILED' };
+  }
+  if (entry.status === 'timeout') {
+    return { color: 'yellow', icon: glyphs.clock, label: 'TIMEOUT' };
+  }
+  if (entry.status === 'stopped') {
+    return { color: 'gray', icon: '■', label: 'STOPPED', dim: true };
+  }
+  return { color: 'gray', icon: glyphs.idle, label: 'READY', dim: true };
 }
 
 function fmtShortDuration(ms: number): string {
@@ -99,24 +125,42 @@ function displayName(
 }
 
 function activityText(entry: FleetEntry, now: number): string {
+  if (entry.budgetWarning && entry.status === 'running') {
+    const warning = entry.budgetWarning;
+    return `extending ${warning.kind} ${warning.used}/${warning.limit}`;
+  }
   if (entry.currentTool) {
-    return `${entry.currentTool.name} ${fmtShortDuration(now - entry.currentTool.startedAt)}`;
+    return `${glyphs.tools} ${entry.currentTool.name} · ${fmtShortDuration(now - entry.currentTool.startedAt)}`;
   }
   const streaming = normalizeInlineText(entry.streamingText);
-  if (entry.status === 'running' && streaming) return streaming;
+  if (entry.status === 'running' && streaming) return `› ${streaming}`;
   const lastMessage = entry.recentMessages.at(-1);
-  if (lastMessage) return normalizeInlineText(lastMessage.text);
+  if (lastMessage) return `↳ ${normalizeInlineText(lastMessage.text)}`;
   const lastTool = entry.recentTools.at(-1);
   if (lastTool) {
-    const ok = lastTool.ok === false ? 'failed' : 'done';
-    return `${ok} ${lastTool.name}`;
+    const marker = lastTool.ok === false ? glyphs.failure : glyphs.success;
+    return `${marker} ${lastTool.name}`;
   }
-  if (entry.status === 'running') return 'thinking';
-  if (entry.status === 'idle') return 'standing by';
-  if (entry.status === 'success') return 'complete';
-  if (entry.status === 'timeout') return 'timeout';
-  if (entry.status === 'stopped') return 'stopped';
-  return entry.failureReason ? `failed ${entry.failureReason}` : 'failed';
+  if (entry.status === 'running') return 'thinking…';
+  if (entry.status === 'idle') return 'waiting for a mission';
+  if (entry.status === 'success') return 'mission complete';
+  if (entry.status === 'timeout') return 'time budget reached';
+  if (entry.status === 'stopped') return 'agent stopped';
+  return entry.failureReason ? normalizeInlineText(entry.failureReason) : 'mission failed';
+}
+
+function elapsedText(entry: FleetEntry, now: number): string {
+  const anchor = entry.status === 'running' ? entry.startedAt : entry.lastEventAt || entry.startedAt;
+  return fmtShortDuration(Math.max(0, now - anchor));
+}
+
+function metricsText(entry: FleetEntry, tileWidth: number): string {
+  const parts = [`${entry.iterations}i`, `${entry.toolCalls}t`];
+  if (tileWidth >= 44 && entry.ctxPct !== undefined) {
+    parts.push(`${Math.round(Math.max(0, Math.min(1, entry.ctxPct)) * 100)}% ctx`);
+  }
+  if (tileWidth >= 52 && entry.extensions) parts.push(`+${entry.extensions}x`);
+  return parts.join(' · ');
 }
 
 export function swarmMeter(entry: FleetEntry, now: number, width = METER_WIDTH): string {
@@ -135,7 +179,7 @@ export function swarmMeter(entry: FleetEntry, now: number, width = METER_WIDTH):
 
 export function swarmColumnCount(width: number): number {
   if (width < 54) return 1;
-  return Math.max(1, Math.min(5, Math.floor(width / 38)));
+  return Math.max(1, Math.min(4, Math.floor(width / 38)));
 }
 
 export function selectSwarmEntries(
@@ -150,13 +194,8 @@ export function selectSwarmEntries(
       return entry.status === 'running';
     })
     .sort((a, b) => {
-      const rank = (entry: FleetEntry): number => {
-        if (entry.status === 'running') return 0;
-        return 1;
-      };
-      const ar = rank(a);
-      const br = rank(b);
-      if (ar !== br) return ar - br;
+      if (isLeaderEntry(a) !== isLeaderEntry(b)) return isLeaderEntry(a) ? -1 : 1;
+      if (a.status !== b.status) return a.status === 'running' ? -1 : 1;
       return a.startedAt - b.startedAt;
     });
 }
@@ -172,24 +211,33 @@ export function buildSwarmGrid(
   } = {},
 ): SwarmGrid {
   const columns = swarmColumnCount(width);
-  const gapWidth = Math.max(0, columns - 1) * 2;
-  const tileWidth = Math.max(24, Math.floor((Math.max(24, width) - gapWidth) / columns));
-  const maxRows = opts.maxRows ?? 3;
+  const gapWidth = Math.max(0, columns - 1) * CARD_GAP;
+  const tileWidth = Math.max(26, Math.floor((Math.max(26, width) - gapWidth) / columns));
+  const maxRows = opts.maxRows ?? 2;
   const maxCells = Math.max(1, columns * maxRows);
   const selected = selectSwarmEntries(entries, now, { includeLeader: opts.includeLeader });
   const hasOverflow = selected.length > maxCells;
   const shown = hasOverflow ? selected.slice(0, maxCells - 1) : selected.slice(0, maxCells);
-  const bodyWidth = Math.max(6, tileWidth - 3 - 1 - (METER_WIDTH + 2) - 1);
-  const cells = shown.map<SwarmCell>((entry, i) => {
-    const name = displayName(entry, opts.roster);
-    const label = `${name} · ${activityText(entry, now)}`;
+  let subagentIndex = 0;
+  const cells = shown.map<SwarmCell>((entry) => {
+    const visual = statusVisual(entry);
+    const metrics = metricsText(entry, tileWidth);
+    const activityWidth = Math.max(4, tileWidth - METER_WIDTH - metrics.length - 6);
+    const rawName = isLeaderEntry(entry) ? 'LEADER' : displayName(entry, opts.roster);
+    const nameWidth = Math.max(5, tileWidth - visual.label.length - 13);
+    if (!isLeaderEntry(entry)) subagentIndex += 1;
     return {
       id: entry.id,
-      index: String(i + 1).padStart(3, '0'),
+      index: isLeaderEntry(entry) ? '00' : String(subagentIndex).padStart(2, '0'),
+      name: truncToWidth(rawName, nameWidth),
       meter: swarmMeter(entry, now),
-      text: truncToWidth(label, bodyWidth),
-      color: statusColor(entry.status),
-      dim: entry.status === 'idle',
+      activity: truncToWidth(activityText(entry, now), activityWidth),
+      metrics,
+      statusIcon: visual.icon,
+      statusLabel: visual.label,
+      elapsed: elapsedText(entry, now),
+      color: visual.color,
+      ...(visual.dim ? { dim: true } : {}),
     };
   });
 
@@ -197,9 +245,14 @@ export function buildSwarmGrid(
   if (overflow > 0) {
     cells.push({
       id: '__overflow',
-      index: '+++',
+      index: '++',
+      name: `${overflow} MORE`,
       meter: '░'.repeat(METER_WIDTH),
-      text: truncToWidth(`${overflow} more agents`, bodyWidth),
+      activity: 'Open the Agents monitor',
+      metrics: 'F3',
+      statusIcon: glyphs.peers,
+      statusLabel: 'HIDDEN',
+      elapsed: '',
       color: 'gray',
       dim: true,
     });
@@ -213,12 +266,12 @@ export function buildSwarmGrid(
 export function buildTodoPreviewRows(
   todos: readonly TodoItem[] | undefined,
   width: number,
-  maxRows = 5,
+  maxRows = 2,
 ): TodoPreviewRow[] {
   if (!todos || todos.length === 0 || maxRows <= 0) return [];
   const ordered = [...todos].sort((a, b) => {
-    const rank = (t: TodoItem): number =>
-      t.status === 'in_progress' ? 0 : t.status === 'pending' ? 1 : 2;
+    const rank = (todo: TodoItem): number =>
+      todo.status === 'in_progress' ? 0 : todo.status === 'pending' ? 1 : 2;
     return rank(a) - rank(b);
   });
   const shown = ordered.slice(0, maxRows);
@@ -228,7 +281,7 @@ export function buildTodoPreviewRows(
     if (todo.status === 'completed') {
       return {
         id: todo.id,
-        marker: '✓',
+        marker: glyphs.success,
         text: truncToWidth(label, textWidth),
         color: 'green',
         dim: true,
@@ -239,12 +292,12 @@ export function buildTodoPreviewRows(
         id: todo.id,
         marker: '●',
         text: truncToWidth(label, textWidth),
-        color: 'blue',
+        color: 'cyan',
       };
     }
     return {
       id: todo.id,
-      marker: '○',
+      marker: glyphs.pending,
       text: truncToWidth(label, textWidth),
       color: 'gray',
     };
@@ -254,7 +307,7 @@ export function buildTodoPreviewRows(
     rows.push({
       id: '__todo_overflow',
       marker: '+',
-      text: truncToWidth(`${overflow} more`, textWidth),
+      text: truncToWidth(`${overflow} more missions`, textWidth),
       color: 'gray',
       dim: true,
     });
@@ -262,11 +315,49 @@ export function buildTodoPreviewRows(
   return rows;
 }
 
+function SwarmCard({ cell, width }: { cell: SwarmCell; width: number }): React.ReactElement {
+  return (
+    <Box
+      width={width}
+      height={2}
+      flexShrink={0}
+      flexDirection="column"
+      {...(theme.supportsBackground ? { backgroundColor: theme.surfaceRaised } : {})}
+    >
+      <Box height={1}>
+        <Text color={cell.color}>▎</Text>
+        <Text color={theme.textMuted}> {cell.index} </Text>
+        <Text
+          color={theme.textPrimary}
+          bold={!cell.dim}
+          {...(cell.dim ? { dimColor: true } : {})}
+          wrap="truncate"
+        >
+          {cell.name}
+        </Text>
+        <Box flexGrow={1} />
+        <Text color={cell.color} bold={!cell.dim}>
+          {cell.statusIcon} {cell.statusLabel}
+        </Text>
+        {cell.elapsed ? <Text color={theme.textMuted}> {cell.elapsed}</Text> : null}
+        <Text> </Text>
+      </Box>
+      <Box height={1}>
+        <Text color={cell.color}>▎</Text>
+        <Text> </Text>
+        <Text color={cell.color}>{cell.meter}</Text>
+        <Text color={theme.textMuted}> {cell.activity}</Text>
+        <Box flexGrow={1} />
+        <Text color={theme.textMuted}>{cell.metrics} </Text>
+      </Box>
+    </Box>
+  );
+}
+
 /**
- * Compact fleet summary rendered below the status bar when subagents are
- * active. It is intentionally separate from the F2/F3 monitors: this is the
- * always-visible "what is the fleet doing right now?" strip, while those
- * panels remain the detailed drill-down surfaces.
+ * Always-visible mission-control view for active subagents. The detailed F3
+ * monitor owns transcripts and drill-down; this panel stays compact and makes
+ * the fleet's current shape readable at a glance.
  */
 export function FleetPanel({
   entries,
@@ -276,11 +367,15 @@ export function FleetPanel({
   nowTick,
   collabSession,
 }: FleetPanelProps): React.ReactElement | null {
-  // Track terminal width to adapt name truncation.
   const { stdout } = useStdout();
-  const [termWidth, setTermWidth] = useState(stdout?.columns ?? 90);
+  const [terminal, setTerminal] = useState({
+    columns: stdout?.columns ?? 90,
+    rows: stdout?.rows ?? 24,
+  });
   useEffect(() => {
-    const handleResize = () => setTermWidth(stdout?.columns ?? 90);
+    const handleResize = () => {
+      setTerminal({ columns: stdout?.columns ?? 90, rows: stdout?.rows ?? 24 });
+    };
     handleResize();
     process.stdout.on('resize', handleResize);
     return () => {
@@ -289,66 +384,122 @@ export function FleetPanel({
   }, [stdout]);
 
   const list = Object.values(entries);
-  const leader = list.find((e) => e.id === 'leader');
-  const subagents = list.filter((e) => !isLeaderEntry(e));
-  const hasCollab = !!collabSession;
+  const leader = list.find(isLeaderEntry);
+  const subagents = list.filter((entry) => !isLeaderEntry(entry));
   const now = nowTick ?? Date.now();
-  const contentWidth = Math.max(40, termWidth - 2);
+  const hasCollab = !!collabSession;
+  const contentWidth = Math.max(30, terminal.columns - 4);
   const includeLeader = hasCollab || leader?.status === 'running';
+  const maxRows = terminal.rows >= 32 ? 3 : terminal.rows >= 20 ? 2 : 1;
   const grid = buildSwarmGrid(entries, now, contentWidth, {
     includeLeader,
-    maxRows: termWidth >= 120 ? 3 : 4,
+    maxRows,
     roster,
   });
-  const todoRows = buildTodoPreviewRows(todos, contentWidth, 5);
+  const todoRows = buildTodoPreviewRows(
+    todos,
+    contentWidth,
+    terminal.rows >= 26 ? 2 : terminal.rows >= 18 ? 1 : 0,
+  );
   const hasSwarm = grid.rows.length > 0;
   if (!hasSwarm && todoRows.length === 0 && !hasCollab) return null;
 
-  const runningCount = subagents.filter((e) => e.status === 'running').length;
-
-  const summaryBits = [
-    runningCount > 0 ? `${runningCount} running` : '',
-    fmtCost(totalCost),
-  ].filter(Boolean);
-  const collabLabel =
-    hasCollab && collabSession.sessionId
-      ? `collab ${collabSession.bugCount}b/${collabSession.planCount}p/${collabSession.evalCount}e`
-      : '';
-  if (collabLabel) summaryBits.push(collabLabel);
-  const summary = summaryBits.join(' · ');
-  const title = ` Agent Swarm${summary ? ` - ${summary}` : ''} `;
-  const header = `─${truncToWidth(title, Math.max(10, contentWidth - 1)).padEnd(contentWidth - 1, '─')}`;
+  const runningCount = subagents.filter((entry) => entry.status === 'running').length;
+  const totalIterations = subagents.reduce((sum, entry) => sum + entry.iterations, 0);
+  const totalTools = subagents.reduce((sum, entry) => sum + entry.toolCalls, 0);
+  const todoCounts = (todos ?? []).reduce(
+    (counts, todo) => {
+      if (todo.status === 'in_progress') counts.active += 1;
+      else if (todo.status === 'pending') counts.queued += 1;
+      else counts.done += 1;
+      return counts;
+    },
+    { active: 0, queued: 0, done: 0 },
+  );
+  const cost = fmtCost(totalCost);
 
   return (
-    <Box flexDirection="column" paddingX={1}>
+    <Box
+      alignSelf="stretch"
+      width="100%"
+      flexDirection="column"
+      borderStyle="round"
+      borderColor={theme.monitor.fleet}
+      paddingX={1}
+    >
       <Box height={1}>
-        <Text color="blue">{header}</Text>
+        <Text color={theme.monitor.fleet} bold>
+          {glyphs.fleet} AGENT SWARM
+        </Text>
+        {terminal.columns >= 60 ? (
+          <Text color={theme.textMuted}>  /  parallel workspace</Text>
+        ) : null}
+        <Box flexGrow={1} />
+        <Text color={runningCount > 0 ? theme.success : theme.textMuted} bold={runningCount > 0}>
+          {runningCount > 0 ? '●' : '○'} {runningCount} LIVE
+        </Text>
+        {terminal.columns >= 72 ? (
+          <Text color={theme.textMuted}>  {totalIterations}i · {totalTools}t</Text>
+        ) : null}
+        {cost && terminal.columns >= 88 ? <Text color={theme.success}>  {cost}</Text> : null}
       </Box>
 
+      {hasCollab && collabSession ? (
+        <Box height={1}>
+          <Text color={theme.monitor.agents}>{glyphs.bug} COLLAB</Text>
+          <Text color={theme.textMuted}>
+            {' '}
+            {collabSession.bugCount} bugs · {collabSession.planCount} plans · {collabSession.evalCount}{' '}
+            reviews
+          </Text>
+          {collabSession.sessionId ? (
+            <Text color={theme.textMuted}> · {truncToWidth(collabSession.sessionId, 12)}</Text>
+          ) : null}
+        </Box>
+      ) : null}
+
       {grid.rows.map((row, rowIndex) => (
-        <Box key={`swarm-row-${rowIndex}`} flexDirection="row" gap={2} height={1}>
+        <Box
+          key={`swarm-row-${rowIndex}`}
+          flexDirection="row"
+          gap={CARD_GAP}
+          height={2}
+          marginTop={rowIndex === 0 ? 1 : 0}
+        >
           {row.map((cell) => (
-            <Box key={cell.id} width={grid.tileWidth} flexShrink={0}>
-              <Text color="blue">{cell.index}</Text>
-              <Text dimColor> [</Text>
-              <Text color={cell.color}>{cell.meter}</Text>
-              <Text dimColor>] </Text>
-              <Text color={cell.color} {...(cell.dim ? { dimColor: true } : {})} wrap="truncate">
-                {cell.text}
-              </Text>
-            </Box>
+            <SwarmCard key={cell.id} cell={cell} width={grid.tileWidth} />
           ))}
         </Box>
       ))}
 
       {todoRows.length > 0 ? (
         <Box flexDirection="column" marginTop={1}>
-          <Text color="blue">Todo</Text>
+          <Box height={1}>
+            <Text color={theme.accent} bold>
+              {glyphs.goal} MISSION QUEUE
+            </Text>
+            {terminal.columns >= 56 ? (
+              <Text color={theme.textMuted}>
+                {'  '}{todoCounts.active} active · {todoCounts.queued} queued · {todoCounts.done} done
+              </Text>
+            ) : (
+              <Text color={theme.textMuted}>
+                {'  '}{todoCounts.active}/{todoCounts.queued}/{todoCounts.done}
+              </Text>
+            )}
+            <Box flexGrow={1} />
+            {terminal.columns >= 64 ? <Text color={theme.textMuted}>F3 details</Text> : null}
+          </Box>
           {todoRows.map((row) => (
             <Box key={row.id} height={1}>
+              <Text color={theme.textMuted}>  ├─ </Text>
               <Text color={row.color}>{row.marker}</Text>
               <Text> </Text>
-              <Text color={row.color} {...(row.dim ? { dimColor: true } : {})} wrap="truncate">
+              <Text
+                color={row.dim ? theme.textMuted : theme.textSecondary}
+                {...(row.dim ? { dimColor: true } : {})}
+                wrap="truncate"
+              >
                 {row.text}
               </Text>
             </Box>

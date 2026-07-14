@@ -4,6 +4,7 @@ import type React from 'react';
 import type { AgentTimelineEntry } from '@wrongstack/core/coordination';
 import type { FleetEntry } from '../app.js';
 import type { HistoryEntry } from './history/types.js';
+import { theme } from '../theme.js';
 import { bucketActivity, fmtModelLabel, sparkline } from './fleet-monitor.js';
 import { fmtElapsed } from './status-bar.js';
 import { getToolVisual } from '../tool-glyph.js';
@@ -57,12 +58,12 @@ export interface AgentsMonitorProps {
 }
 
 const STATUS: Record<FleetEntry['status'], { icon: string; color: string }> = {
-  idle: { icon: '○', color: 'gray' },
-  running: { icon: '▶', color: 'yellow' },
-  success: { icon: '✓', color: 'green' },
-  failed: { icon: '✗', color: 'red' },
-  timeout: { icon: '⏱', color: 'yellow' },
-  stopped: { icon: '⊘', color: 'gray' },
+  idle: { icon: '○', color: theme.textMuted },
+  running: { icon: '▶', color: theme.warn },
+  success: { icon: '✓', color: theme.success },
+  failed: { icon: '✗', color: theme.error },
+  timeout: { icon: '⏱', color: theme.warn },
+  stopped: { icon: '⊘', color: theme.textMuted },
 };
 
 /** Retained for callers/tests that tune the empty-state grace window. */
@@ -153,13 +154,13 @@ export function agentRisk(entry: FleetEntry): 'calm' | 'busy' | 'hot' | 'critica
 function riskMeta(risk: ReturnType<typeof agentRisk>): { icon: string; color: string; label: string } {
   switch (risk) {
     case 'critical':
-      return { icon: '◆', color: 'red', label: 'critical' };
+      return { icon: '◆', color: theme.error, label: 'critical' };
     case 'hot':
-      return { icon: '▲', color: 'yellow', label: 'hot' };
+      return { icon: '▲', color: theme.warn, label: 'hot' };
     case 'busy':
-      return { icon: '●', color: 'cyan', label: 'busy' };
+      return { icon: '●', color: theme.accent, label: 'busy' };
     case 'calm':
-      return { icon: '○', color: 'green', label: 'calm' };
+      return { icon: '○', color: theme.success, label: 'calm' };
   }
 }
 
@@ -225,7 +226,7 @@ function ContextBar({
   const totalBars = 10;
   const filled = Math.round(clamped * totalBars);
   const empty = totalBars - filled;
-  const color = clamped < 0.6 ? 'green' : clamped < 0.75 ? 'yellow' : 'red';
+  const color = clamped < 0.6 ? theme.success : clamped < 0.75 ? theme.warn : theme.error;
   // Display pct capped at 100% since compact mode manages over-budget scenarios.
   const pctText = `${Math.min(Math.round(pct * 100), 100)}%`;
   const tokenText = tokens ? ` ${fmtTokens(tokens)}/${fmtTokens(maxTokens ?? 200_000)}` : '';
@@ -269,14 +270,14 @@ function AgentRow({
   return (
     <Box flexDirection="row" gap={1}>
       {/* Selection indicator */}
-      <Text color={selected ? 'magenta' : 'gray'}>{selected ? '▶' : ' '}</Text>
+      <Text color={selected ? theme.monitor.agents : theme.textMuted}>{selected ? '▶' : ' '}</Text>
       {/* Status icon */}
       <Text color={s.color} bold>
         {s.icon}
       </Text>
       <Text color={risk.color}>{risk.icon}</Text>
       {/* Name */}
-      <Text bold={selected} {...(selected ? { color: 'magenta' } : {})}>
+      <Text bold={selected} {...(selected ? { color: theme.monitor.agents } : {})}>
         {entry.name}
       </Text>
       {/* Provider / Model — fmtModelLabel handles all cases (including undefined model) */}
@@ -285,23 +286,23 @@ function AgentRow({
       <Text dimColor>
         L{entry.iterations} {entry.toolCalls}t
       </Text>
-      {activity ? <Text color="green">{activity}</Text> : null}
+      {activity ? <Text color={theme.success}>{activity}</Text> : null}
       {/* Context bar */}
       {entry.ctxPct !== undefined ? (
         <ContextBar pct={entry.ctxPct} tokens={entry.ctxTokens} maxTokens={entry.ctxMaxTokens} />
       ) : null}
       {/* Context cost */}
-      {ctxCostStr ? <Text color="yellow">{ctxCostStr}</Text> : null}
+      {ctxCostStr ? <Text color={theme.warn}>{ctxCostStr}</Text> : null}
       {/* Current activity (inline) */}
-      <Text color={entry.currentTool ? 'cyan' : 'gray'}>{currentAction(entry, now)}</Text>
+      <Text color={entry.currentTool ? theme.accent : theme.textMuted}>{currentAction(entry, now)}</Text>
       {/* Elapsed */}
       <Text dimColor>{elapsed}</Text>
       {/* Extensions badge */}
       {entry.extensions && entry.extensions > 0 ? (
-        <Text color="yellow">⚡×{entry.extensions}</Text>
+        <Text color={theme.warn}>⚡×{entry.extensions}</Text>
       ) : null}
       {/* Cost */}
-      {entry.cost > 0 ? <Text color="green">${entry.cost.toFixed(4)}</Text> : null}
+      {entry.cost > 0 ? <Text color={theme.success}>${entry.cost.toFixed(4)}</Text> : null}
     </Box>
   );
 }
@@ -459,7 +460,7 @@ function TranscriptPane({
   const { slice, above, below } = selectTranscriptWindow(entries, scrollOffset, rows);
   const padding = Math.max(0, rows - slice.length);
   return (
-    <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1}>
+    <Box flexDirection="column" borderStyle="single" borderColor={theme.textMuted} paddingX={1}>
       <Box flexDirection="row" gap={1}>
         <Text dimColor bold>transcript</Text>
         <Text dimColor>
@@ -469,7 +470,7 @@ function TranscriptPane({
         </Text>
       </Box>
       {slice.map((e) => (
-        <Text key={e.id} dimColor={e.kind === 'thinking' || e.kind === 'system'} color={e.kind === 'error' ? 'red' : undefined}>
+        <Text key={e.id} dimColor={e.kind === 'thinking' || e.kind === 'system'} color={e.kind === 'error' ? theme.error : undefined}>
           {formatTranscriptLine(e)}
         </Text>
       ))}
@@ -514,12 +515,12 @@ function AgentDetail({
       ? snippet(entry.streamingText.slice(-160), 110)
       : '';
     const alert = entry.failureReason && entry.status !== 'success'
-      ? { color: 'red', text: `✗ ${snippet(entry.failureReason, 90)}` }
+      ? { color: theme.error, text: `✗ ${snippet(entry.failureReason, 90)}` }
       : entry.budgetWarning
-        ? { color: 'yellow', text: `⚡ ${entry.budgetWarning.kind} ${entry.budgetWarning.used}/${entry.budgetWarning.limit}${entry.extensions ? ` ×${entry.extensions}` : ''}` }
+        ? { color: theme.warn, text: `⚡ ${entry.budgetWarning.kind} ${entry.budgetWarning.used}/${entry.budgetWarning.limit}${entry.extensions ? ` ×${entry.extensions}` : ''}` }
         : liveTail
-          ? { color: 'gray', text: `∴ …${liveTail}` }
-          : { color: entry.currentTool ? 'cyan' : 'gray', text: currentAction(entry, now) };
+          ? { color: theme.textMuted, text: `∴ …${liveTail}` }
+          : { color: entry.currentTool ? theme.accent : theme.textMuted, text: currentAction(entry, now) };
     return (
       <Box alignSelf="stretch" flexDirection="column" width="100%" flexGrow={1}>
         <Box
@@ -529,21 +530,21 @@ function AgentDetail({
           flexGrow={1}
           paddingX={1}
           borderStyle="single"
-          borderColor="magenta"
+          borderColor={theme.monitor.agents}
         >
           <Box flexDirection="row" gap={1}>
-            <Text color="magenta" bold>{formatAgentDetailHeader(entry)}</Text>
+            <Text color={theme.monitor.agents} bold>{formatAgentDetailHeader(entry)}</Text>
             <Text dimColor>{entry.id}</Text>
-            {modelLbl ? <Text color="cyan">{modelLbl}</Text> : <Text dimColor>·</Text>}
+            {modelLbl ? <Text color={theme.accent}>{modelLbl}</Text> : <Text dimColor>·</Text>}
             <Text color={statusMeta.color}>{statusMeta.icon} {entry.status}</Text>
           </Box>
           <Box flexDirection="row" gap={1}>
             <Text dimColor>runtime</Text>
             <Text>{fmtElapsed(Math.max(0, now - entry.startedAt))}</Text>
-            <Text color="cyan">L{entry.iterations} {entry.toolCalls}t</Text>
+            <Text color={theme.accent}>L{entry.iterations} {entry.toolCalls}t</Text>
             <Text dimColor>ctx</Text>
             <Text>{formatContextRunway(entry.ctxTokens, entry.ctxMaxTokens)}</Text>
-            <Text color="green">${entry.cost.toFixed(4)}</Text>
+            <Text color={theme.success}>${entry.cost.toFixed(4)}</Text>
           </Box>
           <Box flexDirection="row" gap={1}>
             <Text color={alert.color}>{alert.text}</Text>
@@ -571,10 +572,10 @@ function AgentDetail({
         flexGrow={1}
         paddingX={1}
         borderStyle="single"
-        borderColor="magenta"
+        borderColor={theme.monitor.agents}
       >
         <Box flexDirection="row" gap={1}>
-          <Text color="magenta" bold>
+          <Text color={theme.monitor.agents} bold>
             {formatAgentDetailHeader(entry)}
           </Text>
         </Box>
@@ -584,7 +585,7 @@ function AgentDetail({
           {modelLabel ? (
             <>
               <Text dimColor>· model</Text>
-              <Text color="cyan">{modelLabel}</Text>
+              <Text color={theme.accent}>{modelLabel}</Text>
             </>
           ) : null}
           <Text dimColor>· status</Text>
@@ -597,20 +598,20 @@ function AgentDetail({
           <Text>{fmtOptionalTimestamp(entry.startedAt)}</Text>
           <Text dimColor>· last event</Text>
           <Text>{fmtShortDuration(Math.max(0, now - entry.lastEventAt))} ago</Text>
-          {entry.extensions && entry.extensions > 0 ? <Text color="yellow">· extensions ⚡×{entry.extensions}</Text> : null}
+          {entry.extensions && entry.extensions > 0 ? <Text color={theme.warn}>· extensions ⚡×{entry.extensions}</Text> : null}
         </Box>
         <Box flexDirection="row" gap={1}>
           <Text dimColor>throughput</Text>
-          <Text color="cyan">{entry.iterations} iterations</Text>
+          <Text color={theme.accent}>{entry.iterations} iterations</Text>
           <Text dimColor>·</Text>
-          <Text color="cyan">{entry.toolCalls} tools</Text>
+          <Text color={theme.accent}>{entry.toolCalls} tools</Text>
           <Text dimColor>· current</Text>
-          <Text color={entry.currentTool ? 'cyan' : 'gray'}>{currentAction(entry, now)}</Text>
+          <Text color={entry.currentTool ? theme.accent : theme.textMuted}>{currentAction(entry, now)}</Text>
         </Box>
       {/* Activity sparkline + last completed tool */}
       {spark || lastTool ? (
         <Box flexDirection="row" gap={1}>
-          <Text color="green">{spark || ''}</Text>
+          <Text color={theme.success}>{spark || ''}</Text>
           {lastTool ? (
             <Text dimColor>
               last: {lastTool.name}
@@ -632,10 +633,10 @@ function AgentDetail({
       {(entry.cost > 0 || (entry.ctxCost && entry.ctxCost > 0)) ? (
         <Box>
           <Text dimColor>cost: </Text>
-          {entry.cost > 0 ? <Text color="green">${entry.cost.toFixed(4)} total</Text> : null}
+          {entry.cost > 0 ? <Text color={theme.success}>${entry.cost.toFixed(4)} total</Text> : null}
           {entry.cost > 0 && entry.ctxCost && entry.ctxCost > 0 ? <Text dimColor>  ·  </Text> : null}
           {entry.ctxCost && entry.ctxCost > 0 ? (
-            <Text color="yellow">${entry.ctxCost.toFixed(4)} ctx</Text>
+            <Text color={theme.warn}>${entry.ctxCost.toFixed(4)} ctx</Text>
           ) : null}
         </Box>
       ) : null}
@@ -652,7 +653,7 @@ function AgentDetail({
           {entry.recentTools.slice(-4).map((tool, i) => {
             const visual = getToolVisual(tool.name);
             return (
-              <Text key={`${tool.name}-${tool.at}-${i}`} color={tool.ok === false ? 'red' : visual.color}>
+              <Text key={`${tool.name}-${tool.at}-${i}`} color={tool.ok === false ? theme.error : visual.color}>
                 {`‹${visual.glyph} ${formatRecentToolChip(tool)}›`}
               </Text>
             );
@@ -679,7 +680,7 @@ function AgentDetail({
       {/* Budget pressure */}
       {entry.budgetWarning ? (
         <Box>
-          <Text color="yellow">
+          <Text color={theme.warn}>
             ⚡ {entry.budgetWarning.kind} {entry.budgetWarning.used}/{entry.budgetWarning.limit} —
             extending
           </Text>
@@ -689,7 +690,7 @@ function AgentDetail({
       {/* Failure reason */}
       {entry.failureReason && entry.status !== 'success' ? (
         <Box>
-          <Text color="red">✗ {entry.failureReason}</Text>
+          <Text color={theme.error}>✗ {entry.failureReason}</Text>
         </Box>
       ) : null}
       </Box>
@@ -795,30 +796,30 @@ export function AgentsMonitor({
       flexDirection="column"
       width="100%"
       borderStyle="round"
-      borderColor="magenta"
+      borderColor={theme.monitor.agents}
       paddingX={1}
       flexGrow={1}
     >
       {/* Header */}
       <Box flexDirection="row" gap={1}>
-        <Text bold color="magenta">
+        <Text bold color={theme.monitor.agents}>
           AGENTS · LIVE
         </Text>
         <Text dimColor>│</Text>
-        <Text color="yellow">▶{running}</Text>
+        <Text color={theme.warn}>▶{running}</Text>
         <Text dimColor>─────────────────</Text>
         <Text dimColor>done</Text>
-        <Text color="green">✓{totalDone}</Text>
+        <Text color={theme.success}>✓{totalDone}</Text>
         <Text dimColor>·</Text>
         <Text dimColor>failed</Text>
-        {totalFailed > 0 ? <Text color="red">✗{totalFailed}</Text> : null}
+        {totalFailed > 0 ? <Text color={theme.error}>✗{totalFailed}</Text> : null}
         <Text dimColor>· ↑↓ nav{transcripts ? ' · PgUp/PgDn transcript' : ''} · Esc / Ctrl+G / F3 close</Text>
       </Box>
 
       {/* Mission-control pulse: pressure, hottest agent, total throughput. */}
       <Box flexDirection="row" gap={1}>
         <Text dimColor>pulse</Text>
-        <Text color={pressure >= 0.9 ? 'red' : pressure >= 0.75 ? 'yellow' : 'green'}>
+        <Text color={pressure >= 0.9 ? theme.error : pressure >= 0.75 ? theme.warn : theme.success}>
           max ctx {pctTextFromRatio(pressure)}
         </Text>
         <Text dimColor>· hot</Text>
@@ -830,7 +831,7 @@ export function AgentsMonitor({
           <Text dimColor>none</Text>
         )}
         <Text dimColor>· throughput</Text>
-        <Text color="cyan">{iterations}L/{toolCalls}t</Text>
+        <Text color={theme.accent}>{iterations}L/{toolCalls}t</Text>
       </Box>
 
       {/* Agent-type → model mapping (compact one-liner) */}
@@ -852,7 +853,7 @@ export function AgentsMonitor({
       {/* Token + cost row */}
       <Box flexDirection="row" gap={1}>
         <Text dimColor>shown</Text>
-        <Text color="magenta">{live.length}</Text>
+        <Text color={theme.monitor.agents}>{live.length}</Text>
         {totalTokens ? (
           <Text dimColor>
             {' '}
@@ -860,7 +861,7 @@ export function AgentsMonitor({
           </Text>
         ) : null}
         <Text dimColor>total</Text>
-        <Text color="green" bold>
+        <Text color={theme.success} bold>
           ${grandCost.toFixed(4)}
         </Text>
         <Text dimColor>
