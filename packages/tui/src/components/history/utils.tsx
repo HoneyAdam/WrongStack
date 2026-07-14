@@ -2258,7 +2258,16 @@ export const ToolStreamBox = React.memo(function ToolStreamBox({
   const isWritePreview = name === 'write';
 
   return (
-    <Box flexDirection="column" marginTop={0}>
+    <Box
+      flexDirection="column"
+      marginY={1}
+      borderStyle="single"
+      borderTop={false}
+      borderRight={false}
+      borderBottom={false}
+      borderColor={color}
+      paddingLeft={1}
+    >
       <Box flexDirection="row">
         <Text color={color}>{glyph} </Text>
         <Text bold color={color}>
@@ -2269,7 +2278,7 @@ export const ToolStreamBox = React.memo(function ToolStreamBox({
           <Text dimColor>{`  (${totalLines} lines, showing last ${streamLines})`}</Text>
         ) : null}
       </Box>
-      <Box flexDirection="column" marginLeft={2}>
+      <Box flexDirection="column" marginLeft={1}>
         {rows.map((r, i) => (
           <Text key={i} color={isWritePreview ? 'gray' : undefined} dimColor={!isWritePreview} italic={Boolean(r.italic)}>
             {r.text || ' '}
