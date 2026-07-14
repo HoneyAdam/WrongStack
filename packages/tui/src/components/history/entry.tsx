@@ -138,7 +138,7 @@ export const Entry = React.memo(function Entry({
         >
           <Text>
             <Text bold color={theme.user}>
-              {'USER  '}
+              {'👤 USER  '}
             </Text>
             <Text color="white">{entry.text}</Text>
             {entry.queued ? <Text dimColor>{' (queued)'}</Text> : null}
@@ -216,7 +216,7 @@ export const Entry = React.memo(function Entry({
               borderColor={theme.accent}
               paddingLeft={1}
             >
-              <Box flexDirection="row">
+              <Box flexDirection="row" marginBottom={1}>
                 <Text bold color={theme.accent}>
                   {'💡 NEXT STEPS  '}
                 </Text>
@@ -496,7 +496,13 @@ export const Entry = React.memo(function Entry({
       // the rest of the entry patchy half-dim/half-bright. Only dim plain,
       // unstyled lines.
       const hasAnsi = /\x1b\[/.test(entry.text);
-      return <Text dimColor={!hasAnsi}>{entry.text}</Text>;
+      if (hasAnsi) return <Text>{entry.text}</Text>;
+      return (
+        <Text dimColor>
+          <Text dimColor>{'ℹ '}</Text>
+          {entry.text}
+        </Text>
+      );
     }
     case 'warn':
       return (
@@ -537,7 +543,22 @@ export const Entry = React.memo(function Entry({
         </Box>
       );
     case 'turn-summary':
-      return <Text dimColor>{entry.text}</Text>;
+      return (
+        <Box
+          marginX={0}
+          borderStyle="single"
+          borderTop={false}
+          borderRight={false}
+          borderBottom={false}
+          borderColor={theme.textMuted}
+          paddingLeft={1}
+        >
+          <Text>
+            <Text dimColor>{'📋 '}</Text>
+            <Text dimColor>{entry.text}</Text>
+          </Text>
+        </Box>
+      );
     case 'brain': {
       const statusStyle = brainStatusStyle(entry.status);
       const riskColor = brainRiskColor(entry.risk);
@@ -592,12 +613,13 @@ export const Entry = React.memo(function Entry({
         <Box
           flexDirection="column"
           borderStyle="round"
-          borderColor="yellow"
+          borderColor={theme.warn}
           paddingX={1}
           marginY={1}
         >
-          <Text bold color="yellow">
-            ⚠ Confirm: {entry.toolName}
+          <Text bold color={theme.warn}>
+            {'⚠ Confirm: '}
+            {entry.toolName}
           </Text>
           <Text dimColor>Waiting for y / n / a / d...</Text>
         </Box>

@@ -160,7 +160,7 @@ export function AssistantTail({
     >
       <Box flexDirection="row">
         <Text bold color={theme.assistant}>
-          {'ASSISTANT'}
+          {'💬 ASSISTANT'}
         </Text>
         <Text dimColor>{'  (streaming…)'}</Text>
       </Box>
