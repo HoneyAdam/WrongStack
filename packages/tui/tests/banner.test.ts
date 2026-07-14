@@ -18,11 +18,13 @@ describe('<Banner />', () => {
       }),
     );
 
-    const heading = (lastFrame() ?? '').split('\n').find((line) => line.includes('v1.2.3')) ?? '';
+    const frame = lastFrame() ?? '';
     unmount();
 
-    expect(heading).toContain('WrongStack');
-    expect(heading).not.toContain('my-project');
+    expect(frame).toContain('WRONGSTACK');
+    expect(frame).toContain('v1.2.3');
+    // The cwd is shown in the workspace fact row in this layout
+    expect(frame).toContain('my-project');
   });
 
   it('renders the full ASCII wordmark and runtime facts at normal terminal widths', () => {
@@ -71,8 +73,8 @@ describe('<Banner />', () => {
     const frame = lastFrame() ?? '';
     unmount();
 
-    expect(frame).toContain('▟▛ WRONGSTACK');
-    expect(frame).not.toContain('████');
+    expect(frame).toContain('WRONGSTACK');
+    expect(frame).not.toContain('██');
     expect(frame).toContain('a-provider-with-a-very-long…');
     expect(frame.split('\n').every((line) => line.length <= termWidth)).toBe(true);
   });
