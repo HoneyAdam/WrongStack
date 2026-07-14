@@ -1,6 +1,7 @@
 import { Box, Text } from '../ink.js';
 import type React from 'react';
 import type { FleetEntry } from '../app.js';
+import { theme } from '../theme.js';
 import { fmtElapsed, renderProgress } from './status-bar.js';
 
 function shortSessionId(sessionId: string): string {
@@ -31,12 +32,12 @@ export interface FleetMonitorProps {
 }
 
 const STATUS: Record<FleetEntry['status'], { icon: string; color: string }> = {
-  idle: { icon: '○', color: 'gray' },
-  running: { icon: '▶', color: 'yellow' },
-  success: { icon: '✓', color: 'green' },
-  failed: { icon: '✗', color: 'red' },
-  timeout: { icon: '⏱', color: 'yellow' },
-  stopped: { icon: '⊘', color: 'gray' },
+  idle: { icon: '○', color: theme.textMuted },
+  running: { icon: '▶', color: theme.warn },
+  success: { icon: '✓', color: theme.success },
+  failed: { icon: '✗', color: theme.error },
+  timeout: { icon: '⏱', color: theme.warn },
+  stopped: { icon: '⊘', color: theme.textMuted },
 };
 
 const SPARK = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
@@ -159,7 +160,7 @@ export function FleetMonitor({
   // Timeline: only from recent agents, newest first.
   const events: Array<{ at: number; icon: string; color: string; text: string }> = [];
   for (const e of recent) {
-    events.push({ at: e.startedAt, icon: '●', color: 'cyan', text: `${e.name} spawned` });
+    events.push({ at: e.startedAt, icon: '●', color: theme.accent, text: `${e.name} spawned` });
     if (e.status !== 'running' && e.status !== 'idle') {
       const s = STATUS[e.status];
       const reason = e.failureReason ? ` [${e.failureReason}]` : '';
@@ -174,7 +175,7 @@ export function FleetMonitor({
       events.push({
         at: e.budgetWarning.at,
         icon: '⚡',
-        color: 'yellow',
+        color: theme.warn,
         text: `${e.name} ${e.budgetWarning.kind} ${e.budgetWarning.used}/${e.budgetWarning.limit} — extending`,
       });
     }
@@ -184,23 +185,23 @@ export function FleetMonitor({
 
   // Collab verdict chip color
   const VERDICT_COLOR: Record<string, string> = {
-    approve: 'green',
-    needs_revision: 'yellow',
-    reject: 'red',
+    approve: theme.success,
+    needs_revision: theme.warn,
+    reject: theme.error,
   };
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor={theme.monitor.fleet} paddingX={1}>
       {/* Header — orchestration identity, distinct from AGENTS · LIVE */}
       <Box flexDirection="row" gap={1}>
-        <Text bold color="cyan">
+        <Text bold color={theme.monitor.fleet}>
           FLEET · ORCHESTRATION
         </Text>
         <Text dimColor>│</Text>
-        <Text color="yellow">▶{running.length}</Text>
+        <Text color={theme.warn}>▶{running.length}</Text>
         <Text dimColor>○{idle}</Text>
-        <Text color="green">✓{done}</Text>
-        {failed > 0 ? <Text color="red">✗{failed}</Text> : null}
+        <Text color={theme.success}>✓{done}</Text>
+        {failed > 0 ? <Text color={theme.error}>✗{failed}</Text> : null}
         <Text dimColor>· Ctrl+F / F2 to close</Text>
       </Box>
 
@@ -208,18 +209,18 @@ export function FleetMonitor({
       {collabSession ? (
         <Box flexDirection="column" marginTop={1}>
           <Box flexDirection="row" gap={1}>
-            <Text bold color="magenta">
+            <Text bold color={theme.monitor.agents}>
               ⚡ COLLAB SESSION
             </Text>
             {collabSession.sessionId ? (
               <Text dimColor>{shortSessionId(collabSession.sessionId)}</Text>
             ) : null}
             <Text dimColor>│</Text>
-            <Text color="red">🐛{collabSession.bugCount}</Text>
+            <Text color={theme.error}>🐛{collabSession.bugCount}</Text>
             <Text dimColor>│</Text>
-            <Text color="yellow">📐{collabSession.planCount}</Text>
+            <Text color={theme.warn}>📐{collabSession.planCount}</Text>
             <Text dimColor>│</Text>
-            <Text color="blue">⚖️{collabSession.evalCount}</Text>
+            <Text color={theme.accent}>⚖️{collabSession.evalCount}</Text>
             {collabSession.overallVerdict ? (
               <>
                 <Text dimColor>│</Text>
@@ -249,7 +250,7 @@ export function FleetMonitor({
       {/* Concurrency + totals gauge */}
       <Box flexDirection="row" gap={1}>
         <Text dimColor>concurrency</Text>
-        <Text color="cyan">[{renderProgress(concurrencyRatio, 12)}]</Text>
+        <Text color={theme.accent}>[{renderProgress(concurrencyRatio, 12)}]</Text>
         <Text dimColor>
           {running.length}/{maxConcurrent}
         </Text>
@@ -259,7 +260,7 @@ export function FleetMonitor({
             {fmtTokens(totalTokens.input)}↑ {fmtTokens(totalTokens.output)}↓
           </Text>
         ) : null}
-        <Text color="green">{`  $${totalCost.toFixed(4)}`}</Text>
+        <Text color={theme.success}>{`  ${totalCost.toFixed(4)}`}</Text>
       </Box>
 
       {shown.length === 0 ? (
@@ -297,9 +298,9 @@ export function FleetMonitor({
                 <Text color={s.color}>{e.status.padEnd(9)}</Text>
                 <Text dimColor>{ltCtx.padEnd(12).slice(0, 12)}</Text>
                 <Text dimColor>{elapsed.padEnd(8).slice(0, 8)}</Text>
-                <Text color="yellow">{fmtCost(e.cost)}</Text>
+                <Text color={theme.warn}>{fmtCost(e.cost)}</Text>
                 {e.extensions && e.extensions > 0 ? (
-                  <Text color="yellow"> ⚡×{e.extensions}</Text>
+                  <Text color={theme.warn}> ⚡×{e.extensions}</Text>
                 ) : null}
               </Box>
             );
