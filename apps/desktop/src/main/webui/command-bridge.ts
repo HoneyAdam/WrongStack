@@ -76,7 +76,7 @@ export async function dispatchWebuiCommandNow(
     const fallbackTimer = setTimeout(() => {
       const pending = pendingAcks.get(requestId);
       if (!pending) return;
-      sendWebuiCommandDomFallback(entry, commandWithRequestId);
+      sendWebuiCommandDomFallback(ctx, entry, commandWithRequestId);
     }, WEBUI_COMMAND_FALLBACK_MS);
 
     const timer = setTimeout(() => {
@@ -230,17 +230,14 @@ function nextWebuiCommandRequestId(runtimeId: string): string {
 }
 
 function sendWebuiCommandDomFallback(
+  ctx: CommandBridgeContext,
   entry: DesktopWebuiRuntimeView,
   command: DesktopWebuiCommand,
 ): void {
-  if (ctx_get_webuiViews?.()?.get(entry.runtimeId) !== entry || entry.view.webContents.isDestroyed()) return;
+  if (ctx.getWebuiViews().get(entry.runtimeId) !== entry || entry.view.webContents.isDestroyed()) return;
   void entry.view.webContents
     .executeJavaScript(buildWebuiCommandFallbackScript(command), true)
-    .catch(() => undefined);
-}
-
-// Temporary workaround - this should be refactored
-let ctx_get_webuiViews: (() => Map<string, DesktopWebuiRuntimeView>) | null = null;
-export function setWebuiViewsGetter(getter: () => Map<string, DesktopWebuiRuntimeView>): void {
-  ctx_get_webuiViews = getter;
+    .catch((err) => {
+      console.debug(`[desktop] DOM fallback failed:`, err);
+    });
 }

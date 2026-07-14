@@ -39,6 +39,7 @@ export function configureApplicationMenu(ctx: MenuBuilderContext): void {
   const actions: ProjectMenuActions = {
     activate: (runtimeId) => void ctx.activateRuntime(runtimeId),
     activateAndNavigate,
+    registerProject: () => void ctx.registerProject(),
     newSession: (runtimeId) => {
       if (runtimeId) void ctx.openProjectSession(runtimeId);
       else void ctx.openProject();

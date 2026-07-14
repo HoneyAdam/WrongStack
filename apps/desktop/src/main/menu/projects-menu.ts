@@ -1,11 +1,10 @@
 /**
  * Projects menu builder.
  */
+import path from 'node:path';
 import type { MenuItemConstructorOptions } from 'electron';
 import type { DesktopRuntimeRecord } from '../../shared/types.js';
 import type { ProjectMenuActions, ProjectMenuGroup } from './types.js';
-
-const posix = (await import('node:path')).posix;
 
 export function buildProjectsMenu(
   runtimes: DesktopRuntimeRecord[],
@@ -17,9 +16,12 @@ export function buildProjectsMenu(
     {
       label: t('openProjectEllipsis'),
       accelerator: 'CmdOrCtrl+O',
-      click: () => actions.newSession(''), // Will open dialog
+      click: () => actions.newSession(''),
     },
-    { label: t('registerProjectEllipsis'), click: () => actions.newSession('') },
+    {
+      label: t('registerProjectEllipsis'),
+      click: () => actions.registerProject?.(),
+    },
     { type: 'separator' },
   ];
 
@@ -155,7 +157,7 @@ export function groupProjectRuntimesForMenu(runtimes: DesktopRuntimeRecord[]): P
     }
     groups.set(key, {
       key,
-      name: posix.basename(runtime.root) || runtime.name,
+      name: path.basename(runtime.root) || runtime.name,
       root: runtime.root,
       sessions: [runtime],
     });

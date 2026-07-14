@@ -16,6 +16,8 @@ export interface ProjectMenuActions {
   reload(runtimeId: string): void;
   close(runtimeId: string): void;
   reveal(runtimeId: string): void;
+  /** Register a project folder without opening it. */
+  registerProject?(): void;
 }
 
 export interface ProjectMenuGroup {

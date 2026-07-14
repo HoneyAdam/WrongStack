@@ -18,6 +18,7 @@ import {
   BaseWindow,
   dialog,
   ipcMain,
+  nativeImage,
   screen,
   shell,
   WebContentsView,
@@ -29,6 +30,12 @@ import type {
   DesktopWebuiStatusSnapshot,
   DesktopWindowState,
 } from '../shared/types.js';
+import type {
+  DesktopWebuiRuntimeView,
+  IpcHandlerContext,
+  IRuntimeManager,
+  PendingWebuiCommandAck,
+} from './state/types.js';
 import { DesktopAgentBridge } from './agent-bridge.js';
 import { IPC } from './ipc.js';
 import { getMainLocale, setMainLocale, tMain } from './i18n-main.js';
@@ -53,14 +60,19 @@ import { getSidebarWidth } from './layout/index.js';
 import { configureApplicationMenu as buildMenu } from './menu/index.js';
 import type { MenuBuilderContext } from './menu/types.js';
 
-// Constants
-const OPEN_EXTERNAL_ALLOWED_PROTOCOLS = new Set(['http:', 'https:', 'mailto:']);
-const MIN_WINDOW_WIDTH = 760;
-const MIN_WINDOW_HEIGHT = 520;
-const MAX_PENDING_WEBUI_COMMANDS = 50;
-const MAX_PENDING_FLUSH_ATTEMPTS = 80;
-const WEBUI_COMMAND_FALLBACK_MS = 350;
-const WEBUI_COMMAND_ACK_TIMEOUT_MS = 2_000;
+// IPC handler module
+import { registerIpcHandlers as registerExtractedIpcHandlers } from './ipc-handlers/index.js';
+
+// Constants — centralized in state/constants.ts to avoid duplication
+import {
+  MAX_PENDING_FLUSH_ATTEMPTS,
+  MAX_PENDING_WEBUI_COMMANDS,
+  MIN_WINDOW_HEIGHT,
+  MIN_WINDOW_WIDTH,
+  OPEN_EXTERNAL_ALLOWED_PROTOCOLS,
+  WEBUI_COMMAND_ACK_TIMEOUT_MS,
+  WEBUI_COMMAND_FALLBACK_MS,
+} from './state/constants.js';
 
 app.setAppUserModelId('com.wrongstack.desktop');
 app.setPath('userData', path.join(wstackGlobalRoot(), 'desktop', 'electron-profile'));
@@ -71,25 +83,6 @@ app.setPath('userData', path.join(wstackGlobalRoot(), 'desktop', 'electron-profi
 
 const manager = new DesktopRuntimeManager();
 const bridge = new DesktopAgentBridge();
-
-interface DesktopWebuiRuntimeView {
-  runtimeId: string;
-  view: WebContentsView;
-  url: string | null;
-  status: DesktopWebuiStatusSnapshot;
-  bridgeReady: boolean;
-  attached: boolean;
-  pendingCommands: DesktopWebuiCommand[];
-  pendingFlushTimer: ReturnType<typeof setTimeout> | null;
-  pendingFlushAttempts: number;
-}
-
-interface PendingWebuiCommandAck {
-  runtimeId: string;
-  timer: ReturnType<typeof setTimeout>;
-  fallbackTimer: ReturnType<typeof setTimeout> | null;
-  resolve: (handled: boolean) => void;
-}
 
 let mainWindow: BaseWindow | null = null;
 let shellView: WebContentsView | null = null;
@@ -915,6 +908,50 @@ function registerIpcHandlers(): void {
     void writeUiLocale(locale);
   });
 }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+void registerIpcHandlers; // kept as fallback reference
+
+/**
+ * Build the context object for the extracted IPC handler module.
+ * Wires module-level state into the IpcHandlerContext interface.
+ */
+function buildIpcHandlerContext(): IpcHandlerContext {
+  return {
+    getMainWindow: () => mainWindow,
+    getShellView: () => shellView,
+    getWebuiViews: () => webuiViews,
+    getWebuiStatus: () => webuiStatus,
+    getRuntimeManager: () => manager as unknown as IRuntimeManager,
+    getAgentBridge: () => bridge,
+    getI18n: () => ({ getMainLocale, setMainLocale, tMain }),
+    getConfigIo: () => ({ desktopConfigPaths, readUiLocale, writeUiLocale }),
+    getShellSidebarCollapsed: () => shellSidebarCollapsed,
+    setShellSidebarCollapsed: (collapsed) => setShellSidebarCollapsed(collapsed),
+    broadcastState: () => broadcastState(),
+    publishWebuiStatus: (next) => publishWebuiStatus(next),
+    syncActiveWebuiView: () => syncActiveWebuiView(),
+    configureApplicationMenu: () => configureApplicationMenu(),
+    broadcastLocaleToEmbeddedWebuis: (locale) => broadcastLocaleToEmbeddedWebuis(locale),
+    dispatchWebuiCommand: (command) => dispatchWebuiCommand(command),
+    reloadActiveWebuiView: () => reloadActiveWebuiView(),
+    openProject: (root) => openProject(root),
+    registerProject: (root) => registerProject(root),
+    unregisterProject: (root) => unregisterProject(root),
+    openProjectSession: (id) => openProjectSession(id),
+    activateRuntime: (id) => activateRuntime(id),
+    closeRuntime: (id) => closeRuntime(id),
+    openSettings: () => openSettings(),
+    sendMessage: (id, wsUrl, content) => bridge.sendMessage(id, wsUrl, content),
+    abortRuntime: (id, wsUrl) => bridge.abort(id, wsUrl),
+    openExternal: (url) => safeOpenExternal(url),
+    revealInExplorer: (root) => { void shell.openPath(root); },
+    findWebuiEntryBySenderId: (senderId) => findWebuiEntryBySenderId(senderId),
+    getPendingWebuiCommandAcks: () => pendingWebuiCommandAcks,
+    settlePendingWebuiCommandAck: (requestId, handled) => settlePendingWebuiCommandAck(requestId, handled),
+    setEntryWebuiStatus: (entry, next) => setEntryWebuiStatus(entry, next),
+    schedulePendingWebuiFlush: (entry) => schedulePendingWebuiFlush(entry),
+  };
+}
 
 // ============================================================================
 // Boot Sequence
@@ -939,13 +976,24 @@ async function boot(): Promise<void> {
   });
 
   // The shell preload can invoke desktop:* channels during renderer startup.
-  registerIpcHandlers();
+  registerExtractedIpcHandlers(buildIpcHandlerContext());
 
   await shellView.webContents.loadURL(shellUrl);
 
   const prevState = validatedWindowState(manager.getWindowState());
   const defaultWidth = 1180;
   const defaultHeight = 720;
+
+  // Load the branded app icon (SVG — best-effort on platforms that support it)
+  let appIcon: Electron.NativeImage | undefined;
+  try {
+    const iconPath = new URL('../../assets/icon.svg', import.meta.url).pathname;
+    await fs.stat(iconPath);
+    appIcon = nativeImage.createFromPath(iconPath);
+    if (appIcon.isEmpty()) appIcon = undefined;
+  } catch {
+    // Best-effort — the app works fine without a custom icon
+  }
 
   const winOptions: BaseWindowConstructorOptions = {
     width: prevState?.width ?? defaultWidth,
@@ -954,6 +1002,7 @@ async function boot(): Promise<void> {
     minWidth: MIN_WINDOW_WIDTH,
     minHeight: MIN_WINDOW_HEIGHT,
     title: tMain('windowTitle'),
+    ...(appIcon ? { icon: appIcon } : {}),
   };
   if (prevState) {
     if (prevState.x !== undefined) winOptions.x = prevState.x;
