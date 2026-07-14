@@ -165,13 +165,14 @@ export const Entry = React.memo(function Entry({
           borderTop={false}
           borderRight={false}
           borderBottom={false}
-          borderColor="magenta"
+          borderColor={theme.brandAccent}
           paddingLeft={1}
         >
           <Box flexDirection="row">
-            <Text bold color="magenta">
-              {'THINKING'}
+            <Text bold color={theme.brandAccent}>
+              {'⟳ THINKING'}
             </Text>
+            <Text dimColor>{'  (model reasoning…)'}</Text>
           </Box>
           <AssistantBody text={entry.text} termWidth={termWidth} contentWidth={contentWidth} />
         </Box>
@@ -198,7 +199,7 @@ export const Entry = React.memo(function Entry({
           >
             <Box flexDirection="row">
               <Text bold color={theme.assistant}>
-                {'ASSISTANT'}
+                {'💬 ASSISTANT'}
               </Text>
             </Box>
             <AssistantBody text={stripped} termWidth={termWidth} contentWidth={contentWidth} />
@@ -438,17 +439,22 @@ export const Entry = React.memo(function Entry({
             // summary so the entry never looks empty.
             <ToolOutputLines lines={visualLines} hasFollowingBlock={false} />
           ) : entry.resultRenderMode === 'simple' ? null : (
-            outLines.map((line, i) => (
-              <Text key={i}>
-                <Text dimColor>{i === outLines.length - 1 && !diff && !multiDiffs ? '  └─ ' : '  ├─ '}</Text>
-                <Text
-                  dimColor={entry.ok && !line.startsWith('!')}
-                  {...(!entry.ok || line.startsWith('!') ? { color: 'red' } : {})}
-                >
-                  {line}
+            outLines.map((line, i) => {
+              const connector = i === outLines.length - 1 && !diff && !multiDiffs ? '  └─ ' : '  ├─ ';
+              return (
+                <Text key={i}>
+                  <Text color={color} dimColor>
+                    {connector}
+                  </Text>
+                  <Text
+                    dimColor={entry.ok && !line.startsWith('!')}
+                    {...(!entry.ok || line.startsWith('!') ? { color: 'red' } : {})}
+                  >
+                    {line}
+                  </Text>
                 </Text>
-              </Text>
-            ))
+              );
+            })
           )}
           {/* `simple` mode: hide diff blocks too — only the meta chip
               stays visible. Diff bodies can re-flow onto the screen on
@@ -503,7 +509,12 @@ export const Entry = React.memo(function Entry({
           borderColor={theme.warn}
           paddingLeft={1}
         >
-          <Text color={theme.warn}>{entry.text}</Text>
+          <Text>
+            <Text bold color={theme.warn}>
+              {'⚠ WARN '}
+            </Text>
+            <Text color={theme.warn}>{entry.text}</Text>
+          </Text>
         </Box>
       );
     case 'error':
@@ -517,7 +528,12 @@ export const Entry = React.memo(function Entry({
           borderColor={theme.error}
           paddingLeft={1}
         >
-          <Text color={theme.error}>{entry.text}</Text>
+          <Text>
+            <Text bold color={theme.error}>
+              {'✗ ERROR '}
+            </Text>
+            <Text color={theme.error}>{entry.text}</Text>
+          </Text>
         </Box>
       );
     case 'turn-summary':
@@ -525,6 +541,8 @@ export const Entry = React.memo(function Entry({
     case 'brain': {
       const statusStyle = brainStatusStyle(entry.status);
       const riskColor = brainRiskColor(entry.risk);
+      // Shared left indent so nested details visually nest under the header.
+      const indentWidth = 2;
       return (
         <Box
           flexDirection="column"
@@ -534,26 +552,38 @@ export const Entry = React.memo(function Entry({
           borderTop={false}
           borderRight={false}
           borderBottom={false}
-          borderColor="magenta"
+          borderColor={theme.monitor.agents}
           paddingLeft={1}
         >
           <Box flexDirection="row" gap={1}>
-            <Text bold color="magenta">
-              BRAIN
+            <Text bold color={theme.monitor.agents}>
+              {'✦ BRAIN'}
             </Text>
             <Text color={statusStyle.color}>{statusStyle.icon}</Text>
             <Text dimColor>{entry.source}</Text>
             <Text dimColor>·</Text>
-            <Text color={riskColor}>{entry.risk}</Text>
-          </Box>
-          <Text color="white">{entry.question}</Text>
-          {entry.decision ? (
-            <Text>
-              <Text dimColor>Decision: </Text>
-              <Text color={statusStyle.color}>{entry.decision}</Text>
+            <Text bold color={riskColor}>
+              {entry.risk}
             </Text>
+          </Box>
+          <Box paddingLeft={indentWidth}>
+            <Text color={theme.textPrimary}>{entry.question}</Text>
+          </Box>
+          {entry.decision ? (
+            <Box paddingLeft={indentWidth} marginTop={1}>
+              <Text>
+                <Text bold color={statusStyle.color}>
+                  {'↳ Decision: '}
+                </Text>
+                <Text color={theme.textPrimary}>{entry.decision}</Text>
+              </Text>
+            </Box>
           ) : null}
-          {entry.rationale ? <Text dimColor>{entry.rationale}</Text> : null}
+          {entry.rationale ? (
+            <Box paddingLeft={indentWidth} marginTop={1}>
+              <Text dimColor>{entry.rationale}</Text>
+            </Box>
+          ) : null}
         </Box>
       );
     }
@@ -577,13 +607,25 @@ export const Entry = React.memo(function Entry({
     case 'subagent': {
       const lines = entry.text.split('\n');
       return (
-        <Box flexDirection="column">
+        <Box
+          flexDirection="column"
+          marginX={0}
+          marginY={1}
+          borderStyle="single"
+          borderTop={false}
+          borderRight={false}
+          borderBottom={false}
+          borderColor={entry.agentColor}
+          paddingLeft={1}
+        >
           <Text>
             <Text color={entry.agentColor} bold>
-              {`[${entry.agentLabel}]`}
+              {entry.icon}
             </Text>
             <Text> </Text>
-            <Text color={entry.agentColor}>{entry.icon}</Text>
+            <Text bold color={entry.agentColor}>
+              {entry.agentLabel}
+            </Text>
             <Text> </Text>
             <Text>{lines[0] ?? ''}</Text>
             {entry.detail ? (
