@@ -3,37 +3,25 @@ import { Bot, Command, Cpu, Search, Settings, Sparkles, Zap } from 'lucide-react
 import { lazy, Suspense, useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useWebSocketBootstrap } from '@/hooks/useWebSocket';
-import {
-  DESKTOP_COMMAND_DOCKS,
-  DESKTOP_COMMAND_VIEWS,
-  DESKTOP_COMMAND_WORK_TABS,
-  publishDesktopCommandAck,
-  publishDesktopPrefsSnapshot,
-  publishDesktopReady,
-} from '@/lib/desktop-host';
+import { useDesktopBridge } from '@/hooks/useDesktopBridge';
 import { isDesktopShell } from '@/lib/desktop-shell';
 import { streamCoalescer } from '@/lib/stream-coalescer';
 import { cn } from '@/lib/utils';
 import { getWSClient } from '@/lib/ws-client';
 import {
-  type DockSection,
-  resetUiNavigationToHome,
   useChatStore,
   useConfigStore,
-  useFleetStore,
   useFileStore,
+  useFleetStore,
   useSessionStore,
   useUIStore,
 } from '@/stores';
-import { useLocalPrefs } from '@/stores/local-prefs';
-import { AgentsMonitor } from './components/AgentsMonitor';
-import { ActivityBar, PANEL_ORDER } from './components/activity-bar';
+import { ActivityBar } from './components/activity-bar';
 import {
   ACTIVITY_SHORTCUT_BY_KEY,
   navigateToView,
   openMainView,
   openPanel,
-  pairedViewForActivity,
   showPanel,
 } from './components/activity-bar/nav';
 import { ChatView } from './components/ChatView';
@@ -43,15 +31,14 @@ import { ConfirmModalHost, PromptModalHost } from './components/ConfirmModal';
 import { ConnectionBanner } from './components/ConnectionBanner';
 import { ContextBreakdownModal } from './components/ContextBreakdownModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { FleetMonitor } from './components/FleetMonitor';
 import { AgentDetail } from './components/FleetPanel';
-import { InspectorPanel } from './components/InspectorPanel';
+import { InspectorPanel, InspectorTrigger } from './components/InspectorPanel';
 import { QuickModelSwitcher } from './components/QuickModelSwitcher';
 import { SettingsPanel } from './components/SettingsPanel';
 import { ShortcutsOverlay } from './components/ShortcutsOverlay';
 import { SidePanel } from './components/SidePanel';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
-import { Toaster, toast } from './components/Toaster';
+import { Toaster } from './components/Toaster';
 import { WorkspaceDock } from './components/WorkspaceDock';
 
 // ── Lazy-loaded views ──────────────────────────────────────────────────────
@@ -153,21 +140,21 @@ function WorkbenchTopbar({
           </div>
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
-              <span className="truncate text-sm font-semibold">
-                {projectName || 'WrongStack'}
-              </span>
+              <span className="truncate text-sm font-semibold">{projectName || 'WrongStack'}</span>
               <span className="rounded-md border border-border/70 bg-muted/50 px-1.5 py-0.5 text-[11px] text-muted-foreground">
                 {viewLabel(currentView)}
               </span>
               <span
                 className={cn(
                   'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium',
-                  isLoading
-                    ? 'bg-primary/10 text-primary'
-                    : 'bg-muted text-muted-foreground',
+                  isLoading ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground',
                 )}
               >
-                {isLoading ? <Bot className="h-3 w-3 animate-pulse" /> : <Sparkles className="h-3 w-3" />}
+                {isLoading ? (
+                  <Bot className="h-3 w-3 animate-pulse" />
+                ) : (
+                  <Sparkles className="h-3 w-3" />
+                )}
                 {isLoading ? 'Running' : 'Ready'}
                 {iteration ? (
                   <span className="tabular">
@@ -210,6 +197,7 @@ function WorkbenchTopbar({
             <Cpu className="h-3.5 w-3.5" />
             Model
           </button>
+          <InspectorTrigger />
           <button
             type="button"
             onClick={onSettings}
@@ -255,8 +243,6 @@ function AppInner() {
     setModelSwitcherOpen,
     setPromptLibraryOpen,
     toggleInspector,
-    fleetMonitorOpen,
-    agentsMonitorOpen,
     setFleetMonitorOpen,
     setAgentsMonitorOpen,
     processMonitorOpen,
@@ -278,8 +264,6 @@ function AppInner() {
       setModelSwitcherOpen: s.setModelSwitcherOpen,
       setPromptLibraryOpen: s.setPromptLibraryOpen,
       toggleInspector: s.toggleInspector,
-      fleetMonitorOpen: s.fleetMonitorOpen,
-      agentsMonitorOpen: s.agentsMonitorOpen,
       setFleetMonitorOpen: s.setFleetMonitorOpen,
       setAgentsMonitorOpen: s.setAgentsMonitorOpen,
       processMonitorOpen: s.processMonitorOpen,
@@ -302,10 +286,18 @@ function AppInner() {
   const setSideContextBreakdownOpen = useUIStore((s) => s.setSideContextBreakdownOpen);
   const fleetAgents = useFleetStore((s) => s.agents);
 
-  useEffect(() => {
-    if (!desktopShell) return;
-    resetUiNavigationToHome({ sidebarOpen: false });
-  }, [desktopShell]);
+  useDesktopBridge({
+    setPaletteOpen,
+    setSearchOpen,
+    setShortcutsOpen,
+    setModelSwitcherOpen,
+    setPromptLibraryOpen,
+    setFleetMonitorOpen,
+    setAgentsMonitorOpen,
+    setProcessMonitorOpen,
+    setQueuePanelOpen,
+    setTerminalOpen,
+  });
 
   // Detect /debug, /analytics, /refresh-debug URL paths and switch views.
   useEffect(() => {
@@ -372,259 +364,6 @@ function AppInner() {
   // hook which returns action methods only — see hooks/useWebSocket.ts for
   // the duplicate-handler trap this avoids.
   useWebSocketBootstrap();
-
-  useEffect(() => {
-    publishDesktopPrefsSnapshot();
-    return useLocalPrefs.subscribe((next, prev) => {
-      if (
-        next.yolo === prev.yolo &&
-        next.nextPrediction === prev.nextPrediction &&
-        next.contextAutoCompact === prev.contextAutoCompact
-      ) {
-        return;
-      }
-      publishDesktopPrefsSnapshot();
-    });
-  }, []);
-
-  // Desktop shell integration. Electron hosts the real WebUI in a
-  // WebContentsView and sends this event when the native sidebar asks to open a
-  // WebUI surface. Browser users never see this path.
-  useEffect(() => {
-    const applyDesktopCommand = (rawDetail: unknown): boolean => {
-      const detail =
-        rawDetail && typeof rawDetail === 'object' && !Array.isArray(rawDetail)
-          ? (rawDetail as Record<string, unknown>)
-          : {};
-      const ui = useUIStore.getState();
-      const ws = getWSClient(useConfigStore.getState().wsUrl);
-      let handled = false;
-
-      const openDesktopView = (view: string): void => {
-        navigateToView(view as never);
-        if (view === 'sessions') {
-          ws?.listSessions?.(50);
-        }
-      };
-
-      const activity = detail['activity'];
-      if (typeof activity === 'string' && (PANEL_ORDER as readonly string[]).includes(activity)) {
-        const nextActivity = activity as (typeof PANEL_ORDER)[number];
-        showPanel(nextActivity);
-        handled = true;
-        if (detail['view'] === undefined) {
-          const fallbackView = pairedViewForActivity(nextActivity);
-          if (fallbackView === 'sessions') {
-            ws?.listSessions?.(50);
-          }
-        }
-      }
-
-      const view = detail['view'];
-      if (typeof view === 'string' && DESKTOP_COMMAND_VIEWS.has(view)) {
-        openDesktopView(view);
-        handled = true;
-      }
-
-      const action = detail['action'];
-      if (action === 'new-session') {
-        ws?.newSession?.();
-        showPanel('chat');
-        handled = true;
-      } else if (action === 'clear-context') {
-        streamCoalescer.dropAll();
-        useChatStore.getState().clearMessages();
-        ws?.clearContext?.();
-        showPanel('chat');
-        handled = true;
-      } else if (action === 'compact-context') {
-        ws?.compactContext?.();
-        showPanel('chat');
-        handled = true;
-      } else if (action === 'repair-context') {
-        ws?.repairContext?.();
-        showPanel('chat');
-        handled = true;
-      } else if (action === 'download-chat') {
-        downloadChatAsMarkdown();
-        handled = true;
-      } else if (action === 'focus-chat') {
-        showPanel('chat');
-        window.requestAnimationFrame(() => document.querySelector('textarea')?.focus());
-        handled = true;
-      } else if (action === 'open-command-palette') {
-        setPaletteOpen(true);
-        handled = true;
-      } else if (action === 'open-shortcuts') {
-        setShortcutsOpen(true);
-        handled = true;
-      } else if (action === 'search-chat') {
-        setSearchOpen(true);
-        handled = true;
-      } else if (action === 'open-model-switcher') {
-        setModelSwitcherOpen(true);
-        handled = true;
-      } else if (action === 'open-prompt-library') {
-        setPromptLibraryOpen(true);
-        handled = true;
-      }
-
-      const dockSection = detail['dockSection'];
-      if (typeof dockSection === 'string' && DESKTOP_COMMAND_DOCKS.has(dockSection)) {
-        const section = dockSection as DockSection;
-        ui.showDockChip(section);
-        ui.setDockCustomizeOpen(false);
-        handled = true;
-        if (dockSection === 'autophase') {
-          openMainView('autophase');
-          ui.setDockSection(null);
-          return handled;
-        }
-        showPanel('chat');
-        ui.setDockSection(section);
-        if (dockSection === 'goal') {
-          ws?.send?.({ type: 'goal.get' });
-        }
-      }
-
-      const workTab = detail['workTab'];
-      if (typeof workTab === 'string' && DESKTOP_COMMAND_WORK_TABS.has(workTab)) {
-        ui.showDockChip('work');
-        ui.setDockCustomizeOpen(false);
-        showPanel('chat');
-        ui.setDockSection('work');
-        ui.setWorkDashboardTab(workTab as never);
-        handled = true;
-        if (workTab === 'plan') {
-          ws?.getPlan?.();
-        }
-      }
-
-      const overlay = detail['overlay'];
-      if (overlay === 'fleet') {
-        setFleetMonitorOpen(true);
-        handled = true;
-      } else if (overlay === 'agents-monitor') {
-        setAgentsMonitorOpen(true);
-        handled = true;
-      } else if (overlay === 'processes') {
-        setProcessMonitorOpen(true);
-        handled = true;
-      } else if (overlay === 'queue') {
-        setQueuePanelOpen(true);
-        handled = true;
-      }
-
-      if (detail['terminal'] === 'toggle') {
-        ui.toggleTerminal();
-        handled = true;
-      } else if (detail['terminal'] === 'new') {
-        if (ui.terminalOpen) {
-          ui.requestTerminalCreate();
-        } else {
-          setTerminalOpen(true);
-        }
-        handled = true;
-      } else if (detail['terminal'] === true) {
-        setTerminalOpen(true);
-        handled = true;
-      } else if (detail['terminal'] === false) {
-        setTerminalOpen(false);
-        handled = true;
-      }
-
-      const pref = detail['pref'];
-      if (pref && typeof pref === 'object' && !Array.isArray(pref)) {
-        const command = pref as Record<string, unknown>;
-        const key = command['key'];
-        if (key === 'yolo' || key === 'nextPrediction' || key === 'contextAutoCompact') {
-          const prefs = useLocalPrefs.getState();
-          const value = command['toggle'] === true ? !prefs[key] : command['value'];
-          if (typeof value === 'boolean') {
-            const patch = { [key]: value };
-            prefs.set(patch);
-            ws?.updatePrefs?.(patch);
-            if (key === 'yolo') {
-              toast.info(`YOLO ${value ? 'enabled' : 'disabled'}`);
-            }
-            handled = true;
-          }
-        }
-      }
-
-      return handled;
-    };
-
-    const handledDesktopCommandIds = new Set<string>();
-    const handledDesktopCommandOrder: string[] = [];
-    const rememberHandledDesktopCommand = (requestId: string): void => {
-      handledDesktopCommandIds.add(requestId);
-      handledDesktopCommandOrder.push(requestId);
-      while (handledDesktopCommandOrder.length > 120) {
-        const stale = handledDesktopCommandOrder.shift();
-        if (stale) handledDesktopCommandIds.delete(stale);
-      }
-    };
-
-    const handleDesktopCommand = (rawDetail: unknown): void => {
-      const detail =
-        rawDetail && typeof rawDetail === 'object' && !Array.isArray(rawDetail)
-          ? (rawDetail as Record<string, unknown>)
-          : {};
-      const requestId = detail['requestId'];
-      if (typeof requestId === 'string' && handledDesktopCommandIds.has(requestId)) {
-        publishDesktopCommandAck(requestId, true);
-        return;
-      }
-      try {
-        const handled = applyDesktopCommand(rawDetail);
-        if (handled && typeof requestId === 'string') {
-          rememberHandledDesktopCommand(requestId);
-        }
-        publishDesktopCommandAck(requestId, handled);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        publishDesktopCommandAck(requestId, false, message);
-        console.error(err);
-      }
-    };
-
-    const bridge = (
-      window as unknown as {
-        wrongstackDesktopCommands?: {
-          subscribe?: (cb: (command: Record<string, unknown>) => void) => () => void;
-        };
-      }
-    ).wrongstackDesktopCommands;
-    const unsubscribe =
-      bridge?.subscribe?.((command) => {
-        handleDesktopCommand(command);
-      }) ?? null;
-    const onDesktopCommand = (event: Event): void => {
-      handleDesktopCommand((event as CustomEvent<Record<string, unknown>>).detail);
-    };
-    window.addEventListener('wrongstack:desktop-command', onDesktopCommand);
-    (window as unknown as { __wrongstackDesktopReady?: boolean }).__wrongstackDesktopReady = true;
-    publishDesktopReady(true);
-    return () => {
-      (window as unknown as { __wrongstackDesktopReady?: boolean }).__wrongstackDesktopReady =
-        false;
-      publishDesktopReady(false);
-      if (unsubscribe) unsubscribe();
-      window.removeEventListener('wrongstack:desktop-command', onDesktopCommand);
-    };
-  }, [
-    setAgentsMonitorOpen,
-    setFleetMonitorOpen,
-    setModelSwitcherOpen,
-    setPaletteOpen,
-    setPromptLibraryOpen,
-    setProcessMonitorOpen,
-    setQueuePanelOpen,
-    setSearchOpen,
-    setShortcutsOpen,
-    setTerminalOpen,
-  ]);
 
   // F5-resilience: the zustand persist middleware writes asynchronously
   // after every mutation. When the page tears down via F5 / tab close /
@@ -791,7 +530,7 @@ function AppInner() {
             ui.setDockSection('goal');
             return;
           case 10:
-            ws?.listSessions?.(50);
+            ws?.listSessions?.(200);
             showPanel('history');
             return;
           case 11:
@@ -988,7 +727,10 @@ function AppInner() {
       {sidebarOpen && currentView !== 'setup' && <SidePanel desktopShell={desktopShell} />}
 
       {/* ── Main area ── */}
-      <main id="main-content" className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden bg-background/70">
+      <main
+        id="main-content"
+        className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden bg-background/70"
+      >
         {currentView !== 'setup' && (
           <WorkbenchTopbar
             currentView={currentView}
@@ -1025,13 +767,6 @@ function AppInner() {
             )}
             <ErrorBoundary level="panel" name="Chat">
               <ChatView />
-            </ErrorBoundary>
-            {/* Bottom inspector panel — DevTools-style dock that slides
-                up/down. Replaces the fixed BottomDock (which blocked the
-                chat input) and the modal Fleet/Agents drawers. Lives in the
-                chat view so it doesn't clutter settings/sessions. */}
-            <ErrorBoundary level="panel" name="Inspector">
-              <InspectorPanel />
             </ErrorBoundary>
           </>
         )}
@@ -1099,7 +834,7 @@ function AppInner() {
         {currentView === 'sessions' && (
           <ErrorBoundary level="panel" name="Sessions">
             <Suspense fallback={<PanelSuspense />}>
-              <div className="flex-1 min-h-0 min-w-0 overflow-y-auto">
+              <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
                 <SessionsDashboard />
               </div>
             </Suspense>
@@ -1220,19 +955,12 @@ function AppInner() {
         )}
       </main>
 
-      {/* Fleet Monitor sidebar overlay */}
-      {fleetMonitorOpen && (
-        <ErrorBoundary level="panel" name="Fleet Monitor">
-          <FleetMonitor onClose={() => setFleetMonitorOpen(false)} />
-        </ErrorBoundary>
-      )}
-
-      {/* Agents Monitor sidebar overlay */}
-      {agentsMonitorOpen && (
-        <ErrorBoundary level="panel" name="Agents Monitor">
-          <Suspense fallback={null}>
-            <AgentsMonitor onClose={() => setAgentsMonitorOpen(false)} />
-          </Suspense>
+      {/* Global right inspector — overlays the active work surface without
+          shrinking chat/editor/board layout. It remains available across
+          main views so detail targets can migrate into one shared drawer. */}
+      {currentView !== 'setup' && (
+        <ErrorBoundary level="panel" name="Inspector">
+          <InspectorPanel />
         </ErrorBoundary>
       )}
 
@@ -1258,15 +986,16 @@ function AppInner() {
       )}
 
       {/* Agent detail modal — triggered from side-panel agent row click */}
-      {agentDetailModalId && (() => {
-        const modalAgent = fleetAgents.get(agentDetailModalId) ?? null;
-        if (!modalAgent) return null;
-        return (
-          <Suspense fallback={null}>
-            <AgentDetail agent={modalAgent} onClose={() => setAgentDetailModalId(null)} />
-          </Suspense>
-        );
-      })()}
+      {agentDetailModalId &&
+        (() => {
+          const modalAgent = fleetAgents.get(agentDetailModalId) ?? null;
+          if (!modalAgent) return null;
+          return (
+            <Suspense fallback={null}>
+              <AgentDetail agent={modalAgent} onClose={() => setAgentDetailModalId(null)} />
+            </Suspense>
+          );
+        })()}
 
       {/* Context breakdown modal — triggered from side-panel session panel */}
       {sideContextBreakdownOpen && (

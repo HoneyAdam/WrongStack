@@ -30,8 +30,8 @@ const HOTSPOTS: readonly Hotspot[] = [
   },
   {
     file: 'packages/webui/src/App.tsx',
-    maxLines: 1300,
-    rationale: 'WebUI app shell should not absorb more desktop/bridge logic. TEMP: cap raised from 1100 → 1300 to absorb recent growth; track extraction of desktop/bridge hooks in a follow-up. The previous bump (1100 → 1250) was needed for the WebUI integrated-terminal integration; another 50-line bump covers the recent session-pane additions tracked in stash@{0}.',
+    maxLines: 1100,
+    rationale: 'Desktop/bridge hooks extracted to useDesktopBridge.ts (1028 lines after extraction). Keep under 1100 by extracting new concerns into their own modules.',
   },
   {
     file: 'packages/webui/src/components/SettingsPanel/index.tsx',
