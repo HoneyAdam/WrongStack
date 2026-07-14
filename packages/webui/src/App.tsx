@@ -3,6 +3,7 @@ import { lazy, Suspense, useEffect } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useWebSocketBootstrap } from '@/hooks/useWebSocket';
 import { useDesktopBridge } from '@/hooks/useDesktopBridge';
+import { useF5Resilience } from '@/hooks/useF5Resilience';
 import { useGlobalKeyboardShortcuts } from '@/hooks/useGlobalKeyboardShortcuts';
 import { isDesktopShell } from '@/lib/desktop-shell';
 import { cn } from '@/lib/utils';
@@ -362,61 +363,7 @@ function AppInner() {
   // the duplicate-handler trap this avoids.
   useWebSocketBootstrap();
 
-  // F5-resilience: the zustand persist middleware writes asynchronously
-  // after every mutation. When the page tears down via F5 / tab close /
-  // navigation, in-flight writes can be lost. We hook `pagehide` (the
-  // recommended event for bfcache + unload coverage) to force a flush so
-  // the next visit finds the latest state. The flush is silent — we
-  // don't want a user-visible error if localStorage is full.
-  useEffect(() => {
-    const flush = (): void => {
-      try {
-        const stores = [useSessionStore, useChatStore, useUIStore, useConfigStore];
-        for (const s of stores) {
-          const persistApi = (
-            s as unknown as {
-              persist?: { flush?: () => void; getOptions?: () => { storage?: unknown } };
-            }
-          ).persist;
-          if (persistApi && typeof persistApi.flush === 'function') {
-            persistApi.flush();
-          }
-        }
-      } catch {
-        // ignore — best-effort flush.
-      }
-    };
-    window.addEventListener('pagehide', flush);
-    window.addEventListener('beforeunload', flush);
-    return () => {
-      window.removeEventListener('pagehide', flush);
-      window.removeEventListener('beforeunload', flush);
-    };
-  }, []);
-
-  // F5-resilience: if the persisted view was something exotic (a debug
-  // overlay, an inspector-only tab), fall back to chat on first mount.
-  // The persisted view is intended for "user landed back on the chat
-  // surface during normal work" — debug overlays should not auto-restore.
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    if (
-      window.location.pathname === '/debug' ||
-      window.location.pathname === '/analytics' ||
-      window.location.pathname === '/refresh-debug'
-    ) {
-      return;
-    }
-    const persistedView = useUIStore.getState().currentView;
-    if (
-      persistedView === 'debug' ||
-      persistedView === 'analytics' ||
-      persistedView === 'design-gallery' ||
-      persistedView === 'setup'
-    ) {
-      showPanel('chat');
-    }
-  }, []);
+  useF5Resilience();
 
   // Reflect the agent's run state + session identity in the browser tab
   // title. Pinned/grouped tab strips become readable at a glance — the
