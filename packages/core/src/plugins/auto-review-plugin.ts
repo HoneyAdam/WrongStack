@@ -3,8 +3,10 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import type { Plugin } from '../types/plugin.js';
 import type { SlashCommand } from '../types/slash-command.js';
+import type { Config } from '../types/config.js';
 import { toErrorMessage } from '../utils/error.js';
 import type { ChimeraReviewNeededPayload } from './chimera-plugin.js';
+import { FallbackProfileManager } from '../core/fallback-profile-manager.js';
 
 // ---------------------------------------------------------------------------
 // Auto-review configuration — read from config.extensions['wstack-auto-review']
@@ -15,8 +17,13 @@ export interface AutoReviewConfig {
   provider?: string | undefined;
   /** Model for review subagents. Falls back to session model. */
   model?: string | undefined;
-  /** Ordered fallback models chain. */
-  fallbackModels?: string[] | undefined;
+  /**
+   * Named fallback profile from config.fallbackProfiles.
+   * Resolved via FallbackProfileManager. The first valid entry
+   * becomes the primary provider/model (when provider/model are
+   * omitted), and the remaining entries form the fallback chain.
+   */
+  fallbackProfile?: string | undefined;
   /** Debounce window in ms — wait for quiet before firing review (default 5000). */
   debounceMs?: number | undefined;
   /** Max files per review batch (default 15). */
@@ -49,14 +56,23 @@ const DEFAULT_MAX_CONCURRENT_REVIEWS = 2;
 
 export function resolveAutoReviewConfig(
   cfg: AutoReviewConfig,
-  sessionProvider: string,
-  sessionModel: string,
+  sessionConfig: Config,
 ): ResolvedAutoReviewConfig {
+  const mgr = new FallbackProfileManager(sessionConfig);
+  const chain = cfg.fallbackProfile
+    ? mgr.resolve(cfg.fallbackProfile)
+    : mgr.resolveEffective({ fallbackAuto: true });
+  const resolvedProvider = cfg.provider ?? (chain.length > 0 ? chain[0]!.providerId : sessionConfig.provider);
+  const resolvedModel = cfg.model ?? (chain.length > 0 ? chain[0]!.model : sessionConfig.model);
+  const fallbackModels = chain.length > 1
+    ? chain.slice(1).map((e) => `${e.providerId}/${e.model}`)
+    : [];
+
   return {
     enabled: cfg.enabled === true,
-    provider: cfg.provider ?? sessionProvider,
-    model: cfg.model ?? sessionModel,
-    fallbackModels: cfg.fallbackModels ?? [],
+    provider: resolvedProvider,
+    model: resolvedModel,
+    fallbackModels,
     debounceMs: cfg.debounceMs ?? DEFAULT_DEBOUNCE_MS,
     maxFilesPerBatch: cfg.maxFilesPerBatch ?? DEFAULT_MAX_FILES_PER_BATCH,
     maxConcurrentReviews: cfg.maxConcurrentReviews ?? DEFAULT_MAX_CONCURRENT_REVIEWS,
@@ -208,7 +224,7 @@ export function createAutoReviewPlugin(): Plugin {
       const recompute = (): ResolvedAutoReviewConfig => {
         const raw: AutoReviewConfig =
           (api.config.extensions?.['wstack-auto-review'] as AutoReviewConfig | undefined) ?? {};
-        return resolveAutoReviewConfig(raw, api.config.provider, api.config.model);
+        return resolveAutoReviewConfig(raw, api.config);
       };
       let resolved = recompute();
       let inFlight: InFlightReview[] = [];
