@@ -59,10 +59,10 @@ describe('TRUSTED_PROVIDER_PRESETS', () => {
     expect(preset!.usage).toBe('metered-api');
   });
 
-  it('Z.AI Coding Plan subscription preset uses the same endpoint but subscription quota', () => {
+  it('Z.AI Coding Plan subscription preset uses the dedicated Coding Plan endpoint', () => {
     const preset = TRUSTED_PROVIDER_PRESETS['zai-coding-plan'];
     expect(preset).toBeDefined();
-    expect(preset!.baseUrl).toBe('https://api.z.ai/api/paas/v4');
+    expect(preset!.baseUrl).toBe('https://api.z.ai/api/coding/paas/v4');
     expect(preset!.usage).toBe('subscription-interactive');
   });
 

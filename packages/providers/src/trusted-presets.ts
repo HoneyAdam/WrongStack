@@ -120,20 +120,21 @@ export const TRUSTED_PROVIDER_PRESETS: Readonly<Record<string, TrustedProviderPr
   /**
    * Z.AI Coding Plan — subscription plan for interactive coding with GLM
    * models. Users subscribe at z.ai, generate an API key from their Coding
-   * Plan dashboard, and paste it here. The endpoint and model aliases are
-   * the same as the metered API but the key draws from subscription quota.
-   * https://docs.z.ai/guides/overview/quick-start
+   * Plan dashboard, and paste it here. Uses the dedicated Coding Plan
+   * endpoint (api.z.ai/api/coding/paas/v4) so requests draw from the
+   * subscription quota, not pay-as-you-go billing.
+   * https://docs.z.ai/devpack/quick-start
    */
   'zai-coding-plan': {
     id: 'zai-coding-plan',
     name: 'Z.AI Coding Plan (Subscription)',
     family: 'openai-compatible',
-    baseUrl: 'https://api.z.ai/api/paas/v4',
+    baseUrl: 'https://api.z.ai/api/coding/paas/v4',
     envVars: ['ZHIPU_API_KEY'],
-    models: ['glm-4.7', 'glm-5-turbo', 'glm-5.2'],
+    models: ['glm-5.2', 'glm-5-turbo', 'glm-4.7'],
     quirks: { thinkingParam: 'zai-glm' },
     usage: 'subscription-interactive',
-    docsUrl: 'https://docs.z.ai/guides/overview/quick-start',
+    docsUrl: 'https://docs.z.ai/devpack/quick-start',
   },
 
   /**
