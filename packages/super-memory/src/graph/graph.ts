@@ -59,6 +59,66 @@ export class SuperMemoryGraph {
     return [...latest.values()].filter((edge) => !edge.deletedAt);
   }
 
+  /**
+   * Mark every edge involving `node` as deleted by setting `deletedAt`.
+   * Returns the number of edges that were actually removed (had no
+   * prior `deletedAt`).
+   */
+  async removeNodeEdges(node: string): Promise<number> {
+    return withFileLock(`${this.edgesLog}.mutation`, async () => {
+      const all = await readJsonl<MemoryGraphEdge>(this.edgesLog);
+      const nowIso = this.now().toISOString();
+      let removed = 0;
+      for (const edge of all) {
+        if (
+          edge?.schemaVersion === 1
+          && !edge.deletedAt
+          && (edge.from === node || edge.to === node)
+        ) {
+          edge.deletedAt = nowIso;
+          removed++;
+        }
+      }
+      if (removed > 0) {
+        // Rewrite the entire log with updated edges
+        const lines = all
+          .filter((e): e is MemoryGraphEdge => !!e)
+          .map((e) => JSON.stringify(e))
+          .join('\n');
+        const { writeFile } = await import('node:fs/promises');
+        await writeFile(this.edgesLog, `${lines}\n`, 'utf8');
+      }
+      return removed;
+    }, { timeoutMs: 30_000, staleMs: 120_000 });
+  }
+
+  /**
+   * Mark a single edge as deleted by its ID.
+   */
+  async removeEdge(edgeId: string): Promise<boolean> {
+    return withFileLock(`${this.edgesLog}.mutation`, async () => {
+      const all = await readJsonl<MemoryGraphEdge>(this.edgesLog);
+      const nowIso = this.now().toISOString();
+      let found = false;
+      for (const edge of all) {
+        if (edge?.id === edgeId && !edge.deletedAt) {
+          edge.deletedAt = nowIso;
+          found = true;
+          break;
+        }
+      }
+      if (found) {
+        const lines = all
+          .filter((e): e is MemoryGraphEdge => !!e)
+          .map((e) => JSON.stringify(e))
+          .join('\n');
+        const { writeFile } = await import('node:fs/promises');
+        await writeFile(this.edgesLog, `${lines}\n`, 'utf8');
+      }
+      return found;
+    }, { timeoutMs: 30_000, staleMs: 120_000 });
+  }
+
   async traverse(
     starts: string[],
     opts: { maxDepth?: number; limit?: number; relations?: MemoryGraphRelation[] } = {},

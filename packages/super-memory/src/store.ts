@@ -415,6 +415,139 @@ export class SuperMemoryStore implements MemoryStore {
     return { total: memories.length, byStatus, byKind, edges: (await this.graph.list()).length };
   }
 
+  async getSuperMemory(id: string): Promise<SuperMemory | null> {
+    const all = await this.loadMemories();
+    return all.find((memory) => memory.id === id) ?? null;
+  }
+
+  async updateSuperMemory(
+    id: string,
+    patch: import('./types.js').UpdateSuperMemoryInput,
+  ): Promise<SuperMemory> {
+    if (Object.keys(patch).length === 0) throw new Error('Update patch must not be empty.');
+
+    const memory = await this.getSuperMemory(id);
+    if (!memory) throw new Error(`Super Memory "${id}" not found.`);
+    if (memory.status === 'deleted') throw new Error(`Super Memory "${id}" is deleted and cannot be updated.`);
+
+    const validatedPatch: Record<string, unknown> = {};
+
+    if (patch.text !== undefined) {
+      const normalized = normalizeText(patch.text);
+      if (!normalized) throw new Error('Super Memory text must not be empty.');
+      validatedPatch.text = normalized;
+    }
+    if (patch.tags !== undefined) {
+      if (!Array.isArray(patch.tags)) throw new Error('tags must be an array of strings.');
+      if (patch.tags.length > MAX_MEMORY_METADATA_ITEMS) throw new Error(`tags exceeds maximum of ${MAX_MEMORY_METADATA_ITEMS} items.`);
+      validatedPatch.tags = normalizeTags(patch.tags);
+    }
+    if (patch.kind !== undefined) {
+      if (!VALID_KINDS.has(patch.kind)) throw new Error(`Invalid kind: ${patch.kind}`);
+      validatedPatch.kind = patch.kind;
+    }
+    if (patch.anchors !== undefined) {
+      if (!Array.isArray(patch.anchors)) throw new Error('anchors must be an array.');
+      if (patch.anchors.length > MAX_MEMORY_METADATA_ITEMS) throw new Error(`anchors exceeds maximum of ${MAX_MEMORY_METADATA_ITEMS} items.`);
+      validatedPatch.anchors = normalizeAnchors(this.projectRoot, patch.anchors);
+    }
+    if (patch.importance !== undefined) {
+      validatedPatch.importance = clamp01(patch.importance);
+    }
+    if (patch.confidence !== undefined) {
+      validatedPatch.confidence = clamp01(patch.confidence);
+    }
+    if (patch.freshness !== undefined) {
+      validatedPatch.freshness = clamp01(patch.freshness);
+    }
+    if (patch.status !== undefined) {
+      if (!VALID_STATUSES.has(patch.status)) throw new Error(`Invalid status: ${patch.status}`);
+      validatedPatch.status = patch.status;
+    }
+    if (patch.supersedes !== undefined) {
+      if (!Array.isArray(patch.supersedes)) throw new Error('supersedes must be an array of strings.');
+      if (patch.supersedes.length > MAX_MEMORY_METADATA_ITEMS) throw new Error(`supersedes exceeds maximum of ${MAX_MEMORY_METADATA_ITEMS} items.`);
+      validatedPatch.supersedes = uniqueIds(patch.supersedes);
+    }
+    if (patch.contradicts !== undefined) {
+      if (!Array.isArray(patch.contradicts)) throw new Error('contradicts must be an array of strings.');
+      if (patch.contradicts.length > MAX_MEMORY_METADATA_ITEMS) throw new Error(`contradicts exceeds maximum of ${MAX_MEMORY_METADATA_ITEMS} items.`);
+      validatedPatch.contradicts = uniqueIds(patch.contradicts);
+    }
+
+    return this.runMutation(async () => {
+      // Reload memory inside the mutation to get latest revision
+      const fresh = (await this.loadMemories()).find((m) => m.id === id);
+      if (!fresh) throw new Error(`Super Memory "${id}" was removed before update completed.`);
+      if (fresh.status === 'deleted') throw new Error(`Super Memory "${id}" was deleted before update completed.`);
+
+      const updated = await this.updateMemory(fresh, validatedPatch as Partial<Omit<SuperMemory, 'id' | 'revision' | 'createdAt'>>);
+
+      const patchHasRelationships = patch.supersedes !== undefined || patch.contradicts !== undefined;
+
+      // If tags or text changed, rebuild anchor edges
+      if (patch.tags || patch.text || patch.anchors) {
+        await this.addAutomaticEdges(updated);
+      }
+
+      // If supersedes/contradicts changed, apply declared relationships
+      if (patchHasRelationships) {
+        // Re-read state so applyDeclaredRelationships sees the latest
+        const refreshed = (await this.loadMemories()).find((m) => m.id === id);
+        if (refreshed) {
+          await this.applyDeclaredRelationships(refreshed);
+        }
+      }
+
+      await this.afterMutation();
+      await this.audit('memory.updated', { memoryId: id, reason: 'updateSuperMemory' });
+      this.events?.emit('memory.updated', this.eventPayload({ memoryId: id, status: updated.status }));
+      return updated;
+    });
+  }
+
+  async deleteSuperMemory(id: string, reason = 'Manually deleted via API.'): Promise<void> {
+    const memory = await this.getSuperMemory(id);
+    if (!memory) throw new Error(`Super Memory "${id}" not found.`);
+    if (memory.status === 'deleted') return; // Idempotent
+
+    await this.runMutation(async () => {
+      // Reload inside mutation
+      const fresh = (await this.loadMemories()).find((m) => m.id === id);
+      if (!fresh) throw new Error(`Super Memory "${id}" was removed before delete completed.`);
+      if (fresh.status === 'deleted') return; // Idempotent
+
+      // 1. Remove graph edges involving this memory
+      const removedEdges = await this.graph.removeNodeEdges(`mem:${id}`);
+
+      // 2. Cascade: clean up references in other memories
+      const all = await this.loadMemories();
+      for (const other of all) {
+        if (other.id === id || other.status === 'deleted') continue;
+        const patch: Record<string, unknown> = {};
+        if (other.supersedes?.includes(id)) {
+          patch.supersedes = other.supersedes.filter((s) => s !== id);
+        }
+        if (other.contradicts?.includes(id)) {
+          patch.contradicts = other.contradicts.filter((c) => c !== id);
+        }
+        if (other.supersededBy === id) {
+          patch.supersededBy = undefined;
+        }
+        if (Object.keys(patch).length > 0) {
+          await this.updateMemory(other, patch as Partial<Omit<SuperMemory, 'id' | 'revision' | 'createdAt'>>, { preserveUpdatedAt: true });
+        }
+      }
+
+      // 3. Soft-delete the memory itself
+      await this.updateMemory(fresh, { status: 'deleted' });
+
+      await this.afterMutation();
+      await this.audit('memory.deleted', { memoryId: id, reason, details: { removedEdges } });
+      this.events?.emit('memory.updated', this.eventPayload({ memoryId: id, status: 'deleted' }));
+    });
+  }
+
   async importLegacy(files: string | string[]): Promise<LegacyImportResult> {
     const paths = Array.isArray(files) ? files : [files];
     const result: LegacyImportResult = { imported: 0, skipped: 0, files: 0 };

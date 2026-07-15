@@ -4,6 +4,8 @@ import { createMemorySlashCommand, type MemorySlashDeps } from '../src/memory-sl
 
 /**
  * Build a fake MemoryStore backed by a mutable array per scope.
+ * This does NOT implement `stats`, `listSuper`, or `retrieveForPath`,
+ * so the command takes the legacy path.
  */
 function fakeMemoryStore(entries: Partial<Record<MemoryScope, MemoryEntry[]>>): MemoryStore {
   const store: Partial<Record<MemoryScope, MemoryEntry[]>> = {};
@@ -20,6 +22,66 @@ function fakeMemoryStore(entries: Partial<Record<MemoryScope, MemoryEntry[]>>): 
     clear: async () => {},
     search: async () => [],
     withTraceId: () => store as unknown as MemoryStore,
+  };
+}
+
+/**
+ * Build a fake SuperMemory store. Implements `stats`, `listSuper`, and
+ * `retrieveForPath` so the command takes the supermemory path.
+ */
+function fakeSuperMemoryStore(memories: SuperMemoryTestEntry[]) {
+  return {
+    list: async () => [],
+    readAll: async () => '',
+    read: async () => '',
+    remember: async () => {},
+    forget: async () => 0,
+    consolidate: async () => {},
+    clear: async () => {},
+    search: async () => [],
+    withTraceId: () => ({} as MemoryStore),
+
+    // ── SuperMemory duck-type methods ──
+    stats: async () => {
+      const total = memories.length;
+      const byStatus: Record<string, number> = { active: 0, stale: 0, superseded: 0, contradicted: 0, archived: 0, deleted: 0 };
+      const byKind: Record<string, number> = {};
+      for (const m of memories) {
+        byStatus[m.status] = (byStatus[m.status] ?? 0) + 1;
+        byKind[m.kind] = (byKind[m.kind] ?? 0) + 1;
+      }
+      return { total, byStatus, byKind, edges: 3 };
+    },
+    listSuper: async () => memories.map(superEntry),
+    retrieveForPath: async (opts: { path: string }) =>
+      memories.filter((m) => m.anchors?.some((a) => a.path?.includes(opts.path))).map(superEntry),
+    searchSuper: async () => [],
+  };
+}
+
+interface SuperMemoryTestEntry {
+  id: string;
+  kind: string;
+  status: string;
+  text: string;
+  tags: string[];
+  createdAt: string;
+  anchors?: Array<{ type: string; path?: string; symbol?: string; command?: string }>;
+}
+
+function superEntry(e: SuperMemoryTestEntry) {
+  return {
+    id: e.id,
+    kind: e.kind,
+    status: e.status,
+    text: e.text,
+    tags: e.tags,
+    createdAt: e.createdAt,
+    updatedAt: e.createdAt,
+    importance: 0.5,
+    confidence: 0.8,
+    anchors: e.anchors ?? [],
+    sources: [{ type: 'user' as const }],
   };
 }
 
@@ -40,124 +102,256 @@ function run(cmd: ReturnType<typeof createMemorySlashCommand>, args = ''): Promi
 }
 
 describe('/memory slash command', () => {
-  it('returns "No memory entries found." when all scopes are empty', async () => {
-    const deps: MemorySlashDeps = { memoryStore: fakeMemoryStore({}) };
-    const cmd = createMemorySlashCommand(deps);
-    expect(await run(cmd)).toBe('No memory entries found.');
+  // ── Legacy path ─────────────────────────────────────────────────────────
+
+  describe('legacy store', () => {
+    it('returns empty message with migration hint when all scopes are empty', async () => {
+      const deps: MemorySlashDeps = { memoryStore: fakeMemoryStore({}) };
+      const cmd = createMemorySlashCommand(deps);
+      const out = await run(cmd);
+      expect(out).toContain('No memory entries found');
+      expect(out).toContain('Super Memory');
+    });
+
+    it('lists entries from project-memory in rich format', async () => {
+      const deps: MemorySlashDeps = {
+        memoryStore: fakeMemoryStore({
+          'project-memory': [entry('A key design decision', { type: 'decision', priority: 'high', tags: ['design', 'arch'] })],
+        }),
+      };
+      const cmd = createMemorySlashCommand(deps);
+      const out = await run(cmd);
+      // Stats summary
+      expect(out).toContain('Memory Overview');
+      expect(out).toContain('decision');
+      expect(out).toContain('high');
+      // Migration hint
+      expect(out).toContain('Super Memory');
+      // Entry content
+      expect(out).toContain('A key design decision');
+      // Footer
+      expect(out).toContain('1 entry');
+    });
+
+    it('shows entries from all three scopes when no argument is given', async () => {
+      const deps: MemorySlashDeps = {
+        memoryStore: fakeMemoryStore({
+          'project-agents': [entry('Agent coordination fact', { scope: 'project-agents', tags: ['agents'] })],
+          'project-memory': [entry('Project note', { scope: 'project-memory', tags: ['project'] })],
+          'user-memory': [entry('Personal preference', { scope: 'user-memory', tags: ['user'] })],
+        }),
+      };
+      const cmd = createMemorySlashCommand(deps);
+      const out = await run(cmd);
+      expect(out).toContain('AGENTS.md');
+      expect(out).toContain('Project memory');
+      expect(out).toContain('User memory');
+      expect(out).toContain('3 entries across');
+    });
+
+    it('filters to a single scope when given as argument', async () => {
+      const deps: MemorySlashDeps = {
+        memoryStore: fakeMemoryStore({
+          'project-agents': [entry('agents-1', { scope: 'project-agents' })],
+          'project-memory': [entry('proj-1', { scope: 'project-memory' })],
+          'user-memory': [entry('user-1', { scope: 'user-memory' })],
+        }),
+      };
+      const cmd = createMemorySlashCommand(deps);
+      const out = await run(cmd, 'user-memory');
+      expect(out).toContain('User memory');
+      expect(out).not.toContain('Project memory');
+      expect(out).not.toContain('AGENTS.md');
+      expect(out).toContain('1 entry');
+    });
+
+    it('truncates long text previews with ellipsis', async () => {
+      const longText = 'A very long memory entry that should be truncated because it exceeds the one hundred character preview limit in the output for the legacy rich entry renderer';
+      const deps: MemorySlashDeps = {
+        memoryStore: fakeMemoryStore({
+          'project-memory': [entry(longText)],
+        }),
+      };
+      const cmd = createMemorySlashCommand(deps);
+      const out = await run(cmd);
+      expect(out).toContain('…');
+    });
+
+    it('renders empty scope gracefully without crashing on invalid timestamps', async () => {
+      const deps: MemorySlashDeps = {
+        memoryStore: fakeMemoryStore({
+          'project-memory': [{ scope: 'project-memory', text: 'Minimal entry', ts: '' }],
+        }),
+      };
+      const cmd = createMemorySlashCommand(deps);
+      const out = await run(cmd);
+      // Should not crash — invalid ts renders as '—' placeholder
+      expect(out).not.toContain('Failed');
+      expect(out).toContain('Minimal entry');
+      expect(out).toContain('—');
+    });
+
+    it('handles malformed timestamps without crashing', async () => {
+      const deps: MemorySlashDeps = {
+        memoryStore: fakeMemoryStore({
+          'project-memory': [
+            { scope: 'project-memory', text: 'Bad date entry', ts: 'not-a-date' },
+            { scope: 'project-memory', text: 'Good entry', ts: '2026-07-14T12:00:00Z' },
+          ],
+        }),
+      };
+      const cmd = createMemorySlashCommand(deps);
+      const out = await run(cmd);
+      // Should not crash or say "Failed"
+      expect(out).not.toContain('Failed');
+      expect(out).toContain('Bad date entry');
+      expect(out).toContain('Good entry');
+    });
+
+    it('reports an error when memoryStore.list rejects', async () => {
+      const brokenStore: MemoryStore = {
+        list: async () => { throw new Error('disk failure'); },
+        readAll: async () => '',
+        read: async () => '',
+        remember: async () => {},
+        forget: async () => 0,
+        consolidate: async () => {},
+        clear: async () => {},
+        search: async () => [],
+        withTraceId: () => brokenStore,
+      };
+      const deps: MemorySlashDeps = { memoryStore: brokenStore };
+      const cmd = createMemorySlashCommand(deps);
+      const out = await run(cmd);
+      expect(out).toContain('Failed to read memory store');
+      expect(out).toContain('disk failure');
+    });
+
+    it('pluralises "entries" correctly for a single entry', async () => {
+      const deps: MemorySlashDeps = {
+        memoryStore: fakeMemoryStore({
+          'project-memory': [entry('only one')],
+        }),
+      };
+      const cmd = createMemorySlashCommand(deps);
+      const out = await run(cmd);
+      expect(out).toContain('1 entry');
+    });
+
+    it('pluralises "entries" correctly for multiple entries', async () => {
+      const deps: MemorySlashDeps = {
+        memoryStore: fakeMemoryStore({
+          'project-memory': [entry('a'), entry('b')],
+        }),
+      };
+      const cmd = createMemorySlashCommand(deps);
+      const out = await run(cmd);
+      expect(out).toContain('2 entries');
+    });
+
+    it('filters by tag in legacy mode', async () => {
+      const deps: MemorySlashDeps = {
+        memoryStore: fakeMemoryStore({
+          'project-memory': [
+            entry('TypeScript config', { tags: ['typescript', 'config'] }),
+            entry('Rust setup', { tags: ['rust'] }),
+          ],
+        }),
+      };
+      const cmd = createMemorySlashCommand(deps);
+      const out = await run(cmd, '--tag rust');
+      expect(out).toContain('Rust setup');
+      expect(out).not.toContain('TypeScript config');
+    });
   });
 
-  it('lists entries from project-memory in a markdown table', async () => {
-    const deps: MemorySlashDeps = {
-      memoryStore: fakeMemoryStore({
-        'project-memory': [entry('A key design decision', { type: 'decision', priority: 'high', tags: ['design', 'arch'] })],
-      }),
-    };
-    const cmd = createMemorySlashCommand(deps);
-    const out = await run(cmd);
-    expect(out).toContain('Project memory');
-    expect(out).toContain('| Type');
-    expect(out).toContain('decision');
-    expect(out).toContain('high');
-    expect(out).toContain('design, arch');
-    expect(out).toContain('A key design decision');
-    expect(out).toContain('Total: 1 entry across');
-  });
+  // ── SuperMemory path ────────────────────────────────────────────────────
 
-  it('shows entries from all three scopes when no argument is given', async () => {
-    const deps: MemorySlashDeps = {
-      memoryStore: fakeMemoryStore({
-        'project-agents': [entry('Agent coordination fact', { scope: 'project-agents', tags: ['agents'] })],
-        'project-memory': [entry('Project note', { scope: 'project-memory', tags: ['project'] })],
-        'user-memory': [entry('Personal preference', { scope: 'user-memory', tags: ['user'] })],
-      }),
-    };
-    const cmd = createMemorySlashCommand(deps);
-    const out = await run(cmd);
-    expect(out).toContain('AGENTS.md');
-    expect(out).toContain('Project memory');
-    expect(out).toContain('User memory');
-    expect(out).toContain('Total: 3 entries across 3 scopes');
-  });
+  describe('super memory store', () => {
+    const fixtMemories: SuperMemoryTestEntry[] = [
+      { id: 'mem_001', kind: 'decision', status: 'active', text: 'Use pnpm workspaces', tags: ['pnpm', 'monorepo'], createdAt: '2026-07-14T12:00:00Z' },
+      { id: 'mem_002', kind: 'convention', status: 'active', text: 'ESM-only modules', tags: ['esm', 'typescript'], createdAt: '2026-07-13T12:00:00Z', anchors: [{ type: 'file', path: 'src/config.ts' }] },
+      { id: 'mem_003', kind: 'fact', status: 'stale', text: 'Old node version requirement', tags: ['node'], createdAt: '2026-06-01T12:00:00Z' },
+    ];
 
-  it('filters to a single scope when given as argument', async () => {
-    const deps: MemorySlashDeps = {
-      memoryStore: fakeMemoryStore({
-        'project-agents': [entry('agents-1', { scope: 'project-agents' })],
-        'project-memory': [entry('proj-1', { scope: 'project-memory' })],
-        'user-memory': [entry('user-1', { scope: 'user-memory' })],
-      }),
-    };
-    const cmd = createMemorySlashCommand(deps);
-    const out = await run(cmd, 'user-memory');
-    expect(out).toContain('User memory');
-    expect(out).not.toContain('Project memory');
-    expect(out).not.toContain('AGENTS.md');
-    expect(out).toContain('Total: 1 entry across 1 scope');
-  });
+    it('shows supermemory stats panel', async () => {
+      const store = fakeSuperMemoryStore(fixtMemories);
+      const cmd = createMemorySlashCommand({ memoryStore: store });
+      const out = await run(cmd);
+      // Stats panel
+      expect(out).toContain('Super Memory');
+      expect(out).toContain('3 memories');
+      expect(out).toContain('active');
+      expect(out).toContain('stale');
+      expect(out).toContain('Graph edges');
+      // By kind breakdown
+      expect(out).toContain('decision');
+      expect(out).toContain('convention');
+      expect(out).toContain('fact');
+      // Tag cloud
+      expect(out).toContain('pnpm');
+      expect(out).toContain('esm');
+      // Entry cards
+      expect(out).toContain('Use pnpm workspaces');
+      expect(out).toContain('ESM-only modules');
+      expect(out).toContain('Old node version');
+    });
 
-  it('truncates long text previews with ellipsis', async () => {
-    const longText = 'A very long memory entry that should be truncated because it exceeds the 72 character preview limit in the table output';
-    const deps: MemorySlashDeps = {
-      memoryStore: fakeMemoryStore({
-        'project-memory': [entry(longText)],
-      }),
-    };
-    const cmd = createMemorySlashCommand(deps);
-    const out = await run(cmd);
-    expect(out).toContain('…');
-    expect(out).not.toContain(longText);
-  });
+    it('filters by tag', async () => {
+      const store = fakeSuperMemoryStore(fixtMemories);
+      const cmd = createMemorySlashCommand({ memoryStore: store });
+      const out = await run(cmd, '--tag esm');
+      expect(out).toContain('ESM-only modules');
+      expect(out).not.toContain('Use pnpm workspaces');
+      expect(out).not.toContain('Old node version');
+    });
 
-  it('renders empty scope as "—" placeholders for missing fields', async () => {
-    const deps: MemorySlashDeps = {
-      memoryStore: fakeMemoryStore({
-        'project-memory': [{ scope: 'project-memory', text: 'Minimal entry', ts: '' }],
-      }),
-    };
-    const cmd = createMemorySlashCommand(deps);
-    const out = await run(cmd);
-    // No type, no priority, no tags, no date → em-dash placeholders
-    expect(out).toMatch(/—/);
-  });
+    it('filters by path', async () => {
+      const store = fakeSuperMemoryStore(fixtMemories);
+      const cmd = createMemorySlashCommand({ memoryStore: store });
+      const out = await run(cmd, '--path src/config.ts');
+      expect(out).toContain('ESM-only modules');
+      expect(out).not.toContain('Use pnpm workspaces');
+      expect(out).not.toContain('Old node version');
+    });
 
-  it('reports an error when memoryStore.list rejects', async () => {
-    const brokenStore: MemoryStore = {
-      list: async () => { throw new Error('disk failure'); },
-      readAll: async () => '',
-      read: async () => '',
-      remember: async () => {},
-      forget: async () => 0,
-      consolidate: async () => {},
-      clear: async () => {},
-      search: async () => [],
-      withTraceId: () => brokenStore,
-    };
-    const deps: MemorySlashDeps = { memoryStore: brokenStore };
-    const cmd = createMemorySlashCommand(deps);
-    const out = await run(cmd);
-    expect(out).toContain('Failed to read memory store');
-    expect(out).toContain('disk failure');
-  });
+    it('shows compact table format with --compact', async () => {
+      const store = fakeSuperMemoryStore(fixtMemories);
+      const cmd = createMemorySlashCommand({ memoryStore: store });
+      const out = await run(cmd, '--compact');
+      expect(out).toContain('mem_001');
+      expect(out).toContain('mem_002');
+      expect(out).toContain('mem_003');
+    });
 
-  it('pluralises "entries" correctly for a single entry', async () => {
-    const deps: MemorySlashDeps = {
-      memoryStore: fakeMemoryStore({
-        'project-memory': [entry('only one')],
-      }),
-    };
-    const cmd = createMemorySlashCommand(deps);
-    const out = await run(cmd);
-    expect(out).toContain('1 entry');
-  });
+    it('returns empty message when no super memories exist', async () => {
+      const store = fakeSuperMemoryStore([]);
+      const cmd = createMemorySlashCommand({ memoryStore: store });
+      const out = await run(cmd);
+      expect(out).toContain('Super Memory is empty');
+    });
 
-  it('pluralises "entries" correctly for multiple entries', async () => {
-    const deps: MemorySlashDeps = {
-      memoryStore: fakeMemoryStore({
-        'project-memory': [entry('a'), entry('b')],
-      }),
-    };
-    const cmd = createMemorySlashCommand(deps);
-    const out = await run(cmd);
-    expect(out).toContain('2 entries');
+    it('handles supermemory store errors gracefully', async () => {
+      const brokenStore: MemoryStore = {
+        list: async () => { throw new Error('broken'); },
+        readAll: async () => '',
+        read: async () => '',
+        remember: async () => {},
+        forget: async () => 0,
+        consolidate: async () => {},
+        clear: async () => {},
+        search: async () => [],
+        withTraceId: () => brokenStore,
+        // Duck-type to supermemory but broken
+        stats: async () => { throw new Error('stats failure'); },
+        listSuper: async () => { throw new Error('list failure'); },
+        retrieveForPath: async () => { throw new Error('path failure'); },
+        searchSuper: async () => [],
+      };
+      const deps: MemorySlashDeps = { memoryStore: brokenStore };
+      const cmd = createMemorySlashCommand(deps);
+      const out = await run(cmd);
+      expect(out).toContain('Failed to read memory store');
+    });
   });
 });

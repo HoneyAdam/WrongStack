@@ -28,4 +28,5 @@ export {
   createSuperMemoryTools,
   type SuperMemoryServiceLike,
 } from './tools/memory-tools.js';
+export { type UpdateSuperMemoryInput } from './types.js';
 export * from './types.js';

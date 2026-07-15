@@ -57,7 +57,15 @@ import {
 import { handleKanbanRoute } from './kanban-routes.js';
 import { handleMailboxRoute } from './mailbox-routes.js';
 import { handleMcpRoute } from './mcp-routes.js';
-import { handleMemoryForget, handleMemoryList, handleMemoryRemember } from './memory-handlers.js';
+import {
+  handleMemoryForget,
+  handleMemoryList,
+  handleMemoryRemember,
+  handleSuperMemoryDelete,
+  handleSuperMemoryGet,
+  handleSuperMemoryList,
+  handleSuperMemoryUpdate,
+} from './memory-handlers.js';
 import { handleModeRoute } from './mode-routes.js';
 import { resolveProviderModelMetadata } from './model-catalog.js';
 import type { ConfirmDecision, PendingConfirm } from './pending-confirms.js';
@@ -450,6 +458,16 @@ export function createMessageDispatcher(
         return handleMemoryRemember(ws, msg, deps.memoryStore);
       case 'memory.forget':
         return handleMemoryForget(ws, msg, deps.memoryStore);
+
+      // ── SuperMemory operations ──
+      case 'memory.super.list':
+        return handleSuperMemoryList(ws, deps.memoryStore);
+      case 'memory.super.get':
+        return handleSuperMemoryGet(ws, msg, deps.memoryStore);
+      case 'memory.super.update':
+        return handleSuperMemoryUpdate(ws, msg, deps.memoryStore);
+      case 'memory.super.delete':
+        return handleSuperMemoryDelete(ws, msg, deps.memoryStore);
 
       // ── MCP tripwires — handleMcpRoute claims these upstream. ──
       case 'mcp.list':

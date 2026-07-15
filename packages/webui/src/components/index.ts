@@ -5,6 +5,7 @@ export { ChatView } from './ChatView';
 export { ChatInput } from './ChatInput';
 export { MessageBubble } from './MessageBubble';
 export { SidePanel } from './SidePanel';
+export { MemoryManager } from './MemoryManager';
 export { SettingsPanel } from './SettingsPanel';
 export { ConfirmDialog } from './ConfirmDialog';
 export { ErrorBoundary } from './ErrorBoundary';

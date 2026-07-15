@@ -285,6 +285,19 @@ export interface RememberSuperMemoryInput {
   contradicts?: string[] | undefined;
 }
 
+export interface UpdateSuperMemoryInput {
+  text?: string | undefined;
+  tags?: string[] | undefined;
+  kind?: SuperMemoryKind | undefined;
+  anchors?: MemoryAnchor[] | undefined;
+  importance?: number | undefined;
+  confidence?: number | undefined;
+  freshness?: number | undefined;
+  status?: SuperMemoryStatus | undefined;
+  supersedes?: string[] | undefined;
+  contradicts?: string[] | undefined;
+}
+
 export interface SuperMemorySearchOptions {
   scope?: SuperMemoryScope | undefined;
   legacyScope?: MemoryScope | undefined;

@@ -49,6 +49,7 @@ export function coerceActivity(value: unknown): Activity {
 const VIEWS = [
   'chat',
   'settings',
+  'memory',
   'autophase',
   'specs',
   'kanban',
@@ -97,25 +98,7 @@ interface UIState {
   /** Which activity icon is selected in the ActivityBar — controls secondary panel content. */
   activeActivity: Activity;
   settingsOpen: boolean;
-  currentView:
-    | 'chat'
-    | 'settings'
-    | 'autophase'
-    | 'specs'
-    | 'kanban'
-    | 'sddboard'
-    | 'sddwizard'
-    | 'files'
-    | 'changes'
-    | 'sessions'
-    | 'setup'
-    | 'skill'
-    | 'officemap'
-    | 'mailbox'
-    | 'debug'
-    | 'design-gallery'
-    | 'refresh-debug'
-    | 'analytics';
+  currentView: View;
   showConfirmDialog: boolean;
   confirmInfo: {
     id: string;

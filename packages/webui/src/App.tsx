@@ -32,6 +32,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { AgentDetail } from './components/FleetPanel';
 import { InspectorPanel, InspectorTrigger } from './components/InspectorPanel';
 import { QuickModelSwitcher } from './components/QuickModelSwitcher';
+import { MemoryManager } from './components/MemoryManager';
 import { SettingsPanel } from './components/SettingsPanel';
 import { ShortcutsOverlay } from './components/ShortcutsOverlay';
 import { SidePanel } from './components/SidePanel';
@@ -458,6 +459,11 @@ function AppInner() {
             <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
               <SettingsPanel />
             </div>
+          </ErrorBoundary>
+        )}
+        {currentView === 'memory' && (
+          <ErrorBoundary level="panel" name="Memory Manager">
+            <MemoryManager />
           </ErrorBoundary>
         )}
         {currentView === 'setup' && (

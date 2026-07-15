@@ -110,8 +110,8 @@ export function CommandPalette() {
       },
       {
         id: 'memory', category: 'Command', label: t('commandPalette:cmd.memory'),
-        icon: Brain, keywords: ['memory', 'remember', 'notes'],
-        run: () => ws.listMemory(),
+        icon: Brain, keywords: ['memory', 'remember', 'notes', 'supermemory'],
+        run: () => useUIStore.getState().setCurrentView('memory'),
       },
       {
         id: 'skills', category: 'Command', label: t('commandPalette:cmd.skills'),

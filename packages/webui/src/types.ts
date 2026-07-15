@@ -437,6 +437,74 @@ export interface WSMemoryList {
   };
 }
 
+// ── SuperMemory response types ────────────────────────────────────────
+
+export interface WSMemorySuperList {
+  type: 'memory.super.list';
+  payload: {
+    memories?: Array<{
+      id: string;
+      kind: string;
+      status: string;
+      text: string;
+      tags: string[];
+      createdAt: string;
+      updatedAt: string;
+      importance: number;
+      confidence: number;
+      revision: number;
+      anchors: Array<{ type: string; path?: string; symbol?: string; command?: string }>;
+    }>;
+    stats?: {
+      total: number;
+      byStatus: Record<string, number>;
+      byKind: Record<string, number>;
+      edges: number;
+    };
+    error?: string | undefined;
+  };
+}
+
+export interface WSMemorySuperGet {
+  type: 'memory.super.get';
+  payload: {
+    memory?: {
+      id: string;
+      kind: string;
+      status: string;
+      text: string;
+      tags: string[];
+      createdAt: string;
+      updatedAt: string;
+      importance: number;
+      confidence: number;
+      revision: number;
+      anchors: Array<{ type: string; path?: string; symbol?: string; command?: string }>;
+    };
+    error?: string | undefined;
+  };
+}
+
+export interface WSMemorySuperUpdate {
+  type: 'memory.super.update';
+  payload: {
+    memory?: {
+      id: string;
+      kind: string;
+      status: string;
+      text: string;
+      tags: string[];
+      createdAt: string;
+      updatedAt: string;
+      importance: number;
+      confidence: number;
+      revision: number;
+      anchors: Array<{ type: string; path?: string; symbol?: string; command?: string }>;
+    };
+    error?: string | undefined;
+  };
+}
+
 export interface WSSkillsList {
   type: 'skills.list';
   payload: {
@@ -1333,6 +1401,23 @@ export type WSClientMessage =
   | { type: 'memory.list' }
   | { type: 'memory.remember'; payload: { text: string; scope?: MemoryScope | undefined } }
   | { type: 'memory.forget'; payload: { text: string; scope?: MemoryScope | undefined } }
+  // ── SuperMemory send types ──
+  | { type: 'memory.super.list' }
+  | { type: 'memory.super.get'; payload: { id: string } }
+  | {
+      type: 'memory.super.update';
+      payload: {
+        id: string;
+        text?: string | undefined;
+        tags?: string[] | undefined;
+        kind?: string | undefined;
+        status?: string | undefined;
+        importance?: number | undefined;
+        confidence?: number | undefined;
+        anchors?: Array<{ type: string; path?: string; symbol?: string; command?: string }> | undefined;
+      };
+    }
+  | { type: 'memory.super.delete'; payload: { id: string; reason?: string | undefined } }
   | { type: 'skills.list' }
   | { type: 'skills.content'; payload: { name: string; source: string } }
   | { type: 'prompts.list' }
@@ -1589,6 +1674,9 @@ export type WSServerMessage =
   | WSContextModeChanged
   | WSToolsList
   | WSMemoryList
+  | WSMemorySuperList
+  | WSMemorySuperGet
+  | WSMemorySuperUpdate
   | WSSkillsList
   | WSSkillContent
   | WSDesignList

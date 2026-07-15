@@ -173,6 +173,359 @@ describe('Super Memory tool-call middleware', () => {
     expect(payload.result.content).toBe('original tool result');
   });
 
+  describe('SuperMemory public CRUD (get/update/delete)', () => {
+    let store: SuperMemoryStore;
+    let memoryId: string;
+
+    beforeEach(async () => {
+      store = new SuperMemoryStore({ projectRoot: tempDir });
+      const created = await store.rememberSuper({
+        text: 'Use pnpm for monorepo management',
+        kind: 'convention',
+        tags: ['pnpm', 'monorepo'],
+      });
+      memoryId = created.id;
+    });
+
+    it('getSuperMemory returns a memory by ID', async () => {
+      const found = await store.getSuperMemory(memoryId);
+      expect(found).not.toBeNull();
+      expect(found!.text).toBe('Use pnpm for monorepo management');
+      expect(found!.kind).toBe('convention');
+      expect(found!.tags).toEqual(['pnpm', 'monorepo']);
+    });
+
+    it('getSuperMemory returns null for a non-existent ID', async () => {
+      const found = await store.getSuperMemory('nonexistent_id');
+      expect(found).toBeNull();
+    });
+
+    it('updateSuperMemory changes text', async () => {
+      const updated = await store.updateSuperMemory(memoryId, {
+        text: 'Use pnpm v9 for monorepo management',
+      });
+      expect(updated.text).toBe('Use pnpm v9 for monorepo management');
+      expect(updated.revision).toBe(2);
+
+      // Verify persistence
+      const refetched = await store.getSuperMemory(memoryId);
+      expect(refetched!.text).toBe('Use pnpm v9 for monorepo management');
+    });
+
+    it('updateSuperMemory changes tags', async () => {
+      const updated = await store.updateSuperMemory(memoryId, {
+        tags: ['pnpm', 'v9', 'workspace'],
+      });
+      expect(updated.tags).toEqual(['pnpm', 'v9', 'workspace']);
+
+      const refetched = await store.getSuperMemory(memoryId);
+      expect(refetched!.tags).toEqual(['pnpm', 'v9', 'workspace']);
+    });
+
+    it('updateSuperMemory changes kind', async () => {
+      const updated = await store.updateSuperMemory(memoryId, {
+        kind: 'preference',
+      });
+      expect(updated.kind).toBe('preference');
+    });
+
+    it('updateSuperMemory changes anchors', async () => {
+      const updated = await store.updateSuperMemory(memoryId, {
+        anchors: [{ type: 'file', path: 'pnpm-workspace.yaml' }],
+      });
+      expect(updated.anchors).toHaveLength(1);
+      expect(updated.anchors[0]!.path).toContain('pnpm-workspace.yaml');
+    });
+
+    it('updateSuperMemory changes status', async () => {
+      const updated = await store.updateSuperMemory(memoryId, {
+        status: 'archived',
+      });
+      expect(updated.status).toBe('archived');
+    });
+
+    it('updateSuperMemory rejects empty patch', async () => {
+      await expect(store.updateSuperMemory(memoryId, {})).rejects.toThrow(
+        'Update patch must not be empty.',
+      );
+    });
+
+    it('updateSuperMemory rejects non-existent ID', async () => {
+      await expect(
+        store.updateSuperMemory('mem_nonexistent', { text: 'whatever' }),
+      ).rejects.toThrow('not found');
+    });
+
+    it('updateSuperMemory rejects empty text', async () => {
+      await expect(
+        store.updateSuperMemory(memoryId, { text: '' }),
+      ).rejects.toThrow('must not be empty');
+    });
+
+    it('updateSuperMemory rejects invalid kind', async () => {
+      await expect(
+        store.updateSuperMemory(memoryId, { kind: 'invalid_kind' as never }),
+      ).rejects.toThrow('Invalid kind');
+    });
+
+    it('updateSuperMemory rejects invalid status', async () => {
+      await expect(
+        store.updateSuperMemory(memoryId, { status: 'invalid_status' as never }),
+      ).rejects.toThrow('Invalid status');
+    });
+
+    it('updateSuperMemory clamps importance/confidence/freshness', async () => {
+      const updated = await store.updateSuperMemory(memoryId, {
+        importance: 1.5,
+        confidence: -0.5,
+        freshness: 0.75,
+      });
+      expect(updated.importance).toBe(1);
+      expect(updated.confidence).toBe(0);
+      expect(updated.freshness).toBe(0.75);
+    });
+
+    it('deleteSuperMemory soft-deletes by ID', async () => {
+      await store.deleteSuperMemory(memoryId);
+
+      const deleted = await store.getSuperMemory(memoryId);
+      expect(deleted).not.toBeNull();
+      expect(deleted!.status).toBe('deleted');
+
+      // Should not appear in active-only listing
+      const active = await store.listSuper(['active']);
+      expect(active.find((m) => m.id === memoryId)).toBeUndefined();
+    });
+
+    it('deleteSuperMemory is idempotent', async () => {
+      await store.deleteSuperMemory(memoryId);
+      // Second call should not throw
+      await expect(store.deleteSuperMemory(memoryId)).resolves.toBeUndefined();
+    });
+
+    it('deleteSuperMemory rejects non-existent ID', async () => {
+      await expect(store.deleteSuperMemory('mem_nonexistent')).rejects.toThrow(
+        'not found',
+      );
+    });
+
+    it('deleteSuperMemory cascade cleans supersedes references', async () => {
+      const mem2 = await store.rememberSuper({
+        text: 'Use yarn for monorepo management',
+        kind: 'fact',
+      });
+      // Make mem2 supersede the original
+      await store.updateSuperMemory(mem2.id, { supersedes: [memoryId] });
+      // Now delete the superseded memory
+      await store.deleteSuperMemory(memoryId);
+
+      // mem2 should no longer reference the deleted memory
+      const refreshed = await store.getSuperMemory(mem2.id);
+      expect(refreshed!.supersedes).not.toContain(memoryId);
+    });
+
+    it('deleteSuperMemory cascade cleans contradicts references', async () => {
+      const mem2 = await store.rememberSuper({
+        text: 'Use yarn for monorepo management',
+        kind: 'fact',
+      });
+      // Make mem2 contradict the original
+      await store.updateSuperMemory(mem2.id, { contradicts: [memoryId] });
+      // Now delete the contradicted memory
+      await store.deleteSuperMemory(memoryId);
+
+      const refreshed = await store.getSuperMemory(mem2.id);
+      expect(refreshed!.contradicts).not.toContain(memoryId);
+    });
+
+    it('deleteSuperMemory cascade cleans supersededBy references', async () => {
+      const mem2 = await store.rememberSuper({
+        text: 'Better pnpm practice',
+        kind: 'convention',
+        tags: ['pnpm'],
+      });
+      // Make mem2 supersede the original memory
+      await store.updateSuperMemory(mem2.id, { supersedes: [memoryId] });
+      // Force the original to track supersededBy
+      const original = await store.getSuperMemory(memoryId);
+      expect(original!.supersededBy).toBe(mem2.id);
+
+      // Delete the superseding memory
+      await store.deleteSuperMemory(mem2.id);
+
+      // Original should no longer reference the deleted memory
+      const refreshed = await store.getSuperMemory(memoryId);
+      expect(refreshed!.supersededBy).toBeUndefined();
+    });
+
+    it('deleteSuperMemory removes graph edges', async () => {
+      // Create a memory with anchors to generate graph edges
+      const memWithAnchors = await store.rememberSuper({
+        text: 'Config file is important',
+        kind: 'fact',
+        anchors: [{ type: 'file', path: 'config.yaml' }],
+      });
+      // Verify edges exist
+      const beforeEdges = await store.graphFor(memWithAnchors.id);
+      expect(beforeEdges.length).toBeGreaterThan(0);
+
+      // Delete
+      await store.deleteSuperMemory(memWithAnchors.id);
+      // Verify edges are gone
+      const afterEdges = await store.graphFor(memWithAnchors.id);
+      expect(afterEdges.length).toBe(0);
+    });
+
+    // ── Extended cascade cleanup tests ────────────────────────────────
+
+    it('cascade cleans multiple supersedes references at once', async () => {
+      const memA = await store.rememberSuper({ text: 'Fact A', kind: 'fact' });
+      const memB = await store.rememberSuper({ text: 'Fact B', kind: 'fact' });
+      const memC = await store.rememberSuper({ text: 'Fact C', kind: 'fact' });
+
+      // mB and mC both reference mA via supersedes
+      await store.updateSuperMemory(memB.id, { supersedes: [memA.id] });
+      await store.updateSuperMemory(memC.id, { supersedes: [memA.id] });
+
+      // Delete mA
+      await store.deleteSuperMemory(memA.id);
+
+      // Both mB and mC should have the reference removed
+      const refB = await store.getSuperMemory(memB.id);
+      const refC = await store.getSuperMemory(memC.id);
+      expect(refB!.supersedes).not.toContain(memA.id);
+      expect(refC!.supersedes).not.toContain(memA.id);
+    });
+
+    it('cascade cleans multiple contradicts references at once', async () => {
+      const memA = await store.rememberSuper({ text: 'Base fact', kind: 'fact' });
+      const memB = await store.rememberSuper({ text: 'Contradicting B', kind: 'fact' });
+      const memC = await store.rememberSuper({ text: 'Contradicting C', kind: 'fact' });
+
+      await store.updateSuperMemory(memB.id, { contradicts: [memA.id] });
+      await store.updateSuperMemory(memC.id, { contradicts: [memA.id] });
+
+      await store.deleteSuperMemory(memA.id);
+
+      const refB = await store.getSuperMemory(memB.id);
+      const refC = await store.getSuperMemory(memC.id);
+      expect(refB!.contradicts).not.toContain(memA.id);
+      expect(refC!.contradicts).not.toContain(memA.id);
+    });
+
+    it('cascade cleans supersededBy when the superseding memory is deleted', async () => {
+      const memA = await store.rememberSuper({ text: 'Original', kind: 'fact' });
+      const memB = await store.rememberSuper({ text: 'Superseder B', kind: 'fact' });
+
+      // Make memB supersede mA
+      await store.updateSuperMemory(memB.id, { supersedes: [memA.id] });
+      // mA should now have supersededBy = memB.id
+      const afterB = await store.getSuperMemory(memA.id);
+      expect(afterB!.supersededBy).toBe(memB.id);
+
+      // Now delete memB
+      await store.deleteSuperMemory(memB.id);
+
+      // mA should no longer reference memB
+      const afterDeleteB = await store.getSuperMemory(memA.id);
+      expect(afterDeleteB!.supersededBy).toBeUndefined();
+    });
+
+    it('cascade handles supersedes chain: A→B→C, delete A', async () => {
+      const memC = await store.rememberSuper({ text: 'C: latest', kind: 'convention', tags: ['c'] });
+      const memB = await store.rememberSuper({ text: 'B: older', kind: 'convention', tags: ['b'] });
+      const memA = await store.rememberSuper({ text: 'A: oldest', kind: 'convention', tags: ['a'] });
+
+      // Build chain: A supersedes nothing, B supersedes A, C supersedes B
+      await store.updateSuperMemory(memB.id, { supersedes: [memA.id] });
+      await store.updateSuperMemory(memC.id, { supersedes: [memB.id] });
+
+      // Verify chain
+      expect((await store.getSuperMemory(memA.id))!.supersededBy).toBe(memB.id);
+      expect((await store.getSuperMemory(memB.id))!.supersededBy).toBe(memC.id);
+
+      // Delete middle of chain (memB)
+      await store.deleteSuperMemory(memB.id);
+
+      // C should no longer reference B
+      const afterC = await store.getSuperMemory(memC.id);
+      expect(afterC!.supersedes).not.toContain(memB.id);
+
+      // A should no longer reference B
+      const afterA = await store.getSuperMemory(memA.id);
+      expect(afterA!.supersededBy).toBeUndefined();
+
+      // A should still have its original text
+      expect(afterA!.text).toBe('A: oldest');
+    });
+
+    it('cascade does not touch unrelated memories', async () => {
+      const memA = await store.rememberSuper({ text: 'Delete target', kind: 'fact', tags: ['a'] });
+      const memB = await store.rememberSuper({ text: 'Unrelated fact', kind: 'fact', tags: ['b'] });
+
+      await store.deleteSuperMemory(memA.id);
+
+      // memB should be untouched
+      const refB = await store.getSuperMemory(memB.id);
+      expect(refB).not.toBeNull();
+      expect(refB!.status).toBe('active');
+      expect(refB!.text).toBe('Unrelated fact');
+      expect(refB!.supersedes).toBeUndefined();
+      expect(refB!.contradicts).toBeUndefined();
+    });
+
+    it('cascade handles mixed supersedes and contradicts on same memory', async () => {
+      // memB both supersedes AND contradicts memA
+      const memA = await store.rememberSuper({ text: 'Original', kind: 'fact' });
+      const memB = await store.rememberSuper({ text: 'Better version', kind: 'fact' });
+
+      await store.updateSuperMemory(memB.id, {
+        supersedes: [memA.id],
+        contradicts: [memA.id],
+      });
+
+      // Delete memB
+      await store.deleteSuperMemory(memB.id);
+
+      // memA should have both references cleaned
+      const afterA = await store.getSuperMemory(memA.id);
+      expect(afterA!.supersededBy).toBeUndefined();
+    });
+
+    it('cascade removes all graph edges for a memory with multiple anchors', async () => {
+      const mem = await store.rememberSuper({
+        text: 'Multi-anchor memory',
+        kind: 'fact',
+        anchors: [
+          { type: 'file', path: 'src/main.ts' },
+          { type: 'file', path: 'src/utils.ts' },
+          { type: 'symbol', path: 'src/main.ts', symbol: 'runApp' },
+        ],
+      });
+
+      // Verify edges were created for all anchors
+      const beforeEdges = await store.graphFor(mem.id);
+      expect(beforeEdges.length).toBeGreaterThanOrEqual(3);
+
+      // Delete
+      await store.deleteSuperMemory(mem.id);
+
+      // All edges should be gone
+      const afterEdges = await store.graphFor(mem.id);
+      expect(afterEdges.length).toBe(0);
+
+      // Also verify via graph.list() that the edges are soft-deleted
+      const graphModule = await import('../src/graph/graph.js');
+      const graph = new graphModule.SuperMemoryGraph(store.paths.edgesLog);
+      const allEdges = await graph.list();
+      // None of the remaining edges should reference this memory
+      for (const edge of allEdges) {
+        expect(edge.from).not.toBe(`mem:${mem.id}`);
+        expect(edge.to).not.toBe(`mem:${mem.id}`);
+      }
+    });
+  });
+
   it('mutates the original tool result even when downstream middleware clones the payload', async () => {
     const store = new SuperMemoryStore({ projectRoot: tempDir });
     await store.rememberSuper({
