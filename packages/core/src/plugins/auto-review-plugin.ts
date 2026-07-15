@@ -125,11 +125,18 @@ async function getChangedFiles(cwd: string): Promise<ChangedFile[]> {
   const files: ChangedFile[] = [];
   for (const line of r.stdout.split('\n')) {
     if (!line.trim()) continue;
-    const statusCode = line.slice(0, 2).trim();
-    const filePath = line.slice(3).trim();
-    if (statusCode === 'A' || statusCode === 'A ' || statusCode === ' A' || statusCode === '??') {
+    const x = line[0] ?? ' ';
+    const y = line[1] ?? ' ';
+    const rawPath = line.slice(3).trim();
+    // R (rename) / C (copy) porcelain format: "R  old -> new"
+    const filePath = (x === 'R' || x === 'C')
+      ? rawPath.split(' -> ').pop()?.trim() ?? rawPath
+      : rawPath;
+    if (x === '?' && y === '?') {
       files.push({ path: filePath, status: 'added' });
-    } else if (statusCode.includes('M')) {
+    } else if (x === 'A' || y === 'A') {
+      files.push({ path: filePath, status: 'added' });
+    } else if (x === 'M' || y === 'M' || x === 'R' || x === 'C') {
       files.push({ path: filePath, status: 'modified' });
     }
   }
@@ -300,6 +307,12 @@ export function createAutoReviewPlugin(): Plugin {
             }
           }
 
+          // Advance knownFiles for ALL detected changes (even debounced)
+          // so the same change doesn't re-trigger git status on every iteration.
+          for (const f of changed) {
+            knownFiles.set(f.path, f.status);
+          }
+
           if (newFiles.length === 0) return;
 
           // Debounce: don't fire more often than debounceMs
@@ -313,11 +326,6 @@ export function createAutoReviewPlugin(): Plugin {
           if (toReview.length === 0) return;
 
           lastDetectionTs = now;
-
-          // Update known files
-          for (const f of changed) {
-            knownFiles.set(f.path, f.status);
-          }
 
           // Read file contents
           const filesWithContent: ChimeraReviewNeededPayload['files'] = [];
@@ -377,10 +385,11 @@ export function createAutoReviewPlugin(): Plugin {
           // cascadeOn config determines follow-up at session end.
 
           // Clean in-flight after a timeout (reviews complete asynchronously)
-          setTimeout(() => {
+          const inflightTimer = setTimeout(() => {
             const idx = inFlight.indexOf(inflightEntry);
             if (idx !== -1) inFlight.splice(idx, 1);
           }, 5 * 60 * 1000);
+          inflightTimer.unref();
 
         } catch (err) {
           api.log.warn(`[auto-review] iteration.completed handler failed: ${toErrorMessage(err)}`);
@@ -417,6 +426,18 @@ export function createAutoReviewPlugin(): Plugin {
           }
 
           if (filesWithContent.length === 0) return;
+
+          // Track in-flight (honors maxConcurrentReviews cap)
+          if (inFlight.length >= cfg.maxConcurrentReviews) {
+            api.log.info(`[auto-review] session end — at max concurrent (${cfg.maxConcurrentReviews}), skipping final review`);
+            return;
+          }
+          const inflightEntry: InFlightReview = {
+            files: filesWithContent.map((f) => f.path),
+            startedAt: Date.now(),
+            subagentType: 'review',
+          };
+          inFlight.push(inflightEntry);
 
           api.emitCustom('chimera.review_needed', {
             config: {
