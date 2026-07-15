@@ -64,6 +64,7 @@ import {
   handleSuperMemoryDelete,
   handleSuperMemoryGet,
   handleSuperMemoryList,
+  handleSuperMemoryRemember,
   handleSuperMemoryUpdate,
 } from './memory-handlers.js';
 import { handleModeRoute } from './mode-routes.js';
@@ -468,6 +469,8 @@ export function createMessageDispatcher(
         return handleSuperMemoryUpdate(ws, msg, deps.memoryStore);
       case 'memory.super.delete':
         return handleSuperMemoryDelete(ws, msg, deps.memoryStore);
+      case 'memory.super.remember':
+        return handleSuperMemoryRemember(ws, msg, deps.memoryStore);
 
       // ── MCP tripwires — handleMcpRoute claims these upstream. ──
       case 'mcp.list':

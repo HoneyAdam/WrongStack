@@ -176,6 +176,11 @@ export function useWebSocket() {
   const getSuperMemory = useCallback((id: string) => client.getSuperMemory(id), [client]);
   const updateSuperMemory = useCallback((id: string, patch: Record<string, unknown>) => client.updateSuperMemory(id, patch), [client]);
   const deleteSuperMemory = useCallback((id: string, reason?: string) => client.deleteSuperMemory(id, reason), [client]);
+  const rememberSuperMemory = useCallback(
+    (opts: { text: string; kind?: string; tags?: string[]; importance?: number; confidence?: number }) =>
+      client.rememberSuperMemory(opts),
+    [client],
+  );
   const listSkills = useCallback(() => client.listSkills(), [client]);
   const getDiag = useCallback(() => client.getDiag(), [client]);
   const getStats = useCallback(() => client.getStats(), [client]);
@@ -288,6 +293,7 @@ export function useWebSocket() {
     getSuperMemory,
     updateSuperMemory,
     deleteSuperMemory,
+    rememberSuperMemory,
     listSkills,
     getDiag,
     getStats,

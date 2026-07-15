@@ -58,6 +58,7 @@ interface SuperMemoryStoreLike {
   getSuperMemory(id: string): Promise<SuperMemoryLike | null>;
   updateSuperMemory(id: string, patch: UpdateSuperMemoryInput): Promise<SuperMemoryLike>;
   deleteSuperMemory(id: string, reason?: string): Promise<void>;
+  rememberSuper(input: { text: string; kind?: string | undefined; tags?: string[] | undefined; importance?: number | undefined; confidence?: number | undefined; freshness?: number | undefined }): Promise<SuperMemoryLike>;
 }
 
 function isSuperMemoryStore(store: MemoryStore): store is MemoryStore & SuperMemoryStoreLike {
@@ -245,6 +246,41 @@ export async function handleSuperMemoryUpdate(
     send(ws, { type: 'memory.super.update', payload: { memory } });
   } catch (err) {
     send(ws, { type: 'memory.super.update', payload: { error: errMessage(err) } });
+  }
+}
+
+/**
+ * Create a new SuperMemory entry with full metadata.
+ * Request:  { type: 'memory.super.remember', payload: { text, kind?, tags?, importance?, confidence? } }
+ * Response: { type: 'memory.super.remember', payload: { memory } }
+ * On error: { type: 'memory.super.remember', payload: { error } }
+ */
+export async function handleSuperMemoryRemember(
+  ws: WebSocket,
+  msg: unknown,
+  memoryStore: MemoryStore,
+): Promise<void> {
+  if (!isSuperMemoryStore(memoryStore)) {
+    send(ws, { type: 'memory.super.remember', payload: { error: requiresSuperMemory('memory.super.remember') } });
+    return;
+  }
+  const payload = (msg as { payload: Record<string, unknown> }).payload;
+  const text = payload['text'] as string | undefined;
+  if (!text || !text.trim()) {
+    send(ws, { type: 'memory.super.remember', payload: { error: 'text is required' } });
+    return;
+  }
+  try {
+    const memory = await memoryStore.rememberSuper({
+      text: text.trim(),
+      kind: payload['kind'] as string | undefined,
+      tags: payload['tags'] as string[] | undefined,
+      importance: payload['importance'] as number | undefined,
+      confidence: payload['confidence'] as number | undefined,
+    });
+    send(ws, { type: 'memory.super.remember', payload: { memory } });
+  } catch (err) {
+    send(ws, { type: 'memory.super.remember', payload: { error: errMessage(err) } });
   }
 }
 

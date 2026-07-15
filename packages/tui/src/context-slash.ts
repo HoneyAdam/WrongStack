@@ -28,12 +28,12 @@ export interface ContextSlashDeps {
   /** Terminal width in columns. */
   terminalWidth: number;
   /** Optional super memory store for stats. */
-  memoryStats?: () => Promise<{
+  memoryStats: (() => Promise<{
     total: number;
     byKind: Record<string, number>;
     edges: number;
     byStatus: Record<string, number>;
-  } | null>;
+  } | null>) | undefined;
 }
 
 // ── Sparkbar ──────────────────────────────────────────────────────────────────
@@ -216,12 +216,12 @@ function renderContextWindow(deps: ContextSlashDeps): string[] {
   }
 
   if (leader.ctxTokens != null && leader.ctxMaxTokens != null && leader.ctxMaxTokens > 0) {
-    const used = leader.ctxTokens.toLocaleString();
-    const max = leader.ctxMaxTokens.toLocaleString();
+    const used = leader.ctxTokens.toLocaleString('en-US');
+    const max = leader.ctxMaxTokens.toLocaleString('en-US');
     const pct = ((leader.ctxTokens / leader.ctxMaxTokens) * 100).toFixed(1);
     lines.push(`| **Tokens** | ${used} / ${max} (${pct}%) |`);
   } else if (leader.ctxTokens != null) {
-    lines.push(`| **Tokens** | ${leader.ctxTokens.toLocaleString()} |`);
+    lines.push(`| **Tokens** | ${leader.ctxTokens.toLocaleString('en-US')} |`);
   }
 
   // Visual gauge row
@@ -373,14 +373,14 @@ export function renderContextWindowExpanded(deps: ContextSlashDeps): string {
   srcBody.push('Estimated breakdown — actual distribution may vary.');
   for (const src of sources) {
     const srcBarStr = bar(src.pct, srcBarLen);
-    const srcTokens = Math.round(used * src.pct).toLocaleString();
+    const srcTokens = Math.round(used * src.pct).toLocaleString('en-US');
     const pctS = `${(src.pct * 100).toFixed(1)}%`.padStart(6);
     srcBody.push(`${src.icon} ${src.label.padEnd(10)} ${srcBarStr}  ${pctS}  ${srcTokens}`);
   }
   // Total
   srcBody.push(`${'─'.repeat(INNER)}`);
-  const usedStr = used.toLocaleString();
-  const maxStr = max.toLocaleString();
+  const usedStr = used.toLocaleString('en-US');
+  const maxStr = max.toLocaleString('en-US');
   const totalBarStr = bar(pct, srcBarLen);
   const totalPct = `${(pct * 100).toFixed(1)}%`.padStart(6);
   srcBody.push(`📊 TOTAL      ${totalBarStr}  ${totalPct}  ${usedStr}`);
@@ -434,7 +434,7 @@ export function renderContextWindowExpanded(deps: ContextSlashDeps): string {
   // ═════════════════════════════════════════════════════════════════════════════
   //  4. COMPACTION ENGINE
   // ═════════════════════════════════════════════════════════════════════════════
-  const recoveryEst = Math.round(max * 0.18).toLocaleString();
+  const recoveryEst = Math.round(max * 0.18).toLocaleString('en-US');
   const iterations = leader.iterations;
   const lastCompactAgo = iterations > 0 ? `${Math.min(iterations, Math.round(iterations * 0.6))} turns ago` : '—';
   const needsCompact = pct > 0.65;
@@ -443,7 +443,7 @@ export function renderContextWindowExpanded(deps: ContextSlashDeps): string {
   compactBody.push(`│ Parameter         │ Value`);
   compactBody.push(`│───────────────────┼──────────────────────────────────────`);
   compactBody.push(`│ Strategy          │ hybrid  (auto-compact ✅)`);
-  compactBody.push(`│ Next trigger      │ ${(max * 0.85).toLocaleString()}  (85%)`);
+  compactBody.push(`│ Next trigger      │ ${(max * 0.85).toLocaleString('en-US')}  (85%)`);
   compactBody.push(`│ Est. recovery     │ ${recoveryEst}  (~18% of window)`);
   compactBody.push(`│ Last compact      │ ${lastCompactAgo}`);
   compactBody.push(`│ Recommendation    │ ${needsCompact ? '⚠️ Compact now — reclaim ~18%' : '✅ No compaction needed'}`);
@@ -479,7 +479,7 @@ export function renderContextWindowExpanded(deps: ContextSlashDeps): string {
   // ═════════════════════════════════════════════════════════════════════════════
   //  6. TOKEN METRICS
   // ═════════════════════════════════════════════════════════════════════════════
-  const freeFormatted = free.toLocaleString();
+  const freeFormatted = free.toLocaleString('en-US');
   const freePct = max > 0 ? ((free / max) * 100).toFixed(1) : '0.0';
   const utilBar = bar(pct, 24);
 

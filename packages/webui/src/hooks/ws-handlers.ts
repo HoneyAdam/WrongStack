@@ -162,6 +162,18 @@ export function handleMemorySuperUpdate(msg: WSServerMessage) {
   }
 }
 
+export function handleMemorySuperRemember(msg: WSServerMessage) {
+  const p = msg.payload as { memory?: Record<string, unknown>; error?: string | undefined };
+  if (p.error) {
+    useChatStore.getState().addMessage({ role: 'assistant', content: `❌ Failed to create memory: ${p.error}` });
+    return;
+  }
+  if (p.memory) {
+    const id = String(p.memory['id'] ?? '');
+    useChatStore.getState().addMessage({ role: 'assistant', content: `✅ Memory \`${id}\` created.` });
+  }
+}
+
 export function handleSkillsList(msg: WSServerMessage) {
   const p = msg.payload as {
     enabled: boolean;
@@ -459,6 +471,7 @@ export const WS_HANDLERS: Partial<Record<WSServerMessage['type'], (msg: WSServer
     'memory.super.list': handleMemorySuperList,
     'memory.super.get': handleMemorySuperGet,
     'memory.super.update': handleMemorySuperUpdate,
+    'memory.super.remember': handleMemorySuperRemember,
     'skills.list': handleSkillsList,
     'diag.get': handleDiagGet,
     'stats.get': handleStatsGet,

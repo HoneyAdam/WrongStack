@@ -2636,6 +2636,35 @@ export function App({
           return `${secs}s`;
         },
         terminalWidth: stdout.columns ?? 80,
+        // Wire up super-memory stats when available
+        memoryStats:
+          memoryStore &&
+          'stats' in memoryStore &&
+          'listSuper' in memoryStore
+            ? async (): Promise<{
+                total: number;
+                byKind: Record<string, number>;
+                edges: number;
+                byStatus: Record<string, number>;
+              } | null> => {
+                const s = memoryStore as {
+                  stats(): Promise<{ total: number; byStatus: Record<string, number>; byKind: Partial<Record<string, number>>; edges: number }>;
+                  listSuper(): Promise<Array<{ kind: string }>>;
+                };
+                const stats = await s.stats();
+                const allMemories = await s.listSuper();
+                const byKind: Record<string, number> = {};
+                for (const m of allMemories) {
+                  byKind[m.kind] = (byKind[m.kind] ?? 0) + 1;
+                }
+                return {
+                  total: stats.total,
+                  byKind,
+                  edges: stats.edges,
+                  byStatus: stats.byStatus,
+                };
+              }
+            : undefined,
       }),
     );
     return () => {

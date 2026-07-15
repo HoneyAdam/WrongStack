@@ -17,6 +17,7 @@ import {
   Check,
   ExternalLink,
   Pencil,
+  Plus,
   Search,
   Tag,
   Trash2,
@@ -128,6 +129,9 @@ export function MemoryManager() {
   const [editConfidence, setEditConfidence] = useState(0.5);
   const [saving, setSaving] = useState(false);
 
+  // Create state
+  const [creating, setCreating] = useState(false);
+
   // Delete confirmation
   const [deleting, setDeleting] = useState<string | null>(null);
 
@@ -224,10 +228,44 @@ export function MemoryManager() {
   }, []);
 
   const handleSave = useCallback(() => {
-    if (!selectedMemory) return;
-    setSaving(true);
     const client = getWSClient();
     let cleanup: (() => void) | null = null;
+    const tags = editTags.split(',').map((t) => t.trim()).filter(Boolean);
+
+    if (creating) {
+      // ── Create mode ──
+      if (!editText.trim()) { setError('Text is required.'); return; }
+      setSaving(true);
+      setError(null);
+      const timeout = setTimeout(() => {
+        if (cleanup) cleanup();
+        setSaving(false);
+        setError('Create timed out — no response from server.');
+      }, 30_000);
+      const handler = (msg: { type: string; payload: unknown }) => {
+        if (msg.type === 'memory.super.remember') {
+          clearTimeout(timeout);
+          const p = msg.payload as { memory?: MemoryEntry; error?: string };
+          if (p.error) { setError(p.error); } else { loadMemories(); }
+          setSaving(false);
+          setCreating(false);
+          setEditText('');
+          setEditTags('');
+          setEditKind('fact');
+          setEditImportance(0.5);
+          setEditConfidence(0.8);
+          if (cleanup) cleanup();
+        }
+      };
+      client.on('memory.super.remember', handler);
+      cleanup = () => client.off('memory.super.remember', handler);
+      ws.rememberSuperMemory({ text: editText.trim(), kind: editKind, tags, importance: editImportance, confidence: editConfidence });
+      return;
+    }
+
+    // ── Update mode ──
+    if (!selectedMemory) return;
+    setSaving(true);
     const timeout = setTimeout(() => {
       if (cleanup) cleanup();
       setSaving(false);
@@ -237,11 +275,7 @@ export function MemoryManager() {
       if (msg.type === 'memory.super.update') {
         clearTimeout(timeout);
         const p = msg.payload as { memory?: MemoryEntry; error?: string };
-        if (p.error) {
-          setError(p.error);
-        } else {
-          loadMemories();
-        }
+        if (p.error) { setError(p.error); } else { loadMemories(); }
         setSaving(false);
         setEditing(false);
         if (cleanup) cleanup();
@@ -251,15 +285,12 @@ export function MemoryManager() {
     cleanup = () => client.off('memory.super.update', handler);
     ws.updateSuperMemory(selectedMemory.id, {
       text: editText,
-      tags: editTags
-        .split(',')
-        .map((t) => t.trim())
-        .filter(Boolean),
+      tags,
       kind: editKind,
       importance: editImportance,
       confidence: editConfidence,
     });
-  }, [selectedMemory, editText, editTags, editKind, editImportance, editConfidence, ws, loadMemories]);
+  }, [selectedMemory, editText, editTags, editKind, editImportance, editConfidence, creating, ws, loadMemories]);
 
   // ── Delete handler ──────────────────────────────────────────────────
 
@@ -320,6 +351,10 @@ export function MemoryManager() {
             <ArrowLeft className="size-4" />
           </Button>
           <h2 className="text-sm font-bold">Memory Manager</h2>
+          <Button variant="outline" size="sm" className="ml-2 h-6 px-2 text-xs" onClick={() => { setCreating(true); setSelectedId(null); setEditing(false); setEditText(''); setEditTags(''); setEditKind('fact'); setEditImportance(0.5); setEditConfidence(0.8); setError(null); }}>
+            <Plus className="mr-1 size-3" />
+            New
+          </Button>
           <button
             type="button"
             className="ml-auto text-xs text-muted-foreground hover:text-foreground"
@@ -452,7 +487,67 @@ export function MemoryManager() {
 
       {/* ── Right panel: detail / edit ── */}
       <div className="flex w-1/2 min-w-0 flex-col">
-        {!selectedMemory ? (
+        {creating ? (
+          /* ── Create new memory ── */
+          <div className="flex h-full flex-col">
+            <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+              <Plus className="size-4 text-primary" />
+              <h3 className="text-sm font-bold">New Memory</h3>
+              <div className="ml-auto flex gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setCreating(false)}>
+                  <X className="mr-1 size-3" />
+                  Cancel
+                </Button>
+                <Button variant="default" size="sm" onClick={handleSave} disabled={saving}>
+                  {saving ? (
+                    <div className="mr-1 size-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  ) : (
+                    <Check className="mr-1 size-3" />
+                  )}
+                  Create
+                </Button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="space-y-4">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Text</label>
+                  <textarea
+                    className="w-full rounded-md border border-input bg-background p-2 text-sm"
+                    rows={4}
+                    value={editText}
+                    onChange={(e) => setEditText(e.target.value)}
+                    placeholder="Enter memory content…"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Kind</label>
+                  <select
+                    className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+                    value={editKind}
+                    onChange={(e) => setEditKind(e.target.value)}
+                  >
+                    {Object.entries(KIND_CONFIG).map(([k, v]) => (
+                      <option key={k} value={k}>{v.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Tags (comma-separated)</label>
+                  <Input className="h-8 text-sm" value={editTags} onChange={(e) => setEditTags(e.target.value)} placeholder="tag1, tag2, tag3" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Importance: {editImportance.toFixed(2)}</label>
+                  <input type="range" min="0" max="1" step="0.05" className="w-full" value={editImportance} onChange={(e) => setEditImportance(Number.parseFloat(e.target.value))} />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Confidence: {editConfidence.toFixed(2)}</label>
+                  <input type="range" min="0" max="1" step="0.05" className="w-full" value={editConfidence} onChange={(e) => setEditConfidence(Number.parseFloat(e.target.value))} />
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : !selectedMemory ? (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             Select a memory to view or edit
           </div>

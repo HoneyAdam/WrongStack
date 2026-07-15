@@ -505,6 +505,26 @@ export interface WSMemorySuperUpdate {
   };
 }
 
+export interface WSMemorySuperRemember {
+  type: 'memory.super.remember';
+  payload: {
+    memory?: {
+      id: string;
+      kind: string;
+      status: string;
+      text: string;
+      tags: string[];
+      createdAt: string;
+      updatedAt: string;
+      importance: number;
+      confidence: number;
+      revision: number;
+      anchors: Array<{ type: string; path?: string; symbol?: string; command?: string }>;
+    };
+    error?: string | undefined;
+  };
+}
+
 export interface WSSkillsList {
   type: 'skills.list';
   payload: {
@@ -1418,6 +1438,16 @@ export type WSClientMessage =
       };
     }
   | { type: 'memory.super.delete'; payload: { id: string; reason?: string | undefined } }
+  | {
+      type: 'memory.super.remember';
+      payload: {
+        text: string;
+        kind?: string | undefined;
+        tags?: string[] | undefined;
+        importance?: number | undefined;
+        confidence?: number | undefined;
+      };
+    }
   | { type: 'skills.list' }
   | { type: 'skills.content'; payload: { name: string; source: string } }
   | { type: 'prompts.list' }
@@ -1677,6 +1707,7 @@ export type WSServerMessage =
   | WSMemorySuperList
   | WSMemorySuperGet
   | WSMemorySuperUpdate
+  | WSMemorySuperRemember
   | WSSkillsList
   | WSSkillContent
   | WSDesignList

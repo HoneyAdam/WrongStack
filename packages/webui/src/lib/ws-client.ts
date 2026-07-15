@@ -709,6 +709,10 @@ export class WrongStackWebSocketClient {
     this.send({ type: 'memory.super.delete', payload: { id, reason } });
   }
 
+  rememberSuperMemory(opts: { text: string; kind?: string; tags?: string[]; importance?: number; confidence?: number }) {
+    this.send({ type: 'memory.super.remember', payload: opts });
+  }
+
   // ── MCP server management ─────────────────────────────────────────────────────
   listMcpServers() {
     this.send({ type: 'mcp.list' });
