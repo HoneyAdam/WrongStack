@@ -26,6 +26,7 @@ describe('registerWebuiInstance', () => {
     registerWebuiInstance(
       {
         pid: 1234,
+        surface: 'webui',
         host: '127.0.0.1',
         httpPort: 3456,
         wsPort: 3457,
@@ -56,6 +57,7 @@ describe('registerWebuiInstance', () => {
       registerWebuiInstance(
         {
           pid: 1,
+          surface: 'webui',
           host: '127.0.0.1',
           httpPort: 1,
           wsPort: 2,
@@ -87,6 +89,7 @@ describe('announceWebuiReady', () => {
     const opened: string[] = [];
     announceWebuiReady({
       server,
+      surface: 'webui',
       host: '127.0.0.1',
       httpPort: 3456,
       wsPort: 3457,
@@ -106,6 +109,7 @@ describe('announceWebuiReady', () => {
     const opened: string[] = [];
     announceWebuiReady({
       server,
+      surface: 'webui',
       host: '127.0.0.1',
       httpPort: 3456,
       wsPort: 3457,
@@ -122,6 +126,7 @@ describe('announceWebuiReady', () => {
     const opened: string[] = [];
     announceWebuiReady({
       server,
+      surface: 'webui',
       host: '127.0.0.1',
       httpPort: 3456,
       wsPort: 3457,
@@ -139,6 +144,7 @@ describe('announceWebuiReady', () => {
     const opened: string[] = [];
     announceWebuiReady({
       server,
+      surface: 'webui',
       host: '127.0.0.1',
       httpPort: 3456,
       wsPort: 3457,
@@ -156,6 +162,7 @@ describe('announceWebuiReady', () => {
     const opened: string[] = [];
     announceWebuiReady({
       server,
+      surface: 'webui',
       host: '0.0.0.0',
       httpPort: 8080,
       wsPort: 8081,
@@ -173,6 +180,7 @@ describe('announceWebuiReady', () => {
     const opened: string[] = [];
     announceWebuiReady({
       server,
+      surface: 'webui',
       host: '127.0.0.1',
       httpPort: 8080,
       wsPort: 8081,
