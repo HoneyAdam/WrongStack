@@ -19,6 +19,9 @@ describe('buildLiveNextStepsGateBlock', () => {
     expect(block?.text).toContain('open todos = 0');
     expect(block?.text).toContain('MUST take exactly one branch');
     expect(block?.text).toContain('include a balanced <nextsteps> block');
+    expect(block?.text).toContain('submitted back to you through the current TUI or WebUI input');
+    expect(block?.text).toContain('Never put a human-only chore');
+    expect(block?.text).toContain('need not be shell commands');
     expect(block?.text).toContain('explicitly tell the user');
     expect(block?.text).toContain('Silently omitting both is invalid');
   });

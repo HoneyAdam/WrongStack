@@ -62,7 +62,9 @@ export function buildPredictionPrompt(input: PredictionInput): string {
       .join('\n');
     parts.push(`Open todo items:\n${list}`);
   }
-  parts.push('Predict the 1-3 most likely next steps.');
+  parts.push(
+    'Predict the 1-3 most likely exact prompt messages the user could submit back to the agent through the TUI or WebUI. Each must ask the agent to perform the work, never assign a manual chore to the user.',
+  );
   return parts.join('\n\n');
 }
 

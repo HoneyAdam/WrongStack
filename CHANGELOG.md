@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Next-step prompt contract** — `<nextsteps>`, `/suggest`, and prediction output
+  now contain only exact agent-directed messages that can be submitted through
+  the TUI or WebUI; human-only chores are excluded and no-op status text is no
+  longer stored as a selectable suggestion.
+
 ## [0.286.0] — 2026-07-13
 
 > The **autonomous Brain, realtime mailbox, and accessibility hardening**

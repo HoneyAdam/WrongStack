@@ -213,7 +213,9 @@ describe('runChatSlashCommand', () => {
   it('/suggest sends a suggestion prompt', () => {
     expect(runChatSlashCommand({ ...options, raw: '/suggest' })).toBe(true);
     expect(options.sendMsg).toHaveBeenCalledTimes(1);
-    expect(options.sendMsg).toHaveBeenCalledWith(expect.stringContaining('next steps'));
+    expect(options.sendMsg).toHaveBeenCalledWith(expect.stringContaining('prompt messages'));
+    expect(options.sendMsg).toHaveBeenCalledWith(expect.stringContaining('perform the work'));
+    expect(options.sendMsg).toHaveBeenCalledWith(expect.stringContaining('must not assign'));
   });
 
   it.each(['/kill', '/ps'])('%s opens process monitor', (cmd) => {

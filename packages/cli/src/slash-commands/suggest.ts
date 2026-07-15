@@ -45,23 +45,26 @@ function buildSuggestPrompt(contextText: string): string {
   return [
     '## Suggest Next Steps',
     '',
-    'Based on the current project state below, generate 3-5 actionable next-step',
-    'suggestions. Each suggestion must be a single imperative sentence that can be',
-    'executed immediately. Be specific — mention file names, tool names, or commands',
-    'when relevant. Do NOT include preamble, explanation, or wrap in code blocks.',
+    'Based on the current project state below, generate 3-5 exact natural-language',
+    'prompt messages that the user could submit back to the coding agent through the',
+    'TUI or WebUI. Each prompt must ask the agent to perform useful work immediately.',
+    'Agent-directed imperatives are valid and do not need to be shell commands.',
+    'Never output a human-only chore or an instruction that expects the user to do',
+    'the work after selecting it. Be specific — mention relevant files or tools.',
+    'Do NOT include preamble, explanation, or wrap the output in code blocks.',
     '',
     'Rules:',
-    '- One suggestion per line, prefixed with the number (e.g. "1. Run tests...")',
+    '- One prompt per line, prefixed with the number (e.g. "1. Run the tests and fix any failures")',
     '- Order by priority: most impactful first',
-    '- Suggestions should be independent — user can pick any subset',
-    '- If nothing is needed, say "No pending actions — everything is up to date."',
+    '- Prompts should be independent — the user can submit any subset',
+    '- If nothing is needed, output exactly "NONE"',
     '',
     contextText || '(No project context available — suggest generic next steps.)',
     '',
     'Output format (strict — no other text):',
-    '1. First suggestion here',
-    '2. Second suggestion here',
-    '3. Third suggestion here',
+    '1. Run the focused tests and fix any failures',
+    '2. Review the current diff and implement any necessary corrections',
+    '3. Update the relevant documentation to match the implementation',
   ].join('\n');
 }
 
@@ -146,7 +149,7 @@ export function buildSuggestCommand(opts: SlashCommandContext): SlashCommand {
         // Parse the subagent output — extract numbered lines
         const suggestions = parseSuggestions(raw);
         if (suggestions.length === 0) {
-          const fallback = ['No pending actions — everything is up to date.'];
+          const fallback: string[] = [];
           setSuggestions(fallback);
           opts.onSuggestions?.(fallback);
           return { message: formatSuggestions(fallback) };
@@ -170,6 +173,11 @@ export function buildSuggestCommand(opts: SlashCommandContext): SlashCommand {
  * Delegated to parseNextSteps (raw mode — no heading required).
  */
 function parseSuggestions(raw: string): string[] {
+  const trimmed = raw.trim();
+  if (/^none\b/i.test(trimmed) || /no (?:pending actions|further steps)/i.test(trimmed)) {
+    return [];
+  }
+
   const { texts } = parseNextSteps(raw, false, false); // permissive, no heading required
   if (texts.length > 0) return texts;
 
@@ -205,10 +213,14 @@ function generateHeuristicSuggestions(opts: SlashCommandContext): string[] {
         suggestions.push(`Commit ${staged} staged file(s) with a descriptive message`);
       }
       if (unstaged > 0) {
-        suggestions.push(`Stage and review ${unstaged} modified file(s)`);
+        suggestions.push(
+          `Review and stage the ${unstaged} modified file(s), fixing any issue you find`,
+        );
       }
       if (untracked > 0) {
-        suggestions.push(`Review ${untracked} untracked file(s) — add to git or .gitignore`);
+        suggestions.push(
+          `Review the ${untracked} untracked file(s) and add each to Git or .gitignore as appropriate`,
+        );
       }
     }
   } catch {
@@ -219,26 +231,26 @@ function generateHeuristicSuggestions(opts: SlashCommandContext): string[] {
   const root = opts.projectRoot;
   const has = (...rel: string[]): boolean => rel.some((r) => existsSync(path.join(root, r)));
   if (has('package.json')) {
-    suggestions.push('Run the npm/pnpm test suite to verify everything passes');
+    suggestions.push('Run the npm/pnpm test suite and fix any failures');
   }
   if (has('Dockerfile', 'docker-compose.yml', 'compose.yaml')) {
-    suggestions.push('Build the Docker image and verify the container starts');
+    suggestions.push('Build the Docker image, verify the container starts, and fix any failures');
   }
   if (has('Makefile')) {
-    suggestions.push('Run `make` (or `make test`) to exercise the build targets');
+    suggestions.push('Run the relevant make build and test targets, then fix any failures');
   }
   if (has('pyproject.toml', 'requirements.txt', 'setup.py')) {
-    suggestions.push('Run pytest and the linters for the Python package');
+    suggestions.push('Run pytest and the Python linters, then fix any failures');
   }
   if (has('.github/workflows')) {
-    suggestions.push('Check the CI workflow status for the latest push');
+    suggestions.push('Inspect the latest CI workflow run and fix any failures');
   }
 
   // Generic fallback if nothing found
   if (suggestions.length === 0) {
-    suggestions.push('Review recent changes with a diff');
-    suggestions.push('Run the test suite to verify everything passes');
-    suggestions.push('Check for lint or type errors');
+    suggestions.push('Review the recent diff and implement any necessary corrections');
+    suggestions.push('Run the test suite and fix any failures');
+    suggestions.push('Run the linter and type checker, then fix any errors');
   }
 
   return suggestions.slice(0, 5);

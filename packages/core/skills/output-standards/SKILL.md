@@ -17,10 +17,10 @@ extract structured data from agent responses.
 
 1. **Only the leader agent's final message SHOULD include `<nextsteps>`** — subagents report findings only. If nothing is pending, omit the tag entirely; do not append a loose "next steps" or goodwill-style follow-up line.
 2. **Any suggested next prompt MUST be inside `<nextsteps>...</nextsteps>`** — never emit parseable-looking prose such as "Next steps:", "next suggests", "Suggested next:", or "Let me know if you want..." when you intend `/next` to work.
-3. **`<nextsteps>` is for prompt options only** — every item must be something the user can type into the prompt and submit. If a step is a human-only action (e.g., "open DevTools", "check the browser console"), put it outside the tag as informational text instead.
+3. **`<nextsteps>` is for prompt options only** — every item is the exact natural-language message that can be submitted back to the agent through the current TUI or WebUI prompt input. It asks the agent to perform work; it is not a checklist of work the user must do. Human-only actions (e.g., "open DevTools yourself", "manually check the browser console") belong outside the tag as informational text.
 4. **Tags must be properly closed** — `<nextsteps>...</nextsteps>` with exact tag names.
 5. **No markdown inside tags** — plain text only, one item per line.
-6. **Items are prompt inputs** — not imperative instructions. Write what the user would type, not what they should do.
+6. **Items are agent-directed prompt inputs** — imperative wording is valid when it tells the agent what to do. Write the complete message the user would send, not an instruction addressed to the user.
 7. **Items marked `auto="true"` must include input content** — the user can copy and submit it directly.
 8. **Keep concise** — max 5 items unless the task genuinely requires more.
 9. **Skip `<nextsteps>` whenever the live `ctx.todos` list still has open items** — any `pending` or `in_progress` todo means the in-flight task list is not done, and surfacing new prompt options would race the todo loop (YOLO+auto could pick the top suggestion and pivot away from the unfinished work; `/next 1` would replace the next todo with an arbitrary prompt). Finish the todo list first, re-arm the tag on the turn where the last todo flips to `completed`. The runtime enforces the same gate, so emitting it mid-task is parsed-and-discarded — the rule exists to keep the output focused, not to override runtime behavior.
@@ -31,8 +31,8 @@ extract structured data from agent responses.
 [... task results ...]
 
 <nextsteps>
-1. Prompt option the user can enter — phrased as what to type, not what to do
-2. Another prompt option
+1. Run the focused parser tests and fix any failures
+2. Review the current diff and implement any necessary corrections
 </nextsteps>
 
 Informational text for human-only actions (outside the tag, no tag wrapper).
@@ -43,7 +43,7 @@ Informational text for human-only actions (outside the tag, no tag wrapper).
 | Element | Rule | Example |
 |---------|------|---------|
 | Opening tag | `<nextsteps>` on its own line | `<nextsteps>` |
-| Numbered items | `1. ` prefix, one per line | `1. Fix auth bug in core/session.ts` |
+| Numbered items | `1. ` prefix, one agent-directed prompt per line | `1. Fix the auth bug in core/session.ts and add a regression test` |
 | Closing tag | `</nextsteps>` on its own line | `</nextsteps>` |
 | `auto="true"` items | Include the full input content | `1. fix in core/auth.ts:42 auto="true"` |
 
@@ -55,7 +55,7 @@ Bug Hunt complete. Found 3 critical issues.
 <nextsteps>
 1. Fix the shell injection in packages/cli/src/slash-commands/dev.ts:15
 2. Replace Math.random() with randomUUID() in the affected files
-3. Run the type checker
+3. Run the type checker and fix any errors
 </nextsteps>
 
 Open browser DevTools → Network tab to verify the WebSocket
@@ -66,7 +66,7 @@ connection is established before testing.
 Audit complete. Found bash command timeout pattern in iterations 14–20.
 
 <nextsteps>
-1. Run the session tests and the type checker
+1. Run the session tests and type checker, then fix any failures
 </nextsteps>
 
 Review iterations 14–20 in the session log to characterize the loop.
@@ -117,8 +117,8 @@ Items that should be auto-submitted (the user can copy-paste and send) use `auto
 
 ```
 <nextsteps>
-1. Run the type checker auto="true"
-2. Fix the shell injection in packages/cli/src/slash-commands/dev.ts:15
+1. Run the type checker and fix any errors auto="true"
+2. Fix the shell injection in packages/cli/src/slash-commands/dev.ts:15 and add a regression test
 </nextsteps>
 ```
 
@@ -144,14 +144,14 @@ When a **subagent** completes its task, it MUST:
 ## Anti-patterns
 
 - **Don't put human-only actions in `<nextsteps>`** — those belong outside the tag as plain text
-- **Don't write imperative instructions** — write what the user would type, not what they should do
+- **Don't address instructions to the user** — agent-directed imperatives are valid because the selected text is submitted back to the agent verbatim
 - **Don't use markdown inside `<nextsteps>`** — plain text only
 - **Don't skip the tag when there are prompt options** — the tag enables the `/next` workflow
 - **Don't use dashes or asterisks** — use `1.`, `2.`, `3.` numbering
 - **Don't be vague** — "fix bugs" is useless, "fix auth/session.ts:42" is a valid prompt
 - **Don't exceed 5 items without reason** — if >5, it's probably not a single task
 - **Don't write declarations of intent** — "we should refactor X" is not a prompt; "refactor core/config.ts" is
-- **Don't suggest manual review as a prompt** — "manually check if X is correct" is not a valid LLM prompt; instead put it outside the tag
+- **Don't assign manual work to the user** — "manually check if X is correct yourself" is not a valid next prompt; when tools permit it, use an agent-directed prompt such as "Use the browser tools to verify X and fix any issue you find"
 - **Don't include `<nextsteps>` in subagent output** — subagents report findings, leaders produce next steps
 
 ## Skills in scope

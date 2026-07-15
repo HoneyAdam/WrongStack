@@ -51,6 +51,8 @@ describe('buildPredictionPrompt', () => {
     });
     expect(prompt).toContain('add a parser');
     expect(prompt).toContain('I added parse.ts');
+    expect(prompt).toContain('submit back to the agent through the TUI or WebUI');
+    expect(prompt).toContain('never assign a manual chore to the user');
   });
 
   it('lists only pending todos', () => {

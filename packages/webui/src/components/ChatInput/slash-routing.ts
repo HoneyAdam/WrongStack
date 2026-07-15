@@ -429,7 +429,9 @@ export function runChatSlashCommand(options: RunChatSlashCommandOptions): boolea
     case '/suggest':
     case '/next-steps':
       // Ask the agent to suggest next steps
-      sendMsg('What are the next steps I should take? Be specific and actionable.');
+      sendMsg(
+        'Suggest exact prompt messages I can submit back to you. Each must ask you to perform the work and must not assign a manual chore to me. Be specific and actionable.',
+      );
       return true;
     case '/review':
     case '/cr': {

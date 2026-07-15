@@ -1041,7 +1041,7 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
           } else if (autonomy === 'suggest' && !hasOpenTodos(opts.agent.ctx.todos)) {
             // Suggest mode: ask the agent what to do next, show to user.
             const suggestPrompt =
-              'Based on what you just did, suggest 3 concrete next steps. ' +
+              'Based on what you just did, suggest 3 exact prompt messages that can be submitted back to you through the TUI or WebUI. Each prompt must ask the agent to perform work; never assign a manual chore to the user. ' +
               'If you include suggestions, wrap them in a balanced <nextsteps>...</nextsteps> block, ' +
               'with one numbered prompt per line and no explanation. ' +
               'If there is nothing meaningful left, say "No further steps needed."';

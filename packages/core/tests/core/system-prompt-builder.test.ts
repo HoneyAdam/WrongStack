@@ -39,6 +39,8 @@ describe('DefaultSystemPromptBuilder', () => {
     expect(blocks[2]?.text).toContain(tmp);
     expect(blocks[3]?.text).toContain('<nextsteps>');
     expect(blocks[3]?.text).toContain('MUST be inside a `<nextsteps>...</nextsteps>` block');
+    expect(blocks[3]?.text).toContain('active TUI or WebUI prompt input');
+    expect(blocks[3]?.text).toContain('does not need to be a shell command');
     expect(blocks[3]?.text).toContain('Never write loose endings');
   });
 
