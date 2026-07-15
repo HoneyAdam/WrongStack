@@ -72,8 +72,23 @@ function parseTranscriptEntry(value: unknown, fallbackId: string): AgentTranscri
   return projectAgentTimelineEntry(value as Record<string, unknown>, fallbackId);
 }
 
+/**
+ * Which timeline entry kinds are worth showing the user on a fresh page load.
+ * Tool calls, debug status updates, and system/error spam from a long-ago
+ * worker make a chat history noisy without adding comprehension; keep only the
+ * conversational surface and surface errors as plain messages.
+ */
+const REPLAY_VISIBLE_KINDS: ReadonlySet<AgentTranscriptEntry['kind']> = new Set([
+  'text',
+  'thinking',
+  'error',
+]);
+
+/** Maximum curated entries retained per agent on F5/reconnect. */
+const REPLAY_ENTRIES_PER_AGENT = 64;
+
 export function parseAgentSessionReplays(value: unknown): AgentSessionReplay[] {
-  if (!Array.isArray(value)) return [];
+  if (!Array.isArray(value) || value.length === 0) return [];
   return value.flatMap((rawSession, sessionIndex) => {
     if (!rawSession || typeof rawSession !== 'object') return [];
     const session = rawSession as Record<string, unknown>;
@@ -84,19 +99,25 @@ export function parseAgentSessionReplays(value: unknown): AgentSessionReplay[] {
       typeof session['agentName'] === 'string' && session['agentName'].trim()
         ? session['agentName'].trim()
         : subagentId;
-    const transcript = Array.isArray(session['transcript'])
-      ? session['transcript'].flatMap((entry, entryIndex) => {
-          const parsed = parseTranscriptEntry(entry, `replay-${sessionIndex}-${entryIndex}`);
-          return parsed ? [{ ...parsed, subagentId, agentName }] : [];
-        })
-      : [];
+    if (!Array.isArray(session['transcript'])) return [];
+    const transcript: AgentTranscriptEntry[] = [];
+    for (let index = 0; index < session['transcript'].length; index++) {
+      const parsed = parseTranscriptEntry(
+        (session['transcript'] as unknown[])[index],
+        `replay-${sessionIndex}-${index}`,
+      );
+      if (!parsed || !REPLAY_VISIBLE_KINDS.has(parsed.kind)) continue;
+      transcript.push({ ...parsed, subagentId, agentName });
+    }
+    if (transcript.length === 0) return [];
+    const trimmed = transcript.slice(-REPLAY_ENTRIES_PER_AGENT);
     return [
       {
         subagentId,
         agentName,
         status: typeof session['status'] === 'string' ? session['status'] : 'idle',
         task: typeof session['task'] === 'string' ? session['task'] : undefined,
-        transcript,
+        transcript: trimmed,
       } satisfies AgentSessionReplay,
     ];
   });

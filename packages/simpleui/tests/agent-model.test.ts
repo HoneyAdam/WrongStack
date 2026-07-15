@@ -70,47 +70,180 @@ describe('SimpleUI agent tabs', () => {
 });
 
 describe('SimpleUI per-agent histories', () => {
-  it('hydrates reconnect snapshots defensively and preserves typed tool outcomes', () => {
-    expect(
-      parseAgentSessionReplays([
-        {
-          subagentId: 'worker-1',
-          agentName: 'WORKER',
-          status: 'completed',
-          task: 'Review auth',
-          transcript: [
-            {
-              subagentId: 'worker-1',
-              agentName: 'WORKER',
-              content: 'Completed grep\n0 errors',
-              kind: 'tool_result',
-              iteration: 2,
-              ts: '2026-07-15T12:00:00.000Z',
-              toolName: 'grep',
-              toolOk: true,
-            },
-          ],
-        },
-        { nope: true },
-      ]),
-    ).toEqual([
+  it('hydrates a curated, meaningful history and drops noisy entries', () => {
+    // A long-running worker has accumulated a noisy transcript. On F5 we want
+    // the assistant/user-facing surface only — no tool_use/tool_result noise,
+    // no debug status spam — and bounded to the most recent slice.
+    const transcript = [
+      {
+        subagentId: 'worker-1',
+        agentName: 'WORKER',
+        kind: 'status',
+        content: 'AGENT RUNNING',
+        iteration: 0,
+        ts: '2026-07-15T12:00:00.000Z',
+      },
+      {
+        subagentId: 'worker-1',
+        agentName: 'WORKER',
+        kind: 'tool_use',
+        content: 'read({"path":"a.ts"})',
+        iteration: 0,
+        ts: '2026-07-15T12:00:01.000Z',
+        toolName: 'read',
+      },
+      {
+        subagentId: 'worker-1',
+        agentName: 'WORKER',
+        kind: 'thinking',
+        content: 'Inspecting the auth handler.',
+        iteration: 1,
+        ts: '2026-07-15T12:00:02.000Z',
+      },
+      {
+        subagentId: 'worker-1',
+        agentName: 'WORKER',
+        kind: 'text',
+        content: 'Found the bug.',
+        iteration: 1,
+        ts: '2026-07-15T12:00:03.000Z',
+      },
+      {
+        subagentId: 'worker-1',
+        agentName: 'WORKER',
+        kind: 'system',
+        content: 'agent loop tick',
+        iteration: 1,
+        ts: '2026-07-15T12:00:04.000Z',
+      },
+      {
+        subagentId: 'worker-1',
+        agentName: 'WORKER',
+        kind: 'tool_result',
+        content: 'Completed read',
+        iteration: 1,
+        ts: '2026-07-15T12:00:05.000Z',
+        toolName: 'read',
+        toolOk: true,
+      },
+      {
+        subagentId: 'worker-1',
+        agentName: 'WORKER',
+        kind: 'status',
+        content: 'tool ok',
+        iteration: 2,
+        ts: '2026-07-15T12:00:06.000Z',
+      },
+      {
+        subagentId: 'worker-1',
+        agentName: 'WORKER',
+        kind: 'text',
+        content: 'Fix landed.',
+        iteration: 2,
+        ts: '2026-07-15T12:00:07.000Z',
+      },
+      {
+        subagentId: 'worker-1',
+        agentName: 'WORKER',
+        kind: 'error',
+        content: 'retry budget soft warning',
+        iteration: 2,
+        ts: '2026-07-15T12:00:08.000Z',
+      },
+    ];
+    const replays = parseAgentSessionReplays([
       {
         subagentId: 'worker-1',
         agentName: 'WORKER',
         status: 'completed',
         task: 'Review auth',
-        transcript: [
-          expect.objectContaining({
-            subagentId: 'worker-1',
-            agentName: 'WORKER',
-            kind: 'tool_result',
-            toolName: 'grep',
-            toolOk: true,
-          }),
-        ],
+        transcript,
+      },
+      { nope: true },
+    ]);
+    expect(replays).toHaveLength(1);
+    const session = replays[0]!;
+    expect(session.subagentId).toBe('worker-1');
+    expect(session.transcript.map((entry) => entry.kind)).toEqual([
+      'thinking',
+      'text',
+      'text',
+      'error',
+    ]);
+    expect(session.transcript.map((entry) => entry.content)).toEqual([
+      'Inspecting the auth handler.',
+      'Found the bug.',
+      'Fix landed.',
+      'retry budget soft warning',
+    ]);
+    // Leader snapshot is never rehydrated into the worker store.
+    expect(parseAgentSessionReplays({ invalid: true })).toEqual([]);
+    expect(
+      parseAgentSessionReplays([
+        {
+          subagentId: 'leader',
+          agentName: 'LEADER',
+          status: 'running',
+          transcript: [
+            {
+              subagentId: 'leader',
+              agentName: 'LEADER',
+              kind: 'text',
+              content: 'should be ignored',
+              iteration: 0,
+              ts: '2026-07-15T12:00:00.000Z',
+            },
+          ],
+        },
+      ]),
+    ).toEqual([]);
+  });
+
+  it('returns empty when the snapshot has no visible entries, even with a huge noisy history', () => {
+    const noisy = Array.from({ length: 5000 }, (_, index) => ({
+      subagentId: 'worker-2',
+      agentName: 'NOISY',
+      kind: 'tool_use' as const,
+      content: `bash({"cmd":"echo ${index}"})`,
+      toolName: 'bash',
+      iteration: index,
+      ts: '2026-07-15T12:00:00.000Z',
+    }));
+    expect(
+      parseAgentSessionReplays([
+        {
+          subagentId: 'worker-2',
+          agentName: 'NOISY',
+          status: 'completed',
+          transcript: noisy,
+        },
+      ]),
+    ).toEqual([]);
+  });
+
+  it('caps each agent replay at the curated tail and keeps order', () => {
+    // 80 thinking entries — only the last 64 should survive, in order.
+    const transcript = Array.from({ length: 80 }, (_, index) => ({
+      subagentId: 'worker-3',
+      agentName: 'THINKER',
+      kind: 'thinking' as const,
+      content: `thought #${index}`,
+      iteration: index,
+      ts: '2026-07-15T12:00:00.000Z',
+    }));
+    const replays = parseAgentSessionReplays([
+      {
+        subagentId: 'worker-3',
+        agentName: 'THINKER',
+        status: 'completed',
+        transcript,
       },
     ]);
-    expect(parseAgentSessionReplays({ invalid: true })).toEqual([]);
+    expect(replays).toHaveLength(1);
+    const session = replays[0]!;
+    expect(session.transcript).toHaveLength(64);
+    expect(session.transcript[0]?.content).toBe('thought #16');
+    expect(session.transcript.at(-1)?.content).toBe('thought #79');
   });
 
   it('projects rich timeline events only for worker agents', () => {
