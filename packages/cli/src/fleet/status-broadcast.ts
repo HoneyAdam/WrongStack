@@ -2,10 +2,10 @@
  * status-broadcast — mailbox broadcasts on meaningful subagent transitions.
  *
  * The third leg of peer awareness (with the fleet-pulse digest and the
- * fleet_status tool): when a fleet subagent joins, completes a task, or
- * hits budget pressure, a low-priority `type:'status'` broadcast lands in
- * the project mailbox so every OTHER agent — including agents in other
- * processes on the same project — sees it on its next iteration.
+ * fleet_status tool): when a fleet subagent joins, finishes a task, or (when
+ * explicitly enabled) hits budget pressure, a low-priority `type:'status'`
+ * broadcast lands in the project mailbox so every OTHER agent — including
+ * agents in other processes on the same project — sees it on its next iteration.
  *
  * It also keeps the mailbox registry heartbeat rich: task start/stop
  * transitions push `currentTask`/`status` into the registry, which is what
@@ -55,6 +55,10 @@ export function createFleetStatusBroadcaster(opts: FleetStatusBroadcasterOptions
   const cfg = opts.config;
   const minIntervalMs = cfg?.minIntervalMsPerAgent ?? DEFAULT_MIN_INTERVAL_MS;
   const perMinuteCap = cfg?.globalPerMinuteCap ?? DEFAULT_GLOBAL_PER_MINUTE;
+  // Budget thresholds are local operational telemetry, and timeout thresholds
+  // can be proactive (85% of the deadline) rather than exhaustion. Broadcasting
+  // them project-wide by default floods every peer with recoverable internals.
+  const broadcastBudgetWarnings = cfg?.budgetWarnings === true;
   const disabled = cfg?.enabled === false;
 
   let mailbox: Mailbox | null = null;
@@ -187,12 +191,13 @@ export function createFleetStatusBroadcaster(opts: FleetStatusBroadcasterOptions
           });
         }),
         opts.events.on('subagent.budget_warning', (e) => {
+          if (!broadcastBudgetWarnings) return;
           const key = `${e.subagentId}|${e.kind}`;
           if (announcedBudget.has(key)) return;
           announcedBudget.add(key);
           broadcast(e.subagentId, {
             subject: `[${nameOf(e.subagentId)}] budget pressure`,
-            body: `${nameOf(e.subagentId)} hit its ${e.kind} limit (${e.used}/${e.limit}) — coordinator negotiating`,
+            body: `${nameOf(e.subagentId)} reached its ${e.kind} extension threshold (${e.used}/${e.limit})`,
             priority: 'low',
           });
         }),

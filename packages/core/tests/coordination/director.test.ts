@@ -104,14 +104,12 @@ describe('Director orchestration', () => {
 
   const waitImmediate = () => new Promise((resolve) => setImmediate(resolve));
 
-  it('asks Brain before granting a non-timeout budget extension and extends on answer', async () => {
+  it('auto-extends a routine budget without consulting Brain', async () => {
     let brainCalls = 0;
     const { director: d } = buildDirector({
-      decide: async (req) => {
+      decide: async () => {
         brainCalls++;
-        expect(req.source).toBe('director');
-        expect(req.question).toContain('iterations');
-        return { type: 'answer', optionId: 'extend', text: 'extend' };
+        return { type: 'answer', optionId: 'stop', text: 'stop' };
       },
     });
     _director = d;
@@ -140,14 +138,20 @@ describe('Director orchestration', () => {
     await waitImmediate();
     await waitImmediate();
 
-    expect(brainCalls).toBe(1);
+    expect(brainCalls).toBe(0);
     expect(denied).toBe(false);
     expect(extended?.maxIterations).toBeGreaterThan(11);
   });
 
-  it('asks Brain before granting a non-timeout budget extension and denies on stop', async () => {
+  it('asks Brain before granting a cost extension and denies on stop', async () => {
+    let brainCalls = 0;
     const { director: d } = buildDirector({
-      decide: async () => ({ type: 'answer', optionId: 'stop', text: 'stop' }),
+      decide: async (req) => {
+        brainCalls++;
+        expect(req.source).toBe('director');
+        expect(req.question).toContain('cost');
+        return { type: 'answer', optionId: 'stop', text: 'stop' };
+      },
     });
     _director = d;
     let extended = false;
@@ -159,7 +163,7 @@ describe('Director orchestration', () => {
       ts: Date.now(),
       type: 'budget.threshold_reached',
       payload: {
-        kind: 'tool_calls',
+        kind: 'cost',
         used: 11,
         limit: 10,
         timeoutMs: 60_000,
@@ -174,6 +178,7 @@ describe('Director orchestration', () => {
 
     await waitImmediate();
 
+    expect(brainCalls).toBe(1);
     expect(denied).toBe(true);
     expect(extended).toBe(false);
   });

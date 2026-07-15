@@ -319,38 +319,53 @@ describe('Director budget-threshold extension policy (brain)', () => {
   const brainDir = (decide: DirectorOpts['brain'] extends infer B ? (B extends { decide: infer D } ? D : never) : never) =>
     makeDirector({ brain: { decide } as DirectorOpts['brain'] });
 
-  it('denies on a deny decision', async () => {
+  it.each([
+    ['iterations', 'maxIterations'],
+    ['tool_calls', 'maxToolCalls'],
+    ['tokens', 'maxTokens'],
+  ] as const)('auto-extends routine %s limits without consulting the brain', async (kind, field) => {
+    const decide = vi.fn(async () => ({ type: 'deny' }) as never);
+    const { d } = brainDir(decide as never);
+    const cap = emitBudget(d, kind);
+    await tick();
+    await tick();
+    expect(decide).not.toHaveBeenCalled();
+    expect(cap.denied).toBe(false);
+    expect(cap.extended?.[field]).toBeGreaterThan(0);
+  });
+
+  it('denies a cost extension on a deny decision', async () => {
     const { d } = brainDir(async () => ({ type: 'deny' }) as never);
-    const cap = emitBudget(d, 'iterations');
+    const cap = emitBudget(d, 'cost');
     await tick();
     await tick();
     expect(cap.denied).toBe(true);
   });
 
-  it('denies on an ask_human decision', async () => {
+  it('denies a cost extension on an ask_human decision', async () => {
     const { d } = brainDir(async () => ({ type: 'ask_human' }) as never);
-    const cap = emitBudget(d, 'iterations');
+    const cap = emitBudget(d, 'cost');
     await tick();
     await tick();
     expect(cap.denied).toBe(true);
   });
 
-  it('denies when the brain decision rejects', async () => {
+  it('denies a cost extension when the brain decision rejects', async () => {
     const { d } = brainDir(async () => {
       throw new Error('brain down');
     });
-    const cap = emitBudget(d, 'iterations');
+    const cap = emitBudget(d, 'cost');
     await tick();
     await tick();
     expect(cap.denied).toBe(true);
   });
 
-  it('extends on an answer that is not "stop"', async () => {
+  it('extends cost on an answer that is not "stop"', async () => {
     const { d } = brainDir(async () => ({ type: 'answer', optionId: 'extend', text: 'extend' }) as never);
-    const cap = emitBudget(d, 'tool_calls');
+    const cap = emitBudget(d, 'cost');
     await tick();
     await tick();
-    expect(cap.extended?.maxToolCalls).toBeGreaterThan(0);
+    expect(cap.extended?.maxCostUsd).toBeGreaterThan(0);
   });
 });
 

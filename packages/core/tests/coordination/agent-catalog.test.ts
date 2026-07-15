@@ -125,9 +125,9 @@ describe('fleet roster derivation', () => {
     }
   });
 
-  it('shadow-agent has a modern one-shot budget without the old 4096 token cap', () => {
+  it('shadow-agent has a realistic one-shot token budget', () => {
     const resolved = applyRosterBudget({ ...FLEET_ROSTER['shadow-agent']!, role: 'shadow-agent' });
-    expect(resolved.maxTokens).toBe(30_000);
+    expect(resolved.maxTokens).toBe(96_000);
     expect(resolved.maxCostUsd).toBe(0.5);
     expect(resolved.timeoutMs).toBeUndefined();
     expect(resolved.idleTimeoutMs).toBeGreaterThan(0);

@@ -56,7 +56,7 @@ describe('createFleetStatusBroadcaster', () => {
     vi.useRealTimers();
   });
 
-  function build(config?: { enabled?: boolean; minIntervalMsPerAgent?: number; globalPerMinuteCap?: number }) {
+  function build(config?: { enabled?: boolean; minIntervalMsPerAgent?: number; globalPerMinuteCap?: number; budgetWarnings?: boolean }) {
     broadcaster = createFleetStatusBroadcaster({
       events,
       mailboxFactory: () => fake.mailbox,
@@ -121,8 +121,15 @@ describe('createFleetStatusBroadcaster', () => {
     expect(fake.sent[2]?.body).toContain('3 earlier status broadcast(s) dropped');
   });
 
-  it('announces spawn and budget pressure once each', async () => {
+  it('keeps recoverable budget warnings out of peer mailboxes by default', async () => {
     build({ minIntervalMsPerAgent: 0 });
+    events.emit('subagent.budget_warning', { subagentId: 'sub-1', kind: 'timeout', used: 850, limit: 1000 });
+    await vi.runAllTimersAsync();
+    expect(fake.sent).toHaveLength(0);
+  });
+
+  it('announces spawn and opted-in budget pressure once each', async () => {
+    build({ minIntervalMsPerAgent: 0, budgetWarnings: true });
     events.emit('subagent.spawned', { subagentId: 'sub-1', taskId: 't1', name: 'Einstein', model: 'gpt-x' });
     events.emit('subagent.spawned', { subagentId: 'sub-1', taskId: 't2', name: 'Einstein' });
     events.emit('subagent.budget_warning', { subagentId: 'sub-1', kind: 'iterations', used: 10, limit: 10 });
@@ -131,6 +138,7 @@ describe('createFleetStatusBroadcaster', () => {
     const subjects = fake.sent.map((m) => m.subject);
     expect(subjects.filter((s) => s.includes('joined the fleet'))).toHaveLength(1);
     expect(subjects.filter((s) => s.includes('budget pressure'))).toHaveLength(1);
+    expect(fake.sent.find((m) => m.subject.includes('budget pressure'))?.body).toContain('extension threshold');
   });
 
   it('pushes rich heartbeats on task start/stop (currentTask + status)', async () => {

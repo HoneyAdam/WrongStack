@@ -118,7 +118,11 @@ export const FLEET_ROSTER_BUDGETS: Record<string, FleetRosterBudget> = {
     idleTimeoutMs: DEFAULT_IDLE_TIMEOUT_MS,
     maxIterations: 1000,
     maxToolCalls: 2500,
-    maxTokens: 30_000,
+    // Monitoring passes routinely include a large system prompt plus fleet
+    // context. 30k was below observed single-pass usage and therefore triggered
+    // a post-response negotiation every run; 96k leaves headroom while the cost
+    // and tool/iteration caps still bound runaway work.
+    maxTokens: 96_000,
     maxCostUsd: 0.5,
   },
   ...Object.fromEntries(

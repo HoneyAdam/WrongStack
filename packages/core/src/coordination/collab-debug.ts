@@ -715,7 +715,12 @@ export class CollabSession extends EventEmitter {
         level: DirectorAlertLevel.WARNING,
         message: `${role} hit ${payload.kind} soft limit (${payload.used}/${payload.limit})`,
         budgetKind: payload.kind,
-        elapsedMs: payload.timeoutMs,
+        // `used` is elapsed milliseconds for timeout kinds. `timeoutMs` is the
+        // negotiation response deadline (normally 60s), not agent runtime.
+        elapsedMs:
+          payload.kind === 'timeout' || payload.kind === 'idle_timeout'
+            ? payload.used
+            : undefined,
         limit: payload.limit,
         btwNotes,
       };
@@ -747,12 +752,13 @@ export class CollabSession extends EventEmitter {
           return;
         }
         this.lastTimeoutProgress.set(e.subagentId, progress);
-        const newLimit = Math.min(
-          Math.ceil((payload.timeoutMs ?? payload.limit) * 2),
-          24 * 60 * 60_000,
-        );
+        // Extend the agent's current wall/idle limit. `payload.timeoutMs` is
+        // only how long the coordinator may take to answer this negotiation;
+        // using it here can shrink a 15-minute agent budget to 2 minutes.
+        const newLimit = Math.min(Math.ceil(payload.limit * 2), 24 * 60 * 60_000);
         setImmediate(() => {
-          payload.extend({ timeoutMs: newLimit });
+          const field = payload.kind === 'timeout' ? 'timeoutMs' : 'idleTimeoutMs';
+          payload.extend({ [field]: newLimit });
         });
         return;
       }

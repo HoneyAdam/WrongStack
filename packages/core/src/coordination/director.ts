@@ -970,61 +970,67 @@ export class Director implements ICoordinator {
           payload.extend(extra);
         });
       };
-      if (this.brain) {
-        void this.brain
-          .decide({
-            id: `director-budget-${e.subagentId}-${payload.kind}`,
-            sessionId: this.currentSessionId(),
-            source: 'director',
-            question: `Should the director extend the ${payload.kind} budget for subagent ${e.subagentId}?`,
-            context: [
-              e.taskId ? `Task id: ${e.taskId}` : undefined,
-              `Used: ${payload.used}`,
-              `Limit: ${payload.limit}`,
-              `Prior extensions for this kind: ${prior}`,
-            ]
-              .filter(Boolean)
-              .join('\n'),
-            risk: payload.kind === 'cost' ? 'high' : 'medium',
-            fallback: 'continue',
-            options: [
-              {
-                id: 'extend',
-                label: 'Grant the director default budget extension',
-                consequence: 'The subagent continues with a larger per-kind budget.',
-                risk: payload.kind === 'cost' ? 'high' : 'medium',
-                recommended: true,
-              },
-              {
-                id: 'stop',
-                label: 'Stop this subagent at the current budget limit',
-                consequence: 'The current task will fail or stop due to budget pressure.',
-                risk: 'low',
-              },
-            ],
-          })
-          .then((decision) => {
-            if (decision.type === 'deny') {
-              payload.deny();
-              return;
-            }
-            if (decision.type === 'ask_human') {
-              payload.deny();
-              return;
-            }
-            // Control-plane check: only the exact option id refuses. Free
-            // text is never sniffed — "extend; stopping would waste work"
-            // must not read as a stop.
-            if (decision.optionId === 'stop') {
-              payload.deny();
-              return;
-            }
-            grantExtension();
-          })
-          .catch(() => payload.deny());
+      // Iteration, tool-call, and token extensions are routine control-plane
+      // bookkeeping. They are already bounded by maxBudgetExtensions and hard
+      // per-kind ceilings, so asking the Brain on every threshold adds an LLM
+      // round trip, emits visible Brain activity, and can turn a safe automatic
+      // grant into an arbitrary denial. Keep those grants deterministic. Cost is
+      // different: it authorizes additional spend, so preserve Brain authority.
+      if (payload.kind !== 'cost' || !this.brain) {
+        grantExtension();
         return;
       }
-      grantExtension();
+      void this.brain
+        .decide({
+          id: `director-budget-${e.subagentId}-${payload.kind}`,
+          sessionId: this.currentSessionId(),
+          source: 'director',
+          question: `Should the director extend the ${payload.kind} budget for subagent ${e.subagentId}?`,
+          context: [
+            e.taskId ? `Task id: ${e.taskId}` : undefined,
+            `Used: ${payload.used}`,
+            `Limit: ${payload.limit}`,
+            `Prior extensions for this kind: ${prior}`,
+          ]
+            .filter(Boolean)
+            .join('\n'),
+          risk: 'high',
+          fallback: 'continue',
+          options: [
+            {
+              id: 'extend',
+              label: 'Grant the director default budget extension',
+              consequence: 'The subagent continues with a larger cost budget.',
+              risk: 'high',
+              recommended: true,
+            },
+            {
+              id: 'stop',
+              label: 'Stop this subagent at the current budget limit',
+              consequence: 'The current task will fail or stop due to budget pressure.',
+              risk: 'low',
+            },
+          ],
+        })
+        .then((decision) => {
+          if (decision.type === 'deny') {
+            payload.deny();
+            return;
+          }
+          if (decision.type === 'ask_human') {
+            payload.deny();
+            return;
+          }
+          // Control-plane check: only the exact option id refuses. Free
+          // text is never sniffed — "extend; stopping would waste work"
+          // must not read as a stop.
+          if (decision.optionId === 'stop') {
+            payload.deny();
+            return;
+          }
+          grantExtension();
+        })
+        .catch(() => payload.deny());
     });
   }
 

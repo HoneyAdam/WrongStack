@@ -1094,6 +1094,12 @@ export interface FleetConfig {
         minIntervalMsPerAgent?: number | undefined;
         /** Global cap on broadcasts per minute (excess dropped + counted). Default 20. */
         globalPerMinuteCap?: number | undefined;
+        /**
+         * Broadcast recoverable soft-budget warnings to every project agent.
+         * Default false: the local fleet UI still tracks warnings/extensions,
+         * but routine preemption and auto-extension do not flood peer mailboxes.
+         */
+        budgetWarnings?: boolean | undefined;
       }
     | undefined;
   /**

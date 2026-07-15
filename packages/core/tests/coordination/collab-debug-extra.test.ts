@@ -214,16 +214,25 @@ describe('CollabSession.wireFleetBus event handlers', () => {
     expect(cap.extended?.maxToolCalls).toBeGreaterThan(0);
   });
 
-  it('extends a timeout kind while progress is being made and denies when stuck', async () => {
+  it('extends the agent timeout limit while progress is being made and denies when stuck', async () => {
     const _s = wired();
-    // Make progress first so the first timeout extends.
+    // Make progress first so the first timeout extends. The decision timeout is
+    // deliberately much smaller than the agent limit to prevent confusing them.
     fleetEvent(fleetBus, 'bug-hunter-0', 'tool.executed', {});
-    const first = budgetPayload('timeout');
+    const first = budgetPayload('timeout', { used: 765_000, limit: 900_000, timeoutMs: 60_000 });
     fleetEvent(fleetBus, 'bug-hunter-0', 'budget.threshold_reached', first.payload);
     await tick();
-    expect(first.cap.extended).not.toBeNull();
+    expect(first.cap.extended?.timeoutMs).toBe(1_800_000);
+    expect(_s.getSessionAlerts()[0]?.elapsedMs).toBe(765_000);
+    // Idle thresholds patch the idle window, not the independent wall clock.
+    fleetEvent(fleetBus, 'refactor-planner-0', 'tool.executed', {});
+    const idle = budgetPayload('idle_timeout', { used: 510_000, limit: 600_000, timeoutMs: 60_000 });
+    fleetEvent(fleetBus, 'refactor-planner-0', 'budget.threshold_reached', idle.payload);
+    await tick();
+    expect(idle.cap.extended?.idleTimeoutMs).toBe(1_200_000);
+    expect(idle.cap.extended?.timeoutMs).toBeUndefined();
     // No new progress → second timeout denies.
-    const second = budgetPayload('timeout');
+    const second = budgetPayload('timeout', { used: 1_530_000, limit: 1_800_000, timeoutMs: 60_000 });
     fleetEvent(fleetBus, 'bug-hunter-0', 'budget.threshold_reached', second.payload);
     await tick();
     expect(second.cap.denied).toBe(true);
