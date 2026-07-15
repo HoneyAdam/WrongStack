@@ -347,6 +347,14 @@ export {
   smartDefaultFallbackChain,
 } from './core/fallback-model.js';
 export {
+  FallbackProfileManager,
+} from './core/fallback-profile-manager.js';
+export type {
+  FallbackChain,
+  FallbackChainEntry,
+  ProviderAvailability,
+} from './core/fallback-profile-manager.js';
+export {
   InputBuilder,
   type InputBuilderEvent,
   type InputBuilderOptions,

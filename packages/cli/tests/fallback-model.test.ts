@@ -43,7 +43,7 @@ describe('parseModelRef', () => {
 });
 
 describe('effectiveFallbackChain visibility filtering', () => {
-  it('drops explicit fallback entries hidden by provider visibility lists', () => {
+  it('preserves explicit fallback entries even when provider has empty model list', () => {
     expect(
       effectiveFallbackChain(cfg({
         provider: 'anthropic',
@@ -54,7 +54,7 @@ describe('effectiveFallbackChain visibility filtering', () => {
           openai: { type: 'openai', models: [] },
         },
       })),
-    ).toEqual([]);
+    ).toHaveLength(2); // explicit entries trusted; provider model lists only affect auto-derivation
   });
 
   it('smart default only uses visible provider models', () => {

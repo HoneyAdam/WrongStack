@@ -13,14 +13,11 @@
  */
 import type { AgentExtension } from '../extension/extension-points.js';
 import type { EventBus } from '../kernel/events.js';
-import type { Config, ProviderConfig } from '../types/config.js';
-
-function visibleProviderModels(config: Config, providerId: string, providerModels: string[]): string[] {
-  const entry = config.providers?.[providerId];
-  return entry?.models !== undefined ? [...entry.models] : providerModels;
-}
+import type { Config } from '../types/config.js';
 import type { Logger } from '../types/logger.js';
 import { isFallbackWorthy, type Provider, ProviderError } from '../types/provider.js';
+import { FallbackProfileManager } from './fallback-profile-manager.js';
+import type { FallbackChain, FallbackChainEntry } from './fallback-profile-manager.js';
 
 export interface FallbackModelDeps {
   /** Returns the live config (re-read each turn so `/model` switches are honored). */
@@ -93,8 +90,8 @@ export function normalizeModelRef(ref: string, defaultProvider?: string | undefi
 
 export function fallbackProfileChain(config: Config, profileName: string | undefined): string[] {
   if (!profileName) return [];
-  const chain = config.fallbackProfiles?.[profileName];
-  return Array.isArray(chain) ? chain.filter((ref) => parseModelRef(ref).model) : [];
+  const mgr = new FallbackProfileManager(config);
+  return mgr.resolve(profileName).map((e) => `${e.providerId}/${e.model}`);
 }
 
 /**
@@ -113,65 +110,9 @@ function shouldFallback(err: unknown): number | null {
   return isFallbackWorthy(err.kind) ? err.status : null;
 }
 
-/** A provider is usable as a fallback target when it has a stored key, a key
- *  list, or a populated env var. Mirrors `setmodel.providerHasKey`. */
-function providerHasKey(entry: ProviderConfig | undefined): boolean {
-  if (!entry) return false;
-  if (typeof entry.apiKey === 'string' && entry.apiKey.length > 0) return true;
-  if (Array.isArray(entry.apiKeys) && entry.apiKeys.some((k) => k?.apiKey)) return true;
-  if (Array.isArray(entry.envVars) && entry.envVars.some((v) => !!process.env[v])) return true;
-  return false;
-}
-
-/** Hard ceiling on the auto-derived chain so we don't burn through a dozen
- *  models on a transient blip. */
-const SMART_DEFAULT_MAX = 4;
-
-/**
- * Derive a fallback chain from the configured providers when the user has not
- * set an explicit `fallbackModels` list. Picks declared models from every
- * keyed provider — same-provider alternatives first (same key, cheapest
- * failover), then cross-provider — excluding the active leader model. Returns
- * `[]` when nothing usable is configured (e.g. providers with no `models`
- * list), in which case the extension is a no-op.
- */
 export function smartDefaultFallbackChain(config: Config): string[] {
-  const leaderProvider = config.provider;
-  const leaderModel = config.model;
-  const providers = config.providers ?? {};
-  const favoriteSet = new Set(
-    (config.favoriteModels ?? []).map((ref) => normalizeModelRef(ref, leaderProvider)),
-  );
-  const hasFavorites = favoriteSet.size > 0;
-  const favoritesOnly = config.favoriteModelsOnly === true;
-  const seen = new Set<string>();
-  const favoriteRefs: string[] = [];
-  const sameProvider: string[] = [];
-  const crossProvider: string[] = [];
-
-  // Leader provider first so its other models lead the chain.
-  const ids = Object.keys(providers).sort((a, b) =>
-    a === leaderProvider ? -1 : b === leaderProvider ? 1 : a.localeCompare(b),
-  );
-
-  for (const id of ids) {
-    const entry = providers[id];
-    if (!providerHasKey(entry)) continue;
-    const models = visibleProviderModels(config, id, entry?.models ?? []);
-    for (const model of models) {
-      if (id === leaderProvider && model === leaderModel) continue;
-      const ref = `${id}/${model}`;
-      if (seen.has(ref)) continue;
-      seen.add(ref);
-      if (favoriteSet.has(ref)) {
-        favoriteRefs.push(ref);
-        continue;
-      }
-      if (favoritesOnly && hasFavorites) continue;
-      (id === leaderProvider ? sameProvider : crossProvider).push(ref);
-    }
-  }
-  return [...favoriteRefs, ...sameProvider, ...crossProvider].slice(0, SMART_DEFAULT_MAX);
+  const mgr = new FallbackProfileManager(config);
+  return mgr.resolveEffective({ fallbackAuto: true }).map((e) => `${e.providerId}/${e.model}`);
 }
 
 /**
@@ -179,18 +120,11 @@ export function smartDefaultFallbackChain(config: Config): string[] {
  * when non-empty, otherwise the smart default (unless `fallbackAuto` is off).
  */
 export function effectiveFallbackChain(config: Config): string[] {
-  const explicit = config.fallbackModels ?? [];
-  const filteredExplicit = explicit.filter((ref) => {
-    const parsed = parseModelRef(ref);
-    if (!parsed.model) return false;
-    const providerId = parsed.provider ?? config.provider;
-    const entry = config.providers?.[providerId];
-    if (!entry?.models) return true;
-    return entry.models.includes(parsed.model);
-  });
-  if (filteredExplicit.length > 0) return filteredExplicit;
-  if (config.fallbackAuto === false) return [];
-  return smartDefaultFallbackChain(config);
+  const mgr = new FallbackProfileManager(config);
+  return mgr.resolveEffective({
+    fallbackModels: config.fallbackModels,
+    fallbackAuto: config.fallbackAuto,
+  }).map((e) => `${e.providerId}/${e.model}`);
 }
 
 const DEFAULT_PRIMARY_COOLDOWN_MS = 60_000;
@@ -203,19 +137,29 @@ function sameTarget(
   return !!a && a.providerId === b.providerId && a.model === b.model;
 }
 
-function fallbackCandidates(config: Config, current: { providerId: string; model: string }): string[] {
-  const chain = effectiveFallbackChain(config);
+function fallbackCandidates(config: Config, current: { providerId: string; model: string }): FallbackChain {
+  const mgr = new FallbackProfileManager(config);
   const configuredPrimary = primaryTarget(config);
-  const manualTarget = sameTarget(configuredPrimary, current)
-    ? []
-    : [formatModelRef({ provider: configuredPrimary.providerId, model: configuredPrimary.model })];
-  const seen = new Set<string>();
-  return [...manualTarget, ...chain].filter((ref) => {
-    const normalized = normalizeModelRef(ref, config.provider);
-    if (seen.has(normalized)) return false;
-    seen.add(normalized);
-    return true;
+  const profileChain = mgr.resolveEffective({
+    fallbackModels: config.fallbackModels,
+    fallbackProfile: undefined,
+    fallbackAuto: config.fallbackAuto,
+    exclude: sameTarget(configuredPrimary, current) ? undefined : current,
   });
+  if (!sameTarget(configuredPrimary, current)) {
+    const primaryEntry: FallbackChainEntry = {
+      providerId: configuredPrimary.providerId,
+      model: configuredPrimary.model,
+      providerSwitched: configuredPrimary.providerId !== current.providerId,
+    };
+    // Prepend primary and deduplicate against the profile chain
+    const seen = new Set<string>(profileChain.map((e) => `${e.providerId}/${e.model}`));
+    const key = `${primaryEntry.providerId}/${primaryEntry.model}`;
+    if (!seen.has(key)) {
+      return Object.freeze([primaryEntry, ...profileChain]);
+    }
+  }
+  return profileChain;
 }
 
 const primaryTarget = (cfg: Config) => ({ providerId: cfg.provider, model: cfg.model });
@@ -333,18 +277,17 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
           markPrimaryFailure(cfg);
         }
 
-        for (const ref of chain) {
+        for (const entry of chain) {
           const status = shouldFallback(lastErr);
           if (status === null) break; // not a fallback-worthy error
 
-          const parsed = parseModelRef(ref);
-          if (!parsed.model) continue;
-          const targetProviderId = parsed.provider ?? cfg.provider;
-          if (targetProviderId === ctx.provider.id && parsed.model === ctx.model) continue;
+          const targetProviderId = entry.providerId;
+          const targetModel = entry.model;
+          if (targetProviderId === ctx.provider.id && targetModel === ctx.model) continue;
           if (
             primaryInCooldown(cfg) &&
             targetProviderId === cfg.provider &&
-            parsed.model === cfg.model
+            targetModel === cfg.model
           ) {
             continue;
           }
@@ -353,10 +296,10 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
 
           let nextProvider: Provider;
           try {
-            nextProvider = await deps.buildProvider(targetProviderId, parsed.model);
+            nextProvider = await deps.buildProvider(targetProviderId, targetModel);
           } catch (err) {
             deps.logger?.warn(
-              `fallback-model: skipping "${ref}" — cannot build provider "${targetProviderId}": ${
+              `fallback-model: skipping "${targetProviderId}/${targetModel}" — cannot build provider "${targetProviderId}": ${
                 err instanceof Error ? err.message : String(err)
               }`,
             );
@@ -366,15 +309,15 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
           const providerSwitched = nextProvider.id !== from.providerId;
           const warning = contextWindowWarning(ctx.provider, nextProvider, ctx.lastRequestTokens);
           ctx.provider = nextProvider;
-          ctx.model = parsed.model;
-          request.model = parsed.model;
+          ctx.model = targetModel;
+          request.model = targetModel;
           dirty = true;
-          await deps.onModelSwitch?.(targetProviderId, parsed.model);
+          await deps.onModelSwitch?.(targetProviderId, targetModel);
 
           deps.events.emit('provider.fallback', {
             sessionId: ctx.session?.id,
             from,
-            to: { providerId: nextProvider.id, model: parsed.model },
+            to: { providerId: nextProvider.id, model: targetModel },
             status,
             providerSwitched,
             ...(warning ? { contextWindowWarning: warning } : {}),

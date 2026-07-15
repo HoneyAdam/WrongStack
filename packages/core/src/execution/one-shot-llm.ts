@@ -8,7 +8,9 @@ import {
   type Request,
   type Response,
 } from '../types/provider.js';
-import { effectiveFallbackChain, fallbackProfileChain, parseModelRef } from '../core/fallback-model.js';
+import { FallbackProfileManager } from '../core/fallback-profile-manager.js';
+import type { FallbackChain } from '../core/fallback-profile-manager.js';
+import type { Config } from '../types/config.js';
 
 /**
  * Default timeout for one-shot LLM calls when the caller doesn't specify one.
@@ -107,18 +109,15 @@ export class OneShotOrchestrator {
     let fallbackEligible = primaryAttempt.fallbackEligible;
 
     if (!result && fallbackEligible && chain.length > 0) {
-      for (const ref of chain) {
-        const parsed = parseModelRef(ref);
-        if (!parsed.model) continue;
-        const fbProviderId = parsed.provider ?? config.provider;
-        if (fbProviderId === provider.id && parsed.model === target.model) continue;
+      for (const entry of chain) {
+        if (entry.providerId === provider.id && entry.model === target.model) continue;
 
-        servingProviderId = fbProviderId;
-        servingModel = parsed.model;
+        servingProviderId = entry.providerId;
+        servingModel = entry.model;
 
         let fbProvider: Provider;
         try {
-          fbProvider = await this.opts.buildProvider(fbProviderId, parsed.model);
+          fbProvider = await this.opts.buildProvider(entry.providerId, entry.model);
         } catch (err) {
           lastError = err;
           continue;
@@ -127,7 +126,7 @@ export class OneShotOrchestrator {
         servingProviderId = fbProvider.id;
         const attempt = await this.tryCall(
           fbProvider,
-          this.buildRequest(input, parsed.model),
+          this.buildRequest(input, entry.model),
           signal,
         );
         if (attempt.response) {
@@ -252,30 +251,33 @@ export class OneShotOrchestrator {
    */
   private resolveFallbackChain(
     input: OneShotLLMInput,
-    config: import('../types/config.js').Config,
+    config: Config,
     target: { providerId: string; model: string },
-  ): string[] {
+  ): FallbackChain {
+    const mgr = new FallbackProfileManager(config);
+
     // Explicit chain wins
     if (input.fallbackModels && input.fallbackModels.length > 0) {
-      return input.fallbackModels;
+      return mgr.resolveRefs(input.fallbackModels, target);
     }
 
     // Named profile
     if (input.fallbackProfile) {
-      const profile = fallbackProfileChain(config, input.fallbackProfile);
-      if (profile.length > 0) return profile;
+      const chain = mgr.resolve(input.fallbackProfile, { exclude: target });
+      if (chain.length > 0) return chain;
     }
 
-    // Smart default from config (same logic as fallback-model.ts)
+    // Smart default from config — includes config.fallbackModels
     if (config.fallbackAuto !== false) {
-      return effectiveFallbackChain(config).filter((ref) => {
-        const parsed = parseModelRef(ref);
-        const fbProvider = parsed.provider ?? config.provider;
-        return !(fbProvider === target.providerId && parsed.model === target.model);
+      return mgr.resolveEffective({
+        fallbackModels: config.fallbackModels,
+        fallbackProfile: undefined,
+        fallbackAuto: config.fallbackAuto,
+        exclude: target,
       });
     }
 
-    return [];
+    return Object.freeze([]) as FallbackChain;
   }
 
   /** Attempt a provider call while preserving the actual failure for callers. */
