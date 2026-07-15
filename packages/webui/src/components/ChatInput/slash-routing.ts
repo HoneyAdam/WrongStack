@@ -153,7 +153,7 @@ export function runChatSlashCommand(options: RunChatSlashCommandOptions): boolea
       ws.listTools();
       return true;
     case '/memory':
-      ws.listMemory();
+      openMainView('memory');
       return true;
     case '/skill':
     case '/skills':

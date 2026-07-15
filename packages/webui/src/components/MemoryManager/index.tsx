@@ -28,6 +28,7 @@ import { useWebSocket } from '@/hooks/useWebSocket';
 import { useUIStore } from '@/stores';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { MemoryGraph } from './MemoryGraph';
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -43,6 +44,9 @@ interface MemoryEntry {
   confidence: number;
   revision: number;
   anchors: Array<{ type: string; path?: string; symbol?: string; command?: string }>;
+  supersedes?: string[] | undefined;
+  supersededBy?: string | undefined;
+  contradicts?: string[] | undefined;
 }
 
 interface MemoryStats {
@@ -157,6 +161,9 @@ export function MemoryManager() {
 
   useEffect(() => {
     loadMemories();
+    // Cleanup: invalidate any in-flight request on unmount so stale
+    // handlers cannot mutate unmounted component state.
+    return () => { listReqGenRef.current++; };
   }, [loadMemories]);
 
   // ── Filtered list ───────────────────────────────────────────────────
@@ -605,6 +612,16 @@ export function MemoryManager() {
                     </ul>
                   </div>
                 )}
+                {/* Relationship Graph */}
+                {(selectedMemory.supersedes?.length || selectedMemory.contradicts?.length || selectedMemory.supersededBy) ? (
+                  <div className="pt-2">
+                    <MemoryGraph
+                      centerMemory={selectedMemory}
+                      allMemories={memories}
+                      onSelectMemory={(id) => { setSelectedId(id); setEditing(false); }}
+                    />
+                  </div>
+                ) : null}
                 {/* Metadata */}
                 <div className="grid grid-cols-2 gap-3 rounded-lg border border-border bg-muted/30 p-3">
                   <div>

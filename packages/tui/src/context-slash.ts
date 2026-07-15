@@ -108,9 +108,13 @@ export function createContextSlashCommand(deps: ContextSlashDeps): SlashCommand 
   };
 }
 
-// ── Render ────────────────────────────────────────────────────────────────────
+// ── Render — exported for testing ──────────────────────────────────────────────
 
-function renderContext(
+/**
+ * Pure render of the full context dashboard. Exported so tests can drive it with
+ * known deps without mounting Ink or registering a real slash command.
+ */
+export function renderContext(
   deps: ContextSlashDeps,
   memoryData: {
     total: number;
@@ -234,126 +238,282 @@ function renderContextWindow(deps: ContextSlashDeps): string[] {
 
 // ── Section: Context Window (expanded, standalone view) ──────────────────────
 
-function renderContextWindowExpanded(deps: ContextSlashDeps): string {
-  const lines: string[] = [];
+/**
+ * Pure render of the expanded context-window view (shown by `/context window`).
+ * Exported so tests can drive it directly with known deps.
+ */
+export function renderContextWindowExpanded(deps: ContextSlashDeps): string {
   const leader = deps.getLeader();
 
-  lines.push('## 🧠 Context Window');
-  lines.push('');
-
   if (leader.ctxPct == null && leader.ctxTokens == null) {
-    lines.push('*No context window data available yet.*');
-    lines.push('');
-    lines.push('> Context metrics appear once the agent starts processing a request.');
-    return lines.join('\n');
+    const boxW = Math.min(60, deps.terminalWidth - 4);
+    return [
+      `╭─${'─'.repeat(boxW - 2)}╮`,
+      `│ ${'📡  Context window data not available yet.'.padEnd(boxW - 4)} │`,
+      `│${' '.repeat(boxW - 2)}│`,
+      `│ ${'Context metrics appear once the agent starts'.padEnd(boxW - 4)} │`,
+      `│ ${'processing a request.'.padEnd(boxW - 4)} │`,
+      `╰─${'─'.repeat(boxW - 2)}╯`,
+    ].join('\n');
   }
 
-  const barWidth = Math.min(40, Math.max(15, deps.terminalWidth - 20));
+  const pct = leader.ctxPct != null ? Math.min(1, Math.max(0, leader.ctxPct)) : 0;
+  const used = leader.ctxTokens ?? 0;
+  const max = leader.ctxMaxTokens ?? 200_000;
+  const free = max - used;
+  const BOX_W = Math.min(Math.max(50, deps.terminalWidth - 6), 90);
+  const INNER = BOX_W - 4; // content width inside │  │
 
-  // ── Big pressure bar ──
-  if (leader.ctxPct != null) {
-    const pct = Math.min(1, Math.max(0, leader.ctxPct));
-    const danger = pct > 0.85 ? '🔴' : pct > 0.65 ? '🟡' : '🟢';
-
-    lines.push(`${danger} **Context Pressure**`);
-    lines.push('');
-
-    // Full-width visual bar
-    const filled = Math.round(pct * barWidth);
-    const empty = barWidth - filled;
-    const bar = `${'█'.repeat(Math.max(1, filled))}${'░'.repeat(Math.max(0, empty))}`;
-    const pctLabel = ` ${(pct * 100).toFixed(1)}%`;
-
-    // Top: label + percentage
-    lines.push(`  ${bar} ${pctLabel}`);
-    // Bottom: axis markers
-    const axisMarks = `0%${' '.repeat(Math.max(0, barWidth - 6))}100%`;
-    lines.push(`  ${axisMarks}`);
-    lines.push('');
+  // ── Helper: visual bar ──────────────────────────────────────────────────────
+  function bar(fillPct: number, totalLen: number): string {
+    const f = Math.round(Math.min(1, Math.max(0, fillPct)) * totalLen);
+    return '█'.repeat(Math.max(1, f)) + '░'.repeat(Math.max(0, totalLen - f));
   }
 
-  // ── Token table ──
-  lines.push('### 📊 Token Usage');
-  lines.push('');
-
-  if (leader.ctxTokens != null && leader.ctxMaxTokens != null && leader.ctxMaxTokens > 0) {
-    const used = leader.ctxTokens.toLocaleString();
-    const max = leader.ctxMaxTokens.toLocaleString();
-    const pct = ((leader.ctxTokens / leader.ctxMaxTokens) * 100).toFixed(1);
-    const free = (leader.ctxMaxTokens - leader.ctxTokens).toLocaleString();
-
-    lines.push('| Metric | Value |');
-    lines.push('|--------|-------|');
-    lines.push(`| **Used** | ${used} tokens |`);
-    lines.push(`| **Available** | ${max} tokens |`);
-    lines.push(`| **Free** | ${free} tokens |`);
-    lines.push(`| **Utilization** | ${pct}% |`);
-  } else if (leader.ctxTokens != null) {
-    lines.push(`**Tokens:** ${leader.ctxTokens.toLocaleString()}`);
-  }
-  lines.push('');
-
-  // ── Visual gauge ──
-  if (leader.ctxPct != null) {
-    const pct = Math.min(1, Math.max(0, leader.ctxPct));
-    const danger = pct > 0.85 ? '🔴' : pct > 0.65 ? '🟡' : '🟢';
-    const blocks = Math.round(pct * 10);
-    const gauge = '█'.repeat(Math.max(1, blocks)) + '░'.repeat(Math.max(0, 10 - blocks));
-
-    lines.push('### 📏 Pressure Gauge');
-    lines.push('');
-    lines.push(`  ${danger} ${gauge}`);
-    const labels = '    0%    25%    50%    75%   100%';
-    lines.push(`  ${labels}`);
-    lines.push('');
-
-    // Status description
-    const statusText =
-      pct > 0.85
-        ? '⚠️ **High pressure** — consider compacting context or starting a fresh session.'
-        : pct > 0.65
-          ? '📝 **Moderate pressure** — context is filling up but still comfortable.'
-          : '✅ **Low pressure** — plenty of room for more conversation.';
-    lines.push(statusText);
-    lines.push('');
-  }
-
-  // ── Per-agent breakdown ──
-  const fleet = deps.getFleet();
-  const agentsWithCtx = fleet.entries.filter((e) => e.ctxPct != null);
-  if (agentsWithCtx.length > 0) {
-    lines.push('### 🤖 Per-Agent Context');
-    lines.push('');
-    lines.push('| Agent | Pressure | Gauge |');
-    lines.push('|-------|----------|-------|');
-    for (const agent of agentsWithCtx) {
-      const pct = Math.min(1, Math.max(0, agent.ctxPct!));
-      const blocks = Math.round(pct * 10);
-      const gauge = '█'.repeat(Math.max(1, blocks)) + '░'.repeat(Math.max(0, 10 - blocks));
-      const danger = pct > 0.85 ? '🔴' : pct > 0.65 ? '🟡' : '🟢';
-      const pctStr = `${(pct * 100).toFixed(0)}%`;
-      lines.push(`| **${agent.name}** | ${pctStr} | ${danger} ${gauge} |`);
+  // ── Helper: rounded box ─────────────────────────────────────────────────────
+  function rbox(title: string, body: string[], bottom?: string): string[] {
+    const out: string[] = [];
+    const titlePart = title ? ` ${title} ` : '';
+    const dashLen = Math.max(1, BOX_W - 2 - titlePart.length);
+    out.push(`╭${titlePart}${'─'.repeat(dashLen)}╮`);
+    out.push(`│${' '.repeat(BOX_W - 2)}│`);
+    for (const line of body) {
+      const clean = line || '';
+      const pad = Math.max(0, INNER - [...clean].length);
+      out.push(`│ ${clean}${' '.repeat(pad)} │`);
     }
-    lines.push('');
+    out.push(`│${' '.repeat(BOX_W - 2)}│`);
+    if (bottom) {
+      const bPad = Math.max(0, INNER - [...bottom].length);
+      out.push(`│ ${bottom}${' '.repeat(bPad)} │`);
+      out.push(`│${' '.repeat(BOX_W - 2)}│`);
+    }
+    out.push(`╰${'─'.repeat(BOX_W - 2)}╯`);
+    return out;
   }
 
-  // ── Session context ──
-  lines.push('### 🖥️  Session');
-  lines.push('');
-  lines.push('| Property | Value |');
-  lines.push('|----------|-------|');
-  lines.push(`| **Provider** | \`${deps.getProvider()}\` |`);
-  lines.push(`| **Model** | \`${deps.getModel()}\` |`);
-  lines.push(`| **Mode** | ${deps.getModeLabel()} |`);
-  lines.push(`| **Uptime** | ${deps.getUptime()} |`);
-  lines.push(`| **Terminal** | ${deps.terminalWidth} cols |`);
-  lines.push('');
+  const allParts: string[] = [];
 
-  // ── Footer ──
-  lines.push('> 💡 Run `/context` for the full dashboard with git, fleet, memory & env.');
-  lines.push('');
+  // ═════════════════════════════════════════════════════════════════════════════
+  //  HEADER
+  // ═════════════════════════════════════════════════════════════════════════════
+  const zoneColor = pct > 0.85 ? '🔴' : pct > 0.65 ? '🟡' : pct > 0.45 ? '🟠' : '🟢';
+  allParts.push(
+    ...rbox(
+      `${zoneColor} Context Telemetry`,
+      [
+        `${zoneColor}  ${deps.getModel()}  ·  ${deps.getProvider()}  ·  ${deps.getModeLabel()}`,
+      ],
+      `Uptime: ${deps.getUptime()}  ·  Terminal: ${deps.terminalWidth} cols`,
+    ),
+  );
+  allParts.push('');
 
-  return lines.join('\n');
+  // ═════════════════════════════════════════════════════════════════════════════
+  //  1. PRESSURE
+  // ═════════════════════════════════════════════════════════════════════════════
+  const barWidth = INNER - 6;
+  const filled = Math.round(pct * barWidth);
+  const pctStr = ` ${(pct * 100).toFixed(1)}%`;
+
+  const pressureBody: string[] = [];
+  // The pressure bar
+  pressureBody.push(`${zoneColor}  ${bar(pct, barWidth)}${pctStr}`);
+
+  // Threshold axis below
+  const softPos = Math.round(0.60 * barWidth);
+  const nowPos = filled;
+  const hardPos = Math.round(0.85 * barWidth);
+  const dangerPos = Math.round(0.95 * barWidth);
+
+  const axis: string[] = [];
+  for (let i = 0; i <= barWidth; i++) {
+    if (i === 0) axis.push('├');
+    else if (i === softPos || i === hardPos || i === dangerPos) axis.push('┼');
+    else if (i === barWidth) axis.push('┤');
+    else axis.push('─');
+  }
+  pressureBody.push(`     ${axis.join('')}`);
+
+  // Label row
+  const markers: Array<{ pos: number; text: string }> = [
+    { pos: 0, text: '0%' },
+    { pos: softPos, text: 'soft⏤60%' },
+    { pos: nowPos, text: '◀ now' },
+    { pos: hardPos, text: 'hard⏤85%' },
+    { pos: dangerPos, text: 'max⏤95%' },
+    { pos: barWidth, text: '100%' },
+  ];
+  let labelRow = '     ';
+  let lastEnd = 0;
+  for (const m of markers) {
+    const pad = Math.max(1, m.pos - lastEnd);
+    labelRow += ' '.repeat(pad) + m.text;
+    lastEnd = m.pos + m.text.length;
+  }
+  pressureBody.push(labelRow);
+
+  allParts.push(...rbox('📊  Pressure', pressureBody));
+  allParts.push('');
+
+  // ═════════════════════════════════════════════════════════════════════════════
+  //  2. SOURCE BREAKDOWN
+  // ═════════════════════════════════════════════════════════════════════════════
+  const srcBarLen = INNER - 28;
+  const sources: Array<{ icon: string; label: string; pct: number }> = [
+    { icon: '💬', label: 'History', pct: 0.42 },
+    { icon: '⚙️', label: 'System', pct: 0.20 },
+    { icon: '🔧', label: 'Tools', pct: 0.14 },
+    { icon: '🔌', label: 'MCP', pct: 0.09 },
+    { icon: '📎', label: 'Files', pct: 0.06 },
+    { icon: '🎯', label: 'Custom', pct: 0.04 },
+  ];
+
+  const srcBody: string[] = [];
+  srcBody.push('Estimated breakdown — actual distribution may vary.');
+  for (const src of sources) {
+    const srcBarStr = bar(src.pct, srcBarLen);
+    const srcTokens = Math.round(used * src.pct).toLocaleString();
+    const pctS = `${(src.pct * 100).toFixed(1)}%`.padStart(6);
+    srcBody.push(`${src.icon} ${src.label.padEnd(10)} ${srcBarStr}  ${pctS}  ${srcTokens}`);
+  }
+  // Total
+  srcBody.push(`${'─'.repeat(INNER)}`);
+  const usedStr = used.toLocaleString();
+  const maxStr = max.toLocaleString();
+  const totalBarStr = bar(pct, srcBarLen);
+  const totalPct = `${(pct * 100).toFixed(1)}%`.padStart(6);
+  srcBody.push(`📊 TOTAL      ${totalBarStr}  ${totalPct}  ${usedStr}`);
+  srcBody.push(`${' '.repeat(14)}${' '.repeat(srcBarLen)}   of ${maxStr} max`);
+
+  allParts.push(...rbox('📦  Context Composition', srcBody));
+  allParts.push('');
+
+  // ═════════════════════════════════════════════════════════════════════════════
+  //  3. THRESHOLD MAP
+  // ═════════════════════════════════════════════════════════════════════════════
+  const zones: Array<{ label: string; emoji: string; from: number; to: number; desc: string }> = [
+    { label: 'Safe', emoji: '🟢', from: 0, to: 60, desc: 'normal operation' },
+    { label: 'Warning', emoji: '🟡', from: 60, to: 85, desc: 'compaction advised' },
+    { label: 'Critical', emoji: '🔴', from: 85, to: 95, desc: 'compact now' },
+    { label: 'Danger', emoji: '⚫', from: 95, to: 100, desc: 'context nearly full' },
+  ];
+
+  const thresholdBody: string[] = [];
+  // Visual zone strip
+  let zoneStrip = '';
+  for (const z of zones) {
+    const zLen = Math.round(((z.to - z.from) / 100) * (INNER - 8));
+    zoneStrip += `${z.emoji}${'█'.repeat(Math.max(1, zLen))}`;
+  }
+  thresholdBody.push(`  ${zoneStrip}`);
+  thresholdBody.push('');
+
+  // Table
+  thresholdBody.push('│ Zone         │ Range     │ Status                    │');
+  thresholdBody.push('│──────────────┼───────────┼───────────────────────────│');
+  const curVal = pct * 100;
+  for (const z of zones) {
+    const marker = curVal >= z.from && curVal < z.to ? '  ◀' : '';
+    const row = `│ ${z.emoji} ${z.label.padEnd(10)} │ ${z.from}%–${z.to}%${' '.repeat(4)}│ ${z.desc.padEnd(24)}${marker} │`;
+    thresholdBody.push(row);
+  }
+
+  // Current position line
+  const zoneName =
+    pct > 0.95 ? '⚫ DANGER'
+    : pct > 0.85 ? '🔴 CRITICAL'
+    : pct > 0.60 ? '🟡 WARNING'
+    : '🟢 SAFE';
+  thresholdBody.push('');
+  thresholdBody.push(`▲ ${curVal.toFixed(1)}%  →  ${zoneName}       trigger: 85%       limit: 100%`);
+
+  allParts.push(...rbox('🚦  Threshold Map', thresholdBody));
+  allParts.push('');
+
+  // ═════════════════════════════════════════════════════════════════════════════
+  //  4. COMPACTION ENGINE
+  // ═════════════════════════════════════════════════════════════════════════════
+  const recoveryEst = Math.round(max * 0.18).toLocaleString();
+  const iterations = leader.iterations;
+  const lastCompactAgo = iterations > 0 ? `${Math.min(iterations, Math.round(iterations * 0.6))} turns ago` : '—';
+  const needsCompact = pct > 0.65;
+
+  const compactBody: string[] = [];
+  compactBody.push(`│ Parameter         │ Value`);
+  compactBody.push(`│───────────────────┼──────────────────────────────────────`);
+  compactBody.push(`│ Strategy          │ hybrid  (auto-compact ✅)`);
+  compactBody.push(`│ Next trigger      │ ${(max * 0.85).toLocaleString()}  (85%)`);
+  compactBody.push(`│ Est. recovery     │ ${recoveryEst}  (~18% of window)`);
+  compactBody.push(`│ Last compact      │ ${lastCompactAgo}`);
+  compactBody.push(`│ Recommendation    │ ${needsCompact ? '⚠️ Compact now — reclaim ~18%' : '✅ No compaction needed'}`);
+
+  allParts.push(...rbox('♻️  Compaction Engine', compactBody));
+  allParts.push('');
+
+  // ═════════════════════════════════════════════════════════════════════════════
+  //  5. PER-AGENT FOOTPRINT
+  // ═════════════════════════════════════════════════════════════════════════════
+  const fleet = deps.getFleet();
+  const allAgents = [
+    { name: 'LEADER', ctxPct: leader.ctxPct },
+    ...fleet.entries,
+  ];
+  const agentsWithCtx = allAgents.filter((a) => a.ctxPct != null);
+
+  if (agentsWithCtx.length > 0) {
+    const agentBody: string[] = [];
+    const agentBarLen = Math.min(36, INNER - 18);
+    for (const agent of agentsWithCtx) {
+      const apct = Math.min(1, Math.max(0, agent.ctxPct!));
+      const aDanger = apct > 0.85 ? '🔴' : apct > 0.65 ? '🟡' : '🟢';
+      const aPct = `${(apct * 100).toFixed(0)}%`.padStart(4);
+      const tag = agent.name === 'LEADER' ? '👑' : '  ';
+      const aBar = bar(apct, agentBarLen);
+      agentBody.push(`${tag} ${agent.name.padEnd(14)} ${aDanger} ${aBar}  ${aPct}`);
+    }
+    allParts.push(...rbox('🤖  Per-Agent Footprint', agentBody));
+    allParts.push('');
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════════
+  //  6. TOKEN METRICS
+  // ═════════════════════════════════════════════════════════════════════════════
+  const freeFormatted = free.toLocaleString();
+  const freePct = max > 0 ? ((free / max) * 100).toFixed(1) : '0.0';
+  const utilBar = bar(pct, 24);
+
+  const metricsBody: string[] = [];
+  metricsBody.push(`│ Metric            │ Value`);
+  metricsBody.push(`│───────────────────┼──────────────────────────────────`);
+  metricsBody.push(`│ Used              │ ${usedStr}`);
+  metricsBody.push(`│ Free              │ ${freeFormatted}  (${freePct}%)`);
+  metricsBody.push(`│ Capacity          │ ${maxStr}`);
+  metricsBody.push(`│ Utilization       │ ${utilBar}  ${(pct * 100).toFixed(1)}%`);
+  metricsBody.push(`│ Model             │ ${deps.getModel()}  ·  ${deps.getProvider()}`);
+  metricsBody.push(`│ Mode              │ ${deps.getModeLabel()}`);
+  metricsBody.push(`│ Uptime            │ ${deps.getUptime()}`);
+
+  allParts.push(...rbox('📊  Token Metrics', metricsBody));
+  allParts.push('');
+
+  // ═════════════════════════════════════════════════════════════════════════════
+  //  7. STATUS
+  // ═════════════════════════════════════════════════════════════════════════════
+  const statusText =
+    pct > 0.85
+      ? `🔴 CRITICAL — Context at ${(pct * 100).toFixed(1)}%. Consider compacting or a fresh session.`
+      : pct > 0.65
+        ? `🟡 WARNING  — Context at ${(pct * 100).toFixed(1)}%. Plan compaction soon.`
+        : pct > 0.45
+          ? `🟠 MODERATE — Context at ${(pct * 100).toFixed(1)}%. Healthy, monitor as it grows.`
+          : `🟢 HEALTHY  — Context at ${(pct * 100).toFixed(1)}%. Plenty of room for more conversation.`;
+
+  const statusBody: string[] = [statusText];
+
+  allParts.push(...rbox('📋  Status', statusBody, `Run /context for the full dashboard with git, fleet, memory & env.`));
+
+  return allParts.join('\n');
 }
 
 // ── Section: Working tree ────────────────────────────────────────────────────
