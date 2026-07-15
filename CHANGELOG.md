@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Interactive launch menu
+- **`wstack` shows a four-option launch menu on a TTY** when no surface
+  flag is given. The menu lets the user pick between TUI/REPL, WebUI,
+  SimpleUI, and HQ, plus an optional port + host for the bound
+  surfaces. A previous choice is summarized as a one-line
+  "Continue with these? [Y/n/q]" gate, mirroring the existing
+  `runLaunchPrompts` pattern. Implementation lives in
+  `packages/cli/src/boot/launch-menu.ts` and is wired into
+  `cli-context.ts` between the help/desktop/HQ short-circuits and
+  `boot()`.
+- **`--no-menu` flag** opts out of the menu and falls back to the
+  historical behaviour (the first interactive prompt becomes the
+  TUI/REPL picker).
+- **`LaunchMenuChoice` schema** added to `packages/core/src/types/config.ts`
+  and persisted as `config.launch.menuChoice` so the next launch can
+  offer the summary gate.
+- **`docs/cli/launch-menu.md`** describes the menu flow, default ports,
+  skip rules, and opt-out paths.
+
 ## [0.287.0] — 2026-07-15
 
 ### Added — Always-on Director Mode & Goal Flow
