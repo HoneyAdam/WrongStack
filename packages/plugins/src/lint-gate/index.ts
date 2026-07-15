@@ -27,9 +27,11 @@
  */
 
 import { execFile } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { Plugin } from '@wrongstack/core';
 
 const API_VERSION = '^0.1.10';
@@ -115,54 +117,95 @@ interface CommandResult {
   error: Error | null;
 }
 
-function executable(command: string): string {
-  return process.platform === 'win32' && command === 'npx' ? 'npx.cmd' : command;
+interface ResolvedLinter {
+  /** Always the current Node executable; never a shell or package-manager shim. */
+  cmd: string;
+  /** Local package bin entry followed by linter-specific arguments. */
+  args: string[];
+  name: 'biome' | 'eslint';
+}
+
+const LINTER_PACKAGES = {
+  biome: '@biomejs/biome',
+  eslint: 'eslint',
+} as const;
+
+function isInside(parent: string, candidate: string): boolean {
+  const rel = relative(parent, candidate);
+  return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel));
+}
+
+/**
+ * Resolve a linter's project-local JavaScript bin entry from package metadata.
+ * Using `node <entry>` avoids npx, shell configuration, and Windows `.cmd`
+ * shims while still respecting Node's normal project-local package lookup.
+ */
+function resolveLocalLinter(name: 'biome' | 'eslint', cwd: string): ResolvedLinter | null {
+  try {
+    const packageName = LINTER_PACKAGES[name];
+    const requireFromProject = createRequire(resolve(cwd, 'package.json'));
+    const packagePath = requireFromProject.resolve(`${packageName}/package.json`);
+    const packageJson = JSON.parse(readFileSync(packagePath, 'utf-8')) as {
+      bin?: string | Record<string, string>;
+    };
+    const relativeBin =
+      typeof packageJson.bin === 'string'
+        ? packageJson.bin
+        : (packageJson.bin?.[name] ?? Object.values(packageJson.bin ?? {})[0]);
+    if (!relativeBin || isAbsolute(relativeBin)) return null;
+
+    const packageDir = dirname(packagePath);
+    const entry = resolve(packageDir, relativeBin);
+    if (!isInside(packageDir, entry)) return null;
+
+    return {
+      cmd: process.execPath,
+      args: name === 'biome' ? [entry, 'check', '--reporter=json'] : [entry, '--format=json'],
+      name,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function runCommand(
   command: string,
   args: string[],
   timeoutMs: number,
+  cwd: string,
   signal?: AbortSignal,
 ): Promise<CommandResult> {
-  return new Promise((resolve) => {
+  return new Promise((resolveResult) => {
     try {
       execFile(
-        executable(command),
+        command,
         args,
         {
           encoding: 'utf-8',
           timeout: timeoutMs,
-          cwd: process.cwd(),
+          cwd,
           windowsHide: true,
+          shell: false,
           maxBuffer: 2 * 1024 * 1024,
           ...(signal ? { signal } : {}),
         },
-        (error, stdout) => resolve({ stdout, error }),
+        (error, stdout) => resolveResult({ stdout, error }),
       );
     } catch (err) {
-      resolve({ stdout: '', error: err instanceof Error ? err : new Error(String(err)) });
+      resolveResult({ stdout: '', error: err instanceof Error ? err : new Error(String(err)) });
     }
   });
 }
 
-async function detectLinter(
-  requested: Linter,
-): Promise<{ cmd: string; args: string[]; name: string } | null> {
-  const tryBiome = requested === 'biome' || requested === 'auto';
-  const tryEslint = requested === 'eslint' || requested === 'auto';
+async function detectLinter(requested: Linter, cwd: string): Promise<ResolvedLinter | null> {
+  const candidates: Array<'biome' | 'eslint'> =
+    requested === 'auto' ? ['biome', 'eslint'] : [requested];
 
-  if (tryBiome) {
-    const probe = await runCommand('npx', ['biome', '--version'], 5_000);
-    if (!probe.error) {
-      return { cmd: 'npx', args: ['biome', 'check', '--reporter=json'], name: 'biome' };
-    }
-  }
-  if (tryEslint) {
-    const probe = await runCommand('npx', ['eslint', '--version'], 5_000);
-    if (!probe.error) {
-      return { cmd: 'npx', args: ['eslint', '--format=json'], name: 'eslint' };
-    }
+  for (const name of candidates) {
+    const linter = resolveLocalLinter(name, cwd);
+    if (!linter) continue;
+    const probe = await runCommand(linter.cmd, [linter.args[0]!, '--version'], 5_000, cwd);
+    if (!probe.error) return linter;
   }
   return null;
 }
@@ -185,8 +228,9 @@ interface LintIssue {
 async function lintContent(
   content: string,
   filePath: string,
-  linter: { cmd: string; args: string[]; name: string },
+  linter: ResolvedLinter,
   timeoutMs: number,
+  cwd: string,
   signal: AbortSignal,
 ): Promise<LintIssue[] | null> {
   // Create a temp directory and write the content with the same extension
@@ -197,7 +241,7 @@ async function lintContent(
   try {
     await writeFile(tmpFile, content, 'utf-8');
     const fullArgs = [...linter.args, tmpFile];
-    const result = await runCommand(linter.cmd, fullArgs, timeoutMs, signal);
+    const result = await runCommand(linter.cmd, fullArgs, timeoutMs, cwd, signal);
     if (signal.aborted) throw signal.reason;
     // Linters commonly exit non-zero when findings exist; JSON remains stdout.
     if (result.error && !result.stdout) return null;
@@ -224,8 +268,9 @@ async function lintContent(
 async function lintAndFix(
   content: string,
   filePath: string,
-  linter: { cmd: string; args: string[]; name: string },
+  linter: ResolvedLinter,
   timeoutMs: number,
+  cwd: string,
   signal: AbortSignal,
 ): Promise<string> {
   const ext = filePath.includes('.') ? filePath.slice(filePath.lastIndexOf('.')) : '.ts';
@@ -236,9 +281,9 @@ async function lintAndFix(
     // Build the fix command: biome uses `check --write`, eslint uses `--fix`.
     const fixArgs =
       linter.name === 'biome'
-        ? ['biome', 'check', '--write', tmpFile]
-        : ['eslint', '--fix', tmpFile];
-    await runCommand(linter.cmd, fixArgs, timeoutMs, signal);
+        ? [linter.args[0]!, 'check', '--write', tmpFile]
+        : [linter.args[0]!, '--fix', tmpFile];
+    await runCommand(linter.cmd, fixArgs, timeoutMs, cwd, signal);
     if (signal.aborted) throw signal.reason;
     // Linters may exit non-zero after partial fixes; read the temp file anyway.
     return await readFile(tmpFile, 'utf-8');
@@ -372,9 +417,10 @@ const plugin: Plugin = {
     state.lastResult = null;
 
     const cfg = readConfig(api.config.extensions?.['lint-gate']);
+    const cwd = resolve(api.config.cwd ?? process.cwd());
 
     // Detect linter once at setup time.
-    const linterReady = detectLinter(cfg.linter).then((linter) => {
+    const linterReady = detectLinter(cfg.linter, cwd).then((linter) => {
       if (!linter) {
         api.log.warn('lint-gate: no linter found (biome or eslint) — hook will be a no-op', {
           requested: cfg.linter,
@@ -428,7 +474,14 @@ const plugin: Plugin = {
       }
 
       // Run the linter.
-      const issues = await lintContent(content, filePath, linter, cfg.timeoutMs, runtime.signal);
+      const issues = await lintContent(
+        content,
+        filePath,
+        linter,
+        cfg.timeoutMs,
+        cwd,
+        runtime.signal,
+      );
       if (issues === null) {
         state.linterErrorCount += 1;
         return; // linter process failed — don't block the write
@@ -478,6 +531,7 @@ const plugin: Plugin = {
             filePath,
             linter,
             cfg.timeoutMs,
+            cwd,
             runtime.signal,
           );
           if (fixedContent !== content) {
@@ -541,6 +595,7 @@ const plugin: Plugin = {
               filePath,
               linter,
               cfg.timeoutMs,
+              cwd,
               runtime.signal,
             );
             if (fixedNewStr !== newStr) {
