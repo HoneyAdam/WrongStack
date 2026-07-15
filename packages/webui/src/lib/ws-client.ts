@@ -210,17 +210,17 @@ export class WrongStackWebSocketClient {
           // this.ws.
           if (this.ws === ws) {
             try {
-              ws.onopen = null;
-              ws.onmessage = null;
-              ws.onerror = null;
-              ws.onclose = null;
               ws.close();
             } catch {
               // close() may throw if already in CLOSING/CLOSED — ignore.
             }
             if (this.ws === ws) this.ws = null;
           }
+          this.lastErrorText = 'Connection timeout';
           reject(new Error('Connection timeout'));
+          // Timeout should recover just like onerror/onclose do during initial
+          // connect.
+          scheduleReconnect();
         }, 30_000);
 
         // Track whether the connection was ever established so onerror and
@@ -228,6 +228,13 @@ export class WrongStackWebSocketClient {
         // reconnect. Without this, a connection failure leaves callers
         // awaiting connect() hanging forever.
         let established = false;
+        let reconnectScheduled = false;
+
+        const scheduleReconnect = () => {
+          if (reconnectScheduled) return;
+          reconnectScheduled = true;
+          this.attemptReconnect();
+        };
 
         ws.onopen = () => {
           if (this.socketGeneration !== gen) return; // stale socket
@@ -272,7 +279,7 @@ export class WrongStackWebSocketClient {
             reject(new Error(this.lastErrorText));
             // Trigger a reconnect so the client doesn't sit idle after
             // an initial connection failure.
-            this.attemptReconnect();
+            scheduleReconnect();
           }
         };
 
@@ -285,7 +292,7 @@ export class WrongStackWebSocketClient {
             reject(new Error(reason));
             // Trigger a reconnect so the client recovers from a
             // failed initial handshake (e.g. server still starting).
-            this.attemptReconnect();
+            scheduleReconnect();
             return;
           }
           if (ev.reason && !this.lastErrorText) {
@@ -682,6 +689,24 @@ export class WrongStackWebSocketClient {
 
   forget(text: string, scope?: 'project-agents' | 'project-memory' | 'user-memory') {
     this.send({ type: 'memory.forget', payload: { text, scope } });
+  }
+
+  // ---- SuperMemory commands ----
+
+  listSuperMemories() {
+    this.send({ type: 'memory.super.list' });
+  }
+
+  getSuperMemory(id: string) {
+    this.send({ type: 'memory.super.get', payload: { id } });
+  }
+
+  updateSuperMemory(id: string, patch: Record<string, unknown>) {
+    this.send({ type: 'memory.super.update', payload: { id, ...patch } });
+  }
+
+  deleteSuperMemory(id: string, reason?: string) {
+    this.send({ type: 'memory.super.delete', payload: { id, reason } });
   }
 
   // ── MCP server management ─────────────────────────────────────────────────────
