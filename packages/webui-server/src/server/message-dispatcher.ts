@@ -58,9 +58,7 @@ import { handleKanbanRoute } from './kanban-routes.js';
 import { handleMailboxRoute } from './mailbox-routes.js';
 import { handleMcpRoute } from './mcp-routes.js';
 import {
-  handleMemoryForget,
   handleMemoryList,
-  handleMemoryRemember,
   handleSuperMemoryDelete,
   handleSuperMemoryGet,
   handleSuperMemoryList,
@@ -453,12 +451,10 @@ export function createMessageDispatcher(
       }
 
       // ── Memory operations — delegated to shared handlers (memory-handlers.ts) ──
+      // `memory.list` renders the single Super Memory store; all writes go
+      // through the structured `memory.super.*` operations below.
       case 'memory.list':
         return handleMemoryList(ws, deps.memoryStore);
-      case 'memory.remember':
-        return handleMemoryRemember(ws, msg, deps.memoryStore);
-      case 'memory.forget':
-        return handleMemoryForget(ws, msg, deps.memoryStore);
 
       // ── SuperMemory operations ──
       case 'memory.super.list':

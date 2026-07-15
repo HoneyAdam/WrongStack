@@ -210,12 +210,19 @@ export async function createPreContextServices(
     })();
   const memoryStore = container.resolve<MemoryStore>(TOKENS.MemoryStore);
   if (config.features.memory) {
-    toolRegistry.register(rememberTool(memoryStore));
-    toolRegistry.register(forgetTool(memoryStore));
-    toolRegistry.register(searchMemoryTool(memoryStore));
-    toolRegistry.register(relatedMemoryTool(memoryStore));
+    // Super Memory owns the ENTIRE memory tool surface — remember/forget (full
+    // structured args) + memory_update/memory_delete + memory_search/
+    // memory_graph/memory_for_file/... reads. No legacy duplicates
+    // (search_memory/find_related_memories) when super is active. The legacy
+    // flat tools are only a fallback for a non-super store.
+    // Keep in sync with boot/tool-registry.ts and wiring/tools.ts in the CLI.
     if (isSuperMemoryService(memoryStore)) {
       for (const tool of createSuperMemoryTools(memoryStore)) toolRegistry.register(tool);
+    } else {
+      toolRegistry.register(rememberTool(memoryStore));
+      toolRegistry.register(forgetTool(memoryStore));
+      toolRegistry.register(searchMemoryTool(memoryStore));
+      toolRegistry.register(relatedMemoryTool(memoryStore));
     }
   }
   toolRegistry.register(makeMailboxTool({ projectDir: wpaths.projectDir, events }));
@@ -375,7 +382,11 @@ export async function createPreContextServices(
 
   // ── System prompt builder ──
   const systemPromptBuilder = new DefaultSystemPromptBuilder({
-    memoryStore, skillLoader, modeStore, modeId, modePrompt,
+    memoryStore,
+    // Super Memory's turn middleware is the single memory-injection channel;
+    // don't also inject a static memory section here (avoids double injection).
+    injectMemory: false,
+    skillLoader, modeStore, modeId, modePrompt,
     modelCapabilities: () => modelCapabilitiesRef.current,
     instructionPaths: { globalDir: wpaths.globalInstructions, projectDir: wpaths.inProjectInstructions },
   });

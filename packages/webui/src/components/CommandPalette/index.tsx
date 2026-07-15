@@ -114,6 +114,11 @@ export function CommandPalette() {
         run: () => useUIStore.getState().setCurrentView('memory'),
       },
       {
+        id: 'context', category: 'Command', label: 'Context Dashboard',
+        icon: BarChart3, keywords: ['context', 'window', 'tokens', 'pressure', 'telemetry'],
+        run: () => useUIStore.getState().setCurrentView('context'),
+      },
+      {
         id: 'skills', category: 'Command', label: t('commandPalette:cmd.skills'),
         icon: Sparkles, keywords: ['skills'],
         run: () => ws.listSkills(),

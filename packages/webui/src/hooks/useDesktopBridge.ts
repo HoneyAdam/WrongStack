@@ -38,6 +38,7 @@ export interface UseDesktopBridgeOptions {
   setAgentsMonitorOpen: (open: boolean) => void;
   setProcessMonitorOpen: (open: boolean) => void;
   setQueuePanelOpen: (open: boolean) => void;
+  setCronJobsOpen: (open: boolean) => void;
   setTerminalOpen: (open: boolean) => void;
 }
 

@@ -26,6 +26,7 @@ export { AutoPhaseView } from './AutoPhaseView';
 export { TaskBoard, type TaskItem } from './TaskBoard';
 export { ContextBar, ContextFillBar } from './ContextBar';
 export { ContextBreakdownModal } from './ContextBreakdownModal';
+export { ContextDashboard } from './ContextDashboard';
 export { AgentsPage } from './AgentsPage';
 export { SetupScreen } from './SetupScreen';
 export { RefinePanel } from './RefinePanel';

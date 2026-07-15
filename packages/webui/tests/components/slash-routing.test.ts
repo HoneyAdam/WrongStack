@@ -133,7 +133,6 @@ describe('runChatSlashCommand', () => {
     it.each([
       ['/help', 'addMessage'],
       ['/tools', 'listTools'],
-      ['/memory', 'listMemory'],
       ['/skills', 'listSkills'], // /skill and /skills both call listSkills
       ['/diag', 'getDiag'],
       ['/stats', 'getStats'],
@@ -146,6 +145,12 @@ describe('runChatSlashCommand', () => {
       } else {
         expect(opts.ws[handler as keyof typeof opts.ws]).toHaveBeenCalledTimes(1);
       }
+    });
+
+    it('/memory opens the memory manager view', () => {
+      const opts = makeOptions({ raw: '/memory' });
+      expect(runChatSlashCommand(opts)).toBe(true);
+      expect(mocks.setCurrentViewUI).toHaveBeenCalledWith('memory');
     });
   });
 

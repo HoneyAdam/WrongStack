@@ -45,6 +45,7 @@ export interface ResolvedPorts {
  * `WEBUI_STRICT_PORT` is set.
  */
 export async function resolvePorts(opts: {
+  surface?: 'webui' | 'simpleui' | undefined;
   wsPort?: number | undefined;
   wsHost?: string | undefined;
   httpPort?: number | undefined;
@@ -54,11 +55,15 @@ export async function resolvePorts(opts: {
   publicWsUrl?: string | undefined;
   requireToken?: boolean | undefined;
 }): Promise<ResolvedPorts> {
-  const requestedWsPort = opts.wsPort ?? 3457;
+  const surface = opts.surface ?? 'webui';
+  const surfaceDefaults = surface === 'simpleui'
+    ? { http: 3466, ws: 3467 }
+    : { http: 3456, ws: 3457 };
+  const requestedWsPort = opts.wsPort ?? surfaceDefaults.ws;
   const wsHost = opts.wsHost ?? process.env['WEBUI_HOST'] ?? process.env['WS_HOST'] ?? '127.0.0.1';
   const requestedHttpPort =
     opts.httpPort ?? opts.webuiPort ?? opts.port ??
-    Number.parseInt(process.env['WEBUI_PORT'] ?? process.env['PORT'] ?? '3456', 10);
+    Number.parseInt(process.env['WEBUI_PORT'] ?? process.env['PORT'] ?? String(surfaceDefaults.http), 10);
   const publicUrl = opts.publicUrl ?? process.env['WEBUI_PUBLIC_URL'];
   const publicWsUrl = opts.publicWsUrl ?? process.env['WEBUI_PUBLIC_WS_URL'];
   const requireToken = opts.requireToken ?? envFlag('WEBUI_REQUIRE_TOKEN');
@@ -358,7 +363,7 @@ export function startHttpServer(opts: {
     console.log(`[WebUI] HTTP server running on ${openUrl}`);
     if (opts.openBrowser) openBrowser(openUrl);
     void registerInstance(
-      { pid: process.pid, httpPort: opts.httpPort, wsPort: opts.wsPort, host: opts.wsHost, projectRoot: opts.projectRoot, projectName: path.basename(opts.projectRoot) || opts.projectRoot, startedAt: new Date().toISOString(), url: buildWebUIAccessUrl({ host: opts.wsHost, port: opts.httpPort, publicUrl: opts.publicUrl }) },
+      { pid: process.pid, surface: 'webui', httpPort: opts.httpPort, wsPort: opts.wsPort, host: opts.wsHost, projectRoot: opts.projectRoot, projectName: path.basename(opts.projectRoot) || opts.projectRoot, startedAt: new Date().toISOString(), url: buildWebUIAccessUrl({ host: opts.wsHost, port: opts.httpPort, publicUrl: opts.publicUrl }) },
       registryBaseDir,
     ).catch((err) => console.warn(JSON.stringify({ level: 'warn', event: 'webui.instance_record_failed', message: errMessage(err), timestamp: new Date().toISOString() })));
   });

@@ -178,6 +178,8 @@ export interface CliWebUIOptions {
   httpPort?: number | undefined;
   /** Alternate frontend dist directory (used by the independent SimpleUI surface). */
   frontendDistDir?: string | undefined;
+  /** Surface kind: 'webui' (default) or 'simpleui'. Controls port defaults and the instance registry label. */
+  surface?: 'webui' | 'simpleui' | undefined;
   /** Fixed access token/password. Defaults to WEBUI_TOKEN or random per process. */
   accessToken?: string | undefined;
   /** Browser-facing HTTP URL, used when WebUI is exposed behind a tunnel/proxy. */
@@ -264,7 +266,7 @@ export interface CliWebUIOptions {
    * the session that is now actually being written.
    */
   onSessionSwapped?: ((newSessionId: string) => void) | undefined;
-  /** Memory store — enables the MemoryPanel (memory.list, memory.remember, memory.forget). */
+  /** Memory store — enables the Memory panel + chat `/memory` (memory.list) and the structured memory.super.* operations. */
   memoryStore?: MemoryStore | undefined;
   /** Skill loader — enables the SkillsPanel (skills.list). */
   skillLoader?: SkillLoader | undefined;
@@ -325,8 +327,12 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   const publicUrl = opts.publicUrl ?? process.env['WEBUI_PUBLIC_URL'];
   const publicWsUrl = opts.publicWsUrl ?? process.env['WEBUI_PUBLIC_WS_URL'];
   const requireToken = opts.requireToken ?? envFlag('WEBUI_REQUIRE_TOKEN');
-  const requestedWsPort = opts.port ?? 3457;
-  const requestedHttpPort = opts.httpPort ?? 3456;
+  const surface = opts.surface ?? 'webui';
+  const surfaceDefaults = surface === 'simpleui'
+    ? { http: 3466, ws: 3467 }
+    : { http: 3456, ws: 3457 };
+  const requestedWsPort = opts.port ?? surfaceDefaults.ws;
+  const requestedHttpPort = opts.httpPort ?? surfaceDefaults.http;
   // Auto-advance past busy ports (unless WEBUI_STRICT_PORT) so this works
   // alongside other WebUI instances. HTTP resolved first → tidy adjacent pairs.
   const strictPort =
@@ -632,6 +638,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   });
   if (httpServer) {
     announceWebuiReady({
+      surface,
       server: httpServer.server,
       host,
       httpPort,
@@ -653,6 +660,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   if (opts.projectRoot) {
     registerWebuiInstance({
       pid: process.pid,
+      surface,
       host,
       httpPort,
       wsPort,

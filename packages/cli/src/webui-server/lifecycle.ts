@@ -4,6 +4,7 @@ import {
   openBrowser,
   registerInstance,
   unregisterInstance,
+  type SurfaceKind,
   type WebUIInstanceRecord,
 } from '@wrongstack/webui-server';
 
@@ -31,6 +32,8 @@ import {
 
 export interface RegisterWebuiInstanceParams {
   pid: number;
+  /** Surface kind — 'webui' or 'simpleui'. */
+  surface: SurfaceKind;
   host: string;
   httpPort: number;
   wsPort: number;
@@ -61,6 +64,7 @@ export function registerWebuiInstance(
   void register(
     {
       pid: p.pid,
+      surface: p.surface,
       httpPort: p.httpPort,
       wsPort: p.wsPort,
       host: p.host,
@@ -80,6 +84,8 @@ export function registerWebuiInstance(
 // ── Ready banner + open browser ──────────────────────────────────────
 
 export interface AnnounceWebuiReadyParams {
+  /** Surface kind — 'webui' or 'simpleui'. */
+  surface: SurfaceKind;
   /** The HTTP server (StaticServeHandle.server). */
   server: { on: (event: 'listening', cb: () => void) => void };
   host: string;
@@ -112,7 +118,7 @@ export function announceWebuiReady(p: AnnounceWebuiReadyParams): void {
   });
   p.server.on('listening', () => {
     log(
-      `\n  ▸ WebUI ready — open \x1b[1m${openUrl}\x1b[0m in your browser` +
+      `\n  ▸ ${p.surface === 'webui' ? 'WebUI' : 'SimpleUI'} ready — open \x1b[1m${openUrl}\x1b[0m in your browser` +
         `\n    (same agent as this terminal · ws:${p.wsPort})\n`,
     );
     if (p.open) launch(openUrl);

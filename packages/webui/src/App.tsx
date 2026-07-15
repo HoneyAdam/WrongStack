@@ -31,8 +31,10 @@ import { ContextBreakdownModal } from './components/ContextBreakdownModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AgentDetail } from './components/FleetPanel';
 import { InspectorPanel, InspectorTrigger } from './components/InspectorPanel';
+import { CronTrigger } from './components/CronTrigger';
 import { QuickModelSwitcher } from './components/QuickModelSwitcher';
 import { MemoryManager } from './components/MemoryManager';
+import { ContextDashboard } from './components/ContextDashboard';
 import { SettingsPanel } from './components/SettingsPanel';
 import { ShortcutsOverlay } from './components/ShortcutsOverlay';
 import { SidePanel } from './components/SidePanel';
@@ -52,6 +54,9 @@ const AutoPhaseView = lazy(() =>
 );
 const ChangesView = lazy(() =>
   import('./components/ChangesView').then((m) => ({ default: m.ChangesView })),
+);
+const CronJobsPanel = lazy(() =>
+  import('./components/CronJobsPanel').then((m) => ({ default: m.CronJobsPanel })),
 );
 const CodeEditor = lazy(() =>
   import('./components/CodeEditor').then((m) => ({ default: m.CodeEditor })),
@@ -197,6 +202,7 @@ function WorkbenchTopbar({
             Model
           </button>
           <InspectorTrigger />
+          <CronTrigger />
           <button
             type="button"
             onClick={onSettings}
@@ -248,6 +254,8 @@ function AppInner() {
     setProcessMonitorOpen,
     queuePanelOpen,
     setQueuePanelOpen,
+    cronJobsOpen,
+    setCronJobsOpen,
     terminalOpen,
     setTerminalOpen,
   } = useUIStore(
@@ -269,6 +277,8 @@ function AppInner() {
       setProcessMonitorOpen: s.setProcessMonitorOpen,
       queuePanelOpen: s.queuePanelOpen,
       setQueuePanelOpen: s.setQueuePanelOpen,
+      cronJobsOpen: s.cronJobsOpen,
+      setCronJobsOpen: s.setCronJobsOpen,
       terminalOpen: s.terminalOpen,
       setTerminalOpen: s.setTerminalOpen,
     })),
@@ -295,6 +305,7 @@ function AppInner() {
     setAgentsMonitorOpen,
     setProcessMonitorOpen,
     setQueuePanelOpen,
+    setCronJobsOpen,
     setTerminalOpen,
   });
 
@@ -464,6 +475,11 @@ function AppInner() {
         {currentView === 'memory' && (
           <ErrorBoundary level="panel" name="Memory Manager">
             <MemoryManager />
+          </ErrorBoundary>
+        )}
+        {currentView === 'context' && (
+          <ErrorBoundary level="panel" name="Context Dashboard">
+            <ContextDashboard />
           </ErrorBoundary>
         )}
         {currentView === 'setup' && (
@@ -677,6 +693,15 @@ function AppInner() {
         <ErrorBoundary level="panel" name="Queue">
           <Suspense fallback={null}>
             <QueuePanel open={queuePanelOpen} onClose={() => setQueuePanelOpen(false)} />
+          </Suspense>
+        </ErrorBoundary>
+      )}
+
+      {/* Cron Jobs overlay — triggered by /cron */}
+      {cronJobsOpen && (
+        <ErrorBoundary level="panel" name="Cron Jobs">
+          <Suspense fallback={null}>
+            <CronJobsPanel open={cronJobsOpen} onClose={() => setCronJobsOpen(false)} />
           </Suspense>
         </ErrorBoundary>
       )}

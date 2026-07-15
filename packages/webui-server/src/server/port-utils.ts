@@ -1,20 +1,60 @@
 /**
- * Free-port discovery for the standalone WebUI server.
+ * Free-port discovery for the WebUI / SimpleUI servers.
  *
- * When a user runs several instances, the default ports (HTTP 3456 / WS 3457)
- * are taken by the first one. Rather than make the user hand-pick `PORT` /
- * `WS_PORT` for every extra instance, the server probes upward from the
- * requested port and binds the first free one — then stamps that real port into
- * the served HTML and the instance registry so everything stays consistent.
- *
- * The probe binds a throwaway `net.Server`, then closes it, so there is a tiny
- * TOCTOU window between "found free" and "the real server binds it". For local
- * single-user multi-instance use that race is negligible; if it ever loses, the
- * real bind fails loudly with EADDRINUSE exactly as before.
+ * Design:
+ * - **Surface-aware port ranges.** WebUI defaults to 3456 (HTTP) / 3457 (WS);
+ *   SimpleUI defaults to 3466 / 3467. These ranges are disjoint, so a WebUI
+ *   instance never accidentally claims a SimpleUI slot and vice versa.
+ * - **Auto-advance.** When a port is taken, the server probes upward and binds
+ *   the first free one (see `findFreePort`). The actual port is stamped into
+ *   the served HTML and the instance registry so the user sees the real URL.
+ * - **Instance registry.** Every live process records itself in
+ *   `~/.wrongstack/webui-instances.json` with its PID, surface, ports, and
+ *   project root. A crashed instance is pruned on the next registry read
+ *   (`process.kill(pid, 0)` probe), so ghosts don't accumulate.
+ * - **TOCTOU window.** The probe binds a throwaway `net.Server` then closes
+ *   it, so there is a tiny race between "found free" and "real server binds".
+ *   For local multi-instance use that race is negligible; if it ever loses,
+ *   the real bind fails loudly with EADDRINUSE exactly as before.
  */
 
 import * as net from 'node:net';
 import { ToolValidationError } from '@wrongstack/core';
+
+/**
+ * Surface-specific default port ranges.
+ *
+ * These bases are intentionally spaced so the auto-advance window of one
+ * surface (typically a few ports up) never reaches the other surface's base:
+ *
+ *   WebUI:   HTTP 3456-3465, WS 3457-3466  (10-port window)
+ *   SimpleUI: HTTP 3466-3475, WS 3467-3476  (10-port window)
+ *
+ * This keeps the ranges visually distinct and prevents accidental overlap
+ * when both surfaces run multiple instances in the same project.
+ */
+export const SURFACE_DEFAULT_PORTS = {
+  webui:   { http: 3456, ws: 3457 },
+  simpleui: { http: 3466, ws: 3467 },
+} as const satisfies Record<string, { http: number; ws: number }>;
+
+export type SurfaceKind = keyof typeof SURFACE_DEFAULT_PORTS;
+
+/** Human-readable label for surfaces. */
+export function surfaceLabel(surface: SurfaceKind): string {
+  return surface === 'webui' ? 'WebUI' : 'SimpleUI';
+}
+
+/**
+ * Return the surface-specific default port pair (HTTP + WS).
+ * Freezes the returned object so callers can't mutate the constant table.
+ */
+export function getSurfaceDefaultPorts(surface: SurfaceKind): {
+  http: number;
+  ws: number;
+} {
+  return { ...SURFACE_DEFAULT_PORTS[surface] };
+}
 
 /** Resolve true when `port` can be bound on `host`, false on EADDRINUSE/EACCES. */
 export function isPortFree(host: string, port: number): Promise<boolean> {

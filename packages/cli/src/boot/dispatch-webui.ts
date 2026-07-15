@@ -201,14 +201,19 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
       process.env['WEBUI_HOST'] ??
       process.env['WS_HOST'] ??
       '127.0.0.1';
+    // SimpleUI uses different default ports (3466 HTTP / 3467 WS) so it can
+    // run alongside the regular WebUI (3456 / 3457) without port conflicts.
+    // Both auto-advance if the requested port is taken.
+    const defaultHttpPort = isSimpleUi ? 3466 : 3456;
+    const defaultWsPort = isSimpleUi ? 3467 : 3457;
     webuiHttpPort = parsePort(
       flagValue(['webui-port', 'http-port']) ?? process.env['WEBUI_PORT'] ?? process.env['PORT'],
-      3456,
+      defaultHttpPort,
       '--webui-port',
     );
     webuiWsPort = parsePort(
       flagValue(['ws-port']) ?? flagValue(['port']) ?? process.env['WS_PORT'],
-      3457,
+      defaultWsPort,
       '--ws-port',
     );
     webuiAccessToken =
@@ -233,6 +238,7 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
     agent,
     events,
     session,
+    surface: isSimpleUi ? 'simpleui' : 'webui',
     host: webuiHost,
     port: webuiWsPort,
     httpPort: webuiHttpPort,

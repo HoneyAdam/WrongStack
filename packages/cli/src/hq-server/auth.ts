@@ -25,6 +25,22 @@ export type HqBrowserAuthResult = HqBrowserAuthContext | 'cookie' | undefined;
 
 // ── Security headers ───────────────────────────────────────────────────────
 
+/**
+ * The HQ dashboard is a self-contained HTML document (`hq-dashboard-html.ts`)
+ * that loads React + React Flow via dynamic `import()` from `esm.sh` CDN.
+ * The inline `<script>` blocks define the full SPA logic, so `'unsafe-inline'`
+ * is required — we cannot use hashes because the HTML template injects
+ * variable source (tool-input summarizer, tool-diff viewer) at build time.
+ *
+ * CSP trade-offs:
+ * - `script-src 'unsafe-inline'` — unavoidable given the single-file design;
+ *   mitigations: the page is served on loopback only, and `connect-src` is
+ *   locked to `'self'` so an injected inline script cannot exfiltrate data
+ *   via WebSocket to an attacker-controlled server.
+ * - CDN URLs are pinned to specific package@version paths rather than bare
+ *   origin wildcards, limiting the blast radius if esm.sh is compromised.
+ * - `cdn.jsdelivr.net` was previously allowed but is not loaded by HQ.
+ */
 export function setHqSecurityHeaders(res: http.ServerResponse): void {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
@@ -32,7 +48,23 @@ export function setHqSecurityHeaders(res: http.ServerResponse): void {
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   res.setHeader(
     'Content-Security-Policy',
-    "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'unsafe-inline' https://esm.sh; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' data:; img-src 'self' data:; connect-src 'self' ws: wss:",
+    [
+      "default-src 'self'",
+      "base-uri 'none'",
+      "object-src 'none'",
+      "frame-ancestors 'none'",
+      "form-action 'self'",
+      // Inline scripts required (see comment above). CDN URLs are pinned to
+      // specific package@version paths — esm.sh redirects internally to
+      // version-locked subpaths so the pinned paths remain stable.
+      "script-src 'self' 'unsafe-inline' https://esm.sh/react@18.3.1 https://esm.sh/react-dom@18.3.1 https://esm.sh/reactflow@11.11.4 https://esm.sh/dagre@0.8.5",
+      "style-src 'self' 'unsafe-inline' https://esm.sh/reactflow@11.11.4",
+      "font-src 'self' data:",
+      "img-src 'self' data:",
+      // Locked to same-origin: prevents inline scripts from opening
+      // WebSockets to attacker-controlled servers (data exfiltration).
+      "connect-src 'self'",
+    ].join('; '),
   );
 }
 
@@ -44,7 +76,10 @@ export function hasTrustedBrowserOrigin(
   boundPort?: number,
 ): boolean {
   const origin = req.headers.origin;
-  if (origin === undefined || origin === 'null') return true;
+  // Note: we do NOT accept origin === 'null' here (sandboxed iframes produce
+  // 'null' and would bypass the port check). The `file:` check below handles
+  // file:// origins, which some browsers report as 'null'.
+  if (origin === undefined) return true;
   try {
     const parsed = new URL(origin);
     // Loopback and local origins are trusted only when the port matches the
@@ -100,7 +135,15 @@ export function parseCookieHeader(cookieHeader: string | undefined): Record<stri
     if (idx === -1) continue;
     const key = part.slice(0, idx).trim();
     const value = part.slice(idx + 1).trim();
-    if (key) out[key] = decodeURIComponent(value);
+    if (key) {
+      try {
+        out[key] = decodeURIComponent(value);
+      } catch {
+        // Malformed percent-encoding (e.g. %ZZ, %FF without valid UTF-8)
+        // throws URIError. Return the raw value rather than crashing.
+        out[key] = value;
+      }
+    }
   }
   return out;
 }
@@ -125,7 +168,23 @@ export function isTokenAuth(auth: HqBrowserAuthResult): auth is HqBrowserAuthCon
 
 export function extractBrowserToken(req: http.IncomingMessage, url: URL): string | undefined {
   const queryToken = url.searchParams.get('token');
-  if (queryToken) return queryToken;
+  if (queryToken) {
+    // Tokens in URL query strings can leak through browser history, server
+    // access logs, and Referer headers. On loopback this risk is low, but
+    // operators exposing HQ beyond localhost should use the Authorization
+    // header instead. The built React dashboard uses the header; the inline
+    // fallback and manual curl access use the query param.
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        event: 'hq.token_from_query_param',
+        message:
+          'Browser token accepted from URL query parameter — token can leak through browser history, server access logs, and Referer headers.',
+        timestamp: new Date().toISOString(),
+      }),
+    );
+    return queryToken;
+  }
 
   const auth = req.headers.authorization;
   if (typeof auth === 'string' && auth.toLowerCase().startsWith('bearer ')) {

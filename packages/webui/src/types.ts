@@ -525,6 +525,14 @@ export interface WSMemorySuperRemember {
   };
 }
 
+export interface WSMemorySuperDelete {
+  type: 'memory.super.delete';
+  payload: {
+    success: boolean;
+    message: string;
+  };
+}
+
 export interface WSSkillsList {
   type: 'skills.list';
   payload: {
@@ -1419,8 +1427,6 @@ export type WSClientMessage =
   | { type: 'auth.oauth.cancel'; payload: { kind: OAuthKind } }
   | { type: 'tools.list' }
   | { type: 'memory.list' }
-  | { type: 'memory.remember'; payload: { text: string; scope?: MemoryScope | undefined } }
-  | { type: 'memory.forget'; payload: { text: string; scope?: MemoryScope | undefined } }
   // ── SuperMemory send types ──
   | { type: 'memory.super.list' }
   | { type: 'memory.super.get'; payload: { id: string } }
@@ -1708,6 +1714,7 @@ export type WSServerMessage =
   | WSMemorySuperGet
   | WSMemorySuperUpdate
   | WSMemorySuperRemember
+  | WSMemorySuperDelete
   | WSSkillsList
   | WSSkillContent
   | WSDesignList
@@ -2181,6 +2188,22 @@ export type WSServerMessage =
     }
   | { type: 'mailbox.cleared'; payload: { error?: string | undefined } }
   | { type: 'mailbox.purged'; payload: Record<string, unknown> & { error?: string | undefined } }
+  // ── Cron plugin events — state snapshots and job lifecycle ──────────────────
+  | { type: 'cron.snapshot'; payload: {
+      count: number;
+      maxConcurrent: number;
+      jobs: Array<{
+        name: string;
+        intervalMs: number;
+        action: string;
+        enabled: boolean;
+        lastRun: string | null;
+        nextRun: string;
+        runCount: number;
+        overdue: boolean;
+      }>;
+    } }
+  | { type: 'cron.job_fired'; payload: { name: string; action: string; runCount: number; ts: string } }
   // ── Integrated terminal (node-pty) server events ──────────────────────────────
   | { type: 'terminal.output'; payload: { id: string; data: string } }
   | {

@@ -109,6 +109,8 @@ export function createModeHandlers(ctx: ModeHandlersContext): ModeRouteHandlers 
         const paths = resolveWstackPaths({ projectRoot: ctx.projectRoot, globalRoot: ctx.globalRoot });
         const freshBuilder = new DefaultSystemPromptBuilder({
           memoryStore: ctx.memoryStore,
+          // Single injection channel: Super Memory turn middleware, not a static section.
+          injectMemory: false,
           skillLoader: ctx.skillLoader,
           modeStore: ctx.modeStore,
           modeId: id,

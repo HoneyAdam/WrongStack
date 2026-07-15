@@ -708,6 +708,20 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     });
   });
 
+  // ── Cron plugin events — broadcast state snapshots so WebUI tracks active jobs ──
+  events.onPattern('cron:state_snapshot', (_eventName, payload) => {
+    broadcast(clients, {
+      type: 'cron.snapshot',
+      payload,
+    } as never as WSServerMessage);
+  });
+  events.onPattern('cron:job_fired', (_eventName, payload) => {
+    broadcast(clients, {
+      type: 'cron.job_fired',
+      payload,
+    } as never as WSServerMessage);
+  });
+
   // ── Client status events — immediate broadcast to WebUI + write to status.json ──
   // Emitted by TUI/CLI/WebUI when significant status changes occur (tool calls, tokens, etc.)
   on('client.status', async (e) => {

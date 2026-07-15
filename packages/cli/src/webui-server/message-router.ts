@@ -63,9 +63,12 @@ import {
   handleMcpSleep,
   handleMcpUpdate,
   handleMcpWake,
-  handleMemoryForget,
   handleMemoryList,
-  handleMemoryRemember,
+  handleSuperMemoryDelete,
+  handleSuperMemoryGet,
+  handleSuperMemoryList,
+  handleSuperMemoryRemember,
+  handleSuperMemoryUpdate,
   handlePromptsContent,
   handlePromptsCreate,
   handlePromptsFavorite,
@@ -833,19 +836,52 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
       }
       return handleMemoryList(ws, opts.memoryStore);
     },
-    'memory.remember': (msg, ws) => {
+    'memory.super.list': (_msg, ws) => {
       if (!opts.memoryStore) {
-        sendResult(ws, false, 'Memory store not available');
+        send(ws, {
+          type: 'memory.super.list',
+          payload: { error: 'Memory store not available' },
+        });
         return;
       }
-      return handleMemoryRemember(ws, msg, opts.memoryStore);
+      return handleSuperMemoryList(ws, opts.memoryStore);
     },
-    'memory.forget': (msg, ws) => {
+    'memory.super.get': (msg, ws) => {
+      if (!opts.memoryStore) {
+        send(ws, {
+          type: 'memory.super.get',
+          payload: { error: 'Memory store not available' },
+        });
+        return;
+      }
+      return handleSuperMemoryGet(ws, msg, opts.memoryStore);
+    },
+    'memory.super.update': (msg, ws) => {
+      if (!opts.memoryStore) {
+        send(ws, {
+          type: 'memory.super.update',
+          payload: { error: 'Memory store not available' },
+        });
+        return;
+      }
+      return handleSuperMemoryUpdate(ws, msg, opts.memoryStore);
+    },
+    'memory.super.delete': (msg, ws) => {
       if (!opts.memoryStore) {
         sendResult(ws, false, 'Memory store not available');
         return;
       }
-      return handleMemoryForget(ws, msg, opts.memoryStore);
+      return handleSuperMemoryDelete(ws, msg, opts.memoryStore);
+    },
+    'memory.super.remember': (msg, ws) => {
+      if (!opts.memoryStore) {
+        send(ws, {
+          type: 'memory.super.remember',
+          payload: { error: 'Memory store not available' },
+        });
+        return;
+      }
+      return handleSuperMemoryRemember(ws, msg, opts.memoryStore);
     },
 
     // ── MCP operations (shared handlers from @wrongstack/webui-server) ──

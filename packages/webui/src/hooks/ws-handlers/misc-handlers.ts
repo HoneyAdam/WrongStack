@@ -6,6 +6,7 @@ import { isActiveSessionMessage } from '@/lib/ws-client-utils';
 import {
   useAutoPhaseStore,
   useChatStore,
+  useCronStore,
   useFileStore,
   useGitChangesStore,
   useGitInfoStore,
@@ -433,6 +434,35 @@ export function handleGitDiff(msg: WSServerMessage) {
   });
 }
 
+// ── Cron event handlers ─────────────────────────────────────────────────
+
+export function handleCronSnapshot(msg: WSServerMessage) {
+  const p = msg.payload as {
+    count: number;
+    maxConcurrent: number;
+    jobs: Array<{
+      name: string;
+      intervalMs: number;
+      action: string;
+      enabled: boolean;
+      lastRun: string | null;
+      nextRun: string;
+      runCount: number;
+      overdue: boolean;
+    }>;
+  };
+  useCronStore.getState().setSnapshot({
+    count: p.count,
+    maxConcurrent: p.maxConcurrent,
+    jobs: p.jobs ?? [],
+  });
+}
+
+export function handleCronJobFired(msg: WSServerMessage) {
+  const p = msg.payload as { name: string; action: string; runCount: number; ts: string };
+  useCronStore.getState().recordFired(p.name, p.ts);
+}
+
 export const miscHandlerMap: Partial<Record<string, (msg: WSServerMessage) => void>> = {
   'goal.updated': handleGoalUpdated,
   'prefs.updated': handlePrefsUpdated,
@@ -460,4 +490,6 @@ export const miscHandlerMap: Partial<Record<string, (msg: WSServerMessage) => vo
   'git.info': handleGitInfo,
   'git.changes': handleGitChanges,
   'git.diff': handleGitDiff,
+  'cron.snapshot': handleCronSnapshot,
+  'cron.job_fired': handleCronJobFired,
 };

@@ -50,6 +50,7 @@ const VIEWS = [
   'chat',
   'settings',
   'memory',
+  'context',
   'autophase',
   'specs',
   'kanban',
@@ -151,12 +152,15 @@ interface UIState {
   processMonitorOpen: boolean;
   /** Queue Panel overlay — triggered by /queue slash command. */
   queuePanelOpen: boolean;
+  /** Cron Jobs overlay — triggered by /cron slash command. */
+  cronJobsOpen: boolean;
   /** Integrated terminal bottom-dock — toggled by Ctrl+` or /terminal. */
   terminalOpen: boolean;
   /** Monotonic signal consumed by TerminalPanel to create another PTY tab. */
   terminalCreateNonce: number;
   setProcessMonitorOpen: (open: boolean) => void;
   setQueuePanelOpen: (open: boolean) => void;
+  setCronJobsOpen: (open: boolean) => void;
   setTerminalOpen: (open: boolean) => void;
   toggleTerminal: () => void;
   requestTerminalCreate: () => void;
@@ -307,6 +311,7 @@ function homeNavigationStatePatch(
     agentsMonitorOpen: false,
     processMonitorOpen: false,
     queuePanelOpen: false,
+    cronJobsOpen: false,
     agentDetailModalId: null,
     sideContextBreakdownOpen: false,
     inspectorOpen: false,
@@ -360,6 +365,7 @@ export const useUIStore = create<UIState>()(
       inspectorTab: 'fleet',
       processMonitorOpen: false,
       queuePanelOpen: false,
+      cronJobsOpen: false,
       terminalOpen: false,
       terminalCreateNonce: 0,
       agentDetailModalId: null,
@@ -484,6 +490,7 @@ export const useUIStore = create<UIState>()(
         })),
       setProcessMonitorOpen: (open: boolean) => set({ processMonitorOpen: open }),
       setQueuePanelOpen: (open: boolean) => set({ queuePanelOpen: open }),
+      setCronJobsOpen: (open: boolean) => set({ cronJobsOpen: open }),
       setTerminalOpen: (open: boolean) => set({ terminalOpen: open }),
       toggleTerminal: () => set((s) => ({ terminalOpen: !s.terminalOpen })),
       requestTerminalCreate: () => set((s) => ({ terminalCreateNonce: s.terminalCreateNonce + 1 })),

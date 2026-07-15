@@ -24,10 +24,12 @@ import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { atomicWrite } from '@wrongstack/core';
 
-/** One running WebUI process. */
+/** One running WebUI / SimpleUI process. */
 export interface WebUIInstanceRecord {
   /** OS process id — also the liveness key. */
   pid: number;
+  /** Surface kind — 'webui' or 'simpleui'. */
+  surface: 'webui' | 'simpleui';
   /** HTTP port serving the React frontend. */
   httpPort: number;
   /** WebSocket port for the agent backend. */

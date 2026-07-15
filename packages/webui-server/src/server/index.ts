@@ -73,12 +73,22 @@ export {
   handleMcpWake,
 } from './mcp-handlers.js';
 export {
-  handleMemoryForget,
   handleMemoryList,
-  handleMemoryRemember,
+  handleSuperMemoryDelete,
+  handleSuperMemoryGet,
+  handleSuperMemoryList,
+  handleSuperMemoryRemember,
+  handleSuperMemoryUpdate,
 } from './memory-handlers.js';
 export { browserOpenCommand, openBrowser } from './open-browser.js';
-export { findFreePort, isPortFree } from './port-utils.js';
+export {
+  findFreePort,
+  getSurfaceDefaultPorts,
+  isPortFree,
+  surfaceLabel,
+  type SurfaceKind,
+  SURFACE_DEFAULT_PORTS,
+} from './port-utils.js';
 export {
   handlePromptsContent,
   handlePromptsCreate,

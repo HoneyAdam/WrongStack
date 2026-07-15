@@ -683,14 +683,6 @@ export class WrongStackWebSocketClient {
     this.send({ type: 'memory.list' });
   }
 
-  remember(text: string, scope?: 'project-agents' | 'project-memory' | 'user-memory') {
-    this.send({ type: 'memory.remember', payload: { text, scope } });
-  }
-
-  forget(text: string, scope?: 'project-agents' | 'project-memory' | 'user-memory') {
-    this.send({ type: 'memory.forget', payload: { text, scope } });
-  }
-
   // ---- SuperMemory commands ----
 
   listSuperMemories() {
