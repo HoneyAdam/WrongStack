@@ -53,7 +53,13 @@ export interface OneShotLLMInput {
 
   /**
    * Named fallback profile from config.fallbackProfiles.
-   * Resolved via `fallbackProfileChain()`.
+   * Resolved via `FallbackProfileManager` (preferred).
+   *
+   * @deprecated Use `FallbackProfileManager.resolve()` directly instead
+   * of passing profile names through the LLM input. The profile is now
+   * resolved upstream (e.g., in `CouncilOrchestrator.resolveCouncilTarget()`)
+   * and only the resolved `fallbackModels` chain is passed here.
+   * This field is kept for backward compat during migration.
    */
   fallbackProfile?: string | undefined;
 
