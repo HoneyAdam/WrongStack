@@ -180,8 +180,8 @@ const DEFAULT_POPULAR_PROVIDERS: PopularProvider[] = [
     family: 'openai-compatible',
   },
   {
-    id: 'kimi',
-    name: 'Kimi',
+    id: 'kimi-for-coding',
+    name: 'Kimi Code',
     description: 'Personal interactive coding with the Kimi Code subscription key. Generate the API key at kimi.com/code/console.',
     icon: '🌙',
     color: 'from-info/12 to-info/5 border-info/30 hover:border-info/50',
