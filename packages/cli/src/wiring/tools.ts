@@ -130,12 +130,20 @@ export async function setupTools(params: ToolsWiringDeps): Promise<ToolsWiringRe
   toolRegistry.register(makeMailInboxTool({ projectDir: wpaths.projectDir }));
   toolRegistry.register(makeFleetStatusTool({ projectDir: wpaths.projectDir }));
   if (config.features.memory) {
-    toolRegistry.register(rememberTool(memoryStore));
-    toolRegistry.register(forgetTool(memoryStore));
-    toolRegistry.register(searchMemoryTool(memoryStore));
-    toolRegistry.register(relatedMemoryTool(memoryStore));
+    // Super Memory owns the ENTIRE memory tool surface — remember/forget (full
+    // structured args) + memory_update/memory_delete + memory_search/
+    // memory_graph/memory_for_file/... reads. No legacy duplicates
+    // (search_memory/find_related_memories) when super is active.
+    // The legacy flat tools are only a fallback for a non-super store.
+    // Keep this block in sync with registerBuiltinTools() (boot/tool-registry.ts)
+    // and createPreContextServices() (webui-server/pre-context-services.ts).
     if (isSuperMemoryService(memoryStore)) {
       for (const tool of createSuperMemoryTools(memoryStore)) toolRegistry.register(tool);
+    } else {
+      toolRegistry.register(rememberTool(memoryStore));
+      toolRegistry.register(forgetTool(memoryStore));
+      toolRegistry.register(searchMemoryTool(memoryStore));
+      toolRegistry.register(relatedMemoryTool(memoryStore));
     }
   }
   applyToolDescriptionModes(toolRegistry, config.tools?.descriptionMode);

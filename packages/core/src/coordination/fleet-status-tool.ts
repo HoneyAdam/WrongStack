@@ -58,8 +58,8 @@ export function makeFleetStatusTool(opts: FleetStatusToolOptions = {}): Tool {
   return {
     name: 'fleet_status',
     description:
-      'Live snapshot of every agent working on this project (this process AND other ' +
-      'terminals/TUIs/WebUIs): who is online, what task each is on, which tool is running, ' +
+      'Live snapshot of every agent working on this canonical project (all clients, processes, ' +
+      'sessions, branches, and linked Git worktrees): who is online, what task each is on, which tool is running, ' +
       'and progress counters. Check it before starting work that might overlap with a peer, ' +
       'when deciding whether to wait for someone or proceed, or when a task mentions ' +
       'another agent. Read-only. To talk to a peer, use mail_send with the returned id.',

@@ -733,6 +733,10 @@ a:focus-visible {
   text-align: left;
 }
 
+.streaming-text {
+  white-space: pre-wrap;
+}
+
 .stream-caret {
   width: 7px;
   height: 15px;

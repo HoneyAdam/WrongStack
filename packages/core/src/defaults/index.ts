@@ -344,10 +344,6 @@ export {
   loadDirectorState,
 } from '../storage/director-state.js';
 export {
-  DefaultMemoryStore,
-  type MemoryStoreOptions,
-} from '../storage/memory-store.js';
-export {
   addPlanItem,
   attachPlanCheckpoint,
   clearPlan,

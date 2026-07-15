@@ -8,6 +8,7 @@ import {
   encryptConfigSecrets,
   normalizeModelRef,
   noOpVault,
+  parseModelRef,
   type SlashCommand,
   smartDefaultFallbackChain,
 } from '@wrongstack/core';
@@ -113,6 +114,23 @@ export function buildFallbackCommand(opts: SlashCommandContext): SlashCommand {
     const profiles = config.fallbackProfiles ?? {};
     const favorites = config.favoriteModels ?? [];
     const auto = config.fallbackAuto !== false;
+
+    // Mirror effectiveFallbackChain()'s runtime filter so the displayed chain
+    // never silently diverges from the one the agent actually rotates through:
+    // an explicit entry is dropped at runtime when it has no model, or when its
+    // provider declares a `models` list the model isn't in. Flag those here.
+    const filteredReason = (ref: string): string | undefined => {
+      const parsed = parseModelRef(ref);
+      if (!parsed.model) return 'no model in reference';
+      const providerId = parsed.provider ?? config.provider;
+      const entry = config.providers?.[providerId];
+      if (!entry?.models) return undefined;
+      if (!entry.models.includes(parsed.model)) {
+        return `"${parsed.model}" not in ${providerId} model list`;
+      }
+      return undefined;
+    };
+
     const lines = [
       `${color.bold('WrongStack')} ${color.dim('— Fallback chain')}`,
       '',
@@ -125,7 +143,9 @@ export function buildFallbackCommand(opts: SlashCommandContext): SlashCommand {
         `  ${color.bold('explicit chain')} ${color.dim('(tried in order after the leader)')}`,
       );
       explicit.forEach((ref, i) => {
-        lines.push(`    ${color.amber(String(i + 1).padStart(2))}. ${color.cyan(ref)}`);
+        const inactive = filteredReason(ref);
+        const suffix = inactive ? `  ${color.red(`⚠ inactive — ${inactive}`)}` : '';
+        lines.push(`    ${color.amber(String(i + 1).padStart(2))}. ${color.cyan(ref)}${suffix}`);
       });
     } else {
       lines.push(`  ${color.bold('explicit chain')} ${color.dim('(empty)')}`);

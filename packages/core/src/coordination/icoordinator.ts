@@ -17,9 +17,7 @@ export type { TaskSpec, TaskResult } from '../types/multi-agent.js';
  *
  * @example
  * ```typescript
- * let coordinator: ICoordinator = isDirectorMode
- *   ? new Director({ config, ... })
- *   : new DefaultMultiAgentCoordinator(config);
+ * let coordinator: ICoordinator = new Director({ config, ... });
  * const id = await coordinator.spawn({ name: 'worker', role: 'researcher' });
  * await coordinator.assign({ id: 't-1', description: 'research X', subagentId: id });
  * const results = await coordinator.awaitTasks(['t-1']);

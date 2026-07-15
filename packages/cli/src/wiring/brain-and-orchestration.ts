@@ -73,7 +73,7 @@ export interface BrainOrchestrationDeps {
   mailboxSessionTag: (id: string) => string;
   brainMailbox: AnyObj;
   agentMonitor: AnyObj;
-  directorMode: boolean;
+  // (directorMode removed — Director Mode is permanently on)
   manifestPath: string | undefined;
   sharedScratchpadPath: string | undefined;
   subagentSessionsRoot: string | undefined;
@@ -130,7 +130,6 @@ export function setupBrainAndOrchestration(
     mailboxSessionTag,
     brainMailbox,
     agentMonitor,
-    directorMode,
     manifestPath,
     sharedScratchpadPath,
     subagentSessionsRoot,
@@ -327,7 +326,6 @@ export function setupBrainAndOrchestration(
       secretScrubber: container.resolve(TOKENS.SecretScrubber),
     },
     {
-      directorMode,
       manifestPath,
       sharedScratchpadPath,
       sessionsRoot: subagentSessionsRoot,
@@ -356,19 +354,16 @@ export function setupBrainAndOrchestration(
     },
   );
 
-  // Delegate tool is only exposed when Director mode is active. With Director
-  // off, subagent/fleet work requires an explicit `/director` promotion first.
-  if (directorMode) {
-    toolRegistry.register(
-      createDelegateTool({
-        host: multiAgentHost,
-        roster: FLEET_ROSTER,
-        sessionsRoot: subagentSessionsRoot,
-        directorRunId: session.id,
-        events,
-      }),
-    );
-  }
+  // Delegate tool — Director Mode is permanently on.
+  toolRegistry.register(
+    createDelegateTool({
+      host: multiAgentHost,
+      roster: FLEET_ROSTER,
+      sessionsRoot: subagentSessionsRoot,
+      directorRunId: session.id,
+      events,
+    }),
+  );
 
   // mcp_control tool
   toolRegistry.register(

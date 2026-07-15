@@ -1,4 +1,4 @@
-import type { SlashCommand } from '@wrongstack/core';
+import type { MemoryStore, SlashCommand } from '@wrongstack/core';
 import type { GitInfo } from './git-info.js';
 
 // ── Deps ──────────────────────────────────────────────────────────────────────
@@ -12,7 +12,12 @@ export interface ContextSlashDeps {
   getFleet: () => {
     total: number;
     running: number;
-    entries: Array<{ name: string; status: string; currentTool: string | undefined; ctxPct: number | undefined }>;
+    entries: Array<{
+      name: string;
+      status: string;
+      currentTool: string | undefined;
+      ctxPct: number | undefined;
+    }>;
   };
   getLeader: () => {
     iterations: number;
@@ -28,12 +33,41 @@ export interface ContextSlashDeps {
   /** Terminal width in columns. */
   terminalWidth: number;
   /** Optional super memory store for stats. */
-  memoryStats: (() => Promise<{
-    total: number;
-    byKind: Record<string, number>;
-    edges: number;
-    byStatus: Record<string, number>;
-  } | null>) | undefined;
+  memoryStats:
+    | (() => Promise<{
+        total: number;
+        byKind: Record<string, number>;
+        edges: number;
+        byStatus: Record<string, number>;
+      } | null>)
+    | undefined;
+  /** Optional panel-open bridge for dispatching TUI panels from the slash command. */
+  onPanelOpen?: { current: ((action: string) => boolean) | null } | undefined;
+}
+
+type ContextMemoryStats = Awaited<ReturnType<NonNullable<ContextSlashDeps['memoryStats']>>>;
+
+/** Adapt the optional extended memory-store surface to context dashboard stats. */
+export function createContextMemoryStatsGetter(
+  memoryStore: MemoryStore | undefined,
+): ContextSlashDeps['memoryStats'] {
+  if (!memoryStore || !('stats' in memoryStore) || !('listSuper' in memoryStore)) return undefined;
+  const store = memoryStore as MemoryStore & {
+    stats(): Promise<{
+      total: number;
+      byStatus: Record<string, number>;
+      edges: number;
+    }>;
+    listSuper(): Promise<Array<{ kind: string }>>;
+  };
+  return async (): Promise<ContextMemoryStats> => {
+    const stats = await store.stats();
+    const byKind: Record<string, number> = {};
+    for (const memory of await store.listSuper()) {
+      byKind[memory.kind] = (byKind[memory.kind] ?? 0) + 1;
+    }
+    return { total: stats.total, byKind, edges: stats.edges, byStatus: stats.byStatus };
+  };
 }
 
 // ── Sparkbar ──────────────────────────────────────────────────────────────────
@@ -42,7 +76,7 @@ export interface ContextSlashDeps {
  * Render a sparkbar: `▓` chars proportional to `value / total`.
  * At least 1 block when value > 0, max 10. Empty when value is 0.
  */
-function sparkbar(value: number, total: number): string {
+export function sparkbar(value: number, total: number): string {
   if (value === 0 || total === 0) return '';
   const blocks = Math.max(1, Math.round((value / total) * 10));
   if (blocks >= 10) return '█'.repeat(10);
@@ -55,7 +89,7 @@ function sparkbar(value: number, total: number): string {
  * Render a proportional context-window bar using `█` foreground + `░` background
  * characters. The bar is `width` characters wide and includes a percentage label.
  */
-function contextBar(pct: number, width: number): string {
+export function contextBar(pct: number, width: number): string {
   if (pct <= 0) return `[${'░'.repeat(width)}]   0%`;
   const filled = Math.round(pct * width);
   const empty = width - filled;
@@ -73,7 +107,8 @@ function contextBar(pct: number, width: number): string {
 export function createContextSlashCommand(deps: ContextSlashDeps): SlashCommand {
   return {
     name: 'context',
-    description: 'Display detailed session context with visual stats (session, git, fleet, memory, env).',
+    description:
+      'Display detailed session context with visual stats (session, git, fleet, memory, env).',
     argsHint: '',
     category: 'Inspect',
     help:
@@ -85,6 +120,13 @@ export function createContextSlashCommand(deps: ContextSlashDeps): SlashCommand 
       try {
         const trimmed = args.trim().toLowerCase();
         const viewOnly = trimmed === 'window' || trimmed === '--window';
+
+        // When the user types `/context window`, try to open the interactive panel
+        if (viewOnly && deps.onPanelOpen?.current) {
+          const opened = deps.onPanelOpen.current('toggleContextPanel');
+          if (opened) return { message: '' };
+          // If no panel bridge (headless mode), fall through to text output
+        }
 
         // Fetch memory stats only for the full dashboard
         let memoryData: Awaited<ReturnType<NonNullable<ContextSlashDeps['memoryStats']>>> = null;
@@ -301,9 +343,7 @@ export function renderContextWindowExpanded(deps: ContextSlashDeps): string {
   allParts.push(
     ...rbox(
       `${zoneColor} Context Telemetry`,
-      [
-        `${zoneColor}  ${deps.getModel()}  ·  ${deps.getProvider()}  ·  ${deps.getModeLabel()}`,
-      ],
+      [`${zoneColor}  ${deps.getModel()}  ·  ${deps.getProvider()}  ·  ${deps.getModeLabel()}`],
       `Uptime: ${deps.getUptime()}  ·  Terminal: ${deps.terminalWidth} cols`,
     ),
   );
@@ -321,7 +361,7 @@ export function renderContextWindowExpanded(deps: ContextSlashDeps): string {
   pressureBody.push(`${zoneColor}  ${bar(pct, barWidth)}${pctStr}`);
 
   // Threshold axis below
-  const softPos = Math.round(0.60 * barWidth);
+  const softPos = Math.round(0.6 * barWidth);
   const nowPos = filled;
   const hardPos = Math.round(0.85 * barWidth);
   const dangerPos = Math.round(0.95 * barWidth);
@@ -362,7 +402,7 @@ export function renderContextWindowExpanded(deps: ContextSlashDeps): string {
   const srcBarLen = INNER - 28;
   const sources: Array<{ icon: string; label: string; pct: number }> = [
     { icon: '💬', label: 'History', pct: 0.42 },
-    { icon: '⚙️', label: 'System', pct: 0.20 },
+    { icon: '⚙️', label: 'System', pct: 0.2 },
     { icon: '🔧', label: 'Tools', pct: 0.14 },
     { icon: '🔌', label: 'MCP', pct: 0.09 },
     { icon: '📎', label: 'Files', pct: 0.06 },
@@ -421,12 +461,11 @@ export function renderContextWindowExpanded(deps: ContextSlashDeps): string {
 
   // Current position line
   const zoneName =
-    pct > 0.95 ? '⚫ DANGER'
-    : pct > 0.85 ? '🔴 CRITICAL'
-    : pct > 0.60 ? '🟡 WARNING'
-    : '🟢 SAFE';
+    pct > 0.95 ? '⚫ DANGER' : pct > 0.85 ? '🔴 CRITICAL' : pct > 0.6 ? '🟡 WARNING' : '🟢 SAFE';
   thresholdBody.push('');
-  thresholdBody.push(`▲ ${curVal.toFixed(1)}%  →  ${zoneName}       trigger: 85%       limit: 100%`);
+  thresholdBody.push(
+    `▲ ${curVal.toFixed(1)}%  →  ${zoneName}       trigger: 85%       limit: 100%`,
+  );
 
   allParts.push(...rbox('🚦  Threshold Map', thresholdBody));
   allParts.push('');
@@ -436,7 +475,8 @@ export function renderContextWindowExpanded(deps: ContextSlashDeps): string {
   // ═════════════════════════════════════════════════════════════════════════════
   const recoveryEst = Math.round(max * 0.18).toLocaleString('en-US');
   const iterations = leader.iterations;
-  const lastCompactAgo = iterations > 0 ? `${Math.min(iterations, Math.round(iterations * 0.6))} turns ago` : '—';
+  const lastCompactAgo =
+    iterations > 0 ? `${Math.min(iterations, Math.round(iterations * 0.6))} turns ago` : '—';
   const needsCompact = pct > 0.65;
 
   const compactBody: string[] = [];
@@ -446,7 +486,9 @@ export function renderContextWindowExpanded(deps: ContextSlashDeps): string {
   compactBody.push(`│ Next trigger      │ ${(max * 0.85).toLocaleString('en-US')}  (85%)`);
   compactBody.push(`│ Est. recovery     │ ${recoveryEst}  (~18% of window)`);
   compactBody.push(`│ Last compact      │ ${lastCompactAgo}`);
-  compactBody.push(`│ Recommendation    │ ${needsCompact ? '⚠️ Compact now — reclaim ~18%' : '✅ No compaction needed'}`);
+  compactBody.push(
+    `│ Recommendation    │ ${needsCompact ? '⚠️ Compact now — reclaim ~18%' : '✅ No compaction needed'}`,
+  );
 
   allParts.push(...rbox('♻️  Compaction Engine', compactBody));
   allParts.push('');
@@ -455,10 +497,7 @@ export function renderContextWindowExpanded(deps: ContextSlashDeps): string {
   //  5. PER-AGENT FOOTPRINT
   // ═════════════════════════════════════════════════════════════════════════════
   const fleet = deps.getFleet();
-  const allAgents = [
-    { name: 'LEADER', ctxPct: leader.ctxPct },
-    ...fleet.entries,
-  ];
+  const allAgents = [{ name: 'LEADER', ctxPct: leader.ctxPct }, ...fleet.entries];
   const agentsWithCtx = allAgents.filter((a) => a.ctxPct != null);
 
   if (agentsWithCtx.length > 0) {
@@ -511,7 +550,13 @@ export function renderContextWindowExpanded(deps: ContextSlashDeps): string {
 
   const statusBody: string[] = [statusText];
 
-  allParts.push(...rbox('📋  Status', statusBody, `Run /context for the full dashboard with git, fleet, memory & env.`));
+  allParts.push(
+    ...rbox(
+      '📋  Status',
+      statusBody,
+      `Run /context for the full dashboard with git, fleet, memory & env.`,
+    ),
+  );
 
   return allParts.join('\n');
 }
@@ -533,10 +578,16 @@ function renderWorkingTree(git: GitInfo): string[] {
   // Change summary table
   lines.push('| Metric | Count | Visual |');
   lines.push('|--------|-------|--------|');
-  lines.push(`| **Added** | +${git.added} | ${totalChanges > 0 ? sparkbar(git.added, totalChanges) : '—'} |`);
-  lines.push(`| **Deleted** | −${git.deleted} | ${totalChanges > 0 ? sparkbar(git.deleted, totalChanges) : '—'} |`);
+  lines.push(
+    `| **Added** | +${git.added} | ${totalChanges > 0 ? sparkbar(git.added, totalChanges) : '—'} |`,
+  );
+  lines.push(
+    `| **Deleted** | −${git.deleted} | ${totalChanges > 0 ? sparkbar(git.deleted, totalChanges) : '—'} |`,
+  );
   lines.push(`| **Untracked** | ${git.untracked} ${git.untracked > 0 ? '📄' : '✅'} | |`);
-  lines.push(`| **Total Δ** | ${totalChanges > 0 ? `+${git.added} / −${git.deleted}` : 'clean'} | |`);
+  lines.push(
+    `| **Total Δ** | ${totalChanges > 0 ? `+${git.added} / −${git.deleted}` : 'clean'} | |`,
+  );
 
   return lines;
 }
@@ -546,7 +597,12 @@ function renderWorkingTree(git: GitInfo): string[] {
 function renderFleet(fleet: {
   total: number;
   running: number;
-  entries: Array<{ name: string; status: string; currentTool: string | undefined; ctxPct: number | undefined }>;
+  entries: Array<{
+    name: string;
+    status: string;
+    currentTool: string | undefined;
+    ctxPct: number | undefined;
+  }>;
 }): string[] {
   const lines: string[] = [];
 
@@ -557,7 +613,9 @@ function renderFleet(fleet: {
 
   // Summary badge
   const statusIcon = fleet.running > 0 ? '🟢' : '⚪';
-  lines.push(`${statusIcon} **${fleet.running} running** · ${idleCount} idle · ${fleet.total} total`);
+  lines.push(
+    `${statusIcon} **${fleet.running} running** · ${idleCount} idle · ${fleet.total} total`,
+  );
   lines.push('');
 
   // Per-agent table
@@ -568,9 +626,7 @@ function renderFleet(fleet: {
       if (entry.status !== 'running') continue;
       const statusDot = entry.status === 'running' ? '🟢' : '⚪';
       const tool = entry.currentTool ?? '—';
-      const ctx = entry.ctxPct != null
-        ? `${(entry.ctxPct * 100).toFixed(0)}%`
-        : '—';
+      const ctx = entry.ctxPct != null ? `${(entry.ctxPct * 100).toFixed(0)}%` : '—';
       lines.push(`| ${statusDot} **${entry.name}** | \`${entry.status}\` | \`${tool}\` | ${ctx} |`);
     }
     lines.push('');
@@ -639,19 +695,28 @@ function renderMemory(memory: {
   const deleted = memory.byStatus['deleted'] ?? 0;
   lines.push(
     `**Total:** ${memory.total} · ` +
-    `🟢 ${active} active · ` +
-    `🟡 ${stale} stale · ` +
-    `🔵 ${archived} archived · ` +
-    `⚫ ${deleted} deleted`,
+      `🟢 ${active} active · ` +
+      `🟡 ${stale} stale · ` +
+      `🔵 ${archived} archived · ` +
+      `⚫ ${deleted} deleted`,
   );
   lines.push(`**Graph edges:** ${memory.edges}`);
   lines.push('');
 
   // Kind breakdown
   const kindOrder = [
-    'fact', 'decision', 'convention', 'preference',
-    'anti_pattern', 'warning', 'workflow', 'bug_root_cause',
-    'file_note', 'symbol_note', 'command_note', 'summary',
+    'fact',
+    'decision',
+    'convention',
+    'preference',
+    'anti_pattern',
+    'warning',
+    'workflow',
+    'bug_root_cause',
+    'file_note',
+    'symbol_note',
+    'command_note',
+    'summary',
   ];
   const kindRows: string[] = [];
   for (const kind of kindOrder) {

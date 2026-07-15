@@ -120,9 +120,13 @@ describe('MultiAgentHost', () => {
     await expect(host.stopAll()).resolves.toBeUndefined();
   });
 
-  it('spawn() rejects when director mode is explicitly off', async () => {
-    const host = new MultiAgentHost(makeDeps(), { directorMode: false });
-    await expect(host.spawn('do a thing')).rejects.toThrow(/Director mode is off/);
+  it('spawn() is available because director mode is permanently on', async () => {
+    const host = new MultiAgentHost(makeDeps());
+    await expect(host.spawn('do a thing')).resolves.toEqual({
+      subagentId: expect.any(String),
+      taskId: expect.any(String),
+    });
+    await host.stopAll();
   });
 
   it('kill() before any spawn returns false', async () => {
@@ -488,19 +492,18 @@ describe('MultiAgentHost', () => {
   });
 
   describe('director mode', () => {
-    it('isDirectorMode() is false before first spawn (lazy build)', () => {
-      // Before any spawn, no Director exists yet — this holds for both
-      // directorMode: false (explicit opt-out) and the default (implicit).
+    it('isDirectorMode() is true before the lazy Director is built', () => {
       const host = new MultiAgentHost(makeDeps());
-      expect(host.isDirectorMode()).toBe(false);
+      expect(host.isDirectorMode()).toBe(true);
+      expect(host.getDirector()).toBeUndefined();
     });
 
-    it('isDirectorMode() becomes true after first spawn in director mode', async () => {
-      // With director mode enabled, spawn() builds the Director lazily.
-      const directed = new MultiAgentHost(makeDeps(), { directorMode: true });
-      expect(directed.isDirectorMode()).toBe(false); // not yet built
+    it('first spawn lazily builds the permanently-on Director', async () => {
+      const directed = new MultiAgentHost(makeDeps());
+      expect(directed.getDirector()).toBeUndefined();
       await directed.spawn('a thing');
       expect(directed.isDirectorMode()).toBe(true);
+      expect(directed.getDirector()).toBeDefined();
       await directed.stopAll();
     });
 
@@ -520,10 +523,9 @@ describe('MultiAgentHost', () => {
       const manifestPath = path.join(tmpRoot, 'fleet.json');
 
       const host = new MultiAgentHost(makeDeps(), {
-        directorMode: true,
         manifestPath,
       });
-      expect(host.isDirectorMode()).toBe(false); // not yet built
+      expect(host.getDirector()).toBeUndefined();
       await host.spawn('inspect', { name: 'inspector', provider: 'anthropic', model: 'claude' });
       expect(host.isDirectorMode()).toBe(true);
       const written = await host.manifest();
@@ -539,7 +541,7 @@ describe('MultiAgentHost', () => {
     it('status() / usage() keep working in director mode', async () => {
       // Smoke-test that the host's public API stays the same when the
       // Director is the one driving the coordinator under the hood.
-      const host = new MultiAgentHost(makeDeps(), { directorMode: true });
+      const host = new MultiAgentHost(makeDeps());
       await host.spawn('a thing');
       const s = host.status();
       expect(s.pending.length).toBeGreaterThanOrEqual(0);
@@ -549,13 +551,14 @@ describe('MultiAgentHost', () => {
       await host.stopAll();
     });
 
-    it('ensureDirector() returns null when director mode is off', async () => {
+    it('ensureDirector() builds the permanently-on Director before a spawn', async () => {
       const host = new MultiAgentHost(makeDeps());
-      expect(await host.ensureDirector()).toBeNull();
+      expect(await host.ensureDirector()).not.toBeNull();
+      await host.stopAll();
     });
 
     it('ensureDirector() eagerly builds the Director and exposes the orchestration tools', async () => {
-      const host = new MultiAgentHost(makeDeps(), { directorMode: true });
+      const host = new MultiAgentHost(makeDeps());
       const director = await host.ensureDirector();
       expect(director).not.toBeNull();
       expect(director!.maxSpawnDepth).toBe(2);
@@ -590,7 +593,6 @@ describe('MultiAgentHost', () => {
       const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-subsessions-'));
 
       const host = new MultiAgentHost(makeDeps(), {
-        directorMode: true,
         sessionsRoot: tmpRoot,
         directorRunId: 'run-test',
       });
@@ -617,7 +619,6 @@ describe('MultiAgentHost', () => {
       const scratch = path.join(tmpRoot, 'shared');
 
       const host = new MultiAgentHost(makeDeps(), {
-        directorMode: true,
         sharedScratchpadPath: scratch,
       });
       const director = await host.ensureDirector();
@@ -640,13 +641,15 @@ describe('MultiAgentHost', () => {
     });
 
     describe('promoteToDirector (runtime promotion)', () => {
-      it('promotes a non-director host and returns the Director', async () => {
+      it('materializes the lazy Director and returns it', async () => {
         const host = new MultiAgentHost(makeDeps());
-        expect(host.isDirectorMode()).toBe(false);
+        expect(host.isDirectorMode()).toBe(true);
+        expect(host.getDirector()).toBeUndefined();
 
         const director = await host.promoteToDirector();
         expect(director).not.toBeNull();
         expect(host.isDirectorMode()).toBe(true);
+        expect(host.getDirector()).toBe(director);
         // After promotion, the director has the orchestration tools.
         const tools = director!.tools();
         expect(tools.map((t) => t.name).sort()).toEqual([

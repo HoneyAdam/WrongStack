@@ -49,9 +49,36 @@ const state: CronState = {
 };
 
 function formatNextRun(intervalMs: number): string {
-  /* v8 ignore next -- callers always pass a clamped interval (>=1000); the NaN/<=0 → 60_000 fallback is defensive. */
+  /* v8 ignore next -- callers always pass a clamped interval (>=1000); the NaN/<=0 -> 60_000 fallback is defensive. */
   const ms = Number.isNaN(intervalMs) || intervalMs <= 0 ? 60_000 : intervalMs;
   return new Date(Date.now() + ms).toISOString();
+}
+
+/** Build a serializable snapshot of the current cron job state for custom events. */
+function buildSnapshot(
+  s: CronState,
+  maxConcurrent: number,
+): { count: number; maxConcurrent: number; jobs: Array<{
+    name: string;
+    intervalMs: number;
+    action: string;
+    enabled: boolean;
+    lastRun: string | null;
+    nextRun: string;
+    runCount: number;
+    overdue: boolean;
+  }> } {
+  const jobs = Array.from(s.jobs.values()).map((j) => ({
+    name: j.name,
+    intervalMs: j.intervalMs,
+    action: j.action,
+    enabled: j.enabled,
+    lastRun: j.lastRun,
+    nextRun: j.nextRun,
+    runCount: j.runCount,
+    overdue: new Date(j.nextRun).getTime() < Date.now(),
+  }));
+  return { count: jobs.length, maxConcurrent, jobs };
 }
 
 function clearCronResources(): void {
@@ -123,6 +150,9 @@ const plugin: Plugin = {
           runCount: job.runCount,
           ts: new Date().toISOString(),
         });
+
+        // Broadcast state snapshot so connected UIs see updated runCount/nextRun.
+        api.emitCustom('cron:state_snapshot', buildSnapshot(state, maxConcurrent));
 
         api.metrics.counter('cron_job_fired', 1, { job: name });
         api.metrics.histogram('cron_job_interval_ms', job.intervalMs, { job: name });
@@ -245,6 +275,9 @@ const plugin: Plugin = {
 
         api.metrics.gauge('cron_active_jobs', state.jobs.size);
 
+        // Broadcast full state snapshot so connected UIs stay in sync.
+        api.emitCustom('cron:state_snapshot', buildSnapshot(state, maxConcurrent));
+
         return {
           ok: true,
           name,
@@ -307,6 +340,9 @@ const plugin: Plugin = {
 
         cancelJob(name);
         api.metrics.gauge('cron_active_jobs', state.jobs.size);
+
+        // Broadcast full state snapshot so connected UIs stay in sync.
+        api.emitCustom('cron:state_snapshot', buildSnapshot(state, maxConcurrent));
 
         return {
           ok: true,

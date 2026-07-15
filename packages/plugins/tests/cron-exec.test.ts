@@ -89,15 +89,17 @@ describe('cron_schedule', () => {
     await tools.cron_schedule!.execute({ name: 'tick', intervalMs: 1000, action: 'beep' });
     await vi.advanceTimersByTimeAsync(1000);
     expect(emitCustom).toHaveBeenCalledWith('cron:job_fired', expect.objectContaining({ name: 'tick', runCount: 1 }));
+    expect(emitCustom.mock.calls.filter(([event]) => event === 'cron:job_fired')).toHaveLength(1);
     expect(metrics.counter).toHaveBeenCalledWith('cron_job_fired', 1, { job: 'tick' });
     // Reschedules: a second interval fires again.
     await vi.advanceTimersByTimeAsync(1000);
-    expect(emitCustom).toHaveBeenCalledTimes(2);
+    expect(emitCustom.mock.calls.filter(([event]) => event === 'cron:job_fired')).toHaveLength(2);
   });
 
   it('does not schedule a timer for a disabled job', async () => {
     const tools = setup();
     await tools.cron_schedule!.execute({ name: 'off', intervalMs: 1000, action: 'x', enabled: false });
+    emitCustom.mockClear();
     await vi.advanceTimersByTimeAsync(5000);
     expect(emitCustom).not.toHaveBeenCalled();
   });
@@ -120,6 +122,11 @@ describe('cron_cancel', () => {
     await tools.cron_schedule!.execute({ name: 'j', intervalMs: 1000, action: 'x' });
     const res = await tools.cron_cancel!.execute({ name: 'j' });
     expect(res.ok).toBe(true);
+    expect(emitCustom).toHaveBeenLastCalledWith(
+      'cron:state_snapshot',
+      expect.objectContaining({ count: 0, jobs: [] }),
+    );
+    emitCustom.mockClear();
     await vi.advanceTimersByTimeAsync(5000);
     expect(emitCustom).not.toHaveBeenCalled(); // timer was cleared
   });

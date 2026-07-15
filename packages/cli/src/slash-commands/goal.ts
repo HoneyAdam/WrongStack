@@ -212,7 +212,7 @@ export function buildGoalCommand(opts: SlashCommandContext): SlashCommand {
           }
 
           return {
-            message: `Goal set: ${refined.refinedGoal}`,
+            message: `Goal locked: ${refined.refinedGoal}`,
             runText: buildGoalPreamble(refined.refinedGoal, refined.deliverables),
           };
         }

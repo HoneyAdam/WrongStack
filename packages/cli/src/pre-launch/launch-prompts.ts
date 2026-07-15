@@ -12,8 +12,6 @@ export interface LaunchModeChoices {
   mode: 'tui' | 'repl';
   /** Auto-approve tool calls except explicit deny rules. */
   yolo: boolean;
-  /** Start with Director mode on (fleet manifest + scratchpad enabled). */
-  director: boolean;
   /** Initial autonomy mode. 'off' = stops after each turn; 'auto' = self-driving. */
   autonomy: 'off' | 'auto';
 }
@@ -46,32 +44,29 @@ export async function runLaunchPrompts(opts: {
   reader: ReadlineInputReader;
   modePinned?: 'tui' | 'repl' | undefined;
   yoloPinned?: boolean | undefined;
-  directorPinned?: boolean | undefined;
   autonomyPinned?: 'off' | 'auto' | undefined;
   /** Saved launch preferences from a previous session (persisted to config). */
   lastChoices?: LaunchModeChoices | undefined;
 }): Promise<LaunchModeChoices> {
-  const { renderer, reader, modePinned, yoloPinned, directorPinned, autonomyPinned, lastChoices } =
+  const { renderer, reader, modePinned, yoloPinned, autonomyPinned, lastChoices } =
     opts;
 
   // If EVERY field is pinned by CLI flags, skip all prompts entirely.
   if (
     modePinned !== undefined &&
     yoloPinned !== undefined &&
-    directorPinned !== undefined &&
     autonomyPinned !== undefined
   ) {
     return {
       mode: modePinned,
       yolo: yoloPinned,
-      director: directorPinned,
       autonomy: autonomyPinned,
     };
   }
 
   // --- First run (no saved preferences): use the built-in defaults silently ---
-  // The user explicitly asked for "director mode on, yolo on, and autonomy auto
-  // by default at first install". No prompts on the first launch — the new
+  // The user explicitly asked for "yolo on" and "autonomy auto"
+  // by default at first install. No prompts on the first launch — the new
   // defaults are applied without asking. The summary gate kicks in on the
   // SECOND launch (after persistLaunchChoices has written the first run's
   // values to the global config).
@@ -79,20 +74,18 @@ export async function runLaunchPrompts(opts: {
     return {
       mode: modePinned ?? 'tui',
       yolo: yoloPinned ?? true,
-      director: directorPinned ?? true,
       autonomy: autonomyPinned ?? 'auto',
     };
   }
 
   // --- Override detection: at least one CLI flag diverges from saved ---
   // If the user has saved preferences but explicitly passes a different value
-  // for any of the 4 fields via CLI flags, skip the summary gate and go
+  // for any of the 3 fields via CLI flags, skip the summary gate and go
   // straight to individual prompts. The user is "explicitly changing
   // settings from the start", which is what the request described.
   const hasOverride =
     (modePinned !== undefined && modePinned !== lastChoices.mode) ||
     (yoloPinned !== undefined && yoloPinned !== lastChoices.yolo) ||
-    (directorPinned !== undefined && directorPinned !== lastChoices.director) ||
     (autonomyPinned !== undefined && autonomyPinned !== lastChoices.autonomy);
 
   // --- Summary gate: when saved preferences exist, show them + one question ---
@@ -101,7 +94,6 @@ export async function runLaunchPrompts(opts: {
     const effective = {
       mode: modePinned ?? lastChoices.mode,
       yolo: yoloPinned ?? lastChoices.yolo,
-      director: directorPinned ?? lastChoices.director,
       autonomy: autonomyPinned ?? lastChoices.autonomy,
     };
 
@@ -109,7 +101,7 @@ export async function runLaunchPrompts(opts: {
     const modeLabel = effective.mode.toUpperCase();
 
     renderer.write(
-      `\n  ${color.dim('Last settings:')} ${color.bold(modeLabel)} · YOLO ${onOff(effective.yolo)} · Director ${onOff(effective.director)} · Autonomy ${effective.autonomy === 'auto' ? color.green('auto') : color.dim('off')}\n`,
+      `\n  ${color.dim('Last settings:')} ${color.bold(modeLabel)} · YOLO ${onOff(effective.yolo)} · Autonomy ${effective.autonomy === 'auto' ? color.green('auto') : color.dim('off')}\n`,
     );
 
     const answer = (
@@ -176,23 +168,7 @@ export async function runLaunchPrompts(opts: {
     yolo = answer !== 'n' && answer !== 'no';
   }
 
-  let director: boolean;
-  if (directorPinned !== undefined && directorPinned === lastChoices?.director) {
-    director = directorPinned;
-  } else {
-    const answer = (
-      await reader.readLine(
-        `  ${color.amber('?')} Director mode ${color.dim('(fleet manifest + multi-agent orchestration)')} ${color.dim('[Y/n/q]')} `,
-      )
-    )
-      .trim()
-      .toLowerCase();
-    if (answer === 'q') {
-      renderer.write(color.dim('  Goodbye!\n'));
-      throw new LaunchAbortedError();
-    }
-    director = answer !== 'n' && answer !== 'no';
-  }
+  // (Director Mode is permanently on — no prompt needed)
 
   let autonomy: 'off' | 'auto';
   if (autonomyPinned !== undefined && autonomyPinned === lastChoices?.autonomy) {
@@ -212,27 +188,26 @@ export async function runLaunchPrompts(opts: {
     autonomy = answer !== 'n' && answer !== 'no' ? 'auto' : 'off';
   }
 
-  const badges = buildBadges({ mode, yolo, director, autonomy });
+  const badges = buildBadges({ mode, yolo, autonomy });
   const badgeStr = badges.length > 0 ? ` (${badges.join(' · ')})` : '';
   renderer.write(
     `\n  ${color.green('▶')} Launching in ${color.bold(mode.toUpperCase())} mode${badgeStr}\n\n`,
   );
 
-  return { mode, yolo, director, autonomy };
+  return { mode, yolo, autonomy };
 }
 
 /** Build the mode-badge labels shown in the launch line. */
 function buildBadges(chosen: LaunchModeChoices): string[] {
   const badges: string[] = [];
   if (chosen.yolo) badges.push(color.yellow('YOLO'));
-  if (chosen.director) badges.push(color.cyan('DIRECTOR'));
   if (chosen.autonomy !== 'off')
     badges.push(color.magenta(`AUTONOMY:${chosen.autonomy.toUpperCase()}`));
   return badges;
 }
 
 /**
- * Persist the user's launch-mode choices (mode, yolo, director, autonomy)
+ * Persist the user's launch-mode choices (mode, yolo, autonomy)
  * back to the global config file so the next boot can offer a one-line
  * "Continue with these?" summary instead of re-asking every question.
  *
@@ -269,7 +244,6 @@ export async function persistLaunchChoices(
   existing.yolo = choices.yolo;
   existing.launch = {
     mode: choices.mode,
-    director: choices.director,
     autonomy: choices.autonomy,
   };
 

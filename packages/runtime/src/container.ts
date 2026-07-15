@@ -4,7 +4,6 @@ import {
   createStrategyCompactor,
   DefaultConfigStore,
   DefaultErrorHandler,
-  DefaultMemoryStore,
   DefaultModeStore,
   DefaultPermissionPolicy,
   DefaultPromptLoader,
@@ -34,7 +33,7 @@ export interface CreateContainerOptions {
   logger: Logger;
   modelsRegistry: ModelsRegistry;
   /**
-   * Optional event bus — passed to DefaultMemoryStore so plugins and
+   * Optional event bus — passed to SuperMemoryStore so plugins and
    * subsystems can react to memory mutations in real time.
    */
   events?: EventBus | undefined;
@@ -131,13 +130,15 @@ export function createDefaultContainer(opts: CreateContainerOptions): Container 
       }),
   );
 
-  const memoryStore = config.superMemory?.enabled === false
-    ? new DefaultMemoryStore({ paths: wpaths, events: opts.events })
-    : new SuperMemoryStore({
-        projectRoot: wpaths.projectRoot,
-        directory: config.superMemory?.storage?.directory,
-        events: opts.events,
-      });
+  // Single memory backend: Super Memory is the only store. `superMemory.enabled`
+  // no longer swaps the backend — it only gates automatic context injection and
+  // session-end hygiene (see wiring/super-memory.ts). This guarantees "one memory
+  // system, no other" across TUI, slash commands, agent tools, and WebUI.
+  const memoryStore = new SuperMemoryStore({
+    projectRoot: wpaths.projectRoot,
+    directory: config.superMemory?.storage?.directory,
+    events: opts.events,
+  });
   container.bind(TOKENS.MemoryStore, () => memoryStore);
 
   const skillLoader = new DefaultSkillLoader({
@@ -166,6 +167,10 @@ export function createDefaultContainer(opts: CreateContainerOptions): Container 
           },
           skillMode: config.skills?.mode,
           skillEagerMaxChars: config.skills?.eagerMaxChars,
+          // Super Memory's turn middleware owns memory injection — don't also
+          // inject a static prompt section. Callers may override via
+          // opts.systemPrompt if they truly want the static section.
+          injectMemory: false,
           ...opts.systemPrompt,
         }),
     );

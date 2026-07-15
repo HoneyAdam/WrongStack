@@ -6,11 +6,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   Container,
   type Config,
-  DefaultMemoryStore,
   TOKENS,
   ToolRegistry,
   type WstackPaths,
 } from '@wrongstack/core';
+import { makeFakeMemoryStore } from './fake-memory-store.js';
 import { setupTools } from '../src/wiring/tools.js';
 
 /**
@@ -92,7 +92,7 @@ function fakeCompactor() {
 
 async function measureMemoryBlock(tier: string): Promise<{ tier: string; total: number; memory: number }> {
   const toolRegistry = new ToolRegistry();
-  const memoryStore = new DefaultMemoryStore({ paths: makeWpaths() });
+  const memoryStore = makeFakeMemoryStore();
   const container = new Container();
   container.bind(TOKENS.Compactor, () => fakeCompactor());
 

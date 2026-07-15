@@ -13,6 +13,7 @@ export type FKeyPanelAction =
   | 'toggleGoalPanel'
   | 'toggleSessionsPanel'
   | 'toggleCoordinatorMonitor'
+  | 'toggleCronMonitor'
   | 'statuslineOpen';
 
 /** A single F-key panel entry shared by the picker, help overlay, and tests. */
@@ -140,6 +141,7 @@ const PAYLOAD_FREE_ACTIONS = new Set<FKeyPanelAction>([
   'toggleGoalPanel',
   'toggleSessionsPanel',
   'toggleCoordinatorMonitor',
+  'toggleCronMonitor',
 ]);
 
 /**

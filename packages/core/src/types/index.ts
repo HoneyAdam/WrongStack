@@ -1,6 +1,7 @@
 export * from './blocks.js';
 export * from './messages.js';
 export * from './tool.js';
+export * from './tool-executor.js';
 export * from './tool-markers.js';
 export * from './side-effect.js';
 export * from './provider.js';

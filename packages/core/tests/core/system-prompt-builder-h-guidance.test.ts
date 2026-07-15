@@ -110,7 +110,7 @@ describe('DefaultSystemPromptBuilder — H-area guidance section gating', () => 
     //                  off   light  medium  aggressive  minimal
     //   Common         ✓     ✓      ✓       ✗           ✗
     //   Delegation     full  one    one     one         ✗
-    //   Mailbox        full  one    one     one         ✗
+    //   Mailbox        full  one    one     one         one
     //   Commit hygiene ✓     ✗      ✓       ✓           ✗
     //   MCP            full  one    full    one         one
     //   Shell (Win)    full  one    full    full        ✗
@@ -135,7 +135,7 @@ describe('DefaultSystemPromptBuilder — H-area guidance section gating', () => 
     const expectedPresence: Record<string, Record<string, boolean>> = {
       'Common patterns': { off: true, light: true, medium: true, aggressive: false, minimal: false },
       Delegation: { off: true, light: true, medium: true, aggressive: true, minimal: false },
-      Mailbox: { off: true, light: true, medium: true, aggressive: true, minimal: false },
+      Mailbox: { off: true, light: true, medium: true, aggressive: true, minimal: true },
       'Commit hygiene': { off: true, light: false, medium: true, aggressive: true, minimal: false },
       MCP: { off: true, light: true, medium: true, aggressive: true, minimal: true },
     };

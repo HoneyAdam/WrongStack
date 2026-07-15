@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import { Check, ChevronDown, ChevronRight, Copy, ListChecks, LoaderCircle, X } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
+import { MarkdownHooks as ReactMarkdown } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypePrettyCode from 'rehype-pretty-code';
 import { projectAssistantMessage } from './lib/message-projection.js';
@@ -82,7 +82,7 @@ const MessageItem = memo(function MessageItem({
         )}
       </div>
       <div className="message-body">
-        {projection.text && (
+        {projection.text && !message.streaming && (
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[[rehypePrettyCode, { theme: 'github-dark-dimmed', keepBackground: false }]]}
@@ -93,9 +93,13 @@ const MessageItem = memo(function MessageItem({
                 </a>
               ),
             }}
+            fallback={null}
           >
             {projection.text}
           </ReactMarkdown>
+        )}
+        {projection.text && message.streaming && (
+          <span className="streaming-text">{projection.text}</span>
         )}
         {message.streaming && (
           <span className="stream-caret" role="status" aria-label="Streaming" aria-busy="true" />

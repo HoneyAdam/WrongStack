@@ -11,7 +11,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  * boot-config.test.ts (which runs the real core against a temp HOME).
  */
 
-const { mkdirMock, writeFileMock, mockWpaths } = vi.hoisted(() => ({
+const { canonicalRootMock, mkdirMock, writeFileMock, mockWpaths } = vi.hoisted(() => ({
+  canonicalRootMock: vi.fn((root: string) => root),
   mkdirMock: vi.fn().mockResolvedValue(undefined),
   writeFileMock: vi.fn().mockResolvedValue(undefined),
   mockWpaths: {
@@ -62,6 +63,7 @@ vi.mock('../src/security/secret-vault.js', () => ({
   migratePlaintextSecrets: vi.fn().mockResolvedValue({ migrated: 0, file: '' }),
 }));
 vi.mock('../src/utils/wstack-paths.js', () => ({
+  canonicalProjectRoot: canonicalRootMock,
   resolveWstackPaths: vi.fn().mockReturnValue(mockWpaths),
 }));
 vi.mock('../src/utils/term.js', () => ({ writeErr: (s: string) => process.stderr.write(s) }));
@@ -75,6 +77,8 @@ const loaderMock = DefaultConfigLoader as never as ReturnType<typeof vi.fn>;
 
 describe('bootConfig (core)', () => {
   beforeEach(() => {
+    canonicalRootMock.mockReset();
+    canonicalRootMock.mockImplementation((root: string) => root);
     mkdirMock.mockClear();
     writeFileMock.mockClear();
     migrateMock.mockReset();
@@ -103,6 +107,15 @@ describe('bootConfig (core)', () => {
     expect(writeFileMock).toHaveBeenCalledWith(
       '/tmp/test/.wrongstack/meta.json',
       expect.stringContaining('"hash": "abc123"'),
+    );
+  });
+
+  it('pins shared project metadata to the canonical worktree identity root', async () => {
+    canonicalRootMock.mockReturnValue('/tmp/main-checkout');
+    await bootConfig();
+    expect(writeFileMock).toHaveBeenCalledWith(
+      '/tmp/test/.wrongstack/meta.json',
+      expect.stringContaining('"root": "/tmp/main-checkout"'),
     );
   });
 

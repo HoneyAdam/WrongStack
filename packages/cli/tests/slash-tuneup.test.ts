@@ -270,13 +270,13 @@ describe('checkReliability', () => {
 });
 
 describe('checkPowerProfile', () => {
-  it('emits yolo + director actions only under power', () => {
+  it('emits yolo actions only under power', () => {
     expect(checkPowerProfile(baseInput())).toEqual([]);
     const findings = checkPowerProfile(baseInput({ power: true }));
     expect(
       findings.some((f) => f.action?.kind === 'set-config' && f.problem.includes('YOLO')),
     ).toBe(true);
-    expect(findings.some((f) => f.problem.includes('Director'))).toBe(true);
+    expect(findings.some((f) => f.problem.includes('Director'))).toBe(false);
   });
 });
 
@@ -399,7 +399,7 @@ describe('/tuneup slash command', () => {
     expect(stripAnsi(res!.message!)).toContain('adaptive concurrency enabled');
   });
 
-  it('fix --power enables autonomy, yolo, and director (live-applied)', async () => {
+  it('fix --power enables autonomy and yolo (live-applied)', async () => {
     const { ctx, globalConfig } = makeCtx({ autonomy: { defaultMode: 'off' } });
     const onYolo = vi.fn();
     const onAutonomy = vi.fn();
@@ -410,7 +410,6 @@ describe('/tuneup slash command', () => {
     const written = JSON.parse(readFileSync(globalConfig, 'utf8'));
     expect(written.autonomy.defaultMode).toBe('auto');
     expect(written.yolo).toBe(true);
-    expect(written.launch.director).toBe(true);
     // Live-applied through the runtime controllers.
     expect(onYolo).toHaveBeenCalledWith(true);
     expect(onAutonomy).toHaveBeenCalledWith('auto');

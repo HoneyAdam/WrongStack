@@ -163,24 +163,14 @@ export interface MultiAgentDeps {
 }
 
 /**
- * Per-session options that flip the orchestration mode. Director mode
- * routes lifecycle through a `Director`, which unlocks manifest writing
- * and FleetBus observability. When Director mode is off, public subagent
- * spawn/delegate surfaces stay disabled until an explicit `/director`
- * promotion flips the flag.
+ * Per-session options for the multi-agent host. Director Mode is always
+ * active — all lifecycle, manifest writing, and FleetBus features are
+ * available without a promotion flag.
  */
 export interface MultiAgentHostOptions {
   /**
-   * Enable Director-backed orchestration. The host still exposes the same
-   * `spawn` / `status` / `usage` / `kill` API; under the hood, calls flow
-   * through a `Director` so manifest writing works and the FleetBus is
-   * available for future observability hooks.
-   */
-  directorMode?: boolean | undefined;
-  /**
    * Absolute file path the director writes its fleet manifest to on
-   * shutdown (and on-demand via `manifest()`). Only meaningful when
-   * `directorMode` is true; ignored otherwise.
+   * shutdown (and on-demand via `manifest()`).
    */
   manifestPath?: string | undefined;
   /**
@@ -336,12 +326,6 @@ export class MultiAgentHost {
    *  writers under `<sessionsRoot>/<runId>/`. Null without sessionsRoot. */
   private sessionFactory?: DirectorSessionFactory | undefined;
   private readonly opts: MultiAgentHostOptions;
-  /**
-   * Populated by `promoteToDirector` when it refuses to promote. The delegate
-   * tool reads this through `getPromotionBlockReason` to render an
-   * actionable error instead of a generic "Director could not be activated".
-   */
-  private promotionBlockReason: string | null = null;
   /** Guards `buildDirector` from overwriting a runner set by `spawnACP`. */
   private directorRunnerSet = false;
   /** Event-bus off-handles registered in `buildDirector` — cleaned up in `dispose()`. */
@@ -393,17 +377,15 @@ export class MultiAgentHost {
   }
 
   /**
-   * Force the lazy build path to run *now* and return the live Director,
-   * or null when director mode is off. Used by the CLI to register the
-   * fleet's LLM-callable orchestration tools (spawn_subagent,
-   * assign_task, await_tasks, ask_subagent, roll_up, terminate_subagent,
-   * fleet, fleet) into the leader's ToolRegistry before the
-   * agent starts — without this, the leader literally cannot see the
-   * orchestration tools and `--director` becomes a no-op.
+   * Force the lazy build path to run *now* and return the live Director.
+   * Used by the CLI to register the fleet's LLM-callable orchestration
+   * tools (spawn_subagent, assign_task, await_tasks, ask_subagent,
+   * roll_up, terminate_subagent, fleet) into the leader's ToolRegistry
+   * before the agent starts — without this the leader literally cannot
+   * see the orchestration tools.
    */
   async ensureDirector(): Promise<Director | null> {
     if (this.director) return this.director;
-    if (!this.opts.directorMode) return null;
     await this.buildDirector();
     return this.director ?? null;
   }
@@ -1657,13 +1639,7 @@ export class MultiAgentHost {
       shadowIntervalMs?: number | undefined;
     },
   ): Promise<{ subagentId: string; taskId: string }> {
-    if (this.opts.directorMode === false && !this.director) {
-      throw new AgentError({
-        message: 'Director mode is off — run /director first, or start with --director.',
-        code: 'AGENT_RUN_FAILED',
-        context: { phase: 'subagent-spawn' },
-      });
-    }
+    // Director Mode is permanently on — no guard needed.
 
     // Build the Director only after the session has opted into director mode.
     // The Director handles all orchestration once enabled.
@@ -1950,19 +1926,13 @@ export class MultiAgentHost {
   }
 
   /**
-   * Promote a non-director session to director mode at runtime. Only
-   * succeeds when no subagents have been spawned yet — once a coordinator
-   * is running, the state cannot be migrated. Returns the live Director
-   * so the caller can register orchestration tools into the ToolRegistry.
-   *
-   * Idempotent: calling promoteToDirector on an already-promoted host
-   * returns the existing director without side effects.
+   * Return the live Director. Since Director Mode is permanently on,
+   * this always builds and returns the Director. Idempotent: calling
+   * promoteToDirector on an already-initialized host returns the
+   * existing director without side effects.
    */
   async promoteToDirector(): Promise<Director | null> {
     if (this.director) return this.director;
-    // With the single-path refactoring, spawn() always builds a Director.
-    // So a "coordinator without director" state can no longer occur.
-    this.opts.directorMode = true;
     // Derive fleet paths from fleetRoot when available.
     if (this.opts.fleetRoot && !this.opts.manifestPath) {
       this.opts.manifestPath = path.join(this.opts.fleetRoot, 'fleet.json');
@@ -1981,23 +1951,10 @@ export class MultiAgentHost {
   }
 
   /**
-   * True when this host is running in director mode. Surfaces the mode
-   * to slash commands and tests without exposing the underlying Director
-   * (which would let callers bypass the host's coordination layer).
+   * Always true — Director Mode is permanently on.
    */
   isDirectorMode(): boolean {
-    return !!this.director;
-  }
-
-  /**
-   * Why the most recent `promoteToDirector` call returned null. Cleared
-   * implicitly on the next successful promotion. The delegate tool reads
-   * this so the LLM sees the actual blocker (e.g. "3 running subagents,
-   * wait or /fleet kill") instead of a generic "Director could not be
-   * activated" message that gives no path forward.
-   */
-  getPromotionBlockReason(): string | null {
-    return this.promotionBlockReason;
+    return true;
   }
 
   /**

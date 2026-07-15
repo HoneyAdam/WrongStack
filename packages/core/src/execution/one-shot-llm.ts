@@ -2,9 +2,9 @@ import { isTextBlock } from '../types/blocks.js';
 import type { Message } from '../types/messages.js';
 import type { OneShotLLMInput, OneShotLLMResult, OneShotOrchestratorOptions } from '../types/one-shot-llm.js';
 import {
+  isFallbackWorthy,
   type Provider,
   ProviderError,
-  type ProviderErrorKind,
   type Request,
   type Response,
 } from '../types/provider.js';
@@ -19,23 +19,6 @@ const DEFAULT_TIMEOUT_MS = 30_000;
  * Default max output tokens when the caller doesn't specify.
  */
 const DEFAULT_MAX_TOKENS = 1024;
-
-/**
- * Fallback-worthy provider error kinds — same set used by fallback-model.ts.
- */
-const FALLBACK_WORTHY_KINDS: Record<ProviderErrorKind, boolean> = {
-  stream_hang: true,
-  rate_limit: true,
-  overloaded: true,
-  server: true,
-  timeout: true,
-  network: true,
-  auth: false,
-  context_overflow: false,
-  content_filter: false,
-  invalid_request: false,
-  unknown: false,
-};
 
 type CallAttempt =
   | { response: Response; error?: never; fallbackEligible: false }
@@ -311,7 +294,7 @@ export class OneShotOrchestrator {
         error: err,
         fallbackEligible:
           !signal.aborted &&
-          (!(err instanceof ProviderError) || FALLBACK_WORTHY_KINDS[err.kind]),
+          (!(err instanceof ProviderError) || isFallbackWorthy(err.kind)),
       };
     }
   }

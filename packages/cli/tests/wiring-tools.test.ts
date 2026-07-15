@@ -6,10 +6,10 @@ import {
   Container,
   TOKENS,
   ToolRegistry,
-  DefaultMemoryStore,
   type Config,
   type WstackPaths,
 } from '@wrongstack/core';
+import { makeFakeMemoryStore } from './fake-memory-store.js';
 import {
   setupTools,
   getToolsForTier,
@@ -37,8 +37,8 @@ function makeWpaths(): WstackPaths {
   } as WstackPaths;
 }
 
-function makeMemoryStore(): DefaultMemoryStore {
-  return new DefaultMemoryStore({ paths: makeWpaths() });
+function makeMemoryStore(): MemoryStore {
+  return makeFakeMemoryStore();
 }
 
 function makeContainer() {

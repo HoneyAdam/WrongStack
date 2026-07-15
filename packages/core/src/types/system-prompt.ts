@@ -28,7 +28,8 @@ export interface BuildContext {
   subagent?: boolean | undefined;
   /**
    * List of currently online agents in the shared mailbox system.
-   * Includes agents from all sessions (TUI, WebUI, CLI) in the same project.
+   * Includes agents from all clients, processes, sessions, branches, and
+   * linked Git worktrees in the same canonical project.
    */
   onlineAgents?: MailboxAgentStatus[] | undefined;
 }

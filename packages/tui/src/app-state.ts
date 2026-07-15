@@ -667,6 +667,8 @@ export type State = {
   queuePanelOpen: boolean;
   /** When true, the process list overlay is shown (F8). */
   processListOpen: boolean;
+  /** When true, the cron jobs monitor is shown. */
+  cronMonitorOpen: boolean;
   /** When true, the audit (side effects) overlay is shown (/audit). */
   auditPanelOpen: boolean;
   /** When true, the plan panel is shown (F5). */
@@ -1350,7 +1352,7 @@ export type Action =
       baseBranch?: string | undefined;
     }
   | { type: 'worktreeRemove'; handleId: string }
-  | { type: 'worktreeMonitorToggle' }
+  | { type: 'toggleWorktreeMonitor' }
   // --- In-app chat scroll ---
   /** Scroll by `delta` rows: +up (older), -down (newer). Clamped. */
   | { type: 'scrollBy'; delta: number }
@@ -1406,6 +1408,8 @@ export type Action =
   | { type: 'collabSubagentSpawned'; subagentId: string; role: string }
   /** Toggle the process list overlay (F8). */
   | { type: 'toggleProcessList' }
+  /** Toggle the cron jobs monitor. */
+  | { type: 'toggleCronMonitor' }
   /** Toggle the audit (side effects) panel. */
   | { type: 'toggleAuditPanel' }
   /** Toggle the plan panel (F5). */

@@ -342,7 +342,7 @@ export class ACPSession {
         fs: { readTextFile: true, writeTextFile: true },
         terminal: true,
       },
-      clientInfo: { name: 'wrongstack', title: 'WrongStack', version: '0.263.0' },
+      clientInfo: { name: 'wrongstack', title: 'WrongStack', version: '0.287.0' },
     });
     if (isJsonRpcError(result)) {
       throw new ACPSessionError('init_failed', `initialize failed: ${result.message}`, result);
@@ -1193,12 +1193,17 @@ export class ACPSession {
       return;
     }
     const policyAbort = new AbortController();
-    const outcome = await this.permissionPolicy({
-      toolCall,
-      options,
-      signal: policyAbort.signal,
-    });
-    await this.sendResult(id, { outcome });
+    try {
+      const outcome = await this.permissionPolicy({
+        toolCall,
+        options,
+        signal: policyAbort.signal,
+      });
+      await this.sendResult(id, { outcome });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await this.sendErrorResponse(id, -32603, `permission policy failed: ${message}`);
+    }
   }
 
   private async handleFsRequest(msg: ACPMessage): Promise<void> {

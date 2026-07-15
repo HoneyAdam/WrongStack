@@ -8,7 +8,8 @@
  *
  * The mailbox is stored at **project level** (`~/.wrongstack/projects/<slug>/_mailbox.jsonl`),
  * so agents in different terminal sessions / WebUI tabs working on the same
- * project can communicate live.
+ * canonical project can communicate live, even when they run in different
+ * processes, clients, branches, or linked Git worktrees.
  *
  * ## Agent registration
  *

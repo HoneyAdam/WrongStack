@@ -11,6 +11,7 @@ type PanelResetState = Pick<
   | 'todosMonitorOpen'
   | 'queuePanelOpen'
   | 'processListOpen'
+  | 'cronMonitorOpen'
   | 'auditPanelOpen'
   | 'planPanelOpen'
   | 'kanbanPanelOpen'
@@ -43,6 +44,7 @@ export function closePanels(state: State): PanelResetState {
     todosMonitorOpen: false,
     queuePanelOpen: false,
     processListOpen: false,
+    cronMonitorOpen: false,
     auditPanelOpen: false,
     planPanelOpen: false,
     kanbanPanelOpen: false,

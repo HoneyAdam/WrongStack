@@ -28,7 +28,7 @@ import type { SlashCommandContext } from './index.js';
  * Where `/doctor` repairs the config JSON, `/tuneup` sweeps the wider setup and
  * suggests the config knobs that make a session faster and more resilient.
  * Report-only by default; `/tuneup fix` applies the safe deterministic subset,
- * `/tuneup fix --power` also enables the autonomy/yolo/director profile (explicit
+ * `/tuneup fix --power` also enables the autonomy/yolo profile (explicit
  * opt-in so a plain tune-up never flips those), and `/tuneup deep` hands the
  * findings to the agent for a project-specific optimization plan.
  */
@@ -37,7 +37,7 @@ export function buildTuneupCommand(opts: SlashCommandContext): SlashCommand {
     'Usage:',
     '  /tuneup                Run all health checks (read-only report)',
     '  /tuneup fix            Apply safe deterministic fixes',
-    '  /tuneup fix --power    …and enable the autonomy/yolo/director profile',
+    '  /tuneup fix --power    …and enable the autonomy/yolo profile',
     '  /tuneup fix --pick     Confirm each fix before applying',
     '  /tuneup deep           Hand the findings to the agent for a tailored plan',
     '',
@@ -48,7 +48,7 @@ export function buildTuneupCommand(opts: SlashCommandContext): SlashCommand {
     '',
     'Fix safety: only deterministic config changes are written; the global config',
     'is backed up first (like /doctor). --power is the ONLY path that touches',
-    'autonomy/yolo/director. Instruction-file cleanups are handed to the agent,',
+    'autonomy/yolo. Instruction-file cleanups are handed to the agent,',
     'never auto-deleted.',
   ].join('\n');
 

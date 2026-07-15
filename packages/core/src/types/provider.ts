@@ -304,7 +304,7 @@ export type ProviderErrorKind =
   | 'stream_hang' // 599 sentinel — stream stalled mid-response (StreamHangError)
   | 'auth' // 401/403 — key invalid/expired; retrying without action is pointless
   | 'context_overflow' // 413 or an overflow-shaped 4xx — compact, don't retry as-is
-  | 'content_filter' // provider refused the content — a different model may accept it
+  | 'content_filter' // provider refused on policy grounds — a sibling model may pass, but the `content_filter_reroute` recovery strategy owns that hop, NOT the fallback engine (which surfaces this kind)
   | 'invalid_request' // other 4xx — request is malformed; retrying won't help
   | 'unknown';
 
@@ -370,6 +370,40 @@ export function isRetryableKind(kind: ProviderErrorKind): boolean {
 }
 
 const RETRYABLE_BY_KIND: Record<ProviderErrorKind, boolean> = {
+  rate_limit: true,
+  overloaded: true,
+  server: true,
+  timeout: true,
+  network: true,
+  stream_hang: true,
+  auth: false,
+  context_overflow: false,
+  content_filter: false,
+  invalid_request: false,
+  unknown: false,
+};
+
+/**
+ * Whether a kind is worth HOPPING to a different provider/model — the gate for
+ * the cross-provider fallback engine (agent-loop extension AND the one-shot
+ * orchestrator both branch on this ONE table, so their behavior can't drift).
+ *
+ * A distinct question from {@link isRetryableKind} (retry the SAME model):
+ * a hop only helps for capacity/transport failures. Request-shaped failures
+ * surface instead — `context_overflow` needs compaction, `content_filter` is
+ * owned by the `content_filter_reroute` recovery strategy, and `auth` /
+ * `invalid_request` are user-actionable and would fail identically on a hop.
+ * The value set is currently identical to the retryable set, but it is kept as
+ * its own table on purpose: the two answer different questions and may diverge.
+ *
+ * Exhaustive by construction (`Record<ProviderErrorKind, …>`) — a new kind
+ * refuses to compile until it is classified here.
+ */
+export function isFallbackWorthy(kind: ProviderErrorKind): boolean {
+  return FALLBACK_WORTHY_BY_KIND[kind];
+}
+
+const FALLBACK_WORTHY_BY_KIND: Record<ProviderErrorKind, boolean> = {
   rate_limit: true,
   overloaded: true,
   server: true,

@@ -19,6 +19,10 @@
  * Supported assistant-output format:
  *   <nextsteps>      (canonical XML tag format)
  *
+ * The parser also tolerates attributes on the opening tag so malformed model
+ * output such as `<nextsteps auto="true">` does not leak into the UI. Opening
+ * tag attributes are ignored; `auto="true"` has meaning only on the first item.
+ *
  * This module is BROWSER-SAFE — no Node-only imports — so it is safe to import
  * from Vite-bundled WebUI as well as Node-based CLI/TUI. Mirrors the proven
  * `tool-summary` / `tool-icons` extraction pattern (PRs #236 / #237 / #238).
@@ -29,7 +33,7 @@
 export interface ParsedNextStep {
   index: number;
   text: string;
-  /** Whether this item has auto="true" attribute for YOLO+auto autonomy mode. */
+  /** Whether the first item has auto="true" for YOLO+auto autonomy mode. */
   auto?: boolean;
 }
 
@@ -43,14 +47,19 @@ export interface ParseNextStepsResult {
    * Used by entry.tsx to strip suggestions from the rendered message body.
    */
   stripped: string;
-  /** Flat string array — texts of items with auto="true" attribute only. */
+  /** The first item's text when it has auto="true"; otherwise empty. */
   autoTexts: string[];
 }
 
 // ── Patterns ───────────────────────────────────────────────────────────────
 
-/** Matches the canonical <nextsteps> tag before numbered items. */
-const NEXT_STEPS_TAG_RE = /<nextsteps>\s*\n+/i;
+/**
+ * Matches the canonical <nextsteps> tag before numbered items.
+ *
+ * Attributes are accepted defensively because models occasionally attach the
+ * item-only `auto="true"` marker to this tag. They never affect parser state.
+ */
+const NEXT_STEPS_TAG_RE = /<nextsteps\b[^>]*>\s*\n+/i;
 
 /** Matches an item line: "1. text", "1) text", "- text", "* text". */
 /** Also captures optional auto="true" attribute at the end. */
@@ -105,7 +114,6 @@ function parseRawNumbered(content: string): ParseNextStepsResult {
 
     const numPart = m[1];
     const text = m[2]!.trim();
-    const hasAuto = !!m[3]; // auto="true" captured in group 3
     let index: number;
 
     if (numPart !== undefined) {
@@ -116,6 +124,9 @@ function parseRawNumbered(content: string): ParseNextStepsResult {
 
     if (seenNumbers.has(index)) continue;
     seenNumbers.add(index);
+    // Auto-submit is deliberately restricted to the first accepted item.
+    // Later misplaced markers are stripped from display text but ignored.
+    const hasAuto = !!m[3] && steps.length === 0 && index === 1;
     pushStep(steps, index, text, hasAuto);
 
     if (steps.length >= MAX_STEPS) break;
@@ -152,7 +163,6 @@ function parseWithHeading(content: string, _strict: boolean): ParseNextStepsResu
 
     const numPart = m[1];
     const text = m[2]!.trim();
-    const hasAuto = !!m[3]; // auto="true" captured in group 3
     let index: number;
 
     if (numPart !== undefined) {
@@ -163,6 +173,8 @@ function parseWithHeading(content: string, _strict: boolean): ParseNextStepsResu
 
     if (seenNumbers.has(index)) continue;
     seenNumbers.add(index);
+    // Only the first accepted item may opt into unattended auto-submit.
+    const hasAuto = !!m[3] && steps.length === 0 && index === 1;
     pushStep(steps, index, text, hasAuto);
 
     if (steps.length >= MAX_STEPS) break;

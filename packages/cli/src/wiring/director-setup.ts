@@ -73,8 +73,8 @@ export interface DirectorAutonomyResult {
 export function setupDirectorAndAutonomy(deps: DirectorAutonomyDeps): DirectorAutonomyResult {
   const { flags, config, wpaths, session, events, autonomyModeRef } = deps;
 
-  // ── Director mode ──────────────────────────────────────────────────────
-  const directorMode = flags['director'] === true || typeof flags['resume'] === 'string';
+  // ── Director mode (permanently on) ────────────────────────────────────
+  const directorMode = true;
 
   // Concurrent subagent ceiling. Priority: CLI flag → env var → config → default (4).
   const maxConcurrentFromFlag =

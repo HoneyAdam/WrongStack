@@ -224,6 +224,7 @@ export function createInitialState(options: CreateInitialStateOptions): State {
     todosMonitorOpen: false,
     queuePanelOpen: false,
     processListOpen: false,
+    cronMonitorOpen: false,
     auditPanelOpen: false,
     planPanelOpen: false,
     kanbanPanelOpen: false,

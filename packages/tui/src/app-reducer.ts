@@ -1896,6 +1896,12 @@ export function reducer(state: State, action: Action): State {
         ? { ...state, ...closePanels(state), processListOpen: true }
         : { ...state, processListOpen: false };
     }
+    case 'toggleCronMonitor': {
+      const opening = !state.cronMonitorOpen;
+      return opening
+        ? { ...state, ...closePanels(state), cronMonitorOpen: true }
+        : { ...state, cronMonitorOpen: false };
+    }
     case 'togglePlanPanel': {
       const opening = !state.planPanelOpen;
       return opening
@@ -2120,7 +2126,7 @@ export function reducer(state: State, action: Action): State {
       delete next[action.handleId];
       return { ...state, worktrees: next };
     }
-    case 'worktreeMonitorToggle': {
+    case 'toggleWorktreeMonitor': {
       const opening = !state.worktreeMonitorOpen;
       return opening
         ? { ...state, ...closePanels(state), worktreeMonitorOpen: true }
@@ -2453,6 +2459,12 @@ export function reducer(state: State, action: Action): State {
             coordinator: { ...state.coordinator, monitorOpen: true },
           }
         : { ...state, coordinator: { ...state.coordinator, monitorOpen: false } };
+    }
+    default: {
+      // Exhaustiveness check: if Action adds a new variant without a matching
+      // case, TypeScript will error here instead of silently returning undefined.
+      void (action satisfies never);
+      return state;
     }
   }
 }

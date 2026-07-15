@@ -10,12 +10,14 @@ import {
 import type { ToolResultBlock, ToolUseBlock } from '../types/blocks.js';
 import type { Tool, ToolProgressEvent, ToolErrorCategory } from '../types/tool.js';
 import { ToolErrorCategory as ToolErrorCategoryEnum } from '../types/tool.js';
-import type {
-  ToolBatchResult,
-  ToolConfirmPendingResult,
-  ToolExecutionOutput,
-  ToolExecutorOptions,
-  ToolExecutorStrategy,
+import {
+  GOVERNED_TOOL_EXECUTOR_META_KEY,
+  type GovernedToolExecutor,
+  type ToolBatchResult,
+  type ToolConfirmPendingResult,
+  type ToolExecutionOutput,
+  type ToolExecutorOptions,
+  type ToolExecutorStrategy,
 } from '../types/tool-executor.js';
 import { toErrorMessage } from '../utils/error.js';
 import { expectDefined } from '../utils/expect-defined.js';
@@ -166,6 +168,23 @@ export class ToolExecutor {
    * Returns the execution results and the remaining output budget.
    */
   async executeBatch(
+    toolUses: ToolUseBlock[],
+    ctx: Context,
+    strategy: ToolExecutorStrategy,
+  ): Promise<ToolBatchResult> {
+    return this.withGovernedExecutionBridge(
+      ctx,
+      () => this.executeBatchInternal(toolUses, ctx, strategy),
+    );
+  }
+
+  /**
+   * Internal batch implementation. Nested meta-tool calls enter here through
+   * the governed bridge so they traverse the same validation, hooks,
+   * permission/capability, timeout, scrubbing, and audit path without
+   * replacing the bridge that is already active for the outer call.
+   */
+  private async executeBatchInternal(
     toolUses: ToolUseBlock[],
     ctx: Context,
     strategy: ToolExecutorStrategy,
@@ -596,10 +615,53 @@ export class ToolExecutor {
   }
 
   /**
-   * Execute a single tool with timeout, permission check, and output capping.
-   * Emits `tool.started` via the injected EventBus (if any) right before
-   * invoking the tool — closes the observability gap between "model decided
-   * to call a tool" and "tool.executed".
+   * Install the executor-owned bridge used by meta-tools for nested calls.
+   * The bridge deliberately returns the governed, scrubbed ToolResultBlock
+   * content rather than the raw tool value. This prevents a meta-tool from
+   * bypassing output controls while preserving structured success/failure.
+   */
+  private async withGovernedExecutionBridge<T>(ctx: Context, run: () => Promise<T>): Promise<T> {
+    const previous = ctx.meta[GOVERNED_TOOL_EXECUTOR_META_KEY];
+    if (typeof previous === 'function') return run();
+
+    const bridge: GovernedToolExecutor = async (toolName, input) => {
+      const nestedUse: ToolUseBlock = {
+        type: 'tool_use',
+        id: `nested-${randomUUID()}`,
+        name: toolName,
+        input,
+      };
+      const batch = await this.executeBatchInternal([nestedUse], ctx, 'sequential');
+      const output = batch.outputs[0];
+      if (!output) {
+        return { success: false, error: `tool "${toolName}" produced no result` };
+      }
+      if (output.result.type === 'tool_confirm_pending') {
+        return {
+          success: false,
+          error: `tool "${toolName}" requires separate confirmation; call it directly`,
+        };
+      }
+      if (output.result.is_error) {
+        return { success: false, error: String(output.result.content) };
+      }
+      return { success: true, result: output.result.content };
+    };
+
+    ctx.meta[GOVERNED_TOOL_EXECUTOR_META_KEY] = bridge;
+    try {
+      return await run();
+    } finally {
+      if (previous === undefined) delete ctx.meta[GOVERNED_TOOL_EXECUTOR_META_KEY];
+      else ctx.meta[GOVERNED_TOOL_EXECUTOR_META_KEY] = previous;
+    }
+  }
+
+  /**
+   * Execute a single tool with timeout and output capping after its permission
+   * decision has already been resolved by executeBatch/the confirmation flow.
+   * Also installs the governed bridge because confirmed tools are re-run
+   * through this method after a pending confirmation.
    */
   async executeTool(
     tool: Tool,
@@ -607,8 +669,10 @@ export class ToolExecutor {
     ctx: Context,
     budget: number,
   ): Promise<{ block: ToolResultBlock; bytes: number }> {
-    const text = await this.produceToolOutput(tool, use, ctx, budget);
-    return this.settleToolOutput(tool, use, text, budget);
+    return this.withGovernedExecutionBridge(ctx, async () => {
+      const text = await this.produceToolOutput(tool, use, ctx, budget);
+      return this.settleToolOutput(tool, use, text, budget);
+    });
   }
 
   /**

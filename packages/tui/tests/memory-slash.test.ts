@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { MemoryEntry, MemoryScope, MemoryStore } from '@wrongstack/core';
 import { createMemorySlashCommand, type MemorySlashDeps } from '../src/memory-slash.js';
 
@@ -56,6 +56,10 @@ function fakeSuperMemoryStore(memories: SuperMemoryTestEntry[]) {
     retrieveForPath: async (opts: { path: string }) =>
       memories.filter((m) => m.anchors?.some((a) => a.path?.includes(opts.path))).map(superEntry),
     searchSuper: async () => [],
+    rememberSuper: async (input: { text: string }) => superEntry({ id: 'mem_new', kind: 'fact', status: 'active', text: input.text, tags: [], createdAt: new Date('2026-07-14T12:00:00Z').toISOString() }),
+    updateSuperMemory: async (id: string) => superEntry({ id, kind: 'fact', status: 'active', text: 'updated', tags: [], createdAt: new Date('2026-07-14T12:00:00Z').toISOString() }),
+    deleteSuperMemory: async () => {},
+    getSuperMemory: async (id: string) => superEntry({ id, kind: 'fact', status: 'active', text: 'x', tags: [], createdAt: new Date('2026-07-14T12:00:00Z').toISOString() }),
   };
 }
 
@@ -329,6 +333,50 @@ describe('/memory slash command', () => {
       const cmd = createMemorySlashCommand({ memoryStore: store });
       const out = await run(cmd);
       expect(out).toContain('Super Memory is empty');
+    });
+
+    it('remember subcommand forwards structured flags to rememberSuper', async () => {
+      const store = fakeSuperMemoryStore([]);
+      const rememberSuper = vi.fn(async (input: { text: string }) => ({
+        id: 'mem_new', kind: 'convention', status: 'active', text: input.text, tags: ['pnpm'],
+        createdAt: '', updatedAt: '', importance: 0.9, confidence: 0.8, anchors: [], sources: [],
+      }));
+      (store as unknown as { rememberSuper: typeof rememberSuper }).rememberSuper = rememberSuper;
+      const cmd = createMemorySlashCommand({ memoryStore: store });
+      const out = await run(cmd, 'remember Project uses pnpm --kind convention --tag pnpm --importance 0.9');
+      expect(rememberSuper).toHaveBeenCalledWith(expect.objectContaining({
+        text: 'Project uses pnpm', kind: 'convention', tags: ['pnpm'], importance: 0.9,
+      }));
+      expect(out).toContain('Remembered');
+    });
+
+    it('update and delete subcommands dispatch by id', async () => {
+      const store = fakeSuperMemoryStore([]);
+      const updateSuperMemory = vi.fn(async (id: string) => ({
+        id, kind: 'fact', status: 'archived', text: 'x', tags: [], createdAt: '', updatedAt: '',
+        importance: 0.5, confidence: 0.8, anchors: [], sources: [],
+      }));
+      const deleteSuperMemory = vi.fn(async () => {});
+      (store as unknown as { updateSuperMemory: typeof updateSuperMemory }).updateSuperMemory = updateSuperMemory;
+      (store as unknown as { deleteSuperMemory: typeof deleteSuperMemory }).deleteSuperMemory = deleteSuperMemory;
+      const cmd = createMemorySlashCommand({ memoryStore: store });
+
+      await run(cmd, 'update mem_123 --status archived');
+      expect(updateSuperMemory).toHaveBeenCalledWith('mem_123', { status: 'archived' });
+
+      const out = await run(cmd, 'delete mem_123 obsolete');
+      expect(deleteSuperMemory).toHaveBeenCalledWith('mem_123', 'obsolete');
+      expect(out).toContain('Deleted');
+    });
+
+    it('rejects an invalid --kind without calling rememberSuper', async () => {
+      const store = fakeSuperMemoryStore([]);
+      const rememberSuper = vi.fn();
+      (store as unknown as { rememberSuper: typeof rememberSuper }).rememberSuper = rememberSuper;
+      const cmd = createMemorySlashCommand({ memoryStore: store });
+      const out = await run(cmd, 'remember hello --kind bogus');
+      expect(out).toContain('--kind must be one of');
+      expect(rememberSuper).not.toHaveBeenCalled();
     });
 
     it('handles supermemory store errors gracefully', async () => {

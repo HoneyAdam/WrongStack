@@ -745,12 +745,10 @@ describe('built-in slash commands', () => {
       expect(r?.message).toContain('not available');
     });
 
-    it('/director when promotion fails (returns null) shows block message', async () => {
+    it('/director reports unavailable when the always-on director is missing', async () => {
       const { registry } = makeDirectorRig(async () => null);
       const r = await registry.dispatch('/director', fakeCtx);
-      expect(r?.message).toContain('Cannot promote');
-      expect(r?.message).toContain('subagents have already been spawned');
-      expect(r?.message).toContain('--director');
+      expect(r?.message).toContain('not available');
     });
 
     it('/director when promotion succeeds returns the success message', async () => {
@@ -773,7 +771,8 @@ describe('built-in slash commands', () => {
       const { registry } = makeDirectorRig(async () => 'ok');
       const r = await registry.dispatch('/help director', fakeCtx);
       expect(r?.message).toContain('/director');
-      expect(r?.message).toContain('fleet status, spawn');
+      expect(r?.message).toContain('permanently on');
+      expect(r?.message).toContain('/fleet status|spawn');
     });
   });
 

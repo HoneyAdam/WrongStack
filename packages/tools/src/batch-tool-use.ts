@@ -1,4 +1,8 @@
-import type { Tool } from '@wrongstack/core';
+import {
+  GOVERNED_TOOL_EXECUTOR_META_KEY,
+  type GovernedToolExecutor,
+  type Tool,
+} from '@wrongstack/core';
 
 interface BatchToolUseInput {
   calls: {
@@ -65,7 +69,7 @@ export const batchToolUseTool: Tool<BatchToolUseInput, BatchToolUseOutput> = {
     },
     required: ['calls'],
   },
-  async execute(input, ctx, opts) {
+  async execute(input, ctx, _opts) {
     if (!input?.calls || input.calls.length === 0) {
       return {
         results: [],
@@ -76,19 +80,37 @@ export const batchToolUseTool: Tool<BatchToolUseInput, BatchToolUseOutput> = {
       };
     }
 
+    const governedExecute = ctx.meta[GOVERNED_TOOL_EXECUTOR_META_KEY] as
+      | GovernedToolExecutor
+      | undefined;
+    if (typeof governedExecute !== 'function') {
+      return {
+        results: input.calls.map((call) => ({
+          tool: call.tool,
+          success: false,
+          error: 'governed nested execution is unavailable; call the tool directly',
+          executionMs: 0,
+        })),
+        total: input.calls.length,
+        succeeded: 0,
+        failed: input.calls.length,
+        stop_on_error: input.stop_on_error ?? false,
+      };
+    }
+
     const results: BatchToolUseOutput['results'] = [];
     let succeeded = 0;
     let failed = 0;
 
     if (input.parallel !== false) {
-      const promises = input.calls.map(async (call) => executeSingle(call, ctx, opts));
+      const promises = input.calls.map(async (call) => executeSingle(call, ctx, governedExecute));
       const allResults = await Promise.all(promises);
       results.push(...allResults);
       succeeded = allResults.filter((r) => r.success).length;
       failed = allResults.filter((r) => !r.success).length;
     } else {
       for (const call of input.calls) {
-        const result = await executeSingle(call, ctx, opts ?? { signal: undefined as never as AbortSignal });
+        const result = await executeSingle(call, ctx, governedExecute);
         results.push(result);
         if (result.success) {
           succeeded++;
@@ -112,10 +134,10 @@ export const batchToolUseTool: Tool<BatchToolUseInput, BatchToolUseOutput> = {
 async function executeSingle(
   call: { tool: string; input: Record<string, unknown> },
   ctx: import('@wrongstack/core').Context,
-  opts: { signal: AbortSignal },
+  governedExecute: GovernedToolExecutor,
 ): Promise<BatchToolUseOutput['results'][0]> {
   const start = Date.now();
-  const tool = ctx.tools.find((t: Tool) => t.name === call.tool);
+  const tool = ctx.tools.find((candidate: Tool) => candidate.name === call.tool);
 
   if (!tool) {
     return {
@@ -127,11 +149,11 @@ async function executeSingle(
   }
 
   try {
-    const result = await tool.execute(call.input, ctx, opts);
+    const result = await governedExecute(call.tool, call.input);
     return {
       tool: call.tool,
-      success: true,
-      result,
+      success: result.success,
+      ...(result.success ? { result: result.result } : { error: result.error ?? 'nested tool failed' }),
       executionMs: Date.now() - start,
     };
   } catch (e) {

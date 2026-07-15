@@ -112,6 +112,14 @@ export function shellGuidanceBlock(shell: EffectiveShell, detail: 'full' | 'shor
 
 export interface DefaultSystemPromptBuilderOptions {
   memoryStore?: MemoryStore | undefined;
+  /**
+   * Inject a static "# Relevant Memory" section into the built prompt from
+   * `memoryStore`. Default: true. Set to false when a dedicated per-turn memory
+   * retriever (the Super Memory turn middleware) is the single injection
+   * channel — this avoids double-injecting the same memories and keeps all
+   * memory context flowing through one system.
+   */
+  injectMemory?: boolean | undefined;
   skillLoader?: SkillLoader | undefined;
   /**
    * How skill bodies reach the prompt. `'eager'` (default) injects every
@@ -585,8 +593,7 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     // Mailbox guidance — included when any mailbox tool is present.
     // Tier behaviour:
     // - 'off' → full block
-    // - 'light' / 'medium' / 'aggressive' → minimal one-liner
-    // - 'minimal' → skipped
+    // - every token-saving tier → compact project-wide contract
     //
     // Note: 'aggressive' was previously listed with 'off' for the
     // full block, but per the parallel-session decision (Option H,
@@ -596,24 +603,41 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     const hasMailbox = tools.some(
       (t) => t.name === 'mailbox' || t.name === 'mail_send' || t.name === 'mail_inbox',
     );
-    if (hasMailbox && this.tier !== 'minimal') {
-      // Build online agents info — cached by array reference since the
-      // agents list changes at join/leave pace (seconds to minutes) while
-      // the prompt builds happen every iteration (hundreds of ms).
+    if (hasMailbox) {
+      // Build online-agent info — cached by a rendered-field fingerprint so
+      // joins/leaves and live status/task/tool changes invalidate it.
       const onlineAgentsInfo = this.renderOnlineAgents(ctx.onlineAgents);
-      if (this.tier === 'light' || this.tier === 'medium' || this.tier === 'aggressive') {
+      const hasMailboxPowerTool = tools.some((t) => t.name === 'mailbox');
+      const mailStatusCommand = tools.some((t) => t.name === 'fleet_status')
+        ? '`fleet_status`'
+        : hasMailboxPowerTool
+          ? '`mailbox action=status` or `mailbox action=online`'
+          : 'the online-agent list above';
+      const mailInboxCommand = tools.some((t) => t.name === 'mail_inbox')
+        ? '`mail_inbox`'
+        : '`mailbox action=check`';
+      const mailSendCommand = tools.some((t) => t.name === 'mail_send')
+        ? '`mail_send`'
+        : '`mailbox action=send`';
+      const mailboxVars = {
+        onlineAgentsInfo,
+        mailStatusCommand,
+        mailInboxCommand,
+        mailSendCommand,
+      };
+      if (this.tier !== 'off') {
         // Minimal: keep just the header and agent count.
         // `aggressive` joins `light`/`medium` — the 400-token mailbox essay
         // is the largest single guidance section; users under context pressure
         // don't need it.
-        const mailbox = this.instructionSection(instructions, 'tool.mailbox.compact', {
-          onlineAgentsInfo,
-        });
+        const mailbox = this.instructionSection(
+          instructions,
+          'tool.mailbox.compact',
+          mailboxVars,
+        );
         if (mailbox) lines.push(mailbox);
       } else {
-        const mailbox = this.instructionSection(instructions, 'tool.mailbox.full', {
-          onlineAgentsInfo,
-        });
+        const mailbox = this.instructionSection(instructions, 'tool.mailbox.full', mailboxVars);
         if (mailbox) lines.push(mailbox);
       }
     }
@@ -710,20 +734,35 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
    * Cheap content fingerprint of the online agents array. The mailbox
    * rebuilds the array as a fresh object on every status check, so caching
    * by reference always misses — this lets the renderOnlineAgents and
-   * buildToolUsage caches detect membership changes instead.
+   * buildToolUsage caches detect rendered identity/status/task/tool changes
+   * instead.
    *
-   * O(n) over agent names with no per-element string concatenation. Uses
-   * FNV-1a over character codes so two different agent sets collide only
-   * if they produce the identical sequence of name characters — astronomically
-   * unlikely. A collision would produce a stale agent list in the prompt,
-   * a cosmetic issue, not a correctness bug.
+   * O(n) over every field rendered in the peer snapshot. This matters because
+   * status/task/tool changes should invalidate the prompt just like joins and
+   * leaves do. Uses FNV-1a over character codes; a collision would only leave a
+   * stale cosmetic snapshot in the prompt.
    */
   private agentsFingerprint(agents: readonly MailboxAgentStatus[] | undefined): string {
     if (!agents || agents.length === 0) return '0';
     let h = 0x811c9dc5;
     for (const a of agents) {
-      for (let i = 0; i < a.name.length; i++) {
-        h ^= a.name.charCodeAt(i);
+      const fields = [
+        a.agentId,
+        a.name,
+        a.source,
+        a.sessionId,
+        a.status,
+        a.currentTask,
+        a.currentTool,
+        a.online ? '1' : '0',
+      ];
+      for (const field of fields) {
+        const value = field ?? '';
+        for (let i = 0; i < value.length; i++) {
+          h ^= value.charCodeAt(i);
+          h = Math.imul(h, 0x01000193) >>> 0;
+        }
+        h ^= 0xff;
         h = Math.imul(h, 0x01000193) >>> 0;
       }
     }
@@ -759,11 +798,20 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
       return text;
     }
 
+    const inlineData = (value: string, max = 120): string =>
+      value.replace(/[`\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
     const agentList = agents
-      .map(
-        (a) =>
-          `- **${a.name}** (${a.source ?? 'unknown'}${a.sessionId ? `, session: ${shortSessionId(a.sessionId)}` : ''})`,
-      )
+      .map((a) => {
+        const details = [
+          `id: \`${inlineData(a.agentId ?? a.name, 96)}\``,
+          `client: ${inlineData(a.source ?? 'unknown', 32)}`,
+          a.status ? `status: ${inlineData(a.status, 32)}` : undefined,
+          a.currentTask ? `task: \`${inlineData(a.currentTask)}\`` : undefined,
+          a.currentTool ? `tool: \`${inlineData(a.currentTool, 64)}\`` : undefined,
+          a.sessionId ? `session: ${shortSessionId(inlineData(a.sessionId, 96))}` : undefined,
+        ].filter((part): part is string => part !== undefined);
+        return `- **${inlineData(a.name, 96)}** — ${details.join('; ')}`;
+      })
       .join('\n');
     const text = `\n\n**Currently online (${totalCount} agent${totalCount !== 1 ? 's' : ''}):**\n${agentList}`;
     this._lastOnlineAgents = { hash, text };
@@ -892,7 +940,10 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     // Memory injection count per tier: off=5, minimal=3, light=5, medium=5, aggressive=5
     const memoryCount = this.tier === 'minimal' || this.tier === 'light' ? 3 : 5;
     const compactMemory = this.tier === 'minimal'; // compact = text only, no badges/tags
-    if (this.opts.memoryStore) {
+    // When a per-turn memory retriever owns injection (Super Memory turn
+    // middleware), skip the static prompt section so memory flows through a
+    // single channel — no double injection.
+    if (this.opts.memoryStore && this.opts.injectMemory !== false) {
       try {
         // Use relevance scoring when available, fall back to full dump.
         if (this.opts.memoryStore.scoreRelevant) {

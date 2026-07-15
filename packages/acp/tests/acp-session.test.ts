@@ -97,11 +97,12 @@ async function startSession(
     agentCapabilities: { loadSession: true, promptCapabilities: { image: true } },
     agentInfo: { name: 'fake-agent', title: 'Fake', version: '0.0.1' },
   },
+  overrides: Partial<Parameters<typeof ACPSession.start>[0]> = {},
 ): Promise<ACPSession> {
   // Don't await start() yet — we need to read the initialize message
   // and respond to it first, otherwise start() deadlocks waiting for
   // the initialize response that we can't send until start() returns.
-  const p = ACPSession.start({ command: 'fake', projectRoot: PROJECT_ROOT });
+  const p = ACPSession.start({ command: 'fake', projectRoot: PROJECT_ROOT, ...overrides });
   const t = lastTransport();
   // Give the microtask queue a tick so the initialize message is sent
   // before we try to find it.
@@ -113,6 +114,46 @@ async function startSession(
 }
 
 describe('ACPSession', () => {
+  it('returns a JSON-RPC error when the permission policy throws', async () => {
+    const permissionPolicy = vi.fn(async () => {
+      throw new Error('approval backend unavailable');
+    });
+    const session = await startSession(undefined, { permissionPolicy });
+    const t = lastTransport();
+
+    t.emit({
+      jsonrpc: '2.0',
+      id: 'perm-1',
+      method: 'session/request_permission',
+      params: {
+        sessionId: 'sess_abc',
+        toolCall: {
+          toolCallId: 'tc-permission',
+          title: 'edit a.ts',
+          kind: 'edit',
+          status: 'pending',
+        },
+        options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }],
+      },
+    } as never as ACPMessage);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const response = t.sent.find((message) => message.id === 'perm-1') as
+      | { jsonrpc?: string; method?: string; error?: { code?: number; message?: string } }
+      | undefined;
+    expect(permissionPolicy).toHaveBeenCalledTimes(1);
+    expect(response).toMatchObject({
+      jsonrpc: '2.0',
+      error: {
+        code: -32603,
+        message: 'permission policy failed: approval backend unavailable',
+      },
+    });
+    expect(response?.method).toBeUndefined();
+
+    await session.close();
+  });
+
   it('runs a happy-path prompt turn and concatenates text', async () => {
     const session = await startSession();
     const t = lastTransport();

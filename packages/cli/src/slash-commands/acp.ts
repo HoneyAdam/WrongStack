@@ -307,7 +307,7 @@ async function runSingle(
     if (!opts.onSpawn) {
       return {
         message:
-          'Background mode needs multi-agent (director). Run /director first, or drop --bg to run inline.',
+          'Background mode needs the fleet (director). Director Mode is always active.',
       };
     }
     try {

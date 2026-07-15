@@ -117,6 +117,8 @@ export async function switchProjectInPlace(
         : undefined;
     const switchBuilder = new DefaultSystemPromptBuilder({
       memoryStore: memoryStore ?? undefined,
+      // Single injection channel: Super Memory turn middleware, not a static section.
+      injectMemory: false,
       skillLoader,
       modeStore,
       modeId: modeId ?? 'default',

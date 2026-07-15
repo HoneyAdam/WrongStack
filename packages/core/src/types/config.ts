@@ -702,7 +702,12 @@ export interface FeaturesConfig {
 }
 
 export interface SuperMemoryConfig {
-  /** Enable the project-local Super Memory backend. Default: true. */
+  /**
+   * Default: true. Super Memory is the ONLY memory backend — this flag no longer
+   * swaps the store. When `false`, the backend is still Super Memory (explicit
+   * `/memory`, agent memory tools, and WebUI all keep working); only automatic
+   * context injection and session-end hygiene are turned off.
+   */
   enabled?: boolean | undefined;
   storage?: {
     /** Store memory inside the project under a gitignored directory. Default: true. */
@@ -878,8 +883,7 @@ export interface IndexingConfig {
 export interface LaunchConfig {
   /** Interactive mode: 'tui' (Ink TUI) or 'repl' (readline REPL). */
   mode?: 'tui' | 'repl' | undefined;
-  /** Start with Director mode on (fleet manifest + multi-agent orchestration). */
-  director?: boolean | undefined;
+  // (removed: director — Director Mode is permanently on)
   /**
    * Launch-time autonomy mode (binary choice from pre-launch prompt).
    * 'off' = stops after each turn; 'auto' = self-driving.

@@ -26,7 +26,7 @@ function fmtAge(at: number): string {
 
 const NO_SUPERVISOR_MSG =
   'No fleet supervisor is active. It starts automatically with the Director fleet ' +
-  '(--director / first delegate) when a Brain is available and config fleet.supervisor.enabled is not false.';
+  'when a Brain is available and config fleet.supervisor.enabled is not false.';
 
 export function buildSupervisorCommand(opts: SlashCommandContext): SlashCommand {
   return {

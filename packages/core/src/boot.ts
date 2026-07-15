@@ -9,7 +9,11 @@ import { DefaultConfigLoader } from './storage/config-loader.js';
 import { type Config, normalizeTokenSavingTier } from './types/config.js';
 import { writeErr } from './utils/term.js';
 import { toErrorMessage } from './utils/error.js';
-import { type WstackPaths, resolveWstackPaths } from './utils/wstack-paths.js';
+import {
+  canonicalProjectRoot,
+  type WstackPaths,
+  resolveWstackPaths,
+} from './utils/wstack-paths.js';
 
 /**
  * Options for {@link bootConfig}. Both the CLI and the WebUI server boot the
@@ -80,6 +84,7 @@ export async function bootConfig(options: BootConfigOptions = {}): Promise<BootC
   const cwd = typeof flags['cwd'] === 'string' ? path.resolve(flags['cwd']) : process.cwd();
   const pathResolver = new DefaultPathResolver(cwd);
   const projectRoot = pathResolver.projectRoot;
+  const projectIdentityRoot = canonicalProjectRoot(projectRoot);
   const userHome = os.homedir();
   // No explicit userHome here: that would defeat the WRONGSTACK_HOME env
   // override (tests / sandboxed runs redirect all global state through it).
@@ -92,9 +97,14 @@ export async function bootConfig(options: BootConfigOptions = {}): Promise<BootC
   await fs.mkdir(wpaths.globalRoot, { recursive: true });
   await fs.mkdir(wpaths.projectDir, { recursive: true });
   await fs.mkdir(wpaths.projectSessions, { recursive: true });
-  await writeProjectMeta(wpaths, projectRoot);
+  await writeProjectMeta(wpaths, projectIdentityRoot);
   // Also register/update the project in ~/.wrongstack/projects.json
-  await registerProjectInManifest(wpaths, projectRoot, undefined, cwd !== projectRoot ? cwd : undefined);
+  await registerProjectInManifest(
+    wpaths,
+    projectIdentityRoot,
+    undefined,
+    cwd !== projectIdentityRoot ? cwd : undefined,
+  );
   await ensureGitignore(projectRoot);
 
   // Clean up stale project directories left behind by tests or deleted

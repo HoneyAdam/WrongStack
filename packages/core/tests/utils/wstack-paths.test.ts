@@ -1,7 +1,9 @@
+import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  canonicalProjectRoot,
   projectHash,
   projectSlug,
   resolveWstackPaths,
@@ -36,6 +38,30 @@ describe('wstack-paths', () => {
     // imported indirectly via projectSlug
     const s = projectSlug('/tmp/My Cool Project!');
     expect(s).toMatch(/^my-cool-project-[a-f0-9]{6}$/);
+  });
+
+  it('shares global project identity across linked Git worktrees', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-worktree-identity-'));
+    const main = path.join(tmp, 'main-repo');
+    const linked = path.join(tmp, 'task-checkout');
+    const linkedGitDir = path.join(main, '.git', 'worktrees', 'task-checkout');
+    try {
+      await fs.mkdir(linkedGitDir, { recursive: true });
+      await fs.mkdir(linked, { recursive: true });
+      await fs.writeFile(path.join(linked, '.git'), `gitdir: ${linkedGitDir}\n`);
+      await fs.writeFile(path.join(linkedGitDir, 'commondir'), '../..\n');
+
+      expect(canonicalProjectRoot(linked)).toBe(path.resolve(main));
+      expect(projectHash(linked)).toBe(projectHash(main));
+      expect(projectSlug(linked)).toBe(projectSlug(main));
+
+      const mainPaths = resolveWstackPaths({ projectRoot: main, globalRoot: path.join(tmp, 'home') });
+      const linkedPaths = resolveWstackPaths({ projectRoot: linked, globalRoot: path.join(tmp, 'home') });
+      expect(linkedPaths.projectDir).toBe(mainPaths.projectDir);
+      expect(linkedPaths.inProjectAgentsFile).not.toBe(mainPaths.inProjectAgentsFile);
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
   });
 
   it('resolves global + project dirs under user home', () => {

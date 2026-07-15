@@ -14,7 +14,7 @@ import { toErrorMessage } from '@wrongstack/core/utils';
  *   /delegate [--role=<role>] [--name=<label>] <task description>
  *   /delegate list                      List available roles
  *
- * Requires director mode. Run /director first.
+ * Director Mode is permanently on — delegate is always available.
  */
 export function buildDelegateCommand(opts: SlashCommandContext): SlashCommand {
   return {
@@ -41,7 +41,7 @@ export function buildDelegateCommand(opts: SlashCommandContext): SlashCommand {
       'matching with LLM fallback when ambiguous. The chosen agent is shown before',
       'spawning so you can confirm or cancel.',
       '',
-      'Requires director mode. Run /director first, or start with wstack --director.',
+      'Requires director mode — Director Mode is always active in this session.',
       '',
       'Related: /spawn (fire-and-forget), /fleet dispatch (smart routing with fleet status).',
     ].join('\n'),
@@ -64,7 +64,7 @@ export function buildDelegateCommand(opts: SlashCommandContext): SlashCommand {
             `  ${color.cyan('/delegate --role=<role> <task>')}     Spawn a specific role`,
             `  ${color.cyan('/delegate list')}                     List available roles`,
             '',
-            'Requires director mode. Run /director first.',
+            'Requires director mode — Director Mode is always active in this session.',
           ].join('\n'),
         };
       }
@@ -152,7 +152,7 @@ async function spawnAgent(
   header: string,
 ): Promise<{ message: string }> {
   if (!opts.onFleetSpawn) {
-    const msg = `${color.amber('⚠ No fleet active.')} Run ${color.bold('/director')} first, or start with ${color.bold('wstack --director')}.`;
+    const msg = `${color.amber('⚠ No fleet active.')} Try spawning a task first.`;
     opts.renderer.writeWarning(msg);
     return { message: msg };
   }

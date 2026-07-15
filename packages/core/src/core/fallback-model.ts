@@ -20,7 +20,7 @@ function visibleProviderModels(config: Config, providerId: string, providerModel
   return entry?.models !== undefined ? [...entry.models] : providerModels;
 }
 import type { Logger } from '../types/logger.js';
-import { type Provider, ProviderError, type ProviderErrorKind } from '../types/provider.js';
+import { isFallbackWorthy, type Provider, ProviderError } from '../types/provider.js';
 
 export interface FallbackModelDeps {
   /** Returns the live config (re-read each turn so `/model` switches are honored). */
@@ -110,24 +110,8 @@ export function fallbackProfileChain(config: Config, profileName: string | undef
  */
 function shouldFallback(err: unknown): number | null {
   if (!(err instanceof ProviderError)) return null;
-  return FALLBACK_WORTHY_KINDS[err.kind] ? err.status : null;
+  return isFallbackWorthy(err.kind) ? err.status : null;
 }
-
-/** Exhaustive kind → hop-eligibility mapping (compile-guarded like the other
- *  kind tables): capacity/transport failures hop; request-shaped ones don't. */
-const FALLBACK_WORTHY_KINDS: Record<ProviderErrorKind, boolean> = {
-  stream_hang: true,
-  rate_limit: true,
-  overloaded: true,
-  server: true,
-  timeout: true,
-  network: true,
-  auth: false,
-  invalid_request: false,
-  context_overflow: false,
-  content_filter: false,
-  unknown: false,
-};
 
 /** A provider is usable as a fallback target when it has a stored key, a key
  *  list, or a populated env var. Mirrors `setmodel.providerHasKey`. */

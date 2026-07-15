@@ -165,6 +165,10 @@ export function bindSystemPromptBuilder(deps: BindSystemPromptBuilderDeps): void
         // full-shape interfaces; the helper just needs the
         // passthrough.
         memoryStore: deps.memoryStore as never,
+        // Super Memory's turn middleware is the single memory-injection channel.
+        // Disable the builder's static "# Relevant Memory" section so memories
+        // are injected once, per-turn, relevance-scored — not duplicated here.
+        injectMemory: false,
         skillLoader: deps.skillsEnabled ? (deps.skillLoader as never) : undefined,
         skillMode: deps.skillMode,
         skillEagerMaxChars: deps.skillEagerMaxChars,

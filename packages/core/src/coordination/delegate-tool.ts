@@ -12,28 +12,22 @@ import { ToolCapabilities } from '../security/capabilities.js';
 
 /**
  * Opaque host interface so this factory doesn't have to depend on the
- * CLI's `MultiAgentHost`. Any caller that exposes the same three
- * methods can wire `delegate` — including test doubles.
+ * CLI's `MultiAgentHost`. Any caller that exposes the same methods
+ * can wire `delegate` — including test doubles.
+ *
+ * Director Mode is permanently on, so `ensureDirector()` always succeeds.
+ * The promotion fallback exists only for backward compatibility.
  */
 export interface DelegateHost {
   /** True if a Director is already attached and running. */
   isDirectorMode(): boolean;
-  /** Build (or return the cached) Director when director mode is on. */
+  /** Build (or return the cached) Director. */
   ensureDirector(): Promise<Director | null>;
   /**
-   * Force-promote a non-director session into director mode at runtime.
-   * Returns the Director, or null when promotion is impossible (e.g. a
-   * non-director coordinator has already spawned subagents in the
-   * legacy code path).
+   * Return the live Director. Since Director Mode is permanently on,
+   * this always succeeds. Idempotent.
    */
   promoteToDirector(): Promise<Director | null>;
-  /**
-   * Optional: when promotion fails, return the human-readable reason.
-   * Used to render an actionable error to the calling model instead of
-   * the prior opaque "Director could not be activated" message.
-   * Implementations may return null when they don't track the reason.
-   */
-  getPromotionBlockReason?(): string | null;
 }
 
 export interface CreateDelegateToolOptions {
@@ -110,8 +104,7 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
     properties: {
       task: {
         type: 'string',
-        description:
-          'What the subagent should do — natural language, complete sentence(s).',
+        description: 'What the subagent should do — natural language, complete sentence(s).',
       },
       role: {
         type: 'string',
@@ -127,8 +120,7 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
       },
       provider: {
         type: 'string',
-        description:
-          'Provider id (e.g. "anthropic", "openai"). Defaults to host provider.',
+        description: 'Provider id (e.g. "anthropic", "openai"). Defaults to host provider.',
       },
       model: {
         type: 'string',
@@ -152,26 +144,22 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
       maxToolCalls: {
         type: 'number',
         minimum: 1,
-        description:
-          'Maximum tool invocations. Unset = role default. Raise for file-heavy tasks.',
+        description: 'Maximum tool invocations. Unset = role default. Raise for file-heavy tasks.',
       },
       idleTimeoutMs: {
         type: 'number',
         minimum: 1,
-        description:
-          'Idle timeout in ms. Resets on activity. Unset = role default.',
+        description: 'Idle timeout in ms. Resets on activity. Unset = role default.',
       },
       maxTokens: {
         type: 'number',
         minimum: 1,
-        description:
-          'Max total tokens (input+output). Unset = role default.',
+        description: 'Max total tokens (input+output). Unset = role default.',
       },
       maxCostUsd: {
         type: 'number',
         minimum: 0,
-        description:
-          'Max estimated USD cost. Unset = role default.',
+        description: 'Max estimated USD cost. Unset = role default.',
       },
       maxHandoffs: {
         type: 'number',
@@ -187,9 +175,9 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
   return {
     name: 'delegate',
     description:
-      "Hand a piece of work to a subagent and wait for its result. Has own context, LLM call, auto-extending budget. Can continue remaining work with a fresh subagent on partial completion (maxHandoffs, default 1). Workers cannot recursively spawn. Use roster roles when possible; otherwise pass `name` + `task`.",
+      'Hand a piece of work to a subagent and wait for its result. Has own context, LLM call, auto-extending budget. Can continue remaining work with a fresh subagent on partial completion (maxHandoffs, default 1). Workers cannot recursively spawn. Use roster roles when possible; otherwise pass `name` + `task`.',
     usageHint:
-      "Set `task` to a complete instruction. Pick `role` from roster or pass `name` for free-form. Override `timeoutMs`/`maxIterations`/`maxToolCalls` only when needed.",
+      'Set `task` to a complete instruction. Pick `role` from roster or pass `name` for free-form. Override `timeoutMs`/`maxIterations`/`maxToolCalls` only when needed.',
     permission: 'auto',
     mutating: false,
     managesOwnTimeout: true,
@@ -240,12 +228,9 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
           director = await opts.host.promoteToDirector();
         }
         if (!director) {
-          const reason = opts.host.getPromotionBlockReason?.();
           return {
             ok: false,
-            error:
-              reason ??
-              'Director could not be activated — multi-agent host already running in legacy non-director mode. Restart with `--director` for fleet support.',
+            error: 'Director could not be activated — fleet orchestration is unavailable.',
           };
         }
 
@@ -504,8 +489,7 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
             ...(handoffs.length > 0 ? { handoffs } : {}),
             ...(incomplete
               ? {
-                  hint:
-                    'A clean partial checkpoint remains. Reinvoke delegate with a larger maxHandoffs or assign report.remaining_work explicitly.',
+                  hint: 'A clean partial checkpoint remains. Reinvoke delegate with a larger maxHandoffs or assign report.remaining_work explicitly.',
                 }
               : hintForKind(errorKind, retryable, backoffMs, partial)
                 ? { hint: hintForKind(errorKind, retryable, backoffMs, partial) }
@@ -655,7 +639,8 @@ function continuationFor(
   ) {
     return {
       summary: `Prior worker stopped at ${result.error.kind} after ${result.iterations} iterations and ${result.toolCalls} tool calls.`,
-      remainingWork: 'Inspect the existing workspace and finish only the work that remains from the original task.',
+      remainingWork:
+        'Inspect the existing workspace and finish only the work that remains from the original task.',
       partialText,
     };
   }
@@ -697,7 +682,7 @@ function instantiateRosterConfig(
     // wall-clock budget. With an explicit wait, leave this unset so the buffer
     // logic above derives a slightly shorter child budget without clamping the
     // role defaults used by ordinary calls.
-    timeoutMs: requestedTimeoutMs === undefined ? rosterTimeoutMs ?? defaultTimeoutMs : undefined,
+    timeoutMs: requestedTimeoutMs === undefined ? (rosterTimeoutMs ?? defaultTimeoutMs) : undefined,
     // Give each spawn a fresh id so parallel or repeated delegates
     // can use the same role safely.
     id: `${role}-${randomUUID().slice(0, 8)}`,
@@ -791,10 +776,9 @@ function buildDelegateSummary(role: string | undefined, result: TaskResult): str
         : `${(ms / 3_600_000).toFixed(1)}h`;
 
   if (result.status === 'success') {
-    const preview =
-      result.report?.summary
-        ? result.report.summary.trim().slice(0, 120).replace(/\n+/g, ' ')
-        : typeof result.result === 'string'
+    const preview = result.report?.summary
+      ? result.report.summary.trim().slice(0, 120).replace(/\n+/g, ' ')
+      : typeof result.result === 'string'
         ? result.result.trim().slice(0, 120).replace(/\n+/g, ' ')
         : null;
     const tail = preview ? ` — ${preview}` : '';

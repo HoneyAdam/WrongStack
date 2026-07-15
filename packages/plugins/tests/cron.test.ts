@@ -12,6 +12,7 @@ function createMockApi() {
     },
     log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     metrics: { counter: vi.fn(), histogram: vi.fn(), gauge: vi.fn() },
+    emitCustom: vi.fn(),
     events: {
       emit: vi.fn(),
       on: vi.fn(),

@@ -130,21 +130,57 @@ describe('parseNextSteps (strict mode — assistant-message path)', () => {
     expect(steps).toHaveLength(6);
   });
 
-  it('honours the auto="true" attribute', () => {
+  it('honours auto="true" only on the first item', () => {
     const text = [
       '<nextsteps>',
-      '1. Run tests',
+      '1. Run tests auto="true"',
       '2. Commit auto="true"',
-      '3. Push',
+      '3. Push auto="true"',
       '</nextsteps>',
     ].join('\n');
     const { steps, autoTexts } = parseNextSteps(text, true);
     expect(steps.map((s) => ({ text: s.text, auto: !!s.auto }))).toEqual([
-      { text: 'Run tests', auto: false },
-      { text: 'Commit', auto: true },
+      { text: 'Run tests', auto: true },
+      { text: 'Commit', auto: false },
       { text: 'Push', auto: false },
     ]);
-    expect(autoTexts).toEqual(['Commit']);
+    expect(autoTexts).toEqual(['Run tests']);
+  });
+
+  it('ignores auto="true" when it appears only on a later item', () => {
+    const text = [
+      '<nextsteps>',
+      '1. Review the diff',
+      '2. Run tests auto="true"',
+      '</nextsteps>',
+    ].join('\n');
+
+    const { steps, autoTexts } = parseNextSteps(text, true);
+
+    expect(steps).toEqual([
+      { index: 1, text: 'Review the diff' },
+      { index: 2, text: 'Run tests' },
+    ]);
+    expect(autoTexts).toEqual([]);
+  });
+
+  it('tolerates attributes on the opening tag without treating them as auto-submit', () => {
+    const text = [
+      'Done.',
+      '<nextsteps auto="true">',
+      '1. Inspect the diff',
+      '2. Run tests',
+      '</nextsteps>',
+    ].join('\n');
+
+    const { steps, stripped, autoTexts } = parseNextSteps(text, true);
+
+    expect(steps).toEqual([
+      { index: 1, text: 'Inspect the diff' },
+      { index: 2, text: 'Run tests' },
+    ]);
+    expect(autoTexts).toEqual([]);
+    expect(stripped).toBe('Done.');
   });
 });
 
@@ -189,9 +225,14 @@ describe('parseNextSteps (raw mode — /suggest subagent output)', () => {
     expect(texts).toEqual(['First bullet', 'Second bullet']);
   });
 
-  it('parses auto="true" items in raw mode', () => {
-    const text = '1. Plain\n2. Auto item auto="true"\n3. Also plain';
-    const { autoTexts } = parseNextSteps(text, false, false);
+  it('accepts auto="true" only on the first item in raw mode', () => {
+    const text = '1. Auto item auto="true"\n2. Later marker auto="true"\n3. Also plain';
+    const { steps, autoTexts } = parseNextSteps(text, false, false);
+    expect(steps).toEqual([
+      { index: 1, text: 'Auto item', auto: true },
+      { index: 2, text: 'Later marker' },
+      { index: 3, text: 'Also plain' },
+    ]);
     expect(autoTexts).toEqual(['Auto item']);
   });
 

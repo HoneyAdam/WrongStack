@@ -2,6 +2,7 @@ import { render } from 'ink-testing-library';
 import React from 'react';
 import { describe, expect, it } from 'vitest';
 import { Banner, shortenPath } from '../src/components/history.js';
+import { bannerGradientColor } from '../src/components/history/banner.js';
 
 describe('<Banner />', () => {
   it('shows the version and route info in the full layout', () => {
@@ -29,7 +30,7 @@ describe('<Banner />', () => {
     expect(frame).toContain('my-project');
   });
 
-  it('renders the FIGlet wordmark and runtime facts at normal terminal widths', () => {
+  it('renders the pixel wordmark and runtime facts at normal terminal widths', () => {
     const { lastFrame, unmount } = render(
       React.createElement(Banner, {
         termWidth: 80,
@@ -49,9 +50,8 @@ describe('<Banner />', () => {
     const frame = lastFrame() ?? '';
     unmount();
 
-    // The wordmark is classic FIGlet standard-font ASCII art — 5 rows
-    // of underscores, pipes, and slashes forming "WRONGSTACK".
-    expect(frame).toContain('______  ____  _');
+    // The wordmark uses crisp five-row pixel lettering to echo the SVG mark.
+    expect(frame).toContain('█   █ ████');
     expect(frame).toContain('BUILT ON THE WRONG STACK. SHIPPED ANYWAY.');
     expect(frame).toContain('anthropic › claude-test');
     expect(frame).toContain('•••• XYZ');
@@ -81,10 +81,10 @@ describe('<Banner />', () => {
     const frame = lastFrame() ?? '';
     unmount();
 
-    // Chip shows "WrongStack" product badge in compact mode
+    // Compact mode keeps the canonical product name.
     expect(frame).toContain('WrongStack');
-    // Compact layout omits the full WRONGSTACK wordmark so the
-    // narrow terminal stays readable.
+    // Compact layout omits the full pixel wordmark so the narrow terminal
+    // stays readable.
     expect(frame).not.toContain('WRONGSTACK');
     // Route line is back — just at the available width
     expect(frame).toContain('a-provider-with-a-very-');
@@ -113,10 +113,42 @@ describe('<Banner />', () => {
     expect(frame.split('\n').every((line) => line.length <= termWidth)).toBe(true);
     expect(frame).toContain('WrongStack');
   });
+
+  it.each([64, 65, 66])('stays inside the viewport around the layout breakpoint at %i columns', (termWidth) => {
+    const { lastFrame, unmount } = render(
+      React.createElement(Banner, {
+        termWidth,
+        entry: {
+          id: 0,
+          kind: 'banner',
+          version: '1.2.3',
+          provider: 'anthropic',
+          model: 'claude-opus-test',
+          cwd: '/workspace/wrongstack',
+        },
+      }),
+    );
+
+    const frame = lastFrame() ?? '';
+    unmount();
+
+    expect(frame.split('\n').every((line) => line.length <= termWidth)).toBe(true);
+    expect(frame.includes('█   █ ████')).toBe(termWidth >= 65);
+  });
+});
+
+describe('banner brand gradient', () => {
+  it('moves smoothly between the exact SVG endpoint colours', () => {
+    const colors = Array.from({ length: 9 }, (_, index) => bannerGradientColor(index, 9));
+
+    expect(colors[0]?.toUpperCase()).toBe('#FD9F02');
+    expect(colors.at(-1)?.toUpperCase()).toBe('#FE2E5F');
+    expect(new Set(colors)).toHaveLength(colors.length);
+  });
 });
 
 describe('<Banner /> snapshot — full rendered output', () => {
-  it('matches the snapshot at 80 columns (full layout with wordmark)', () => {
+  it('matches the snapshot at 80 columns (full pixel layout)', () => {
     const { lastFrame, unmount } = render(
       React.createElement(Banner, {
         termWidth: 80,
@@ -136,14 +168,14 @@ describe('<Banner /> snapshot — full rendered output', () => {
     const frame = lastFrame() ?? '';
     unmount();
 
-    // Full-layout snapshot — verifies the wordmark, separator, facts,
-    // and box-drawing frame are all structurally correct and aligned.
+    // Full-layout snapshot verifies the mark, wordmark, facts, and
+    // box-drawing frame are all structurally correct and aligned.
     // If the Banner layout is deliberately changed, update the snapshot
     // with `pnpm test -- --update`.
     expect(frame).toMatchSnapshot();
   });
 
-  it('matches the snapshot at 44 columns (compact layout, no wordmark)', () => {
+  it('matches the snapshot at 44 columns (compact brand layout)', () => {
     const { lastFrame, unmount } = render(
       React.createElement(Banner, {
         termWidth: 44,
@@ -161,8 +193,8 @@ describe('<Banner /> snapshot — full rendered output', () => {
     const frame = lastFrame() ?? '';
     unmount();
 
-    // Compact-layout snapshot — verifies the tagline-only rendering
-    // with the inline [ WrongStack ] badge and single-column facts.
+    // Compact-layout snapshot verifies the small mark, gradient product name,
+    // and single-column facts.
     expect(frame).toMatchSnapshot();
   });
 });

@@ -31,8 +31,7 @@ export const BOOLEAN_FLAGS = new Set([
   'require-token',
   'no-check',
   'no-models-refresh',
-  'director',
-  'no-director',
+  // (removed: 'director' and 'no-director' — Director Mode is always on)
   'no-autonomy',
   'no-hints',
   'hints',

@@ -6,11 +6,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   Container,
   type Config,
-  DefaultMemoryStore,
   TOKENS,
   ToolRegistry,
   type WstackPaths,
 } from '@wrongstack/core';
+import { makeFakeMemoryStore } from './fake-memory-store.js';
 import { setupTools, getToolsForTier } from '../src/wiring/tools.js';
 import { builtinToolsPack } from '@wrongstack/tools';
 
@@ -57,8 +57,8 @@ function makeWpaths(): WstackPaths {
   } as WstackPaths;
 }
 
-function makeMemoryStore(): DefaultMemoryStore {
-  return new DefaultMemoryStore({ paths: makeWpaths() });
+function makeMemoryStore(): MemoryStore {
+  return makeFakeMemoryStore();
 }
 
 function makeContainer() {

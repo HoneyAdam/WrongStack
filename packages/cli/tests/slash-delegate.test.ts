@@ -56,7 +56,7 @@ describe('buildDelegateCommand', () => {
     const cmd = buildDelegateCommand(ctx());
     const res = await cmd.run('fix the bug');
     expect(res?.message).toContain('No fleet active');
-    expect(res?.message).toContain('/director');
+    expect(res?.message).toContain('spawning a task');
   });
 
   it('spawns explicit role when --role is given', async () => {

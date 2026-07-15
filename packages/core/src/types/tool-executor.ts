@@ -1,6 +1,22 @@
 import type { ToolResultBlock, ToolUseBlock } from '../types/blocks.js';
 import type { Tool } from '../types/tool.js';
 
+/** Context.meta key installed by ToolExecutor for governed calls made by meta-tools. */
+export const GOVERNED_TOOL_EXECUTOR_META_KEY = 'toolExecutor.executeGoverned';
+
+/** Result returned to meta-tools after a nested call traverses the normal executor. */
+export interface GovernedToolExecutionResult {
+  success: boolean;
+  result?: unknown | undefined;
+  error?: string | undefined;
+}
+
+/** Governed execution bridge exposed to meta-tools through Context.meta. */
+export type GovernedToolExecutor = (
+  toolName: string,
+  input: Record<string, unknown>,
+) => Promise<GovernedToolExecutionResult>;
+
 /**
  * Input for a single tool execution, scoped to a single iteration's budget.
  */

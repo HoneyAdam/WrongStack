@@ -52,9 +52,8 @@ const GROUPS: readonly HintGroup[] = [
     items: [
       {
         key: '--director "<task>"',
-        blurb: 'one-line LLM-driven fleet kickoff with 8 orchestration tools',
+        blurb: 'Director Mode is on — use /spawn and /fleet for multi-agent',
       },
-      { key: '/director', blurb: 'promote the current session to director mode at runtime' },
       {
         key: '/spawn -p <prov> -m <model> -n <name> <task>',
         blurb: 'launch a single subagent (any provider/model)',

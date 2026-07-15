@@ -26,14 +26,14 @@ export function buildSpawnCommand(opts: SlashCommandContext): SlashCommand {
       'For smart routing (auto-picking the right agent role), use /fleet dispatch.',
       'For explicit role assignment, use /fleet spawn <role>.',
       '',
-      'Requires director mode. Run /director first.',
+      'Director mode is always active — spawning is available.',
     ].join('\n'),
     async run(args) {
       const { description, opts: parsed } = parseSpawnFlags(args.trim());
       if (!description)
         return {
           message:
-            'Usage: /spawn [--name=<label>] [--model=<id>] <task description>\n\nExamples:\n  /spawn "fix the auth bug in session.ts"\n  /spawn --name=fixer "audit core for null-deref bugs"\n\nRequires director mode. Run /director first.',
+            'Usage: /spawn [--name=<label>] [--model=<id>] <task description>\n\nExamples:\n  /spawn "fix the auth bug in session.ts"\n  /spawn --name=fixer "audit core for null-deref bugs"\n\nDirector Mode is always active.',
         };
       if (!opts.onSpawn) return { message: 'Multi-agent is not enabled in this session.' };
       try {
@@ -98,17 +98,11 @@ export function buildDirectorCommand(opts: SlashCommandContext): SlashCommand {
     description:
       'Promote this session to director mode, enabling fleet orchestration tools. Only works before any subagents are spawned.',
     help: [
-      'Promotes the current session to director mode, which unlocks:',
+      'Director Mode is permanently on — fleet commands are always available.',
       '',
-      '  /fleet             — fleet status, spawn, dispatch, kill, usage',
-      '  /spawn             — fire-and-forget subagent spawns',
-      '  /agents            — subagent status dashboard',
-      '',
-      'Director mode must be activated BEFORE any subagents are spawned.',
-      'Alternatively, start a session with --director:  wstack --director',
-      '',
-      'Director mode is a prerequisite for /fleet dispatch, /fleet spawn,',
-      'and /spawn. Without it, those commands will report "not wired."',
+      '  /fleet status|spawn|dispatch|kill|usage',
+      '  /spawn "<task>"',
+      '  /agents',
     ].join('\n'),
     async run() {
       if (!opts.onDirector)
@@ -116,8 +110,7 @@ export function buildDirectorCommand(opts: SlashCommandContext): SlashCommand {
       const result = await opts.onDirector();
       if (result === null) {
         return {
-          message:
-            'Cannot promote to director mode: subagents have already been spawned. Promote before using /spawn, or restart with --director.',
+          message: 'Director is not available in this session.',
         };
       }
       return { message: result };

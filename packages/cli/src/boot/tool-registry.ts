@@ -51,6 +51,7 @@ import type {
 } from '@wrongstack/core';
 import { applyToolDescriptionModes, applyToolResultRenderModes, configureChildEnvGitIdentity, createContextManagerTool, makeFleetStatusTool, makeMailboxTool, makeMailInboxTool, makeMailSendTool, normalizeTokenSavingTier } from '@wrongstack/core';
 import { builtinToolsPack, configureDangerBypass, configureExecPolicy, forgetTool, relatedMemoryTool, rememberTool, searchMemoryTool, TIER1_TOOLS, TIER2_TOOLS, TIER3_TOOLS } from '@wrongstack/tools';
+import { createSuperMemoryTools, type SuperMemoryServiceLike } from '@wrongstack/super-memory';
 import { configureAutophasePolicy } from '../autophase-host.js';
 import type { TokenSavingTier } from '@wrongstack/core';
 import type { Tool } from '@wrongstack/core';
@@ -130,10 +131,23 @@ export function registerBuiltinTools(deps: RegisterBuiltinToolsDeps): void {
   );
 
   if (deps.config.features.memory && deps.memoryStore) {
-    deps.toolRegistry.register(rememberTool(deps.memoryStore));
-    deps.toolRegistry.register(forgetTool(deps.memoryStore));
-    deps.toolRegistry.register(searchMemoryTool(deps.memoryStore));
-    deps.toolRegistry.register(relatedMemoryTool(deps.memoryStore));
+    // Super Memory owns the ENTIRE memory tool surface — remember/forget (full
+    // structured args) + memory_update/memory_delete + memory_search/
+    // memory_graph/memory_for_file/... reads. No legacy duplicates
+    // (search_memory/find_related_memories) when super is active. The legacy
+    // flat tools are only a fallback for a non-super store.
+    // Keep in sync with setupTools() (wiring/tools.ts) and
+    // createPreContextServices() (webui-server/pre-context-services.ts).
+    if (isSuperMemoryService(deps.memoryStore)) {
+      for (const tool of createSuperMemoryTools(deps.memoryStore)) {
+        deps.toolRegistry.register(tool);
+      }
+    } else {
+      deps.toolRegistry.register(rememberTool(deps.memoryStore));
+      deps.toolRegistry.register(forgetTool(deps.memoryStore));
+      deps.toolRegistry.register(searchMemoryTool(deps.memoryStore));
+      deps.toolRegistry.register(relatedMemoryTool(deps.memoryStore));
+    }
   }
 
   // Mailbox tools. The inter-agent mailbox is a
@@ -187,4 +201,17 @@ export function registerBuiltinTools(deps: RegisterBuiltinToolsDeps): void {
   // Commit identity for every git-touching child process. Trusted-config-only:
   // the loader strips `git` from repo-committed in-project configs.
   configureChildEnvGitIdentity(deps.config.git?.identity ?? null);
+}
+
+/**
+ * Duck-type check for the Super Memory backend. Mirrors the guard in
+ * wiring/tools.ts — kept in sync so both registration paths behave identically.
+ */
+function isSuperMemoryService(memoryStore: MemoryStore): memoryStore is MemoryStore & SuperMemoryServiceLike {
+  const value = memoryStore as unknown as Record<string, unknown>;
+  return typeof value['retrieveForPath'] === 'function'
+    && typeof value['searchSuper'] === 'function'
+    && typeof value['graphFor'] === 'function'
+    && typeof value['verify'] === 'function'
+    && typeof value['hygiene'] === 'function';
 }

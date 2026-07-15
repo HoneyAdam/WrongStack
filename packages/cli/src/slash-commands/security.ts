@@ -211,7 +211,7 @@ function scanCommand(
   lines.push(color.dim('  The TUI is a synchronous surface and cannot host a subagent itself.'));
   lines.push(color.dim('  Start or use a director-capable session, then dispatch with:'));
   lines.push('');
-  lines.push(color.cyan('    /director'));
+  // (removed: /director — Director Mode is permanently on)
   lines.push(
     color.cyan('    /delegate --role=bug-hunter "Run a security scan of the current project"'),
   );

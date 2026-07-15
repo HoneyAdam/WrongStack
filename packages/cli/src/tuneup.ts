@@ -482,21 +482,7 @@ export function checkPowerProfile(input: TuneupInput): TuneupFinding[] {
     });
   }
 
-  if (input.config.launch?.director !== true) {
-    findings.push({
-      category: 'autonomy',
-      severity: 'info',
-      problem: 'Director mode does not start by default.',
-      suggestion: 'Power profile launches with the fleet director + multi-agent orchestration on.',
-      fix: 'set launch.director = true',
-      action: {
-        kind: 'set-config',
-        path: ['launch', 'director'],
-        value: true,
-        label: 'director mode starts on next launch',
-      },
-    });
-  }
+  // (director check removed — Director Mode is permanently on)
 
   return findings;
 }

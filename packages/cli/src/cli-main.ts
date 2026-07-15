@@ -635,7 +635,6 @@ export async function main(argv: string[]): Promise<number> {
   // Agent Monitor — extracted to wiring/director-setup.ts.
   let {
     director,
-    directorMode,
     maxConcurrent,
     autonomyMode,
     nextPredictEnabled,
@@ -694,7 +693,6 @@ export async function main(argv: string[]): Promise<number> {
     mailboxSessionTag,
     brainMailbox,
     agentMonitor,
-    directorMode,
     manifestPath,
     sharedScratchpadPath,
     subagentSessionsRoot,
@@ -739,30 +737,27 @@ export async function main(argv: string[]): Promise<number> {
     projectRoot,
   });
 
-  if (directorMode) {
-    // Eagerly build the director so its LLM-callable orchestration
-    // tools (`spawn_subagent`, `assign_task`, `await_tasks`,
-    // `ask_subagent`, `roll_up`, `terminate_subagent`, `fleet`) get registered into the leader's ToolRegistry
-    // *before* the agent starts streaming. Without this the leader has
-    // no way to discover the fleet surface and `--director` ends up as
-    // a manifest-only flag with no orchestration. Pass `FLEET_ROSTER`
-    // so `spawn_subagent` can accept `role: 'bug-hunter'` shortcuts.
-    director = await multiAgentHost.ensureDirector();
-    if (director) {
-      // If we resumed a prior run, inject the checkpoint snapshot so the
-      // director's in-memory state mirrors the pre-crash fleet.
-      if (priorFleetState) director.setCheckpointState(priorFleetState);
-      for (const tool of director.tools(FLEET_ROSTER)) {
-        toolRegistry.register(tool);
-      }
-      renderer.writeInfo(`Director mode enabled. Roster: ${Object.keys(FLEET_ROSTER).join(', ')}`);
-      renderer.writeInfo(`  fleet root → ${fleetRoot}`);
-      renderer.writeInfo(`  manifest   → ${manifestPath}`);
-      renderer.writeInfo(`  scratchpad → ${sharedScratchpadPath}`);
-      renderer.writeInfo(`  subagents  → ${subagentSessionsRoot}`);
-    } else {
-      renderer.writeInfo(`Director mode enabled. Fleet manifest → ${manifestPath}`);
+  // Eagerly build the director so its LLM-callable orchestration
+  // tools (`spawn_subagent`, `assign_task`, `await_tasks`,
+  // `ask_subagent`, `roll_up`, `terminate_subagent`, `fleet`) get registered into the leader's ToolRegistry
+  // *before* the agent starts streaming. Without this the leader has
+  // no way to discover the fleet surface. Pass `FLEET_ROSTER`
+  // so `spawn_subagent` can accept `role: 'bug-hunter'` shortcuts.
+  director = await multiAgentHost.ensureDirector();
+  if (director) {
+    // If we resumed a prior run, inject the checkpoint snapshot so the
+    // director's in-memory state mirrors the pre-crash fleet.
+    if (priorFleetState) director.setCheckpointState(priorFleetState);
+    for (const tool of director.tools(FLEET_ROSTER)) {
+      toolRegistry.register(tool);
     }
+    renderer.writeInfo(`Director mode enabled. Roster: ${Object.keys(FLEET_ROSTER).join(', ')}`);
+    renderer.writeInfo(`  fleet root → ${fleetRoot}`);
+    renderer.writeInfo(`  manifest   → ${manifestPath}`);
+    renderer.writeInfo(`  scratchpad → ${sharedScratchpadPath}`);
+    renderer.writeInfo(`  subagents  → ${subagentSessionsRoot}`);
+  } else {
+    renderer.writeInfo(`Director mode enabled. Fleet manifest → ${manifestPath}`);
   }
 
   // Shared controller for the `/fleet stream on|off` toggle. The TUI
@@ -782,9 +777,8 @@ export async function main(argv: string[]): Promise<number> {
   // controller so an HQ `abort leader` command reaches the live RunController
   // once the REPL/TUI rebinds `abortLeader`.
   hqCommandController.interruptLeader = () => interruptController.abortLeader();
-  // Populate the fleet hooks lazily — `director` is null until --director or
-  // /autonomy parallel promotes the host. An HQ command arriving before then
-  // is cleanly rejected by the dispatcher (returns `undefined` → rejected).
+  // Populate the fleet hooks. Director Mode is permanently on, so the
+  // director is always available.
   hqCommandController.killFleet = async () => {
     if (!director) return 0;
     const s = director.status();
@@ -811,7 +805,7 @@ export async function main(argv: string[]): Promise<number> {
   hqCommandController.spawnAgent = async (role: string, task?: string, maxIterations?: number) => {
     if (!director) {
       throw new AgentError({
-        message: 'No director active — start with --director or use /autonomy parallel.',
+        message: 'Director is not available.',
         code: 'AGENT_RUN_FAILED',
         context: { phase: 'hq-spawn', role },
       });
@@ -1141,9 +1135,6 @@ export async function main(argv: string[]): Promise<number> {
           : 'No coordinator is running yet — nothing to kill.';
       }
       if (action === 'manifest') {
-        if (!multiAgentHost.isDirectorMode()) {
-          return 'Manifest is only available when the run was started with --director.';
-        }
         const p = await multiAgentHost.manifest();
         if (!p) {
           return 'Director is active but no subagents have been spawned — nothing to record yet.';
@@ -1211,7 +1202,7 @@ export async function main(argv: string[]): Promise<number> {
     onFleetSpawn: async (role) => {
       if (!director) {
         throw new AgentError({
-          message: 'No director active — start with --director or use /autonomy parallel.',
+          message: 'Director is not available.',
           code: 'AGENT_RUN_FAILED',
           context: { phase: 'fleet-spawn', role },
         });
@@ -1386,15 +1377,6 @@ export async function main(argv: string[]): Promise<number> {
       return out.join('\n');
     },
     onFleetRetry: async (taskId) => {
-      if (!multiAgentHost.isDirectorMode()) {
-        const promoted = await multiAgentHost.promoteToDirector();
-        if (!promoted) {
-          return 'Cannot retry: a coordinator already exists in non-director mode.';
-        }
-        for (const tool of promoted.tools(FLEET_ROSTER)) {
-          toolRegistry.register(tool);
-        }
-      }
       const dir = await multiAgentHost.ensureDirector();
       if (!dir) return 'Director is not available.';
       const dirStatePath = path.join(fleetRootForPromotion, 'director-state.json');
@@ -1477,24 +1459,10 @@ export async function main(argv: string[]): Promise<number> {
       );
     },
     onDirector: async () => {
-      const director = await multiAgentHost.promoteToDirector();
-      if (!director) return null;
-      // Register the 8 LLM-callable orchestration tools into the leader's
-      // ToolRegistry so the agent can discover fleet surface mid-session.
-      for (const tool of director.tools(FLEET_ROSTER)) {
-        toolRegistry.register(tool);
-      }
-      const mp = path.join(fleetRootForPromotion, 'fleet.json');
-      const sp = path.join(fleetRootForPromotion, 'shared');
-      const ss = path.join(fleetRootForPromotion, 'subagents');
-      const lines = [
-        `${color.green('✓')} Promoted to director mode.`,
-        `  Roster: ${Object.keys(FLEET_ROSTER).join(', ')}`,
-        `  Manifest → ${mp}`,
-        `  Scratchpad → ${sp}`,
-        `  Subagents → ${ss}`,
-      ];
-      return lines.join('\n');
+      // Director Mode is permanently on — promoteToDirector always succeeds.
+      const dir = await multiAgentHost.ensureDirector();
+      if (!dir) return 'Director is not available.';
+      return 'Director mode is active.';
     },
     onPlugin: async (args) => {
       const parsed = args.length === 0 ? [] : args.split(/\s+/).filter(Boolean);

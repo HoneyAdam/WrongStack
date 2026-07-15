@@ -147,7 +147,7 @@ async function handleStatus(opts: SlashCommandContext, cmd: string): Promise<{ m
   if (opts.onFleetStatus) {
     const status = opts.onFleetStatus();
     if (!status) {
-      const msg = `${color.amber('⚠ No fleet active.')} Start /autonomy parallel first, or pass --director to a session.`;
+      const msg = `${color.amber('⚠ No fleet active.')} Try spawning a task first.`;
       opts.renderer.write(msg);
       return { message: msg };
     }
@@ -199,7 +199,7 @@ async function handleStatus(opts: SlashCommandContext, cmd: string): Promise<{ m
     );
     return { message: msg };
   }
-  const msg = `${color.amber('⚠ No fleet active.')} Start /autonomy parallel first, or pass --director to a session.`;
+  const msg = `${color.amber('⚠ No fleet active.')} Try spawning a task first.`;
   opts.renderer.write(msg);
   return { message: msg };
 }
@@ -431,7 +431,7 @@ async function handleDispatch(
     }
   } else {
     lines.push(
-      `  ${color.dim('(no fleet active — run /autonomy parallel or --director to spawn)')}`,
+      `  ${color.dim('(no fleet active — try spawning a task)')}`,
     );
   }
   const msg = lines.join('\n');

@@ -136,10 +136,11 @@ describe('/acp dispatch', () => {
     expect(res.message).toContain('background ACP subagent');
   });
 
-  it('--bg without multi-agent tells the user to run /director', async () => {
+  it('--bg without fleet wiring explains that background mode needs the fleet', async () => {
     resolveAcpAgentCommand.mockReturnValue({ command: 'gemini', role: 'gemini-cli' });
     const res = await cmd().run('gemini-cli --bg "task"', {} as never);
-    expect(res.message).toContain('/director');
+    expect(res.message).toContain('needs the fleet');
+    expect(res.message).toContain('always active');
     expect(runOneAcpTask).not.toHaveBeenCalled();
   });
 

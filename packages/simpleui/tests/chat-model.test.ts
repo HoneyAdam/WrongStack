@@ -134,13 +134,13 @@ describe('SimpleUI assistant metadata projection', () => {
   it('parses canonical next steps and removes their control block from prose', () => {
     expect(
       projectAssistantMessage(
-        `Done.\n\n<nextsteps>\n1. Run tests\n2. Ship it auto="true"\n</nextsteps>`,
+        `Done.\n\n<nextsteps>\n1. Run tests auto="true"\n2. Ship it\n</nextsteps>`,
       ),
     ).toEqual({
       text: 'Done.',
       nextSteps: [
-        { index: 1, text: 'Run tests' },
-        { index: 2, text: 'Ship it', auto: true },
+        { index: 1, text: 'Run tests', auto: true },
+        { index: 2, text: 'Ship it' },
       ],
     });
   });

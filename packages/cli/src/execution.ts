@@ -241,7 +241,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
     const p = payload as ChimeraReviewNeededPayload;
     const dir = director;
     if (!dir) {
-      // Director not active — review skipped. Chimera needs --director flag.
+      // Director not available — review skipped.
       return;
     }
     if (p.files.length === 0) return;

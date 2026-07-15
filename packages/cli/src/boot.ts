@@ -475,9 +475,6 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
     if (flags['no-tui']) modePinned = 'repl';
     else if (flags['tui']) modePinned = 'tui';
     const yoloPinned: boolean | undefined = flags['yolo'] === true ? true : undefined;
-    let directorPinned: boolean | undefined;
-    if (flags['director'] === true || typeof flags['resume'] === 'string') directorPinned = true;
-    else if (flags['no-director'] === true) directorPinned = false;
     let autonomyPinned: 'off' | 'auto' | undefined;
     if (flags['no-autonomy'] === true) autonomyPinned = 'off';
     else if (flags['eternal'] === true)
@@ -495,7 +492,6 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
       ? {
           mode: config.launch.mode ?? 'tui',
           yolo: config.yolo ?? true,
-          director: config.launch.director ?? true,
           autonomy: config.launch.autonomy ?? 'auto',
         }
       : undefined;
@@ -507,7 +503,6 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
         reader,
         modePinned,
         yoloPinned,
-        directorPinned,
         autonomyPinned,
         lastChoices,
       });
@@ -526,7 +521,6 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
       flags['no-tui'] = true;
     }
     if (choices.yolo !== config.yolo) config = patchConfig(config, { yolo: choices.yolo });
-    if (choices.director) flags['director'] = true;
     flags['autonomy'] = choices.autonomy;
 
     // Indexing question — one-time per-session decision, never persisted.
@@ -588,13 +582,11 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
       ? {
           mode: flags['no-tui'] ? 'repl' : (config.launch.mode ?? 'tui'),
           yolo: config.yolo ?? true,
-          director: simpleUiFullAuto,
           autonomy: nonInteractiveAutonomy,
         }
       : {
           mode: 'repl',
           yolo: true,
-          director: simpleUiFullAuto,
           autonomy: nonInteractiveAutonomy,
         };
 
@@ -603,8 +595,10 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
       flags['no-tui'] = true;
     }
     flags['autonomy'] = effectiveChoices.autonomy;
-    if (effectiveChoices.director) flags['director'] = true;
   }
+
+  // Director Mode is permanently on.
+  flags['director'] = true;
 
   return {
     config,

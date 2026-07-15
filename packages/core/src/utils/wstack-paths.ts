@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto';
+import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
 /**
  * Path layout. All developer-level state lives in ~/.wrongstack/.
- * Per-project state is keyed by sha256(absoluteProjectRoot).slice(0,12)
- * under ~/.wrongstack/projects/<hash>/.
+ * Per-project state is keyed by the canonical project root under
+ * ~/.wrongstack/projects/<slug>/. Linked Git worktrees resolve to their main
+ * checkout so coordination and durable state are shared across worktrees.
  *
  * The ONLY thing inside the project tree is the optional
  * .wrongstack/AGENTS.md (committed) and .wrongstack/skills/ (committed).
@@ -88,9 +90,9 @@ export interface WstackPaths {
   inProjectDesignKits: string;
   /** <project>/.wrongstack/worktrees — git worktrees for per-phase isolation (gitignored). */
   inProjectWorktrees: string;
-  /** Stable hash for the project root. */
+  /** Stable hash for the canonical project root (shared by linked Git worktrees). */
   projectHash: string;
-  /** Human-readable project slug: `wrongstack-a1b2c3` instead of `3024e5e6fa58`. */
+  /** Human-readable canonical project slug, shared by linked Git worktrees. */
   projectSlug: string;
   /** ~/.wrongstack/projects/<hash>/goal.json — goal persistence */
   projectGoal: string;
@@ -114,8 +116,50 @@ export interface WstackPaths {
   projectStatus: (projectHash: string) => string;
 }
 
+/**
+ * Resolve the stable project identity root used by global WrongStack state.
+ *
+ * A linked Git worktree has its own checkout path and a `.git` *file* that
+ * points into `<main>/.git/worktrees/<name>`. Its `commondir` points back to
+ * the main checkout's `.git` directory. Treating the linked checkout path as
+ * the project identity would split one repository into multiple session,
+ * registry, and mailbox directories — agents in different worktrees would be
+ * unable to see or message each other.
+ *
+ * Project-local paths still use the caller's actual checkout. Only global
+ * state identity is canonicalized. Non-Git projects, normal checkouts, Git
+ * submodules, and separate-git-dir layouts keep their existing identity.
+ */
+export function canonicalProjectRoot(absRoot: string): string {
+  const checkoutRoot = path.resolve(absRoot);
+  const dotGit = path.join(checkoutRoot, '.git');
+
+  try {
+    if (!fs.statSync(dotGit).isFile()) return checkoutRoot;
+
+    const gitDirLine = fs.readFileSync(dotGit, 'utf8').trim();
+    const match = /^gitdir:\s*(.+)$/i.exec(gitDirLine);
+    if (!match?.[1]) return checkoutRoot;
+
+    const gitDir = path.resolve(checkoutRoot, match[1].trim());
+    const commonDirFile = path.join(gitDir, 'commondir');
+    if (!fs.statSync(commonDirFile).isFile()) return checkoutRoot;
+
+    const commonDir = path.resolve(gitDir, fs.readFileSync(commonDirFile, 'utf8').trim());
+    // Linked worktrees created by Git share the main checkout's `.git` dir.
+    // A submodule or --separate-git-dir layout may point elsewhere; do not
+    // guess a working-tree root for those shapes.
+    if (path.basename(commonDir).toLowerCase() !== '.git') return checkoutRoot;
+    return path.dirname(commonDir);
+  } catch {
+    // Missing/malformed administrative files must never make path resolution
+    // fail. Falling back preserves the pre-canonicalization behavior.
+    return checkoutRoot;
+  }
+}
+
 export function projectHash(absRoot: string): string {
-  return createHash('sha256').update(path.resolve(absRoot)).digest('hex').slice(0, 12);
+  return createHash('sha256').update(canonicalProjectRoot(absRoot)).digest('hex').slice(0, 12);
 }
 
 /**
@@ -123,8 +167,9 @@ export function projectHash(absRoot: string): string {
  * suffix for uniqueness.  e.g. `wrongstack-a1b2c3` instead of `3024e5e6fa58`.
  */
 export function projectSlug(absRoot: string): string {
-  const base = slugify(path.basename(absRoot));
-  const hash = createHash('sha256').update(path.resolve(absRoot)).digest('hex').slice(0, 6);
+  const identityRoot = canonicalProjectRoot(absRoot);
+  const base = slugify(path.basename(identityRoot));
+  const hash = createHash('sha256').update(identityRoot).digest('hex').slice(0, 6);
   return `${base}-${hash}`;
 }
 

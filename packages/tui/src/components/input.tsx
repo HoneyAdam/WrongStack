@@ -299,7 +299,7 @@ export const Input = memo(function Input({
   status,
   animationStyle = 'rainbow',
   workingTime,
-  footerHint = 'Enter send · Shift+Enter newline · @ file · / commands',
+  footerHint = 'Enter send · @ file · / commands',
   hidden,
   placeholderHeight,
   onKey,

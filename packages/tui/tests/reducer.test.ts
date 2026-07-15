@@ -307,7 +307,7 @@ describe('TUI reducer', () => {
     expect(s.monitorOpen).toBe(false);
     expect(s.worktreeMonitorOpen).toBe(false);
     // Opening the worktree monitor must close the SDD board (ternary exclusivity).
-    s = reducer(s, { type: 'worktreeMonitorToggle' });
+    s = reducer(s, { type: 'toggleWorktreeMonitor' });
     expect(s.worktreeMonitorOpen).toBe(true);
     expect(s.sddBoard?.monitorOpen).toBe(false);
   });

@@ -1,8 +1,10 @@
 /**
  * GlobalMailbox — project-level inter-agent mailbox with cross-session support.
  *
- * Stores messages at `~/.wrongstack/projects/<slug>/_mailbox.jsonl` so all
- * sessions (terminals, WebUIs) working on the same project share one inbox.
+ * Stores messages at `~/.wrongstack/projects/<slug>/_mailbox.jsonl` so every
+ * client and agent working on the same canonical project shares one inbox,
+ * including agents in different processes, sessions, branches, and linked Git
+ * worktrees.
  *
  * Features:
  * - Agent registration + heartbeat (agents go stale after 60s without heartbeat)
@@ -76,9 +78,9 @@ type HqPublisherRef = HqPublisher | (() => HqPublisher | undefined);
  *
  * Delegates to the CANONICAL `projectSlug()` from wstack-paths so every
  * surface (CLI, TUI, WebUI, mailbox tool, loop checker) lands in the exact
- * same `~/.wrongstack/projects/<slug>/` directory. A previous inline copy
- * skipped the leading/trailing-hyphen strip, which silently split agents
- * working on projects with non-alphanumeric name edges into TWO mailboxes.
+ * same `~/.wrongstack/projects/<slug>/` directory. `projectSlug()` also folds
+ * linked Git worktrees into their shared common project identity, preventing
+ * branch/worktree isolation from accidentally becoming mailbox isolation.
  *
  * @param projectRoot  — absolute path to the project root
  * @param globalRoot   — `~/.wrongstack` (or custom global root)
@@ -188,7 +190,7 @@ export class GlobalMailbox implements Mailbox {
    * appended message). The chain runs each read to completion before
    * the next starts, in issue order — readers are read-only and never
    * conflict with each other on content, only on the cache mutation
-   * that follows the read. Pattern mirrors `DefaultMemoryStore.runSerialized`.
+   * that follows the read. Pattern mirrors a serialized mutation chain.
    */
   private _readChain: Promise<MailboxMessage[]> = Promise.resolve([] as MailboxMessage[]);
 

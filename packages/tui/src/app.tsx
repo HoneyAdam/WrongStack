@@ -128,6 +128,7 @@ import { ToolsPicker, type ToolPickerItem } from './components/tools-picker.js';
 import { HelpPanel } from './components/help-panel.js';
 import { ShadowPanel } from './components/shadow-panel.js';
 import { ProcessListMonitor } from './components/process-list.js';
+import { CronJobsMonitor } from './components/cron-jobs.js';
 import { ProjectPicker } from './components/project-picker.js';
 import { filterPromptPicker, PromptPicker } from './components/prompt-picker.js';
 import { QueuePanel } from './components/queue-panel.js';
@@ -193,7 +194,8 @@ import {
   layoutInputRows,
   tokenLengthForward,
 } from './input-tokens.js';
-import { createContextSlashCommand } from './context-slash.js';
+import { createContextMemoryStatsGetter, createContextSlashCommand } from './context-slash.js';
+import { createCronJobsGetter, createCronSlashCommand } from './cron-slash.js';
 import { createKillSlashCommand } from './kill-slash.js';
 import { MOUSE_CLICK_ON, MOUSE_OFF } from './mouse.js';
 import { createPanelOpenDispatcher } from './on-panel-open.js';
@@ -2207,6 +2209,7 @@ export function App({
     todos: boolean;
     queue: boolean;
     processList: boolean;
+    cronMonitor: boolean;
     planPanel: boolean;
     kanbanPanel: boolean;
     goalPanel: boolean;
@@ -2234,6 +2237,7 @@ export function App({
         todos: stateRef.current.todosMonitorOpen,
         queue: stateRef.current.queuePanelOpen,
         processList: stateRef.current.processListOpen,
+        cronMonitor: stateRef.current.cronMonitorOpen,
         planPanel: stateRef.current.planPanelOpen,
         kanbanPanel: stateRef.current.kanbanPanelOpen,
         goalPanel: stateRef.current.goalPanelOpen,
@@ -2318,10 +2322,11 @@ export function App({
         if (prev.help) dispatch({ type: 'toggleHelp' });
         if (prev.monitor) dispatch({ type: 'toggleMonitor' });
         if (prev.agents) dispatch({ type: 'toggleAgentsMonitor' });
-        if (prev.worktree) dispatch({ type: 'worktreeMonitorToggle' });
+        if (prev.worktree) dispatch({ type: 'toggleWorktreeMonitor' });
         if (prev.todos) dispatch({ type: 'toggleTodosMonitor' });
         if (prev.queue) dispatch({ type: 'toggleQueuePanel' });
         if (prev.processList) dispatch({ type: 'toggleProcessList' });
+        if (prev.cronMonitor) dispatch({ type: 'toggleCronMonitor' });
         if (prev.planPanel) dispatch({ type: 'togglePlanPanel' });
         if (prev.kanbanPanel) dispatch({ type: 'toggleKanbanPanel' });
         if (prev.goalPanel) dispatch({ type: 'toggleGoalPanel' });
@@ -2397,20 +2402,18 @@ export function App({
     setDraft(cmd, cmd.length);
     dispatch({ type: 'slashPickerClose' });
   };
-
-  // Register /kill (list/kill tracked bash/exec processes), /ps (list only),
-  // /memory (list stored memories), and /context (session context dashboard).
+  const getCronJobs = useMemo(() => createCronJobsGetter(agent), [agent]);
   useEffect(() => {
     slashRegistry.register(createKillSlashCommand());
     slashRegistry.register(createPsSlashCommand());
+    slashRegistry.register(createCronSlashCommand({ getCronJobs }));
     if (memoryStore) {
       slashRegistry.register(createMemorySlashCommand({ memoryStore }));
     }
     slashRegistry.register(
       createContextSlashCommand({
         cwd: agent.ctx.cwd,
-        getProvider: () =>
-          (agent.ctx.provider as { id?: string } | undefined)?.id ?? 'unknown',
+        getProvider: () => (agent.ctx.provider as { id?: string } | undefined)?.id ?? 'unknown',
         getModel: () => agent.ctx.model,
         getModeLabel: () => getModeLabel?.() ?? 'default',
         getGitInfo: () => gitInfoRef.current,
@@ -2450,47 +2453,28 @@ export function App({
           return `${secs}s`;
         },
         terminalWidth: stdout.columns ?? 80,
-        // Wire up super-memory stats when available
-        memoryStats:
-          memoryStore &&
-          'stats' in memoryStore &&
-          'listSuper' in memoryStore
-            ? async (): Promise<{
-                total: number;
-                byKind: Record<string, number>;
-                edges: number;
-                byStatus: Record<string, number>;
-              } | null> => {
-                const s = memoryStore as {
-                  stats(): Promise<{ total: number; byStatus: Record<string, number>; byKind: Partial<Record<string, number>>; edges: number }>;
-                  listSuper(): Promise<Array<{ kind: string }>>;
-                };
-                const stats = await s.stats();
-                const allMemories = await s.listSuper();
-                const byKind: Record<string, number> = {};
-                for (const m of allMemories) {
-                  byKind[m.kind] = (byKind[m.kind] ?? 0) + 1;
-                }
-                return {
-                  total: stats.total,
-                  byKind,
-                  edges: stats.edges,
-                  byStatus: stats.byStatus,
-                };
-              }
-            : undefined,
+        memoryStats: createContextMemoryStatsGetter(memoryStore),
         onPanelOpen,
       }),
     );
     return () => {
       slashRegistry.unregister('kill');
       slashRegistry.unregister('ps');
+      slashRegistry.unregister('cron');
       if (memoryStore) {
         slashRegistry.unregister('memory');
       }
       slashRegistry.unregister('context');
     };
-  }, [slashRegistry, memoryStore, agent.ctx.cwd, agent.ctx.provider, agent.ctx.model, getModeLabel]);
+  }, [
+    slashRegistry,
+    memoryStore,
+    agent.ctx.cwd,
+    agent.ctx.provider,
+    agent.ctx.model,
+    getModeLabel,
+    getCronJobs,
+  ]);
 
   // Kill all tracked bash/exec processes when the TUI unmounts.
   // This fires on natural exit, Ctrl+C, and any other unmount path,
@@ -5053,7 +5037,7 @@ export function App({
     // forgotten in a hand-maintained cascade of close dispatches.
     const toggleFleetOverlay = () => dispatch({ type: 'toggleMonitor' });
     const toggleAgentsOverlay = () => dispatch({ type: 'toggleAgentsMonitor' });
-    const toggleWorktreeOverlay = () => dispatch({ type: 'worktreeMonitorToggle' });
+    const toggleWorktreeOverlay = () => dispatch({ type: 'toggleWorktreeMonitor' });
     const toggleTodosOverlay = () => dispatch({ type: 'toggleTodosMonitor' });
     // F1 → project switcher panel. Opening closes any other overlay or panel.
     if (key.fn === 1) {
@@ -7052,11 +7036,7 @@ export function App({
 
   return (
     <Box flexDirection="column">
-      <Box
-        flexDirection="column"
-        flexGrow={1}
-        flexShrink={0}
-      >
+      <Box flexDirection="column" flexGrow={1} flexShrink={0}>
         {mouseMode ? (
           <ScrollableHistory
             entries={state.entries}
@@ -7640,7 +7620,7 @@ export function App({
                 worktrees={state.worktrees}
                 baseBranch={state.worktreeBase}
                 nowTick={nowTick}
-                onClose={() => dispatch({ type: 'worktreeMonitorToggle' })}
+                onClose={() => dispatch({ type: 'toggleWorktreeMonitor' })}
               />
             ) : state.todosMonitorOpen ? (
               <TodosMonitor todos={agent.ctx.todos} />
@@ -7670,6 +7650,8 @@ export function App({
               <QueuePanel items={state.queue} />
             ) : state.processListOpen ? (
               <ProcessListMonitor />
+            ) : state.cronMonitorOpen ? (
+              <CronJobsMonitor getCronJobs={getCronJobs} />
             ) : state.goalPanelOpen ? (
               <GoalPanel
                 goal={state.goalSummary}

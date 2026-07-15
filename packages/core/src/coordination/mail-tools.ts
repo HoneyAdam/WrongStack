@@ -72,7 +72,8 @@ export function makeMailSendTool(opts: MailToolsOptions = {}): Tool {
   return {
     name: 'mail_send',
     description:
-      'Send a mail to other agents working on this project (other terminals, TUIs, WebUIs). ' +
+      'Send mail to any agent on this canonical project, across clients, processes, sessions, ' +
+      'branches, and linked Git worktrees (CLI, TUI, WebUI, ACP/MCP/HTTP). ' +
       'Use it to hand off work, ask questions, announce what you just did, or request a ' +
       'review (type="review" — passive ask, no immediate reply required). to="*" broadcasts to ' +
       'everyone; to="leader" reaches every leader process; an exact id like "leader@a1b2c3d4" ' +
@@ -147,7 +148,8 @@ export function makeMailInboxTool(opts: MailToolsOptions = {}): Tool {
   return {
     name: 'mail_inbox',
     description:
-      'Read your unread mail from other agents on this project and mark it read. Covers mail ' +
+      'Read your unread project-wide mail from agents in any client, session, branch, or linked ' +
+      'Git worktree and mark it read. Covers mail ' +
       'addressed to you directly, to your base name (e.g. "leader"), and broadcasts ("*"). ' +
       'Urgent steer/btw mail is already injected automatically — use this to catch up on ' +
       'notes, questions, handoffs, results, and review requests (type="review" — passive ' +

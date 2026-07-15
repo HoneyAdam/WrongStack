@@ -98,8 +98,11 @@ describe('DefaultSystemPromptBuilder — full configuration', () => {
     expect(all).toContain('Delegation');
     expect(all).toContain('planner, coder'); // delegate role enum
     expect(all).toContain('Inter-agent mailbox');
+    expect(all).toContain('every client');
+    expect(all).toContain('linked-Git-worktree boundaries');
     expect(all).toContain('Currently online (2 agents)');
     expect(all).toContain('Neo');
+    expect(all).toContain('id: `Neo`');
     expect(all).toContain('CONTRIBUTED-BLOCK');
     expect(all).toContain('works best with these skills'); // suggested skills
     expect(all).toMatch(/Context window: 200[,.]?000 tokens/); // locale-dependent grouping
@@ -142,8 +145,11 @@ describe('DefaultSystemPromptBuilder — full configuration', () => {
     const all = blocks.map((bl) => bl.text).join('\n');
     // Delegation one-liner appears in 'medium' tier (tokenSavingMode=true → medium)
     expect(all).toMatch(/Use `delegate`/);
-    // Mailbox guidance appears in 'medium' tier
-    expect(all).toContain('Use `mail_inbox`');
+    // Mailbox guidance uses the low-level action because this fixture exposes
+    // only `mailbox`, not the thin mail_inbox/mail_send wrappers.
+    expect(all).toContain('Use `mailbox action=check`');
+    expect(all).toContain('use `mailbox action=send`');
+    expect(all).toContain('linked-worktree boundaries');
     // Compact skill body — skipped: skillBodyCache is shared via module-level
     // skillLoader between test 1 (isCompact=false) and test 2 (isCompact=true).
     // The inline skillLoader above does not prevent this because buildMemoryAndSkills

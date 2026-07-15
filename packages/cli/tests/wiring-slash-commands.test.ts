@@ -5,11 +5,11 @@ import * as os from 'node:os';
 import {
   SlashCommandRegistry,
   ToolRegistry,
-  DefaultMemoryStore,
   DefaultModeStore,
   EventBus,
   type WstackPaths,
 } from '@wrongstack/core';
+import { makeFakeMemoryStore } from './fake-memory-store.js';
 import { setupSlashCommands } from '../src/wiring/slash-commands.js';
 import { DEFAULTS } from '../src/slash-commands/statusline.js';
 
@@ -94,7 +94,7 @@ function callSetup(overrides: Record<string, unknown> = {}): Promise<void> {
     tokenCounter: {} as never,
     renderer: { write: vi.fn(), writeInfo: vi.fn(), writeError: vi.fn() } as never,
     events: fakeEvents(),
-    memoryStore: new DefaultMemoryStore({ paths: wpaths }),
+    memoryStore: makeFakeMemoryStore(),
     context: fakeContext(),
     cwd: tmp,
     projectRoot: tmp,
