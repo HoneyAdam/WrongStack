@@ -1,13 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import {
-  normalizeKeys,
-  writeKeysBack,
-  maskedKey,
-  upsertKey,
-  deleteKey,
-  setActiveKey,
   addProvider,
+  deleteKey,
+  maskedKey,
+  normalizeKeys,
   removeProvider,
+  setActiveKey,
+  upsertKey,
+  writeKeysBack,
+  type ProvidersRecord,
 } from '../src/server/provider-keys.js';
 
 describe('provider-keys', () => {
