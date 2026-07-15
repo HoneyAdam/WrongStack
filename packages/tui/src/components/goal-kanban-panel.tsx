@@ -37,14 +37,14 @@ export function GoalKanbanPanel({
     if (!quiet) setLoading(true);
     setError(null);
     try {
-      // Find the goal board by tag or any board with "goal" in title
+      // Find the goal board by exact tag match
       const goalTag = buildGoalTag(goal);
       const boards = await listBoards(projectRoot);
-      // Try to find a board whose tags include the goal tag
+      // Match using exact normalized tag equality — never substring match,
+      // which would select the wrong board when goal-tag prefixes overlap
+      // (e.g. "goal:auth" vs "goal:authentication").
       const matched = boards.find(
-        (b) =>
-          b.tags?.some((t) => t.startsWith('goal:') && goalTag.includes(t.replace('goal:', ''))) ||
-          b.tags?.includes(goalTag),
+        (b) => b.tags?.some((t) => normalizeTag(t) === goalTag),
       );
       // Fallback: pick any board with "🎯" in title
       const fallback = !matched
@@ -345,4 +345,10 @@ function columnIcon(title: string): string {
 function buildGoalTag(goal: GoalSummary | null): string {
   const text = (goal?.refinedGoal || goal?.goal || '').replace(/\s+/g, '-').slice(0, 24).toLowerCase();
   return `goal:${text}`;
+}
+
+/** Normalize a kanban tag for precise equality comparison. Strips any
+ *  extraneous prefix/suffix whitespace and lowercases. */
+function normalizeTag(tag: string): string {
+  return tag.trim().toLowerCase();
 }

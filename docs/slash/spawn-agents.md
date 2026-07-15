@@ -4,7 +4,7 @@
 
 Spawns an isolated subagent to handle a specific task. The subagent gets its own fresh `Context`, `Agent`, `EventBus`, and session JSONL — completely isolated from the leader's state.
 
-Requires director mode. Run `/director` first or start with `wstack --director`.
+Always available — Director mode is permanently active. No `/director` command or `--director` flag is needed.
 
 **Flags:**
 ```
@@ -48,15 +48,13 @@ Returns a detailed live monitor view for that specific subagent: status, current
 
 **Without an id:** Returns the summary table of all subagents.
 
-## /director
+## /director (obsolete — Director Mode is permanently on)
 
-Promotes the session to director mode, enabling fleet orchestration tools. Only works **before** any subagents are spawned — the coordinator must not already be active.
+Director Mode is always active. The `/director` command is a no-op — fleet orchestration tools are available without any promotion.
 
-Returns error if subagents already exist, or success message with director state summary.
+### Fleet orchestration tools
 
-### Fleet orchestration tools (available after `/director` or `--director`)
-
-When director mode is active, the leader agent gains these tools automatically:
+The leader agent always has access to these tools automatically:
 
 | Tool | What it does |
 |---|---|
