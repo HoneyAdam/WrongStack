@@ -267,12 +267,16 @@ export class OneShotOrchestrator {
       if (chain.length > 0) return chain;
     }
 
-    // Smart default from config — includes config.fallbackModels
+    // Config-level fallbackModels — independent of fallbackAuto
+    if (config.fallbackModels && config.fallbackModels.length > 0) {
+      return mgr.resolveRefs(config.fallbackModels, target);
+    }
+
+    // Smart default from config (only when auto-derivation is enabled)
     if (config.fallbackAuto !== false) {
       return mgr.resolveEffective({
-        fallbackModels: config.fallbackModels,
         fallbackProfile: undefined,
-        fallbackAuto: config.fallbackAuto,
+        fallbackAuto: true,
         exclude: target,
       });
     }
