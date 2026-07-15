@@ -20,9 +20,9 @@ import {
  */
 
 describe('TRUSTED_PROVIDER_PRESETS', () => {
-  it('contains the three product-scoped presets as of 2026-07-15', () => {
+  it('contains the five product-scoped presets', () => {
     const ids = listTrustedProviderPresetIds().sort();
-    expect(ids).toEqual(['kimi-for-coding', 'moonshotai', 'zai']);
+    expect(ids).toEqual(['kimi-for-coding', 'minimax', 'moonshotai', 'zai', 'zai-coding-plan']);
   });
 
   it('Kimi Code preset points at the documented Kimi Code endpoint and aliases', () => {
@@ -49,7 +49,7 @@ describe('TRUSTED_PROVIDER_PRESETS', () => {
     expect(preset!.usage).toBe('metered-api');
   });
 
-  it('Z.AI preset is the pay-as-you-go API, NOT the Coding Plan', () => {
+  it('Z.AI metered preset is distinct from the Coding Plan subscription', () => {
     const preset = TRUSTED_PROVIDER_PRESETS.zai;
     expect(preset).toBeDefined();
     expect(preset!.baseUrl).toBe('https://api.z.ai/api/paas/v4');
@@ -57,9 +57,21 @@ describe('TRUSTED_PROVIDER_PRESETS', () => {
     expect(preset!.models).toEqual(['glm-4.7', 'glm-5-turbo', 'glm-5.2']);
     expect(preset!.quirks?.thinkingParam).toBe('zai-glm');
     expect(preset!.usage).toBe('metered-api');
-    // No `zai-coding-plan` preset — Coding Plan is intentionally absent
-    // until Z.AI lists WrongStack as a supported tool.
-    expect(TRUSTED_PROVIDER_PRESETS['zai-coding-plan']).toBeUndefined();
+  });
+
+  it('Z.AI Coding Plan subscription preset uses the same endpoint but subscription quota', () => {
+    const preset = TRUSTED_PROVIDER_PRESETS['zai-coding-plan'];
+    expect(preset).toBeDefined();
+    expect(preset!.baseUrl).toBe('https://api.z.ai/api/paas/v4');
+    expect(preset!.usage).toBe('subscription-interactive');
+  });
+
+  it('MiniMax Token Plan preset points at the MiniMax API', () => {
+    const preset = TRUSTED_PROVIDER_PRESETS.minimax;
+    expect(preset).toBeDefined();
+    expect(preset!.baseUrl).toBe('https://api.minimax.io/v1');
+    expect(preset!.envVars).toEqual(['MINIMAX_API_KEY']);
+    expect(preset!.usage).toBe('subscription-interactive');
   });
 });
 

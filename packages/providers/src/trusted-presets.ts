@@ -118,11 +118,28 @@ export const TRUSTED_PROVIDER_PRESETS: Readonly<Record<string, TrustedProviderPr
   },
 
   /**
-   * Z.AI general pay-as-you-go API — metered. Z.AI Coding Plan is NOT
-   * added here because Z.AI subscription terms limit plan quota to
-   * officially supported tools; until WrongStack is listed, route Coding
-   * Plan users through a Z.AI-supported external agent over ACP. The
-   * pay-as-you-go API is permitted for custom integrations.
+   * Z.AI Coding Plan — subscription plan for interactive coding with GLM
+   * models. Users subscribe at z.ai, generate an API key from their Coding
+   * Plan dashboard, and paste it here. The endpoint and model aliases are
+   * the same as the metered API but the key draws from subscription quota.
+   * https://docs.z.ai/guides/overview/quick-start
+   */
+  'zai-coding-plan': {
+    id: 'zai-coding-plan',
+    name: 'Z.AI Coding Plan (Subscription)',
+    family: 'openai-compatible',
+    baseUrl: 'https://api.z.ai/api/paas/v4',
+    envVars: ['ZHIPU_API_KEY'],
+    models: ['glm-4.7', 'glm-5-turbo', 'glm-5.2'],
+    quirks: { thinkingParam: 'zai-glm' },
+    usage: 'subscription-interactive',
+    docsUrl: 'https://docs.z.ai/guides/overview/quick-start',
+  },
+
+  /**
+   * Z.AI general pay-as-you-go API — metered. Separate from the Coding
+   * Plan subscription; uses a distinct API key and draws from pay-as-you-go
+   * quota.
    * https://docs.z.ai/guides/overview/quick-start
    */
   zai: {
@@ -135,6 +152,23 @@ export const TRUSTED_PROVIDER_PRESETS: Readonly<Record<string, TrustedProviderPr
     quirks: { thinkingParam: 'zai-glm' },
     usage: 'metered-api',
     docsUrl: 'https://docs.z.ai/guides/overview/quick-start',
+  },
+
+  /**
+   * MiniMax Token Plan — subscription plan offering access to MiniMax's
+   * latest models including frontier coding, 1M context, and multimodal.
+   * Users subscribe at platform.minimax.io and generate a plan API key.
+   * https://platform.minimax.io/subscribe/token-plan
+   */
+  minimax: {
+    id: 'minimax',
+    name: 'MiniMax Token Plan (Subscription)',
+    family: 'openai-compatible',
+    baseUrl: 'https://api.minimax.io/v1',
+    envVars: ['MINIMAX_API_KEY'],
+    models: ['MiniMax-M2', 'MiniMax-Text-01', 'MiniMax-VL-01'],
+    usage: 'subscription-interactive',
+    docsUrl: 'https://platform.minimax.io/subscribe/token-plan',
   },
 };
 
