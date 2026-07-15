@@ -72,7 +72,46 @@ export interface TrustedProviderPreset {
  * 2026-07-15. Update only after re-verifying the URL, the model aliases,
  * and the usage-class contract.
  */
-export const TRUSTED_PROVIDER_PRESETS: Readonly<Record<string, TrustedProviderPreset>> = {
+export const TRUSTED_PROVIDER_PRESETS: Readonly<
+  Record<
+    string,
+    TrustedProviderPreset
+  >
+> = {
+  /**
+   * OpenRouter — meta-provider routing to 400+ models through a single
+   * OpenAI-compatible endpoint. Unlike vendor-specific presets, OpenRouter
+   * does NOT have a fixed model list — users should add model IDs from
+   * OpenRouter's catalog (e.g. `openai/gpt-4o`, `anthropic/claude-sonnet-4`,
+   * `google/gemini-2.0-flash-001`) via the model management UI or config.
+   *
+   * The models listed below are recommended starters for the model picker;
+   * users can add any OpenRouter model id at any time.
+   * https://openrouter.ai/models — full catalog
+   */
+  openrouter: {
+    id: 'openrouter',
+    name: 'OpenRouter (Metered)',
+    family: 'openai-compatible',
+    // The OpenAI SDK default base URL — OpenRouter also accepts /v1 at
+    // https://openrouter.ai/api/v1 for backward compatibility.
+    baseUrl: 'https://openrouter.ai/api/v1',
+    envVars: ['OPENROUTER_API_KEY'],
+    // Recommended starter models — the full OpenRouter catalog (400+) is
+    // available by adding model IDs in the format `provider/model-name`.
+    // Users should add others to match their subscription and use case.
+    models: [
+      'openai/gpt-4o',
+      'openai/gpt-4o-mini',
+      'anthropic/claude-sonnet-4-20250514',
+      'google/gemini-2.0-flash-001',
+      'meta-llama/llama-4-scout',
+      'deepseek/deepseek-chat',
+    ],
+    usage: 'metered-api',
+    docsUrl: 'https://openrouter.ai/docs/quickstart',
+  },
+
   /**
    * Kimi Code subscription — personal interactive coding via the official
    * Kimi Code Console API key. Endpoint and aliases documented by Moonshot
@@ -170,6 +209,70 @@ export const TRUSTED_PROVIDER_PRESETS: Readonly<Record<string, TrustedProviderPr
     models: ['MiniMax-M3', 'MiniMax-M2.7', 'MiniMax-M2.5', 'MiniMax-M2'],
     usage: 'subscription-interactive',
     docsUrl: 'https://platform.minimax.io/docs/api-reference/text-chat-openai',
+  },
+
+  /**
+   * DeepSeek API — metered pay-as-you-go inference via api.deepseek.com.
+   * OpenAI-format chat completions endpoint with native reasoning/thinking
+   * support (deepseek-v4-flash can toggle between thinking and non-thinking
+   * modes; deepseek-v4-pro is always-thinking). The OpenAI adapter already
+   * routes `delta.reasoning_content` to the thinking channel and echoes
+   * `reasoning_content` on assistant messages — no special quirks needed.
+   * https://api-docs.deepseek.com/
+   */
+  deepseek: {
+    id: 'deepseek',
+    name: 'DeepSeek API (Metered)',
+    family: 'openai-compatible',
+    baseUrl: 'https://api.deepseek.com',
+    envVars: ['DEEPSEEK_API_KEY'],
+    // V4 Flash supports both non-thinking and thinking (default); V4 Pro is
+    // always-thinking. The deprecated `deepseek-chat` and `deepseek-reasoner`
+    // aliases still resolve until 2026-07-24 per the deprecation notice.
+    models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
+    usage: 'metered-api',
+    docsUrl: 'https://api-docs.deepseek.com/',
+  },
+
+  /**
+   * GroqCloud — ultra-fast inference via LPU hardware, served through an
+   * OpenAI-compatible API endpoint. Runs leading open-weight models (Llama,
+   * Mixtral, Gemma, Qwen) at industry-leading speeds. Supports tool calling,
+   * streaming, JSON mode, and reasoning (Qwen3, GROK OSS models).
+   * https://console.groq.com/docs/api-reference
+   */
+  groq: {
+    id: 'groq',
+    name: 'GroqCloud (Metered)',
+    family: 'openai-compatible',
+    baseUrl: 'https://api.groq.com/openai/v1',
+    envVars: ['GROQ_API_KEY'],
+    models: [
+      'llama-3.3-70b-versatile',
+      'llama-3.1-8b-instant',
+      'mixtral-8x7b-32768',
+      'gemma2-9b-it',
+    ],
+    usage: 'metered-api',
+    docsUrl: 'https://console.groq.com/docs/api-reference',
+  },
+
+  /**
+   * Perplexity Sonar API — metered API for web-augmented and standard chat
+   * models. Sonar models have built-in web search with citation support.
+   * OpenAI-format chat completions endpoint; sonar-reasoning models expose
+   * chain-of-thought. The standard OpenAI adapter handles all wire formats.
+   * https://docs.perplexity.ai/
+   */
+  perplexity: {
+    id: 'perplexity',
+    name: 'Perplexity Sonar API (Metered)',
+    family: 'openai-compatible',
+    baseUrl: 'https://api.perplexity.ai',
+    envVars: ['PERPLEXITY_API_KEY'],
+    models: ['sonar-pro', 'sonar', 'sonar-reasoning-pro', 'sonar-reasoning'],
+    usage: 'metered-api',
+    docsUrl: 'https://docs.perplexity.ai/',
   },
 };
 

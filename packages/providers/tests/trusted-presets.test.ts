@@ -13,16 +13,27 @@ import {
  * consumed by both the standalone @wrongstack/webui-server and the
  * CLI-embedded WS handler, so a regression here breaks both surfaces.
  *
- * The presets are product-specific defaults for Kimi Code subscription,
- * the metered Moonshot Platform, and Z.AI's pay-as-you-go API. Z.AI
- * Coding Plan is intentionally absent because Z.AI's subscription terms
- * limit plan quota to officially supported tools.
+ * Presets cover product-specific endpoints (Kimi Code, Moonshot, Z.AI,
+ * MiniMax), general-purpose API providers (DeepSeek, Groq, Perplexity),
+ * and the meta-provider OpenRouter. Presets that list models in
+ * `provider/model-name` format (OpenRouter) expect users to add more
+ * model IDs from the provider's catalog.
  */
 
 describe('TRUSTED_PROVIDER_PRESETS', () => {
-  it('contains the five product-scoped presets', () => {
+  it('contains all product-scoped and general-purpose presets', () => {
     const ids = listTrustedProviderPresetIds().sort();
-    expect(ids).toEqual(['kimi-for-coding', 'minimax', 'moonshotai', 'zai', 'zai-coding-plan']);
+    expect(ids).toEqual([
+      'deepseek',
+      'groq',
+      'kimi-for-coding',
+      'minimax',
+      'moonshotai',
+      'openrouter',
+      'perplexity',
+      'zai',
+      'zai-coding-plan',
+    ]);
   });
 
   it('Kimi Code preset points at the documented Kimi Code endpoint and aliases', () => {
@@ -92,8 +103,12 @@ describe('getTrustedProviderPreset / isTrustedProviderId', () => {
 
 describe('resolvePresetForAlias', () => {
   it('matches the canonical id exactly', () => {
+    expect(resolvePresetForAlias('deepseek')?.id).toBe('deepseek');
+    expect(resolvePresetForAlias('groq')?.id).toBe('groq');
     expect(resolvePresetForAlias('kimi-for-coding')?.id).toBe('kimi-for-coding');
     expect(resolvePresetForAlias('moonshotai')?.id).toBe('moonshotai');
+    expect(resolvePresetForAlias('openrouter')?.id).toBe('openrouter');
+    expect(resolvePresetForAlias('perplexity')?.id).toBe('perplexity');
     expect(resolvePresetForAlias('zai')?.id).toBe('zai');
   });
 

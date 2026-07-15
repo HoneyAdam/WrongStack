@@ -132,6 +132,21 @@ export const COMPATIBLE_PRESETS: Record<string, CompatiblePreset> = {
     quirks: { stripThinkTags: true },
     autoDiscover: true,
   },
+
+  // OpenRouter — meta-provider routing to 400+ models.
+  // The trusted preset (trusted-presets.ts) hydrates the base URL and
+  // recommended starter models during provider-add. This entry provides
+  // the fallback base URL when the factory's `makeProvider` needs it and
+  // enables model auto-discovery so users can browse the full catalog
+  // without hand-entering model IDs.
+  // https://openrouter.ai/docs/quickstart
+  openrouter: {
+    defaultBaseUrl: 'https://openrouter.ai/api/v1',
+    // Auto-discover models from OpenRouter's /v1/models catalog. The
+    // response includes 400+ entries — the discovery layer maps them to
+    // internal ModelDevModel shape automatically.
+    autoDiscover: true,
+  },
 };
 
 export interface BuildFactoriesOptions {
