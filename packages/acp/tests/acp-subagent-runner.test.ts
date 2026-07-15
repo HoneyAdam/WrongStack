@@ -69,6 +69,7 @@ import {
   describeAgent,
   makeACPSubagentRunner,
   makeACPSubagentRunnerWithStop,
+  resolveAcpAgentCommand,
   runOneAcpTask,
 } from '../src/integration/acp-subagent-runner.js';
 import { ACPSessionError } from '../src/client/acp-session.js';
@@ -282,5 +283,19 @@ describe('runOneAcpTask', () => {
     await expect(
       runOneAcpTask({ command: 'missing', task: 'x' }),
     ).rejects.toThrow();
+  });
+});
+
+describe('resolveAcpAgentCommand — Kimi', () => {
+  it('resolves the kimi catalog entry to kimi acp', () => {
+    const resolved = resolveAcpAgentCommand('kimi');
+    expect(resolved).not.toBeNull();
+    expect(resolved!.command).toBe('kimi');
+    expect(resolved!.args).toEqual(['acp']);
+    expect(resolved!.role).toBe('kimi');
+  });
+
+  it('returns null for an unknown agent id', () => {
+    expect(resolveAcpAgentCommand('not-a-real-agent')).toBeNull();
   });
 });

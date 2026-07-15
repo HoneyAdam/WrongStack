@@ -254,6 +254,28 @@ export const AGENTS_CATALOG: readonly ACPAgentDescriptor[] = [
     integration: 'experimental',
     docs: 'https://cursor.com',
   },
+  // ── Moonshot AI (Kimi) ─────────────────────────────────────────────
+  {
+    id: 'kimi',
+    displayName: 'Kimi Code CLI',
+    vendor: 'moonshot',
+    probe: { command: 'kimi', args: ['--version'] },
+    // Kimi Code CLI speaks ACP behind `kimi acp`. The user must complete
+    // terminal login (`kimi` → `/login`) before launching `kimi acp`;
+    // otherwise session creation fails with `Authentication required`.
+    // The adapter reuses the CLI's existing auth state — WrongStack does
+    // NOT capture or replay the Kimi OAuth tokens.
+    // Docs: https://www.kimi.com/code/docs/en/kimi-code-cli/reference/kimi-acp.html
+    acp: { command: 'kimi', args: ['acp'] },
+    supports: {
+      loadSession: true,
+      promptImages: true,
+      terminal: true,
+      fs: true,
+    },
+    integration: 'native',
+    docs: 'https://www.kimi.com/code/docs/en/kimi-code-cli/guides/ides.html',
+  },
 ] as const;
 
 /** O(1) lookup by id. Returns `undefined` for unknown ids. */

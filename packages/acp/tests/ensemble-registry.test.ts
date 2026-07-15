@@ -11,7 +11,7 @@
  * to keep CI deterministic.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { AGENTS_CATALOG } from '../src/registry/agents.catalog.js';
+import { AGENTS_CATALOG, findAgentDescriptor } from '../src/registry/agents.catalog.js';
 import { EnsembleRegistry } from '../src/registry/ensemble-registry.js';
 import type { ACPAgentDescriptor, DetectedAgent } from '../src/registry/ensemble-registry.js';
 
@@ -225,6 +225,72 @@ describe('defaultProbe integration (real subprocess)', () => {
     const result = await reg.detect(missingEntry);
     expect(result.installed).toBe(false);
     expect(result.reason).toBeTruthy();
+  });
+});
+
+describe('AGENTS_CATALOG — Kimi Code CLI', () => {
+  it('includes the Kimi entry with the correct ACP invocation', () => {
+    const kimi = AGENTS_CATALOG.find((a) => a.id === 'kimi');
+    expect(kimi).toBeDefined();
+    expect(kimi!.displayName).toBe('Kimi Code CLI');
+    expect(kimi!.vendor).toBe('moonshot');
+    expect(kimi!.acp.command).toBe('kimi');
+    expect(kimi!.acp.args).toEqual(['acp']);
+    expect(kimi!.probe.command).toBe('kimi');
+    expect(kimi!.probe.args).toEqual(['--version']);
+    expect(kimi!.integration).toBe('native');
+    expect(kimi!.supports.loadSession).toBe(true);
+  });
+
+  it('findAgentDescriptor resolves kimi by id', () => {
+    expect(findAgentDescriptor('kimi')?.id).toBe('kimi');
+    expect(findAgentDescriptor('nonexistent')).toBeUndefined();
+  });
+
+  it('detect() reports installed when the probe succeeds', async () => {
+    const KIMI_DESC: ACPAgentDescriptor = {
+      id: 'kimi',
+      displayName: 'Kimi Code CLI',
+      vendor: 'moonshot',
+      probe: { command: 'kimi', args: ['--version'] },
+      acp: { command: 'kimi', args: ['acp'] },
+      supports: { loadSession: true, promptImages: true, terminal: true, fs: true },
+      integration: 'native',
+      docs: 'https://www.kimi.com/code/docs/en/kimi-code-cli/guides/ides.html',
+    };
+    const probe = vi.fn(async () => ({
+      ok: true as const,
+      version: '1.48.0',
+      path: '/usr/local/bin/kimi',
+      durationMs: 10,
+    }));
+    const reg = new EnsembleRegistry({ catalog: [KIMI_DESC], probeFn: probe });
+    const got = await reg.detect(KIMI_DESC);
+    expect(got.installed).toBe(true);
+    expect(got.version).toBe('1.48.0');
+    expect(got.vendor).toBe('moonshot');
+  });
+
+  it('detect() reports not-installed when kimi is absent from PATH', async () => {
+    const KIMI_DESC: ACPAgentDescriptor = {
+      id: 'kimi',
+      displayName: 'Kimi Code CLI',
+      vendor: 'moonshot',
+      probe: { command: 'kimi', args: ['--version'] },
+      acp: { command: 'kimi', args: ['acp'] },
+      supports: { loadSession: true, promptImages: true, terminal: true, fs: true },
+      integration: 'native',
+      docs: '',
+    };
+    const probe = vi.fn(async () => ({
+      ok: false as const,
+      reason: 'binary not found',
+      durationMs: 0,
+    }));
+    const reg = new EnsembleRegistry({ catalog: [KIMI_DESC], probeFn: probe });
+    const got = await reg.detect(KIMI_DESC);
+    expect(got.installed).toBe(false);
+    expect(got.reason).toBe('binary not found');
   });
 });
 

@@ -140,6 +140,7 @@ function inferVendor(entry: RegistryAgentEntry): ACPAgentVendor {
   if (hay.includes('google') || hay.includes('gemini')) return 'google';
   if (hay.includes('openai') || hay.includes('codex')) return 'openai';
   if (hay.includes('github') || hay.includes('copilot')) return 'github';
+  if (hay.includes('moonshot') || hay.includes('kimi')) return 'moonshot';
   return 'community';
 }
 

@@ -24,6 +24,7 @@ export type ACPAgentVendor =
   | 'google'
   | 'openai'
   | 'github'
+  | 'moonshot'
   | 'community';
 
 /** How the agent is integrated into ACP. */

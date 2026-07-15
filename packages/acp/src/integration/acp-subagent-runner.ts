@@ -379,6 +379,10 @@ export const REGISTRY_ID_ALIASES: Readonly<Record<string, string>> = {
   'gemini-cli': 'gemini',
   'codex-cli': 'codex-acp',
   copilot: 'github-copilot-cli',
+  // Kimi's live registry id is `kimi` — same as our catalog id, so the
+  // alias is identity. Listed explicitly so `resolveAcpAgentCommand`
+  // finds the live entry when the registry is synced.
+  kimi: 'kimi',
 };
 
 /**
