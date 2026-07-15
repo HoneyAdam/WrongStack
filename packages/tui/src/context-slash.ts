@@ -78,7 +78,9 @@ export function createContextSlashCommand(deps: ContextSlashDeps): SlashCommand 
     category: 'Inspect',
     help:
       'Usage:\n' +
-      '  /context                  — show session context dashboard\n',
+      '  /context                  — show session context dashboard\n' +
+      '  /context window           — show only the context window details\n' +
+      '  /context --window         — same as above\n',
     async run(args: string) {
       try {
         const trimmed = args.trim().toLowerCase();
@@ -228,6 +230,130 @@ function renderContextWindow(deps: ContextSlashDeps): string[] {
   }
 
   return lines;
+}
+
+// ── Section: Context Window (expanded, standalone view) ──────────────────────
+
+function renderContextWindowExpanded(deps: ContextSlashDeps): string {
+  const lines: string[] = [];
+  const leader = deps.getLeader();
+
+  lines.push('## 🧠 Context Window');
+  lines.push('');
+
+  if (leader.ctxPct == null && leader.ctxTokens == null) {
+    lines.push('*No context window data available yet.*');
+    lines.push('');
+    lines.push('> Context metrics appear once the agent starts processing a request.');
+    return lines.join('\n');
+  }
+
+  const barWidth = Math.min(40, Math.max(15, deps.terminalWidth - 20));
+
+  // ── Big pressure bar ──
+  if (leader.ctxPct != null) {
+    const pct = Math.min(1, Math.max(0, leader.ctxPct));
+    const danger = pct > 0.85 ? '🔴' : pct > 0.65 ? '🟡' : '🟢';
+
+    lines.push(`${danger} **Context Pressure**`);
+    lines.push('');
+
+    // Full-width visual bar
+    const filled = Math.round(pct * barWidth);
+    const empty = barWidth - filled;
+    const bar = `${'█'.repeat(Math.max(1, filled))}${'░'.repeat(Math.max(0, empty))}`;
+    const pctLabel = ` ${(pct * 100).toFixed(1)}%`;
+
+    // Top: label + percentage
+    lines.push(`  ${bar} ${pctLabel}`);
+    // Bottom: axis markers
+    const axisMarks = `0%${' '.repeat(Math.max(0, barWidth - 6))}100%`;
+    lines.push(`  ${axisMarks}`);
+    lines.push('');
+  }
+
+  // ── Token table ──
+  lines.push('### 📊 Token Usage');
+  lines.push('');
+
+  if (leader.ctxTokens != null && leader.ctxMaxTokens != null && leader.ctxMaxTokens > 0) {
+    const used = leader.ctxTokens.toLocaleString();
+    const max = leader.ctxMaxTokens.toLocaleString();
+    const pct = ((leader.ctxTokens / leader.ctxMaxTokens) * 100).toFixed(1);
+    const free = (leader.ctxMaxTokens - leader.ctxTokens).toLocaleString();
+
+    lines.push('| Metric | Value |');
+    lines.push('|--------|-------|');
+    lines.push(`| **Used** | ${used} tokens |`);
+    lines.push(`| **Available** | ${max} tokens |`);
+    lines.push(`| **Free** | ${free} tokens |`);
+    lines.push(`| **Utilization** | ${pct}% |`);
+  } else if (leader.ctxTokens != null) {
+    lines.push(`**Tokens:** ${leader.ctxTokens.toLocaleString()}`);
+  }
+  lines.push('');
+
+  // ── Visual gauge ──
+  if (leader.ctxPct != null) {
+    const pct = Math.min(1, Math.max(0, leader.ctxPct));
+    const danger = pct > 0.85 ? '🔴' : pct > 0.65 ? '🟡' : '🟢';
+    const blocks = Math.round(pct * 10);
+    const gauge = '█'.repeat(Math.max(1, blocks)) + '░'.repeat(Math.max(0, 10 - blocks));
+
+    lines.push('### 📏 Pressure Gauge');
+    lines.push('');
+    lines.push(`  ${danger} ${gauge}`);
+    const labels = '    0%    25%    50%    75%   100%';
+    lines.push(`  ${labels}`);
+    lines.push('');
+
+    // Status description
+    const statusText =
+      pct > 0.85
+        ? '⚠️ **High pressure** — consider compacting context or starting a fresh session.'
+        : pct > 0.65
+          ? '📝 **Moderate pressure** — context is filling up but still comfortable.'
+          : '✅ **Low pressure** — plenty of room for more conversation.';
+    lines.push(statusText);
+    lines.push('');
+  }
+
+  // ── Per-agent breakdown ──
+  const fleet = deps.getFleet();
+  const agentsWithCtx = fleet.entries.filter((e) => e.ctxPct != null);
+  if (agentsWithCtx.length > 0) {
+    lines.push('### 🤖 Per-Agent Context');
+    lines.push('');
+    lines.push('| Agent | Pressure | Gauge |');
+    lines.push('|-------|----------|-------|');
+    for (const agent of agentsWithCtx) {
+      const pct = Math.min(1, Math.max(0, agent.ctxPct!));
+      const blocks = Math.round(pct * 10);
+      const gauge = '█'.repeat(Math.max(1, blocks)) + '░'.repeat(Math.max(0, 10 - blocks));
+      const danger = pct > 0.85 ? '🔴' : pct > 0.65 ? '🟡' : '🟢';
+      const pctStr = `${(pct * 100).toFixed(0)}%`;
+      lines.push(`| **${agent.name}** | ${pctStr} | ${danger} ${gauge} |`);
+    }
+    lines.push('');
+  }
+
+  // ── Session context ──
+  lines.push('### 🖥️  Session');
+  lines.push('');
+  lines.push('| Property | Value |');
+  lines.push('|----------|-------|');
+  lines.push(`| **Provider** | \`${deps.getProvider()}\` |`);
+  lines.push(`| **Model** | \`${deps.getModel()}\` |`);
+  lines.push(`| **Mode** | ${deps.getModeLabel()} |`);
+  lines.push(`| **Uptime** | ${deps.getUptime()} |`);
+  lines.push(`| **Terminal** | ${deps.terminalWidth} cols |`);
+  lines.push('');
+
+  // ── Footer ──
+  lines.push('> 💡 Run `/context` for the full dashboard with git, fleet, memory & env.');
+  lines.push('');
+
+  return lines.join('\n');
 }
 
 // ── Section: Working tree ────────────────────────────────────────────────────
