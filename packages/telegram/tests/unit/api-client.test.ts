@@ -6,6 +6,7 @@ import {
   TelegramHttpError,
   TelegramNetworkError,
   TelegramResponseParseError,
+  abortableSleep,
   classifyRetry,
 } from '../../src/api-client.js';
 
@@ -161,6 +162,25 @@ describe('TelegramApiClient', () => {
       aborted: true,
       detail: 'aborted [REDACTED]',
     });
+  });
+});
+
+describe('abortableSleep', () => {
+  it('removes its abort listener after resolving normally', async () => {
+    const listeners = new Set<EventListenerOrEventListenerObject>();
+    const signal = {
+      aborted: false,
+      addEventListener: (_type: string, listener: EventListenerOrEventListenerObject) => {
+        listeners.add(listener);
+      },
+      removeEventListener: (_type: string, listener: EventListenerOrEventListenerObject) => {
+        listeners.delete(listener);
+      },
+    } as unknown as AbortSignal;
+
+    await abortableSleep(1, signal);
+
+    expect(listeners.size).toBe(0);
   });
 });
 

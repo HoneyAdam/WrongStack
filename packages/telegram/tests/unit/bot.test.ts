@@ -362,6 +362,26 @@ describe('TelegramBot sendMessage', () => {
 // ---------------------------------------------------------------------------
 
 describe('TelegramBot poll errors', () => {
+  it('uses a request deadline longer than the Telegram long-poll timeout', async () => {
+    const bot = makeBot();
+    const getUpdates = vi.fn().mockResolvedValue([]);
+    const internals = bot as unknown as {
+      api: { getUpdates: typeof getUpdates };
+      poll(): Promise<void>;
+    };
+    internals.api.getUpdates = getUpdates;
+
+    await internals.poll();
+
+    expect(getUpdates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        timeoutSeconds: 10,
+        deadlineMs: 15_000,
+        signal: expect.any(AbortSignal),
+      }),
+    );
+  });
+
   it('logs getUpdates API failure at debug level', async () => {
     const onMessage = vi.fn();
     // Use very short poll interval so we catch the first poll quickly

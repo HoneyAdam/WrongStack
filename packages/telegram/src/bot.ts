@@ -308,10 +308,15 @@ export class TelegramBot {
         lastErr = err;
         const decision = classifyRetry(err, attempt);
         if (!decision.retry) {
-          if (attempt > 1) this.log.debug(`Telegram sendMessage terminal error on attempt ${attempt}, not retrying`);
+          if (attempt > 1)
+            this.log.debug(
+              `Telegram sendMessage terminal error on attempt ${attempt}, not retrying`,
+            );
           break;
         }
-        this.log.debug(`Telegram sendMessage attempt ${attempt} failed, retrying in ${decision.delayMs}ms...`);
+        this.log.debug(
+          `Telegram sendMessage attempt ${attempt} failed, retrying in ${decision.delayMs}ms...`,
+        );
         await abortableSleep(decision.delayMs, signal);
       }
     }
@@ -346,7 +351,10 @@ export class TelegramBot {
         lastErr = err;
         const decision = classifyRetry(err, attempt);
         if (!decision.retry) {
-          if (attempt > 1) this.log.debug(`Telegram sendMessageWithKeyboard terminal error on attempt ${attempt}, not retrying`);
+          if (attempt > 1)
+            this.log.debug(
+              `Telegram sendMessageWithKeyboard terminal error on attempt ${attempt}, not retrying`,
+            );
           break;
         }
         await abortableSleep(decision.delayMs, signal);
@@ -403,6 +411,7 @@ export class TelegramBot {
       const updates = await this.api.getUpdates({
         offset: this.offset,
         timeoutSeconds: 10,
+        deadlineMs: 15_000,
         signal: this.controller.signal,
       });
       this.conflictStreak = 0;

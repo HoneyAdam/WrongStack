@@ -27,7 +27,8 @@ export function makeTelegramSendTool(opts: {
     name: 'telegram_send',
     description:
       'Send a scrubbed message to the paired Telegram chat or an explicitly allowed outbound chat. Write natural prose for a human reader; summarize results and never paste raw JSON, object dumps, credentials, or truncated tool output.',
-    usageHint: 'telegram_send(chat_id: "123456789", message: "Build completed — 12 tests passed, 0 failed. Deploying to staging now.")',
+    usageHint:
+      'telegram_send(chat_id: "123456789", message: "Build completed — 12 tests passed, 0 failed. Deploying to staging now.")',
     category: 'Telegram',
     inputSchema: {
       type: 'object',
@@ -48,7 +49,7 @@ export function makeTelegramSendTool(opts: {
     mutating: true,
     capabilities: [ToolCapabilities.NET_OUTBOUND],
     timeoutMs: 15_000,
-    async execute(input, _ctx, _opts) {
+    async execute(input, _ctx, toolOpts) {
       const chatId = resolveTelegramOutboundTarget(input.chat_id, opts);
 
       // Scrub before truncation so a credential is never split into fragments
@@ -58,7 +59,9 @@ export function makeTelegramSendTool(opts: {
 
       opts.log.info(`telegram_send → chat_id=${chatId} (${truncated.length} chars)`);
 
-      const res = await opts.bot.sendMessage(chatId, truncated);
+      const res = toolOpts?.signal
+        ? await opts.bot.sendMessage(chatId, truncated, toolOpts.signal)
+        : await opts.bot.sendMessage(chatId, truncated);
 
       return {
         ok: res.ok,

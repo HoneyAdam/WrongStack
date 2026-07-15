@@ -121,9 +121,7 @@ describe('telegram_send tool', () => {
       log,
     });
 
-    await expect(tool.execute({ message: 'test' })).rejects.toThrow(
-      'No chat_id provided',
-    );
+    await expect(tool.execute({ message: 'test' })).rejects.toThrow('No chat_id provided');
   });
 
   it('sends message and returns result', async () => {
@@ -149,6 +147,32 @@ describe('telegram_send tool', () => {
     expect(sendSpy).toHaveBeenCalledWith('999', expect.stringContaining('Build succeeded'));
     expect(result.ok).toBe(true);
     expect(result.message_id).toBe(42);
+  });
+
+  it('forwards the tool AbortSignal to the bot send path', async () => {
+    const bot = makeBot();
+    const sendSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      result: { message_id: 43, chat: { id: 999, type: 'private' } },
+    });
+    bot.sendMessage = sendSpy;
+    const tool = makeTelegramSendTool({
+      bot,
+      getDefaultChatId: () => '999',
+      maxMessageLength: 4000,
+      log,
+    });
+    const controller = new AbortController();
+
+    await tool.execute({ message: 'cancel-aware send' }, undefined as never, {
+      signal: controller.signal,
+    });
+
+    expect(sendSpy).toHaveBeenCalledWith(
+      '999',
+      expect.stringContaining('cancel-aware send'),
+      controller.signal,
+    );
   });
 
   it('uses an explicitly allowed chat_id over the paired default', async () => {
