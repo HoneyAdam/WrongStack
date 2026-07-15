@@ -66,11 +66,12 @@ describe('TRUSTED_PROVIDER_PRESETS', () => {
     expect(preset!.usage).toBe('subscription-interactive');
   });
 
-  it('MiniMax Token Plan preset points at the MiniMax API', () => {
+  it('MiniMax Token Plan preset points at the MiniMax API with current models', () => {
     const preset = TRUSTED_PROVIDER_PRESETS.minimax;
     expect(preset).toBeDefined();
     expect(preset!.baseUrl).toBe('https://api.minimax.io/v1');
     expect(preset!.envVars).toEqual(['MINIMAX_API_KEY']);
+    expect(preset!.models).toContain('MiniMax-M3');
     expect(preset!.usage).toBe('subscription-interactive');
   });
 });

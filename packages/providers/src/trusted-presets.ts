@@ -167,9 +167,9 @@ export const TRUSTED_PROVIDER_PRESETS: Readonly<Record<string, TrustedProviderPr
     family: 'openai-compatible',
     baseUrl: 'https://api.minimax.io/v1',
     envVars: ['MINIMAX_API_KEY'],
-    models: ['MiniMax-M2', 'MiniMax-Text-01', 'MiniMax-VL-01'],
+    models: ['MiniMax-M3', 'MiniMax-M2.7', 'MiniMax-M2.5', 'MiniMax-M2'],
     usage: 'subscription-interactive',
-    docsUrl: 'https://platform.minimax.io/subscribe/token-plan',
+    docsUrl: 'https://platform.minimax.io/docs/api-reference/text-chat-openai',
   },
 };
 
