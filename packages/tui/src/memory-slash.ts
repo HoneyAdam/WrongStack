@@ -103,11 +103,47 @@ interface SuperMemoryStatsLike {
   edges: number;
 }
 
+interface MemoryAnchorLike {
+  type: string;
+  path?: string | undefined;
+  symbol?: string | undefined;
+  command?: string | undefined;
+}
+
+interface RememberSuperInput {
+  text: string;
+  kind?: string | undefined;
+  scope?: string | undefined;
+  tags?: string[] | undefined;
+  anchors?: MemoryAnchorLike[] | undefined;
+  importance?: number | undefined;
+  confidence?: number | undefined;
+  supersedes?: string[] | undefined;
+  contradicts?: string[] | undefined;
+}
+
+interface UpdateSuperInput {
+  text?: string | undefined;
+  kind?: string | undefined;
+  tags?: string[] | undefined;
+  anchors?: MemoryAnchorLike[] | undefined;
+  importance?: number | undefined;
+  confidence?: number | undefined;
+  freshness?: number | undefined;
+  status?: string | undefined;
+  supersedes?: string[] | undefined;
+  contradicts?: string[] | undefined;
+}
+
 interface SuperMemoryStoreLike {
   stats(): Promise<SuperMemoryStatsLike>;
   listSuper(statuses?: string[]): Promise<SuperMemoryLike[]>;
   retrieveForPath(opts: { path: string; limit?: number; includeAncestors?: boolean }): Promise<SuperMemoryLike[]>;
   searchSuper(query: string, opts?: { limit?: number }): Promise<SuperMemoryLike[]>;
+  rememberSuper(input: RememberSuperInput): Promise<SuperMemoryLike>;
+  updateSuperMemory(id: string, patch: UpdateSuperInput): Promise<SuperMemoryLike>;
+  deleteSuperMemory(id: string, reason?: string): Promise<void>;
+  getSuperMemory(id: string): Promise<SuperMemoryLike | null>;
 }
 
 function isSuperMemoryStore(store: MemoryStore): store is MemoryStore & SuperMemoryStoreLike {
@@ -115,7 +151,11 @@ function isSuperMemoryStore(store: MemoryStore): store is MemoryStore & SuperMem
   return (
     typeof s.stats === 'function' &&
     typeof s.listSuper === 'function' &&
-    typeof s.retrieveForPath === 'function'
+    typeof s.retrieveForPath === 'function' &&
+    typeof s.rememberSuper === 'function' &&
+    typeof s.updateSuperMemory === 'function' &&
+    typeof s.getSuperMemory === 'function' &&
+    typeof s.deleteSuperMemory === 'function'
   );
 }
 
@@ -517,6 +557,219 @@ function parseArgs(raw: string): ParsedArgs {
 
 // ── Main command factory ────────────────────────────────────────────────────
 
+// ── Write subcommands (remember / update / delete / forget) ──────────────────
+//
+// Mirrors the CLI `/memory` write surface (packages/cli/src/slash-commands/
+// memory.ts). Kept self-contained (local parser + duck-types) so the TUI does
+// not need a direct @wrongstack/super-memory dependency. Keep the flag set in
+// sync with the CLI command.
+
+const MEMORY_WRITE_SUBS = new Set(['remember', 'add', 'update', 'edit', 'delete', 'del', 'forget', 'rm']);
+
+const MEMORY_KIND_VALUES = [
+  'fact', 'decision', 'convention', 'preference', 'warning', 'anti_pattern',
+  'workflow', 'bug_root_cause', 'file_note', 'symbol_note', 'command_note', 'summary',
+];
+const MEMORY_SCOPE_VALUES = ['project', 'user', 'session', 'file', 'symbol'];
+const MEMORY_STATUS_VALUES = ['active', 'stale', 'superseded', 'contradicted', 'archived', 'deleted'];
+
+interface ParsedMemoryFlags {
+  text: string;
+  kind?: string;
+  scope?: string;
+  status?: string;
+  tags?: string[];
+  anchors?: MemoryAnchorLike[];
+  importance?: number | undefined;
+  confidence?: number | undefined;
+  freshness?: number | undefined;
+  supersedes?: string[];
+  contradicts?: string[];
+  errors: string[];
+}
+
+function parseMemoryFlags(tokens: string[]): ParsedMemoryFlags {
+  const words: string[] = [];
+  const anchors: MemoryAnchorLike[] = [];
+  const errors: string[] = [];
+  const out: ParsedMemoryFlags = { text: '', errors };
+
+  const csv = (value: string): string[] => value.split(',').map((p) => p.trim()).filter(Boolean);
+  const num = (name: string, value: string | undefined): number | undefined => {
+    if (value === undefined) { errors.push(`${name} needs a value between 0 and 1.`); return undefined; }
+    const parsed = Number.parseFloat(value);
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+      errors.push(`${name} must be a number between 0 and 1 (got "${value}").`);
+      return undefined;
+    }
+    return parsed;
+  };
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i] ?? '';
+    if (!token.startsWith('--')) { words.push(token); continue; }
+    const name = token.slice(2).toLowerCase();
+    const nxt = tokens[i + 1];
+    const value = nxt !== undefined && !nxt.startsWith('--') ? nxt : undefined;
+    if (value !== undefined) i++;
+    switch (name) {
+      case 'kind':
+        if (value && MEMORY_KIND_VALUES.includes(value)) out.kind = value;
+        else errors.push(`--kind must be one of: ${MEMORY_KIND_VALUES.join(', ')}.`);
+        break;
+      case 'scope':
+        if (value && MEMORY_SCOPE_VALUES.includes(value)) out.scope = value;
+        else errors.push(`--scope must be one of: ${MEMORY_SCOPE_VALUES.join(', ')}.`);
+        break;
+      case 'status':
+        if (value && MEMORY_STATUS_VALUES.includes(value)) out.status = value;
+        else errors.push(`--status must be one of: ${MEMORY_STATUS_VALUES.join(', ')}.`);
+        break;
+      case 'tag':
+      case 'tags':
+        if (value) out.tags = [...(out.tags ?? []), ...csv(value)];
+        else errors.push('--tag needs a value (comma-separated for multiple).');
+        break;
+      case 'anchor':
+      case 'file':
+        if (value) anchors.push({ type: 'file', path: value });
+        else errors.push('--anchor needs a file path.');
+        break;
+      case 'symbol': {
+        if (!value) { errors.push('--symbol needs a value like path#SymbolName.'); break; }
+        const hash = value.lastIndexOf('#');
+        if (hash <= 0 || hash === value.length - 1) { errors.push('--symbol must be path#SymbolName.'); break; }
+        anchors.push({ type: 'symbol', path: value.slice(0, hash), symbol: value.slice(hash + 1) });
+        break;
+      }
+      case 'command':
+        if (value) anchors.push({ type: 'command', command: value });
+        else errors.push('--command needs a value.');
+        break;
+      case 'importance': out.importance = num('--importance', value); break;
+      case 'confidence': out.confidence = num('--confidence', value); break;
+      case 'freshness': out.freshness = num('--freshness', value); break;
+      case 'supersedes':
+        if (value) out.supersedes = [...(out.supersedes ?? []), ...csv(value)];
+        else errors.push('--supersedes needs one or more memory ids.');
+        break;
+      case 'contradicts':
+        if (value) out.contradicts = [...(out.contradicts ?? []), ...csv(value)];
+        else errors.push('--contradicts needs one or more memory ids.');
+        break;
+      case 'text':
+        if (value) words.push(value);
+        else errors.push('--text needs a value.');
+        break;
+      default:
+        errors.push(`Unknown flag "--${name}".`);
+    }
+  }
+
+  out.text = words.join(' ').trim();
+  if (anchors.length > 0) out.anchors = anchors;
+  return out;
+}
+
+function memErr(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+async function handleMemoryWrite(
+  store: MemoryStore,
+  sub: string,
+  rest: string[],
+): Promise<{ message: string }> {
+  // remember has a legacy fallback; every other write op needs Super Memory.
+  if (sub === 'remember' || sub === 'add') {
+    if (rest.length === 0) {
+      return { message: 'Usage: /memory remember <text> [--kind k] [--scope s] [--tag a,b] [--anchor path] [--symbol path#Name] [--command cmd] [--importance 0..1] [--confidence 0..1] [--supersedes id,id] [--contradicts id,id]' };
+    }
+    if (!isSuperMemoryStore(store)) {
+      const text = rest.join(' ').trim();
+      if (!text) return { message: 'Usage: /memory remember <text>' };
+      await store.remember(text);
+      return { message: `Remembered: ${text}` };
+    }
+    const parsed = parseMemoryFlags(rest);
+    if (parsed.errors.length > 0) return { message: `Cannot remember:\n- ${parsed.errors.join('\n- ')}` };
+    if (!parsed.text) return { message: 'Nothing to remember — provide the memory text before/after the flags.' };
+    try {
+      const memory = await store.rememberSuper({
+        text: parsed.text,
+        ...(parsed.kind && { kind: parsed.kind }),
+        ...(parsed.scope && { scope: parsed.scope }),
+        ...(parsed.tags && { tags: parsed.tags }),
+        ...(parsed.anchors && { anchors: parsed.anchors }),
+        ...(parsed.importance !== undefined && { importance: parsed.importance }),
+        ...(parsed.confidence !== undefined && { confidence: parsed.confidence }),
+        ...(parsed.supersedes && { supersedes: parsed.supersedes }),
+        ...(parsed.contradicts && { contradicts: parsed.contradicts }),
+      });
+      const tags = memory.tags.length > 0 ? ` ${memory.tags.map((t) => `#${t}`).join(' ')}` : '';
+      return { message: `Remembered \`${memory.id}\` [${memory.kind}] ${memory.text}${tags}` };
+    } catch (err) {
+      return { message: `Could not remember: ${memErr(err)}` };
+    }
+  }
+
+  if (!isSuperMemoryStore(store)) {
+    return { message: `\`/memory ${sub}\` requires the Super Memory backend.` };
+  }
+
+  if (sub === 'update' || sub === 'edit') {
+    const id = rest[0];
+    if (!id) return { message: 'Usage: /memory update <memory-id> [--text t] [--kind k] [--tag a,b] [--status active|stale|archived|deleted] [--importance 0..1] ...' };
+    const parsed = parseMemoryFlags(rest.slice(1));
+    if (parsed.errors.length > 0) return { message: `Cannot update:\n- ${parsed.errors.join('\n- ')}` };
+    const patch: UpdateSuperInput = {
+      ...(parsed.text && { text: parsed.text }),
+      ...(parsed.kind && { kind: parsed.kind }),
+      ...(parsed.tags && { tags: parsed.tags }),
+      ...(parsed.anchors && { anchors: parsed.anchors }),
+      ...(parsed.importance !== undefined && { importance: parsed.importance }),
+      ...(parsed.confidence !== undefined && { confidence: parsed.confidence }),
+      ...(parsed.freshness !== undefined && { freshness: parsed.freshness }),
+      ...(parsed.status && { status: parsed.status }),
+      ...(parsed.supersedes && { supersedes: parsed.supersedes }),
+      ...(parsed.contradicts && { contradicts: parsed.contradicts }),
+    };
+    if (Object.keys(patch).length === 0) {
+      return { message: 'Nothing to update — pass at least one field (e.g. --text, --status, --tag).' };
+    }
+    try {
+      const memory = await store.updateSuperMemory(id, patch);
+      return { message: `Updated \`${memory.id}\` [${memory.kind}|${memory.status}] ${memory.text}` };
+    } catch (err) {
+      return { message: `Could not update: ${memErr(err)}` };
+    }
+  }
+
+  if (sub === 'delete' || sub === 'del') {
+    const id = rest[0];
+    if (!id) return { message: 'Usage: /memory delete <memory-id> [reason...]' };
+    const reason = rest.slice(1).join(' ').trim() || undefined;
+    try {
+      const existing = await store.getSuperMemory(id);
+      if (!existing) return { message: `No memory with id \`${id}\`.` };
+      await store.deleteSuperMemory(id, reason);
+      return { message: `Deleted \`${id}\`.` };
+    } catch (err) {
+      return { message: `Could not delete: ${memErr(err)}` };
+    }
+  }
+
+  // forget / rm — substring removal via the shared MemoryStore API.
+  const query = rest.join(' ').trim();
+  if (!query) return { message: 'Usage: /memory forget <query>' };
+  try {
+    const removed = await store.forget(query);
+    return { message: removed === 0 ? `No entries matched "${query}".` : `Forgot ${removed} entr${removed === 1 ? 'y' : 'ies'}.` };
+  } catch (err) {
+    return { message: `Could not forget: ${memErr(err)}` };
+  }
+}
+
 export function createMemorySlashCommand(deps: MemorySlashDeps) {
   return {
     name: 'memory',
@@ -529,12 +782,24 @@ export function createMemorySlashCommand(deps: MemorySlashDeps) {
       '  /memory --tag <tag>         — filter entries by tag\n' +
       '  /memory --path <path>       — filter entries by file path\n' +
       '  /memory --compact           — compact table format\n' +
+      '  /memory remember <text> [--kind k] [--scope s] [--tag a,b] [--anchor path] [--importance 0..1]\n' +
+      '  /memory update <id> [--text t] [--kind k] [--tag a,b] [--status s] ...\n' +
+      '  /memory delete <id> [reason]\n' +
+      '  /memory forget <query>      — remove entries matching a substring\n' +
       '  /memory project-memory      — legacy: list only project memory\n' +
       '  /memory user-memory         — legacy: list only user memory\n' +
       '  /memory project-agents      — legacy: list only AGENTS.md entries\n' +
       '',
     async run(args: string) {
       const store = deps.memoryStore;
+
+      // ── Write subcommands (remember/update/delete/forget) ──────────────
+      const tokens = args.trim().split(/\s+/).filter(Boolean);
+      const sub = (tokens[0] ?? '').toLowerCase();
+      if (MEMORY_WRITE_SUBS.has(sub)) {
+        return handleMemoryWrite(store, sub, tokens.slice(1));
+      }
+
       const parsed = parseArgs(args);
 
       try {
