@@ -1,3 +1,4 @@
+import { ToolValidationError } from '@wrongstack/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // Drive guardedLookup (the undici dispatcher's DNS callback) and the
@@ -11,6 +12,7 @@ vi.mock('node:dns/promises', async (orig) => ({
   default: { lookup: (...a: unknown[]) => lookupMock(...a) },
 }));
 
+import { assertNotPrivate } from '../src/_fetch-guard.js';
 import { fetchTool, guardedLookup } from '../src/fetch.js';
 import { mkSandbox, newSignal } from './fixtures.js';
 
@@ -86,6 +88,12 @@ describe('guardedLookup', () => {
 });
 
 describe('assertNotPrivate via fetchTool', () => {
+  it('keeps private-address blocks typed rather than coupled to their message', async () => {
+    lookupMock.mockResolvedValue([{ address: '192.168.1.10', family: 4 }]);
+
+    await expect(assertNotPrivate('internal.example')).rejects.toBeInstanceOf(ToolValidationError);
+  });
+
   it('rejects a hostname that resolves to a private address (pre-flight)', async () => {
     lookupMock.mockResolvedValue([{ address: '192.168.1.10', family: 4 }]);
     const sb = await mkSandbox();

@@ -96,7 +96,12 @@ export function guardedLookup(
 let pinnedAgent: Agent | undefined;
 function getPinnedDispatcher(): Agent {
   if (!pinnedAgent) {
-    pinnedAgent = new Agent({ connect: { lookup: guardedLookup as never } });
+    // Undici 8 enables HTTP/2 negotiation by default. Its H2 stream can emit a
+    // late, unhandled `error` after fetch already rejected when the peer closes
+    // the TLS socket, terminating the whole WrongStack process. The fetch tool
+    // does not need multiplexing, so retain the proven HTTP/1.1 transport while
+    // preserving the pinned DNS lookup and connection pooling.
+    pinnedAgent = new Agent({ allowH2: false, connect: { lookup: guardedLookup as never } });
   }
   return pinnedAgent;
 }
@@ -247,7 +252,7 @@ export async function assertNotPrivate(hostname: string): Promise<void> {
         }
       }
     } catch (err) {
-      if (err instanceof Error && err.message.startsWith('fetch:')) throw err;
+      if (err instanceof ToolValidationError) throw err;
       // DNS failure — let fetch handle it
     }
   }
