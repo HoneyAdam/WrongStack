@@ -30,6 +30,16 @@
     "family": "google"
   },
   {
+    "id": "mistral",
+    "name": "Mistral AI",
+    "description": "Mistral Large, Codestral, and Ministral — open-weight frontier models through an OpenAI-compatible API.",
+    "icon": "🌬️",
+    "color": "from-sky-500/20 to-sky-500/5 border-sky-500/30 hover:border-sky-500/50",
+    "keyPlaceholder": "Vz8d...",
+    "docsUrl": "https://console.mistral.ai/api-keys/",
+    "family": "openai-compatible"
+  },
+  {
     "id": "deepseek",
     "name": "DeepSeek",
     "description": "High-performance reasoning at low cost",

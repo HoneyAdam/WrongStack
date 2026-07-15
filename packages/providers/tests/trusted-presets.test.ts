@@ -28,6 +28,7 @@ describe('TRUSTED_PROVIDER_PRESETS', () => {
       'groq',
       'kimi-for-coding',
       'minimax',
+      'mistral',
       'moonshotai',
       'openrouter',
       'perplexity',
@@ -106,6 +107,7 @@ describe('resolvePresetForAlias', () => {
     expect(resolvePresetForAlias('deepseek')?.id).toBe('deepseek');
     expect(resolvePresetForAlias('groq')?.id).toBe('groq');
     expect(resolvePresetForAlias('kimi-for-coding')?.id).toBe('kimi-for-coding');
+    expect(resolvePresetForAlias('mistral')?.id).toBe('mistral');
     expect(resolvePresetForAlias('moonshotai')?.id).toBe('moonshotai');
     expect(resolvePresetForAlias('openrouter')?.id).toBe('openrouter');
     expect(resolvePresetForAlias('perplexity')?.id).toBe('perplexity');

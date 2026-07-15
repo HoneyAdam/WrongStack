@@ -150,6 +150,16 @@ const DEFAULT_POPULAR_PROVIDERS: PopularProvider[] = [
     family: 'google',
   },
   {
+    id: 'mistral',
+    name: 'Mistral AI',
+    description: 'Mistral Large, Codestral, and Ministral — open-weight frontier models.',
+    icon: '🌬️',
+    color: 'from-info/12 to-info/5 border-info/30 hover:border-info/50',
+    keyPlaceholder: 'Vz8d...',
+    docsUrl: 'https://console.mistral.ai/api-keys/',
+    family: 'openai-compatible',
+  },
+  {
     id: 'deepseek',
     name: 'DeepSeek',
     description: 'High-performance reasoning at low cost',

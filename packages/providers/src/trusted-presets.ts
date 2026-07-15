@@ -212,6 +212,25 @@ export const TRUSTED_PROVIDER_PRESETS: Readonly<
   },
 
   /**
+   * Mistral AI — metered API serving open-weight and frontier models
+   * (Mistral Large, Codestral, Ministral) through an OpenAI-compatible
+   * endpoint. The existing `mistralWireFormat` handles wire-format tuning
+   * (JSON mode, tool calling, seed support); this preset adds the standard
+   * base URL, env var, and model allowlist.
+   * https://docs.mistral.ai/
+   */
+  mistral: {
+    id: 'mistral',
+    name: 'Mistral AI API (Metered)',
+    family: 'openai-compatible',
+    baseUrl: 'https://api.mistral.ai/v1',
+    envVars: ['MISTRAL_API_KEY'],
+    models: ['mistral-large-latest', 'codestral-latest', 'ministral-8b-latest'],
+    usage: 'metered-api',
+    docsUrl: 'https://docs.mistral.ai/',
+  },
+
+  /**
    * DeepSeek API — metered pay-as-you-go inference via api.deepseek.com.
    * OpenAI-format chat completions endpoint with native reasoning/thinking
    * support (deepseek-v4-flash can toggle between thinking and non-thinking
