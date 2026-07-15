@@ -170,10 +170,31 @@ describe('classifyRetry', () => {
     expect(classifyRetry(new Error('any'), 4)).toEqual({ retry: false, delayMs: 0 });
   });
 
-  it('does not retry terminal error types: TelegramHttpError, ParseError, aborted network', () => {
-    expect(classifyRetry(new TelegramHttpError('sendMessage', 502, 'Bad Gateway'), 1)).toEqual({ retry: false, delayMs: 0 });
-    expect(classifyRetry(new TelegramResponseParseError('sendMessage', 'invalid JSON'), 1)).toEqual({ retry: false, delayMs: 0 });
-    expect(classifyRetry(new TelegramNetworkError('sendMessage', 'aborted', true), 1)).toEqual({ retry: false, delayMs: 0 });
+  it('does not retry terminal HTTP 4xx, parse errors, or aborted network calls', () => {
+    expect(classifyRetry(new TelegramHttpError('sendMessage', 403, 'Forbidden'), 1)).toEqual({
+      retry: false,
+      delayMs: 0,
+    });
+    expect(classifyRetry(new TelegramResponseParseError('sendMessage', 'invalid JSON'), 1)).toEqual({
+      retry: false,
+      delayMs: 0,
+    });
+    expect(classifyRetry(new TelegramNetworkError('sendMessage', 'aborted', true), 1)).toEqual({
+      retry: false,
+      delayMs: 0,
+    });
+  });
+
+  it('retries non-envelope HTTP 5xx gateway failures with bounded backoff', () => {
+    const decision = classifyRetry(new TelegramHttpError('sendMessage', 502, 'Bad Gateway'), 1);
+    expect(decision.retry).toBe(true);
+    expect(decision.delayMs).toBeGreaterThanOrEqual(1_000);
+    expect(decision.delayMs).toBeLessThanOrEqual(1_200);
+  });
+
+  it('retries non-envelope HTTP 429 and 409 responses', () => {
+    expect(classifyRetry(new TelegramHttpError('sendMessage', 429, 'Too Many Requests'), 1).retry).toBe(true);
+    expect(classifyRetry(new TelegramHttpError('sendMessage', 409, 'Conflict'), 1).retry).toBe(true);
   });
 
   it('does not retry 4xx Bot API errors other than 429 and 409', () => {

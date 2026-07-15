@@ -156,7 +156,16 @@ const BACKOFF_MAX_MS = 30_000;
 export function classifyRetry(err: unknown, attempt: number): RetryDecision {
   if (attempt >= 3) return { retry: false, delayMs: 0 };
 
-  if (err instanceof TelegramHttpError) return { retry: false, delayMs: 0 };
+  if (err instanceof TelegramHttpError) {
+    if (err.status === 429 || err.status === 409 || err.status >= 500) {
+      const delayMs = Math.min(
+        Math.ceil(BACKOFF_BASE_MS * (2 ** (attempt - 1)) * (1 + Math.random() * 0.2)),
+        BACKOFF_MAX_MS,
+      );
+      return { retry: true, delayMs };
+    }
+    return { retry: false, delayMs: 0 };
+  }
   if (err instanceof TelegramResponseParseError) return { retry: false, delayMs: 0 };
   if (err instanceof TelegramNetworkError && err.aborted) return { retry: false, delayMs: 0 };
 

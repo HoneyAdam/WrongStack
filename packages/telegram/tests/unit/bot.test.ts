@@ -306,14 +306,38 @@ describe('TelegramBot sendMessage', () => {
     expect(attempts).toBe(3);
   });
 
-  it('throws on terminal 403 without retrying', async () => {
+  it('throws on terminal 403 after exactly one fetch attempt', async () => {
     const bot = makeBot();
-    globalThis.fetch = vi.fn().mockResolvedValue({
+    const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ ok: false, description: 'Forbidden', error_code: 403 }),
-    }) as never as typeof fetch;
+    });
+    globalThis.fetch = fetchMock as never as typeof fetch;
 
     await expect(bot.sendMessage('123', 'test')).rejects.toThrow('Forbidden');
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('retries a non-envelope HTTP 502 gateway response and then succeeds', async () => {
+    const bot = makeBot();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 502,
+        statusText: 'Bad Gateway',
+        json: () => Promise.reject(new SyntaxError('Unexpected token <')),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: () => Promise.resolve({ ok: true, result: { message_id: 3 } }),
+      });
+    globalThis.fetch = fetchMock as never as typeof fetch;
+
+    await expect(bot.sendMessage('123', 'test')).resolves.toMatchObject({ ok: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('catches fetch network error and retries', async () => {
