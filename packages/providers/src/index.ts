@@ -32,6 +32,15 @@ export {
   type OpenAICompatibleOptions,
   type CompatibilityQuirks,
 } from './openai-compatible.js';
+export {
+  TRUSTED_PROVIDER_PRESETS,
+  buildProviderConfigFromPreset,
+  getTrustedProviderPreset,
+  isTrustedProviderId,
+  listTrustedProviderPresetIds,
+  resolvePresetForAlias,
+  type TrustedProviderPreset,
+} from './trusted-presets.js';
 export { GoogleProvider, type GoogleProviderOptions } from './google.js';
 export {
   OpenAICodexProvider,
