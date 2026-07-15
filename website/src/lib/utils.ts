@@ -295,17 +295,19 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
-    version: '0.286.0',
-    date: '2026-07-13',
+    version: '0.287.0',
+    date: '2026-07-15',
     latest: true,
-    tagline: 'Autonomous Brain, realtime mailbox, and accessibility hardening',
+    tagline: 'Always-on Director Mode, Goal Kanban flow, and SuperMemory WebUI',
     highlights: [
-      'Autonomous Brain control plane: headless autonomy, an LLM pool, multi-LLM council support, and a decision ledger with live settings shared across CLI, TUI, and WebUI',
-      'Brain decisions with options now require an exact option id, preventing prose like "do not spawn" from accidentally selecting a spawn option',
-      'Realtime mailbox bridge: SSE delivery for external agents, sender/recipient indexes, HTTP rate limiting, and mailbox auto-compaction UI',
-      'WebUI chat carries pasted, dropped, and picked image attachments as real image blocks, with a vision-adapter fallback for non-vision models',
-      'Accessibility sweep across WebUI, HQ, and website components via the Biome accessibility preset',
-      'TUI F3 opens a fullscreen agents monitor, and MCP authorization routes through the governed OAuth path',
+      'Director Mode is permanently on — the --director flag, the directorMode config field, the runtime promoteToDirector() switch, and the /director "promote" semantics have all been removed, so the full fleet surface (/spawn, /fleet, /delegate, /goal, /supervisor, /shadow) is available on every session',
+      'Goal Flow with Kanban launch — /goal set now auto-creates a Kanban board for the deliverables, renders a Goal event plus a kanban preview, prompts for the autonomy mode (Eternal or Parallel), and launches the chosen mode',
+      'SuperMemory WebUI integration — full CRUD panel, WS handlers, /memory navigation, and a memory-graph viewer with anchor nodes, supersedes/supersedes-by/contradicts relations, and tooltips',
+      'ToolExecutor "governed execution bridge" — meta-tools (tool_use, batch_tool_use) now route nested calls through a Context.meta bridge installed by the live executor, so every nested call re-runs the normal schema, hook, permission, capability, timeout, scrub, and audit path',
+      'TUI F3 agents monitor redesigned with a left/right split and a real maxPanelRows budget, plus a gradient FIGlet banner, terminal-resize correctness, and a cron-driven background PostToolUse hook mode',
+      'WebUI memory and context-dashboard hardening — request-generation tokens, scoped timeouts, and proper WS unsubscribe keep /memory and the context dashboard from leaking handlers or freezing on stale responses',
+      'ACP session/request_permission now answers with a structured -32603 error when the permission policy throws, and mailbox read receipts are batched into a single ackMany per iteration',
+      'All 24 workspace manifests aligned to 0.287.0; no `tsup` or `jszip` in the build, native TypeScript 7 declarations, and esbuild + Vite 8 / Rolldown everywhere',
     ],
   },
   {

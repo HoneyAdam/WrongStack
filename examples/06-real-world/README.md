@@ -45,10 +45,10 @@ wrongstack "add unit tests for parseArgs in arg-parser.ts. Cover empty input, un
 wrongstack "scan packages/ for hardcoded secrets, SQL-injection vectors, and path traversal. Group findings by severity."
 ```
 
-For a multi-agent fan-out, launch the director:
+For a multi-agent fan-out, use goal mode or spawn directly — Director Mode is always on:
 
 ```bash
-wrongstack --director "full security audit across packages/. Use subagents for each package; roll up to a single severity-sorted report."
+wrongstack "full security audit across packages/. Use subagents for each package; roll up to a single severity-sorted report."
 ```
 
 ## Dependency hygiene
@@ -109,7 +109,7 @@ wrongstack --tui --yolo --provider groq --model llama-3.3-70b-versatile \
   "add error boundaries to every React component under packages/webui/src/components"
 
 # Director + eternal — runs indefinitely against the goal
-wrongstack --director --eternal "migrate the test suite from Jest to Vitest one package at a time, verifying tests pass before moving on"
+wstack --goal --eternal "migrate the test suite from Jest to Vitest one package at a time, verifying tests pass before moving on"
 
 # Reduced-feature run; also skip the startup models.dev refresh
 wrongstack --no-features --no-models-refresh --provider anthropic --model claude-opus-4-7 \

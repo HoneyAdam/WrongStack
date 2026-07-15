@@ -18,10 +18,10 @@ extract structured data from agent responses.
 1. **Only the leader agent's final message SHOULD include `<nextsteps>`** — subagents report findings only. If nothing is pending, omit the tag entirely; do not append a loose "next steps" or goodwill-style follow-up line.
 2. **Any suggested next prompt MUST be inside `<nextsteps>...</nextsteps>`** — never emit parseable-looking prose such as "Next steps:", "next suggests", "Suggested next:", or "Let me know if you want..." when you intend `/next` to work.
 3. **`<nextsteps>` is for prompt options only** — every item is the exact natural-language message that can be submitted back to the agent through the current TUI or WebUI prompt input. It asks the agent to perform work; it is not a checklist of work the user must do. Human-only actions (e.g., "open DevTools yourself", "manually check the browser console") belong outside the tag as informational text.
-4. **Tags must be properly closed** — `<nextsteps>...</nextsteps>` with exact tag names.
+4. **Tags must be exact and properly closed** — `<nextsteps>...</nextsteps>` with no attributes on either tag. In particular, never emit `<nextsteps auto="true">`.
 5. **No markdown inside tags** — plain text only, one item per line.
 6. **Items are agent-directed prompt inputs** — imperative wording is valid when it tells the agent what to do. Write the complete message the user would send, not an instruction addressed to the user.
-7. **Items marked `auto="true"` must include input content** — the user can copy and submit it directly.
+7. **Only item 1 may be marked `auto="true"`** — at most one item may carry the marker, and its input must be complete enough to submit directly.
 8. **Keep concise** — max 5 items unless the task genuinely requires more.
 9. **Skip `<nextsteps>` whenever the live `ctx.todos` list still has open items** — any `pending` or `in_progress` todo means the in-flight task list is not done, and surfacing new prompt options would race the todo loop (YOLO+auto could pick the top suggestion and pivot away from the unfinished work; `/next 1` would replace the next todo with an arbitrary prompt). Finish the todo list first, re-arm the tag on the turn where the last todo flips to `completed`. The runtime enforces the same gate, so emitting it mid-task is parsed-and-discarded — the rule exists to keep the output focused, not to override runtime behavior.
 
@@ -45,7 +45,7 @@ Informational text for human-only actions (outside the tag, no tag wrapper).
 | Opening tag | `<nextsteps>` on its own line | `<nextsteps>` |
 | Numbered items | `1. ` prefix, one agent-directed prompt per line | `1. Fix the auth bug in core/session.ts and add a regression test` |
 | Closing tag | `</nextsteps>` on its own line | `</nextsteps>` |
-| `auto="true"` items | Include the full input content | `1. fix in core/auth.ts:42 auto="true"` |
+| `auto="true"` item | Optional on item 1 only; include the full input content | `1. fix in core/auth.ts:42 auto="true"` |
 
 ### ✅ Correct Examples
 
@@ -113,7 +113,7 @@ Next steps:
 
 ## `auto="true"` Format
 
-Items that should be auto-submitted (the user can copy-paste and send) use `auto="true"`:
+When the first item should be auto-submitted, append `auto="true"` to that item. Never put it on the `<nextsteps>` tag or on items 2+:
 
 ```
 <nextsteps>
@@ -122,7 +122,7 @@ Items that should be auto-submitted (the user can copy-paste and send) use `auto
 </nextsteps>
 ```
 
-The text before `auto="true"` is the exact prompt the user would type. Items without `auto="true"` are suggestions the user can select manually.
+The text before `auto="true"` is the exact prompt the user would type. There can be at most one auto item and it must be item 1. Items without `auto="true"` are suggestions the user can select manually.
 
 ## Subagent Requirements
 

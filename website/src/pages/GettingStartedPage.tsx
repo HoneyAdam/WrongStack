@@ -179,7 +179,7 @@ export function GettingStartedPage() {
             [
               Rocket,
               'Director task',
-              'wstack --director "audit src/"',
+              'wstack --goal "audit src/"',
               'Promotes the leader into fleet orchestration for independently verifiable parallel work.',
             ],
           ].map(([Icon, title, command, body]) => {

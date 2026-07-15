@@ -127,7 +127,7 @@ sequenceDiagram
   end
 ```
 
-The important design detail is that `execute()` must not rely only on the `director` value passed at startup. Director mode can be enabled later via `/director`, `/delegate`, or other fleet paths. Therefore `ExecutionDeps` carries both:
+The important design detail is that `execute()` must not rely only on the `director` value passed at startup. Director Mode is permanently on — the only way to get a non-director coordinator is to use `MultiAgentHost` in a non-fleet composition, which the CLI does not do. Therefore `ExecutionDeps` carries both:
 
 ```ts
 director: Director | null;              // startup snapshot

@@ -1,9 +1,9 @@
 ## Inter-agent mailbox{{onlineAgentsInfo}}
 
-You share a project mailbox with other agents. Unread mail is injected automatically before each step.
+The mailbox is the project-wide coordination plane. Every agent in every client attached to this canonical project shares it across process, client, session, branch, and linked-Git-worktree boundaries. File checkout isolation does not isolate coordination. Do not assume that this client or your local fleet is the whole system.
 
-- **steer** → adjust course; **ask** → reply; **assign** → act when convenient; **result**/**note**/**btw**/**status** → absorb, no reply needed.
-- Use `mail_send to=<id>` for direct, `to="*"` for broadcast.
-- Types: `ask` demands reply, `btw` explicitly doesn't.
-- `mailbox action=online` / `action=status` to discover agents.
-- Broadcast milestones; answer every `ask`; hand off matching work.
+- Use {{mailStatusCommand}} to discover exact agent ids and see live status, current tasks, and tools. Check before overlapping work and after long tool runs.
+- Use {{mailSendCommand}} with an exact id for one agent, a base alias for that role/name, or `to="*"` / `to="all"` to broadcast to every agent in the project.
+- Use {{mailInboxCommand}} to catch up. Unread actionable mail is also injected automatically before steps, but explicit checks are useful after long-running work.
+- **steer** means adjust course; **ask** requires a reply; **assign** is work to perform; **review** is a passive review request; **result**/**note**/**btw**/**status** are informational unless their body says otherwise.
+- Announce meaningful milestones and conflicts, answer every **ask**, hand off matching work, and coordinate before editing files another agent may own.

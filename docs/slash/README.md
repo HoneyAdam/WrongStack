@@ -33,8 +33,9 @@ WrongStack routes slash commands through `SlashCommandRegistry`. The command set
 | `/suggest` | `/next-steps`, `/what-next` | [suggest](suggest.md) |
 | `/auth` | — | [auth](auth.md) |
 | `/diag`, `/stats` | — | [diagnostics and stats](diag-stats.md) |
-| `/spawn`, `/agents`, `/director` | — | [multi-agent commands](spawn-agents.md) |
+| `/spawn`, `/agents` | — | [multi-agent commands](spawn-agents.md) |
 | `/fleet` | — | [fleet](fleet.md) |
+| `/director` | — | Show fleet status (Director Mode is permanently on) |
 | `/f` | hidden `/f1` … `/f12` commands | [F-key panels](f-keys.md) |
 | `/enhance` | — | [enhance](enhance.md) |
 | `/ensemble` | — | [ensemble](ensemble.md) |

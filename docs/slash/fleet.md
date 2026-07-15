@@ -2,7 +2,7 @@
 
 ## What it does
 
-`/fleet` is the runtime control surface for an active fleet (director mode required for most subcommands). It connects to the `Director` via `opts.onFleet`, `opts.onFleetRetry`, and `opts.onFleetLog`.
+`/fleet` is the runtime control surface for an active fleet. It connects to the `Director` via `opts.onFleet`, `opts.onFleetRetry`, and `opts.onFleetLog`. Director Mode is permanently on — the Director is always available.
 
 ## Subcommands
 

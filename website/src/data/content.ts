@@ -1170,7 +1170,7 @@ const commandRows: Array<[string, string]> = [
   ['/auth', 'Open the API-key status dashboard.'],
   ['/spawn', 'Create an isolated specialist subagent.'],
   ['/agents', 'Monitor agents, timeline events and per-agent transcripts.'],
-  ['/director', 'Promote the current session into Director orchestration mode.'],
+  ['/director', '(Obsolete) Director Mode is permanently on — fleet tools always available.'],
   ['/delegate', 'Hand a bounded task to a specialist role.'],
   ['/fleet', 'Inspect fleet status, budgets, logs, streams, retries and workers.'],
   ['/sdd', 'Run the Spec-Driven Development workflow.'],
@@ -1751,7 +1751,7 @@ export const securityLayers = [
 export const installCommand = 'npm install -g wrongstack';
 export const repoUrl = 'https://github.com/WrongStack/WrongStack';
 export const docsUrl = `${repoUrl}/tree/main/docs`;
-export const version = '0.286.0';
+export const version = '0.287.0';
 export const nodeVersion = '22.19+';
 export const license = 'MIT';
 

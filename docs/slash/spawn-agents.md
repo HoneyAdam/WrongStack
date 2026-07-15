@@ -48,9 +48,9 @@ Returns a detailed live monitor view for that specific subagent: status, current
 
 **Without an id:** Returns the summary table of all subagents.
 
-## /director (obsolete — Director Mode is permanently on)
+## /director (obsolete — no-op)
 
-Director Mode is always active. The `/director` command is a no-op — fleet orchestration tools are available without any promotion.
+Director Mode is permanently on, hard-coded into the boot process. The `--director` and `--no-director` CLI flags were removed from `arg-parser.ts`. `boot.ts` unconditionally sets `flags['director'] = true`. `director-setup.ts` uses the compile-time constant `const directorMode = true`. `MultiAgentHost.isDirectorMode()` returns `true` unconditionally. No flag, config field (`LaunchConfig.director` deleted), or environment variable can disable it. The `/director` command exists only as a backward-compatible no-op that always reports success.
 
 ### Fleet orchestration tools
 
@@ -150,3 +150,12 @@ The subagent responds synchronously — the director gets the answer in the same
 - `packages/core/src/coordination/director-tools.ts` — fleet tool factories
 - `packages/core/src/coordination/fleet-bus.ts` — `FleetBus` event multiplexer
 - `packages/tui/src/components/fleet-panel.tsx` — TUI live panel
+
+**Enforcement files:**
+- `packages/cli/src/arg-parser.ts` — `director` and `no-director` BOOLEAN_FLAGS **removed**
+- `packages/cli/src/boot.ts:600-601` — `flags['director'] = true` **hard-coded**
+- `packages/cli/src/wiring/director-setup.ts:77` — `const directorMode = true` **compile-time constant**
+- `packages/cli/src/fleet/host.ts:1956-1958` — `isDirectorMode()` **always returns `true`**
+- `packages/core/src/types/config.ts:886` — `LaunchConfig.director` **field deleted**
+
+**Result:** Director Mode cannot be disabled. The Director and its 8 orchestration tools are registered into every session automatically. All fleet paths (fleet root, manifest, scratchpad, subagent sessions) are always set up.

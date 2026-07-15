@@ -8,8 +8,8 @@ pending tasks off busy workers ("I'm reducing your workload"), spawning
 helpers on deep backlogs, steering stuck or repeatedly-failing workers by
 mail, and keeping the leader informed.
 
-It starts automatically when the Director fleet comes up (`--director` or
-the first `delegate` promotion), provided a Brain is available and
+It starts automatically when the Director fleet comes up (Director Mode is
+hard-coded on, so the fleet is always available), provided a Brain is available and
 `fleet.supervisor.enabled` is not `false`.
 
 ## Subcommands

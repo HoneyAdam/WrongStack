@@ -38,7 +38,7 @@ wrongstack --tui --yolo --provider groq --model llama-3.3-70b-versatile \
   "add JSDoc to every exported function in src/"
 
 # Director-mode single-shot — auto-spawns a fleet to tackle the task
-wrongstack --director "audit packages/core for security issues"
+wstack --goal "audit packages/core for security issues"
 
 # Eternal autonomy — runs sense → decide → execute → reflect until you Ctrl+C
 wrongstack --eternal "keep improving test coverage in packages/core"

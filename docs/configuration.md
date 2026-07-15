@@ -65,7 +65,7 @@ WrongStack uses a layered configuration system. Settings are merged from multipl
 | `modelMatrix` | `Record<string, ModelMatrixEntry>` | — | Per-role/phase/`*` subagent routing matrix. Entries can override provider/model/fallback profile and role-specific runtime controls. |
 | `fleet` | `FleetConfig` | — | Fleet budgets, supervision, worktrees, peer awareness, and subagent lifecycle. User config only; stripped from in-project config. |
 | `hooks` | `object` | — | Lifecycle shell hooks keyed by event. See [`hooks`](#hooks--lifecycle-hooks) below and [hooks.md](./hooks.md). |
-| `cwd` | `string` | `process.cwd()` | Working directory. Overridden by `--cwd` CLI flag. |
+| `cwd` | `string` | `process.cwd()` | Working directory. Overridden by `--cwd` CLI flag. Director Mode is permanently on — no `--director` flag or config field exists. |
 
 ---
 

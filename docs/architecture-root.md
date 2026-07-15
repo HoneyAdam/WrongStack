@@ -1,6 +1,6 @@
 # WrongStack Architecture
 
-This document is a repository-level architecture map for WrongStack as reviewed on 2026-07-13 (monorepo version 0.286.0). It is written for maintainers, plugin authors, and contributors who need to understand how the monorepo fits together before changing runtime behavior. Counts and package internals can drift; package manifests, source, and tests remain authoritative.
+This document is a repository-level architecture map for WrongStack as reviewed on 2026-07-15 (monorepo version 0.287.0). It is written for maintainers, plugin authors, and contributors who need to understand how the monorepo fits together before changing runtime behavior. Counts and package internals can drift; package manifests, source, and tests remain authoritative.
 
 WrongStack is a TypeScript/Node.js agent platform. The user-facing product is a terminal AI coding agent, but the implementation is deliberately split into reusable packages: a small core runtime, provider adapters, built-in tools, MCP integration, terminal and browser UIs, and an optional multi-agent director layer.
 

@@ -4,6 +4,8 @@
 
 **Status as of 0.270.0** — All core phases shipped; ongoing refinement of subagent budget negotiation, error classification, and fleet observability.
 
+> **Note (0.287.0):** Director Mode is permanently on across the CLI, TUI, WebUI, and Desktop surfaces. The `--director` and `--no-director` flags have been removed from `arg-parser.ts`, `directorMode` is a compile-time `true` constant in `director-setup.ts`, `isDirectorMode()` unconditionally returns `true`, and `ensureDirector()` always builds the Director without any mode check. The `/director` slash command now surfaces fleet status; the actual fleet entry points are `/spawn`, `/fleet`, `/delegate`, and the goal-flow launcher.
+
 ---
 
 ## Table of Contents
@@ -207,9 +209,9 @@ Director now accepts `sessionsRoot` and `directorRunId` in its options, enabling
 
 ### 4.4 CLI & UX Gaps
 
-#### `--director` CLI flag ✅ Shipped (0.1.8)
+#### `--director` CLI flag (obsolete — removed)
 
-Added `director` to `BOOLEAN_FLAGS` in `arg-parser.ts`. Running `wrongstack --director` starts a session in director mode from the outset — no need for `/director` slash command or delegate tool promotion.
+Director Mode is now hard-coded as permanently active. The `--director` and `--no-director` CLI flags were removed from `arg-parser.ts`; `directorMode` is a compile-time `true` constant in `director-setup.ts`; `isDirectorMode()` unconditionally returns `true`; `ensureDirector()` always builds the Director without any mode check. No flag, config field, or environment variable exists to disable it.
 
 #### Partial session artifact CLI support
 

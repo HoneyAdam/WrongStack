@@ -8,7 +8,7 @@ User-facing counterpart to the AI's `delegate` tool.
 that specific role. Without `--role`, it uses smart dispatch (heuristic +
 LLM classifier) to pick the best agent — the same engine as `/fleet dispatch`.
 
-Requires director mode. Run `/director` first or start with `wstack --director`.
+Director Mode is permanently on — delegate is always available. No `/director` or `--director` needed. Director Mode is hard-coded: `isDirectorMode()` always returns `true`, `ensureDirector()` always builds the Director, and the delegate tool is registered unconditionally in `brain-and-orchestration.ts`.
 
 ## Usage
 

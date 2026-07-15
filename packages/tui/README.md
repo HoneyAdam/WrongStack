@@ -26,7 +26,7 @@ const exitCode = await runTui({
   model: 'anthropic-test-model',
   banner: true,
   yolo: false,
-  appVersion: '0.286.0',
+  appVersion: '0.287.0',
   provider: 'anthropic',
   family: 'anthropic',
   keyTail: '…ABC',

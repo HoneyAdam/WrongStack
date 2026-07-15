@@ -7,11 +7,131 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- **Next-step prompt contract** — `<nextsteps>`, `/suggest`, and prediction output
-  now contain only exact agent-directed messages that can be submitted through
-  the TUI or WebUI; human-only chores are excluded and no-op status text is no
-  longer stored as a selectable suggestion.
+## [0.287.0] — 2026-07-15
+
+### Added — Always-on Director Mode & Goal Flow
+- **Director Mode is permanently enabled** — `--director` / `--no-director`
+  CLI flags, the `directorMode` configuration field, the runtime
+  `promoteToDirector()` switch, and the `/director` "promote" semantics have
+  all been removed. `isDirectorMode()` unconditionally returns `true`,
+  `ensureDirector()` always builds the Director, the delegate tool is
+  registered unconditionally, and the entire fleet surface (`/spawn`,
+  `/fleet`, `/delegate`, `/goal`, `/supervisor`, `/shadow`) is available on
+  every session.
+- **Goal Flow with Kanban launch** — `/goal set` now auto-creates a Kanban
+  board for the deliverables, renders a Goal event plus a kanban preview,
+  prompts for the autonomy mode (Eternal or Parallel), and launches the
+  chosen mode. The new `GoalKanbanPanel` auto-refreshes every two seconds
+  during an autonomy run.
+- **TUI context window inspector** — F-key panel that shows live token
+  pressure, a per-segment composition bar, and a token-by-tool table.
+- **SuperMemory WebUI integration** — full CRUD panel, WS handlers,
+  `/memory` navigation, and a memory-graph viewer that renders anchor
+  nodes, supersedes / supersedes-by / contradicts relations, and tooltips.
+- **TUI cron surfaces** — `/cron` slash command, cron-jobs panel, cron
+  trigger chip, and the cron-store / cron-jobs wiring behind them.
+- **Cron-aware `Date` helpers** — SuperMemory now tolerates empty or
+  malformed `ts` values via `parseDate()`, `daysAgo()`, and `fmtDate()`.
+- **WebUI memory lifecycle hardening** — request-generation tokens and
+  explicit listener cleanup keep `loadMemories()`, `handleSave()`, and
+  `handleDeleteConfirm()` from leaking WS handlers or leaving `saving` /
+  `deleting` stuck.
+- **WebUI context dashboard hardening** — request-generation token, scoped
+  timeouts, and proper WS unsubscribe guarantee that `fetchDebug` cannot leave
+  the dashboard in a permanent "loading" state and that updates never reach
+  unmounted components.
+
+### Added — Memory, Mailbox & Tooling
+- **ToolExecutor "governed execution bridge"** — meta-tools (`tool_use`,
+  `batch_tool_use`) must now route nested calls through a bridge installed on
+  `Context.meta` by the live `ToolExecutor`. The bridge reruns every nested
+  call through the normal schema, hook, permission, capability, timeout,
+  scrub, and audit path. Tools that try to bypass it fail closed with an
+  actionable error and never touch `tool.execute()` directly.
+- **ACP `session/request_permission` error responses** — when the configured
+  permission policy throws, the ACP session now answers the JSON-RPC request
+  with a structured `-32603` error instead of leaving the requester hanging.
+- **Project-wide agent mailbox contract** — every client and agent now shares
+  one canonical project identity across processes, sessions, branches, and
+  linked Git worktrees. System prompts at every token-saving tier explain how
+  to discover peers, read mail, address exact agent ids, and broadcast.
+- **Mailbox read-receipt batching** — the agent-loop mailbox checker now
+  issues a single `ackMany` per iteration instead of one `ack()` per message,
+  removing the read–modify–rewrite hot loop on multi-message turns.
+- **SuperMemory CRUD in `/memory` CLI command** — `remember`, `update`, and
+  `delete` work end-to-end against the SuperMemory store with structured
+  flag-based arguments and validation feedback.
+
+### Changed — UX, Tooling & API
+- **Next-step prompt contract** — `<nextsteps>`, `/suggest`, and prediction
+  output now contain only exact agent-directed messages that can be submitted
+  through the TUI or WebUI; human-only chores are excluded and no-op status
+  text is no longer stored as a selectable suggestion.
+- **TUI F3 agents monitor redesigned** — left/right split with a compact
+  sidebar of agent cards and a wider transcript pane, bounded by a real
+  `maxPanelRows` budget so the panel no longer overflows inline layouts.
+- **TUI banner redesign** — gradient FIGlet wordmark, version pinned to the
+  top-right, compact connection-info block, and links block at the bottom.
+- **TUI terminal-resize correctness** — `<Static>` re-emits history at the
+  new width on resize, and `ScrollableHistory` tracks terminal width via
+  React state to avoid stale renders.
+- **Cron-driven PostToolUse hooks run in the background** — advisory
+  PostToolUse hooks (`test-runner-gate`, `type-gate`, `format-on-save`,
+  `dead-code-detector`, `diff-summary`, `refactor-suggester`,
+  `security-hotspot-scanner`, `config-validator`, `schema-evolution-guard`,
+  `interface-contract-guard`, `feature-flag-tracker`, `doc-sync-guard`,
+  `spec-linker`, `auto-i18n-extractor`, `accessibility-auditor`,
+  `api-compatibility-gate`, `migration-planner`, and friends) run
+  fire-and-forget. PreToolUse hooks and security-critical PostToolUse hooks
+  (`secret-scanner`, `path-guard`, `checkpoint`, `lint-gate`, `loop-breaker`,
+  `injection-shield`, `token-budget`) stay synchronous.
+- **`MultiAgentHost` keeps `isDirectorMode()` true at every stage** — the
+  Director is built lazily on first spawn but the host reports
+  `isDirectorMode() === true` from construction, so callers no longer have to
+  special-case the pre-spawn window.
+- **`MultiAgentHost` interface** — `promoteToDirector()` always materialises
+  the lazy Director; the obsolete `directorMode` option, `directorPinned`
+  launch flag, and `Cannot promote ... --director` error path have been
+  removed.
+
+### Fixed — Correctness, Stability & Tooling
+- **`isSuperMemoryStore` guard checks every Super Memory method** — the
+  duck-type now verifies `getSuperMemory` and `deleteSuperMemory` as well,
+  preventing late `TypeError`s from non-conforming `MemoryStore` instances
+  in `/memory update` / `/memory delete`.
+- **`goalTag` board selection uses exact match** — the Kanban goal-tag
+  picker now matches board tags by exact equality instead of `includes()`,
+  so `goal:auth` no longer hijacks the `goal:authentication` board.
+- **`closePanels` resets `contextPanelOpen`** — toggling another panel no
+  longer leaves the context panel stale, so `/context window` reliably
+  closes before re-opening.
+- **TUI reducer is exhaustively checked** — new action variants surface as
+  compile errors instead of silently returning `undefined`.
+- **Worktree-monitor action names match the reducer** — F4 toggles and the
+  `/worktree` slash command use the same `toggleWorktreeMonitor` action
+  the reducer expects.
+- **`MemoryManager` request lifecycle** — `loadMemories`, `handleSave`,
+  and `handleDeleteConfirm` now use generation tokens, timeouts, and
+  explicit unsubscribe so the panel never reports stale results or leaks
+  WS handlers across reloads.
+- **Workspace memory backend simplification** — `superMemory.enabled=false`
+  no longer switches memory backends; the Super Memory store is now the
+  single canonical store and `enabled` only gates auto-injection / hygiene
+  behaviour.
+- **Lint and test tooling hardening** — `test-runner-gate` plugin and its
+  tests were rewritten to use `node:child_process.execFile` via a callback
+  promise (it was previously awaiting a non-promise, which masked real
+  failures). WebUI accessibility audit, TUI input double-stdin suppression,
+  CronPanel unused-variable cleanup, CronTrigger fragment removal, and
+  desktop SVG `<title>` were all resolved in this release.
+
+### Tooling — Build & Test
+- **TypeScript 7 build system stayed in place** — esbuild + native
+  `tsc --emitDeclarationOnly`; no `tsup` or `jszip` is used. WebUI/HQ
+  bundles use the Vite 8 / Rolldown `manualChunks` function contract.
+- **Coverage thresholds** — root Vitest: ≥73% lines/funcs, ≥72% statements,
+  ≥64% branches. WebUI: ≥19% statements/branches/lines/funcs. These are
+  calibrated to the codebase without DOM/jsdom and without LSP stubs.
 
 ## [0.286.0] — 2026-07-13
 
@@ -6792,6 +6912,3 @@ something useful: `core`, `cli`, `providers`, `tools`, `tui`, `mcp`,
 ## [0.1.0] — 2026-05-13
 
 Initial release.
-
-
-- `**packages/webui/** + **packages/core/src/coordination/agents/phase8-delivery.ts** — `pnpm release:check` cleanup`: fixed seven pre-existing WebUI test failures (`@testing-library/react` dep added; AgentsPage-local `fmtCost/fmtDuration/fmtElapsed/sparkline` added with compact semantics; `dashboard-primitives.fmtCost` accepts negative values; `clientNodeType('cli')` maps to repl; `slash-routing` test fixture `listMemory` typo + vi.hoisted shared mocks; `queued-messages-file-mention-picker` `toBeEmptyDOMElement` replaced with native assertion + `mockTextarea` helper + manual raf flush; `streaming-performance` chunk count check via regex). Fixed a parse error in core's `phase8-delivery.ts` (line 139) where an unescaped `{` inside a template-literal prompt was being interpreted as a JS interpolation start. Release:check now exits 0 with 663 test files / 9057 tests passed + 89 webui files / 1558 tests passed, no vulnerabilities, typecheck + build clean.

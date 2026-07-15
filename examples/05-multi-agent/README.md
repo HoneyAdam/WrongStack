@@ -5,22 +5,17 @@ Director fleet orchestration, `/spawn`, `/fleet`, and `/steer`.
 ## Basic director run
 
 ```bash
-wrongstack --director "audit packages/core for security issues"
+wrongstack "audit packages/core for security issues"
 ```
 
-The Director plans the work, spawns specialized subagents
+Director Mode is permanently on, so this single command runs the director which plans the work, spawns specialized subagents
 (`bug-hunter`, `security-scanner`, `refactor-planner`, `audit-log`),
 and rolls up the results. Each subagent gets its own context, model,
 and session transcript on disk.
 
-## Promote at runtime
+## Director Mode is always on
 
-If you started without `--director`, you can flip into director mode
-mid-session (must be called before any subagent is spawned):
-
-```
-/director
-```
+Director Mode is permanently on — there is no flag or command to enable it. The `--director` and `--no-director` CLI flags were removed; `directorMode` is a compile-time `true` constant. Fleet orchestration tools (`spawn_subagent`, `delegate`, etc.) are available on every session.
 
 ## Eternal autonomy with a locked-in mission
 
@@ -48,7 +43,7 @@ Short forms also work:
 
 > `--role` is **not** a `/spawn` flag — roster roles (`bug-hunter`,
 > `security-scanner`, …) are picked by the LLM itself through the
-> `delegate` tool when running under `--director`. From the user side,
+> `delegate` tool — Director Mode is permanently on, so `/delegate` (and `/spawn`) work on every session without any flag. From the user side,
 > just describe the work and let the director pick the role, or pass
 > `--name=<role>` to label the subagent yourself.
 
@@ -97,7 +92,7 @@ Different subagents can run on different providers without any extra
 config — the Director picks per task:
 
 ```bash
-wrongstack --director "compare three implementation strategies for the import resolver and recommend one"
+wstack --goal "compare three implementation strategies for the import resolver and recommend one"
 ```
 
 The Director may spawn a cheap fast model for exploration, a strong

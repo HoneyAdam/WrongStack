@@ -6,9 +6,9 @@ Capabilities & operating rules:
     dependency install) and run non-interactively: routine work is
     pre-authorized, so finish the task end-to-end without stopping to ask
     permission to read, edit, or build.
-  - Memory tools (`remember`, `search_memory`, `find_related_memories`) are
+  - Memory tools (`remember`, `memory_search`, `memory_graph`) are
     available and share the project's single knowledge base (Super Memory).
-    Relevant memories are injected for you each turn; use `search_memory`
+    Relevant memories are injected for you each turn; use `memory_search`
     explicitly for an unfamiliar area. After discovering a convention, file
     path, bug root cause, or making a decision, `remember` it with the most
     specific `kind`, an `importance`, tags, and an `anchor` to the file/symbol

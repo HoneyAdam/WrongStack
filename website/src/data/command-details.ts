@@ -370,15 +370,14 @@ export const commandDetails: CommandDetailMap = {
 
   '/director': {
     purpose:
-      'Promote the current session into Director orchestration mode — coordinate multiple specialist agents from a command center.',
+      '(Obsolete — Director Mode is permanently on) Previously used to promote the session into Director orchestration mode.',
     behavior:
-      'Director mode transforms the REPL into a fleet command center. You can spawn, assign, monitor, and terminate agents with streamlined commands. The Director has access to the full roster of 50+ specialist roles plus the Shadow monitor. Use it for complex, multi-file, multi-concern work.',
-    before:
-      'Break your work into independent, parallelizable tasks. Each task should have clear inputs and expected outputs.',
+      'Director Mode is now always active. Fleet orchestration tools (spawn, assign, monitor, terminate) are available on every session without any command or flag. The `/director` slash command is a no-op that always succeeds.',
+    before: 'No preparation needed — Director Mode is always on.',
     during:
-      'The Director interface shows fleet status, task queues, and agent health. You orchestrate; agents execute.',
+      'Fleet orchestration tools are available without any promotion step.',
     after:
-      'Roll up results with `/fleet`. Terminate the fleet when work is complete with `/work_complete` or agent termination.',
+      'No action needed. Manage your fleet via /spawn, /fleet, /delegate, and /agents.',
   },
 
   '/delegate': {

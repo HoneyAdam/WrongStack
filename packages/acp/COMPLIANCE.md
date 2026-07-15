@@ -1,7 +1,7 @@
 # ACP v1 Compliance Report — @wrongstack/acp
 
-**Reviewed:** 2026-07-13
-**Package version:** 0.286.0
+**Reviewed:** 2026-07-15
+**Package version:** 0.287.0
 **Specification:** Agent Client Protocol v1
 **Official SDK:** `@agentclientprotocol/sdk` ^1.0.0 (re-exported for its WS/SSE
 types; the live client/server paths are a self-contained hand-rolled
@@ -172,7 +172,7 @@ Every ACP type defined in `acp-v1.ts`:
     "fs": { "readTextFile": true, "writeTextFile": true },
     "terminal": true
   },
-  "clientInfo": { "name": "wrongstack", "title": "WrongStack", "version": "0.263.0" }
+  "clientInfo": { "name": "wrongstack", "title": "WrongStack", "version": "0.287.0" }
 }
 ```
 

@@ -206,9 +206,9 @@ BEGIN.]
 
 **`/fleet`** command: `status` — task progress per subagent · `usage` — token + cost breakdown · `kill <id>` — stop one subagent · `kill` — stop all · `manifest` — full fleet snapshot · `log <id>` — transcript summary · `log <id> raw` — full JSONL dump · `journal` — recent parallel engine entries · `spawn <role> [count]` — spawn N subagents of a role · `terminate <subagentId>` — stop one · `retry <id>` — re-spawn a failed subagent · `stream on|off` — toggle live output streaming.
 
-**`/spawn [--provider --model --name --tools] <task>`** — launch a single subagent. No implicit budget cap; runs until done.
+**`/spawn [--provider --model --name --tools] <task>`** — launch a single subagent. No implicit budget cap; runs until done. Director Mode is permanently on — there is no `/director` command or `--director` flag to enable it; fleet tools are always available.
 
-**`/director`** — promote the session to Director mode at runtime (must be called before any subagent is spawned).
+**`/director`** — surfaces the current fleet status. With Director Mode permanently on this is now informational only; the actual fleet entry points are `/spawn`, `/fleet`, `/delegate`, and the goal-flow launcher.
 
 **`/autonomy parallel`** — LLM-driven fan-out mode described above.
 
@@ -222,9 +222,10 @@ Architecture: Host EventBus (always-on bridge) → Leader Agent (Director) + Fle
 
 **Collaborative debugging.** `Director.spawnCollab()` runs **BugHunter, RefactorPlanner, and Critic in parallel on one shared, immutable file snapshot**. Findings flow through the FleetBus as structured events (`bug.found → refactor.plan → critic.evaluation`); the Director routes each output to its dependents through a shared scratchpad — so agents build on each other's conclusions without exchanging full transcripts — and returns a single structured `CollabDebugReport`. Subagents signal upward with the `fleet_emit` tool.
 
-**`--director` flag** launches the full fleet roster from the CLI directly:
+**`--director` flag has been removed.** Director Mode is now permanent; there is no CLI flag to enable or disable it. Run the leader normally and use `/spawn`, `/fleet`, `/delegate`, or `/goal` to drive multi-agent work:
+
 ```bash
-wrongstack --director "audit src/ for security issues"
+wrongstack "audit src/ for security issues"   # Director plans + spawns automatically
 ```
 
 ### Brain-governed decisions
@@ -525,7 +526,7 @@ wstack desktop
 wrongstack --provider groq --model llama-3.3-70b-versatile
 
 # Director fleet orchestration
-wrongstack --director "audit src/ for security issues"
+wrongstack "audit src/ for security issues"   # Director Mode is permanently on
 
 # Single-shot query
 wrongstack "refactor src/auth.ts to async/await"
@@ -584,7 +585,6 @@ wrongstack --provider openrouter --model anthropic/claude-opus-4-7
 --skip-index         Skip codebase indexing and large-codebase prompt
 --token-saving-mode  Lean prompt: 10 Tier-1 tools, compact skills, lazy MCP (mcp_use)
 --yolo               Opt in to auto-approving non-denied tool calls (off by default; trust-file deny rules + `permission: 'deny'` tools still win)
---director           Enable Director-based fleet orchestration (LLM-driven subagent planning)
 --goal "<task>"      Boot directly into goal mode — GOAL preamble injected, TUI auto-enabled
 --eternal "<task>"   Start an eternal-autonomy loop against a goal
 --ask "<text>"       Submit one turn verbatim on TUI boot (no preamble)
@@ -602,6 +602,8 @@ Every built-in command is tagged with a category (`Run` · `Session` · `Inspect
 
 **Multi-agent:** `/spawn` `/fleet` `/agents` `/shadow` `/supervisor` `/goal` `/director` `/collab` `/setmodel` `/models` `/fallback`
 
+`/director` is a status command; the actual fleet entry points are `/spawn`, `/fleet`, `/delegate`, and `/goal`.
+
 **TUI-only** (need `--tui`): `/model` (provider → model picker) · `/steer` (mid-flight redirect — the plain REPL uses **Esc** instead) · `/queue`
 
 **Built-in plugins** (enabled by default): `/prompts` `/prompt` `/prompt-gen` `/sync` `/commit` `/gitcheck` `/push` `/security` `/chimera` `/skill` `/skill-gen` `/skill-search` `/skill-install` `/skill-import` `/skill-update` `/skill-uninstall` `/plan` `/metrics` `/health`
@@ -612,8 +614,8 @@ Every built-in command is tagged with a category (`Run` · `Session` · `Inspect
 |---|---|
 | `/init` | Create `.wrongstack/AGENTS.md` — auto-detects build system (package.json / pyproject.toml / go.mod / Cargo.toml / Makefile) and pre-fills build/test/lint/run commands |
 | `/dev <shell command>` | Run a shell command from the chat input and see the output. The LLM does NOT see the result — this is a developer convenience shortcut. Timeout: 60 s. Max output: 500 lines |
-| `/spawn [--provider --model --name --tools] <task>` | Launch a single subagent with optional overrides. No implicit budget cap |
-| `/director` | Promote session to Director mode at runtime (must be before any subagent spawns) |
+| `/spawn [--provider --model --name --tools] <task>` | Launch a single subagent with optional overrides. No implicit budget cap. Director Mode is permanently on — fleet tools are always available |
+| `/director` | Show fleet status (Director Mode is permanently on — there is no promote action) |
 | `/fleet status\|usage\|kill\|manifest\|retry\|log\|stream on\|off\|journal\|spawn\|terminate` | Inspect and control the subagent fleet. `log <id>` summarises; `log <id> raw` dumps full JSONL |
 | `/agents` | Print fleet roster (running, idle, completed) with kind chips for failures |
 | `/supervisor [status\|on\|off\|log [n]]` | Inspect or toggle the Brain-gated fleet supervisor. It starts with the Director fleet when a Brain is available and can rebalance pending tasks, spawn helpers, steer workers, or notify the leader |
@@ -770,7 +772,7 @@ Commit this file to share project conventions with the agent across all develope
 | `@wrongstack/webui-hq` | React HQ Command Center dashboard for `wrongstack --hq` |
 | `wrongstack` | Published CLI app entry (`wrongstack` / `wstack`) |
 | `@wrongstack/desktop` | Electron desktop shell — `wrongstack --desktop`, `wstack desktop`, `wrongstack-desktop` |
-| `@wrongstack/plugins` | Official plugin collection — 36 plugins via subpath exports |
+| `@wrongstack/plugins` | Official plugin collection — 63 focused, single-purpose plugins via subpath exports |
 
 ## Architecture
 
@@ -781,7 +783,7 @@ WebUI     → Browser UI + WS bridge (standalone wstackui or --webui)
 Desktop   → Electron shell hosting token-required local WebUI runtimes (--desktop)
 HQ        → Cross-machine command center (--hq)
 Steering  → Esc / /steer / /goal — mid-flight redirect + autonomous lock-in
-Director  → Fleet orchestration (LLM-driven, opt-in via --director)
+Director  → Fleet orchestration (LLM-driven, always active)
 Agent     → loop, context, system prompt, permission, compaction, autoExtendLimit
 Tools     → ToolExecutor (parallel/sequential/smart strategies, abort-safe)
 Runtime   → Default host assembly + WrongStackPack extension composition
@@ -794,11 +796,11 @@ For the full walk-through — including the L1-A reactive `ConversationState`, h
 
 ## Status
 
-- **9300+ tests passing** across 500+ test files in the release gate
-- Coverage thresholds: ≥85 % lines / ≥85 % functions / ≥70 % branches / ≥82 % statements
-- All 18 packages + 2 apps build clean with TypeScript strict + `noUncheckedIndexedAccess`
+- **5 800+ tests passing** across ~620 test files in the release gate
+- Coverage thresholds (root Vitest): ≥73 % lines / ≥73 % functions / ≥64 % branches / ≥72 % statements. WebUI Vitest: ≥19 % across all four metrics
+- All 20 packages + 2 apps build clean with TypeScript strict + `noUncheckedIndexedAccess`
 - Node 22.19+ only, ESM-only, no CommonJS bundles
-- Release gate verified locally: `pnpm audit --audit-level=moderate` + `pnpm typecheck` + `pnpm test` + `pnpm build`
+- Release gate verified locally: `pnpm audit --audit-level=moderate` + `pnpm typecheck` + `pnpm build` + per-package `pnpm test` runs; full `pnpm release:check` must complete on the frozen release SHA
 - Threat model: [`SECURITY.md`](SECURITY.md)
 
 ## Contributor docs

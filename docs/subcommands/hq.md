@@ -130,9 +130,9 @@ Consequences:
 - `wstack --hq --help` prints the standard help and exits without
   starting HQ. Use `wstack --hq` alone (or with `--host`/`--port`/
   `--strict-port`/`--open`) to actually start it.
-- Other flags that the HQ path ignores (e.g. `--tui`, `--webui`,
-  `--director`, `--recover`) are silently dropped on the HQ path because
-  the dispatch never reaches `boot()`.
+-- Other flags that the HQ path ignores (e.g. `--tui`, `--webui`,
+  `--recover`) are silently dropped on the HQ path because
+  the dispatch never reaches `boot()`. `--director` is removed entirely — Director Mode is hard-coded on.
 
 ## HTTP routes
 
