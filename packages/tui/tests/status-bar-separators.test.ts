@@ -29,10 +29,50 @@ function frameOf(props: Partial<StatusBarProps>): string {
  * combinations. These tests pin the corrected behavior.
  */
 describe('StatusBar chip separators', () => {
+  it('places live provider/model after project/workdir and before context', () => {
+    const frame = frameOf({
+      provider: 'openai',
+      model: 'gpt-5.6',
+      projectName: 'WrongStack',
+      workingDir: 'packages/tui',
+      context: { used: 25_000, max: 100_000 },
+      hiddenItems: ['state'],
+    });
+    const line = frame.split('\n')[0] ?? '';
+
+    expect(line).toMatch(/▣ WrongStack.*▶.*⌁ packages\/tui.*▶.*openai\/gpt-5\.6.*▶.*\[00o/);
+  });
+
+  it('updates the rendered provider/model when current state changes', () => {
+    const view = render(
+      React.createElement(StatusBar, {
+        provider: 'anthropic',
+        model: 'claude-sonnet',
+        state: 'idle',
+        projectName: 'WrongStack',
+        hiddenItems: ['state'],
+      } as StatusBarProps),
+    );
+    expect(strip(view.lastFrame() ?? '')).toContain('anthropic/claude-sonnet');
+
+    view.rerender(
+      React.createElement(StatusBar, {
+        provider: 'openai',
+        model: 'gpt-5.6',
+        state: 'idle',
+        projectName: 'WrongStack',
+        hiddenItems: ['state'],
+      } as StatusBarProps),
+    );
+    const frame = strip(view.lastFrame() ?? '');
+    expect(frame).toContain('openai/gpt-5.6');
+    expect(frame).not.toContain('anthropic/claude-sonnet');
+    view.unmount();
+  });
+
   it('line 1: separates the autonomy chip from subsequent runtime chips', () => {
-    // Autonomy is now on line 1 (first chip). Project is on line 2.
-    // Verify both appear in the output but not necessarily with a transition
-    // between them since they're on different lines.
+    // Autonomy and project now share line 1; both should remain separated
+    // from the following runtime chips.
     const frame = frameOf({
       autonomy: 'auto',
       projectName: 'proj',
@@ -41,8 +81,8 @@ describe('StatusBar chip separators', () => {
     });
     expect(frame).toContain('∞ AUTO');
     expect(frame).toContain('▣ proj');
-    // Autonomy should have a transition to the next line-1 chip (state/idle)
-    expect(frame).toMatch(/AUTO.*▶.*● idle/);
+    // Autonomy transitions through project to the next line-1 runtime chip.
+    expect(frame).toMatch(/AUTO.*▶.*▣ proj.*▶.*● idle/);
   });
 
   it('line 2: separates the task chip from the fleet chip without todos/plan present', () => {

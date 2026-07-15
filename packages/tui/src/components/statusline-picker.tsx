@@ -127,13 +127,13 @@ const ITEM_DESCRIPTIONS: Record<StatuslineItem, string> = {
 /**
  * Which TUI status bar line each chip appears on. Used to group chips
  * visually in the picker. MUST mirror the actual render lines in
- * `status-bar.tsx`: line 1 = runtime + mode chips, line 2 = session context,
+ * `status-bar.tsx`: line 1 = workspace + runtime chips, line 2 = session context,
  * line 3 = active work + connectivity. Exported so the navigation-order
  * test guards against drift instead of duplicating it.
  */
 export const ITEM_LINE: Record<StatuslineItem, number> = {
-  // Line 1 — runtime + mode: secondary mode indicators, runtime essentials,
-  // elapsed, and working directory
+  // Line 1 — workspace + runtime: secondary mode indicators, project/workdir,
+  // provider/model, context, and remaining runtime essentials
   autonomy: 1,
   breaker: 1,
   cache: 1,
@@ -151,13 +151,13 @@ export const ITEM_LINE: Record<StatuslineItem, number> = {
   version: 1,
   working_dir: 1,
   yolo: 1,
-  // Line 2 — session context: project, git, mode, goals, countdowns, tools
+  // Line 2 — session context: git, mode, goals, countdowns, tools
   auto_proceed: 2,
   eternal_stage: 2,
   git: 2,
   goal: 2,
   mode: 2,
-  project: 2,
+  project: 1,
   sessions: 2,
   token_saving: 2,
   tools: 2,
@@ -201,6 +201,7 @@ export const STATUSLINE_ITEMS: StatuslineItem[] = [
   'index',
   'model',
   'processes',
+  'project',
   'queue',
   'state',
   'time',
@@ -214,7 +215,6 @@ export const STATUSLINE_ITEMS: StatuslineItem[] = [
   'git',
   'goal',
   'mode',
-  'project',
   'sessions',
   'token_saving',
   'tools',

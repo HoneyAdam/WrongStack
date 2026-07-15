@@ -1,23 +1,19 @@
+import type { AutonomyStage, EventBus, TokenCounter, TokenSavingTier } from '@wrongstack/core';
 import { expectDefined } from '@wrongstack/core';
-import type { EventBus, TokenCounter, AutonomyStage, TokenSavingTier } from '@wrongstack/core';
-import { Box, Text, useStdout } from '../ink.js';
 import type React from 'react';
-import { isValidElement } from 'react';
-import type { ChipMeta, StatuslineItem } from './statusline-picker.js';
-import type { StatuslineMode } from './settings-picker.js';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useTokenCounterRefresh } from '../hooks/use-token-counter-refresh.js';
-import { normalizeTuiThinkingWord } from '../thinking-word.js';
+import { isValidElement, useEffect, useMemo, useRef, useState } from 'react';
 import type { GitInfo } from '../git-info.js';
-import {
-  type AnimationStyle,
-  CYCLE_TICK_INTERVAL_MS,
-} from './animation-style.js';
-import { PowerlineRail } from './powerline-rail.js';
-import { theme } from '../theme.js';
-import { glyphs } from '../ui-glyphs.js';
+import { useTokenCounterRefresh } from '../hooks/use-token-counter-refresh.js';
+import { Box, Text, useStdout } from '../ink.js';
 import { displayWidth } from '../terminal-width.js';
+import { theme } from '../theme.js';
+import { normalizeTuiThinkingWord } from '../thinking-word.js';
+import { glyphs } from '../ui-glyphs.js';
+import { type AnimationStyle, CYCLE_TICK_INTERVAL_MS } from './animation-style.js';
+import { PowerlineRail } from './powerline-rail.js';
+import type { StatuslineMode } from './settings-picker.js';
 import { BrainChip, EternalStageChip, ThinkingChip } from './status-bar-chips.js';
+import type { ChipMeta, StatuslineItem } from './statusline-picker.js';
 
 // ─── Stream chip expiration helpers ─────────────────────────────────────────
 
@@ -530,8 +526,8 @@ export interface StatusBarProps {
 
 /**
  * Two-line status bar. The first line stays compact and shows the
- * runtime essentials (state · model · tokens · cost · queue · running
- * tool). The second line opts in only when there's actually something
+ * workspace route followed by provider/model, context, tokens, cost, queue,
+ * and other runtime essentials. The second line opts in only when there's actually something
  * to show — git branch, elapsed time, todo counts, YOLO marker — so a
  * vanilla session keeps the original single-line footprint.
  */
@@ -746,7 +742,7 @@ export function StatusBar({
       : '',
   ].filter(Boolean);
 
-  const primaryChips: React.ReactElement[] = [
+  const stateStatusChip =
     showChip('state') && thinking ? (
       <ThinkingChip
         text={`${statePrefix} ${stateLabel}`}
@@ -758,23 +754,29 @@ export function StatusBar({
       <Text color={isNoColor ? undefined : stateColor}>
         {statePrefix} {stateLabel}
       </Text>
-    ) : null,
-    showChip('model') ? (
-      <Text color={isNoColor ? undefined : theme.monitor.agents}>
-        {showChip('state') ? ' ' : ''}
-        {provider ? (
-          <Text dimColor>{provider}/</Text>
-        ) : null}
-        {model}
-      </Text>
-    ) : null,
+    ) : null;
+
+  const modelStatusChip = showChip('model') ? (
+    <Text color={isNoColor ? undefined : theme.monitor.agents}>
+      {provider ? <Text dimColor>{provider}/</Text> : null}
+      {model}
+    </Text>
+  ) : null;
+
+  const primaryChips: React.ReactElement[] = [
     // Combined context bar: meter · tokens · cost
     (context || showTokenDisplay || (cost?.total ?? 0) > 0) &&
     (showChip('context') || showChip('tokens') || showChip('cost'))
       ? (() => {
           const ratio = context ? Math.min(context.used / context.max, 1) : 0;
           const pctText = context ? `${Math.min(Math.round(ratio * 100), 100)}%` : '';
-          const barColor = isNoColor ? undefined : ratio < 0.6 ? theme.success : ratio < 0.75 ? theme.warn : theme.error;
+          const barColor = isNoColor
+            ? undefined
+            : ratio < 0.6
+              ? theme.success
+              : ratio < 0.75
+                ? theme.warn
+                : theme.error;
           const hasTokens = showTokenDisplay && showChip('tokens');
           const hasCost = cost && cost.total > 0 && showChip('cost');
           const segments: string[] = [];
@@ -795,20 +797,23 @@ export function StatusBar({
               {sep && context ? <Text dimColor={!isNoColor}>{' · '}</Text> : null}
               {hasTokens ? (
                 <Text>
-                  <Text
-                    color={isNoColor ? undefined : theme.textSecondary}
-                  >{'↑'}</Text>
-                  <Text color={isNoColor ? undefined : theme.accent}>{fmtTok(displayTokens.input)}</Text>
-                  <Text
-                    color={isNoColor ? undefined : theme.textSecondary}
-                  >{' ↓'}</Text>
-                  <Text color={isNoColor ? undefined : theme.accent}>{fmtTok(displayTokens.output)}</Text>
+                  <Text color={isNoColor ? undefined : theme.textSecondary}>{'↑'}</Text>
+                  <Text color={isNoColor ? undefined : theme.accent}>
+                    {fmtTok(displayTokens.input)}
+                  </Text>
+                  <Text color={isNoColor ? undefined : theme.textSecondary}>{' ↓'}</Text>
+                  <Text color={isNoColor ? undefined : theme.accent}>
+                    {fmtTok(displayTokens.output)}
+                  </Text>
                 </Text>
               ) : null}
-              {sep && hasCost && (context || hasTokens) ? <Text dimColor={!isNoColor}>{' · '}</Text> : null}
+              {sep && hasCost && (context || hasTokens) ? (
+                <Text dimColor={!isNoColor}>{' · '}</Text>
+              ) : null}
               {hasCost ? (
                 <Text color={isNoColor ? undefined : theme.warn}>
-                  {glyphs.cost}{cost.total.toFixed(4)}
+                  {glyphs.cost}
+                  {cost.total.toFixed(4)}
                 </Text>
               ) : null}
             </Text>
@@ -850,8 +855,8 @@ export function StatusBar({
   ].filter((chip): chip is React.ReactElement => chip !== null);
 
   const modeChips = [
-    // Line 1 runtime chips: YOLO, autonomy, time, workfolder (user request),
-    // then state, model, context, tokens, plus elapsed and working_dir.
+    // Line 1 runtime chips: YOLO, autonomy, project/workdir, provider/model,
+    // then the context meter and remaining runtime details.
     yolo && showChip('yolo') ? (
       <Text color={chipColor(theme.error, isNoColor)} bold>
         {isNoColor ? 'YOLO' : `${glyphs.warning} YOLO`}
@@ -860,11 +865,7 @@ export function StatusBar({
     autonomy && autonomy !== 'off' && showChip('autonomy') ? (
       <Text
         color={chipColor(
-          autonomy === 'eternal'
-            ? theme.error
-            : autonomy === 'auto'
-              ? theme.warn
-              : theme.accent,
+          autonomy === 'eternal' ? theme.error : autonomy === 'auto' ? theme.warn : theme.accent,
           isNoColor,
         )}
         bold
@@ -879,17 +880,21 @@ export function StatusBar({
           : `${glyphs.folder} ${truncateChip(projectName, 24)}`}
       </Text>
     ) : null,
-    ...primaryChips,
-    fleetWorkingTime != null && fleetWorkingTime > 0 && showChip('elapsed') ? (
-      <Text dimColor={!isNoColor}>
-        {isNoColor ? fmtElapsed(fleetWorkingTime) : `${glyphs.clock} ${fmtElapsed(fleetWorkingTime)}`}
-      </Text>
-    ) : null,
     workingDir && showChip('working_dir') ? (
       <Text color={chipColor(theme.accent, isNoColor)}>
         {isNoColor
           ? truncateChip(workingDir, 28)
           : `${glyphs.workingDirectory} ${truncateChip(workingDir, 28)}`}
+      </Text>
+    ) : null,
+    modelStatusChip,
+    ...primaryChips,
+    stateStatusChip,
+    fleetWorkingTime != null && fleetWorkingTime > 0 && showChip('elapsed') ? (
+      <Text dimColor={!isNoColor}>
+        {isNoColor
+          ? fmtElapsed(fleetWorkingTime)
+          : `${glyphs.clock} ${fmtElapsed(fleetWorkingTime)}`}
       </Text>
     ) : null,
   ].filter((c): c is React.ReactElement => c !== null);
@@ -911,7 +916,8 @@ export function StatusBar({
     // Model
     showChip('model') ? (
       <Text color={chipColor(theme.monitor.agents, isNoColor)}>
-        {provider ? `${provider}/` : ''}{model}
+        {provider ? `${provider}/` : ''}
+        {model}
       </Text>
     ) : null,
     // Context bar (compact: 6 blocks, optional tokens)
@@ -919,7 +925,13 @@ export function StatusBar({
       ? (() => {
           const ratio = context ? Math.min(context.used / context.max, 1) : 0;
           const pct = context ? `${Math.min(Math.round(ratio * 100), 100)}%` : '';
-          const c = context ? (ratio < 0.6 ? theme.success : ratio < 0.75 ? theme.warn : theme.error) : theme.textSecondary;
+          const c = context
+            ? ratio < 0.6
+              ? theme.success
+              : ratio < 0.75
+                ? theme.warn
+                : theme.error
+            : theme.textSecondary;
           const hasTokens = showTokenDisplay && showChip('tokens');
           return (
             <Text>
@@ -929,8 +941,14 @@ export function StatusBar({
               {hasTokens && context ? <Text dimColor={!isNoColor}>{' · '}</Text> : null}
               {hasTokens ? (
                 <Text color={chipColor(theme.textSecondary, isNoColor)}>
-                  ↑<Text color={chipColor(theme.accent, isNoColor)}>{fmtTok(displayTokens.input)}</Text>
-                  {' '}↓<Text color={chipColor(theme.accent, isNoColor)}>{fmtTok(displayTokens.output)}</Text>
+                  ↑
+                  <Text color={chipColor(theme.accent, isNoColor)}>
+                    {fmtTok(displayTokens.input)}
+                  </Text>{' '}
+                  ↓
+                  <Text color={chipColor(theme.accent, isNoColor)}>
+                    {fmtTok(displayTokens.output)}
+                  </Text>
                 </Text>
               ) : null}
             </Text>
@@ -941,11 +959,7 @@ export function StatusBar({
     autonomy && autonomy !== 'off' && showChip('autonomy') ? (
       <Text
         color={chipColor(
-          autonomy === 'eternal'
-            ? theme.error
-            : autonomy === 'auto'
-              ? theme.warn
-              : theme.accent,
+          autonomy === 'eternal' ? theme.error : autonomy === 'auto' ? theme.warn : theme.accent,
           isNoColor,
         )}
         bold
@@ -959,11 +973,7 @@ export function StatusBar({
     ) : null,
     // Work summary (compact)
     ...(minimalWorkParts.length > 0
-      ? [
-          <Text dimColor={!isNoColor}>
-            {minimalWorkParts.slice(0, 2).join(' · ')}
-          </Text>,
-        ]
+      ? [<Text dimColor={!isNoColor}>{minimalWorkParts.slice(0, 2).join(' · ')}</Text>]
       : []),
   ].filter((c): c is React.ReactElement => c !== null);
 
@@ -1031,7 +1041,8 @@ export function StatusBar({
   const hasActiveGoal = goalSummary != null && showChip('goal');
   const showEternalStage = eternalStage != null && showChip('eternal_stage');
   const hasWorkActivity =
-    (todos && (todos.pending > 0 || todos.inProgress > 0 || (todos.completed > 0 && !todosCleared))) ||
+    (todos &&
+      (todos.pending > 0 || todos.inProgress > 0 || (todos.completed > 0 && !todosCleared))) ||
     (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0)) ||
     hasTaskActivity ||
     fleetHasActivity ||
@@ -1059,8 +1070,9 @@ export function StatusBar({
 
   return (
     <Box flexDirection="column" paddingX={0}>
-      {/* Line 1 — Runtime + mode chips: YOLO, autonomy, state, model, context,
-          tokens, cost, queue, processes, hint, index, breaker, elapsed, working_dir */}
+      {/* Line 1 — Runtime + mode chips: YOLO, autonomy, project/workdir,
+          provider/model, context, tokens, cost, queue, processes, hint, index,
+          breaker, state, elapsed */}
       <PowerlineRail
         segments={isCompact ? modeChips.slice(0, 5) : modeChips}
         budget={Math.max(12, termWidth)}
@@ -1125,10 +1137,8 @@ export function StatusBar({
         <PowerlineRail
           segments={[
             todos &&
-                (todos.pending > 0 ||
-                  todos.inProgress > 0 ||
-                  (todos.completed > 0 && !todosCleared)) &&
-                showChip('todos') ? (
+            (todos.pending > 0 || todos.inProgress > 0 || (todos.completed > 0 && !todosCleared)) &&
+            showChip('todos') ? (
               <Text>
                 <Text dimColor={!isNoColor}>todos </Text>
                 {todos.inProgress > 0 ? (
@@ -1224,8 +1234,7 @@ export function StatusBar({
                       {isNoColor ? `▶${fleet.running}` : `▶${fleet.running}`}
                     </Text>
                   ) : null}
-                  {fleet.running > 0 &&
-                  (fleet.pending > 0 || fleet.idle > 0 || fleet.completed > 0)
+                  {fleet.running > 0 && (fleet.pending > 0 || fleet.idle > 0 || fleet.completed > 0)
                     ? ' '
                     : ''}
                   {fleet.pending > 0 ? (
@@ -1278,9 +1287,7 @@ export function StatusBar({
                 </Text>
                 <Text dimColor={!isNoColor}>
                   {' '}
-                  {nextStepsAutoSubmitLabel
-                    ? formatSuggestionLabel(nextStepsAutoSubmitLabel)
-                    : ''}
+                  {nextStepsAutoSubmitLabel ? formatSuggestionLabel(nextStepsAutoSubmitLabel) : ''}
                   {' · ⇥ edit'}
                 </Text>
               </>
@@ -1295,7 +1302,8 @@ export function StatusBar({
                     ? undefined
                     : goalSummary!.goalState === 'abandoned'
                       ? theme.textMuted
-                      : goalSummary!.goalState === 'active' || goalSummary!.goalState === 'completed'
+                      : goalSummary!.goalState === 'active' ||
+                          goalSummary!.goalState === 'completed'
                         ? theme.success
                         : theme.warn
                 }
@@ -1341,55 +1349,72 @@ export function StatusBar({
  * misleading, so when `fleetRunning > 0` and the foreground is idle we surface
  * the live agent count (`agents ▶N`) in a distinct color instead.
  */
-// Powerline geometry: one start cap, one cell of padding on either side of
-// every segment, and a one-cell transition between adjacent segments.
+// Powerline geometry: one start cap and one cell of padding on either side of
+// every segment. Hit-test helpers add the renderer's transition width explicitly.
 const RAIL_CAP = 1;
 const RAIL_PAD = 2;
-const RAIL_TRANSITION = 1;
 
 /**
- * 0-based column span (offset from the box's left edge, including the left
- * paddingX) of the `{provider}/{model}` chip on status-bar line 1. The TUI
- * mouse handler uses it to make the model chip clickable (→ open model
- * picker). Mirrors the line-1 flex layout: optional `WS v…` chip + `│`, then
- * `● {stateLabel}` + `│`, then the model.
+ * 0-based column span (offset from the box's left edge) of the
+ * `{provider}/{model}` chip on status-bar line 1. The TUI mouse handler uses
+ * it to open the model picker. This mirrors the visible workspace prefix:
+ * YOLO/autonomy, project, working directory, then provider/model.
  */
 export function statusBarModelSpan(opts: {
-  state: 'idle' | 'running' | 'streaming' | 'aborting';
-  fleetRunning?: number | undefined;
-  thinkingWord?: string | undefined;
-  /** When true the `state` chip is render-suppressed, so the model chip sits one
-   *  segment further left (no `● {label}` term). */
-  stateHidden?: boolean | undefined;
   model: string;
-  /** Provider prefix — surfaced alongside model as `provider/model`.
-   *  When set, its display width plus the `/` separator is included in the span. */
   provider?: string | undefined;
+  yolo?: boolean | undefined;
+  autonomy?: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel' | undefined;
+  projectName?: string | undefined;
+  workingDir?: string | undefined;
+  projectHidden?: boolean | undefined;
+  workingDirHidden?: boolean | undefined;
+  monochrome?: boolean | undefined;
 }): { start: number; len: number } {
-  let col = RAIL_CAP;
-  if (!opts.stateHidden) {
-    const { label } = stateChip(opts.state, opts.fleetRunning ?? 0, opts.thinkingWord);
-    col += displayWidth(`● ${label}`) + RAIL_PAD + RAIL_TRANSITION;
+  const leading: string[] = [];
+  if (opts.yolo) leading.push(opts.monochrome ? 'YOLO' : `${glyphs.warning} YOLO`);
+  if (opts.autonomy && opts.autonomy !== 'off') {
+    leading.push(
+      opts.monochrome ? opts.autonomy.toUpperCase() : `∞ ${opts.autonomy.toUpperCase()}`,
+    );
   }
+  if (opts.projectName && !opts.projectHidden) {
+    const project = truncateChip(opts.projectName, 24);
+    leading.push(opts.monochrome ? project : `${glyphs.folder} ${project}`);
+  }
+  if (opts.workingDir && !opts.workingDirHidden) {
+    const workingDir = truncateChip(opts.workingDir, 28);
+    leading.push(opts.monochrome ? workingDir : `${glyphs.workingDirectory} ${workingDir}`);
+  }
+
+  const transitionWidth = 3; // PowerlineRail renders ` space + glyph + space `.
+  const precedingWidth = leading.reduce(
+    (total, text) => total + displayWidth(text) + RAIL_PAD + transitionWidth,
+    0,
+  );
   const full = opts.provider ? `${opts.provider}/${opts.model}` : opts.model;
-  return { start: col + 1, len: displayWidth(full) };
+  return { start: RAIL_CAP + precedingWidth + 1, len: displayWidth(full) };
 }
 
 /**
- * 0-based column span of the `∞ MODE` autonomy chip on status-bar line 2, or
- * null when it isn't shown (autonomy off/unset). When YOLO is on it precedes
- * the autonomy chip (plus a `│` separator), so the span shifts right.
+ * 0-based column span of the autonomy chip on status-bar line 1, or null when
+ * autonomy is off/unset. Mirrors both colored (`∞ MODE`) and monochrome
+ * (`MODE`) Powerline rendering, including an optional leading YOLO segment.
  */
 export function statusBarAutonomySpan(opts: {
   yolo?: boolean | undefined;
   autonomy?: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel' | undefined;
+  monochrome?: boolean | undefined;
 }): { start: number; len: number } | null {
   if (!opts.autonomy || opts.autonomy === 'off') return null;
   let col = RAIL_CAP;
   if (opts.yolo) {
-    col += displayWidth(`${glyphs.warning} YOLO`) + RAIL_PAD + RAIL_TRANSITION;
+    const yolo = opts.monochrome ? 'YOLO' : `${glyphs.warning} YOLO`;
+    const transitionWidth = 3;
+    col += displayWidth(yolo) + RAIL_PAD + transitionWidth;
   }
-  return { start: col + 1, len: 2 + opts.autonomy.toUpperCase().length }; // "∞ " + MODE
+  const label = opts.monochrome ? opts.autonomy.toUpperCase() : `∞ ${opts.autonomy.toUpperCase()}`;
+  return { start: col + 1, len: displayWidth(label) };
 }
 
 /**

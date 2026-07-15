@@ -1,51 +1,49 @@
 import { describe, expect, it } from 'vitest';
 import {
   fmtElapsed,
+  hasTokenDisplay,
   renderMeter,
   renderProgress,
   stateChip,
   statusBarAutonomySpan,
   statusBarModelSpan,
-  hasTokenDisplay,
   tokenDisplayTotals,
 } from '../src/components/status-bar.js';
 import { theme } from '../src/theme.js';
 
 describe('statusBarModelSpan (hit-test geometry)', () => {
-  it('places the model chip after the state chip (no version)', () => {
-    const span = statusBarModelSpan({ state: 'idle', model: 'anthropic/claude' });
-    // cap(1) + segment padding(1) + "● idle"(6) + transition(1) + padding(1) = 10
-    expect(span).toEqual({ start: 11, len: 'anthropic/claude'.length });
-  });
-
-  it('widens the offset for the longer "thinking…" state label', () => {
-    const idle = statusBarModelSpan({ state: 'idle', model: 'm' });
-    const busy = statusBarModelSpan({ state: 'running', model: 'm' });
-    // "thinking…"(9) vs "idle"(4) → +5
-    expect(busy.start - idle.start).toBe(5);
-  });
-
-  it('accounts for a configured thinking word', () => {
-    const idle = statusBarModelSpan({ state: 'idle', model: 'm' });
-    const busy = statusBarModelSpan({ state: 'running', thinkingWord: 'working', model: 'm' });
-    // "working…"(8) vs "idle"(4) → +4
-    expect(busy.start - idle.start).toBe(4);
-  });
-
-  it('drops the state-chip term when the state chip is hidden', () => {
-    // The composer top-rail chip now owns the state indicator, so the statusline
-    // hides its own `state` chip and the model chip shifts left by the whole
-    // "● {label}" segment (content + two pads + one transition).
-    const shown = statusBarModelSpan({ state: 'running', thinkingWord: 'working', model: 'm' });
-    const hidden = statusBarModelSpan({
-      state: 'running',
-      thinkingWord: 'working',
-      stateHidden: true,
-      model: 'm',
+  it('places the model directly after the rail cap without workspace chips', () => {
+    expect(statusBarModelSpan({ model: 'anthropic/claude' })).toEqual({
+      start: 2,
+      len: 'anthropic/claude'.length,
     });
-    // "● working…"(10) + pad(1) + pad(1) + transition(1) = 13 removed.
-    expect(shown.start - hidden.start).toBe(13);
-    // With no version and no state chip, the model sits right after the cap.
+  });
+
+  it('accounts for project and working-directory chips before provider/model', () => {
+    const span = statusBarModelSpan({
+      provider: 'openai',
+      model: 'gpt-5.6',
+      projectName: 'WrongStack',
+      workingDir: 'packages/tui',
+    });
+    // cap(1) + each preceding segment's content/padding/transition + model pad(1)
+    expect(span).toEqual({ start: 38, len: 'openai/gpt-5.6'.length });
+  });
+
+  it('omits hidden workspace chips from the model offset', () => {
+    const visible = statusBarModelSpan({
+      model: 'm',
+      projectName: 'WrongStack',
+      workingDir: 'packages/tui',
+    });
+    const hidden = statusBarModelSpan({
+      model: 'm',
+      projectName: 'WrongStack',
+      workingDir: 'packages/tui',
+      projectHidden: true,
+      workingDirHidden: true,
+    });
+    expect(visible.start).toBeGreaterThan(hidden.start);
     expect(hidden.start).toBe(2);
   });
 });
@@ -63,10 +61,18 @@ describe('statusBarAutonomySpan (hit-test geometry)', () => {
     });
   });
 
-  it('shifts right past the YOLO chip + separator', () => {
+  it('shifts right past the YOLO chip + Powerline transition', () => {
     const span = statusBarAutonomySpan({ yolo: true, autonomy: 'eternal' });
-    // cap(1) + " ! YOLO "(8) + transition(1) + next segment padding(1) = 11
-    expect(span).toEqual({ start: 11, len: 2 + 'ETERNAL'.length });
+    // cap(1) + "! YOLO"(6) + padding(2) + " ▶ "(3) + next padding(1) = 13
+    expect(span).toEqual({ start: 13, len: 2 + 'ETERNAL'.length });
+  });
+
+  it('matches monochrome labels and YOLO geometry', () => {
+    expect(statusBarAutonomySpan({ yolo: true, autonomy: 'auto', monochrome: true })).toEqual({
+      // cap(1) + "YOLO"(4) + padding(2) + " › "(3) + next padding(1) = 11
+      start: 11,
+      len: 'AUTO'.length,
+    });
   });
 });
 
@@ -118,8 +124,14 @@ describe('stateChip', () => {
   });
 
   it('falls back to thinking for invalid configured words', () => {
-    expect(stateChip('running', 0, 'two words')).toEqual({ label: 'thinking…', color: theme.success });
-    expect(stateChip('running', 0, 'x'.repeat(17))).toEqual({ label: 'thinking…', color: theme.success });
+    expect(stateChip('running', 0, 'two words')).toEqual({
+      label: 'thinking…',
+      color: theme.success,
+    });
+    expect(stateChip('running', 0, 'x'.repeat(17))).toEqual({
+      label: 'thinking…',
+      color: theme.success,
+    });
   });
 });
 
@@ -181,7 +193,9 @@ describe('renderMeter (bracket-style)', () => {
 
 describe('tokenDisplayTotals', () => {
   it('falls back to current request input tokens when provider usage totals are zero', () => {
-    expect(tokenDisplayTotals({ input: 0, output: 0 }, { input: 3210, cacheRead: 40, cacheWrite: 10 })).toEqual({
+    expect(
+      tokenDisplayTotals({ input: 0, output: 0 }, { input: 3210, cacheRead: 40, cacheWrite: 10 }),
+    ).toEqual({
       input: 3260,
       output: 0,
     });
@@ -197,7 +211,11 @@ describe('tokenDisplayTotals', () => {
   });
 
   it('marks the token chip visible when only outgoing request tokens exist', () => {
-    expect(hasTokenDisplay(tokenDisplayTotals(undefined, { input: 3210, cacheRead: 40, cacheWrite: 10 }))).toBe(true);
+    expect(
+      hasTokenDisplay(
+        tokenDisplayTotals(undefined, { input: 3210, cacheRead: 40, cacheWrite: 10 }),
+      ),
+    ).toBe(true);
   });
 
   it('keeps the token chip hidden when no input or output tokens exist', () => {

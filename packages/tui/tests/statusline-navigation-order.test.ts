@@ -35,8 +35,8 @@ describe('STATUSLINE_ITEMS navigation order matches visual layout', () => {
 
   it('is alphabetically sorted within each line (after priority items)', () => {
     // Priority items that appear at the start of a line regardless of alpha sort.
-    // Currently only line 1 has priority items (yolo, autonomy, time, project).
-    const PRIORITY_ITEMS = new Set(['yolo', 'autonomy', 'time', 'project']);
+    // Currently only line 1 has priority items (yolo, autonomy, time).
+    const PRIORITY_ITEMS = new Set(['yolo', 'autonomy', 'time']);
 
     // Group by line
     const byLine = new Map<number, string[]>();

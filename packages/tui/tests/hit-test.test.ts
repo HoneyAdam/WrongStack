@@ -60,8 +60,8 @@ describe('statusBarLineRow', () => {
   const base = { termRows: 24, statusBarHeight: 4, belowHeight: 0, headerRows: 1 };
 
   it('places content lines after the border, bottom-anchored', () => {
-    expect(statusBarLineRow({ ...base, line: 0 })).toBe(22); // line 1 (model)
-    expect(statusBarLineRow({ ...base, line: 1 })).toBe(23); // line 2 (autonomy)
+    expect(statusBarLineRow({ ...base, line: 0 })).toBe(22); // line 1 (model/autonomy)
+    expect(statusBarLineRow({ ...base, line: 1 })).toBe(23); // line 2 (session context)
     expect(statusBarLineRow({ ...base, line: 2 })).toBe(24); // line 3 (todos)
   });
 

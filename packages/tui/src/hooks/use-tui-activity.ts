@@ -43,8 +43,6 @@ export function useTuiActivity({
   const displayThinkingWord = isRandomTuiThinkingWord(thinkingWord)
     ? rolledThinkingWord
     : thinkingWord;
-  const displayThinkingWordRef = useRef(displayThinkingWord);
-  displayThinkingWordRef.current = displayThinkingWord;
 
   // Global clock tick. Deliberately slow (10s). Detail panels own their
   // faster clocks; this tick feeds monitor overlays and todo snapshots.
@@ -59,7 +57,9 @@ export function useTuiActivity({
   const [workingTimeBase, setWorkingTimeBase] = useState(0);
   const workingStartRef = useRef<number | null>(null);
   const prevStatusRef = useRef(status);
-  if (prevStatusRef.current !== status) {
+  useEffect(() => {
+    if (prevStatusRef.current === status) return;
+
     const wasWorking = prevStatusRef.current === 'running' || prevStatusRef.current === 'streaming';
     const isWorking = status === 'running' || status === 'streaming';
     if (wasWorking && !isWorking) {
@@ -70,7 +70,7 @@ export function useTuiActivity({
       workingStartRef.current = Date.now();
     }
     prevStatusRef.current = status;
-  }
+  }, [status]);
 
   const [workingTimeMs, setWorkingTimeMs] = useState(0);
   useEffect(() => {
@@ -195,7 +195,6 @@ export function useTuiActivity({
 
   return {
     displayThinkingWord,
-    displayThinkingWordRef,
     startedAt: startedAtRef.current,
     nowTick,
     setNowTick,

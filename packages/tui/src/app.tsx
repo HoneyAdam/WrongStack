@@ -1359,7 +1359,6 @@ export function App({
   draftRef.current = { buffer: state.buffer, cursor: state.cursor };
   const {
     displayThinkingWord,
-    displayThinkingWordRef,
     startedAt,
     nowTick,
     setNowTick,
@@ -5622,32 +5621,43 @@ export function App({
           });
         const inSpan = (span: { start: number; len: number }) =>
           mx >= span.start + 1 && mx <= span.start + span.len;
-        // Line 1 — model chip → model picker. Full-width layout only: compact
-        // mode (cols < COMPACT_THRESHOLD) lays line 1 out differently.
-        if (cols >= COMPACT_THRESHOLD && my === rowFor(0)) {
-          const span = statusBarModelSpan({
-            state: state.status,
-            fleetRunning: fleetCounts?.running ?? 0,
-            // Must match the rendered state label width — while streaming the bar
-            // shows the configured thinking word, so the span shifts with it.
-            // Omitting this made the model chip un-clickable mid-stream.
-            thinkingWord: displayThinkingWordRef.current,
-            // The `state` chip is always hidden now (owned by the composer rail),
-            // so the model chip sits one segment further left.
-            stateHidden: true,
-            model: liveModel,
-            provider: liveProvider,
-          });
-          if (inSpan(span)) {
-            await openModelPicker();
-            return;
+        // Line 1 — provider/model chip → model picker. Detailed/no-color,
+        // full-width layouts only; compact/minimum modes use different ordering.
+        if (cols >= COMPACT_THRESHOLD && liveStatuslineMode !== 'minimum' && my === rowFor(0)) {
+          const hiddenSet = new Set(statuslineHiddenForPicker());
+          if (!hiddenSet.has('model')) {
+            const span = statusBarModelSpan({
+              model: liveModel,
+              provider: liveProvider,
+              yolo: yoloLive && !hiddenSet.has('yolo'),
+              autonomy: hiddenSet.has('autonomy') ? 'off' : autonomyLive,
+              projectName,
+              workingDir: workingDirChip,
+              projectHidden: hiddenSet.has('project'),
+              workingDirHidden: hiddenSet.has('working_dir'),
+              monochrome: liveStatuslineMode === 'no-color',
+            });
+            if (inSpan(span)) {
+              await openModelPicker();
+              return;
+            }
           }
         }
-        // Line 2 — autonomy chip → autonomy picker (span null when off).
-        const autoSpan = statusBarAutonomySpan({ yolo: yoloLive, autonomy: autonomyLive });
-        if (autoSpan && my === rowFor(1) && inSpan(autoSpan)) {
-          dispatch({ type: 'autonomyPickerOpen', options: AUTONOMY_OPTIONS });
-          return;
+        // Line 1 — autonomy chip → autonomy picker. Use the same visibility and
+        // monochrome inputs as StatusBar so the click target matches the glyphs.
+        if (cols >= COMPACT_THRESHOLD && liveStatuslineMode !== 'minimum') {
+          const hiddenSet = new Set(statuslineHiddenForPicker());
+          const autoSpan = hiddenSet.has('autonomy')
+            ? null
+            : statusBarAutonomySpan({
+                yolo: yoloLive && !hiddenSet.has('yolo'),
+                autonomy: autonomyLive,
+                monochrome: liveStatuslineMode === 'no-color',
+              });
+          if (autoSpan && my === rowFor(0) && inSpan(autoSpan)) {
+            dispatch({ type: 'autonomyPickerOpen', options: AUTONOMY_OPTIONS });
+            return;
+          }
         }
         // Line 3 — todos chip → todos overlay (only when todos are shown).
         const todosShown =
@@ -7543,16 +7553,14 @@ export function App({
               workingDir={workingDirChip}
               subagentCount={visibleSubagentCount}
               processCount={getProcessRegistry().activeCount}
-              // The composer top-rail chip now owns the working/idle indicator,
-              // so hide the statusline's duplicate `state` chip. Kept in
-              // STATUSLINE_ITEMS (mouse hit-test indices depend on its order) —
-              // only render-suppressed here.
+              // The composer top rail owns the working/idle indicator, so only
+              // suppress the duplicate `state` chip. Keep `model` governed by
+              // the user's statusline settings so the live provider/model route
+              // remains visible beside the project/workdir information.
               hiddenItems={
-                (hiddenItems.includes('state') && hiddenItems.includes('model')
+                (hiddenItems.includes('state')
                   ? hiddenItems
-                  : [
-                      ...new Set([...hiddenItems, 'state' as const, 'model' as const]),
-                    ]) as StatuslineItem[]
+                  : [...hiddenItems, 'state' as const]) as StatuslineItem[]
               }
               mode={liveStatuslineMode}
               visibleChips={state.statuslinePicker.visibleChips}
