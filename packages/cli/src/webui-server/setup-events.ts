@@ -658,6 +658,7 @@ export function createSetupEvents(deps: SetupEventsDeps): () => void {
 
       // ── Agent timeline events — WebUI conversation stream ─────────────
       deps.events.on('agent.timeline.message', (e) => {
+        const timeline = e as typeof e & { toolOk?: boolean };
         broadcast({
           type: 'agent.timeline.message',
           payload: sessionPayload({
@@ -669,6 +670,7 @@ export function createSetupEvents(deps: SetupEventsDeps): () => void {
             iteration: e.iteration,
             ts: e.ts,
             toolName: e.toolName,
+            ...(typeof timeline.toolOk === 'boolean' ? { toolOk: timeline.toolOk } : {}),
             costUsd: e.costUsd,
           }),
         });

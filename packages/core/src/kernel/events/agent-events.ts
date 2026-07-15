@@ -84,8 +84,10 @@ export interface AgentEventMap {
     iteration: number;
     /** ISO 8601 timestamp. */
     ts: string;
-    /** When kind='tool_use', the tool name. */
+    /** When kind='tool_use' or 'tool_result', the tool name. */
     toolName?: string | undefined;
+    /** Typed tool outcome for tool_result entries. */
+    toolOk?: boolean | undefined;
     /** Running cost estimate for this subagent so far. */
     costUsd?: number | undefined;
   };

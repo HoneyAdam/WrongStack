@@ -1041,6 +1041,7 @@ export interface WSAgentTimelineMessage {
     iteration: number;
     ts: string;
     toolName?: string | undefined;
+    toolOk?: boolean | undefined;
     costUsd?: number | undefined;
   };
 }

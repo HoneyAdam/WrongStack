@@ -71,6 +71,10 @@ export interface ConnectionHandlerDeps {
    * fallback because it is the model working set and can be compacted.
    */
   loadReplay?: (() => Promise<{ messages: Message[]; usage?: Usage | undefined } | null>) | undefined;
+  /** Read-only worker transcript snapshot for browser refresh/resume. */
+  loadAgentSessions?:
+    | (() => import('@wrongstack/core/coordination').AgentVirtualSession[])
+    | undefined;
   needsSetup: boolean;
 }
 
@@ -238,6 +242,14 @@ export function createConnectionHandler(
     } catch {
       // Best-effort. The frontend can still use localStorage if the replay
       // load races a writer or the store is unavailable.
+    }
+    try {
+      const agentSessions = deps.loadAgentSessions?.();
+      if (agentSessions && agentSessions.length > 0) {
+        payload['agentSessions'] = agentSessions;
+      }
+    } catch {
+      // Worker replay is independent and best-effort.
     }
     deps.send(ws, {
       type: 'session.start',

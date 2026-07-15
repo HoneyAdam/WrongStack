@@ -75,6 +75,10 @@ export interface WebUIDispatchContext {
     clear: () => Promise<void>;
     write: (sessionId: string) => Promise<void>;
   };
+  /** Read-only worker transcript snapshot used for browser refresh replay. */
+  agentTranscripts?: {
+    getAllSessions(): import('@wrongstack/core/coordination').AgentVirtualSession[];
+  } | undefined;
   /** Per-task agent factory for the SDD wizard's multi-agent run. */
   sddSubagentFactory?: import('@wrongstack/core').AgentFactory | undefined;
   onKanbanDispatch?:
@@ -135,6 +139,7 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
     applyLiveSettings,
     onModelContextResolved,
     activeRecoveryLock,
+    agentTranscripts,
     sddSubagentFactory,
     onKanbanDispatch,
   } = ctx;
@@ -250,6 +255,7 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
     projectRoot,
     appConfig: config,
     open: !!flags.open,
+    agentTranscripts,
     hqAllowExec: flagBoolean(['hq-allow-exec']) ?? false,
     modelsRegistry,
     globalConfigPath,

@@ -14,8 +14,21 @@ import {
   WifiOff,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AgentChatPane } from './agent-chat-pane.js';
 import { ChatMessageList } from './chat-message-list.js';
 import { Composer } from './composer.js';
+import { ErrorBoundary } from './error-boundary.js';
+import {
+  appendAgentTranscriptEntry,
+  buildAgentTabs,
+  canComposeForAgent,
+  LEADER_AGENT_ID,
+  mergeSubagentSnapshot,
+  parseAgentSessionReplays,
+  projectAgentTimelineEntry,
+  projectCompletedAgentText,
+  resolveSelectedAgentId,
+} from './lib/agent-model.js';
 import { contentToText, replayToMessages, updateSubagents } from './lib/chat-model.js';
 import { copyText } from './lib/clipboard.js';
 import { clearComposerDraft, readComposerDraft, writeComposerDraft } from './lib/composer-draft.js';
@@ -30,9 +43,11 @@ import {
   sessionDisplayName,
 } from './lib/session-model.js';
 import { projectStatusNotice, type StatusNoticeProjection } from './lib/status-notice.js';
+import { agentTranscriptToToolCalls } from './lib/tool-model.js';
 import { SimpleSocket } from './lib/ws.js';
-import { ErrorBoundary } from './error-boundary.js';
+import { ToolSidebar } from './tool-sidebar.js';
 import type {
+  AgentTranscriptEntry,
   ChatMessage,
   ConnectionState,
   ContextInfo,
@@ -71,15 +86,6 @@ function compactTokens(value: number): string {
   return Math.round(value).toString();
 }
 
-function safeLine(value: unknown): string {
-  try {
-    const text = typeof value === 'string' ? value : JSON.stringify(value);
-    return text.length > 180 ? `${text.slice(0, 177)}…` : text;
-  } catch {
-    return 'Tool input';
-  }
-}
-
 function messageId(prefix: string): string {
   return `${prefix}-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`;
 }
@@ -95,6 +101,10 @@ export function App() {
   const [models, setModels] = useState<Record<string, ModelDescriptor[]>>({});
   const [providerLabels, setProviderLabels] = useState<Record<string, string>>({});
   const [subagents, setSubagents] = useState<SimpleSubagent[]>([]);
+  const [selectedAgentId, setSelectedAgentId] = useState(LEADER_AGENT_ID);
+  const [agentTranscripts, setAgentTranscripts] = useState<Record<string, AgentTranscriptEntry[]>>(
+    {},
+  );
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const [draft, setDraft] = useState('');
   const [fileRefs, setFileRefs] = useState<string[]>([]);
@@ -107,7 +117,6 @@ export function App() {
   const [notice, setNotice] = useState<(StatusNoticeProjection & { id: string }) | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [toolCalls, setToolCalls] = useState<ToolCallInfo[]>([]);
-  const [expandedToolCalls, setExpandedToolCalls] = useState<string[]>([]);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const socketRef = useRef<SimpleSocket | null>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -225,6 +234,22 @@ export function App() {
         } else if (resetSessionState) {
           setMessages([]);
         }
+        if (!previousId || resetSessionState) {
+          const agentSessions = parseAgentSessionReplays(payload['agentSessions']);
+          setSubagents(
+            agentSessions.map(({ subagentId, agentName, status, task }) => ({
+              id: subagentId,
+              name: agentName,
+              status,
+              task,
+            })),
+          );
+          setAgentTranscripts(
+            Object.fromEntries(
+              agentSessions.map(({ subagentId, transcript }) => [subagentId, transcript]),
+            ),
+          );
+        }
         if (!previousId || switchedSession) {
           const savedDraft = readComposerDraft(id);
           draftRef.current = savedDraft.text;
@@ -245,6 +270,7 @@ export function App() {
           setRunning(false);
           setActivity('');
           setToolCalls([]);
+          setSelectedAgentId(LEADER_AGENT_ID);
         }
         setSessionMenuOpen(false);
         const replayUsage = payload['replayUsage'];
@@ -333,20 +359,44 @@ export function App() {
         setFileSearching(false);
         break;
       }
+      case 'provider.thinking_delta': {
+        const text = typeof payload['text'] === 'string' ? payload['text'] : '';
+        if (!text) break;
+        setRunning(true);
+        setActivity('Thinking');
+        setMessages((current) => {
+          const last = current.at(-1);
+          if (last?.role === 'thinking' && last.streaming) {
+            return current.map((item, index) =>
+              index === current.length - 1 ? { ...item, text: item.text + text } : item,
+            );
+          }
+          return [
+            ...current.map((item) =>
+              item.streaming && item.role === 'thinking' ? { ...item, streaming: false } : item,
+            ),
+            { id: messageId('thinking'), role: 'thinking', text, streaming: true },
+          ];
+        });
+        break;
+      }
       case 'provider.text_delta': {
         const text = typeof payload['text'] === 'string' ? payload['text'] : '';
         if (!text) break;
         setRunning(true);
         setActivity('Responding');
         setMessages((current) => {
-          const last = current.at(-1);
+          const normalized = current.map((item) =>
+            item.streaming && item.role === 'thinking' ? { ...item, streaming: false } : item,
+          );
+          const last = normalized.at(-1);
           if (last?.role === 'assistant' && last.streaming) {
-            return current.map((item, index) =>
-              index === current.length - 1 ? { ...item, text: item.text + text } : item,
+            return normalized.map((item, index) =>
+              index === normalized.length - 1 ? { ...item, text: item.text + text } : item,
             );
           }
           return [
-            ...current,
+            ...normalized,
             { id: messageId('assistant'), role: 'assistant', text, streaming: true },
           ];
         });
@@ -484,35 +534,76 @@ export function App() {
         const statuses = Array.isArray(payload['subagentStatuses'])
           ? payload['subagentStatuses']
           : [];
-        setSubagents(
-          statuses.flatMap((entry) => {
-            if (!entry || typeof entry !== 'object') return [];
-            const item = entry as Record<string, unknown>;
-            const id = typeof item['id'] === 'string' ? item['id'] : '';
-            if (!id || id === 'leader') return [];
-            return [
-              {
-                id,
-                name: typeof item['name'] === 'string' ? item['name'] : id,
-                status: typeof item['status'] === 'string' ? item['status'] : 'idle',
-                task: typeof item['currentTask'] === 'string' ? item['currentTask'] : undefined,
-              } satisfies SimpleSubagent,
-            ];
-          }),
-        );
+        const snapshot = statuses.flatMap((entry) => {
+          if (!entry || typeof entry !== 'object') return [];
+          const item = entry as Record<string, unknown>;
+          const id = typeof item['id'] === 'string' ? item['id'] : '';
+          if (!id || id === LEADER_AGENT_ID) return [];
+          return [
+            {
+              id,
+              name: typeof item['name'] === 'string' ? item['name'] : id,
+              status: typeof item['status'] === 'string' ? item['status'] : 'idle',
+              task: typeof item['currentTask'] === 'string' ? item['currentTask'] : undefined,
+            } satisfies SimpleSubagent,
+          ];
+        });
+        setSubagents((current) => mergeSubagentSnapshot(current, snapshot));
         break;
       }
-      case 'subagent.event':
-        setSubagents((current) => updateSubagents(current, payload));
+      case 'subagent.event': {
+        const id = typeof payload['subagentId'] === 'string' ? payload['subagentId'] : '';
+        setSubagents((current) =>
+          payload['kind'] === 'removed'
+            ? current.map((agent) =>
+                agent.id === id ? { ...agent, status: 'stopped', task: undefined } : agent,
+              )
+            : updateSubagents(current, payload),
+        );
+        if (payload['kind'] === 'task_completed' && id) {
+          const entry = projectCompletedAgentText(
+            payload,
+            messageId(`agent-${id}`),
+            typeof payload['name'] === 'string' ? payload['name'] : id,
+          );
+          if (entry) {
+            setAgentTranscripts((current) => ({
+              ...current,
+              [id]: appendAgentTranscriptEntry(current[id] ?? [], entry),
+            }));
+          }
+        }
         break;
+      }
+      case 'agent.timeline.message': {
+        const entry = projectAgentTimelineEntry(payload, messageId('agent-event'));
+        if (!entry) break;
+        setSubagents((current) => {
+          if (current.some((agent) => agent.id === entry.subagentId)) return current;
+          return [
+            ...current,
+            {
+              id: entry.subagentId,
+              name: entry.agentName,
+              status: 'running',
+            },
+          ];
+        });
+        setAgentTranscripts((current) => ({
+          ...current,
+          [entry.subagentId]: appendAgentTranscriptEntry(current[entry.subagentId] ?? [], entry),
+        }));
+        break;
+      }
       case 'agent.status_changed': {
         const id = typeof payload['subagentId'] === 'string' ? payload['subagentId'] : '';
-        if (!id || id === 'leader') break;
+        if (!id || id === LEADER_AGENT_ID) break;
+        const agentName = typeof payload['agentName'] === 'string' ? payload['agentName'] : id;
         setSubagents((current) => {
           const exists = current.some((agent) => agent.id === id);
           const patch = {
             id,
-            name: typeof payload['agentName'] === 'string' ? payload['agentName'] : id,
+            name: agentName,
             status: typeof payload['status'] === 'string' ? payload['status'] : 'idle',
             task: typeof payload['task'] === 'string' ? payload['task'] : undefined,
           } satisfies SimpleSubagent;
@@ -608,6 +699,9 @@ export function App() {
     () => Object.entries(models).filter(([, entries]) => entries.length > 0),
     [models],
   );
+  const agentTabs = useMemo(() => buildAgentTabs(subagents, running), [running, subagents]);
+  const activeAgentId = resolveSelectedAgentId(selectedAgentId, agentTabs);
+  const leaderSelected = canComposeForAgent(activeAgentId);
   const currentSessionSummary = useMemo(
     () => sessions.find((item) => item.id === session?.id),
     [session?.id, sessions],
@@ -623,37 +717,14 @@ export function App() {
     return undefined;
   }, [messages]);
 
-  type TimelineItem =
-    | { kind: 'message'; message: ChatMessage }
-    | { kind: 'tool_calls'; calls: ToolCallInfo[] };
-
-  /**
-   * Merge messages and tool calls into a single chronologically-ordered
-   * timeline for rendering. Tool calls that arrive during an assistant's
-   * turn are placed before that assistant's message, matching the natural
-   * conversation sequence: user → tools → assistant response.
-   */
-  const timelineItems = useMemo((): TimelineItem[] => {
-    const items: TimelineItem[] = [];
-    let nextToolIndex = 0;
-
-    for (const message of messages) {
-      if (message.role === 'assistant' && nextToolIndex < toolCalls.length) {
-        const unplaced = toolCalls.slice(nextToolIndex);
-        if (unplaced.length > 0) {
-          items.push({ kind: 'tool_calls', calls: unplaced });
-          nextToolIndex = toolCalls.length;
-        }
-      }
-      items.push({ kind: 'message', message });
-    }
-
-    if (nextToolIndex < toolCalls.length) {
-      items.push({ kind: 'tool_calls', calls: toolCalls.slice(nextToolIndex) });
-    }
-
-    return items;
-  }, [messages, toolCalls]);
+  const activeAgent = agentTabs.find((agent) => agent.id === activeAgentId) ?? agentTabs[0];
+  const selectedToolCalls = useMemo(
+    () =>
+      leaderSelected
+        ? toolCalls
+        : agentTranscriptToToolCalls(agentTranscripts[activeAgentId] ?? []),
+    [activeAgentId, agentTranscripts, leaderSelected, toolCalls],
+  );
 
   const selectNextStep = (text: string) => {
     setDraft(text);
@@ -867,11 +938,7 @@ export function App() {
                 style={{
                   width: `${load * 100}%`,
                   background:
-                    load > 0.9
-                      ? 'var(--danger)'
-                      : load > 0.7
-                        ? 'var(--warning)'
-                        : 'var(--accent)',
+                    load > 0.9 ? 'var(--danger)' : load > 0.7 ? 'var(--warning)' : 'var(--accent)',
                 }}
               />
             </div>
@@ -895,94 +962,136 @@ export function App() {
         </div>
       </header>
 
-      {subagents.length > 0 && (
-        <section className="agent-strip" aria-label="Subagents">
-          <div className="agent-strip-label">
-            <Users size={14} /> AGENTS
-          </div>
-          <div className="agent-list">
-            {subagents.map((agent) => (
-              <div className="agent-item" key={agent.id} title={agent.task}>
-                <span className={`agent-dot ${agent.status}`} />
+      <section className="agent-strip" aria-label="Agent conversations">
+        <div className="agent-strip-label">
+          <Users size={14} aria-hidden="true" /> AGENTS
+        </div>
+        <div className="agent-list" role="tablist" aria-label="Agent conversations">
+          {agentTabs.map((agent, index) => {
+            const selected = activeAgentId === agent.id;
+            return (
+              <button
+                type="button"
+                id={`agent-tab-${agent.id}`}
+                className={`agent-item${selected ? ' active' : ''}`}
+                role="tab"
+                aria-selected={selected}
+                aria-controls={`agent-panel-${agent.id}`}
+                tabIndex={selected ? 0 : -1}
+                key={agent.id}
+                title={agent.task ?? `${agent.name} · ${agent.status}`}
+                onClick={() => setSelectedAgentId(agent.id)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+                  event.preventDefault();
+                  const direction = event.key === 'ArrowRight' ? 1 : -1;
+                  const next = agentTabs[(index + direction + agentTabs.length) % agentTabs.length];
+                  if (!next) return;
+                  setSelectedAgentId(next.id);
+                  requestAnimationFrame(() =>
+                    document.getElementById(`agent-tab-${next.id}`)?.focus(),
+                  );
+                }}
+              >
+                <span className={`agent-dot ${agent.status}`} aria-hidden="true" />
                 <strong>{agent.name}</strong>
                 <span>{agent.status}</span>
                 {agent.task && <small>{agent.task}</small>}
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+              </button>
+            );
+          })}
+        </div>
+      </section>
 
       <ErrorBoundary>
-      <main
-        className="chat-scroll"
-        ref={scrollRef}
-        onScroll={(event) => {
-          const element = event.currentTarget;
-          const nearBottom = element.scrollHeight - element.scrollTop - element.clientHeight <= 120;
-          stickToBottomRef.current = nearBottom;
-          setShowJumpToLatest(!nearBottom);
-        }}
-      >
-        <ChatMessageList
-          timelineItems={timelineItems}
-          expandedToolCalls={expandedToolCalls}
-          latestAssistantId={latestAssistantId}
-          copiedMessageId={copiedMessageId}
-          running={running}
-          activity={activity}
-          emptyState={
-            <div className="empty-state">
-              <Sparkles size={25} strokeWidth={1.5} />
-              <span>READY IN</span>
-              <h1>{session?.projectName ?? 'your project'}</h1>
-              <p>Describe the job. WrongStack will handle the rest.</p>
-            </div>
-          }
-          onToggleToolCall={(id) =>
-            setExpandedToolCalls((current) =>
-              current.includes(id) ? current.filter((x) => x !== id) : [...current, id],
-            )
-          }
-          onCopyMessage={copyAssistantMessage}
-          onSelectNextStep={selectNextStep}
-        />
-      </main>
+        <main
+          id="agent-panel-leader"
+          className="chat-scroll"
+          role="tabpanel"
+          aria-labelledby="agent-tab-leader"
+          hidden={!leaderSelected}
+          ref={scrollRef}
+          onScroll={(event) => {
+            const element = event.currentTarget;
+            const nearBottom =
+              element.scrollHeight - element.scrollTop - element.clientHeight <= 120;
+            stickToBottomRef.current = nearBottom;
+            setShowJumpToLatest(!nearBottom);
+          }}
+        >
+          <ChatMessageList
+            messages={messages}
+            latestAssistantId={latestAssistantId}
+            copiedMessageId={copiedMessageId}
+            running={running}
+            activity={activity}
+            emptyState={
+              <div className="empty-state">
+                <Sparkles size={25} strokeWidth={1.5} />
+                <span>READY IN</span>
+                <h1>{session?.projectName ?? 'your project'}</h1>
+                <p>Describe the job. WrongStack will handle the rest.</p>
+              </div>
+            }
+            onCopyMessage={copyAssistantMessage}
+            onSelectNextStep={selectNextStep}
+          />
+        </main>
+        {agentTabs
+          .filter((agent) => !agent.isLeader)
+          .map((agent) => (
+            <AgentChatPane
+              key={agent.id}
+              agentId={agent.id}
+              agentName={agent.name}
+              entries={agentTranscripts[agent.id] ?? []}
+              running={agent.status === 'running' || agent.status === 'busy'}
+              hidden={activeAgentId !== agent.id}
+            />
+          ))}
       </ErrorBoundary>
 
-      {showJumpToLatest && (
+      <ToolSidebar
+        agentId={activeAgentId}
+        agentName={activeAgent?.name ?? activeAgentId}
+        calls={selectedToolCalls}
+      />
+
+      {leaderSelected && showJumpToLatest && (
         <button type="button" className="jump-to-latest" onClick={jumpToLatest}>
           <ArrowDown size={13} aria-hidden="true" />
           LATEST
         </button>
       )}
 
-      <ErrorBoundary>
-      <footer className="composer-wrap">
-        <Composer
-          draft={draft}
-          setDraft={setDraft}
-          fileRefs={fileRefs}
-          setFileRefs={setFileRefs}
-          fileMention={fileMention}
-          setFileMention={setFileMention}
-          fileMatches={fileMatches}
-          filePickerIndex={filePickerIndex}
-          setFilePickerIndex={setFilePickerIndex}
-          fileSearching={fileSearching}
-          running={running}
-          connection={connection}
-          session={session}
-          pendingConfirm={pendingConfirm}
-          notice={notice}
-          textareaRef={textareaRef}
-          sendPrompt={sendPrompt}
-          abort={abort}
-          decideConfirm={decideConfirm}
-          selectFile={selectFile}
-        />
-      </footer>
-      </ErrorBoundary>
+      {leaderSelected && (
+        <ErrorBoundary>
+          <footer className="composer-wrap">
+            <Composer
+              draft={draft}
+              setDraft={setDraft}
+              fileRefs={fileRefs}
+              setFileRefs={setFileRefs}
+              fileMention={fileMention}
+              setFileMention={setFileMention}
+              fileMatches={fileMatches}
+              filePickerIndex={filePickerIndex}
+              setFilePickerIndex={setFilePickerIndex}
+              fileSearching={fileSearching}
+              running={running}
+              connection={connection}
+              session={session}
+              pendingConfirm={pendingConfirm}
+              notice={notice}
+              textareaRef={textareaRef}
+              sendPrompt={sendPrompt}
+              abort={abort}
+              decideConfirm={decideConfirm}
+              selectFile={selectFile}
+            />
+          </footer>
+        </ErrorBoundary>
+      )}
     </div>
   );
 }

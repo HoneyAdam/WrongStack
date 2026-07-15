@@ -146,6 +146,7 @@ export interface AgentTranscriptEntry {
   iteration: number;
   ts: string;
   toolName?: string | undefined;
+  toolOk?: boolean | undefined;
   costUsd?: number | undefined;
   status?: string | undefined;
 }

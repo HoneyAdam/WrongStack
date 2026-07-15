@@ -582,6 +582,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   on('subagent.removed', (e) => forwardSubagent('removed', { sessionId: e.sessionId, subagentId: e.subagentId, reason: e.reason }));
 
   on('agent.timeline.message', (e) => {
+    const timeline = e as typeof e & { toolOk?: boolean };
     broadcast(clients, {
       type: 'agent.timeline.message',
       payload: sessionPayload({
@@ -593,6 +594,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
         iteration: e.iteration,
         ts: e.ts,
         toolName: e.toolName,
+        ...(typeof timeline.toolOk === 'boolean' ? { toolOk: timeline.toolOk } : {}),
         costUsd: e.costUsd,
       }),
     });

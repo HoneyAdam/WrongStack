@@ -439,6 +439,7 @@ export class AgentMonitorService {
       iteration: entry.iteration,
       ts: entry.ts,
       toolName: entry.toolName,
+      toolOk: entry.toolOk,
       costUsd: entry.costUsd,
     });
 

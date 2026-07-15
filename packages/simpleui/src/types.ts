@@ -2,7 +2,7 @@ export type ConnectionState = 'connecting' | 'open' | 'closed';
 
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'thinking' | 'assistant' | 'system';
   text: string;
   streaming?: boolean | undefined;
   ts?: string | undefined;
@@ -51,6 +51,35 @@ export interface SimpleSubagent {
   status: string;
   task?: string | undefined;
   model?: string | undefined;
+}
+
+export type AgentTranscriptKind =
+  | 'text'
+  | 'thinking'
+  | 'tool_use'
+  | 'tool_result'
+  | 'error'
+  | 'status'
+  | 'system';
+
+export interface AgentTranscriptEntry {
+  id: string;
+  subagentId: string;
+  agentName: string;
+  content: string;
+  kind: AgentTranscriptKind;
+  iteration: number;
+  ts: string;
+  toolName?: string | undefined;
+  toolOk?: boolean | undefined;
+}
+
+export interface AgentSessionReplay {
+  subagentId: string;
+  agentName: string;
+  status: string;
+  task?: string | undefined;
+  transcript: AgentTranscriptEntry[];
 }
 
 export interface PendingConfirm {

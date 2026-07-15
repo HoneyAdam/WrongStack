@@ -498,6 +498,7 @@ export const WS_HANDLERS: Partial<Record<WSServerMessage['type'], (msg: WSServer
         iteration: number;
         ts: string;
         toolName?: string;
+        toolOk?: boolean;
         costUsd?: number;
       };
       useFleetStore.getState().pushAgentTimelineEntry({
@@ -508,6 +509,7 @@ export const WS_HANDLERS: Partial<Record<WSServerMessage['type'], (msg: WSServer
         iteration: p.iteration,
         ts: p.ts,
         toolName: p.toolName,
+        toolOk: p.toolOk,
         costUsd: p.costUsd,
       });
     },

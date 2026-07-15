@@ -1,35 +1,20 @@
+import { Check, Copy, ListChecks, LoaderCircle } from 'lucide-react';
 import { memo } from 'react';
-import { Check, ChevronDown, ChevronRight, Copy, ListChecks, LoaderCircle, X } from 'lucide-react';
 import { MarkdownHooks as ReactMarkdown } from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import rehypePrettyCode from 'rehype-pretty-code';
+import remarkGfm from 'remark-gfm';
 import { projectAssistantMessage } from './lib/message-projection.js';
-import type { ChatMessage, ToolCallInfo } from './types.js';
-
-type TimelineItem =
-  | { kind: 'message'; message: ChatMessage }
-  | { kind: 'tool_calls'; calls: ToolCallInfo[] };
+import type { ChatMessage } from './types.js';
 
 interface ChatMessageListProps {
-  timelineItems: TimelineItem[];
-  expandedToolCalls: string[];
+  messages: ChatMessage[];
   latestAssistantId: string | undefined;
   copiedMessageId: string | null;
   running: boolean;
   activity: string;
   emptyState: React.ReactNode;
-  onToggleToolCall: (id: string) => void;
   onCopyMessage: (id: string, text: string) => void;
   onSelectNextStep: (text: string) => void;
-}
-
-function safeLine(value: unknown): string {
-  try {
-    const text = typeof value === 'string' ? value : JSON.stringify(value);
-    return text.length > 180 ? `${text.slice(0, 177)}…` : text;
-  } catch {
-    return 'Tool input';
-  }
 }
 
 // ── Memo'd sub-components ──────────────────────────────────────────
@@ -61,9 +46,11 @@ const MessageItem = memo(function MessageItem({
         <span>
           {message.role === 'user'
             ? 'YOU'
-            : message.role === 'assistant'
-              ? 'WRONGSTACK'
-              : 'SYSTEM'}
+            : message.role === 'thinking'
+              ? 'THINKING'
+              : message.role === 'assistant'
+                ? 'WRONGSTACK'
+                : 'SYSTEM'}
         </span>
         {message.role === 'assistant' && projection.text && !message.streaming && (
           <button
@@ -85,7 +72,9 @@ const MessageItem = memo(function MessageItem({
         {projection.text && !message.streaming && (
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
-            rehypePlugins={[[rehypePrettyCode, { theme: 'github-dark-dimmed', keepBackground: false }]]}
+            rehypePlugins={[
+              [rehypePrettyCode, { theme: 'github-dark-dimmed', keepBackground: false }],
+            ]}
             components={{
               a: ({ children, ...props }) => (
                 <a {...props} target="_blank" rel="noreferrer">
@@ -131,76 +120,6 @@ const MessageItem = memo(function MessageItem({
   );
 });
 
-interface ToolCallGroupProps {
-  calls: ToolCallInfo[];
-  expandedToolCalls: string[];
-  onToggleToolCall: (id: string) => void;
-}
-
-const ToolCallGroup = memo(function ToolCallGroup({
-  calls,
-  expandedToolCalls,
-  onToggleToolCall,
-}: ToolCallGroupProps) {
-  return (
-    <section className="tool-calls" aria-label="Tool calls">
-      {calls.map((tc) => {
-        const expanded = expandedToolCalls.includes(tc.id);
-        return (
-          <div key={tc.id} className={`tool-call ${tc.status}`}>
-            <button
-              type="button"
-              className="tool-call-header"
-              onClick={() => onToggleToolCall(tc.id)}
-              aria-expanded={expanded}
-            >
-              {expanded ? (
-                <ChevronDown size={12} aria-hidden="true" />
-              ) : (
-                <ChevronRight size={12} aria-hidden="true" />
-              )}
-              <code className="tool-call-name">{tc.name}</code>
-              {tc.status === 'running' ? (
-                <LoaderCircle size={12} className="spin" />
-              ) : tc.status === 'done' ? (
-                <Check size={12} className="tool-call-ok" />
-              ) : (
-                <X size={12} className="tool-call-err" />
-              )}
-              <span className="tool-call-status">
-                {tc.status === 'running'
-                  ? 'Running…'
-                  : tc.status === 'done'
-                    ? `Done${tc.durationMs != null ? ` · ${tc.durationMs}ms` : ''}`
-                    : 'Error'}
-              </span>
-            </button>
-            {expanded && (
-              <div className="tool-call-detail">
-                {tc.input !== undefined && (
-                  <div className="tool-call-section">
-                    <span className="tool-call-section-label">Input</span>
-                    <pre className="tool-call-pre">{safeLine(tc.input)}</pre>
-                  </div>
-                )}
-                {tc.output !== undefined && (
-                  <div className="tool-call-section">
-                    <span className="tool-call-section-label">
-                      Output{tc.durationMs != null ? ` · ${tc.durationMs}ms` : ''}
-                      {tc.ok === false ? ' · Failed' : ''}
-                    </span>
-                    <pre className="tool-call-pre">{tc.output}</pre>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </section>
-  );
-});
-
 // ── Container ──────────────────────────────────────────────────────
 
 /**
@@ -209,43 +128,29 @@ const ToolCallGroup = memo(function ToolCallGroup({
  * re-render of the entire conversation.
  */
 export function ChatMessageList({
-  timelineItems,
-  expandedToolCalls,
+  messages,
   latestAssistantId,
   copiedMessageId,
   running,
   activity,
   emptyState,
-  onToggleToolCall,
   onCopyMessage,
   onSelectNextStep,
 }: ChatMessageListProps) {
   return (
     <div className="conversation">
-      {timelineItems.length === 0
+      {messages.length === 0
         ? emptyState
-        : timelineItems.map((item, index) => {
-            if (item.kind === 'message') {
-              return (
-                <MessageItem
-                  key={item.message.id}
-                  message={item.message}
-                  isLatestAssistant={item.message.id === latestAssistantId}
-                  copiedMessageId={copiedMessageId}
-                  onCopyMessage={onCopyMessage}
-                  onSelectNextStep={onSelectNextStep}
-                />
-              );
-            }
-            return (
-              <ToolCallGroup
-                key={`tc-${index}`}
-                calls={item.calls}
-                expandedToolCalls={expandedToolCalls}
-                onToggleToolCall={onToggleToolCall}
-              />
-            );
-          })}
+        : messages.map((message) => (
+            <MessageItem
+              key={message.id}
+              message={message}
+              isLatestAssistant={message.id === latestAssistantId}
+              copiedMessageId={copiedMessageId}
+              onCopyMessage={onCopyMessage}
+              onSelectNextStep={onSelectNextStep}
+            />
+          ))}
       {running && activity && (
         <div className="activity-line" role="status" aria-live="polite">
           <LoaderCircle size={14} className="spin" />
