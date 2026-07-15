@@ -2,10 +2,15 @@ import type { SlashCommand } from '@wrongstack/core';
 import {
   buildGoalPreamble,
   color,
+  createGoalKanbanBoard,
   emptyGoal,
   formatGoal,
+  formatGoalAutonomyChoice,
+  formatGoalEvent,
+  formatGoalKanbanPreview,
   type GoalFile,
   loadGoal,
+  parseAutonomyChoice,
   saveGoal,
 } from '@wrongstack/core';
 import { refineGoalWithFallback, resolveRefinerTarget } from './goal-refiner.js';
@@ -154,10 +159,60 @@ export function buildGoalCommand(opts: SlashCommandContext): SlashCommand {
           lines.push('');
           lines.push(color.dim(`Stored in ${goalPath} — progress tracked automatically.`));
 
-          const msg = lines.join('\n');
-          opts.renderer.write(msg);
+          opts.renderer.write(lines.join('\n'));
+
+          // ── Create goal kanban board ──────────────────────────────────
+          const boardId = await createGoalKanbanBoard(opts.projectRoot, next).catch(
+            () => null,
+          );
+
+          // ── Show Goal Event (post-refinement kanban preview) ──────────
+          const eventMsg = formatGoalEvent(next, boardId);
+          opts.renderer.write(eventMsg);
+
+          const preview = formatGoalKanbanPreview(next, boardId, refined.deliverables.length);
+          opts.renderer.write(preview);
+
+          // ── Present Autonomy Eternal / Eternal Parallel choices ──────
+          if (opts.reader && opts.onAutonomy) {
+            const choiceMsg = formatGoalAutonomyChoice();
+            opts.renderer.write(choiceMsg);
+
+            const answer = await opts.reader.readLine('  › ');
+
+            const mode = parseAutonomyChoice(answer ?? '');
+            if (mode && opts.onEternalStart) {
+              // Launch the chosen autonomy mode
+              if (opts.onYolo) opts.onYolo(true);
+              opts.onAutonomy(mode);
+              opts.onEternalStart(mode);
+              const modeLabel =
+                mode === 'eternal-parallel'
+                  ? `${color.magenta('PARALLEL')} mode`
+                  : `${color.red('ETERNAL')} mode`;
+              opts.renderer.write(
+                `${color.green('✓')} Autonomy mode: ${modeLabel} — engine launching against goal.`,
+              );
+            } else if (mode) {
+              // onAutonomy is available but onEternalStart is not
+              opts.onAutonomy(mode);
+              opts.renderer.write(
+                `${color.dim('Autonomy mode set but engine controller not wired. Launch manually with /autonomy ' + mode + '.')}`,
+              );
+            } else {
+              opts.renderer.write(
+                `${color.dim('No mode selected. Launch manually:')} ${color.cyan('/autonomy eternal')} ${color.dim('or')} ${color.cyan('/autonomy parallel')}.`,
+              );
+            }
+          } else {
+            // No reader available — print instructions
+            opts.renderer.write(
+              `${color.dim('\nTo start autonomous mode:\n  ')}${color.cyan('/autonomy eternal')} ${color.dim('— single-agent loop\n  ')}${color.cyan('/autonomy parallel')} ${color.dim('— multi-agent fan-out')}`,
+            );
+          }
+
           return {
-            message: msg,
+            message: `Goal set: ${refined.refinedGoal}`,
             runText: buildGoalPreamble(refined.refinedGoal, refined.deliverables),
           };
         }

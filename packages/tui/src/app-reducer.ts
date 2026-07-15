@@ -1916,6 +1916,18 @@ export function reducer(state: State, action: Action): State {
         ? { ...state, ...closePanels(state), goalPanelOpen: true }
         : { ...state, goalPanelOpen: false };
     }
+    case 'toggleGoalKanbanPanel': {
+      const opening = !state.goalKanbanPanelOpen;
+      return opening
+        ? { ...state, ...closePanels(state), goalKanbanPanelOpen: true }
+        : { ...state, goalKanbanPanelOpen: false };
+    }
+    case 'toggleContextPanel': {
+      const opening = !state.contextPanelOpen;
+      return opening
+        ? { ...state, ...closePanels(state), contextPanelOpen: true }
+        : { ...state, contextPanelOpen: false };
+    }
     case 'checkpointReceived': {
       const existing = state.checkpoints.find((c) => c.promptIndex === action.cp.promptIndex);
       if (existing) return state;

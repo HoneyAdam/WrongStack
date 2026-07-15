@@ -39,7 +39,9 @@ export type PanelAction =
   | 'toggleTodosMonitor'
   | 'toggleQueuePanel'
   | 'toggleProcessList'
+  | 'toggleContextPanel'
   | 'toggleGoalPanel'
+  | 'toggleGoalKanbanPanel'
   | 'toggleSessionsPanel'
   | 'toggleCoordinatorMonitor'
   | (string & {}); // forward-compatible: unknown strings return false
@@ -165,7 +167,9 @@ export function createPanelOpenDispatcher(deps: PanelOpenDeps): (action: string)
       case 'toggleTodosMonitor':
       case 'toggleQueuePanel':
       case 'toggleProcessList':
+      case 'toggleContextPanel':
       case 'toggleGoalPanel':
+      case 'toggleGoalKanbanPanel':
       case 'toggleSessionsPanel':
       case 'toggleCoordinatorMonitor':
         dispatch({ type: action } as Action);

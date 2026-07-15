@@ -169,6 +169,17 @@ export {
   type ProgressSnapshot,
 } from './goal-store.js';
 export {
+  createGoalKanbanBoard,
+  findGoalKanbanBoard,
+  deleteGoalKanbanBoard,
+  findGoalBoardByTag,
+  formatGoalKanbanPreview,
+  formatGoalEvent,
+  formatGoalAutonomyChoice,
+  parseAutonomyChoice,
+  type GoalFileWithKanban,
+} from './goal-kanban.js';
+export {
   DefaultPromptStore,
   migratePromptEntry,
   promptChecksum,

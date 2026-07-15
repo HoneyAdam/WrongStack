@@ -15,6 +15,8 @@ type PanelResetState = Pick<
   | 'planPanelOpen'
   | 'kanbanPanelOpen'
   | 'goalPanelOpen'
+  | 'goalKanbanPanelOpen'
+  | 'contextPanelOpen'
   | 'sessionsPanelOpen'
   | 'settingsPicker'
   | 'statuslinePicker'
@@ -45,6 +47,8 @@ export function closePanels(state: State): PanelResetState {
     planPanelOpen: false,
     kanbanPanelOpen: false,
     goalPanelOpen: false,
+    goalKanbanPanelOpen: false,
+    contextPanelOpen: false,
     sessionsPanelOpen: false,
     settingsPicker: { ...state.settingsPicker, open: false },
     statuslinePicker: { ...state.statuslinePicker, open: false },

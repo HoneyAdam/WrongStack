@@ -30,7 +30,6 @@ import {
   InputBuilder,
   isDesignStack,
   loadActiveKit,
-  loadGoal,
   materializeTokens,
   nextEnhanceTimeout,
   normalizedEqual,
@@ -42,7 +41,6 @@ import {
   recentTextTurns,
   recordOverrides,
   resolveContinuation,
-  resolveWstackPaths,
   setActiveKit,
   setBtwNote,
   setDesignOverrides,
@@ -103,6 +101,8 @@ import {
 import { FleetMonitor } from './components/fleet-monitor.js';
 import { FleetPanel } from './components/fleet-panel.js';
 import { GoalPanel } from './components/goal-panel.js';
+import { GoalKanbanPanel } from './components/goal-kanban-panel.js';
+import { ContextPanel } from './components/context-panel.js';
 import { HelpOverlay } from './components/help-overlay.js';
 import { fmtTok, History, type HistoryEntry } from './components/history.js';
 import {
@@ -167,7 +167,6 @@ import { WorktreePanel } from './components/worktree-panel.js';
 import { actionForFKeyPanel } from './f-key-panels.js';
 import { type GitInfo, readGitInfo } from './git-info.js';
 import { createInitialState, buildRestoredEntries } from './app-initial-state.js';
-import { startHeapWatchdog } from './heap-watchdog.js';
 import { hitRegion, statusBarLineRow } from './hit-test.js';
 import { useAuthPanel } from './hooks/use-auth-panel.js';
 import { useAutonomousCoordinator } from './hooks/use-autonomous-coordinator.js';
@@ -185,6 +184,7 @@ import { useWorkingDirChip } from './hooks/use-working-dir-chip.js';
 import { useStatuslineState } from './hooks/use-statusline-state.js';
 import { useTuiControllers } from './hooks/use-tui-controllers.js';
 import { useTuiEventBridge } from './hooks/use-tui-event-bridge.js';
+import { useTuiActivity } from './hooks/use-tui-activity.js';
 import { Box, type DOMElement, measureElement, useApp, useStdout } from './ink.js';
 import {
   deleteTokenBackward,
@@ -205,7 +205,6 @@ import { renderRunningTools } from './running-tools.js';
 import { buildSlashCommandMatches } from './slash-command-search.js';
 import { sddLifecycleEntry } from './sdd-lifecycle-entry.js';
 import { buildSteeringPreamble } from './steering-preamble.js';
-import { isRandomTuiThinkingWord, pickRandomTuiThinkingWord } from './thinking-word.js';
 
 export {
   type Action,
@@ -1126,51 +1125,6 @@ export function App({
   const projectRoot = agent.ctx.projectRoot;
   const promptUsageRef = useRef<PromptUsageStore | null>(null);
 
-  // Read the single canonical goal.json — the per-project file under
-  // ~/.wrongstack/projects/<slug>/ (resolveWstackPaths → projectGoal), the SAME
-  // file `/goal` and the autonomy engines write (they all go through
-  // goalFilePath, which now delegates here). The old code read
-  // <projectRoot>/.wrongstack/goal.json — a repo-local path nothing writes — so
-  // the F9 panel always showed "No goal set".
-  const refreshGoalSummary = useCallback(() => {
-    if (!projectRoot) return;
-    const goalPath = resolveWstackPaths({ projectRoot }).projectGoal;
-    loadGoal(goalPath)
-      .then((goal) => {
-        if (!goal) {
-          // Goal was cleared or never existed — clear the panel so
-          // stale data doesn't linger after /goal clear.
-          dispatch({ type: 'goalSummary', summary: null });
-          return;
-        }
-        const lastEntry = goal.journal?.[goal.journal.length - 1];
-        dispatch({
-          type: 'goalSummary',
-          summary: {
-            goal: goal.goal,
-            refinedGoal: goal.refinedGoal,
-            goalState: goal.goalState ?? 'active',
-            iterations: goal.iterations,
-            progress: goal.progress,
-            progressNote: goal.progressNote,
-            progressTrend: goal.progressTrend,
-            deliverables: goal.deliverables,
-            lastTask: lastEntry?.task,
-            lastStatus: lastEntry?.status,
-          },
-        });
-      })
-      .catch(() => {
-        // Unreadable/partial file — leave the previous summary in place.
-      });
-  }, [projectRoot]);
-
-  // Load once on mount (startup banner / initial F9 state). The live-while-open
-  // refresh lives further down, after `nowTick` is declared.
-  useEffect(() => {
-    refreshGoalSummary();
-  }, [refreshGoalSummary]);
-
   // Rehydrate TUI chat history from restored messages (session resume).
   // agent.ctx.messages is populated by setupSession → context.state.replaceMessages()
   // when wstack resume <id> is used. These messages only exist in the LLM context
@@ -1359,26 +1313,6 @@ export function App({
       | 'cycle'
       | undefined) ?? 'rainbow';
   const liveThinkingWord = liveSettings?.thinkingWord ?? 'thinking';
-  // When the user hasn't pinned a word (unset, the literal default, or
-  // 'random'), surface a fresh fun word from the pool for each working spell;
-  // an explicit custom word is shown verbatim. We re-roll only on the
-  // idle→working transition so the chip stays stable while a single turn runs.
-  const [rolledThinkingWord, setRolledThinkingWord] = useState(() => pickRandomTuiThinkingWord());
-  const thinkingWorking = state.status === 'running' || state.status === 'streaming';
-  const prevThinkingWorkingRef = useRef(false);
-  useEffect(() => {
-    if (thinkingWorking && !prevThinkingWorkingRef.current) {
-      setRolledThinkingWord((prev) => pickRandomTuiThinkingWord(prev));
-    }
-    prevThinkingWorkingRef.current = thinkingWorking;
-  }, [thinkingWorking]);
-  const displayThinkingWord = isRandomTuiThinkingWord(liveThinkingWord)
-    ? rolledThinkingWord
-    : liveThinkingWord;
-  // Mirror to a ref so the (possibly memoized) mouse handler reads the same
-  // word the statusline rendered when computing the model-chip hit span.
-  const displayThinkingWordRef = useRef(displayThinkingWord);
-  displayThinkingWordRef.current = displayThinkingWord;
   const chimeRef = useRef(chime);
   chimeRef.current = liveSettings?.chime ?? chime;
   const confirmExitRef = useRef(confirmExit);
@@ -1421,6 +1355,26 @@ export function App({
   stateRef.current = state;
   const draftRef = useRef({ buffer: state.buffer, cursor: state.cursor });
   draftRef.current = { buffer: state.buffer, cursor: state.cursor };
+  const {
+    displayThinkingWord,
+    displayThinkingWordRef,
+    startedAt,
+    nowTick,
+    setNowTick,
+    workingTimeMs,
+    fleetWorkingTimeMs,
+    enhanceDots,
+    refreshGoalSummary,
+  } = useTuiActivity({
+    status: state.status,
+    fleet: state.fleet,
+    enhanceBusy: state.enhanceBusy,
+    thinkingWord: liveThinkingWord,
+    projectRoot,
+    stateRef,
+    agentContext: agent.ctx,
+    dispatch,
+  });
 
   // Stable onMeasure for ScrollableHistory — must not be an inline function
   // or it breaks React.memo on every parent render, causing freeze/lag.
@@ -1606,146 +1560,6 @@ export function App({
     draftRef.current = { buffer: '', cursor: 0 };
     dispatch({ type: 'clearInput' });
   };
-
-  // Global clock tick. Deliberately slow (10s). The status bar and detail
-  // panel use their own 1s-interval elapsed time internally; this tick only
-  // feeds monitor overlays and the todos poll (which have their own faster
-  // intervals when open).
-  const startedAtRef = useRef<number>(Date.now());
-  const [nowTick, setNowTick] = React.useState<number>(Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setNowTick(Date.now()), 10000);
-    return () => clearInterval(t);
-  }, []);
-
-  // ── Working-time tracking (terminal active session, only counts while agent works) ──
-  const [workingTimeBase, setWorkingTimeBase] = useState(0);
-  const workingStartRef = useRef<number | null>(null);
-  const prevStatusRef = useRef(state.status);
-
-  // On status transition, add the delta to the base or start fresh.
-  if (prevStatusRef.current !== state.status) {
-    const prevWorking = prevStatusRef.current === 'running' || prevStatusRef.current === 'streaming';
-    const nowWorking = state.status === 'running' || state.status === 'streaming';
-    if (prevWorking && !nowWorking) {
-      // Just stopped working — add elapsed to base, clear start
-      const delta = Date.now() - (workingStartRef.current ?? Date.now());
-      workingStartRef.current = null;
-      setWorkingTimeBase((b) => b + delta);
-    } else if (!prevWorking && nowWorking) {
-      // Just started working
-      workingStartRef.current = Date.now();
-    }
-    prevStatusRef.current = state.status;
-  }
-
-  // Live tick while working (updates the displayed value)
-  const [workingTimeMs, setWorkingTimeMs] = useState(0);
-  useEffect(() => {
-    const isWorking = state.status === 'running' || state.status === 'streaming';
-    if (!isWorking) return;
-    const tick = () => {
-      const base = workingStartRef.current !== null
-        ? workingTimeBase + (Date.now() - workingStartRef.current)
-        : workingTimeBase;
-      setWorkingTimeMs(base);
-    };
-    tick(); // snapshot immediately
-    const t = setInterval(tick, 1000);
-    return () => clearInterval(t);
-  }, [state.status, workingTimeBase]);
-
-  // ── Fleet working-time tracking (background subagents) ──
-  const [fleetWorkingBase, setFleetWorkingBase] = useState(0);
-  const fleetWorkingStartRef = useRef<number | null>(null);
-  const prevFleetRunningRef = useRef(0);
-
-  // Watch state.fleet for transitions; not dependent on fleetCounts (defined later)
-  useEffect(() => {
-    const entries = Object.values(state.fleet);
-    const running = entries.filter((e) => e.status === 'running').length;
-    if (prevFleetRunningRef.current !== running) {
-      const wasRunning = prevFleetRunningRef.current > 0;
-      const isRunning = running > 0;
-      if (wasRunning && !isRunning) {
-        const delta = Date.now() - (fleetWorkingStartRef.current ?? Date.now());
-        fleetWorkingStartRef.current = null;
-        setFleetWorkingBase((b) => b + delta);
-      } else if (!wasRunning && isRunning) {
-        fleetWorkingStartRef.current = Date.now();
-      }
-      prevFleetRunningRef.current = running;
-    }
-  }, [state.fleet]);
-
-  // Live tick while fleet is running
-  const [fleetWorkingTimeMs, setFleetWorkingTimeMs] = useState(0);
-  useEffect(() => {
-    const entries = Object.values(state.fleet);
-    const running = entries.filter((e) => e.status === 'running').length;
-    if (running <= 0) return;
-    const tick = () => {
-      const base = fleetWorkingStartRef.current !== null
-        ? fleetWorkingBase + (Date.now() - fleetWorkingStartRef.current)
-        : fleetWorkingBase;
-      setFleetWorkingTimeMs(base);
-    };
-    tick();
-    const t = setInterval(tick, 1000);
-    return () => clearInterval(t);
-  }, [state.fleet, fleetWorkingBase]);
-
-  // Heap watchdog. Long autonomous sessions (10h+) have crashed at the V8
-  // heap limit ("Ineffective mark-compacts near heap limit") with nothing
-  // attributing what grew. Sample memory every minute, append diagnostics
-  // (incl. history/conversation sizes) to ~/.wrongstack/logs/heap.jsonl,
-  // and surface in-chat warnings at 60% / 85% of the heap limit so the user
-  // can checkpoint and restart BEFORE the hard OOM.
-  useEffect(() => {
-    const approxChars = (v: unknown): number => {
-      try {
-        return JSON.stringify(v)?.length ?? 0;
-      } catch {
-        return -1;
-      }
-    };
-    return startHeapWatchdog({
-      collectStats: () => ({
-        historyEntries: stateRef.current.entries.length,
-        historyChars: approxChars(stateRef.current.entries),
-        messages: agent.ctx.state.messages.length,
-        messagesChars: approxChars(agent.ctx.state.messages),
-        runningTools: stateRef.current.runningTools.size,
-        // Bytes queued in stdout's writable buffer. On Windows, TTY writes
-        // are asynchronous — a render storm (e.g. high-frequency tool
-        // progress dispatches) queues whole ANSI frames here as live heap
-        // strings, invisible to every other counter.
-        stdoutQueued: process.stdout.writableLength ?? 0,
-      }),
-      onWarn: (level, message) => {
-        dispatch({
-          type: 'addEntry',
-          entry: { kind: level === 'critical' ? 'error' : 'warn', text: message },
-        });
-      },
-    });
-  }, [agent.ctx]);
-
-  // Refresh goal summary on every tick so the statusline and F9 panel
-  // update promptly after /goal clear, /goal set, or goal completion —
-  // without requiring the panel to be open or the TUI to restart.
-  useEffect(() => {
-    refreshGoalSummary();
-  }, [nowTick, refreshGoalSummary]);
-
-  // Animated scanner for the refiner panel. This is activity, not fake
-  // completion progress; the panel separately displays the real elapsed time.
-  const [enhanceDots, setEnhanceDots] = useState(0);
-  useEffect(() => {
-    if (!state.enhanceBusy) return;
-    const t = setInterval(() => setEnhanceDots((n) => (n + 1) % 36), 400);
-    return () => clearInterval(t);
-  }, [state.enhanceBusy]);
 
   // ── Consolidated 2s tick: todos status + autonomy/yolo/mode/model/provider sync ──
   // Previously two separate 2s intervals, each triggering its own React state
@@ -2665,6 +2479,7 @@ export function App({
                 };
               }
             : undefined,
+        onPanelOpen,
       }),
     );
     return () => {
@@ -5489,6 +5304,10 @@ export function App({
         dispatch({ type: 'toggleGoalPanel' });
         return;
       }
+      if (state.contextPanelOpen) {
+        dispatch({ type: 'toggleContextPanel' });
+        return;
+      }
       if (state.helpOpen) {
         dispatch({ type: 'toggleHelp' });
         return;
@@ -7206,6 +7025,7 @@ export function App({
     state.queuePanelOpen ||
     state.processListOpen ||
     state.goalPanelOpen ||
+    state.contextPanelOpen ||
     state.sessionsPanelOpen ||
     state.authPanel.open;
 
@@ -7729,7 +7549,7 @@ export function App({
               queueCount={state.queue.length}
               yolo={yoloLive}
               autonomy={autonomyLive}
-              startedAt={startedAtRef.current}
+              startedAt={startedAt}
               fleetWorkingTime={fleetWorkingTimeMs}
               todos={todos}
               plan={planCounts ?? undefined}
@@ -7857,6 +7677,42 @@ export function App({
                 onCoordinatorStop={onCoordinatorStop ?? undefined}
                 coordinatorRunning={coordinatorRunning}
               />
+            ) : state.goalKanbanPanelOpen ? (
+              <GoalKanbanPanel
+                projectRoot={projectRoot}
+                goal={state.goalSummary}
+                onClose={() => dispatch({ type: 'toggleGoalKanbanPanel' })}
+              />
+            ) : state.contextPanelOpen ? (
+              <ContextPanel
+                data={{
+                  ctxPct: state.leader.ctxPct,
+                  ctxTokens: state.leader.ctxTokens,
+                  ctxMaxTokens: state.leader.ctxMaxTokens,
+                  provider: (agent.ctx.provider as { id?: string } | undefined)?.id ?? 'unknown',
+                  model: agent.ctx.model,
+                  mode: getModeLabel?.() ?? 'default',
+                  uptime: (() => {
+                    const elapsed = Date.now() - state.leader.startedAt;
+                    const hrs = Math.floor(elapsed / 3600000);
+                    const mins = Math.floor((elapsed % 3600000) / 60000);
+                    const secs = Math.floor((elapsed % 60000) / 1000);
+                    if (hrs > 0) return `${hrs}h ${mins}m`;
+                    if (mins > 0) return `${mins}m ${secs}s`;
+                    return `${secs}s`;
+                  })(),
+                  fleetEntries: Object.values(state.fleet).map((e) => ({
+                    name: e.name,
+                    status: e.status,
+                    currentTool: e.currentTool?.name,
+                    ctxPct: e.ctxPct,
+                  })),
+                  leaderIterations: state.leader.iterations,
+                  leaderToolCalls: state.leader.toolCalls,
+                  leaderStatus: state.status,
+                }}
+                onClose={() => dispatch({ type: 'toggleContextPanel' })}
+              />
             ) : state.sessionsPanelOpen ? (
               <SessionsPanel
                 sessions={state.sessionsPanel.sessions}
@@ -7899,7 +7755,8 @@ export function App({
                 state.monitorOpen ||
                 state.processListOpen ||
                 state.queuePanelOpen ||
-                state.goalPanelOpen;
+                state.goalPanelOpen ||
+                state.contextPanelOpen;
               // Compute the next panel hint based on the currently open monitor.
               // Panels cycle in this order: agents(F3) → todos(F6) → goal(F9) → agents
               let nextPanelHint: KeyHintContext['nextPanelHint'];

@@ -675,6 +675,9 @@ export type State = {
   kanbanPanelOpen: boolean;
   /** When true, the goal panel is shown (F9). */
   goalPanelOpen: boolean;
+  goalKanbanPanelOpen: boolean;
+  /** When true, the context-window telemetry panel is shown (/context window). */
+  contextPanelOpen: boolean;
   /** When true, the sessions panel is shown (F10). */
   sessionsPanelOpen: boolean;
   /** Live session data for the sessions panel (F10). */
@@ -1411,6 +1414,8 @@ export type Action =
   | { type: 'closeAllPanels' }
   | { type: 'toggleKanbanPanel' }
   | { type: 'toggleGoalPanel' }
+  | { type: 'toggleGoalKanbanPanel' }
+  | { type: 'toggleContextPanel' }
   | { type: 'toggleSessionsPanel' }
   | {
       type: 'sessionsPanelSet';
