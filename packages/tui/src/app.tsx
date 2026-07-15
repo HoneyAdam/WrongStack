@@ -33,9 +33,9 @@ import {
   materializeTokens,
   nextEnhanceTimeout,
   normalizedEqual,
-  parseModelRef,
   type PromptUsageStore,
   type Provider,
+  parseModelRef,
   projectSlug,
   type ReasoningRequest,
   recentTextTurns,
@@ -60,6 +60,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { buildRestoredEntries, createInitialState } from './app-initial-state.js';
 // Types imported from app-reducer.ts (single source of truth for reducer + State types)
 import {
   type FleetEntry,
@@ -71,39 +72,33 @@ import {
 } from './app-reducer.js';
 import {
   AgentsMonitor,
-  leaderTimelineFromEntries,
   type AgentTranscriptReader,
+  leaderTimelineFromEntries,
 } from './components/agents-monitor.js';
 import { AuditPanel } from './components/audit-panel.js';
 import { AuthPanel } from './components/auth-panel.js';
 import type { AuthPanelHost } from './components/auth-panel-model.js';
 import { AUTONOMY_OPTIONS, AutonomyPicker } from './components/autonomy-picker.js';
 import { BrainDecisionPrompt } from './components/brain-decision-prompt.js';
-import { ModePicker } from './components/mode-picker.js';
+import { BrainPanel, type BrainRiskLevel } from './components/brain-panel.js';
 import { CheckpointTimeline } from './components/checkpoint-timeline.js';
+import { composerStatusFromState } from './components/composer-status-chip.js';
 import { type ConfirmDecision, ConfirmPrompt } from './components/confirm-prompt.js';
-import { CoordinatorPanel } from './components/coordinator-panel.js';
-import { DesignPicker } from './components/design-picker.js';
+import { ContextPanel } from './components/context-panel.js';
 import { ContinueConfirmPanel } from './components/continue-confirm-panel.js';
+import { CoordinatorPanel } from './components/coordinator-panel.js';
+import { CronJobsMonitor } from './components/cron-jobs.js';
+import { DesignPicker } from './components/design-picker.js';
 import { EnhancePanel, RefiningPanel } from './components/enhance-panel.js';
-import {
-  type RefineFailureDecision,
-  type RefineFailureModel,
-  RefineFailurePanel,
-} from './components/refine-failure-panel.js';
 import { EscConfirmPrompt } from './components/esc-confirm-prompt.js';
 import { F_KEY_ENTRIES, FKeyPicker } from './components/f-key-picker.js';
 import { FilePicker } from './components/file-picker.js';
-import {
-  type ShellCommandWarningDecision,
-  ShellCommandWarning,
-} from './components/shell-command-warning.js';
 import { FleetMonitor } from './components/fleet-monitor.js';
 import { FleetPanel } from './components/fleet-panel.js';
-import { GoalPanel } from './components/goal-panel.js';
 import { GoalKanbanPanel } from './components/goal-kanban-panel.js';
-import { ContextPanel } from './components/context-panel.js';
+import { GoalPanel } from './components/goal-panel.js';
 import { HelpOverlay } from './components/help-overlay.js';
+import { HelpPanel } from './components/help-panel.js';
 import { fmtTok, History, type HistoryEntry } from './components/history.js';
 import {
   DEFAULT_INPUT_PROMPT,
@@ -111,27 +106,25 @@ import {
   inputContentWidth,
   type KeyEvent,
 } from './components/input.js';
-import { composerStatusFromState } from './components/composer-status-chip.js';
 import { KanbanPanel } from './components/kanban-panel.js';
 import { KeyHintBar, type KeyHintContext } from './components/key-hint-bar.js';
 import { MailboxPanel } from './components/mailbox-panel.js';
+import { McpPicker, type McpPickerItem } from './components/mcp-picker.js';
+import { ModePicker } from './components/mode-picker.js';
 import { ModelPicker, type ProviderOption } from './components/model-picker.js';
 import { PhaseMonitor } from './components/phase-monitor.js';
 import { PhasePanel } from './components/phase-panel.js';
 import { PlanPanel } from './components/plan-panel.js';
-import { BrainPanel, type BrainRiskLevel } from './components/brain-panel.js';
-import { useBrainPanel } from './hooks/use-brain-panel.js';
-import { useModelPickRequest } from './hooks/use-model-pick.js';
-import { McpPicker, type McpPickerItem } from './components/mcp-picker.js';
 import { PluginPicker, type PluginPickerItem } from './components/plugin-picker.js';
-import { ToolsPicker, type ToolPickerItem } from './components/tools-picker.js';
-import { HelpPanel } from './components/help-panel.js';
-import { ShadowPanel } from './components/shadow-panel.js';
 import { ProcessListMonitor } from './components/process-list.js';
-import { CronJobsMonitor } from './components/cron-jobs.js';
 import { ProjectPicker } from './components/project-picker.js';
 import { filterPromptPicker, PromptPicker } from './components/prompt-picker.js';
 import { QueuePanel } from './components/queue-panel.js';
+import {
+  type RefineFailureDecision,
+  type RefineFailureModel,
+  RefineFailurePanel,
+} from './components/refine-failure-panel.js';
 import { ResumePicker } from './components/resume-picker.js';
 import { ScrollableHistory, scrollOffsetForTrackRow } from './components/scrollable-history.js';
 import { SddBoardOverlay } from './components/sdd-board-overlay.js';
@@ -148,6 +141,11 @@ import {
   settingsPickerJumpNames,
   THINKING_WORD_FIELD,
 } from './components/settings-picker.js';
+import { ShadowPanel } from './components/shadow-panel.js';
+import {
+  ShellCommandWarning,
+  type ShellCommandWarningDecision,
+} from './components/shell-command-warning.js';
 import { SlashMenu } from './components/slash-menu.js';
 import {
   COMPACT_THRESHOLD,
@@ -163,29 +161,33 @@ import {
   StatuslinePicker,
 } from './components/statusline-picker.js';
 import { TodosMonitor } from './components/todos-monitor.js';
+import { type ToolPickerItem, ToolsPicker } from './components/tools-picker.js';
 import { WorktreeMonitor } from './components/worktree-monitor.js';
 import { WorktreePanel } from './components/worktree-panel.js';
+import { createContextMemoryStatsGetter, createContextSlashCommand } from './context-slash.js';
+import { createCronJobsGetter, createCronSlashCommand } from './cron-slash.js';
 import { actionForFKeyPanel } from './f-key-panels.js';
 import { type GitInfo, readGitInfo } from './git-info.js';
-import { createInitialState, buildRestoredEntries } from './app-initial-state.js';
 import { hitRegion, statusBarLineRow } from './hit-test.js';
 import { useAuthPanel } from './hooks/use-auth-panel.js';
 import { useAutonomousCoordinator } from './hooks/use-autonomous-coordinator.js';
+import { useBrainPanel } from './hooks/use-brain-panel.js';
 import { useDirectorFleetBridge } from './hooks/use-director-fleet-bridge.js';
 import { useFileSearch } from './hooks/use-file-search.js';
-import { usePasteHandling } from './hooks/use-paste-handling.js';
-import { usePickerKeys } from './hooks/use-picker-keys.js';
 import { useInputHistoryPersistence } from './hooks/use-input-history-persistence.js';
 import { useModePicker } from './hooks/use-mode-picker.js';
+import { useModelPickRequest } from './hooks/use-model-pick.js';
+import { usePasteHandling } from './hooks/use-paste-handling.js';
+import { usePickerKeys } from './hooks/use-picker-keys.js';
 import { usePromptPicker } from './hooks/use-prompt-picker.js';
 import { useQueueManager } from './hooks/use-queue-manager.js';
 import { useStatuslineHiddenSync } from './hooks/use-statusline-hidden-sync.js';
-import { useStreamChipExpiration } from './hooks/use-stream-chip-expiration.js';
-import { useWorkingDirChip } from './hooks/use-working-dir-chip.js';
 import { useStatuslineState } from './hooks/use-statusline-state.js';
+import { useStreamChipExpiration } from './hooks/use-stream-chip-expiration.js';
+import { useTuiActivity } from './hooks/use-tui-activity.js';
 import { useTuiControllers } from './hooks/use-tui-controllers.js';
 import { useTuiEventBridge } from './hooks/use-tui-event-bridge.js';
-import { useTuiActivity } from './hooks/use-tui-activity.js';
+import { useWorkingDirChip } from './hooks/use-working-dir-chip.js';
 import { Box, type DOMElement, measureElement, useApp, useStdout } from './ink.js';
 import {
   deleteTokenBackward,
@@ -194,19 +196,17 @@ import {
   layoutInputRows,
   tokenLengthForward,
 } from './input-tokens.js';
-import { createContextMemoryStatsGetter, createContextSlashCommand } from './context-slash.js';
-import { createCronJobsGetter, createCronSlashCommand } from './cron-slash.js';
 import { createKillSlashCommand } from './kill-slash.js';
+import { createMemorySlashCommand } from './memory-slash.js';
 import { MOUSE_CLICK_ON, MOUSE_OFF } from './mouse.js';
 import { createPanelOpenDispatcher } from './on-panel-open.js';
-import { shouldPushSubmittedHistory } from './submit-history.js';
 import { feedPaste } from './paste-accumulator.js';
 import { createPsSlashCommand } from './ps-slash.js';
-import { createMemorySlashCommand } from './memory-slash.js';
 import { renderRunningTools } from './running-tools.js';
-import { buildSlashCommandMatches } from './slash-command-search.js';
 import { sddLifecycleEntry } from './sdd-lifecycle-entry.js';
+import { buildSlashCommandMatches } from './slash-command-search.js';
 import { buildSteeringPreamble } from './steering-preamble.js';
+import { shouldPushSubmittedHistory } from './submit-history.js';
 
 export {
   type Action,
@@ -259,6 +259,8 @@ import { contentBlocksText } from './rehydrate-history.js';
 export interface AppProps {
   agent: Agent;
   slashRegistry: SlashCommandRegistry;
+  /** Host-owned mutable bridge for slash commands that need masked input. */
+  secretInputController?: { readSecret(prompt: string): Promise<string> } | undefined;
   attachments: AttachmentStore;
   events: EventBus;
   tokenCounter?: TokenCounter | undefined;
@@ -897,6 +899,7 @@ export { buildSteeringPreamble } from './steering-preamble.js';
 export function App({
   agent,
   slashRegistry,
+  secretInputController,
   attachments,
   events,
   tokenCounter,
@@ -1422,6 +1425,15 @@ export function App({
     dispatch,
     open: state.authPanel.open,
   });
+
+  useEffect(() => {
+    if (!secretInputController) return;
+    const previous = secretInputController.readSecret;
+    secretInputController.readSecret = authPanelController.readSecret;
+    return () => {
+      secretInputController.readSecret = previous;
+    };
+  }, [secretInputController, authPanelController.readSecret]);
 
   const statuslineHiddenForPicker = useCallback((): StatuslineItem[] => {
     const hookHidden = hiddenItemsRef.current;
@@ -6279,7 +6291,16 @@ export function App({
       }
       const pasteContent = pasteParts.length > 0 ? pasteParts.join('\n') : undefined;
 
-      dispatch({ type: 'addEntry', entry: { kind: 'user', text: trimmed, pasteContent } });
+      const secretBearingSetup =
+        /^\/(?:telegram-setup|tg-setup)\s+\d+:[A-Za-z0-9_-]+(?:\s|$)/i.test(trimmed);
+      dispatch({
+        type: 'addEntry',
+        entry: {
+          kind: 'user',
+          text: secretBearingSetup ? '/telegram-setup [token redacted]' : trimmed,
+          pasteContent,
+        },
+      });
       pushSubmittedHistory();
       clearDraft();
       try {

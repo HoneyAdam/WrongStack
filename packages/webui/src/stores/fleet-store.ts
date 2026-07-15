@@ -87,6 +87,7 @@ function canMergeTranscriptEntry(a: AgentTranscriptEntry, b: AgentTranscriptEntr
   if (a.kind !== b.kind) return false;
   if (a.iteration !== b.iteration) return false;
   if (a.toolName !== b.toolName) return false;
+  if (a.toolOk !== b.toolOk) return false;
   return a.kind === 'text' || a.kind === 'thinking';
 }
 
