@@ -48,6 +48,8 @@ export type { AutonomyStage };
 export interface RunTuiOptions {
   agent: Agent;
   slashRegistry: SlashCommandRegistry;
+  /** Host-owned mutable bridge for slash commands that need masked input. */
+  secretInputController?: { readSecret(prompt: string): Promise<string> } | undefined;
   attachments: AttachmentStore;
   events: EventBus;
   tokenCounter?: TokenCounter | undefined;
@@ -1159,6 +1161,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
         React.createElement(App, {
           agent: opts.agent,
           slashRegistry: opts.slashRegistry,
+          secretInputController: opts.secretInputController,
           attachments: opts.attachments,
           events: opts.events,
           tokenCounter: opts.tokenCounter,

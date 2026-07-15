@@ -59,4 +59,15 @@ describe('shouldPushSubmittedHistory', () => {
       trimmed: '/prompt search auth',
     });
   });
+
+  it('suppresses legacy Telegram setup commands that contain bot tokens', () => {
+    expect(shouldPushSubmittedHistory('/telegram-setup 123456:superSecretToken 42')).toEqual({
+      push: false,
+      route: 'slash',
+      trimmed: '/telegram-setup 123456:superSecretToken 42',
+    });
+    expect(shouldPushSubmittedHistory('/tg-setup 123456:superSecretToken')).toMatchObject({
+      push: false,
+    });
+  });
 });

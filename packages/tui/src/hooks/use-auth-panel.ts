@@ -56,6 +56,8 @@ export interface AuthPanelController {
    * close the panel.
    */
   onAuthCtrlC: () => void;
+  /** Open the existing masked modal for a slash-command secret prompt. */
+  readSecret: (label: string) => Promise<string>;
 }
 
 function abortError(): Error {
@@ -76,6 +78,7 @@ export function useAuthPanel(opts: UseAuthPanelOptions): AuthPanelController {
   const { authHost, stateRef, dispatch, open } = opts;
 
   const flowAbortRef = useRef<AbortController | null>(null);
+  const standaloneSecretRef = useRef(false);
   const promptRef = useRef<{
     resolve: (value: string) => void;
     reject: (err: Error) => void;
@@ -85,6 +88,7 @@ export function useAuthPanel(opts: UseAuthPanelOptions): AuthPanelController {
   const abortLiveFlow = useCallback(() => {
     flowAbortRef.current?.abort();
     flowAbortRef.current = null;
+    standaloneSecretRef.current = false;
     const pending = promptRef.current;
     promptRef.current = null;
     pending?.reject(abortError());
@@ -301,6 +305,10 @@ export function useAuthPanel(opts: UseAuthPanelOptions): AuthPanelController {
     const draft = stateRef.current.authPanel.input?.draft ?? '';
     promptRef.current = null;
     dispatch({ type: 'authPromptEnd' });
+    if (standaloneSecretRef.current) {
+      standaloneSecretRef.current = false;
+      dispatch({ type: 'authClose' });
+    }
     pending?.resolve(draft);
   }, [stateRef, dispatch]);
 
@@ -308,8 +316,28 @@ export function useAuthPanel(opts: UseAuthPanelOptions): AuthPanelController {
     const pending = promptRef.current;
     promptRef.current = null;
     dispatch({ type: 'authPromptEnd' });
+    if (standaloneSecretRef.current) {
+      standaloneSecretRef.current = false;
+      dispatch({ type: 'authClose' });
+    }
     pending?.reject(abortError());
   }, [dispatch]);
+
+  const readSecret = useCallback(
+    (label: string) =>
+      new Promise<string>((resolve, reject) => {
+        const pending = promptRef.current;
+        if (pending) {
+          dispatch({ type: 'authPromptEnd' });
+          pending.reject(abortError());
+        }
+        standaloneSecretRef.current = true;
+        promptRef.current = { resolve, reject };
+        dispatch({ type: 'authOpen', view: 'list', presets: [] });
+        dispatch({ type: 'authPromptStart', label, masked: true });
+      }),
+    [dispatch],
+  );
 
   const onAuthConfirm = useCallback(
     (yes: boolean) => {
@@ -363,5 +391,6 @@ export function useAuthPanel(opts: UseAuthPanelOptions): AuthPanelController {
     onAuthConfirm,
     onAuthFlowCancel,
     onAuthCtrlC,
+    readSecret,
   };
 }

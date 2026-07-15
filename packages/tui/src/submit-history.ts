@@ -23,6 +23,11 @@ export function shouldPushSubmittedHistory(raw: string): {
   if (trimmed === '/prompt' || trimmed === '/prompts-browse') {
     return { push: true, route: 'prompt-picker', trimmed };
   }
+  // Legacy Telegram setup accepted the bot token in the slash arguments.
+  // Never retain such a line even though the command now refuses that shape.
+  if (/^\/(?:telegram-setup|tg-setup)\s+\d+:[A-Za-z0-9_-]+(?:\s|$)/i.test(trimmed)) {
+    return { push: false, route: 'slash', trimmed };
+  }
   if (trimmed.startsWith('/')) {
     return { push: true, route: 'slash', trimmed };
   }
