@@ -10,6 +10,7 @@ import type {
   ModeStore,
   Provider,
   Renderer,
+  SecretVault,
   SessionStore,
   SkillLoader,
   SlashCommandRegistry,
@@ -31,6 +32,8 @@ export interface SlashCommandsDeps {
   tokenCounter: TokenCounter;
   renderer: Renderer;
   reader: InputReader;
+  readSecret: (prompt: string) => Promise<string>;
+  vault: SecretVault;
   events: EventBus;
   memoryStore: MemoryStore;
   context: Context;
@@ -95,6 +98,8 @@ export async function setupSlashCommands(params: SlashCommandsDeps): Promise<voi
     tokenCounter,
     renderer,
     reader,
+    readSecret,
+    vault,
     events,
     memoryStore,
     context,
@@ -211,6 +216,8 @@ export async function setupSlashCommands(params: SlashCommandsDeps): Promise<voi
     },
     configStore,
     reader,
+    readSecret,
+    vault,
     onNewSession,
     onPanelOpen,
   });

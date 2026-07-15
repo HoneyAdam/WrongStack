@@ -194,6 +194,10 @@ export interface CliWebUIOptions {
   appConfig?: import('@wrongstack/core').Config | undefined;
   /** Pop the browser open to the served URL once the frontend is ready. */
   open?: boolean | undefined;
+  /** Read-only worker transcript snapshot used for F5/reconnect replay. */
+  agentTranscripts?: {
+    getAllSessions(): import('@wrongstack/core/coordination').AgentVirtualSession[];
+  } | undefined;
   /**
    * Fired once the WebSocket server is accepting connections. Useful for
    * callers (and tests) that must not connect before the server is ready —
@@ -1081,6 +1085,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
           const usage = opts.agent.ctx.tokenCounter.total();
           return { messages: opts.agent.ctx.messages, usage };
         },
+        loadAgentSessions: () => opts.agentTranscripts?.getAllSessions() ?? [],
         needsSetup: opts.needsSetup ?? false,
       }),
     );

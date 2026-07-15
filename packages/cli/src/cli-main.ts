@@ -894,6 +894,13 @@ export async function main(argv: string[]): Promise<number> {
     return policy.getYolo?.() ?? config.yolo ?? false;
   };
 
+  // Slash-command closures call through this mutable bridge. The TUI replaces
+  // the terminal implementation while Ink owns stdin, so secret keystrokes
+  // always have exactly one masked consumer.
+  const secretInputController = {
+    readSecret: (prompt: string) => reader.readSecret(prompt),
+  };
+
   // Registry of the active multi-agent SDD board run. The webui board handler
   // and slash hooks steer the run through this; the run itself is CLI-owned.
   const sddRunRegistry = new SddRunRegistry();
@@ -946,6 +953,8 @@ export async function main(argv: string[]): Promise<number> {
     onPanelOpen,
     configStore,
     reader,
+    readSecret: (prompt) => secretInputController.readSecret(prompt),
+    vault,
     brain,
     brainSettings,
     brainRuntime,
@@ -2130,6 +2139,7 @@ export async function main(argv: string[]): Promise<number> {
   ui: {
     renderer,
     reader,
+    secretInputController,
     effectiveMaxContext: effectiveMaxContextRef.current,
     getEffectiveMaxContext: () => effectiveMaxContextRef.current,
     stats,

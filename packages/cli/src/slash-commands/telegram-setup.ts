@@ -1,7 +1,13 @@
 import type { SlashCommand } from '@wrongstack/core';
-import { color, noOpVault } from '@wrongstack/core';
+import { color } from '@wrongstack/core';
 import { persistTelegramConfig } from '../settings-menu.js';
 import type { SlashCommandContext } from './index.js';
+import {
+  discoverTelegramPairingCandidates,
+  formatTelegramPairingCandidates,
+  parseTelegramPairingChoice,
+  type TelegramPairingCandidate,
+} from './telegram-pairing.js';
 
 interface TelegramGetMeResponse {
   ok: boolean;
@@ -11,111 +17,95 @@ interface TelegramGetMeResponse {
     first_name: string;
     username?: string | undefined;
   };
-  description?: string | undefined;
 }
 
 const HELP = [
   'Usage:',
-  '  /telegram-setup                     Show setup instructions',
-  '  /telegram-setup <botToken>          Validate and save bot token',
-  '  /telegram-setup <botToken> <chatId> Save token and default chat ID',
+  '  /telegram-setup          Prompt securely for the bot token',
+  '  /telegram-setup <chatId> Prompt securely and save a default chat ID',
   '',
   'Aliases: /tg-setup',
   '',
-  'Quick start:',
-  '  1. Message @BotFather on Telegram → /newbot → copy the token',
-  '  2. Message your new bot, then visit:',
-  '     https://api.telegram.org/bot<TOKEN>/getUpdates',
-  '     Copy the chat.id from the JSON response.',
-  '  3. Run: /telegram-setup <botToken> <chatId>',
-  '  4. Restart WrongStack to activate the plugin.',
+  'The bot token is entered in a masked prompt and never appears in slash history.',
+  'With no chat ID, setup discovers recent Bot API identities and requires an explicit choice.',
 ].join('\n');
 
+const BOT_TOKEN_RE = /^\d+:[A-Za-z0-9_-]+$/;
+
 /**
- * `/telegram-setup` — configure the Telegram plugin in one command.
- *
- * Argument-driven (not interactive) so it works identically in the plain
- * REPL and the Ink TUI. The bot token is validated against the Telegram
- * API before being persisted.
+ * `/telegram-setup` — configure the Telegram plugin without putting its token
+ * in the command line, terminal history, TUI transcript, or plaintext config.
  */
 export function buildTelegramSetupCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'telegram-setup',
     category: 'Config',
     aliases: ['tg-setup'],
-    description: 'Configure Telegram bot token and default chat. /telegram-setup <token> [chatId]',
-    argsHint: '[botToken] [chatId]',
+    description: 'Configure Telegram bot token securely and optionally set a default chat.',
+    argsHint: '[chatId]',
     help: HELP,
 
     async run(args) {
       const parts = args.trim().split(/\s+/).filter(Boolean);
-      const sub = (parts[0] ?? '').toLowerCase();
+      const first = parts[0] ?? '';
+      const sub = first.toLowerCase();
 
       if (sub === 'help' || sub === '--help' || sub === '-h') {
         return { message: HELP };
       }
 
-      // ---- No args: show instructions ----
-      if (!sub) {
-        // Check if telegram plugin is even installed
-        const config = opts.configStore.get();
-        const hasTelegram = (config.plugins ?? []).some((p) => {
-          const name = typeof p === 'string' ? p : p.name;
-          return name === '@wrongstack/telegram' || name === 'telegram';
-        });
-
-        const lines = [`${color.bold('Telegram Setup')}`, ''];
-
-        if (!hasTelegram) {
-          lines.push(
-            `${color.amber('⚠')} Telegram plugin is not installed.`,
-            `   Run: ${color.cyan('/plugin install telegram')}`,
-            `   Then run ${color.cyan('/telegram-setup <botToken>')} to configure it.`,
-            '',
-          );
-        }
-
-        lines.push(
-          '1. Create a bot: message @BotFather → /newbot → copy the token',
-          '2. Get your chat ID: message your bot, then open in browser:',
-          `   ${color.dim('https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates')}`,
-          '   Find chat.id in the JSON response.',
-          '3. Configure: /telegram-setup <botToken> <chatId>',
-          '4. Restart WrongStack.',
-        );
-
-        return { message: lines.join('\n') };
+      // Legacy versions accepted the token here and therefore leaked it into
+      // both readline and TUI history. Refuse that shape without echoing any
+      // part of the supplied credential.
+      if (BOT_TOKEN_RE.test(first)) {
+        return {
+          message: [
+            `${color.red('✗')} Bot tokens are no longer accepted as slash-command arguments.`,
+            `Run ${color.cyan('/telegram-setup [chatId]')} and enter it at the masked prompt.`,
+          ].join('\n'),
+        };
+      }
+      if (parts.length > 1) {
+        return { message: `${color.amber('Usage:')} /telegram-setup [chatId]` };
       }
 
-      // ---- Validate args: first arg is botToken ----
-      const botToken = parts[0] ?? '';
-      const chatId = parts[1];
+      if (!opts.readSecret || !opts.vault || !opts.paths?.globalConfig) {
+        return {
+          message: `${color.red('✗')} Secure Telegram setup is unavailable in this session.`,
+        };
+      }
 
-      // Basic token format check: numbers:alphanumeric
-      if (!/^\d+:[A-Za-z0-9_-]+$/.test(botToken)) {
+      let botToken: string;
+      try {
+        botToken = (
+          await opts.readSecret(`Telegram bot token ${color.dim('(hidden, paste OK)')}: `)
+        ).trim();
+      } catch {
+        return { message: color.dim('Telegram setup cancelled.') };
+      }
+      if (!botToken) return { message: color.dim('Telegram setup cancelled.') };
+
+      if (!BOT_TOKEN_RE.test(botToken)) {
         return {
           message: [
             `${color.red('✗')} Invalid token format.`,
             `Expected: ${color.dim('123456789:ABCdefGHIjkl...')}`,
-            `Got:      ${botToken.slice(0, 20)}...`,
             '',
             'Get a valid token from @BotFather on Telegram.',
           ].join('\n'),
         };
       }
 
-      // ---- Validate token against Telegram API ----
       let botInfo: TelegramGetMeResponse;
       try {
-        const res = await fetch(`https://api.telegram.org/bot${botToken}/getMe`, {
+        const response = await fetch(`https://api.telegram.org/bot${botToken}/getMe`, {
           signal: AbortSignal.timeout(10_000),
         });
-        botInfo = (await res.json()) as TelegramGetMeResponse;
-      } catch (err) {
+        botInfo = (await response.json()) as TelegramGetMeResponse;
+      } catch {
         return {
           message: [
             `${color.red('✗')} Could not reach Telegram API.`,
-            `Error: ${(err as Error).message}`,
             '',
             'Check your network connection and try again.',
           ].join('\n'),
@@ -126,68 +116,121 @@ export function buildTelegramSetupCommand(opts: SlashCommandContext): SlashComma
         return {
           message: [
             `${color.red('✗')} Invalid bot token.`,
-            `Telegram says: ${botInfo.description ?? 'Unknown error'}`,
             '',
             'Get a valid token from @BotFather on Telegram.',
           ].join('\n'),
         };
       }
 
-      const bot = botInfo.result;
+      const chatId = first || undefined;
+      let pairedCandidate: TelegramPairingCandidate | undefined;
+      if (!chatId) {
+        let candidates: TelegramPairingCandidate[];
+        try {
+          candidates = await discoverTelegramPairingCandidates(botToken);
+        } catch {
+          return {
+            message: [
+              `${color.red('✗')} Could not discover recent Telegram chats.`,
+              'Message the bot once, then run /telegram-setup again.',
+              'No configuration was changed.',
+            ].join('\n'),
+          };
+        }
 
-      // ---- Persist to config ----
-      const persistDeps = {
-        configStore: opts.configStore,
-        globalConfigPath: opts.paths?.globalConfig ?? '',
-        vault: noOpVault as Parameters<typeof persistTelegramConfig>[0]['vault'],
-      };
+        if (candidates.length === 0) {
+          return {
+            message: [
+              `${color.amber('No recent chats found.')}`,
+              'Message the bot from the private account you want to pair, then run setup again.',
+              'No configuration was changed.',
+            ].join('\n'),
+          };
+        }
 
-      if (!persistDeps.globalConfigPath) {
-        return {
-          message: `${color.red('✗')} Config path not available. Cannot persist settings.`,
-        };
+        opts.renderer.write(
+          [
+            color.bold('Recent Telegram identities'),
+            formatTelegramPairingCandidates(candidates),
+            '',
+            color.dim('Choose a private candidate number, or press Enter to cancel.'),
+          ].join('\n'),
+        );
+
+        let choiceInput: string;
+        try {
+          choiceInput = await opts.reader.readLine('Pair candidate › ');
+        } catch {
+          return { message: color.dim('Telegram setup cancelled. No configuration was changed.') };
+        }
+        const choice = parseTelegramPairingChoice(choiceInput, candidates);
+        if (choice.kind === 'cancel') {
+          return { message: color.dim('Telegram setup cancelled. No configuration was changed.') };
+        }
+        if (choice.kind === 'invalid') {
+          return {
+            message: `${color.red('✗')} Invalid pairing choice. No configuration was changed.`,
+          };
+        }
+        if (!choice.candidate.eligible) {
+          return {
+            message: [
+              `${color.amber('⚠')} Shared, group, or ambiguous identities are not paired automatically.`,
+              'Use a private chat where chat_id and user_id identify the same account.',
+              'No configuration was changed.',
+            ].join('\n'),
+          };
+        }
+        pairedCandidate = choice.candidate;
       }
 
       try {
-        await persistTelegramConfig(persistDeps, (telegram) => {
-          telegram.botToken = botToken;
-          if (chatId) {
-            // Store as number if it's numeric, string otherwise
-            telegram.notifyChatId = /^\d+$/.test(chatId) ? Number(chatId) : chatId;
-          }
-          // Enable session end notifications by default
-          if (telegram.notifyOnSessionEnd === undefined) {
-            telegram.notifyOnSessionEnd = true;
-          }
-        });
-
-        const chatLine = chatId
-          ? `\nDefault chat:  ${color.green(chatId)}`
-          : `\n${color.dim('No default chat set. You can add it later: /telegram-setup <token> <chatId>')}`;
-
+        await persistTelegramConfig(
+          {
+            configStore: opts.configStore,
+            globalConfigPath: opts.paths.globalConfig,
+            vault: opts.vault,
+          },
+          (telegram) => {
+            telegram.botToken = botToken;
+            if (pairedCandidate) {
+              telegram.notifyChatId = pairedCandidate.chatId;
+              telegram.inboundMode = 'paired';
+              telegram.allowedUsers = [pairedCandidate.userId];
+              telegram.allowedChats = [pairedCandidate.chatId];
+            } else if (chatId) {
+              telegram.notifyChatId = /^-?\d+$/.test(chatId) ? Number(chatId) : chatId;
+            }
+            if (telegram.notifyOnSessionEnd === undefined) telegram.notifyOnSessionEnd = true;
+          },
+        );
+      } catch {
         return {
           message: [
-            `${color.green('✓')} Telegram configured successfully!`,
-            '',
-            `Bot:          ${color.bold(`@${bot.username ?? bot.first_name}`)} ${color.dim(`(id=${bot.id})`)}`,
-            `Name:         ${bot.first_name}`,
-            chatLine,
-            '',
-            `${color.amber('⚠')}  Restart WrongStack for the plugin to pick up the new config.`,
-            '',
-            'After restart, try:',
-            `  ${color.cyan('/telegram')}          — check bot connection`,
-            `  ${color.cyan('/telegram:send')}     — send a test message`,
-          ].join('\n'),
-        };
-      } catch (err) {
-        return {
-          message: [
-            `${color.red('✗')} Failed to save config.`,
-            `Error: ${(err as Error).message}`,
+            `${color.red('✗')} Failed to save Telegram configuration.`,
+            'The token was not printed. Check the config path and vault, then try again.',
           ].join('\n'),
         };
       }
+
+      const bot = botInfo.result;
+      return {
+        message: [
+          `${color.green('✓')} Telegram configured successfully.`,
+          '',
+          `Bot: ${color.bold(`@${bot.username ?? bot.first_name}`)}`,
+          ...(pairedCandidate
+            ? [
+                `Paired private chat: ${color.green(String(pairedCandidate.chatId))}`,
+                `Paired user: ${color.green(String(pairedCandidate.userId))}`,
+              ]
+            : chatId
+              ? [`Default chat: ${color.green(chatId)}`]
+              : []),
+          '',
+          `${color.amber('⚠')} Restart WrongStack for the plugin to load the new token.`,
+        ].join('\n'),
+      };
     },
   };
 }

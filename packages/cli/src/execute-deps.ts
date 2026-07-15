@@ -156,6 +156,8 @@ export interface ProviderDeps {
 export interface UiDeps {
   renderer: TerminalRenderer;
   reader: ReadlineInputReader;
+  /** Mutable bridge replaced by the TUI while Ink owns stdin. */
+  secretInputController: { readSecret(prompt: string): Promise<string> };
   stats: SessionStats;
   effectiveMaxContext: number;
   getEffectiveMaxContext?: (() => number | undefined) | undefined;
@@ -187,6 +189,7 @@ export interface FleetDeps {
    */
   agentTranscripts?: {
     getTranscript(subagentId: string, limit?: number): import('@wrongstack/core/coordination').AgentTimelineEntry[];
+    getAllSessions(): import('@wrongstack/core/coordination').AgentVirtualSession[];
   } | undefined;
   authHost?: import('@wrongstack/tui').AuthPanelHost | undefined;
   onPanelOpen?: { current: ((action: string) => boolean) | null } | undefined;

@@ -1,9 +1,9 @@
 import type { SlashCommand } from '@wrongstack/core';
-import { color, noOpVault } from '@wrongstack/core';
+import { color } from '@wrongstack/core';
+import { toErrorMessage } from '@wrongstack/core/utils';
 import { persistTelegramConfig } from '../settings-menu.js';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
 import type { SlashCommandContext } from './index.js';
-import { toErrorMessage } from '@wrongstack/core/utils';
 
 /**
  * Toggleable notification settings for the Telegram plugin.
@@ -78,8 +78,8 @@ export function buildTelegramSettingsCommand(opts: SlashCommandContext): SlashCo
         return { message: HELP };
       }
 
-      if (!opts.configStore || !opts.paths?.globalConfig) {
-        return { message: `${color.red('Error')} config store not available.` };
+      if (!opts.configStore || !opts.paths?.globalConfig || !opts.vault) {
+        return { message: `${color.red('Error')} secure config persistence not available.` };
       }
 
       if (!sub) {
@@ -89,7 +89,7 @@ export function buildTelegramSettingsCommand(opts: SlashCommandContext): SlashCo
       const persistDeps = {
         configStore: opts.configStore,
         globalConfigPath: opts.paths.globalConfig,
-        vault: noOpVault as Parameters<typeof persistTelegramConfig>[0]['vault'],
+        vault: opts.vault,
       };
 
       try {
@@ -168,7 +168,9 @@ export function buildTelegramSettingsCommand(opts: SlashCommandContext): SlashCo
         if (sub === 'poll') {
           const raw = rest[0];
           if (raw === undefined) {
-            return { message: `${color.amber('Usage:')} /telegram-settings poll <seconds>   ${color.dim('(1–60)')}` };
+            return {
+              message: `${color.amber('Usage:')} /telegram-settings poll <seconds>   ${color.dim('(1–60)')}`,
+            };
           }
           const sec = Number.parseInt(raw, 10);
           if (Number.isNaN(sec) || sec < 1 || sec > 60) {

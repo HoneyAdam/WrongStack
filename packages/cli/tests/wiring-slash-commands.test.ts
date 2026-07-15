@@ -1,17 +1,18 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import * as os from 'node:os';
+import * as path from 'node:path';
 import {
-  SlashCommandRegistry,
-  ToolRegistry,
   DefaultModeStore,
   EventBus,
+  noOpVault,
+  SlashCommandRegistry,
+  ToolRegistry,
   type WstackPaths,
 } from '@wrongstack/core';
-import { makeFakeMemoryStore } from './fake-memory-store.js';
-import { setupSlashCommands } from '../src/wiring/slash-commands.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULTS } from '../src/slash-commands/statusline.js';
+import { setupSlashCommands } from '../src/wiring/slash-commands.js';
+import { makeFakeMemoryStore } from './fake-memory-store.js';
 
 let tmp: string;
 let prevEnv: string | undefined;
@@ -93,6 +94,9 @@ function callSetup(overrides: Record<string, unknown> = {}): Promise<void> {
     skillLoader: undefined,
     tokenCounter: {} as never,
     renderer: { write: vi.fn(), writeInfo: vi.fn(), writeError: vi.fn() } as never,
+    reader: { readLine: vi.fn(), readKey: vi.fn(), close: vi.fn() } as never,
+    readSecret: vi.fn(async () => ''),
+    vault: noOpVault,
     events: fakeEvents(),
     memoryStore: makeFakeMemoryStore(),
     context: fakeContext(),
@@ -114,7 +118,9 @@ function callSetup(overrides: Record<string, unknown> = {}): Promise<void> {
 describe('setupSlashCommands', () => {
   it('runs to completion when no statusline config file exists', async () => {
     await expect(callSetup()).resolves.toBeUndefined();
-    const written = JSON.parse(await fs.readFile(process.env.WRONGSTACK_STATUSLINE_CONFIG!, 'utf8'));
+    const written = JSON.parse(
+      await fs.readFile(process.env.WRONGSTACK_STATUSLINE_CONFIG!, 'utf8'),
+    );
     expect(written).toEqual(DEFAULTS);
   });
 

@@ -159,7 +159,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
       sddSubagentFactory,
     },
     ui: {
-      renderer, reader, stats, effectiveMaxContext, getEffectiveMaxContext,
+      renderer, reader, secretInputController, stats, effectiveMaxContext, getEffectiveMaxContext,
       skillLoader, promptLoader, modeId,
     },
     fleet: {
@@ -630,6 +630,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
           agent,
           events,
           slashRegistry,
+          secretInputController,
           attachments,
           tokenCounter,
           visionAdapters,
@@ -1008,6 +1009,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
         onAutonomy,
         applyLiveSettings,
         activeRecoveryLock,
+        agentTranscripts,
         onModelContextResolved,
         sddSubagentFactory,
         ...(sddSubagentFactory

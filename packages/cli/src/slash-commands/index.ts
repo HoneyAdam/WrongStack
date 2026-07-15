@@ -508,6 +508,10 @@ export interface SlashCommandContext {
   modelsRegistry?: import('@wrongstack/core').ModelsRegistry | undefined;
   /** Terminal reader for interactive user input (e.g. settings menu, auth menu). */
   reader: import('@wrongstack/core').InputReader;
+  /** Read a secret without echoing it or recording it in input history. */
+  readSecret?: ((prompt: string) => Promise<string>) | undefined;
+  /** Real boot-time vault used for secret-bearing config writes. */
+  vault?: import('@wrongstack/core').SecretVault | undefined;
   /**
    * Mutable ref for opening a TUI panel by dispatching its action type.
    * The slash commands call `onPanelOpen.current(action)` to open panels.

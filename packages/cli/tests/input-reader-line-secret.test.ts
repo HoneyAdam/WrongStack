@@ -113,6 +113,17 @@ describe('ReadlineInputReader.readLine', () => {
       expect(raw).toContain('remembered');
     });
   });
+
+  it('does not persist legacy Telegram setup commands containing a bot token', async () => {
+    const historyFile = await tempHistoryFile();
+    const reader = new ReadlineInputReader({ historyFile });
+    const promise = reader.readLine('> ');
+    const iface = await activeInterface();
+    iface.__cb!('/telegram-setup 123456:superSecretToken 42');
+    await promise;
+    const raw = await fs.readFile(historyFile, 'utf8').catch(() => '');
+    expect(raw).not.toContain('superSecretToken');
+  });
 });
 
 // ── readSecret ───────────────────────────────────────────────────────────────

@@ -20,6 +20,7 @@ export class ReadlineInputReader implements InputReader {
   private readonly historyFile: string;
   private history: string[] = [];
   private pending = false;
+  private suppressNextHistory = false;
 
   constructor(opts: ReadlineInputReaderOptions = {}) {
     this.historyFile = opts.historyFile ?? path.join(wstackGlobalRoot(), 'history');
@@ -41,6 +42,10 @@ export class ReadlineInputReader implements InputReader {
     } catch {
       // ignore
     }
+  }
+
+  private shouldPersistHistory(line: string): boolean {
+    return !/^\s*\/(?:telegram-setup|tg-setup)\s+\d+:[A-Za-z0-9_-]+(?:\s|$)/i.test(line);
   }
 
   private ensure(): readline.Interface {
@@ -117,7 +122,9 @@ export class ReadlineInputReader implements InputReader {
         }
 
         fresh.question(prompt ?? '> ', (line) => {
-          if (line.trim()) {
+          const persistHistory = !this.suppressNextHistory && this.shouldPersistHistory(line);
+          this.suppressNextHistory = false;
+          if (line.trim() && persistHistory) {
             this.history.push(line);
             // Fire-and-forget: saveHistory logs its own errors; we intentionally
             // don't await or .catch() here — failing to write history must not
@@ -242,7 +249,10 @@ export class ReadlineInputReader implements InputReader {
    */
   async readSecret(prompt: string): Promise<string> {
     const stdin = process.stdin;
-    if (!stdin.isTTY) return this.readLine(prompt);
+    if (!stdin.isTTY) {
+      this.suppressNextHistory = true;
+      return this.readLine(prompt);
+    }
     // Tear down the active readline so we can take over stdin.
     setOutputLineGuard(null);
     this.rl?.close();
