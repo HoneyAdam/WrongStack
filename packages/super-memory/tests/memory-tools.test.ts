@@ -22,14 +22,18 @@ function createMockService(): SuperMemoryServiceLike {
     async listCandidates() { return []; },
     async acceptCandidate() { return undefined; },
     async rejectCandidate() { return false; },
+    async rememberSuper() { return { id: 'mem_new' } as never; },
+    async updateSuperMemory() { return { id: 'mem_upd' } as never; },
+    async deleteSuperMemory() {},
+    async getSuperMemory() { return { id: 'mem_get' } as never; },
   };
 }
 
 describe('createSuperMemoryTools', () => {
-  it('returns 7 tools with correct names', () => {
+  it('returns 11 tools with correct names', () => {
     const service = createMockService();
     const tools = createSuperMemoryTools(service);
-    expect(tools).toHaveLength(7);
+    expect(tools).toHaveLength(11);
     expect(tools.map((t) => t.name)).toEqual([
       'memory_for_file',
       'memory_for_path',
@@ -38,6 +42,10 @@ describe('createSuperMemoryTools', () => {
       'memory_verify',
       'memory_hygiene',
       'memory_candidates',
+      'remember',
+      'forget',
+      'memory_update',
+      'memory_delete',
     ]);
   });
 
@@ -254,5 +262,84 @@ describe('memory_candidates tool', () => {
     const tool = tools[6]!;
     const errors = tool.validate?.({ action: 'list' }) ?? [];
     expect(errors).toHaveLength(0);
+  });
+});
+
+describe('remember tool (structured write)', () => {
+  it('forwards full structured args to rememberSuper', async () => {
+    const rememberSuper = vi.fn().mockResolvedValue({ id: 'mem_1', kind: 'decision', text: 'x', tags: [] });
+    const service = createMockService();
+    service.rememberSuper = rememberSuper;
+
+    const tool = createSuperMemoryTools(service)[7]!;
+    expect(tool.name).toBe('remember');
+    await tool.execute(
+      {
+        text: 'Use pnpm v9',
+        kind: 'convention',
+        scope: 'project',
+        tags: ['pnpm'],
+        anchors: [{ type: 'file', path: 'package.json' }],
+        importance: 0.9,
+        supersedes: ['mem_old'],
+      } as never,
+      {} as never,
+      { signal: new AbortController().signal } as never,
+    );
+
+    expect(rememberSuper).toHaveBeenCalledWith(expect.objectContaining({
+      text: 'Use pnpm v9',
+      kind: 'convention',
+      scope: 'project',
+      tags: ['pnpm'],
+      anchors: [{ type: 'file', path: 'package.json' }],
+      importance: 0.9,
+      supersedes: ['mem_old'],
+    }));
+  });
+});
+
+describe('forget tool', () => {
+  it('calls forget with query and default scope', async () => {
+    const forget = vi.fn().mockResolvedValue(2);
+    const service = createMockService();
+    service.forget = forget;
+
+    const tool = createSuperMemoryTools(service)[8]!;
+    expect(tool.name).toBe('forget');
+    const result = await tool.execute({ query: 'stale note' } as never, {} as never, { signal: new AbortController().signal } as never);
+
+    expect(forget).toHaveBeenCalledWith('stale note', 'project-memory');
+    expect(result).toEqual({ removed: 2, scope: 'project-memory' });
+  });
+});
+
+describe('memory_update tool', () => {
+  it('applies a patch by id and requires at least one field', async () => {
+    const updateSuperMemory = vi.fn().mockResolvedValue({ id: 'mem_1', kind: 'fact', status: 'stale', text: 'x' });
+    const service = createMockService();
+    service.updateSuperMemory = updateSuperMemory;
+
+    const tool = createSuperMemoryTools(service)[9]!;
+    expect(tool.name).toBe('memory_update');
+    expect(tool.validate?.({ id: 'mem_1' } as never)).toContain('at least one field to update is required');
+
+    await tool.execute({ id: 'mem_1', status: 'stale', tags: ['x'] } as never, {} as never, { signal: new AbortController().signal } as never);
+    expect(updateSuperMemory).toHaveBeenCalledWith('mem_1', { status: 'stale', tags: ['x'] });
+  });
+});
+
+describe('memory_delete tool', () => {
+  it('soft-deletes by id with a reason', async () => {
+    const deleteSuperMemory = vi.fn().mockResolvedValue(undefined);
+    const service = createMockService();
+    service.deleteSuperMemory = deleteSuperMemory;
+
+    const tool = createSuperMemoryTools(service)[10]!;
+    expect(tool.name).toBe('memory_delete');
+    const result = await tool.execute({ id: 'mem_1', reason: 'obsolete' } as never, {} as never, { signal: new AbortController().signal } as never);
+
+    expect(deleteSuperMemory).toHaveBeenCalledWith('mem_1', 'obsolete');
+    expect(result).toEqual({ deleted: true, id: 'mem_1' });
   });
 });

@@ -19,6 +19,22 @@ function command(store: SuperMemoryStore) {
   return buildMemoryCommand({ memoryStore: store, projectRoot: root, cwd: root } as never);
 }
 
+/** Build a /memory command with a stubbed LLM provider for `compact`. */
+function commandWithLlm(store: SuperMemoryStore, opsJson: unknown) {
+  const provider = {
+    async complete() {
+      return { content: [{ type: 'text', text: JSON.stringify(opsJson) }] };
+    },
+  };
+  return buildMemoryCommand({
+    memoryStore: store,
+    projectRoot: root,
+    cwd: root,
+    llmProvider: provider,
+    llmModel: 'test-model',
+  } as never);
+}
+
 describe('/memory Super Memory commands', () => {
   it('searches, traverses graph, verifies, runs hygiene, and reports stats', async () => {
     await fs.writeFile(path.join(root, 'source.ts'), 'export const stableSymbol = true;\n');
@@ -37,6 +53,70 @@ describe('/memory Super Memory commands', () => {
     expect((await cmd.run('hygiene'))?.message).toContain('Super Memory Hygiene');
     // Memory→symbol, symbol→file, and file→project-root directory.
     expect((await cmd.run('stats'))?.message).toContain('Graph edges: 3');
+  });
+
+  it('remembers with structured flags, then updates and deletes by id', async () => {
+    const store = new SuperMemoryStore({ projectRoot: root });
+    const cmd = command(store);
+
+    // remember with full structured args
+    const remembered = await cmd.run('remember Project uses pnpm v9 --kind convention --tag pnpm,build --importance 0.9');
+    expect(remembered?.message).toContain('[convention]');
+    expect(remembered?.message).toContain('#pnpm');
+
+    const listed = await store.listSuper();
+    expect(listed).toHaveLength(1);
+    const created = listed[0]!;
+    expect(created.kind).toBe('convention');
+    expect(created.tags).toEqual(expect.arrayContaining(['pnpm', 'build']));
+    expect(created.importance).toBeCloseTo(0.9, 5);
+
+    // update status + text by id
+    const updated = await cmd.run(`update ${created.id} --status stale --text Project pins pnpm v9`);
+    expect(updated?.message).toContain('stale');
+    const afterUpdate = await store.getSuperMemory(created.id);
+    expect(afterUpdate?.status).toBe('stale');
+    expect(afterUpdate?.text).toBe('Project pins pnpm v9');
+
+    // delete by id
+    const deleted = await cmd.run(`delete ${created.id} no longer relevant`);
+    expect(deleted?.message).toContain('Deleted');
+    const afterDelete = await store.getSuperMemory(created.id);
+    expect(afterDelete?.status).toBe('deleted');
+  });
+
+  it('rejects an invalid --kind with a helpful message', async () => {
+    const store = new SuperMemoryStore({ projectRoot: root });
+    const cmd = command(store);
+    const out = await cmd.run('remember something --kind bogus');
+    expect(out?.message).toContain('--kind must be one of');
+    expect(await store.listSuper()).toHaveLength(0);
+  });
+
+  it('compact operates on real super ids (merge + delete), not the broken legacy parse', async () => {
+    const store = new SuperMemoryStore({ projectRoot: root });
+    const a = await store.rememberSuper({ text: 'Project uses pnpm workspaces.', kind: 'convention' });
+    const b = await store.rememberSuper({ text: 'pnpm is the package manager.', kind: 'fact' });
+    const c = await store.rememberSuper({ text: 'Temporary debug note.', kind: 'fact' });
+
+    const cmd = commandWithLlm(store, {
+      operations: [
+        { action: 'merge', targets: [a.id, b.id], newText: 'Project uses pnpm workspaces as its package manager.', reason: 'dupes' },
+        { action: 'delete', targets: [c.id], reason: 'obsolete' },
+      ],
+      summary: '3 → 1',
+    });
+
+    const out = await cmd.run('compact');
+    expect(out?.message).toContain('Memory Compact');
+
+    const active = await store.listSuper(['active']);
+    // Keeper (a) survives with merged text; b and c are gone.
+    expect(active.map((m) => m.id).sort()).toEqual([a.id]);
+    const keeper = await store.getSuperMemory(a.id);
+    expect(keeper?.text).toBe('Project uses pnpm workspaces as its package manager.');
+    expect((await store.getSuperMemory(b.id))?.status).toBe('deleted');
+    expect((await store.getSuperMemory(c.id))?.status).toBe('deleted');
   });
 
   it('lists and resolves candidates', async () => {

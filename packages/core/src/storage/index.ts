@@ -18,10 +18,6 @@ export {
   type AttachmentStoreOptions,
 } from './attachment-store.js';
 export {
-  DefaultMemoryStore,
-  type MemoryStoreOptions,
-} from './memory-store.js';
-export {
   FileMemoryBackend,
   type FileMemoryBackendOptions,
   type MemoryBackend,

@@ -20,7 +20,7 @@ export interface MemoryEventMap {
     pattern: string;
     decision: 'always' | 'deny';
   };
-  // ── Memory store events — emitted by DefaultMemoryStore so plugins can react ──
+  // ── Memory store events — emitted by SuperMemoryStore so plugins can react ──
   'memory.remembered': MemoryRememberedPayload;
   'memory.forgotten': MemoryForgottenPayload;
   'memory.cleared': MemoryClearedPayload;

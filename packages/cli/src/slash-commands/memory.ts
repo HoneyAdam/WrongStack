@@ -4,14 +4,19 @@ import type { SlashCommandContext } from './index.js';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import type {
   LegacyImportResult,
+  MemoryAnchor,
   MemoryCandidate,
   MemoryGraphEdge,
   MemoryVerificationResult,
   SuperMemory,
   SuperMemoryAuditRecord,
   SuperMemoryHygieneReport,
+  SuperMemoryKind,
+  SuperMemoryScope,
   SuperMemoryServiceLike,
   SuperMemoryStats,
+  SuperMemoryStatus,
+  UpdateSuperMemoryInput,
 } from '@wrongstack/super-memory';
 
 export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
@@ -19,7 +24,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
     name: 'memory',
     category: 'Inspect',
     description:
-      'Inspect or edit persistent memory: /memory [show|search|file|path|graph|remember|forget|hygiene|verify|candidates|audit|import-legacy|clear|compact|stats]',
+      'Inspect or edit persistent memory: /memory [show|search|file|path|graph|remember|update|delete|forget|hygiene|verify|candidates|audit|import-legacy|clear|compact|stats]',
     async run(args) {
       const store = opts.memoryStore;
       if (!store) return { message: 'No memory store configured.' };
@@ -29,6 +34,18 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         case '':
         case 'show':
         case 'list': {
+          // SuperMemory path: show stats + structured entries when available
+          if (isSuperMemoryStore(store)) {
+            const [stats, allMemories] = await Promise.all([
+              store.stats(),
+              store.listSuper(),
+            ]);
+            if (allMemories.length === 0) {
+              return { message: '🧠 Super Memory is empty.' };
+            }
+            return { message: formatSuperMemoryShow(stats, allMemories) };
+          }
+          // Legacy path: flat-file memory store
           const text = await store.readAll();
           return {
             message:
@@ -39,9 +56,79 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         }
         case 'remember':
         case 'add': {
-          if (!restJoined) return { message: 'Usage: /memory remember <text>' };
-          await store.remember(restJoined);
-          return { message: `Remembered: ${restJoined}` };
+          if (rest.length === 0) {
+            return { message: 'Usage: /memory remember <text> [--kind <k>] [--scope <s>] [--tag a,b] [--anchor <path>] [--symbol <path#name>] [--command <cmd>] [--importance 0..1] [--confidence 0..1] [--supersedes id,id] [--contradicts id,id]' };
+          }
+          if (!isSuperMemoryStore(store)) {
+            // Legacy fallback: no structured args available.
+            if (!restJoined) return { message: 'Usage: /memory remember <text>' };
+            await store.remember(restJoined);
+            return { message: `Remembered: ${restJoined}` };
+          }
+          const parsed = parseMemoryFlags(rest);
+          if (parsed.errors.length > 0) return { message: `Cannot remember:\n- ${parsed.errors.join('\n- ')}` };
+          if (!parsed.text) return { message: 'Nothing to remember — provide the memory text before/after the flags.' };
+          try {
+            const memory = await store.rememberSuper({
+              text: parsed.text,
+              ...(parsed.kind && { kind: parsed.kind }),
+              ...(parsed.scope && { scope: parsed.scope }),
+              ...(parsed.tags && { tags: parsed.tags }),
+              ...(parsed.anchors && { anchors: parsed.anchors }),
+              ...(parsed.importance !== undefined && { importance: parsed.importance }),
+              ...(parsed.confidence !== undefined && { confidence: parsed.confidence }),
+              ...(parsed.supersedes && { supersedes: parsed.supersedes }),
+              ...(parsed.contradicts && { contradicts: parsed.contradicts }),
+            });
+            const tags = memory.tags.length > 0 ? ` ${memory.tags.map((t) => `#${t}`).join(' ')}` : '';
+            return { message: `Remembered \`${memory.id}\` [${memory.kind}] ${memory.text}${tags}` };
+          } catch (err) {
+            return { message: `Could not remember: ${toErrorMessage(err)}` };
+          }
+        }
+        case 'update':
+        case 'edit': {
+          if (!isSuperMemoryStore(store)) return requiresSuperMemory('update');
+          const id = rest[0];
+          if (!id) return { message: 'Usage: /memory update <memory-id> [--text <t>] [--kind <k>] [--tag a,b] [--anchor <path>] [--importance 0..1] [--status active|stale|archived|deleted] [--supersedes id,id]' };
+          const parsed = parseMemoryFlags(rest.slice(1));
+          if (parsed.errors.length > 0) return { message: `Cannot update:\n- ${parsed.errors.join('\n- ')}` };
+          const patch: UpdateSuperMemoryInput = {
+            ...(parsed.text && { text: parsed.text }),
+            ...(parsed.kind && { kind: parsed.kind }),
+            ...(parsed.tags && { tags: parsed.tags }),
+            ...(parsed.anchors && { anchors: parsed.anchors }),
+            ...(parsed.importance !== undefined && { importance: parsed.importance }),
+            ...(parsed.confidence !== undefined && { confidence: parsed.confidence }),
+            ...(parsed.freshness !== undefined && { freshness: parsed.freshness }),
+            ...(parsed.status && { status: parsed.status }),
+            ...(parsed.supersedes && { supersedes: parsed.supersedes }),
+            ...(parsed.contradicts && { contradicts: parsed.contradicts }),
+          };
+          if (Object.keys(patch).length === 0) {
+            return { message: 'Nothing to update — pass at least one field (e.g. --text, --status, --tag).' };
+          }
+          try {
+            const memory = await store.updateSuperMemory(id, patch);
+            return { message: `Updated \`${memory.id}\` [${memory.kind}|${memory.status}] ${memory.text}` };
+          } catch (err) {
+            return { message: `Could not update: ${toErrorMessage(err)}` };
+          }
+        }
+        case 'delete':
+        case 'del': {
+          if (!isSuperMemoryStore(store)) return requiresSuperMemory('delete');
+          const id = rest[0];
+          if (!id) return { message: 'Usage: /memory delete <memory-id> [reason...]' };
+          const reason = rest.slice(1).join(' ').trim() || undefined;
+          try {
+            const existing = await store.getSuperMemory(id);
+            if (!existing) return { message: `No memory with id \`${id}\`.` };
+            await store.deleteSuperMemory(id, reason);
+            return { message: `Deleted \`${id}\`.` };
+          } catch (err) {
+            return { message: `Could not delete: ${toErrorMessage(err)}` };
+          }
         }
         case 'forget':
         case 'rm': {
@@ -140,13 +227,133 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
           return {
             message: unknownSubcommand(
               cmd,
-              ['show', 'search', 'file', 'path', 'graph', 'remember', 'forget', 'hygiene', 'verify', 'candidates', 'audit', 'import-legacy', 'clear', 'compact', 'stats'],
+              ['show', 'search', 'file', 'path', 'graph', 'remember', 'update', 'delete', 'forget', 'hygiene', 'verify', 'candidates', 'audit', 'import-legacy', 'clear', 'compact', 'stats'],
               'memory',
             ),
           };
       }
     },
   };
+}
+
+// ── /memory remember|update flag parsing ────────────────────────────────
+
+const MEMORY_KINDS: SuperMemoryKind[] = [
+  'fact', 'decision', 'convention', 'preference', 'warning', 'anti_pattern',
+  'workflow', 'bug_root_cause', 'file_note', 'symbol_note', 'command_note', 'summary',
+];
+const MEMORY_SCOPES: SuperMemoryScope[] = ['project', 'user', 'session', 'file', 'symbol'];
+const MEMORY_STATUSES: SuperMemoryStatus[] = [
+  'active', 'stale', 'superseded', 'contradicted', 'archived', 'deleted',
+];
+
+interface ParsedMemoryFlags {
+  text: string;
+  kind?: SuperMemoryKind;
+  scope?: SuperMemoryScope;
+  status?: SuperMemoryStatus;
+  tags?: string[];
+  anchors?: MemoryAnchor[];
+  importance?: number | undefined;
+  confidence?: number | undefined;
+  freshness?: number | undefined;
+  supersedes?: string[];
+  contradicts?: string[];
+  errors: string[];
+}
+
+/**
+ * Parse `remember`/`update` argument tokens into structured Super Memory fields.
+ * Recognized flags take the single following token as their value; every other
+ * token is collected as free-text and joined into `text`. `--tag`,
+ * `--supersedes`, and `--contradicts` accept comma-separated lists.
+ */
+function parseMemoryFlags(tokens: string[]): ParsedMemoryFlags {
+  const words: string[] = [];
+  const anchors: MemoryAnchor[] = [];
+  const errors: string[] = [];
+  const out: ParsedMemoryFlags = { text: '', errors };
+
+  const nextValue = (i: number): { value: string | undefined; skip: boolean } => {
+    const nxt = tokens[i + 1];
+    if (nxt === undefined || nxt.startsWith('--')) return { value: undefined, skip: false };
+    return { value: nxt, skip: true };
+  };
+  const csv = (value: string): string[] =>
+    value.split(',').map((part) => part.trim()).filter(Boolean);
+  const num = (name: string, value: string | undefined): number | undefined => {
+    if (value === undefined) { errors.push(`${name} needs a value between 0 and 1.`); return undefined; }
+    const parsed = Number.parseFloat(value);
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+      errors.push(`${name} must be a number between 0 and 1 (got "${value}").`);
+      return undefined;
+    }
+    return parsed;
+  };
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i] ?? '';
+    if (!token.startsWith('--')) { words.push(token); continue; }
+    const name = token.slice(2).toLowerCase();
+    const { value, skip } = nextValue(i);
+    if (skip) i++;
+    switch (name) {
+      case 'kind':
+        if (value && (MEMORY_KINDS as string[]).includes(value)) out.kind = value as SuperMemoryKind;
+        else errors.push(`--kind must be one of: ${MEMORY_KINDS.join(', ')}.`);
+        break;
+      case 'scope':
+        if (value && (MEMORY_SCOPES as string[]).includes(value)) out.scope = value as SuperMemoryScope;
+        else errors.push(`--scope must be one of: ${MEMORY_SCOPES.join(', ')}.`);
+        break;
+      case 'status':
+        if (value && (MEMORY_STATUSES as string[]).includes(value)) out.status = value as SuperMemoryStatus;
+        else errors.push(`--status must be one of: ${MEMORY_STATUSES.join(', ')}.`);
+        break;
+      case 'tag':
+      case 'tags':
+        if (value) out.tags = [...(out.tags ?? []), ...csv(value)];
+        else errors.push('--tag needs a value (comma-separated for multiple).');
+        break;
+      case 'anchor':
+      case 'file':
+        if (value) anchors.push({ type: 'file', path: value });
+        else errors.push('--anchor needs a file path.');
+        break;
+      case 'symbol': {
+        if (!value) { errors.push('--symbol needs a value like path#SymbolName.'); break; }
+        const hash = value.lastIndexOf('#');
+        if (hash <= 0 || hash === value.length - 1) { errors.push('--symbol must be path#SymbolName.'); break; }
+        anchors.push({ type: 'symbol', path: value.slice(0, hash), symbol: value.slice(hash + 1) });
+        break;
+      }
+      case 'command':
+        if (value) anchors.push({ type: 'command', command: value });
+        else errors.push('--command needs a value.');
+        break;
+      case 'importance': out.importance = num('--importance', value); break;
+      case 'confidence': out.confidence = num('--confidence', value); break;
+      case 'freshness': out.freshness = num('--freshness', value); break;
+      case 'supersedes':
+        if (value) out.supersedes = [...(out.supersedes ?? []), ...csv(value)];
+        else errors.push('--supersedes needs one or more memory ids.');
+        break;
+      case 'contradicts':
+        if (value) out.contradicts = [...(out.contradicts ?? []), ...csv(value)];
+        else errors.push('--contradicts needs one or more memory ids.');
+        break;
+      case 'text':
+        if (value) words.push(value);
+        else errors.push('--text needs a value.');
+        break;
+      default:
+        errors.push(`Unknown flag "--${name}".`);
+    }
+  }
+
+  out.text = words.join(' ').trim();
+  if (anchors.length > 0) out.anchors = anchors;
+  return out;
 }
 
 async function runPathMemory(
@@ -180,8 +387,13 @@ async function runPathMemory(
 
 type CliSuperMemoryService = SuperMemoryServiceLike & {
   stats(): Promise<SuperMemoryStats>;
+  listSuper(statuses?: string[]): Promise<SuperMemory[]>;
   importLegacy(files: string[]): Promise<LegacyImportResult>;
   readAudit(limit?: number): Promise<SuperMemoryAuditRecord[]>;
+  rememberSuper(input: import('@wrongstack/super-memory').RememberSuperMemoryInput): Promise<SuperMemory>;
+  updateSuperMemory(id: string, patch: UpdateSuperMemoryInput): Promise<SuperMemory>;
+  deleteSuperMemory(id: string, reason?: string): Promise<void>;
+  getSuperMemory(id: string): Promise<SuperMemory | null>;
 };
 
 function isSuperMemoryStore(store: NonNullable<SlashCommandContext['memoryStore']>): store is NonNullable<SlashCommandContext['memoryStore']> & CliSuperMemoryService {
@@ -189,7 +401,10 @@ function isSuperMemoryStore(store: NonNullable<SlashCommandContext['memoryStore'
   return typeof value['retrieveForPath'] === 'function'
     && typeof value['searchSuper'] === 'function'
     && typeof value['graphFor'] === 'function'
-    && typeof value['hygiene'] === 'function';
+    && typeof value['hygiene'] === 'function'
+    && typeof value['listSuper'] === 'function'
+    && typeof value['rememberSuper'] === 'function'
+    && typeof value['updateSuperMemory'] === 'function';
 }
 
 function requiresSuperMemory(command: string): { message: string } {
@@ -250,6 +465,49 @@ function formatSuperStats(stats: SuperMemoryStats): string {
     `Graph edges: ${stats.edges}.`,
     `Kinds: ${Object.entries(stats.byKind).map(([kind, count]) => `${kind}=${count}`).join(', ') || 'none'}.`,
   ].join('\n');
+}
+
+function formatSuperMemoryShow(stats: SuperMemoryStats, memories: SuperMemory[]): string {
+  const lines: string[] = [];
+
+  // Stats header
+  const active = stats.byStatus['active'] ?? 0;
+  const stale = stats.byStatus['stale'] ?? 0;
+  const archived = stats.byStatus['archived'] ?? 0;
+  lines.push('## 🧠 Super Memory');
+  lines.push('');
+  lines.push(`**Total:** ${stats.total} · 🟢 ${active} active · 🟡 ${stale} stale · 🔵 ${archived} archived`);
+  lines.push(`**Graph edges:** ${stats.edges}`);
+  lines.push('');
+
+  // Kind breakdown
+  const kindOrder: SuperMemoryKind[] = ['fact', 'decision', 'convention', 'preference', 'anti_pattern', 'warning', 'workflow', 'bug_root_cause', 'file_note', 'symbol_note', 'command_note', 'summary'];
+  const kindRows: string[] = [];
+  for (const kind of kindOrder) {
+    const count = stats.byKind[kind] ?? 0;
+    if (count === 0) continue;
+    kindRows.push(`- **${kind}**: ${count}`);
+  }
+  if (kindRows.length > 0) {
+    lines.push('### 📊 By kind');
+    lines.push('');
+    lines.push(...kindRows);
+    lines.push('');
+  }
+
+  // Entries
+  lines.push('### 📋 Entries');
+  lines.push('');
+  for (const mem of memories) {
+    const tags = mem.tags.length > 0 ? ` \`${mem.tags.slice(0, 3).join('` `')}${mem.tags.length > 3 ? '…' : ''}\`` : '';
+    const preview = mem.text.replace(/\s+/g, ' ').trim().slice(0, 120);
+    const statusIcon = mem.status === 'active' ? '🟢' : mem.status === 'stale' ? '🟡' : mem.status === 'archived' ? '🔵' : '⚪';
+    lines.push(`- ${statusIcon} \`${mem.id.slice(0, 12)}…\` [${mem.kind}] ${preview}${tags}`);
+  }
+  lines.push('');
+  lines.push(`*${memories.length} entr${memories.length === 1 ? 'y' : 'ies'}*`);
+
+  return lines.join('\n');
 }
 
 // ── /memory compact — LLM-driven memory review and optimization ────────
@@ -349,17 +607,34 @@ async function runCompact(opts: SlashCommandContext): Promise<{ message: string 
   const store = opts.memoryStore;
   if (!store) return { message: 'No memory store configured.' };
 
-  // 1. Read all current entries with metadata
-  const entries = await store.list('project-memory');
-  if (entries.length === 0) {
-    return { message: 'Memory is empty — nothing to compact.' };
-  }
-
-  // Parse entry IDs from raw content
-  const raw = await store.read('project-memory');
-  const compactEntries = parseCompactEntries(raw);
-  if (compactEntries.length === 0) {
-    return { message: 'No parseable entries found.' };
+  // 1. Gather current entries with their REAL ids + metadata.
+  // Super Memory is the live backend: pull structured memories directly so
+  // operations target real memory ids (updateSuperMemory/deleteSuperMemory).
+  // The legacy text-parsing path is only a fallback for a non-super store.
+  const superStore = isSuperMemoryStore(store) ? store : undefined;
+  let compactEntries: CompactEntry[];
+  if (superStore) {
+    const memories = await superStore.listSuper(['active', 'stale']);
+    if (memories.length === 0) {
+      return { message: 'Memory is empty — nothing to compact.' };
+    }
+    compactEntries = memories.map((m) => ({
+      id: m.id,
+      text: m.text,
+      ts: m.createdAt,
+      type: m.kind,
+      tags: m.tags.length > 0 ? m.tags : undefined,
+    }));
+  } else {
+    const entries = await store.list('project-memory');
+    if (entries.length === 0) {
+      return { message: 'Memory is empty — nothing to compact.' };
+    }
+    const raw = await store.read('project-memory');
+    compactEntries = parseCompactEntries(raw);
+    if (compactEntries.length === 0) {
+      return { message: 'No parseable entries found.' };
+    }
   }
 
   // 2. Check for LLM provider
@@ -445,11 +720,16 @@ async function runCompact(opts: SlashCommandContext): Promise<{ message: string 
             errors.push(`rewrite missing newText for targets: ${op.targets.join(', ')}`);
             continue;
           }
-          // Forget old entries, remember the rewritten version
-          for (const target of op.targets) {
-            await store.forget(target);
+          if (superStore) {
+            // Edit the first target in place (preserves id/anchors/graph edges);
+            // delete any extra targets folded into the rewrite.
+            const [first, ...rest] = op.targets;
+            if (first) await superStore.updateSuperMemory(first, { text: op.newText });
+            for (const t of rest) await superStore.deleteSuperMemory(t, 'compact: rewrite');
+          } else {
+            for (const target of op.targets) await store.forget(target);
+            await store.remember(op.newText);
           }
-          await store.remember(op.newText);
           rewritten++;
           break;
         }
@@ -458,17 +738,23 @@ async function runCompact(opts: SlashCommandContext): Promise<{ message: string 
             errors.push(`merge missing newText for targets: ${op.targets.join(', ')}`);
             continue;
           }
-          // Forget all merged entries, remember the combined version
-          for (const target of op.targets) {
-            await store.forget(target);
+          if (superStore) {
+            // Keep the first memory (update its text), delete the rest.
+            const [keeper, ...rest] = op.targets;
+            if (keeper) await superStore.updateSuperMemory(keeper, { text: op.newText });
+            for (const t of rest) await superStore.deleteSuperMemory(t, 'compact: merged');
+          } else {
+            for (const target of op.targets) await store.forget(target);
+            await store.remember(op.newText);
           }
-          await store.remember(op.newText);
           merged++;
           break;
         }
         case 'delete': {
-          for (const target of op.targets) {
-            await store.forget(target);
+          if (superStore) {
+            for (const target of op.targets) await superStore.deleteSuperMemory(target, 'compact: obsolete');
+          } else {
+            for (const target of op.targets) await store.forget(target);
           }
           deleted += op.targets.length;
           break;

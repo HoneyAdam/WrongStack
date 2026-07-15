@@ -239,6 +239,10 @@ describe('Super Memory integration surfaces', () => {
       'memory_verify',
       'memory_hygiene',
       'memory_candidates',
+      'remember',
+      'forget',
+      'memory_update',
+      'memory_delete',
     ]);
   });
 

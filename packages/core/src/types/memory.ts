@@ -33,7 +33,7 @@ export interface MemoryEntry {
   lastAccessed?: string | undefined;
 }
 
-// ── Memory events — emitted by DefaultMemoryStore so plugins can react ──
+// ── Memory events — emitted by SuperMemoryStore so plugins can react ──
 
 export interface MemoryRememberedPayload {
   scope: MemoryScope;

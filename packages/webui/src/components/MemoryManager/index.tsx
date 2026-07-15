@@ -137,16 +137,31 @@ export function MemoryManager() {
 
   // ── Stale-request guard for loadMemories ────────────────────────────
   const listReqGenRef = useRef(0);
+  const loadRequestCleanupRef = useRef<(() => void) | null>(null);
 
+  // ── Stale-request guards for mutating actions ────────────────────────
+  const saveReqGenRef = useRef(0);
+  const saveRequestCleanupRef = useRef<(() => void) | null>(null);
+  const deleteReqGenRef = useRef(0);
+  const deleteRequestCleanupRef = useRef<(() => void) | null>(null);
   // ── Load data ───────────────────────────────────────────────────────
 
   const loadMemories = useCallback(() => {
     const gen = ++listReqGenRef.current;
     setLoading(true);
     setError(null);
+
     const client = getWSClient();
+    loadRequestCleanupRef.current?.();
+
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+
+    let cleanup: (() => void) | null = null;
     const handler = (msg: { type: string; payload: unknown }) => {
-      if (gen !== listReqGenRef.current) return; // stale request
+      if (gen !== listReqGenRef.current) {
+        cleanup?.();
+        return; // stale request
+      }
       if (msg.type === 'memory.super.list') {
         const p = msg.payload as { memories?: MemoryEntry[]; stats?: MemoryStats; error?: string };
         if (p.error) {
@@ -156,10 +171,30 @@ export function MemoryManager() {
           setStats(p.stats ?? null);
         }
         setLoading(false);
-        client.off('memory.super.list', handler);
+        cleanup?.();
       }
     };
+
+    cleanup = () => {
+      if (timeout !== null) {
+        clearTimeout(timeout ?? undefined);
+        timeout = null;
+      }
+      client.off('memory.super.list', handler);
+      if (loadRequestCleanupRef.current === cleanup) {
+        loadRequestCleanupRef.current = null;
+      }
+    };
+
+    timeout = setTimeout(() => {
+      if (gen !== listReqGenRef.current) return;
+      cleanup?.();
+      setError('Load timed out — no response from server.');
+      setLoading(false);
+    }, 30_000);
+
     client.on('memory.super.list', handler);
+    loadRequestCleanupRef.current = cleanup;
     ws.listSuperMemories();
   }, [ws]);
 
@@ -167,7 +202,10 @@ export function MemoryManager() {
     loadMemories();
     // Cleanup: invalidate any in-flight request on unmount so stale
     // handlers cannot mutate unmounted component state.
-    return () => { listReqGenRef.current++; };
+    return () => {
+      listReqGenRef.current++;
+      loadRequestCleanupRef.current?.();
+    };
   }, [loadMemories]);
 
   // ── Filtered list ───────────────────────────────────────────────────
@@ -228,61 +266,121 @@ export function MemoryManager() {
   }, []);
 
   const handleSave = useCallback(() => {
+    const gen = ++saveReqGenRef.current;
     const client = getWSClient();
-    let cleanup: (() => void) | null = null;
+    saveRequestCleanupRef.current?.();
+
     const tags = editTags.split(',').map((t) => t.trim()).filter(Boolean);
 
     if (creating) {
       // ── Create mode ──
-      if (!editText.trim()) { setError('Text is required.'); return; }
+      if (!editText.trim()) {
+        setError('Text is required.');
+        return;
+      }
+
       setSaving(true);
       setError(null);
-      const timeout = setTimeout(() => {
-        if (cleanup) cleanup();
-        setSaving(false);
-        setError('Create timed out — no response from server.');
-      }, 30_000);
-      const handler = (msg: { type: string; payload: unknown }) => {
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+      let cleanup: (() => void) | null = null;
+      cleanup = () => {
+        if (timeout !== null) {
+          clearTimeout(timeout ?? undefined);
+          timeout = null;
+        }
+        client.off('memory.super.remember', rememberHandler);
+        if (saveRequestCleanupRef.current === cleanup) {
+          saveRequestCleanupRef.current = null;
+        }
+      };
+
+      const rememberHandler = (msg: { type: string; payload: unknown }) => {
+        if (gen !== saveReqGenRef.current) {
+          cleanup?.();
+          return;
+        }
         if (msg.type === 'memory.super.remember') {
-          clearTimeout(timeout);
+          clearTimeout(timeout ?? undefined);
           const p = msg.payload as { memory?: MemoryEntry; error?: string };
-          if (p.error) { setError(p.error); } else { loadMemories(); }
+          if (p.error) {
+            setError(p.error);
+            setSaving(false);
+            cleanup?.();
+            return;
+          }
+
           setSaving(false);
           setCreating(false);
           setEditText('');
           setEditTags('');
           setEditKind('fact');
-          setEditImportance(0.5);
           setEditConfidence(0.8);
-          if (cleanup) cleanup();
+          setEditImportance(0.5);
+          loadMemories();
+          cleanup?.();
         }
       };
-      client.on('memory.super.remember', handler);
-      cleanup = () => client.off('memory.super.remember', handler);
+
+      client.on('memory.super.remember', rememberHandler);
+      saveRequestCleanupRef.current = cleanup;
+      timeout = setTimeout(() => {
+        if (gen !== saveReqGenRef.current) return;
+        cleanup?.();
+        setSaving(false);
+        setError('Create timed out — no response from server.');
+      }, 30_000);
       ws.rememberSuperMemory({ text: editText.trim(), kind: editKind, tags, importance: editImportance, confidence: editConfidence });
       return;
     }
 
     // ── Update mode ──
     if (!selectedMemory) return;
+
     setSaving(true);
-    const timeout = setTimeout(() => {
-      if (cleanup) cleanup();
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    let cleanup: (() => void) | null = null;
+
+    cleanup = () => {
+      if (timeout !== null) {
+        clearTimeout(timeout ?? undefined);
+        timeout = null;
+      }
+      client.off('memory.super.update', updateHandler);
+      if (saveRequestCleanupRef.current === cleanup) {
+        saveRequestCleanupRef.current = null;
+      }
+    };
+
+    const updateHandler = (msg: { type: string; payload: unknown }) => {
+      if (gen !== saveReqGenRef.current) {
+        cleanup?.();
+        return;
+      }
+      if (msg.type === 'memory.super.update') {
+        clearTimeout(timeout ?? undefined);
+        const p = msg.payload as { memory?: MemoryEntry; error?: string };
+        if (p.error) {
+          setError(p.error);
+          setSaving(false);
+          // Keep edit mode open and the user's draft intact on transient
+          // server failures — exiting edit mode would discard their changes.
+        } else {
+          loadMemories();
+          setSaving(false);
+          setEditing(false);
+        }
+        cleanup?.();
+      }
+    };
+
+    client.on('memory.super.update', updateHandler);
+    saveRequestCleanupRef.current = cleanup;
+    timeout = setTimeout(() => {
+      if (gen !== saveReqGenRef.current) return;
+      cleanup?.();
       setSaving(false);
       setError('Save timed out — no response from server.');
     }, 30_000);
-    const handler = (msg: { type: string; payload: unknown }) => {
-      if (msg.type === 'memory.super.update') {
-        clearTimeout(timeout);
-        const p = msg.payload as { memory?: MemoryEntry; error?: string };
-        if (p.error) { setError(p.error); } else { loadMemories(); }
-        setSaving(false);
-        setEditing(false);
-        if (cleanup) cleanup();
-      }
-    };
-    client.on('memory.super.update', handler);
-    cleanup = () => client.off('memory.super.update', handler);
     ws.updateSuperMemory(selectedMemory.id, {
       text: editText,
       tags,
@@ -296,24 +394,62 @@ export function MemoryManager() {
 
   const handleDeleteConfirm = useCallback(() => {
     if (!deleting) return;
+
+    const gen = ++deleteReqGenRef.current;
     const client = getWSClient();
+    deleteRequestCleanupRef.current?.();
+
+    let timeout: ReturnType<typeof setTimeout> | null = null;
     let cleanup: (() => void) | null = null;
-    const timeout = setTimeout(() => {
-      if (cleanup) cleanup();
+
+    cleanup = () => {
+      if (timeout !== null) {
+        clearTimeout(timeout ?? undefined);
+        timeout = null;
+      }
+      client.off('memory.super.delete', deleteHandler);
+      if (deleteRequestCleanupRef.current === cleanup) {
+        deleteRequestCleanupRef.current = null;
+      }
+    };
+
+    const deleteHandler = (msg: { type: 'memory.super.delete'; payload: { success: boolean; message: string } }) => {
+      if (gen !== deleteReqGenRef.current) {
+        cleanup?.();
+        return;
+      }
+      // Only process the operation-specific response type, never a generic
+      // broadcast event — prevents false matches with other operations
+      // that also deliver results through the same event channel.
+      if (msg.type !== 'memory.super.delete' || !msg.payload) {
+        return;
+      }
+
+      clearTimeout(timeout ?? undefined);
+      const p = msg.payload;
+      if (!p.success) {
+        setError(p.message ?? 'Delete failed.');
+        setDeleting(null);
+      } else {
+        loadMemories();
+        if (selectedId === deleting) {
+          setSelectedId(null);
+        }
+        setDeleting(null);
+      }
+      cleanup?.();
+    };
+
+    client.on('memory.super.delete', deleteHandler);
+    deleteRequestCleanupRef.current = cleanup;
+
+    timeout = setTimeout(() => {
+      if (gen !== deleteReqGenRef.current) return;
+      cleanup?.();
       setDeleting(null);
       setError('Delete timed out — no response from server.');
     }, 30_000);
-    const handler = (msg: { type: string; payload: { success: boolean } }) => {
-      if (msg.type === 'key.operation_result' && msg.payload) {
-        clearTimeout(timeout);
-        loadMemories();
-        if (selectedId === deleting) setSelectedId(null);
-        setDeleting(null);
-        if (cleanup) cleanup();
-      }
-    };
-    client.on('key.operation_result', handler);
-    cleanup = () => client.off('key.operation_result', handler);
+
     ws.deleteSuperMemory(deleting);
   }, [deleting, selectedId, ws, loadMemories]);
 
