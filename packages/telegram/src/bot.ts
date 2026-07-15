@@ -1,63 +1,17 @@
 import type { Logger } from '@wrongstack/core';
 import { sleep } from '@wrongstack/core/utils';
+import {
+  TelegramApiClient,
+  TelegramBotApiError,
+  TelegramNetworkError,
+  type TelegramApiCallbackQuery,
+  type TelegramApiMessage,
+} from './api-client.js';
 import type { PollLock } from './poll-lock.js';
 
-// ---------------------------------------------------------------------------
-// Redaction helpers
-// ---------------------------------------------------------------------------
-/** Redact the bot token from a URL for safe logging. */
-function redactToken(url: string, token: string): string {
-  return url.replace(token, '[REDACTED]');
-}
-
-// ---------------------------------------------------------------------------
-// Telegram Bot API types (subset used by this plugin)
-// ---------------------------------------------------------------------------
-
-interface TgUser {
-  id: number;
-  is_bot: boolean;
-  first_name: string;
-  username?: string | undefined;
-}
-
-interface TgChat {
-  id: number;
-  type: 'private' | 'group' | 'supergroup' | 'channel';
-  title?: string | undefined;
-  username?: string | undefined;
-}
-
-interface TgMessage {
-  message_id: number;
-  from?: TgUser | undefined;
-  chat: TgChat;
-  date: number;
-  text?: string | undefined;
-}
-
-interface TgUpdate {
-  update_id: number;
-  message?: TgMessage | undefined;
-  edited_message?: TgMessage | undefined;
-  /** Inline-keyboard press. `data` carries the action key (e.g. `approve:abc`). */
-  callback_query?: TgCallbackQuery | undefined;
-}
-
-interface TgCallbackQuery {
-  id: string;
-  from?: TgUser | undefined;
-  /** Message the keyboard was attached to; preserved so we can edit/answer it. */
-  message?: { message_id: number; chat: TgChat } | undefined;
-  /** Action key chosen by the user (up to 64 bytes per Telegram docs). */
-  data?: string | undefined;
-}
-
-interface TgResponse<T> {
-  ok: boolean;
-  result?: T | undefined;
-  description?: string | undefined;
-  error_code?: number | undefined;
+export interface TelegramBotResponse<T> {
+  ok: true;
+  result: T;
 }
 
 // ---------------------------------------------------------------------------
@@ -101,7 +55,7 @@ interface TelegramApprovalRequest {
   expectedUserIds: ReadonlySet<string>;
   allowGroup: boolean;
   promptMessageId?: number | undefined;
-  pendingCallbacks: TgCallbackQuery[];
+  pendingCallbacks: TelegramApiCallbackQuery[];
   expiresAt: number;
   state: TelegramApprovalRequestState;
   resolve: (value: TelegramApprovalResult) => void;
@@ -146,9 +100,7 @@ export interface TelegramBotOptions {
 // ---------------------------------------------------------------------------
 
 export class TelegramBot {
-  private readonly baseUrl: string;
-  /** Base URL with token redacted, safe to use in log calls. */
-  private readonly safeBaseUrl: string;
+  private readonly api: TelegramApiClient;
   private readonly pollIntervalMs: number;
   private readonly allowedUsers: Set<string>;
   private readonly allowedChats: Set<string>;
@@ -187,8 +139,7 @@ export class TelegramBot {
   private readonly callbackWaiters = new Map<string, TelegramApprovalRequest>();
 
   constructor(opts: TelegramBotOptions) {
-    this.baseUrl = `https://api.telegram.org/bot${opts.token}`;
-    this.safeBaseUrl = redactToken(this.baseUrl, opts.token);
+    this.api = new TelegramApiClient({ token: opts.token });
     this.pollIntervalMs = opts.pollIntervalSec * 1000;
     this.allowedUsers = opts.allowedUsers;
     this.allowedChats = opts.allowedChats;
@@ -269,7 +220,7 @@ export class TelegramBot {
       this.standbyAnnounced = false;
       this.log.info('Telegram: poll lock acquired — taking over polling.');
     } else {
-      this.log.info(`Telegram bot polling started (${this.safeBaseUrl})`);
+      this.log.info(`Telegram bot polling started (${this.api.safeBaseUrl})`);
     }
     this.schedulePoll();
   }
@@ -337,30 +288,19 @@ export class TelegramBot {
   // Outgoing — send a message
   // ------------------------------------------------------------------
 
-  async sendMessage(chatId: string | number, text: string): Promise<TgResponse<TgMessage>> {
-    const url = `${this.baseUrl}/sendMessage`;
-    const body = JSON.stringify({
-      chat_id: String(chatId),
-      text,
-      disable_web_page_preview: true,
-    });
-
+  async sendMessage(
+    chatId: string | number,
+    text: string,
+  ): Promise<TelegramBotResponse<TelegramApiMessage>> {
     this.log.debug(`Sending Telegram message to ${chatId} (${text.length} chars)`);
 
     let lastErr: unknown;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body,
+        const result = await this.api.sendMessage(chatId, text, {
           signal: AbortSignal.timeout(10_000),
         });
-        const data = (await res.json()) as TgResponse<TgMessage>;
-        if (!data.ok) {
-          throw new Error(`Telegram API error ${data.error_code}: ${data.description}`);
-        }
-        return data;
+        return { ok: true, result };
       } catch (err) {
         lastErr = err;
         if (attempt < 3) {
@@ -386,31 +326,14 @@ export class TelegramBot {
     chatId: string | number,
     text: string,
     buttons: Array<{ text: string; callback_data: string }>,
-  ): Promise<TgResponse<TgMessage>> {
-    const url = `${this.baseUrl}/sendMessage`;
-    const body = JSON.stringify({
-      chat_id: String(chatId),
-      text,
-      disable_web_page_preview: true,
-      reply_markup: {
-        inline_keyboard: [buttons.map((b) => ({ text: b.text, callback_data: b.callback_data }))],
-      },
-    });
-
+  ): Promise<TelegramBotResponse<TelegramApiMessage>> {
     let lastErr: unknown;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body,
+        const result = await this.api.sendMessageWithKeyboard(chatId, text, buttons, {
           signal: AbortSignal.timeout(10_000),
         });
-        const data = (await res.json()) as TgResponse<TgMessage>;
-        if (!data.ok) {
-          throw new Error(`Telegram API error ${data.error_code}: ${data.description}`);
-        }
-        return data;
+        return { ok: true, result };
       } catch (err) {
         lastErr = err;
         if (attempt < 3) await sleep(1000);
@@ -428,21 +351,14 @@ export class TelegramBot {
     username?: string | undefined;
     error?: string | undefined;
   }> {
-    // Use a dedicated AbortController per call so stop() can cancel an
-    // in-flight health check, AND so the 5 s timeout timer can be cleared
-    // immediately on completion (a leaked AbortSignal.timeout timer
-    // would keep the test worker alive for up to 5 s after each call).
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 5000);
     try {
-      const url = `${this.baseUrl}/getMe`;
-      const res = await fetch(url, { signal: ctrl.signal });
-      const data = (await res.json()) as TgResponse<TgUser>;
-      if (!data.ok || !data.result) {
-        return { ok: false, error: data.description ?? 'Unknown error' };
-      }
-      return { ok: true, username: data.result.username };
+      const user = await this.api.getMe({ signal: ctrl.signal });
+      return { ok: true, username: user.username };
     } catch (err) {
+      if (err instanceof TelegramBotApiError) return { ok: false, error: err.description };
+      if (err instanceof TelegramNetworkError) return { ok: false, error: err.detail };
       return { ok: false, error: (err as Error).message };
     } finally {
       clearTimeout(timer);
@@ -468,32 +384,15 @@ export class TelegramBot {
 
   private async poll(): Promise<void> {
     try {
-      const url = `${this.baseUrl}/getUpdates?offset=${this.offset}&timeout=10`;
-      const res = await fetch(url, { signal: this.controller.signal });
-      const data = (await res.json()) as TgResponse<TgUpdate[]>;
-
-      if (!data.ok) {
-        if (data.error_code === 409) {
-          this.conflictStreak++;
-          if (this.conflictStreak === TelegramBot.CONFLICT_BACKOFF_AFTER) {
-            this.log.warn(
-              this.lock
-                ? 'Telegram: another consumer outside this machine is polling this bot token (HTTP 409) — backing off to 60s polls. Check other machines/bots using this token, or a registered webhook (deleteWebhook).'
-                : 'Telegram: another instance is polling this bot token (HTTP 409) — backing off to 60s polls until it stops.',
-            );
-          }
-        }
-        this.log.debug(`Telegram getUpdates failed: ${data.description}`);
-        return;
-      }
+      const updates = await this.api.getUpdates({
+        offset: this.offset,
+        timeoutSeconds: 10,
+        signal: this.controller.signal,
+      });
       this.conflictStreak = 0;
 
-      const updates = data.result ?? [];
       for (const upd of updates) {
         this.offset = upd.update_id + 1;
-
-        // Inline-keyboard press — must be answered within 10 s or the
-        // Telegram client shows a "loading" spinner forever.
         if (upd.callback_query) {
           void this.dispatchCallback(upd.callback_query);
           continue;
@@ -501,17 +400,24 @@ export class TelegramBot {
 
         const raw = upd.message ?? upd.edited_message;
         if (!raw?.text) continue;
-        const msg = { ...raw, text: raw.text };
-        this.processMessage(msg);
+        this.processMessage({ ...raw, text: raw.text });
       }
 
-      // Persist offset after each successful poll to prevent message replay
-      // after crashes or restarts.
-      if (this.offsetStoragePath && this.offset > 0) {
-        void this.saveOffset();
-      }
+      if (this.offsetStoragePath && this.offset > 0) void this.saveOffset();
     } catch (err) {
-      if ((err as Error).name === 'AbortError') return;
+      if (err instanceof TelegramNetworkError && err.aborted) return;
+      if (err instanceof TelegramBotApiError && err.errorCode === 409) {
+        this.conflictStreak++;
+        if (this.conflictStreak === TelegramBot.CONFLICT_BACKOFF_AFTER) {
+          this.log.warn(
+            this.lock
+              ? 'Telegram: another consumer outside this machine is polling this bot token (HTTP 409) — backing off to 60s polls. Check other machines/bots using this token, or a registered webhook (deleteWebhook).'
+              : 'Telegram: another instance is polling this bot token (HTTP 409) — backing off to 60s polls until it stops.',
+          );
+        }
+        this.log.debug(`Telegram getUpdates failed: ${err.description}`);
+        return;
+      }
       this.log.debug(`Telegram poll error: ${(err as Error).message}`);
     }
   }
@@ -536,7 +442,7 @@ export class TelegramBot {
     return undefined;
   }
 
-  private processMessage(msg: TgMessage & { text: string }): void {
+  private processMessage(msg: TelegramApiMessage & { text: string }): void {
     const chatId = String(msg.chat.id);
     const userId = msg.from ? String(msg.from.id) : undefined;
     const denialReason = this.inboundDenialReason(userId, chatId);
@@ -590,7 +496,7 @@ export class TelegramBot {
     return true;
   }
 
-  private async dispatchCallback(cq: TgCallbackQuery): Promise<void> {
+  private async dispatchCallback(cq: TelegramApiCallbackQuery): Promise<void> {
     const key = cq.data ?? '';
     const action = /^approve:([^:]+):(yes|no)$/.exec(key);
     const requestId = action?.[1];
@@ -673,14 +579,7 @@ export class TelegramBot {
     showAlert: boolean,
   ): Promise<void> {
     try {
-      await fetch(`${this.baseUrl}/answerCallbackQuery`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          callback_query_id: callbackQueryId,
-          text,
-          show_alert: showAlert,
-        }),
+      await this.api.answerCallbackQuery(callbackQueryId, text, showAlert, {
         signal: AbortSignal.timeout(5_000),
       });
     } catch (err) {
