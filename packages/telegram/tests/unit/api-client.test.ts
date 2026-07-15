@@ -6,6 +6,7 @@ import {
   TelegramHttpError,
   TelegramNetworkError,
   TelegramResponseParseError,
+  classifyRetry,
 } from '../../src/api-client.js';
 
 const TOKEN = '123456:super-secret-token';
@@ -160,5 +161,73 @@ describe('TelegramApiClient', () => {
       aborted: true,
       detail: 'aborted [REDACTED]',
     });
+  });
+});
+
+describe('classifyRetry', () => {
+  it('does not retry when attempt >= 3', () => {
+    expect(classifyRetry(new Error('any'), 3)).toEqual({ retry: false, delayMs: 0 });
+    expect(classifyRetry(new Error('any'), 4)).toEqual({ retry: false, delayMs: 0 });
+  });
+
+  it('does not retry terminal error types: TelegramHttpError, ParseError, aborted network', () => {
+    expect(classifyRetry(new TelegramHttpError('sendMessage', 502, 'Bad Gateway'), 1)).toEqual({ retry: false, delayMs: 0 });
+    expect(classifyRetry(new TelegramResponseParseError('sendMessage', 'invalid JSON'), 1)).toEqual({ retry: false, delayMs: 0 });
+    expect(classifyRetry(new TelegramNetworkError('sendMessage', 'aborted', true), 1)).toEqual({ retry: false, delayMs: 0 });
+  });
+
+  it('does not retry 4xx Bot API errors other than 429 and 409', () => {
+    const make = (code: number, desc = 'error') => new TelegramBotApiError('sendMessage', { errorCode: code, description: desc });
+    for (const code of [400, 401, 403, 404, 405, 422, 500]) {
+      const decision = classifyRetry(make(code), 1);
+      if (code >= 500) {
+        expect(decision.retry).toBe(true);
+      } else if (code !== 429 && code !== 409) {
+        expect(decision.retry).toBe(false);
+      }
+    }
+  });
+
+  it('retries 429 with retry_after-based delay', () => {
+    const decision = classifyRetry(
+      new TelegramBotApiError('sendMessage', { errorCode: 429, description: 'Too many', retryAfterSeconds: 5 }),
+      1,
+    );
+    expect(decision.retry).toBe(true);
+    expect(decision.delayMs).toBeGreaterThanOrEqual(5000);
+    expect(decision.delayMs).toBeLessThanOrEqual(7000);
+  });
+
+  it('retries 429 without retry_after with exponential backoff', () => {
+    const decision = classifyRetry(
+      new TelegramBotApiError('sendMessage', { errorCode: 429, description: 'Too many' }),
+      1,
+    );
+    expect(decision.retry).toBe(true);
+    expect(decision.delayMs).toBeGreaterThan(0);
+  });
+
+  it('retries non-aborted network errors with backoff', () => {
+    const decision = classifyRetry(new TelegramNetworkError('sendMessage', 'ECONNRESET'), 1);
+    expect(decision.retry).toBe(true);
+    expect(decision.delayMs).toBeGreaterThan(0);
+  });
+
+  it('retries 5xx server errors with bounded backoff', () => {
+    const decision = classifyRetry(
+      new TelegramBotApiError('sendMessage', { errorCode: 502, description: 'Bad gateway' }),
+      1,
+    );
+    expect(decision.retry).toBe(true);
+    expect(decision.delayMs).toBeGreaterThan(500);
+    expect(decision.retry).toBe(true);
+  });
+
+  it('retries with increasing delay on attempt 2', () => {
+    const d1 = classifyRetry(new TelegramNetworkError('sendMessage', 'timeout'), 1);
+    const d2 = classifyRetry(new TelegramNetworkError('sendMessage', 'timeout'), 2);
+    expect(d1.retry).toBe(true);
+    expect(d2.retry).toBe(true);
+    expect(d2.delayMs).toBeGreaterThanOrEqual(d1.delayMs);
   });
 });

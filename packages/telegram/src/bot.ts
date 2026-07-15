@@ -4,6 +4,7 @@ import {
   TelegramBotApiError,
   TelegramNetworkError,
   abortableSleep,
+  classifyRetry,
   type TelegramApiCallbackQuery,
   type TelegramApiMessage,
 } from './api-client.js';
@@ -305,10 +306,13 @@ export class TelegramBot {
         return { ok: true, result };
       } catch (err) {
         lastErr = err;
-        if (attempt < 3) {
-          this.log.debug(`Telegram sendMessage attempt ${attempt} failed, retrying in 1s...`);
-          await abortableSleep(1000, signal);
+        const decision = classifyRetry(err, attempt);
+        if (!decision.retry) {
+          if (attempt > 1) this.log.debug(`Telegram sendMessage terminal error on attempt ${attempt}, not retrying`);
+          break;
         }
+        this.log.debug(`Telegram sendMessage attempt ${attempt} failed, retrying in ${decision.delayMs}ms...`);
+        await abortableSleep(decision.delayMs, signal);
       }
     }
     throw lastErr;
@@ -340,7 +344,12 @@ export class TelegramBot {
         return { ok: true, result };
       } catch (err) {
         lastErr = err;
-        if (attempt < 3) await abortableSleep(1000, signal);
+        const decision = classifyRetry(err, attempt);
+        if (!decision.retry) {
+          if (attempt > 1) this.log.debug(`Telegram sendMessageWithKeyboard terminal error on attempt ${attempt}, not retrying`);
+          break;
+        }
+        await abortableSleep(decision.delayMs, signal);
       }
     }
     throw lastErr;

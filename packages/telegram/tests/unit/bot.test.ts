@@ -306,7 +306,7 @@ describe('TelegramBot sendMessage', () => {
     expect(attempts).toBe(3);
   });
 
-  it('throws after all retries exhausted', async () => {
+  it('throws on terminal 403 without retrying', async () => {
     const bot = makeBot();
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,

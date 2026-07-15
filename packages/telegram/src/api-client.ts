@@ -132,6 +132,65 @@ export class TelegramBotApiError extends TelegramApiClientError {
 }
 
 // ---------------------------------------------------------------------------
+// Retry and backoff policy
+// ---------------------------------------------------------------------------
+
+export interface RetryDecision {
+  /** Whether to retry the request. */
+  retry: boolean;
+  /** Milliseconds to wait before retrying. 0 when retry is false. */
+  delayMs: number;
+}
+
+/** Base delay for exponential backoff (1 s). */
+const BACKOFF_BASE_MS = 1_000;
+/** Maximum delay cap (30 s). */
+const BACKOFF_MAX_MS = 30_000;
+
+/**
+ * Classify a caught error and decide whether to retry, and how long to wait.
+ * @param err The error thrown by api-client methods.
+ * @param attempt 1-based attempt counter.
+ * @returns A RetryDecision.
+ */
+export function classifyRetry(err: unknown, attempt: number): RetryDecision {
+  if (attempt >= 3) return { retry: false, delayMs: 0 };
+
+  if (err instanceof TelegramHttpError) return { retry: false, delayMs: 0 };
+  if (err instanceof TelegramResponseParseError) return { retry: false, delayMs: 0 };
+  if (err instanceof TelegramNetworkError && err.aborted) return { retry: false, delayMs: 0 };
+
+  if (err instanceof TelegramBotApiError) {
+    const code = err.errorCode;
+    if (code !== undefined && code >= 400 && code < 500 && code !== 429 && code !== 409) {
+      return { retry: false, delayMs: 0 };
+    }
+    if (code === 429) {
+      const baseDelay = err.retryAfterSeconds !== undefined
+        ? err.retryAfterSeconds * 1000
+        : BACKOFF_BASE_MS * (2 ** (attempt - 1));
+      const delayMs = Math.min(Math.ceil(baseDelay * (1 + Math.random() * 0.3)), BACKOFF_MAX_MS);
+      return { retry: true, delayMs };
+    }
+    if (code === 409) {
+      const delayMs = Math.min(BACKOFF_BASE_MS * (2 ** (attempt - 1)), BACKOFF_MAX_MS);
+      return { retry: true, delayMs };
+    }
+    if (code !== undefined && code >= 500) {
+      const delayMs = Math.min(Math.ceil(BACKOFF_BASE_MS * (2 ** (attempt - 1)) * (1 + Math.random() * 0.2)), BACKOFF_MAX_MS);
+      return { retry: true, delayMs };
+    }
+    if (code === undefined) {
+      const delayMs = Math.min(BACKOFF_BASE_MS * (2 ** (attempt - 1)), BACKOFF_MAX_MS);
+      return { retry: true, delayMs };
+    }
+  }
+
+  const delayMs = Math.min(Math.ceil(BACKOFF_BASE_MS * (2 ** (attempt - 1)) * (1 + Math.random() * 0.3)), BACKOFF_MAX_MS);
+  return { retry: true, delayMs };
+}
+
+// ---------------------------------------------------------------------------
 // Typed transport
 // ---------------------------------------------------------------------------
 
