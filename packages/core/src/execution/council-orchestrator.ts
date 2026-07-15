@@ -25,6 +25,8 @@ import {
   buildCouncilVoterUserPrompt,
 } from './council-prompts.js';
 import { resolveCouncilVotes } from './council-resolution.js';
+import { FallbackProfileManager } from '../core/fallback-profile-manager.js';
+import type { Config } from '../types/config.js';
 
 /** Synthetic ballot entry for "refuse every real option". */
 export const COUNCIL_REFUSAL_OPTION_ID = 'council_refuse';
@@ -38,6 +40,8 @@ export interface CouncilOrchestratorOptions {
   defaultProfile?: string | undefined;
   maxConcurrency?: number | undefined;
   refusalOptionId?: string | undefined;
+  /** Live config accessor for fallback profile resolution. */
+  getConfig?: (() => Config) | undefined;
 }
 
 interface ParsedVote {
@@ -67,6 +71,7 @@ export class CouncilOrchestrator {
   private readonly defaultProfile: string | undefined;
   private readonly maxConcurrency: number;
   private readonly refusalOptionId: string;
+  private readonly getConfig: (() => Config) | undefined;
 
   constructor(opts: CouncilOrchestratorOptions) {
     this.caller = opts.caller;
@@ -77,6 +82,7 @@ export class CouncilOrchestrator {
       opts.maxConcurrency ?? DEFAULT_COUNCIL_MAX_CONCURRENCY,
     );
     this.refusalOptionId = opts.refusalOptionId?.trim() || COUNCIL_REFUSAL_OPTION_ID;
+    this.getConfig = opts.getConfig;
   }
 
   async ask(question: CouncilQuestion): Promise<CouncilResult> {
@@ -494,6 +500,8 @@ export class CouncilOrchestrator {
     signal: AbortSignal;
     usage: UsageAccumulator;
   }): Promise<OneShotLLMResult> {
+    const resolvedTarget = this.resolveCouncilTarget(input.target);
+
     try {
       const result = await this.caller.call({
         system: input.system,
@@ -502,14 +510,11 @@ export class CouncilOrchestrator {
         maxTokens: input.maxTokens,
         timeoutMs: input.timeoutMs,
         signal: input.signal,
-        ...(input.target?.providerId ? { providerId: input.target.providerId } : {}),
-        ...(input.target?.model ? { model: input.target.model } : {}),
-        ...(input.target?.role ? { role: input.target.role } : {}),
-        ...(input.target?.fallbackProfile
-          ? { fallbackProfile: input.target.fallbackProfile }
-          : {}),
-        ...(input.target?.fallbackModels
-          ? { fallbackModels: [...input.target.fallbackModels] }
+        ...(resolvedTarget?.providerId ? { providerId: resolvedTarget.providerId } : {}),
+        ...(resolvedTarget?.model ? { model: resolvedTarget.model } : {}),
+        ...(resolvedTarget?.role ? { role: resolvedTarget.role } : {}),
+        ...(resolvedTarget?.fallbackModels && resolvedTarget.fallbackModels.length > 0
+          ? { fallbackModels: [...resolvedTarget.fallbackModels] }
           : {}),
       });
       addUsage(input.usage, result);
@@ -518,6 +523,42 @@ export class CouncilOrchestrator {
       input.usage.calls += 1;
       return emptyCallResult(errorMessage(error));
     }
+  }
+
+  /**
+   * Resolve a CouncilModelTarget: pre-resolve fallbackProfile to fallbackModels
+   * so the downstream caller only sees the resolved chain.
+   */
+  private resolveCouncilTarget(
+    target?: CouncilModelTarget | undefined,
+  ): CouncilModelTarget | undefined {
+    if (!target) return undefined;
+    if (!target.fallbackProfile || !this.getConfig) return target;
+
+    const config = this.getConfig();
+    const mgr = new FallbackProfileManager(config);
+    const chain = mgr.resolve(target.fallbackProfile);
+    if (chain.length === 0) return target;
+
+    // Combine profile-resolved chain with any explicit fallbackModels
+    const combined = [
+      ...chain.map((e) => `${e.providerId}/${e.model}`),
+      ...(target.fallbackModels ?? []),
+    ];
+    // Deduplicate while preserving order
+    const seen = new Set<string>();
+    const deduped = combined.filter((ref) => {
+      if (seen.has(ref)) return false;
+      seen.add(ref);
+      return true;
+    });
+
+    return {
+      ...(target.providerId ? { providerId: target.providerId } : {}),
+      ...(target.model ? { model: target.model } : {}),
+      ...(target.role ? { role: target.role } : {}),
+      fallbackModels: deduped,
+    };
   }
 }
 
