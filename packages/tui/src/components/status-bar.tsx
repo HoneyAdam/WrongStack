@@ -11,19 +11,13 @@ import { normalizeTuiThinkingWord } from '../thinking-word.js';
 import type { GitInfo } from '../git-info.js';
 import {
   type AnimationStyle,
-  BREATHE_FRAMES,
   CYCLE_TICK_INTERVAL_MS,
-  DOTS_FRAMES,
-  HUE_WHEEL,
-  pulseColor,
-  stripTrailingDots,
-  styleForCycleTick,
-  waveColor,
 } from './animation-style.js';
 import { PowerlineRail } from './powerline-rail.js';
 import { theme } from '../theme.js';
 import { glyphs } from '../ui-glyphs.js';
 import { displayWidth } from '../terminal-width.js';
+import { BrainChip, EternalStageChip, ThinkingChip } from './status-bar-chips.js';
 
 // ─── Stream chip expiration helpers ─────────────────────────────────────────
 
@@ -119,9 +113,9 @@ function formatSuggestionLabel(label: string, maxLen = 28): string {
  * are the (exclusive) thresholds at/below which the color steps down.
  */
 function countdownColor(secs: number, warn: number, danger: number): string {
-  if (secs > warn) return 'green';
-  if (secs > danger) return 'yellow';
-  return 'red';
+  if (secs > warn) return theme.success;
+  if (secs > danger) return theme.warn;
+  return theme.error;
 }
 
 /**
@@ -182,20 +176,28 @@ export function planChipFit(widths: number[], budget: number, sepCost = SB_SEP_C
  * so the line never wraps (a wrapped status bar shifts Ink's layout and strands
  * the input row in scrollback).
  */
-function renderChipLine(
-  chips: React.ReactElement[],
-  budget: number,
-  monochrome = false,
-): React.ReactElement {
-  return <PowerlineRail segments={chips} budget={budget} monochrome={monochrome} />;
-}
-
 /** Minimum terminal width before we switch to ultra-compact mode. Exported so
  *  the TUI mouse hit-test can skip the model-chip click in compact mode (where
  *  line 1 uses a different layout than `statusBarModelSpan` assumes). */
 export const COMPACT_THRESHOLD = 50;
 /** Above this width, show most available information. */
 const COMFORTABLE_THRESHOLD = 90;
+
+/**
+ * Return the color value in normal mode, or `undefined` in no-color mode so
+ * Ink omits the color prop entirely. Centralises the `isNoColor ? undefined : color`
+ * pattern that was repeated ~50× across this file.
+ */
+function chipColor(color: string, isNoColor: boolean): string | undefined {
+  return isNoColor ? undefined : color;
+}
+
+/**
+ * Per-line background tones for the 3 status bar lines + 1 spare.
+ * Progressively darker from line 1 (top, lightest) to line 4 (bottom,
+ * darkest) for a subtle layered/sunken effect.
+ */
+const LINE_BG_COLORS = [theme.surface, theme.surface, theme.surface, theme.surface] as const;
 
 // Animated braille spinner shown when the agent is thinking/streaming.
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -215,9 +217,7 @@ export function tokenDisplayTotals(
         cacheWrite?: number | undefined;
       }
     | undefined,
-  currentRequest:
-    | { input: number; cacheRead: number; cacheWrite?: number | undefined }
-    | undefined,
+  currentRequest: { input: number; cacheRead: number; cacheWrite?: number | undefined } | undefined,
 ): TokenDisplayTotals {
   const usageInput = usage ? usage.input + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0) : 0;
   const usageOutput = usage?.output ?? 0;
@@ -329,9 +329,10 @@ export interface MailboxStatus {
 export interface StatusBarProps {
   model: string;
   /**
-   * App version string (e.g. "0.7.0"). When set, renders a compact
-   * `WS v0.7.0` chip at the head of line 1 so the running build is always
-   * visible, not just in the startup banner.
+   * App version string (e.g. "0.7.0"). Previously rendered a `WS v{version}`
+   * chip at the head of line 1. Now shown in the composer top rail instead
+   * (`WRONGSTACK v{version}`). Kept in the interface for callers that may
+   * use `version` in derived props — no longer rendered by StatusBar itself.
    */
   version?: string | undefined;
   state: 'idle' | 'running' | 'streaming' | 'aborting';
@@ -473,7 +474,7 @@ export interface StatusBarProps {
   /**
    * Seconds remaining in the prompt-refinement auto-send countdown.
    * When non-null, replaces the old in-panel timer display with a
-   * line-3 chip like `⏳ auto-send in 5s` so the countdown never
+   * line-3 chip like `◴ refinement ready · send in 5s` so the countdown never
    * causes blank entries in the chat scrollback.
    */
   enhanceCountdown?: number | null | undefined;
@@ -522,7 +523,6 @@ export interface StatusBarProps {
  */
 export function StatusBar({
   model,
-  version,
   state,
   thinkingWord,
   thinkingAnimationStyle,
@@ -607,6 +607,23 @@ export function StatusBar({
     const t = setInterval(() => setElapsedMs(Date.now() - startedAt), 1000);
     return () => clearInterval(t);
   }, [startedAt, elapsedHidden]);
+
+  // Current wall-clock time — formatted as HH:MM, updated every 30 s.
+  // Rendered as a live clock chip on line 1; refreshes infrequently to
+  // avoid churn since it doesn't need second-level precision.
+  const timeHidden = hiddenSet.has('time');
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (timeHidden) return;
+    setNow(Date.now()); // snapshot immediately on (re)enable
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, [timeHidden]);
+  const timeStr = new Date(now).toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
 
   // Animated braille spinner — cycles while the agent is thinking/streaming.
   // Stops when idle so the interval doesn't drive unnecessary re-renders.
@@ -694,20 +711,6 @@ export function StatusBar({
   // are: the project, the branch, the elapsed clock, YOLO chip. These
   // change at most once per session.
   const hasAutoProceed = autoProceedCountdown != null && autoProceedCountdown > 0;
-  const hasSecondLine =
-    (yolo && showChip('yolo')) ||
-    (autonomy && autonomy !== 'off' && showChip('autonomy')) ||
-    (eternalStage != null && showChip('eternal_stage')) ||
-    (startedAt != null && showChip('elapsed')) ||
-    (git !== null && git !== undefined && showChip('git')) ||
-    (projectName !== undefined && projectName.length > 0 && showChip('project')) ||
-    (workingDir !== undefined && workingDir.length > 0 && showChip('working_dir')) ||
-    (goalSummary !== null && goalSummary !== undefined && showChip('goal')) ||
-    (!!modeLabel && showChip('mode')) ||
-    (hasAutoProceed && showChip('auto_proceed')) ||
-    (tokenSavingMode !== undefined && tokenSavingMode !== 'off' && showChip('token_saving')) ||
-    (typeof toolCount === 'number' && toolCount > 0 && showChip('tools')) ||
-    (sessionCount != null && sessionCount > 0 && showChip('sessions'));
 
   // Line 3 is *active work* — the dynamic chips that mutate as the
   // agent / subagents make progress. Hidden when nothing is in flight
@@ -734,7 +737,7 @@ export function StatusBar({
   const nextStepsColor =
     nextStepsAutoSubmitCountdown != null
       ? countdownColor(nextStepsAutoSubmitCountdown, 20, 10)
-      : 'green';
+      : theme.success;
 
   const hasTaskActivity =
     tasks &&
@@ -743,18 +746,6 @@ export function StatusBar({
       tasks.completed > 0 ||
       tasks.blocked > 0 ||
       tasks.failed > 0);
-  const hasThirdLine =
-    (todos &&
-      (todos.pending > 0 || todos.inProgress > 0 || (todos.completed > 0 && !todosCleared)) &&
-      showChip('todos')) ||
-    (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0) && showChip('plan')) ||
-    (hasTaskActivity && showChip('tasks')) ||
-    (fleetHasActivity && showChip('fleet')) ||
-    showBrain ||
-    showDebugStream ||
-    showEnhance ||
-    (hasNextStepsAutoSubmit && showChip('next_steps'));
-
   const minimalWorkParts = [
     queueCount > 0 && showChip('queue') ? `q${queueCount}` : '',
     todos && showChip('todos') && todos.inProgress + todos.pending > 0
@@ -772,12 +763,6 @@ export function StatusBar({
   ].filter(Boolean);
 
   const primaryChips: React.ReactElement[] = [
-    version && showChip('version') ? (
-      <Text>
-        <Text color={isNoColor ? undefined : theme.brandPrimary} bold>{glyphs.brand} WS</Text>
-        <Text dimColor={!isNoColor}> v{version}</Text>
-      </Text>
-    ) : null,
     showChip('state') && thinking ? (
       <ThinkingChip
         text={`${statePrefix} ${stateLabel}`}
@@ -786,67 +771,215 @@ export function StatusBar({
         cycleTick={cycleTick}
       />
     ) : showChip('state') ? (
-      <Text color={isNoColor ? undefined : stateColor}>{statePrefix} {stateLabel}</Text>
+      <Text color={isNoColor ? undefined : stateColor}>
+        {statePrefix} {stateLabel}
+      </Text>
     ) : null,
     showChip('model') ? (
-      <Text color={isNoColor ? undefined : 'magenta'}>{model}</Text>
+      <Text color={isNoColor ? undefined : theme.monitor.agents}>
+        {showChip('state') ? ` ${model}` : model}
+      </Text>
     ) : null,
-    context && showChip('context') ? (() => {
-      const ratio = context.used / context.max;
-      const clampedRatio = Math.min(ratio, 1);
-      const pctText = `${Math.min(Math.round(ratio * 100), 100)}%`;
-      return (
-        <Text color={isNoColor ? undefined : clampedRatio < 0.6 ? 'green' : clampedRatio < 0.75 ? 'yellow' : 'red'}>
-          {glyphs.context} {renderMeter(clampedRatio, 8)} {pctText}/{fmtTok(context.max)}
-          {contextStrategy ? <Text dimColor={!isNoColor}> [{contextStrategy}]</Text> : null}
-        </Text>
-      );
-    })() : null,
+    context && showChip('context')
+      ? (() => {
+          const ratio = context.used / context.max;
+          const clampedRatio = Math.min(ratio, 1);
+          const pctText = `${Math.min(Math.round(ratio * 100), 100)}%`;
+          return (
+            <Text
+              color={
+                isNoColor
+                  ? undefined
+                  : clampedRatio < 0.6
+                    ? theme.success
+                    : clampedRatio < 0.75
+                      ? theme.warn
+                      : theme.error
+              }
+            >
+              {glyphs.context} {renderMeter(clampedRatio, 8)} {pctText}/{fmtTok(context.max)}
+              {contextStrategy ? <Text dimColor={!isNoColor}> [{contextStrategy}]</Text> : null}
+            </Text>
+          );
+        })()
+      : null,
     showTokenDisplay && showChip('tokens') ? (
-      <Text>↑ <Text color={isNoColor ? undefined : 'cyan'}>{fmtTok(displayTokens.input)}</Text> ↓ <Text color={isNoColor ? undefined : 'cyan'}>{fmtTok(displayTokens.output)}</Text></Text>
+      <Text>
+        ↑ <Text color={isNoColor ? undefined : theme.accent}>{fmtTok(displayTokens.input)}</Text> ↓{' '}
+        <Text color={isNoColor ? undefined : theme.accent}>{fmtTok(displayTokens.output)}</Text>
+      </Text>
     ) : null,
     cache && cache.hitRatio > 0 && isComfortable && showChip('cache') ? (
       <Text dimColor={!isNoColor}>cache {(cache.hitRatio * 100).toFixed(0)}%</Text>
     ) : null,
     cost && cost.total > 0 && showChip('cost') ? (
-      <Text color={isNoColor ? undefined : 'yellow'}>{glyphs.cost}{cost.total.toFixed(4)}</Text>
+      <Text color={isNoColor ? undefined : theme.warn}>
+        {glyphs.cost}
+        {cost.total.toFixed(4)}
+      </Text>
     ) : null,
     queueCount > 0 && showChip('queue') ? (
-      <Text color={isNoColor ? undefined : 'cyan'}>{glyphs.queue} queued {queueCount}</Text>
+      <Text color={isNoColor ? undefined : theme.accent}>
+        {glyphs.queue} queued {queueCount}
+      </Text>
     ) : null,
     typeof processCount === 'number' && processCount > 0 && showChip('processes') ? (
-      <Text color={isNoColor ? undefined : 'red'}>{glyphs.process} {processCount} process{processCount === 1 ? '' : 'es'}</Text>
+      <Text color={isNoColor ? undefined : theme.error}>
+        {glyphs.process} {processCount} process{processCount === 1 ? '' : 'es'}
+      </Text>
     ) : null,
     hint && showChip('hint') ? <Text dimColor={!isNoColor}>{hint}</Text> : null,
     indexState?.indexing && showChip('index') ? (
-      <Text color={isNoColor ? undefined : 'yellow'}>{glyphs.index} indexing {indexState.currentFile}/{indexState.totalFiles}</Text>
+      <Text color={isNoColor ? undefined : theme.warn}>
+        {glyphs.index} indexing {indexState.currentFile}/{indexState.totalFiles}
+      </Text>
     ) : indexState?.circuit?.state === 'open' && showChip('index') ? (
-      <Text color={isNoColor ? undefined : 'red'}>{glyphs.index} index paused</Text>
+      <Text color={isNoColor ? undefined : theme.error}>{glyphs.index} index paused</Text>
     ) : null,
-    breakerCountdown && showChip('breaker') ? (() => {
-      const secs = Math.ceil(breakerCountdown.remainingMs / 1000);
-      const c = secs > 20 ? 'green' : secs > 10 ? 'yellow' : 'red';
-      return <Text color={isNoColor ? undefined : c} bold>{glyphs.warning} kill/reset in {secs}s</Text>;
-    })() : null,
+    breakerCountdown && showChip('breaker')
+      ? (() => {
+          const secs = Math.ceil(breakerCountdown.remainingMs / 1000);
+          const c = secs > 20 ? theme.success : secs > 10 ? theme.warn : theme.error;
+          return (
+            <Text color={isNoColor ? undefined : c} bold>
+              {glyphs.warning} kill/reset in {secs}s
+            </Text>
+          );
+        })()
+      : null,
   ].filter((chip): chip is React.ReactElement => chip !== null);
 
-  const minimumChips = [
-    ...primaryChips.slice(0, 6),
+  const modeChips = [
+    // Line 1 runtime chips: YOLO, autonomy, time, workfolder (user request),
+    // then state, model, context, tokens, plus elapsed and working_dir.
+    yolo && showChip('yolo') ? (
+      <Text color={chipColor(theme.error, isNoColor)} bold>
+        {isNoColor ? 'YOLO' : `${glyphs.warning} YOLO`}
+      </Text>
+    ) : null,
+    autonomy && autonomy !== 'off' && showChip('autonomy') ? (
+      <Text
+        color={chipColor(
+          autonomy === 'eternal'
+            ? theme.error
+            : autonomy === 'auto'
+              ? theme.warn
+              : theme.accent,
+          isNoColor,
+        )}
+        bold
+      >
+        {isNoColor ? autonomy.toUpperCase() : `∞ ${autonomy.toUpperCase()}`}
+      </Text>
+    ) : null,
+    showChip('time') ? (
+      <Text dimColor={!isNoColor}>
+        {isNoColor ? timeStr : `${glyphs.clock} ${timeStr}`}
+      </Text>
+    ) : null,
+    projectName && showChip('project') ? (
+      <Text color={chipColor(theme.accent, isNoColor)}>
+        {isNoColor
+          ? truncateChip(projectName, 24)
+          : `${glyphs.folder} ${truncateChip(projectName, 24)}`}
+      </Text>
+    ) : null,
+    ...primaryChips,
+    elapsedMs !== undefined && showChip('elapsed') ? (
+      <Text dimColor={!isNoColor}>
+        {isNoColor ? fmtElapsed(elapsedMs) : `${glyphs.clock} ${fmtElapsed(elapsedMs)}`}
+      </Text>
+    ) : null,
+    workingDir && showChip('working_dir') ? (
+      <Text color={chipColor(theme.accent, isNoColor)}>
+        {isNoColor
+          ? truncateChip(workingDir, 28)
+          : `${glyphs.workingDirectory} ${truncateChip(workingDir, 28)}`}
+      </Text>
+    ) : null,
+  ].filter((c): c is React.ReactElement => c !== null);
+
+  const minimumChips: React.ReactElement[] = [
+    // State with animation
+    showChip('state') && thinking ? (
+      <ThinkingChip
+        text={`${statePrefix} ${stateLabel}`}
+        style={animationStyle}
+        phase={spinnerIdx}
+        cycleTick={cycleTick}
+      />
+    ) : showChip('state') ? (
+      <Text color={chipColor(stateColor, isNoColor)}>
+        {statePrefix} {stateLabel}
+      </Text>
+    ) : null,
+    // Model
+    showChip('model') ? (
+      <Text color={chipColor(theme.monitor.agents, isNoColor)}>{model}</Text>
+    ) : null,
+    // Context meter (compact: 6 blocks instead of 8)
+    context && showChip('context')
+      ? (() => {
+          const ratio = Math.min(context.used / context.max, 1);
+          const pct = `${Math.min(Math.round(ratio * 100), 100)}%`;
+          const c = ratio < 0.6 ? theme.success : ratio < 0.75 ? theme.warn : theme.error;
+          return (
+            <Text color={chipColor(c, isNoColor)}>
+              {glyphs.context} {renderMeter(ratio, 6)} {pct}
+            </Text>
+          );
+        })()
+      : null,
+    // Autonomy mode (if active)
+    autonomy && autonomy !== 'off' && showChip('autonomy') ? (
+      <Text
+        color={chipColor(
+          autonomy === 'eternal'
+            ? theme.error
+            : autonomy === 'auto'
+              ? theme.warn
+              : theme.accent,
+          isNoColor,
+        )}
+        bold
+      >
+        {isNoColor ? autonomy.toUpperCase() : `∞ ${autonomy.toUpperCase()}`}
+      </Text>
+    ) : null,
+    // Elapsed time
+    elapsedMs !== undefined && showChip('elapsed') ? (
+      <Text dimColor={!isNoColor}>{fmtElapsed(elapsedMs)}</Text>
+    ) : null,
+    // Work summary (compact)
     ...(minimalWorkParts.length > 0
-      ? [<Text color={isNoColor ? undefined : 'cyan'}>{minimalWorkParts.slice(0, 3).join(' · ')}</Text>]
+      ? [
+          <Text dimColor={!isNoColor}>
+            {minimalWorkParts.slice(0, 2).join(' · ')}
+          </Text>,
+        ]
       : []),
-  ];
+  ].filter((c): c is React.ReactElement => c !== null);
 
   const fleetAgentChips: React.ReactElement[] =
     fleetAgents && showChip('fleet_agents')
       ? fleetAgents.map((agent) => (
           <Text key={agent.label}>
-            <Text color={isNoColor ? undefined : agent.color} bold>{agent.label}</Text>
-            <Text color={agent.running && !isNoColor ? 'yellow' : undefined}>{` ${agent.running ? glyphs.running : '·'} `}</Text>
-            <Text dimColor={!isNoColor}>{fmtElapsed(agent.elapsedMs)} · {agent.toolCalls}t</Text>
-            {agent.tool ? <Text color={isNoColor ? undefined : 'cyan'}>{` · ${agent.tool}`}</Text> : null}
+            <Text color={isNoColor ? undefined : agent.color} bold>
+              {agent.label}
+            </Text>
+            <Text
+              color={agent.running && !isNoColor ? theme.warn : undefined}
+            >{` ${agent.running ? glyphs.running : '·'} `}</Text>
+            <Text dimColor={!isNoColor}>
+              {fmtElapsed(agent.elapsedMs)} · {agent.toolCalls}t
+            </Text>
+            {agent.tool ? (
+              <Text color={isNoColor ? undefined : theme.accent}>{` · ${agent.tool}`}</Text>
+            ) : null}
             {agent.extensions && agent.extensions > 0 ? (
-              <Text color={isNoColor ? undefined : 'yellow'}>{` · ${glyphs.process}×${agent.extensions}`}</Text>
+              <Text
+                color={isNoColor ? undefined : theme.warn}
+              >{` · ${glyphs.process}×${agent.extensions}`}</Text>
             ) : null}
           </Text>
         ))
@@ -856,15 +989,23 @@ export function StatusBar({
   if (mailbox && showMailbox) {
     detailChips.push(
       mailbox.unread > 0 ? (
-        <Text color={isNoColor ? undefined : 'yellow'} bold>{glyphs.mail} {mailbox.unread} new</Text>
+        <Text color={isNoColor ? undefined : theme.warn} bold>
+          {glyphs.mail} {mailbox.unread} new
+        </Text>
       ) : (
         <Text dimColor={!isNoColor}>{glyphs.mail} 0</Text>
       ),
-      <Text color={isNoColor ? undefined : 'cyan'}>
+      <Text color={isNoColor ? undefined : theme.accent}>
         {glyphs.peers} {mailbox.onlineAgents} agent{mailbox.onlineAgents === 1 ? '' : 's'}
-        {mailbox.onlineClients.tui > 0 ? ` · ${glyphs.desktop} TUI${mailbox.onlineClients.tui > 1 ? `×${mailbox.onlineClients.tui}` : ''}` : ''}
-        {mailbox.onlineClients.webui > 0 ? ` · ${glyphs.web} WebUI${mailbox.onlineClients.webui > 1 ? `×${mailbox.onlineClients.webui}` : ''}` : ''}
-        {mailbox.onlineClients.repl > 0 ? ` · ${glyphs.terminal} REPL${mailbox.onlineClients.repl > 1 ? `×${mailbox.onlineClients.repl}` : ''}` : ''}
+        {mailbox.onlineClients.tui > 0
+          ? ` · ${glyphs.desktop} TUI${mailbox.onlineClients.tui > 1 ? `×${mailbox.onlineClients.tui}` : ''}`
+          : ''}
+        {mailbox.onlineClients.webui > 0
+          ? ` · ${glyphs.web} WebUI${mailbox.onlineClients.webui > 1 ? `×${mailbox.onlineClients.webui}` : ''}`
+          : ''}
+        {mailbox.onlineClients.repl > 0
+          ? ` · ${glyphs.terminal} REPL${mailbox.onlineClients.repl > 1 ? `×${mailbox.onlineClients.repl}` : ''}`
+          : ''}
       </Text>,
     );
     if (mailbox.lastSubject) {
@@ -878,338 +1019,314 @@ export function StatusBar({
   }
   detailChips.push(...fleetAgentChips);
 
+  // ── Line 3 activity detection ──────────────────────────────────────────
+  // Only render line 3 when there's active work or connectivity to show.
+  const hasActiveGoal = goalSummary != null && showChip('goal');
+  const showEternalStage = eternalStage != null && showChip('eternal_stage');
+  const hasWorkActivity =
+    (todos && (todos.pending > 0 || todos.inProgress > 0 || (todos.completed > 0 && !todosCleared))) ||
+    (plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0)) ||
+    hasTaskActivity ||
+    fleetHasActivity ||
+    showBrain ||
+    showDebugStream ||
+    showEnhance ||
+    hasNextStepsAutoSubmit ||
+    hasActiveGoal ||
+    hasAutoProceed ||
+    showEternalStage ||
+    detailChips.length > 0;
+
   if (mode === 'minimum') {
     return (
       <Box flexDirection="column" paddingX={1}>
         <PowerlineRail
           segments={minimumChips}
-          budget={Math.max(12, termWidth - 2)}
+          budget={Math.max(12, termWidth)}
           monochrome={isNoColor}
+          fillBg={LINE_BG_COLORS[0]}
         />
       </Box>
     );
   }
 
   return (
-    <Box
-      flexDirection="column"
-      paddingX={0}
-    >
-      {/* Line 1: full-cell Powerline rail. Narrow terminals drop low-priority
-          trailing segments rather than wrapping the live region. */}
+    <Box flexDirection="column" paddingX={0}>
+      {/* Line 1 — Runtime + mode chips: YOLO, autonomy, state, model, context,
+          tokens, cost, queue, processes, hint, index, breaker, elapsed, working_dir */}
       <PowerlineRail
-        segments={isCompact ? primaryChips.slice(0, 3) : primaryChips}
-        budget={Math.max(12, termWidth - 2)}
+        segments={isCompact ? modeChips.slice(0, 5) : modeChips}
+        budget={Math.max(12, termWidth)}
         monochrome={isNoColor}
+        fillBg={LINE_BG_COLORS[0]}
       />
 
-      {/* Line 2 always rendered — empty spacer when no content, to keep the
-          live-region height stable. Without this, the
-          StatusBar jumping from 1→2 or 2→1 lines shifts the Ink layout and
-          pushes the input area into the static history scrollback. */}
-      {hasSecondLine ? (
-        <Box flexDirection="row" gap={2}>
-          {renderChipLine(
-            [
-              yolo && showChip('yolo') ? (
-                <Text color={isNoColor ? undefined : 'red'} bold>
-                  {isNoColor ? 'YOLO' : `${glyphs.warning} YOLO`}
-                </Text>
-              ) : null,
-              autonomy && autonomy !== 'off' && showChip('autonomy') ? (
-                <Text
-                  color={isNoColor ? undefined : autonomy === 'eternal' ? 'red' : autonomy === 'auto' ? 'yellow' : 'cyan'}
-                  bold
-                >
-                  {isNoColor ? autonomy.toUpperCase() : `∞ ${autonomy.toUpperCase()}`}
-                </Text>
-              ) : null,
-              eternalStage && showChip('eternal_stage') ? (
-                <EternalStageChip stage={eternalStage} monochrome={isNoColor} />
-              ) : null,
-              elapsedMs !== undefined && showChip('elapsed') ? (
-                <Text dimColor={!isNoColor}>{isNoColor ? fmtElapsed(elapsedMs) : `${glyphs.clock} ${fmtElapsed(elapsedMs)}`}</Text>
-              ) : null,
-              projectName && showChip('project') ? (
-                <Text color={isNoColor ? undefined : 'blue'}>{isNoColor ? truncateChip(projectName, 24) : `${glyphs.folder} ${truncateChip(projectName, 24)}`}</Text>
-              ) : null,
-              workingDir && showChip('working_dir') ? (
-                <Text color={isNoColor ? undefined : 'blue'}>{isNoColor ? truncateChip(workingDir, 28) : `${glyphs.workingDirectory} ${truncateChip(workingDir, 28)}`}</Text>
-              ) : null,
-              goalSummary && showChip('goal') ? (
-                <Text
-                  color={
-                    isNoColor ? undefined : goalSummary.goalState === 'active'
-                      ? 'green'
-                      : goalSummary.goalState === 'paused'
-                        ? 'yellow'
-                        : goalSummary.goalState === 'completed'
-                          ? 'green'
-                          : 'dim'
-                  }
-                >
-                  {isNoColor ? '' : `${glyphs.goal} `}
-                  {goalSummary.goal.length > 40
-                    ? `${goalSummary.goal.slice(0, 37)}…`
-                    : goalSummary.goal}{' '}
-                  [{goalSummary.goalState}] (iter {goalSummary.iterations})
-                </Text>
-              ) : null,
-              modeLabel && showChip('mode') ? (
-                <Text color={isNoColor ? undefined : 'cyan'}>{isNoColor ? modeLabel : modeIcon(modeLabel)}</Text>
-              ) : null,
-              hasAutoProceed && showChip('auto_proceed') ? (
-                <Text
-                  color={
-                    isNoColor ? undefined : autoProceedCountdown != null && autoProceedCountdown <= 5 ? 'yellow' : 'cyan'
-                  }
-                >
-                  {isNoColor ? `auto in ${autoProceedCountdown}s` : `${glyphs.auto} auto in ${autoProceedCountdown}s`}
-                </Text>
-              ) : null,
-              git && showChip('git') ? (
-                <Text>
-                  <Text color="magenta">{glyphs.gitBranch} {truncateChip(git.branch, 24)}</Text>
-                  {git.deleted > 0 ? <Text color="red"> -{git.deleted}</Text> : null}
-                  {git.untracked > 0 ? <Text dimColor={!isNoColor}> ?{git.untracked}</Text> : null}
-                </Text>
-              ) : null,
-              sessionCount != null && sessionCount > 0 && showChip('sessions') ? (
-                <Text color={isNoColor ? undefined : 'cyan'}>
-                  {isNoColor ? `${sessionCount} session${sessionCount === 1 ? '' : 's'}` : `${glyphs.sessions} ${sessionCount} session${sessionCount === 1 ? '' : 's'}`}
-                </Text>
-              ) : null,
-              toolCount != null && showChip('tools') ? (
-                <Text color={isNoColor ? undefined : 'cyan'}>
-                  {isNoColor ? `${toolCount} tool${toolCount === 1 ? '' : 's'}` : `${glyphs.tools} ${toolCount} tool${toolCount === 1 ? '' : 's'}`}
-                </Text>
-              ) : null,
-              tokenSavingMode !== undefined &&
-              tokenSavingMode !== 'off' &&
-              showChip('token_saving') ? (
-                <Text color={isNoColor ? undefined : 'yellow'} bold>
-                  {isNoColor ? tokenSavingMode : `${glyphs.save} ${tokenSavingMode}`}
-                </Text>
-              ) : null,
-              sideEffectCount > 0 ? (
-                <Text color={isNoColor ? undefined : 'yellow'}>
-                  {isNoColor ? `${sideEffectCount} audit${sideEffectCount === 1 ? '' : 's'}` : `${glyphs.audit} ${sideEffectCount} audit${sideEffectCount === 1 ? '' : 's'}`}
-                </Text>
-              ) : null,
-            ].filter((c): c is React.ReactElement => c !== null),
-            termWidth - 2,
-            isNoColor,
-          )}
-        </Box>
-      ) : (
-        <Box height={1}>
-          <Text> </Text>
-        </Box>
-      )}
+      {/* Line 2 — Session context: git, mode, sessions, tools,
+          token-saving */}
+      <PowerlineRail
+        segments={[
+          git && showChip('git') ? (
+            <Text>
+              <Text color={theme.monitor.agents}>
+                {glyphs.gitBranch} {truncateChip(git.branch, 24)}
+              </Text>
+              {git.deleted > 0 ? <Text color={theme.error}> -{git.deleted}</Text> : null}
+              {git.untracked > 0 ? <Text dimColor={!isNoColor}> ?{git.untracked}</Text> : null}
+            </Text>
+          ) : null,
+          modeLabel && showChip('mode') ? (
+            <Text color={chipColor(theme.accent, isNoColor)}>
+              {isNoColor ? modeLabel : modeIcon(modeLabel)}
+            </Text>
+          ) : null,
+          sessionCount != null && sessionCount > 0 && showChip('sessions') ? (
+            <Text color={isNoColor ? undefined : theme.accent}>
+              {isNoColor
+                ? `${sessionCount} session${sessionCount === 1 ? '' : 's'}`
+                : `${glyphs.sessions} ${sessionCount} session${sessionCount === 1 ? '' : 's'}`}
+            </Text>
+          ) : null,
+          toolCount != null && showChip('tools') ? (
+            <Text color={isNoColor ? undefined : theme.accent}>
+              {isNoColor
+                ? `${toolCount} tool${toolCount === 1 ? '' : 's'}`
+                : `${glyphs.tools} ${toolCount} tool${toolCount === 1 ? '' : 's'}`}
+            </Text>
+          ) : null,
+          tokenSavingMode !== undefined && tokenSavingMode !== 'off' && showChip('token_saving') ? (
+            <Text color={isNoColor ? undefined : theme.warn} bold>
+              {isNoColor ? tokenSavingMode : `${glyphs.save} ${tokenSavingMode}`}
+            </Text>
+          ) : null,
+          sideEffectCount > 0 ? (
+            <Text color={isNoColor ? undefined : theme.warn}>
+              {isNoColor
+                ? `${sideEffectCount} audit${sideEffectCount === 1 ? '' : 's'}`
+                : `${glyphs.audit} ${sideEffectCount} audit${sideEffectCount === 1 ? '' : 's'}`}
+            </Text>
+          ) : null,
+        ].filter((c): c is React.ReactElement => c !== null)}
+        budget={Math.max(12, termWidth)}
+        monochrome={isNoColor}
+        fillBg={LINE_BG_COLORS[1]}
+      />
 
-      {/* Line 3 always rendered — same stability guarantee as line 2. */}
-      {hasThirdLine ? (
-        <Box flexDirection="row" gap={2}>
-          {renderChipLine(
-            [
-              todos &&
-              (todos.pending > 0 || todos.inProgress > 0 || (todos.completed > 0 && !todosCleared)) &&
-              showChip('todos') ? (
-                <Text>
-                  <Text dimColor={!isNoColor}>todos </Text>
-                  {todos.inProgress > 0 ? <Text color={isNoColor ? undefined : 'yellow'}>{isNoColor ? `⌛${todos.inProgress}` : `⌛${todos.inProgress}`}</Text> : null}
-                  {todos.inProgress > 0 && (todos.pending > 0 || todos.completed > 0) ? ' ' : ''}
-                  {todos.pending > 0 ? <Text dimColor={!isNoColor}>{isNoColor ? `☐${todos.pending}` : `☐${todos.pending}`}</Text> : null}
-                  {todos.pending > 0 && todos.completed > 0 ? ' ' : ''}
-                  {todos.completed > 0 ? <Text color={isNoColor ? undefined : 'green'}>{isNoColor ? `✓${todos.completed}` : `✓${todos.completed}`}</Text> : null}
+      {/* Line 3 — Active work + Connectivity: todos, plan, tasks, fleet,
+          brain, debug stream, enhance, next-steps, mailbox, fleet agents.
+          Only rendered when there's something to show. */}
+      {hasWorkActivity ? (
+        <PowerlineRail
+          segments={[
+            todos &&
+                (todos.pending > 0 ||
+                  todos.inProgress > 0 ||
+                  (todos.completed > 0 && !todosCleared)) &&
+                showChip('todos') ? (
+              <Text>
+                <Text dimColor={!isNoColor}>todos </Text>
+                {todos.inProgress > 0 ? (
+                  <Text color={isNoColor ? undefined : theme.warn}>
+                    {isNoColor ? `⌛${todos.inProgress}` : `⌛${todos.inProgress}`}
+                  </Text>
+                ) : null}
+                {todos.inProgress > 0 && (todos.pending > 0 || todos.completed > 0) ? ' ' : ''}
+                {todos.pending > 0 ? (
+                  <Text dimColor={!isNoColor}>
+                    {isNoColor ? `☐${todos.pending}` : `☐${todos.pending}`}
+                  </Text>
+                ) : null}
+                {todos.pending > 0 && todos.completed > 0 ? ' ' : ''}
+                {todos.completed > 0 ? (
+                  <Text color={isNoColor ? undefined : theme.success}>
+                    {isNoColor ? `✓${todos.completed}` : `✓${todos.completed}`}
+                  </Text>
+                ) : null}
+              </Text>
+            ) : null,
+            plan && (plan.open > 0 || plan.inProgress > 0 || plan.done > 0) && showChip('plan') ? (
+              <Text>
+                <Text color={isNoColor ? undefined : theme.accent}>
+                  {isNoColor ? '' : `${glyphs.plan} `}
                 </Text>
-              ) : null,
-              plan &&
-              (plan.open > 0 || plan.inProgress > 0 || plan.done > 0) &&
-              showChip('plan') ? (
-                <Text>
-                  <Text color={isNoColor ? undefined : 'cyan'}>{isNoColor ? '' : `${glyphs.plan} `}</Text>
-                  {plan.inProgress > 0 ? <Text color={isNoColor ? undefined : 'yellow'}>{isNoColor ? `⌛${plan.inProgress}` : `⌛${plan.inProgress}`}</Text> : null}
-                  {plan.inProgress > 0 && (plan.open > 0 || plan.done > 0) ? ' ' : ''}
-                  {plan.open > 0 ? <Text dimColor={!isNoColor}>{isNoColor ? `☐${plan.open}` : `☐${plan.open}`}</Text> : null}
-                  {plan.open > 0 && plan.done > 0 ? ' ' : ''}
-                  {plan.done > 0 ? <Text color={isNoColor ? undefined : 'green'}>{isNoColor ? `✓${plan.done}` : `✓${plan.done}`}</Text> : null}
-                  {plan.scope ? <Text dimColor={!isNoColor}> [{plan.scope}]</Text> : null}
+                {plan.inProgress > 0 ? (
+                  <Text color={isNoColor ? undefined : theme.warn}>
+                    {isNoColor ? `⌛${plan.inProgress}` : `⌛${plan.inProgress}`}
+                  </Text>
+                ) : null}
+                {plan.inProgress > 0 && (plan.open > 0 || plan.done > 0) ? ' ' : ''}
+                {plan.open > 0 ? (
+                  <Text dimColor={!isNoColor}>{isNoColor ? `☐${plan.open}` : `☐${plan.open}`}</Text>
+                ) : null}
+                {plan.open > 0 && plan.done > 0 ? ' ' : ''}
+                {plan.done > 0 ? (
+                  <Text color={isNoColor ? undefined : theme.success}>
+                    {isNoColor ? `✓${plan.done}` : `✓${plan.done}`}
+                  </Text>
+                ) : null}
+                {plan.scope ? <Text dimColor={!isNoColor}> [{plan.scope}]</Text> : null}
+              </Text>
+            ) : null,
+            hasTaskActivity && showChip('tasks') ? (
+              <Text>
+                <Text color={isNoColor ? undefined : theme.monitor.agents}>
+                  {isNoColor ? '' : `${glyphs.task} `}
                 </Text>
-              ) : null,
-              hasTaskActivity && showChip('tasks') ? (
+                {tasks!.inProgress > 0 ? (
+                  <Text color={isNoColor ? undefined : theme.warn}>
+                    {isNoColor ? `⌛${tasks!.inProgress}` : `⌛${tasks!.inProgress}`}
+                  </Text>
+                ) : null}
+                {tasks!.inProgress > 0 && (tasks!.pending > 0 || tasks!.blocked > 0) ? ' ' : ''}
+                {tasks!.pending > 0 ? (
+                  <Text dimColor={!isNoColor}>
+                    {isNoColor ? `☐${tasks!.pending}` : `☐${tasks!.pending}`}
+                  </Text>
+                ) : null}
+                {tasks!.pending > 0 && tasks!.blocked > 0 ? ' ' : ''}
+                {tasks!.blocked > 0 ? (
+                  <Text color={isNoColor ? undefined : theme.error}>
+                    {isNoColor ? `⊘${tasks!.blocked}` : `⊘${tasks!.blocked}`}
+                  </Text>
+                ) : null}
+                {(tasks!.pending > 0 || tasks!.blocked > 0) &&
+                (tasks!.completed > 0 || tasks!.failed > 0)
+                  ? ' '
+                  : ''}
+                {tasks!.completed > 0 ? (
+                  <Text color={isNoColor ? undefined : theme.success}>
+                    {isNoColor ? `✓${tasks!.completed}` : `✓${tasks!.completed}`}
+                  </Text>
+                ) : null}
+                {tasks!.completed > 0 && tasks!.failed > 0 ? ' ' : ''}
+                {tasks!.failed > 0 ? (
+                  <Text color={isNoColor ? undefined : theme.error}>
+                    {isNoColor ? `✗${tasks!.failed}` : `✗${tasks!.failed}`}
+                  </Text>
+                ) : null}
+                {tasks!.scope ? <Text dimColor={!isNoColor}> [{tasks!.scope}]</Text> : null}
+              </Text>
+            ) : null,
+            fleetHasActivity && showChip('fleet') ? (
+              fleet ? (
                 <Text>
-                  <Text color={isNoColor ? undefined : 'magenta'}>{isNoColor ? '' : `${glyphs.task} `}</Text>
-                  {tasks!.inProgress > 0 ? <Text color={isNoColor ? undefined : 'yellow'}>{isNoColor ? `⌛${tasks!.inProgress}` : `⌛${tasks!.inProgress}`}</Text> : null}
-                  {tasks!.inProgress > 0 && (tasks!.pending > 0 || tasks!.blocked > 0) ? ' ' : ''}
-                  {tasks!.pending > 0 ? <Text dimColor={!isNoColor}>{isNoColor ? `☐${tasks!.pending}` : `☐${tasks!.pending}`}</Text> : null}
-                  {tasks!.pending > 0 && tasks!.blocked > 0 ? ' ' : ''}
-                  {tasks!.blocked > 0 ? <Text color={isNoColor ? undefined : 'red'}>{isNoColor ? `⊘${tasks!.blocked}` : `⊘${tasks!.blocked}`}</Text> : null}
-                  {(tasks!.pending > 0 || tasks!.blocked > 0) &&
-                  (tasks!.completed > 0 || tasks!.failed > 0)
+                  <Text color={isNoColor ? undefined : theme.accent}>
+                    {isNoColor ? '' : `${glyphs.fleet} `}
+                  </Text>
+                  {fleet.running > 0 ? (
+                    <Text color={isNoColor ? undefined : theme.warn}>
+                      {isNoColor ? `▶${fleet.running}` : `▶${fleet.running}`}
+                    </Text>
+                  ) : null}
+                  {fleet.running > 0 &&
+                  (fleet.pending > 0 || fleet.idle > 0 || fleet.completed > 0)
                     ? ' '
                     : ''}
-                  {tasks!.completed > 0 ? <Text color={isNoColor ? undefined : 'green'}>{isNoColor ? `✓${tasks!.completed}` : `✓${tasks!.completed}`}</Text> : null}
-                  {tasks!.completed > 0 && tasks!.failed > 0 ? ' ' : ''}
-                  {tasks!.failed > 0 ? <Text color={isNoColor ? undefined : 'red'}>{isNoColor ? `✗${tasks!.failed}` : `✗${tasks!.failed}`}</Text> : null}
-                  {tasks!.scope ? <Text dimColor={!isNoColor}> [{tasks!.scope}]</Text> : null}
+                  {fleet.pending > 0 ? (
+                    <Text dimColor={!isNoColor}>
+                      {isNoColor ? `☐${fleet.pending}` : `☐${fleet.pending}`}
+                    </Text>
+                  ) : null}
+                  {fleet.pending > 0 && (fleet.idle > 0 || fleet.completed > 0) ? ' ' : ''}
+                  {fleet.idle > 0 ? <Text dimColor={!isNoColor}>·{fleet.idle}idle</Text> : null}
+                  {fleet.idle > 0 && fleet.completed > 0 ? ' ' : ''}
+                  {fleet.completed > 0 ? (
+                    <Text color={isNoColor ? undefined : theme.success}>
+                      {isNoColor ? `✓${fleet.completed}` : `✓${fleet.completed}`}
+                    </Text>
+                  ) : null}
                 </Text>
-              ) : null,
-              fleetHasActivity && showChip('fleet') ? (
-                fleet ? (
-                  <Text>
-                    <Text color={isNoColor ? undefined : 'blue'}>{isNoColor ? '' : `${glyphs.fleet} `}</Text>
-                    {fleet.running > 0 ? <Text color={isNoColor ? undefined : 'yellow'}>{isNoColor ? `▶${fleet.running}` : `▶${fleet.running}`}</Text> : null}
-                    {fleet.running > 0 &&
-                    (fleet.pending > 0 || fleet.idle > 0 || fleet.completed > 0)
-                      ? ' '
-                      : ''}
-                    {fleet.pending > 0 ? <Text dimColor={!isNoColor}>{isNoColor ? `☐${fleet.pending}` : `☐${fleet.pending}`}</Text> : null}
-                    {fleet.pending > 0 && (fleet.idle > 0 || fleet.completed > 0) ? ' ' : ''}
-                    {fleet.idle > 0 ? <Text dimColor={!isNoColor}>·{fleet.idle}idle</Text> : null}
-                    {fleet.idle > 0 && fleet.completed > 0 ? ' ' : ''}
-                    {fleet.completed > 0 ? <Text color={isNoColor ? undefined : 'green'}>{isNoColor ? `✓${fleet.completed}` : `✓${fleet.completed}`}</Text> : null}
-                  </Text>
-                ) : (
-                  <Text color={isNoColor ? undefined : 'blue'}>
-                    {isNoColor ? `${subagentCount} agent${subagentCount === 1 ? '' : 's'}` : `${glyphs.fleet} ${subagentCount} agent${subagentCount === 1 ? '' : 's'}`}
-                  </Text>
-                )
-              ) : null,
-              showBrain ? <BrainChip brain={brain!} monochrome={isNoColor} /> : null,
-              showDebugStream ? (
-                <Text color={isNoColor ? undefined : 'cyan'}>
-                  <Text bold>{isNoColor ? 'stream' : `${glyphs.bug} stream`}</Text>
-                  <Text dimColor={!isNoColor}> #{debugStreamStats!.chunkCount}</Text>
-                  <Text dimColor={!isNoColor}> · {debugStreamStats!.lastChunkSize}B</Text>
-                  <Text dimColor={!isNoColor}> · +{debugStreamStats!.lastDeltaMs}ms</Text>
-                  <Text dimColor={!isNoColor}> · {fmtDebugBytes(debugStreamStats!.totalBytes)}</Text>
+              ) : (
+                <Text color={isNoColor ? undefined : theme.accent}>
+                  {isNoColor
+                    ? `${subagentCount} agent${subagentCount === 1 ? '' : 's'}`
+                    : `${glyphs.fleet} ${subagentCount} agent${subagentCount === 1 ? '' : 's'}`}
                 </Text>
-              ) : null,
-              showEnhance ? (
-                <Text color={isNoColor ? undefined : countdownColor(enhanceCountdown!, 15, 5)}>
-                  {isNoColor ? `auto-send in ${enhanceCountdown}s` : `${glyphs.auto} auto-send in ${enhanceCountdown}s`}
+              )
+            ) : null,
+            showBrain ? <BrainChip brain={brain!} monochrome={isNoColor} /> : null,
+            showDebugStream ? (
+              <Text color={isNoColor ? undefined : theme.accent}>
+                <Text bold>{isNoColor ? 'stream' : `${glyphs.bug} stream`}</Text>
+                <Text dimColor={!isNoColor}> #{debugStreamStats!.chunkCount}</Text>
+                <Text dimColor={!isNoColor}> · {debugStreamStats!.lastChunkSize}B</Text>
+                <Text dimColor={!isNoColor}> · +{debugStreamStats!.lastDeltaMs}ms</Text>
+                <Text dimColor={!isNoColor}> · {fmtDebugBytes(debugStreamStats!.totalBytes)}</Text>
+              </Text>
+            ) : null,
+            showEnhance ? (
+              <Text color={isNoColor ? undefined : countdownColor(enhanceCountdown!, 15, 5)}>
+                {isNoColor
+                  ? `refined · send in ${enhanceCountdown}s`
+                  : `${glyphs.auto} refinement ready · send in ${enhanceCountdown}s`}
+              </Text>
+            ) : null,
+            hasNextStepsAutoSubmit &&
+            nextStepsAutoSubmitCountdown != null &&
+            showChip('next_steps') ? (
+              <>
+                <Text color={isNoColor ? undefined : nextStepsColor} bold>
+                  {isNoColor
+                    ? `${nextStepsAutoSubmitCountdown}s`
+                    : `${glyphs.auto} ${nextStepsAutoSubmitCountdown}s`}
                 </Text>
-              ) : null,
-              hasNextStepsAutoSubmit &&
-              nextStepsAutoSubmitCountdown != null &&
-              showChip('next_steps') ? (
-                <>
-                  <Text color={isNoColor ? undefined : nextStepsColor} bold>
-                    {isNoColor ? `${nextStepsAutoSubmitCountdown}s` : `${glyphs.auto} ${nextStepsAutoSubmitCountdown}s`}
-                  </Text>
-                  <Text dimColor={!isNoColor}>
-                    {' '}
-                    {nextStepsAutoSubmitLabel
-                      ? formatSuggestionLabel(nextStepsAutoSubmitLabel)
-                      : ''}
-                    {' · ⇥ edit'}
-                  </Text>
-                </>
-              ) : null,
-            ].filter((c): c is React.ReactElement => c !== null),
-            termWidth - 2,
-            isNoColor,
-          )}
-        </Box>
-      ) : (
-        <Box height={1}>
-          <Text> </Text>
-        </Box>
-      )}
-
-      {/* Line 4: mailbox activity + fleet agent detail */}
-      {detailChips.length > 0 ? (
-        <PowerlineRail
-          segments={detailChips}
-          budget={Math.max(12, termWidth - 2)}
+                <Text dimColor={!isNoColor}>
+                  {' '}
+                  {nextStepsAutoSubmitLabel
+                    ? formatSuggestionLabel(nextStepsAutoSubmitLabel)
+                    : ''}
+                  {' · ⇥ edit'}
+                </Text>
+              </>
+            ) : null,
+            showEternalStage ? (
+              <EternalStageChip stage={eternalStage!} monochrome={isNoColor} />
+            ) : null,
+            hasActiveGoal ? (
+              <Text
+                color={
+                  isNoColor
+                    ? undefined
+                    : goalSummary!.goalState === 'abandoned'
+                      ? theme.textMuted
+                      : goalSummary!.goalState === 'active' || goalSummary!.goalState === 'completed'
+                        ? theme.success
+                        : theme.warn
+                }
+              >
+                {isNoColor ? '' : `${glyphs.goal} `}
+                {goalSummary!.goal.length > 40
+                  ? `${goalSummary!.goal.slice(0, 37)}…`
+                  : goalSummary!.goal}{' '}
+                [{goalSummary!.goalState}] (iter {goalSummary!.iterations})
+              </Text>
+            ) : null,
+            hasAutoProceed && showChip('auto_proceed') ? (
+              <Text
+                color={
+                  isNoColor
+                    ? undefined
+                    : autoProceedCountdown != null && autoProceedCountdown <= 5
+                      ? theme.warn
+                      : theme.accent
+                }
+              >
+                {isNoColor
+                  ? `auto in ${autoProceedCountdown}s`
+                  : `${glyphs.auto} auto in ${autoProceedCountdown}s`}
+              </Text>
+            ) : null,
+            ...detailChips,
+          ] as React.ReactElement[]}
+          budget={Math.max(12, termWidth)}
           monochrome={isNoColor}
+          fillBg={LINE_BG_COLORS[2]}
         />
-      ) : (
-        <Box height={1}>
-          <Text> </Text>
-        </Box>
-      )}
+      ) : null}
     </Box>
   );
 }
 
-function BrainChip({ brain, monochrome }: { brain: BrainStatusChip; monochrome?: boolean }): React.ReactElement {
-  const color =
-    brain.state === 'denied'
-      ? 'red'
-      : brain.state === 'ask_human'
-        ? 'yellow'
-        : brain.state === 'deciding'
-          ? 'magenta'
-          : 'cyan';
-  const label =
-    brain.state === 'deciding' ? 'deciding' : brain.state === 'ask_human' ? 'human' : brain.state;
-  const scope = brain.source ? ` ${brain.source}` : '';
-  const summary = brain.summary ? ` · ${brain.summary.slice(0, 40)}` : '';
-  return (
-    <Text color={monochrome ? undefined : color}>
-      {monochrome ? label : `${glyphs.brain} ${label}`}
-      <Text dimColor={!monochrome}>{scope}</Text>
-      <Text dimColor={!monochrome}>{summary}</Text>
-    </Text>
-  );
-}
-
-function EternalStageChip({
-  stage,
-  monochrome,
-}: {
-  stage: NonNullable<StatusBarProps['eternalStage']>;
-  monochrome?: boolean;
-}): React.ReactElement {
-  const color = (c: string) => (monochrome ? undefined : c);
-  const icon = (symbol: string) => (monochrome ? '' : symbol);
-  switch (stage.phase) {
-    case 'idle':
-      return <Text dimColor={!monochrome}>{monochrome ? 'idle' : `${glyphs.pending} idle`}</Text>;
-    case 'decide':
-      return <Text color={color('cyan')}>{monochrome ? `decide: ${stage.reason}` : `◇ decide: ${stage.reason}`}</Text>;
-    case 'execute':
-      return (
-        <Text color={color('green')}>
-          {monochrome ? null : <>{icon('▶')} </>}<Text bold>execute</Text>
-          {stage.task ? `(${stage.task})` : ''}
-        </Text>
-      );
-    case 'reflect':
-      return (
-        <Text
-          color={color(stage.status === 'success' ? 'green' : stage.status === 'failure' ? 'red' : 'yellow')}
-        >
-          {monochrome ? `reflect: ${stage.status}` : `↩ reflect: ${stage.status}`}
-        </Text>
-      );
-    case 'decompose':
-      return <Text color={color('cyan')}>{monochrome ? 'decompose' : '↓ decompose'}</Text>;
-    case 'fanout':
-      return <Text color={color('magenta')}>{monochrome ? `fanout: ${stage.slots}` : `⇄ fanout: ${stage.slots}`}</Text>;
-    case 'await':
-      return <Text color={color('magenta')}>{monochrome ? `await: ${stage.taskIds.length}` : `${glyphs.auto} await: ${stage.taskIds.length}`}</Text>;
-    case 'aggregate':
-      return (
-        <Text color={color(stage.goalComplete ? 'green' : 'magenta')}>
-          {monochrome ? `aggregate: ${stage.successCount}/${stage.total}` : `↩ aggregate: ${stage.successCount}/${stage.total}`}
-        </Text>
-      );
-    case 'sleep':
-      return <Text dimColor={!monochrome}>{monochrome ? `sleep ${Math.round(stage.ms / 1000)}s` : `${glyphs.clock} sleep ${Math.round(stage.ms / 1000)}s`}</Text>;
-    case 'paused':
-      return <Text color={color('yellow')}>{monochrome ? 'paused' : 'Ⅱ paused'}</Text>;
-    case 'stopped':
-      return <Text dimColor={!monochrome}>{monochrome ? 'stopped' : '■ stopped'}</Text>;
-    case 'error':
-      return <Text color={color('red')}>{monochrome ? `error: ${stage.message}` : `${glyphs.warning} error: ${stage.message}`}</Text>;
-  }
-}
-
-/**
- * Compute the leading state chip (label + Ink color) for the status bar.
+/** Compute the leading state chip (label + Ink color) for the status bar.
  *
  * The foreground loop reports 'idle' between turns, but background subagents
  * can still be running — e.g. between eternal/parallel autonomy iterations,
@@ -1231,18 +1348,19 @@ const RAIL_TRANSITION = 1;
  * `● {stateLabel}` + `│`, then the model.
  */
 export function statusBarModelSpan(opts: {
-  version?: string | undefined;
   state: 'idle' | 'running' | 'streaming' | 'aborting';
   fleetRunning?: number | undefined;
   thinkingWord?: string | undefined;
+  /** When true the `state` chip is render-suppressed, so the model chip sits one
+   *  segment further left (no `● {label}` term). */
+  stateHidden?: boolean | undefined;
   model: string;
 }): { start: number; len: number } {
   let col = RAIL_CAP;
-  if (opts.version) {
-    col += displayWidth(`${glyphs.brand} WS v${opts.version}`) + RAIL_PAD + RAIL_TRANSITION;
+  if (!opts.stateHidden) {
+    const { label } = stateChip(opts.state, opts.fleetRunning ?? 0, opts.thinkingWord);
+    col += displayWidth(`● ${label}`) + RAIL_PAD + RAIL_TRANSITION;
   }
-  const { label } = stateChip(opts.state, opts.fleetRunning ?? 0, opts.thinkingWord);
-  col += displayWidth(`● ${label}`) + RAIL_PAD + RAIL_TRANSITION;
   return { start: col + 1, len: displayWidth(opts.model) };
 }
 
@@ -1283,11 +1401,11 @@ export function stateChip(
   thinkingWord?: string | undefined,
 ): { label: string; color: string } {
   if (state === 'idle' && fleetRunning > 0) {
-    return { label: `agents ▶${fleetRunning}`, color: 'magenta' };
+    return { label: `agents ▶${fleetRunning}`, color: theme.monitor.agents };
   }
-  if (state === 'idle') return { label: 'idle', color: 'cyan' };
-  if (state === 'aborting') return { label: 'aborting…', color: 'yellow' };
-  return { label: `${normalizeTuiThinkingWord(thinkingWord)}…`, color: 'green' };
+  if (state === 'idle') return { label: 'idle', color: theme.accent };
+  if (state === 'aborting') return { label: 'aborting…', color: theme.warn };
+  return { label: `${normalizeTuiThinkingWord(thinkingWord)}…`, color: theme.success };
 }
 
 const FILLED = '█';
@@ -1348,75 +1466,4 @@ function fmtDebugBytes(n: number): string {
 
 function pad2(n: number): string {
   return n < 10 ? `0${n}` : String(n);
-}
-
-/**
- * ThinkingChip — render the working/thinking label with the chosen
- * animation style. Picks between the 5 styles (rainbow/wave/pulse/
- * dots/breathe) plus the meta-mode `cycle` that rotates through the
- * variant styles every `CYCLE_INTERVAL_SECONDS`. Rainbow remains
- * the per-glyph Catppuccin pastel hue sweep (the original wave UI);
- * the other four reuse the helpers from `animation-style.tsx`.
- */
-function ThinkingChip({
-  text,
-  style,
-  phase,
-  cycleTick,
-}: {
-  text: string;
-  style: AnimationStyle | 'cycle';
-  phase: number;
-  cycleTick: number;
-}): React.ReactElement {
-  const live: AnimationStyle = style === 'cycle' ? styleForCycleTick(cycleTick) : style;
-  if (live === 'rainbow') {
-    return (
-      <Text bold>
-        {Array.from(text).map((ch, i) => (
-          <Text key={i} color={HUE_WHEEL[(i + phase) % HUE_WHEEL.length] ?? '#ffffff'}>
-            {ch}
-          </Text>
-        ))}
-      </Text>
-    );
-  }
-  if (live === 'wave') {
-    const len = Array.from(text).length;
-    return (
-      <Text bold>
-        {Array.from(text).map((ch, i) => (
-          <Text key={i} color={waveColor(i, phase, len)}>
-            {ch}
-          </Text>
-        ))}
-      </Text>
-    );
-  }
-  if (live === 'pulse') {
-    return (
-      <Text bold color={pulseColor(phase)}>
-        {text}
-      </Text>
-    );
-  }
-  if (live === 'dots') {
-    const stripped = stripTrailingDots(text);
-    const idx = phase % DOTS_FRAMES.length;
-    const suffix = DOTS_FRAMES[idx] ?? '';
-    return (
-      <Text bold color="green">
-        {stripped}
-        {suffix ? ` ${suffix}` : ''}
-      </Text>
-    );
-  }
-  // 'breathe' — spinning braille prefix, static text.
-  const idx = phase % BREATHE_FRAMES.length;
-  const prefix = BREATHE_FRAMES[idx] ?? '⠋';
-  return (
-    <Text bold color="green">
-      {prefix} {text}
-    </Text>
-  );
 }

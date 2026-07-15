@@ -1,5 +1,8 @@
 import { Box, Text } from '../ink.js';
 import type React from 'react';
+import { theme } from '../theme.js';
+import { glyphs } from '../ui-glyphs.js';
+import { KeyCap, MonitorShell, truncatePanelText, useMonitorSize } from './monitor-shell.js';
 
 /** All possible statusline chip keys. */
 export type StatuslineItem =
@@ -31,6 +34,7 @@ export type StatuslineItem =
   | 'mode'
   | 'auto_proceed'
   | 'sessions'
+  | 'time'
   | 'tools'
   | 'token_saving'
   | 'brain'
@@ -110,6 +114,7 @@ const ITEM_DESCRIPTIONS: Record<StatuslineItem, string> = {
   mode: 'Active agent mode label',
   auto_proceed: 'Auto-proceed countdown',
   sessions: 'Live session count',
+  time: 'Current wall clock time',
   tools: 'Registered tool count',
   token_saving: 'Token-saving mode indicator',
   brain: 'Brain arbiter decisions',
@@ -122,26 +127,32 @@ const ITEM_DESCRIPTIONS: Record<StatuslineItem, string> = {
 /**
  * Which TUI status bar line each chip appears on. Used to group chips
  * visually in the picker. MUST mirror the actual render lines in
- * `status-bar.tsx`: line 1 = runtime essentials, line 2 = session context,
- * line 3 = active work, line 4 = mailbox + fleet-agent detail. Exported so
- * the navigation-order test guards against drift instead of duplicating it.
+ * `status-bar.tsx`: line 1 = runtime + mode chips, line 2 = session context,
+ * line 3 = active work + connectivity. Exported so the navigation-order
+ * test guards against drift instead of duplicating it.
  */
 export const ITEM_LINE: Record<StatuslineItem, number> = {
+  // Line 1 — runtime + mode: secondary mode indicators, runtime essentials,
+  // elapsed, and working directory
+  autonomy: 1,
   breaker: 1,
   cache: 1,
   context: 1,
   cost: 1,
+  elapsed: 1,
   hint: 1,
   index: 1,
   model: 1,
   processes: 1,
   queue: 1,
   state: 1,
+  time: 1,
   tokens: 1,
   version: 1,
+  working_dir: 1,
+  yolo: 1,
+  // Line 2 — session context: project, git, mode, goals, countdowns, tools
   auto_proceed: 2,
-  autonomy: 2,
-  elapsed: 2,
   eternal_stage: 2,
   git: 2,
   goal: 2,
@@ -150,18 +161,17 @@ export const ITEM_LINE: Record<StatuslineItem, number> = {
   sessions: 2,
   token_saving: 2,
   tools: 2,
-  working_dir: 2,
-  yolo: 2,
+  // Line 3 — active work + connectivity
   brain: 3,
   debug_stream: 3,
   enhance: 3,
   fleet: 3,
+  fleet_agents: 3,
+  mailbox: 3,
   next_steps: 3,
-  todos: 3,
   plan: 3,
   tasks: 3,
-  fleet_agents: 4,
-  mailbox: 4,
+  todos: 3,
 };
 
 export interface StatuslinePickerProps {
@@ -181,22 +191,25 @@ export const STATUSLINE_FIELD_COUNT = Object.keys(ITEM_LINE).length;
 /** Ordered list of statusline items — grouped by display line, then alphabetically within each line for consistent navigation. */
 export const STATUSLINE_ITEMS: StatuslineItem[] = [
   // Line 1
+  'autonomy',
   'breaker',
   'cache',
   'context',
   'cost',
+  'elapsed',
   'hint',
   'index',
   'model',
   'processes',
   'queue',
   'state',
+  'time',
   'tokens',
   'version',
+  'working_dir',
+  'yolo',
   // Line 2
   'auto_proceed',
-  'autonomy',
-  'elapsed',
   'eternal_stage',
   'git',
   'goal',
@@ -205,26 +218,23 @@ export const STATUSLINE_ITEMS: StatuslineItem[] = [
   'sessions',
   'token_saving',
   'tools',
-  'working_dir',
-  'yolo',
   // Line 3
   'brain',
   'debug_stream',
   'enhance',
   'fleet',
+  'fleet_agents',
+  'mailbox',
   'next_steps',
   'plan',
   'tasks',
   'todos',
-  // Line 4
-  'fleet_agents',
-  'mailbox',
 ];
 
 /** Stream-triggered chips — these auto-expire unless the user has toggled them on permanently. */
 export const STREAM_CHIP_KEYS: StatuslineItem[] = ['brain', 'mailbox', 'enhance', 'debug_stream'];
 
-/** Group items by their display line (1-4). */
+/** Group items by their display line (1-3). */
 function groupByLine(items: StatuslineItem[]): Map<number, StatuslineItem[]> {
   const map = new Map<number, StatuslineItem[]>();
   for (const item of items) {
@@ -241,6 +251,7 @@ export function StatuslinePicker({
   visibleChips = [],
   hint,
 }: StatuslinePickerProps): React.ReactElement {
+  const size = useMonitorSize();
   const hiddenSet = new Set(hiddenItems);
   const visibleChipsMap = new Map(visibleChips.map((c) => [c.key, c]));
   const totalFields = STATUSLINE_ITEMS.length;
@@ -250,8 +261,11 @@ export function StatuslinePicker({
   // Compute which field indices are visible in the scroll window. The window
   // tracks the focused field so navigating past the edge scrolls the list
   // instead of letting it overflow the terminal.
-  const VISIBLE_FIELDS = 8;
-  const windowStart = Math.max(0, Math.min(field - Math.floor(VISIBLE_FIELDS / 2), totalFields - VISIBLE_FIELDS));
+  const VISIBLE_FIELDS = Math.max(3, Math.min(10, size.contentRows - 5));
+  const windowStart = Math.max(
+    0,
+    Math.min(field - Math.floor(VISIBLE_FIELDS / 2), totalFields - VISIBLE_FIELDS),
+  );
   const windowEnd = Math.min(windowStart + VISIBLE_FIELDS, totalFields);
   const hasAbove = windowStart > 0;
   const hasBelow = windowEnd < totalFields;
@@ -303,42 +317,68 @@ export function StatuslinePicker({
   };
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="yellow" paddingX={1}>
-      <Text color="cyan" bold>
-        ━━ Statusline ━━
-      </Text>
-      <Text dimColor>↑/↓ move · ←/→ toggle · Esc to close</Text>
+    <MonitorShell
+      accent={theme.warn}
+      icon={glyphs.terminal}
+      title="STATUS LINE"
+      kicker={size.columns >= 82 ? 'chip visibility' : undefined}
+      right={
+        <Text color={theme.textMuted}>
+          {totalFields - hiddenItems.length}/{totalFields} enabled
+        </Text>
+      }
+      footer={
+        <Box gap={2}>
+          <KeyCap keyName="↑↓" label="select" color={theme.warn} />
+          <KeyCap keyName="←→" label="toggle" color={theme.accent} />
+          <KeyCap keyName="Esc" label="close" color={theme.error} />
+          {size.columns >= 100 ? (
+            <Text color={theme.textMuted}>saved to ~/.wrongstack/statusline.json</Text>
+          ) : null}
+        </Box>
+      }
+    >
       {hasAbove ? (
-        <Text dimColor>{`  ↑ ${windowStart} item${windowStart === 1 ? '' : 's'} above`}</Text>
+        <Text
+          color={theme.textMuted}
+        >{`  ↑ ${windowStart} item${windowStart === 1 ? '' : 's'} above`}</Text>
       ) : null}
-      {rows.map((row) => {
-        if (row.section) {
+      <Box flexDirection="column" marginTop={1}>
+        {rows.map((row) => {
+          if (row.section) {
+            return (
+              <Text key={`section-${row.section}`} bold color={theme.textMuted}>
+                {row.section.toUpperCase()}
+              </Text>
+            );
+          }
+          const item = row.item!;
+          const fieldIdx = row.fieldIdx!;
+          const selected = fieldIdx === field;
           return (
-            <Text key={`section-${row.section}`} bold color="green">
-              ── {row.section} ──
-            </Text>
+            <Box key={`row-${item}`}>
+              <Text color={selected ? theme.warn : theme.textMuted}>{selected ? '› ' : '  '}</Text>
+              <Text color={selected ? theme.textPrimary : theme.textSecondary} bold={selected}>
+                {(item as string).padEnd(16)}
+              </Text>
+              <Text color={valColor(item)} bold>
+                {boolVal(item).padEnd(5)}
+              </Text>
+              <Text color={theme.textMuted}>
+                {truncatePanelText(ITEM_DESCRIPTIONS[item], Math.max(12, size.contentWidth - 30))}
+              </Text>
+            </Box>
           );
-        }
-        const item = row.item!;
-        const fieldIdx = row.fieldIdx!;
-        const selected = fieldIdx === field;
-        return (
-          <Text key={`row-${item}`} inverse={selected} {...(selected ? { color: 'yellow' } : {})}>
-            {selected ? '› ' : '  '}
-            <Text bold>{(item as string).padEnd(12)}</Text>
-            <Text color={valColor(item)}>{boolVal(item).padEnd(4)}</Text>
-            <Text dimColor>{ITEM_DESCRIPTIONS[item]}</Text>
-            {selected ? (
-              <Text dimColor>  ←/→ toggle</Text>
-            ) : null}
-          </Text>
-        );
-      })}
+        })}
+      </Box>
       {hasBelow ? (
-        <Text dimColor>{`  ↓ ${totalFields - windowEnd} item${totalFields - windowEnd === 1 ? '' : 's'} below`}</Text>
+        <Text
+          color={theme.textMuted}
+        >{`  ↓ ${totalFields - windowEnd} item${totalFields - windowEnd === 1 ? '' : 's'} below`}</Text>
       ) : null}
-      <Text dimColor>Changes apply instantly · persisted to ~/.wrongstack/statusline.json · auto chips show when data exists</Text>
-      {hint ? <Text color="yellow">{hint}</Text> : null}
-    </Box>
+      {hint ? (
+        <Text color={theme.warn}> {truncatePanelText(hint, size.contentWidth - 4)}</Text>
+      ) : null}
+    </MonitorShell>
   );
 }

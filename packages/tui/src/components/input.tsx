@@ -4,26 +4,123 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { fnKey } from '../fn-keys.js';
 import { type InputCell, layoutInputRows } from '../input-tokens.js';
 import { type MouseEventInfo, isLeakedMouseInput, parseMouseEvents } from '../mouse.js';
-import { displayWidth, frameRule } from '../terminal-width.js';
+import { displayWidth, truncateDisplay } from '../terminal-width.js';
 import { theme } from '../theme.js';
 import { glyphs } from '../ui-glyphs.js';
+import type { AnimationStyle } from './animation-style.js';
+import {
+  type ComposerStatus,
+  ComposerStatusChip,
+  composerStatusReservedWidth,
+} from './composer-status-chip.js';
 
 export const DEFAULT_INPUT_PROMPT = `${glyphs.prompt} `;
+
+const COMPOSER_ACTIVITY_FRAMES = ['.', 'o', 'O', 'o'] as const;
+const COMPOSER_ACTIVITY_INTERVAL_MS = 250;
+
+/** Minimum width reserved for the yellow separator between model and status. */
+const YELLOW_SEP_W = 4; // ' ─── '
+
+/** Exact-width composer top rail with an isolated activity-icon timer.
+ *
+ * Layout (when modelLabel is present):
+ *   ╭─ icon TITLE ──── provider/model ──── status ─╮
+ *                        ^centered^
+ * The model label is placed at the visual center of the available space
+ * between the title prefix and the status suffix, so the line reads
+ * balanced regardless of terminal width.
+ */
+function ComposerTopRail({
+  width,
+  title,
+  status,
+  animationStyle,
+  disabled,
+  modelLabel,
+}: {
+  width: number;
+  title: string;
+  status: ComposerStatus;
+  animationStyle: AnimationStyle | 'cycle';
+  disabled: boolean;
+  modelLabel?: string | undefined;
+}): React.ReactElement {
+  const active = status.kind === 'working';
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(
+      () => setFrame((value) => (value + 1) % COMPOSER_ACTIVITY_FRAMES.length),
+      COMPOSER_ACTIVITY_INTERVAL_MS,
+    );
+    return () => clearInterval(timer);
+  }, [active]);
+
+  const available = Math.max(0, width - 2);
+  const icon = active ? (COMPOSER_ACTIVITY_FRAMES[frame] ?? '.') : glyphs.brand;
+
+  // — 1. Status section (right side) —
+  const requestedStatusWidth = composerStatusReservedWidth(status);
+  const statusWidth = Math.min(requestedStatusWidth, Math.max(0, available - 3));
+  const statusSectionW = statusWidth > 0 ? statusWidth + 3 : 0; // ' ' + chip + ' ─'
+  const statusPrefix = statusWidth > 0 ? ' ' : '';
+  const statusSuffix = statusWidth > 0 ? ' ─' : '';
+
+  // — 2. Title section (left side) —
+  // Reserve space for the title prefix: "─ icon TITLE "
+  const titlePrefixRaw = title ? `─ ${icon} ${title} ` : '';
+  // If no title, just show a leading dash so the rail doesn't start bare
+  const titlePrefix = title ? titlePrefixRaw : '';
+  const titleW = displayWidth(titlePrefix);
+
+  // — 3. Model section (center) —
+  const modelW = modelLabel ? displayWidth(modelLabel) + 2 : 0; // ' ' + label + ' '
+  const showModel = Boolean(modelLabel && title);
+
+  // — 4. Yellow separator between model and status —
+  const showSep = showModel && statusWidth > 0;
+  const sepW = showSep ? YELLOW_SEP_W : 0;
+
+  // — 5. Fill — split remaining space evenly around the model,
+  //     with the yellow separator between model and status
+  const remaining = Math.max(0, available - titleW - modelW - sepW - statusSectionW);
+  const leftFill = Math.floor(remaining / 2);
+  const rightFill = remaining - leftFill;
+
+  return (
+    <Text bold color={disabled ? theme.error : theme.brandPrimary}>
+      {'╭'}
+      {titlePrefix}
+      {leftFill > 0 ? '─'.repeat(leftFill) : null}
+      {showModel ? (
+        <Text color={theme.accent} bold>
+          {' '}{modelLabel}{' '}
+        </Text>
+      ) : null}
+      {showSep ? (
+        <Text color={theme.warn}>
+          {' ─── '}
+        </Text>
+      ) : null}
+      {rightFill > 0 ? '─'.repeat(rightFill) : null}
+      {statusPrefix}
+      {statusWidth > 0 ? (
+        <ComposerStatusChip
+          status={status}
+          animationStyle={animationStyle}
+          reservedWidth={statusWidth}
+        />
+      ) : null}
+      {statusSuffix}
+      {'╮'}
+    </Text>
+  );
+}
 
 /** Columns available to input tokens inside the two-sided composer rail. */
 export function inputContentWidth(termColumns: number): number {
   return Math.max(8, termColumns - 4);
-}
-
-export function composerStatusLabel(
-  status: string,
-  confirmCount: number,
-  queueCount: number,
-): string {
-  if (confirmCount > 0) return 'CONFIRM';
-  if (status === 'running' || status === 'streaming') return 'WORKING';
-  if (status === 'aborting') return 'ABORTING';
-  return queueCount > 0 ? `QUEUED ${queueCount}` : 'READY';
 }
 
 export interface InputProps {
@@ -34,8 +131,14 @@ export interface InputProps {
   hint?: string | undefined;
   /** Label embedded in the composer's top rail. */
   title?: string | undefined;
-  /** Right-aligned state label embedded in the composer's top rail. */
-  statusLabel?: string | undefined;
+  /**
+   * Right-aligned live status descriptor for the composer's top rail. Renders
+   * as an animated {@link ComposerStatusChip} (the thinking word while working,
+   * flat `idle`/`CONFIRM`/… otherwise). Defaults to idle when omitted.
+   */
+  status?: ComposerStatus | undefined;
+  /** Animation style for the working-state chip (`'cycle'` rotates variants). */
+  animationStyle?: AnimationStyle | 'cycle' | undefined;
   /** Stable bottom-rail help; a non-empty `hint` temporarily replaces it. */
   footerHint?: string | undefined;
   /**
@@ -50,6 +153,11 @@ export interface InputProps {
   hidden?: boolean | undefined;
   /** Row count for the hidden placeholder so the bottom region never resizes. */
   placeholderHeight?: number | undefined;
+  /**
+   * Short model label shown in the composer's top rail (e.g. "deepseek-chat").
+   * Appears dimmed after the title when provided.
+   */
+  modelLabel?: string | undefined;
   onKey: (input: string, key: KeyEvent) => void;
 }
 
@@ -204,10 +312,12 @@ export const Input = memo(function Input({
   disabled,
   hint,
   title = 'ASK WRONGSTACK',
-  statusLabel,
+  status,
+  animationStyle = 'rainbow',
   footerHint = 'Enter send · Shift+Enter newline · @ file · / commands',
   hidden,
   placeholderHeight,
+  modelLabel,
   onKey,
 }: InputProps): React.ReactElement {
   // Suppress duplicate key events: when our raw-stdin handler catches a key
@@ -219,6 +329,7 @@ export const Input = memo(function Input({
   const suppressInkDeleteRef = useRef(false);
   const suppressInkCtrlLeftRef = useRef(false);
   const suppressInkCtrlRightRef = useRef(false);
+  const suppressInkShiftEnterRef = useRef(false);
 
   useInput((input, key) => {
     // Ctrl+C must survive `disabled`. The prop is set exactly during
@@ -256,6 +367,11 @@ export const Input = memo(function Input({
     }
     if (key.ctrl && key.rightArrow && suppressInkCtrlRightRef.current) {
       suppressInkCtrlRightRef.current = false;
+      return;
+    }
+    // Suppress duplicate Enter from useInput when raw handler caught Shift+Enter
+    if (key.return && suppressInkShiftEnterRef.current) {
+      suppressInkShiftEnterRef.current = false;
       return;
     }
     onKey(input, key as KeyEvent);
@@ -321,6 +437,15 @@ export const Input = memo(function Input({
       if (ctrlArrow === 'right') {
         suppressInkCtrlRightRef.current = true;
         onKey('', { ...EMPTY_KEY, rightArrow: true, ctrl: true });
+        return;
+      }
+
+      // Shift+Enter via CSI u protocol (kitty, Windows Terminal, etc.).
+      // Some terminals send \x1b[13;2u for Shift+Enter; Ink's decode may not
+      // set key.shift=true, so we catch it here and fire a synthetic event.
+      if (s === '\x1b[13;2u') {
+        suppressInkShiftEnterRef.current = true;
+        onKey('', { ...EMPTY_KEY, return: true, shift: true });
         return;
       }
 
@@ -409,26 +534,60 @@ export const Input = memo(function Input({
     return <Box height={Math.max(3, placeholderHeight ?? rows.length + 2)} />;
   }
 
-  const stateLabel = statusLabel ?? (disabled ? 'ABORTING' : 'READY');
-  const topRule = frameRule(cols, `${glyphs.brand} ${title}`, stateLabel, 'top');
-  const bottomRule = frameRule(cols, hint || footerHint, '', 'bottom');
+  // Right-aligned live status chip. The rail is split into `head`/`tail`
+  // strings around a fixed-width slot; the animated chip renders into that slot
+  // padded to exactly `reservedWidth` so the right corner never jitters as the
+  // spinner/word/dots animate. A missing `status` prop falls back to idle
+  // (or aborting when the composer is disabled mid-abort).
+  const railStatus: ComposerStatus =
+    status ?? (disabled ? { kind: 'aborting' } : { kind: 'idle', fleetRunning: 0 });
+
+  // Three-part bottom frame: colored border border, colorless hint text, colored filler + corner.
+  // Note on width: the bottom frame has its own corners (╰, ╯), NOT the side
+  // borders (│) used by content rows. So the budget is the full `cols`, not
+  // `cols - 2` — if it were cols - 2 the bottom rule would end 2 chars short.
+  const bottomHint = hint || footerHint;
+  const availW = cols;
+  const leftBorder = '╰─ ';
+  const leftBW = 3;
+  const maxHintW = Math.max(0, availW - leftBW - 2); // 2 for space before ╯ + ╯
+  const hintW = displayWidth(bottomHint);
+  const shownHint = hintW > maxHintW ? truncateDisplay(bottomHint, maxHintW) : bottomHint;
+  const shownHintW = displayWidth(shownHint);
+  const fillW = Math.max(0, availW - leftBW - shownHintW - 2); // 2 for " ╯"
 
   return (
     <Box flexDirection="column">
-      <Text bold color={disabled ? theme.error : theme.brandPrimary}>{topRule}</Text>
+      <ComposerTopRail
+        width={cols}
+        title={title}
+        status={railStatus}
+        animationStyle={animationStyle}
+        disabled={disabled ?? false}
+        modelLabel={modelLabel}
+      />
       {rows.map((row, i) => {
         const rowWidth = displayWidth(row.map((cell) => cell.ch).join(''));
         const padding = ' '.repeat(Math.max(0, contentWidth - rowWidth));
         return (
           <Text key={i}>
-            <Text color={disabled ? theme.error : theme.borderDefault}>{'│ '}</Text>
+            <Text color={disabled ? theme.error : theme.brandPrimary}>{'│ '}</Text>
             {row.length === 0 ? null : renderRow(row, `r${i}`, promptColor)}
             <Text>{padding}</Text>
-            <Text color={disabled ? theme.error : theme.borderDefault}>{' │'}</Text>
+            <Text color={disabled ? theme.error : theme.brandPrimary}>{' │'}</Text>
           </Text>
         );
       })}
-      <Text color={disabled ? theme.error : theme.borderDefault}>{bottomRule}</Text>
+      {/* Bottom frame: border matches top rail (brandPrimary), hint text is muted */}
+      <Text>
+        <Text color={disabled ? theme.error : theme.brandPrimary}>{leftBorder}</Text>
+        <Text color={theme.textMuted}>{shownHint}</Text>
+        <Text color={disabled ? theme.error : theme.brandPrimary}>
+          {fillW > 0 ? ' ' : ''}
+          {'─'.repeat(fillW)}
+          {'╯'}
+        </Text>
+      </Text>
     </Box>
   );
 });
