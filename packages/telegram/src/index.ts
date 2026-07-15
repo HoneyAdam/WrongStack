@@ -21,6 +21,8 @@ import { makeTelegramSendTool } from './tools/telegram-send.js';
 interface RuntimeConfig {
   notifyChatId: string | number | undefined;
   allowedOutboundChats: Array<string | number>;
+  allowedUserIds: Array<string | number>;
+  allowGroupApprovals: boolean;
   notifyOnSessionEnd: boolean;
   notifyOnDelegate: boolean;
   longToolThresholdMs: number;
@@ -44,8 +46,10 @@ function inboundAllowlist(cfg: ReturnType<typeof readTelegramConfig>): {
     return { allowedUsers: new Set(), allowedChats: new Set() };
   }
   if (cfg.inboundMode === 'paired') {
+    const pairedUsers = new Set((cfg.allowedUsers ?? []).map(String));
     return {
-      allowedUsers: new Set(),
+      allowedUsers:
+        pairedUsers.size > 0 ? pairedUsers : new Set([String(expectDefined(cfg.notifyChatId))]),
       allowedChats: new Set([String(expectDefined(cfg.notifyChatId))]),
     };
   }
@@ -89,6 +93,8 @@ function registerCommand(api: PluginAPI, command: SlashCommand, cleanups: Array<
 function telegramFromConfig(cfg: Config): {
   notifyChatId: string | number | undefined;
   allowedOutboundChats: Array<string | number>;
+  allowedUserIds: Array<string | number>;
+  allowGroupApprovals: boolean;
   notifyOnSessionEnd: boolean;
   notifyOnDelegate: boolean;
   longToolThresholdMs: number;
@@ -104,6 +110,13 @@ function telegramFromConfig(cfg: Config): {
             typeof chatId === 'string' || typeof chatId === 'number',
         )
       : [],
+    allowedUserIds: Array.isArray(ext.allowedUsers)
+      ? ext.allowedUsers.filter(
+          (userId): userId is string | number =>
+            typeof userId === 'string' || typeof userId === 'number',
+        )
+      : [],
+    allowGroupApprovals: ext.allowGroupApprovals === true,
     notifyOnSessionEnd: ext.notifyOnSessionEnd === true,
     notifyOnDelegate: ext.notifyOnDelegate !== false, // default true
     longToolThresholdMs:
@@ -143,9 +156,14 @@ const plugin: Plugin = {
     log.info('Starting Telegram plugin...');
 
     // ---- Mutable runtime config (updated via onConfigChange) ----
+    const rawCfg = cfg as ReturnType<typeof readTelegramConfig> & {
+      allowGroupApprovals?: boolean | undefined;
+    };
     const runtimeCfg: RuntimeConfig = {
       notifyChatId: cfg.notifyChatId,
       allowedOutboundChats: [...(cfg.allowedOutboundChats ?? [])],
+      allowedUserIds: [...(cfg.allowedUsers ?? [])],
+      allowGroupApprovals: rawCfg.allowGroupApprovals === true,
       notifyOnSessionEnd: cfg.notifyOnSessionEnd ?? false,
       notifyOnDelegate: cfg.notifyOnDelegate ?? true,
       longToolThresholdMs: cfg.longToolThresholdMs ?? 30_000,
@@ -210,6 +228,8 @@ const plugin: Plugin = {
         bot,
         getDefaultChatId: () => runtimeCfg.notifyChatId,
         getAllowedOutboundChatIds: () => runtimeCfg.allowedOutboundChats,
+        getAllowedUserIds: () => runtimeCfg.allowedUserIds,
+        allowGroupApprovals: runtimeCfg.allowGroupApprovals,
         maxMessageLength: runtimeCfg.maxMessageLength,
         log,
       });
@@ -333,6 +353,8 @@ const plugin: Plugin = {
         const fresh = telegramFromConfig(next);
         runtimeCfg.notifyChatId = fresh.notifyChatId;
         runtimeCfg.allowedOutboundChats = fresh.allowedOutboundChats;
+        runtimeCfg.allowedUserIds = fresh.allowedUserIds;
+        runtimeCfg.allowGroupApprovals = fresh.allowGroupApprovals;
         runtimeCfg.notifyOnSessionEnd = fresh.notifyOnSessionEnd;
         runtimeCfg.notifyOnDelegate = fresh.notifyOnDelegate;
         runtimeCfg.longToolThresholdMs = fresh.longToolThresholdMs;

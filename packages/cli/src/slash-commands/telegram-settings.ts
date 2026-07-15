@@ -4,6 +4,7 @@ import { toErrorMessage } from '@wrongstack/core/utils';
 import { persistTelegramConfig } from '../settings-menu.js';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
 import type { SlashCommandContext } from './index.js';
+import { classifyTelegramChatId } from './telegram-setup.js';
 
 /**
  * Toggleable notification settings for the Telegram plugin.
@@ -191,9 +192,45 @@ export function buildTelegramSettingsCommand(opts: SlashCommandContext): SlashCo
           if (!raw) {
             return { message: `${color.amber('Usage:')} /telegram-settings chat <chatId>` };
           }
-          const chatId = /^\d+$/.test(raw) ? Number(raw) : raw;
+          const classification = classifyTelegramChatId(raw);
+          if (classification.kind === 'invalid') {
+            return { message: `${color.red('Invalid chat ID')}: expected a non-zero integer.` };
+          }
+
+          const current = opts.configStore.get() as {
+            extensions?: { telegram?: { allowGroupChats?: unknown } | undefined } | undefined;
+          };
+          const allowGroupChats = current.extensions?.telegram?.allowGroupChats === true;
+          if (classification.kind === 'group' && !allowGroupChats) {
+            return {
+              message: [
+                `${color.amber('⚠')} Group, supergroup, and channel targets require explicit allowGroupChats=true.`,
+                'No configuration was changed.',
+              ].join('\n'),
+            };
+          }
+
           await persistTelegramConfig(persistDeps, (tg) => {
-            tg.notifyChatId = chatId;
+            tg.notifyChatId = classification.chatId;
+            const allowedOutboundChats = Array.isArray(tg.allowedOutboundChats)
+              ? tg.allowedOutboundChats.filter(
+                  (value): value is string | number =>
+                    typeof value === 'string' || typeof value === 'number',
+                )
+              : [];
+            if (!allowedOutboundChats.map(String).includes(String(classification.chatId))) {
+              tg.allowedOutboundChats = [...allowedOutboundChats, classification.chatId];
+            }
+            if (classification.kind === 'private') {
+              tg.inboundMode = 'paired';
+              tg.allowedUsers = [classification.chatId];
+              tg.allowedChats = [classification.chatId];
+            } else {
+              const hasInboundAllowlist =
+                (Array.isArray(tg.allowedUsers) && tg.allowedUsers.length > 0) ||
+                (Array.isArray(tg.allowedChats) && tg.allowedChats.length > 0);
+              tg.inboundMode = hasInboundAllowlist ? 'allowlist' : 'disabled';
+            }
           });
           return {
             message: `${color.green('✓')} notify chat → ${color.cyan(raw)}`,

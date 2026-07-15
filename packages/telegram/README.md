@@ -7,7 +7,7 @@ Send messages, receive instructions, get notified when long tasks finish.
 
 - **`telegram_read`** — Agent reads incoming Telegram messages (newest first, filtered by chat, with ack support)
 - **`telegram_send`** — Agent sends messages via Telegram (HTML formatting, confirm permission)
-- **System prompt injection** — Unread messages appear in the agent's system prompt so it sees them naturally
+- **Metadata-only inbox notice** — The system prompt reports only an unread count; message content stays behind the explicit `telegram_read` tool boundary
 - **Slash commands** — `/telegram`, `/telegram-health`, `/telegram:send`, `/telegram:chatid` in the TUI
 - **Event notifications** — Session end summaries and long tool completions forwarded to Telegram
 - **Allowlist filtering** — Restrict which users/chats can interact with the bot
@@ -24,16 +24,7 @@ Message [@BotFather](https://t.me/BotFather) on Telegram:
 
 Copy the token (looks like `123456789:ABCdef...`).
 
-### 2. Get your chat ID
-
-Message your new bot, then visit:
-```
-https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates
-```
-
-Find your `chat.id` in the response.
-
-### 3. Enable the official plugin
+### 2. Enable the official plugin
 
 ```bash
 wstack plugin install telegram
@@ -51,9 +42,17 @@ CLI package, add it like a normal public package:
 npm install @wrongstack/telegram
 ```
 
-### 4. Configure
+### 3. Pair a private chat securely
 
-In `~/.wrongstack/config.json` or `.wrongstack/config.json`:
+Run `/telegram-setup` in WrongStack. Enter the bot token in the masked prompt,
+message the bot once from the private Telegram account you want to pair, then
+explicitly select that discovered identity. WrongStack does not print or ask
+you to open a credential-bearing Bot API URL.
+
+### 4. Configure manually (optional)
+
+The setup command writes this configuration securely. For custom hosts, the
+equivalent shape in `~/.wrongstack/config.json` or `.wrongstack/config.json` is:
 
 ```jsonc
 {
@@ -65,7 +64,10 @@ In `~/.wrongstack/config.json` or `.wrongstack/config.json`:
     "telegram": {
       "botToken": "123456789:ABCdefGHIjkl...",
       "notifyChatId": "987654321",
+      "inboundMode": "paired",
       "allowedUsers": [987654321],
+      "allowedChats": [987654321],
+      "allowedOutboundChats": [987654321],
       "notifyOnSessionEnd": true,
       "longToolThresholdMs": 30000,
       "pollIntervalSec": 2
@@ -87,9 +89,13 @@ the Telegram options.
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `botToken` | `string` | **yes** | — | Bot token from @BotFather |
-| `notifyChatId` | `string \| number` | no | — | Default chat for outgoing messages and notifications |
-| `allowedUsers` | `(string \| number)[]` | no | `[]` | User IDs allowed to interact. Empty = all allowed |
-| `allowedChats` | `(string \| number)[]` | no | `[]` | Chat IDs the bot reads from. Empty = all allowed |
+| `notifyChatId` | `string \| number` | no | — | Default chat for outgoing messages and notifications; it is also the paired chat when `inboundMode` is `paired` |
+| `inboundMode` | `disabled \| paired \| allowlist \| public` | no | `disabled` | Inbound authorization policy. `public` must be selected explicitly. |
+| `allowedUsers` | `(string \| number)[]` | no | `[]` | Immutable user IDs accepted by paired/allowlist authorization and remote approvals |
+| `allowedChats` | `(string \| number)[]` | no | `[]` | Chat IDs accepted when `inboundMode` is `allowlist` |
+| `allowedOutboundChats` | `(string \| number)[]` | no | `[]` | Additional explicitly trusted outbound targets beyond `notifyChatId` |
+| `allowGroupChats` | `boolean` | no | `false` | Let `/telegram-settings chat` select a negative group/channel ID as an outbound-only target |
+| `allowGroupApprovals` | `boolean` | no | `false` | Permit approvals in a group target; still requires explicit `allowedUsers` identity binding |
 | `pollIntervalSec` | `number` | no | `2` | How often to poll Telegram for new messages (1–60) |
 | `notifyOnSessionEnd` | `boolean` | no | `false` | Send token usage summary when a session ends |
 | `longToolThresholdMs` | `number` | no | `30000` | Notify when a tool runs longer than this (ms). `0` = off |
@@ -163,8 +169,8 @@ Message text supports Telegram HTML: `<b>bold</b>`, `<i>italic</i>`, `<code>mono
 
 1. Bot polls Telegram every N seconds via `getUpdates`
 2. Incoming messages go into a circular buffer (50 max)
-3. A system prompt contributor injects unread messages so the agent sees them
-4. Agent reads with `telegram_read`, responds with `telegram_send`
+3. A system prompt contributor exposes only the bounded unread count
+4. Agent explicitly reads content with `telegram_read`, then responds with `telegram_send`
 5. Custom event `telegram:message_received` fires for TUI panels / other plugins
 
 ## Events

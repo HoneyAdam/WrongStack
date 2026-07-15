@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { DefaultSecretVault, decryptConfigSecrets } from '@wrongstack/core';
+import { DefaultSecretVault } from '@wrongstack/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildTelegramSetupCommand } from '../src/slash-commands/telegram-setup.js';
 
@@ -63,28 +63,21 @@ describe('/telegram-setup secure token flow', () => {
     expect(failed?.message).not.toContain('superSecretToken');
   });
 
-  it('persists ciphertext and reloads the token through the same vault', async () => {
+  it('refuses a manual group chat ID without persisting configuration', async () => {
     globalThis.fetch = vi.fn(async () => ({
       json: async () => ({
         ok: true,
         result: { id: 1, is_bot: true, first_name: 'SecureBot', username: 'secure_bot' },
       }),
     })) as typeof fetch;
-    const { command, configPath, vault, readSecret } = await rig();
+    const { command, configPath, readSecret } = await rig();
 
     const result = await command.run('-10042');
 
     expect(readSecret).toHaveBeenCalledOnce();
+    expect(result?.message).toContain('cannot be paired by manual ID');
+    expect(result?.message).toContain('No configuration was changed');
     expect(result?.message).not.toContain(TOKEN);
-    const raw = await fs.readFile(configPath, 'utf8');
-    expect(raw).not.toContain(TOKEN);
-    expect(raw).not.toContain('superSecretToken');
-    expect(raw).toMatch(/enc:v\d+:/);
-
-    const decrypted = decryptConfigSecrets(JSON.parse(raw), vault) as {
-      extensions: { telegram: { botToken: string; notifyChatId: number } };
-    };
-    expect(decrypted.extensions.telegram.botToken).toBe(TOKEN);
-    expect(decrypted.extensions.telegram.notifyChatId).toBe(-10042);
+    await expect(fs.stat(configPath)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });

@@ -152,7 +152,11 @@ export function resolveReasoningForRequest(
   if (cfg.preserve !== undefined) {
     if (capKnown && rc && rc.preserveThinking !== 'unsupported') {
       out.preserve = cfg.preserve;
-    } else if (capKnown) {
+    } else if (capKnown && cfg.preserve) {
+      // `false` already matches the effective behaviour of a model that
+      // cannot preserve thinking. Only an enabled request is unsupported and
+      // actionable; warning for an explicit `false` would be both misleading
+      // and noisy because this resolver runs for every model request.
       warnings.push('reasoning preserve requested, but this model does not support preserved thinking; the setting was omitted.');
     }
     // Unknown capabilities: preserve is a soft, widely-supported field, so we

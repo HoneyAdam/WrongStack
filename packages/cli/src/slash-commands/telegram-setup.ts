@@ -32,6 +32,20 @@ const HELP = [
 
 const BOT_TOKEN_RE = /^\d+:[A-Za-z0-9_-]+$/;
 
+export type TelegramChatIdClassification =
+  | { kind: 'private'; chatId: number }
+  | { kind: 'group'; chatId: number }
+  | { kind: 'invalid' };
+
+/** Classify a numeric Telegram ID without making the ID an authorization credential. */
+export function classifyTelegramChatId(value: string): TelegramChatIdClassification {
+  const normalized = value.trim();
+  if (!/^-?\d+$/.test(normalized)) return { kind: 'invalid' };
+  const chatId = Number(normalized);
+  if (!Number.isSafeInteger(chatId) || chatId === 0) return { kind: 'invalid' };
+  return chatId < 0 ? { kind: 'group', chatId } : { kind: 'private', chatId };
+}
+
 /**
  * `/telegram-setup` — configure the Telegram plugin without putting its token
  * in the command line, terminal history, TUI transcript, or plaintext config.
@@ -123,6 +137,22 @@ export function buildTelegramSetupCommand(opts: SlashCommandContext): SlashComma
       }
 
       const chatId = first || undefined;
+      const classifiedChatId = chatId ? classifyTelegramChatId(chatId) : undefined;
+      if (classifiedChatId?.kind === 'invalid') {
+        return {
+          message: `${color.red('✗')} Invalid Telegram chat ID. Expected a positive private chat ID.`,
+        };
+      }
+      if (classifiedChatId?.kind === 'group') {
+        return {
+          message: [
+            `${color.amber('⚠')} Shared group, supergroup, and channel IDs cannot be paired by manual ID.`,
+            'Run /telegram-setup without a chat ID and select a discovered private identity.',
+            'No configuration was changed.',
+          ].join('\n'),
+        };
+      }
+
       let pairedCandidate: TelegramPairingCandidate | undefined;
       if (!chatId) {
         let candidates: TelegramPairingCandidate[];
@@ -193,13 +223,27 @@ export function buildTelegramSetupCommand(opts: SlashCommandContext): SlashComma
           },
           (telegram) => {
             telegram.botToken = botToken;
+            const selectedChatId = pairedCandidate?.chatId ?? classifiedChatId?.chatId;
+            if (selectedChatId !== undefined) {
+              telegram.notifyChatId = selectedChatId;
+              const allowedOutboundChats = Array.isArray(telegram.allowedOutboundChats)
+                ? telegram.allowedOutboundChats.filter(
+                    (value): value is string | number =>
+                      typeof value === 'string' || typeof value === 'number',
+                  )
+                : [];
+              if (!allowedOutboundChats.map(String).includes(String(selectedChatId))) {
+                telegram.allowedOutboundChats = [...allowedOutboundChats, selectedChatId];
+              }
+            }
             if (pairedCandidate) {
-              telegram.notifyChatId = pairedCandidate.chatId;
               telegram.inboundMode = 'paired';
               telegram.allowedUsers = [pairedCandidate.userId];
               telegram.allowedChats = [pairedCandidate.chatId];
-            } else if (chatId) {
-              telegram.notifyChatId = /^-?\d+$/.test(chatId) ? Number(chatId) : chatId;
+            } else if (classifiedChatId?.kind === 'private') {
+              telegram.inboundMode = 'paired';
+              telegram.allowedUsers = [classifiedChatId.chatId];
+              telegram.allowedChats = [classifiedChatId.chatId];
             }
             if (telegram.notifyOnSessionEnd === undefined) telegram.notifyOnSessionEnd = true;
           },

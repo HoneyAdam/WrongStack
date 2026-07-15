@@ -89,6 +89,69 @@ describe('telegram_approve tool', () => {
     expect(prompts[0]).toContain(':no');
   });
 
+  it('fails promptly and removes the request when sending the prompt fails', async () => {
+    const bot = makeBot();
+    const tool = makeTool(bot);
+    vi.spyOn(bot, 'sendMessageWithKeyboard').mockRejectedValue(new Error('send failed'));
+
+    const start = Date.now();
+    await expect(tool.execute({ prompt: 'Cannot send', timeout_ms: 5_000 })).rejects.toThrow(
+      'send failed',
+    );
+    expect(Date.now() - start).toBeLessThan(500);
+    expect((bot as unknown as { callbackWaiters: Map<string, unknown> }).callbackWaiters.size).toBe(
+      0,
+    );
+  });
+
+  it('queues a callback that arrives before the send response binds message_id', async () => {
+    const bot = makeBot();
+    const tool = makeTool(bot);
+    vi.spyOn(bot, 'sendMessageWithKeyboard').mockImplementation(async (chatId, _text, buttons) => {
+      const yesKey = buttons[0]!.callback_data;
+      await (
+        bot as unknown as {
+          dispatchCallback(cq: {
+            id: string;
+            from: { id: number; username: string };
+            message: { message_id: number; chat: { id: number; type: string } };
+            data: string;
+          }): Promise<void>;
+        }
+      ).dispatchCallback({
+        id: 'cb-before-send-response',
+        from: { id: 999, username: 'alice' },
+        message: { message_id: 42, chat: { id: Number(chatId), type: 'private' } },
+        data: yesKey,
+      });
+      return { ok: true, result: { message_id: 42 } } as never;
+    });
+
+    await expect(tool.execute({ prompt: 'Immediate?', timeout_ms: 5_000 })).resolves.toMatchObject({
+      approved: true,
+      from: 'alice',
+      prompt_message_id: 42,
+    });
+  });
+
+  it('cleans up promptly when the tool signal aborts', async () => {
+    const bot = makeBot();
+    const tool = makeTool(bot);
+    const controller = new AbortController();
+    const resultPromise = tool.execute(
+      { prompt: 'Abort me', timeout_ms: 5_000 },
+      undefined as never,
+      { signal: controller.signal },
+    );
+    await new Promise((r) => setTimeout(r, 5));
+    controller.abort();
+
+    await expect(resultPromise).resolves.toMatchObject({ approved: false, from: 'aborted' });
+    expect((bot as unknown as { callbackWaiters: Map<string, unknown> }).callbackWaiters.size).toBe(
+      0,
+    );
+  });
+
   it('truncates details to fit Telegram', async () => {
     const bot = makeBot();
     const tool = makeTool(bot);
@@ -471,71 +534,53 @@ describe('telegram_approve with bot allowlist', () => {
     bot.stop();
   });
 
-  it('after a blocked rejection, a follow-up legitimate tap is silently ignored (no double-resolve)', async () => {
-    // Once the hijack resolves the waiter with `blocked`, the legitimate
-    // user's tap arrives later. The allowlist passes for the legitimate
-    // user (alice), but the waiter was already deleted — so her tap is
-    // treated as an unmatched callback and must NOT mutate the already
-    // resolved Promise. This guards against the classic double-resolve
-    // bug. Mallory (id 2) is intentionally NOT on the allowlist so her
-    // tap takes the blocked-path; alice (id 1) IS allowlisted so her
-    // tap would normally resolve the waiter.
+  it('unauthorized first, legitimate second, then duplicate cannot double-resolve', async () => {
     const bot = makeBot({ allowedUsers: ['1'], allowedChats: ['999'] });
     const tool = makeTool(bot, '999', ['1']);
     const execPromise = tool.execute({ prompt: 'Race?', timeout_ms: 1_000 });
     await new Promise((r) => setTimeout(r, 5));
     const prompt = sentBodies.find((b) => b.includes('Race?'))!;
-    const yesMatch = prompt.match(/"callback_data":"(approve:[^"]+:yes)"/);
-    expect(yesMatch).not.toBeNull();
-    const yesKey = yesMatch![1]!;
-
-    // Mallory (id 2) presses Approve first — hijack path resolves
-    // the waiter with `blocked`. Alice (id 1) hasn't tapped yet.
-    await (
+    const yesKey = prompt.match(/"callback_data":"(approve:[^"]+:yes)"/)![1]!;
+    const dispatch = (
       bot as unknown as {
         dispatchCallback(cq: {
           id: string;
-          from?: { id: number; username?: string };
-          message?: { message_id: number; chat: { id: number; type: string } };
-          data?: string;
+          from: { id: number; username?: string };
+          message: { message_id: number; chat: { id: number; type: string } };
+          data: string;
         }): Promise<void>;
       }
-    ).dispatchCallback({
-      id: 'cb-1',
+    ).dispatchCallback.bind(bot);
+
+    await dispatch({
+      id: 'cb-unauthorized',
       from: { id: 2, username: 'mallory' },
       message: { message_id: 42, chat: { id: 999, type: 'private' } },
       data: yesKey,
     });
-    // Alice presses Approve a moment later. The waiter was already
-    // deleted by the hijack path; this tap must not throw, must not
-    // race the resolved Promise, and must not produce a second ack.
-    await new Promise((r) => setTimeout(r, 10));
-    await (
-      bot as unknown as {
-        dispatchCallback(cq: {
-          id: string;
-          from?: { id: number; username?: string };
-          message?: { message_id: number; chat: { id: number; type: string } };
-          data?: string;
-        }): Promise<void>;
-      }
-    ).dispatchCallback({
-      id: 'cb-2',
+    await dispatch({
+      id: 'cb-legitimate',
       from: { id: 1, username: 'alice' },
       message: { message_id: 42, chat: { id: 999, type: 'private' } },
       data: yesKey,
     });
-
     const result = await execPromise;
-    // The first call wins: hijack -> blocked. Alice's tap is a no-op.
-    expect(result.approved).toBe(false);
-    expect(result.from).toBe('blocked');
-    // Two ack calls: one for the blocked toast, one telling Alice the already
-    // consumed request is unavailable. A late tap must never look approved.
-    expect(ackCalls).toHaveLength(2);
+    expect(result).toMatchObject({ approved: true, from: 'alice' });
+    expect((bot as unknown as { callbackWaiters: Map<string, unknown> }).callbackWaiters.size).toBe(
+      0,
+    );
+
+    await dispatch({
+      id: 'cb-duplicate',
+      from: { id: 1, username: 'alice' },
+      message: { message_id: 42, chat: { id: 999, type: 'private' } },
+      data: yesKey,
+    });
+    expect(ackCalls).toHaveLength(3);
     expect(ackCalls[0]!.body).toContain('Not authorized');
-    expect(ackCalls[1]!.body).toContain('unavailable');
-    expect(ackCalls[1]!.body).not.toContain('Approved');
+    expect(ackCalls[1]!.body).toContain('Approved');
+    expect(ackCalls[2]!.body).toContain('unavailable');
+    expect(result).toMatchObject({ approved: true, from: 'alice' });
     bot.stop();
   });
 });

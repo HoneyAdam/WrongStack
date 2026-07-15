@@ -25,6 +25,11 @@ const capsAlwaysOn: ReasoningConfig = {
   preserveThinking: 'always_on',
 };
 
+const capsWithoutPreserve: ReasoningConfig = {
+  ...capsOn,
+  preserveThinking: 'unsupported',
+};
+
 describe('resolveModelRuntime', () => {
   it('returns undefined fields when settings are absent', () => {
     const r = resolveModelRuntime(undefined, capsOn);
@@ -71,6 +76,22 @@ describe('resolveModelRuntime', () => {
     const settings: ModelRuntimeConfig = { reasoning: { preserve: true } };
     const r = resolveModelRuntime(settings, capsOn);
     expect(r.reasoning).toEqual({ preserve: true });
+  });
+
+  it('warns when preserve is enabled for an unsupported model', () => {
+    const settings: ModelRuntimeConfig = { reasoning: { preserve: true } };
+    const r = resolveModelRuntime(settings, capsWithoutPreserve);
+    expect(r.reasoning).toBeUndefined();
+    expect(r.warnings).toEqual([
+      'reasoning preserve requested, but this model does not support preserved thinking; the setting was omitted.',
+    ]);
+  });
+
+  it('silently omits preserve false for an unsupported model', () => {
+    const settings: ModelRuntimeConfig = { reasoning: { preserve: false } };
+    const r = resolveModelRuntime(settings, capsWithoutPreserve);
+    expect(r.reasoning).toBeUndefined();
+    expect(r.warnings).toEqual([]);
   });
 
   it('maps cache ttl to Request.cache', () => {
