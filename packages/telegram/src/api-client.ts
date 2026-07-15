@@ -50,10 +50,12 @@ interface TelegramApiEnvelope<T> {
   result?: T | undefined;
   description?: string | undefined;
   error_code?: number | undefined;
-  parameters?: {
-    retry_after?: number | undefined;
-    migrate_to_chat_id?: number | undefined;
-  } | undefined;
+  parameters?:
+    | {
+        retry_after?: number | undefined;
+        migrate_to_chat_id?: number | undefined;
+      }
+    | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -159,7 +161,7 @@ export function classifyRetry(err: unknown, attempt: number): RetryDecision {
   if (err instanceof TelegramHttpError) {
     if (err.status === 429 || err.status === 409 || err.status >= 500) {
       const delayMs = Math.min(
-        Math.ceil(BACKOFF_BASE_MS * (2 ** (attempt - 1)) * (1 + Math.random() * 0.2)),
+        Math.ceil(BACKOFF_BASE_MS * 2 ** (attempt - 1) * (1 + Math.random() * 0.2)),
         BACKOFF_MAX_MS,
       );
       return { retry: true, delayMs };
@@ -175,27 +177,34 @@ export function classifyRetry(err: unknown, attempt: number): RetryDecision {
       return { retry: false, delayMs: 0 };
     }
     if (code === 429) {
-      const baseDelay = err.retryAfterSeconds !== undefined
-        ? err.retryAfterSeconds * 1000
-        : BACKOFF_BASE_MS * (2 ** (attempt - 1));
+      const baseDelay =
+        err.retryAfterSeconds !== undefined
+          ? err.retryAfterSeconds * 1000
+          : BACKOFF_BASE_MS * 2 ** (attempt - 1);
       const delayMs = Math.min(Math.ceil(baseDelay * (1 + Math.random() * 0.3)), BACKOFF_MAX_MS);
       return { retry: true, delayMs };
     }
     if (code === 409) {
-      const delayMs = Math.min(BACKOFF_BASE_MS * (2 ** (attempt - 1)), BACKOFF_MAX_MS);
+      const delayMs = Math.min(BACKOFF_BASE_MS * 2 ** (attempt - 1), BACKOFF_MAX_MS);
       return { retry: true, delayMs };
     }
     if (code !== undefined && code >= 500) {
-      const delayMs = Math.min(Math.ceil(BACKOFF_BASE_MS * (2 ** (attempt - 1)) * (1 + Math.random() * 0.2)), BACKOFF_MAX_MS);
+      const delayMs = Math.min(
+        Math.ceil(BACKOFF_BASE_MS * 2 ** (attempt - 1) * (1 + Math.random() * 0.2)),
+        BACKOFF_MAX_MS,
+      );
       return { retry: true, delayMs };
     }
     if (code === undefined) {
-      const delayMs = Math.min(BACKOFF_BASE_MS * (2 ** (attempt - 1)), BACKOFF_MAX_MS);
+      const delayMs = Math.min(BACKOFF_BASE_MS * 2 ** (attempt - 1), BACKOFF_MAX_MS);
       return { retry: true, delayMs };
     }
   }
 
-  const delayMs = Math.min(Math.ceil(BACKOFF_BASE_MS * (2 ** (attempt - 1)) * (1 + Math.random() * 0.3)), BACKOFF_MAX_MS);
+  const delayMs = Math.min(
+    Math.ceil(BACKOFF_BASE_MS * 2 ** (attempt - 1) * (1 + Math.random() * 0.3)),
+    BACKOFF_MAX_MS,
+  );
   return { retry: true, delayMs };
 }
 
@@ -239,9 +248,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function abortableSleep(ms: number, signal?: AbortSignal | undefined): Promise<void> {
   if (!signal) return new Promise((resolve) => setTimeout(resolve, ms));
   return new Promise((resolve, reject) => {
-    if (signal.aborted) { reject(new DOMException('The operation was aborted', 'AbortError')); return; }
-    const timer = setTimeout(resolve, ms);
-    const onAbort = () => { clearTimeout(timer); reject(new DOMException('The operation was aborted', 'AbortError')); };
+    if (signal.aborted) {
+      reject(new DOMException('The operation was aborted', 'AbortError'));
+      return;
+    }
+
+    const cleanup = () => signal.removeEventListener('abort', onAbort);
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      cleanup();
+      reject(new DOMException('The operation was aborted', 'AbortError'));
+    };
     signal.addEventListener('abort', onAbort, { once: true });
   });
 }
@@ -252,7 +273,10 @@ function errorDetail(error: unknown): string {
 }
 
 /** Compose optional parent signal + deadline into one AbortSignal. Returns undefined when neither is set. */
-function composedSignal(signal?: AbortSignal | undefined, deadlineMs?: number | undefined): AbortSignal | undefined {
+function composedSignal(
+  signal?: AbortSignal | undefined,
+  deadlineMs?: number | undefined,
+): AbortSignal | undefined {
   if (deadlineMs !== undefined && signal) {
     return AbortSignal.any([signal, AbortSignal.timeout(deadlineMs)]);
   }

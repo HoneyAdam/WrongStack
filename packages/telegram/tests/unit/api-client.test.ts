@@ -71,9 +71,9 @@ describe('TelegramApiClient', () => {
   });
 
   it('distinguishes an HTTP failure without exposing the token', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response('', { status: 502, statusText: `upstream ${TOKEN}` }),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response('', { status: 502, statusText: `upstream ${TOKEN}` }));
     const client = new TelegramApiClient({ token: TOKEN, fetch: fetchMock });
 
     const error = await client.getMe().catch((caught: unknown) => caught);
@@ -175,10 +175,12 @@ describe('classifyRetry', () => {
       retry: false,
       delayMs: 0,
     });
-    expect(classifyRetry(new TelegramResponseParseError('sendMessage', 'invalid JSON'), 1)).toEqual({
-      retry: false,
-      delayMs: 0,
-    });
+    expect(classifyRetry(new TelegramResponseParseError('sendMessage', 'invalid JSON'), 1)).toEqual(
+      {
+        retry: false,
+        delayMs: 0,
+      },
+    );
     expect(classifyRetry(new TelegramNetworkError('sendMessage', 'aborted', true), 1)).toEqual({
       retry: false,
       delayMs: 0,
@@ -193,12 +195,17 @@ describe('classifyRetry', () => {
   });
 
   it('retries non-envelope HTTP 429 and 409 responses', () => {
-    expect(classifyRetry(new TelegramHttpError('sendMessage', 429, 'Too Many Requests'), 1).retry).toBe(true);
-    expect(classifyRetry(new TelegramHttpError('sendMessage', 409, 'Conflict'), 1).retry).toBe(true);
+    expect(
+      classifyRetry(new TelegramHttpError('sendMessage', 429, 'Too Many Requests'), 1).retry,
+    ).toBe(true);
+    expect(classifyRetry(new TelegramHttpError('sendMessage', 409, 'Conflict'), 1).retry).toBe(
+      true,
+    );
   });
 
   it('does not retry 4xx Bot API errors other than 429 and 409', () => {
-    const make = (code: number, desc = 'error') => new TelegramBotApiError('sendMessage', { errorCode: code, description: desc });
+    const make = (code: number, desc = 'error') =>
+      new TelegramBotApiError('sendMessage', { errorCode: code, description: desc });
     for (const code of [400, 401, 403, 404, 405, 422, 500]) {
       const decision = classifyRetry(make(code), 1);
       if (code >= 500) {
@@ -211,7 +218,11 @@ describe('classifyRetry', () => {
 
   it('retries 429 with retry_after-based delay', () => {
     const decision = classifyRetry(
-      new TelegramBotApiError('sendMessage', { errorCode: 429, description: 'Too many', retryAfterSeconds: 5 }),
+      new TelegramBotApiError('sendMessage', {
+        errorCode: 429,
+        description: 'Too many',
+        retryAfterSeconds: 5,
+      }),
       1,
     );
     expect(decision.retry).toBe(true);

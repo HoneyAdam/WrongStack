@@ -184,9 +184,7 @@ describe('helpers', () => {
   });
 
   it('escapeHtml replaces special chars', () => {
-    expect(escapeHtml('<b>bold</b> & text')).toBe(
-      '&lt;b&gt;bold&lt;/b&gt; &amp; text',
-    );
+    expect(escapeHtml('<b>bold</b> & text')).toBe('&lt;b&gt;bold&lt;/b&gt; &amp; text');
   });
 });
 
@@ -291,7 +289,8 @@ describe('TelegramBot sendMessage', () => {
       if (attempts < 3) {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ ok: false, description: 'Too many requests', error_code: 429 }),
+          json: () =>
+            Promise.resolve({ ok: false, description: 'Too many requests', error_code: 429 }),
         });
       }
       return Promise.resolve({
@@ -386,9 +385,7 @@ describe('TelegramBot poll errors', () => {
     // Wait for the poll cycle (0ms interval, fires immediately)
     await new Promise((r) => setTimeout(r, 50));
 
-    expect(log.debug).toHaveBeenCalledWith(
-      expect.stringContaining('Service unavailable'),
-    );
+    expect(log.debug).toHaveBeenCalledWith(expect.stringContaining('Service unavailable'));
 
     bot.stop();
   });
@@ -410,9 +407,7 @@ describe('TelegramBot poll errors', () => {
     bot.start();
     await new Promise((r) => setTimeout(r, 50));
 
-    expect(log.debug).toHaveBeenCalledWith(
-      expect.stringContaining('ETIMEDOUT'),
-    );
+    expect(log.debug).toHaveBeenCalledWith(expect.stringContaining('ETIMEDOUT'));
 
     bot.stop();
   });
@@ -725,4 +720,3 @@ describe('TelegramBot allowlist', () => {
     bot.stop();
   });
 });
-
