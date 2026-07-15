@@ -890,6 +890,36 @@ export interface LaunchConfig {
    * Distinct from `AutonomyConfig.defaultMode` which also supports 'suggest'.
    */
   autonomy?: 'off' | 'auto' | undefined;
+  /**
+   * Last mode chosen from the interactive launch menu
+   * (`packages/cli/src/boot/launch-menu.ts`).
+   *
+   * Stored so the menu can offer a one-line "Continue with last
+   * settings? [Y/n/q]" summary on the next boot instead of re-asking
+   * the same 1-of-4 question. Distinct from `mode` (tui/repl) — that
+   * field is set by the inner pre-launch prompts that run AFTER the
+   * user has chosen "TUI/REPL" here.
+   *
+   * Default port per mode is owned by the launcher (HQ=3499, WebUI=3456,
+   * SimpleUI=3466). Storing an explicit override here makes
+   * `wstack --no-menu` keep the user's last port too.
+   */
+  menuChoice?: LaunchMenuChoice | undefined;
+}
+
+/**
+ * Persisted record of the user's last interactive launch-menu choice.
+ * Distinct from {@link LaunchConfig} above because it survives a
+ * `wstack --webui` → `wstack` round-trip without overwriting the
+ * inner pre-launch `mode` (tui/repl) preference.
+ */
+export interface LaunchMenuChoice {
+  /** Which top-level surface the user picked from the menu. */
+  mode: 'tui-repl' | 'webui' | 'simpleui' | 'hq';
+  /** Port override the user typed (defaults to the surface's default). */
+  port?: number | undefined;
+  /** Host override the user typed (defaults to 127.0.0.1). */
+  host?: string | undefined;
 }
 
 /**

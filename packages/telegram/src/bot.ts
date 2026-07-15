@@ -74,6 +74,42 @@ export interface TelegramIncomingMessage {
   timestamp: number;
 }
 
+export interface TelegramApprovalResult {
+  approved: boolean;
+  fromUser: string;
+  fromUserId?: number | undefined;
+}
+
+export interface TelegramApprovalRequestInput {
+  requestId: string;
+  sessionId: string;
+  expectedChatId: string | number;
+  expectedUserIds: readonly (string | number)[];
+  /** Group/supergroup callbacks are rejected unless this was explicitly enabled. */
+  allowGroup: boolean;
+  expiresAt: number;
+  /** Cancels the request when its owning tool execution is aborted. */
+  signal?: AbortSignal | undefined;
+}
+
+type TelegramApprovalRequestState = 'pending' | 'resolved' | 'expired' | 'cancelled';
+
+interface TelegramApprovalRequest {
+  requestId: string;
+  sessionId: string;
+  expectedChatId: string;
+  expectedUserIds: ReadonlySet<string>;
+  allowGroup: boolean;
+  promptMessageId?: number | undefined;
+  pendingCallbacks: TgCallbackQuery[];
+  expiresAt: number;
+  state: TelegramApprovalRequestState;
+  resolve: (value: TelegramApprovalResult) => void;
+  timer: ReturnType<typeof setTimeout>;
+  signal?: AbortSignal | undefined;
+  abortHandler?: (() => void) | undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Bot options
 // ---------------------------------------------------------------------------
@@ -145,13 +181,10 @@ export class TelegramBot {
   private readonly bufferMax: number;
   private readonly buffer: TelegramIncomingMessage[] = [];
 
-  // Pending callback_query waiters keyed by the `data` string they
-  // registered. Cleared on stop(). Used by `telegram_approve` to bridge a
-  // synchronous-looking API onto the async callback event.
-  private readonly callbackWaiters = new Map<
-    string,
-    { resolve: (value: { approved: boolean; fromUser: string }) => void; timer: ReturnType<typeof setTimeout> }
-  >();
+  // Pending approval requests keyed by request identity, not raw callback
+  // data. Each request binds both yes/no actions to its originating session,
+  // target chat, intended users, prompt message, and expiry.
+  private readonly callbackWaiters = new Map<string, TelegramApprovalRequest>();
 
   constructor(opts: TelegramBotOptions) {
     this.baseUrl = `https://api.telegram.org/bot${opts.token}`;
@@ -200,8 +233,11 @@ export class TelegramBot {
       this.standbyTimer = null;
     }
     // Reject any pending approval requests so the host doesn't hang.
-    for (const key of Array.from(this.callbackWaiters.keys())) {
-      this.rejectWaiter(key, 'shutdown');
+    for (const requestId of Array.from(this.callbackWaiters.keys())) {
+      this.settleApproval(requestId, 'cancelled', {
+        approved: false,
+        fromUser: 'shutdown',
+      });
     }
     this.lock?.release();
     this.log.info('Telegram bot stopped');
@@ -245,7 +281,9 @@ export class TelegramBot {
       clearTimeout(this.pollTimer);
       this.pollTimer = null;
     }
-    this.log.warn('Telegram: poll lock lost to another instance — pausing polling and standing by.');
+    this.log.warn(
+      'Telegram: poll lock lost to another instance — pausing polling and standing by.',
+    );
     this.standbyAnnounced = true; // acquireAndPoll already announced via this warn
     this.standbyTimer = setTimeout(() => this.acquireAndPoll(), this.standbyRetryMs);
     this.standbyTimer.unref?.();
@@ -264,7 +302,10 @@ export class TelegramBot {
   // ------------------------------------------------------------------
 
   /** Return buffered messages, newest first. Optionally filter by chat. */
-  getMessages(opts?: { chatId?: string | number | undefined; limit?: number | undefined }): TelegramIncomingMessage[] {
+  getMessages(opts?: {
+    chatId?: string | number | undefined;
+    limit?: number | undefined;
+  }): TelegramIncomingMessage[] {
     let msgs = [...this.buffer].reverse();
     if (opts?.chatId) {
       const cid = String(opts.chatId);
@@ -382,7 +423,11 @@ export class TelegramBot {
   // Health
   // ------------------------------------------------------------------
 
-  async health(): Promise<{ ok: boolean; username?: string | undefined; error?: string | undefined }> {
+  async health(): Promise<{
+    ok: boolean;
+    username?: string | undefined;
+    error?: string | undefined;
+  }> {
     // Use a dedicated AbortController per call so stop() can cancel an
     // in-flight health check, AND so the 5 s timeout timer can be cleared
     // immediately on completion (a leaked AbortSignal.timeout timer
@@ -524,34 +569,38 @@ export class TelegramBot {
   }
 
   /**
-   * Handle an inbound `callback_query` update: route it to a registered
-   * waiter (if any), and acknowledge it via `answerCallbackQuery` so the
-   * client stops spinning. Telegram requires the answer within 10 s.
+   * Resolve a pending approval request exactly once and record its terminal
+   * state before removing it from the live registry.
    */
-  /**
-   * Resolve any pending waiter for `key` with a `{ approved: false, fromUser }`
-   * value, regardless of why the callback was rejected (allowlist, shutdown,
-   * etc.). Returns true if a waiter was found and resolved, false otherwise.
-   * This helper centralizes the race-safe `delete → resolve` pattern in one
-   * place so the deny and shutdown paths don't drift out of sync.
-   */
-  private rejectWaiter(key: string, fromUser: string): boolean {
-    if (key === '') return false;
-    const waiter = this.callbackWaiters.get(key);
-    if (!waiter) return false;
-    clearTimeout(waiter.timer);
-    this.callbackWaiters.delete(key);
-    waiter.resolve({ approved: false, fromUser });
+  private settleApproval(
+    requestId: string,
+    state: Exclude<TelegramApprovalRequestState, 'pending'>,
+    result: TelegramApprovalResult,
+  ): boolean {
+    const request = this.callbackWaiters.get(requestId);
+    if (request?.state !== 'pending') return false;
+    request.state = state;
+    clearTimeout(request.timer);
+    if (request.signal && request.abortHandler) {
+      request.signal.removeEventListener('abort', request.abortHandler);
+    }
+    request.pendingCallbacks.length = 0;
+    this.callbackWaiters.delete(requestId);
+    request.resolve(result);
     return true;
   }
 
   private async dispatchCallback(cq: TgCallbackQuery): Promise<void> {
     const key = cq.data ?? '';
-    // Use the same policy as messages so callback_query cannot bypass inbound
-    // authorization through an omitted `from` or `message` identity.
+    const action = /^approve:([^:]+):(yes|no)$/.exec(key);
+    const requestId = action?.[1];
+    const request = requestId ? this.callbackWaiters.get(requestId) : undefined;
+
+    // Use the same coarse inbound policy as messages before applying the
+    // request-specific identity binding below. Unauthorized callbacks are
+    // acknowledged but never consume the valid user's pending request.
     const userId = cq.from?.id !== undefined ? String(cq.from.id) : undefined;
-    const chatId =
-      cq.message?.chat.id !== undefined ? String(cq.message.chat.id) : undefined;
+    const chatId = cq.message?.chat.id !== undefined ? String(cq.message.chat.id) : undefined;
     const denialReason = this.inboundDenialReason(userId, chatId);
     if (denialReason) {
       const identity = denialReason === 'user' ? (userId ?? 'unknown') : (chatId ?? 'unknown');
@@ -559,20 +608,57 @@ export class TelegramBot {
         `Ignoring callback_query from non-allowlisted ${denialReason} ${identity} (data="${key}") — possible hijack attempt.`,
       );
       await this.answerCallback(cq.id, '⛔ Not authorized', true);
-      this.rejectWaiter(key, 'blocked');
       return;
     }
-    const waiter = key !== '' ? this.callbackWaiters.get(key) : undefined;
-    const approved = key.endsWith(':yes');
-    const fromUser = cq.from?.username ?? cq.from?.first_name ?? 'unknown';
-    await this.answerCallback(cq.id, approved ? 'Approved ✓' : 'Denied ✗', false);
-    if (waiter) {
-      clearTimeout(waiter.timer);
-      this.callbackWaiters.delete(key);
-      waiter.resolve({ approved, fromUser });
-    } else {
-      this.log.debug(`Unmatched callback_query data="${key}" (no pending waiter)`);
+
+    if (!request || !requestId || !action) {
+      await this.answerCallback(cq.id, 'Approval request unavailable', true);
+      this.log.debug(`Unmatched callback_query data="${key}" (no pending approval request)`);
+      return;
     }
+
+    if (Date.now() >= request.expiresAt) {
+      await this.answerCallback(cq.id, 'Approval request expired', true);
+      this.settleApproval(requestId, 'expired', { approved: false, fromUser: 'timeout' });
+      return;
+    }
+
+    // The request is registered before sendMessage so a callback can arrive
+    // before the Bot API response supplies message_id. Keep exactly that
+    // callback queued until bindApprovalPrompt attaches the sent prompt.
+    if (request.promptMessageId === undefined) {
+      request.pendingCallbacks.push(cq);
+      return;
+    }
+
+    const messageId = cq.message?.message_id;
+    const chatType = cq.message?.chat.type;
+    const wrongIdentity =
+      userId === undefined ||
+      chatId !== request.expectedChatId ||
+      !request.expectedUserIds.has(userId) ||
+      messageId !== request.promptMessageId ||
+      (chatType !== 'private' && !request.allowGroup);
+    if (wrongIdentity) {
+      this.log.warn(
+        `Ignoring callback_query that does not match approval request ${request.requestId} in session ${request.sessionId}.`,
+      );
+      await this.answerCallback(cq.id, '⛔ Not authorized for this approval', true);
+      return;
+    }
+
+    const approved = action[2] === 'yes';
+    const fromUser = cq.from?.username ?? cq.from?.first_name ?? `user:${userId}`;
+    const resolved = this.settleApproval(requestId, 'resolved', {
+      approved,
+      fromUser,
+      fromUserId: cq.from?.id,
+    });
+    await this.answerCallback(
+      cq.id,
+      resolved ? (approved ? 'Approved ✓' : 'Denied ✗') : 'Approval request unavailable',
+      !resolved,
+    );
   }
 
   /**
@@ -603,29 +689,74 @@ export class TelegramBot {
   }
 
   /**
-   * Register a waiter for a callback_query whose `data` field equals `key`.
-   * Resolves with `{ approved, fromUser }` when a matching press arrives, or
-   * with `{ approved: false, fromUser: 'timeout' }` after `timeoutMs`.
-   *
-   * Callers are responsible for not registering the same key twice — a
-   * second `awaitCallback` for an in-flight key is undefined.
+   * Register one approval request before its prompt is sent. The returned
+   * promise owns the request's only timer and resolves on one terminal event.
    */
-  awaitCallback(
-    key: string,
-    timeoutMs: number,
-  ): Promise<{ approved: boolean; fromUser: string }> {
+  awaitApproval(input: TelegramApprovalRequestInput): Promise<TelegramApprovalResult> {
+    if (input.expectedUserIds.length === 0) {
+      throw new Error('Telegram approval requires at least one expected user ID.');
+    }
+    if (this.callbackWaiters.has(input.requestId)) {
+      throw new Error(`Telegram approval request ${input.requestId} is already pending.`);
+    }
+
     return new Promise((resolve) => {
+      const delayMs = Math.max(0, input.expiresAt - Date.now());
       const timer = setTimeout(() => {
-        if (this.callbackWaiters.delete(key)) {
-          resolve({ approved: false, fromUser: 'timeout' });
-        }
-      }, timeoutMs);
-      // The timer is intentionally NOT unref'd: a pending callback waiter
-      // represents an outstanding user-facing request that must resolve
-      // (or time out) before the process can safely exit. unref'ing it
-      // would let the event loop drain prematurely during long waits.
-      this.callbackWaiters.set(key, { resolve, timer });
+        this.settleApproval(input.requestId, 'expired', {
+          approved: false,
+          fromUser: 'timeout',
+        });
+      }, delayMs);
+      const request: TelegramApprovalRequest = {
+        requestId: input.requestId,
+        sessionId: input.sessionId,
+        expectedChatId: String(input.expectedChatId),
+        expectedUserIds: new Set(input.expectedUserIds.map(String)),
+        allowGroup: input.allowGroup,
+        pendingCallbacks: [],
+        expiresAt: input.expiresAt,
+        state: 'pending',
+        resolve,
+        timer,
+        signal: input.signal,
+      };
+      if (input.signal) {
+        request.abortHandler = () => {
+          this.settleApproval(input.requestId, 'cancelled', {
+            approved: false,
+            fromUser: 'aborted',
+          });
+        };
+      }
+      this.callbackWaiters.set(input.requestId, request);
+      if (input.signal?.aborted) {
+        request.abortHandler?.();
+      } else if (input.signal && request.abortHandler) {
+        input.signal.addEventListener('abort', request.abortHandler, { once: true });
+      }
     });
+  }
+
+  /**
+   * Attach the Bot API response's prompt message ID to an existing request.
+   * Any callback that arrived during the send is replayed against the fully
+   * bound identity without allocating a second waiter or timer.
+   */
+  bindApprovalPrompt(requestId: string, promptMessageId: number): boolean {
+    const request = this.callbackWaiters.get(requestId);
+    if (request?.state !== 'pending' || request.promptMessageId !== undefined) return false;
+    request.promptMessageId = promptMessageId;
+    const pending = request.pendingCallbacks.splice(0);
+    for (const callback of pending) {
+      void this.dispatchCallback(callback);
+    }
+    return true;
+  }
+
+  /** Cancel a request that cannot reach a valid terminal callback. */
+  cancelApproval(requestId: string, fromUser = 'cancelled'): boolean {
+    return this.settleApproval(requestId, 'cancelled', { approved: false, fromUser });
   }
 
   private async loadOffset(): Promise<void> {
@@ -718,8 +849,5 @@ export function truncateForTelegram(text: string, maxLen = 4000): string {
  * Escape HTML special chars for Telegram's HTML parse mode.
  */
 export function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

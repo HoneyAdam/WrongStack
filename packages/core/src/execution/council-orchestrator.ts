@@ -523,7 +523,7 @@ export class CouncilOrchestrator {
     const effectiveCaller =
       input.seatIndex !== undefined && this.seatCaller
         ? this.seatCaller(input.seatIndex)
-        : this.judgeCaller ?? this.caller;
+        : this.judgeCaller ?? (this.seatCaller ? this.seatCaller(0) : this.caller);
 
     const resolvedTarget = this.resolveCouncilTarget(input.target);
 

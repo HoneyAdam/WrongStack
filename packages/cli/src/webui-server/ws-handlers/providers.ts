@@ -1,5 +1,9 @@
 import type { ProviderConfig } from '@wrongstack/core';
 import { DefaultSecretScrubber, resolveProviderModelList } from '@wrongstack/core';
+import {
+  buildProviderConfigFromPreset,
+  resolvePresetForAlias,
+} from '@wrongstack/providers';
 import { probeLocalLlm } from '@wrongstack/runtime/probe';
 import type { WebSocket } from 'ws';
 import { toErrorMessage } from '@wrongstack/core/utils';
@@ -34,6 +38,28 @@ function sendResult(ctx: WsHandlerContext, ws: WebSocket, success: boolean, mess
 
 /** Shared scrubber for provider health probes — redacts secrets from probe detail. */
 const probeScrubber = new DefaultSecretScrubber();
+
+/**
+ * Hydrate a not-yet-saved provider config from a trusted preset when the
+ * supplied id (or its `<id>-suffix` alias) maps to a canonical preset.
+ * Mutates `dest` in place; returns the canonical preset id for `cfg.type`
+ * fallback. Returns `undefined` for ids outside the trusted table.
+ */
+function hydrateTrustedPreset(providerId: string, dest: ProviderConfig): string | undefined {
+  const preset = resolvePresetForAlias(providerId);
+  if (!preset) return undefined;
+  const template = buildProviderConfigFromPreset(preset);
+  if (!dest.type) dest.type = preset.id;
+  if (!dest.family) dest.family = preset.family;
+  if (dest.baseUrl === undefined) dest.baseUrl = template.baseUrl;
+  if (!dest.envVars || dest.envVars.length === 0) dest.envVars = template.envVars;
+  if (!dest.models || dest.models.length === 0) dest.models = template.models;
+  if (template.customModels && (!dest.customModels || Object.keys(dest.customModels).length === 0)) {
+    dest.customModels = template.customModels;
+  }
+  if (template.quirks && dest.quirks === undefined) dest.quirks = template.quirks;
+  return preset.id;
+}
 
 /**
  * Probe a saved provider's OpenAI-compatible `/v1/models` and map the
@@ -206,7 +232,16 @@ export async function handleKeyUpsert(
 ): Promise<void> {
   try {
     const providers = await ctx.providerStore.load();
-    const existing = providers[providerId] ?? { type: providerId };
+    let existing = providers[providerId];
+    if (!existing) {
+      // New entry: hydrate product-locked fields from the trusted-preset
+      // table when the id (or its `<id>-suffix` alias) maps to a canonical
+      // vendor entry. Mirrors the webui-server preset hydration so the
+      // CLI-embedded WebUI and the standalone server stay aligned.
+      existing = { type: providerId };
+      const presetId = hydrateTrustedPreset(providerId, existing);
+      if (presetId) existing.type = presetId;
+    }
     const keys = normalizeKeys(existing);
 
     // Check if label exists
@@ -310,6 +345,8 @@ export async function handleProviderAdd(
       family: payload.family as ProviderConfig['family'],
       baseUrl: payload.baseUrl,
     };
+    const presetId = hydrateTrustedPreset(payload.id, newProv);
+    if (presetId) newProv.type = presetId;
     if (payload.apiKey) {
       newProv.apiKeys = [{ label: 'default', apiKey: payload.apiKey, createdAt: nowIso() }];
       newProv.activeKey = 'default';

@@ -1,8 +1,8 @@
 import type { Logger } from '@wrongstack/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TelegramBot } from '../../src/bot.js';
-import { makeTelegramApproveTool } from '../../src/tools/telegram-approve.js';
 import { TELEGRAM_APPROVAL_CAPABILITY } from '../../src/security/outbound.js';
+import { makeTelegramApproveTool } from '../../src/tools/telegram-approve.js';
 
 const log: Logger = {
   level: 'debug',
@@ -28,10 +28,11 @@ function makeBot(overrides?: { allowedUsers?: string[]; allowedChats?: string[] 
   });
 }
 
-function makeTool(bot: TelegramBot, chatId = '999') {
+function makeTool(bot: TelegramBot, chatId = '999', userIds: string[] = [chatId]) {
   return makeTelegramApproveTool({
     bot,
     getDefaultChatId: () => chatId,
+    getAllowedUserIds: () => userIds,
     maxMessageLength: 4000,
     log,
   });
@@ -185,18 +186,22 @@ describe('telegram_approve tool', () => {
       bot as unknown as {
         dispatchCallback(cq: {
           id: string;
-          from?: { username?: string; first_name?: string };
+          from?: { id: number; username?: string; first_name?: string };
+          message?: { message_id: number; chat: { id: number; type: string } };
           data?: string;
         }): Promise<void>;
       }
     ).dispatchCallback({
       id: 'cb-approve',
-      from: { username: 'alice' },
+      from: { id: 999, username: 'alice' },
+      message: { message_id: 42, chat: { id: 999, type: 'private' } },
       data: yesKey,
     });
 
     const result = await execPromise;
     expect(result.approved).toBe(true);
+    expect(result.user_id).toBe(999);
+    expect(result.display_name).toBe('alice');
     expect(result.from).toBe('alice');
   });
 });
@@ -244,7 +249,7 @@ describe('telegram_approve with bot allowlist', () => {
     // Allowlist ONLY user 1; chat 999 is also on the allowlist so
     // the chat-side check passes for the test setup.
     const bot = makeBot({ allowedUsers: ['1'], allowedChats: ['999'] });
-    const tool = makeTool(bot);
+    const tool = makeTool(bot, '999', ['1']);
     const execPromise = tool.execute({ prompt: 'ok?', timeout_ms: 5_000 });
     await new Promise((r) => setTimeout(r, 5));
     const prompt = sentBodies.find((b) => b.includes('ok?'))!;
@@ -264,7 +269,7 @@ describe('telegram_approve with bot allowlist', () => {
     ).dispatchCallback({
       id: 'cb-ok',
       from: { id: 1, username: 'alice' },
-      message: { message_id: 1, chat: { id: 999, type: 'private' } },
+      message: { message_id: 42, chat: { id: 999, type: 'private' } },
       data: yesKey,
     });
 
@@ -276,120 +281,193 @@ describe('telegram_approve with bot allowlist', () => {
     bot.stop();
   });
 
-  it('a non-allowlisted user receives the "Not authorized" toast and the tool resolves with approved=false / from=timeout', async () => {
-    // Allowlist user 1; mallory (id 2) is NOT on it.
+  it('a non-allowlisted user gets a denial toast without consuming the request', async () => {
     const bot = makeBot({ allowedUsers: ['1'], allowedChats: ['999'] });
-    const tool = makeTool(bot);
-    const execPromise = tool.execute({ prompt: 'Sensitive op?', timeout_ms: 200 });
+    const tool = makeTool(bot, '999', ['1']);
+    const execPromise = tool.execute({ prompt: 'Sensitive op?', timeout_ms: 1_000 });
     await new Promise((r) => setTimeout(r, 5));
     const prompt = sentBodies.find((b) => b.includes('Sensitive op?'))!;
-    const yesMatch = prompt.match(/"callback_data":"(approve:[^"]+:yes)"/);
-    expect(yesMatch).not.toBeNull();
-    const yesKey = yesMatch![1]!;
+    const yesKey = prompt.match(/"callback_data":"(approve:[^"]+:yes)"/)![1]!;
 
-    // Mallory presses Approve.
-    await (
+    const dispatch = (
       bot as unknown as {
         dispatchCallback(cq: {
           id: string;
-          from?: { id: number; username?: string };
-          message?: { message_id: number; chat: { id: number; type: string } };
-          data?: string;
+          from: { id: number; username?: string };
+          message: { message_id: number; chat: { id: number; type: string } };
+          data: string;
         }): Promise<void>;
       }
-    ).dispatchCallback({
+    ).dispatchCallback.bind(bot);
+    await dispatch({
       id: 'cb-hijack',
       from: { id: 2, username: 'mallory' },
-      message: { message_id: 1, chat: { id: 999, type: 'private' } },
+      message: { message_id: 42, chat: { id: 999, type: 'private' } },
       data: yesKey,
     });
-
-    const result = await execPromise;
-    // Critical assertion: even though data ends with ":yes", the tool
-    // returns approved=false. The waiter was NOT resolved by the
-    // hijack attempt via timeout — it was rejected with the
-    // dedicated `blocked` sentinel so the agent can distinguish a
-    // security event from a passive user-side timeout.
-    expect(result.approved).toBe(false);
-    expect(result.from).toBe('blocked');
-    // Mallory got the "Not authorized" toast (show_alert=true) so she
-    // understands why her tap was rejected.
     const denied = ackCalls.find((c) => c.body.includes('Not authorized'));
-    expect(denied).toBeDefined();
-    expect(denied!.body).toContain('"show_alert":true');
+    expect(denied?.body).toContain('"show_alert":true');
+
+    await dispatch({
+      id: 'cb-intended',
+      from: { id: 1, username: 'alice' },
+      message: { message_id: 42, chat: { id: 999, type: 'private' } },
+      data: yesKey,
+    });
+    await expect(execPromise).resolves.toMatchObject({ approved: true, from: 'alice' });
     bot.stop();
   });
 
-  it('a non-allowlisted chat produces the same deny outcome', async () => {
-    // Allowlist user 42 in chat 999 only. A press from the same user
-    // but a different chat (id 7) must be blocked.
+  it('a non-allowlisted chat cannot consume the valid chat’s request', async () => {
     const bot = makeBot({ allowedUsers: ['42'], allowedChats: ['999'] });
-    const tool = makeTool(bot);
-    const execPromise = tool.execute({ prompt: 'Cross-chat?', timeout_ms: 200 });
+    const tool = makeTool(bot, '999', ['42']);
+    const execPromise = tool.execute({ prompt: 'Cross-chat?', timeout_ms: 1_000 });
     await new Promise((r) => setTimeout(r, 5));
     const prompt = sentBodies.find((b) => b.includes('Cross-chat?'))!;
-    const yesMatch = prompt.match(/"callback_data":"(approve:[^"]+:yes)"/);
-    expect(yesMatch).not.toBeNull();
-    const yesKey = yesMatch![1]!;
-
-    await (
+    const yesKey = prompt.match(/"callback_data":"(approve:[^"]+:yes)"/)![1]!;
+    const dispatch = (
       bot as unknown as {
         dispatchCallback(cq: {
           id: string;
-          from?: { id: number; username?: string };
-          message?: { message_id: number; chat: { id: number; type: string } };
-          data?: string;
+          from: { id: number; username?: string };
+          message: { message_id: number; chat: { id: number; type: string } };
+          data: string;
         }): Promise<void>;
       }
-    ).dispatchCallback({
+    ).dispatchCallback.bind(bot);
+
+    await dispatch({
       id: 'cb-cross-chat',
-      from: { id: 42, username: 'bob' }, // allowed user…
-      message: { message_id: 1, chat: { id: 7, type: 'group' } }, // …in a non-allowlisted chat
+      from: { id: 42, username: 'bob' },
+      message: { message_id: 1, chat: { id: 7, type: 'group' } },
+      data: yesKey,
+    });
+    expect(ackCalls.at(-1)?.body).toContain('Not authorized');
+    await dispatch({
+      id: 'cb-valid-chat',
+      from: { id: 42, username: 'bob' },
+      message: { message_id: 42, chat: { id: 999, type: 'private' } },
       data: yesKey,
     });
 
-    const result = await execPromise;
-    expect(result.approved).toBe(false);
-    expect(result.from).toBe('blocked');
-    const denied = ackCalls.find((c) => c.body.includes('Not authorized'));
-    expect(denied).toBeDefined();
-    expect(denied!.body).toContain('"show_alert":true');
+    await expect(execPromise).resolves.toMatchObject({ approved: true, from: 'bob' });
     bot.stop();
   });
 
-  it('a non-allowlisted user pressing Deny yields from=blocked (not timeout)', async () => {
-    // Same allowlist shape as the previous test, but the hijacker's tap
-    // lands on the ":no" key. The guard must still resolve the waiter
-    // with the blocked sentinel — confirming the deny path doesn't
-    // special-case :yes vs :no.
-    const bot = makeBot({ allowedUsers: ['1'], allowedChats: ['999'] });
-    const tool = makeTool(bot);
-    const execPromise = tool.execute({ prompt: 'Deny-bot?', timeout_ms: 200 });
+  it('an allowlisted but unintended user cannot consume another user’s request', async () => {
+    const bot = makeBot({ allowedUsers: ['1', '2'], allowedChats: ['999'] });
+    const tool = makeTool(bot, '999', ['1']);
+    const execPromise = tool.execute({ prompt: 'Identity-bound?', timeout_ms: 1_000 });
     await new Promise((r) => setTimeout(r, 5));
-    const prompt = sentBodies.find((b) => b.includes('Deny-bot?'))!;
-    const noMatch = prompt.match(/"callback_data":"(approve:[^"]+:no)"/);
-    expect(noMatch).not.toBeNull();
-    const noKey = noMatch![1]!;
-
-    await (
+    const prompt = sentBodies.find((b) => b.includes('Identity-bound?'))!;
+    const yesKey = prompt.match(/"callback_data":"(approve:[^"]+:yes)"/)![1]!;
+    const dispatch = (
       bot as unknown as {
         dispatchCallback(cq: {
           id: string;
-          from?: { id: number; username?: string };
-          message?: { message_id: number; chat: { id: number; type: string } };
-          data?: string;
+          from: { id: number; username?: string };
+          message: { message_id: number; chat: { id: number; type: string } };
+          data: string;
         }): Promise<void>;
       }
-    ).dispatchCallback({
+    ).dispatchCallback.bind(bot);
+
+    await dispatch({
+      id: 'cb-wrong-allowlisted-user',
+      from: { id: 2, username: 'other-allowed-user' },
+      message: { message_id: 42, chat: { id: 999, type: 'private' } },
+      data: yesKey,
+    });
+    expect(ackCalls.at(-1)?.body).toContain('Not authorized for this approval');
+    await dispatch({
+      id: 'cb-intended-user',
+      from: { id: 1, username: 'alice' },
+      message: { message_id: 42, chat: { id: 999, type: 'private' } },
+      data: yesKey,
+    });
+
+    await expect(execPromise).resolves.toMatchObject({ approved: true, from: 'alice' });
+    bot.stop();
+  });
+
+  it('a callback for a different prompt message cannot consume the request', async () => {
+    const bot = makeBot({ allowedUsers: ['1'], allowedChats: ['999'] });
+    const tool = makeTool(bot, '999', ['1']);
+    const execPromise = tool.execute({ prompt: 'Message-bound?', timeout_ms: 1_000 });
+    await new Promise((r) => setTimeout(r, 5));
+    const prompt = sentBodies.find((b) => b.includes('Message-bound?'))!;
+    const yesKey = prompt.match(/"callback_data":"(approve:[^"]+:yes)"/)![1]!;
+    const dispatch = (
+      bot as unknown as {
+        dispatchCallback(cq: {
+          id: string;
+          from: { id: number; username?: string };
+          message: { message_id: number; chat: { id: number; type: string } };
+          data: string;
+        }): Promise<void>;
+      }
+    ).dispatchCallback.bind(bot);
+
+    await dispatch({
+      id: 'cb-wrong-message',
+      from: { id: 1, username: 'alice' },
+      message: { message_id: 41, chat: { id: 999, type: 'private' } },
+      data: yesKey,
+    });
+    await dispatch({
+      id: 'cb-right-message',
+      from: { id: 1, username: 'alice' },
+      message: { message_id: 42, chat: { id: 999, type: 'private' } },
+      data: yesKey,
+    });
+
+    await expect(execPromise).resolves.toMatchObject({ approved: true, from: 'alice' });
+    bot.stop();
+  });
+
+  it('denies group approval without explicit per-user group configuration before sending', async () => {
+    const bot = makeBot({ allowedUsers: ['1'], allowedChats: ['-100'] });
+    const sendSpy = vi.spyOn(bot, 'sendMessageWithKeyboard');
+    const tool = makeTool(bot, '-100', ['1']);
+
+    await expect(tool.execute({ prompt: 'Group op?' })).rejects.toThrow(
+      'group approvals require explicit per-user configuration',
+    );
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  it('a non-allowlisted user pressing Deny cannot consume the request', async () => {
+    const bot = makeBot({ allowedUsers: ['1'], allowedChats: ['999'] });
+    const tool = makeTool(bot, '999', ['1']);
+    const execPromise = tool.execute({ prompt: 'Deny-bot?', timeout_ms: 1_000 });
+    await new Promise((r) => setTimeout(r, 5));
+    const prompt = sentBodies.find((b) => b.includes('Deny-bot?'))!;
+    const noKey = prompt.match(/"callback_data":"(approve:[^"]+:no)"/)![1]!;
+    const dispatch = (
+      bot as unknown as {
+        dispatchCallback(cq: {
+          id: string;
+          from: { id: number; username?: string };
+          message: { message_id: number; chat: { id: number; type: string } };
+          data: string;
+        }): Promise<void>;
+      }
+    ).dispatchCallback.bind(bot);
+
+    await dispatch({
       id: 'cb-deny-hijack',
       from: { id: 2, username: 'mallory' },
-      message: { message_id: 1, chat: { id: 999, type: 'private' } },
+      message: { message_id: 42, chat: { id: 999, type: 'private' } },
+      data: noKey,
+    });
+    await dispatch({
+      id: 'cb-intended-deny',
+      from: { id: 1, username: 'alice' },
+      message: { message_id: 42, chat: { id: 999, type: 'private' } },
       data: noKey,
     });
 
-    const result = await execPromise;
-    expect(result.approved).toBe(false);
-    expect(result.from).toBe('blocked');
+    await expect(execPromise).resolves.toMatchObject({ approved: false, from: 'alice' });
     bot.stop();
   });
 
@@ -403,7 +481,7 @@ describe('telegram_approve with bot allowlist', () => {
     // tap takes the blocked-path; alice (id 1) IS allowlisted so her
     // tap would normally resolve the waiter.
     const bot = makeBot({ allowedUsers: ['1'], allowedChats: ['999'] });
-    const tool = makeTool(bot);
+    const tool = makeTool(bot, '999', ['1']);
     const execPromise = tool.execute({ prompt: 'Race?', timeout_ms: 1_000 });
     await new Promise((r) => setTimeout(r, 5));
     const prompt = sentBodies.find((b) => b.includes('Race?'))!;
@@ -425,7 +503,7 @@ describe('telegram_approve with bot allowlist', () => {
     ).dispatchCallback({
       id: 'cb-1',
       from: { id: 2, username: 'mallory' },
-      message: { message_id: 1, chat: { id: 999, type: 'private' } },
+      message: { message_id: 42, chat: { id: 999, type: 'private' } },
       data: yesKey,
     });
     // Alice presses Approve a moment later. The waiter was already
@@ -444,7 +522,7 @@ describe('telegram_approve with bot allowlist', () => {
     ).dispatchCallback({
       id: 'cb-2',
       from: { id: 1, username: 'alice' },
-      message: { message_id: 1, chat: { id: 999, type: 'private' } },
+      message: { message_id: 42, chat: { id: 999, type: 'private' } },
       data: yesKey,
     });
 
@@ -452,12 +530,12 @@ describe('telegram_approve with bot allowlist', () => {
     // The first call wins: hijack -> blocked. Alice's tap is a no-op.
     expect(result.approved).toBe(false);
     expect(result.from).toBe('blocked');
-    // Two ack calls: one for the blocked toast, one for Alice's "Approved".
-    // (Alice's tap is still acknowledged so her client stops spinning.)
+    // Two ack calls: one for the blocked toast, one telling Alice the already
+    // consumed request is unavailable. A late tap must never look approved.
     expect(ackCalls).toHaveLength(2);
     expect(ackCalls[0]!.body).toContain('Not authorized');
-    expect(ackCalls[1]!.body).toContain('Approved');
+    expect(ackCalls[1]!.body).toContain('unavailable');
+    expect(ackCalls[1]!.body).not.toContain('Approved');
     bot.stop();
   });
 });
-

@@ -35,6 +35,7 @@ export const BOOLEAN_FLAGS = new Set([
   'no-autonomy',
   'no-hints',
   'hints',
+  'no-menu',
   'no-hooks',
   'skip',
   'skip-index',

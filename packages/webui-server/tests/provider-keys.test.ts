@@ -189,6 +189,79 @@ describe('provider-keys', () => {
       expect(result.ok).toBe(false);
       expect(result.message).toContain('already exists');
     });
+
+    it('hydrates a Kimi Code subscription from the trusted preset (no baseUrl/family leak)', () => {
+      const providers: ProvidersRecord = {};
+      const result = addProvider(
+        providers,
+        { id: 'kimi-for-coding', family: 'openai-compatible', apiKey: 'sk-kimi-XYZ' },
+        '2024-01-01',
+      );
+      expect(result.ok).toBe(true);
+      const saved = providers['kimi-for-coding']!;
+      // baseUrl/models/quirks come from the preset; the user-typed family wins.
+      expect(saved.baseUrl).toBe('https://api.kimi.com/coding/v1');
+      expect(saved.envVars).toEqual(['KIMI_API_KEY']);
+      expect(saved.models).toEqual(['kimi-for-coding', 'kimi-for-coding-highspeed']);
+      expect((saved.quirks as { thinkingParam?: string } | undefined)?.thinkingParam).toBe(
+        'kimi-toggle',
+      );
+      expect(saved.family).toBe('openai-compatible');
+      expect(saved.type).toBe('kimi-for-coding');
+      // The plaintext API key must never leak back into the legacy field.
+      expect(saved.apiKey).toBeUndefined();
+      expect(saved.apiKeys?.[0]?.apiKey).toBe('sk-kimi-XYZ');
+    });
+
+    it('hydrates a Moonshot Platform provider via the canonical id', () => {
+      const providers: ProvidersRecord = {};
+      addProvider(
+        providers,
+        { id: 'moonshotai', family: 'openai-compatible', apiKey: 'sk-ms-XYZ' },
+        '2024-01-01',
+      );
+      const saved = providers.moonshotai!;
+      expect(saved.baseUrl).toBe('https://api.moonshot.ai/v1');
+      expect(saved.envVars).toEqual(['MOONSHOT_API_KEY']);
+      expect(saved.models).toEqual(['kimi-k2.7-code', 'kimi-k2.7-code-highspeed']);
+      expect((saved.quirks as { thinkingParam?: string } | undefined)?.thinkingParam).toBe(
+        'always-on',
+      );
+    });
+
+    it('preserves user-supplied baseUrl/quirks when the setup flow provided them', () => {
+      const providers: ProvidersRecord = {};
+      addProvider(
+        providers,
+        {
+          id: 'kimi-for-coding',
+          family: 'openai-compatible',
+          // A user who explicitly edits the setup card to a self-hosted
+          // Kimi-compatible gateway must not have their baseUrl silently
+          // overwritten by the preset hydration.
+          baseUrl: 'https://internal.kimi-proxy.example/v1',
+          apiKey: 'sk-int',
+        },
+        '2024-01-01',
+      );
+      const saved = providers['kimi-for-coding']!;
+      expect(saved.baseUrl).toBe('https://internal.kimi-proxy.example/v1');
+    });
+
+    it('does not hydrate unknown ids (generic path is preserved)', () => {
+      const providers: ProvidersRecord = {};
+      addProvider(
+        providers,
+        { id: 'my-internal-proxy', family: 'openai-compatible', baseUrl: 'https://gw/v1' },
+        '2024-01-01',
+      );
+      const saved = providers['my-internal-proxy']!;
+      expect(saved.baseUrl).toBe('https://gw/v1');
+      // No preset default models/quirks should leak in.
+      expect(saved.models).toBeUndefined();
+      expect(saved.envVars).toBeUndefined();
+      expect(saved.quirks).toBeUndefined();
+    });
   });
 
   describe('removeProvider', () => {

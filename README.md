@@ -27,7 +27,7 @@ WrongStack is **free, open source, and MIT licensed**. It drives **autonomous go
 
 ### ✨ Why it slaps
 
-- 🧠 **Five surfaces, one brain** — a plain readline REPL, an Ink/React **TUI** (`--tui`), a standalone **web UI** (`--webui`), **WrongStack Desktop** (`--desktop` / `wstack desktop`), and the cross-machine **HQ Command Center**.
+- 🧠 **Five surfaces, one brain** — a plain readline REPL, an Ink/React **TUI** (`--tui`), a standalone **web UI** (`--webui`), **WrongStack Desktop** (`--desktop` / `wstack desktop`), and the cross-machine **HQ Command Center**. Plain `wstack` opens a four-option launch menu on a TTY (bypass with `--no-menu`).
 - 🤖 **A fleet, not a lone agent** — a 47-role roster + smart dispatcher fan out under a Director, each subagent fully isolated with its own budget and JSONL transcript.
 - 🛰️ **HQ for the whole room** — `wstack --hq` aggregates live sessions, agents, fleets, mailbox state, cost, tools, Brain decisions, and worktrees across machines, then can steer, send BTW notes, queue prompts, or stop connected clients through their own guardrails.
 - 🧠 **Brain as an authority seam** — risky AutoPhase and Director choices can be auto-decided by policy, denied, or escalated to the human through the TUI.

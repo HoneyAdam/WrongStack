@@ -15,7 +15,8 @@ The `wrongstack` umbrella package transitively installs `@wrongstack/cli` along 
 ## Commands
 
 ```bash
-wstack                        # interactive REPL — no flags = default
+wstack                        # interactive launch menu (TTY only) — pick TUI/REPL, WebUI, SimpleUI, or HQ
+wstack --no-menu              # same as plain `wstack` but skip the launch menu and use saved defaults
 wstack --tui                  # Ink-based TUI
 wstack desktop                # Electron desktop app (same as --desktop)
 wstack webui                  # project WebUI (same as --webui)
@@ -26,6 +27,40 @@ wstack "refactor src/auth.ts" # one-shot query (no interactive loop)
 wstack --provider <id> --model <id>   # skip the picker
 wstack --resume <session-id>          # resume a saved session
 wstack resume <session-id>            # equivalent
+```
+
+### Launch menu
+
+When `wstack` is invoked on an interactive TTY with no surface flag, the CLI
+prints a four-option launch menu and waits for a numeric choice:
+
+```
+  ✱ WrongStack launch mode
+  ? Choose how to run WrongStack:
+    1) TUI / REPL  (interactive terminal; TUI is the default)
+    2) WebUI       (browser-based project UI; port 3456)
+    3) SimpleUI    (lightweight browser UI; port 3466)
+    4) HQ          (project-independent HQ dashboard; port 3499)
+  [1-4, q to quit] (auto 1 in 8s)
+```
+
+If you previously picked a mode, the menu shows a one-line summary and a
+single `Continue with these? [Y/n/q]` confirmation instead of re-asking
+the same question. The chosen mode + port are persisted to
+`~/.wrongstack/config.json` (`launch.menuChoice`) so the next launch can
+offer the summary gate.
+
+The menu is automatically skipped when:
+
+- stdin is not a TTY (CI, pipes, redirects) — exit code mirrors a flag-based launch
+- any surface flag is present (`--webui`, `--simpleui`, `--hq`, `--desktop`)
+- a positional subcommand is given (`auth`, `init`, `mcp`, `plugin`, `doctor`, …)
+- `--no-menu`, `--no-interactive`, or `--skip` is set
+- a positional query or `--prompt <text>` is supplied (one-shot mode)
+
+Use `--no-menu` to bypass the menu in scripts or when you want to opt
+into the historical behaviour where the first interactive prompt you see
+is the existing TUI/REPL picker from `runLaunchPrompts`.
 
 wstack init                   # interactive provider+model wizard
 wstack doctor                 # config/key/MCP/Node health check
@@ -101,6 +136,7 @@ API keys are encrypted at rest with AES-256-GCM and the key file at `~/.wrongsta
 | `--desktop` | Open WrongStack Desktop (also `wstack desktop`) |
 | `--webui` | Serve the project WebUI (also `wstack webui`) |
 | `--hq` | Start the project-independent HQ dashboard (also `wstack hq`) |
+| `--no-menu` | Skip the interactive launch menu (use saved default or TUI/REPL) |
 | `--yolo` | Auto-approve tool calls unless explicitly denied |
 | `--confirm-destructive` | Deprecated compatibility flag; YOLO no longer prompts by destructiveness |
 | `--yolo-destructive` | Deprecated compatibility flag; YOLO no longer prompts by destructiveness |

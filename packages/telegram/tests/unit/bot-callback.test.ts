@@ -14,10 +14,7 @@ const log: Logger = {
   },
 };
 
-function makeBot(overrides?: {
-  allowedUsers?: string[];
-  allowedChats?: string[];
-}) {
+function makeBot(overrides?: { allowedUsers?: string[]; allowedChats?: string[] }) {
   return new TelegramBot({
     token: 'test:token',
     // pollIntervalSec is irrelevant — these tests never call bot.start().
@@ -33,11 +30,35 @@ function makeBot(overrides?: {
   });
 }
 
+function awaitRequest(
+  bot: TelegramBot,
+  key: string,
+  overrides?: {
+    expectedChatId?: number;
+    expectedUserIds?: number[];
+    promptMessageId?: number;
+    timeoutMs?: number;
+  },
+) {
+  const match = /^approve:([^:]+):(yes|no)$/.exec(key);
+  if (!match?.[1]) throw new Error(`Invalid test callback key: ${key}`);
+  const promise = bot.awaitApproval({
+    requestId: match[1],
+    sessionId: 'test-session',
+    expectedChatId: overrides?.expectedChatId ?? 99,
+    expectedUserIds: overrides?.expectedUserIds ?? [1],
+    allowGroup: false,
+    expiresAt: Date.now() + (overrides?.timeoutMs ?? 5_000),
+  });
+  bot.bindApprovalPrompt(match[1], overrides?.promptMessageId ?? 1);
+  return promise;
+}
+
 // ---------------------------------------------------------------------------
-// Callback waiter
+// Approval request callback binding
 // ---------------------------------------------------------------------------
 
-describe('TelegramBot awaitCallback', () => {
+describe('TelegramBot awaitApproval', () => {
   let bot: TelegramBot;
   let _originalFetch: typeof globalThis.fetch;
   let fetched: Array<{ url: string; body: string }>;
@@ -67,22 +88,24 @@ describe('TelegramBot awaitCallback', () => {
   // the alternative (a public test-only hook) pollutes the public API.
   function dispatchDirectly(cq: {
     id: string;
-    from?: { username?: string; first_name?: string };
+    from?: { id: number; username?: string; first_name?: string };
     message?: { message_id: number; chat: { id: number; type: string } };
     data?: string;
   }) {
-    return (bot as unknown as {
-      dispatchCallback(cq: typeof cq): Promise<void>;
-    }).dispatchCallback(cq);
+    return (
+      bot as unknown as {
+        dispatchCallback(cq: typeof cq): Promise<void>;
+      }
+    ).dispatchCallback(cq);
   }
 
   it('resolves with approved=true when a matching :yes callback arrives', async () => {
     const key = 'approve:abc:yes';
-    const promise = bot.awaitCallback(key, 5_000);
+    const promise = awaitRequest(bot, key);
 
     await dispatchDirectly({
       id: 'cb-1',
-      from: { username: 'alice', first_name: 'Alice' },
+      from: { id: 1, username: 'alice', first_name: 'Alice' },
       message: { message_id: 1, chat: { id: 99, type: 'private' } },
       data: key,
     });
@@ -99,11 +122,15 @@ describe('TelegramBot awaitCallback', () => {
 
   it('resolves with approved=false when a matching :no callback arrives', async () => {
     const key = 'approve:xyz:no';
-    const promise = bot.awaitCallback(key, 5_000);
+    const promise = awaitRequest(bot, key, {
+      expectedChatId: 100,
+      expectedUserIds: [2],
+      promptMessageId: 2,
+    });
 
     await dispatchDirectly({
       id: 'cb-2',
-      from: { first_name: 'Bob' },
+      from: { id: 2, first_name: 'Bob' },
       message: { message_id: 2, chat: { id: 100, type: 'private' } },
       data: key,
     });
@@ -115,26 +142,34 @@ describe('TelegramBot awaitCallback', () => {
 
   it('times out and resolves with approved=false / fromUser=timeout', async () => {
     const start = Date.now();
-    const result = await bot.awaitCallback('approve:nobody:yes', 200);
+    const result = await awaitRequest(bot, 'approve:nobody:yes', {
+      expectedChatId: 1,
+      expectedUserIds: [1],
+      timeoutMs: 200,
+    });
     const elapsed = Date.now() - start;
 
     expect(result.approved).toBe(false);
     expect(result.fromUser).toBe('timeout');
     expect(elapsed).toBeGreaterThanOrEqual(190);
     expect(elapsed).toBeLessThan(500);
+    expect((bot as unknown as { callbackWaiters: Map<string, unknown> }).callbackWaiters.size).toBe(
+      0,
+    );
   });
 
   it('stop() rejects pending waiters so the host does not hang', async () => {
     const localBot = makeBot();
-    const promise = localBot.awaitCallback('approve:zzz:yes', 30_000);
+    const promise = awaitRequest(localBot, 'approve:zzz:yes', { timeoutMs: 30_000 });
 
     localBot.stop();
 
     const result = await promise;
     expect(result.approved).toBe(false);
     expect(result.fromUser).toBe('shutdown');
-    // stop() also clears the waiter map; further registrations are fine.
-    expect(localBot['callbackWaiters' as keyof typeof localBot]).toBeDefined();
+    expect(
+      (localBot as unknown as { callbackWaiters: Map<string, unknown> }).callbackWaiters.size,
+    ).toBe(0);
   });
 
   it('an unmatched callback_query is logged at debug but does not throw', async () => {
@@ -142,7 +177,7 @@ describe('TelegramBot awaitCallback', () => {
     // and complete without resolving any promise.
     await dispatchDirectly({
       id: 'cb-3',
-      from: { first_name: 'X' },
+      from: { id: 1, first_name: 'X' },
       message: { message_id: 3, chat: { id: 1, type: 'private' } },
       data: 'something:else',
     });
@@ -150,18 +185,46 @@ describe('TelegramBot awaitCallback', () => {
     expect(log.debug).toHaveBeenCalledWith(expect.stringContaining('Unmatched callback_query'));
   });
 
+  it('queues an immediate callback until the sent prompt message is bound', async () => {
+    const key = 'approve:early:yes';
+    const promise = bot.awaitApproval({
+      requestId: 'early',
+      sessionId: 'test-session',
+      expectedChatId: 99,
+      expectedUserIds: [1],
+      allowGroup: false,
+      expiresAt: Date.now() + 5_000,
+    });
+
+    await dispatchDirectly({
+      id: 'cb-early',
+      from: { id: 1, username: 'early-user' },
+      message: { message_id: 41, chat: { id: 99, type: 'private' } },
+      data: key,
+    });
+    expect(fetched).toHaveLength(0);
+
+    expect(bot.bindApprovalPrompt('early', 41)).toBe(true);
+    await expect(promise).resolves.toMatchObject({ approved: true, fromUser: 'early-user' });
+    await vi.waitFor(() => expect(fetched).toHaveLength(1));
+    expect(fetched[0]!.body).toContain('Approved');
+  });
+
   it('answerCallbackQuery failure does not block the waiter from resolving', async () => {
     // Replace fetch with one that rejects on answerCallbackQuery but
     // resolves on everything else (no real call is expected here
     // except the ack).
-    globalThis.fetch = vi.fn().mockRejectedValue(new Error('Network down')) as never as typeof fetch;
+    globalThis.fetch = vi
+      .fn()
+      .mockRejectedValue(new Error('Network down')) as never as typeof fetch;
 
     const key = 'approve:net:yes';
-    const promise = bot.awaitCallback(key, 5_000);
+    const promise = awaitRequest(bot, key);
 
     await dispatchDirectly({
       id: 'cb-net',
-      from: { username: 'net' },
+      from: { id: 1, username: 'net' },
+      message: { message_id: 1, chat: { id: 99, type: 'private' } },
       data: key,
     });
 
@@ -207,74 +270,102 @@ describe('TelegramBot allowlist on callback_query', () => {
     message?: { message_id: number; chat: { id: number; type: string } };
     data?: string;
   }) {
-    return (bot as unknown as {
-      dispatchCallback(cq: typeof cq): Promise<void>;
-    }).dispatchCallback(cq);
+    return (
+      bot as unknown as {
+        dispatchCallback(cq: typeof cq): Promise<void>;
+      }
+    ).dispatchCallback(cq);
   }
 
-  it('fails closed when the callback has no sender identity', async () => {
+  it('fails closed when the callback has no sender identity without consuming the request', async () => {
     const key = 'approve:missing-user:yes';
-    const promise = bot.awaitCallback(key, 5_000);
+    const promise = awaitRequest(bot, key, {
+      expectedChatId: 999,
+      expectedUserIds: [999],
+    });
     await dispatchDirectly({
       id: 'cb-missing-user',
       message: { message_id: 1, chat: { id: 999, type: 'private' } },
       data: key,
     });
 
-    await expect(promise).resolves.toEqual({ approved: false, fromUser: 'blocked' });
     const ack = fetched.find((c) => c.url.endsWith('/answerCallbackQuery'));
     expect(ack?.body).toContain('"show_alert":true');
+    expect((bot as unknown as { callbackWaiters: Map<string, unknown> }).callbackWaiters.size).toBe(
+      1,
+    );
+    bot.cancelApproval('missing-user');
+    await expect(promise).resolves.toEqual({ approved: false, fromUser: 'cancelled' });
   });
 
-  it('blocks a callback from a user not on the allowedUsers list and resolves the waiter with from=blocked', async () => {
+  it('blocks a non-allowlisted user without consuming the intended user’s request', async () => {
     const key = 'approve:abc:yes';
-    const promise = bot.awaitCallback(key, 5_000);
+    const promise = awaitRequest(bot, key, {
+      expectedChatId: 999,
+      expectedUserIds: [999],
+    });
     await dispatchDirectly({
       id: 'cb-block-user',
       from: { id: 42, username: 'mallory' },
       message: { message_id: 1, chat: { id: 999, type: 'private' } },
       data: key,
     });
-    // The hijack-rejection path must resolve the waiter immediately
-    // with the `blocked` sentinel rather than letting it fall through
-    // to its 5 s timeout — agents need to distinguish a security
-    // rejection from a passive user timeout.
-    const result = await promise;
-    expect(result.approved).toBe(false);
-    expect(result.fromUser).toBe('blocked');
     const ack = fetched.find((c) => c.url.endsWith('/answerCallbackQuery'));
     expect(ack).toBeDefined();
-    // Allowlist rejection must use a visible toast (show_alert=true) so the
-    // blocked user understands why their tap did nothing.
     expect(ack!.body).toContain('"show_alert":true');
-    bot.stop();
-  });
+    expect((bot as unknown as { callbackWaiters: Map<string, unknown> }).callbackWaiters.size).toBe(
+      1,
+    );
 
-  it('blocks a callback from a chat not on the allowedChats list', async () => {
-    const key = 'approve:def:yes';
-    const promise = bot.awaitCallback(key, 5_000);
     await dispatchDirectly({
-      id: 'cb-block-chat',
-      from: { id: 999, username: 'alice' }, // allowed user…
-      message: { message_id: 1, chat: { id: 7, type: 'private' } }, // …in a non-allowlisted chat
+      id: 'cb-intended-user',
+      from: { id: 999, username: 'alice' },
+      message: { message_id: 1, chat: { id: 999, type: 'private' } },
       data: key,
     });
-    const result = await promise;
-    expect(result.approved).toBe(false);
-    expect(result.fromUser).toBe('blocked');
-    bot.stop();
+    await expect(promise).resolves.toMatchObject({ approved: true, fromUser: 'alice' });
   });
 
-  it('fails closed when the callback has no chat identity', async () => {
+  it('blocks a callback from a non-allowlisted chat without consuming the request', async () => {
+    const key = 'approve:def:yes';
+    const promise = awaitRequest(bot, key, {
+      expectedChatId: 999,
+      expectedUserIds: [999],
+    });
+    await dispatchDirectly({
+      id: 'cb-block-chat',
+      from: { id: 999, username: 'alice' },
+      message: { message_id: 1, chat: { id: 7, type: 'private' } },
+      data: key,
+    });
+    await dispatchDirectly({
+      id: 'cb-valid-chat',
+      from: { id: 999, username: 'alice' },
+      message: { message_id: 1, chat: { id: 999, type: 'private' } },
+      data: key,
+    });
+    await expect(promise).resolves.toMatchObject({ approved: true, fromUser: 'alice' });
+  });
+
+  it('fails closed when the callback has no chat identity without consuming the request', async () => {
     const key = 'approve:missing-chat:yes';
-    const promise = bot.awaitCallback(key, 5_000);
+    const promise = awaitRequest(bot, key, {
+      expectedChatId: 999,
+      expectedUserIds: [999],
+    });
     await dispatchDirectly({
       id: 'cb-missing-chat',
       from: { id: 999, username: 'alice' },
       data: key,
     });
+    await dispatchDirectly({
+      id: 'cb-with-chat',
+      from: { id: 999, username: 'alice' },
+      message: { message_id: 1, chat: { id: 999, type: 'private' } },
+      data: key,
+    });
 
-    await expect(promise).resolves.toEqual({ approved: false, fromUser: 'blocked' });
+    await expect(promise).resolves.toMatchObject({ approved: true, fromUser: 'alice' });
   });
 
   it('lets a callback through when both user and chat are allowlisted', async () => {
@@ -292,7 +383,11 @@ describe('TelegramBot allowlist on callback_query', () => {
     }) as never as typeof fetch;
 
     const key = 'approve:ghi:yes';
-    const promise = bot.awaitCallback(key, 5_000);
+    const promise = awaitRequest(bot, key, {
+      expectedChatId: 7,
+      expectedUserIds: [42],
+      promptMessageId: 1,
+    });
     await dispatchDirectly({
       id: 'cb-allow',
       from: { id: 42, username: 'bob' },

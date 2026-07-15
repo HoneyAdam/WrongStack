@@ -182,21 +182,31 @@ const DEFAULT_POPULAR_PROVIDERS: PopularProvider[] = [
   {
     id: 'kimi',
     name: 'Kimi',
-    description: 'Moonshot AI long-context models',
+    description: 'Personal interactive coding with the Kimi Code subscription key. Generate the API key at kimi.com/code/console.',
     icon: '🌙',
     color: 'from-info/12 to-info/5 border-info/30 hover:border-info/50',
     keyPlaceholder: 'sk-...',
-    docsUrl: 'https://www.kimi.com/membership/pricing',
+    docsUrl: 'https://www.kimi.com/code/docs/en/third-party-tools/other-coding-agents.html',
+    family: 'openai-compatible',
+  },
+  {
+    id: 'moonshotai',
+    name: 'Moonshot Platform (Metered)',
+    description: 'Metered Moonshot Platform API — pay-as-you-go for automation, background work, and commercial use.',
+    icon: '🌑',
+    color: 'from-info/12 to-info/5 border-info/30 hover:border-info/50',
+    keyPlaceholder: 'sk-...',
+    docsUrl: 'https://platform.kimi.ai/docs/api/overview',
     family: 'openai-compatible',
   },
   {
     id: 'zai',
-    name: 'Z.ai (GLM)',
-    description: "You've been invited to join the GLM Coding Plan! Enjoy full support for Claude Code, Cline, and 20+ top coding tools — starting at just $18/month. Subscribe now and grab the limited-time deal!",
+    name: 'Z.AI API (Metered)',
+    description: 'Pay-as-you-go Z.AI GLM access. For the GLM Coding Plan subscription, run Z.AI in an officially supported external agent (OpenCode, Goose, …).',
     icon: '🔷',
     color: 'from-primary/12 to-primary/5 border-primary/30 hover:border-primary/50',
     keyPlaceholder: '...',
-    docsUrl: 'https://z.ai/subscribe?ic=JQZ7TPPRA6',
+    docsUrl: 'https://docs.z.ai/guides/overview/quick-start',
     family: 'openai-compatible',
   },
   {
@@ -283,7 +293,11 @@ function ProviderKeyCard({
     try {
       const ws = getWSClient(useConfigStore.getState().wsUrl);
       const ack = waitForKeyOperationResult(ws);
-      // If the provider doesn't exist yet in the catalog, add it first
+      // If the provider doesn't exist yet in the catalog, add it first.
+      // We pass `popular.id` (the canonical preset id, e.g.
+      // `kimi-for-coding` or `moonshotai`) so the server-side preset
+      // hydration can fill baseUrl/models/quirks without us shipping them
+      // through the wire.
       if (!catalogProvider) {
         ws.send({
           type: 'provider.add',

@@ -1,4 +1,8 @@
 import { expectDefined } from '@wrongstack/core';
+import {
+  buildProviderConfigFromPreset,
+  resolvePresetForAlias,
+} from '@wrongstack/providers';
 /**
  * Pure provider/API-key record transforms for the WebUI server's `key.*` and
  * `provider.*` WebSocket handlers.
@@ -67,6 +71,36 @@ export function maskedKey(key: string | undefined): string {
   return `${key.slice(0, 4)}…${key.slice(-4)}`;
 }
 
+/**
+ * Hydrate a not-yet-saved provider config from a trusted preset when the
+ * supplied id (or its `<id>-suffix` alias) maps to a canonical preset.
+ * Mutates `dest` in place and returns the canonical preset id (which the
+ * caller should use as `cfg.type` so the registry lookup still resolves).
+ *
+ * Returns `undefined` for unknown ids so the generic registration path
+ * can take over (preserving the prior behaviour for user-typed custom
+ * gateways and any third-party provider).
+ */
+function hydratePresetConfig(providerId: string, dest: ProviderConfig): string | undefined {
+  const preset = resolvePresetForAlias(providerId);
+  if (!preset) return undefined;
+  const template = buildProviderConfigFromPreset(preset);
+  // Apply preset defaults without overwriting any field the caller may
+  // already have set (e.g. `family` on a config-only custom alias). The
+  // preset always wins for the four product-locked fields: `baseUrl`,
+  // `envVars`, `models`, `customModels`, `quirks`.
+  if (!dest.type) dest.type = preset.id;
+  if (!dest.family) dest.family = preset.family;
+  if (dest.baseUrl === undefined) dest.baseUrl = template.baseUrl;
+  if (!dest.envVars || dest.envVars.length === 0) dest.envVars = template.envVars;
+  if (!dest.models || dest.models.length === 0) dest.models = template.models;
+  if (template.customModels && (!dest.customModels || Object.keys(dest.customModels).length === 0)) {
+    dest.customModels = template.customModels;
+  }
+  if (template.quirks && dest.quirks === undefined) dest.quirks = template.quirks;
+  return preset.id;
+}
+
 /** Add or replace a labeled key for a provider, creating the provider if new. */
 export function upsertKey(
   providers: ProvidersRecord,
@@ -75,7 +109,17 @@ export function upsertKey(
   apiKey: string,
   nowIso: string,
 ): KeyOpResult {
-  const existing: ProviderConfig = providers[providerId] ?? { type: providerId };
+  let existing: ProviderConfig | undefined = providers[providerId];
+  if (!existing) {
+    // New entry: hydrate from a trusted preset when the id (or its
+    // <id>-suffix alias) maps to a canonical vendor entry — this is how
+    // the WebUI setup card for Kimi Code / Moonshot Platform / Z.AI ends
+    // up with the right baseUrl, model allowlist, and compatibility
+    // quirks without the user having to type them.
+    existing = { type: providerId };
+    const presetId = hydratePresetConfig(providerId, existing);
+    if (presetId) existing.type = presetId;
+  }
   const keys = normalizeKeys(existing);
   const idx = keys.findIndex((k) => k.label === label);
   if (idx >= 0) {
@@ -138,11 +182,19 @@ export function addProvider(
       message: `Provider "${payload.id}" already exists. Use key.add to add a key.`,
     };
   }
+  // Trust the trusted-preset table for product-locked fields. If the id
+  // is a known preset (canonical or `<id>-suffix`), `hydratePresetConfig`
+  // populates `baseUrl`, `models`, `customModels`, and `quirks` from the
+  // preset. `family` still falls back to the wire value supplied by the
+  // setup flow (the WebSocket payload) — preset only fills it in when
+  // absent — so a user-supplied override survives.
   const newProv: ProviderConfig = {
     type: payload.id,
     family: payload.family as ProviderConfig['family'],
     baseUrl: payload.baseUrl,
   };
+  const presetId = hydratePresetConfig(payload.id, newProv);
+  if (presetId) newProv.type = presetId;
   if (payload.apiKey) {
     newProv.apiKeys = [{ label: 'default', apiKey: payload.apiKey, createdAt: nowIso }];
     newProv.activeKey = 'default';
