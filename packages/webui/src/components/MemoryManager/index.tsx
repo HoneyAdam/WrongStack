@@ -22,7 +22,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getWSClient } from '@/lib/ws-client';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useUIStore } from '@/stores';
@@ -127,13 +127,18 @@ export function MemoryManager() {
   // Delete confirmation
   const [deleting, setDeleting] = useState<string | null>(null);
 
+  // ── Stale-request guard for loadMemories ────────────────────────────
+  const listReqGenRef = useRef(0);
+
   // ── Load data ───────────────────────────────────────────────────────
 
   const loadMemories = useCallback(() => {
+    const gen = ++listReqGenRef.current;
     setLoading(true);
     setError(null);
     const client = getWSClient();
     const handler = (msg: { type: string; payload: unknown }) => {
+      if (gen !== listReqGenRef.current) return; // stale request
       if (msg.type === 'memory.super.list') {
         const p = msg.payload as { memories?: MemoryEntry[]; stats?: MemoryStats; error?: string };
         if (p.error) {
@@ -157,7 +162,8 @@ export function MemoryManager() {
   // ── Filtered list ───────────────────────────────────────────────────
 
   const filteredMemories = useMemo(() => {
-    let result = memories;
+    // Copy the array so .sort() at the end does not mutate the original state
+    let result = [...memories];
 
     if (statusFilter !== 'all') {
       result = result.filter((m) => m.status === statusFilter);
@@ -214,8 +220,15 @@ export function MemoryManager() {
     if (!selectedMemory) return;
     setSaving(true);
     const client = getWSClient();
+    let cleanup: (() => void) | null = null;
+    const timeout = setTimeout(() => {
+      if (cleanup) cleanup();
+      setSaving(false);
+      setError('Save timed out — no response from server.');
+    }, 30_000);
     const handler = (msg: { type: string; payload: unknown }) => {
       if (msg.type === 'memory.super.update') {
+        clearTimeout(timeout);
         const p = msg.payload as { memory?: MemoryEntry; error?: string };
         if (p.error) {
           setError(p.error);
@@ -224,10 +237,11 @@ export function MemoryManager() {
         }
         setSaving(false);
         setEditing(false);
-        client.off('memory.super.update', handler);
+        if (cleanup) cleanup();
       }
     };
     client.on('memory.super.update', handler);
+    cleanup = () => client.off('memory.super.update', handler);
     ws.updateSuperMemory(selectedMemory.id, {
       text: editText,
       tags: editTags
@@ -245,15 +259,23 @@ export function MemoryManager() {
   const handleDeleteConfirm = useCallback(() => {
     if (!deleting) return;
     const client = getWSClient();
+    let cleanup: (() => void) | null = null;
+    const timeout = setTimeout(() => {
+      if (cleanup) cleanup();
+      setDeleting(null);
+      setError('Delete timed out — no response from server.');
+    }, 30_000);
     const handler = (msg: { type: string; payload: { success: boolean } }) => {
       if (msg.type === 'key.operation_result' && msg.payload) {
+        clearTimeout(timeout);
         loadMemories();
         if (selectedId === deleting) setSelectedId(null);
         setDeleting(null);
-        client.off('key.operation_result', handler);
+        if (cleanup) cleanup();
       }
     };
     client.on('key.operation_result', handler);
+    cleanup = () => client.off('key.operation_result', handler);
     ws.deleteSuperMemory(deleting);
   }, [deleting, selectedId, ws, loadMemories]);
 
