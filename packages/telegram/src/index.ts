@@ -1,16 +1,17 @@
+import type { Config, Logger, Plugin, PluginAPI, SlashCommand } from '@wrongstack/core';
 import { expectDefined } from '@wrongstack/core';
-import type { Config, Plugin } from '@wrongstack/core';
-import { TelegramBot } from './bot.js';
 import type { TelegramIncomingMessage } from './bot.js';
-import { truncateForTelegram } from './bot.js';
+import { TelegramBot, truncateForTelegram } from './bot.js';
 import { PLUGIN_NAME, readTelegramConfig, telegramConfigSchema } from './config.js';
-import { formatDelegateCompleted, formatSessionEnded, formatToolExecuted } from './format.js';
 import type { SessionEndedLike, ToolExecutedLike } from './format.js';
-import { PollLock, lockPathForToken } from './poll-lock.js';
-import { registerSlashCommands } from './slash-commands/index.js';
+import { formatDelegateCompleted, formatSessionEnded, formatToolExecuted } from './format.js';
+import { lockPathForToken, PollLock } from './poll-lock.js';
+import { scrubTelegramOutboundText } from './security/outbound.js';
+import { tgChatIdCommand, tgHealthCommand, tgSendCommand } from './slash-commands/index.js';
+import { makeTelegramApproveTool } from './tools/telegram-approve.js';
 import { makeTelegramReadTool } from './tools/telegram-read.js';
 import { makeTelegramSendTool } from './tools/telegram-send.js';
-import { makeTelegramApproveTool } from './tools/telegram-approve.js';
+
 // ---------------------------------------------------------------------------
 // Teardown state
 // ---------------------------------------------------------------------------
@@ -19,38 +20,95 @@ import { makeTelegramApproveTool } from './tools/telegram-approve.js';
  * effect without restarting the plugin. */
 interface RuntimeConfig {
   notifyChatId: string | number | undefined;
+  allowedOutboundChats: Array<string | number>;
   notifyOnSessionEnd: boolean;
   notifyOnDelegate: boolean;
   longToolThresholdMs: number;
   maxMessageLength: number;
 }
 
-let teardownState: {
-  offs: Array<() => void>;
-  toolNames: string[];
-  commandNames: string[];
+interface RuntimeState {
   bot: TelegramBot;
-  runtimeCfg: RuntimeConfig;
-} | null = null;
+  cleanups: Array<() => void>;
+}
+
+let teardownState: RuntimeState | null = null;
+
+const DENY_ALL_INBOUND = '__wrongstack_telegram_inbound_disabled__';
+
+function inboundAllowlist(cfg: ReturnType<typeof readTelegramConfig>): {
+  allowedUsers: Set<string>;
+  allowedChats: Set<string>;
+} {
+  if (cfg.inboundMode === 'public') {
+    return { allowedUsers: new Set(), allowedChats: new Set() };
+  }
+  if (cfg.inboundMode === 'paired') {
+    return {
+      allowedUsers: new Set(),
+      allowedChats: new Set([String(expectDefined(cfg.notifyChatId))]),
+    };
+  }
+  if (cfg.inboundMode === 'allowlist') {
+    return {
+      allowedUsers: new Set((cfg.allowedUsers ?? []).map(String)),
+      allowedChats: new Set((cfg.allowedChats ?? []).map(String)),
+    };
+  }
+  return {
+    allowedUsers: new Set([DENY_ALL_INBOUND]),
+    allowedChats: new Set([DENY_ALL_INBOUND]),
+  };
+}
+
+function runCleanups(cleanups: Array<() => void>, log: Logger): void {
+  while (cleanups.length > 0) {
+    const cleanup = cleanups.pop();
+    try {
+      cleanup?.();
+    } catch (err) {
+      log.debug(`Telegram cleanup failed: ${(err as Error).message}`);
+    }
+  }
+}
+
+function disposeRuntime(log: Logger): void {
+  const state = teardownState;
+  teardownState = null;
+  if (state) runCleanups(state.cleanups, log);
+}
+
+function registerCommand(api: PluginAPI, command: SlashCommand, cleanups: Array<() => void>): void {
+  api.slashCommands.register(command);
+  cleanups.push(() => {
+    api.slashCommands.unregister(`${PLUGIN_NAME}:${command.name}`);
+  });
+}
 
 /** Read the Telegram section from a full Config object. */
 function telegramFromConfig(cfg: Config): {
   notifyChatId: string | number | undefined;
+  allowedOutboundChats: Array<string | number>;
   notifyOnSessionEnd: boolean;
   notifyOnDelegate: boolean;
   longToolThresholdMs: number;
   maxMessageLength: number;
 } {
-  const ext = (cfg.extensions as Record<string, Record<string, unknown>> | undefined)?.[PLUGIN_NAME] ?? {};
+  const ext =
+    (cfg.extensions as Record<string, Record<string, unknown>> | undefined)?.[PLUGIN_NAME] ?? {};
   return {
-    notifyChatId:
-      ext.notifyChatId !== undefined ? String(ext.notifyChatId) : undefined,
+    notifyChatId: ext.notifyChatId !== undefined ? String(ext.notifyChatId) : undefined,
+    allowedOutboundChats: Array.isArray(ext.allowedOutboundChats)
+      ? ext.allowedOutboundChats.filter(
+          (chatId): chatId is string | number =>
+            typeof chatId === 'string' || typeof chatId === 'number',
+        )
+      : [],
     notifyOnSessionEnd: ext.notifyOnSessionEnd === true,
     notifyOnDelegate: ext.notifyOnDelegate !== false, // default true
     longToolThresholdMs:
       typeof ext.longToolThresholdMs === 'number' ? ext.longToolThresholdMs : 30_000,
-    maxMessageLength:
-      typeof ext.maxMessageLength === 'number' ? ext.maxMessageLength : 4000,
+    maxMessageLength: typeof ext.maxMessageLength === 'number' ? ext.maxMessageLength : 4000,
   };
 }
 
@@ -70,6 +128,7 @@ const plugin: Plugin = {
   },
   configSchema: telegramConfigSchema,
   defaultConfig: {
+    allowedOutboundChats: [],
     pollIntervalSec: 2,
     notifyOnSessionEnd: false,
     longToolThresholdMs: 30_000,
@@ -77,14 +136,16 @@ const plugin: Plugin = {
   },
 
   async setup(api) {
-    const cfg = readTelegramConfig(api);
     const log = api.log;
+    disposeRuntime(log);
+    const cfg = readTelegramConfig(api);
 
     log.info('Starting Telegram plugin...');
 
     // ---- Mutable runtime config (updated via onConfigChange) ----
     const runtimeCfg: RuntimeConfig = {
       notifyChatId: cfg.notifyChatId,
+      allowedOutboundChats: [...(cfg.allowedOutboundChats ?? [])],
       notifyOnSessionEnd: cfg.notifyOnSessionEnd ?? false,
       notifyOnDelegate: cfg.notifyOnDelegate ?? true,
       longToolThresholdMs: cfg.longToolThresholdMs ?? 30_000,
@@ -102,8 +163,7 @@ const plugin: Plugin = {
     const bot = new TelegramBot({
       token: cfg.botToken,
       pollIntervalSec: cfg.pollIntervalSec ?? 2,
-      allowedUsers: new Set((cfg.allowedUsers ?? []).map(String)),
-      allowedChats: new Set((cfg.allowedChats ?? []).map(String)),
+      ...inboundAllowlist(cfg),
       bufferSize: 50,
       log,
       offsetStoragePath: cfg.offsetStoragePath,
@@ -113,151 +173,17 @@ const plugin: Plugin = {
         // The TUI can subscribe and surface it (future hook).
         api.emitCustom('telegram:message_received', msg);
 
-        // Log it for the user in the TUI
-        const who = msg.userName ?? msg.userId ?? 'unknown';
-        log.info(`📨 Telegram: ${who} (chat=${msg.chatId}): ${msg.text.slice(0, 200)}`);
+        // Keep untrusted inbound content in the bot buffer only. Logs expose
+        // bounded metadata so message text, sender, and chat IDs cannot leak.
+        log.info(`📨 Telegram message received (${Math.min(bot.bufferCount, 50)} unread)`);
       },
     });
 
-    // ---- Register tools ----
-    const sendTool = makeTelegramSendTool({
-      bot,
-      getDefaultChatId: () => runtimeCfg.notifyChatId,
-      maxMessageLength: runtimeCfg.maxMessageLength,
-      log,
-    });
-    const readTool = makeTelegramReadTool({ bot });
-    const approveTool = makeTelegramApproveTool({
-      bot,
-      getDefaultChatId: () => runtimeCfg.notifyChatId,
-      maxMessageLength: runtimeCfg.maxMessageLength,
-      log,
-    });
-    api.tools.register(sendTool);
-    api.tools.register(readTool);
-    api.tools.register(approveTool);
-
-    // ---- Event subscriptions ----
-    const offs: Array<() => void> = [];
-
-    // System prompt contributor — inject unread Telegram messages
-    const unregisterPrompt = api.registerSystemPromptContributor(async () => {
-      const msgs = bot.getMessages({ limit: 5 });
-      if (msgs.length === 0) return [];
-
-      const blocks: Array<{ type: 'text'; text: string }> = [
-        {
-          type: 'text',
-          text: [
-            '## Telegram Inbox',
-            `You have ${bot.bufferCount} unread Telegram message(s).`,
-            'Read them with `telegram_read` and reply with `telegram_send`.',
-            '',
-            'Recent messages:',
-            ...msgs.map((m) => {
-              const who = m.userName ?? `user_${m.userId ?? 'unknown'}`;
-              const ts = new Date(m.timestamp).toLocaleTimeString();
-              return `- [${ts}] **${who}** (chat=${m.chatId}): ${m.text.slice(0, 200)}`;
-            }),
-            '',
-          ].join('\n'),
-        },
-      ];
-      return blocks;
-    });
-    offs.push(unregisterPrompt);
-
-    // Register slash commands
-    const commandNames = registerSlashCommands(api, bot, cfg);
-
-    // ---- Notification event handlers ----
-    // Always subscribed; guard at event time against runtime flags so changes
-    // take effect immediately without needing to restart the plugin.
-
-    offs.push(
-      api.events.on('session.ended', (event) => {
-        if (!runtimeCfg.notifyOnSessionEnd || !runtimeCfg.notifyChatId) return;
-        const payload: SessionEndedLike = {
-          id: event.id,
-          inputTokens: event.usage.input,
-          outputTokens: event.usage.output,
-          cacheRead: event.usage.cacheRead,
-          cacheWrite: event.usage.cacheWrite,
-        };
-        const msg = truncateForTelegram(
-          formatSessionEnded(payload),
-          runtimeCfg.maxMessageLength,
-        );
-        void bot.sendMessage(expectDefined(runtimeCfg.notifyChatId), msg).catch((err) => {
-          log.debug(`Failed to send session end notification: ${(err as Error).message}`);
-        });
-      }),
-    );
-
-    offs.push(
-      api.events.on('tool.executed', (event) => {
-        if (
-          !runtimeCfg.notifyChatId ||
-          runtimeCfg.longToolThresholdMs <= 0 ||
-          event.durationMs < runtimeCfg.longToolThresholdMs
-        ) return;
-        const payload: ToolExecutedLike = {
-          name: event.name,
-          ok: event.ok,
-          durationMs: event.durationMs,
-          output: event.output,
-        };
-        const msg = truncateForTelegram(
-          formatToolExecuted(payload),
-          runtimeCfg.maxMessageLength,
-        );
-        void bot.sendMessage(expectDefined(runtimeCfg.notifyChatId), msg).catch((err) => {
-          log.debug(`Failed to send tool notification: ${(err as Error).message}`);
-        });
-      }),
-    );
-
-    offs.push(
-      api.events.on('delegate.completed', (event) => {
-        if (!runtimeCfg.notifyOnDelegate || !runtimeCfg.notifyChatId) return;
-        const msg = truncateForTelegram(
-          formatDelegateCompleted(event),
-          runtimeCfg.maxMessageLength,
-        );
-        void bot.sendMessage(expectDefined(runtimeCfg.notifyChatId), msg).catch((err) => {
-          log.debug(`Failed to send delegate notification: ${(err as Error).message}`);
-        });
-      }),
-    );
-
-    // ---- Live config updates ----
-    // api.config is frozen at setup, but onConfigChange fires whenever the
-    // ConfigStore is updated (from CLI /settings, WebUI prefSync, /telegram-settings).
-    // Update the mutable runtime refs so all handlers pick up the new values
-    // on the next event — no restart needed.
-    const unlistenConfig = api.onConfigChange((next, _prev) => {
-      const fresh = telegramFromConfig(next);
-      runtimeCfg.notifyChatId = fresh.notifyChatId;
-      runtimeCfg.notifyOnSessionEnd = fresh.notifyOnSessionEnd;
-      runtimeCfg.notifyOnDelegate = fresh.notifyOnDelegate;
-      runtimeCfg.longToolThresholdMs = fresh.longToolThresholdMs;
-      runtimeCfg.maxMessageLength = fresh.maxMessageLength;
-      log.debug('Telegram notification settings updated from config', {
-        notifyOnSessionEnd: runtimeCfg.notifyOnSessionEnd,
-        notifyOnDelegate: runtimeCfg.notifyOnDelegate,
-        longToolThresholdMs: runtimeCfg.longToolThresholdMs,
-        notifyChatId: runtimeCfg.notifyChatId ?? 'not set',
-      });
-    });
-    offs.push(unlistenConfig);
-
-    // ---- Startup self-test (C7) ----
-    // Verify the bot token is live before we start polling. A 401/403 here
-    // means a wrong/rotated/revoked token — fail loud so the user sees the
-    // misconfiguration immediately, rather than silently spinning and
-    // logging HTTP 401 on every poll cycle.
+    // Validate the token before mutating host registries or acquiring the poll
+    // lock. A failed preflight must leave setup observationally atomic.
     const probe = await bot.health();
     if (!probe.ok) {
+      bot.stop();
       throw new Error(
         `Telegram plugin startup failed: ${probe.error ?? 'unknown error'}. ` +
           `Verify botToken in extensions.telegram (token from @BotFather, format "<id>:<35+ chars>").`,
@@ -265,33 +191,177 @@ const plugin: Plugin = {
     }
     log.info(`Telegram self-test ok: @${probe.username ?? 'unknown'} (api.telegram.org reachable)`);
 
-    // ---- Start polling ----
-    bot.start();
+    const cleanups: Array<() => void> = [];
+    try {
+      // Bot cleanup is registered first so it runs last, after every host-side
+      // listener and registry entry has been detached.
+      cleanups.push(() => bot.stop());
 
-    teardownState = {
-      offs,
-      toolNames: [sendTool.name, readTool.name, approveTool.name],
-      commandNames,
-      bot,
-      runtimeCfg,
-    };
+      // ---- Register tools ----
+      const sendTool = makeTelegramSendTool({
+        bot,
+        getDefaultChatId: () => runtimeCfg.notifyChatId,
+        getAllowedOutboundChatIds: () => runtimeCfg.allowedOutboundChats,
+        maxMessageLength: runtimeCfg.maxMessageLength,
+        log,
+      });
+      const readTool = makeTelegramReadTool({ bot });
+      const approveTool = makeTelegramApproveTool({
+        bot,
+        getDefaultChatId: () => runtimeCfg.notifyChatId,
+        getAllowedOutboundChatIds: () => runtimeCfg.allowedOutboundChats,
+        maxMessageLength: runtimeCfg.maxMessageLength,
+        log,
+      });
+      for (const tool of [sendTool, readTool, approveTool]) {
+        api.tools.register(tool);
+        cleanups.push(() => {
+          api.tools.unregister(tool.name);
+        });
+      }
 
-    log.info('Telegram plugin ready');
+      // ---- Event subscriptions ----
+
+      // System prompts receive metadata only. Message text and identity stay
+      // behind the explicit telegram_read tool boundary.
+      const unregisterPrompt = api.registerSystemPromptContributor(async () => {
+        const unreadCount = Math.min(bot.bufferCount, 50);
+        if (unreadCount === 0) return [];
+        return [
+          {
+            type: 'text' as const,
+            text: [
+              '## Telegram Inbox',
+              `You have ${unreadCount} unread Telegram message(s).`,
+              'Use `telegram_read` to retrieve them when needed.',
+            ].join('\n'),
+          },
+        ];
+      });
+      cleanups.push(unregisterPrompt);
+
+      // Register commands one at a time so a later collision can roll back the
+      // commands already installed by this setup attempt.
+      for (const command of [
+        tgHealthCommand(bot, cfg),
+        tgSendCommand(bot, {
+          getDefaultChatId: () => runtimeCfg.notifyChatId,
+          getAllowedOutboundChatIds: () => runtimeCfg.allowedOutboundChats,
+          getMaxMessageLength: () => runtimeCfg.maxMessageLength,
+        }),
+        tgChatIdCommand(cfg.notifyChatId),
+      ]) {
+        registerCommand(api, command, cleanups);
+      }
+
+      // ---- Notification event handlers ----
+      // Always subscribed; guard at event time against runtime flags so changes
+      // take effect immediately without needing to restart the plugin.
+
+      cleanups.push(
+        api.events.on('session.ended', (event) => {
+          if (!runtimeCfg.notifyOnSessionEnd || !runtimeCfg.notifyChatId) return;
+          const payload: SessionEndedLike = {
+            id: scrubTelegramOutboundText(event.id),
+            inputTokens: event.usage.input,
+            outputTokens: event.usage.output,
+            cacheRead: event.usage.cacheRead,
+            cacheWrite: event.usage.cacheWrite,
+          };
+          const msg = truncateForTelegram(
+            scrubTelegramOutboundText(formatSessionEnded(payload)),
+            runtimeCfg.maxMessageLength,
+          );
+          void bot.sendMessage(expectDefined(runtimeCfg.notifyChatId), msg).catch((err) => {
+            log.debug(`Failed to send session end notification: ${(err as Error).message}`);
+          });
+        }),
+      );
+
+      cleanups.push(
+        api.events.on('tool.executed', (event) => {
+          if (
+            !runtimeCfg.notifyChatId ||
+            runtimeCfg.longToolThresholdMs <= 0 ||
+            event.durationMs < runtimeCfg.longToolThresholdMs
+          )
+            return;
+          const payload: ToolExecutedLike = {
+            name: event.name,
+            ok: event.ok,
+            durationMs: event.durationMs,
+            output:
+              event.output === undefined ? undefined : scrubTelegramOutboundText(event.output),
+          };
+          const msg = truncateForTelegram(
+            scrubTelegramOutboundText(formatToolExecuted(payload)),
+            runtimeCfg.maxMessageLength,
+          );
+          void bot.sendMessage(expectDefined(runtimeCfg.notifyChatId), msg).catch((err) => {
+            log.debug(`Failed to send tool notification: ${(err as Error).message}`);
+          });
+        }),
+      );
+
+      cleanups.push(
+        api.events.on('delegate.completed', (event) => {
+          if (!runtimeCfg.notifyOnDelegate || !runtimeCfg.notifyChatId) return;
+          const safeEvent = {
+            ...event,
+            target: scrubTelegramOutboundText(event.target),
+            task: scrubTelegramOutboundText(event.task),
+            status:
+              event.status === undefined ? undefined : scrubTelegramOutboundText(event.status),
+            summary: scrubTelegramOutboundText(event.summary),
+          };
+          const msg = truncateForTelegram(
+            scrubTelegramOutboundText(formatDelegateCompleted(safeEvent)),
+            runtimeCfg.maxMessageLength,
+          );
+          void bot.sendMessage(expectDefined(runtimeCfg.notifyChatId), msg).catch((err) => {
+            log.debug(`Failed to send delegate notification: ${(err as Error).message}`);
+          });
+        }),
+      );
+
+      // ---- Live config updates ----
+      // api.config is frozen at setup, but onConfigChange fires whenever the
+      // ConfigStore is updated (from CLI /settings, WebUI prefSync, /telegram-settings).
+      // Update the mutable runtime refs so all handlers pick up the new values
+      // on the next event — no restart needed.
+      const unlistenConfig = api.onConfigChange((next, _prev) => {
+        const fresh = telegramFromConfig(next);
+        runtimeCfg.notifyChatId = fresh.notifyChatId;
+        runtimeCfg.allowedOutboundChats = fresh.allowedOutboundChats;
+        runtimeCfg.notifyOnSessionEnd = fresh.notifyOnSessionEnd;
+        runtimeCfg.notifyOnDelegate = fresh.notifyOnDelegate;
+        runtimeCfg.longToolThresholdMs = fresh.longToolThresholdMs;
+        runtimeCfg.maxMessageLength = fresh.maxMessageLength;
+        log.debug('Telegram notification settings updated from config', {
+          notifyOnSessionEnd: runtimeCfg.notifyOnSessionEnd,
+          notifyOnDelegate: runtimeCfg.notifyOnDelegate,
+          longToolThresholdMs: runtimeCfg.longToolThresholdMs,
+          notifyChatId: runtimeCfg.notifyChatId ?? 'not set',
+        });
+      });
+      cleanups.push(unlistenConfig);
+
+      // Polling is the final side effect: it may acquire the cross-process
+      // lock and create timers, and bot.stop() releases all of them.
+      bot.start();
+      teardownState = { bot, cleanups };
+      log.info('Telegram plugin ready');
+    } catch (err) {
+      teardownState = null;
+      runCleanups(cleanups, log);
+      throw err;
+    }
   },
 
   async teardown(api) {
-    const state = teardownState;
-    if (!state) return;
-    teardownState = null;
-
-    state.bot.stop();
-    for (const off of state.offs) off();
-    for (const name of state.toolNames) api.tools.unregister(name);
-    for (const name of state.commandNames) {
-      api.slashCommands.unregister(`${PLUGIN_NAME}:${name}`);
-    }
-
-    api.log.info('Telegram plugin torn down');
+    const hadRuntime = teardownState !== null;
+    disposeRuntime(api.log);
+    if (hadRuntime) api.log.info('Telegram plugin torn down');
   },
 
   async health() {

@@ -1,7 +1,12 @@
-import { expectDefined } from '@wrongstack/core';
 import type { PluginAPI, SlashCommand } from '@wrongstack/core';
-import type { TelegramBot } from '../bot.js';
+import { expectDefined } from '@wrongstack/core';
+import { type TelegramBot, truncateForTelegram } from '../bot.js';
 import type { TelegramPluginConfig } from '../config.js';
+import {
+  resolveTelegramOutboundTarget,
+  scrubTelegramOutboundText,
+  type TelegramOutboundTargetPolicy,
+} from '../security/outbound.js';
 
 // ---------------------------------------------------------------------------
 // /telegram-health
@@ -39,10 +44,19 @@ allowlist health, and notification settings.`,
 // /telegram:send
 // ---------------------------------------------------------------------------
 
+interface TelegramSlashSendPolicy extends TelegramOutboundTargetPolicy {
+  getMaxMessageLength?(): number;
+}
+
 export function tgSendCommand(
   bot: TelegramBot,
-  defaultChatId: string | number | undefined,
+  policyOrDefault: TelegramSlashSendPolicy | string | number | undefined,
 ): SlashCommand {
+  const policy: TelegramSlashSendPolicy =
+    typeof policyOrDefault === 'object' && policyOrDefault !== null
+      ? policyOrDefault
+      : { getDefaultChatId: () => policyOrDefault };
+
   return {
     name: 'send',
     description: 'Send a message to a Telegram chat',
@@ -60,27 +74,25 @@ Examples:
         return { message: 'Usage: /telegram:send [chat_id] <message>' };
       }
 
-      let chatId: string | number;
+      let requestedChatId: string | number | undefined;
       let text: string;
 
-      // First token might be a numeric chat_id
+      // First token might be a numeric chat_id. Telegram group/supergroup IDs
+      // are negative, so accept an optional leading minus sign.
       const parts = args.trim().split(/\s+/);
       const maybeId = parts[0];
-      if (/^\d+$/.test(expectDefined(maybeId)) && parts.length > 1) {
-        chatId = expectDefined(maybeId);
+      if (/^-?\d+$/.test(expectDefined(maybeId)) && parts.length > 1) {
+        requestedChatId = expectDefined(maybeId);
         text = parts.slice(1).join(' ');
-      } else if (defaultChatId) {
-        chatId = defaultChatId;
-        text = args.trim();
       } else {
-        return {
-          message:
-            'No chat_id provided and no default notifyChatId configured.\nUsage: /telegram:send <chat_id> <message>',
-        };
+        text = args.trim();
       }
 
       try {
-        const res = await bot.sendMessage(chatId, text);
+        const chatId = resolveTelegramOutboundTarget(requestedChatId, policy);
+        const scrubbed = scrubTelegramOutboundText(text);
+        const truncated = truncateForTelegram(scrubbed, policy.getMaxMessageLength?.() ?? 4000);
+        const res = await bot.sendMessage(chatId, truncated);
         return {
           message: `✅ Message sent to ${chatId} (msg_id=${res.result?.message_id ?? '?'})`,
         };
@@ -108,7 +120,10 @@ and the \`telegram_send\` tool when no chat_id is specified.`,
       if (chatIdStr) {
         return { message: `Configured notifyChatId: ${chatIdStr}` };
       }
-      return { message: 'No notifyChatId configured. Set it in the plugin config or pass chat_id explicitly to telegram_send.' };
+      return {
+        message:
+          'No notifyChatId configured. Set it in the plugin config or pass chat_id explicitly to telegram_send.',
+      };
     },
   };
 }
@@ -124,7 +139,11 @@ export function registerSlashCommands(
 ): string[] {
   const cmds = [
     tgHealthCommand(bot, cfg),
-    tgSendCommand(bot, cfg.notifyChatId),
+    tgSendCommand(bot, {
+      getDefaultChatId: () => cfg.notifyChatId,
+      getAllowedOutboundChatIds: () => cfg.allowedOutboundChats ?? [],
+      getMaxMessageLength: () => cfg.maxMessageLength ?? 4000,
+    }),
     tgChatIdCommand(cfg.notifyChatId),
   ];
   for (const cmd of cmds) api.slashCommands.register(cmd);

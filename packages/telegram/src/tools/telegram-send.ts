@@ -1,6 +1,10 @@
-import type { Tool } from '@wrongstack/core';
-import type { Logger } from '@wrongstack/core';
+import { ToolCapabilities, type Logger, type Tool } from '@wrongstack/core';
 import type { TelegramBot } from '../bot.js';
+import {
+  resolveTelegramOutboundTarget,
+  scrubTelegramOutboundText,
+  type TelegramChatId,
+} from '../security/outbound.js';
 import { truncateForTelegram } from '../bot.js';
 
 interface TelegramSendInput {
@@ -12,15 +16,17 @@ interface TelegramSendInput {
 
 export function makeTelegramSendTool(opts: {
   bot: TelegramBot;
-  /** Resolved at every execute() call so config changes take effect without restart. */
-  getDefaultChatId(): string | number | undefined;
+  /** Paired/default target, resolved on every call for live config updates. */
+  getDefaultChatId(): TelegramChatId | undefined;
+  /** Additional trusted targets, resolved on every call for live config updates. */
+  getAllowedOutboundChatIds?(): readonly TelegramChatId[];
   maxMessageLength: number;
   log: Logger;
 }): Tool<TelegramSendInput> {
   return {
     name: 'telegram_send',
     description:
-      'Send a message to a Telegram chat. Write the message in natural prose — a human reads it. Summarize results, state what happened, and include only the key details. Never paste raw JSON, object dumps, or truncated tool output directly into the message field.',
+      'Send a scrubbed message to the paired Telegram chat or an explicitly allowed outbound chat. Write natural prose for a human reader; summarize results and never paste raw JSON, object dumps, credentials, or truncated tool output.',
     usageHint: 'telegram_send(chat_id: "123456789", message: "Build completed — 12 tests passed, 0 failed. Deploying to staging now.")',
     category: 'Telegram',
     inputSchema: {
@@ -40,17 +46,15 @@ export function makeTelegramSendTool(opts: {
     },
     permission: 'confirm',
     mutating: true,
+    capabilities: [ToolCapabilities.NET_OUTBOUND],
     timeoutMs: 15_000,
     async execute(input, _ctx, _opts) {
-      const chatId = input.chat_id ?? opts.getDefaultChatId();
-      if (!chatId) {
-        throw new Error(
-          'No chat_id provided and no default notifyChatId configured. Set notifyChatId in plugin config or pass chat_id.',
-        );
-      }
+      const chatId = resolveTelegramOutboundTarget(input.chat_id, opts);
 
-      // Truncate message to fit Telegram's 4096 char limit
-      const truncated = truncateForTelegram(input.message, opts.maxMessageLength);
+      // Scrub before truncation so a credential is never split into fragments
+      // that no longer match the shared detector.
+      const scrubbed = scrubTelegramOutboundText(input.message);
+      const truncated = truncateForTelegram(scrubbed, opts.maxMessageLength);
 
       opts.log.info(`telegram_send → chat_id=${chatId} (${truncated.length} chars)`);
 

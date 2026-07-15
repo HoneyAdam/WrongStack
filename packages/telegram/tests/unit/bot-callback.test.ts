@@ -212,6 +212,20 @@ describe('TelegramBot allowlist on callback_query', () => {
     }).dispatchCallback(cq);
   }
 
+  it('fails closed when the callback has no sender identity', async () => {
+    const key = 'approve:missing-user:yes';
+    const promise = bot.awaitCallback(key, 5_000);
+    await dispatchDirectly({
+      id: 'cb-missing-user',
+      message: { message_id: 1, chat: { id: 999, type: 'private' } },
+      data: key,
+    });
+
+    await expect(promise).resolves.toEqual({ approved: false, fromUser: 'blocked' });
+    const ack = fetched.find((c) => c.url.endsWith('/answerCallbackQuery'));
+    expect(ack?.body).toContain('"show_alert":true');
+  });
+
   it('blocks a callback from a user not on the allowedUsers list and resolves the waiter with from=blocked', async () => {
     const key = 'approve:abc:yes';
     const promise = bot.awaitCallback(key, 5_000);
@@ -249,6 +263,18 @@ describe('TelegramBot allowlist on callback_query', () => {
     expect(result.approved).toBe(false);
     expect(result.fromUser).toBe('blocked');
     bot.stop();
+  });
+
+  it('fails closed when the callback has no chat identity', async () => {
+    const key = 'approve:missing-chat:yes';
+    const promise = bot.awaitCallback(key, 5_000);
+    await dispatchDirectly({
+      id: 'cb-missing-chat',
+      from: { id: 999, username: 'alice' },
+      data: key,
+    });
+
+    await expect(promise).resolves.toEqual({ approved: false, fromUser: 'blocked' });
   });
 
   it('lets a callback through when both user and chat are allowlisted', async () => {

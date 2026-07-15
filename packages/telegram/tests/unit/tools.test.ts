@@ -99,6 +99,19 @@ describe('telegram_read tool', () => {
 // ---------------------------------------------------------------------------
 
 describe('telegram_send tool', () => {
+  it('declares a confirmed mutating network side effect', () => {
+    const tool = makeTelegramSendTool({
+      bot: makeBot(),
+      getDefaultChatId: () => '999',
+      maxMessageLength: 4000,
+      log,
+    });
+
+    expect(tool.permission).toBe('confirm');
+    expect(tool.mutating).toBe(true);
+    expect(tool.capabilities).toEqual(['net.outbound']);
+  });
+
   it('throws when no chat_id provided and no default', async () => {
     const bot = makeBot();
     const tool = makeTelegramSendTool({
@@ -138,7 +151,7 @@ describe('telegram_send tool', () => {
     expect(result.message_id).toBe(42);
   });
 
-  it('uses provided chat_id over default', async () => {
+  it('uses an explicitly allowed chat_id over the paired default', async () => {
     const bot = makeBot();
     const sendSpy = vi.fn().mockResolvedValue({
       ok: true,
@@ -149,12 +162,55 @@ describe('telegram_send tool', () => {
     const tool = makeTelegramSendTool({
       bot,
       getDefaultChatId: () => '999',
+      getAllowedOutboundChatIds: () => ['111'],
       maxMessageLength: 4000,
       log,
     });
 
     await tool.execute({ chat_id: '111', message: 'hi' });
     expect(sendSpy).toHaveBeenCalledWith('111', expect.any(String));
+  });
+
+  it('rejects an untrusted chat_id before any bot call', async () => {
+    const bot = makeBot();
+    const sendSpy = vi.fn();
+    bot.sendMessage = sendSpy;
+    const tool = makeTelegramSendTool({
+      bot,
+      getDefaultChatId: () => '999',
+      getAllowedOutboundChatIds: () => ['111'],
+      maxMessageLength: 4000,
+      log,
+    });
+
+    await expect(tool.execute({ chat_id: '222', message: 'do not send' })).rejects.toThrow(
+      'not paired or included in allowedOutboundChats',
+    );
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  it('scrubs common raw credentials before sending', async () => {
+    const bot = makeBot();
+    const sendSpy = vi.fn().mockResolvedValue({ ok: true });
+    bot.sendMessage = sendSpy;
+    const tool = makeTelegramSendTool({
+      bot,
+      getDefaultChatId: () => '999',
+      maxMessageLength: 4000,
+      log,
+    });
+    const raw = 'sk-' + 'a'.repeat(24);
+    const botToken = `123456:${'BOT_TOKEN_CANARY_'.repeat(2)}`;
+
+    await tool.execute({
+      message: `Credential: ${raw}; Telegram: ${botToken}; TOKEN=CANARY_ENV_VALUE_DDD`,
+    });
+
+    const sent = String(sendSpy.mock.calls[0]?.[1]);
+    expect(sent).not.toContain(raw);
+    expect(sent).not.toContain(botToken);
+    expect(sent).not.toContain('CANARY_ENV_VALUE_DDD');
+    expect(sent).toContain('[REDACTED');
   });
 
   it('handles result without chat object', async () => {

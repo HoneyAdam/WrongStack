@@ -512,6 +512,36 @@ function mockSingleUpdate(update: Record<string, unknown>) {
 }
 
 describe('TelegramBot allowlist', () => {
+  it('fails closed when a user allowlist is configured but the message has no sender', async () => {
+    const onMessage = vi.fn();
+    const bot = new TelegramBot({
+      token: 'test:token',
+      pollIntervalSec: 0,
+      allowedUsers: new Set(['111']),
+      allowedChats: new Set<string>(),
+      bufferSize: 10,
+      log,
+      onMessage,
+    });
+
+    globalThis.fetch = mockSingleUpdate({
+      update_id: 1,
+      message: {
+        message_id: 99,
+        chat: { id: 555, type: 'channel' },
+        date: Math.floor(Date.now() / 1000),
+        text: 'sender identity omitted',
+      },
+    });
+
+    bot.start();
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(onMessage).not.toHaveBeenCalled();
+    expect(bot.bufferCount).toBe(0);
+    bot.stop();
+  });
+
   it('rejects users not in allowedUsers', async () => {
     const onMessage = vi.fn();
     const bot = new TelegramBot({
@@ -540,6 +570,70 @@ describe('TelegramBot allowlist', () => {
 
     expect(onMessage).not.toHaveBeenCalled();
     expect(bot.bufferCount).toBe(0);
+    bot.stop();
+  });
+
+  it('does not send an unauthorized-user reply into a non-allowlisted chat', async () => {
+    const onMessage = vi.fn();
+    const fetchSpy = mockSingleUpdate({
+      update_id: 1,
+      message: {
+        message_id: 100,
+        from: { id: 999, is_bot: false, first_name: 'BadActor' },
+        chat: { id: 666, type: 'group' },
+        date: Math.floor(Date.now() / 1000),
+        text: 'dual denial',
+      },
+    });
+    globalThis.fetch = fetchSpy;
+    const bot = new TelegramBot({
+      token: 'test:token',
+      pollIntervalSec: 0,
+      allowedUsers: new Set(['111']),
+      allowedChats: new Set(['555']),
+      bufferSize: 10,
+      log,
+      onMessage,
+    });
+
+    bot.start();
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(onMessage).not.toHaveBeenCalled();
+    expect(bot.bufferCount).toBe(0);
+    expect(fetchSpy.mock.calls.some(([url]) => String(url).endsWith('/sendMessage'))).toBe(false);
+    bot.stop();
+  });
+
+  it('allows messages when both identity constraints are intentionally empty', async () => {
+    const onMessage = vi.fn();
+    const bot = new TelegramBot({
+      token: 'test:token',
+      pollIntervalSec: 0,
+      allowedUsers: new Set<string>(),
+      allowedChats: new Set<string>(),
+      bufferSize: 10,
+      log,
+      onMessage,
+    });
+
+    globalThis.fetch = mockSingleUpdate({
+      update_id: 1,
+      message: {
+        message_id: 100,
+        chat: { id: 555, type: 'channel' },
+        date: Math.floor(Date.now() / 1000),
+        text: 'explicit public message',
+      },
+    });
+
+    bot.start();
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(onMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'explicit public message', userId: undefined }),
+    );
+    expect(bot.bufferCount).toBe(1);
     bot.stop();
   });
 

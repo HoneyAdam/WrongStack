@@ -2,6 +2,7 @@ import type { Logger } from '@wrongstack/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TelegramBot } from '../../src/bot.js';
 import { makeTelegramApproveTool } from '../../src/tools/telegram-approve.js';
+import { TELEGRAM_APPROVAL_CAPABILITY } from '../../src/security/outbound.js';
 
 const log: Logger = {
   level: 'debug',
@@ -57,6 +58,15 @@ describe('telegram_approve tool', () => {
     globalThis.fetch = _originalFetch;
   });
 
+  it('declares its explicit narrow approval capability and network mutation', () => {
+    const tool = makeTool(makeBot());
+
+    expect(tool.permission).toBe('auto');
+    expect(tool.mutating).toBe(true);
+    expect(tool.riskTier).toBe('standard');
+    expect(tool.capabilities).toEqual([TELEGRAM_APPROVAL_CAPABILITY]);
+  });
+
   it('returns approved=false and fromUser=timeout when no callback arrives', async () => {
     const bot = makeBot();
     const tool = makeTool(bot);
@@ -102,6 +112,42 @@ describe('telegram_approve tool', () => {
     });
 
     await expect(tool.execute({ prompt: 'x' })).rejects.toThrow('No chat_id provided');
+  });
+
+  it('rejects an untrusted chat_id before sending a prompt', async () => {
+    const bot = makeBot();
+    const sendSpy = vi.spyOn(bot, 'sendMessageWithKeyboard');
+    const tool = makeTelegramApproveTool({
+      bot,
+      getDefaultChatId: () => '999',
+      getAllowedOutboundChatIds: () => ['111'],
+      maxMessageLength: 4000,
+      log,
+    });
+
+    await expect(tool.execute({ chat_id: '222', prompt: 'x' })).rejects.toThrow(
+      'not paired or included in allowedOutboundChats',
+    );
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  it('scrubs credentials in both prompt and details before sending', async () => {
+    const bot = makeBot();
+    const tool = makeTool(bot);
+    const raw = 'sk-' + 'b'.repeat(24);
+    const botToken = `654321:${'APPROVAL_BOT_CANARY_'.repeat(2)}`;
+
+    await tool.execute({
+      prompt: `Approve ${raw}?`,
+      details: `Telegram ${botToken}; TOKEN=CANARY_APPROVAL_SECRET_DDD`,
+      timeout_ms: 100,
+    });
+
+    const prompt = sentBodies.find((body) => body.includes('Approve')) ?? '';
+    expect(prompt).not.toContain(raw);
+    expect(prompt).not.toContain(botToken);
+    expect(prompt).not.toContain('CANARY_APPROVAL_SECRET_DDD');
+    expect(prompt).toContain('[REDACTED');
   });
 
   it('caps timeout_ms to the documented 600 000 ms ceiling', async () => {

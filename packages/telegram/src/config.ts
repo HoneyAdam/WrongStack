@@ -2,6 +2,10 @@ import type { PluginAPI } from '@wrongstack/core';
 
 export const PLUGIN_NAME = 'telegram';
 
+export type TelegramInboundMode = 'disabled' | 'paired' | 'allowlist' | 'public';
+
+const INBOUND_MODES = ['disabled', 'paired', 'allowlist', 'public'] as const;
+
 export interface TelegramPluginConfig {
   /** Telegram Bot API token (from @BotFather). */
   botToken: string;
@@ -11,15 +15,17 @@ export interface TelegramPluginConfig {
    */
   notifyChatId?: string | number | undefined;
   /**
-   * List of user/chat IDs allowed to interact with the bot.
-   * Empty = allow all. Recommended to set in production.
+   * Controls who may send inbound messages to the bot. Defaults to `disabled`
+   * for new/unpaired configurations. Legacy configurations are migrated to
+   * `allowlist` when IDs exist, or `paired` when `notifyChatId` exists.
    */
+  inboundMode?: TelegramInboundMode | undefined;
+  /** List of user IDs accepted when `inboundMode` is `allowlist`. */
   allowedUsers?: Array<string | number> | undefined;
-  /**
-   * List of group/chat IDs the bot is allowed to read from.
-   * Empty = allow all. Narrow this to prevent noise.
-   */
+  /** List of chat IDs accepted when `inboundMode` is `allowlist`. */
   allowedChats?: Array<string | number> | undefined;
+  /** Additional trusted targets for outbound sends beyond `notifyChatId`. */
+  allowedOutboundChats?: Array<string | number> | undefined;
   /** Polling interval in seconds (default: 2). */
   pollIntervalSec?: number | undefined;
   /** Notify on Telegram when a session ends. */
@@ -47,9 +53,13 @@ export interface TelegramPluginConfig {
   singleInstanceLock?: boolean | undefined;
 }
 
-export const DEFAULT_CONFIG: Required<Omit<TelegramPluginConfig, 'botToken' | 'notifyChatId' | 'offsetStoragePath'>> = {
+export const DEFAULT_CONFIG: Required<
+  Omit<TelegramPluginConfig, 'botToken' | 'notifyChatId' | 'offsetStoragePath'>
+> = {
+  inboundMode: 'disabled',
   allowedUsers: [],
   allowedChats: [],
+  allowedOutboundChats: [],
   pollIntervalSec: 2,
   notifyOnSessionEnd: false,
   longToolThresholdMs: 30_000,
@@ -66,15 +76,27 @@ export const telegramConfigSchema = {
       oneOf: [{ type: 'string' }, { type: 'integer' }],
       description: 'Default chat ID for outgoing notifications',
     },
+    inboundMode: {
+      type: 'string',
+      enum: [...INBOUND_MODES],
+      default: 'disabled',
+      description:
+        'Inbound access: disabled, paired to notifyChatId, restricted by allowlists, or explicitly public',
+    },
     allowedUsers: {
       type: 'array',
       items: { oneOf: [{ type: 'string' }, { type: 'integer' }] },
-      description: 'User IDs allowed to interact with the bot',
+      description: 'User IDs accepted when inboundMode is allowlist',
     },
     allowedChats: {
       type: 'array',
       items: { oneOf: [{ type: 'string' }, { type: 'integer' }] },
-      description: 'Chat IDs the bot is allowed to read from',
+      description: 'Chat IDs accepted when inboundMode is allowlist',
+    },
+    allowedOutboundChats: {
+      type: 'array',
+      items: { oneOf: [{ type: 'string' }, { type: 'integer' }] },
+      description: 'Additional trusted targets for outbound Telegram sends',
     },
     pollIntervalSec: {
       type: 'integer',
@@ -88,14 +110,15 @@ export const telegramConfigSchema = {
     maxMessageLength: { type: 'integer', minimum: 100, maximum: 4096 },
     singleInstanceLock: {
       type: 'boolean',
-      description: 'Elect a single getUpdates poller per bot token across wstack instances (default true)',
+      description:
+        'Elect a single getUpdates poller per bot token across wstack instances (default true)',
     },
   },
   required: ['botToken'],
 };
 
 export function readTelegramConfig(
-  api: Pick<PluginAPI, 'config'>,
+  api: Pick<PluginAPI, 'config'> & Partial<Pick<PluginAPI, 'log'>>,
 ): Required<Omit<TelegramPluginConfig, 'notifyChatId' | 'offsetStoragePath'>> &
   Pick<TelegramPluginConfig, 'notifyChatId' | 'offsetStoragePath'> {
   const config = api.config as never as Record<string, unknown>;
@@ -105,14 +128,61 @@ export function readTelegramConfig(
   const legacyOpts =
     legacyPlugins && !Array.isArray(legacyPlugins) ? legacyPlugins[PLUGIN_NAME] : undefined;
   const entryOpts = pluginOptionsFromEntries(pluginEntries);
+  const extensionOpts = extensions?.[PLUGIN_NAME];
   const opts = {
     ...((legacyOpts ?? entryOpts) as TelegramPluginConfig),
-    ...((extensions?.[PLUGIN_NAME] ?? {}) as TelegramPluginConfig),
+    ...((extensionOpts ?? {}) as TelegramPluginConfig),
   };
+  const inboundMode = resolveInboundMode(opts, {
+    configured: legacyOpts !== undefined || entryOpts !== undefined || extensionOpts !== undefined,
+    warn: api.log?.warn.bind(api.log),
+  });
+
   return {
     ...DEFAULT_CONFIG,
     ...opts,
+    inboundMode,
   };
+}
+
+function resolveInboundMode(
+  opts: TelegramPluginConfig,
+  migration: { configured: boolean; warn?: ((message: string) => void) | undefined },
+): TelegramInboundMode {
+  if (opts.inboundMode !== undefined) {
+    if (!INBOUND_MODES.includes(opts.inboundMode)) {
+      throw new Error(
+        `Invalid telegram inboundMode "${String(opts.inboundMode)}". Expected one of: ${INBOUND_MODES.join(', ')}.`,
+      );
+    }
+    if (
+      opts.inboundMode === 'allowlist' &&
+      !hasEntries(opts.allowedUsers) &&
+      !hasEntries(opts.allowedChats)
+    ) {
+      throw new Error(
+        'Telegram inboundMode "allowlist" requires at least one allowedUsers or allowedChats entry.',
+      );
+    }
+    if (opts.inboundMode === 'paired' && opts.notifyChatId === undefined) {
+      throw new Error('Telegram inboundMode "paired" requires notifyChatId.');
+    }
+    return opts.inboundMode;
+  }
+
+  if (hasEntries(opts.allowedUsers) || hasEntries(opts.allowedChats)) return 'allowlist';
+
+  const inferredMode: TelegramInboundMode = opts.notifyChatId === undefined ? 'disabled' : 'paired';
+  if (migration.configured) {
+    migration.warn?.(
+      `Telegram inbound access no longer defaults to public when allowedUsers and allowedChats are empty; inferred inboundMode "${inferredMode}". Set inboundMode "public" explicitly to preserve legacy allow-all behavior.`,
+    );
+  }
+  return inferredMode;
+}
+
+function hasEntries(values: Array<string | number> | undefined): boolean {
+  return Array.isArray(values) && values.length > 0;
 }
 
 function pluginOptionsFromEntries(entries: unknown): TelegramPluginConfig | undefined {

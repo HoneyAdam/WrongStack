@@ -2,11 +2,7 @@ import type { Logger } from '@wrongstack/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TelegramBot } from '../../src/bot.js';
 import type { TelegramPluginConfig } from '../../src/config.js';
-import {
-  tgChatIdCommand,
-  tgSendCommand,
-  tgHealthCommand,
-} from '../../src/slash-commands/index.js';
+import { tgChatIdCommand, tgHealthCommand, tgSendCommand } from '../../src/slash-commands/index.js';
 
 const log: Logger = {
   level: 'debug',
@@ -211,7 +207,7 @@ describe('tgSendCommand', () => {
     expect(res?.message).toContain('Usage:');
   });
 
-  it('sends with explicit chat_id in args', async () => {
+  it('sends with an explicitly allowed chat_id in args', async () => {
     const bot = makeBot();
     const sendSpy = vi.fn().mockResolvedValue({
       ok: true,
@@ -219,13 +215,60 @@ describe('tgSendCommand', () => {
     });
     bot.sendMessage = sendSpy;
 
-    const cmd = tgSendCommand(bot, '999');
+    const cmd = tgSendCommand(bot, {
+      getDefaultChatId: () => '999',
+      getAllowedOutboundChatIds: () => ['123456'],
+    });
     const res = await cmd.run('123456 Hello world!', null as never);
 
     expect(sendSpy).toHaveBeenCalledWith('123456', 'Hello world!');
     expect(res?.message).toContain('✅');
     expect(res?.message).toContain('123456');
     expect(res?.message).toContain('msg_id=42');
+  });
+
+  it('rejects an untrusted explicit chat_id before any bot call', async () => {
+    const bot = makeBot();
+    const sendSpy = vi.fn();
+    bot.sendMessage = sendSpy;
+
+    const cmd = tgSendCommand(bot, {
+      getDefaultChatId: () => '999',
+      getAllowedOutboundChatIds: () => ['123456'],
+    });
+    const res = await cmd.run('222222 Do not send', null as never);
+
+    expect(res?.message).toContain('not paired or included in allowedOutboundChats');
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  it('supports a trusted negative supergroup chat_id', async () => {
+    const bot = makeBot();
+    const sendSpy = vi.fn().mockResolvedValue({ ok: true, result: { message_id: 9 } });
+    bot.sendMessage = sendSpy;
+
+    const cmd = tgSendCommand(bot, {
+      getDefaultChatId: () => '999',
+      getAllowedOutboundChatIds: () => ['-100123'],
+    });
+    await cmd.run('-100123 Release complete', null as never);
+
+    expect(sendSpy).toHaveBeenCalledWith('-100123', 'Release complete');
+  });
+
+  it('scrubs credentials before slash-command sends', async () => {
+    const bot = makeBot();
+    const sendSpy = vi.fn().mockResolvedValue({ ok: true, result: { message_id: 10 } });
+    bot.sendMessage = sendSpy;
+    const raw = `sk-${'z'.repeat(24)}`;
+
+    const cmd = tgSendCommand(bot, '999');
+    await cmd.run(`Credential ${raw}; TOKEN=SLASH_SECRET_CANARY_DDD`, null as never);
+
+    const sent = String(sendSpy.mock.calls[0]?.[1]);
+    expect(sent).not.toContain(raw);
+    expect(sent).not.toContain('SLASH_SECRET_CANARY_DDD');
+    expect(sent).toContain('[REDACTED');
   });
 
   it('uses default chatId when no id in args', async () => {

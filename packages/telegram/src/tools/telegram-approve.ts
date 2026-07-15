@@ -1,8 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import type { Tool } from '@wrongstack/core';
-import type { Logger } from '@wrongstack/core';
+import type { Logger, Tool } from '@wrongstack/core';
 import type { TelegramBot } from '../bot.js';
 import { truncateForTelegram } from '../bot.js';
+import {
+  resolveTelegramOutboundTarget,
+  scrubTelegramOutboundText,
+  TELEGRAM_APPROVAL_CAPABILITY,
+  type TelegramChatId,
+} from '../security/outbound.js';
 
 interface TelegramApproveInput {
   /** Short label for what's being approved (≤ 60 chars). Shown as the prompt heading. */
@@ -39,14 +44,17 @@ interface TelegramApproveOutput {
  */
 export function makeTelegramApproveTool(opts: {
   bot: TelegramBot;
-  getDefaultChatId(): string | number | undefined;
+  /** Paired/default target, resolved on every call for live config updates. */
+  getDefaultChatId(): TelegramChatId | undefined;
+  /** Additional trusted targets, resolved on every call for live config updates. */
+  getAllowedOutboundChatIds?(): readonly TelegramChatId[];
   maxMessageLength: number;
   log: Logger;
 }): Tool<TelegramApproveInput, TelegramApproveOutput> {
   return {
     name: 'telegram_approve',
     description:
-      'Post a yes/no approval prompt to a Telegram chat with inline keyboard buttons, and wait for the user to tap one. Returns { approved, from } where approved=false on timeout or explicit deny. Use this when you need explicit human confirmation before proceeding (destructive ops, irreversible deploys, ambiguous choices).',
+      'Post a scrubbed yes/no prompt only to the paired Telegram chat or an explicitly allowed outbound chat, then wait for a button press. Returns { approved, from }; false means timeout, rejection, or explicit deny. This narrow capability requests remote approval but does not itself authorize or perform the proposed operation.',
     usageHint: 'telegram_approve(prompt: "Delete build artifacts?", details: "Frees 2.3 GB. Cannot be undone.", timeout_ms: 60000)',
     category: 'Telegram',
     inputSchema: {
@@ -76,15 +84,12 @@ export function makeTelegramApproveTool(opts: {
       required: ['prompt'],
     },
     permission: 'auto',
-    mutating: false,
+    mutating: true,
+    riskTier: 'standard',
+    capabilities: [TELEGRAM_APPROVAL_CAPABILITY],
     timeoutMs: 610_000,
     async execute(input, _ctx, _toolOpts) {
-      const chatId = input.chat_id ?? opts.getDefaultChatId();
-      if (!chatId) {
-        throw new Error(
-          'No chat_id provided and no default notifyChatId configured. Set notifyChatId in plugin config or pass chat_id.',
-        );
-      }
+      const chatId = resolveTelegramOutboundTarget(input.chat_id, opts);
       const timeoutMs = Math.min(Math.max(input.timeout_ms ?? 60_000, 1000), 600_000);
 
       // Stable key so the callback update can be matched back to this call.
@@ -92,11 +97,17 @@ export function makeTelegramApproveTool(opts: {
       const yesKey = `approve:${token}:yes`;
       const noKey = `approve:${token}:no`;
 
-      const heading = `⚠️ ${input.prompt}`;
-      const detailsLine = input.details ? `\n\n${truncateForTelegram(input.details, 800)}` : '';
+      // Scrub every user-controlled outbound field before truncation so raw
+      // credentials never reach Telegram, even inside an approval prompt.
+      const prompt = scrubTelegramOutboundText(input.prompt);
+      const details = input.details
+        ? truncateForTelegram(scrubTelegramOutboundText(input.details), 800)
+        : undefined;
+      const heading = `⚠️ ${prompt}`;
+      const detailsLine = details ? `\n\n${details}` : '';
       const text = `${heading}${detailsLine}\n\n_Reply by tapping a button. Auto-denies in ${Math.round(timeoutMs / 1000)}s._`;
 
-      opts.log.info(`telegram_approve → chat_id=${chatId} prompt="${input.prompt.slice(0, 80)}" token=${token}`);
+      opts.log.info(`telegram_approve → chat_id=${chatId} (${prompt.length} prompt chars)`);
 
       let promptMessageId: number | undefined;
       try {

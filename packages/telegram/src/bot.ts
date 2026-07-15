@@ -471,17 +471,37 @@ export class TelegramBot {
     }
   }
 
+  /**
+   * Apply the inbound identity policy to every update type. A non-empty set is
+   * a mandatory constraint: missing identity fails closed instead of bypassing
+   * the allowlist. An empty set leaves that identity dimension unrestricted.
+   */
+  private inboundDenialReason(
+    userId: string | undefined,
+    chatId: string | undefined,
+  ): 'user' | 'chat' | undefined {
+    // Check the chat first so a doubly-blocked message cannot trigger an
+    // unauthorized-user reply into an arbitrary, non-allowlisted chat.
+    if (this.allowedChats.size > 0 && (chatId === undefined || !this.allowedChats.has(chatId))) {
+      return 'chat';
+    }
+    if (this.allowedUsers.size > 0 && (userId === undefined || !this.allowedUsers.has(userId))) {
+      return 'user';
+    }
+    return undefined;
+  }
+
   private processMessage(msg: TgMessage & { text: string }): void {
     const chatId = String(msg.chat.id);
     const userId = msg.from ? String(msg.from.id) : undefined;
+    const denialReason = this.inboundDenialReason(userId, chatId);
 
-    // Allowlist checks
-    if (this.allowedUsers.size > 0 && userId && !this.allowedUsers.has(userId)) {
-      this.log.debug(`Ignoring message from user ${userId} (not in allowedUsers)`);
+    if (denialReason === 'user') {
+      this.log.debug(`Ignoring message from user ${userId ?? 'unknown'} (not in allowedUsers)`);
       void this.sendMessage(chatId, '⛔ You are not authorized to interact with this bot.');
       return;
     }
-    if (this.allowedChats.size > 0 && !this.allowedChats.has(chatId)) {
+    if (denialReason === 'chat') {
       this.log.debug(`Ignoring message from chat ${chatId} (not in allowedChats)`);
       return;
     }
@@ -527,27 +547,16 @@ export class TelegramBot {
 
   private async dispatchCallback(cq: TgCallbackQuery): Promise<void> {
     const key = cq.data ?? '';
-    // Allowlist — mirror `processMessage` semantics so a user blocked from
-    // sending messages cannot drive approval buttons either. Without this,
-    // `telegram_approve` could be hijacked: an attacker who knows or guesses
-    // the 16-hex token (the timeout window is generous — up to 10 minutes)
-    // could press a button on a prompt the agent sent to a different user.
-    if (cq.from) {
-      const userId = String(cq.from.id);
-      if (this.allowedUsers.size > 0 && !this.allowedUsers.has(userId)) {
-        this.log.warn(
-          `Ignoring callback_query from non-allowlisted user ${userId} (data="${key}") — possible hijack attempt.`,
-        );
-        await this.answerCallback(cq.id, '⛔ Not authorized', true);
-        this.rejectWaiter(key, 'blocked');
-        return;
-      }
-    }
+    // Use the same policy as messages so callback_query cannot bypass inbound
+    // authorization through an omitted `from` or `message` identity.
+    const userId = cq.from?.id !== undefined ? String(cq.from.id) : undefined;
     const chatId =
       cq.message?.chat.id !== undefined ? String(cq.message.chat.id) : undefined;
-    if (chatId !== undefined && this.allowedChats.size > 0 && !this.allowedChats.has(chatId)) {
+    const denialReason = this.inboundDenialReason(userId, chatId);
+    if (denialReason) {
+      const identity = denialReason === 'user' ? (userId ?? 'unknown') : (chatId ?? 'unknown');
       this.log.warn(
-        `Ignoring callback_query from non-allowlisted chat ${chatId} (data="${key}") — possible hijack attempt.`,
+        `Ignoring callback_query from non-allowlisted ${denialReason} ${identity} (data="${key}") — possible hijack attempt.`,
       );
       await this.answerCallback(cq.id, '⛔ Not authorized', true);
       this.rejectWaiter(key, 'blocked');
