@@ -42,6 +42,19 @@ export interface CouncilOrchestratorOptions {
   refusalOptionId?: string | undefined;
   /** Live config accessor for fallback profile resolution. */
   getConfig?: (() => Config) | undefined;
+  /**
+   * Per-seat LLM caller factory. When set, each seat gets its own caller
+   * instead of the shared `caller`. The factory receives (seatIndex) and
+   * returns a CouncilLLMCaller. Used by Brain council arbitration where
+   * each voter has its own Provider instance.
+   */
+  seatCaller?: ((seatIndex: number) => CouncilLLMCaller) | undefined;
+  /**
+   * Separate caller for the judge seat. Required when `seatCaller` is set
+   * because the judge uses the shared caller path. When absent and
+   * `seatCaller` is set, the judge falls back to `seatCaller(0)`.
+   */
+  judgeCaller?: CouncilLLMCaller | undefined;
 }
 
 interface ParsedVote {
@@ -72,6 +85,8 @@ export class CouncilOrchestrator {
   private readonly maxConcurrency: number;
   private readonly refusalOptionId: string;
   private readonly getConfig: (() => Config) | undefined;
+  private readonly seatCaller: ((seatIndex: number) => CouncilLLMCaller) | undefined;
+  private readonly judgeCaller: CouncilLLMCaller | undefined;
 
   constructor(opts: CouncilOrchestratorOptions) {
     this.caller = opts.caller;
@@ -83,6 +98,8 @@ export class CouncilOrchestrator {
     );
     this.refusalOptionId = opts.refusalOptionId?.trim() || COUNCIL_REFUSAL_OPTION_ID;
     this.getConfig = opts.getConfig;
+    this.seatCaller = opts.seatCaller;
+    this.judgeCaller = opts.judgeCaller;
   }
 
   async ask(question: CouncilQuestion): Promise<CouncilResult> {
@@ -108,9 +125,9 @@ export class CouncilOrchestrator {
     const votes = await mapConcurrent(
       profile.seats,
       Math.min(this.maxConcurrency, profile.seats.length),
-      async (seat) => {
+      async (seat, i) => {
         try {
-          return await this.callSeat(question, profile, seat, signal, usage);
+          return await this.callSeat(question, profile, seat, i, signal, usage);
         } catch (error) {
           return {
             seatId: seat.id,
@@ -181,6 +198,7 @@ export class CouncilOrchestrator {
     question: CouncilQuestion,
     profile: ResolvedCouncilProfile,
     seat: ResolvedCouncilSeat,
+    seatIndex: number,
     signal: AbortSignal,
     usage: UsageAccumulator,
   ): Promise<CouncilVoteResult> {
@@ -206,6 +224,7 @@ export class CouncilOrchestrator {
       timeoutMs: profile.perCallTimeoutMs,
       signal,
       usage,
+      seatIndex,
     });
 
     const metadata = callMetadata(result);
@@ -499,11 +518,17 @@ export class CouncilOrchestrator {
     timeoutMs: number;
     signal: AbortSignal;
     usage: UsageAccumulator;
+    seatIndex?: number | undefined;
   }): Promise<OneShotLLMResult> {
+    const effectiveCaller =
+      input.seatIndex !== undefined && this.seatCaller
+        ? this.seatCaller(input.seatIndex)
+        : this.judgeCaller ?? this.caller;
+
     const resolvedTarget = this.resolveCouncilTarget(input.target);
 
     try {
-      const result = await this.caller.call({
+      const result = await effectiveCaller.call({
         system: input.system,
         userPrompt: input.userPrompt,
         responseFormat: { type: 'json_object' },
@@ -568,6 +593,13 @@ function parseVote(
   refusalOptionId: string,
 ): { ok: true; vote: ParsedVote } | { ok: false; error: string } {
   const parsed = parseObject(text);
+  if (!parsed.ok && (!question.options || question.options.length === 0)) {
+    // Optionless: if JSON parsing fails, use the raw text as stance
+    // (backward compat with old council-brain behavior).
+    const fallback = text.trim();
+    if (fallback) return { ok: true, vote: { stance: fallback } };
+    return { ok: false, error: 'Voter returned an empty response.' };
+  }
   if (!parsed.ok) return parsed;
   const rationale = optionalString(parsed.value['rationale']);
   if (question.options && question.options.length > 0) {
@@ -589,6 +621,12 @@ function parseJudge(
   refusalOptionId: string,
 ): { ok: true; value: ParsedJudge } | { ok: false; error: string } {
   const parsed = parseObject(text);
+  if (!parsed.ok && (!question.options || question.options.length === 0)) {
+    // Optionless: if JSON parsing fails, use raw text as answer
+    const fallback = text.trim();
+    if (fallback) return { ok: true, value: { answer: fallback } };
+    return { ok: false, error: 'Judge returned an empty response.' };
+  }
   if (!parsed.ok) return parsed;
   const rationale = optionalString(parsed.value['rationale']);
   if (question.options && question.options.length > 0) {

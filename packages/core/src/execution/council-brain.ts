@@ -1,33 +1,17 @@
 /**
  * CouncilBrainArbiter — a multi-LLM decision panel for high-stakes questions.
  *
- * Instead of trusting one model's single completion, the council convenes N
- * independent voters (ideally different models/providers), each with a
- * distinct decision persona:
+ * A thin adapter over CouncilOrchestrator. Each CouncilVoter becomes a seat
+ * with its OWN Provider via per-seat CouncilLLMCaller, so multi-provider
+ * panels work correctly (no voters[0] collapsing).
  *
+ * Decision lenses (personas):
  *   - executor — biased toward forward progress; hates stalling.
  *   - skeptic  — hunts for the reason the proposed action is wrong; may veto.
  *   - auditor  — cost/waste/budget lens; hates throwing tokens at dead ends.
- *
- * Votes are cast INDEPENDENTLY (no voter sees another's rationale), then
- * tallied with weights. Resolution ladder:
- *
- *   1. QUORUM  — fewer than `quorumFraction` of seats returned a valid vote
- *      → the council abstains (`ask_human`), letting the escalation tier
- *      (human prompt or headless terminal policy) resolve it.
- *   2. VETO    — a veto seat explicitly refusing denies the request outright.
- *   3. MAJORITY — the option with the highest total weight wins when it
- *      exceeds `approvalFraction` of all cast weight.
- *   4. JUDGE   — ties / weak pluralities go to a judge model that sees every
- *      vote's rationale and issues the final structured decision. No judge
- *      (or judge failure) → abstain (`ask_human`).
- *
- * Optionless (free-text) requests skip the tally: every voter writes an
- * independent stance and the judge synthesizes the final answer; without a
- * judge, the first valid stance wins.
- *
- * The council NEVER blocks on a human itself — its worst case is an
- * `ask_human` abstention that the outer escalation tier resolves.
+ *   - security — examines trust boundaries, abuse cases, security impact.
+ *   - maintainer   — evaluates complexity, compatibility, long-term ownership.
+ *   - user-advocate — evaluates from the affected user's perspective.
  *
  * @module council-brain
  */
@@ -35,19 +19,19 @@
 import type {
   BrainArbiter,
   BrainDecision,
-  BrainDecisionOption,
   BrainDecisionRequest,
 } from '../coordination/brain.js';
-import { readBundledInstructionText } from '../utils/instruction-file.js';
-import { resolveCouncilVotes } from './council-resolution.js';
 import {
   type BrainLlmTarget,
-  buildBrainUserMessage,
   completeBrainLlm,
-  formatDecisionSummary,
-  parseOptionDecision,
-  withDecisionDigest,
 } from './autonomy-brain.js';
+import { CouncilOrchestrator } from './council-orchestrator.js';
+import type { CouncilLLMCaller, CouncilModelTarget, CouncilProfileConfig, CouncilSeatConfig } from '../types/council.js';
+import type { OneShotLLMInput, OneShotLLMResult } from '../types/one-shot-llm.js';
+
+export const COUNCIL_REFUSE_OPTION_ID = 'council_refuse';
+
+// ── Config ─────────────────────────────────────────────────────────────────
 
 /** One voting seat on the council. */
 export interface CouncilVoter extends BrainLlmTarget {
@@ -56,332 +40,226 @@ export interface CouncilVoter extends BrainLlmTarget {
    * string is injected verbatim as the persona description.
    */
   persona?: string | undefined;
-  /** Vote weight in the tally. Default 1. */
+  /** Vote weight. Default 1. */
   weight?: number | undefined;
-  /** When true, this seat's explicit refusal denies the request outright. */
+  /** A refusal from this seat immediately denies the proposal. */
   veto?: boolean | undefined;
+  /** Display label for status/logs. Defaults to model. */
+  label?: string | undefined;
 }
 
 export interface CouncilBrainOptions {
   voters: CouncilVoter[];
-  /** Tie-breaker / synthesizer. Default: none (ties abstain to escalation). */
+  /** Tie-breaker / synthesizer. Default: none (ties call for human). */
   judge?: BrainLlmTarget | undefined;
-  /** Fraction of seats that must return a valid vote. Default 0.5. */
+  /** Fraction of voters that must vote. Default 0.5. */
   quorumFraction?: number | undefined;
-  /** Fraction of cast weight the winning option must EXCEED. Default 0.5. */
+  /** Winning option weight must exceed this fraction. Default 0.5. */
   approvalFraction?: number | undefined;
-  /** Per-voter (and judge) completion timeout in ms. Default 15000. */
+  /** Per-voter completion timeout in ms. Default 15 000. */
   decisionTimeoutMs?: number | undefined;
-  /**
-   * Decision-history digest (typically `BrainDecisionLedger.digestFor`) —
-   * appended to every voter's user message so the panel sees how similar
-   * past decisions turned out.
-   */
+  /** Optional digest of past decisions for context. */
   getDecisionDigest?: ((request: BrainDecisionRequest) => string | undefined) | undefined;
-  /** Called with a human-readable summary after every council decision. */
-  onDecision?:
-    | ((summary: string, decision: BrainDecision, request: BrainDecisionRequest) => void)
-    | undefined;
 }
+
+// ── Factory ────────────────────────────────────────────────────────────────
 
 /**
- * Synthetic ballot entry that lets any voter refuse every real option. Kept
- * deliberately awkward so it can never collide with a caller option id; if
- * it somehow does, the synthetic entry is skipped for that request.
- */
-export const COUNCIL_REFUSE_OPTION_ID = 'council_refuse';
-
-const BUILTIN_PERSONAS: Record<string, string> = {
-  executor:
-    'PERSONA: You hold the EXECUTOR seat. You are biased toward forward ' +
-    'progress — stalled work is the failure mode you exist to prevent. ' +
-    'Favor the option that keeps the system moving, unless doing so is ' +
-    'clearly reckless.',
-  skeptic:
-    'PERSONA: You hold the SKEPTIC seat. Your job is to find the concrete ' +
-    'reason the proposed action is wrong, unsafe, or based on a false ' +
-    'premise. If you find one, vote against it or refuse. Do not oppose ' +
-    'for its own sake — a sound proposal deserves your vote.',
-  auditor:
-    'PERSONA: You hold the AUDITOR seat. You judge through the cost/waste ' +
-    'lens: budget already burned, expected cost of each option, and the ' +
-    'odds of throwing resources at a dead end. Prefer the option with the ' +
-    'best expected value per token spent.',
-};
-
-interface CastVote {
-  seatId: string;
-  voter: CouncilVoter;
-  optionId: string;
-  rationale: string | undefined;
-}
-
-function personaText(persona: string | undefined): string {
-  if (!persona) return BUILTIN_PERSONAS['executor'] ?? '';
-  return BUILTIN_PERSONAS[persona] ?? `PERSONA: ${persona}`;
-}
-
-function voterLabel(voter: CouncilVoter, index: number): string {
-  return voter.label ?? `${voter.persona ?? 'voter'}#${index + 1} (${voter.model})`;
-}
-
-/** Ballot shown to voters: the caller's options plus the refuse entry. */
-function ballotOptions(request: BrainDecisionRequest): BrainDecisionOption[] {
-  const options = request.options ?? [];
-  if (options.some((o) => o.id === COUNCIL_REFUSE_OPTION_ID)) return options;
-  return [
-    ...options,
-    {
-      id: COUNCIL_REFUSE_OPTION_ID,
-      label: 'Refuse — none of these options should be taken',
-      consequence: 'The proposed action is not taken at all.',
-    },
-  ];
-}
-
-/**
- * Create a council-of-LLMs Brain arbiter. See the module docs for the
- * resolution ladder. Positioned by `createTieredBrainArbiter` above the
- * single-LLM tier for requests at/above the council risk floor.
+ * Create a council-of-LLMs Brain arbiter backed by CouncilOrchestrator
+ * with per-seat LLM callers — each voter's own Provider is used for its
+ * seat, avoiding the single-provider collapsing bug.
  */
 export function createCouncilBrainArbiter(opts: CouncilBrainOptions): BrainArbiter {
   if (opts.voters.length === 0) {
     throw new Error('createCouncilBrainArbiter: at least one voter is required.');
   }
-  const quorumFraction = opts.quorumFraction ?? 0.5;
-  const approvalFraction = opts.approvalFraction ?? 0.5;
-  const timeoutMs = opts.decisionTimeoutMs ?? 15_000;
-  const baseSystem = readBundledInstructionText('llm/autonomy-brain.md');
+
+  // ── Per-seat caller factory ──────────────────────────────────────────
+  // Each seat i gets a caller wrapping completeBrainLlm(voter[i], ...).
+  function makeSeatCallerForVoter(target: BrainLlmTarget): CouncilLLMCaller {
+    return {
+      async call(input: OneShotLLMInput): Promise<OneShotLLMResult> {
+        try {
+          const raw = await completeBrainLlm(
+            { provider: target.provider, model: input.model ?? target.model },
+            {
+              system: typeof input.system === 'string'
+                ? input.system
+                : Array.isArray(input.system)
+                  ? input.system.map((b) => b.text).join('\n')
+                  : '',
+              user: input.userPrompt ?? '',
+              timeoutMs: input.timeoutMs ?? 15_000,
+              maxTokens: input.maxTokens,
+            },
+          );
+          return {
+            text: raw,
+            model: target.model,
+            provider: target.provider.id,
+            tokens: { input: 0, output: 0, total: 0 },
+            durationMs: 0,
+            fromFallback: false,
+          };
+        } catch (error) {
+          return {
+            text: '',
+            model: target.model,
+            provider: target.provider.id,
+            tokens: { input: 0, output: 0, total: 0 },
+            durationMs: 0,
+            fromFallback: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+    };
+  }
+
+  const seatCaller = (seatIndex: number): CouncilLLMCaller => {
+    const voter = opts.voters[seatIndex];
+    if (!voter) {
+      return {
+        async call(_input: OneShotLLMInput): Promise<OneShotLLMResult> {
+          return {
+            text: '',
+            model: '',
+            provider: '',
+            tokens: { input: 0, output: 0, total: 0 },
+            durationMs: 0,
+            fromFallback: false,
+            error: `No voter at index ${seatIndex}.`,
+          };
+        },
+      };
+    }
+    return makeSeatCallerForVoter(voter);
+  };
+
+  // ── Build a dynamic profile from voters ──────────────────────────────
+  const seats: CouncilSeatConfig[] = opts.voters.map((voter, i) => ({
+    id: `voter-${i}`,
+    label: voter.label ?? voter.model,
+    persona: voter.persona ?? 'executor',
+    target: {
+      providerId: voter.provider.id,
+      model: voter.model,
+      role: voter.persona ?? 'executor',
+    } satisfies CouncilModelTarget,
+    weight: voter.weight,
+    veto: voter.veto,
+  }));
+
+  const judgeTarget = opts.judge
+    ? ({
+        providerId: opts.judge.provider.id,
+        model: opts.judge.model,
+        role: 'judge',
+      } satisfies CouncilModelTarget)
+    : false;
+
+  const profile: CouncilProfileConfig = {
+    id: 'brain-council-adapter',
+    seats,
+    judge: judgeTarget,
+    quorumFraction: opts.quorumFraction ?? 0.5,
+    approvalFraction: opts.approvalFraction ?? 0.5,
+    perCallTimeoutMs: opts.decisionTimeoutMs ?? 15_000,
+    distinctness: 'none',
+  };
+
+  // ── Orchestrator with per-seat callers ───────────────────────────────
+  // Shared caller is unused when seatCaller is set, but required by the
+  // CouncilOrchestrator constructor. We provide a no-op fallback.
+  const noopCaller: CouncilLLMCaller = {
+    async call(): Promise<OneShotLLMResult> {
+      return {
+        text: '',
+        model: '',
+        provider: '',
+        tokens: { input: 0, output: 0, total: 0 },
+        durationMs: 0,
+        fromFallback: false,
+        error: 'Per-seat caller must be used.',
+      };
+    },
+  };
+
+  const orchestrator = new CouncilOrchestrator({
+    caller: noopCaller,
+    defaultProfile: 'brain-council-adapter',
+    seatCaller,
+    judgeCaller: opts.judge
+      ? makeSeatCallerForVoter(opts.judge)
+      : undefined,
+  });
+
+  // ── Finish helpers ───────────────────────────────────────────────────
+
+  function finish(_request: BrainDecisionRequest, decision: BrainDecision): BrainDecision {
+    return decision;
+  }
 
   const abstain = (request: BrainDecisionRequest, why: string): BrainDecision => ({
     type: 'ask_human',
     prompt: `Council abstained (${why}): ${request.question}`,
     options: request.options,
-    rationale: `Council could not reach a decision: ${why}.`,
+    rationale: `Temporary user escalation because ${why}.`,
   });
 
-  const finish = (request: BrainDecisionRequest, decision: BrainDecision): BrainDecision => {
-    opts.onDecision?.(formatDecisionSummary(decision, request), decision, request);
-    return decision;
-  };
-
-  async function collectVotes(
-    request: BrainDecisionRequest,
-    ballot: BrainDecisionOption[],
-    digest: string | undefined,
-  ): Promise<CastVote[]> {
-    const ballotRequest: BrainDecisionRequest = { ...request, options: ballot };
-    const user = withDecisionDigest(buildBrainUserMessage(ballotRequest), digest);
-    const settled = await Promise.allSettled(
-      opts.voters.map((voter) =>
-        completeBrainLlm(voter, {
-          system: `${baseSystem}\n\n${personaText(voter.persona)}`,
-          user,
-          timeoutMs,
-        }),
-      ),
-    );
-    const votes: CastVote[] = [];
-    settled.forEach((result, i) => {
-      const voter = opts.voters[i];
-      if (!voter || result.status !== 'fulfilled') return;
-      const parsed = parseOptionDecision(result.value, ballot);
-      if (parsed?.type !== 'answer' || !parsed.optionId) return;
-      votes.push({
-        seatId: String(i),
-        voter,
-        optionId: parsed.optionId,
-        rationale: parsed.rationale,
-      });
-    });
-    return votes;
-  }
-
-  async function judgeRound(
-    request: BrainDecisionRequest,
-    ballot: BrainDecisionOption[],
-    votes: CastVote[],
-    reason: string,
-  ): Promise<BrainDecision | null> {
-    if (!opts.judge) return null;
-    const voteLines = votes
-      .map(
-        (v, i) =>
-          `- ${voterLabel(v.voter, i)} voted [${v.optionId}]` +
-          (v.rationale ? ` — ${v.rationale}` : ''),
-      )
-      .join('\n');
-    const judgeRequest: BrainDecisionRequest = {
-      ...request,
-      options: ballot,
-      context: [
-        request.context ?? '',
-        '',
-        `Council votes (${reason} — you are the judge; issue the final decision):`,
-        voteLines,
-      ]
-        .join('\n')
-        .trim(),
-    };
-    try {
-      const text = await completeBrainLlm(opts.judge, {
-        system:
-          `${baseSystem}\n\nPERSONA: You are the council JUDGE. The voting ` +
-          'seats disagreed or were too close to call. Weigh their rationales ' +
-          'and issue the single final decision.',
-        user: buildBrainUserMessage(judgeRequest),
-        timeoutMs,
-        maxTokens: 300,
-      });
-      const parsed = parseOptionDecision(text, ballot);
-      if (parsed?.type === 'answer' && parsed.optionId) return parsed;
-      return null;
-    } catch {
-      return null;
-    }
-  }
+  // ── Decide ───────────────────────────────────────────────────────────
 
   return {
     async decide(request: BrainDecisionRequest): Promise<BrainDecision> {
       const digest = opts.getDecisionDigest?.(request);
 
-      // ── Optionless requests: independent stances + judge synthesis ────
-      if (!request.options?.length) {
-        const user = withDecisionDigest(buildBrainUserMessage(request), digest);
-        const settled = await Promise.allSettled(
-          opts.voters.map((voter) =>
-            completeBrainLlm(voter, {
-              system: `${baseSystem}\n\n${personaText(voter.persona)}`,
-              user,
-              timeoutMs,
-            }),
-          ),
-        );
-        const stances: Array<{ voter: CouncilVoter; text: string }> = [];
-        settled.forEach((result, i) => {
-          const voter = opts.voters[i];
-          if (!voter || result.status !== 'fulfilled' || !result.value.trim()) return;
-          stances.push({ voter, text: result.value.trim() });
-        });
-        if (stances.length / opts.voters.length < quorumFraction) {
-          return finish(request, abstain(request, 'quorum not met'));
-        }
-        if (opts.judge) {
-          const stanceLines = stances
-            .map((s, i) => `- ${voterLabel(s.voter, i)}: ${s.text}`)
-            .join('\n');
-          try {
-            const text = await completeBrainLlm(opts.judge, {
-              system:
-                `${baseSystem}\n\nPERSONA: You are the council JUDGE. ` +
-                'Synthesize the seats’ independent stances below into the ' +
-                'single final decision (1-2 sentences).',
-              user: `${buildBrainUserMessage(request)}\n\nCouncil stances:\n${stanceLines}`,
-              timeoutMs,
-              maxTokens: 300,
-            });
-            if (text) {
-              return finish(request, {
-                type: 'answer',
-                text,
-                rationale: `Council synthesis of ${stances.length}/${opts.voters.length} stances.`,
-              });
-            }
-          } catch {
-            // Judge unavailable — fall through to the first stance below.
-          }
-        }
-        const first = stances[0];
-        if (first) {
-          return finish(request, {
-            type: 'answer',
-            text: first.text,
-            rationale: `Council (no judge): stance of ${voterLabel(first.voter, 0)}.`,
-          });
-        }
-        return finish(request, abstain(request, 'no usable stance'));
-      }
+      const question = {
+        question: request.question,
+        context: digest
+          ? `${request.context ?? ''}\n\nPrevious decisions:\n${digest}`
+          : request.context,
+        ...(request.options ? { options: request.options } : {}),
+        profile: profile satisfies CouncilProfileConfig,
+      };
 
-      // ── Option-bearing requests: independent votes + weighted tally ───
-      const ballot = ballotOptions(request);
-      const votes = await collectVotes(request, ballot, digest);
+      const result = await orchestrator.ask(question);
 
-      const resolution = resolveCouncilVotes({
-        seats: opts.voters.map((voter, i) => ({
-          id: String(i),
-          weight: voter.weight,
-          veto: voter.veto,
-        })),
-        votes: votes.map((vote) => ({ seatId: vote.seatId, optionId: vote.optionId })),
-        refusalOptionId: COUNCIL_REFUSE_OPTION_ID,
-        quorumFraction,
-        approvalFraction,
-      });
-
-      if (resolution.status === 'abstained') {
+      // Handle failures and cancellations
+      if (result.status === 'cancelled' || result.status === 'failed') {
         return finish(
           request,
-          abstain(
-            request,
-            `quorum not met (${resolution.validVoteCount}/${resolution.seatCount} votes)`,
-          ),
+          abstain(request, result.reason ?? result.errors?.[0] ?? 'council error'),
         );
       }
 
-      if (resolution.status === 'denied' && resolution.method === 'veto') {
-        const vetoRefusal = votes.find((vote) => vote.seatId === resolution.seatId);
-        if (!vetoRefusal) {
-          return finish(request, abstain(request, 'veto ballot could not be resolved'));
-        }
+      if (result.status === 'abstained') {
+        return finish(request, abstain(request, result.reason ?? 'no consensus'));
+      }
+
+      if (result.status === 'denied') {
         return finish(request, {
           type: 'deny',
-          reason:
-            `Council veto by ${voterLabel(vetoRefusal.voter, 0)}` +
-            (vetoRefusal.rationale ? `: ${vetoRefusal.rationale}` : '.'),
+          reason: result.reason ?? `Council (${result.resolution})`,
         });
       }
 
-      let finalOptionId =
-        resolution.status === 'decided' || resolution.status === 'denied'
-          ? resolution.optionId
-          : null;
-      let viaJudge = false;
-      if (resolution.status === 'needs_judge') {
-        const judged = await judgeRound(
-          request,
-          ballot,
-          votes,
-          resolution.reason === 'tie' ? 'tie' : 'no option cleared the approval threshold',
-        );
-        if (judged?.type === 'answer' && judged.optionId) {
-          finalOptionId = judged.optionId;
-          viaJudge = true;
-        }
-      }
-      if (!finalOptionId) {
-        return finish(request, abstain(request, 'split vote and no judge verdict'));
-      }
-
-      const supporting = votes.filter((v) => v.optionId === finalOptionId);
-      const voteSummary = votes
-        .map((v, i) => `${voterLabel(v.voter, i)}→[${v.optionId}]`)
-        .join(', ');
-      const rationale =
-        (supporting.find((v) => v.rationale)?.rationale ?? '') +
-        ` (council${viaJudge ? ' via judge' : ''}: ${voteSummary})`;
-
-      if (finalOptionId === COUNCIL_REFUSE_OPTION_ID) {
+      // Decided
+      if (request.options && request.options.length > 0) {
+        // Option-bearing: pick the winning option
+        const winningOption = request.options.find((o) => o.id === result.optionId);
         return finish(request, {
-          type: 'deny',
-          reason: `Council refused the proposed action.${rationale}`,
+          type: 'answer',
+          ...(winningOption ? { optionId: result.optionId } : {}),
+          text: winningOption?.label ?? result.answer ?? 'Council decided.',
+          rationale: result.reason ?? `Council (${result.resolution})`,
         });
       }
-      const option = request.options.find((o) => o.id === finalOptionId);
+
+      // Optionless: use the council's synthesized answer
       return finish(request, {
         type: 'answer',
-        optionId: finalOptionId,
-        text: option?.label ?? finalOptionId,
-        rationale: rationale.trim(),
+        text: result.answer ?? 'Council decided.',
+        rationale: result.reason ?? `Council (${result.resolution})`,
       });
     },
   };
