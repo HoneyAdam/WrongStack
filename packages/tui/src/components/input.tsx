@@ -13,6 +13,7 @@ import {
   ComposerStatusChip,
   composerStatusReservedWidth,
 } from './composer-status-chip.js';
+import { fmtElapsed } from './status-bar.js';
 
 export const DEFAULT_INPUT_PROMPT = `${glyphs.prompt} `;
 
@@ -31,12 +32,14 @@ function ComposerTopRail({
   status,
   animationStyle,
   disabled,
+  workingTime,
 }: {
   width: number;
   title: string;
   status: ComposerStatus;
   animationStyle: AnimationStyle | 'cycle';
   disabled: boolean;
+  workingTime?: number | undefined;
 }): React.ReactElement {
   const active = status.kind === 'working';
   const [frame, setFrame] = useState(0);
@@ -61,9 +64,11 @@ function ComposerTopRail({
 
   // — 2. Title section (left side) —
   // Reserve space for the title prefix: "─ icon TITLE "
-  const titlePrefixRaw = title ? `─ ${icon} ${title} ` : '';
+  const titlePrefixRaw = title ? `─ ${icon} ${title}` : '';
+  // Working time chip: [MM:SS] or [H:MM:SS], shown only when > 0
+  const workingTimeChip = workingTime != null && workingTime > 0 ? ` [${fmtElapsed(workingTime)}]` : '';
   // If no title, just show a leading dash so the rail doesn't start bare
-  const titlePrefix = title ? titlePrefixRaw : '';
+  const titlePrefix = title ? `${titlePrefixRaw}${workingTimeChip} ` : '';
   const titleW = displayWidth(titlePrefix);
 
   // — 3. Fill — remaining space between title and status
@@ -72,7 +77,15 @@ function ComposerTopRail({
   return (
     <Text bold color={disabled ? theme.error : theme.brandPrimary}>
       {'╭'}
-      {titlePrefix}
+      {title ? (
+        <>
+          <Text>{`─ ${icon} ${title}`}</Text>
+          {workingTimeChip ? (
+            <Text dimColor>{workingTimeChip}</Text>
+          ) : null}
+          <Text>{' '}</Text>
+        </>
+      ) : null}
       {remaining > 0 ? '─'.repeat(remaining) : null}
       {statusPrefix}
       {statusWidth > 0 ? (
@@ -109,6 +122,12 @@ export interface InputProps {
   status?: ComposerStatus | undefined;
   /** Animation style for the working-state chip (`'cycle'` rotates variants). */
   animationStyle?: AnimationStyle | 'cycle' | undefined;
+  /**
+   * Working time in ms — total time the agent has been actively running/streaming.
+   * Displayed on the composer top rail as a dimmed time chip after the version.
+   * Only visible when > 0; ticks up only while the agent is working.
+   */
+  workingTime?: number | undefined;
   /** Stable bottom-rail help; a non-empty `hint` temporarily replaces it. */
   footerHint?: string | undefined;
   /**
@@ -279,6 +298,7 @@ export const Input = memo(function Input({
   title = 'ASK WRONGSTACK',
   status,
   animationStyle = 'rainbow',
+  workingTime,
   footerHint = 'Enter send · Shift+Enter newline · @ file · / commands',
   hidden,
   placeholderHeight,
@@ -528,6 +548,7 @@ export const Input = memo(function Input({
         status={railStatus}
         animationStyle={animationStyle}
         disabled={disabled ?? false}
+        workingTime={workingTime}
       />
       {rows.map((row, i) => {
         const rowWidth = displayWidth(row.map((cell) => cell.ch).join(''));

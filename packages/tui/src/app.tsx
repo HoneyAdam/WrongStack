@@ -193,6 +193,7 @@ import {
   layoutInputRows,
   tokenLengthForward,
 } from './input-tokens.js';
+import { createContextSlashCommand } from './context-slash.js';
 import { createKillSlashCommand } from './kill-slash.js';
 import { MOUSE_CLICK_ON, MOUSE_OFF } from './mouse.js';
 import { createPanelOpenDispatcher } from './on-panel-open.js';
@@ -1606,15 +1607,93 @@ export function App({
     dispatch({ type: 'clearInput' });
   };
 
-  // Global clock tick. Deliberately slow (10s). The StatusBar tracks its own 1s
-  // elapsed-time display internally; this tick only feeds monitor overlays and
-  // the todos poll (which have their own faster intervals when open).
+  // Global clock tick. Deliberately slow (10s). The status bar and detail
+  // panel use their own 1s-interval elapsed time internally; this tick only
+  // feeds monitor overlays and the todos poll (which have their own faster
+  // intervals when open).
   const startedAtRef = useRef<number>(Date.now());
   const [nowTick, setNowTick] = React.useState<number>(Date.now());
   useEffect(() => {
     const t = setInterval(() => setNowTick(Date.now()), 10000);
     return () => clearInterval(t);
   }, []);
+
+  // ── Working-time tracking (terminal active session, only counts while agent works) ──
+  const [workingTimeBase, setWorkingTimeBase] = useState(0);
+  const workingStartRef = useRef<number | null>(null);
+  const prevStatusRef = useRef(state.status);
+
+  // On status transition, add the delta to the base or start fresh.
+  if (prevStatusRef.current !== state.status) {
+    const prevWorking = prevStatusRef.current === 'running' || prevStatusRef.current === 'streaming';
+    const nowWorking = state.status === 'running' || state.status === 'streaming';
+    if (prevWorking && !nowWorking) {
+      // Just stopped working — add elapsed to base, clear start
+      const delta = Date.now() - (workingStartRef.current ?? Date.now());
+      workingStartRef.current = null;
+      setWorkingTimeBase((b) => b + delta);
+    } else if (!prevWorking && nowWorking) {
+      // Just started working
+      workingStartRef.current = Date.now();
+    }
+    prevStatusRef.current = state.status;
+  }
+
+  // Live tick while working (updates the displayed value)
+  const [workingTimeMs, setWorkingTimeMs] = useState(0);
+  useEffect(() => {
+    const isWorking = state.status === 'running' || state.status === 'streaming';
+    if (!isWorking) return;
+    const tick = () => {
+      const base = workingStartRef.current !== null
+        ? workingTimeBase + (Date.now() - workingStartRef.current)
+        : workingTimeBase;
+      setWorkingTimeMs(base);
+    };
+    tick(); // snapshot immediately
+    const t = setInterval(tick, 1000);
+    return () => clearInterval(t);
+  }, [state.status, workingTimeBase]);
+
+  // ── Fleet working-time tracking (background subagents) ──
+  const [fleetWorkingBase, setFleetWorkingBase] = useState(0);
+  const fleetWorkingStartRef = useRef<number | null>(null);
+  const prevFleetRunningRef = useRef(0);
+
+  // Watch state.fleet for transitions; not dependent on fleetCounts (defined later)
+  useEffect(() => {
+    const entries = Object.values(state.fleet);
+    const running = entries.filter((e) => e.status === 'running').length;
+    if (prevFleetRunningRef.current !== running) {
+      const wasRunning = prevFleetRunningRef.current > 0;
+      const isRunning = running > 0;
+      if (wasRunning && !isRunning) {
+        const delta = Date.now() - (fleetWorkingStartRef.current ?? Date.now());
+        fleetWorkingStartRef.current = null;
+        setFleetWorkingBase((b) => b + delta);
+      } else if (!wasRunning && isRunning) {
+        fleetWorkingStartRef.current = Date.now();
+      }
+      prevFleetRunningRef.current = running;
+    }
+  }, [state.fleet]);
+
+  // Live tick while fleet is running
+  const [fleetWorkingTimeMs, setFleetWorkingTimeMs] = useState(0);
+  useEffect(() => {
+    const entries = Object.values(state.fleet);
+    const running = entries.filter((e) => e.status === 'running').length;
+    if (running <= 0) return;
+    const tick = () => {
+      const base = fleetWorkingStartRef.current !== null
+        ? fleetWorkingBase + (Date.now() - fleetWorkingStartRef.current)
+        : fleetWorkingBase;
+      setFleetWorkingTimeMs(base);
+    };
+    tick();
+    const t = setInterval(tick, 1000);
+    return () => clearInterval(t);
+  }, [state.fleet, fleetWorkingBase]);
 
   // Heap watchdog. Long autonomous sessions (10h+) have crashed at the V8
   // heap limit ("Ineffective mark-compacts near heap limit") with nothing
@@ -1724,6 +1803,8 @@ export function App({
   // `git` subprocesses). Skipped silently when the cwd isn't a repo or
   // git isn't installed — the chip just doesn't render.
   const [gitInfo, setGitInfo] = React.useState<GitInfo | null>(null);
+  const gitInfoRef = useRef<GitInfo | null>(null);
+  gitInfoRef.current = gitInfo;
   useEffect(() => {
     let cancelled = false;
     const refresh = () => {
@@ -2503,22 +2584,69 @@ export function App({
     dispatch({ type: 'slashPickerClose' });
   };
 
-  // Register /kill (list/kill tracked bash/exec processes), /ps (list only)
-  // and /memory (list stored memories).
+  // Register /kill (list/kill tracked bash/exec processes), /ps (list only),
+  // /memory (list stored memories), and /context (session context dashboard).
   useEffect(() => {
     slashRegistry.register(createKillSlashCommand());
     slashRegistry.register(createPsSlashCommand());
     if (memoryStore) {
       slashRegistry.register(createMemorySlashCommand({ memoryStore }));
     }
+    slashRegistry.register(
+      createContextSlashCommand({
+        cwd: agent.ctx.cwd,
+        getProvider: () =>
+          (agent.ctx.provider as { id?: string } | undefined)?.id ?? 'unknown',
+        getModel: () => agent.ctx.model,
+        getModeLabel: () => getModeLabel?.() ?? 'default',
+        getGitInfo: () => gitInfoRef.current,
+        getFleet: () => {
+          const entries = Object.values(stateRef.current.fleet);
+          return {
+            total: entries.length,
+            running: entries.filter((e) => e.status === 'running').length,
+            entries: entries.map((e) => ({
+              name: e.name,
+              status: e.status,
+              currentTool: e.currentTool?.name,
+              ctxPct: e.ctxPct,
+            })),
+          };
+        },
+        getLeader: () => {
+          const s = stateRef.current;
+          return {
+            iterations: s.leader.iterations,
+            toolCalls: s.leader.toolCalls,
+            startedAt: s.leader.startedAt,
+            status: s.status,
+            currentTool: s.leader.currentTool,
+            ctxPct: s.leader.ctxPct,
+            ctxTokens: s.leader.ctxTokens,
+            ctxMaxTokens: s.leader.ctxMaxTokens,
+          };
+        },
+        getUptime: () => {
+          const elapsed = Date.now() - stateRef.current.leader.startedAt;
+          const hrs = Math.floor(elapsed / 3600000);
+          const mins = Math.floor((elapsed % 3600000) / 60000);
+          const secs = Math.floor((elapsed % 60000) / 1000);
+          if (hrs > 0) return `${hrs}h ${mins}m`;
+          if (mins > 0) return `${mins}m ${secs}s`;
+          return `${secs}s`;
+        },
+        terminalWidth: stdout.columns ?? 80,
+      }),
+    );
     return () => {
       slashRegistry.unregister('kill');
       slashRegistry.unregister('ps');
       if (memoryStore) {
         slashRegistry.unregister('memory');
       }
+      slashRegistry.unregister('context');
     };
-  }, [slashRegistry, memoryStore]);
+  }, [slashRegistry, memoryStore, agent.ctx.cwd, agent.ctx.provider, agent.ctx.model, getModeLabel]);
 
   // Kill all tracked bash/exec processes when the TUI unmounts.
   // This fires on natural exit, Ctrl+C, and any other unmount path,
@@ -5675,7 +5803,8 @@ export function App({
             // The `state` chip is always hidden now (owned by the composer rail),
             // so the model chip sits one segment further left.
             stateHidden: true,
-            model: `${liveProvider}/${liveModel}`,
+            model: liveModel,
+            provider: liveProvider,
           });
           if (inSpan(span)) {
             await openModelPicker();
@@ -7146,6 +7275,7 @@ export function App({
             }
             hint={inputHint}
             onKey={stableOnKey}
+            workingTime={workingTimeMs}
           />
           {state.picker.open ? (
             <FilePicker
@@ -7553,7 +7683,8 @@ export function App({
             : null}
           <Box ref={statusBarWrapRef} flexDirection="column" flexShrink={0}>
             <StatusBar
-              model={`${liveProvider}/${liveModel}`}
+              provider={liveProvider}
+              model={liveModel}
               version={appVersion}
               state={state.status}
               thinkingWord={displayThinkingWord}
@@ -7570,6 +7701,7 @@ export function App({
               yolo={yoloLive}
               autonomy={autonomyLive}
               startedAt={startedAtRef.current}
+              fleetWorkingTime={fleetWorkingTimeMs}
               todos={todos}
               plan={planCounts ?? undefined}
               tasks={taskCounts ?? undefined}

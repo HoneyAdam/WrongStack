@@ -329,6 +329,12 @@ export interface MailboxStatus {
 export interface StatusBarProps {
   model: string;
   /**
+   * Provider identifier shown alongside `model` as `provider/model` in the
+   * status line. When omitted, only `model` is displayed (backward compat
+   * for callers that pass a combined string).
+   */
+  provider?: string | undefined;
+  /**
    * App version string (e.g. "0.7.0"). Previously rendered a `WS v{version}`
    * chip at the head of line 1. Now shown in the composer top rail instead
    * (`WRONGSTACK v{version}`). Kept in the interface for callers that may
@@ -350,10 +356,18 @@ export interface StatusBarProps {
   hint?: string | undefined;
   queueCount?: number | undefined;
   yolo?: boolean | undefined;
-  /** Session start timestamp (ms). Elapsed time is computed internally on
-   *  the same interval as the spinner so the display stays live without
-   *  forcing a full App tree re-render every second. */
+  /**
+   * Session start timestamp (ms). Used by StatuslineDetailPanel for its
+   * elapsed-time display. StatusBar itself no longer renders this chip
+   * (working time and fleet time are tracked separately).
+   */
   startedAt?: number | undefined;
+  /**
+   * Fleet working time in ms — the total time background subagents have been
+   * active. Only ticks up while fleet.running > 0. Rendered as a chip on the
+   * status bar so the user can see how long background work has been running.
+   */
+  fleetWorkingTime?: number | undefined;
   todos?: TodoCounts | undefined;
   /**
    * Plan board counts surfaced as a chip on line 2. Distinct from
@@ -523,6 +537,7 @@ export interface StatusBarProps {
  */
 export function StatusBar({
   model,
+  provider,
   state,
   thinkingWord,
   thinkingAnimationStyle,
@@ -531,7 +546,7 @@ export function StatusBar({
   queueCount = 0,
   yolo = false,
   autonomy,
-  startedAt,
+  fleetWorkingTime,
   todos,
   plan,
   tasks,
@@ -593,20 +608,6 @@ export function StatusBar({
   const showTokenDisplay = hasTokenDisplay(displayTokens);
   const cost = tokenData?.cost;
   const cache = tokenData?.cacheStats;
-
-  // Elapsed time display — updated locally on a 1s interval so the "⏱ 12:34"
-  // chip stays live without forcing a full App tree re-render. When the chip
-  // is hidden the interval is skipped entirely: otherwise the whole status-bar
-  // subtree re-rendered every second for a value nobody could see — pure churn
-  // that adds up over long autonomous sessions.
-  const elapsedHidden = hiddenSet.has('elapsed');
-  const [elapsedMs, setElapsedMs] = useState(startedAt ? Date.now() - startedAt : 0);
-  useEffect(() => {
-    if (startedAt == null || elapsedHidden) return;
-    setElapsedMs(Date.now() - startedAt); // snapshot immediately on (re)enable
-    const t = setInterval(() => setElapsedMs(Date.now() - startedAt), 1000);
-    return () => clearInterval(t);
-  }, [startedAt, elapsedHidden]);
 
   // Animated braille spinner — cycles while the agent is thinking/streaming.
   // Stops when idle so the interval doesn't drive unnecessary re-renders.
@@ -760,7 +761,11 @@ export function StatusBar({
     ) : null,
     showChip('model') ? (
       <Text color={isNoColor ? undefined : theme.monitor.agents}>
-        {showChip('state') ? ` ${model}` : model}
+        {showChip('state') ? ' ' : ''}
+        {provider ? (
+          <Text dimColor>{provider}/</Text>
+        ) : null}
+        {model}
       </Text>
     ) : null,
     // Combined context bar: meter · tokens · cost
@@ -875,9 +880,9 @@ export function StatusBar({
       </Text>
     ) : null,
     ...primaryChips,
-    elapsedMs !== undefined && showChip('elapsed') ? (
+    fleetWorkingTime != null && fleetWorkingTime > 0 && showChip('elapsed') ? (
       <Text dimColor={!isNoColor}>
-        {isNoColor ? fmtElapsed(elapsedMs) : `${glyphs.clock} ${fmtElapsed(elapsedMs)}`}
+        {isNoColor ? fmtElapsed(fleetWorkingTime) : `${glyphs.clock} ${fmtElapsed(fleetWorkingTime)}`}
       </Text>
     ) : null,
     workingDir && showChip('working_dir') ? (
@@ -905,7 +910,9 @@ export function StatusBar({
     ) : null,
     // Model
     showChip('model') ? (
-      <Text color={chipColor(theme.monitor.agents, isNoColor)}>{model}</Text>
+      <Text color={chipColor(theme.monitor.agents, isNoColor)}>
+        {provider ? `${provider}/` : ''}{model}
+      </Text>
     ) : null,
     // Context bar (compact: 6 blocks, optional tokens)
     (context || showTokenDisplay) && showChip('context')
@@ -946,9 +953,9 @@ export function StatusBar({
         {isNoColor ? autonomy.toUpperCase() : `∞ ${autonomy.toUpperCase()}`}
       </Text>
     ) : null,
-    // Elapsed time
-    elapsedMs !== undefined && showChip('elapsed') ? (
-      <Text dimColor={!isNoColor}>{fmtElapsed(elapsedMs)}</Text>
+    // Fleet working time
+    fleetWorkingTime != null && fleetWorkingTime > 0 && showChip('elapsed') ? (
+      <Text dimColor={!isNoColor}>{fmtElapsed(fleetWorkingTime)}</Text>
     ) : null,
     // Work summary (compact)
     ...(minimalWorkParts.length > 0
@@ -1355,13 +1362,17 @@ export function statusBarModelSpan(opts: {
    *  segment further left (no `● {label}` term). */
   stateHidden?: boolean | undefined;
   model: string;
+  /** Provider prefix — surfaced alongside model as `provider/model`.
+   *  When set, its display width plus the `/` separator is included in the span. */
+  provider?: string | undefined;
 }): { start: number; len: number } {
   let col = RAIL_CAP;
   if (!opts.stateHidden) {
     const { label } = stateChip(opts.state, opts.fleetRunning ?? 0, opts.thinkingWord);
     col += displayWidth(`● ${label}`) + RAIL_PAD + RAIL_TRANSITION;
   }
-  return { start: col + 1, len: displayWidth(opts.model) };
+  const full = opts.provider ? `${opts.provider}/${opts.model}` : opts.model;
+  return { start: col + 1, len: displayWidth(full) };
 }
 
 /**
