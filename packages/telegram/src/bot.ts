@@ -1,9 +1,9 @@
 import type { Logger } from '@wrongstack/core';
-import { sleep } from '@wrongstack/core/utils';
 import {
   TelegramApiClient,
   TelegramBotApiError,
   TelegramNetworkError,
+  abortableSleep,
   type TelegramApiCallbackQuery,
   type TelegramApiMessage,
 } from './api-client.js';
@@ -291,21 +291,23 @@ export class TelegramBot {
   async sendMessage(
     chatId: string | number,
     text: string,
+    signal?: AbortSignal | undefined,
   ): Promise<TelegramBotResponse<TelegramApiMessage>> {
     this.log.debug(`Sending Telegram message to ${chatId} (${text.length} chars)`);
 
     let lastErr: unknown;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
+        const timeout = AbortSignal.timeout(10_000);
         const result = await this.api.sendMessage(chatId, text, {
-          signal: AbortSignal.timeout(10_000),
+          signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
         });
         return { ok: true, result };
       } catch (err) {
         lastErr = err;
         if (attempt < 3) {
           this.log.debug(`Telegram sendMessage attempt ${attempt} failed, retrying in 1s...`);
-          await sleep(1000);
+          await abortableSleep(1000, signal);
         }
       }
     }
@@ -326,17 +328,19 @@ export class TelegramBot {
     chatId: string | number,
     text: string,
     buttons: Array<{ text: string; callback_data: string }>,
+    signal?: AbortSignal | undefined,
   ): Promise<TelegramBotResponse<TelegramApiMessage>> {
     let lastErr: unknown;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
+        const timeout = AbortSignal.timeout(10_000);
         const result = await this.api.sendMessageWithKeyboard(chatId, text, buttons, {
-          signal: AbortSignal.timeout(10_000),
+          signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
         });
         return { ok: true, result };
       } catch (err) {
         lastErr = err;
-        if (attempt < 3) await sleep(1000);
+        if (attempt < 3) await abortableSleep(1000, signal);
       }
     }
     throw lastErr;
@@ -346,7 +350,7 @@ export class TelegramBot {
   // Health
   // ------------------------------------------------------------------
 
-  async health(): Promise<{
+  async health(signal?: AbortSignal | undefined): Promise<{
     ok: boolean;
     username?: string | undefined;
     error?: string | undefined;
@@ -354,7 +358,10 @@ export class TelegramBot {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 5000);
     try {
-      const user = await this.api.getMe({ signal: ctrl.signal });
+      const timeout = AbortSignal.timeout(5_000);
+      const deadline = AbortSignal.any([ctrl.signal, timeout]);
+      const combined = signal ? AbortSignal.any([signal, deadline]) : deadline;
+      const user = await this.api.getMe({ signal: combined });
       return { ok: true, username: user.username };
     } catch (err) {
       if (err instanceof TelegramBotApiError) return { ok: false, error: err.description };

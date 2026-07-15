@@ -150,6 +150,8 @@ export interface TelegramRequestOptions {
 }
 
 export interface TelegramGetUpdatesOptions extends TelegramRequestOptions {
+  deadlineMs?: number | undefined;
+
   offset: number;
   timeoutSeconds: number;
 }
@@ -166,9 +168,28 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+export function abortableSleep(ms: number, signal?: AbortSignal | undefined): Promise<void> {
+  if (!signal) return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) { reject(new DOMException('The operation was aborted', 'AbortError')); return; }
+    const timer = setTimeout(resolve, ms);
+    const onAbort = () => { clearTimeout(timer); reject(new DOMException('The operation was aborted', 'AbortError')); };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 function errorDetail(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+/** Compose optional parent signal + deadline into one AbortSignal. Returns undefined when neither is set. */
+function composedSignal(signal?: AbortSignal | undefined, deadlineMs?: number | undefined): AbortSignal | undefined {
+  if (deadlineMs !== undefined && signal) {
+    return AbortSignal.any([signal, AbortSignal.timeout(deadlineMs)]);
+  }
+  if (deadlineMs !== undefined) return AbortSignal.timeout(deadlineMs);
+  return signal;
 }
 
 export class TelegramApiClient {
@@ -186,7 +207,7 @@ export class TelegramApiClient {
   }
 
   getMe(opts?: TelegramRequestOptions): Promise<TelegramApiUser> {
-    return this.request<TelegramApiUser>('getMe', { signal: opts?.signal });
+    return this.request<TelegramApiUser>('getMe', { signal: composedSignal(opts?.signal) });
   }
 
   getUpdates(opts: TelegramGetUpdatesOptions): Promise<TelegramApiUpdate[]> {
@@ -196,7 +217,7 @@ export class TelegramApiClient {
     });
     return this.request<TelegramApiUpdate[]>('getUpdates', {
       query,
-      signal: opts.signal,
+      signal: composedSignal(opts.signal, opts.deadlineMs),
     });
   }
 
@@ -211,7 +232,7 @@ export class TelegramApiClient {
         text,
         disable_web_page_preview: true,
       },
-      signal: opts?.signal,
+      signal: composedSignal(opts?.signal),
     });
   }
 
@@ -235,7 +256,7 @@ export class TelegramApiClient {
           ],
         },
       },
-      signal: opts?.signal,
+      signal: composedSignal(opts?.signal),
     });
   }
 
@@ -251,7 +272,7 @@ export class TelegramApiClient {
         text,
         show_alert: showAlert,
       },
-      signal: opts?.signal,
+      signal: composedSignal(opts?.signal),
     });
   }
 

@@ -144,7 +144,7 @@ export function makeTelegramApproveTool(opts: {
         const sent = await opts.bot.sendMessageWithKeyboard(chatId, text, [
           { text: '✅ Approve', callback_data: yesKey },
           { text: '❌ Deny', callback_data: noKey },
-        ]);
+        ], toolOpts?.signal);
         promptMessageId = sent.result?.message_id;
         if (promptMessageId === undefined) {
           throw new Error('Telegram approval prompt response did not include a message ID.');
