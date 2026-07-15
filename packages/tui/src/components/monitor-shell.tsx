@@ -70,6 +70,8 @@ export interface MonitorShellProps {
   footer?: ReactNode | undefined;
   children?: ReactNode | undefined;
   grow?: boolean | undefined;
+  /** Clamp the shell's total height (including borders) to prevent overflow. */
+  maxHeight?: number | undefined;
 }
 
 /** Shared chrome for F-key monitors: one visual hierarchy and one geometry contract. */
@@ -82,6 +84,7 @@ export function MonitorShell({
   footer,
   children,
   grow = false,
+  maxHeight,
 }: MonitorShellProps) {
   return (
     <Box
@@ -92,6 +95,7 @@ export function MonitorShell({
       borderColor={accent}
       paddingX={1}
       flexGrow={grow ? 1 : 0}
+      maxHeight={maxHeight}
     >
       <Box height={1}>
         <Text color={accent} bold>

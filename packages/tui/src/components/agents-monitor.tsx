@@ -767,7 +767,7 @@ export function AgentsMonitor({
   onClose,
   transcripts,
   leaderTranscript,
-  fullscreen: _fullscreen = false,
+  fullscreen = false,
 }: AgentsMonitorProps): React.ReactElement {
   const all = Object.values(entries);
   const grandCost = leaderCost + totalCost;
@@ -811,30 +811,54 @@ export function AgentsMonitor({
     setTranscriptScroll(0);
   }, [selectedTranscriptId]);
 
-  // Terminal dimensions
+  // ── Terminal dimensions ─────────────────────────────────────────────
   const { stdout } = useStdout();
-  const terminalRows = stdout?.rows ?? 30;
   const terminalColumns = stdout?.columns ?? 90;
   const contentWidth = Math.max(24, terminalColumns - 4);
+  // Use old ??30 default to match test expectations (ink test env may not
+  // set stdout.rows). The height is bounded below by maxPanelRows.
+  const terminalRows = stdout?.rows ?? 30;
 
-  // Column widths for left-right split layout.
+  // ── Panel height budget ────────────────────────────────────────────
+  // The AgentsMonitor renders below the status bar and input, so the
+  // available vertical space is less than the full terminal height.
+  // `maxPanelRows` caps the panel content (inside the MonitorShell border)
+  // so it doesn't overflow the terminal bottom edge.
+  //
+  // Fullscreen mode (used when no other overlay is visible): take every row.
+  // Inline mode (default): cap at 28 rows so the history + status bar +
+  // input still have room above the panel. For small terminals (<32 rows)
+  // the cap relaxes to terminalRows - 4 so we don't waste space.
+  const maxPanelRows = fullscreen
+    ? terminalRows
+    : Math.max(14, Math.min(terminalRows - 6, 28));
+
+  // ── Column widths (left-right split) ────────────────────────────────
   // Left sidebar gets ~32% of width (min 26, max 42 chars for readability).
   const leftColWidth = Math.max(26, Math.min(Math.floor(contentWidth * 0.32), 42));
   const rightColWidth = contentWidth - leftColWidth - 2; // gap
 
-  // Transcript rows fill the available vertical space in the right column.
-  // Chrome: top border(1) + title row(1) + dashboard(1) + right detail header(3)
-  //         + footer(1) + bottom border(1) = 8 + 2 buffer = 10
-  // Also subtract the left column header row.
+  // ── Left-right split height budget ──────────────────────────────────
+  // The left column (roster) and right column (detail + transcript) share
+  // the same vertical space in a flex row. The taller column determines
+  // the actual height of both.
+  //
+  // Chrome above the split: title(1) + dashboard(1) + gap(1) = 3
+  // Chrome below the split: footer(1) = 1
+  // Available for the split: maxPanelRows - 4
+  const maxColHeight = maxPanelRows - 4;
+
+  // Left column: header(1) + roster cards(rosterLimit)
+  const rosterLimit = Math.min(live.length, Math.max(1, maxColHeight - 1));
+
+  // Right column: border(1) + detail header(~4 rows: name/status,
+  //   runtime/throughput, alert/activity, recent tools) + border(1) = 6
+  // Remaining rows inside the right column = maxColHeight - 6
   const detailRows = transcript
-    ? Math.max(6, terminalRows - 10)
+    ? Math.max(4, maxColHeight - 6)
     : 4;
 
-  // Left-column roster windowing.
-  // The left column header takes 1 row + padding.
-  const leftHeaderRows = 2;
-  const leftAvailableRows = terminalRows - leftHeaderRows - 6; // 6 for shell chrome
-  const rosterLimit = Math.max(1, Math.min(live.length, leftAvailableRows));
+  // ── Roster window ───────────────────────────────────────────────────
   const rosterWindow = panelWindow(live.length, Math.max(0, selectedIndex), rosterLimit);
   const visibleLive = live.slice(rosterWindow.start, rosterWindow.end);
 
@@ -871,6 +895,7 @@ export function AgentsMonitor({
       title="AGENTS"
       kicker={wide ? 'live operations' : undefined}
       grow
+      maxHeight={maxPanelRows + 2}
       right={
         <Text>
           <Text color={theme.warn}>{glyphs.running} {running}</Text>
