@@ -12,13 +12,15 @@ export interface SessionMetadata {
   /** Set when a session is closed with open tool calls — used to restore pending state on resume. */
   pendingToolUses?: string[] | undefined;
   /** Parent journal metadata when this session was created by fork(). */
-  forkedFrom?: {
-    sessionId: string;
-    checkpointPromptIndex?: number | undefined;
-    checkpointHash: string;
-    workspace: 'shared-current';
-    workspaceCheckpointHash?: string | undefined;
-  } | undefined;
+  forkedFrom?:
+    | {
+        sessionId: string;
+        checkpointPromptIndex?: number | undefined;
+        checkpointHash: string;
+        workspace: 'shared-current';
+        workspaceCheckpointHash?: string | undefined;
+      }
+    | undefined;
 }
 
 /**
@@ -28,6 +30,7 @@ export interface SessionMetadata {
  *
  * **Core Reconstruct Set** (always persisted, minimal & reliable):
  * - `session_start`, `session_resumed`, `session_forked`, `user_input`, `llm_response`, `tool_result`
+ * - `message_appended`, `message_updated`, `messages_replaced` (exact conversation journal)
  * - `context_snapshot`, `checkpoint`, `file_snapshot`, `file_observation`, `rewound`
  * - `in_flight_start` / `in_flight_end`, `session_end`
  *
@@ -93,6 +96,31 @@ export type SessionEvent =
   | { type: 'tool_result'; ts: string; id: string; content: unknown; isError: boolean }
   | {
       /**
+       * Exact message appended to the live conversation. `version` lets the
+       * loader distinguish this lossless journal from legacy inferred events.
+       */
+      type: 'message_appended';
+      ts: string;
+      version: 1;
+      message: Message;
+    }
+  | {
+      /** Exact replacement of one existing message (for folded mailbox/hook text). */
+      type: 'message_updated';
+      ts: string;
+      version: 1;
+      index: number;
+      message: Message;
+    }
+  | {
+      /** Exact full conversation after a rewrite such as repair or context management. */
+      type: 'messages_replaced';
+      ts: string;
+      version: 1;
+      messages: Message[];
+    }
+  | {
+      /**
        * Exact post-rewrite conversation state. Replay replaces all messages
        * reconstructed before this event, then continues applying later events.
        * Currently emitted after compaction.
@@ -113,16 +141,18 @@ export type SessionEvent =
       /** Summary of token savings per phase (elision, summary, selective). */
       reductions?: Array<{ phase: string; saved: number }>;
       /** Context budget snapshot used to trigger this compaction. */
-      budget?: {
-        maxContext: number;
-        inputTokens: number;
-        availableInputTokens: number;
-        remainingInputTokens: number;
-        reservedOutputTokens: number;
-        reservedSafetyTokens: number;
-        load: number;
-        overflowTokens: number;
-      } | undefined;
+      budget?:
+        | {
+            maxContext: number;
+            inputTokens: number;
+            availableInputTokens: number;
+            remainingInputTokens: number;
+            reservedOutputTokens: number;
+            reservedSafetyTokens: number;
+            load: number;
+            overflowTokens: number;
+          }
+        | undefined;
       /** Adaptive trigger signals observed alongside token pressure. */
       signals?: { repeatedReadCount?: number | undefined } | undefined;
       /**
@@ -380,7 +410,9 @@ export interface SessionStore {
    * Open an existing session for append, returning both a writer that
    * continues writing to the same JSONL file and the replayed state
    * (messages + usage) so the caller can hydrate a Context. A
-   * `session_resumed` marker is appended for audit.
+   * `session_resumed` marker is appended for audit. New writers may also
+   * persist the exact conversation journal (`message_*` events); legacy logs
+   * containing only user/assistant/tool events remain replayable.
    */
   resume(id: string): Promise<ResumedSession>;
   /**
@@ -497,7 +529,12 @@ export interface SessionWriter {
    * Register a file change for later snapshotting.
    * Called by write/edit/delete tools to track pending changes.
    */
-  recordFileChange(input: { path: string; action: 'created' | 'modified' | 'deleted'; before: string | null; after: string | null }): void;
+  recordFileChange(input: {
+    path: string;
+    action: 'created' | 'modified' | 'deleted';
+    before: string | null;
+    after: string | null;
+  }): void;
   /**
    * Persist the hash of a file version observed by a tool. Optional for
    * alternate/in-memory writers; file-backed writers use it for stale-file
@@ -530,7 +567,10 @@ export interface SessionWriter {
    * Write a file snapshot after file changes are detected.
    * Called by the file watcher or tool interceptor.
    */
-  writeFileSnapshot(promptIndex: number, files: import('./session.js').FileSnapshot[]): Promise<void>;
+  writeFileSnapshot(
+    promptIndex: number,
+    files: import('./session.js').FileSnapshot[],
+  ): Promise<void>;
   /**
    * Truncate conversation history to a given checkpoint promptIndex.
    * Called after rewind — removes user_input/llm_response/tool_result events

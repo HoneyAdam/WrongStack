@@ -3,12 +3,12 @@
  * Handles batch tool execution, confirmation flow, and post-execution
  * pipeline/session/event emission.
  */
-import type { ContentBlock, ToolUseBlock, ToolResultBlock } from '../types/blocks.js';
-import type { Tool } from '../types/tool.js';
+import type { ContentBlock, ToolResultBlock, ToolUseBlock } from '../types/blocks.js';
 import type { SessionEvent } from '../types/session.js';
-import { sizeSignals, truncateForEvent } from '../utils/tool-output-serializer.js';
+import type { Tool } from '../types/tool.js';
 import { recordToolOutputEvidence } from '../utils/context-evidence.js';
 import { toErrorMessage } from '../utils/error.js';
+import { sizeSignals, truncateForEvent } from '../utils/tool-output-serializer.js';
 import type { AgentInternals } from './agent-internals.js';
 
 /**
@@ -92,13 +92,15 @@ export function createAgentToolHandler(a: AgentInternals): AgentToolHandler {
       // Structured warning to stdout — matches the observability skill's JSON
       // log convention. Kept off the session store to avoid coupling the
       // permission fallback to SessionWriter availability.
-      console.log(JSON.stringify({
-        level: 'warn',
-        event: 'confirm.headless_fallback',
-        tool: info.tool.name,
-        toolUseId: info.toolUseId,
-        message: `No tool.confirm_needed listener — auto-denying "${info.tool.name}" to avoid headless deadlock.`,
-      }));
+      console.log(
+        JSON.stringify({
+          level: 'warn',
+          event: 'confirm.headless_fallback',
+          tool: info.tool.name,
+          toolUseId: info.toolUseId,
+          message: `No tool.confirm_needed listener — auto-denying "${info.tool.name}" to avoid headless deadlock.`,
+        }),
+      );
       return Promise.resolve('deny' as const);
     }
     return new Promise((resolve) => {
@@ -196,21 +198,39 @@ export function createAgentToolHandler(a: AgentInternals): AgentToolHandler {
         if (decision === 'always') {
           try {
             await a.permission.trust({ tool: tool.name, pattern: result.suggestedPattern });
-            a.events.emit('trust.persisted', { sessionId: a.ctx.session.id, tool: tool.name, pattern: result.suggestedPattern, decision });
-          } catch { /* best-effort */ }
+            a.events.emit('trust.persisted', {
+              sessionId: a.ctx.session.id,
+              tool: tool.name,
+              pattern: result.suggestedPattern,
+              decision,
+            });
+          } catch {
+            /* best-effort */
+          }
         } else if (decision === 'deny') {
           try {
             await a.permission.deny({ tool: tool.name, pattern: result.suggestedPattern });
-            a.events.emit('trust.persisted', { sessionId: a.ctx.session.id, tool: tool.name, pattern: result.suggestedPattern, decision });
-          } catch { /* best-effort */ }
+            a.events.emit('trust.persisted', {
+              sessionId: a.ctx.session.id,
+              tool: tool.name,
+              pattern: result.suggestedPattern,
+              decision,
+            });
+          } catch {
+            /* best-effort */
+          }
         }
 
         // Soft allow/deny for session-scoped retry prevention
         if (decision === 'yes') {
-          const p = a.permission as never as { allowOnce?(r: { tool: string; pattern: string }): void };
+          const p = a.permission as never as {
+            allowOnce?(r: { tool: string; pattern: string }): void;
+          };
           p.allowOnce?.({ tool: tool.name, pattern: result.suggestedPattern });
         } else if (decision === 'no') {
-          const p = a.permission as never as { denyOnce?(r: { tool: string; pattern: string }): void };
+          const p = a.permission as never as {
+            denyOnce?(r: { tool: string; pattern: string }): void;
+          };
           p.denyOnce?.({ tool: tool.name, pattern: result.suggestedPattern });
         }
 
@@ -238,7 +258,12 @@ export function createAgentToolHandler(a: AgentInternals): AgentToolHandler {
 
         const use = useById.get(reRunResult.result.tool_use_id);
         if (use) {
-          await a.pipelines.toolCall.run({ toolUse: use, result: reRunResult.result, ctx: a.ctx, tool });
+          await a.pipelines.toolCall.run({
+            toolUse: use,
+            result: reRunResult.result,
+            ctx: a.ctx,
+            tool,
+          });
           sessionEvents.push({
             type: 'tool_result',
             ts: new Date().toISOString(),
@@ -272,7 +297,14 @@ export function createAgentToolHandler(a: AgentInternals): AgentToolHandler {
         content: result.content,
         isError: !!result.is_error,
       });
-      emitToolExecuted(result.tool_use_id, use.name, durationMs, !result.is_error, use.input, result.content);
+      emitToolExecuted(
+        result.tool_use_id,
+        use.name,
+        durationMs,
+        !result.is_error,
+        use.input,
+        result.content,
+      );
     }
 
     // Batch-append all tool_result events to the session log in one call.
@@ -281,17 +313,6 @@ export function createAgentToolHandler(a: AgentInternals): AgentToolHandler {
     // and timer rescheduling overhead.
     if (sessionEvents.length > 0) {
       await a.ctx.session.appendBatch(sessionEvents);
-      // A completed tool may already have changed the filesystem. Persist its
-      // file_snapshot + tool_result boundary before another provider call (or
-      // a process crash) can observe only the side effect and lose its journal
-      // record.
-      try {
-        await a.ctx.session.flush();
-      } catch (err) {
-        (a.logger.debug ?? a.logger.warn)?.(
-          `tool result boundary flush failed: ${toErrorMessage(err)}`,
-        );
-      }
     }
 
     // Merge any pending PostToolUse separate context as a leading text block
@@ -308,6 +329,18 @@ export function createAgentToolHandler(a: AgentInternals): AgentToolHandler {
     // before the next provider request.
     if (contentBlocks.length > 0) {
       a.ctx.toolAdjacencyDirty = true;
+    }
+    // A completed tool may already have changed the filesystem. Persist the
+    // legacy tool_result records AND the exact combined user message (including
+    // PostToolUse context) before another provider call or crash can observe a
+    // half-journaled conversation.
+    try {
+      await a.ctx.flushConversationJournal();
+      await a.ctx.session.flush();
+    } catch (err) {
+      (a.logger.debug ?? a.logger.warn)?.(
+        `tool result boundary flush failed: ${toErrorMessage(err)}`,
+      );
     }
     await a.extensions.runAfterToolExecution(a.ctx, outputs);
     return resultsForMessage;

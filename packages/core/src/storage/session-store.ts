@@ -4,8 +4,8 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import { createInterface } from 'node:readline';
 import type { EventBus } from '../kernel/events.js';
-import type { Logger } from '../types/logger.js';
 import type { ContentBlock } from '../types/blocks.js';
+import type { Logger } from '../types/logger.js';
 import type { Message } from '../types/messages.js';
 import type { SecretScrubber } from '../types/secret-scrubber.js';
 import type {
@@ -22,17 +22,17 @@ import type {
   WorkspaceMaterializationResult,
 } from '../types/session.js';
 import { atomicWrite, ensureDir, withFileLock } from '../utils/atomic-write.js';
-import { repairToolUseAdjacency } from '../utils/message-invariants.js';
 import { toErrorMessage } from '../utils/index.js';
+import { repairToolUseAdjacency } from '../utils/message-invariants.js';
 import { sessionScopedPath } from '../utils/session-scoped-path.js';
 import { FileSessionWriter } from './file-session-writer.js';
 import { SessionCheckpointCas } from './session-checkpoint-cas.js';
+import { userInputTitle } from './session-helpers.js';
+import { generateSessionId } from './session-id.js';
 import {
   formatResumeValidationNotice,
   validateResumeFileObservations,
 } from './session-resume-validation.js';
-import { userInputTitle } from './session-helpers.js';
-import { generateSessionId } from './session-id.js';
 import { compareSessionSummaries, matchesSessionFilter } from './session-summary.js';
 import { extractToolCallEnds } from './session-tool-call-ends.js';
 import { mapWithConcurrency } from './storage-concurrency.js';
@@ -106,11 +106,23 @@ function isReplayableMessage(value: unknown): value is Message {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<Message>;
   return (
-    (candidate.role === 'user' ||
-      candidate.role === 'assistant' ||
-      candidate.role === 'system') &&
+    (candidate.role === 'user' || candidate.role === 'assistant' || candidate.role === 'system') &&
     (typeof candidate.content === 'string' || Array.isArray(candidate.content))
   );
+}
+
+function trackMessageToolState(message: Message, openToolUses: Set<string>): void {
+  if (!Array.isArray(message.content)) return;
+  for (const block of message.content) {
+    if (block.type === 'tool_use') openToolUses.add(block.id);
+    else if (block.type === 'tool_result') openToolUses.delete(block.tool_use_id);
+  }
+}
+
+function replayableMessage(value: unknown, fallbackTs?: string): Message | null {
+  if (!isReplayableMessage(value)) return null;
+  const { _estTokens: _ignored, ...message } = value;
+  return message.ts === undefined && fallbackTs ? { ...message, ts: fallbackTs } : message;
 }
 
 function applyContextSnapshot(
@@ -122,13 +134,10 @@ function applyContextSnapshot(
   target.length = 0;
   openToolUses.clear();
   for (const raw of snapshot) {
-    const { _estTokens: _ignored, ...message } = raw;
+    const message = replayableMessage(raw);
+    if (!message) return false;
     target.push(message);
-    if (!Array.isArray(message.content)) continue;
-    for (const block of message.content) {
-      if (block.type === 'tool_use') openToolUses.add(block.id);
-      else if (block.type === 'tool_result') openToolUses.delete(block.tool_use_id);
-    }
+    trackMessageToolState(message, openToolUses);
   }
   return true;
 }
@@ -241,7 +250,15 @@ export class DefaultSessionStore implements SessionStore {
   private emitWrite(
     sessionId: string,
     filePath: string,
-    operation: 'create' | 'resume' | 'append' | 'flush' | 'close' | 'index_append' | 'compact' | 'checkpoint',
+    operation:
+      | 'create'
+      | 'resume'
+      | 'append'
+      | 'flush'
+      | 'close'
+      | 'index_append'
+      | 'compact'
+      | 'checkpoint',
     outcome: 'success' | 'failure',
     durationMs: number,
     eventCount?: number,
@@ -287,7 +304,9 @@ export class DefaultSessionStore implements SessionStore {
   }
 
   private shardManifestPath(shardKey: string): string {
-    return shardKey ? path.join(this.dir, shardKey, '_manifest.json') : path.join(this.dir, '_manifest.json');
+    return shardKey
+      ? path.join(this.dir, shardKey, '_manifest.json')
+      : path.join(this.dir, '_manifest.json');
   }
 
   private shardKeyForSessionId(id: string): string {
@@ -312,10 +331,7 @@ export class DefaultSessionStore implements SessionStore {
 
   async create(meta: Omit<SessionMetadata, 'startedAt'>): Promise<SessionWriter> {
     const startedAt = new Date().toISOString();
-    const id =
-      meta.id && meta.id.length > 0
-        ? meta.id
-        : generateSessionId(startedAt);
+    const id = meta.id && meta.id.length > 0 ? meta.id : generateSessionId(startedAt);
     const shardDir = await this.ensureShardDir(id);
     const file = this.sessionPath(id, '.jsonl');
     const t0 = Date.now();
@@ -324,10 +340,7 @@ export class DefaultSessionStore implements SessionStore {
       handle = await fsp.open(file, 'a', 0o600);
     } catch (err) {
       this.emitError(id, file, 'create', toErrorMessage(err), false);
-      throw new Error(
-        `Failed to open session file: ${toErrorMessage(err)}`,
-        { cause: err },
-      );
+      throw new Error(`Failed to open session file: ${toErrorMessage(err)}`, { cause: err });
     }
     try {
       const writer = new FileSessionWriter(id, handle, startedAt, meta, this.events, {
@@ -341,10 +354,12 @@ export class DefaultSessionStore implements SessionStore {
       return writer;
       /* v8 ignore start -- defensive: FileSessionWriter ctor does not throw in practice */
     } catch (err) {
-      await handle.close().catch((e) => this.logWarn(
-        'Session handle close failed',
-        { event: 'session_store.handle_close_failed', message: e instanceof Error ? e.message : String(e) },
-      ));
+      await handle.close().catch((e) =>
+        this.logWarn('Session handle close failed', {
+          event: 'session_store.handle_close_failed',
+          message: e instanceof Error ? e.message : String(e),
+        }),
+      );
       this.emitError(id, file, 'create', toErrorMessage(err), true);
       throw err;
     }
@@ -359,10 +374,7 @@ export class DefaultSessionStore implements SessionStore {
       boundary = -1;
       for (let i = 0; i < parent.events.length; i++) {
         const event = parent.events[i];
-        if (
-          event?.type === 'checkpoint' &&
-          event.promptIndex === opts.checkpointPromptIndex
-        ) {
+        if (event?.type === 'checkpoint' && event.promptIndex === opts.checkpointPromptIndex) {
           // Prefer the latest matching checkpoint if a legacy/non-truncated
           // journal reused prompt indices after a rewind.
           boundary = i;
@@ -370,9 +382,7 @@ export class DefaultSessionStore implements SessionStore {
         }
       }
       if (boundary === -1) {
-        throw new Error(
-          `Checkpoint ${opts.checkpointPromptIndex} not found in session "${id}"`,
-        );
+        throw new Error(`Checkpoint ${opts.checkpointPromptIndex} not found in session "${id}"`);
       }
     }
 
@@ -427,7 +437,9 @@ export class DefaultSessionStore implements SessionStore {
     targetRoot: string,
   ): Promise<WorkspaceMaterializationResult> {
     if (!this.checkpointCas) {
-      throw new Error('Workspace checkpoint materialization requires a projectRoot-aware session store');
+      throw new Error(
+        'Workspace checkpoint materialization requires a projectRoot-aware session store',
+      );
     }
     return this.checkpointCas.materialize(checkpoint, targetRoot);
   }
@@ -439,7 +451,10 @@ export class DefaultSessionStore implements SessionStore {
     let resumedData = data;
     if (this.projectRoot) {
       try {
-        const resumeValidation = await validateResumeFileObservations(data.events, this.projectRoot);
+        const resumeValidation = await validateResumeFileObservations(
+          data.events,
+          this.projectRoot,
+        );
         const notice = formatResumeValidationNotice(resumeValidation, this.projectRoot);
         resumedData = {
           ...data,
@@ -466,10 +481,9 @@ export class DefaultSessionStore implements SessionStore {
       /* v8 ignore start -- defensive: load() above already validated the file is readable */
     } catch (err) {
       this.emitError(id, file, 'resume', toErrorMessage(err), false);
-      throw new Error(
-        `Failed to open session "${id}" for append: ${toErrorMessage(err)}`,
-        { cause: err },
-      );
+      throw new Error(`Failed to open session "${id}" for append: ${toErrorMessage(err)}`, {
+        cause: err,
+      });
     }
     /* v8 ignore stop */
     try {
@@ -499,10 +513,12 @@ export class DefaultSessionStore implements SessionStore {
       return { writer, data: resumedData };
       /* v8 ignore start -- defensive: FileSessionWriter ctor does not throw in practice */
     } catch (err) {
-      await handle.close().catch((e) => this.logWarn(
-        'Session handle close failed',
-        { event: 'session_store.handle_close_failed', message: e instanceof Error ? e.message : String(e) },
-      ));
+      await handle.close().catch((e) =>
+        this.logWarn('Session handle close failed', {
+          event: 'session_store.handle_close_failed',
+          message: e instanceof Error ? e.message : String(e),
+        }),
+      );
       this.emitError(id, file, 'resume', toErrorMessage(err), true);
       throw err;
     }
@@ -577,6 +593,10 @@ export class DefaultSessionStore implements SessionStore {
       // Message builder state — only allocated when mode.full.
       const messages: Message[] | undefined = mode.full ? [] : undefined;
       const openToolUses: Set<string> | undefined = mode.full ? new Set<string>() : undefined;
+      // Once an exact message-journal event appears, it becomes authoritative.
+      // Legacy turn events continue to supply usage/audit data but must not be
+      // replayed a second time into the conversation.
+      let exactJournalActive = false;
       let usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
       const stream = createReadStream(file, { encoding: 'utf8' });
@@ -613,20 +633,64 @@ export class DefaultSessionStore implements SessionStore {
               // Build messages in the same pass (replay() logic inlined).
               // Skipped entirely when mode.full is false.
               if (mode.full && messages !== undefined && openToolUses !== undefined) {
-                if (ev.type === 'context_snapshot') {
+                if (ev.type === 'message_appended' && ev.version === 1) {
+                  const message = replayableMessage(ev.message, ev.ts);
+                  if (message) {
+                    if (!exactJournalActive) {
+                      messages.length = 0;
+                      openToolUses.clear();
+                      exactJournalActive = true;
+                    }
+                    messages.push(message);
+                    trackMessageToolState(message, openToolUses);
+                  } else {
+                    this.events?.emit('session.damaged', {
+                      sessionId: id,
+                      detail: 'Ignored malformed message_appended event',
+                    });
+                  }
+                } else if (ev.type === 'message_updated' && ev.version === 1) {
+                  const message = replayableMessage(ev.message, ev.ts);
+                  if (
+                    message &&
+                    exactJournalActive &&
+                    ev.index >= 0 &&
+                    ev.index < messages.length
+                  ) {
+                    messages[ev.index] = message;
+                    openToolUses.clear();
+                    for (const current of messages) trackMessageToolState(current, openToolUses);
+                  } else {
+                    this.events?.emit('session.damaged', {
+                      sessionId: id,
+                      detail: `Ignored malformed message_updated event at index ${ev.index}`,
+                    });
+                  }
+                } else if (ev.type === 'messages_replaced' && ev.version === 1) {
+                  if (applyContextSnapshot(messages, openToolUses, ev.messages)) {
+                    exactJournalActive = true;
+                  } else {
+                    this.events?.emit('session.damaged', {
+                      sessionId: id,
+                      detail: 'Ignored malformed messages_replaced event',
+                    });
+                  }
+                } else if (ev.type === 'context_snapshot') {
                   if (!applyContextSnapshot(messages, openToolUses, ev.messages)) {
                     this.events?.emit('session.damaged', {
                       sessionId: id,
                       detail: 'Ignored malformed context_snapshot event',
                     });
                   }
-                } else if (ev.type === 'user_input') {
+                } else if (!exactJournalActive && ev.type === 'user_input') {
                   openToolUses.clear();
                   messages.push({ role: 'user', content: ev.content, ts: ev.ts });
                 } else if (ev.type === 'llm_response') {
-                  messages.push({ role: 'assistant', content: ev.content, ts: ev.ts });
-                  for (const b of ev.content) {
-                    if (b.type === 'tool_use') openToolUses.add(b.id);
+                  if (!exactJournalActive) {
+                    messages.push({ role: 'assistant', content: ev.content, ts: ev.ts });
+                    for (const b of ev.content) {
+                      if (b.type === 'tool_use') openToolUses.add(b.id);
+                    }
                   }
                   usage = {
                     input: usage.input + (ev.usage.input ?? 0),
@@ -634,7 +698,7 @@ export class DefaultSessionStore implements SessionStore {
                     cacheRead: (usage.cacheRead ?? 0) + (ev.usage.cacheRead ?? 0),
                     cacheWrite: (usage.cacheWrite ?? 0) + (ev.usage.cacheWrite ?? 0),
                   };
-                } else if (ev.type === 'tool_result') {
+                } else if (!exactJournalActive && ev.type === 'tool_result') {
                   if (!openToolUses.has(ev.id)) {
                     this.events?.emit('session.damaged', {
                       sessionId: id,
@@ -646,7 +710,8 @@ export class DefaultSessionStore implements SessionStore {
                   const resultBlock: ContentBlock = {
                     type: 'tool_result',
                     tool_use_id: ev.id,
-                    content: typeof ev.content === 'string' ? ev.content : JSON.stringify(ev.content),
+                    content:
+                      typeof ev.content === 'string' ? ev.content : JSON.stringify(ev.content),
                     is_error: ev.isError,
                   };
                   const last = messages[messages.length - 1];
@@ -722,7 +787,13 @@ export class DefaultSessionStore implements SessionStore {
 
       // Extract tool_call_end events for TUI tool entry rendering on resume.
       const toolCallEnds = extractToolCallEnds(events);
-      const data: SessionData = { metadata: meta, events, messages: finalMessages, usage, toolCallEnds };
+      const data: SessionData = {
+        metadata: meta,
+        events,
+        messages: finalMessages,
+        usage,
+        toolCallEnds,
+      };
 
       // Update the cache. Evict oldest entry if at capacity.
       // Only full loads populate the cache; events-only loads always read
@@ -730,13 +801,13 @@ export class DefaultSessionStore implements SessionStore {
       // otherwise evict full-load entries that callers also need).
       if (mode.full) {
         if (this._loadCache.size >= DefaultSessionStore.LOAD_CACHE_MAX_ENTRIES) {
-        // Map iteration order is insertion order â€” delete the first key.
-        const oldest = this._loadCache.keys().next().value;
-        if (oldest !== undefined) {
-          this._loadCache.delete(oldest);
+          // Map iteration order is insertion order â€” delete the first key.
+          const oldest = this._loadCache.keys().next().value;
+          if (oldest !== undefined) {
+            this._loadCache.delete(oldest);
+          }
         }
-      }
-      this._loadCache.set(id, { mtimeMs: stat.mtimeMs, size: stat.size, data });
+        this._loadCache.set(id, { mtimeMs: stat.mtimeMs, size: stat.size, data });
       }
 
       return data;
@@ -745,7 +816,14 @@ export class DefaultSessionStore implements SessionStore {
       errorMsg = toErrorMessage(err);
       throw err;
     } finally {
-      this.emitRead(id, file, mode.full ? 'load' : 'load_events_only', outcome, Date.now() - t0, errorMsg);
+      this.emitRead(
+        id,
+        file,
+        mode.full ? 'load' : 'load_events_only',
+        outcome,
+        Date.now() - t0,
+        errorMsg,
+      );
       if (cacheHit) {
         this.events?.emit('storage.cache_hit', {
           sessionId: id,
@@ -1012,7 +1090,15 @@ export class DefaultSessionStore implements SessionStore {
       errorMsg = toErrorMessage(err);
     } finally {
       // Compact is internal â€” use 'session' as the session ID placeholder.
-      this.emitWrite('~compact~', this.indexFile, 'compact', outcome, Date.now() - t0, undefined, errorMsg);
+      this.emitWrite(
+        '~compact~',
+        this.indexFile,
+        'compact',
+        outcome,
+        Date.now() - t0,
+        undefined,
+        errorMsg,
+      );
     }
   }
 
@@ -1065,7 +1151,10 @@ export class DefaultSessionStore implements SessionStore {
     for (const line of raw.split('\n')) {
       if (!line.trim()) continue;
       try {
-        const entry = JSON.parse(line) as { action?: string | undefined; id?: string | undefined } & SessionSummary;
+        const entry = JSON.parse(line) as {
+          action?: string | undefined;
+          id?: string | undefined;
+        } & SessionSummary;
         if (entry.action === 'delete' && entry.id) {
           deleted.add(entry.id);
           seen.delete(entry.id);
@@ -1100,7 +1189,9 @@ export class DefaultSessionStore implements SessionStore {
   async rebuildIndex(): Promise<number> {
     const ids = await this.collectSessionIds(this.dir);
     /* v8 ignore next -- summaryFor() never rejects for a collected id (its .jsonl exists) */
-    const summaries = await Promise.all(ids.map((id) => this.summaryFor(id).catch(() => null))); /* best-effort */
+    const summaries = await Promise.all(
+      ids.map((id) => this.summaryFor(id).catch(() => null)),
+    ); /* best-effort */
     const valid = summaries.filter((s): s is SessionSummary => s !== null);
     // Atomic rewrite under the index lock so it can't clobber a concurrent
     // append (or be clobbered by a concurrent compaction). atomicWrite gives
@@ -1151,7 +1242,8 @@ export class DefaultSessionStore implements SessionStore {
     const shardKeys = [''];
     for (const entry of entries) {
       if (entry.name.startsWith('.') && entry.name !== '.wrongstack') continue;
-      if (entry.name === 'shared' || entry.name === 'subagents' || entry.name === 'attachments') continue;
+      if (entry.name === 'shared' || entry.name === 'subagents' || entry.name === 'attachments')
+        continue;
       if (entry.isDirectory()) shardKeys.push(entry.name);
     }
     return shardKeys;
@@ -1248,11 +1340,7 @@ export class DefaultSessionStore implements SessionStore {
    *  IDs include the date-prefix path (e.g. "2026-06-06/17-46-57Z_â€¦").
    *  Skips `.jsonl`/`.summary.json` root files, dot-files, and
    *  sub-directories that belong to fleet/subagent sessions. */
-  private async collectSessionIds(
-    dir: string,
-    prefix = '',
-    depth = 0,
-  ): Promise<string[]> {
+  private async collectSessionIds(dir: string, prefix = '', depth = 0): Promise<string[]> {
     let entries: Dirent[];
     try {
       entries = await fsp.readdir(dir, { withFileTypes: true });
@@ -1303,10 +1391,11 @@ export class DefaultSessionStore implements SessionStore {
       await atomicWrite(manifest, JSON.stringify(summary), { mode: 0o600 }).catch((err) => {
         const msg = toErrorMessage(err);
         this.emitError(id, manifest, 'summary_fallback', msg, true);
-        this.logWarn(
-          'Session manifest write failed',
-          { event: 'session_store.manifest_write_failed', sessionId: id, message: msg },
-        );
+        this.logWarn('Session manifest write failed', {
+          event: 'session_store.manifest_write_failed',
+          sessionId: id,
+          message: msg,
+        });
       });
       outcome = 'failure';
       errorMsg = 'summary fallback â€” manifest rebuilt';
@@ -1423,13 +1512,15 @@ export class DefaultSessionStore implements SessionStore {
         const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
         // ENOENT is expected (file may not exist â€” sidecars are optional).
         if ((r.reason as NodeJS.ErrnoException)?.code !== 'ENOENT') {
-          console.warn(JSON.stringify({
-            level: 'warn',
-            event: 'session_store.delete_failed',
-            sessionId: id,
-            message: msg,
-            timestamp: new Date().toISOString(),
-          }));
+          console.warn(
+            JSON.stringify({
+              level: 'warn',
+              event: 'session_store.delete_failed',
+              sessionId: id,
+              message: msg,
+              timestamp: new Date().toISOString(),
+            }),
+          );
         }
       }
     }
@@ -1437,13 +1528,15 @@ export class DefaultSessionStore implements SessionStore {
     // Remove the session directory (may contain fleet.json, shared/, subagents/).
     /* v8 ignore start -- defensive: rm with force:true rarely rejects */
     await fsp.rm(sessDir, { recursive: true, force: true }).catch((err) => {
-      console.warn(JSON.stringify({
-        level: 'warn',
-        event: 'session_store.rmdir_failed',
-        sessionId: id,
-        message: toErrorMessage(err),
-        timestamp: new Date().toISOString(),
-      }));
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          event: 'session_store.rmdir_failed',
+          sessionId: id,
+          message: toErrorMessage(err),
+          timestamp: new Date().toISOString(),
+        }),
+      );
     });
     /* v8 ignore stop */
 
@@ -1649,7 +1742,7 @@ export class DefaultSessionStore implements SessionStore {
       let toolErrorCount = 0;
       let fileChangeCount = 0;
       const toolBreakdown: Record<string, number> = {};
-      let outcome: SessionSummary['outcome'] ;
+      let outcome: SessionSummary['outcome'];
       let lastEventType: SessionEvent['type'] | undefined;
       let hasError = false;
       let sawStart = false;
@@ -1740,6 +1833,4 @@ export class DefaultSessionStore implements SessionStore {
       stream.destroy();
     }
   }
-
-
 }

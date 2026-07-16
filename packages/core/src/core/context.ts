@@ -1,9 +1,9 @@
 import * as path from 'node:path';
 import type { TextBlock } from '../types/blocks.js';
+import type { ContextEvidenceState } from '../types/context-evidence.js';
 import type { Message } from '../types/messages.js';
 import type { Provider, Usage } from '../types/provider.js';
-import type { SessionWriter } from '../types/session.js';
-import type { ContextEvidenceState } from '../types/context-evidence.js';
+import type { SessionEvent, SessionWriter } from '../types/session.js';
 import type { TokenCounter } from '../types/token-counter.js';
 import type { Tool } from '../types/tool.js';
 import { createContextEvidenceState } from '../utils/context-evidence.js';
@@ -223,8 +223,52 @@ export class Context implements RunEnv {
    * `onChange`. New code should prefer the wrapper API.
    */
   private _state: ConversationState | null = null;
+  private _conversationJournalTail: Promise<void> = Promise.resolve();
+
+  /** Wait until every exact conversation-state event queued so far is in the writer buffer. */
+  async flushConversationJournal(): Promise<void> {
+    await this._conversationJournalTail;
+  }
+
   get state(): ConversationState {
-    if (!this._state) this._state = new ConversationState(this);
+    if (!this._state) {
+      this._state = new ConversationState(this);
+      this._state.onChange((change) => {
+        const writer = this.session;
+        const ts = new Date().toISOString();
+        const event: SessionEvent | null =
+          change.kind === 'message_appended'
+            ? {
+                type: 'message_appended',
+                ts,
+                version: 1,
+                message: change.message,
+              }
+            : change.kind === 'message_updated'
+              ? {
+                  type: 'message_updated',
+                  ts,
+                  version: 1,
+                  index: change.index,
+                  message: change.message,
+                }
+              : change.kind === 'messages_replaced'
+                ? {
+                    type: 'messages_replaced',
+                    ts,
+                    version: 1,
+                    messages: [...change.messages],
+                  }
+                : null;
+        if (!event) return;
+        this._conversationJournalTail = this._conversationJournalTail
+          .then(() => writer.append(event))
+          .catch(() => {
+            // Session persistence is best-effort, but the queue must remain
+            // usable after one failed append so later state is not discarded.
+          });
+      });
+    }
     return this._state;
   }
 
@@ -364,15 +408,19 @@ export class Context implements RunEnv {
    */
   recordSideEffect(sideEffect: import('../types/side-effect.js').SideEffect): void {
     this.sideEffects.push(sideEffect);
-    this.session.append({
-      type: 'side_effect',
-      ts: sideEffect.ts,
-      toolUseId: sideEffect.toolUseId,
-      toolName: sideEffect.toolName,
-      input: sideEffect.input,
-      outcome: sideEffect.outcome,
-      risk: sideEffect.risk,
-    }).catch(() => { /* best-effort — never block tool execution */ });
+    this.session
+      .append({
+        type: 'side_effect',
+        ts: sideEffect.ts,
+        toolUseId: sideEffect.toolUseId,
+        toolName: sideEffect.toolName,
+        input: sideEffect.input,
+        outcome: sideEffect.outcome,
+        risk: sideEffect.risk,
+      })
+      .catch(() => {
+        /* best-effort — never block tool execution */
+      });
   }
 
   /**
@@ -406,9 +454,7 @@ export class Context implements RunEnv {
    * Returns the resolved absolute path.
    */
   setWorkingDir(dir: string): string {
-    const resolved = path.isAbsolute(dir)
-      ? path.resolve(dir)
-      : path.resolve(this.projectRoot, dir);
+    const resolved = path.isAbsolute(dir) ? path.resolve(dir) : path.resolve(this.projectRoot, dir);
 
     // Validate containment within projectRoot — unless filesystem access is
     // unrestricted, in which case the working dir may leave the project root.
@@ -416,9 +462,7 @@ export class Context implements RunEnv {
       const root = path.resolve(this.projectRoot);
       const rel = path.relative(root, resolved);
       if (rel.startsWith('..') || path.isAbsolute(rel)) {
-        throw new Error(
-          `Working directory "${resolved}" is outside project root "${root}"`,
-        );
+        throw new Error(`Working directory "${resolved}" is outside project root "${root}"`);
       }
     }
 
@@ -426,7 +470,11 @@ export class Context implements RunEnv {
     this.workingDir = resolved;
     // Fire callbacks (catch errors so one bad listener doesn't break others)
     for (const cb of this._onWorkingDirChanged) {
-      try { cb(resolved, old); } catch { /* best-effort */ }
+      try {
+        cb(resolved, old);
+      } catch {
+        /* best-effort */
+      }
     }
     return resolved;
   }

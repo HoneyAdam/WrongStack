@@ -312,6 +312,7 @@ export async function handleSessionResume(
     opts.onSessionSwapped?.(resumed.writer.id);
     // Hydrate the context with the old session's messages.
     actx.state.replaceMessages(resumed.data.messages);
+    await actx.flushConversationJournal?.();
     actx.state.replaceTodos([]);
     actx.readFiles.clear();
     actx.fileMtimes.clear();

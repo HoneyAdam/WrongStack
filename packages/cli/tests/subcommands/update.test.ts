@@ -123,7 +123,7 @@ describe('update subcommand', () => {
     expect(rig.out.buf).toContain('v999.0.0');
   });
 
-  it('handles network error gracefully and exits 0', async () => {
+  it('fails closed when the registry check fails', async () => {
     mockCheckForUpdate.mockResolvedValue({
       current: '0.5.2',
       latest: '0.5.2',
@@ -134,9 +134,9 @@ describe('update subcommand', () => {
     const rig = mkRig();
     const code = await subcommands['update']!([], mkDeps(rig));
 
-    // Graceful degradation: reports as "latest" when check fails
-    expect(code).toBe(0);
-    expect(rig.out.buf).toContain('latest version');
+    expect(code).toBe(1);
+    expect(rig.out.buf).toContain('Update check failed');
+    expect(rig.out.buf).not.toContain('latest version');
   });
 
   it('skips update when not outdated', async () => {

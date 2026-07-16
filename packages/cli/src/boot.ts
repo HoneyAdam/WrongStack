@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toErrorMessage } from '@wrongstack/core/utils';
@@ -66,6 +67,7 @@ import {
   runProjectCheck,
 } from './pre-launch.js';
 import { TerminalRenderer } from './renderer.js';
+import { runUpdateCommand } from './subcommands/handlers/update.js';
 import { subcommands } from './subcommands/index.js';
 import type { UpdateInfo } from './update-check.js';
 import { patchConfig } from './utils.js';
@@ -188,6 +190,18 @@ function resolveBundledPromptsDir(): string | undefined {
  */
 export async function boot(argv: string[]): Promise<BootContext | number> {
   const { flags, positional } = parseArgs(argv);
+
+  // Self-update is a recovery path: do not require valid user config, provider
+  // metadata, or the DI container just to replace the installed CLI package.
+  if (positional[0] === 'update') {
+    const renderer = new TerminalRenderer();
+    return runUpdateCommand(positional.slice(1), {
+      cwd: process.cwd(),
+      userHome: os.homedir(),
+      renderer,
+      flags,
+    });
+  }
 
   // `wstack resume <id>` is sugar for `wstack --resume <id>`.
   if (positional[0] === 'resume' && positional[1] && !subcommands['__noop_resume_marker']) {

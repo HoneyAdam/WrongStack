@@ -1,7 +1,9 @@
 import { spawn } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
-import { checkForUpdate } from '../../update-check.js';
-import type { SubcommandHandler } from '../index.js';
+import type { TerminalRenderer } from '../../renderer.js';
+import { checkForUpdate, type UpdatePackageName } from '../../update-check.js';
+import { buildWin32CmdShimInvocation } from '../../utils/win32-cmd.js';
+import type { SubcommandDeps, SubcommandHandler } from '../index.js';
 
 type PackageManager = 'npm' | 'pnpm' | 'yarn' | 'bun';
 
@@ -17,22 +19,78 @@ interface UpdateCommand {
   executable: string;
   args: string[];
   display: string;
+  windowsVerbatimArguments?: true | undefined;
+}
+
+interface UpdateProcessResult {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+}
+
+const MAX_UPDATE_OUTPUT_CHARS = 256 * 1024;
+
+export interface UpdateCommandDeps {
+  cwd: string;
+  userHome: string;
+  renderer: Pick<TerminalRenderer, 'write'>;
+  flags?: SubcommandDeps['flags'] | undefined;
 }
 
 /** `wrongstack update` — Update the CLI via the detected global package manager. */
-export const updateCmd: SubcommandHandler = async (args, deps) => {
+export async function runUpdateCommand(args: string[], deps: UpdateCommandDeps): Promise<number> {
   const cwd = deps.cwd;
 
-  const parsed = parseUpdateArgs(args);
-  if (parsed.error) {
-    deps.renderer.write(`${parsed.error}\n`);
-    deps.renderer.write(
-      'Usage: wrongstack update [--check-only] [--pm npm|pnpm|yarn|bun] [--allow-scripts]\n',
-    );
+  if (deps.flags?.['help'] === true || deps.flags?.['help'] === 'true') {
+    writeUpdateUsage(deps.renderer);
+    return 0;
+  }
+  const unsupportedFlag = Object.keys(deps.flags ?? {}).find(
+    (flag) =>
+      ![
+        'check-only',
+        'c',
+        'pm',
+        'package-manager',
+        'allow-scripts',
+        'lifecycle-scripts',
+        'npm',
+        'pnpm',
+        'yarn',
+        'bun',
+        'help',
+        'no-banner',
+        'verbose',
+        'trace',
+      ].includes(flag),
+  );
+  if (unsupportedFlag) {
+    deps.renderer.write(`Unknown update option: --${unsupportedFlag}\n`);
+    writeUpdateUsage(deps.renderer);
     return 1;
   }
 
-  const info = await checkForUpdate();
+  const parsed = parseUpdateArgs(mergeUpdateArgs(args, deps.flags));
+  if (parsed.error) {
+    deps.renderer.write(`${parsed.error}\n`);
+    writeUpdateUsage(deps.renderer);
+    return 1;
+  }
+
+  const packageName = detectUpdatePackageName();
+  const info = await checkForUpdate({
+    packageName,
+    forceRefresh: true,
+    homeFn: () => deps.userHome,
+  });
+
+  if (info.checkFailed) {
+    deps.renderer.write(
+      `Update check failed for ${packageName}. Check your internet connection and try again.\n`,
+    );
+    return 1;
+  }
 
   if (parsed.checkOnly) {
     if (info.outdated) {
@@ -49,34 +107,37 @@ export const updateCmd: SubcommandHandler = async (args, deps) => {
   }
 
   const packageManager = parsed.packageManager ?? detectUpdatePackageManager();
-  const updateCommand = buildUpdateCommand(packageManager, { allowScripts: parsed.allowScripts });
+  const updateCommand = buildUpdateCommand(packageManager, packageName, info.latest, {
+    allowScripts: parsed.allowScripts,
+  });
 
   deps.renderer.write(`Updating wrongstack from v${info.current} to v${info.latest}...\n`);
   deps.renderer.write(`Running: ${updateCommand.display}\n`);
 
   try {
-    const result = await new Promise<{ code: number; stdout: string; stderr: string }>(
-      (resolve, reject) => {
-        const child = spawn(updateCommand.executable, updateCommand.args, {
-          cwd,
-          stdio: 'pipe',
-          signal: AbortSignal.timeout(120_000),
-          windowsHide: true,
-        });
-        let stdout = '';
-        let stderr = '';
-        child.stdout?.on('data', (d) => {
-          stdout += d;
-        });
-        child.stderr?.on('data', (d) => {
-          stderr += d;
-        });
-        child.on('error', reject);
-        child.on('close', (code) => resolve({ code: code ?? 0, stdout, stderr }));
-      },
-    );
+    const result = await new Promise<UpdateProcessResult>((resolve, reject) => {
+      const child = spawn(updateCommand.executable, updateCommand.args, {
+        cwd,
+        stdio: 'pipe',
+        signal: AbortSignal.timeout(120_000),
+        windowsHide: true,
+        ...(updateCommand.windowsVerbatimArguments
+          ? { windowsVerbatimArguments: updateCommand.windowsVerbatimArguments }
+          : {}),
+      });
+      let stdout = '';
+      let stderr = '';
+      child.stdout?.on('data', (data) => {
+        stdout = appendOutputTail(stdout, data);
+      });
+      child.stderr?.on('data', (data) => {
+        stderr = appendOutputTail(stderr, data);
+      });
+      child.on('error', reject);
+      child.on('close', (code, signal) => resolve({ code, signal, stdout, stderr }));
+    });
 
-    if (result.code === 0) {
+    if (result.code === 0 && result.signal === null) {
       deps.renderer.write(
         `\nUpdated to v${info.latest}. Restart wrongstack to use the new version.\n`,
       );
@@ -85,18 +146,22 @@ export const updateCmd: SubcommandHandler = async (args, deps) => {
     } else {
       // A bare "exit code 243" is opaque — npm's actual reason (EACCES, a custom
       // prefix it can't write, a pnpm/yarn/bun global that npm doesn't own) lives
-      // in stderr, which used to be collected and thrown away (#13). Surface it,
-      // then point at the package-manager-specific update command so users who
-      // didn't install via npm have a working path forward.
-      deps.renderer.write(`\nUpdate failed with exit code ${result.code}.\n`);
+      // in stderr. Surface it, then show pinned equivalent commands.
+      const termination =
+        result.code === null
+          ? `terminated by ${result.signal ?? 'an unknown signal'}`
+          : `failed with exit code ${result.code}`;
+      deps.renderer.write(`\nUpdate ${termination}.\n`);
       const detail = `${result.stderr}\n${result.stdout}`.trim();
       if (detail) deps.renderer.write(`\n${detail}\n`);
       deps.renderer.write(
         `\nTry the matching global update command manually:\n  ${updateCommand.display}\n` +
-          otherManagerCommands(packageManager, { allowScripts: parsed.allowScripts }),
+          otherManagerCommands(packageManager, packageName, info.latest, {
+            allowScripts: parsed.allowScripts,
+          }),
       );
     }
-    return result.code;
+    return result.code ?? 1;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('ENOENT')) {
@@ -106,7 +171,35 @@ export const updateCmd: SubcommandHandler = async (args, deps) => {
     deps.renderer.write(`\nUpdate failed: ${msg}\n`);
     return 1;
   }
-};
+}
+
+export const updateCmd: SubcommandHandler = async (args, deps) => runUpdateCommand(args, deps);
+
+function writeUpdateUsage(renderer: Pick<TerminalRenderer, 'write'>): void {
+  renderer.write(
+    'Usage: wrongstack update [--check-only] [--pm npm|pnpm|yarn|bun] [--allow-scripts]\n',
+  );
+}
+
+/** Rehydrate update flags stripped by the top-level parser before subcommand dispatch. */
+function mergeUpdateArgs(args: string[], flags: SubcommandDeps['flags'] | undefined): string[] {
+  const merged = [...args];
+  if (!flags) return merged;
+
+  const addBoolean = (name: string, alias = name): void => {
+    if (flags[name] === true || flags[name] === 'true') merged.push(`--${alias}`);
+  };
+  addBoolean('check-only');
+  if (flags['c'] === true || flags['c'] === 'true') merged.push('-c');
+  addBoolean('allow-scripts');
+  addBoolean('lifecycle-scripts');
+  for (const pm of ['npm', 'pnpm', 'yarn', 'bun'] as const) addBoolean(pm);
+
+  const pmFlag = flags['pm'] ?? flags['package-manager'];
+  if (typeof pmFlag === 'string') merged.push('--pm', pmFlag);
+  else if (pmFlag === true) merged.push('--pm');
+  return merged;
+}
 
 function parseUpdateArgs(args: string[]): ParsedUpdateArgs {
   let checkOnly = false;
@@ -190,8 +283,18 @@ export function detectUpdatePackageManager(
   return 'npm';
 }
 
+/** Detect whether the running binary belongs to the umbrella or direct CLI package. */
+export function detectUpdatePackageName(argv: string[] = process.argv): UpdatePackageName {
+  const entry = (argv[1] ?? '').replace(/\\/g, '/').toLowerCase();
+  return entry.includes('/node_modules/@wrongstack/cli/') || entry.includes('/packages/cli/dist/')
+    ? '@wrongstack/cli'
+    : 'wrongstack';
+}
+
 function buildUpdateCommand(
   packageManager: PackageManager,
+  packageName: UpdatePackageName,
+  version: string,
   opts: { allowScripts: boolean } = { allowScripts: false },
 ): UpdateCommand {
   // Default to --ignore-scripts so a compromised `wrongstack@latest` cannot
@@ -200,55 +303,66 @@ function buildUpdateCommand(
   // four managers (`npm install -g`, `pnpm add -g`, `yarn global add`,
   // `bun add -g`).
   const ignoreScripts = !opts.allowScripts;
+  const target = `${packageName}@${version}`;
   switch (packageManager) {
     case 'pnpm':
       return command(
         packageManager,
-        ignoreScripts
-          ? ['add', '-g', '--ignore-scripts', 'wrongstack@latest']
-          : ['add', '-g', 'wrongstack@latest'],
+        ignoreScripts ? ['add', '-g', '--ignore-scripts', target] : ['add', '-g', target],
       );
     case 'yarn':
       return command(
         packageManager,
         ignoreScripts
-          ? ['global', 'add', '--ignore-scripts', 'wrongstack@latest']
-          : ['global', 'add', 'wrongstack@latest'],
+          ? ['global', 'add', '--ignore-scripts', target]
+          : ['global', 'add', target],
       );
     case 'bun':
       return command(
         packageManager,
-        ignoreScripts
-          ? ['add', '-g', '--ignore-scripts', 'wrongstack@latest']
-          : ['add', '-g', 'wrongstack@latest'],
+        ignoreScripts ? ['add', '-g', '--ignore-scripts', target] : ['add', '-g', target],
       );
     case 'npm':
       return command(
         packageManager,
         ignoreScripts
-          ? ['install', '-g', '--ignore-scripts', 'wrongstack@latest']
-          : ['install', '-g', 'wrongstack@latest'],
+          ? ['install', '-g', '--ignore-scripts', target]
+          : ['install', '-g', target],
       );
   }
 }
 
 function command(pm: PackageManager, args: string[]): UpdateCommand {
-  const executable = process.platform === 'win32' && pm !== 'bun' ? `${pm}.cmd` : pm;
-  return {
-    executable,
-    args,
-    display: `${pm} ${args.join(' ')}`,
-  };
+  const display = `${pm} ${args.join(' ')}`;
+  if (process.platform === 'win32' && pm !== 'bun') {
+    const shim = buildWin32CmdShimInvocation(pm, args);
+    return {
+      executable: shim.command,
+      args: shim.args,
+      display,
+      windowsVerbatimArguments: shim.windowsVerbatimArguments,
+    };
+  }
+  return { executable: pm, args, display };
 }
 
 function otherManagerCommands(
   selected: PackageManager,
+  packageName: UpdatePackageName,
+  version: string,
   opts: { allowScripts: boolean } = { allowScripts: false },
 ): string {
   const commands = (['npm', 'pnpm', 'yarn', 'bun'] as const)
     .filter((pm) => pm !== selected)
-    .map((pm) => `  ${buildUpdateCommand(pm, opts).display}`);
+    .map((pm) => `  ${buildUpdateCommand(pm, packageName, version, opts).display}`);
   return commands.length > 0 ? `\nOther package managers:\n${commands.join('\n')}\n` : '';
+}
+
+function appendOutputTail(current: string, chunk: unknown): string {
+  const next = current + String(chunk);
+  return next.length <= MAX_UPDATE_OUTPUT_CHARS
+    ? next
+    : next.slice(next.length - MAX_UPDATE_OUTPUT_CHARS);
 }
 
 function installWarningSummary(output: string): string | null {

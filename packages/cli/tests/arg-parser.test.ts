@@ -52,6 +52,17 @@ describe('parseArgs', () => {
     expect(r.positional).toContain('prompt');
   });
 
+  it('keeps update boolean flags from consuming following positional tokens', () => {
+    expect(parseArgs(['update', '--check-only', 'sentinel'])).toEqual({
+      flags: { 'check-only': true },
+      positional: ['update', 'sentinel'],
+    });
+    expect(parseArgs(['update', '--allow-scripts'])).toEqual({
+      flags: { 'allow-scripts': true },
+      positional: ['update'],
+    });
+  });
+
   it('treats --desktop as a boolean flag', () => {
     expect(BOOLEAN_FLAGS.has('desktop')).toBe(true);
     const r = parseArgs(['--desktop', 'next']);

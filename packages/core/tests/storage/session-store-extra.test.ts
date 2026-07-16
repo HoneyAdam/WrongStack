@@ -1,7 +1,7 @@
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DefaultSecretScrubber, DefaultSessionStore } from '../../src/index.js';
 import type { SessionEvent } from '../../src/types/session.js';
@@ -35,7 +35,10 @@ describe('FileSessionWriter — transcriptPath / file snapshots / checkpoints', 
     await w.writeCheckpoint(0, 'preview text');
     await w.close();
     const raw = await fs.readFile(path.join(tmp, 'fc.jsonl'), 'utf8');
-    const types = raw.trim().split('\n').map((l) => JSON.parse(l).type);
+    const types = raw
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l).type);
     expect(types).toContain('file_snapshot');
     expect(types).toContain('checkpoint');
   });
@@ -280,9 +283,9 @@ describe('DefaultSessionStore — non-destructive journal fork', () => {
     expect(forked.data.messages).toEqual([
       expect.objectContaining({ role: 'system', content: 'exact compacted state' }),
     ]);
-    await expect(
-      store.fork('latest-parent', { checkpointPromptIndex: 99 }),
-    ).rejects.toThrow('Checkpoint 99 not found');
+    await expect(store.fork('latest-parent', { checkpointPromptIndex: 99 })).rejects.toThrow(
+      'Checkpoint 99 not found',
+    );
   });
 });
 
@@ -322,9 +325,19 @@ describe('FileSessionWriter — truncateToCheckpoint / clearSession / in-flight'
   it('truncates events after a checkpoint and records a rewound marker', async () => {
     const w = await store.create({ id: 'tc', model: 'm', provider: 'p' });
     await w.writeCheckpoint(0, 'first');
-    await w.append({ type: 'user_input', ts: now(), content: 'kept', promptIndex: 0 } as SessionEvent);
+    await w.append({
+      type: 'user_input',
+      ts: now(),
+      content: 'kept',
+      promptIndex: 0,
+    } as SessionEvent);
     await w.writeCheckpoint(1, 'second');
-    await w.append({ type: 'user_input', ts: now(), content: 'dropped', promptIndex: 1 } as SessionEvent);
+    await w.append({
+      type: 'user_input',
+      ts: now(),
+      content: 'dropped',
+      promptIndex: 1,
+    } as SessionEvent);
     const removed = await w.truncateToCheckpoint(0);
     expect(removed).toBeGreaterThan(0);
     await w.close();
@@ -355,7 +368,10 @@ describe('FileSessionWriter — truncateToCheckpoint / clearSession / in-flight'
     await w.append({
       type: 'user_input',
       ts: now(),
-      content: [{ type: 'text', text: 'hello' }, { type: 'text', text: 'world' }],
+      content: [
+        { type: 'text', text: 'hello' },
+        { type: 'text', text: 'world' },
+      ],
     } as SessionEvent);
     await w.close();
     const summaries = await store.list();
@@ -367,7 +383,9 @@ describe('FileSessionWriter — truncateToCheckpoint / clearSession / in-flight'
 describe('DefaultSessionStore — best-effort cleanup paths', () => {
   it('clearHistory swallows a missing summary sidecar', async () => {
     // Raw session with no .summary.json → clearHistory's unlink hits ENOENT.
-    await writeRawSession(tmp, 'noidx', [{ type: 'session_start', ts: now(), id: 'noidx', model: 'm', provider: 'p' }]);
+    await writeRawSession(tmp, 'noidx', [
+      { type: 'session_start', ts: now(), id: 'noidx', model: 'm', provider: 'p' },
+    ]);
     await expect(store.clearHistory('noidx')).resolves.toBeUndefined();
     const raw = await fs.readFile(path.join(tmp, 'noidx.jsonl'), 'utf8');
     expect(raw).toContain('session_start');
@@ -377,7 +395,13 @@ describe('DefaultSessionStore — best-effort cleanup paths', () => {
     const shard = path.join(tmp, '2020-01-01');
     await fs.mkdir(shard, { recursive: true });
     await writeRawSession(shard, '00-00-00Z_old', [
-      { type: 'session_start', ts: '2020-01-01T00:00:00.000Z', id: '2020-01-01/00-00-00Z_old', model: 'm', provider: 'p' },
+      {
+        type: 'session_start',
+        ts: '2020-01-01T00:00:00.000Z',
+        id: '2020-01-01/00-00-00Z_old',
+        model: 'm',
+        provider: 'p',
+      },
     ]);
     // Backdate the mtime well past the prune cutoff.
     const old = new Date('2020-01-01T00:00:00.000Z');
@@ -394,7 +418,9 @@ describe('DefaultSessionStore — error paths', () => {
     // A 300-char basename exceeds NAME_MAX (255) on Linux and the path limit on
     // Windows → fsp.open() throws, exercising the emitError + rethrow path.
     const longId = 'x'.repeat(300);
-    await expect(store.create({ id: longId, model: 'm', provider: 'p' })).rejects.toThrow(/Failed to open session file/);
+    await expect(store.create({ id: longId, model: 'm', provider: 'p' })).rejects.toThrow(
+      /Failed to open session file/,
+    );
   });
 
   it('load() rejects for a missing session', async () => {
@@ -432,7 +458,8 @@ describe('DefaultSessionStore — rebuildIndex / summary fallback / shard scan',
     expect(cacheAfterFirst?.summaries.length).toBeGreaterThanOrEqual(2);
 
     const second = await store.list();
-    const cacheAfterSecond = (store as { _indexCache: { summaries: unknown[] } | null })._indexCache;
+    const cacheAfterSecond = (store as { _indexCache: { summaries: unknown[] } | null })
+      ._indexCache;
     expect(cacheAfterSecond).toBe(cacheAfterFirst);
     expect(second.map((s) => s.id)).toEqual(first.map((s) => s.id));
 
@@ -494,12 +521,44 @@ describe('DefaultSessionStore — rebuildIndex / summary fallback / shard scan',
     // Scrambled order with two equal timestamps so the comparator hits all three
     // returns: a<b (→1), a>b (→-1), and the id-localeCompare tiebreak.
     const entries = [
-      { id: 'cm', title: 't', startedAt: '2026-02-02T00:00:00.000Z', model: 'm', provider: 'p', tokenTotal: 0 },
-      { id: 'ao', title: 't', startedAt: '2026-01-01T00:00:00.000Z', model: 'm', provider: 'p', tokenTotal: 0 },
-      { id: 'dn', title: 't', startedAt: '2026-03-03T00:00:00.000Z', model: 'm', provider: 'p', tokenTotal: 0 },
-      { id: 'bo', title: 't', startedAt: '2026-01-01T00:00:00.000Z', model: 'm', provider: 'p', tokenTotal: 0 },
+      {
+        id: 'cm',
+        title: 't',
+        startedAt: '2026-02-02T00:00:00.000Z',
+        model: 'm',
+        provider: 'p',
+        tokenTotal: 0,
+      },
+      {
+        id: 'ao',
+        title: 't',
+        startedAt: '2026-01-01T00:00:00.000Z',
+        model: 'm',
+        provider: 'p',
+        tokenTotal: 0,
+      },
+      {
+        id: 'dn',
+        title: 't',
+        startedAt: '2026-03-03T00:00:00.000Z',
+        model: 'm',
+        provider: 'p',
+        tokenTotal: 0,
+      },
+      {
+        id: 'bo',
+        title: 't',
+        startedAt: '2026-01-01T00:00:00.000Z',
+        model: 'm',
+        provider: 'p',
+        tokenTotal: 0,
+      },
     ];
-    await fs.writeFile(path.join(tmp, '_index.jsonl'), entries.map((e) => JSON.stringify(e)).join('\n') + '\n', 'utf8');
+    await fs.writeFile(
+      path.join(tmp, '_index.jsonl'),
+      entries.map((e) => JSON.stringify(e)).join('\n') + '\n',
+      'utf8',
+    );
     const out = await store.list();
     expect(out.map((s) => s.id)).toEqual(['dn', 'cm', 'ao', 'bo']); // newest first, id tiebreak on the Jan pair
   });
@@ -532,7 +591,12 @@ describe('DefaultSessionStore — summarize / replay over raw event streams', ()
       { type: 'user_input', ts: now(), content: 'go' },
       { type: 'tool_call_start', ts: now(), name: 'bash', id: 't1' },
       { type: 'tool_result', ts: now(), id: 't1', content: 'oops', isError: true },
-      { type: 'file_snapshot', ts: now(), promptIndex: 0, files: [{ path: 'a', action: 'modified', before: '1', after: '2' }] },
+      {
+        type: 'file_snapshot',
+        ts: now(),
+        promptIndex: 0,
+        files: [{ path: 'a', action: 'modified', before: '1', after: '2' }],
+      },
       { type: 'in_flight_start', ts: now(), context: 'mid-op' }, // last event → aborted
     ]);
     const summaries = await store.list();
@@ -547,7 +611,13 @@ describe('DefaultSessionStore — summarize / replay over raw event streams', ()
       { type: 'session_start', ts: now(), id: 'sm-err', model: 'm', provider: 'p' },
       { type: 'user_input', ts: now(), content: 'go' },
       { type: 'error', ts: now(), message: 'boom' },
-      { type: 'llm_response', ts: now(), content: [{ type: 'text', text: 'end' }], usage: { input: 1, output: 1 }, stopReason: 'end_turn' },
+      {
+        type: 'llm_response',
+        ts: now(),
+        content: [{ type: 'text', text: 'end' }],
+        usage: { input: 1, output: 1 },
+        stopReason: 'end_turn',
+      },
     ]);
     const summaries = await store.list();
     expect(summaries.find((x) => x.id === 'sm-err')?.outcome).toBe('error');
@@ -614,6 +684,110 @@ describe('DefaultSessionStore — summarize / replay over raw event streams', ()
     expect(data.usage).toMatchObject({ input: 7, output: 8 });
   });
 
+  it('round-trips the exact conversation journal across tool calls, results, and intervening messages', async () => {
+    const ts = now();
+    const exactMessages = [
+      { role: 'user' as const, content: 'inspect the project', ts },
+      {
+        role: 'assistant' as const,
+        content: [
+          { type: 'text' as const, text: 'I will inspect it.' },
+          { type: 'tool_use' as const, id: 'tu-1', name: 'read', input: { path: 'a.ts' } },
+        ],
+        ts,
+      },
+      {
+        role: 'user' as const,
+        content: [
+          { type: 'text' as const, text: '[MAILBOX BTW] Keep the ordering intact.' },
+          { type: 'tool_result' as const, tool_use_id: 'tu-1', content: 'file contents' },
+        ],
+        ts,
+      },
+      { role: 'system' as const, content: '[note between tool batches]', ts },
+      {
+        role: 'assistant' as const,
+        content: [{ type: 'text' as const, text: 'The result was file contents.' }],
+        ts,
+      },
+    ];
+
+    await writeRawSession(tmp, 'exact-journal', [
+      { type: 'session_start', ts, id: 'exact-journal', model: 'm', provider: 'p' },
+      // Legacy events remain for older readers and usage accounting.
+      { type: 'user_input', ts, content: 'inspect the project' },
+      {
+        type: 'llm_response',
+        ts,
+        content: exactMessages[1]!.content,
+        usage: { input: 3, output: 2 },
+        stopReason: 'tool_use',
+      },
+      { type: 'tool_result', ts, id: 'tu-1', content: 'file contents', isError: false },
+      // The exact journal is authoritative and must not duplicate legacy turns.
+      ...exactMessages.map((message) => ({ type: 'message_appended', ts, version: 1, message })),
+      {
+        type: 'message_updated',
+        ts,
+        version: 1,
+        index: 2,
+        message: {
+          ...exactMessages[2],
+          content: [
+            { type: 'text', text: '[MAILBOX BTW] Keep the ordering intact. Updated.' },
+            { type: 'tool_result', tool_use_id: 'tu-1', content: 'file contents' },
+          ],
+        },
+      },
+    ] as SessionEvent[]);
+
+    const data = await store.load('exact-journal');
+    expect(data.messages).toEqual([
+      exactMessages[0],
+      exactMessages[1],
+      {
+        ...exactMessages[2],
+        content: [
+          { type: 'text', text: '[MAILBOX BTW] Keep the ordering intact. Updated.' },
+          { type: 'tool_result', tool_use_id: 'tu-1', content: 'file contents' },
+        ],
+      },
+      exactMessages[3],
+      exactMessages[4],
+    ]);
+    expect(data.usage).toMatchObject({ input: 3, output: 2 });
+  });
+
+  it('uses messages_replaced as an exact recovery boundary and applies later journal events', async () => {
+    const ts = now();
+    await writeRawSession(tmp, 'exact-replace', [
+      { type: 'session_start', ts, id: 'exact-replace', model: 'm', provider: 'p' },
+      { type: 'user_input', ts, content: 'legacy prefix' },
+      {
+        type: 'messages_replaced',
+        ts,
+        version: 1,
+        messages: [
+          { role: 'system', content: '[recovered exact state]' },
+          { role: 'user', content: 'continue from here' },
+        ],
+      },
+      {
+        type: 'message_appended',
+        ts,
+        version: 1,
+        message: { role: 'assistant', content: 'continued exactly' },
+      },
+    ] as SessionEvent[]);
+
+    const data = await store.load('exact-replace');
+    expect(data.messages).toEqual([
+      { role: 'system', content: '[recovered exact state]' },
+      { role: 'user', content: 'continue from here' },
+      { role: 'assistant', content: 'continued exactly', ts },
+    ]);
+  });
+
   it('ignores a malformed context_snapshot without discarding replayed history', async () => {
     await writeRawSession(tmp, 'bad-snapshot', [
       { type: 'session_start', ts: now(), id: 'bad-snapshot', model: 'm', provider: 'p' },
@@ -621,7 +795,9 @@ describe('DefaultSessionStore — summarize / replay over raw event streams', ()
       { type: 'context_snapshot', ts: now(), reason: 'compaction', messages: 'not-an-array' },
     ]);
     const data = await store.load('bad-snapshot');
-    expect(data.messages).toContainEqual(expect.objectContaining({ role: 'user', content: 'keep me' }));
+    expect(data.messages).toContainEqual(
+      expect.objectContaining({ role: 'user', content: 'keep me' }),
+    );
   });
 });
 
@@ -629,7 +805,13 @@ describe('FileSessionWriter — observeForSummary event types + scheduled flush'
   it('tracks tool_call_start, legacy tool_use, compaction and provider_error events', async () => {
     const w = await store.create({ id: 'obs', model: 'm', provider: 'p' });
     await w.append({ type: 'tool_call_start', ts: now(), name: 'bash', id: 'c1' } as SessionEvent);
-    await w.append({ type: 'tool_use', ts: now(), id: 'u9', name: 'bash', input: {} } as SessionEvent);
+    await w.append({
+      type: 'tool_use',
+      ts: now(),
+      id: 'u9',
+      name: 'bash',
+      input: {},
+    } as SessionEvent);
     await w.append({ type: 'compaction', ts: now() } as SessionEvent);
     await w.append({ type: 'provider_error', ts: now(), message: 'rate limited' } as SessionEvent);
     await w.close();
@@ -640,7 +822,10 @@ describe('FileSessionWriter — observeForSummary event types + scheduled flush'
   });
 
   it('scrubs llm_response secrets but passes non-conversation events through untouched', async () => {
-    const scrubStore = new DefaultSessionStore({ dir: tmp, secretScrubber: new DefaultSecretScrubber() });
+    const scrubStore = new DefaultSessionStore({
+      dir: tmp,
+      secretScrubber: new DefaultSecretScrubber(),
+    });
     const w = await scrubStore.create({ id: 'scrub', model: 'm', provider: 'p' });
     await w.append({
       type: 'llm_response',
@@ -688,7 +873,11 @@ describe('FileSessionWriter — observeForSummary event types + scheduled flush'
   it('clears a pending flush timer when a later batch exceeds the flush size', async () => {
     const w = await store.create({ id: 'ab3', model: 'm', provider: 'p' });
     await w.appendBatch([{ type: 'user_input', ts: now(), content: 'small' }]); // schedules timer
-    const big: SessionEvent[] = Array.from({ length: 60 }, (_, i) => ({ type: 'user_input', ts: now(), content: `b${i}` }));
+    const big: SessionEvent[] = Array.from({ length: 60 }, (_, i) => ({
+      type: 'user_input',
+      ts: now(),
+      content: `b${i}`,
+    }));
     await w.appendBatch(big); // timer pending → cleared, immediate flush
     await w.close();
     const data = await store.load('ab3');
@@ -763,7 +952,11 @@ describe('DefaultSessionStore.loadEventsOnly — fast-path loader', () => {
 describe('DefaultSessionStore.rename', () => {
   it('persists a name to the .summary.json sidecar and reflects it in list()', async () => {
     const w = await store.create({ id: '2026-07-04/rn1', model: 'm', provider: 'p' });
-    await w.append({ type: 'user_input', ts: now(), content: 'hello world this is the first message' });
+    await w.append({
+      type: 'user_input',
+      ts: now(),
+      content: 'hello world this is the first message',
+    });
     await w.close();
 
     const updated = await store.rename('2026-07-04/rn1', 'DB refactor');
@@ -809,7 +1002,13 @@ describe('DefaultSessionStore.delete — in-use protection', () => {
     // Simulate another process holding this session active.
     await fs.writeFile(
       path.join(tmp, 'active.json'),
-      JSON.stringify({ v: 1, sessionId: '2026-07-04/act1', pid: 99999, hostname: 'other', startedAt: now() }),
+      JSON.stringify({
+        v: 1,
+        sessionId: '2026-07-04/act1',
+        pid: 99999,
+        hostname: 'other',
+        startedAt: now(),
+      }),
     );
     await expect(store.delete('2026-07-04/act1')).rejects.toThrow(/currently active/);
     // The session is still on disk.

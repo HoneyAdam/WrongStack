@@ -8,6 +8,7 @@ import {
   currentVersion,
   fetchLatestFromNpm,
   getUpdateNotification,
+  isNewer,
 } from '../src/update-check.js';
 
 describe('update-check', () => {
@@ -145,8 +146,7 @@ describe('update-check', () => {
   // ──────────────────────────────────────────── cache behavior
 
   describe('cache behavior', () => {
-    it('uses cache on second call without network when fetch fails', async () => {
-      // First call — network succeeds and caches result
+    it('uses a fresh cache on second call without network', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
@@ -154,17 +154,89 @@ describe('update-check', () => {
       });
       vi.stubGlobal('fetch', mockFetch);
 
-      const info1 = await checkForUpdate(undefined, () => userHome);
-      expect(info1.latest).toBe('1.0.0');
-      expect(info1.checkFailed).toBe(false);
+      expect((await checkForUpdate(undefined, () => userHome)).latest).toBe('1.0.0');
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')));
 
-      // Second call — fetch fails, but cache should be used
+      const cached = await checkForUpdate(undefined, () => userHome);
+      expect(cached.checkFailed).toBe(false);
+      expect(cached.latest).toBe('1.0.0');
+    });
+
+    it('forceRefresh bypasses fresh cache and marks stale fallback as failed', async () => {
+      await fs.mkdir(path.join(userHome, '.wrongstack'), { recursive: true });
+      await fs.writeFile(
+        path.join(userHome, '.wrongstack', 'update-cache.json'),
+        JSON.stringify({
+          timestamp: Date.now(),
+          latestVersion: '1.0.0',
+          packageName: 'wrongstack',
+        }),
+      );
       const failingFetch = vi.fn().mockRejectedValue(new Error('network down'));
       vi.stubGlobal('fetch', failingFetch);
 
-      const info2 = await checkForUpdate(undefined, () => userHome);
-      expect(info2.checkFailed).toBe(false);
-      expect(info2.latest).toBe('1.0.0');
+      const info = await checkForUpdate({ homeFn: () => userHome, forceRefresh: true });
+
+      expect(failingFetch).toHaveBeenCalledOnce();
+      expect(info.latest).toBe('1.0.0');
+      expect(info.checkFailed).toBe(true);
+    });
+
+    it('ignores malformed cache data without throwing', async () => {
+      await fs.mkdir(path.join(userHome, '.wrongstack'), { recursive: true });
+      await fs.writeFile(
+        path.join(userHome, '.wrongstack', 'update-cache.json'),
+        JSON.stringify({ timestamp: 'tomorrow', latestVersion: {} }),
+      );
+      vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')));
+
+      await expect(checkForUpdate(undefined, () => userHome)).resolves.toMatchObject({
+        checkFailed: true,
+        outdated: false,
+      });
+    });
+  });
+
+  describe('registry transport', () => {
+    it('uses the encoded scoped package endpoint', async () => {
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ version: '1.2.3' }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      expect(await fetchLatestFromNpm('@wrongstack/cli')).toBe('1.2.3');
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://registry.npmjs.org/%40wrongstack%2Fcli/latest',
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
+    });
+
+    it('honors a caller abort signal through response-body parsing', async () => {
+      const controller = new AbortController();
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: string, init?: RequestInit) => ({
+          ok: true,
+          status: 200,
+          json: () =>
+            new Promise((_resolve, reject) => {
+              if (init?.signal?.aborted) {
+                reject(init.signal.reason);
+                return;
+              }
+              init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), {
+                once: true,
+              });
+            }),
+        })),
+      );
+
+      const pending = fetchLatestFromNpm('wrongstack', 30_000, controller.signal);
+      controller.abort(new Error('caller cancelled'));
+
+      await expect(pending).rejects.toThrow('caller cancelled');
     });
   });
 
@@ -200,6 +272,16 @@ describe('update-check', () => {
   // ──────────────────────────────────────────────────── semver edge cases
 
   describe('semver comparison', () => {
+    it('orders prereleases below the corresponding stable release', () => {
+      expect(isNewer('1.0.0', '1.0.0-beta.1')).toBe(true);
+      expect(isNewer('1.0.0-beta.2', '1.0.0-beta.10')).toBe(false);
+      expect(isNewer('1.0.0-beta.10', '1.0.0-beta.2')).toBe(true);
+    });
+
+    it('rejects invalid registry versions', () => {
+      expect(isNewer('latest', '1.0.0')).toBe(false);
+    });
+
     it('handles versions with v prefix from npm', async () => {
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,

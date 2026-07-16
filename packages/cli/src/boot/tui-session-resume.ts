@@ -65,11 +65,17 @@ export async function resumeSession(
     const resumed = await state.activeSessionStore.resume(sessionId);
     const meta = resumed.data.metadata;
 
-    // Rebuild the agent's conversation context from the resumed
-    // messages. Go through the observable state wrapper (NOT direct
-    // array mutation) so onChange subscribers fire and tool-use
-    // adjacency is re-checked on the next request.
+    // Capture and swap writers BEFORE hydrating. replaceMessages emits the
+    // exact recovery snapshot through Context's conversation journal; it must
+    // land in the resumed session, never the session we are leaving.
+    const oldWriter = agent.ctx.session;
+    agent.ctx.session = resumed.writer;
+
+    // Rebuild the agent's conversation context from the resumed messages.
+    // Go through the observable state wrapper so subscribers fire and
+    // tool-use adjacency is re-checked on the next request.
     agent.ctx.state.replaceMessages(resumed.data.messages);
+    await agent.ctx.flushConversationJournal();
 
     // Sync the agent's provider/model to what was used in the resumed session.
     // Route all changes through the live switch callback when available so the
@@ -99,7 +105,6 @@ export async function resumeSession(
     // the captured `session` variable — the user may have resumed
     // before, in which case `session` is stale.
     // Fire-and-forget: don't block resume on the close.
-    const oldWriter = agent.ctx.session;
     if (oldWriter && oldWriter !== resumed.writer) {
       // Capture the OLD session's usage synchronously — the counter
       // is reset for the resumed session below, and this closure
@@ -143,10 +148,6 @@ export async function resumeSession(
       })();
     }
 
-    // Swap the session writer: new events (tool calls, LLM responses)
-    // will append to the resumed session's JSONL, not the old one.
-    agent.ctx.session = resumed.writer;
-
     // Token accounting is per-session: without a reset the resumed
     // session's summary/cost chips inherit the old session's totals.
     tokenCounter.reset();
@@ -183,8 +184,12 @@ export async function resumeSession(
     })();
 
     // Replay the JSONL events as TUI history entries.
-    const { replaySessionEvents } = await import('@wrongstack/tui');
-    const entries = replaySessionEvents(resumed.data.events, /* startId */ 1);
+    const { replaySessionMessages } = await import('@wrongstack/tui');
+    const entries = replaySessionMessages(
+      resumed.data.messages,
+      resumed.data.events,
+      /* startId */ 1,
+    );
 
     return {
       entries,

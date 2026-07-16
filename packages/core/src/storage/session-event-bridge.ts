@@ -61,6 +61,9 @@ const CORE_RECONSTRUCT_EVENTS = new Set<SessionEvent['type']>([
   'user_input',
   'llm_response',
   'tool_result',
+  'message_appended',
+  'message_updated',
+  'messages_replaced',
   'context_snapshot',
   'checkpoint',
   'file_snapshot',
@@ -93,9 +96,7 @@ const STANDARD_AUDIT_EVENTS = new Set<SessionEvent['type']>([
  * Events that are only allowed at 'full' audit level because they can be
  * very high volume (e.g. streaming tool output).
  */
-const FULL_ONLY_EVENTS = new Set<SessionEvent['type']>([
-  'tool_progress',
-]);
+const FULL_ONLY_EVENTS = new Set<SessionEvent['type']>(['tool_progress']);
 
 /**
  * "full" level allows everything (including potentially heavy events
@@ -131,11 +132,7 @@ function isAllowed(type: SessionEvent['type'], level: AuditLevel): boolean {
  * });
  */
 export function createSessionEventBridge(
-  writer:
-    | SessionWriter
-    | (() => SessionWriter | undefined | null)
-    | undefined
-    | null,
+  writer: SessionWriter | (() => SessionWriter | undefined | null) | undefined | null,
   level: AuditLevel = 'standard',
   options: SessionEventBridgeOptions = {},
 ): SessionEventBridge {
@@ -178,7 +175,7 @@ export function createSessionEventBridge(
       progressCounters.set(key, count);
 
       // Always keep the first message + every Nth after that
-      return count === 1 || (count % TOOL_PROGRESS_SAMPLE_RATE === 0);
+      return count === 1 || count % TOOL_PROGRESS_SAMPLE_RATE === 0;
     }
 
     return true;
@@ -218,9 +215,7 @@ export function createSessionEventBridge(
     async appendBatch(events) {
       const target = resolveWriter();
       if (!target || events.length === 0) return;
-      const allowed = events.filter(
-        (e) => isAllowed(e.type, currentLevel) && shouldSample(e),
-      );
+      const allowed = events.filter((e) => isAllowed(e.type, currentLevel) && shouldSample(e));
       if (allowed.length === 0) return;
       try {
         await target.appendBatch(allowed);
@@ -271,8 +266,7 @@ export function resolveSessionLoggingConfig(
 
   const auditLevel = resolveAuditLevel(cfg);
 
-  const toolProgressSampleRate =
-    session.sampling?.toolProgress?.sampleRate ?? 8;
+  const toolProgressSampleRate = session.sampling?.toolProgress?.sampleRate ?? 8;
 
   return {
     auditLevel,

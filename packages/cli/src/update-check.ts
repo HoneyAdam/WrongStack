@@ -14,8 +14,12 @@ export interface UpdateInfo {
 type HomeDirFn = () => string;
 const defaultHomeDir: HomeDirFn = () => os.homedir();
 
+export type UpdatePackageName = 'wrongstack' | '@wrongstack/cli';
+
 /** npm registry endpoint used for self-update version checks. */
-const NPM_REGISTRY_URL = 'https://registry.npmjs.org/wrongstack/latest';
+function npmRegistryUrl(packageName: UpdatePackageName): string {
+  return `https://registry.npmjs.org/${encodeURIComponent(packageName)}/latest`;
+}
 
 /** Cache file path — homeFn is injectable for testing */
 export function cachePath(homeFn: HomeDirFn = defaultHomeDir): string {
@@ -28,7 +32,7 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 interface CacheEntry {
   timestamp: number;
   latestVersion: string;
-  error?: string | undefined;
+  packageName: UpdatePackageName;
 }
 
 /** Read the current CLI version from package.json */
@@ -46,30 +50,88 @@ export function currentVersion(): string {
   return 'dev';
 }
 
-/** Semver comparison — returns true if a > b */
-function isNewer(a: string, b: string): boolean {
-  const parse = (v: string) =>
-    v
-      .replace(/^v/i, '')
-      .split('.')
-      .map((p) => Number.parseInt(p, 10) || 0);
-  const [ap, bp] = [parse(a), parse(b)];
-  for (let i = 0; i < Math.max(ap.length, bp.length); i++) {
-    const ai = ap[i] ?? 0;
-    const bi = bp[i] ?? 0;
-    if (ai > bi) return true;
-    if (ai < bi) return false;
-  }
-  return false;
+interface ParsedSemver {
+  major: number;
+  minor: number;
+  patch: number;
+  prerelease: string[];
 }
 
-/** Read cache — returns null if expired */
-async function readCache(homeFn: HomeDirFn = defaultHomeDir): Promise<CacheEntry | null> {
+function parseSemver(version: string): ParsedSemver | null {
+  const match = version.match(
+    /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/,
+  );
+  if (!match) return null;
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+    prerelease: match[4]?.split('.') ?? [],
+  };
+}
+
+function comparePrerelease(a: string[], b: string[]): number {
+  if (a.length === 0 || b.length === 0) {
+    if (a.length === b.length) return 0;
+    return a.length === 0 ? 1 : -1;
+  }
+
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const ai = a[i];
+    const bi = b[i];
+    if (ai === undefined || bi === undefined) return ai === undefined ? -1 : 1;
+    if (ai === bi) continue;
+    const aNumeric = /^\d+$/.test(ai);
+    const bNumeric = /^\d+$/.test(bi);
+    if (aNumeric && bNumeric) return Number(ai) > Number(bi) ? 1 : -1;
+    if (aNumeric !== bNumeric) return aNumeric ? -1 : 1;
+    return ai > bi ? 1 : -1;
+  }
+  return 0;
+}
+
+/** SemVer comparison — returns true if a > b. Invalid versions are never considered newer. */
+export function isNewer(a: string, b: string): boolean {
+  const av = parseSemver(a);
+  const bv = parseSemver(b);
+  if (!av || !bv) return false;
+  for (const key of ['major', 'minor', 'patch'] as const) {
+    if (av[key] > bv[key]) return true;
+    if (av[key] < bv[key]) return false;
+  }
+  return comparePrerelease(av.prerelease, bv.prerelease) > 0;
+}
+
+interface CacheState {
+  entry: CacheEntry;
+  fresh: boolean;
+}
+
+/** Read and validate cache. Expired entries remain available as a network-failure fallback. */
+async function readCache(
+  homeFn: HomeDirFn = defaultHomeDir,
+  packageName: UpdatePackageName = 'wrongstack',
+): Promise<CacheState | null> {
   try {
     const raw = await fs.readFile(cachePath(homeFn), 'utf8');
-    const entry = JSON.parse(raw) as CacheEntry;
-    if (Date.now() - entry.timestamp > CACHE_TTL_MS) return null;
-    return entry;
+    const value = JSON.parse(raw) as Record<string, unknown>;
+    const cachedPackage = value['packageName'];
+    if (
+      typeof value['timestamp'] !== 'number' ||
+      !Number.isFinite(value['timestamp']) ||
+      typeof value['latestVersion'] !== 'string' ||
+      !parseSemver(value['latestVersion']) ||
+      (cachedPackage !== undefined && cachedPackage !== packageName) ||
+      (cachedPackage === undefined && packageName !== 'wrongstack')
+    ) {
+      return null;
+    }
+    const entry: CacheEntry = {
+      timestamp: value['timestamp'],
+      latestVersion: value['latestVersion'],
+      packageName,
+    };
+    return { entry, fresh: Date.now() - entry.timestamp <= CACHE_TTL_MS };
   } catch {
     return null;
   }
@@ -90,84 +152,98 @@ async function writeCache(entry: CacheEntry, homeFn: HomeDirFn = defaultHomeDir)
  *  callers that want to do their own version checks. Throws a structured
  *  `FetchError(status, context: { op: 'checkForUpdate', registry: 'npmjs', url })`
  *  on non-2xx responses so consumers can branch on the structured shape. */
-export async function fetchLatestFromNpm(timeoutMs = 3000): Promise<string> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+export function fetchLatestFromNpm(timeoutMs?: number): Promise<string>;
+export function fetchLatestFromNpm(
+  packageName: UpdatePackageName,
+  timeoutMs?: number,
+  signal?: AbortSignal | undefined,
+): Promise<string>;
+export async function fetchLatestFromNpm(
+  packageOrTimeout: UpdatePackageName | number = 'wrongstack',
+  timeoutMs = 3000,
+  signal?: AbortSignal | undefined,
+): Promise<string> {
+  const packageName = typeof packageOrTimeout === 'number' ? 'wrongstack' : packageOrTimeout;
+  const effectiveTimeoutMs =
+    typeof packageOrTimeout === 'number' ? packageOrTimeout : timeoutMs;
+  const url = npmRegistryUrl(packageName);
+  const timeoutSignal = AbortSignal.timeout(effectiveTimeoutMs);
+  const combinedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+  const res = await fetch(url, {
+    signal: combinedSignal,
+    headers: { Accept: 'application/json' },
+  });
 
-  try {
-    const res = await fetch(NPM_REGISTRY_URL, {
-      signal: controller.signal,
-      headers: { Accept: 'application/json' },
+  if (!res.ok) {
+    throw new FetchError({
+      message: `npm registry responded ${res.status}`,
+      status: res.status,
+      context: { op: 'checkForUpdate', registry: 'npmjs', url },
     });
-    clearTimeout(timer);
-
-    if (!res.ok) {
-      throw new FetchError({
-        message: `npm registry responded ${res.status}`,
-        status: res.status,
-        context: { op: 'checkForUpdate', registry: 'npmjs', url: NPM_REGISTRY_URL },
-      });
-    }
-    const data = (await res.json()) as { version?: unknown | undefined };
-    if (typeof data.version === 'string') return data.version;
-    throw new Error('No version field in npm response');
-  } finally {
-    clearTimeout(timer);
   }
+  const data = (await res.json()) as { version?: unknown | undefined };
+  if (typeof data.version === 'string' && parseSemver(data.version)) return data.version;
+  throw new Error('No valid version field in npm response');
 }
 
-/** Return update info — cache-first, network fallback */
-export async function checkForUpdate(
-  signal?: AbortSignal | undefined,
-  homeFn?: HomeDirFn | undefined,
-): Promise<UpdateInfo> {
-  const current = currentVersion();
-  const aborted = () => signal?.aborted ?? false;
-  const hf = homeFn ?? defaultHomeDir;
+export interface CheckForUpdateOptions {
+  signal?: AbortSignal | undefined;
+  homeFn?: HomeDirFn | undefined;
+  packageName?: UpdatePackageName | undefined;
+  /** Manual update commands require a live registry result rather than a notification cache hit. */
+  forceRefresh?: boolean | undefined;
+}
 
-  // Already aborted before we even start — skip network entirely
+/** Return update info — cache-first for notices, fresh registry data for manual updates. */
+export async function checkForUpdate(
+  signalOrOptions?: AbortSignal | CheckForUpdateOptions | undefined,
+  legacyHomeFn?: HomeDirFn | undefined,
+): Promise<UpdateInfo> {
+  const options: CheckForUpdateOptions =
+    signalOrOptions instanceof AbortSignal
+      ? { signal: signalOrOptions, homeFn: legacyHomeFn }
+      : (signalOrOptions ?? { homeFn: legacyHomeFn });
+  const current = currentVersion();
+  const signal = options.signal;
+  const packageName = options.packageName ?? 'wrongstack';
+  const aborted = () => signal?.aborted ?? false;
+  const hf = options.homeFn ?? defaultHomeDir;
+
   if (aborted()) {
     return { current, latest: current, outdated: false, checkFailed: true };
   }
 
-  // Check cache
-  const cached = await readCache(hf);
-  if (cached && !cached.error) {
+  const cached = await readCache(hf, packageName);
+  if (!options.forceRefresh && cached?.fresh) {
     return {
       current,
-      latest: cached.latestVersion,
-      outdated: isNewer(cached.latestVersion, current),
+      latest: cached.entry.latestVersion,
+      outdated: isNewer(cached.entry.latestVersion, current),
       checkFailed: false,
     };
   }
 
-  // Check network
   try {
-    const latest = await fetchLatestFromNpm();
-    await writeCache({ timestamp: Date.now(), latestVersion: latest }, hf);
-
+    const latest = await fetchLatestFromNpm(packageName, 3000, signal);
+    await writeCache({ timestamp: Date.now(), latestVersion: latest, packageName }, hf);
     return {
       current,
       latest,
       outdated: isNewer(latest, current),
       checkFailed: false,
     };
-  } catch (_err) {
-    // Network error — continue silently, don't write to cache
+  } catch {
     if (aborted()) {
       return { current, latest: current, outdated: false, checkFailed: true };
     }
-
-    // Use prior cache if available (stale data, but better than nothing)
-    if (cached?.latestVersion) {
+    if (cached) {
       return {
         current,
-        latest: cached.latestVersion,
-        outdated: isNewer(cached.latestVersion, current),
+        latest: cached.entry.latestVersion,
+        outdated: isNewer(cached.entry.latestVersion, current),
         checkFailed: true,
       };
     }
-
     return { current, latest: current, outdated: false, checkFailed: true };
   }
 }

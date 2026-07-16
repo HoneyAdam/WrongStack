@@ -2,6 +2,7 @@ import { closeSync, fsyncSync, openSync, writeSync } from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import type { EventBus } from '../kernel/events.js';
+import type { SecretScrubber } from '../types/secret-scrubber.js';
 import type {
   FileSnapshot,
   SessionEvent,
@@ -10,7 +11,6 @@ import type {
   SessionWriter,
   WorkspaceCheckpointRef,
 } from '../types/session.js';
-import type { SecretScrubber } from '../types/secret-scrubber.js';
 import { atomicWrite } from '../utils/atomic-write.js';
 import { toErrorMessage } from '../utils/index.js';
 import type { SessionCheckpointCas } from './session-checkpoint-cas.js';
@@ -51,7 +51,7 @@ export class FileSessionWriter implements SessionWriter {
   private lastAppendWarnAt = 0;
   private readonly secretScrubber?: SecretScrubber | undefined;
   private readonly checkpointCas?: SessionCheckpointCas | undefined;
-  private readonly onCloseCb?: (((summary: SessionSummary) => void | Promise<void>)) | undefined;
+  private readonly onCloseCb?: ((summary: SessionSummary) => void | Promise<void>) | undefined;
   /** Implements SessionWriter.traceId — propagated from ContextInit.traceId. */
   traceId: string | undefined;
 
@@ -102,27 +102,27 @@ export class FileSessionWriter implements SessionWriter {
   /**
    * Scrub secrets out of conversation-turn events before they are observed
    * for the summary, written to the JSONL log, or surfaced on resume. Only
-   * `user_input`, `llm_response`, and `context_snapshot` carry free-form
-   * user/model text; other event types either have no secret-bearing content
-   * or are already scrubbed upstream (tool results). Snapshot normalization
-   * also strips transient token-cache fields even when no scrubber is set.
+   * Conversation events carry free-form user/model text. Snapshot and exact
+   * message-journal normalization also strips transient token-cache fields
+   * even when no scrubber is set.
    */
   private scrubEvent(event: SessionEvent): SessionEvent {
     const s = this.secretScrubber;
-    if (event.type === 'context_snapshot') {
+    const persistMessage = (message: import('../types/messages.js').Message) => {
+      const { _estTokens: _ignored, ...persisted } = message;
       return {
-        ...event,
-        messages: event.messages.map((message) => {
-          const { _estTokens: _ignored, ...persisted } = message;
-          return {
-            ...persisted,
-            content:
-              typeof persisted.content === 'string'
-                ? (s?.scrub(persisted.content) ?? persisted.content)
-                : (s?.scrubObject(persisted.content) ?? persisted.content),
-          };
-        }),
+        ...persisted,
+        content:
+          typeof persisted.content === 'string'
+            ? (s?.scrub(persisted.content) ?? persisted.content)
+            : (s?.scrubObject(persisted.content) ?? persisted.content),
       };
+    };
+    if (event.type === 'context_snapshot' || event.type === 'messages_replaced') {
+      return { ...event, messages: event.messages.map(persistMessage) };
+    }
+    if (event.type === 'message_appended' || event.type === 'message_updated') {
+      return { ...event, message: persistMessage(event.message) };
     }
     if (!s) return event;
     if (event.type === 'user_input') {
@@ -206,7 +206,8 @@ export class FileSessionWriter implements SessionWriter {
     mtimeMs: number;
     source: 'user' | 'write';
   }): void {
-    if (!input.path || !/^[a-f\d]{64}$/i.test(input.hash) || !Number.isFinite(input.mtimeMs)) return;
+    if (!input.path || !/^[a-f\d]{64}$/i.test(input.hash) || !Number.isFinite(input.mtimeMs))
+      return;
     this.bufferSynchronousEvent({
       type: 'file_observation',
       ts: new Date().toISOString(),
@@ -233,7 +234,9 @@ export class FileSessionWriter implements SessionWriter {
       input: input.input,
       outcome: input.outcome,
       risk: input.risk,
-    }).catch(() => { /* best-effort */ });
+    }).catch(() => {
+      /* best-effort */
+    });
   }
 
   constructor(
@@ -249,7 +252,7 @@ export class FileSessionWriter implements SessionWriter {
       secretScrubber?: SecretScrubber | undefined;
       checkpointCas?: SessionCheckpointCas | undefined;
       /** Called on close() with the finalized summary for index/sidecar writes. */
-      onClose?: (((summary: SessionSummary) => void | Promise<void>)) | undefined;
+      onClose?: ((summary: SessionSummary) => void | Promise<void>) | undefined;
     } = {},
     traceId?: string | undefined,
   ) {
@@ -451,11 +454,7 @@ export class FileSessionWriter implements SessionWriter {
       if (now - this.lastAppendWarnAt > 5000) {
         const suppressed = this.appendFailCount - 1;
         const tail = suppressed > 0 ? ` (+${suppressed} suppressed)` : '';
-        console.warn(
-          '[session] flush failed:',
-          toErrorMessage(err),
-          tail,
-        );
+        console.warn('[session] flush failed:', toErrorMessage(err), tail);
         this.lastAppendWarnAt = now;
         this.appendFailCount = 0;
       }
@@ -538,10 +537,7 @@ export class FileSessionWriter implements SessionWriter {
 
   private async doClose(): Promise<void> {
     if (this.pendingFileSnapshots.length > 0) {
-      await this.writeFileSnapshot(
-        this.activePromptIndex ?? 0,
-        [...this.pendingFileSnapshots],
-      );
+      await this.writeFileSnapshot(this.activePromptIndex ?? 0, [...this.pendingFileSnapshots]);
       this.pendingFileSnapshots = [];
     }
     this.closed = true;
@@ -567,8 +563,7 @@ export class FileSessionWriter implements SessionWriter {
       toolErrorCount: this.toolErrorCount,
       fileChangeCount: this.fileChangeCount,
       compactionCount: this.compactionCount > 0 ? this.compactionCount : undefined,
-      toolBreakdown:
-        { ...this.toolBreakdown },
+      toolBreakdown: { ...this.toolBreakdown },
       outcome: this.outcome ?? 'completed',
     };
     // Emit storage.write for the manifest sidecar.
@@ -672,10 +667,7 @@ export class FileSessionWriter implements SessionWriter {
     });
   }
 
-  async writeFileSnapshot(
-    promptIndex: number,
-    files: FileSnapshot[],
-  ): Promise<void> {
+  async writeFileSnapshot(promptIndex: number, files: FileSnapshot[]): Promise<void> {
     await this.append({
       type: 'file_snapshot',
       ts: new Date().toISOString(),
@@ -748,13 +740,20 @@ export class FileSessionWriter implements SessionWriter {
                     // Target found — record its byte offset and stop scanning.
                     checkpointByteOffset = lineStartOffset;
                     targetCheckpointSeen = true;
-                  } else if (event.promptIndex !== undefined && event.promptIndex > targetPromptIndex) {
+                  } else if (
+                    event.promptIndex !== undefined &&
+                    event.promptIndex > targetPromptIndex
+                  ) {
                     // A checkpoint with a higher promptIndex means the target is absent.
                     // Truncate before this line (exclusive) — it and all following events
                     // will be replaced by the new rewinded history.
                     checkpointByteOffset = lineStartOffset;
                   }
-                } else if (targetCheckpointSeen && event.promptIndex !== undefined && event.promptIndex > targetPromptIndex) {
+                } else if (
+                  targetCheckpointSeen &&
+                  event.promptIndex !== undefined &&
+                  event.promptIndex > targetPromptIndex
+                ) {
                   // Post-target event with a later promptIndex — count as removed.
                   removedCount++;
                 } else if (targetCheckpointSeen && event.promptIndex === undefined) {
@@ -768,7 +767,11 @@ export class FileSessionWriter implements SessionWriter {
                   // (malformed lines, file_snapshots, etc.) that appear after a
                   // higher checkpoint but before the target.
                   removedCount++;
-                } else if (!targetCheckpointSeen && event.promptIndex !== undefined && event.promptIndex > targetPromptIndex) {
+                } else if (
+                  !targetCheckpointSeen &&
+                  event.promptIndex !== undefined &&
+                  event.promptIndex > targetPromptIndex
+                ) {
                   // Past a higher checkpoint but the target not yet found.
                   // Matches original: remove events with promptIndex > target that
                   // appear before the target checkpoint (e.g. user_inputs belonging
@@ -959,7 +962,11 @@ export class FileSessionWriter implements SessionWriter {
       ts: new Date().toISOString(),
       context,
     });
-    this.events?.emit('in_flight.started', { sessionId: this.id, context, ts: new Date().toISOString() });
+    this.events?.emit('in_flight.started', {
+      sessionId: this.id,
+      context,
+      ts: new Date().toISOString(),
+    });
   }
 
   /**
@@ -971,10 +978,7 @@ export class FileSessionWriter implements SessionWriter {
    */
   async clearInFlightMarker(reason: 'clean' | 'aborted' | 'recovered'): Promise<void> {
     if (this.pendingFileSnapshots.length > 0) {
-      await this.writeFileSnapshot(
-        this.activePromptIndex ?? 0,
-        [...this.pendingFileSnapshots],
-      );
+      await this.writeFileSnapshot(this.activePromptIndex ?? 0, [...this.pendingFileSnapshots]);
       this.pendingFileSnapshots = [];
     }
     await this.append({
@@ -982,6 +986,10 @@ export class FileSessionWriter implements SessionWriter {
       ts: new Date().toISOString(),
       reason,
     });
-    this.events?.emit('in_flight.ended', { sessionId: this.id, reason, ts: new Date().toISOString() });
+    this.events?.emit('in_flight.ended', {
+      sessionId: this.id,
+      reason,
+      ts: new Date().toISOString(),
+    });
   }
 }

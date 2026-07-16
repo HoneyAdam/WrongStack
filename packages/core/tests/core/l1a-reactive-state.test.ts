@@ -3,8 +3,8 @@ import { Context } from '../../src/core/context.js';
 import type { StateChange } from '../../src/core/conversation-state.js';
 import { HybridCompactor } from '../../src/execution/compactor.js';
 import { IntelligentCompactor } from '../../src/execution/intelligent-compactor.js';
-import { DefaultTokenCounter } from '../../src/infrastructure/token-counter.js';
 import type { Message, Provider, SessionWriter, TextBlock } from '../../src/index.js';
+import { DefaultTokenCounter } from '../../src/infrastructure/token-counter.js';
 
 /**
  * L1-A regression: prove the reactive-state migration actually fires
@@ -54,6 +54,70 @@ describe('L1-A: ctx.state is the single source of reactive truth', () => {
     // Mutating through state is visible on ctx.messages.
     ctx.state.appendMessage({ role: 'user', content: 'hi' });
     expect(ctx.messages).toHaveLength(1);
+  });
+
+  it('serializes exact journal events in state-mutation order and survives an append failure', async () => {
+    const persisted: Array<{ type: string; message?: Message }> = [];
+    let calls = 0;
+    const session = {
+      ...fakeSession,
+      append: vi.fn(async (event: Parameters<SessionWriter['append']>[0]) => {
+        calls += 1;
+        if (calls === 2) throw new Error('transient write failure');
+        persisted.push(event as { type: string; message?: Message });
+      }),
+    } satisfies SessionWriter;
+    const ctx = new Context({
+      systemPrompt: [{ type: 'text', text: 'sys' }],
+      provider: fakeProvider,
+      session,
+      signal: new AbortController().signal,
+      tokenCounter: new DefaultTokenCounter(),
+      cwd: '/cwd',
+      projectRoot: '/root',
+      model: 'm',
+    });
+
+    ctx.state.appendMessage({ role: 'user', content: 'one' });
+    ctx.state.appendMessage({ role: 'assistant', content: 'two' });
+    ctx.state.appendMessage({ role: 'user', content: 'three' });
+    await ctx.flushConversationJournal();
+
+    expect(session.append).toHaveBeenCalledTimes(3);
+    expect(persisted.map((event) => event.message?.content)).toEqual(['one', 'three']);
+  });
+
+  it('captures the writer active at mutation time when a session is swapped', async () => {
+    const oldAppend = vi.fn(async () => undefined);
+    const nextAppend = vi.fn(async () => undefined);
+    const ctx = new Context({
+      systemPrompt: [{ type: 'text', text: 'sys' }],
+      provider: fakeProvider,
+      session: { ...fakeSession, id: 'old', append: oldAppend },
+      signal: new AbortController().signal,
+      tokenCounter: new DefaultTokenCounter(),
+      cwd: '/cwd',
+      projectRoot: '/root',
+      model: 'm',
+    });
+
+    ctx.state.appendMessage({ role: 'user', content: 'old session' });
+    ctx.session = { ...fakeSession, id: 'next', append: nextAppend };
+    ctx.state.appendMessage({ role: 'user', content: 'next session' });
+    await ctx.flushConversationJournal();
+
+    expect(oldAppend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'message_appended',
+        message: expect.objectContaining({ content: 'old session' }),
+      }),
+    );
+    expect(nextAppend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'message_appended',
+        message: expect.objectContaining({ content: 'next session' }),
+      }),
+    );
   });
 
   it('appendMessage via ctx.state fires onChange', () => {

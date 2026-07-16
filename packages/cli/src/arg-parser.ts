@@ -46,6 +46,15 @@ export const BOOLEAN_FLAGS = new Set([
   'hq-allow-exec',
   'strict-port',
   'client',
+  // `wstack update` booleans. Keeping these here prevents parseArgs from
+  // consuming a following positional token as an accidental flag value.
+  'check-only',
+  'allow-scripts',
+  'lifecycle-scripts',
+  'npm',
+  'pnpm',
+  'yarn',
+  'bun',
 ]);
 
 // ------------------------------------------------------------------ main args

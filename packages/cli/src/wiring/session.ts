@@ -193,7 +193,13 @@ export async function setupSession(params: {
     storageDir: wpaths.projectDir,
     projectRoot,
   };
-  if (restoredMessages.length > 0) context.state.replaceMessages(restoredMessages);
+  if (restoredMessages.length > 0) {
+    // This snapshot is also the migration boundary for legacy transcripts:
+    // after it, incremental message_* events can be authoritative without
+    // discarding messages written before the exact journal existed.
+    context.state.replaceMessages(restoredMessages);
+    await context.flushConversationJournal();
+  }
 
   const queueStore = new QueueStore({
     dir: sessionDir,

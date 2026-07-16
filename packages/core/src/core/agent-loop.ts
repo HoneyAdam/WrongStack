@@ -3,28 +3,35 @@
  * Contains runInner (the main iteration loop), checkIterationLimit,
  * compactContextIfNeeded, emitContextPct, and injectPendingBtwNotes.
  */
-import type { Request, Response } from '../types/provider.js';
-import { effectiveInputTokens } from '../types/provider.js';
+
+import type { RunController } from '../kernel/run-controller.js';
+import { TOKENS } from '../kernel/tokens.js';
+import { attachFleetPulse, attachMailboxChecker } from '../mailbox-attach.js';
 import type { ContentBlock, TextBlock } from '../types/blocks.js';
 import { isTextBlock, isToolUseBlock } from '../types/blocks.js';
 import { toWrongStackError } from '../types/errors.js';
-import { estimateMessageTokens, estimateRequestTokens, getCalibrationState, recordActualUsage, type RequestTokenBreakdown } from '../utils/token-estimate.js';
+import type { Request, Response } from '../types/provider.js';
+import { effectiveInputTokens } from '../types/provider.js';
 import { recordUserIntentEvidence } from '../utils/context-evidence.js';
 import { toErrorMessage } from '../utils/error.js';
-import { consumeAutonomousContinue } from './continue-to-next-iteration.js';
+import {
+  estimateMessageTokens,
+  estimateRequestTokens,
+  getCalibrationState,
+  type RequestTokenBreakdown,
+  recordActualUsage,
+} from '../utils/token-estimate.js';
+import type { AgentInternals } from './agent-internals.js';
+import type { AgentResponseHandler } from './agent-response.js';
+import type { AgentToolHandler } from './agent-tools.js';
+import type { RunResult, UserInputPayload } from './agent-types.js';
 import { buildBtwBlock, consumeBtwNotes } from './btw.js';
-import { buildQueuedMessagesBlock, consumeQueuedMessagesUpdate } from './queued-messages.js';
-import { attachFleetPulse, attachMailboxChecker } from '../mailbox-attach.js';
+import type { RunOptions } from './context.js';
+import { consumeAutonomousContinue } from './continue-to-next-iteration.js';
+import { requestLimitExtension } from './iteration-limit.js';
 import { injectPendingMailboxMessages } from './mailbox-loop.js';
 import { runProviderWithRetry } from './provider-runner.js';
-import { requestLimitExtension } from './iteration-limit.js';
-import { TOKENS } from '../kernel/tokens.js';
-import type { RunController } from '../kernel/run-controller.js';
-import type { RunOptions } from './context.js';
-import type { RunResult, UserInputPayload } from './agent-types.js';
-import type { AgentInternals } from './agent-internals.js';
-import type { AgentToolHandler } from './agent-tools.js';
-import type { AgentResponseHandler } from './agent-response.js';
+import { buildQueuedMessagesBlock, consumeQueuedMessagesUpdate } from './queued-messages.js';
 
 function toError(err: unknown): Error {
   return err instanceof Error ? err : new Error(String(err));
@@ -80,8 +87,7 @@ export function createAgentLoopHandler(
   })();
   const getFleetPulse = attachFleetPulse(a, fleetPulseCfg);
   const pulseEveryN = Math.max(1, fleetPulseCfg?.everyNIterations ?? 5);
-  const backgroundCoordination = () =>
-    a.ctx.meta['coordinationContextMode'] === 'background';
+  const backgroundCoordination = () => a.ctx.meta['coordinationContextMode'] === 'background';
 
   /**
    * Run context window pipeline — but skip the pipeline call entirely
@@ -114,8 +120,7 @@ export function createAgentLoopHandler(
     await a.pipelines.contextWindow.run(a.ctx);
     _lastCompactionMsgCount = a.ctx.messages.length;
     _lastCompactionMaxContext = maxContext;
-    const changed =
-      a.ctx.messages !== beforeMessages || a.ctx.messages.length !== beforeMsgCount;
+    const changed = a.ctx.messages !== beforeMessages || a.ctx.messages.length !== beforeMsgCount;
     // Mark as noop when the cached token count is below the warn fraction.
     // The middleware's own noop-retry check (lastNoopAttempt) tracks a more
     // nuanced "tried but couldn't reduce" state — this flag is coarser: it
@@ -153,11 +158,7 @@ export function createAgentLoopHandler(
   function systemAndToolsOverhead(): number {
     const sysRef = a.ctx.systemPrompt;
     const toolsRef = a.ctx.tools;
-    if (
-      sysRef === _cachedSysRef &&
-      toolsRef === _cachedToolsRef &&
-      _cachedOverheadTokens > 0
-    ) {
+    if (sysRef === _cachedSysRef && toolsRef === _cachedToolsRef && _cachedOverheadTokens > 0) {
       return _cachedOverheadTokens;
     }
     const breakdown = estimateRequestTokens([], sysRef, toolsRef ?? [], calibrationKey());
@@ -285,8 +286,7 @@ export function createAgentLoopHandler(
         a.ctx.lastRequestTokens = stashed + delta;
       } else {
         // Fallback: cold start or messages were replaced (compaction).
-        a.ctx.lastRequestTokens =
-          estimateMessageTokens(a.ctx.messages) + systemAndToolsOverhead();
+        a.ctx.lastRequestTokens = estimateMessageTokens(a.ctx.messages) + systemAndToolsOverhead();
       }
       _lastPreFlightMsgCount = msgCount;
       a.ctx.meta['lastRequestTokensAt'] = { msgCount, toolCount };
@@ -310,13 +310,17 @@ export function createAgentLoopHandler(
       a.ctx.lastRequestTokens = raw;
       _lastPreFlightMsgCount = msgCount;
       const cal = getCalibrationState(calibrationKey());
-      total = cal.calibrated
-        ? Math.round(raw * Math.min(1.5, Math.max(0.5, cal.ratio)))
-        : raw;
+      total = cal.calibrated ? Math.round(raw * Math.min(1.5, Math.max(0.5, cal.ratio))) : raw;
     }
     const rawLoad = maxContext > 0 ? total / maxContext : 0;
     const load = Math.max(0, Math.min(1, rawLoad));
-    a.events.emit('ctx.pct', { sessionId: a.ctx.session.id, load, rawLoad, tokens: total, maxContext });
+    a.events.emit('ctx.pct', {
+      sessionId: a.ctx.session.id,
+      load,
+      rawLoad,
+      tokens: total,
+      maxContext,
+    });
   }
 
   function currentMaxContext(): number {
@@ -393,9 +397,7 @@ export function createAgentLoopHandler(
     const texts = blocks.filter(isTextBlock);
 
     const toolNameSet = Array.from(new Set(toolUses.map((u) => u.name))).sort();
-    const firstInputHash = toolUses[0]
-      ? hashSmall(stableStringify(toolUses[0].input ?? {}))
-      : '';
+    const firstInputHash = toolUses[0] ? hashSmall(stableStringify(toolUses[0].input ?? {})) : '';
     const textBlob = texts
       .map((t) => t.text)
       .join('')
@@ -490,7 +492,10 @@ export function createAgentLoopHandler(
         a.logger.info(`Iteration limit extended by ${extendBy} (new limit: ${newLimit})`);
         return { limit: newLimit };
       }
-      return { limit, exit: { status: 'max_iterations', iterations: currentIterations, delegateSummaries } };
+      return {
+        limit,
+        exit: { status: 'max_iterations', iterations: currentIterations, delegateSummaries },
+      };
     }
     return { limit };
   }
@@ -518,11 +523,10 @@ export function createAgentLoopHandler(
     // failed batch for retry; alternate writers may reject, which remains
     // best-effort and must not abort the user's turn.
     try {
+      await a.ctx.flushConversationJournal();
       await a.ctx.session.flush();
     } catch (err) {
-      (a.logger.debug ?? a.logger.warn)?.(
-        `session boundary flush failed: ${toErrorMessage(err)}`,
-      );
+      (a.logger.debug ?? a.logger.warn)?.(`session boundary flush failed: ${toErrorMessage(err)}`);
     }
 
     let finalText = '';
@@ -584,13 +588,25 @@ export function createAgentLoopHandler(
     const baseRunner = diRunner
       ? (ctx: typeof a.ctx, req: Request) =>
           diRunner.run({
-            provider: ctx.provider, request: req, signal: controller.signal,
-            ctx, events: a.events, retry: a.retry, logger: a.logger, tracer: a.tracer,
+            provider: ctx.provider,
+            request: req,
+            signal: controller.signal,
+            ctx,
+            events: a.events,
+            retry: a.retry,
+            logger: a.logger,
+            tracer: a.tracer,
           })
       : async (ctx: typeof a.ctx, req: Request) =>
           runProviderWithRetry({
-            provider: ctx.provider, request: req, signal: controller.signal,
-            ctx, events: a.events, retry: a.retry, logger: a.logger, tracer: a.tracer,
+            provider: ctx.provider,
+            request: req,
+            signal: controller.signal,
+            ctx,
+            events: a.events,
+            retry: a.retry,
+            logger: a.logger,
+            tracer: a.tracer,
           });
 
     const customRunner = a.extensions.wrapProviderRunner(baseRunner);
@@ -599,7 +615,11 @@ export function createAgentLoopHandler(
       for (let i = 0; ; i++) {
         iterations = i + 1;
         if (controller.signal.aborted) {
-          return { status: 'aborted', iterations, abortReason: signalAbortReason(controller.signal) };
+          return {
+            status: 'aborted',
+            iterations,
+            abortReason: signalAbortReason(controller.signal),
+          };
         }
 
         // Persist the open boundary before starting provider/tool work. A
@@ -619,7 +639,11 @@ export function createAgentLoopHandler(
         }
 
         const limitCheck = await checkIterationLimit(
-          i, effectiveLimit, hasHardLimit, iterations, delegateSummaries,
+          i,
+          effectiveLimit,
+          hasHardLimit,
+          iterations,
+          delegateSummaries,
         );
         effectiveLimit = limitCheck.limit;
         if (limitCheck.exit) {
@@ -682,14 +706,18 @@ export function createAgentLoopHandler(
         // a newly over-budget turn and rebuilds the request when it does.
         const { req, preFlight } = await buildRequestWithPreflightCompaction(opts);
 
-        await a.ctx.session.append({
-          type: 'llm_request',
-          ts: new Date().toISOString(),
-          model: req.model,
-          messageCount: req.messages.length,
-          estimatedInputTokens: preFlight.total,
-          toolCount: (req.tools ?? []).length,
-        }).catch(() => { /* best-effort */ });
+        await a.ctx.session
+          .append({
+            type: 'llm_request',
+            ts: new Date().toISOString(),
+            model: req.model,
+            messageCount: req.messages.length,
+            estimatedInputTokens: preFlight.total,
+            toolCount: (req.tools ?? []).length,
+          })
+          .catch(() => {
+            /* best-effort */
+          });
 
         let res: Response;
         try {
@@ -709,15 +737,33 @@ export function createAgentLoopHandler(
           recoveryRetries = 0;
         } catch (err) {
           if (controller.signal.aborted) {
-            a.events.emit('error', { sessionId: a.ctx.session.id, err: toError(err), phase: 'provider' });
-            return { status: 'aborted', iterations, error: toWrongStackError(err, 'AGENT_ABORTED'), abortReason: signalAbortReason(controller.signal) };
+            a.events.emit('error', {
+              sessionId: a.ctx.session.id,
+              err: toError(err),
+              phase: 'provider',
+            });
+            return {
+              status: 'aborted',
+              iterations,
+              error: toWrongStackError(err, 'AGENT_ABORTED'),
+              abortReason: signalAbortReason(controller.signal),
+            };
           }
 
           const extDecision = await a.extensions.runOnError(a.ctx, err, 'provider', i);
           if (extDecision) {
             if (extDecision.action === 'fail') {
-              a.events.emit('error', { sessionId: a.ctx.session.id, err: toError(err), phase: 'provider' });
-              return { status: 'failed', iterations, error: toWrongStackError(err), delegateSummaries };
+              a.events.emit('error', {
+                sessionId: a.ctx.session.id,
+                err: toError(err),
+                phase: 'provider',
+              });
+              return {
+                status: 'failed',
+                iterations,
+                error: toWrongStackError(err),
+                delegateSummaries,
+              };
             }
             if (extDecision.action === 'continue') {
               await a.extensions.runAfterIteration(a.ctx, i);
@@ -726,8 +772,17 @@ export function createAgentLoopHandler(
             if (extDecision.action === 'retry') {
               recoveryRetries++;
               if (recoveryRetries > 2) {
-                a.events.emit('error', { sessionId: a.ctx.session.id, err: toError(err), phase: 'provider' });
-                return { status: 'failed', iterations, error: toWrongStackError(err), delegateSummaries };
+                a.events.emit('error', {
+                  sessionId: a.ctx.session.id,
+                  err: toError(err),
+                  phase: 'provider',
+                });
+                return {
+                  status: 'failed',
+                  iterations,
+                  error: toWrongStackError(err),
+                  delegateSummaries,
+                };
               }
               if (extDecision.model) a.ctx.model = extDecision.model;
               a.logger.info('Extension requested retry; retrying turn');
@@ -737,9 +792,14 @@ export function createAgentLoopHandler(
 
           const recovered = await a.errorHandler.recover(err, a.ctx);
           if (!recovered || recovered.action === 'fail') {
-            a.events.emit('error', { sessionId: a.ctx.session.id, err: toError(err), phase: 'provider' });
+            a.events.emit('error', {
+              sessionId: a.ctx.session.id,
+              err: toError(err),
+              phase: 'provider',
+            });
             return {
-              status: 'failed', iterations,
+              status: 'failed',
+              iterations,
               error: toWrongStackError(recovered?.error ?? err),
               delegateSummaries,
             };
@@ -747,7 +807,11 @@ export function createAgentLoopHandler(
           if (recovered.action === 'retry') {
             recoveryRetries++;
             if (recoveryRetries > 2) {
-              a.events.emit('error', { sessionId: a.ctx.session.id, err: toError(err), phase: 'provider' });
+              a.events.emit('error', {
+                sessionId: a.ctx.session.id,
+                err: toError(err),
+                phase: 'provider',
+              });
               return { status: 'failed', iterations, error: toWrongStackError(err) };
             }
             if (recovered.model) a.ctx.model = recovered.model;
@@ -760,10 +824,21 @@ export function createAgentLoopHandler(
 
         const responseResult = await handlers.response.processResponse(res, req);
         if (responseResult.aborted) {
-          return { status: 'aborted', iterations, finalText: responseResult.finalText, delegateSummaries, abortReason: signalAbortReason(controller.signal) };
+          return {
+            status: 'aborted',
+            iterations,
+            finalText: responseResult.finalText,
+            delegateSummaries,
+            abortReason: signalAbortReason(controller.signal),
+          };
         }
         if (responseResult.done) {
-          return { status: 'done', iterations, finalText: responseResult.finalText, delegateSummaries };
+          return {
+            status: 'done',
+            iterations,
+            finalText: responseResult.finalText,
+            delegateSummaries,
+          };
         }
 
         finalText = responseResult.finalText;
@@ -798,11 +873,7 @@ export function createAgentLoopHandler(
             const names = toolUses.map((t) => t.name).join(', ');
             const hasText = res.content.some(isTextBlock);
             const kind: 'tool' | 'message' | 'mixed' =
-              toolUses.length > 0 && hasText
-                ? 'mixed'
-                : toolUses.length > 0
-                  ? 'tool'
-                  : 'message';
+              toolUses.length > 0 && hasText ? 'mixed' : toolUses.length > 0 ? 'tool' : 'message';
             const detail =
               kind === 'tool'
                 ? `"${names}" called with effectively identical inputs ${toolLoopCount} times in a row`
@@ -810,12 +881,9 @@ export function createAgentLoopHandler(
                   ? `"${names}" + same text repeated ${toolLoopCount} times in a row`
                   : `same assistant text repeated ${toolLoopCount} times in a row`;
 
-            const cutAt =
-              loopCfg.mode === 'cut' ? loopCfg.steerThreshold : loopCfg.cutThreshold;
+            const cutAt = loopCfg.mode === 'cut' ? loopCfg.steerThreshold : loopCfg.cutThreshold;
             if (toolLoopCount >= cutAt) {
-              a.logger.warn(
-                `Loop detected: ${detail} — stopping to prevent infinite loop.`,
-              );
+              a.logger.warn(`Loop detected: ${detail} — stopping to prevent infinite loop.`);
               a.events.emit('tool.loop_detected', {
                 sessionId: a.ctx.session.id,
                 ctx: a.ctx,
@@ -910,7 +978,11 @@ export function createAgentLoopHandler(
         if (toolUses.length === 0) {
           await compactContextIfNeeded();
           emitContextPct();
-          a.events.emit('iteration.completed', { sessionId: a.ctx.session.id, ctx: a.ctx, index: i });
+          a.events.emit('iteration.completed', {
+            sessionId: a.ctx.session.id,
+            ctx: a.ctx,
+            index: i,
+          });
           if (autonomousContinue && responseResult.directive === 'continue') {
             await a.extensions.runAfterIteration(a.ctx, i);
             continue;
@@ -927,7 +999,13 @@ export function createAgentLoopHandler(
           await handlers.tools.executeTools(toolUses);
         } catch (toolErr) {
           if (controller.signal.aborted) {
-            return { status: 'aborted', iterations, finalText, delegateSummaries, abortReason: signalAbortReason(controller.signal) };
+            return {
+              status: 'aborted',
+              iterations,
+              finalText,
+              delegateSummaries,
+              abortReason: signalAbortReason(controller.signal),
+            };
           }
           throw toolErr;
         }
@@ -935,7 +1013,11 @@ export function createAgentLoopHandler(
         if (autonomousContinue && consumeAutonomousContinue(a.ctx)) {
           await compactContextIfNeeded();
           emitContextPct();
-          a.events.emit('iteration.completed', { sessionId: a.ctx.session.id, ctx: a.ctx, index: i });
+          a.events.emit('iteration.completed', {
+            sessionId: a.ctx.session.id,
+            ctx: a.ctx,
+            index: i,
+          });
           await a.extensions.runAfterIteration(a.ctx, i);
           continue;
         }

@@ -1,4 +1,4 @@
-import type { DistributiveOmit, SessionEvent } from '@wrongstack/core';
+import type { DistributiveOmit, Message, SessionEvent } from '@wrongstack/core';
 import type { HistoryEntry } from './types.js';
 
 /**
@@ -41,24 +41,110 @@ import type { HistoryEntry } from './types.js';
  * @param startId Starting id counter for the generated entries
  * @returns       Ordered HistoryEntry[] ready for display
  */
-export function replaySessionEvents(
-  events: SessionEvent[],
+export function replaySessionMessages(
+  messages: readonly Message[],
+  events: readonly SessionEvent[],
   startId: number,
 ): HistoryEntry[] {
+  const toolEnds = new Map(
+    events
+      .filter(
+        (event): event is Extract<SessionEvent, { type: 'tool_call_end' }> =>
+          event.type === 'tool_call_end',
+      )
+      .map((event) => [event.id, event]),
+  );
+  const toolEntries = new Map<string, Extract<HistoryEntry, { kind: 'tool' }>>();
+  const entries: HistoryEntry[] = [];
+  let nextId = startId;
+
+  const appendText = (message: Message, text: string): void => {
+    if (!text.trim()) return;
+    entries.push(
+      message.role === 'assistant'
+        ? { id: nextId++, kind: 'assistant', text }
+        : message.role === 'system'
+          ? { id: nextId++, kind: 'info', text }
+          : { id: nextId++, kind: 'user', text },
+    );
+  };
+
+  for (const message of messages) {
+    if (typeof message.content === 'string') {
+      appendText(message, message.content);
+      continue;
+    }
+
+    appendText(
+      message,
+      message.content
+        .filter((block) => block.type === 'text')
+        .map((block) => block.text)
+        .join(''),
+    );
+
+    for (const block of message.content) {
+      if (block.type === 'tool_use') {
+        const end = toolEnds.get(block.id);
+        const entry: Extract<HistoryEntry, { kind: 'tool' }> = {
+          id: nextId++,
+          kind: 'tool',
+          name: block.name,
+          durationMs: end?.durationMs ?? 0,
+          ok: false,
+          input: block.input,
+          outputBytes: end?.outputBytes,
+          outputTokens: end?.outputTokens,
+          outputLines: end?.outputLines,
+        };
+        entries.push(entry);
+        toolEntries.set(block.id, entry);
+        continue;
+      }
+      if (block.type !== 'tool_result') continue;
+      const existing = toolEntries.get(block.tool_use_id);
+      if (existing) {
+        existing.output = block.content.slice(0, 400);
+        existing.ok = !block.is_error;
+        toolEntries.delete(block.tool_use_id);
+        continue;
+      }
+      const end = toolEnds.get(block.tool_use_id);
+      entries.push({
+        id: nextId++,
+        kind: 'tool',
+        name: block.name ?? block.tool_use_id,
+        durationMs: end?.durationMs ?? 0,
+        ok: !block.is_error,
+        output: block.content.slice(0, 400),
+        outputBytes: end?.outputBytes,
+        outputTokens: end?.outputTokens,
+        outputLines: end?.outputLines,
+      });
+    }
+  }
+  return entries;
+}
+
+export function replaySessionEvents(events: SessionEvent[], startId: number): HistoryEntry[] {
   const entries: HistoryEntry[] = [];
   let nextId = startId;
   // Pending tool_use events awaiting their tool_result
   const pendingTools = new Map<string, { name: string; input: unknown; ts: string }>();
-  // Tool ids already rendered from a richer `tool_call_end` event. At
-  // standard audit level every call logs tool_call_start → tool_call_end →
-  // tool_result; without this set the trailing tool_result would render the
-  // SAME call a second time (named by its raw id).
-  const completedTools = new Set<string>();
+  // Tool entries already rendered from a richer `tool_call_end` event. Keep
+  // the actual entry so the later core `tool_result` can enrich it with the
+  // persisted output without moving it past messages that occurred between
+  // the two events or rendering a duplicate call.
+  const completedTools = new Map<string, Extract<HistoryEntry, { kind: 'tool' }>>();
 
   for (const ev of events) {
     const entry = eventToEntry(ev, pendingTools, completedTools);
     if (entry) {
-      entries.push({ ...entry, id: nextId++ } as HistoryEntry);
+      const completed = { ...entry, id: nextId++ } as HistoryEntry;
+      entries.push(completed);
+      if (ev.type === 'tool_call_end' && completed.kind === 'tool') {
+        completedTools.set(ev.id, completed);
+      }
     }
   }
 
@@ -86,7 +172,7 @@ export function replaySessionEvents(
 function eventToEntry(
   ev: SessionEvent,
   pendingTools: Map<string, { name: string; input: unknown; ts: string }>,
-  completedTools: Set<string>,
+  completedTools: Map<string, Extract<HistoryEntry, { kind: 'tool' }>>,
 ): DistributiveOmit<HistoryEntry, 'id'> | null {
   switch (ev.type) {
     case 'user_input': {
@@ -104,6 +190,11 @@ function eventToEntry(
     }
 
     case 'llm_response': {
+      for (const block of ev.content) {
+        if (block.type === 'tool_use') {
+          pendingTools.set(block.id, { name: block.name, input: block.input, ts: ev.ts });
+        }
+      }
       const text = ev.content
         .filter((b) => b.type === 'text')
         .map((b) => (b as { text: string }).text)
@@ -122,7 +213,11 @@ function eventToEntry(
     case 'tool_result': {
       // Already rendered from the richer tool_call_end for this id —
       // emitting again would duplicate the call (named by its raw id).
-      if (completedTools.has(ev.id)) {
+      const completed = completedTools.get(ev.id);
+      if (completed) {
+        const serialized = typeof ev.content === 'string' ? ev.content : JSON.stringify(ev.content);
+        completed.output = serialized?.slice(0, 400);
+        completed.ok = !ev.isError;
         completedTools.delete(ev.id);
         return null;
       }
@@ -135,10 +230,7 @@ function eventToEntry(
         durationMs: 0, // duration not available from tool_result alone
         ok: !ev.isError,
         input: tu?.input,
-        output:
-          typeof ev.content === 'string'
-            ? ev.content.slice(0, 400)
-            : undefined,
+        output: typeof ev.content === 'string' ? ev.content.slice(0, 400) : undefined,
       };
     }
 
@@ -151,9 +243,8 @@ function eventToEntry(
     case 'tool_call_end': {
       const tu = pendingTools.get(ev.id);
       pendingTools.delete(ev.id);
-      // Mark the id as rendered so the trailing tool_result (which follows
-      // tool_call_end in the JSONL at standard audit level) is skipped.
-      completedTools.add(ev.id);
+      // The caller registers the completed entry by id after assigning its
+      // stable history id, so a later tool_result can enrich it in place.
       // If we have a matching start, use its metadata; otherwise emit standalone.
       return {
         kind: 'tool',
@@ -268,9 +359,10 @@ function eventToEntry(
     case 'message_truncated': {
       return {
         kind: 'warn',
-        text: ev.after < ev.before
-          ? `message truncated: ${ev.before} → ${ev.after} tokens`
-          : `message truncated at ${ev.after} tokens`,
+        text:
+          ev.after < ev.before
+            ? `message truncated: ${ev.before} → ${ev.after} tokens`
+            : `message truncated at ${ev.after} tokens`,
       };
     }
 

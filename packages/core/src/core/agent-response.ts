@@ -3,14 +3,18 @@
  * Handles provider response pipeline, event emission, session
  * persistence, text rendering, and autonomous continuation parsing.
  */
-import type { Request, Response } from '../types/provider.js';
+
 import { isTextBlock, type TextBlock } from '../types/blocks.js';
-import { repairToolUseAdjacency } from '../utils/message-invariants.js';
-import { buildCompletedWorkLedgerBlock, markAssistantReferencedEvidence } from '../utils/context-evidence.js';
+import type { Request, Response } from '../types/provider.js';
+import {
+  buildCompletedWorkLedgerBlock,
+  markAssistantReferencedEvidence,
+} from '../utils/context-evidence.js';
 import { toErrorMessage } from '../utils/error.js';
-import { parseContinueDirective, type ContinueDirective } from './continue-to-next-iteration.js';
-import type { Context, RunOptions } from './context.js';
+import { repairToolUseAdjacency } from '../utils/message-invariants.js';
 import type { AgentInternals } from './agent-internals.js';
+import type { Context, RunOptions } from './context.js';
+import { type ContinueDirective, parseContinueDirective } from './continue-to-next-iteration.js';
 
 export interface ProcessResponseResult {
   finalText: string;
@@ -62,9 +66,10 @@ export function buildLiveNextStepsGateBlock(
 
   const todoSnapshot = openTodos.slice(0, MAX_TODO_SNAPSHOT_ITEMS).map((todo) => {
     const normalized = todo.content.replace(/\s+/g, ' ').trim();
-    const content = normalized.length > MAX_TODO_SNAPSHOT_CONTENT
-      ? `${normalized.slice(0, MAX_TODO_SNAPSHOT_CONTENT - 1)}…`
-      : normalized;
+    const content =
+      normalized.length > MAX_TODO_SNAPSHOT_CONTENT
+        ? `${normalized.slice(0, MAX_TODO_SNAPSHOT_CONTENT - 1)}…`
+        : normalized;
     return `- [${todo.status}] ${content}`;
   });
   const omitted = openTodos.length - todoSnapshot.length;
@@ -130,9 +135,8 @@ export function createAgentResponseHandler(a: AgentInternals): AgentResponseHand
     const volatileBlocks = [volatileLedger, liveNextStepsGate].filter(
       (block): block is TextBlock => block !== undefined,
     );
-    const system = volatileBlocks.length > 0
-      ? [...a.ctx.systemPrompt, ...volatileBlocks]
-      : a.ctx.systemPrompt;
+    const system =
+      volatileBlocks.length > 0 ? [...a.ctx.systemPrompt, ...volatileBlocks] : a.ctx.systemPrompt;
     const baseReq: Request = {
       model: opts.model ?? a.ctx.model,
       system,
@@ -185,11 +189,10 @@ export function createAgentResponseHandler(a: AgentInternals): AgentResponseHand
     // FileSessionWriter keeps failed batches queued for retry; alternate
     // writers may reject, which is logged without masking the provider result.
     try {
+      await a.ctx.flushConversationJournal();
       await a.ctx.session.flush();
     } catch (err) {
-      (a.logger.debug ?? a.logger.warn)?.(
-        `LLM response flush failed: ${toErrorMessage(err)}`,
-      );
+      (a.logger.debug ?? a.logger.warn)?.(`LLM response flush failed: ${toErrorMessage(err)}`);
     }
 
     if (a.ctx.signal.aborted) {

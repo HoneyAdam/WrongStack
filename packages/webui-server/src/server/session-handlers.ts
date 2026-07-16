@@ -124,6 +124,7 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
     ctx.setSession(next);
     ctx.context.session = next;
     ctx.context.state.replaceMessages(messages);
+    await ctx.context.flushConversationJournal?.();
     ctx.context.state.replaceTodos([]);
     ctx.context.readFiles.clear();
     ctx.context.fileMtimes.clear();
