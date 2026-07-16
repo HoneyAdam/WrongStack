@@ -1,10 +1,10 @@
 import { Bot, Command, Cpu, Search, Settings, Sparkles, Zap } from 'lucide-react';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { useWebSocketBootstrap } from '@/hooks/useWebSocket';
 import { useDesktopBridge } from '@/hooks/useDesktopBridge';
 import { useF5Resilience } from '@/hooks/useF5Resilience';
 import { useGlobalKeyboardShortcuts } from '@/hooks/useGlobalKeyboardShortcuts';
+import { useWebSocketBootstrap } from '@/hooks/useWebSocket';
 import { isDesktopShell } from '@/lib/desktop-shell';
 import { cn } from '@/lib/utils';
 import { getWSClient } from '@/lib/ws-client';
@@ -17,24 +17,19 @@ import {
   useUIStore,
 } from '@/stores';
 import { ActivityBar } from './components/activity-bar';
-import {
-  navigateToView,
-  openMainView,
-  showPanel,
-} from './components/activity-bar/nav';
+import { navigateToView, openMainView, showPanel } from './components/activity-bar/nav';
 import { ChatView } from './components/ChatView';
 import { CommandPalette } from './components/CommandPalette';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { ConfirmModalHost, PromptModalHost } from './components/ConfirmModal';
 import { ConnectionBanner } from './components/ConnectionBanner';
 import { ContextBreakdownModal } from './components/ContextBreakdownModal';
+import { ContextDashboard } from './components/ContextDashboard';
+import { CronTrigger } from './components/CronTrigger';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { AgentDetail } from './components/FleetPanel';
 import { InspectorPanel, InspectorTrigger } from './components/InspectorPanel';
-import { CronTrigger } from './components/CronTrigger';
 import { QuickModelSwitcher } from './components/QuickModelSwitcher';
-import { MemoryManager } from './components/MemoryManager';
-import { ContextDashboard } from './components/ContextDashboard';
 import { SettingsPanel } from './components/SettingsPanel';
 import { ShortcutsOverlay } from './components/ShortcutsOverlay';
 import { SidePanel } from './components/SidePanel';
@@ -69,6 +64,12 @@ const DesignGalleryView = lazy(() =>
 );
 const MailboxDetailView = lazy(() =>
   import('./components/MailboxDetailView').then((m) => ({ default: m.MailboxDetailView })),
+);
+const MemoryManager = lazy(() =>
+  import('./components/MemoryManager').then((m) => ({ default: m.MemoryManager })),
+);
+const AudienceMemoryPanel = lazy(() =>
+  import('./components/AudienceMemoryPanel').then((m) => ({ default: m.AudienceMemoryPanel })),
 );
 const KanbanView = lazy(() =>
   import('./components/KanbanView').then((m) => ({ default: m.KanbanView })),
@@ -488,7 +489,18 @@ function AppInner() {
         )}
         {currentView === 'memory' && (
           <ErrorBoundary level="panel" name="Memory Manager">
-            <MemoryManager />
+            <div className="flex min-h-0 flex-1 min-w-0">
+              <Suspense fallback={<PanelSuspense label="Loading…" />}>
+                <div className="h-full w-72 shrink-0 border-r border-border/40">
+                  <AudienceMemoryPanel />
+                </div>
+              </Suspense>
+              <Suspense fallback={<PanelSuspense label="Loading Super Memory…" />}>
+                <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+                  <MemoryManager />
+                </div>
+              </Suspense>
+            </div>
           </ErrorBoundary>
         )}
         {currentView === 'context' && (
