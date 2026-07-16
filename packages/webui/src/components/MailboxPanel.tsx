@@ -19,9 +19,11 @@ import {
   Trash2,
   Sparkles,
   Zap,
+  Lock,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { confirmModal } from './ConfirmModal';
+import { classifyMailboxRecipient } from '@/stores/mailbox-store';
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
@@ -225,6 +227,7 @@ export function MailboxPanel({ className }: { className?: string }) {
                 const Icon = TYPE_ICONS[m.type] ?? MessageSquare;
                 const isRead = m.readByCount > 0;
                 const isSelected = selectedMailMessage?.id === m.id;
+                const recipient = m.scope ? { scope: m.scope, recipientSessionId: m.recipientSessionId } : classifyMailboxRecipient(m.to);
                 return (
                   <button
                     type="button"
@@ -244,6 +247,20 @@ export function MailboxPanel({ className }: { className?: string }) {
                         </span>
                         {m.completed && <CheckCircle2 className="h-3 w-3 text-success shrink-0" />}
                         {!isRead && <span className="text-[9px] text-warning font-bold">{t('activity:mailbox.newLabel')}</span>}
+                        {recipient.scope === 'session' && (
+                          <span
+                            className="inline-flex items-center gap-0.5 px-1 py-0 rounded text-[9px] font-semibold bg-warning/12 text-warning"
+                            title={t('activity:mailbox.sessionScopeTitle', { sid: recipient.recipientSessionId ?? '' })}
+                          >
+                            <Lock className="h-2.5 w-2.5" />
+                            {t('activity:mailbox.sessionLabel')}
+                          </span>
+                        )}
+                        {recipient.scope === 'project' && (
+                          <span className="inline-flex items-center px-1 py-0 rounded text-[9px] font-semibold bg-primary/12 text-primary">
+                            {t('activity:mailbox.projectLabel')}
+                          </span>
+                        )}
                       </div>
                       <div className="text-muted-foreground truncate">{m.subject}</div>
                       <div className="text-[10px] text-muted-foreground/70 truncate">

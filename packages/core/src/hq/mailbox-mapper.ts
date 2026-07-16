@@ -1,7 +1,9 @@
 import type { Mailbox, MailboxAgentStatus, MailboxMessage } from '../coordination/mailbox-types.js';
+import { SESSION_RECIPIENT_PREFIX } from '../coordination/mailbox-types.js';
 import type {
   HqMailboxAgentSummary,
   HqMailboxEventPayload,
+  HqMailboxMessageScope,
   HqMailboxMessageSummary,
   HqMailboxSnapshotPayload,
   HqRedactionPolicy,
@@ -36,6 +38,28 @@ function readCount(message: MailboxMessage): number {
   return Object.keys(message.readBy).length;
 }
 
+/**
+ * Classify a mailbox recipient address for UI labeling.
+ *
+ * - `'*'` (project broadcast) → `'project'`
+ * - `@session:<id>`             → `'session'` (returns the session id)
+ * - everything else             → `'agent'`
+ */
+export interface HqMailboxRecipientScope {
+  scope: HqMailboxMessageScope;
+  recipientSessionId?: string;
+}
+
+export function classifyMailboxRecipient(to: string): HqMailboxRecipientScope {
+  if (to === '*' || to === 'all') return { scope: 'project' };
+  if (to.startsWith(SESSION_RECIPIENT_PREFIX)) {
+    const recipientSessionId = to.slice(SESSION_RECIPIENT_PREFIX.length);
+    if (recipientSessionId.length === 0) return { scope: 'agent' };
+    return { scope: 'session', recipientSessionId };
+  }
+  return { scope: 'agent' };
+}
+
 function taskSummary(message: MailboxMessage): HqMailboxMessageSummary['task'] {
   if (message.taskContext === undefined) return undefined;
   const task = {
@@ -55,12 +79,15 @@ export function mapMailboxMessageToHqSummary(
   const bodyPreview = previewText(message.body, previewLength, options.redactionPolicy);
   const outcomePreview = previewText(message.outcome, previewLength, options.redactionPolicy);
   const task = taskSummary(message);
+  const recipient = classifyMailboxRecipient(message.to);
 
   return {
     mailId: message.id, // unique UUID per message record, used for deduplication
     messageId: message.id,
     from: message.from,
     to: message.to,
+    scope: recipient.scope,
+    ...(recipient.recipientSessionId !== undefined ? { recipientSessionId: recipient.recipientSessionId } : {}),
     type: message.type,
     subject: previewText(message.subject, previewLength, options.redactionPolicy) ?? '',
     priority: message.priority,

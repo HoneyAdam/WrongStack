@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Mailbox, MailboxAgentStatus, MailboxMessage } from '../../src/coordination/mailbox-types.js';
 import {
+  classifyMailboxRecipient,
   createMailboxEventPayload,
   createMailboxSnapshotPayload,
   createMailboxSnapshotPayloadFromMailbox,
@@ -459,6 +460,7 @@ describe('HQ mailbox mapper', () => {
       readCount: 1,
       hasBody: true,
       senderSessionId: 'session_1',
+      scope: 'project',
       task: {
         taskId: 'task_1',
         agentRole: 'security-scanner',
@@ -677,6 +679,71 @@ describe('HQ mailbox mapper', () => {
     const activityGap = new Date(staleAgent.lastSeenAt).getTime() - new Date(staleAgent.lastActivityAt).getTime();
     // 2 hours gap between lastActivity and lastSeen indicates stale but still "online"
     expect(activityGap).toBeGreaterThan(60 * 60 * 1000); // > 1 hour
+  });
+
+  // =========================================================================
+  // SESSION-SCOPED RECIPIENT ADDRESSING
+  // =========================================================================
+
+  describe('classifyMailboxRecipient', () => {
+    it('classifies project broadcasts', () => {
+      expect(classifyMailboxRecipient('*')).toEqual({ scope: 'project' });
+      expect(classifyMailboxRecipient('all')).toEqual({ scope: 'project' });
+    });
+
+    it('classifies session-scoped recipients and returns the session id', () => {
+      expect(classifyMailboxRecipient('@session:abc-123')).toEqual({
+        scope: 'session',
+        recipientSessionId: 'abc-123',
+      });
+    });
+
+    it('falls back to agent scope when the @session token is empty', () => {
+      expect(classifyMailboxRecipient('@session:')).toEqual({ scope: 'agent' });
+    });
+
+    it('classifies direct agent recipients as agent scope', () => {
+      expect(classifyMailboxRecipient('leader@abcd')).toEqual({ scope: 'agent' });
+      expect(classifyMailboxRecipient('worker@xyz')).toEqual({ scope: 'agent' });
+    });
+  });
+
+  it('derives scope and recipientSessionId from the message recipient', () => {
+    const sessionMessage: MailboxMessage = {
+      ...baseMessage,
+      id: 'msg_session',
+      to: '@session:project_alpha',
+      senderSessionId: 'session_sender',
+    };
+    const sessionSummary = mapMailboxMessageToHqSummary(sessionMessage, { previewLength: 80 });
+    expect(sessionSummary.scope).toBe('session');
+    expect(sessionSummary.recipientSessionId).toBe('project_alpha');
+
+    const projectSummary = mapMailboxMessageToHqSummary(baseMessage, { previewLength: 80 });
+    expect(projectSummary.scope).toBe('project');
+    expect(projectSummary.recipientSessionId).toBeUndefined();
+
+    const directSummary = mapMailboxMessageToHqSummary(
+      { ...baseMessage, id: 'msg_direct', to: 'leader@abcd' },
+      { previewLength: 80 },
+    );
+    expect(directSummary.scope).toBe('agent');
+    expect(directSummary.recipientSessionId).toBeUndefined();
+  });
+
+  it('classifies every thread pattern message with the right scope', () => {
+    const expectations = [
+      { message: threadMsg1, scope: 'agent' }, // direct to bug-hunter@y
+      { message: threadMsg1Duplicate, scope: 'agent' }, // direct to refactor-planner@z
+      { message: threadMsg2, scope: 'agent' },
+      { message: threadMsg2Broadcast, scope: 'project' },
+      { message: threadMsg3Completed, scope: 'agent' },
+      { message: threadMsg3Duplicate, scope: 'agent' }, // direct to audit@system
+    ];
+    for (const { message, scope } of expectations) {
+      const summary = mapMailboxMessageToHqSummary(message, { previewLength: 80 });
+      expect(summary.scope, `scope for ${message.id}`).toBe(scope);
+    }
   });
 
   // =========================================================================

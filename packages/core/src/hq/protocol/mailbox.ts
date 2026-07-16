@@ -20,11 +20,18 @@ export type HqMailboxAgentStatus =
   | 'error'
   | 'offline';
 
+/** Delivery scope derived from the recipient address. */
+export type HqMailboxMessageScope = 'project' | 'session' | 'agent';
+
 export interface HqMailboxMessageSummary {
   mailId: string; // unique UUID per message record, used for deduplication
   messageId: string;
   from: string;
   to: string;
+  /** Delivery scope inferred from `to` for UI labeling. */
+  scope: HqMailboxMessageScope;
+  /** Session id from `to` when `scope === 'session'`. */
+  recipientSessionId?: string;
   type: HqMailboxMessageType;
   subject: string;
   priority: HqMailboxPriority;

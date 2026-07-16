@@ -20,6 +20,8 @@ import {
   MessageSquare,
   Reply,
   X,
+  Lock,
+  Globe,
 } from 'lucide-react';
 import { useEffect } from 'react';
 import { LazyMarkdown as ReactMarkdown } from './MessageBubble/LazyMarkdown.js';
@@ -28,6 +30,7 @@ import { useAppTranslation, i18n } from '@/i18n';
 import { showPanel } from '@/lib/view-navigation';
 import { useUIStore } from '@/stores/ui-store';
 import { markdownComponents } from './MessageBubble/utils';
+import { classifyMailboxRecipient } from '@/stores/mailbox-store';
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
@@ -141,6 +144,19 @@ export function MailboxDetailView({ className }: { className?: string }) {
   const Icon = TYPE_ICONS[msg.type] ?? MessageSquare;
   const typeLabel = t(`activity:mailbox.type.${msg.type}`, { defaultValue: msg.type });
   const priorityClass = PRIORITY_COLORS[msg.priority] ?? PRIORITY_COLORS.normal;
+  const recipient = msg.scope
+    ? { scope: msg.scope, recipientSessionId: msg.recipientSessionId }
+    : classifyMailboxRecipient(msg.to);
+  const recipientDisplay =
+    msg.to === '*' || msg.to === 'all'
+      ? t('activity:mailbox.everyone')
+      : msg.to;
+  const recipientScopeLabel =
+    recipient.scope === 'session'
+      ? t('activity:mailbox.sessionScope', { sid: recipient.recipientSessionId ?? '' })
+      : recipient.scope === 'project'
+        ? t('activity:mailbox.projectScope')
+        : t('activity:mailbox.directScope');
 
   return (
     <div
@@ -181,7 +197,22 @@ export function MailboxDetailView({ className }: { className?: string }) {
           <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
             <span className="min-w-0 truncate font-medium text-foreground/80">{msg.from}</span>
             <span>→</span>
-            <span className="min-w-0 truncate">{msg.to === '*' || msg.to === 'all' ? t('activity:mailbox.everyone') : msg.to}</span>
+            <span className="min-w-0 truncate">{recipientDisplay}</span>
+            {recipient.scope === 'session' && (
+              <span
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-warning/12 text-warning"
+                title={t('activity:mailbox.sessionScopeTitle', { sid: recipient.recipientSessionId ?? '' })}
+              >
+                <Lock className="h-2.5 w-2.5" />
+                {t('activity:mailbox.sessionLabel')}
+              </span>
+            )}
+            {recipient.scope === 'project' && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-primary/12 text-primary">
+                <Globe className="h-2.5 w-2.5" />
+                {t('activity:mailbox.projectLabel')}
+              </span>
+            )}
             <span className="opacity-40">•</span>
             <span className="inline-flex items-center gap-1">
               <Clock className="h-3 w-3" />
@@ -229,6 +260,19 @@ export function MailboxDetailView({ className }: { className?: string }) {
           <div className="flex items-center gap-1.5 text-muted-foreground">
             <User className="h-3 w-3 shrink-0" />
             <span className="truncate" title={msg.from}>{msg.from}</span>
+          </div>
+
+          {/* Recipient scope */}
+          <div className="flex items-center gap-1.5 text-muted-foreground">
+            {recipient.scope === 'session' ? (
+              <Lock className="h-3 w-3 shrink-0 text-warning" />
+            ) : (
+              <Globe className="h-3 w-3 shrink-0 text-primary" />
+            )}
+            <span className="text-[10px] font-semibold uppercase tracking-wide shrink-0">
+              {t('activity:mailbox.scopeLabel')}
+            </span>
+            <span className="truncate">{recipientScopeLabel}</span>
           </div>
 
           {/* Timestamp */}

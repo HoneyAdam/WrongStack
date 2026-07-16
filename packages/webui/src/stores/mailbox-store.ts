@@ -7,10 +7,35 @@ import { create } from 'zustand';
 // ws-handlers ('mailbox.messages' / 'mailbox.agents' responses) so the
 // ActivityBar unread badge works even while MailboxPanel is unmounted.
 
+/** Mirrors HQ/HqMailboxMessageScope. Derived server-side, but always revalidated client-side. */
+export type MailboxMessageScope = 'project' | 'session' | 'agent';
+
+const SESSION_RECIPIENT_PREFIX = '@session:';
+
+/**
+ * Classify a mailbox recipient address for UI labeling. Mirrors the
+ * server-side helper in `@wrongstack/core/hq/mailbox-mapper` so the
+ * WebUI can color messages consistently even when the server payload is
+ * stale or missing the scope field.
+ */
+export function classifyMailboxRecipient(to: string): { scope: MailboxMessageScope; recipientSessionId?: string } {
+  if (to === '*' || to === 'all') return { scope: 'project' };
+  if (to.startsWith(SESSION_RECIPIENT_PREFIX)) {
+    const recipientSessionId = to.slice(SESSION_RECIPIENT_PREFIX.length);
+    if (recipientSessionId.length === 0) return { scope: 'agent' };
+    return { scope: 'session', recipientSessionId };
+  }
+  return { scope: 'agent' };
+}
+
 export interface MailboxMessage {
   id: string;
   from: string;
   to: string;
+  /** Server-derived delivery scope. Re-classified client-side as a fallback. */
+  scope?: MailboxMessageScope;
+  /** Session id from `to` when `scope === 'session'`. */
+  recipientSessionId?: string;
   type: string;
   subject: string;
   body: string;
@@ -71,7 +96,17 @@ export const useMailboxStore = create<MailboxState>()((set) => ({
   messages: [],
   agents: [],
   lastCompaction: null,
-  setMessages: (messages) => set({ messages }),
+  setMessages: (messages) =>
+    set({
+      // Re-classify any message that lacks a server-derived scope, so the
+      // UI can render chips consistently across server versions and stale
+      // WS replies. The server value still wins when present.
+      messages: messages.map((m) => {
+        if (m.scope !== undefined) return m;
+        const classified = classifyMailboxRecipient(m.to);
+        return { ...m, ...classified };
+      }),
+    }),
   setAgents: (agents) => set({ agents }),
   setLastCompaction: (lastCompaction) => set({ lastCompaction }),
 }));
