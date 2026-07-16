@@ -528,15 +528,6 @@ a:focus-visible {
   transform: rotate(180deg);
 }
 
-.agent-finished-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  border: 0;
-  background: transparent;
-  cursor: default;
-}
-
 .agent-finished-menu {
   position: absolute;
   top: calc(100% + 2px);

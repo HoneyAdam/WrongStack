@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AgentChatPane } from './agent-chat-pane.js';
+import { FinishedAgentsMenu } from './finished-agents-menu.js';
 import { ChatMessageList } from './chat-message-list.js';
 import { Composer } from './composer.js';
 import { ErrorBoundary } from './error-boundary.js';
@@ -105,7 +106,6 @@ export function App() {
   const [providerLabels, setProviderLabels] = useState<Record<string, string>>({});
   const [subagents, setSubagents] = useState<SimpleSubagent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState(LEADER_AGENT_ID);
-  const [finishedMenuOpen, setFinishedMenuOpen] = useState(false);
   const [agentTranscripts, setAgentTranscripts] = useState<Record<string, AgentTranscriptEntry[]>>(
     {},
   );
@@ -1026,52 +1026,11 @@ export function App() {
             );
           })}
         </div>
-        {finishedAgentTabs.length > 0 && (
-          <div className="agent-finished">
-            <button
-              type="button"
-              className={`agent-finished-toggle${finishedMenuOpen ? ' open' : ''}`}
-              aria-haspopup="menu"
-              aria-expanded={finishedMenuOpen}
-              onClick={() => setFinishedMenuOpen((open) => !open)}
-            >
-              <ChevronDown size={13} aria-hidden="true" />
-              Finished ({finishedAgentTabs.length})
-            </button>
-            {finishedMenuOpen && (
-              <>
-                <button
-                  type="button"
-                  className="agent-finished-backdrop"
-                  aria-label="Close finished agents menu"
-                  tabIndex={-1}
-                  onClick={() => setFinishedMenuOpen(false)}
-                />
-                <div className="agent-finished-menu" role="menu" aria-label="Finished agents">
-                  {finishedAgentTabs.map((agent) => (
-                    <button
-                      type="button"
-                      key={agent.id}
-                      role="menuitem"
-                      className={`agent-finished-item${
-                        activeAgentId === agent.id ? ' active' : ''
-                      }`}
-                      title={agent.task ?? `${agent.name} · ${agent.status}`}
-                      onClick={() => {
-                        setSelectedAgentId(agent.id);
-                        setFinishedMenuOpen(false);
-                      }}
-                    >
-                      <span className={`agent-dot ${agent.status}`} aria-hidden="true" />
-                      <strong>{agent.name}</strong>
-                      <span>{agent.status}</span>
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-        )}
+        <FinishedAgentsMenu
+          agents={finishedAgentTabs}
+          activeAgentId={activeAgentId}
+          onSelect={setSelectedAgentId}
+        />
       </section>
 
       <ErrorBoundary>
