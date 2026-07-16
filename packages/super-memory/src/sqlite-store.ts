@@ -54,7 +54,24 @@ import {
 
 // ─── SQLite loader (mirrors codebase-index's lazy pattern) ──────────────
 
-let DatabaseSyncCtor: typeof DatabaseSync | undefined;
+let DatabaseSyncCtor: typeof DatabaseSync | undefined | null;
+// null = confirmed unavailable, undefined = not yet probed
+
+/**
+ * Non-throwing probe — returns true if `node:sqlite` is available
+ * in the current runtime. Safe to call from outside the store.
+ */
+export function isSqliteAvailable(): boolean {
+  if (DatabaseSyncCtor === null) return false;
+  if (DatabaseSyncCtor !== undefined) return true;
+  try {
+    loadDatabaseSync();
+    return true;
+  } catch {
+    DatabaseSyncCtor = null;
+    return false;
+  }
+}
 
 function loadDatabaseSync(): typeof DatabaseSync {
   if (DatabaseSyncCtor) return DatabaseSyncCtor;

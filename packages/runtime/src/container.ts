@@ -26,7 +26,7 @@ import {
 import { buildRecoveryStrategies } from '@wrongstack/core/execution';
 import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { getSessionRegistry } from '@wrongstack/core/storage';
-import { SuperMemoryStore, SqliteSuperMemoryStore } from '@wrongstack/super-memory';
+import { SuperMemoryStore, SqliteSuperMemoryStore, isSqliteAvailable } from '@wrongstack/super-memory';
 import type { MemoryStore } from '@wrongstack/core';
 
 export interface CreateContainerOptions {
@@ -142,8 +142,16 @@ export function createDefaultContainer(opts: CreateContainerOptions): Container 
   //
   // When `superMemory.storage.engine === 'sqlite'`, the store uses the SQLite
   // backend (indexed + FTS5 search, auto-migrates from JSONL on first open).
+  // If node:sqlite is unavailable, falls back to JSONL with a warning.
   // Otherwise the JSONL backend is used.
-  const useSqlite = config.superMemory?.storage?.engine === 'sqlite';
+  const wantSqlite = config.superMemory?.storage?.engine === 'sqlite';
+  const useSqlite = wantSqlite && isSqliteAvailable();
+  if (wantSqlite && !useSqlite) {
+    logger.warn(
+      'Super Memory: SQLite engine requested but node:sqlite is unavailable in this runtime. ' +
+        'Falling back to JSONL backend. (SQLite requires Node >= 22.5.)',
+    );
+  }
   const memoryStore = useSqlite
     ? new SqliteSuperMemoryStore({
         projectRoot: wpaths.projectRoot,
