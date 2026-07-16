@@ -127,4 +127,59 @@ describe('/memory Super Memory commands', () => {
     expect((await cmd.run(`candidates accept ${candidate.id}`))?.message).toContain('Accepted');
     expect((await cmd.run('candidates'))?.message).toContain('No memory candidates');
   });
+
+  describe('/memory audience', () => {
+    it('remembers, lists, searches, and clears audience-scoped memories', async () => {
+      const store = new SuperMemoryStore({ projectRoot: root });
+      const cmd = command(store);
+
+      await store.rememberSuper({
+        text: 'Check for reversible rollback SQL.',
+        audience: { roles: ['reviewer'] },
+      });
+      const refactor = await store.rememberSuper({
+        text: 'Preserve public API signatures.',
+        audience: { roles: ['refactor-planner'], taskTypes: ['refactor'] },
+      });
+      await store.rememberSuper({
+        text: 'General project note without scope.',
+      });
+
+      // list all scoped
+      const listed = await cmd.run('audience list');
+      expect(listed?.message).toContain('Check for reversible rollback SQL.');
+      expect(listed?.message).toContain('Preserve public API signatures.');
+      expect(listed?.message).not.toContain('General project note');
+
+      // list filtered by role
+      const reviewerList = await cmd.run('audience list --role reviewer');
+      expect(reviewerList?.message).toContain('rollback SQL');
+      expect(reviewerList?.message).not.toContain('Preserve public API');
+
+      // search by role name
+      const searchRole = await cmd.run('audience search refactor-planner');
+      expect(searchRole?.message).toContain(refactor.id);
+
+      // search by text content
+      const searchText = await cmd.run('audience search rollback');
+      expect(searchText?.message).toContain('Check for reversible rollback SQL.');
+
+      // search with no match
+      const searchMiss = await cmd.run('audience search nonexistent');
+      expect(searchMiss?.message).toContain('No audience-scoped memories match');
+
+      // clear scope
+      const cleared = await cmd.run(`audience clear ${refactor.id}`);
+      expect(cleared?.message).toContain('Cleared audience scope');
+      const afterClear = await store.getSuperMemory(refactor.id);
+      expect(afterClear?.audience).toBeUndefined();
+    });
+
+    it('remember requires at least one selector', async () => {
+      const store = new SuperMemoryStore({ projectRoot: root });
+      const cmd = command(store);
+      const out = await cmd.run('audience remember some text');
+      expect(out?.message).toContain('At least one of --role');
+    });
+  });
 });
