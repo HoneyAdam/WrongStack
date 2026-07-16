@@ -49,6 +49,14 @@ export interface ProviderConfigSnapshot {
   /** Display language (Config.uiLocale), surfaced so a cross-process change
    *  (e.g. the desktop shell) propagates to running webui instances. */
   uiLocale?: string;
+  /** Live routing fields — surfaced so a cross-process WebUI /setmodel or
+   *  profile-reorder propagates to running workers without restart. */
+  fallbackModels?: string[];
+  fallbackProfiles?: Record<string, string[]>;
+  favoriteModels?: string[];
+  favoriteModelsOnly?: boolean;
+  modelMatrix?: Record<string, unknown>;
+  fallbackAuto?: boolean;
 }
 
 export interface WatchProviderConfigOptions {
@@ -90,6 +98,12 @@ async function readProviderSnapshot(
     apiKey?: string;
     baseUrl?: string;
     uiLocale?: string;
+    fallbackModels?: string[];
+    fallbackProfiles?: Record<string, string[]>;
+    favoriteModels?: string[];
+    favoriteModelsOnly?: boolean;
+    modelMatrix?: Record<string, unknown>;
+    fallbackAuto?: boolean;
   };
   const snapshot: ProviderConfigSnapshot = {
     providers: decrypted.providers ?? {},
@@ -98,6 +112,12 @@ async function readProviderSnapshot(
   if (typeof decrypted.baseUrl === 'string') snapshot.baseUrl = decrypted.baseUrl;
   if (typeof decrypted.uiLocale === 'string' && decrypted.uiLocale)
     snapshot.uiLocale = decrypted.uiLocale;
+  if (Array.isArray(decrypted.fallbackModels)) snapshot.fallbackModels = decrypted.fallbackModels;
+  if (decrypted.fallbackProfiles) snapshot.fallbackProfiles = decrypted.fallbackProfiles;
+  if (Array.isArray(decrypted.favoriteModels)) snapshot.favoriteModels = decrypted.favoriteModels;
+  if (typeof decrypted.favoriteModelsOnly === 'boolean') snapshot.favoriteModelsOnly = decrypted.favoriteModelsOnly;
+  if (decrypted.modelMatrix) snapshot.modelMatrix = decrypted.modelMatrix;
+  if (typeof decrypted.fallbackAuto === 'boolean') snapshot.fallbackAuto = decrypted.fallbackAuto;
   return snapshot;
 }
 
@@ -108,6 +128,12 @@ function serializeSnapshot(s: ProviderConfigSnapshot): string {
     apiKey: s.apiKey ?? null,
     baseUrl: s.baseUrl ?? null,
     uiLocale: s.uiLocale ?? null,
+    fallbackModels: s.fallbackModels ?? null,
+    fallbackProfiles: s.fallbackProfiles ?? null,
+    favoriteModels: s.favoriteModels ?? null,
+    favoriteModelsOnly: s.favoriteModelsOnly ?? null,
+    modelMatrix: s.modelMatrix ?? null,
+    fallbackAuto: s.fallbackAuto ?? null,
   });
 }
 

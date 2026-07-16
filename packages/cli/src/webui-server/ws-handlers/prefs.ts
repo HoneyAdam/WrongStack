@@ -28,6 +28,8 @@ export interface PrefsContext extends WsCommon {
   onAutonomySwitch: ((mode: string) => void) | undefined;
   /** Pending tool confirmations — drained to yes when YOLO is enabled. */
   pendingConfirms: Map<string, PendingConfirm>;
+  /** ConfigStore for live fallback/chain propagation. */
+  configStore?: import('@wrongstack/core').ConfigStore | undefined;
 }
 
 function sendResult(ctx: WsCommon, ws: WebSocket, success: boolean, message: string): void {
@@ -75,6 +77,18 @@ export function handlePrefsUpdate(
     void import('@wrongstack/providers').then(({ setDebugStreamEnabled }) =>
       setDebugStreamEnabled(payload['debugStream'] as boolean),
     );
+  }
+  // Push routing changes into ConfigStore so running workers and the
+  // fallback extension pick them up without a restart.
+  if (ctx.configStore) {
+    const routingPatch: Record<string, unknown> = {};
+    if (Array.isArray(payload['fallbackModels'])) routingPatch.fallbackModels = payload['fallbackModels'];
+    if (payload['fallbackProfiles']) routingPatch.fallbackProfiles = payload['fallbackProfiles'];
+    if (Array.isArray(payload['favoriteModels'])) routingPatch.favoriteModels = payload['favoriteModels'];
+    if (typeof payload['favoriteModelsOnly'] === 'boolean') routingPatch.favoriteModelsOnly = payload['favoriteModelsOnly'];
+    if (payload['modelMatrix']) routingPatch.modelMatrix = payload['modelMatrix'];
+    if (typeof payload['fallbackAuto'] === 'boolean') routingPatch.fallbackAuto = payload['fallbackAuto'];
+    if (Object.keys(routingPatch).length > 0) ctx.configStore.update(routingPatch as never);
   }
   ctx.broadcast({ type: 'prefs.updated', payload: ctx.prefSnapshot() });
 }

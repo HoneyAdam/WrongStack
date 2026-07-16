@@ -503,7 +503,13 @@ export async function startWebUI(
           providers: snapshot.providers,
           ...(snapshot.apiKey !== undefined ? { apiKey: snapshot.apiKey } : {}),
           ...(snapshot.baseUrl !== undefined ? { baseUrl: snapshot.baseUrl } : {}),
-        });
+          ...(snapshot.fallbackModels !== undefined ? { fallbackModels: snapshot.fallbackModels } : {}),
+          ...(snapshot.fallbackProfiles !== undefined ? { fallbackProfiles: snapshot.fallbackProfiles } : {}),
+          ...(snapshot.favoriteModels !== undefined ? { favoriteModels: snapshot.favoriteModels } : {}),
+          ...(snapshot.favoriteModelsOnly !== undefined ? { favoriteModelsOnly: snapshot.favoriteModelsOnly } : {}),
+          ...(snapshot.modelMatrix !== undefined ? { modelMatrix: snapshot.modelMatrix } : {}),
+          ...(snapshot.fallbackAuto !== undefined ? { fallbackAuto: snapshot.fallbackAuto } : {}),
+        } as never);
         broadcast(clients, {
           type: 'providers.saved',
           payload: { providers: projectSavedProviders(snapshot.providers) },

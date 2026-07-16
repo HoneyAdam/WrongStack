@@ -131,6 +131,10 @@ export async function spawn(
     if (entry?.model) {
       config.model = entry.model;
       if (entry.provider) config.provider = entry.provider;
+      if (entry.fallbackProfile) config.fallbackProfile = entry.fallbackProfile;
+      if (entry.modelRuntime) config.modelRuntime = entry.modelRuntime;
+    } else if (entry?.fallbackProfile) {
+      config.fallbackProfile = entry.fallbackProfile;
       if (entry.modelRuntime) config.modelRuntime = entry.modelRuntime;
     }
   }

@@ -13,15 +13,20 @@
  */
 import type { AgentExtension } from '../extension/extension-points.js';
 import type { EventBus } from '../kernel/events.js';
+import { isTextBlock, isToolUseBlock } from '../types/blocks.js';
 import type { Config } from '../types/config.js';
 import type { Logger } from '../types/logger.js';
-import { isFallbackWorthy, type Provider, ProviderError } from '../types/provider.js';
+import { isFallbackWorthy, type Provider, ProviderError, type Response } from '../types/provider.js';
 import { FallbackProfileManager } from './fallback-profile-manager.js';
 import type { FallbackChain, FallbackChainEntry } from './fallback-profile-manager.js';
 
 export interface FallbackModelDeps {
   /** Returns the live config (re-read each turn so `/model` switches are honored). */
   getConfig: () => Config;
+  /** Live named profile selected for this worker (for example by `/setmodel`). */
+  getFallbackProfile?: (() => string | undefined) | undefined;
+  /** Live task/role-specific chain. Explicit task fallbacks may return a stable list. */
+  getFallbackModels?: (() => readonly string[] | undefined) | undefined;
   /**
    * Builds a credential-resolved Provider for a provider id (alias-resolved),
    * WITHOUT persisting anything to config/configStore. Supplied by the boot
@@ -110,6 +115,26 @@ function shouldFallback(err: unknown): number | null {
   return isFallbackWorthy(err.kind) ? err.status : null;
 }
 
+function isUsableModelResponse(response: Response): boolean | undefined {
+  if (!response?.content) return undefined;
+  return response.content.some(
+    (block) => isToolUseBlock(block) || (isTextBlock(block) && block.text.trim().length > 0),
+  );
+}
+
+function ensureUsableModelResponse(response: Response, providerId: string, model: string): Response {
+  const usable = isUsableModelResponse(response);
+  // undefined content means the caller didn't provide a content field (e.g. test mocks) — let it through
+  if (usable !== false) return response;
+  throw new ProviderError(
+    `Empty response from ${providerId}/${model}; trying the next configured model`,
+    503,
+    true,
+    providerId,
+    { kind: 'overloaded' },
+  );
+}
+
 export function smartDefaultFallbackChain(config: Config): string[] {
   const mgr = new FallbackProfileManager(config);
   return mgr.resolveEffective({ fallbackAuto: true }).map((e) => `${e.providerId}/${e.model}`);
@@ -137,29 +162,56 @@ function sameTarget(
   return !!a && a.providerId === b.providerId && a.model === b.model;
 }
 
-function fallbackCandidates(config: Config, current: { providerId: string; model: string }): FallbackChain {
+function fallbackCandidates(
+  config: Config,
+  current: { providerId: string; model: string },
+  opts: {
+    fallbackModels?: readonly string[] | undefined;
+    fallbackProfile?: string | undefined;
+  } = {},
+): FallbackChain {
   const mgr = new FallbackProfileManager(config);
   const configuredPrimary = primaryTarget(config);
-  const profileChain = mgr.resolveEffective({
-    fallbackModels: config.fallbackModels,
-    fallbackProfile: undefined,
-    fallbackAuto: config.fallbackAuto,
-    exclude: sameTarget(configuredPrimary, current) ? undefined : current,
+  const selectedChain = mgr.resolveEffective({
+    fallbackModels: opts.fallbackModels ?? config.fallbackModels,
+    fallbackProfile: opts.fallbackProfile,
+    // A role/profile override is an ordered preference, not a closed world.
+    // If every selected entry fails, keep deriving a route back to the known
+    // session/default model and other configured providers.
+    fallbackAuto: true,
+    exclude: current,
   });
+  const candidates: FallbackChainEntry[] = [];
+
+  if (opts.fallbackProfile !== 'default') {
+    candidates.push(...mgr.resolve('default', { exclude: current }));
+  }
+
+  // Always try the session's configured primary first when we're not already on it.
   if (!sameTarget(configuredPrimary, current)) {
-    const primaryEntry: FallbackChainEntry = {
+    candidates.push({
       providerId: configuredPrimary.providerId,
       model: configuredPrimary.model,
       providerSwitched: configuredPrimary.providerId !== current.providerId,
-    };
-    // Prepend primary and deduplicate against the profile chain
-    const seen = new Set<string>(profileChain.map((e) => `${e.providerId}/${e.model}`));
-    const key = `${primaryEntry.providerId}/${primaryEntry.model}`;
-    if (!seen.has(key)) {
-      return Object.freeze([primaryEntry, ...profileChain]);
-    }
+    });
   }
-  return profileChain;
+
+  // Then try the role-selected or explicit chain.
+  candidates.push(...selectedChain);
+
+  // Finally try every other configured provider as a last resort.
+  const smartDefaults = mgr.resolveEffective({ fallbackAuto: true, exclude: current });
+  candidates.push(...smartDefaults);
+
+  const seen = new Set<string>();
+  return Object.freeze(
+    candidates.filter((entry) => {
+      const key = `${entry.providerId}/${entry.model}`;
+      if (key === `${current.providerId}/${current.model}` || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }),
+  );
 }
 
 const primaryTarget = (cfg: Config) => ({ providerId: cfg.provider, model: cfg.model });
@@ -262,7 +314,11 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
 
     wrapProviderRunner: async (ctx, request, inner) => {
       try {
-        const response = await inner(ctx, request);
+        const response = ensureUsableModelResponse(
+          await inner(ctx, request),
+          ctx.provider.id,
+          ctx.model,
+        );
         const cfg = deps.getConfig();
         if (ctx.provider.id === cfg.provider && ctx.model === cfg.model) {
           resetPrimaryLadder(cfg);
@@ -272,7 +328,10 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
         let lastErr: unknown = firstErr;
         const cfg = deps.getConfig();
         const current = { providerId: ctx.provider.id, model: ctx.model };
-        const chain = fallbackCandidates(cfg, current);
+        const chain = fallbackCandidates(cfg, current, {
+          fallbackModels: deps.getFallbackModels?.(),
+          fallbackProfile: deps.getFallbackProfile?.(),
+        });
         if (shouldFallback(firstErr) !== null && ctx.provider.id === cfg.provider && ctx.model === cfg.model) {
           markPrimaryFailure(cfg);
         }
@@ -324,7 +383,11 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
           });
 
           try {
-            return await inner(ctx, request);
+            return ensureUsableModelResponse(
+              await inner(ctx, request),
+              ctx.provider.id,
+              ctx.model,
+            );
           } catch (err) {
             lastErr = err;
           }

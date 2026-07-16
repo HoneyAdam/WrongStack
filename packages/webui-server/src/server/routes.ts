@@ -779,6 +779,20 @@ export function buildRoutes(
       }
       if (typeof payload['fallbackAuto'] === 'boolean') cfg.fallbackAuto = payload['fallbackAuto'];
 
+      // Push routing changes into ConfigStore so running workers and the
+      // fallback extension pick them up without a restart.
+      const routingPatch: Record<string, unknown> = {};
+      if (Array.isArray(payload['fallbackModels'])) routingPatch.fallbackModels = payload['fallbackModels'];
+      if (payload['fallbackProfiles'] && typeof payload['fallbackProfiles'] === 'object' && !Array.isArray(payload['fallbackProfiles']))
+        routingPatch.fallbackProfiles = payload['fallbackProfiles'];
+      if (Array.isArray(payload['favoriteModels'])) routingPatch.favoriteModels = payload['favoriteModels'];
+      if (typeof payload['favoriteModelsOnly'] === 'boolean') routingPatch.favoriteModelsOnly = payload['favoriteModelsOnly'];
+      if (payload['modelMatrix'] && typeof payload['modelMatrix'] === 'object' && !Array.isArray(payload['modelMatrix']))
+        routingPatch.modelMatrix = payload['modelMatrix'];
+      if (typeof payload['fallbackAuto'] === 'boolean') routingPatch.fallbackAuto = payload['fallbackAuto'];
+      if (Object.keys(routingPatch).length > 0)
+        deps.configStore.update(routingPatch as Parameters<typeof deps.configStore.update>[0]);
+
       // Runtime effects: apply prefs that change server behaviour immediately.
 
       // contextAutoCompact — toggle AutoCompactionMiddleware in/out of the

@@ -658,7 +658,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     );
   }
 
-  // Record this instance so it shows up in `wstackui --list` /
+  // Record this instance so it shows up in `wstack --webui --list` /
   // ~/.wrongstack/webui-instances.json alongside standalone instances.
   const registryBaseDir = globalRoot;
   if (opts.projectRoot) {
@@ -768,6 +768,27 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
           }
         } catch {
           /* frozen / read-only appConfig — ignore */
+        }
+        // Propagate routing/config changes to ConfigStore so running workers
+        // pick them up (independent of the provider-credential path below).
+        const routingChanged =
+          snapshot.fallbackModels !== undefined ||
+          snapshot.fallbackProfiles !== undefined ||
+          snapshot.favoriteModels !== undefined ||
+          snapshot.favoriteModelsOnly !== undefined ||
+          snapshot.modelMatrix !== undefined ||
+          snapshot.fallbackAuto !== undefined;
+        if (routingChanged) {
+          const configStore = opts.agent.container?.safeResolve?.(TOKENS.ConfigStore) as
+            import('@wrongstack/core').ConfigStore | undefined;
+          configStore?.update({
+            ...(snapshot.fallbackModels !== undefined ? { fallbackModels: snapshot.fallbackModels } : {}),
+            ...(snapshot.fallbackProfiles !== undefined ? { fallbackProfiles: snapshot.fallbackProfiles } : {}),
+            ...(snapshot.favoriteModels !== undefined ? { favoriteModels: snapshot.favoriteModels } : {}),
+            ...(snapshot.favoriteModelsOnly !== undefined ? { favoriteModelsOnly: snapshot.favoriteModelsOnly } : {}),
+            ...(snapshot.modelMatrix !== undefined ? { modelMatrix: snapshot.modelMatrix } : {}),
+            ...(snapshot.fallbackAuto !== undefined ? { fallbackAuto: snapshot.fallbackAuto } : {}),
+          } as never);
         }
         broadcastSaved(wsHandlerCtx, snapshot.providers);
 
@@ -926,6 +947,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     onYoloSwitch: opts.onYoloSwitch,
     onAutonomySwitch: opts.onAutonomySwitch,
     pendingConfirms,
+    configStore: opts.agent.container?.safeResolve?.(TOKENS.ConfigStore),
     send,
     broadcast,
     log: (m) => console.log(m),

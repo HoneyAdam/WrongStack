@@ -96,9 +96,18 @@ export function makeLightSubagentFactory(deps: LightSubagentFactoryDeps): AgentF
     const modelsRegistry = deps.modelsRegistry ?? deps.container.safeResolve(TOKENS.ModelsRegistry);
 
     const matrixTarget = subCfg.model ? undefined : resolveSubagentModelTarget(config, subCfg.role);
-    const effProvider = subCfg.provider ?? matrixTarget?.provider ?? config.provider;
-    const effModel = subCfg.model ?? matrixTarget?.model ?? config.model;
-    const provider = buildProvider(deps.providerRegistry, config, effProvider, effModel);
+    let effProvider = subCfg.provider ?? matrixTarget?.provider ?? config.provider;
+    let effModel = subCfg.model ?? matrixTarget?.model ?? config.model;
+    const fallbackProfile = subCfg.fallbackProfile ?? matrixTarget?.fallbackProfile;
+    let provider: ReturnType<ProviderRegistry['create']>;
+    try {
+      provider = buildProvider(deps.providerRegistry, config, effProvider, effModel);
+    } catch (err) {
+      if (effProvider === config.provider && effModel === config.model) throw err;
+      effProvider = config.provider;
+      effModel = config.model;
+      provider = buildProvider(deps.providerRegistry, config, effProvider, effModel);
+    }
     let subReasoningConfig = await resolveReasoningConfig(modelsRegistry, effProvider, effModel);
     const runtimeOverride = subCfg.modelRuntime ?? matrixTarget?.modelRuntime;
 
@@ -191,21 +200,14 @@ export function makeLightSubagentFactory(deps: LightSubagentFactoryDeps): AgentF
       loopDetection: config.tools?.loopDetection,
     });
 
-    // Fallback chain for THIS worker: a per-task `fallbackModels` (set in the
-    // WebUI) overrides the live config's chain; otherwise the config's explicit
-    // list or smart default applies. Without this a 429/529/5xx on a worker's
-    // model — after its own retries — fails the task instead of rotating. Mirrors
-    // the CLI host factory so both surfaces behave identically.
-    const subFallbacks = subCfg.fallbackModels;
-    const matrixFallbacks = matrixTarget?.fallbackModels;
+    // Fallback chain for THIS worker. Explicit task fallbacks stay pinned, while
+    // a matrix-selected named profile is re-resolved from ConfigStore for every
+    // provider attempt so WebUI edits/reordering affect active workers.
     agent.extensions.register(
       createFallbackModelExtension({
-        getConfig: () => {
-          const live = configStore.get();
-          if (subFallbacks?.length) return { ...live, fallbackModels: subFallbacks };
-          if (matrixFallbacks?.length) return { ...live, fallbackModels: matrixFallbacks };
-          return live;
-        },
+        getConfig: () => configStore.get() as Config,
+        getFallbackModels: () => subCfg.fallbackModels,
+        getFallbackProfile: () => fallbackProfile,
         buildProvider: (id, model) =>
           buildProvider(deps.providerRegistry, configStore.get(), id, model ?? effModel),
         onModelSwitch: async (id, model) => {
