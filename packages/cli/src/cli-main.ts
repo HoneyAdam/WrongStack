@@ -581,6 +581,32 @@ export async function main(argv: string[]): Promise<number> {
     statusTracker,
   });
 
+  // ── Boot resume: adopt the resumed session's own model/provider ──────────
+  // Parity with the in-session resume picker (tui-session-resume.ts): a fresh
+  // `wstack --resume <id>` continues on the model the session was recorded
+  // with rather than the current default. Fully guarded — switchProviderAndModel
+  // try/catches and returns an error string (never throws), and leaves the
+  // current provider/model intact when the recorded provider is no longer
+  // configured, so an unavailable provider gracefully falls back to the default.
+  if (sessResult.resumedProvider || sessResult.resumedModel) {
+    const targetProvider =
+      sessResult.resumedProvider && sessResult.resumedProvider.length > 0
+        ? sessResult.resumedProvider
+        : config.provider;
+    const targetModel =
+      sessResult.resumedModel && sessResult.resumedModel.length > 0
+        ? sessResult.resumedModel
+        : config.model;
+    if (targetProvider !== config.provider || targetModel !== config.model) {
+      const switchErr = await switchProviderAndModel(targetProvider, targetModel);
+      if (switchErr) {
+        logger.warn(
+          `Resume: could not switch to the session's model ${targetProvider}/${targetModel} (${switchErr}); continuing with ${config.provider}/${config.model}.`,
+        );
+      }
+    }
+  }
+
   // Register the `llm` tool — one-shot LLM invocations with provider
   // resolution and fallback chain. buildProviderForId is now available.
   const llmTool = createOneShotLLMTool({

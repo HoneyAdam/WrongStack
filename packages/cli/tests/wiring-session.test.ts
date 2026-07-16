@@ -133,6 +133,52 @@ describe('setupSession', () => {
     );
   });
 
+  it('surfaces the resumed session model/provider so boot can adopt them', async () => {
+    const sessionStore = makeSessionStore({
+      resume: vi.fn().mockResolvedValue({
+        writer: makeSessionWriter('resumed-mp'),
+        data: {
+          messages: [],
+          metadata: { id: 'resumed-mp', model: 'session-model', provider: 'session-provider' },
+          usage: { input: 0, output: 0 },
+        },
+      }),
+    });
+    const result = await setupSession({
+      config: { model: 'm', provider: 'p' },
+      wpaths: makeWpaths(),
+      projectRoot: tmp,
+      cwd: tmp,
+      sessionStore,
+      systemPrompt: [],
+      provider: fakeProvider,
+      tokenCounter: fakeTokenCounter,
+      renderer: makeRenderer(),
+      flags: { resume: 'resumed-mp' },
+      onRecovery,
+    });
+    expect(result.resumedModel).toBe('session-model');
+    expect(result.resumedProvider).toBe('session-provider');
+  });
+
+  it('leaves resumed model/provider undefined for a fresh (non-resume) session', async () => {
+    const result = await setupSession({
+      config: { model: 'm', provider: 'p' },
+      wpaths: makeWpaths(),
+      projectRoot: tmp,
+      cwd: tmp,
+      sessionStore: makeSessionStore(),
+      systemPrompt: [],
+      provider: fakeProvider,
+      tokenCounter: fakeTokenCounter,
+      renderer: makeRenderer(),
+      flags: {},
+      onRecovery,
+    });
+    expect(result.resumedModel).toBeUndefined();
+    expect(result.resumedProvider).toBeUndefined();
+  });
+
   it('throws RESUME_FAILED when resume call rejects', async () => {
     const sessionStore = makeSessionStore({
       resume: vi.fn().mockRejectedValue(new Error('not found')),

@@ -51,6 +51,16 @@ export interface SessionResult {
    * the in-session resume picker instead of meta-only tool chips.
    */
   restoredEvents: import('@wrongstack/core').SessionEvent[];
+  /**
+   * Model/provider recorded in the resumed session. Undefined when not
+   * resuming. The boot path applies these via switchProviderAndModel once the
+   * provider runtime is wired, so `wstack --resume <id>` continues on the
+   * session's own model — parity with the in-session resume picker
+   * (tui-session-resume.ts). Falls back gracefully to the current default when
+   * the recorded provider is no longer available.
+   */
+  resumedModel?: string | undefined;
+  resumedProvider?: string | undefined;
 }
 
 export async function setupSession(params: {
@@ -130,6 +140,8 @@ export async function setupSession(params: {
   let restoredMessages: import('@wrongstack/core').Message[] = [];
   let restoredToolCalls: SessionResult['restoredToolCalls'] = [];
   let restoredEvents: SessionResult['restoredEvents'] = [];
+  let resumedModel: string | undefined;
+  let resumedProvider: string | undefined;
   if (resumeId) {
     try {
       const resumed = await sessionStore.resume(resumeId);
@@ -140,6 +152,10 @@ export async function setupSession(params: {
       // perfectly resumable session into RESUME_FAILED.
       restoredToolCalls = resumed.data.toolCallEnds ?? [];
       restoredEvents = resumed.data.events ?? [];
+      // Prefer the resumed session's own model/provider on boot (applied later,
+      // once the provider runtime + switch callback exist).
+      resumedModel = resumed.data.metadata.model;
+      resumedProvider = resumed.data.metadata.provider;
       renderer.writeInfo(
         `Resumed session ${resumed.data.metadata.id} — ${restoredMessages.length} messages, ${restoredToolCalls.length} tool executions, ${resumed.data.usage.input + resumed.data.usage.output} tokens used previously.`,
       );
@@ -302,6 +318,8 @@ export async function setupSession(params: {
     priorFleetState: dirState ?? undefined,
     restoredToolCalls,
     restoredEvents,
+    resumedModel,
+    resumedProvider,
   };
 }
 
