@@ -429,7 +429,11 @@ export class TelegramBot {
         this.processMessage({ ...raw, text: raw.text });
       }
 
-      if (this.offsetStore && this.offset > 0) void this.saveOffset();
+      // P1.6: commit the cursor only after processing. An empty poll or a
+      // 0 -> 0 idle tick MUST NOT trigger a write. Require updates.length > 0
+      // so a successful but empty poll leaves the persisted offset
+      // unchanged — preserves the replay dedup boundary on restart.
+      if (this.offsetStore && updates.length > 0) void this.saveOffset();
     } catch (err) {
       if (err instanceof TelegramNetworkError && err.aborted) return;
       if (err instanceof TelegramBotApiError && err.errorCode === 409) {
