@@ -26,6 +26,7 @@ import {
   Director,
   type DirectorSessionFactory,
   EventBus,
+  type FallbackProfileManager,
   FLEET_ROSTER,
   formatSubagentStructuredReport,
   FleetManager,
@@ -161,6 +162,8 @@ export interface MultiAgentDeps {
   cwd: string;
   secretScrubber: import('@wrongstack/core').SecretScrubber;
   renderer?: import('@wrongstack/core').Renderer | undefined;
+  /** Shared live fallback profile manager from the runtime container. */
+  fallbackProfileManager: FallbackProfileManager;
 }
 
 /**
@@ -975,6 +978,7 @@ export class MultiAgentHost {
       // director — resolve here too so they honor the matrix. Explicit
       // per-subagent model/provider always win.
       const liveConfig = this.deps.configStore.get();
+      const mergedConfig = { ...liveConfig, ...config };
       const matrixTarget = subCfg.model
         ? undefined
         : resolveSubagentModelTarget(liveConfig, subCfg.role);
@@ -984,12 +988,12 @@ export class MultiAgentHost {
       const runtimeOverride = subCfg.modelRuntime ?? matrixTarget?.modelRuntime;
       let provider: Provider;
       try {
-        provider = await this.buildSubagentProvider(liveConfig as Config, effProvider, effModel);
+        provider = await this.buildSubagentProvider(mergedConfig, effProvider, effModel);
       } catch (err) {
         if (effProvider === liveConfig.provider && effModel === liveConfig.model) throw err;
         effProvider = liveConfig.provider;
         effModel = liveConfig.model;
-        provider = await this.buildSubagentProvider(liveConfig as Config, effProvider, effModel);
+        provider = await this.buildSubagentProvider(mergedConfig, effProvider, effModel);
       }
       let subReasoningConfig = await this.resolveSubagentReasoningConfig(effProvider, effModel);
 
@@ -1177,6 +1181,7 @@ export class MultiAgentHost {
       agent.extensions.register(
         createFallbackModelExtension({
           getConfig: () => this.deps.configStore.get() as Config,
+          fallbackProfileManager: this.deps.fallbackProfileManager,
           getFallbackModels: () => subCfg.fallbackModels,
           getFallbackProfile: () => fallbackProfile,
           buildProvider: (id, model) => this.buildSubagentProvider(config, id, model ?? effModel),
