@@ -15,6 +15,9 @@ export {
 } from './middleware/tool-call-memory.js';
 export {
   createSuperMemoryTurnMiddleware,
+  normalizeTextKey,
+  overlapCoefficient,
+  tokenize,
   type SuperMemoryTurnMiddlewareOptions,
 } from './middleware/turn-memory.js';
 export {
