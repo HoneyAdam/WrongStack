@@ -25,8 +25,52 @@ const isMain =
   process.argv[1]?.endsWith('/cli/dist/index.js') ||
   process.argv[1]?.endsWith('\\cli\\dist\\index.js');
 
+interface ErrorEventStream {
+  on(event: 'error', listener: (error: unknown) => void): unknown;
+  off(event: 'error', listener: (error: unknown) => void): unknown;
+}
+
+interface BrokenPipeHandlerOptions {
+  streams?: readonly ErrorEventStream[] | undefined;
+  exit?: ((code: number) => void) | undefined;
+}
+
+function isBrokenPipe(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'EPIPE';
+}
+
+/**
+ * Treat a closed stdout/stderr consumer as a normal CLI shutdown.
+ *
+ * A failed `write()` is reported asynchronously through the destination
+ * stream's `error` event, so wrapping individual writes in `try/catch` cannot
+ * prevent Node's unhandled-event crash. Keep this guard at the process entry
+ * boundary and rethrow every non-EPIPE error so genuine stream failures remain
+ * visible.
+ */
+export function installBrokenPipeHandlers(
+  options: BrokenPipeHandlerOptions = {},
+): () => void {
+  const streams = options.streams ?? [process.stdout, process.stderr];
+  const exit = options.exit ?? ((code: number) => process.exit(code));
+  let handled = false;
+
+  const onError = (error: unknown): void => {
+    if (!isBrokenPipe(error)) throw error;
+    if (handled) return;
+    handled = true;
+    exit(0);
+  };
+
+  for (const stream of streams) stream.on('error', onError);
+  return () => {
+    for (const stream of streams) stream.off('error', onError);
+  };
+}
+
 export function runAsMain(mainFn: (argv: string[]) => Promise<number>): void {
   if (!isMain) return;
+  installBrokenPipeHandlers();
   mainFn(process.argv.slice(2)).then(
     (c) => {
       // Set exitCode and let Node drain async handles (undici TLS, log file
