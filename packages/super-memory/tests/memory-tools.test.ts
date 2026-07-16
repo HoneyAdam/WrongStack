@@ -299,6 +299,60 @@ describe('remember tool (structured write)', () => {
       supersedes: ['mem_old'],
     }));
   });
+
+  it('auto-detects agent role from ctx.meta when no explicit audience is given', async () => {
+    const rememberSuper = vi.fn().mockResolvedValue({ id: 'mem_2', kind: 'convention', text: 'x', tags: [] });
+    const service = createMockService();
+    service.rememberSuper = rememberSuper;
+
+    const tool = createSuperMemoryTools(service)[7]!;
+    await tool.execute(
+      { text: 'Always verify migration reversibility.' } as never,
+      { meta: { agentRole: 'reviewer' } } as never,
+      { signal: new AbortController().signal } as never,
+    );
+
+    expect(rememberSuper).toHaveBeenCalledWith(expect.objectContaining({
+      text: 'Always verify migration reversibility.',
+      audience: { roles: ['reviewer'] },
+    }));
+  });
+
+  it('does not auto-detect when ctx.meta has no agentRole (leader agent)', async () => {
+    const rememberSuper = vi.fn().mockResolvedValue({ id: 'mem_3', kind: 'fact', text: 'x', tags: [] });
+    const service = createMockService();
+    service.rememberSuper = rememberSuper;
+
+    const tool = createSuperMemoryTools(service)[7]!;
+    await tool.execute(
+      { text: 'General project note.' } as never,
+      { meta: {} } as never,
+      { signal: new AbortController().signal } as never,
+    );
+
+    expect(rememberSuper).toHaveBeenCalledWith(expect.objectContaining({
+      text: 'General project note.',
+      audience: undefined,
+    }));
+  });
+
+  it('explicit audience wins over auto-detected role', async () => {
+    const rememberSuper = vi.fn().mockResolvedValue({ id: 'mem_4', kind: 'fact', text: 'x', tags: [] });
+    const service = createMockService();
+    service.rememberSuper = rememberSuper;
+
+    const tool = createSuperMemoryTools(service)[7]!;
+    await tool.execute(
+      { text: 'Scoped memory.', audience: { roles: ['refactor-planner'], taskTypes: ['refactor'] } } as never,
+      { meta: { agentRole: 'reviewer' } } as never,
+      { signal: new AbortController().signal } as never,
+    );
+
+    expect(rememberSuper).toHaveBeenCalledWith(expect.objectContaining({
+      text: 'Scoped memory.',
+      audience: { roles: ['refactor-planner'], taskTypes: ['refactor'] },
+    }));
+  });
 });
 
 describe('forget tool', () => {
