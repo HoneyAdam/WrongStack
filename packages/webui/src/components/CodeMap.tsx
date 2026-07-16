@@ -457,7 +457,7 @@ function CodeMapInner(): React.ReactElement {
                         {new Date(a.timestamp).toLocaleTimeString()}
                       </span>
                       {a.toolName && <span className="text-muted-foreground">via {a.toolName}</span>}
-                      {a.agentName && <span className="text-muted-foreground">{a.agentName}</span>}
+                      {a.agent && <span className="text-muted-foreground">{a.agent}</span>}
                       {a.summary && <span className="truncate text-foreground/80" title={a.summary}>{a.summary}</span>}
                     </div>
                   </div>

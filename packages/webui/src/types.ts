@@ -1951,6 +1951,7 @@ export type WSServerMessage =
       type: 'memory.event';
       payload: SessionScopedPayload & Record<string, unknown> & { event: string };
     }
+  | { type: 'file.saved'; payload: SessionScopedPayload & { filePath: string } }
   | { type: 'session.damaged'; payload: { sessionId: string; detail: string } }
   | {
       type: 'session.rewound';
