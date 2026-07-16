@@ -75,6 +75,8 @@ interface RememberToolInput {
   tags?: string[] | undefined;
   anchors?: MemoryAnchor[] | undefined;
   audience?: MemoryAudienceSelector | undefined;
+  /** When true, disables auto-scoping from agent role/mode. */
+  no_auto_audience?: boolean | undefined;
   importance?: number | undefined;
   confidence?: number | undefined;
   supersedes?: string[] | undefined;
@@ -123,6 +125,7 @@ function memoryRememberTool(memory: SuperMemoryServiceLike): Tool<RememberToolIn
       tags: stringArraySchema('Hashtag-style tags for grouping and search (omit the #).'),
       anchors: anchorsSchema(),
       audience: audienceSchema(),
+      no_auto_audience: { type: 'boolean', description: 'Set to true to prevent auto-scoping from your agent role/mode. Creates a general project memory even when called from a subagent.' },
       importance: numberSchema(0, 1),
       confidence: numberSchema(0, 1),
       supersedes: stringArraySchema('Memory ids this replaces (they become superseded).'),
@@ -138,7 +141,7 @@ function memoryRememberTool(memory: SuperMemoryServiceLike): Tool<RememberToolIn
       const detectedMode = typeof ctx?.meta?.['mode'] === 'string'
         ? ctx.meta['mode'] as string
         : undefined;
-      const autoAudience = !input.audience && (detectedRole || detectedMode)
+      const autoAudience = !input.audience && !input.no_auto_audience && (detectedRole || detectedMode)
         ? {
             ...(detectedRole ? { roles: [detectedRole] } : {}),
             ...(detectedMode ? { modes: [detectedMode] } : {}),
