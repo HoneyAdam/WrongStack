@@ -76,7 +76,7 @@ function lastUserText(messages: Message[]): string {
  * Unlike Jaccard, this doesn't penalize the longer string for having extra
  * tokens — a memory with rich detail that fully covers the query scores high.
  */
-function overlapCoefficient(query: string, text: string): number {
+export function overlapCoefficient(query: string, text: string): number {
   const queryTokens = new Set(tokenize(query));
   const textTokens = new Set(tokenize(text));
   if (queryTokens.size === 0 || textTokens.size === 0) return 0;
@@ -88,7 +88,7 @@ function overlapCoefficient(query: string, text: string): number {
   return intersection / smaller;
 }
 
-function tokenize(text: string): string[] {
+export function tokenize(text: string): string[] {
   return text
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
