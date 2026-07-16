@@ -47,12 +47,9 @@ export function AudienceMemoryPanel() {
     refresh();
   }, [refresh]);
 
-  // Stable client ref for event handlers
-  const clientRef = useRef(ws.client);
-  clientRef.current = ws.client;
-
   useEffect(() => {
-    const client = clientRef.current;
+    const client = ws.client;
+    if (!client) return;
     const unsubList = client.on?.('memory.super.list', (msg: unknown) => {
       const payload = (msg as { payload?: { memories?: SuperMemoryEntry[]; error?: string } })
         ?.payload;
@@ -85,9 +82,11 @@ export function AudienceMemoryPanel() {
       unsubUpdate?.();
       unsubDelete?.();
     };
-  }, [refresh]);
+  }, [refresh, ws.client]);
 
-  const scoped = memories.filter((m) => m.audience);
+  const scoped = memories.filter(
+    (m) => m.audience && (m.audience.roles?.length || m.audience.taskTypes?.length || m.audience.modes?.length),
+  );
   const filtered = filterRole
     ? scoped.filter((m) =>
         m.audience?.roles?.some((r) => r.toLowerCase().includes(filterRole.toLowerCase())),
@@ -95,7 +94,7 @@ export function AudienceMemoryPanel() {
     : scoped;
 
   const handleClearScope = (id: string) => {
-    ws.client.send?.({ type: 'memory.super.update', payload: { id, audience: {} } });
+    ws.client.send?.({ type: 'memory.super.update', payload: { id, audience: undefined } });
   };
 
   const handleDelete = (id: string) => {

@@ -35,15 +35,21 @@ describe('providers.json static file serving', () => {
       expect(res.headers.get('content-type')).toBe('application/json');
       
       const providers = await res.json();
+      const expectedProviders = JSON.parse(
+        await fs.readFile(path.join(distDir, 'providers.json'), 'utf8'),
+      );
       expect(Array.isArray(providers)).toBe(true);
-      expect(providers.length).toBe(9); // We have 9 providers
+      expect(providers).toEqual(expectedProviders);
       
       // Check referral data is present
-      const minimax = providers.find((p: { id: string }) => p.id === 'minimax');
-      expect(minimax).toBeDefined();
+      const minimax = providers.find(
+        (p: { id: string; referral?: { code: string; reward: string; url: string } }) =>
+          p.id === 'minimax',
+      );
+      if (!minimax) throw new Error('minimax provider not found in providers.json');
       expect(minimax.referral).toBeDefined();
-      expect(minimax.referral.code).toBe('JrA4R9QAEn');
-      expect(minimax.referral.reward).toContain('10% off');
+      expect(minimax.referral!.code).toBe('JrA4R9QAEn');
+      expect(minimax.referral!.reward).toContain('10% off');
     } finally {
       server.close();
     }

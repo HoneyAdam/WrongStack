@@ -18,7 +18,7 @@ import { DefaultPermissionPolicy } from '../../src/security/permission-policy.js
 import { DefaultSecretScrubber } from '../../src/security/secret-scrubber.js';
 import { DefaultSessionStore } from '../../src/storage/session-store.js';
 import { ProviderError } from '../../src/types/provider.js';
-import { isAgentError } from '../../src/types/errors.js';
+import { AgentError, isAgentError } from '../../src/types/errors.js';
 import type {
   Capabilities,
   Provider,
@@ -125,10 +125,12 @@ describe('Agent', () => {
     expect(data.events.map((event) => event.type)).toEqual([
       'session_start',
       'user_input',
+      'message_appended',
       'checkpoint',
       'in_flight_start',
       'llm_request',
       'llm_response',
+      'message_appended',
       'in_flight_end',
     ]);
     await ctx.session.close();
@@ -1223,11 +1225,7 @@ describe('Agent — additional coverage', () => {
 
     expect(caught).toBeDefined();
     expect(isAgentError(caught)).toBe(true);
-    const ae = caught as ReturnType<typeof isAgentError> & {
-      code: string;
-      context?: Record<string, unknown>;
-      cause?: unknown;
-    };
+    const ae = caught as AgentError;
     expect(ae.code).toBe('AGENT_RUN_FAILED');
     expect(ae.context?.phase).toBe('plugin-teardown');
     expect(ae.context?.failures).toBe(1);
