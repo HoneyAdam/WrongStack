@@ -23,12 +23,27 @@
 | `/memory stats` | Show status, kind, and graph-edge totals |
 | `/memory compact` | Ask the active LLM to curate legacy-compatible project entries |
 | `/memory clear` | Delete entries in all compatibility scopes |
+| `/memory audience list [--role <r>] [--task-type <t>] [--mode <m>]` | View role-scoped memories, optionally filtered by role/task/mode |
+| `/memory audience remember --role <r> [--task-type <t>] [--mode <m>] <text>` | Store a memory targeted at specific agent types (at least one selector required) |
+| `/memory audience clear <memory-id>` | Remove the audience scope from a memory (it becomes general project memory) |
+
+## Audience-scoped memory
+
+Memories can carry an optional **audience** selector (`roles`, `taskTypes`, `modes`) that targets them to specific agent types. When a subagent is spawned, the host queries `retrieveForAudience` with the agent's stable roster role and optional task-type/mode, then injects matching memories into the system prompt **before** the per-spawn override.
+
+Selector semantics: **OR** within a dimension (a memory with `roles: ['reviewer', 'refactor-planner']` matches either), **AND** across dimensions (if both roles and taskTypes are set, both must match). Values are case-insensitive and trimmed.
+
+Audience-scoped memories are **excluded** from ordinary `searchSuper` / `retrieveForPath` by default, so role-specific guidance never leaks into the leader's general turn/tool hints. Explicit search still finds them when `includeAudienceScoped` is set.
+
+The leader's active mode is propagated to spawned subagents as `memoryContext.mode`, so a subagent spawned without its own mode setting inherits the leader's mode for audience matching.
+
+The WebUI Memory view includes an **Audience-Scoped Memory** sidebar panel for browsing, filtering by role, creating, and clearing scope.
 
 ## Automatic retrieval and hygiene
 
 Relevant memory is injected into ordinary turn context and into read/tree/search/command/edit tool results. Cooldowns, score thresholds, and output caps prevent repeated hints. Write/edit/patch calls re-verify affected anchors; session shutdown runs hygiene unless disabled.
 
-CLI, TUI, Desktop, and standalone WebUI use the same Super Memory backend and injection rules. Relative tool paths are resolved from the active working directory before file/directory anchors are matched.
+CLI, TUI, WebUI, SimpleUI, and Desktop use the same Super Memory backend and injection rules. Relative tool paths are resolved from the active working directory before file/directory anchors are matched.
 
 Rich read-only and maintenance tools are also registered: `memory_for_file`, `memory_for_path`, `memory_search`, `memory_graph`, `memory_verify`, `memory_hygiene`, and `memory_candidates`.
 
