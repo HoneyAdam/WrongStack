@@ -21,6 +21,7 @@ export function FinishedAgentsMenu({
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -41,6 +42,43 @@ export function FinishedAgentsMenu({
     };
   }, [open]);
 
+  // Move focus to the first menuitem when the menu opens so arrow-key
+  // navigation works immediately without a preliminary Tab.
+  useEffect(() => {
+    if (!open) return;
+    menuRef.current?.querySelector<HTMLButtonElement>('.agent-finished-item')?.focus();
+  }, [open]);
+
+  const focusItemAt = (index: number): void => {
+    const items = menuRef.current?.querySelectorAll<HTMLButtonElement>('.agent-finished-item');
+    if (!items || items.length === 0) return;
+    const wrapped = ((index % items.length) + items.length) % items.length;
+    items[wrapped]?.focus();
+  };
+
+  const onItemKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, index: number): void => {
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault();
+        focusItemAt(index + 1);
+        break;
+      case 'ArrowUp':
+        event.preventDefault();
+        focusItemAt(index - 1);
+        break;
+      case 'Home':
+        event.preventDefault();
+        focusItemAt(0);
+        break;
+      case 'End':
+        event.preventDefault();
+        focusItemAt(-1);
+        break;
+      default:
+        break;
+    }
+  };
+
   // If every finished agent drained (e.g. pruned), don't leave a stale toggle.
   if (agents.length === 0) return null;
 
@@ -58,14 +96,23 @@ export function FinishedAgentsMenu({
         Finished ({agents.length})
       </button>
       {open && (
-        <div className="agent-finished-menu" role="menu" aria-label="Finished agents">
-          {agents.map((agent) => (
+        <div
+          className="agent-finished-menu"
+          role="menu"
+          aria-label="Finished agents"
+          ref={menuRef}
+        >
+          {agents.map((agent, index) => (
             <button
               type="button"
               key={agent.id}
               role="menuitem"
+              // Roving tabindex: only the first item is in the Tab order; arrow
+              // keys move focus between items, so Tab enters/leaves the menu once.
+              tabIndex={index === 0 ? 0 : -1}
               className={`agent-finished-item${activeAgentId === agent.id ? ' active' : ''}`}
               title={agent.task ?? `${agent.name} · ${agent.status}`}
+              onKeyDown={(event) => onItemKeyDown(event, index)}
               onClick={() => {
                 onSelect(agent.id);
                 setOpen(false);

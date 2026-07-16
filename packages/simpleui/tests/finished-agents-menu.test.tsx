@@ -13,8 +13,18 @@ const finished: AgentTab[] = [
   { id: 'w3', name: 'W3', status: 'idle', isLeader: false, isActive: false },
 ];
 
+const threeFinished: AgentTab[] = [
+  { id: 'a', name: 'A', status: 'completed', isLeader: false, isActive: false },
+  { id: 'b', name: 'B', status: 'idle', isLeader: false, isActive: false },
+  { id: 'c', name: 'C', status: 'failed', isLeader: false, isActive: false },
+];
+
 function click(element: Element): void {
   element.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+}
+
+function keyOn(element: Element, key: string): void {
+  element.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
 }
 
 function render(props: {
@@ -108,5 +118,47 @@ describe('FinishedAgentsMenu', () => {
 
     act(() => document.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
     expect(container.querySelector('.agent-finished-menu')).toBeNull();
+  });
+
+  describe('roving tabindex arrow navigation', () => {
+    function openMenu(): HTMLButtonElement[] {
+      const { container } = render({ agents: threeFinished });
+      act(() => click(container.querySelector('.agent-finished-toggle') as Element));
+      return [...container.querySelectorAll<HTMLButtonElement>('.agent-finished-item')];
+    }
+
+    it('focuses the first item on open with a roving tabindex', () => {
+      const items = openMenu();
+      expect(document.activeElement).toBe(items[0]);
+      expect(items[0]?.tabIndex).toBe(0);
+      expect(items[1]?.tabIndex).toBe(-1);
+      expect(items[2]?.tabIndex).toBe(-1);
+    });
+
+    it('ArrowDown moves focus forward and wraps at the end', () => {
+      const items = openMenu();
+      act(() => keyOn(items[0] as Element, 'ArrowDown'));
+      expect(document.activeElement).toBe(items[1]);
+      act(() => keyOn(items[1] as Element, 'ArrowDown'));
+      expect(document.activeElement).toBe(items[2]);
+      act(() => keyOn(items[2] as Element, 'ArrowDown'));
+      expect(document.activeElement).toBe(items[0]);
+    });
+
+    it('ArrowUp moves focus backward and wraps at the start', () => {
+      const items = openMenu();
+      act(() => keyOn(items[0] as Element, 'ArrowUp'));
+      expect(document.activeElement).toBe(items[2]);
+      act(() => keyOn(items[2] as Element, 'ArrowUp'));
+      expect(document.activeElement).toBe(items[1]);
+    });
+
+    it('Home and End jump to the first and last items', () => {
+      const items = openMenu();
+      act(() => keyOn(items[0] as Element, 'End'));
+      expect(document.activeElement).toBe(items[2]);
+      act(() => keyOn(items[2] as Element, 'Home'));
+      expect(document.activeElement).toBe(items[0]);
+    });
   });
 });
