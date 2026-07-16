@@ -109,6 +109,14 @@ const KIND_LABELS: Record<string, string> = {
   summary: 'Summary',
 };
 
+function formatAudienceText(audience: NonNullable<SuperMemoryEntry['audience']>): string {
+  const parts: string[] = [];
+  if (audience.roles?.length) parts.push(`roles: ${audience.roles.join(', ')}`);
+  if (audience.taskTypes?.length) parts.push(`tasks: ${audience.taskTypes.join(', ')}`);
+  if (audience.modes?.length) parts.push(`modes: ${audience.modes.join(', ')}`);
+  return parts.join(' · ');
+}
+
 interface MemoryDraft {
   text: string;
   kind: string;
@@ -1626,6 +1634,12 @@ export function MemoryManager() {
                   <span className="border border-border/70 px-2 py-0.5 font-mono text-[9px] uppercase text-muted-foreground">
                     {selectedMemory.scope}
                   </span>
+                  {selectedMemory.audience && (
+                    <span className="flex items-center gap-1 border border-primary/30 bg-primary/10 px-2 py-0.5 font-mono text-[9px] text-primary" title={formatAudienceText(selectedMemory.audience)}>
+                      <BrainCircuit className="size-3" />
+                      {formatAudienceText(selectedMemory.audience)}
+                    </span>
+                  )}
                   <div className="ml-auto flex items-center gap-1.5">
                     <Button
                       variant="ghost"
