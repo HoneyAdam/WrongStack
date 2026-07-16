@@ -153,6 +153,7 @@ Consequences:
 | `/api/command` | POST | `application/json` (`202` on accept) | **Control plane.** Enqueue a command to a **connected** client. Requires a browser token with `control.enqueue` (open mode allows any). Target client must advertise `control.receive`. See [Control plane](#control-plane) |
 | `/api/commands` | GET | `application/json` | Recent command audit entries (`?limit=`, default 200) |
 | `/api/mailbox-send` | POST | `application/json` (`202` on delivery) | **Direct mailbox write** — deliver a prompt even when **no client is connected**. Same auth as `/api/command`. See [Direct mailbox delivery](#direct-mailbox-delivery-apimailbox-send) |
+| `/api/projects/:projectId/mailbox/<route>` | POST/GET | `application/json` | **Project-scoped GlobalMailbox HTTP gateway** — same wire protocol as the standalone `wstack mailbox serve` bridge (see [Shared mailbox router](#shared-mailbox-router)). `projectId` is resolved server-side via `SessionRegistry`; raw filesystem paths are **not** accepted. Requires a browser token with `control.enqueue`. `:projectId` may be the `projectSlug` or the `sha256(projectRoot)[:12]` stamp. See [Project-scoped mailbox gateway](#project-scoped-mailbox-gateway-apiprojectsprojectidmailboxroute) |
 
 ### Control plane
 
@@ -1110,3 +1111,120 @@ is also taken.
   publisher injection
 - `docs/plans/hq-command-center-2026-06.md` — architecture and phased plan
 - `docs/configuration.md` — full HQ env-var reference table
+
+## Shared mailbox router
+
+The canonical external-agent mailbox HTTP protocol lives in
+`packages/core/src/coordination/mailbox-http-router.ts`. Both
+`wstack mailbox serve` and `wstack --hq` mount it; one implementation,
+two hosts.
+
+What the router owns:
+
+- The full `/mailbox/*` route table — `/mailbox/send`, `/mailbox/query`,
+  `/mailbox/check` (with batch `ackMany`), `/mailbox/ack`,
+  `/mailbox/ack-many`, `/mailbox/unread-count`,
+  `/mailbox/agents/register`, `/mailbox/agents/heartbeat`,
+  `/mailbox/register-client`, `/mailbox/heartbeat`,
+  `/mailbox/agents`, `/mailbox/agents/online`, and the
+  `/mailbox/events` SSE stream.
+- Request validation (256 KiB body cap, required field coercion,
+  reserved internal-identity protection for `from` and `readerId`).
+- Constant-time bearer-token comparison (`timingSafeEqual`) and a
+  sliding-window rate limiter (`MailboxHttpRateLimiter`) keyed by an
+  opaque host-supplied identifier. Rate-limited requests return
+  `429 { error: { code: "RATE_LIMITED" } }`.
+- `/healthz` is **always** served unauthenticated (liveness probes,
+  container orchestrators, `curl http://host/healthz`).
+- A `router.close()` hook the host calls before `server.close()` so
+  active SSE responses do not pin the event loop during shutdown.
+
+What the router does NOT own:
+
+- Authentication. Hosts pass an `authorize` callback that decides
+  allow/deny and a `rateLimitKey`. The standalone bridge uses a
+  constant-time bearer-token check; HQ uses the existing browser
+  cookie / token check plus the `control.enqueue` capability gate.
+- Project / lock / token-file lifecycle. The standalone bridge owns
+  the per-project lock and token file (`acquireOrJoin` / `finalize` /
+  `release`). HQ resolves `projectId` via `SessionRegistry` and caches
+  one `(GlobalMailbox, router)` pair per project so SSE subscribers
+  see writes from legacy HQ routes on the same emitter.
+- Multi-project scope. The router is single-project per
+  instantiation. HQ instantiates lazily — one router per project.
+
+Use the shared router rather than writing your own
+`http.createServer`:
+
+1. The wire contract is single-sourced, so the standalone bridge and
+   HQ stay byte-identical to external clients.
+2. Guards (`scripts/guard-mailbox-bridge.mjs`) verify the route
+   literals and `'http'` source-union in core; new routes should land
+   there.
+3. `MailboxHttpRateLimiter`, `authorizeMailboxBearerToken`, and the
+   router are exported from `@wrongstack/core/coordination` — they
+   stay consistent across hosts.
+
+## Project-scoped mailbox gateway (`/api/projects/:projectId/mailbox/<route>`)
+
+HQ mounts the shared router at a project-scoped path so dashboards,
+external scripts, and the browser can talk to per-project mailboxes
+without running the standalone bridge. Each project gets one lazily
+created `(GlobalMailbox, router)` pair, and writes from legacy HQ
+routes (`POST /api/mailbox-send`, mailbox message actions) flow
+through the same cached mailbox so SSE subscribers on the new path
+see them in real time.
+
+### Path → mailbox protocol
+
+Request paths under `/api/projects/:projectId/mailbox/` are rewritten
+to the canonical `/mailbox/<route>` and dispatched via the same router
+the standalone bridge uses. The full route table is therefore
+identical to the standalone `wstack mailbox serve` (see the
+[Shared mailbox router](#shared-mailbox-router) section above).
+
+### Resolution and security
+
+- **`projectId`** is resolved server-side via the `SessionRegistry`
+  (matched by `projectSlug` and the `sha256(projectRoot)[:12]` stamp
+  HQ publishers attach). Raw filesystem paths are **not** accepted.
+  Unknown `projectId` returns `404`.
+- **Auth** mirrors `/api/command` and `/api/mailbox-send`: requires a
+  browser token (cookie or `?token=`/`Authorization: Bearer`); the
+  `control.enqueue` capability is enforced **before** project lookup so
+  a scoped token cannot exploit the 403/404 distinction to enumerate
+  project ids.
+- **CORS / cross-origin** is unchanged from the rest of HQ's HTTP
+  routes: same-origin only.
+- **Body / rate-limit** comes from the shared router: 256 KiB cap and
+  the host-supplied rate-limit key (here, `hq:<identity>:<projectDir>`).
+
+### Example
+
+```bash
+curl -s -X POST http://127.0.0.1:3499/api/projects/wrongstack-core/mailbox/send \
+  -H "Authorization: Bearer $HQ_BROWSER_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "from":"external-bot",
+    "to":"leader",
+    "type":"note",
+    "subject":"hello from curl",
+    "body":"via the HQ gateway"
+  }'
+```
+
+```bash
+curl -N http://127.0.0.1:3499/api/projects/wrongstack-core/mailbox/events \
+  -H "Authorization: Bearer $HQ_BROWSER_TOKEN"
+```
+
+The SSE connection also receives `message.sent` for events written via
+the legacy `POST /api/mailbox-send`, since both routes share the same
+cached `MailboxEventEmitter`.
+
+### Shutdown contract
+
+HQ calls `router.close()` on every cached gateway before closing the
+HTTP server and clears the cache in the same shutdown step, so no SSE
+subscriber leaks across server restarts.

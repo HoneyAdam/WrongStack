@@ -98,6 +98,62 @@ wstack plugin remove @wrongstack/telegram   # remove from config.plugins
 /exit                # quit
 ```
 
+## Mailbox HTTP surfaces
+
+The canonical external-agent mailbox protocol lives in
+`packages/core/src/coordination/mailbox-http-router.ts` and is
+mounted by two CLI surfaces.
+
+### `wstack mailbox serve` — standalone bridge
+
+```bash
+wstack mailbox serve [--port <n>] [--strict-port] [--host <ip>]
+```
+
+Starts a loopback HTTP bridge over one project's
+`GlobalMailbox` with a per-project lock, token file, and 120/min
+sliding-window rate limit. Routes match the table below.
+
+### HQ project gateway — `wstack --hq`
+
+When HQ runs, external agents can talk to any registered project's
+mailbox through the project-scoped gateway:
+
+```text
+POST /api/projects/<projectId>/mailbox/send
+POST /api/projects/<projectId>/mailbox/query
+POST /api/projects/<projectId>/mailbox/check
+POST /api/projects/<projectId>/mailbox/ack
+POST /api/projects/<projectId>/mailbox/ack-many
+POST /api/projects/<projectId>/mailbox/unread-count
+POST /api/projects/<projectId>/mailbox/agents/register
+POST /api/projects/<projectId>/mailbox/agents/heartbeat
+POST /api/projects/<projectId>/mailbox/register-client
+POST /api/projects/<projectId>/mailbox/heartbeat
+GET  /api/projects/<projectId>/mailbox/agents
+GET  /api/projects/<projectId>/mailbox/agents/online
+GET  /api/projects/<projectId>/mailbox/events           # SSE stream
+GET  /healthz                                          # both hosts
+```
+
+`projectId` is resolved server-side via `SessionRegistry`; raw
+filesystem paths are never accepted. Requires a browser token with
+`control.enqueue`. See
+[docs/subcommands/hq.md § Project-scoped mailbox gateway](docs/subcommands/hq.md#project-scoped-mailbox-gateway-apiprojectsprojectidmailboxroute)
+for the full endpoint contract and curl examples.
+
+### Why one implementation?
+
+The shared router owns the canonical wire protocol — request shape,
+response codes, validation, reserved-identity protection, SSE framing,
+and `router.close()` semantics. Both the standalone bridge and HQ
+deliver byte-identical behaviour for the same input, so external
+agents only need to learn one protocol. The bridge owns its lock and
+token file; HQ owns its existing browser auth and `control.enqueue`
+capability gate. Both mount the router via
+`createMailboxHttpRouter({ mailbox, eventEmitter, authorize, rateLimiter })`,
+exported from `@wrongstack/core/coordination`.
+
 ## Configuration
 
 ```
