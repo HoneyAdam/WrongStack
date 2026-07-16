@@ -96,6 +96,31 @@ describe('SessionPanel — New session confirmation', () => {
     expect(useUIStore.getState().currentView).toBe('settings');
   });
 
+  it('keeps the running job when the user dismisses with Escape', async () => {
+    useChatStore.setState({ isLoading: true });
+    renderPanel();
+
+    fireEvent.click(screen.getByRole('button', { name: 'New session' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Are you sure?' });
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(newSession).not.toHaveBeenCalled();
+    expect(useUIStore.getState().currentView).toBe('settings');
+  });
+
+  it('focuses the New session confirmation action when the dialog opens', async () => {
+    useChatStore.setState({ isLoading: true });
+    renderPanel();
+
+    fireEvent.click(screen.getByRole('button', { name: 'New session' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Are you sure?' });
+    const confirmButton = within(dialog).getByRole('button', { name: 'New session' });
+
+    await waitFor(() => expect(document.activeElement).toBe(confirmButton));
+    expect(newSession).not.toHaveBeenCalled();
+  });
+
   it('starts a new session when the user confirms', async () => {
     useChatStore.setState({ isLoading: true });
     renderPanel();
