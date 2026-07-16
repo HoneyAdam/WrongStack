@@ -1,5 +1,7 @@
 import { BrainCircuit, ChevronRight, Database, FilterX, Plus } from 'lucide-react';
 import type { RefObject } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
+import { useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { SuperMemoryEntry } from '@/types';
@@ -15,6 +17,10 @@ export interface MemoryListProps {
   onClearFilters: () => void;
 }
 
+// Only virtualize above this threshold — small lists render normally
+// with zero virtualizer overhead.
+const VIRTUALIZE_THRESHOLD = 100;
+
 export function MemoryList({
   memoryListRef,
   memories,
@@ -24,6 +30,18 @@ export function MemoryList({
   onOpenCreate,
   onClearFilters,
 }: MemoryListProps) {
+  const useVirtual = filteredMemories.length > VIRTUALIZE_THRESHOLD;
+  const scrollElementRef = useVirtual ? memoryListRef : undefined;
+  const parentRef = useRef<HTMLDivElement | null>(null);
+
+  const virtualizer = useVirtualizer({
+    count: filteredMemories.length,
+    getScrollElement: () => scrollElementRef?.current ?? parentRef.current,
+    estimateSize: () => 100,
+    overscan: 8,
+    enabled: useVirtual,
+  });
+
   return (
     <>
       <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-3 py-2 text-[10px] text-muted-foreground">
@@ -44,6 +62,39 @@ export function MemoryList({
             onOpenCreate={onOpenCreate}
             onClearFilters={onClearFilters}
           />
+        ) : useVirtual ? (
+          <div
+            style={{
+              height: `${virtualizer.getTotalSize()}px`,
+              width: '100%',
+              position: 'relative',
+            }}
+          >
+            {virtualizer.getVirtualItems().map((virtualItem) => {
+              const memory = filteredMemories[virtualItem.index];
+              if (!memory) return null;
+              return (
+                <div
+                  key={memory.id}
+                  data-index={virtualItem.index}
+                  ref={virtualizer.measureElement}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${virtualItem.start}px)`,
+                  }}
+                >
+                  <MemoryCard
+                    memory={memory}
+                    isSelected={selectedId === memory.id}
+                    onClick={() => onSelectMemory(memory.id)}
+                  />
+                </div>
+              );
+            })}
+          </div>
         ) : (
           filteredMemories.map((memory) => (
             <MemoryCard
