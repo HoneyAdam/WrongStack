@@ -123,9 +123,9 @@ wstack hq token create "browser"
 wstack hq token create --client "build-box"
 ```
 
-### 58 built-in tools
+### Core built-in tools
 
-All tools are registered out of the box — no plugin required.
+These 38 tools are registered out of the box — no plugin required. The full registry includes additional coordination, browser, memory, and meta tools (58 total).
 
 | Tool | What it does |
 |------|--------------|
