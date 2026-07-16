@@ -7,9 +7,9 @@
  *
  * Rather than dumping every category at once, each launch shows ONE
  * category and rotates to the next on the following launch (round-robin
- * via a tiny persisted cursor). So you see Autonomy one boot, the fleet
- * the next, MCP/plugins after that — bite-sized, and the whole set still
- * comes around quickly. `/help` lists everything on demand.
+ * via a tiny persisted cursor). So you see Autonomy one boot, agent tools
+ * the next, workspace integrations after that — bite-sized, and the whole
+ * set still comes around quickly. `/help` lists everything on demand.
  *
  * The list is intentionally hand-curated rather than auto-derived from
  * the slash-command registry: a one-line blurb tuned for each entry
@@ -40,7 +40,10 @@ const GROUPS: readonly HintGroup[] = [
         key: '/autonomy eternal',
         blurb: 'sense → decide → execute → reflect loop until you stop it',
       },
-      { key: '--eternal', blurb: 'boot directly into the eternal-autonomy engine' },
+      {
+        key: '--eternal "<mission>"',
+        blurb: 'boot directly into the eternal-autonomy engine with a mission',
+      },
       {
         key: '/autonomy on|suggest',
         blurb: 'self-driving: auto-pick next step or just suggest it',
@@ -48,19 +51,23 @@ const GROUPS: readonly HintGroup[] = [
     ],
   },
   {
-    title: 'Multi-agent / fleet',
+    title: 'Agents & fleet',
     items: [
       {
-        key: '--director "<task>"',
-        blurb: 'Director Mode is on — use /spawn and /fleet for multi-agent',
+        key: '/delegate [--role=<role>] <task>',
+        blurb: 'route work to a specialist; omit --role for automatic selection',
       },
       {
-        key: '/spawn -p <prov> -m <model> -n <name> <task>',
-        blurb: 'launch a single subagent (any provider/model)',
+        key: '/spawn [-p <provider>] [-m <model>] [-n <name>] <task>',
+        blurb: 'launch one isolated subagent with optional runtime overrides',
+      },
+      {
+        key: '/agents [list|show <id>|stream on|off]',
+        blurb: 'open the TUI monitor, inspect a subagent, or control its activity stream',
       },
       {
         key: '/fleet status|usage|kill|log|manifest',
-        blurb: 'inspect and control the running subagent fleet',
+        blurb: 'inspect and control the active subagent fleet',
       },
     ],
   },
@@ -100,24 +107,31 @@ const GROUPS: readonly HintGroup[] = [
     ],
   },
   {
-    title: 'Daily ops',
+    title: 'Workspace tools',
     items: [
       {
-        key: '@<query>  /  Alt+V  /  /image',
-        blurb: 'fuzzy file picker · paste clipboard image (TUI)',
+        key: '@<query>',
+        blurb: 'search project files and insert a path into the prompt',
+      },
+      {
+        key: 'Alt+V  ·  /image',
+        blurb: 'attach a clipboard image in the TUI',
       },
       {
         key: '/mcp  ·  wstack mcp add <name>',
-        blurb: 'connect MCP servers (stdio / SSE / streamable-http)',
+        blurb: 'inspect or connect MCP servers',
       },
-      { key: '/plugin install|enable|disable <name>', blurb: 'manage plugins (telegram, lsp, …)' },
+      {
+        key: '/plugin install|enable|disable <name>',
+        blurb: 'manage optional integrations such as Telegram or LSP',
+      },
       {
         key: '/skill  ·  /init  ·  /commit',
-        blurb: 'list skills · scaffold AGENTS.md · LLM-drafted git commit',
+        blurb: 'browse skills · scaffold project guidance · draft a commit',
       },
       {
-        key: '/diag  ·  /usage  ·  wstack resume <id>',
-        blurb: 'diagnostics · token & cost totals · continue any session',
+        key: '/diag  ·  wstack usage  ·  wstack resume <id>',
+        blurb: 'inspect diagnostics, review costs, or continue an earlier session',
       },
     ],
   },

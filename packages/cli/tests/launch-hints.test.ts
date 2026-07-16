@@ -58,6 +58,29 @@ describe('printLaunchHints', () => {
     expect(r1.output()).toContain(HINT_GROUP_TITLES[1] as string);
   });
 
+  it('uses current agent and workspace terminology', async () => {
+    const outputs: string[] = [];
+    for (let groupIndex = 0; groupIndex < HINT_GROUP_COUNT; groupIndex++) {
+      const r = makeRenderer();
+      await printLaunchHints(r, {}, { groupIndex });
+      outputs.push(r.output());
+    }
+
+    const allHints = outputs.join('\n');
+    expect(allHints).toContain('Agents & fleet');
+    expect(allHints).toContain('/delegate [--role=<role>] <task>');
+    expect(allHints).toContain('/spawn [-p <provider>] [-m <model>] [-n <name>] <task>');
+    expect(allHints).toContain('/agents [list|show <id>|stream on|off]');
+    expect(allHints).toContain('/fleet status|usage|kill|log|manifest');
+    expect(allHints).toContain('Workspace tools');
+    expect(allHints).toContain('wstack usage');
+    expect(allHints).not.toContain('--director');
+    expect(allHints).not.toContain('Director Mode');
+    expect(allHints).not.toContain('Multi-agent / fleet');
+    expect(allHints).not.toContain('Daily ops');
+    expect(allHints).not.toContain('/usage');
+  });
+
   it('wraps groupIndex out of range', async () => {
     const r = makeRenderer();
     await printLaunchHints(r, {}, { groupIndex: HINT_GROUP_COUNT });
