@@ -30,4 +30,8 @@ export const IPC = {
   // so the React WebUI inside Electron can swap i18n instantly, without waiting
   // for the config-file watcher → WS prefs.updated round-trip.
   webuiLocaleChanged: 'desktop:webui-locale-changed',
+  // macOS open-file event forwarded from main process to shell renderer.
+  // The shell uses this to decide whether to open a dragged/double-clicked
+  // path as a project directory.
+  openFile: 'desktop:open-file',
 } as const;

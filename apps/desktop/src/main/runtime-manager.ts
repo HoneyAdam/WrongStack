@@ -535,7 +535,33 @@ export class DesktopRuntimeManager extends EventEmitter {
 async function terminateProcessTree(child: ChildProcess | null): Promise<void> {
   if (!child || child.killed || !child.pid) return;
   if (process.platform !== 'win32') {
+    // macOS / Linux: send SIGTERM first, then SIGKILL after a grace
+    // period. Electron child processes spawned with ELECTRON_RUN_AS_NODE
+    // may ignore the initial signal during busy I/O.
     child.kill('SIGTERM');
+    const deadline = Date.now() + 5000;
+    await new Promise<void>((resolve) => {
+      const check = (): void => {
+        if (child.killed || !child.pid) {
+          resolve();
+          return;
+        }
+        if (Date.now() >= deadline) {
+          // Grace period expired — force kill the process tree.
+          // On macOS, the child still own its own sub-processes so we
+          // kill the process group (-pid) to catch grandchildren too.
+          try {
+            process.kill(-child.pid, 'SIGKILL');
+          } catch {
+            child.kill('SIGKILL');
+          }
+          resolve();
+          return;
+        }
+        setTimeout(check, 100);
+      };
+      check();
+    });
     return;
   }
 

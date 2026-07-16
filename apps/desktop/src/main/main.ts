@@ -24,6 +24,7 @@ import {
   WebContentsView,
   type BaseWindowConstructorOptions,
 } from 'electron';
+import { drainPendingOpenFilePath, firstOpenFileArg, initMacOS } from './macos-platform.js';
 import type {
   DesktopWebuiCommand,
   DesktopWebuiPrefs,
@@ -74,7 +75,15 @@ import {
   WEBUI_COMMAND_FALLBACK_MS,
 } from './state/constants.js';
 
-app.setAppUserModelId('com.wrongstack.desktop');
+// macOS initialisation — must run before app.whenReady to ensure
+// activation policy, open-file queuing, and Dock menu are registered
+// before the event loop starts.
+initMacOS();
+
+// Windows-only: app user model id (used for taskbar grouping)
+if (process.platform === 'win32') {
+  app.setAppUserModelId('com.wrongstack.desktop');
+}
 app.setPath('userData', path.join(wstackGlobalRoot(), 'desktop', 'electron-profile'));
 
 // ============================================================================
@@ -118,6 +127,34 @@ function sameOrigin(candidate: string, base: string | null): boolean {
   } catch {
     return false;
   }
+}
+
+/** Open a directory in the platform file manager (Finder / Explorer). */
+function revealInExplorer(root: string): void {
+  // On macOS, `shell.openPath(dir)` opens Finder at the directory.
+  // On Windows, it opens Explorer. On Linux, it opens the default
+  // file manager.
+  //
+  // The promise is intentionally not awaited — it's a fire-and-forget
+  // UI operation. Errors are logged but not surfaced because the
+  // operation is non-critical.
+  shell.openPath(root).catch((err) => {
+    if (process.platform === 'darwin') {
+      // macOS may fail if the path contains characters Finder can't
+      // resolve (e.g., certain Unicode normalizations). Fall back to
+      // the parent directory.
+      void shell.openPath(path.dirname(root)).catch(() => undefined);
+    }
+    console.error(
+      JSON.stringify({
+        level: 'warn',
+        event: 'desktop.reveal_in_explorer_failed',
+        root,
+        message: err instanceof Error ? err.message : String(err),
+        timestamp: new Date().toISOString(),
+      }),
+    );
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -799,7 +836,7 @@ function createMenuContext(): MenuBuilderContext {
     setShellSidebarCollapsed: (collapsed) => { setShellSidebarCollapsed(collapsed); },
     restoreLastWorkspace: async () => { await restoreLastWorkspace(); },
     openExternal: (url) => { shell.openExternal(url); },
-    revealInExplorer: (root) => { void shell.openPath(root); },
+    revealInExplorer: (root) => { revealInExplorer(root); },
   };
 }
 
@@ -857,7 +894,7 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle(IPC.revealRuntimeRoot, async (_event, id: string) => {
     const runtime = manager.getRuntime(id);
-    if (runtime) void shell.openPath(runtime.root);
+    if (runtime) revealInExplorer(runtime.root);
   });
 
   ipcMain.on(IPC.webuiReadyChanged, (event, ready: boolean) => {
@@ -944,7 +981,7 @@ function buildIpcHandlerContext(): IpcHandlerContext {
     sendMessage: (id, wsUrl, content) => bridge.sendMessage(id, wsUrl, content),
     abortRuntime: (id, wsUrl) => bridge.abort(id, wsUrl),
     openExternal: (url) => safeOpenExternal(url),
-    revealInExplorer: (root) => { void shell.openPath(root); },
+    revealInExplorer: (root) => { revealInExplorer(root); },
     findWebuiEntryBySenderId: (senderId) => findWebuiEntryBySenderId(senderId),
     getPendingWebuiCommandAcks: () => pendingWebuiCommandAcks,
     settlePendingWebuiCommandAck: (requestId, handled) => settlePendingWebuiCommandAck(requestId, handled),
@@ -984,15 +1021,47 @@ async function boot(): Promise<void> {
   const defaultWidth = 1180;
   const defaultHeight = 720;
 
-  // Load the branded app icon (SVG — best-effort on platforms that support it)
+  // Load the branded app icon.
+  //
+  // SVG icons are not natively supported as Electron app icons on macOS
+  // (macOS expects ICNS or PNG). On Windows and Linux, SVG works through
+  // the platform's icon engine.
+  //
+  // Resolution: prefer a platform-native icon if available; fall back to
+  // SVG on supported platforms; skip on macOS if only SVG is present
+  // (the app will use Electron's default icon — the user can replace it
+  // with a .icns file in the app bundle's Resources/).
   let appIcon: Electron.NativeImage | undefined;
-  try {
-    const iconPath = new URL('../../assets/icon.svg', import.meta.url).pathname;
-    await fs.stat(iconPath);
-    appIcon = nativeImage.createFromPath(iconPath);
-    if (appIcon.isEmpty()) appIcon = undefined;
-  } catch {
-    // Best-effort — the app works fine without a custom icon
+  if (process.platform !== 'darwin') {
+    // Windows / Linux: try SVG icon
+    try {
+      const iconPath = new URL('../../assets/icon.svg', import.meta.url).pathname;
+      await fs.stat(iconPath);
+      appIcon = nativeImage.createFromPath(iconPath);
+      if (appIcon.isEmpty()) appIcon = undefined;
+    } catch {
+      // Best-effort — the app works fine without a custom icon
+    }
+  } else {
+    // macOS: prefer PNG/ICNS from the assets directory
+    try {
+      const pngPath = new URL('../../assets/icon.png', import.meta.url).pathname;
+      await fs.stat(pngPath);
+      appIcon = nativeImage.createFromPath(pngPath);
+      if (appIcon.isEmpty()) appIcon = undefined;
+    } catch {
+      // No PNG — try ICNS (macOS native format)
+      try {
+        const icnsPath = new URL('../../assets/icon.icns', import.meta.url).pathname;
+        await fs.stat(icnsPath);
+        appIcon = nativeImage.createFromPath(icnsPath);
+        if (appIcon.isEmpty()) appIcon = undefined;
+      } catch {
+        // No macOS-native icon found; Electron's default icon will be used.
+        // To provide a macOS app icon, add icon.icns (recommended) or
+        // icon.png (minimum 1024×1024) to apps/desktop/assets/.
+      }
+    }
   }
 
   const winOptions: BaseWindowConstructorOptions = {
@@ -1037,6 +1106,14 @@ async function boot(): Promise<void> {
     broadcastState();
   });
 
+  // macOS open-file events — forward to IPC so the shell renderer can
+  // decide whether to open the path as a project or register it.
+  app.on('open-file', (_event, filePath) => {
+    if (shellView && !shellView.webContents.isDestroyed()) {
+      shellView.webContents.send(IPC.openFile, filePath);
+    }
+  });
+
   let lastWatchedLocale: string | undefined;
   watchProviderConfig(
     desktopConfigPaths.globalConfigPath,
@@ -1066,6 +1143,15 @@ async function boot(): Promise<void> {
 
   await restoreLastWorkspace();
 
+  // macOS: handle file-open from argv (app launched by double-click) or
+  // from a pre-ready open-file event (queued by Electron's event system).
+  const argvOpenPath = firstOpenFileArg(process.argv);
+  const queuedOpenPath = drainPendingOpenFilePath();
+  const openPath = argvOpenPath ?? queuedOpenPath;
+  if (openPath && shellView && !shellView.webContents.isDestroyed()) {
+    shellView.webContents.send(IPC.openFile, openPath);
+  }
+
   mainWindow.show();
   shellView.webContents.focus();
 }
@@ -1077,7 +1163,12 @@ async function boot(): Promise<void> {
 app.whenReady().then(boot);
 
 app.on('window-all-closed', () => {
-  app.quit();
+  // Standard macOS behavior: the app stays running when all windows
+  // are closed (the user can open a new window from the Dock or menu).
+  // On Windows and Linux, closing the last window quits the app.
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
 });
 
 app.on('before-quit', () => {
