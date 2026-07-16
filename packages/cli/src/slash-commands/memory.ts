@@ -221,7 +221,22 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
           return runCompact(opts);
         }
         case 'stats': {
-          if (isSuperMemoryStore(store)) return { message: formatSuperStats(await store.stats()) };
+          if (isSuperMemoryStore(store)) {
+            const [stats, allMems] = await Promise.all([
+              store.stats(),
+              store.listSuper(['active', 'stale']),
+            ]);
+            const scopedCount = allMems.filter((m) => m.audience).length;
+            const roles = new Set<string>();
+            for (const m of allMems) {
+              if (!m.audience) continue;
+              for (const r of m.audience.roles ?? []) roles.add(r);
+              for (const r of m.audience.taskTypes ?? []) roles.add(r);
+              for (const r of m.audience.modes ?? []) roles.add(r);
+            }
+            const roleList = [...roles].sort().join(', ');
+            return { message: formatSuperStats(stats, scopedCount, roleList) };
+          }
           return runStats(opts);
         }
         case 'audience':
@@ -649,13 +664,17 @@ function formatLegacyImport(result: LegacyImportResult): string {
   return `Legacy import complete: ${result.imported} imported, ${result.skipped} skipped from ${result.files} file(s).`;
 }
 
-function formatSuperStats(stats: SuperMemoryStats): string {
-  return [
+function formatSuperStats(stats: SuperMemoryStats, scopedCount?: number, scopedRoles?: string): string {
+  const lines = [
     '## Super Memory Stats',
     `Total: ${stats.total}; active ${stats.byStatus.active}; stale ${stats.byStatus.stale}; archived ${stats.byStatus.archived}; deleted ${stats.byStatus.deleted}.`,
     `Graph edges: ${stats.edges}.`,
     `Kinds: ${Object.entries(stats.byKind).map(([kind, count]) => `${kind}=${count}`).join(', ') || 'none'}.`,
-  ].join('\n');
+  ];
+  if (scopedCount !== undefined) {
+    lines.push(`Audience-scoped: ${scopedCount}${scopedRoles ? ` (${scopedRoles})` : ''}.`);
+  }
+  return lines.join('\n');
 }
 
 function formatSuperMemoryShow(stats: SuperMemoryStats, memories: SuperMemory[]): string {
