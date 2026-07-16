@@ -35,13 +35,11 @@ export function createSuperMemoryTurnMiddleware(
           const minScore = opts.minScore ?? 0.65;
           const metadataWeight = opts.metadataWeight ?? 0.3;
           const existingSystem = (request.system ?? [])
-            .map((block) => block.type === 'text'
-              ? block.text.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim()
-              : '')
+            .map((block) => block.type === 'text' ? normalizeTextKey(block.text) : '')
             .join('\n');
           const seenText = new Set<string>();
           const eligible = memories.filter((memory) => {
-            const textKey = memory.text.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+            const textKey = normalizeTextKey(memory.text);
             if (seenText.has(textKey) || existingSystem.includes(textKey)) return false;
             const metadataScore = (memory.importance * 3 + memory.confidence * 2 + memory.freshness) / 6;
             const relevance = overlapCoefficient(query.toLowerCase(), textKey);
@@ -76,6 +74,15 @@ function lastUserText(messages: Message[]): string {
     .map((block) => block.text)
     .join(' ')
     .trim();
+}
+
+/**
+ * Normalize text for deduplication and comparison.
+ * Applies NFKC normalization, lowercasing, whitespace collapse, and trim
+ * so that strings differing only in unicode form, case, or spacing compare equal.
+ */
+export function normalizeTextKey(text: string): string {
+  return text.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
 /**
