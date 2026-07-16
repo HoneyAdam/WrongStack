@@ -24,6 +24,12 @@
  *     `packages/cli/src/subcommands/index.ts`** — subcommand registration
  *     silently disappears.
  *
+ * After the canonical router was extracted into
+ * `packages/core/src/coordination/mailbox-http-router.ts`, the route
+ * table and `'http'` source literal now live in core. The guard
+ * accepts either location so the bridge's delegation continues to
+ * keep the public wire contract intact.
+ *
  * The guard only runs when mailbox-bridge source files are part of the
  * staged diff (so it doesn't fire on unrelated commits). Failures print
  * the exact diff hunks that violated the invariant, then exit 1.
@@ -36,6 +42,7 @@ const log = (...a) => { if (VERBOSE) console.error('[mailbox-guard]', ...a); };
 const _MAILBOX_BRIDGE_FILES = [
   'packages/cli/src/subcommands/handlers/mailbox-serve.ts',
   'packages/cli/src/subcommands/index.ts',
+  'packages/core/src/coordination/mailbox-http-router.ts',
   'packages/core/src/coordination/mailbox-types.ts',
   'packages/core/src/coordination/index.ts',
   'packages/core/src/hq/protocol.ts',
@@ -62,18 +69,21 @@ const REQUIRED_SOURCE_LITERALS = [
   // file or moving the literal elsewhere trips the guard.
   { file: 'packages/core/src/coordination/mailbox-types.ts', literal: "'http'" },
   { file: 'packages/core/src/coordination/mailbox-types.ts', literal: "'cli' | 'webui' | 'mcp' | 'acp' | 'http'" },
+  // The shared router still tags external registrations as 'http'.
+  { file: 'packages/core/src/coordination/mailbox-http-router.ts', literal: "source: 'http'" },
   // Moved from hq/protocol.ts into the hq/protocol/ domain split (R12): the
   // HQ mailbox source union now lives with the HqMailbox* types in mailbox.ts.
   { file: 'packages/core/src/hq/protocol/mailbox.ts', literal: "'cli' | 'webui' | 'mcp' | 'acp' | 'http'" },
 ];
 
-const REQUIRED_HEALTHZ_BEFORE_AUTH = {
-  // The /healthz branch must appear ABOVE the authorize() call in
-  // mailbox-serve.ts — otherwise liveness probes need a token, which
-  // defeats the point.
-  file: 'packages/cli/src/subcommands/handlers/mailbox-serve.ts',
+const REQUIRED_HEALTHZ_UNAUTHENTICATED = {
+  // After the canonical router was extracted, the `/healthz` branch lives
+  // in `packages/core/src/coordination/mailbox-http-router.ts`. It must
+  // appear BEFORE any authorization step in that file so liveness probes
+  // never require a token.
+  file: 'packages/core/src/coordination/mailbox-http-router.ts',
   marker: "url === '/healthz'",
-  mustComeBefore: 'authorize(',
+  mustComeBefore: '.authorize(',
 };
 
 const REQUIRED_SUBCOMMAND_WIRING = {
@@ -110,31 +120,35 @@ function fail(msg) {
 }
 
 async function checkRoutes() {
-  // If mailbox-serve.ts is being modified (staged), every route must
-  // either still exist in the post-commit state or be intentionally
-  // removed (we can't tell intent from a diff, so we just verify the
-  // route is present in the file as it exists at HEAD or in the staged
-  // version).
+  // If any mailbox-bridge file is staged, every canonical route must
+  // appear in at least one of the canonical files: the bridge
+  // (`packages/cli/src/subcommands/handlers/mailbox-serve.ts`) or the
+  // shared router (`packages/core/src/coordination/mailbox-http-router.ts`).
+  // The bridge delegates to the router, so the route literals only need
+  // to live in one place. We read both files from the working tree,
+  // which includes staged + unstaged changes, so a focused commit that
+  // updates either file passes.
   const staged = getStagedFiles();
-  if (!staged.includes(REQUIRED_HEALTHZ_BEFORE_AUTH.file)) {
-    log('mailbox-serve.ts not staged — route-table check skipped');
+  const canonicalFiles = ['packages/cli/src/subcommands/handlers/mailbox-serve.ts', 'packages/core/src/coordination/mailbox-http-router.ts'];
+  const anyCanonical = canonicalFiles.some((file) => staged.includes(file));
+  if (!anyCanonical) {
+    log('no mailbox-bridge canonical file staged — route-table check skipped');
     return;
   }
 
-  // Build the post-commit content = HEAD content + staged diff applied.
-  // For simplicity we just read the file from the working tree (which
-  // includes both the staged change and any unstaged local edits).
-  let content;
-  try {
-    const fs = await import('node:fs/promises');
-    content = await fs.readFile(REQUIRED_HEALTHZ_BEFORE_AUTH.file, 'utf-8');
-  } catch (err) {
-    fail(`cannot read ${REQUIRED_HEALTHZ_BEFORE_AUTH.file}: ${err.message}`);
-    return;
+  let combined = '';
+  const fs = await import('node:fs/promises');
+  for (const file of canonicalFiles) {
+    try {
+      combined += `\n${await fs.readFile(file, 'utf-8')}`;
+    } catch (err) {
+      fail(`cannot read ${file}: ${err.message}`);
+      return;
+    }
   }
 
   for (const route of REQUIRED_ROUTES) {
-    if (!content.includes(route)) {
+    if (!combined.includes(route)) {
       fail(`missing route check: ${route}`);
     }
   }
@@ -144,26 +158,26 @@ async function checkHealthzBeforeAuth() {
   let content;
   try {
     const fs = await import('node:fs/promises');
-    content = await fs.readFile(REQUIRED_HEALTHZ_BEFORE_AUTH.file, 'utf-8');
+    content = await fs.readFile(REQUIRED_HEALTHZ_UNAUTHENTICATED.file, 'utf-8');
   } catch (err) {
-    fail(`cannot read ${REQUIRED_HEALTHZ_BEFORE_AUTH.file}: ${err.message}`);
+    fail(`cannot read ${REQUIRED_HEALTHZ_UNAUTHENTICATED.file}: ${err.message}`);
     return;
   }
-  const healthzIdx = content.indexOf(REQUIRED_HEALTHZ_BEFORE_AUTH.marker);
-  const authIdx = content.indexOf(REQUIRED_HEALTHZ_BEFORE_AUTH.mustComeBefore);
+  const healthzIdx = content.indexOf(REQUIRED_HEALTHZ_UNAUTHENTICATED.marker);
+  const authIdx = content.indexOf(REQUIRED_HEALTHZ_UNAUTHENTICATED.mustComeBefore);
   if (healthzIdx === -1) {
-    fail(`missing ${REQUIRED_HEALTHZ_BEFORE_AUTH.marker} in ${REQUIRED_HEALTHZ_BEFORE_AUTH.file}`);
+    fail(`missing ${REQUIRED_HEALTHZ_UNAUTHENTICATED.marker} in ${REQUIRED_HEALTHZ_UNAUTHENTICATED.file}`);
     return;
   }
   if (authIdx === -1) {
-    fail(`cannot find authorize() call in ${REQUIRED_HEALTHZ_BEFORE_AUTH.file} — healthz ordering check skipped`);
+    fail(`cannot find authorize() step in ${REQUIRED_HEALTHZ_UNAUTHENTICATED.file} — healthz ordering check skipped`);
     return;
   }
   if (healthzIdx > authIdx) {
     fail(
       `/healthz must be served BEFORE authorize() — otherwise liveness probes need a token.\n` +
       `        healthz at offset ${healthzIdx}, authorize() at ${authIdx}.\n` +
-      `        See /healthz handling in mailbox-serve.ts.`,
+      `        See /healthz handling in mailbox-http-router.ts.`,
     );
   }
 }

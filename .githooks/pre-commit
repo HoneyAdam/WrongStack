@@ -18,7 +18,10 @@ node scripts/guard-unresolved-imports.mjs --verbose
 # ── Mailbox-bridge integrity ─────────────────────────────────────
 # If any mailbox-bridge source file is staged, run the route-table +
 # source-union guard. Cheap to skip when nothing relevant is staged.
-mb_staged=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^packages/(cli/src/subcommands/(handlers/mailbox-serve\.ts|index\.ts)|core/src/(coordination/(mailbox-types|index)|hq/protocol))\.ts$' || true)
+# After the canonical router extraction, this includes
+# packages/core/src/coordination/mailbox-http-router.ts alongside the
+# existing bridge / types / subcommand-index files.
+mb_staged=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^packages/(cli/src/subcommands/(handlers/mailbox-serve\.ts|index\.ts)|core/src/(coordination/(mailbox-(types|http-router)|index)|hq/protocol))\.ts$' || true)
 if [ -n "$mb_staged" ]; then
   node scripts/guard-mailbox-bridge.mjs --verbose
 fi

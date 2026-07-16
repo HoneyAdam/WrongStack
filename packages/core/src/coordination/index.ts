@@ -205,6 +205,17 @@ export {
   resolveMaxSpawnDepth,
 } from './spawn-budget.js';
 export { GlobalMailbox, resolveProjectDir } from './global-mailbox.js';
+export {
+  authorizeMailboxBearerToken,
+  createMailboxHttpRouter,
+  MAILBOX_HTTP_MAX_BODY_BYTES,
+  MAILBOX_HTTP_RATE_LIMIT_PER_MINUTE,
+  MAILBOX_HTTP_RATE_LIMIT_WINDOW_MS,
+  MailboxHttpRateLimiter,
+  type MailboxHttpAccessDecision,
+  type MailboxHttpRouter,
+  type MailboxHttpRouterOptions,
+} from './mailbox-http-router.js';
 export type { ICoordinator } from './icoordinator.js';
 export type { IFleetManager } from './ifleet-manager.js';
 export { LargeAnswerStore } from './large-answer-store.js';

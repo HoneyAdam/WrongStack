@@ -1923,6 +1923,224 @@ describe('HQ direct mailbox write (POST /api/mailbox-send)', () => {
     }
   });
 
+  it('mounts the shared mailbox router under a project-scoped HQ path', async () => {
+    const port = getPort();
+    handle = await startOpenHqServer({ port });
+
+    const globalRoot = globalRootForData(dataDir);
+    const projectRoot = path.join(dataDir, 'mb-gateway-project');
+    await fs.mkdir(projectRoot, { recursive: true });
+    const cleanup = await seedSession(
+      globalRoot,
+      'sess-mb-gateway',
+      'mb-gateway-project',
+      projectRoot,
+    );
+    const base = `http://127.0.0.1:${handle.port}/api/projects/mb-gateway-project/mailbox`;
+    try {
+      const sent = await fetch(`${base}/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: 'external-hq-test',
+          to: 'gateway-reader',
+          type: 'note',
+          subject: 'shared-router',
+          body: 'delivered through HQ',
+        }),
+      });
+      expect(sent.status).toBe(201);
+      const sentMessage = (await sent.json()) as { id: string };
+
+      const queried = await fetch(`${base}/query`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: 'gateway-reader' }),
+      });
+      expect(queried.status).toBe(200);
+      const queryBody = (await queried.json()) as {
+        data: Array<{ id: string; subject: string }>;
+        count: number;
+      };
+      expect(queryBody.count).toBe(1);
+      expect(queryBody.data[0]).toMatchObject({
+        id: sentMessage.id,
+        subject: 'shared-router',
+      });
+
+      const acknowledged = await fetch(`${base}/ack`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messageId: sentMessage.id,
+          readerId: 'gateway-reader',
+          completed: true,
+          outcome: 'handled',
+        }),
+      });
+      expect(acknowledged.status).toBe(200);
+      expect(
+        ((await acknowledged.json()) as { updated: { completed: boolean; outcome?: string } })
+          .updated,
+      ).toMatchObject({ completed: true, outcome: 'handled' });
+
+      const registered = await fetch(`${base}/agents/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentId: 'external-hq-agent',
+          sessionId: 'external',
+          name: 'HQ external agent',
+          pid: 12345,
+        }),
+      });
+      expect(registered.status).toBe(200);
+
+      const agents = await fetch(`${base}/agents`);
+      expect(agents.status).toBe(200);
+      const agentBody = (await agents.json()) as {
+        data: Array<{ agentId: string; source?: string }>;
+      };
+      expect(agentBody.data).toContainEqual(
+        expect.objectContaining({ agentId: 'external-hq-agent', source: 'http' }),
+      );
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('streams legacy HQ mailbox writes through the shared router SSE mount', async () => {
+    const port = getPort();
+    handle = await startOpenHqServer({ port });
+
+    const globalRoot = globalRootForData(dataDir);
+    const projectRoot = path.join(dataDir, 'mb-gateway-sse');
+    await fs.mkdir(projectRoot, { recursive: true });
+    const cleanup = await seedSession(
+      globalRoot,
+      'sess-mb-gateway-sse',
+      'mb-gateway-sse',
+      projectRoot,
+    );
+    const controller = new AbortController();
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    try {
+      const stream = await fetch(
+        `http://127.0.0.1:${handle.port}/api/projects/mb-gateway-sse/mailbox/events`,
+        { signal: controller.signal },
+      );
+      expect(stream.status).toBe(200);
+      expect(stream.headers.get('content-type')).toContain('text/event-stream');
+      reader = stream.body?.getReader();
+      if (!reader) throw new Error('HQ mailbox SSE response has no body');
+
+      const decoder = new TextDecoder();
+      const connected = await reader.read();
+      expect(decoder.decode(connected.value)).toContain(': connected');
+
+      const eventPromise = (async () => {
+        let raw = '';
+        while (!raw.includes('message.sent')) {
+          const chunk = await reader!.read();
+          if (chunk.done) break;
+          raw += decoder.decode(chunk.value);
+        }
+        return raw;
+      })();
+
+      const sent = await fetch(`http://127.0.0.1:${handle.port}/api/mailbox-send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId: 'mb-gateway-sse',
+          type: 'steer',
+          to: 'gateway-reader',
+          body: 'legacy route over shared emitter',
+        }),
+      });
+      expect(sent.status).toBe(202);
+
+      const timeout = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('HQ mailbox SSE event timeout')), 3_000).unref?.();
+      });
+      expect(await Promise.race([eventPromise, timeout])).toContain('message.sent');
+    } finally {
+      controller.abort();
+      await reader?.cancel().catch(() => undefined);
+      await cleanup();
+    }
+  });
+
+  it('uses the shared router validation and error shape through HQ', async () => {
+    const port = getPort();
+    handle = await startOpenHqServer({ port });
+
+    const globalRoot = globalRootForData(dataDir);
+    const projectRoot = path.join(dataDir, 'mb-gateway-validation');
+    await fs.mkdir(projectRoot, { recursive: true });
+    const cleanup = await seedSession(
+      globalRoot,
+      'sess-mb-gateway-validation',
+      'mb-gateway-validation',
+      projectRoot,
+    );
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${handle.port}/api/projects/mb-gateway-validation/mailbox/send`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from: 'leader', to: 'x', type: 'note', subject: 's', body: 'b' }),
+        },
+      );
+      expect(res.status).toBe(400);
+      expect((await res.json()) as unknown).toMatchObject({
+        error: { code: 'VALIDATION_ERROR' },
+      });
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('rejects the HQ mailbox router for a token lacking control.enqueue', async () => {
+    const port = getPort();
+    handle = await startTokenHqServer(port, ['telemetry.publish']);
+
+    const globalRoot = globalRootForData(dataDir);
+    const projectRoot = path.join(dataDir, 'mb-gateway-forbidden');
+    await fs.mkdir(projectRoot, { recursive: true });
+    const cleanup = await seedSession(
+      globalRoot,
+      'sess-mb-gateway-forbidden',
+      'mb-gateway-forbidden',
+      projectRoot,
+    );
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${handle.port}/api/projects/mb-gateway-forbidden/mailbox/agents`,
+        { headers: { Authorization: bearer() } },
+      );
+      expect(res.status).toBe(403);
+      expect((await res.json()) as unknown).toMatchObject({
+        error: { code: 'FORBIDDEN' },
+      });
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('returns 404 before the shared router for an unknown HQ project', async () => {
+    const port = getPort();
+    handle = await startOpenHqServer({ port });
+    const res = await fetch(
+      `http://127.0.0.1:${handle.port}/api/projects/missing-project/mailbox/agents`,
+    );
+    expect(res.status).toBe(404);
+    expect((await res.json()) as unknown).toMatchObject({
+      error: { code: 'NOT_FOUND' },
+    });
+  });
+
   it('returns 400 for an unrecognized mailbox message type', async () => {
     const port = getPort();
     handle = await startOpenHqServer({ port });

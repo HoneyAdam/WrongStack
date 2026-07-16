@@ -35,6 +35,12 @@ import {
   type HqTranscriptEntry,
   buildTranscriptFromEvents,
   createHqPersistence,
+  createMailboxHttpRouter,
+  GlobalMailbox,
+  MailboxEventEmitter,
+  type MailboxHttpAccessDecision,
+  MailboxHttpRateLimiter,
+  resolveProjectDir,
   HqCommandAuditLog,
   HqAlertEngine,
   toAlertMessage,
@@ -629,6 +635,22 @@ function startHqServerWithAuth(
     // events so a late-connecting browser — including one on another machine —
     // can replay a subagent's full conversation, not just messages seen live.
     const agentMessages = new Map<string, HqTranscriptEntry[]>();
+    // Lazily-created local mailbox services used by the project-scoped HQ
+    // gateway. Keeping one instance per project is required for SSE: writes
+    // and subscribers must share the same MailboxEventEmitter.
+    const mailboxGateways = new Map<
+      string,
+      {
+        mailbox: GlobalMailbox;
+        router: ReturnType<typeof createMailboxHttpRouter>;
+      }
+    >();
+    const mailboxGatewayRateLimiter = new MailboxHttpRateLimiter();
+    const mailboxGatewayRateLimitCleanup = setInterval(
+      () => mailboxGatewayRateLimiter.cleanup(),
+      120_000,
+    );
+    mailboxGatewayRateLimitCleanup.unref?.();
 
     // ── Persistence (Phase 2) ──────────────────────────────────────────────
     // Survives restart: event log, snapshot checkpoint, cost/activity trends.
@@ -666,6 +688,63 @@ function startHqServerWithAuth(
     // Stable mailbox identity for direct HQ writes (/api/mailbox-send). Lets
     // recipients attribute a zero-client HQ prompt to this server instance.
     const hqSessionTag = randomUUID().slice(0, 8);
+
+    const authorizeMailboxGateway = (
+      request: http.IncomingMessage,
+      projectDir: string,
+    ): MailboxHttpAccessDecision => {
+      const requestUrl = new URL(request.url ?? '/', `http://${host}:${port}`);
+      const auth = authenticateBrowserRequest(request, requestUrl, mutableAuth, sessions);
+      const tokenMode = mutableAuth.browserTokens.size > 0;
+      const passwordMode = mutableAuth.passwordHash !== undefined;
+      if ((tokenMode || passwordMode) && auth === undefined) {
+        return {
+          allowed: false,
+          status: 401,
+          body: { error: { code: 'UNAUTHORIZED', message: 'unauthorized' } },
+        };
+      }
+      const token = isTokenAuth(auth)
+        ? mutableAuth.browserTokenObjs.get(auth.token)
+        : undefined;
+      const canUseMailbox =
+        auth === 'cookie' ||
+        !tokenMode ||
+        token?.capabilities === undefined ||
+        token.capabilities.includes('control.enqueue');
+      if (!canUseMailbox) {
+        return {
+          allowed: false,
+          status: 403,
+          body: {
+            error: {
+              code: 'FORBIDDEN',
+              message: 'forbidden: token lacks control.enqueue capability',
+            },
+          },
+        };
+      }
+      const identity = isTokenAuth(auth) ? auth.id : auth === 'cookie' ? 'cookie' : 'open';
+      return { allowed: true, rateLimitKey: `hq:${identity}:${projectDir}` };
+    };
+
+    const getMailboxGateway = (projectDir: string) => {
+      const existing = mailboxGateways.get(projectDir);
+      if (existing) return existing;
+
+      const eventEmitter = new MailboxEventEmitter();
+      const mailbox = new GlobalMailbox(projectDir, undefined, undefined, eventEmitter);
+      const router = createMailboxHttpRouter({
+        mailbox,
+        eventEmitter,
+        rateLimiter: mailboxGatewayRateLimiter,
+        authorize: (request) => authorizeMailboxGateway(request, projectDir),
+      });
+      const gateway = { mailbox, router };
+      mailboxGateways.set(projectDir, gateway);
+      return gateway;
+    };
+
     // ── Alerting — evaluates the live snapshot against rules and broadcasts
     // `hq.alert` to browsers when a threshold is crossed. Fired alerts are also
     // persisted to alerts.jsonl so history survives restarts.
@@ -895,6 +974,53 @@ function startHqServerWithAuth(
       if (url.pathname === '/api/snapshot' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(buildSnapshot(clients)));
+        return;
+      }
+
+      // ── Project-scoped GlobalMailbox HTTP gateway ───────────────────────
+      // Mounts the same canonical router used by `wstack mailbox serve` while
+      // resolving the target project server-side. A caller can name only a
+      // registered project id/slug; raw filesystem paths are never accepted.
+      const mailboxGatewayMatch = url.pathname.match(
+        /^\/api\/projects\/([^/]+)\/mailbox(?:\/(.*))?$/,
+      );
+      if (mailboxGatewayMatch) {
+        const projectId = decodePathSegment(mailboxGatewayMatch[1]!);
+        if (projectId === null || projectId.length === 0) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              error: { code: 'BAD_REQUEST', message: 'invalid projectId encoding' },
+            }),
+          );
+          return;
+        }
+        const gatewayGlobalRoot = path.dirname(dataDir);
+        // Enforce the mailbox capability before project lookup so a scoped
+        // token cannot use the 403/404 distinction to enumerate projects.
+        const preliminaryAccess = authorizeMailboxGateway(req, `project:${projectId}`);
+        if (!preliminaryAccess.allowed) {
+          res.writeHead(preliminaryAccess.status ?? 401, {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Cache-Control': 'no-store',
+          });
+          res.end(JSON.stringify(preliminaryAccess.body));
+          return;
+        }
+        const projectRoot = await resolveHqProjectRoot(gatewayGlobalRoot, { projectId });
+        if (!projectRoot) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              error: { code: 'NOT_FOUND', message: `Unknown project: ${projectId}` },
+            }),
+          );
+          return;
+        }
+        const suffix = mailboxGatewayMatch[2];
+        const canonicalPath = suffix ? `/mailbox/${suffix}` : '/mailbox';
+        const projectDir = resolveProjectDir(projectRoot, gatewayGlobalRoot);
+        await getMailboxGateway(projectDir).router.handle(req, res, canonicalPath);
         return;
       }
 
@@ -1166,9 +1292,8 @@ function startHqServerWithAuth(
         }
 
         try {
-          const { GlobalMailbox, resolveProjectDir } = await import('@wrongstack/core');
           const projectDir = resolveProjectDir(projectRoot, mbGlobalRoot);
-          const mailbox = new GlobalMailbox(projectDir);
+          const mailbox = getMailboxGateway(projectDir).mailbox;
           const from = `hq@${hqSessionTag}`;
           const sent = await mailbox.send({
             from,
@@ -1264,9 +1389,9 @@ function startHqServerWithAuth(
         }
 
         try {
-          const { GlobalMailbox, resolveProjectDir, actionToAckInput } = await import('@wrongstack/core');
+          const { actionToAckInput } = await import('@wrongstack/core');
           const projectDir = resolveProjectDir(projectRoot, actGlobalRoot);
-          const mailbox = new GlobalMailbox(projectDir);
+          const mailbox = getMailboxGateway(projectDir).mailbox;
           const readerId = abody.readerId;
           const message =
             action === 'soft-delete'
@@ -1602,6 +1727,7 @@ function startHqServerWithAuth(
               clearInterval(cleanupTimer);
               clearInterval(browserHeartbeatTimer);
               clearInterval(timeseriesFlushTimer);
+              clearInterval(mailboxGatewayRateLimitCleanup);
               stopAlertEngine();
               authWatcher.close();
               snapshotBroadcaster.close();
@@ -1610,7 +1736,15 @@ function startHqServerWithAuth(
               for (const ws of browsers) ws.close(1001, 'HQ shutting down');
               for (const ws of clients.keys()) ws.close(1001, 'HQ shutting down');
               wss.close();
+              for (const { router } of mailboxGateways.values()) router.close();
               httpServer.close(() => {
+                const mailboxCloses = [...mailboxGateways.values()].map(({ mailbox }) =>
+                  mailbox.close().catch(() => undefined),
+                );
+                mailboxGateways.clear();
+                // Drain mailbox state alongside queued persistence writes
+                // before resolving close(), so Windows temp-dir cleanup cannot
+                // race an in-flight mailbox read/write.
                 // Drain the queued persistence writes BEFORE resolving.
                 // The event-log / snapshot / timeseries stores are all
                 // fire-and-forget write chains; resolving close() while an
@@ -1618,6 +1752,7 @@ function startHqServerWithAuth(
                 // final flush on real shutdowns and lets a caller's
                 // `fs.rm(dataDir)` race the write (ENOTEMPTY on Windows).
                 void Promise.all([
+                  ...mailboxCloses,
                   persistence.eventLog.drain(),
                   persistence.snapshotStore.drain(),
                   persistence.timeseries.drain(),
