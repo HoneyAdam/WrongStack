@@ -130,15 +130,21 @@ function memoryRememberTool(memory: SuperMemoryServiceLike): Tool<RememberToolIn
       type: { type: 'string', enum: ['fact', 'decision', 'convention', 'preference', 'reference', 'anti_pattern'], description: 'Legacy category (optional; prefer `kind`).' },
       priority: { type: 'string', enum: ['critical', 'high', 'medium', 'low'], description: 'Legacy priority (optional; prefer `importance`).' },
     }, ['text']),
-    async execute(input, _ctx, opts) {
+    async execute(input, ctx, opts) {
       opts.signal.throwIfAborted();
+      const detectedRole = typeof ctx?.meta?.['agentRole'] === 'string'
+        ? ctx.meta['agentRole'] as string
+        : undefined;
+      const autoAudience = !input.audience && detectedRole
+        ? { roles: [detectedRole] }
+        : input.audience;
       return memory.rememberSuper({
         text: input.text,
         kind: input.kind,
         scope: input.scope,
         tags: input.tags,
         anchors: input.anchors,
-        audience: input.audience,
+        audience: autoAudience,
         importance: input.importance,
         confidence: input.confidence,
         supersedes: input.supersedes,
