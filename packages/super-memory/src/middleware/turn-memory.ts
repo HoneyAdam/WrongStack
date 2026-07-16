@@ -33,7 +33,9 @@ export function createSuperMemoryTurnMiddleware(
           const eligible = memories.filter((memory) => {
             const textKey = memory.text.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
             if (seenText.has(textKey) || existingSystem.includes(memory.text.toLowerCase())) return false;
-            const score = (memory.importance * 3 + memory.confidence * 2 + memory.freshness) / 6;
+            const metadataScore = (memory.importance * 3 + memory.confidence * 2 + memory.freshness) / 6;
+            const relevance = overlapCoefficient(query.toLowerCase(), textKey);
+            const score = metadataScore * (0.3 + relevance * 0.7);
             const accepted = score >= minScore || memory.importance >= 0.95;
             if (accepted) seenText.add(textKey);
             return accepted;
@@ -64,4 +66,32 @@ function lastUserText(messages: Message[]): string {
     .map((block) => block.text)
     .join(' ')
     .trim();
+}
+
+/**
+ * Compute the overlap coefficient (Szymkiewicz–Simpson) between two strings
+ * based on their token sets. Returns 0..1 where 1 means every token in the
+ * shorter string also appears in the longer one.
+ *
+ * Unlike Jaccard, this doesn't penalize the longer string for having extra
+ * tokens — a memory with rich detail that fully covers the query scores high.
+ */
+function overlapCoefficient(query: string, text: string): number {
+  const queryTokens = new Set(tokenize(query));
+  const textTokens = new Set(tokenize(text));
+  if (queryTokens.size === 0 || textTokens.size === 0) return 0;
+  let intersection = 0;
+  for (const token of queryTokens) {
+    if (textTokens.has(token)) intersection++;
+  }
+  const smaller = Math.min(queryTokens.size, textTokens.size);
+  return intersection / smaller;
+}
+
+function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((t) => t.length > 1);
 }
