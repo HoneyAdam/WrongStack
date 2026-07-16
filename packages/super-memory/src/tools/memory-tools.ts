@@ -135,8 +135,14 @@ function memoryRememberTool(memory: SuperMemoryServiceLike): Tool<RememberToolIn
       const detectedRole = typeof ctx?.meta?.['agentRole'] === 'string'
         ? ctx.meta['agentRole'] as string
         : undefined;
-      const autoAudience = !input.audience && detectedRole
-        ? { roles: [detectedRole] }
+      const detectedMode = typeof ctx?.meta?.['mode'] === 'string'
+        ? ctx.meta['mode'] as string
+        : undefined;
+      const autoAudience = !input.audience && (detectedRole || detectedMode)
+        ? {
+            ...(detectedRole ? { roles: [detectedRole] } : {}),
+            ...(detectedMode ? { modes: [detectedMode] } : {}),
+          }
         : input.audience;
       return memory.rememberSuper({
         text: input.text,
