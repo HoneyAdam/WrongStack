@@ -38,7 +38,7 @@ pnpm test                     # Run vitest + webui tests
 pnpm test:watch               # Watch mode
 pnpm test:coverage            # Coverage report
 pnpm test:e2e                 # Playwright E2E suite
-pnpm --filter @wrongstack/core test     # Tests for one package
+node node_modules/vitest/vitest.mjs run packages/telegram/  # Tests for one package
 ```
 
 ### Linting & Formatting

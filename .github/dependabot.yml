@@ -1,0 +1,52 @@
+version: 2
+
+updates:
+  # Root npm/pnpm dependencies
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+    commit-message:
+      prefix: chore(deps)
+    groups:
+      # Patch and minor updates are batched to reduce PR noise.
+      # Major updates get individual PRs for careful review.
+      patch-and-minor:
+        update-types:
+          - patch
+          - minor
+
+  # Website dependencies (separate lockfile)
+  - package-ecosystem: npm
+    directory: /website
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - website
+    commit-message:
+      prefix: chore(deps)
+    groups:
+      patch-and-minor:
+        update-types:
+          - patch
+          - minor
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: chore(ci)

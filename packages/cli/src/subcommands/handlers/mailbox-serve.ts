@@ -65,20 +65,13 @@
  *
  * @module subcommands/handlers/mailbox-serve
  */
-import { timingSafeEqual } from 'node:crypto';
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer } from 'node:http';
 import {
+  authorizeMailboxBearerToken,
+  createMailboxHttpRouter,
   GlobalMailbox,
   MailboxEventEmitter,
-  type AgentHeartbeatInput,
-  type AgentRegistrationInput,
-  type ClientHeartbeatInput,
-  type ClientRegistrationInput,
-  type MailboxAckBatchInput,
-  type MailboxAckInput,
-  type MailboxMessage,
-  type MailboxQuery,
-  type MailboxSendInput,
+  MailboxHttpRateLimiter,
   resolveProjectDir,
   wstackGlobalRoot,
 } from '@wrongstack/core';
@@ -89,54 +82,8 @@ import {
   release,
 } from '@wrongstack/core/coordination';
 
-/** Cap inbound JSON bodies. The mailbox message format is small — a 256 KB
- *  limit leaves room for long bodies + attachments-as-base64 while still
- *  rejecting pathological payloads before they reach `JSON.parse`. */
-const MAX_BODY_BYTES = 256 * 1024;
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 7788;
-const RATE_LIMIT_PER_MINUTE = 120;
-const RATE_LIMIT_WINDOW_MS = 60_000;
-
-// ── Rate limiter ──────────────────────────────────────────────────────────
-
-/**
- * Simple sliding-window rate limiter keyed by bearer token.
- * Tracks request timestamps per token and rejects with 429 when
- * `RATE_LIMIT_PER_MINUTE` is exceeded within `RATE_LIMIT_WINDOW_MS`.
- */
-class RateLimiter {
-  private hits = new Map<string, number[]>();
-
-  /** Returns true if the request is allowed, false if rate-limited. */
-  allow(key: string): boolean {
-    const now = Date.now();
-    const cutoff = now - RATE_LIMIT_WINDOW_MS;
-    const arr = this.hits.get(key) ?? [];
-    // Drop entries outside the window.
-    const fresh = arr.filter((t) => t > cutoff);
-    if (fresh.length >= RATE_LIMIT_PER_MINUTE) {
-      this.hits.set(key, fresh);
-      return false;
-    }
-    fresh.push(now);
-    this.hits.set(key, fresh);
-    return true;
-  }
-
-  /** Periodic cleanup of stale entries to prevent unbounded growth. */
-  cleanup(): void {
-    const cutoff = Date.now() - RATE_LIMIT_WINDOW_MS;
-    for (const [key, arr] of this.hits) {
-      const fresh = arr.filter((t) => t > cutoff);
-      if (fresh.length === 0) {
-        this.hits.delete(key);
-      } else {
-        this.hits.set(key, fresh);
-      }
-    }
-  }
-}
 
 export const mailboxServeCmd: SubcommandHandler = async (args, deps) => {
   const sub = args[0];
@@ -173,10 +120,15 @@ async function startServer(deps: SubcommandDeps): Promise<number> {
   // project's mailbox-bridge slot, we either join them (URL/token
   // reuse) or fail loud on port-conflict. Both paths skip the listen
   // step entirely — no HTTP server is started in this process.
+  //
+  // The user's --port is always forwarded so the lock can detect
+  // cross-project port collisions; --strict-port only controls the
+  // listen-phase behavior (fail on EADDRINUSE vs. fall back to OS port).
+  const portExplicitlySet = typeof flags['port'] === 'string';
   const acquireResult = await acquireOrJoin({
     projectDir,
     host,
-    requestedPort: strictPort ? portRaw : null,
+    requestedPort: portExplicitlySet ? portRaw : null,
     strictPort,
   });
 
@@ -223,26 +175,28 @@ async function startServer(deps: SubcommandDeps): Promise<number> {
   const eventEmitter = new MailboxEventEmitter();
   const mailbox = new GlobalMailbox(projectDir, undefined, undefined, eventEmitter);
 
-  // Rate limiter — one instance for all connections, keyed by bearer token.
-  const rateLimiter = new RateLimiter();
-  // Periodic cleanup every 2 minutes to prevent the hits Map from growing
-  // unbounded with stale token entries.
+  // Authentication and protocol handling are shared with HQ; this host keeps
+  // ownership of the standalone bridge token, rate-limiter lifecycle, and
+  // single-instance lock.
+  const rateLimiter = new MailboxHttpRateLimiter();
   const rateLimitCleanup = setInterval(() => rateLimiter.cleanup(), 120_000);
   rateLimitCleanup.unref?.();
+  const router = createMailboxHttpRouter({
+    mailbox,
+    eventEmitter,
+    rateLimiter,
+    authorize: (request) => authorizeMailboxBearerToken(request, tentative.token),
+  });
 
-  const server = createServer((req, res) => {
-    void handle(mailbox, tentative.token, rateLimiter, eventEmitter, req, res);
+  const server = createServer((request, response) => {
+    void router.handle(request, response);
   });
 
   // Listen semantics:
-  //  - strictPort: bind to the exact port requested; reject on
-  //    EADDRINUSE so the operator knows their port is taken. The lock
-  //    acquire already verified no WrongStack bridge owns this
-  //    project, so a strict-port failure here means an UNRELATED
-  //    process is sitting on the port.
-  //  - !strictPort: ask the OS for a free port (pass 0). Operator
-  //    gets a working URL no matter what else is bound to the
-  //    default port.
+  //  - An explicit --port is always honored. If the port is in use:
+  //    - strictPort: reject with EADDRINUSE so the operator knows.
+  //    - !strictPort: fall back to OS-assigned (pass 0).
+  //  - No explicit --port: ask the OS for a free port (pass 0).
   let boundPort = -1;
   try {
     await new Promise<void>((resolve, reject) => {
@@ -256,29 +210,63 @@ async function startServer(deps: SubcommandDeps): Promise<number> {
       };
       server.once('error', onError);
       server.once('listening', onListening);
-      const requestedPort = strictPort ? portRaw : 0;
-      server.listen(requestedPort, host);
+      const listenPort = portExplicitlySet ? portRaw : 0;
+      server.listen(listenPort, host);
     });
     const addr = server.address();
     boundPort = typeof addr === 'object' && addr !== null ? addr.port : portRaw;
   } catch (err) {
-    // Listen failed — release our tentative lock so the next
-    // acquire doesn't see a stale "owned" record pointing at a
-    // process that never bound.
-    await release(projectDir, tentative.generation);
+    // Listen failed.
     const msg = (err as Error).message;
-    if (strictPort) {
-      deps.renderer.writeError(
-        `Failed to bind ${host}:${portRaw}: ${msg}\n` +
-        `Either pick a different --port or stop the process holding this port.\n`,
-      );
+
+    // Non-strict mode with an explicit port: fall back to OS-assigned.
+    if (portExplicitlySet && !strictPort) {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const onError = (e: Error) => {
+            server.off('listening', onListening);
+            reject(e);
+          };
+          const onListening = () => {
+            server.off('error', onError);
+            resolve();
+          };
+          server.once('error', onError);
+          server.once('listening', onListening);
+          server.listen(0, host);
+        });
+        const addr = server.address();
+        boundPort = typeof addr === 'object' && addr !== null ? addr.port : 0;
+        deps.renderer.writeWarning(
+          `Port ${portRaw} was in use; bound to OS-assigned port ${boundPort} instead.\n`,
+        );
+      } catch {
+        // Both the explicit port and the fallback failed — give up.
+        clearInterval(rateLimitCleanup);
+        await release(projectDir, tentative.generation);
+        deps.renderer.writeError(
+          `Failed to bind ${host}: ${msg}\n` +
+          `This usually means no port is available (extremely rare). Retry or pick an explicit --port.\n`,
+        );
+        return 1;
+      }
     } else {
-      deps.renderer.writeError(
-        `Failed to bind ${host} on an OS-assigned port: ${msg}\n` +
-        `This usually means no port is available (extremely rare). Retry or pick an explicit --port.\n`,
-      );
+      // strictPort or no explicit port — the failure is fatal.
+      clearInterval(rateLimitCleanup);
+      await release(projectDir, tentative.generation);
+      if (strictPort) {
+        deps.renderer.writeError(
+          `Failed to bind ${host}:${portRaw}: ${msg}\n` +
+          `Either pick a different --port, drop --strict-port to allow OS fallback, or stop the process holding this port.\n`,
+        );
+      } else {
+        deps.renderer.writeError(
+          `Failed to bind ${host} on an OS-assigned port: ${msg}\n` +
+          `This usually means no port is available (extremely rare). Retry or pick an explicit --port.\n`,
+        );
+      }
+      return 1;
     }
-    return 1;
   }
 
   // Phase 2 — finalize: write the lock + token with the actual
@@ -293,7 +281,10 @@ async function startServer(deps: SubcommandDeps): Promise<number> {
     const shutdown = async (sig: NodeJS.Signals) => {
       if (shuttingDown) return;
       shuttingDown = true;
+      clearInterval(rateLimitCleanup);
       console.log(JSON.stringify({ event: 'mailbox_serve_stopping', signal: sig, host, port: boundPort }));
+      // Close long-lived SSE responses before waiting for server.close().
+      router.close();
       // Stop accepting new connections; in-flight requests get to finish.
       await new Promise<void>((closeResolve) => server.close(() => closeResolve()));
       await mailbox.close().catch((err) => {
@@ -309,537 +300,6 @@ async function startServer(deps: SubcommandDeps): Promise<number> {
     process.on('SIGTERM', shutdown);
   });
   return 0;
-}
-
-// ── HTTP request handling ─────────────────────────────────────────────────
-
-async function handle(
-  mailbox: GlobalMailbox,
-  expectedToken: string,
-  rateLimiter: RateLimiter,
-  eventEmitter: MailboxEventEmitter,
-  req: IncomingMessage,
-  res: ServerResponse,
-): Promise<void> {
-  try {
-    const url = req.url ?? '/';
-    const method = req.method ?? 'GET';
-
-    // Health probe is unauthenticated by design — liveness checks should
-    // not require a token (k8s liveness probes, container orchestrators,
-    // `curl http://host/healthz` from a shell all benefit). It reveals no
-    // project data; only that the server is up.
-    if (method === 'GET' && url === '/healthz') {
-      return writeJson(res, 200, { ok: true });
-    }
-
-    if (!authorize(req, expectedToken)) {
-      return writeJson(res, 401, { error: { code: 'UNAUTHORIZED', message: 'invalid or missing bearer token' } });
-    }
-
-    // Rate limit check — keyed by bearer token so one rogue external
-    // agent can't flood the mailbox file with writes.
-    if (!rateLimiter.allow(expectedToken)) {
-      return writeJson(res, 429, { error: { code: 'RATE_LIMITED', message: `rate limit exceeded: max ${RATE_LIMIT_PER_MINUTE} requests per ${RATE_LIMIT_WINDOW_MS / 1000}s` } });
-    }
-
-    // Routing — POST routes carry JSON bodies; GET routes take nothing.
-
-    if (method === 'POST' && url === '/mailbox/send') {
-      const body = await readJsonBody(req);
-      const input = validateSend(body);
-      const msg = await mailbox.send(input);
-      return writeJson(res, 201, msg);
-    }
-    if (method === 'POST' && url === '/mailbox/query') {
-      const body = await readJsonBody(req);
-      const input = validateQuery(body);
-      const msgs = await mailbox.query(input);
-      return writeJson(res, 200, { data: msgs, count: msgs.length });
-    }
-    if (method === 'POST' && url === '/mailbox/check') {
-      const body = await readJsonBody(req);
-      const input = validateCheck(body);
-      const result = await checkMailbox(mailbox, input);
-      return writeJson(res, 200, result);
-    }
-    if (method === 'POST' && url === '/mailbox/ack') {
-      const body = await readJsonBody(req);
-      const input = validateAck(body);
-      const msg = await mailbox.ack(input);
-      return writeJson(res, 200, { updated: msg });
-    }
-    if (method === 'POST' && url === '/mailbox/ack-many') {
-      const body = await readJsonBody(req);
-      const input = validateAckMany(body);
-      const msgs = await mailbox.ackMany(input);
-      return writeJson(res, 200, { updated: msgs, count: msgs.length });
-    }
-    if (method === 'POST' && url === '/mailbox/unread-count') {
-      const body = await readJsonBody(req);
-      const agentId = requireString(body, 'forAgentId');
-      const count = await mailbox.unreadCount(agentId);
-      return writeJson(res, 200, { count });
-    }
-    if (method === 'POST' && url === '/mailbox/agents/register') {
-      const body = await readJsonBody(req);
-      const input = validateAgentRegistration(body);
-      await mailbox.registerAgent(input);
-      return writeJson(res, 200, { ok: true });
-    }
-    if (method === 'POST' && url === '/mailbox/agents/heartbeat') {
-      const body = await readJsonBody(req);
-      const input = validateAgentHeartbeat(body);
-      await mailbox.heartbeat(input);
-      return writeJson(res, 200, { ok: true });
-    }
-    if (method === 'POST' && url === '/mailbox/register-client') {
-      const body = await readJsonBody(req);
-      const input = validateClientRegistration(body);
-      await mailbox.registerClient(input);
-      return writeJson(res, 200, { ok: true });
-    }
-    if (method === 'POST' && url === '/mailbox/heartbeat') {
-      const body = await readJsonBody(req);
-      const input = validateClientHeartbeat(body);
-      await mailbox.clientHeartbeat(input);
-      return writeJson(res, 200, { ok: true });
-    }
-    if (method === 'POST' && url === '/mailbox/purge-clients') {
-      const count = await mailbox.purgeClients();
-      return writeJson(res, 200, { ok: true, purged: count });
-    }
-    if (method === 'GET' && url === '/mailbox/agents') {
-      const statuses = await mailbox.getAgentStatuses();
-      return writeJson(res, 200, { data: statuses, count: statuses.length });
-    }
-    if (method === 'GET' && url === '/mailbox/agents/online') {
-      const statuses = await mailbox.getOnlineAgents();
-      return writeJson(res, 200, { data: statuses, count: statuses.length });
-    }
-    if (method === 'GET' && url === '/mailbox/events') {
-      return handleSse(req, res, eventEmitter);
-    }
-
-    return writeJson(res, 404, { error: { code: 'NOT_FOUND', message: `no route for ${method} ${url}` } });
-  } catch (err) {
-    const code = classifyError(err);
-    const message = (err as Error).message ?? 'unknown error';
-    const status = code === 'VALIDATION_ERROR' ? 400 : 500;
-    return writeJson(res, status, { error: { code, message } });
-  }
-}
-
-// ── SSE (Server-Sent Events) ──────────────────────────────────────────────
-
-/**
- * Handle `GET /mailbox/events` — opens an SSE stream that pushes mailbox
- * events in real-time. Events: `message.sent`, `message.acked`,
- * `message.deleted`, `message.restored`.
- *
- * The stream stays open until the client disconnects or the server shuts
- * down. A keep-alive comment is sent every 15s to prevent proxy timeouts.
- *
- * Auth + rate limiting are handled by the caller (the `handle` function
- * authorizes before dispatching here).
- */
-function handleSse(
-  req: IncomingMessage,
-  res: ServerResponse,
-  eventEmitter: MailboxEventEmitter,
-): void {
-  // SSE headers — keep-alive, text/event-stream, no buffering.
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-store',
-    'Connection': 'keep-alive',
-    'X-Accel-Buffering': 'no', // disable nginx buffering
-  });
-
-  // Initial comment so the client knows the stream is alive.
-  res.write(': connected\n\n');
-
-  // Subscribe to mailbox events.
-  const unsub = eventEmitter.subscribe((event) => {
-    try {
-      res.write(`data: ${JSON.stringify(event)}\n\n`);
-    } catch {
-      // write failed — connection is dead; unsubscribe.
-      unsub();
-    }
-  });
-
-  // Keep-alive comment every 15s to prevent proxy/CDN timeouts.
-  const keepAlive = setInterval(() => {
-    try {
-      res.write(': keepalive\n\n');
-    } catch {
-      clearInterval(keepAlive);
-    }
-  }, 15_000);
-
-  // Cleanup on client disconnect.
-  req.on('close', () => {
-    clearInterval(keepAlive);
-    unsub();
-    try { res.end(); } catch { /* already closed */ }
-  });
-}
-
-function authorize(req: IncomingMessage, expectedToken: string): boolean {
-  const header = req.headers.authorization;
-  if (typeof header !== 'string') return false;
-  const m = /^Bearer\s+(.+)$/i.exec(header);
-  if (m === null) return false;
-  const presented = m[1] ?? '';
-  // Constant-time comparison so an attacker can't probe the token byte-by-byte.
-  const a = Buffer.from(presented, 'utf8');
-  const b = Buffer.from(expectedToken, 'utf8');
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
-
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
-  const lengthHeader = req.headers['content-length'];
-  if (typeof lengthHeader === 'string') {
-    const declared = Number.parseInt(lengthHeader, 10);
-    if (Number.isInteger(declared) && declared > MAX_BODY_BYTES) {
-      throw validationError(`request body too large: ${declared} bytes (max ${MAX_BODY_BYTES})`);
-    }
-  }
-  const chunks: Buffer[] = [];
-  let total = 0;
-  for await (const chunk of req) {
-    const buf = chunk as Buffer;
-    total += buf.length;
-    if (total > MAX_BODY_BYTES) {
-      throw validationError(`request body too large: > ${MAX_BODY_BYTES} bytes`);
-    }
-    chunks.push(buf);
-  }
-  if (total === 0) return {};
-  const raw = Buffer.concat(chunks).toString('utf8');
-  try {
-    return JSON.parse(raw) as unknown;
-  } catch (err) {
-    throw validationError(`invalid JSON body: ${(err as Error).message}`);
-  }
-}
-
-function writeJson(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Cache-Control': 'no-store',
-  });
-  res.end(JSON.stringify(body));
-}
-
-// ── Input validation ──────────────────────────────────────────────────────
-//
-// Each validator does the smallest check that rejects the request with
-// `400 VALIDATION_ERROR`. We trust the resulting object to satisfy the
-// `GlobalMailbox` method's input shape — runtime validation lives one
-// layer below at the file-lock boundary, so even a malformed-but-typed
-// input would surface as a clear error there.
-
-class ValidationError extends Error {}
-
-function validationError(message: string): ValidationError {
-  return new ValidationError(message);
-}
-
-function classifyError(err: unknown): string {
-  if (err instanceof ValidationError) return 'VALIDATION_ERROR';
-  return 'INTERNAL_ERROR';
-}
-
-function requireString(obj: unknown, key: string): string {
-  if (typeof obj !== 'object' || obj === null) {
-    throw validationError(`expected JSON object body`);
-  }
-  const v = (obj as Record<string, unknown>)[key];
-  if (typeof v !== 'string' || v.length === 0) {
-    throw validationError(`field "${key}" is required (string)`);
-  }
-  return v;
-}
-
-function requireNumber(obj: unknown, key: string): number {
-  if (typeof obj !== 'object' || obj === null) {
-    throw validationError(`expected JSON object body`);
-  }
-  const v = (obj as Record<string, unknown>)[key];
-  if (typeof v !== 'number' || !Number.isInteger(v)) {
-    throw validationError(`field "${key}" is required (integer)`);
-  }
-  return v;
-}
-
-function optionalString(obj: unknown, key: string): string | undefined {
-  if (typeof obj !== 'object' || obj === null) return undefined;
-  const v = (obj as Record<string, unknown>)[key];
-  if (v === undefined || v === null) return undefined;
-  if (typeof v !== 'string') throw validationError(`field "${key}" must be a string when present`);
-  return v;
-}
-
-function optionalNumber(obj: unknown, key: string): number | undefined {
-  if (typeof obj !== 'object' || obj === null) return undefined;
-  const v = (obj as Record<string, unknown>)[key];
-  if (v === undefined || v === null) return undefined;
-  if (typeof v !== 'number') throw validationError(`field "${key}" must be a number when present`);
-  return v;
-}
-
-function optionalBoolean(obj: unknown, key: string): boolean | undefined {
-  if (typeof obj !== 'object' || obj === null) return undefined;
-  const v = (obj as Record<string, unknown>)[key];
-  if (v === undefined || v === null) return undefined;
-  if (typeof v !== 'boolean') throw validationError(`field "${key}" must be a boolean when present`);
-  return v;
-}
-
-const VALID_TYPES = new Set(['note', 'ask', 'assign', 'steer', 'btw', 'broadcast', 'status', 'result', 'review', 'control']);
-const VALID_PRIORITIES = new Set(['low', 'normal', 'high']);
-
-/** Reserved agent ids that external (HTTP-bridge) agents must NOT
- *  impersonate. These belong to internal WrongStack processes; an
- *  external agent using them could inject fake steer/control messages
- *  into the leader's conversation. Also includes wildcard/broadcast
- *  (`*`) which must not be used as a sender identity, and `hq`
- *  which is reserved for the HQ command channel. */
-const RESERVED_FROM_IDS = new Set([
-  'leader', 'fleet', 'hq', 'mailbox-bridge', 'mailbox-bridge-watchdog',
-  'tech-stack-consumer', '*',
-]);
-
-/** Reserved reader/agent ids that HTTP-bridge callers must not use
- *  for `readerId`, `agentId`, or `clientId`. Same set as sender
- *  reservations — an external agent must not be able to ack messages
- *  on behalf of internal processes or broadcast itself as HQ. */
-const RESERVED_READER_IDS = new Set([
-  'leader', 'fleet', 'hq', 'mailbox-bridge', 'mailbox-bridge-watchdog',
-  'tech-stack-consumer',
-]);
-
-/** Reject a readerId that matches a reserved internal agent identity.
- *  External agents must use their own identity, not impersonate
- *  internal processes. */
-function validateReaderId(id: string): void {
-  const base = id.split('@')[0]!.toLowerCase();
-  if (RESERVED_READER_IDS.has(base)) {
-    throw validationError(`"readerId" must not use reserved internal agent id "${base}"`);
-  }
-}
-
-function validateSend(body: unknown): MailboxSendInput {
-  if (typeof body !== 'object' || body === null) throw validationError('expected JSON object body');
-  const o = body as Record<string, unknown>;
-  const type = requireString(o, 'type');
-  if (!VALID_TYPES.has(type)) throw validationError(`field "type" must be one of ${[...VALID_TYPES].join(', ')}`);
-  const priority = optionalString(o, 'priority');
-  if (priority !== undefined && !VALID_PRIORITIES.has(priority)) {
-    throw validationError(`field "priority" must be one of ${[...VALID_PRIORITIES].join(', ')}`);
-  }
-  const from = requireString(o, 'from');
-  const fromBase = from.split('@')[0]!.toLowerCase();
-  if (RESERVED_FROM_IDS.has(fromBase)) {
-    throw validationError(`field "from" must not use reserved internal agent id "${fromBase}" — external agents must use their own identity`);
-  }
-  const result: MailboxSendInput = {
-    from,
-    to: requireString(o, 'to'),
-    type: type as MailboxSendInput['type'],
-    subject: requireString(o, 'subject'),
-    body: requireString(o, 'body'),
-    priority: priority as MailboxSendInput['priority'],
-  };
-  const replyTo = optionalString(o, 'replyTo');
-  if (replyTo !== undefined) result.replyTo = replyTo;
-  const ttlMs = optionalNumber(o, 'ttlMs');
-  if (ttlMs !== undefined) result.ttlMs = ttlMs;
-  return result;
-}
-
-function validateQuery(body: unknown): MailboxQuery {
-  if (typeof body !== 'object' || body === null) throw validationError('expected JSON object body');
-  const o = body as Record<string, unknown>;
-  const result: MailboxQuery = {};
-  const to = optionalString(o, 'to');
-  const from = optionalString(o, 'from');
-  const unreadBy = optionalString(o, 'unreadBy');
-  const type = optionalString(o, 'type');
-  const minPriority = optionalString(o, 'minPriority');
-  const since = optionalString(o, 'since');
-  const limit = optionalNumber(o, 'limit');
-  const incompleteOnly = optionalBoolean(o, 'incompleteOnly');
-  if (to !== undefined) result.to = to;
-  if (from !== undefined) result.from = from;
-  if (unreadBy !== undefined) result.unreadBy = unreadBy;
-  if (type !== undefined) {
-    if (!VALID_TYPES.has(type)) throw validationError(`field "type" must be one of ${[...VALID_TYPES].join(', ')}`);
-    result.type = type as MailboxQuery['type'];
-  }
-  if (minPriority !== undefined) {
-    if (!VALID_PRIORITIES.has(minPriority)) {
-      throw validationError(`field "minPriority" must be one of ${[...VALID_PRIORITIES].join(', ')}`);
-    }
-    result.minPriority = minPriority as MailboxQuery['minPriority'];
-  }
-  if (since !== undefined) result.since = since;
-  if (limit !== undefined) result.limit = limit;
-  if (incompleteOnly !== undefined) result.incompleteOnly = incompleteOnly;
-  return result;
-}
-
-interface MailboxCheckInput {
-  agentId: string;
-  baseId?: string | undefined;
-  limit?: number | undefined;
-  markRead?: boolean | undefined;
-  completed?: boolean | undefined;
-  outcome?: string | undefined;
-}
-
-async function checkMailbox(mailbox: GlobalMailbox, input: MailboxCheckInput): Promise<{ data: MailboxMessage[]; count: number }> {
-  const limit = input.limit ?? 20;
-  const markRead = input.markRead ?? true;
-  const completed = input.completed ?? false;
-  const targets = input.baseId !== undefined && input.baseId !== input.agentId
-    ? [input.agentId, input.baseId]
-    : [input.agentId];
-  const batches = await Promise.all(
-    targets.map((to) => mailbox.query({ to, unreadBy: input.agentId, limit })),
-  );
-  const seen = new Set<string>();
-  const messages = batches
-    .flat()
-    .filter((m) => {
-      if (seen.has(m.id) || m.from === input.agentId) return false;
-      seen.add(m.id);
-      return true;
-    })
-    .slice(0, limit);
-  const data = markRead || completed
-    ? await mailbox.ackMany({
-        acks: messages.map((m) => ({
-          messageId: m.id,
-          readerId: input.agentId,
-          read: markRead,
-          completed,
-          outcome: completed ? input.outcome : undefined,
-        })),
-      })
-    : messages;
-  return { data, count: data.length };
-}
-
-function validateCheck(body: unknown): MailboxCheckInput {
-  if (typeof body !== 'object' || body === null) throw validationError('expected JSON object body');
-  const o = body as Record<string, unknown>;
-  const result: MailboxCheckInput = { agentId: requireString(o, 'agentId') };
-  const baseId = optionalString(o, 'baseId');
-  const limit = optionalNumber(o, 'limit');
-  const markRead = optionalBoolean(o, 'markRead');
-  const completed = optionalBoolean(o, 'completed');
-  const outcome = optionalString(o, 'outcome');
-  if (baseId !== undefined) result.baseId = baseId;
-  if (limit !== undefined) {
-    if (!Number.isInteger(limit) || limit < 1) throw validationError('field "limit" must be a positive integer when present');
-    result.limit = limit;
-  }
-  if (markRead !== undefined) result.markRead = markRead;
-  if (completed !== undefined) result.completed = completed;
-  if (outcome !== undefined) result.outcome = outcome;
-  return result;
-}
-
-function validateAck(body: unknown): MailboxAckInput {
-  if (typeof body !== 'object' || body === null) throw validationError('expected JSON object body');
-  const o = body as Record<string, unknown>;
-  const readerId = requireString(o, 'readerId');
-  validateReaderId(readerId);
-  const result: MailboxAckInput = {
-    messageId: requireString(o, 'messageId'),
-    readerId,
-  };
-  const read = optionalBoolean(o, 'read');
-  const completed = optionalBoolean(o, 'completed');
-  const outcome = optionalString(o, 'outcome');
-  if (read !== undefined) result.read = read;
-  if (completed !== undefined) result.completed = completed;
-  if (outcome !== undefined) result.outcome = outcome;
-  return result;
-}
-
-function validateAckMany(body: unknown): MailboxAckBatchInput {
-  if (typeof body !== 'object' || body === null) throw validationError('expected JSON object body');
-  const o = body as Record<string, unknown>;
-  const raw = o['acks'];
-  if (!Array.isArray(raw)) throw validationError('field "acks" is required (array)');
-  const acks: MailboxAckInput[] = [];
-  for (const entry of raw) {
-    acks.push(validateAck(entry));
-  }
-  return { acks };
-}
-
-function validateAgentRegistration(body: unknown): AgentRegistrationInput {
-  if (typeof body !== 'object' || body === null) throw validationError('expected JSON object body');
-  const o = body as Record<string, unknown>;
-  // sessionId defaults to 'external' so external agents that don't model a
-  // real WrongStack session still register consistently with the mailbox.
-  const sessionId = optionalString(o, 'sessionId') ?? 'external';
-  const agentId = requireString(o, 'agentId');
-  validateReaderId(agentId);
-  const result: AgentRegistrationInput = {
-    agentId,
-    sessionId,
-    name: requireString(o, 'name'),
-    pid: requireNumber(o, 'pid'),
-    source: 'http',
-  };
-  const role = optionalString(o, 'role');
-  if (role !== undefined) result.role = role;
-  return result;
-}
-
-function validateAgentHeartbeat(body: unknown): AgentHeartbeatInput {
-  if (typeof body !== 'object' || body === null) throw validationError('expected JSON object body');
-  const o = body as Record<string, unknown>;
-  const result: AgentHeartbeatInput = { agentId: requireString(o, 'agentId') };
-  const status = optionalString(o, 'status');
-  const currentTool = optionalString(o, 'currentTool');
-  const currentTask = optionalString(o, 'currentTask');
-  const iterations = optionalNumber(o, 'iterations');
-  const toolCalls = optionalNumber(o, 'toolCalls');
-  if (status !== undefined) result.status = status as AgentHeartbeatInput['status'];
-  if (currentTool !== undefined) result.currentTool = currentTool;
-  if (currentTask !== undefined) result.currentTask = currentTask;
-  if (iterations !== undefined) result.iterations = iterations;
-  if (toolCalls !== undefined) result.toolCalls = toolCalls;
-  return result;
-}
-
-function validateClientRegistration(body: unknown): ClientRegistrationInput {
-  if (typeof body !== 'object' || body === null) throw validationError('expected JSON object body');
-  const o = body as Record<string, unknown>;
-  const result: ClientRegistrationInput = {
-    clientId: requireString(o, 'clientId'),
-    sessionId: optionalString(o, 'sessionId') ?? 'external',
-    name: requireString(o, 'name'),
-    source: 'http',
-    pid: requireNumber(o, 'pid'),
-  };
-  return result;
-}
-
-function validateClientHeartbeat(body: unknown): ClientHeartbeatInput {
-  if (typeof body !== 'object' || body === null) throw validationError('expected JSON object body');
-  const o = body as Record<string, unknown>;
-  const clientId = requireString(o, 'clientId');
-  const sessionId = optionalString(o, 'sessionId');
-  return sessionId ? { clientId, sessionId } : { clientId };
 }
 
 // ── Startup info / help ───────────────────────────────────────────────────

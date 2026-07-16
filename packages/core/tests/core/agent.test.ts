@@ -459,53 +459,11 @@ describe('Agent', () => {
     expect(executed[0]?.outputLines).toBeUndefined();
   });
 
-  // ── streaming tool_use_start/stop events (already covered but verifying) ───
-
-  it('streaming provider with tool_use_start emits correct event shape', async () => {
-    const provider = new StreamingMockProvider([
-      {
-        content: [{ type: 'tool_use', id: 'u1', name: 'grep', input: { pattern: 'x' } }],
-        stopReason: 'tool_use',
-      },
-      { content: [{ type: 'text', text: 'done' }], stopReason: 'end_turn' },
-    ]);
-    const { agent, tmp } = await buildAgent(provider as never as MockProvider);
-    cleanupDirs.push(tmp);
-    const toolStarts: Array<{ id: string; name: string }> = [];
-    const toolStops: Array<{ id: string; name: string }> = [];
-    agent.events.on('provider.tool_use_start', (p) => toolStarts.push({ id: p.id, name: p.name }));
-    agent.events.on('provider.tool_use_stop', (p) => toolStops.push({ id: p.id, name: p.name }));
-    const result = await agent.run('go');
-    expect(result.status).toBe('done');
-    expect(toolStarts).toEqual([{ id: 'u1', name: 'grep' }]);
-    expect(toolStops).toEqual([{ id: 'u1', name: 'grep' }]);
-  });
+  // ── streaming tool_use_start/stop events ────────────────────────────────────
+  // (canonical tests are in the 'streaming provider tool_use events' describe below)
 
   // ── max iterations extension denial ────────────────────────────────────────
-
-  it('honors iteration limit extension denial and stops', async () => {
-    const script = Array.from({ length: 5 }, () => ({
-      content: [{ type: 'tool_use' as const, id: 'u', name: 'echo', input: {} }],
-      stopReason: 'tool_use' as const,
-    }));
-    const echo: Tool = {
-      name: 'echo',
-      description: '',
-      inputSchema: { type: 'object' },
-      permission: 'auto',
-      mutating: false,
-      async execute() {
-        return '';
-      },
-    };
-    const provider = new MockProvider(script);
-    const { agent, tmp } = await buildAgent(provider, [echo]);
-    cleanupDirs.push(tmp);
-    // Deny any limit extension
-    agent.events.on('iteration.limit_reached', ({ deny }) => deny());
-    const result = await agent.run('loop', { maxIterations: 3 });
-    expect(result.status).toBe('max_iterations');
-  });
+  // (canonical test is in the 'iteration limit extension denial' describe below)
 });
 
 describe('Agent — sizeSignals coverage', () => {
@@ -629,18 +587,8 @@ describe('Agent — streaming provider tool_use events', () => {
     expect(toolStops).toEqual([{ id: 'u1', name: 'grep' }]);
   });
 
-  it('streaming text_delta events accumulate in order', async () => {
-    const provider = new StreamingMockProvider([
-      { content: [{ type: 'text', text: 'hello world' }], stopReason: 'end_turn' },
-    ]);
-    const { agent, tmp } = await buildAgent(provider as never as MockProvider);
-    cleanupDirs.push(tmp);
-    const deltas: string[] = [];
-    agent.events.on('provider.text_delta', (p) => deltas.push(p.text));
-    const result = await agent.run('hi');
-    expect(result.status).toBe('done');
-    expect(deltas.join('')).toBe('hello world');
-  });
+  // text_delta coverage is in 'additional coverage' describe below — that
+  // version also asserts finalText for a more complete contract check.
 });
 
 describe('Agent — iteration limit extension denial', () => {

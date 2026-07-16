@@ -130,6 +130,16 @@ export type MCPListChangedListener = (name: string) => void;
  * - streamable-http: session-based HTTP transport with NDJSON responses
  */
 export class MCPClient {
+  /**
+   * Maximum bytes the rx buffer may accumulate before the connection is
+   * forcefully closed. A well-behaved JSON-RPC server emits newline-delimited
+   * messages that are individually much smaller than this; a server that never
+   * sends a newline would grow the buffer without limit and OOM the process.
+   * 16 MiB is generous for any legitimate single message while bounding the
+   * worst-case memory to a predictable cap.
+   */
+  private static readonly MAX_RX_BUFFER_BYTES = 16 * 1024 * 1024;
+
   private state: ConnectionState = 'idle';
   private child?: ChildProcess | undefined;
   private nextId = 1;
@@ -284,6 +294,13 @@ export class MCPClient {
     child.stdout?.on('data', (chunk: Buffer) => this.onData(chunk.toString()));
     child.stderr?.on('data', () => {
       // intentionally discard stderr noise from server
+    });
+    child.stdin?.on('error', (err: Error) => {
+      // Pipe failures such as EPIPE are emitted asynchronously by Writable;
+      // the try/catch around stdin.write() cannot intercept them. Always own
+      // the stream error so a child that exits during startup rejects pending
+      // requests instead of surfacing as an uncaught process exception.
+      this.failPending(`MCP "${this.opts.name}" stdin error: ${toErrorMessage(err)}`);
     });
     child.on('exit', (code, signal) => {
       this.state = 'disconnected';
@@ -850,6 +867,19 @@ export class MCPClient {
 
   private onData(s: string): void {
     this.rxBuffer += s;
+
+    // Guard against a malicious or buggy server that never emits a newline —
+    // without this cap the buffer grows without limit and OOMs the process.
+    if (this.rxBuffer.length > MCPClient.MAX_RX_BUFFER_BYTES) {
+      const truncated = this.rxBuffer.length;
+      this.rxBuffer = '';
+      this.failPending(
+        `MCP "${this.opts.name}" rx buffer overflow (${truncated} bytes without a newline) — closing connection`,
+      );
+      void this.close();
+      return;
+    }
+
     let idx = this.rxBuffer.indexOf('\n');
     while (idx !== -1) {
       const line = this.rxBuffer.slice(0, idx).trim();

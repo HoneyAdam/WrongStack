@@ -131,11 +131,82 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
 
+  # -----------------------------------------------------------------
+  # E2E tests (Playwright)
+  # Runs after the build so the global-setup can launch the WebUI
+  # server against the compiled output. Serial execution because
+  # the WebUI server binds to a single port.
+  # -----------------------------------------------------------------
+  e2e:
+    name: E2E (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      # Playwright browsers are cached to avoid re-downloading on every run.
+      - name: Cache Playwright browsers
+        uses: actions/cache@d4323d4df104b026a6aa6f6dfbed53dea3b2dfa3 # v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        run: pnpm test:e2e
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+  # -----------------------------------------------------------------
+  # Security audit (pnpm audit)
+  # Fails on moderate-or-higher advisories in production deps.
+  # -----------------------------------------------------------------
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit dependencies
+        run: pnpm audit --audit-level=moderate
+
   # Composite gate so branch-protection rules can require a single
   # status check rather than listing every job individually.
   gate:
     name: CI Gate
-    needs: [lint, typecheck, build, test]
+    needs: [lint, typecheck, build, test, e2e, audit]
     runs-on: ubuntu-latest
     timeout-minutes: 1
     if: always()
@@ -148,6 +219,8 @@ jobs:
           echo "  typecheck: ${{ needs.typecheck.result }}"
           echo "  build:     ${{ needs.build.result }}"
           echo "  test:      ${{ needs.test.result }}"
+          echo "  e2e:       ${{ needs.e2e.result }}"
+          echo "  audit:     ${{ needs.audit.result }}"
           exit 1
       - name: Gate passed
         if: "!(contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))"

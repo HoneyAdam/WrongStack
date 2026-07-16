@@ -89,6 +89,7 @@ import { getSuggestions, setSuggestions } from './slash-commands/suggestion-stor
 import { fmtTaskResultLine, patchConfig } from './utils.js';
 import { CLI_VERSION } from './version.js';
 import { setupCodebaseIndexing } from './wiring/codebase-index.js';
+import { createSddHandlers } from './wiring/sdd-handlers.js';
 import { toExecuteDeps } from './wiring/to-execute-deps.js';
 import {
   createAgentsMonitorController,
@@ -115,10 +116,6 @@ import { resolveModeAndCapabilities } from './boot/system-prompt.js';
 import { wireEventWiring } from './boot/event-wiring.js';
 
 export { CLI_VERSION };
-
-type SddParallelRunGlobal = typeof globalThis & {
-  __sddParallelRun?: import('@wrongstack/sdd').SddParallelRun | undefined;
-};
 
 type PluginPickerItem = {
   name: string;
@@ -1756,224 +1753,28 @@ export async function main(argv: string[]): Promise<number> {
       context.provider as CommitLLMProvider,
       context.model,
     ),
-    onSddParallelRun: async (opts) => {
-      const sdd = await import('./slash-commands/sdd.js');
-      const tracker = sdd.getTaskTracker();
-      const builder = sdd.getActiveBuilder();
-      if (!tracker || !builder) {
-        return 'No active SDD session with tasks. Use /sdd new to start one.';
-      }
-      const session = builder.getSession();
-      if (session.phase !== 'executing' && session.phase !== 'task_review') {
-        return `Cannot run parallel in phase "${session.phase}". Use /sdd approve first.`;
-      }
-      const graphId = sdd.getTaskGraphId();
-      const graphStore = new (await import('@wrongstack/sdd')).TaskGraphStore({
-        baseDir: wpaths.projectTaskGraphs,
-      });
-      const graph = graphId ? await graphStore.load(graphId) : null;
-      if (!graph) {
-        return 'No task graph found for the current SDD session.';
-      }
-      const core = await import('@wrongstack/core');
-      const sddApi = await import('@wrongstack/sdd');
-      // Resume safety (orphaned in_progress reset) is handled inside startSddRun.
-
-      // Per-task git-worktree isolation: each parallel agent works in its own
-      // checkout so they never collide on the same files. Gated to git repos;
-      // disable with WRONGSTACK_SDD_WORKTREES=0 (then tasks share the tree).
-      let worktrees: import('@wrongstack/core').WorktreeManager | undefined;
-      if (process.env['WRONGSTACK_SDD_WORKTREES'] !== '0') {
-        // Async git detection — replaces a synchronous spawnSync that blocked
-        // the REPL/event loop during SDD worktree setup. `git` may not be
-        // installed (CI, containers) — treat spawn failure as "not a repo"
-        // and skip worktree setup rather than aborting the run.
-        const inGit = await new Promise<boolean>((resolve) => {
-          let resolved = false;
-          const settle = (v: boolean): void => {
-            if (resolved) return;
-            resolved = true;
-            resolve(v);
-          };
-          try {
-            const child = spawn('git', ['rev-parse', '--is-inside-work-tree'], {
-              cwd: projectRoot,
-              env: process.env,
-              stdio: ['ignore', 'pipe', 'pipe'],
-              windowsHide: true,
-            });
-            const chunks: string[] = [];
-            child.stdout?.on('data', (c: Buffer) => chunks.push(c.toString()));
-            child.on('error', () => settle(false));
-            child.on('close', (code) => settle(code === 0 && chunks.join('').trim() === 'true'));
-          } catch {
-            settle(false);
-          }
-        });
-        if (inGit) {
-          // Clean slate before allocating: sweep orphaned worktrees/branches a
-          // prior crashed/abandoned run left behind. Liveness-guarded so it
-          // never disturbs a run live in another process.
-          await sddApi
-            .cleanupStaleSddWorktrees({ projectRoot, boardsDir: wpaths.projectSddBoards })
-            .catch(() => undefined);
-          worktrees = new core.WorktreeManager({
-            projectRoot,
-            events,
-            sessionId: () => sessionRef.current?.id ?? session.id,
-          });
-        }
-      }
-
-      const boardStore = new sddApi.SddBoardStore({ baseDir: wpaths.projectSddBoards });
-
-      // Completion gate: when a task declares `metadata.verificationCommand`, run
-      // it in the task's worktree cwd and only let the task complete on exit 0.
-      // No command → no-op (the run's existing guards still apply). Bounded so a
-      // hung verifier can't wedge the run. Shared with the standalone WebUI wizard
-      // via core.makeCommandVerifier so both surfaces gate identically.
-      const verifyTask = sddApi.makeCommandVerifier();
-
-      // Failure supervisor: when a task exhausts its retries, the Brain decides
-      // retry/reassign/fail rather than dead-ending. Safe default (no LLM verdict)
-      // is a bounded retry, so this only ever helps the run keep moving. The
-      // run-level fallback chain (already validated against configured providers)
-      // is offered as `reassignModels`, so a `reassign` verdict rotates the worker
-      // model on retry.
-      // NOTE: `requestLlmVerdict` is intentionally left false here. The CLI brain
-      // is wrapped in HumanEscalatingBrainArbiter, so an `ask_human` escalation
-      // would BLOCK mid-run on a human prompt and wedge the parallel run. With
-      // the default (`fallback: 'continue'`) the policy answers in place — a safe
-      // bounded retry — and `reassignModels` still applies when a brain answers
-      // `reassign`. (Standalone WebUI, whose brain has no human wrapper, enables
-      // it; see sdd-wizard-wiring.ts.)
-      const sddSupervisor = new sddApi.SddSupervisor({
-        brain,
-        reassignModels: core.effectiveFallbackChain(config),
-      });
-
-      // Single per-task subagent factory, shared by the run AND the (optional)
-      // LLM conflict resolver's isolated turns.
-      const sddSubagentFactory = multiAgentHost.makeSubagentFactory(config);
-
-      // Opt-in merge-conflict resolver (default OFF → conservative
-      // retry-on-fresh-base then terminal-fail, which never corrupts the base).
-      // WRONGSTACK_SDD_CONFLICT_RESOLVER=prefer-incoming|prefer-base|llm.
-      // - prefer-*: a blunt one-side rewrite.
-      // - llm:      a semantic merge on a fresh read-only-ish isolated turn.
-      // The WorktreeManager still rejects any rewrite that leaves markers, and the
-      // run re-verifies the integrated base + reverts a regression (when a
-      // verifyTask is set), so a bad resolution degrades safely.
-      const conflictMode = process.env['WRONGSTACK_SDD_CONFLICT_RESOLVER'];
-      const conflictResolver =
-        conflictMode === 'prefer-incoming'
-          ? sddApi.makePreferSideConflictResolver('incoming')
-          : conflictMode === 'prefer-base'
-            ? sddApi.makePreferSideConflictResolver('base')
-            : conflictMode === 'llm'
-              ? sddApi.makeLlmConflictResolver({
-                  run: async (prompt: string): Promise<string> => {
-                    const r = await sddSubagentFactory({
-                      id: `sdd-conflict-${Date.now()}`,
-                      role: 'executor',
-                      name: 'Conflict Resolver',
-                      disabledTools: ['delegate'],
-                      // Only returns the resolved text; the core helper writes the
-                      // file. Keep it on the read-only capability floor.
-                      allowedCapabilities: ['fs.read', 'net.outbound'],
-                    });
-                    try {
-                      const res = await r.agent.run([{ type: 'text', text: prompt }]);
-                      return res.finalText ?? '';
-                    } finally {
-                      await r.dispose?.();
-                    }
-                  },
-                })
-              : undefined;
-
-      // Shared run-setup core (also used by the WebUI servers): orphan reset →
-      // run → board projector → registry → cross-process control drain.
-      const handle = sddApi.startSddRun({
-        tracker,
-        graph,
-        agent,
-        projectRoot,
-        events,
-        sessionId: () => sessionRef.current?.id ?? session.id,
-        parallelSlots: opts?.parallelSlots,
-        subagentFactory: sddSubagentFactory,
-        worktrees,
-        boardStore,
-        registry: sddRunRegistry,
-        verifyTask,
-        conflictResolver,
-        superviseFailure: sddSupervisor.superviseFailure,
-        onProgress: (p: import('@wrongstack/sdd').SddProgress) => {
-          renderer.write(
-            `  ░ wave ${p.wave + 1} · ${p.completed}/${p.total} tasks · ${p.percent}% done\n`,
-          );
-        },
-      });
-      (globalThis as SddParallelRunGlobal).__sddParallelRun = handle.run;
-      try {
-        const result = await handle.completion;
-        const lines = [
-          `SDD parallel run complete:`,
-          `  ${result.totalWaves} waves · ${result.totalCompleted} done · ${result.totalFailed} failed`,
-          `  ${(result.totalDurationMs / 1000).toFixed(1)}s total`,
-        ];
-        if (result.deadlocked)
-          lines.push(color.red('  ⚠ deadlock — tasks blocked by failed tasks.'));
-        if (result.stopRequested) lines.push(color.yellow('  ⚡ stopped by user.'));
-        return lines.join('\n');
-      } finally {
-        (globalThis as SddParallelRunGlobal).__sddParallelRun = undefined;
-      }
-    },
-    onSddParallelStop: () => {
-      const run = (globalThis as SddParallelRunGlobal).__sddParallelRun;
-      run?.stop();
-    },
-    onSddRetryAllFailed: () => sddRunRegistry.getActive()?.retryAllFailed() ?? 0,
-    onSddSplitTask: (taskId, subtasks) => {
-      const active = sddRunRegistry.getActive();
-      if (!active) return null;
-      // Accept a board short id or a full id — resolve short→full via the snapshot.
-      const snap = active.snapshot();
-      const match = snap.tasks.find((t) => t.id === taskId || t.shortId === taskId);
-      const ids = active.splitTask(match?.id ?? taskId, subtasks);
-      return ids.length ? ids : null;
-    },
-    // ── SDD lifecycle: clean worktrees · rollback commits · destroy project ──
-    onSddCleanWorktrees: async () => {
-      const active = sddRunRegistry.getActive();
-      if (active) return active.cleanupWorktrees();
-      const sddApi = await import('@wrongstack/sdd');
-      const { removed } = await sddApi.cleanupSddWorktrees(projectRoot);
-      return removed;
-    },
-    onSddRollback: async () => {
-      const active = sddRunRegistry.getActive();
-      if (active) return active.rollback();
-      const sddApi = await import('@wrongstack/sdd');
-      return sddApi.rollbackSddRunFromDisk({ projectRoot, boardsDir: wpaths.projectSddBoards });
-    },
-    onSddDestroy: async (destroyOpts) => {
-      // Stop any live run first so nothing writes while we delete.
-      sddRunRegistry.getActive()?.stop();
-      const sddApi = await import('@wrongstack/sdd');
-      return sddApi.destroySddProject({
-        projectRoot,
-        revertMerged: destroyOpts?.revertMerged === true,
-        paths: {
-          projectSpecs: wpaths.projectSpecs,
-          projectTaskGraphs: wpaths.projectTaskGraphs,
-          projectSddSession: wpaths.projectSddSession,
-          projectSddBoards: wpaths.projectSddBoards,
-        },
-      });
-    },
+    ...createSddHandlers({
+      wpaths,
+      projectRoot,
+      events,
+      sessionRef,
+      session,
+      renderer,
+      multiAgentHost,
+      config,
+      brain,
+      agent,
+      logger,
+      sddRunRegistry,
+      getSddRuntimeState: async () => {
+        const sdd = await import('./slash-commands/sdd.js');
+        return {
+          tracker: sdd.getTaskTracker(),
+          builder: sdd.getActiveBuilder(),
+          graphId: sdd.getTaskGraphId(),
+        };
+      },
+    }),
     onAutoPhaseStart: autoPhaseHost.onAutoPhaseStart,
     onAutoPhasePause: autoPhaseHost.onAutoPhasePause,
     onAutoPhaseResume: autoPhaseHost.onAutoPhaseResume,
