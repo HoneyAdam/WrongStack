@@ -98,6 +98,12 @@ export function SkillDetailView({ className }: { className?: string }) {
   const [contentLoading, setContentLoading] = useState(false);
   const [contentError, setContentError] = useState<string | null>(null);
 
+  // Scroll-position hook must be called unconditionally — calling it inside
+  // JSX within the isEditing/skillContent/contentError ternary violates the
+  // Rules of Hooks (React error 310) when skillContent toggles between null
+  // and non-null.
+  const skillScrollRef = useScrollPosition<HTMLDivElement>('skill-detail', Boolean(skillContent));
+
   // Edit mode state
   const [editMode, setEditMode] = useState(false);
   const [editContent, setEditContent] = useState('');
@@ -844,7 +850,7 @@ export function SkillDetailView({ className }: { className?: string }) {
             )}
           </div>
         ) : skillContent ? (
-          <div ref={useScrollPosition('skill-detail')} className="h-full min-h-0 overflow-y-auto overscroll-contain p-5 sm:p-6 prose prose-sm dark:prose-invert max-w-none">
+          <div ref={skillScrollRef} className="h-full min-h-0 overflow-y-auto overscroll-contain p-5 sm:p-6 prose prose-sm dark:prose-invert max-w-none">
             <ReactMarkdown rehypePlugins={[rehypeHighlight]} components={markdownComponents}>
               {skillContent.body}
             </ReactMarkdown>
