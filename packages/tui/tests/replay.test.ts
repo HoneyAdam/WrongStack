@@ -390,4 +390,54 @@ describe('replaySessionEvents', () => {
     const entries = replaySessionEvents(events, 10);
     expect(entries.map((e) => e.id)).toEqual([10, 11, 12]);
   });
+
+  it('replaySessionMessages restores thinking blocks before assistant text', () => {
+    const messages = [
+      {
+        role: 'assistant' as const,
+        content: [
+          { type: 'thinking' as const, thinking: 'let me reason about this' },
+          { type: 'text' as const, text: 'here is my answer' },
+        ],
+        ts: '2026-01-01T00:00:00Z',
+      },
+    ];
+    const entries = replaySessionMessages(messages, [], 1);
+    expect(entries.map((e) => e.kind)).toEqual(['thinking', 'assistant']);
+    expect((entries[0] as { text: string }).text).toBe('let me reason about this');
+    expect((entries[1] as { text: string }).text).toBe('here is my answer');
+  });
+
+  it('replaySessionMessages interleaves audit markers into the backbone by ts', () => {
+    // Conversation backbone carries ts; marker events fall chronologically
+    // between turns and must be inserted there without reordering the chat.
+    const messages = [
+      { role: 'user' as const, content: 'first', ts: '2026-01-01T00:00:00Z' },
+      { role: 'assistant' as const, content: 'reply', ts: '2026-01-01T00:00:02Z' },
+      { role: 'user' as const, content: 'second', ts: '2026-01-01T00:00:04Z' },
+    ];
+    const events: SessionEvent[] = [
+      { type: 'mode_changed', ts: '2026-01-01T00:00:01Z', from: 'default', to: 'brief' },
+      { type: 'compaction', ts: '2026-01-01T00:00:03Z', before: 10000, after: 5000 },
+    ];
+    const entries = replaySessionMessages(messages, events, 1);
+    expect(entries.map((e) => e.kind)).toEqual(['user', 'info', 'assistant', 'info', 'user']);
+    expect((entries[1] as { text: string }).text).toContain('brief');
+    expect((entries[3] as { text: string }).text).toContain('compacted');
+    expect(entries.map((e) => e.id)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it('replaySessionMessages does not reorder the conversation for a marker with equal ts', () => {
+    // A marker sharing a message's ts must slot AFTER that message (backbone
+    // wins ties), never ahead of it.
+    const messages = [
+      { role: 'user' as const, content: 'ask', ts: '2026-01-01T00:00:00Z' },
+      { role: 'assistant' as const, content: 'answer', ts: '2026-01-01T00:00:01Z' },
+    ];
+    const events: SessionEvent[] = [
+      { type: 'checkpoint', ts: '2026-01-01T00:00:00Z', promptIndex: 0, promptPreview: 'ask' },
+    ];
+    const entries = replaySessionMessages(messages, events, 1);
+    expect(entries.map((e) => e.kind)).toEqual(['user', 'info', 'assistant']);
+  });
 });

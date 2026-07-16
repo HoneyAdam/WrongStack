@@ -378,6 +378,15 @@ export interface SessionData {
   }>;
   /** Present on resume when the store is configured with a project root. */
   resumeValidation?: ResumeValidation | undefined;
+  /**
+   * Number of `tool_use` blocks in the reconstructed conversation that never
+   * received a matching `tool_result` — i.e. tool calls the previous run left
+   * in flight (crash/interrupt). Computed during replay BEFORE adjacency
+   * repair strips them. `resume()` surfaces this as an informational notice so
+   * the user/model know work was interrupted; the tools are NOT re-executed.
+   * Undefined for events-only loads (no message reconstruction).
+   */
+  pendingToolUseCount?: number | undefined;
 }
 
 export interface ResumedSession {

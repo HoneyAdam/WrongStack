@@ -29,6 +29,7 @@ import type {
   ProviderConfig,
   RecoveryLock,
   ResolvedProvider,
+  SessionEvent,
   SessionStore,
   SessionWriter,
   SlashCommandRegistry,
@@ -132,6 +133,9 @@ export interface SessionDeps {
   detachTodosCheckpoint?: (() => void | Promise<void>) | undefined;
   restoredMessages?: Message[] | undefined;
   restoredToolCalls?: RestoredToolCall[] | undefined;
+  /** Raw prior-session JSONL events — feeds the canonical resume renderer so
+   *  boot `--resume` shows tool I/O + interleaved audit markers. */
+  restoredEvents?: SessionEvent[] | undefined;
   needsSetup?: boolean | undefined;
 }
 

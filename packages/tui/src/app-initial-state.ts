@@ -1,5 +1,6 @@
-import type { FleetChatVerbosity, Message, TokenSavingTier } from '@wrongstack/core';
+import type { FleetChatVerbosity, Message, SessionEvent, TokenSavingTier } from '@wrongstack/core';
 import { AUTH_PANEL_INITIAL } from './components/auth-panel-model.js';
+import { replaySessionMessages } from './components/history/replay.js';
 import type { ContextMode, StatuslineMode } from './components/settings-picker.js';
 import { rehydrateHistory } from './rehydrate-history.js';
 import type { State } from './app-state.js';
@@ -17,8 +18,19 @@ export type RestoredToolCall = {
 export function buildRestoredEntries(
   messages: Message[] | undefined,
   restoredToolCalls?: RestoredToolCall[] | undefined,
+  restoredEvents?: SessionEvent[] | undefined,
 ): State['entries'] {
   if (!messages || messages.length === 0) return [];
+  // Canonical renderer when the raw event stream is available: restores tool
+  // input/output and interleaves audit markers (mode/compaction/checkpoint/
+  // skill/agent/error/…), matching the in-session resume picker. It renders
+  // system messages itself (→ info), so pass the full list including the
+  // resume file-validation / interrupted-tool notices injected by the store.
+  if (restoredEvents && restoredEvents.length > 0) {
+    return replaySessionMessages(messages, restoredEvents, 1);
+  }
+  // Legacy fallback (no events — older callers / unit tests): meta-only tool
+  // chips with system messages filtered out.
   const visible = messages.filter((m) => m.role !== 'system');
   if (visible.length === 0) return [];
   return rehydrateHistory(visible, 1, restoredToolCalls);

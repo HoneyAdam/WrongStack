@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionEvent } from '../../src/types/session.js';
 import {
+  formatInterruptedToolNotice,
   formatResumeValidationNotice,
   validateResumeFileObservations,
 } from '../../src/storage/session-resume-validation.js';
@@ -220,5 +221,25 @@ describe('formatResumeValidationNotice', () => {
     // the "outside_project" status and the file is referenced
     expect(notice).toContain('[outside_project]');
     expect(notice).toContain('passwd');
+  });
+});
+
+describe('formatInterruptedToolNotice', () => {
+  it('returns null when nothing was in flight', () => {
+    expect(formatInterruptedToolNotice(0)).toBeNull();
+    expect(formatInterruptedToolNotice(-1)).toBeNull();
+    expect(formatInterruptedToolNotice(Number.NaN)).toBeNull();
+  });
+
+  it('describes a single interrupted tool call and states it was not re-run', () => {
+    const notice = formatInterruptedToolNotice(1);
+    expect(notice).toContain('[SESSION RESUME INTERRUPTED WORK]');
+    expect(notice).toContain('1 tool call was');
+    expect(notice).toContain('NOT re-executed');
+  });
+
+  it('pluralizes multiple interrupted tool calls', () => {
+    const notice = formatInterruptedToolNotice(3);
+    expect(notice).toContain('3 tool calls were');
   });
 });

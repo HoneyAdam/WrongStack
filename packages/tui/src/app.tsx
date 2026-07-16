@@ -824,6 +824,12 @@ export interface AppProps {
       }>
     | undefined;
   /**
+   * Raw prior-session JSONL events. When provided, the resumed history is
+   * rebuilt with the canonical renderer (tool I/O + interleaved audit markers)
+   * instead of meta-only tool chips. Omitted → legacy fallback.
+   */
+  restoredEvents?: import('@wrongstack/core').SessionEvent[] | undefined;
+  /**
    * When true, the agents monitor (F3) is open by default at TUI startup.
    * Used by the `wrongstack quick` command to show agents panel immediately.
    */
@@ -990,6 +996,7 @@ export function App({
   registerDebugStreamCallback,
   restoreDebugStreamCallback,
   restoredToolCalls,
+  restoredEvents,
   getProjectPickerItems,
   onProjectSelect,
   requestExit,
@@ -1136,7 +1143,11 @@ export function App({
   // agent.ctx.messages is populated by setupSession → context.state.replaceMessages()
   // when wstack resume <id> is used. These messages only exist in the LLM context
   // by default; we convert them to visible history entries here.
-  const restoredEntries = buildRestoredEntries(agent.ctx.messages, restoredToolCalls);
+  const restoredEntries = buildRestoredEntries(
+    agent.ctx.messages,
+    restoredToolCalls,
+    restoredEvents,
+  );
 
   const [state, dispatch] = useReducer(
     reducer,

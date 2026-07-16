@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import {
   type Agent,
   DefaultSessionRewinder,
+  loadTodosCheckpoint,
   type SessionStore,
   type SessionWriter,
 } from '@wrongstack/core';
@@ -313,7 +314,14 @@ export async function handleSessionResume(
     // Hydrate the context with the old session's messages.
     actx.state.replaceMessages(resumed.data.messages);
     await actx.flushConversationJournal?.();
-    actx.state.replaceTodos([]);
+    // Restore the resumed session's todo board from its sidecar (parity with
+    // the boot `--resume` path) instead of wiping the panel.
+    const restoredTodos = opts.sessionsDir
+      ? ((await loadTodosCheckpoint(
+          sessionScopedPath(opts.sessionsDir, resumed.writer.id, '.todos.json'),
+        ).catch(() => null)) ?? [])
+      : [];
+    actx.state.replaceTodos(restoredTodos);
     actx.readFiles.clear();
     actx.fileMtimes.clear();
     actx.tokenCounter.reset();
@@ -325,6 +333,12 @@ export async function handleSessionResume(
       replayUsage: resumed.data.usage,
     });
     ctx.broadcast({ type: 'session.start', payload });
+    // The client clears todos on session.start(reset); push the restored board
+    // AFTER so the panel repopulates.
+    ctx.broadcast({
+      type: 'todos.updated',
+      payload: { sessionId: resumed.writer.id, todos: restoredTodos },
+    });
     sendResult(ctx, ws, true, `Resumed session ${id}`);
   } catch (err) {
     sendResult(ctx, ws, false, toErrorMessage(err));

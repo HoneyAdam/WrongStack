@@ -1,6 +1,22 @@
-import type { InputReader, Mode, ModeStore, SlashCommand } from '@wrongstack/core';
+import type { Context, InputReader, Mode, ModeStore, SlashCommand } from '@wrongstack/core';
 import { color, writeOut } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
+
+/**
+ * Persist a `mode_changed` event onto the active session writer so a resumed
+ * session can replay the mode-switch marker (the event type is defined and
+ * consumed by the TUI/analyzer but had no producer). Best-effort — session
+ * recording must never break the mode switch. Mirrors the direct-append
+ * pattern used by the skill tool for `skill_activated`.
+ */
+function emitModeChanged(context: Context | undefined, from: string, to: string): void {
+  if (!context?.session || from === to) return;
+  void context.session
+    .append({ type: 'mode_changed', ts: new Date().toISOString(), from, to })
+    .catch(() => {
+      /* best-effort */
+    });
+}
 
 /**
  * Interactive mode picker — arrow-key navigation, Enter to select, q to quit.
@@ -99,6 +115,7 @@ export function buildModeCommand(
           }
           await modeStore.setActiveMode(selected.id);
           ctx?.state?.setMeta?.('mode', selected.id);
+          emitModeChanged(opts.context, active?.id ?? 'default', selected.id);
           return {
             message: `Switched to "${selected.name}" mode.\n${selected.description}`,
           };
@@ -123,6 +140,7 @@ export function buildModeCommand(
 
       await modeStore.setActiveMode(targetMode.id);
       ctx?.state?.setMeta?.('mode', targetMode.id);
+      emitModeChanged(opts.context, active?.id ?? 'default', targetMode.id);
       return {
         message: `Switched to "${targetMode.name}" mode.\n${targetMode.description}`,
       };

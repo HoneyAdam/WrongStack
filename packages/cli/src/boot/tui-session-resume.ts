@@ -9,7 +9,8 @@
  * activeRecoveryLock, wpaths).
  */
 import * as path from 'node:path';
-import type { Agent, TokenCounter } from '@wrongstack/core';
+import type { Agent, EventBus, TokenCounter } from '@wrongstack/core';
+import { attachTodosCheckpoint, loadTodosCheckpoint, sessionScopedPath } from '@wrongstack/core';
 import type { TuiRuntimeState } from './tui-runtime-state.js';
 
 export interface SessionResumeContext {
@@ -19,6 +20,8 @@ export interface SessionResumeContext {
   switchProviderAndModel:
     | ((providerId: string, modelId: string) => string | null | void | Promise<unknown>)
     | undefined;
+  /** App EventBus — forwarded to the re-pointed todos checkpoint for storage.* events. */
+  events?: EventBus | undefined;
 }
 
 export interface SessionResumeResult {
@@ -37,7 +40,7 @@ export async function resumeSession(
   ctx: SessionResumeContext,
   sessionId: string,
 ): Promise<SessionResumeResult | null> {
-  const { state, agent, tokenCounter, switchProviderAndModel } = ctx;
+  const { state, agent, tokenCounter, switchProviderAndModel, events } = ctx;
 
   if (!state.activeSessionStore) return null;
 
@@ -76,6 +79,38 @@ export async function resumeSession(
     // tool-use adjacency is re-checked on the next request.
     agent.ctx.state.replaceMessages(resumed.data.messages);
     await agent.ctx.flushConversationJournal();
+
+    // ── Re-point session-scoped sidecars (todos/plan/task) to the resumed
+    // session and restore its todo board. Without this the picker resume keeps
+    // writing todo edits to the PREVIOUS session's .todos.json and shows an
+    // empty board — the boot `--resume` path already restores todos, so this
+    // closes that asymmetry. Detach the old checkpoint BEFORE mutating todos so
+    // the restore can't leak into the session we are leaving.
+    const sessionsDir = state.wpaths.projectSessions;
+    const resumedTodosPath = sessionScopedPath(sessionsDir, resumed.writer.id, '.todos.json');
+    await state.detachActiveTodosCheckpoint?.();
+    agent.ctx.state.setMeta(
+      'plan.path',
+      sessionScopedPath(sessionsDir, resumed.writer.id, '.plan.json'),
+    );
+    agent.ctx.state.setMeta(
+      'task.path',
+      sessionScopedPath(sessionsDir, resumed.writer.id, '.tasks.json'),
+    );
+    try {
+      const restoredTodos = await loadTodosCheckpoint(resumedTodosPath, events, agent.ctx.traceId);
+      agent.ctx.state.replaceTodos(restoredTodos ?? []);
+    } catch {
+      /* best-effort: a missing/corrupt todos sidecar must not block resume */
+    }
+    // Re-attach so subsequent todo edits persist to the RESUMED session file.
+    state.detachActiveTodosCheckpoint = attachTodosCheckpoint(
+      agent.ctx.state,
+      resumedTodosPath,
+      resumed.writer.id,
+      events,
+      agent.ctx.traceId,
+    );
 
     // Sync the agent's provider/model to what was used in the resumed session.
     // Route all changes through the live switch callback when available so the

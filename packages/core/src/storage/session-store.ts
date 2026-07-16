@@ -30,6 +30,7 @@ import { SessionCheckpointCas } from './session-checkpoint-cas.js';
 import { userInputTitle } from './session-helpers.js';
 import { generateSessionId } from './session-id.js';
 import {
+  formatInterruptedToolNotice,
   formatResumeValidationNotice,
   validateResumeFileObservations,
 } from './session-resume-validation.js';
@@ -448,26 +449,21 @@ export class DefaultSessionStore implements SessionStore {
     const file = this.sessionPath(id, '.jsonl');
     const t0 = Date.now();
     const data = await this.load(id);
-    let resumedData = data;
+    // Ephemeral system notices injected into the first resumed turn. Both are
+    // informational only — neither re-executes any prior work.
+    const noticeMessages: Message[] = [];
+    let resumeValidation: import('../types/session.js').ResumeValidation | undefined;
     if (this.projectRoot) {
       try {
-        const resumeValidation = await validateResumeFileObservations(
-          data.events,
-          this.projectRoot,
-        );
+        resumeValidation = await validateResumeFileObservations(data.events, this.projectRoot);
         const notice = formatResumeValidationNotice(resumeValidation, this.projectRoot);
-        resumedData = {
-          ...data,
-          resumeValidation,
-          ...(notice
-            ? {
-                messages: [
-                  ...data.messages,
-                  { role: 'system' as const, content: notice, ts: resumeValidation.checkedAt },
-                ],
-              }
-            : {}),
-        };
+        if (notice) {
+          noticeMessages.push({
+            role: 'system',
+            content: notice,
+            ts: resumeValidation.checkedAt,
+          });
+        }
       } catch (err) {
         // Validation is a safety signal, not a reason to make an otherwise
         // readable session impossible to resume. Surface diagnostics and
@@ -475,6 +471,23 @@ export class DefaultSessionStore implements SessionStore {
         this.emitError(id, file, 'resume_validation', toErrorMessage(err), true);
       }
     }
+    // Interrupted-tool notice is independent of projectRoot — it reflects the
+    // reconstructed conversation, not the filesystem.
+    const interruptedNotice = formatInterruptedToolNotice(data.pendingToolUseCount ?? 0);
+    if (interruptedNotice) {
+      noticeMessages.push({
+        role: 'system',
+        content: interruptedNotice,
+        ts: new Date().toISOString(),
+      });
+    }
+    const resumedData: SessionData = {
+      ...data,
+      ...(resumeValidation ? { resumeValidation } : {}),
+      ...(noticeMessages.length > 0
+        ? { messages: [...data.messages, ...noticeMessages] }
+        : {}),
+    };
     let handle: fsp.FileHandle;
     try {
       handle = await fsp.open(file, 'a', 0o600);
@@ -787,12 +800,18 @@ export class DefaultSessionStore implements SessionStore {
 
       // Extract tool_call_end events for TUI tool entry rendering on resume.
       const toolCallEnds = extractToolCallEnds(events);
+      // `openToolUses` holds tool_use ids still unmatched after the full replay
+      // (before repairToolUseAdjacency strips them) — i.e. tools the prior run
+      // left in flight. Surfaced so resume() can notify without re-executing.
+      const pendingToolUseCount =
+        openToolUses && openToolUses.size > 0 ? openToolUses.size : undefined;
       const data: SessionData = {
         metadata: meta,
         events,
         messages: finalMessages,
         usage,
         toolCallEnds,
+        ...(pendingToolUseCount !== undefined ? { pendingToolUseCount } : {}),
       };
 
       // Update the cache. Evict oldest entry if at capacity.

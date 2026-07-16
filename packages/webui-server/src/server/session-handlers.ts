@@ -14,9 +14,11 @@ import {
   type Context,
   type createStrategyCompactor,
   DEFAULT_CONTEXT_WINDOW_MODE_ID,
+  loadTodosCheckpoint,
   repairToolUseAdjacency,
   resolveContextWindowPolicy,
   type SessionStore,
+  type TodoItem,
   type ToolRegistry,
 } from '@wrongstack/core';
 import type { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
@@ -118,6 +120,7 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
     next: Session,
     messages: Context['messages'],
     usage?: Parameters<DefaultTokenCounter['account']>[0],
+    todos: TodoItem[] = [],
   ): Promise<void> => {
     const current = ctx.getSession();
     if (current !== next) await finalizeSession(current);
@@ -125,7 +128,9 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
     ctx.context.session = next;
     ctx.context.state.replaceMessages(messages);
     await ctx.context.flushConversationJournal?.();
-    ctx.context.state.replaceTodos([]);
+    // Restore the resumed session's todo board from its .todos.json sidecar
+    // (empty for a fresh session). Without this a resume cleared the panel.
+    ctx.context.state.replaceTodos(todos);
     ctx.context.readFiles.clear();
     ctx.context.fileMtimes.clear();
     ctx.context.state.setMeta(
@@ -423,7 +428,18 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
           return;
         }
         const resumed = await ctx.getSessionStore().resume(id);
-        await activateSession(resumed.writer, resumed.data.messages, resumed.data.usage);
+        // Restore the resumed session's todo board from its sidecar so the
+        // panel isn't wiped on resume (parity with the boot `--resume` path).
+        const restoredTodos =
+          (await loadTodosCheckpoint(
+            sessionScopedPath(ctx.sessionsDir, resumed.writer.id, '.todos.json'),
+          ).catch(() => null)) ?? [];
+        await activateSession(
+          resumed.writer,
+          resumed.data.messages,
+          resumed.data.usage,
+          restoredTodos,
+        );
         broadcast(ctx.clients, {
           type: 'session.start',
           payload: {
@@ -432,6 +448,12 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
             replayMessages: resumed.data.messages,
             replayUsage: resumed.data.usage,
           },
+        });
+        // The client resets todos to [] on session.start(reset); push the
+        // restored board AFTER so the panel repopulates.
+        broadcast(ctx.clients, {
+          type: 'todos.updated',
+          payload: { sessionId: resumed.writer.id, todos: restoredTodos },
         });
         sendResult(ws, true, `Resumed session ${id}`);
       } catch (err) {

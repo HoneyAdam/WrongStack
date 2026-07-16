@@ -95,6 +95,7 @@ export function createModeHandlers(ctx: ModeHandlersContext): ModeRouteHandlers 
       }
       const { id } = parsed.value;
       try {
+        const prev = await ctx.modeStore.getActiveMode();
         if (id === 'default') {
           await ctx.modeStore.setActiveMode(null);
         } else {
@@ -105,6 +106,15 @@ export function createModeHandlers(ctx: ModeHandlersContext): ModeRouteHandlers 
           await ctx.modeStore.setActiveMode(id);
         }
         ctx.setModeId(id);
+        // Persist the switch marker so a resumed session replays it. Best-effort.
+        const fromMode = prev?.id ?? 'default';
+        if (ctx.context.session && fromMode !== id) {
+          void ctx.context.session
+            .append({ type: 'mode_changed', ts: new Date().toISOString(), from: fromMode, to: id })
+            .catch(() => {
+              /* best-effort */
+            });
+        }
         const modePrompt = id === 'default' ? '' : ((await ctx.modeStore.getMode(id))?.prompt ?? '');
         const paths = resolveWstackPaths({ projectRoot: ctx.projectRoot, globalRoot: ctx.globalRoot });
         const freshBuilder = new DefaultSystemPromptBuilder({

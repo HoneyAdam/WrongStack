@@ -1939,6 +1939,7 @@ export async function main(argv: string[]): Promise<number> {
     modeStore,
     restoredMessages: sessResult.restoredMessages,
     restoredToolCalls: sessResult.restoredToolCalls,
+    restoredEvents: sessResult.restoredEvents,
     needsSetup,
   },
   provider: {

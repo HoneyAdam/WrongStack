@@ -44,6 +44,13 @@ export interface SessionResult {
     outputTokens?: number | undefined;
     outputLines?: number | undefined;
   }>;
+  /**
+   * Raw JSONL event stream from the prior session. Empty when not resuming.
+   * Feeds the canonical resume renderer so boot `--resume` shows tool I/O and
+   * interleaved audit markers (mode/compaction/checkpoint/skill/…) — matching
+   * the in-session resume picker instead of meta-only tool chips.
+   */
+  restoredEvents: import('@wrongstack/core').SessionEvent[];
 }
 
 export async function setupSession(params: {
@@ -122,6 +129,7 @@ export async function setupSession(params: {
   let session: SessionWriter | undefined;
   let restoredMessages: import('@wrongstack/core').Message[] = [];
   let restoredToolCalls: SessionResult['restoredToolCalls'] = [];
+  let restoredEvents: SessionResult['restoredEvents'] = [];
   if (resumeId) {
     try {
       const resumed = await sessionStore.resume(resumeId);
@@ -131,6 +139,7 @@ export async function setupSession(params: {
       // store impls) may not carry toolCallEnds — missing must not turn a
       // perfectly resumable session into RESUME_FAILED.
       restoredToolCalls = resumed.data.toolCallEnds ?? [];
+      restoredEvents = resumed.data.events ?? [];
       renderer.writeInfo(
         `Resumed session ${resumed.data.metadata.id} — ${restoredMessages.length} messages, ${restoredToolCalls.length} tool executions, ${resumed.data.usage.input + resumed.data.usage.output} tokens used previously.`,
       );
@@ -292,6 +301,7 @@ export async function setupSession(params: {
     detachTodosCheckpoint,
     priorFleetState: dirState ?? undefined,
     restoredToolCalls,
+    restoredEvents,
   };
 }
 

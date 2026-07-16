@@ -114,6 +114,7 @@ export async function handleModeSwitch(
     return;
   }
   try {
+    const prev = await ctx.modeStore.getActiveMode();
     if (id === 'default') {
       await ctx.modeStore.setActiveMode(null);
     } else {
@@ -129,6 +130,15 @@ export async function handleModeSwitch(
     }
     // Store the mode in context.meta so the agent sees it on the next turn.
     ctx.agent.ctx.meta['mode'] = id;
+    // Persist the switch marker so a resumed session replays it. Best-effort.
+    const fromMode = prev?.id ?? 'default';
+    if (ctx.agent.ctx.session && fromMode !== id) {
+      void ctx.agent.ctx.session
+        .append({ type: 'mode_changed', ts: new Date().toISOString(), from: fromMode, to: id })
+        .catch(() => {
+          /* best-effort */
+        });
+    }
     sendResult(ctx, ws, true, `Switched to mode "${id}"`);
     const payload = await ctx.buildSessionStart({ mode: id });
     ctx.broadcast({ type: 'session.start', payload });

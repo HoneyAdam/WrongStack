@@ -505,6 +505,12 @@ export interface RunTuiOptions {
         outputLines?: number | undefined;
       }>
     | undefined;
+  /**
+   * Raw prior-session JSONL events. When provided, the boot `--resume` history
+   * is rebuilt with the canonical renderer (tool I/O + interleaved audit
+   * markers) instead of meta-only tool chips. Omitted → legacy fallback.
+   */
+  restoredEvents?: import('@wrongstack/core').SessionEvent[] | undefined;
 
   /**
    * List recent session summaries for the /resume picker. The CLI reads
@@ -1253,6 +1259,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           restoreDebugStreamCallback: opts.restoreDebugStreamCallback,
           restoredMessages: opts.restoredMessages,
           restoredToolCalls: opts.restoredToolCalls,
+          restoredEvents: opts.restoredEvents,
           listSessions: opts.listSessions,
           onResumeSession: opts.onResumeSession,
           getProjectPickerItems: opts.getProjectPickerItems,

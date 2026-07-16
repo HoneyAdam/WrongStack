@@ -190,6 +190,63 @@ describe('session lifecycle end-to-end (JSONL chain)', () => {
     expect(data.messages).toHaveLength(1);
     expect(data.metadata.endedAt).toBeUndefined();
   });
+
+  it('surfaces an interrupted-tool notice on resume when a tool_use had no result', async () => {
+    const writer = await store.create({ id: '', model: 'm', provider: 'p' });
+    const id = writer.id;
+    await writer.append({ type: 'user_input', ts: ts(1), content: 'do a thing' });
+    await writer.append({
+      type: 'llm_response',
+      ts: ts(2),
+      content: [
+        { type: 'text', text: 'working on it' },
+        { type: 'tool_use', id: 'tu-live', name: 'bash', input: { command: 'sleep 999' } },
+      ],
+      stopReason: 'tool_use',
+      usage: { input: 1, output: 1 },
+    });
+    // No tool_result — the run was interrupted mid-tool.
+    await writer.close();
+
+    // load() reports the pending count; adjacency repair strips the orphan.
+    const data = await store.load(id);
+    expect(data.pendingToolUseCount).toBe(1);
+
+    // resume() injects an informational (never re-executed) system notice.
+    const resumed = await store.resume(id);
+    const hasNotice = resumed.data.messages.some(
+      (m) =>
+        m.role === 'system' &&
+        typeof m.content === 'string' &&
+        m.content.includes('[SESSION RESUME INTERRUPTED WORK]'),
+    );
+    expect(hasNotice).toBe(true);
+    await resumed.writer.close();
+  });
+
+  it('does not inject an interrupted-tool notice for a cleanly finished session', async () => {
+    const writer = await store.create({ id: '', model: 'm', provider: 'p' });
+    const id = writer.id;
+    await writer.append({ type: 'user_input', ts: ts(1), content: 'ping' });
+    await writer.append({
+      type: 'llm_response',
+      ts: ts(2),
+      content: [{ type: 'text', text: 'pong' }],
+      stopReason: 'end_turn',
+      usage: { input: 1, output: 1 },
+    });
+    await writer.append({ type: 'session_end', ts: ts(3), usage: { input: 1, output: 1 } });
+    await writer.close();
+
+    const data = await store.load(id);
+    expect(data.pendingToolUseCount).toBeUndefined();
+    const resumed = await store.resume(id);
+    const hasNotice = resumed.data.messages.some(
+      (m) => typeof m.content === 'string' && m.content.includes('[SESSION RESUME INTERRUPTED WORK]'),
+    );
+    expect(hasNotice).toBe(false);
+    await resumed.writer.close();
+  });
 });
 
 function ts(n: number): string {

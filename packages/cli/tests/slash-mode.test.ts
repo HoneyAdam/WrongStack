@@ -114,5 +114,33 @@ describe('/mode slash command', () => {
       expect(out!.message).toContain('teach');
       expect(store.setActiveMode).not.toHaveBeenCalled();
     });
+
+    it('records a mode_changed session event on a real switch', async () => {
+      const store = makeStore(modes[0]); // active: default
+      const append = vi.fn(async () => undefined);
+      const ctx = {
+        modeStore: store,
+        renderer: { write: vi.fn() },
+        context: { session: { append } },
+      } as never as SlashCommandContext;
+      const cmd = buildModeCommand(ctx);
+      await cmd.run!('brief', undefined);
+      expect(append).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'mode_changed', from: 'default', to: 'brief' }),
+      );
+    });
+
+    it('does not record mode_changed when the target mode is already active', async () => {
+      const store = makeStore(modes[1]); // active: brief
+      const append = vi.fn(async () => undefined);
+      const ctx = {
+        modeStore: store,
+        renderer: { write: vi.fn() },
+        context: { session: { append } },
+      } as never as SlashCommandContext;
+      const cmd = buildModeCommand(ctx);
+      await cmd.run!('brief', undefined);
+      expect(append).not.toHaveBeenCalled();
+    });
   });
 });

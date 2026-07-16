@@ -151,7 +151,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
     session: {
       session, context, attachments, queueStore, mcpRegistry, mailbox,
       sessionStore, memoryStore, modeStore, detachTodosCheckpoint,
-      restoredMessages, restoredToolCalls, needsSetup,
+      restoredMessages, restoredToolCalls, restoredEvents, needsSetup,
     },
     provider: {
       modelsRegistry, savedProviderCfg, resolvedProvider,
@@ -989,8 +989,19 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
             : undefined,
           switchMode: modeStore
             ? async (id: string) => {
+                const prev = await modeStore.getActiveMode();
                 await modeStore.setActiveMode(id);
                 const active = await modeStore.getActiveMode();
+                // Persist the switch marker so a resumed session replays it.
+                // Best-effort — never let session recording break the switch.
+                const from = prev?.id ?? 'default';
+                if (agent.ctx.session && from !== id) {
+                  void agent.ctx.session
+                    .append({ type: 'mode_changed', ts: new Date().toISOString(), from, to: id })
+                    .catch(() => {
+                      /* best-effort */
+                    });
+                }
                 return active?.name ?? null;
               }
             : undefined,
@@ -998,6 +1009,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
           restoreDebugStreamCallback,
           restoredMessages,
           restoredToolCalls,
+          restoredEvents,
           // ── Session resume support ──────────────────────────────────
           listSessions: async (limit = 20) => {
             if (!activeSessionStore) return [];
@@ -1017,7 +1029,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
             }));
           },
           onResumeSession: (sessionId: string) =>
-            resumeSession({ state, agent, tokenCounter, switchProviderAndModel }, sessionId),
+            resumeSession({ state, agent, tokenCounter, switchProviderAndModel, events }, sessionId),
           getProjectPickerItems: () => getProjectPickerItems(pickerCtx),
           onProjectSelect: (slug: string, kind: 'project' | 'action') =>
             onProjectSelect(pickerCtx, slug, kind),

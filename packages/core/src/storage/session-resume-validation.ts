@@ -153,3 +153,22 @@ export function formatResumeValidationNotice(
     ...shown,
   ].join('\n');
 }
+
+/**
+ * Build the ephemeral system message injected when the resumed session had
+ * tool calls still in flight (the previous run crashed or was interrupted
+ * before their results were recorded). The interrupted `tool_use` blocks are
+ * stripped from the reconstructed conversation by adjacency repair and are NOT
+ * re-executed on resume — this notice simply makes the interruption visible so
+ * the model can decide whether to retry the work. Returns null when nothing
+ * was in flight.
+ */
+export function formatInterruptedToolNotice(pendingToolUseCount: number): string | null {
+  if (!Number.isFinite(pendingToolUseCount) || pendingToolUseCount <= 0) return null;
+  const plural = pendingToolUseCount === 1 ? 'tool call was' : 'tool calls were';
+  return [
+    '[SESSION RESUME INTERRUPTED WORK]',
+    `The previous run left ${pendingToolUseCount} ${plural} in flight — no result was recorded before it stopped (crash or interrupt).`,
+    'Those interrupted tool calls were removed from the restored conversation and were NOT re-executed. Re-run the work if it still needs doing.',
+  ].join('\n');
+}
