@@ -24,17 +24,19 @@ import {
   WifiOff,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useAppTranslation } from '@/i18n';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { useAppTranslation } from '@/i18n';
 import { playCompletionChime } from '@/lib/chime';
 import { cn } from '@/lib/utils';
-import { getWSClient } from '@/lib/ws-client';
 import { showPanel } from '@/lib/view-navigation';
+import { getWSClient } from '@/lib/ws-client';
 import { useChatStore, useConfigStore, useFleetStore, useSessionStore, useUIStore } from '@/stores';
 import { useLocalPrefs } from '@/stores/local-prefs';
 import { fmtTok } from '../ChatView/utils';
 import { downloadChatAsMarkdown } from '../CommandPalette';
+import { confirmModal } from '../ConfirmModal';
 import { ContextFillBar } from '../ContextBar';
+
 // ── Formatting helpers ────────────────────────────────────────────────
 
 function fmtCost(v: number): string {
@@ -237,11 +239,29 @@ export function SessionPanel() {
   const send = (msg: Parameters<NonNullable<ReturnType<typeof getWSClient>>['send']>[0]) =>
     getWSClient(wsUrl)?.send?.(msg);
 
+  const handleNewSession = useCallback(async () => {
+    if (
+      isLoading &&
+      !(await confirmModal({
+        title: t('activity:sessionPanel.actions.newSessionConfirm'),
+        message: t('activity:sessionPanel.actions.newSessionConfirmMessage'),
+        confirmLabel: t('activity:sessionPanel.actions.newSession'),
+        danger: true,
+      }))
+    ) {
+      return;
+    }
+
+    client?.newSession?.();
+    // Starting a conversation is a chat-surface action — bring it up.
+    showPanel('chat');
+  }, [client, isLoading, t]);
+
   return (
     <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain bg-[hsl(var(--surface-2)/0.28)] [scrollbar-gutter:stable]">
       {/* ── Quick actions ── */}
       <div className="grid grid-cols-2 gap-1.5 border-b border-border/70 bg-card/55 px-3 py-2.5">
-        {isLoading ? (
+        {isLoading && (
           <ActionButton
             icon={<Square className="h-3 w-3" />}
             label={t('activity:sessionPanel.actions.abort')}
@@ -249,20 +269,15 @@ export function SessionPanel() {
             onClick={() => send({ type: 'abort', payload: {} })}
             disabled={!wsConnected}
           />
-        ) : (
-          <ActionButton
-            icon={<Plus className="h-3 w-3" />}
-            label={t('activity:sessionPanel.actions.newSession')}
-            tone="primary"
-            onClick={() => {
-              client?.newSession?.();
-              // Starting a conversation is a chat-surface action — bring it up.
-              showPanel('chat');
-            }}
-            disabled={!wsConnected}
-            title={t('activity:sessionPanel.actions.newSessionTitle')}
-          />
         )}
+        <ActionButton
+          icon={<Plus className="h-3 w-3" />}
+          label={t('activity:sessionPanel.actions.newSession')}
+          tone="primary"
+          onClick={() => void handleNewSession()}
+          disabled={!wsConnected}
+          title={t('activity:sessionPanel.actions.newSessionTitle')}
+        />
         <ActionButton
           icon={<Download className="h-3 w-3" />}
           label={t('activity:sessionPanel.actions.export')}

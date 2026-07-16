@@ -247,6 +247,8 @@
       "newSession": "Yeni oturum",
       "export": "Dışa aktar",
       "compact": "Sıkıştır",
+      "newSessionConfirm": "Emin misiniz?",
+      "newSessionConfirmMessage": "Bir iş hâlâ devam ediyor. Yine de yeni bir oturum başlatılsın mı?",
       "newSessionTitle": "Yeni oturum başlat (Ctrl+N)",
       "exportTitle": "Sohbeti markdown olarak dışa aktar (Ctrl+E)",
       "compactTitle": "Bağlam penceresini sıkıştır",

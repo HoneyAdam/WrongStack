@@ -247,6 +247,8 @@
       "newSession": "Neue Sitzung",
       "export": "Export",
       "compact": "Komprimieren",
+      "newSessionConfirm": "Sind Sie sicher?",
+      "newSessionConfirmMessage": "Ein Auftrag wird noch ausgeführt. Trotzdem eine neue Sitzung starten?",
       "newSessionTitle": "Neue Sitzung starten (Ctrl+N)",
       "exportTitle": "Chat als Markdown exportieren (Ctrl+E)",
       "compactTitle": "Kontextfenster komprimieren",

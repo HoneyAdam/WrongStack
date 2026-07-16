@@ -247,6 +247,8 @@
       "newSession": "Nuova sessione",
       "export": "Esporta",
       "compact": "Comprimi",
+      "newSessionConfirm": "Confermi?",
+      "newSessionConfirmMessage": "Un'attività è ancora in corso. Avviare comunque una nuova sessione?",
       "newSessionTitle": "Avvia una nuova sessione (Ctrl+N)",
       "exportTitle": "Esporta la chat come markdown (Ctrl+E)",
       "compactTitle": "Comprimi la finestra di contesto",
