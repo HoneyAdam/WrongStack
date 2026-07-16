@@ -681,6 +681,55 @@ async function runAudienceMemory(
     };
   }
 
+  // /memory audience import <json-array>
+  // Loads exported memories from JSON into this project's store.
+  if (sub === 'import' || sub === 'load') {
+    const jsonText = rest.slice(1).join(' ').trim();
+    if (!jsonText) {
+      return { message: 'Usage: /memory audience import <json-array>\nPaste the JSON output from `/memory audience export`.' };
+    }
+    let entries: Array<{
+      text?: unknown; kind?: unknown; status?: unknown;
+      audience?: unknown; tags?: unknown; importance?: unknown; confidence?: unknown;
+    }>;
+    try {
+      const cleaned = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+      entries = JSON.parse(cleaned);
+    } catch {
+      return { message: 'Invalid JSON. Paste the output from `/memory audience export`.' };
+    }
+    if (!Array.isArray(entries) || entries.length === 0) {
+      return { message: 'No entries found in the JSON.' };
+    }
+    let imported = 0;
+    let skipped = 0;
+    for (const entry of entries) {
+      if (typeof entry.text !== 'string' || !entry.text.trim()) {
+        skipped++;
+        continue;
+      }
+      try {
+        await store.rememberSuper({
+          text: entry.text,
+          ...(typeof entry.kind === 'string' ? { kind: entry.kind as never } : {}),
+          ...(Array.isArray(entry.tags) ? { tags: entry.tags as string[] } : {}),
+          ...(entry.audience && typeof entry.audience === 'object' ? { audience: entry.audience as never } : {}),
+          ...(typeof entry.importance === 'number' ? { importance: entry.importance } : {}),
+          ...(typeof entry.confidence === 'number' ? { confidence: entry.confidence } : {}),
+        });
+        imported++;
+      } catch {
+        skipped++;
+      }
+    }
+    return {
+      message:
+        imported === 0
+          ? 'No memories imported — all entries were invalid.'
+          : `Imported ${imported} memor${imported === 1 ? 'y' : 'ies'}${skipped > 0 ? `, skipped ${skipped}` : ''}.`,
+    };
+  }
+
   return {
     message: [
       '## /memory audience',
@@ -690,6 +739,7 @@ async function runAudienceMemory(
       '`/memory audience search <query>` — search scoped memories by partial text/role/mode',
       '`/memory audience transfer <from-role> <to-role>` — bulk re-scope memories from one role to another',
       '`/memory audience export [--role <r>]` — dump scoped memories as JSON',
+      '`/memory audience import <json-array>` — load exported memories from JSON',
       '`/memory audience clear <memory-id>` — remove scope (becomes general memory)',
     ].join('\n'),
   };
