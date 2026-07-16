@@ -356,6 +356,7 @@ export function startHttpServer(opts: {
     requireToken: opts.requireToken,
     watcherMetrics: opts.watcherMetrics,
     onFleetPing: opts.onFleetPing,
+    projectRoot: opts.projectRoot,
   });
   const registryBaseDir = path.dirname(opts.globalConfigPath);
   httpServer.listen(opts.httpPort, opts.wsHost, () => {
