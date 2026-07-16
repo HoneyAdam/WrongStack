@@ -13,7 +13,7 @@
 
 import type { Context } from '@wrongstack/core';
 import { runIndexer } from './indexer.js';
-import type { IndexResult, IndexStats, SymbolKind, SymbolLang } from './schema.js';
+import type { CodeMapGraph, IndexResult, IndexStats, SymbolKind, SymbolLang } from './schema.js';
 import type { IndexOpArgs, SearchOpArgs, SearchOpResult, StatsOpArgs } from './worker-protocol.js';
 import { IndexStore } from './writer.js';
 
@@ -75,6 +75,38 @@ export function statsService(args: StatsOpArgs): IndexStats {
   const store = new IndexStore(args.projectRoot, { indexDir: args.indexDir });
   try {
     return store.getStats();
+  } finally {
+    store.close();
+  }
+}
+
+// ─── CodeMap graph services ──────────────────────────────────────────────────
+
+/** Package-level dependency graph. */
+export function packageGraphService(args: StatsOpArgs): CodeMapGraph {
+  const store = new IndexStore(args.projectRoot, { indexDir: args.indexDir });
+  try {
+    return store.getPackageGraph();
+  } finally {
+    store.close();
+  }
+}
+
+/** File-level dependency graph for a single package. */
+export function fileGraphService(args: StatsOpArgs & { packageFilter: string }): CodeMapGraph {
+  const store = new IndexStore(args.projectRoot, { indexDir: args.indexDir });
+  try {
+    return store.getFileGraph(args.packageFilter);
+  } finally {
+    store.close();
+  }
+}
+
+/** Symbol-level dependency graph for a single file. */
+export function symbolGraphService(args: StatsOpArgs & { fileFilter: string }): CodeMapGraph {
+  const store = new IndexStore(args.projectRoot, { indexDir: args.indexDir });
+  try {
+    return store.getSymbolGraph(args.fileFilter);
   } finally {
     store.close();
   }

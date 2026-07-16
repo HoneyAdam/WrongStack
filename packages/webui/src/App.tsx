@@ -43,6 +43,9 @@ import { WorkspaceDock, WorkspaceDockInspector } from './components/WorkspaceDoc
 const AnalyticsDashboard = lazy(() =>
   import('./components/AnalyticsDashboard').then((m) => ({ default: m.AnalyticsDashboard })),
 );
+const CodeMap = lazy(() =>
+  import('./components/CodeMap').then((m) => ({ default: m.CodeMap })),
+);
 const AutoPhaseView = lazy(() =>
   import('./components/AutoPhaseView').then((m) => ({ default: m.AutoPhaseView })),
 );
@@ -666,6 +669,17 @@ function AppInner() {
             <Suspense fallback={<PanelSuspense />}>
               <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
                 <AnalyticsDashboard />
+              </div>
+            </Suspense>
+          </ErrorBoundary>
+        )}
+
+        {/* ── CodeMap — interactive dependency graph (package → file → symbol) ── */}
+        {currentView === 'codemap' && (
+          <ErrorBoundary level="panel" name="CodeMap">
+            <Suspense fallback={<PanelSuspense label="Loading CodeMap…" />}>
+              <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+                <CodeMap />
               </div>
             </Suspense>
           </ErrorBoundary>

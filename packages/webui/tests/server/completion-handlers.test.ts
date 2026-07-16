@@ -9,6 +9,12 @@ const searchCodebaseIndex = vi.fn();
 
 vi.mock('@wrongstack/tools/codebase-index/index', () => ({
   searchCodebaseIndex,
+  codebaseIndexTool: vi.fn(),
+  codebaseSearchTool: vi.fn(),
+  codebaseStatsTool: vi.fn(),
+  packageGraphService: vi.fn(),
+  fileGraphService: vi.fn(),
+  symbolGraphService: vi.fn(),
 }));
 
 // The in-test `await import(...)` of completion-handlers pays the whole module

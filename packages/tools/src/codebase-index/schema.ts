@@ -113,6 +113,43 @@ export interface Ref {
   line: number;        // source line where the reference occurs
 }
 
+// ─── CodeMap graph types ──────────────────────────────────────────────────────
+
+/** A node in the code-map dependency graph. */
+export interface GraphNode {
+  id: string;
+  label: string;
+  kind: 'package' | 'file' | 'symbol';
+  /** Package name (packages/) or undefined. */
+  package?: string | undefined;
+  /** File path (relative to project root) or undefined for package-level. */
+  file?: string | undefined;
+  /** Symbol id when kind === 'symbol'. */
+  symbolId?: number | undefined;
+  /** Symbol kind when kind === 'symbol'. */
+  symbolKind?: SymbolKind | undefined;
+  /** Number of symbols contained (for package/file nodes). */
+  symbolCount?: number | undefined;
+  /** Number of files contained (for package nodes). */
+  fileCount?: number | undefined;
+}
+
+/** A directed edge: source references / depends-on target. */
+export interface GraphEdge {
+  source: string;
+  target: string;
+  /** Number of refs contributing to this edge (weight). */
+  weight: number;
+  /** Dominant ref type: 'call', 'import', 'type_ref', etc. */
+  refType: CallType;
+}
+
+/** Complete graph response. */
+export interface CodeMapGraph {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
 // ─── Schema version ───────────────────────────────────────────────────────────
 
 // v2: added the symbols_fts FTS5 table (ranked search moved into SQLite).

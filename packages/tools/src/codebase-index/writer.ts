@@ -24,7 +24,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { resolveWstackPaths } from '@wrongstack/core';
-import type { FileMeta, IndexStats, Ref, SearchResult, Symbol as IndexSymbol, SymbolKind, SymbolLang } from './schema.js';
+import type { FileMeta, IndexStats, Ref, SearchResult, Symbol as IndexSymbol, SymbolKind, SymbolLang, CodeMapGraph, GraphNode, GraphEdge, CallType } from './schema.js';
 import { SCHEMA_VERSION } from './schema.js';
 import { lspKindToInternalKind } from './lsp-kind.js';
 import { buildBm25Index, buildIndexableText, tokenise } from './bm25.js';
@@ -1028,6 +1028,259 @@ export class IndexStore {
     } catch {
       return 0;
     }
+  }
+
+  // ─── CodeMap graph aggregation ──────────────────────────────────────────────
+
+  /**
+   * Derive a monorepo package name from an absolute file path.
+   * Handles both `packages/<name>/...` (workspace) and `src/<name>/...` layouts.
+   * Returns `undefined` for files outside any recognisable package structure.
+   */
+  private static derivePackage(filePath: string): string | undefined {
+    // Normalise backslashes (Windows) to forward slashes.
+    const f = filePath.replace(/\\/g, '/');
+    const pkgsIdx = f.indexOf('/packages/');
+    if (pkgsIdx !== -1) {
+      const rest = f.slice(pkgsIdx + '/packages/'.length);
+      const seg = rest.split('/')[0];
+      return seg ? `@wrongstack/${seg}` : undefined;
+    }
+    const appsIdx = f.indexOf('/apps/');
+    if (appsIdx !== -1) {
+      const rest = f.slice(appsIdx + '/apps/'.length);
+      const seg = rest.split('/')[0];
+      return seg ? `app:${seg}` : undefined;
+    }
+    return undefined;
+  }
+
+  /**
+   * Package-level graph: each workspace package is a node; edges are derived
+   * from cross-package symbol references (a symbol in package A references a
+   * symbol resolved in package B). Node metadata includes symbol/file counts.
+   */
+  getPackageGraph(): CodeMapGraph {
+    type Row = { file: string; id: number; name: string; kind: string; lang: string; line: number };
+    const symbols = this.db.prepare(
+      'SELECT file, id, name, kind, lang, line FROM symbols ORDER BY id',
+    ).all() as Row[];
+
+    // Build per-package aggregates
+    const pkgNodes = new Map<string, GraphNode>();
+    const fileToPkg = new Map<string, string>();
+    const symbolToPkg = new Map<number, string>();
+
+    for (const s of symbols) {
+      const pkg = IndexStore.derivePackage(s.file) ?? '(root)';
+      fileToPkg.set(s.file, pkg);
+      symbolToPkg.set(s.id, pkg);
+      const node = pkgNodes.get(pkg);
+      if (node) {
+        node.symbolCount = (node.symbolCount ?? 0) + 1;
+      } else {
+        pkgNodes.set(pkg, {
+          id: `pkg:${pkg}`,
+          label: pkg,
+          kind: 'package' as const,
+          package: pkg,
+          symbolCount: 1,
+          fileCount: 0,
+        });
+      }
+    }
+
+    // File counts per package
+    const files = this.db.prepare('SELECT DISTINCT file FROM files').all() as { file: string }[];
+    for (const { file } of files) {
+      const pkg = IndexStore.derivePackage(file) ?? '(root)';
+      const node = pkgNodes.get(pkg);
+      if (node) node.fileCount = (node.fileCount ?? 0) + 1;
+    }
+
+    // Cross-package edges from resolved refs
+    const refRows = this.db.prepare(
+      `SELECT r.from_id, r.to_id, r.call_type
+       FROM refs r
+       WHERE r.to_id IS NOT NULL`,
+    ).all() as { from_id: number; to_id: number; call_type: string }[];
+
+    const edgeMap = new Map<string, { weight: number; types: Map<string, number> }>();
+    for (const r of refRows) {
+      const fromPkg = symbolToPkg.get(r.from_id);
+      const toPkg = symbolToPkg.get(r.to_id);
+      if (!fromPkg || !toPkg || fromPkg === toPkg) continue;
+      const key = `${fromPkg}\u0000${toPkg}`;
+      let e = edgeMap.get(key);
+      if (!e) {
+        e = { weight: 0, types: new Map() };
+        edgeMap.set(key, e);
+      }
+      e.weight++;
+      e.types.set(r.call_type, (e.types.get(r.call_type) ?? 0) + 1);
+    }
+
+    const edges: GraphEdge[] = [];
+    for (const [key, e] of edgeMap) {
+      const [source, target] = key.split('\u0000');
+      // Dominant ref type = most frequent
+      let bestType = 'call';
+      let bestCount = 0;
+      for (const [t, c] of e.types) {
+        if (c > bestCount) { bestType = t; bestCount = c; }
+      }
+      edges.push({
+        source: `pkg:${source}`,
+        target: `pkg:${target}`,
+        weight: e.weight,
+        refType: bestType as CallType,
+      });
+    }
+
+    return { nodes: [...pkgNodes.values()], edges };
+  }
+
+  /**
+   * File-level graph for a single package: each file is a node; edges are
+   * derived from cross-file symbol references within the package.
+   */
+  getFileGraph(packageFilter: string): CodeMapGraph {
+    type SymRow = { file: string; id: number; name: string; kind: string; lang: string; line: number };
+    const allSymbols = this.db.prepare(
+      'SELECT file, id, name, kind, lang, line FROM symbols ORDER BY id',
+    ).all() as SymRow[];
+
+    // Filter symbols to the requested package
+    const pkgSyms = allSymbols.filter((s) => (IndexStore.derivePackage(s.file) ?? '(root)') === packageFilter);
+    if (pkgSyms.length === 0) return { nodes: [], edges: [] };
+
+    const fileNodes = new Map<string, GraphNode>();
+    const symToFile = new Map<number, string>();
+    for (const s of pkgSyms) {
+      symToFile.set(s.id, s.file);
+      if (!fileNodes.has(s.file)) {
+        fileNodes.set(s.file, {
+          id: `file:${s.file}`,
+          label: s.file.replace(/\\/g, '/').split('/').pop() ?? s.file,
+          kind: 'file' as const,
+          package: packageFilter,
+          file: s.file,
+          symbolCount: 0,
+        });
+      }
+      const node = fileNodes.get(s.file)!;
+      node.symbolCount = (node.symbolCount ?? 0) + 1;
+    }
+
+    // Cross-file edges within the package
+    const refRows = this.db.prepare(
+      `SELECT r.from_id, r.to_id, r.call_type
+       FROM refs r
+       WHERE r.to_id IS NOT NULL`,
+    ).all() as { from_id: number; to_id: number; call_type: string }[];
+
+    const edgeMap = new Map<string, { weight: number; types: Map<string, number> }>();
+    for (const r of refRows) {
+      const fromFile = symToFile.get(r.from_id);
+      const toFile = symToFile.get(r.to_id);
+      if (!fromFile || !toFile || fromFile === toFile) continue;
+      const key = `${fromFile}\u0000${toFile}`;
+      let e = edgeMap.get(key);
+      if (!e) {
+        e = { weight: 0, types: new Map() };
+        edgeMap.set(key, e);
+      }
+      e.weight++;
+      e.types.set(r.call_type, (e.types.get(r.call_type) ?? 0) + 1);
+    }
+
+    const edges: GraphEdge[] = [];
+    for (const [key, e] of edgeMap) {
+      const [source, target] = key.split('\u0000');
+      let bestType = 'call';
+      let bestCount = 0;
+      for (const [t, c] of e.types) {
+        if (c > bestCount) { bestType = t; bestCount = c; }
+      }
+      edges.push({
+        source: `file:${source}`,
+        target: `file:${target}`,
+        weight: e.weight,
+        refType: bestType as CallType,
+      });
+    }
+
+    return { nodes: [...fileNodes.values()], edges };
+  }
+
+  /**
+   * Symbol-level graph for a single file: each symbol is a node; edges are
+   * derived from intra-file and cross-file symbol references (who calls whom).
+   */
+  getSymbolGraph(fileFilter: string): CodeMapGraph {
+    type SymRow = { id: number; name: string; kind: string; lang: string; file: string; line: number; signature: string; scope: string };
+    const syms = this.db.prepare(
+      'SELECT id, name, kind, lang, file, line, signature, scope FROM symbols WHERE file = ? ORDER BY line, id',
+    ).all(fileFilter) as SymRow[];
+
+    if (syms.length === 0) return { nodes: [], edges: [] };
+
+    const symById = new Map<number, SymRow>();
+    const nodes: GraphNode[] = syms.map((s) => {
+      symById.set(s.id, s);
+      return {
+        id: `sym:${s.id}`,
+        label: s.name,
+        kind: 'symbol' as const,
+        symbolId: s.id,
+        symbolKind: s.kind as SymbolKind,
+        file: s.file,
+        package: IndexStore.derivePackage(s.file) ?? '(root)',
+      };
+    });
+
+    // Collect refs FROM symbols in this file (outgoing) and TO symbols in this
+    // file (incoming), so the graph shows both callers and callees.
+    const symIds = new Set(syms.map((s) => s.id));
+    const refRows = this.db.prepare(
+      `SELECT r.from_id, r.to_id, r.to_name, r.call_type, r.line
+       FROM refs r
+       WHERE r.from_id IN (SELECT id FROM symbols WHERE file = ?)
+          OR r.to_id IN (SELECT id FROM symbols WHERE file = ?)`,
+    ).all(fileFilter, fileFilter) as { from_id: number; to_id: number | null; to_name: string; call_type: string; line: number }[];
+
+    const edgeMap = new Map<string, { weight: number; types: Map<string, number> }>();
+    for (const r of refRows) {
+      if (r.to_id === null) continue;
+      // Only include edges where at least one endpoint is in our file
+      if (!symIds.has(r.from_id) && !symIds.has(r.to_id)) continue;
+      const key = `${r.from_id}\u0000${r.to_id}`;
+      let e = edgeMap.get(key);
+      if (!e) {
+        e = { weight: 0, types: new Map() };
+        edgeMap.set(key, e);
+      }
+      e.weight++;
+      e.types.set(r.call_type, (e.types.get(r.call_type) ?? 0) + 1);
+    }
+
+    const edges: GraphEdge[] = [];
+    for (const [key, e] of edgeMap) {
+      const [fromId, toId] = key.split('\u0000').map(Number);
+      let bestType = 'call';
+      let bestCount = 0;
+      for (const [t, c] of e.types) {
+        if (c > bestCount) { bestType = t; bestCount = c; }
+      }
+      edges.push({
+        source: `sym:${fromId}`,
+        target: `sym:${toId}`,
+        weight: e.weight,
+        refType: bestType as CallType,
+      });
+    }
+
+    return { nodes, edges };
   }
 
   close(): void {

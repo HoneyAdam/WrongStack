@@ -13,6 +13,7 @@ import {
   Keyboard,
   LayoutGrid,
   Mail,
+  Network,
   MessageSquare,
   Monitor,
   Moon,
@@ -96,6 +97,7 @@ const VIEWS: ViewDef[] = [
   { id: 'kanban', icon: <Columns3 size={16} />, label: 'Kanban' },
   { id: 'sddboard', icon: <ActivityIconSvg size={16} />, label: 'Live Board' },
   { id: 'autophase', icon: <Rocket size={16} />, label: 'Phases' },
+  { id: 'codemap', icon: <Network size={16} />, label: 'CodeMap' },
   { id: 'settings', icon: <SettingsIcon size={16} />, label: 'Settings' },
   { id: 'memory', icon: <BrainCircuit size={16} />, label: 'Memory' },
 ];

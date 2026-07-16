@@ -13,6 +13,8 @@ import {
   useSessionStore,
   useSideEffectStore,
   useSpecsStore,
+  extractActivitiesFromMessage,
+  useCodemapActivityStore,
 } from '@/stores';
 import type { WSServerMessage } from '@/types';
 
@@ -25,10 +27,11 @@ import { filesMailboxHandlerMap, queryMailbox } from './ws-handlers/files-mailbo
 // Fleet domain handlers extracted to fleet-handlers.ts
 import { fleetHandlerMap } from './ws-handlers/fleet-handlers.js';
 // Misc domain handlers extracted to misc-handlers.ts
-import { miscHandlerMap } from './ws-handlers/misc-handlers.js';
+import { miscHandlerMap, handleMemoryEvent } from './ws-handlers/misc-handlers.js';
 // Session domain handlers extracted to session-handlers.ts
 import {
   handleError as handleSessionDomainError,
+  handleProviderResponse,
   handleSessionStart,
   sessionHandlerMap,
 } from './ws-handlers/session-handlers.js';
@@ -560,5 +563,35 @@ export const WS_HANDLERS: Partial<Record<WSServerMessage['type'], (msg: WSServer
     },
     'tool.enabled': (_msg: WSServerMessage) => {
       // SettingsPanel/ToolsSection listens on the raw message stream and refreshes tools.list.
+    },
+    // ── CodeMap activity overlay ──────────────────────────────────────────
+    // Every provider.response / file.saved / memory.event message is scanned
+    // for file-touching tool calls. Matching activities are recorded in the
+    // codemap-activity store, which drives the realtime highlight/pulse overlay
+    // and the per-file activity history on the CodeMap graph.
+    // IMPORTANT: these compose with — not replace — the existing handlers from
+    // sessionHandlerMap/miscHandlerMap. We call the original first, then record.
+    'provider.response': (msg: WSServerMessage) => {
+      handleProviderResponse(msg);
+      const activities = extractActivitiesFromMessage(msg);
+      if (activities.length > 0) {
+        const store = useCodemapActivityStore.getState();
+        for (const a of activities) store.recordActivity(a);
+      }
+    },
+    'file.saved': (msg: WSServerMessage) => {
+      const activities = extractActivitiesFromMessage(msg);
+      if (activities.length > 0) {
+        const store = useCodemapActivityStore.getState();
+        for (const a of activities) store.recordActivity(a);
+      }
+    },
+    'memory.event': (msg: WSServerMessage) => {
+      handleMemoryEvent(msg);
+      const activities = extractActivitiesFromMessage(msg);
+      if (activities.length > 0) {
+        const store = useCodemapActivityStore.getState();
+        for (const a of activities) store.recordActivity(a);
+      }
     },
   };

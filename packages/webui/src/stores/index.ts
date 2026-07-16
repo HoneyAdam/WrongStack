@@ -88,3 +88,8 @@ export {
 export type { VizEdge, VizEvent, VizNode } from './viz-store.js';
 export { useVizStore } from './viz-store.js';
 export { useWorktreeStore } from './worktree-store.js';
+export type { ActivityType, FileActivity } from './codemap-activity-store.js';
+export {
+  extractActivitiesFromMessage,
+  useCodemapActivityStore,
+} from './codemap-activity-store.js';

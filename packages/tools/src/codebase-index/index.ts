@@ -58,6 +58,13 @@ export {
   lspKindToInternalKind,
 } from './lsp-kind.js';
 
+// Codemap graph services — package/file/symbol dependency visualization.
+export {
+  packageGraphService,
+  fileGraphService,
+  symbolGraphService,
+} from './index-service.js';
+
 // Re-export shared types
 export type {
   Symbol,
@@ -68,5 +75,8 @@ export type {
   IndexStats,
   IndexResult,
   SearchResult,
+  GraphNode,
+  GraphEdge,
+  CodeMapGraph,
 } from './schema.js';
 export { SCHEMA_VERSION } from './schema.js';

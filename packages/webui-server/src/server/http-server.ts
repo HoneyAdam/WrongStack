@@ -42,6 +42,11 @@ import {
   handleApiAnalyticsPost,
   handleApiAnalyticsSummary,
 } from './http-server/analytics-handler.js';
+import {
+  handleCodemapFiles,
+  handleCodemapPackages,
+  handleCodemapSymbols,
+} from './codemap-handlers.js';
 import { extractTokenFromCookie, isLoopbackBind, tokenMatches } from './ws-auth.js';
 import type { FileWatcherMetrics } from './setup-events.js';
 
@@ -95,6 +100,13 @@ export interface CreateHttpServerOptions {
    * reaches the map without waiting on the file-watch/poll. Best-effort.
    */
   onFleetPing?: (() => void) | undefined;
+  /**
+   * Project root path for the codebase index. When provided, the
+   * /api/codemap/* endpoints serve the dependency graph.
+   */
+  projectRoot?: string | undefined;
+  /** Optional codebase-index directory override (tests). */
+  indexDir?: string | undefined;
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -493,6 +505,66 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
           return;
         }
         await handleApiAnalyticsSummary(res);
+        return;
+      }
+
+      // ── CodeMap endpoints ──────────────────────────────────────────────
+      // Serve the dependency graph at three drill-down levels. All read-only
+      // GET — the graph is derived from the SQLite codebase index, so these
+      // are safe behind the same access-token gate as other /api routes.
+      if (url.pathname === '/api/codemap/packages' && req.method === 'GET') {
+        if (requireAccessToken && !accessTokenOk) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized' }));
+          return;
+        }
+        if (!opts.projectRoot) {
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Project root not configured' }));
+          return;
+        }
+        handleCodemapPackages(res, {
+          projectRoot: opts.projectRoot,
+          ...(opts.indexDir ? { indexDir: opts.indexDir } : {}),
+        });
+        return;
+      }
+
+      if (url.pathname === '/api/codemap/files' && req.method === 'GET') {
+        if (requireAccessToken && !accessTokenOk) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized' }));
+          return;
+        }
+        if (!opts.projectRoot) {
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Project root not configured' }));
+          return;
+        }
+        const pkg = url.searchParams.get('package') ?? '';
+        handleCodemapFiles(res, {
+          projectRoot: opts.projectRoot,
+          ...(opts.indexDir ? { indexDir: opts.indexDir } : {}),
+        }, pkg);
+        return;
+      }
+
+      if (url.pathname === '/api/codemap/symbols' && req.method === 'GET') {
+        if (requireAccessToken && !accessTokenOk) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized' }));
+          return;
+        }
+        if (!opts.projectRoot) {
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Project root not configured' }));
+          return;
+        }
+        const file = url.searchParams.get('file') ?? '';
+        handleCodemapSymbols(res, {
+          projectRoot: opts.projectRoot,
+          ...(opts.indexDir ? { indexDir: opts.indexDir } : {}),
+        }, file);
         return;
       }
 
