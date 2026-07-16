@@ -4,7 +4,6 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SqliteSuperMemoryStore } from '../src/sqlite-store.js';
 import { SuperMemoryStore } from '../src/store.js';
-import type { SuperMemory } from '../src/types.js';
 
 let tempDir: string;
 
@@ -27,26 +26,6 @@ afterEach(async () => {
 function trackStore(store: SqliteSuperMemoryStore): SqliteSuperMemoryStore {
   activeStores.push(store);
   return store;
-}
-
-function makeMemory(overrides: Partial<SuperMemory> = {}): SuperMemory {
-  return {
-    id: 'test-' + Math.random().toString(36).slice(2, 10),
-    revision: 1,
-    text: 'Test memory content',
-    kind: 'fact',
-    scope: 'project',
-    status: 'active',
-    tags: ['test'],
-    anchors: [],
-    sources: [{ type: 'user' }],
-    importance: 0.7,
-    confidence: 0.8,
-    freshness: 1,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    ...overrides,
-  };
 }
 
 describe('SqliteSuperMemoryStore', () => {
@@ -135,7 +114,7 @@ describe('SqliteSuperMemoryStore', () => {
       const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
       await store.initialize();
       const mem = await store.rememberSuper({ text: 'To be deleted', kind: 'fact' });
-      await store.addGraphEdge('mem:abc', `mem:${mem.id}`, 'relates_to');
+      await store.addGraphEdge('mem:abc', `mem:${mem.id}`, 'related_to');
       const result = await store.deleteSuper(mem.id, 'test deletion');
       expect(result.deleted).toBe(true);
       const stats = await store.getStats();
@@ -208,7 +187,7 @@ describe('SqliteSuperMemoryStore', () => {
         kind: 'file_note',
         anchors: [{ type: 'directory', path: 'src/auth' }],
       });
-      const results = await store.retrieveForPath(['src/auth/config.ts'], { includeAncestors: true });
+      const results = await store.retrieveForPath(['src/auth/config.ts'], { path: 'src/auth/config.ts', includeAncestors: true });
       expect(results.length).toBeGreaterThanOrEqual(1);
 
     });
@@ -260,7 +239,7 @@ describe('SqliteSuperMemoryStore', () => {
       await store.initialize();
       await store.rememberSuper({ text: 'Fact one', kind: 'fact' });
       await store.rememberSuper({ text: 'Decision one', kind: 'decision' });
-      await store.addGraphEdge('mem:a', 'mem:b', 'relates_to');
+      await store.addGraphEdge('mem:a', 'mem:b', 'related_to');
       const stats = await store.getStats();
       expect(stats.total).toBe(2);
       expect(stats.byStatus.active).toBe(2);
@@ -285,8 +264,8 @@ describe('SqliteSuperMemoryStore', () => {
     it('aggregates edge weights on duplicate inserts', async () => {
       const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
       await store.initialize();
-      await store.addGraphEdge('mem:x', 'mem:y', 'relates_to', 1);
-      await store.addGraphEdge('mem:x', 'mem:y', 'relates_to', 1);
+      await store.addGraphEdge('mem:x', 'mem:y', 'related_to', 1);
+      await store.addGraphEdge('mem:x', 'mem:y', 'related_to', 1);
       const edges = await store.traverseGraph(['mem:x']);
       const xy = edges.find((e) => e.from === 'mem:x' && e.to === 'mem:y');
       expect(xy).toBeDefined();
