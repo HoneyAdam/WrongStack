@@ -6,7 +6,7 @@
  * an existing memory.
  */
 import { Filter, Plus, RefreshCw, ShieldOff, Tag, Trash2, X } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useWebSocket } from '@/hooks/useWebSocket';
@@ -28,26 +28,39 @@ export function AudienceMemoryPanel() {
   const [error, setError] = useState<string | null>(null);
   const [filterRole, setFilterRole] = useState('');
   const [showCreate, setShowCreate] = useState(false);
+  const mountedRef = useRef(false);
+
+  // Stable send ref so refresh() doesn't change on every ws.client reference change
+  const sendRef = useRef<(msg: unknown) => void>(() => {});
+  sendRef.current = (msg) => ws.client.send?.(msg as never);
 
   const refresh = useCallback(() => {
     setLoading(true);
     setError(null);
-    ws.client.send?.({ type: 'memory.super.list' });
-  }, [ws]);
+    sendRef.current({ type: 'memory.super.list' });
+  }, []);
 
+  // Only load on mount — not every time ws.client reference changes
   useEffect(() => {
+    if (mountedRef.current) return;
+    mountedRef.current = true;
     refresh();
   }, [refresh]);
 
+  // Stable client ref for event handlers
+  const clientRef = useRef(ws.client);
+  clientRef.current = ws.client;
+
   useEffect(() => {
-    const unsubList = ws.client.on?.('memory.super.list', (msg: unknown) => {
+    const client = clientRef.current;
+    const unsubList = client.on?.('memory.super.list', (msg: unknown) => {
       const payload = (msg as { payload?: { memories?: SuperMemoryEntry[]; error?: string } })
         ?.payload;
       if (payload?.error) setError(payload.error);
       else setMemories(payload?.memories ?? []);
       setLoading(false);
     });
-    const unsubRemember = ws.client.on?.('memory.super.remember', (msg: unknown) => {
+    const unsubRemember = client.on?.('memory.super.remember', (msg: unknown) => {
       const payload = (msg as { payload?: { memory?: SuperMemoryEntry; error?: string } })?.payload;
       if (payload?.error) setError(payload.error);
       else if (payload?.memory) {
@@ -55,7 +68,7 @@ export function AudienceMemoryPanel() {
         setShowCreate(false);
       }
     });
-    const unsubUpdate = ws.client.on?.('memory.super.update', (msg: unknown) => {
+    const unsubUpdate = client.on?.('memory.super.update', (msg: unknown) => {
       const payload = (msg as { payload?: { memory?: SuperMemoryEntry; error?: string } })?.payload;
       if (!payload?.error && payload?.memory) {
         setMemories((prev) =>
@@ -63,7 +76,7 @@ export function AudienceMemoryPanel() {
         );
       }
     });
-    const unsubDelete = ws.client.on?.('memory.super.delete', () => {
+    const unsubDelete = client.on?.('memory.super.delete', () => {
       refresh();
     });
     return () => {
@@ -72,7 +85,7 @@ export function AudienceMemoryPanel() {
       unsubUpdate?.();
       unsubDelete?.();
     };
-  }, [ws, refresh]);
+  }, [refresh]);
 
   const scoped = memories.filter((m) => m.audience);
   const filtered = filterRole

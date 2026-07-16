@@ -1338,6 +1338,31 @@ export function MemoryManager() {
         </div>
       </div>
 
+      {(() => {
+        const scopedCount = memories.filter((m) => m.audience).length;
+        if (scopedCount === 0) return null;
+        const roles = new Set<string>();
+        for (const m of memories) {
+          if (!m.audience) continue;
+          for (const r of m.audience.roles ?? []) roles.add(r);
+          for (const r of m.audience.taskTypes ?? []) roles.add(r);
+          for (const r of m.audience.modes ?? []) roles.add(r);
+        }
+        return (
+          <div className="flex shrink-0 items-center gap-2 border-b border-border/70 bg-primary/5 px-4 py-1.5">
+            <BrainCircuit className="size-3.5 text-primary" />
+            <span className="text-[11px] font-medium text-primary">
+              {scopedCount} audience-scoped memory{scopedCount !== 1 ? 'ies' : ''}
+            </span>
+            {roles.size > 0 && (
+              <span className="text-[10px] text-muted-foreground">
+                ({[...roles].sort().join(', ')})
+              </span>
+            )}
+          </div>
+        );
+      })()}
+
       {(notice || loadError || mutationError) && (
         <div className="shrink-0 border-b border-border/70 px-4 py-2" aria-live="polite">
           {notice && (
