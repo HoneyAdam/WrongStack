@@ -1002,3 +1002,49 @@ export ANTHROPIC_API_KEY=sk-ant-...
   }
 }
 ```
+
+---
+
+## Super Memory storage engine
+
+Super Memory stores project-scoped knowledge (facts, decisions, conventions, preferences) in `.wrongstack/memories/`. Two storage engines are available:
+
+### JSONL (default)
+
+Append-only JSONL file (`memories.jsonl`) with file locking for concurrent multi-agent access. This is the default — no configuration needed.
+
+- **Pros:** append-only, human-readable, no binary dependency
+- **Cons:** every read/search/retrieve operation parses the entire file (O(n) scan)
+
+### SQLite (opt-in)
+
+Indexed database (`memories.db`) using Node's built-in `node:sqlite`, with WAL mode for multi-process concurrency and FTS5 for full-text search.
+
+- **Pros:** indexed lookups (O(log n)), FTS5 BM25-ranked search, dramatically faster at scale
+- **Cons:** requires Node ≥ 22.5 (experimental `node:sqlite`), binary `.db` file not human-readable
+
+On first open with the SQLite engine, if a legacy `memories.jsonl` exists, records are **auto-migrated** into the database (one-time cost, no data loss).
+
+### Enabling the SQLite engine
+
+Add `engine: "sqlite"` to the `superMemory.storage` section:
+
+```jsonc
+{
+  "version": 1,
+  "provider": "anthropic",
+  "superMemory": {
+    "storage": {
+      "engine": "sqlite"
+    }
+  }
+}
+```
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `superMemory.storage.engine` | `"jsonl" \| "sqlite"` | `"jsonl"` | Storage engine. `"sqlite"` enables indexed search + FTS5. |
+| `superMemory.storage.directory` | `string` | `.wrongstack/memories` | Project-relative directory for memory files. |
+| `superMemory.storage.projectLocal` | `boolean` | `true` | Store memory inside the project (gitignored). |
+
+> **Migration is automatic.** Switching from `jsonl` to `sqlite` migrates existing records on first launch. Switching back to `jsonl` does not migrate back — the JSONL file remains unchanged from before the switch.
