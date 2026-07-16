@@ -103,7 +103,13 @@ function memoryRememberTool(memory: SuperMemoryServiceLike): Tool<RememberToolIn
       '- One-off debugging notes\n' +
       '- Information already obvious from the codebase\n\n' +
       'Pick the most specific `kind`. Add 1-3 `tags`. Anchor to a `path`/`symbol`/`command`\n' +
-      'whenever the memory is about a concrete code location so it stays verifiable.',
+      'whenever the memory is about a concrete code location so it stays verifiable.\n\n' +
+      'AUDIENCE SCOPING:\n' +
+      '- Pass `audience: { roles: [...] }` to target a memory to specific agent types.\n' +
+      '- Scoped memories are injected into matching subagent system prompts automatically.\n' +
+      '- They are excluded from ordinary search/retrieval so they do not clutter general hints.\n' +
+      '- Example: a reviewer agent can record `audience: { roles: ["reviewer"] }` to share\n' +
+      '  review-specific guidance with future reviewer instances across sessions.',
     permission: 'confirm',
     mutating: true,
     riskTier: 'standard',
