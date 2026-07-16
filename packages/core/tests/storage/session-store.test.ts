@@ -354,15 +354,24 @@ describe('DefaultSessionStore', () => {
       try {
         const flush = () =>
           (w as never as { flushBuffer: () => Promise<void> }).flushBuffer().catch(() => undefined);
-        // First batch: one failing flush of 5 events → one warn that folds
-        // the other 4 events into a "+4 suppressed" tail.
+        // First batch: one failing flush → one warn that folds every event
+        // beyond the first into a `suppressed` count.
         for (let i = 0; i < 5; i++) {
           await w.append({ type: 'user_input', ts: new Date().toISOString(), content: `m${i}` });
         }
         await flush();
         expect(warn).toHaveBeenCalledTimes(1);
         const firstCall = warn.mock.calls[0]!;
-        expect(firstCall.some((arg) => /\+\d+ suppressed/.test(String(arg)))).toBe(true);
+        // The warn is structured JSON; it folds every event of the failed
+        // batch beyond the first into a `suppressed` count. The exact count
+        // tracks the batch size (session_start rides along with the appends),
+        // so assert it is surfaced rather than pinning a brittle number.
+        const logged = JSON.parse(String(firstCall[0])) as {
+          event: string;
+          suppressed?: number;
+        };
+        expect(logged.event).toBe('session.flush_failed');
+        expect(logged.suppressed).toBeGreaterThan(0);
         // Advance past the 5-second throttle window and fail one more —
         // a fresh warn fires instead of being suppressed.
         vi.setSystemTime(Date.now() + 6000);
