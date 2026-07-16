@@ -138,7 +138,6 @@ export class SessionMemoryConsolidator implements AgentExtension {
             model: _model ?? 'deepseek-chat',
             maxTokens: 500,
             timeoutMs: 15_000,
-            fallbackProfile: 'memory',
           });
           text = oneShotResult.text;
         } else {

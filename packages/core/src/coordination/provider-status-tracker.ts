@@ -192,7 +192,7 @@ export class ProviderModelStatusTracker {
   recordSuccess(
     providerId: string,
     model: string,
-    meta?: { sessionId?: string | undefined; agentId?: string | undefined },
+    _meta?: { sessionId?: string | undefined; agentId?: string | undefined },
   ): void {
     const key = pairKey(providerId, model);
     const s = this.getOrCreate(key, providerId, model);
@@ -501,8 +501,8 @@ export class ProviderModelStatusTracker {
 
   private getOrCreate(
     key: string,
-    providerId: string,
-    model: string,
+    _providerId: string,
+    _model: string,
   ): MutableProviderModelStatus {
     let s = this.map.get(key);
     if (!s) {

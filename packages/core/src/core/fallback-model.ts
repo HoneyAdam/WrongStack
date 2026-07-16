@@ -361,7 +361,7 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
         // Record success in the tracker
         tracker?.recordSuccess(ctx.provider.id, ctx.model, {
           sessionId: ctx.session?.id,
-          agentId: ctx.agent?.id,
+          agentId: ctx.agentId,
         });
         const cfg = deps.getConfig();
         if (ctx.provider.id === cfg.provider && ctx.model === cfg.model) {
@@ -393,7 +393,7 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
             firstErr_.describe(),
             {
               sessionId: ctx_.session?.id,
-              agentId: ctx_.agent?.id,
+              agentId: ctx_.agentId,
               retryAfterMs: firstErr_.body?.retryAfterMs,
             },
           );
@@ -477,7 +477,7 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
                 err.describe(),
                 {
                   sessionId: ctx_.session?.id,
-                  agentId: ctx_.agent?.id,
+                  agentId: ctx_.agentId,
                   retryAfterMs: err.body?.retryAfterMs,
                 },
               );

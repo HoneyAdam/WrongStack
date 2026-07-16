@@ -1,5 +1,4 @@
 import type { TextBlock } from './blocks.js';
-import type { FallbackProfileManager } from '../core/fallback-profile-manager.js';
 import type { ResponseFormat } from './provider.js';
 
 /**
@@ -145,6 +144,11 @@ export interface OneShotOrchestratorOptions {
    * are honored without restart).
    */
   getConfig: () => import('./config.js').Config;
+
+  /**
+   * Shared live FallbackProfileManager for resolving fallback chains.
+   */
+  fallbackProfileManager: import('../core/fallback-profile-manager.js').FallbackProfileManager;
 
   /**
    * Optional ModelRouter for role-based model selection.
