@@ -417,28 +417,27 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
     }
   }, [activeBoardId]);
 
-  // ── Live polling — refresh board + queue health every 3s while active ──
-  // Sent raw (not via sendKanban) so the background poll doesn't flip the
-  // loading spinner on every tick; agents that mutate tasks mid-run (status,
-  // assignment) surface here, complementing the server's dispatch broadcasts.
+  // ── Live polling — fallback refresh every 5s while active ──
+  // The primary update path is now push-based: the server broadcasts kanban.get
+  // via a file watcher whenever the board JSON changes on disk. This poll
+  // exists only as a safety net for edge cases the watcher may miss.
+  // Reduced from 3s to 5s to cut redundant WS traffic.
   useEffect(() => {
     if (!activeBoardId) return;
     const interval = setInterval(() => {
       ws.send({ type: 'kanban.get', payload: { boardId: activeBoardId } });
       ws.send({ type: 'kanban.health', payload: { boardId: activeBoardId } });
-      ws.send({ type: 'kanban.supervisor.status', payload: { boardId: activeBoardId } });
-    }, 3000);
+    }, 5000);
     return () => clearInterval(interval);
   }, [activeBoardId, ws]);
 
-  // ── Board-list poll — surface boards created out-of-band ──
-  // Todo/task/plan changes live-mirror onto one `session:<id>` board, while
-  // launched runs may still spin up their own boards. Re-list every 4s (raw
-  // send → no spinner) so out-of-band boards appear without a manual refresh.
+  // ── Board-list poll — fallback every 8s ──
+  // Primary path is push-based (file watcher broadcasts kanban.get). Re-list
+  // less aggressively since push covers the active board.
   useEffect(() => {
     const interval = setInterval(() => {
       ws.send({ type: 'kanban.list' });
-    }, 4000);
+    }, 8000);
     return () => clearInterval(interval);
   }, [ws]);
 
