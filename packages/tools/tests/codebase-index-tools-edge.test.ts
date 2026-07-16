@@ -30,6 +30,7 @@ vi.mock('../src/codebase-index/background-indexer.js', () => ({
   getIndexState: () => state,
   isIndexing: () => isIndexingValue,
   codebaseIndexStats: async () => statsValue,
+  searchCodebaseIndex: async () => ({ results: [], total: 0 }),
   runStartupIndex: async () => ({
     filesIndexed: 1,
     symbolsIndexed: 1,
@@ -88,19 +89,24 @@ describe('codebase-index tool gates', () => {
 });
 
 describe('codebase-stats tool gates', () => {
-  it('reports "not yet built" when the index is not ready', async () => {
+  it('reports "not yet built" when the persisted index has no data', async () => {
     state.ready = false;
+    statsValue.totalSymbols = 0;
+    statsValue.totalFiles = 0;
     const out = await codebaseStatsTool.execute({}, ctx(), opts());
-    expect(out.indexStatus).toMatch(/not yet built/);
+    // The tool now always inspects persisted state, so a fresh launch with
+    // an empty DB reads zero counts without surfacing a status.
+    expect(out.indexStatus).toBeUndefined();
+    expect(out.totalSymbols).toBe(0);
   });
 
-  it('reports indexing-in-progress when not ready but indexing', async () => {
+  it('reports indexing-in-progress when persisting data is in flight', async () => {
     state.ready = false;
     state.indexing = true;
     state.currentFile = 3;
     state.totalFiles = 10;
     const out = await codebaseStatsTool.execute({}, ctx(), opts());
-    expect(out.indexStatus).toMatch(/Indexing in progress/);
+    expect(out.indexStatus).toMatch(/Initial indexing in progress/);
   });
 
   it('reports refresh-in-progress when ready and indexing', async () => {
@@ -113,41 +119,47 @@ describe('codebase-stats tool gates', () => {
     state.circuit = { state: 'open', cooldownRemainingMs: 3000, lastFailure: 'x' };
     const out = await codebaseStatsTool.execute({}, ctx(), opts());
     expect(out.indexStatus).toMatch(/paused after repeated failures/);
-    expect(out.totalSymbols).toBe(5);
+    expect(out.totalSymbols).toBe(statsValue.totalSymbols);
   });
 
   it('handles open circuit without a lastFailure value', async () => {
     state.circuit = { state: 'open', cooldownRemainingMs: 3000 };
     const out = await codebaseStatsTool.execute({}, ctx(), opts());
     expect(out.indexStatus).toContain('unknown');
-    expect(out.totalSymbols).toBe(5);
+    expect(out.totalSymbols).toBe(statsValue.totalSymbols);
   });
 
   it('returns plain stats when ready and healthy', async () => {
     const out = await codebaseStatsTool.execute({}, ctx(), opts());
-    expect(out.totalSymbols).toBe(5);
+    expect(out.totalSymbols).toBe(statsValue.totalSymbols);
     expect(out.indexStatus).toBeUndefined();
   });
 });
 
 describe('codebase-search tool gates', () => {
-  it('reports "not yet built" when not ready', async () => {
+  it('reports no persisted data when not ready and DB is empty', async () => {
     state.ready = false;
     const out = await codebaseSearchTool.execute({ query: 'q' }, ctx(), opts());
-    expect(out.indexStatus).toMatch(/not yet built/);
+    expect(out.indexStatus).toMatch(/No persisted index data/);
   });
 
   it('reports indexing-in-progress when not ready but indexing', async () => {
     state.ready = false;
     state.indexing = true;
+    state.currentFile = 0;
+    state.totalFiles = 0;
     const out = await codebaseSearchTool.execute({ query: 'q' }, ctx(), opts());
+    // The first build still surfaces a clear "not ready" status so callers
+    // know to retry rather than read a misleading zero-result snapshot.
     expect(out.indexStatus).toMatch(/Indexing in progress/);
   });
 
-  it('reports refresh-in-progress when ready and indexing', async () => {
+  it('proceeds against the persisted snapshot while refreshing', async () => {
+    state.ready = true;
     state.indexing = true;
     const out = await codebaseSearchTool.execute({ query: 'q' }, ctx(), opts());
-    expect(out.indexStatus).toMatch(/refresh in progress/);
+    // Refresh no longer blocks — WAL readers see the prior snapshot.
+    expect(out.indexStatus).toBeUndefined();
   });
 
   it('reports a build failure with a circuit-open retry hint', async () => {

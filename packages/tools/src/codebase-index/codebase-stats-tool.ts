@@ -8,7 +8,6 @@
 
 import type { Tool } from '@wrongstack/core';
 import { codebaseIndexStats, getIndexState } from './background-indexer.js';
-import { SCHEMA_VERSION } from './schema.js';
 import { codebaseIndexDirOverride } from './writer.js';
 
 export const codebaseStatsTool: Tool<Record<string, never>, CodebaseStatsOutput> = {
@@ -34,22 +33,9 @@ export const codebaseStatsTool: Tool<Record<string, never>, CodebaseStatsOutput>
   },
   async execute(_input, ctx, execOpts) {
     const idxState = getIndexState();
-    if (!idxState.ready) {
-      return {
-        totalSymbols: 0,
-        totalFiles: 0,
-        byLang: {},
-        byKind: {},
-        lastIndexed: null,
-        sizeBytes: 0,
-        indexPath: '',
-        version: SCHEMA_VERSION,
-        indexStatus: idxState.indexing
-          ? `Indexing in progress (${idxState.currentFile}/${idxState.totalFiles} files).`
-          : 'Index not yet built.',
-      };
-    }
 
+    // Always inspect persisted state. Readiness is process-local and resets on
+    // every CLI launch, while the SQLite index intentionally survives launches.
     // Fetched via the index host (worker thread when available) — the main
     // thread never opens SQLite here.
     const stats = await codebaseIndexStats(
@@ -60,7 +46,9 @@ export const codebaseStatsTool: Tool<Record<string, never>, CodebaseStatsOutput>
     if (idxState.indexing) {
       return {
         ...stats,
-        indexStatus: `Index refresh in progress (${idxState.currentFile}/${idxState.totalFiles} files). Stats may be incomplete.`,
+        indexStatus: idxState.ready
+          ? `Index refresh in progress (${idxState.currentFile}/${idxState.totalFiles} files). Showing the persisted snapshot.`
+          : `Initial indexing in progress (${idxState.currentFile}/${idxState.totalFiles} files). Showing persisted data if available.`,
       };
     }
 

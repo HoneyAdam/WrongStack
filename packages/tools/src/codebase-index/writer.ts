@@ -30,6 +30,30 @@ import { lspKindToInternalKind } from './lsp-kind.js';
 import { buildBm25Index, buildIndexableText, tokenise } from './bm25.js';
 const DB_FILE = 'index.db';
 
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+function assignRefsToSymbols(refs: Ref[], symbols: IndexSymbol[]): Ref[] {
+  if (refs.length === 0 || symbols.length === 0) return [];
+  const ordered = [...symbols].sort((a, b) => a.line - b.line || a.col - b.col || a.id - b.id);
+  const seen = new Set<string>();
+  const assigned: Ref[] = [];
+  for (const ref of refs) {
+    let owner: IndexSymbol | undefined;
+    for (const symbol of ordered) {
+      if (symbol.line > ref.line) break;
+      owner = symbol;
+    }
+    if (!owner || owner.id <= 0) continue;
+    const key = `${owner.id}:${ref.toName}:${ref.callType}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    assigned.push({ ...ref, fromId: owner.id });
+  }
+  return assigned;
+}
+
 /**
  * Resolve the per-project index directory. By default it lives under the
  * global project dir (`~/.wrongstack/projects/<hash>/codebase-index`),
@@ -318,6 +342,25 @@ export class IndexStore {
     try {
       this.db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(text, tokenize = 'unicode61')");
       this.ftsAvailable = true;
+      // A database may have been populated by a runtime without FTS5. Backfill
+      // the derived table when FTS later becomes available instead of making
+      // every historical symbol invisible until a forced rebuild.
+      const symbolCount = Number(
+        (this.db.prepare('SELECT COUNT(*) AS n FROM symbols').get() as { n?: number } | undefined)?.n ?? 0,
+      );
+      const ftsCount = Number(
+        (this.db.prepare('SELECT COUNT(*) AS n FROM symbols_fts').get() as { n?: number } | undefined)?.n ?? 0,
+      );
+      if (symbolCount !== ftsCount) {
+        this.db.exec('DELETE FROM symbols_fts');
+        const insert = this.db.prepare('INSERT INTO symbols_fts(rowid, text) VALUES (?, ?)');
+        const rows = this.db
+          .prepare('SELECT id, name, signature, doc_comment FROM symbols ORDER BY id')
+          .all() as Array<{ id: number; name: string; signature: string; doc_comment: string }>;
+        for (const row of rows) {
+          insert.run(row.id, buildIndexableText(row.name, row.signature, row.doc_comment));
+        }
+      }
     } catch {
       // SQLite built without FTS5 — searchRanked falls back to LIKE + BM25.
       this.ftsAvailable = false;
@@ -402,9 +445,23 @@ export class IndexStore {
    */
   deleteFile(file: string): void {
     this.runWithRetry(() => {
-      this.deleteRefsForFile(file);
-      this.deleteSymbolsForFile(file);
-      this.stmt('DELETE FROM files WHERE file = ?').run(file);
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        if (this.ftsAvailable) {
+          this.db.prepare(
+            'DELETE FROM symbols_fts WHERE rowid IN (SELECT id FROM symbols WHERE file_fk = ?)',
+          ).run(file);
+        }
+        this.db.prepare(
+          'DELETE FROM refs WHERE from_id IN (SELECT id FROM symbols WHERE file_fk = ?)',
+        ).run(file);
+        this.db.prepare('DELETE FROM symbols WHERE file_fk = ?').run(file);
+        this.db.prepare('DELETE FROM files WHERE file = ?').run(file);
+        this.db.exec('COMMIT');
+      } catch (err) {
+        this.db.exec('ROLLBACK');
+        throw err;
+      }
     });
   }
 
@@ -470,8 +527,8 @@ export class IndexStore {
       values.push(filter.lang);
     }
     if (filter?.file) {
-      conditions.push('file LIKE ?');
-      values.push(`%${filter.file}%`);
+      conditions.push("replace(file, '\\', '/') LIKE ? ESCAPE '\\'");
+      values.push(`%${escapeLike(filter.file.replace(/\\/g, '/'))}%`);
     }
     if (query.trim()) {
       const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -522,10 +579,12 @@ export class IndexStore {
       | undefined,
     limit: number,
   ): { results: SearchResult[]; total: number } {
+    const rawLimit = Number.isFinite(limit) ? Math.trunc(limit) : 20;
+    const safeLimit = Math.max(1, Math.min(rawLimit, 100));
     const tokens = tokenise(query);
     // No usable tokens → plain filtered listing (matches old `search('')`).
     if (tokens.length === 0 || !this.ftsAvailable) {
-      return this.searchRankedFallback(query, filter, limit);
+      return this.searchRankedFallback(query, filter, safeLimit);
     }
 
     let effectiveKind: SymbolKind | undefined = filter?.kind;
@@ -549,8 +608,8 @@ export class IndexStore {
       values.push(filter.lang);
     }
     if (filter?.file) {
-      conditions.push('s.file LIKE ?');
-      values.push(`%${filter.file}%`);
+      conditions.push("replace(s.file, '\\', '/') LIKE ? ESCAPE '\\'");
+      values.push(`%${escapeLike(filter.file.replace(/\\/g, '/'))}%`);
     }
     const where = conditions.join(' AND ');
 
@@ -567,10 +626,14 @@ export class IndexStore {
                 snippet(symbols_fts, 0, '', '', '…', 12) AS snippet
          FROM symbols_fts JOIN symbols s ON s.id = symbols_fts.rowid
          WHERE ${where}
-         ORDER BY bm25(symbols_fts)
+         ORDER BY
+           CASE WHEN lower(s.name) = lower(?) THEN 0
+                WHEN lower(s.name) LIKE lower(?) ESCAPE '\\' THEN 1
+                ELSE 2 END,
+           bm25(symbols_fts), lower(s.name), s.file, s.line, s.col, s.id
          LIMIT ?`,
       )
-      .all(...values, limit) as {
+      .all(...values, query.trim(), `${escapeLike(query.trim())}%`, safeLimit) as {
       id: number; lang: string; kind: string; name: string; file: string;
       line: number; col: number; signature: string; doc_comment: string;
       score: number; snippet: string;
@@ -617,7 +680,24 @@ export class IndexStore {
       candidates.map((c) => ({ id: c.id, text: buildIndexableText(c.name, c.signature, c.docComment) })),
     );
     const scored = bm25.score(query, (id) => candidateById.has(id));
-    scored.sort((a, b) => b.score - a.score);
+    const q = query.trim().toLowerCase();
+    const rank = (id: number): number => {
+      const name = candidateById.get(id)?.name.toLowerCase() ?? '';
+      if (name === q) return 0;
+      if (name.startsWith(q)) return 1;
+      return 2;
+    };
+    scored.sort((a, b) => {
+      const rankDiff = rank(a.id) - rank(b.id);
+      if (rankDiff !== 0) return rankDiff;
+      const scoreDiff = b.score - a.score;
+      if (scoreDiff !== 0) return scoreDiff;
+      const left = expectDefined(candidateById.get(a.id));
+      const right = expectDefined(candidateById.get(b.id));
+      return left.name.localeCompare(right.name) ||
+        left.file.localeCompare(right.file) ||
+        left.line - right.line || left.col - right.col || left.id - right.id;
+    });
     const qTokens = tokenise(query);
 
     const results = scored.slice(0, limit).map(({ id, score }) => {
@@ -695,10 +775,17 @@ export class IndexStore {
 
   clearAll(): void {
     this.runWithRetry(() => {
-      this.db.exec('DELETE FROM symbols');
-      this.db.exec('DELETE FROM files');
-      this.db.exec('DELETE FROM refs');
-      if (this.ftsAvailable) this.db.exec('DELETE FROM symbols_fts');
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        this.db.exec('DELETE FROM refs');
+        this.db.exec('DELETE FROM symbols');
+        this.db.exec('DELETE FROM files');
+        if (this.ftsAvailable) this.db.exec('DELETE FROM symbols_fts');
+        this.db.exec('COMMIT');
+      } catch (err) {
+        this.db.exec('ROLLBACK');
+        throw err;
+      }
     });
   }
 
@@ -820,6 +907,7 @@ export class IndexStore {
         const refsToInsert: Ref[] = [];
 
         for (const entry of entries) {
+          const insertedForEntry: IndexSymbol[] = [];
           for (const s of entry.symbols) {
             const id = nextId++;
             symStmt.run(
@@ -837,10 +925,11 @@ export class IndexStore {
               s.file,
             );
             ftsStmt?.run(id, buildIndexableText(s.name, s.signature, s.docComment));
-            allInserted.push({ ...s, id });
+            const inserted = { ...s, id };
+            allInserted.push(inserted);
+            insertedForEntry.push(inserted);
           }
-          // Carry refs forward — caller has already populated `fromId`.
-          for (const r of entry.refs) refsToInsert.push(r);
+          refsToInsert.push(...assignRefsToSymbols(entry.refs, insertedForEntry));
         }
 
         // 3) Insert all refs in one go.

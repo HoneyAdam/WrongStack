@@ -284,3 +284,52 @@ describe('IndexStore stats and clear', () => {
     expect(store.getStats().totalSymbols).toBe(0);
   });
 });
+
+describe('IndexStore search LIKE escaping', () => {
+  beforeEach(() => {
+    store.insertSymbols(
+      [
+        sym({ name: 'fn', kind: 'function', file: '/p/a%b.ts' }),
+        sym({ name: 'fn', kind: 'function', file: '/p/a_b.ts' }),
+        sym({ name: 'fn', kind: 'function', file: '/p/aXb.ts' }),
+      ],
+      1,
+    );
+  });
+
+  it('matches file paths literally (% and _ are not wildcards)', () => {
+    // Each file filter is matched *literally* now: `%` no longer matches anything.
+    const wildcardPct = store.search('', { file: 'a%b' }).map((s) => s.file);
+    expect(wildcardPct).toEqual(['/p/a%b.ts']);
+
+    const wildcard_ = store.search('', { file: 'a_b' }).map((s) => s.file);
+    expect(wildcard_).toEqual(['/p/a_b.ts']);
+  });
+});
+
+describe('IndexStore searchRanking exact/prefix boost', () => {
+  beforeEach(() => {
+    store.insertSymbols(
+      [
+        sym({ name: 'handle', kind: 'function', file: '/p/handle.ts' }),
+        sym({ name: 'handleRequest', kind: 'function', file: '/p/handle-request.ts' }),
+        sym({ name: 'unrelatedThing', kind: 'function', file: '/p/unrelated.ts' }),
+      ],
+      1,
+    );
+  });
+
+  it('ranks exact name ahead of prefix', () => {
+    const r = store.searchRanked('handle', undefined, 10);
+    expect(r.results.map((s) => s.name)).toEqual(['handle', 'handleRequest']);
+  });
+
+  it('clamps the limit into 1..100 even on bogus inputs', () => {
+    store.searchRanked('handle', undefined, 1000);
+    store.searchRanked('handle', undefined, -3);
+    store.searchRanked('handle', undefined, Number.NaN);
+    // No throw, and a sensible result still produced.
+    const r = store.searchRanked('handle', undefined, 0);
+    expect(r.results.length).toBeLessThanOrEqual(100);
+  });
+});

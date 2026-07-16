@@ -57,5 +57,5 @@ export type HostToWorker =
 
 export type WorkerToHost =
   | { type: 'response'; id: number; ok: true; result: unknown }
-  | { type: 'response'; id: number; ok: false; error: string }
+  | { type: 'response'; id: number; ok: false; error: string; errorName?: string | undefined }
   | { type: 'progress'; id: number; current: number; total: number };

@@ -220,15 +220,16 @@ describe('watchdog + cancel', () => {
     await expect(p).rejects.toThrow('cancelled');
   });
 
-  it('posts a cancel immediately for an already-aborted signal', async () => {
+  it('rejects an already-aborted signal without ever posting a request', async () => {
     const ac = new AbortController();
     ac.abort();
     const p = searchCodebaseIndex(SEARCH_ARGS, { signal: ac.signal });
-    await tick();
     const w = lastWorker();
-    expect(w.postMessage.mock.calls.some((c) => (c[0] as HostToWorker).type === 'cancel')).toBe(true);
-    respond(w, { type: 'response', id: lastRequest(w).id, ok: true, result: { results: [], total: 0 } });
-    await expect(p).resolves.toBeTruthy();
+    expect(w).toBeTruthy();
+    expect(w!.postMessage.mock.calls.some((c) => (c[0] as HostToWorker).type === 'request')).toBe(false);
+    // The promise rejects with the supplied reason verbatim — a DOMException
+    // for `ac.abort()` with no reason, an Error for any other.
+    await expect(p).rejects.toBeInstanceOf(DOMException);
   });
 });
 

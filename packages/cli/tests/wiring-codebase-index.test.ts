@@ -28,7 +28,7 @@ const PROJECT = '/proj';
 const logger = new DefaultLogger({ level: 'error' });
 
 function fakeCtx() {
-  return { cwd: PROJECT } as never;
+  return { cwd: PROJECT, projectRoot: PROJECT } as never;
 }
 
 function deps(indexing: unknown, pipelines: AgentPipelines) {
@@ -41,10 +41,17 @@ function deps(indexing: unknown, pipelines: AgentPipelines) {
   };
 }
 
-function toolCallPayload(toolName: string, mutating: boolean, input: unknown) {
+function toolCallPayload(
+  toolName: string,
+  mutating: boolean,
+  input: unknown,
+  result: { ok: boolean; content?: unknown } = { ok: true, content: 'ok' },
+) {
   return {
     toolUse: { type: 'tool_use', id: 't1', name: toolName, input },
-    result: { type: 'tool_result', tool_use_id: 't1', content: 'ok' },
+    result: result.ok
+      ? { type: 'tool_result', tool_use_id: 't1', content: result.content ?? 'ok' }
+      : { type: 'tool_result', tool_use_id: 't1', content: String(result.content ?? 'err'), is_error: true },
     ctx: fakeCtx(),
     tool: { name: toolName, mutating },
   } as never;
@@ -97,7 +104,7 @@ describe('setupCodebaseIndexing — startup', () => {
     await setupCodebaseIndexing(deps(undefined, p));
     expect(runStartupIndexMock).not.toHaveBeenCalled();
     // No middleware should have been registered.
-    await p.toolCall.run(toolCallPayload('write', true, { file_path: '/proj/a.ts' }));
+    await p.toolCall.run(toolCallPayload('write', true, { path: '/proj/a.ts' }));
     expect(enqueueReindexMock).not.toHaveBeenCalled();
   });
 });
@@ -109,14 +116,25 @@ describe('setupCodebaseIndexing — onEdit middleware', () => {
       deps({ onSessionStart: false, onEdit: true, watchExternal: false, debounceMs: 250 }, p),
     );
 
-    await p.toolCall.run(toolCallPayload('write', true, { file_path: 'src/a.ts' }));
+    await p.toolCall.run(toolCallPayload('write', true, { path: 'src/a.ts' }));
     expect(enqueueReindexMock).toHaveBeenCalledTimes(1);
     expect(enqueueReindexMock.mock.calls[0]?.[0]).toMatchObject({
       projectRoot: PROJECT,
-      // path.resolve(ctx.cwd, file_path) — normalized per-platform.
+      // path.resolve(ctx.cwd, path) — normalized per-platform.
       files: [path.resolve(PROJECT, 'src/a.ts')],
       debounceMs: 250,
     });
+
+    // A failed write must not schedule a reindex — it would index a file that
+    // still has the prior contents (or doesn't exist yet).
+    await p.toolCall.run(
+      toolCallPayload('write', true, { path: 'src/fail.ts' }, { ok: false, content: 'disk full' }),
+    );
+    expect(enqueueReindexMock).toHaveBeenCalledTimes(1);
+
+    // An out-of-project path is silently dropped, never indexed.
+    await p.toolCall.run(toolCallPayload('write', true, { path: '/elsewhere/a.ts' }));
+    expect(enqueueReindexMock).toHaveBeenCalledTimes(1);
 
     // Non-file / non-mutating tools are ignored.
     await p.toolCall.run(toolCallPayload('grep', false, { pattern: 'x' }));
@@ -129,7 +147,7 @@ describe('setupCodebaseIndexing — onEdit middleware', () => {
     await setupCodebaseIndexing(
       deps({ onSessionStart: false, onEdit: true, watchExternal: false, debounceMs: 250 }, p),
     );
-    await p.toolCall.run(toolCallPayload('write', true, { file_path: 'README.md' }));
+    await p.toolCall.run(toolCallPayload('write', true, { path: 'README.md' }));
     expect(enqueueReindexMock).not.toHaveBeenCalled();
   });
 
@@ -138,7 +156,7 @@ describe('setupCodebaseIndexing — onEdit middleware', () => {
     await setupCodebaseIndexing(
       deps({ onSessionStart: false, onEdit: false, watchExternal: false, debounceMs: 250 }, p),
     );
-    await p.toolCall.run(toolCallPayload('write', true, { file_path: 'src/a.ts' }));
+    await p.toolCall.run(toolCallPayload('write', true, { path: 'src/a.ts' }));
     expect(enqueueReindexMock).not.toHaveBeenCalled();
   });
 });

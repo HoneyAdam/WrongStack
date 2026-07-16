@@ -59,6 +59,18 @@ const DEFAULT_IGNORE = [
   'node_modules', '.git', 'dist', 'build', '.next', 'coverage',
   '.turbo', '__snapshots__', '.nyc_output',
 ];
+const DEFAULT_IGNORE_FILES = new Set(['package-lock.json', 'pnpm-lock.yaml', 'pnpm-lock.yml']);
+const MAX_INDEX_FILE_BYTES = 5 * 1024 * 1024;
+
+function isWithinProject(projectRoot: string, file: string): boolean {
+  const rel = path.relative(projectRoot, file);
+  return rel !== '' && !rel.startsWith(`..${path.sep}`) && rel !== '..' && !path.isAbsolute(rel);
+}
+
+function isMissingPathError(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === 'ENOENT' || code === 'ENOTDIR';
+}
 
 interface IndexerOptions {
   projectRoot: string;
@@ -88,8 +100,10 @@ async function findSourceFiles(
   ignore: string[],
   isGitIgnored: IgnoreMatcher,
   signal?: AbortSignal | undefined,
-): Promise<string[]> {
+): Promise<{ files: string[]; complete: boolean; errors: string[] }> {
   const results: string[] = [];
+  const errors: string[] = [];
+  let complete = true;
   const ignoreSet = new Set([...DEFAULT_IGNORE, ...ignore]);
   // compileGlob does not support brace expansion — use one pattern per extension
   const globs = [
@@ -121,7 +135,9 @@ async function findSourceFiles(
     let entries: Dirent[];
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      complete = false;
+      errors.push(`scan error: ${dir}: ${err instanceof Error ? err.message : String(err)}`);
       return;
     }
     dirCount++;
@@ -137,8 +153,8 @@ async function findSourceFiles(
         if (isGitIgnored(rel, true)) continue;
         await walk(full);
       } else if (e.isFile()) {
-        if (isGitIgnored(rel, false)) continue;
-        const ext = path.extname(e.name);
+        if (DEFAULT_IGNORE_FILES.has(e.name) || isGitIgnored(rel, false)) continue;
+        const ext = path.extname(e.name).toLowerCase();
         for (const { ext: extName, pat } of globs) {
           if (ext === extName && (pat.test(rel) || pat.test(e.name))) {
             results.push(full);
@@ -150,7 +166,7 @@ async function findSourceFiles(
   };
 
   await walk(projectRoot);
-  return results;
+  return { files: results, complete, errors };
 }
 
 /** Dispatch to the correct parser based on language. */
@@ -178,6 +194,28 @@ async function parseFile(
     default:
       return { file, lang: lang as 'ts' | 'tsx' | 'js' | 'jsx', symbols: [], mtimeMs: Date.now() };
   }
+}
+
+function assignRefsToSymbols(refs: Ref[], symbols: IndexSymbol[]): Ref[] {
+  if (refs.length === 0 || symbols.length === 0) return [];
+  const ordered = [...symbols].sort((a, b) => a.line - b.line || a.col - b.col || a.id - b.id);
+  const seen = new Set<string>();
+  const assigned: Ref[] = [];
+  for (const ref of refs) {
+    let owner: IndexSymbol | undefined;
+    for (const symbol of ordered) {
+      if (symbol.line > ref.line) break;
+      owner = symbol;
+    }
+    // Imports and other file-level refs before the first declaration have no
+    // meaningful source symbol in this schema, so do not persist fake owner 0.
+    if (!owner || owner.id <= 0) continue;
+    const key = `${owner.id}:${ref.toName}:${ref.callType}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    assigned.push({ ...ref, fromId: owner.id });
+  }
+  return assigned;
 }
 
 /** Run a full or incremental index and return statistics. */
@@ -216,14 +254,24 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
    *  Used for O(1) stale-file detection instead of stat-ing every
    *  previously-indexed file. Null when an explicit file list was given. */
   let discoveredFiles: Set<string> | null = null;
+  let discoveryComplete = true;
   if (opts.files && opts.files.length > 0) {
-    // Explicit file list (per-edit / watcher path): drop any that are gitignored
-    // so an ignored file edited in the editor never enters the index.
+    // Explicit file list (per-edit / watcher path): keep paths inside the
+    // project only and apply both always-on and .gitignore exclusions.
     files = opts.files
       .map((f) => path.resolve(projectRoot, f))
-      .filter((f) => !isGitIgnored(path.relative(projectRoot, f).replace(/\\/g, '/'), false));
+      .filter((f) => {
+        if (!isWithinProject(projectRoot, f)) return false;
+        const rel = path.relative(projectRoot, f).replace(/\\/g, '/');
+        return !rel.split('/').some((seg) => DEFAULT_IGNORE.includes(seg)) &&
+          !DEFAULT_IGNORE_FILES.has(path.basename(f)) &&
+          !isGitIgnored(rel, false);
+      });
   } else {
-    files = await findSourceFiles(projectRoot, ignore, isGitIgnored, signal);
+    const discovery = await findSourceFiles(projectRoot, ignore, isGitIgnored, signal);
+    files = discovery.files;
+    errors.push(...discovery.errors);
+    discoveryComplete = discovery.complete;
     discoveredFiles = new Set(files);
   }
 
@@ -264,18 +312,34 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
     // Phase 1: Parallel stat + incremental skip + read + parse
     const statOpts = signal ? { signal } : {};
     const statReadParse = await Promise.allSettled(
-      batchFiles.map(async (file): Promise<{ file: string; stat: Stats; lang: string; parsed: Awaited<ReturnType<typeof parseFile>> | null; content?: string; skippedMeta?: FileMeta; error?: string }> => {
+      batchFiles.map(async (file): Promise<{ file: string; stat: Stats; lang: string; parsed: Awaited<ReturnType<typeof parseFile>> | null; content?: string; skippedMeta?: FileMeta; error?: string; missing?: boolean }> => {
         let stat: Stats;
         try {
           stat = await (fs.stat as (path: string, opts: { signal?: AbortSignal }) => Promise<Stats>)(file, statOpts);
         } catch (e) {
           if (isAbortError(e)) throw e;
-          return { file, stat: null as never as Stats, lang: '', parsed: null, error: `stat error: ${e instanceof Error ? e.message : String(e)}` };
+          return {
+            file,
+            stat: null as never as Stats,
+            lang: '',
+            parsed: null,
+            error: `stat error: ${e instanceof Error ? e.message : String(e)}`,
+            missing: isMissingPathError(e),
+          };
         }
         if (!stat.isFile()) return { file, stat, lang: '', parsed: null };
 
         const lang = detectLang(file);
         if (!lang) return { file, stat, lang: '', parsed: null };
+        if (stat.size > MAX_INDEX_FILE_BYTES) {
+          return {
+            file,
+            stat,
+            lang,
+            parsed: null,
+            error: `file too large (${stat.size} bytes; max ${MAX_INDEX_FILE_BYTES})`,
+          };
+        }
 
         const meta = existingMeta.get(file);
         if (!force && meta && meta.mtimeMs === Math.floor(stat.mtimeMs)) {
@@ -330,8 +394,12 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
 
       const result = settled.value;
       if (result.error) {
-        if (result.stat) store.deleteFile(file);
-        if (result.error.includes('error:')) errors.push(result.error);
+        // A missing path in a targeted watcher/edit run is authoritative: the
+        // source was deleted or renamed, so remove its previous index rows.
+        // Read/parse/permission failures are transient and retain the last good
+        // snapshot instead of replacing it with an empty one.
+        if (result.missing) store.deleteFile(file);
+        errors.push(`${file}: ${result.error}`);
         continue;
       }
 
@@ -361,6 +429,8 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
       // know the mtime. They don't contribute any symbols or refs, so we
       // upsert directly without scheduling them for the batch.
       if (parsed.symbols.length === 0) {
+        store.deleteRefsForFile(file);
+        store.deleteSymbolsForFile(file);
         store.upsertFile({
           file,
           lang: lang as SymbolLang,
@@ -372,18 +442,11 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
         continue;
       }
 
-      // Pre-compute the refs batch with placeholder fromId=0 — we'll
-      // remap fromId after `commitBatch` assigns real ids.
-      const refs: Ref[] = [];
-      if (parsed.refs && parsed.refs.length > 0) {
-        for (const r of parsed.refs) refs.push({ ...r, fromId: 0 });
-      }
-
       batchEntries.push({
         file,
         lang: lang as SymbolLang,
         symbols: parsed.symbols,
-        refs,
+        refs: parsed.refs ?? [],
         mtimeMs: Math.floor(stat.mtimeMs),
         symbolCount: parsed.symbols.length,
       });
@@ -392,44 +455,12 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
 
     if (batchEntries.length > 0) {
       try {
-        const inserted = store.commitBatch(batchEntries, { deleteForFiles });
-        // inserted is the full list of inserted symbols in order; the
-        // caller assigned one id per entry.symbols in iteration order, so
-        // we can split it back per-file for the refs remap.
-        let cursor = 0;
+        store.commitBatch(batchEntries, { deleteForFiles });
         for (const entry of batchEntries) {
           const count = entry.symbols.length;
-          const symbolsWithIds = inserted.slice(cursor, cursor + count);
-          cursor += count;
-
           symbolsIndexed += count;
           langStats[entry.lang] = (langStats[entry.lang] ?? 0) + count;
           filesIndexed++;
-
-          // Map refs to their real fromId. Refs were grouped per-line in
-          // the parser, so we can reindex by line.
-          if (entry.refs.length > 0 && symbolsWithIds.length > 0) {
-            const refsByLine = new Map<number, number[]>();
-            for (let i = 0; i < symbolsWithIds.length; i++) {
-              const sym = symbolsWithIds[i]!;
-              let arr = refsByLine.get(sym.line);
-              if (!arr) {
-                arr = [];
-                refsByLine.set(sym.line, arr);
-              }
-              arr.push(i);
-            }
-            for (const ref of entry.refs) {
-              const indices = refsByLine.get(ref.line);
-              if (indices && indices.length > 0) {
-                // Pop the next index — refs with the same line get distinct
-                // symbols in their source order. (Symbols are already ordered
-                // by line, then by parser output order.)
-                const idx = indices.shift()!;
-                ref.fromId = symbolsWithIds[idx]!.id;
-              }
-            }
-          }
         }
       } catch (err) {
         // If the batch commit fails, fall back to per-file writes so the
@@ -446,23 +477,7 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
             langStats[entry.lang] = (langStats[entry.lang] ?? 0) + symbolsWithIds.length;
             filesIndexed++;
             if (entry.refs.length > 0 && symbolsWithIds.length > 0) {
-              const refsByLine = new Map<number, IndexSymbol[]>();
-              for (const sym of symbolsWithIds) {
-                let arr = refsByLine.get(sym.line);
-                if (!arr) {
-                  arr = [];
-                  refsByLine.set(sym.line, arr);
-                }
-                arr.push(sym);
-              }
-              const fallbackBatch: Ref[] = [];
-              for (const ref of entry.refs) {
-                const syms = refsByLine.get(ref.line);
-                if (syms && syms.length > 0) {
-                  const sym = syms.shift()!;
-                  fallbackBatch.push({ ...ref, fromId: sym.id });
-                }
-              }
+              const fallbackBatch = assignRefsToSymbols(entry.refs, symbolsWithIds);
               if (fallbackBatch.length > 0) store.insertRefsBatch(fallbackBatch);
             }
             store.upsertFile({
@@ -485,7 +500,7 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
   // derive stale files from the discovered set: any existingMeta entry not
   // in the scanned files is stale. Skip entirely for explicit file lists
   // (targeted reindex — can't derive stale from a subset).
-  if (discoveredFiles) {
+  if (discoveredFiles && discoveryComplete) {
     for (const [file_] of existingMeta) {
       if (!discoveredFiles.has(file_)) {
         store.deleteFile(file_);

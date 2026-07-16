@@ -70,6 +70,7 @@ port.on('message', (msg: HostToWorker) => {
           id: msg.id,
           ok: false,
           error: err instanceof Error ? err.message : String(err),
+          errorName: err instanceof Error ? err.name : undefined,
         });
       } catch {
         // postMessage to a closed port — nothing we can do; drop the response.

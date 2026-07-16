@@ -47,12 +47,17 @@ export const codebaseSearchTool: Tool<CodebaseSearchInput, CodebaseSearchOutput>
       },
       kind: {
         type: 'string',
-        description:
-          'Filter by symbol kind: class, function, interface, method, const, let, var, property, type, enum',
+        enum: [
+          'class', 'interface', 'enum', 'type', 'function', 'method', 'var', 'const', 'let',
+          'property', 'parameter', 'namespace', 'object', 'literal', 'schema', 'struct', 'trait',
+          'impl', 'static', 'mod',
+        ],
+        description: 'Filter by indexed symbol kind',
       },
       lang: {
         type: 'string',
-        description: 'Filter by language: ts, tsx, js, jsx',
+        enum: ['ts', 'tsx', 'js', 'jsx', 'go', 'py', 'rs', 'json', 'yaml'],
+        description: 'Filter by indexed language',
       },
       lspKind: {
         type: 'integer',
@@ -79,27 +84,17 @@ export const codebaseSearchTool: Tool<CodebaseSearchInput, CodebaseSearchOutput>
     required: ['query'],
   },
   async execute(input, ctx, execOpts) {
-    // Gate: if the index is still building or hasn't been built yet, return a
-    // clear status instead of querying partial/inconsistent data.
     const state = getIndexState();
-    if (!state.ready) {
+    if (state.indexing && !state.ready) {
       return {
         results: [],
         total: 0,
         query: input.query,
-        indexStatus: state.indexing
-          ? `Indexing in progress (${state.currentFile}/${state.totalFiles} files) — retry in a moment.`
-          : 'Index not yet built. The codebase is being indexed at startup — search will be available shortly.',
+        indexStatus: `Indexing in progress (${state.currentFile}/${state.totalFiles} files) — retry in a moment.`,
       };
     }
-    if (state.indexing) {
-      return {
-        results: [],
-        total: 0,
-        query: input.query,
-        indexStatus: `Index refresh in progress (${state.currentFile}/${state.totalFiles} files). Results may be incomplete.`,
-      };
-    }
+    // WAL provides a consistent previous snapshot while a refresh writes, so
+    // keep search available instead of returning an empty, misleading result.
     if (state.lastError) {
       const circuit = state.circuit;
       const retryHint =
@@ -114,21 +109,28 @@ export const codebaseSearchTool: Tool<CodebaseSearchInput, CodebaseSearchOutput>
       };
     }
 
-    const limit = Math.min(input.limit ?? 20, 100);
+    const limit = Math.max(1, Math.min(Math.trunc(input.limit ?? 20), 100));
     const { results, total } = await searchCodebaseIndex(
       {
         projectRoot: ctx.projectRoot,
         indexDir: codebaseIndexDirOverride(ctx),
         query: input.query,
-        kind: input.kind,
-        lang: input.lang,
+        kind: input.kind?.toLowerCase(),
+        lang: input.lang?.toLowerCase(),
         file: input.file,
         lspKind: input.lspKind,
         limit,
       },
       { signal: execOpts?.signal },
     );
-    return { results, total, query: input.query };
+    return {
+      results,
+      total,
+      query: input.query,
+      ...(state.ready || total > 0
+        ? {}
+        : { indexStatus: 'No persisted index data found. Run codebase-index to build it.' }),
+    };
   },
 };
 

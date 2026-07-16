@@ -35,7 +35,12 @@ export interface IndexableDoc {
  */
 function splitName(name: string): string {
   return name
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    // Split an acronym from the word that follows it: HTTPServer → HTTP Server.
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .replace(/([a-z\d])([A-Z])/g, '$1 $2')
+    // Identifiers commonly encode versions/algorithms with digits.
+    .replace(/([\p{L}])(\d)/gu, '$1 $2')
+    .replace(/(\d)([\p{L}])/gu, '$1 $2')
     .replace(/[_-]+/g, ' ')
     .trim();
 }
@@ -79,7 +84,7 @@ export class Bm25Index {
 
   constructor(
     private documents: Bm25Doc[],
-    private df: Record<string, number>,
+    _df: Record<string, number>,
     private N: number,
     avgLen: number,
   ) {
@@ -99,11 +104,17 @@ export class Bm25Index {
       for (const qTerm of qTokens) {
         let tf = 0;
         for (const t of doc.tokens) {
-          if (t === qTerm) tf++;
+          if (t.startsWith(qTerm)) tf++;
         }
         if (tf === 0) continue;
 
-        const dfVal = this.df[qTerm] ?? 0;
+        // The SQLite FTS path uses token-prefix matching. Compute document
+        // frequency with the same contract so fallback ranking has identical
+        // recall instead of selecting LIKE candidates and then dropping them.
+        let dfVal = 0;
+        for (const candidate of this.documents) {
+          if (candidate.tokens.some((t) => t.startsWith(qTerm))) dfVal++;
+        }
         if (dfVal === 0) continue;
 
         const idf = Math.log((this.N - dfVal + 0.5) / (dfVal + 0.5) + 1);

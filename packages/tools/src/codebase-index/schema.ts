@@ -116,5 +116,7 @@ export interface Ref {
 // ─── Schema version ───────────────────────────────────────────────────────────
 
 // v2: added the symbols_fts FTS5 table (ranked search moved into SQLite).
+// v3: parser/search format update (navigable TS declarations, valid ref owners,
+//     acronym/digit token splitting). Derived data must be rebuilt.
 // A version mismatch on open drops & rebuilds the index (it is derived data).
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;

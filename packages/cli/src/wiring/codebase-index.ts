@@ -33,8 +33,8 @@ import {
   shutdownCodebaseIndexHost,
 } from '@wrongstack/tools';
 
-/** Mutating builtin tools whose input carries a single `file_path`. */
-const FILE_EDIT_TOOLS = new Set(['write', 'edit', 'multi-edit', 'notebook-edit']);
+/** Mutating builtin tools whose input carries a single `path`. */
+const FILE_EDIT_TOOLS = new Set(['write', 'edit']);
 
 /** Directories never worth watching/indexing (mirrors the indexer's own ignore set). */
 const IGNORE_DIRS = new Set([
@@ -108,12 +108,15 @@ export async function setupCodebaseIndexing(deps: CodebaseIndexingDeps): Promise
       ) => {
         try {
           const tool = payload.tool;
-          if (tool?.mutating && FILE_EDIT_TOOLS.has(tool.name)) {
-            const fp = (payload.toolUse.input as { file_path?: unknown | undefined })?.file_path;
+          if (tool?.mutating && FILE_EDIT_TOOLS.has(tool.name) && !payload.result.is_error) {
+            const fp = (payload.toolUse.input as { path?: unknown | undefined })?.path;
             if (typeof fp === 'string' && fp.length > 0) {
+              const activeRoot = payload.ctx.projectRoot;
               const abs = path.resolve(payload.ctx.cwd, fp);
-              if (isIndexableFile(abs)) {
-                enqueueReindex({ projectRoot, files: [abs], debounceMs, onError });
+              const rel = path.relative(activeRoot, abs);
+              const inside = rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
+              if (inside && isIndexableFile(abs)) {
+                enqueueReindex({ projectRoot: activeRoot, files: [abs], debounceMs, onError });
               }
             }
           }

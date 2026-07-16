@@ -100,6 +100,15 @@ function getJsDoc(node: ts.Node, sourceFile: ts.SourceFile): string {
   return '';
 }
 
+function hasFunctionLikeAncestor(node: ts.Node): boolean {
+  let current: ts.Node | undefined = node.parent;
+  while (current) {
+    if (ts.isFunctionLike(current)) return true;
+    current = current.parent;
+  }
+  return false;
+}
+
 /** Build the scope path from a node up to the root (for class-method scope). */
 function buildScope(node: ts.Node): string {
   const parts: string[] = [];
@@ -159,6 +168,17 @@ export function parseSymbols(opts: ParseOptions): FileSymbols {
     const kind = kindOf(node);
 
     if (kind) {
+      // Keep the index focused on navigable declarations. Function-local
+      // variables and parameters account for most rows in large TypeScript
+      // projects and otherwise swamp exact declaration searches.
+      if (
+        (kind === 'const' || kind === 'let' || kind === 'var' || kind === 'parameter') &&
+        hasFunctionLikeAncestor(node)
+      ) {
+        ts.forEachChild(node, visit);
+        return;
+      }
+
       const nameNode = (node as { name?: ts.Identifier | undefined }).name;
       if (!nameNode || !ts.isIdentifier(nameNode)) return;
       const name = nameNode.text;

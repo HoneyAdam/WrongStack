@@ -33,6 +33,7 @@ import {
   CircuitOpenError,
   type CircuitSnapshot,
   IndexTimeoutError,
+  LockError,
   indexCircuitBreaker,
 } from './circuit-breaker.js';
 import { indexService, searchService, statsService } from './index-service.js';
@@ -197,14 +198,24 @@ function ensureWorker(): Worker | null {
       if (!entry) return; // already timed out / cancelled
       pending.delete(msg.id);
       if (msg.ok) entry.resolve(msg.result);
-      else entry.reject(new Error(msg.error));
+      else {
+        const error = msg.errorName === 'LockError' ? new LockError(msg.error) : new Error(msg.error);
+        if (msg.errorName && msg.errorName !== 'Error') {
+          (error as { name: string }).name = msg.errorName;
+        }
+        entry.reject(error);
+      }
     });
     w.on('error', (err) => {
+      // Ignore late events from a worker already terminated/replaced by the
+      // watchdog; they must not reject RPCs owned by its successor.
+      if (worker !== w) return;
       worker = null;
       failAllPending(err);
     });
     w.on('exit', () => {
-      if (worker === w) worker = null;
+      if (worker !== w) return;
+      worker = null;
       failAllPending(new Error('codebase-index worker exited'));
     });
     worker = w;
@@ -255,6 +266,12 @@ function callIndexOp<O extends OpName>(
   const w = ensureWorker();
   if (!w) return callInline(op, args, opts);
 
+  if (opts.signal?.aborted) {
+    return Promise.reject(
+      opts.signal.reason instanceof Error ? opts.signal.reason : new Error('Indexing cancelled'),
+    );
+  }
+
   return new Promise<OpShapes[O]['result']>((resolve, reject) => {
     const id = nextRpcId++;
 
@@ -275,8 +292,7 @@ function callIndexOp<O extends OpName>(
       // with an error. The watchdog stays armed as the backstop.
       w.postMessage({ type: 'cancel', id } satisfies HostToWorker);
     };
-    if (opts.signal?.aborted) onAbort();
-    else opts.signal?.addEventListener('abort', onAbort, { once: true });
+    opts.signal?.addEventListener('abort', onAbort, { once: true });
 
     const cleanup = () => {
       clearTimeout(timer);
