@@ -41,7 +41,7 @@ WrongStack is **free, open source, and MIT licensed**. It drives **autonomous go
 ## Requirements
 
 - **Node.js** ≥ 22.19.0
-- **pnpm** ≥ 9.0.0 (recommended) or npm
+- **pnpm** ≥ 11.5.3 (recommended) or npm
 
 ## Install
 
