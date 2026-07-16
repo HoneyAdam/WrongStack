@@ -99,4 +99,21 @@ describe('truncateForTelegram — explicit cap interop with config', () => {
     expect(out.length).toBeLessThanOrEqual(2000);
     expect(out.length).toBeLessThanOrEqual(TELEGRAM_HARD_CAP);
   });
+
+  it('clamps a caller-supplied cap above 4096 to the Telegram hard cap', () => {
+    // P1.8 explicit message-length contract: the function clamps the
+    // caller's maxLen at 4096 so a misconfigured caller cannot silently
+    // produce output the platform will reject. Even with maxLen=9999,
+    // the output must be <= 4096.
+    const text = 'z'.repeat(10_000);
+    const out = truncateForTelegram(text, 9999);
+    expect(out.length).toBeLessThanOrEqual(TELEGRAM_HARD_CAP);
+  });
+
+  it('preserves inputs no longer than the clamped cap', () => {
+    // 4000-char input + 5000-char cap = preserved unchanged (no truncation).
+    const text = 'a'.repeat(4000);
+    const out = truncateForTelegram(text, 5000);
+    expect(out.length).toBe(4000);
+  });
 });

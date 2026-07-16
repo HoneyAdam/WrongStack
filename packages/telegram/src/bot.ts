@@ -725,14 +725,26 @@ export class TelegramBot {
  *
  * When a clean boundary is found, appends "…" to signal intentional truncation.
  */
+/**
+ * Maximum permitted output length. Telegram rejects messages longer than
+ * 4096 characters; we clamp the requested cap at this value so a
+ * misconfigured caller cannot silently violate the platform contract.
+ */
+const MAX_TELEGRAM_MESSAGE_LENGTH = 4096;
+
 export function truncateForTelegram(text: string, maxLen = 4000): string {
-  if (text.length <= maxLen) return text;
+  // P1.8 explicit message-length contract: the caller's cap is the
+  // binding contract, but it is clamped at Telegram's hard 4096-char
+  // limit so a misconfigured `maxLen > 4096` cannot silently produce
+  // output that the platform will reject.
+  const effectiveMaxLen = Math.min(maxLen, MAX_TELEGRAM_MESSAGE_LENGTH);
+  if (text.length <= effectiveMaxLen) return text;
 
   // Reserve room for truncation suffix
-  const cutoff = maxLen - 30;
-  if (cutoff <= 0) return `${text.slice(0, maxLen - 1)}…`;
+  const cutoff = effectiveMaxLen - 30;
+  if (cutoff <= 0) return `${text.slice(0, effectiveMaxLen - 1)}…`;
 
-  const searchEnd = Math.min(text.length, maxLen);
+  const searchEnd = Math.min(text.length, effectiveMaxLen);
 
   // 1. Paragraph boundary (double newline)
   const paraIdx = text.lastIndexOf('\n\n', searchEnd);
@@ -767,7 +779,7 @@ export function truncateForTelegram(text: string, maxLen = 4000): string {
   }
 
   // 5. Hard cut
-  return `${text.slice(0, maxLen - 20)}…[+${text.length - maxLen + 20} chars]`;
+  return `${text.slice(0, effectiveMaxLen - 20)}…[+${text.length - effectiveMaxLen + 20} chars]`;
 }
 
 /**
