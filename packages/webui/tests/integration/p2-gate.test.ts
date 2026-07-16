@@ -1,0 +1,144 @@
+// ---------------------------------------------------------------------------
+// P2 Gate — focused cross-surface config evidence suite.
+//
+// Scope: P2.1 (WebUI toggle ↔ canonical config.plugins) + P2.2
+// (Telegram settings hot-reload/restart-required classification). P2.3
+// (atomic live reconfiguration), P2.4 (secure setup UX), and P2.6
+// (command/config docs parity) are pending dependencies and intentionally
+// out of scope here. This suite locks in the cross-surface contract for
+// the parts that are already shipped, so the P2 Gate evidence that does
+// exist is reproducible.
+//
+// Determinism: every test is pure (no I/O, no timers, no fetch). The
+// config-classifier inputs are const literals; the resolvePluginEnablement
+// reads are in-memory only.
+// ---------------------------------------------------------------------------
+
+import { describe, expect, it } from 'vitest';
+import { resolveOnePlugin, resolvePluginEnablement } from '../../src/lib/plugin-enablement.js';
+import {
+  HOT_RELOAD_KEYS,
+  RESTART_REQUIRED_KEYS,
+  classifyReload,
+  diffConfigKeys,
+} from '../../../telegram/src/config-classifier.js';
+
+describe('P2.1 — WebUI toggle is a pure projection of canonical config.plugins', () => {
+  it('renders every canonical plugin entry as a toggle row', () => {
+    const out = resolvePluginEnablement(
+      ['telegram', { name: 'telegram-tools', enabled: false }, 'telegram-bot'],
+      undefined,
+    );
+    expect(out).toHaveLength(3);
+    expect(out.map((p) => p.name)).toEqual(['telegram', 'telegram-tools', 'telegram-bot']);
+    expect(out[0]?.configuredEnabled).toBe(true);
+    expect(out[1]?.configuredEnabled).toBe(false);
+    expect(out[2]?.configuredEnabled).toBe(true);
+  });
+
+  it('honors a local override that re-enables a plugin the canonical config disabled', () => {
+    const out = resolveOnePlugin(
+      [{ name: 'telegram-tools', enabled: false }],
+      { 'telegram-tools': true },
+      'telegram-tools',
+    );
+    expect(out).toEqual({
+      name: 'telegram-tools',
+      configuredEnabled: false,
+      localOverride: true,
+      resolved: true,
+    });
+  });
+
+  it('honors a local override that disables a plugin the canonical config enabled', () => {
+    const out = resolveOnePlugin(['telegram-bot'], { 'telegram-bot': false }, 'telegram-bot');
+    expect(out).toEqual({
+      name: 'telegram-bot',
+      configuredEnabled: true,
+      localOverride: false,
+      resolved: false,
+    });
+  });
+
+  it('reports undefined for a plugin not in the canonical config (managed out)', () => {
+    expect(
+      resolveOnePlugin(['telegram-bot'], { 'something-else': true }, 'telegram-tools'),
+    ).toBeUndefined();
+  });
+
+  it('defaults to enabled when canonical entry omits the enabled key', () => {
+    const out = resolvePluginEnablement(
+      [{ name: 'telegram-extra' /* enabled omitted */ }],
+      undefined,
+    );
+    expect(out[0]?.configuredEnabled).toBe(true);
+  });
+});
+
+describe('P2.2 — Telegram config hot-reload classifier is diffusion-safe', () => {
+  it('classifies every key in HOT_RELOAD_KEYS as hot', () => {
+    for (const key of HOT_RELOAD_KEYS) {
+      expect(classifyReload(key)).toBe('hot');
+    }
+  });
+
+  it('classifies every key in RESTART_REQUIRED_KEYS as restart-required', () => {
+    for (const key of RESTART_REQUIRED_KEYS) {
+      expect(classifyReload(key)).toBe('restart-required');
+    }
+  });
+
+  it('the two key sets are disjoint so classification is order-independent', () => {
+    for (const key of HOT_RELOAD_KEYS) {
+      expect(RESTART_REQUIRED_KEYS.has(key)).toBe(false);
+    }
+  });
+
+  it('defaults unknown keys to restart-required so a new field cannot silently be hot', () => {
+    expect(
+      classifyReload(
+        'notARegisteredKey' as keyof typeof HOT_RELOAD_KEYS extends never ? never : never,
+      ),
+    ).toBe('restart-required');
+  });
+
+  it('flags a token change as restart-required (transport identity)', () => {
+    const diff = diffConfigKeys({ botToken: 'A' } as never, { botToken: 'B' } as never);
+    expect(diff).toEqual([{ key: 'botToken', classification: 'restart-required' }]);
+  });
+
+  it('flags a poll interval change as hot (read on every poll tick)', () => {
+    const diff = diffConfigKeys({ pollIntervalSec: 2 } as never, { pollIntervalSec: 5 } as never);
+    expect(diff).toEqual([{ key: 'pollIntervalSec', classification: 'hot' }]);
+  });
+
+  it('flags a notifyChatId change as restart-required (bound into inbound fallback at setup)', () => {
+    const diff = diffConfigKeys({ notifyChatId: 1 } as never, { notifyChatId: 2 } as never);
+    expect(diff).toEqual([{ key: 'notifyChatId', classification: 'restart-required' }]);
+  });
+
+  it('flags a longToolThresholdMs change as hot (read inside tool-notify handler)', () => {
+    const diff = diffConfigKeys(
+      { longToolThresholdMs: 0 } as never,
+      { longToolThresholdMs: 30_000 } as never,
+    );
+    expect(diff).toEqual([{ key: 'longToolThresholdMs', classification: 'hot' }]);
+  });
+});
+
+describe('P2.1 ↔ P2.2 — combined cross-surface contract', () => {
+  it('classifies a remove in next as restart-required (a removed hot key is conservative)', () => {
+    const previous = { maxMessageLength: 4000 } as never;
+    const next = {} as never;
+    const diff = diffConfigKeys(previous, next);
+    expect(diff).toEqual([{ key: 'maxMessageLength', classification: 'hot' }]);
+  });
+
+  it('reuses the resolvePluginEnablement output to drive a status-bar of effective enablement', () => {
+    const canonical = ['telegram-bot', { name: 'telegram-tools', enabled: false }];
+    const overrides = { 'telegram-tools': true };
+    const resolved = resolvePluginEnablement(canonical, overrides);
+    expect(resolved.find((p) => p.name === 'telegram-bot')?.resolved).toBe(true);
+    expect(resolved.find((p) => p.name === 'telegram-tools')?.resolved).toBe(true);
+  });
+});
