@@ -130,7 +130,7 @@ export const rewindCmd: SubcommandHandler = async (args, deps) => {
         // Still truncate even if no files changed
         const store = new DefaultSessionStore({ dir: sessionsDir });
         const resumed = await store.resume(targetSessionId);
-        const toIdx = (result as never as { toPromptIndex: number }).toPromptIndex;
+        const toIdx = result.toPromptIndex;
         await resumed.writer.truncateToCheckpoint(toIdx);
         await resumed.writer.close();
         deps.renderer.write(`  ${color.green('✓')} Session truncated at checkpoint ${toIdx}\n`);
@@ -146,11 +146,19 @@ export const rewindCmd: SubcommandHandler = async (args, deps) => {
     if (flags.resume) {
       const store = new DefaultSessionStore({ dir: sessionsDir });
       const resumed = await store.resume(targetSessionId);
-      const toIdx = (result as never as { toPromptIndex: number }).toPromptIndex;
+      const toIdx = result.toPromptIndex;
       const removed = await resumed.writer.truncateToCheckpoint(toIdx);
       await resumed.writer.close();
       deps.renderer.write(
         `\n  ${color.green('✓')} Session truncated — ${removed} event(s) removed\n`,
+      );
+    } else {
+      // Files moved back but the conversation did not. Resuming this session
+      // replays a history that describes edits no longer on disk, and the model
+      // will act on them. Say so rather than reporting a clean success.
+      deps.renderer.write(
+        `\n  ${color.yellow('!')} Conversation history left intact — it still describes the reverted edits.\n` +
+          `    Re-run with --resume to truncate it at checkpoint ${result.toPromptIndex}.\n`,
       );
     }
 

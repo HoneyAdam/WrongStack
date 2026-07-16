@@ -480,11 +480,22 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
       if (!ensureCurrentSession(ws, msg, 'session.rewind')) return;
       const { checkpointIndex } = (msg as { payload: { checkpointIndex: number } }).payload;
       try {
-        const { DefaultSessionRewinder } = await import('@wrongstack/core');
+        const { applyRewindToConversation, DefaultSessionRewinder } = await import(
+          '@wrongstack/core'
+        );
         const projectRoot = ctx.getProjectRoot();
         const rewinder = new DefaultSessionRewinder(ctx.sessionsDir, projectRoot);
         await rewinder.rewindToCheckpoint(ctx.getSession().id, checkpointIndex);
-        await ctx.context.session.truncateToCheckpoint(checkpointIndex);
+        // Cut the live conversation too — sessionStartPayload() below replays
+        // from ctx.context.state, so truncating only the JSONL would replay the
+        // rewound turns straight back to the client and leave them in the
+        // model's working set.
+        await applyRewindToConversation({
+          session: ctx.context.session,
+          state: ctx.context.state,
+          sessionsDir: ctx.sessionsDir,
+          promptIndex: checkpointIndex,
+        });
         sendResult(ws, true, `Rewound to checkpoint ${checkpointIndex}`);
         broadcast(ctx.clients, {
           type: 'session.start',

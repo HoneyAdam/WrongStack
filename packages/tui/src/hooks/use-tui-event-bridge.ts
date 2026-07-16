@@ -74,7 +74,10 @@ function useSessionEvents(
     });
     const offRewound = events.on('session.rewound', (e) => {
       if (!isCurrentSession(e.sessionId)) return;
-      dispatch({ type: 'sessionRewound', toPromptIndex: 0 });
+      // Keep the checkpoints at/below the rewind target: hardcoding 0 here made
+      // the reducer's `promptIndex <= toPromptIndex` filter discard every
+      // checkpoint but #0, so a second /rewind had nothing left to aim at.
+      dispatch({ type: 'sessionRewound', toPromptIndex: e.toPromptIndex });
       dispatch({ type: 'clearHistory' });
       dispatch({ type: 'resetContextChip' });
       onClearHistory?.(dispatch);

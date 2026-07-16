@@ -20,6 +20,7 @@ import {
   buildGoalPreamble,
   clearActiveKit,
   clearPersistedActiveKit,
+  applyRewindToConversation,
   DefaultSessionRewinder,
   detectContinueIntent,
   type EnhanceFailureKind,
@@ -60,7 +61,11 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { buildRestoredEntries, createInitialState } from './app-initial-state.js';
+import {
+  buildRestoredCheckpoints,
+  buildRestoredEntries,
+  createInitialState,
+} from './app-initial-state.js';
 // Types imported from app-reducer.ts (single source of truth for reducer + State types)
 import {
   type FleetEntry,
@@ -1148,6 +1153,9 @@ export function App({
     restoredToolCalls,
     restoredEvents,
   );
+  // Checkpoints likewise only reach state via the live checkpoint.written
+  // bridge, so a resumed session would have none and /rewind would refuse.
+  const restoredCheckpoints = buildRestoredCheckpoints(restoredEvents);
 
   const [state, dispatch] = useReducer(
     reducer,
@@ -1160,6 +1168,7 @@ export function App({
       family,
       keyTail,
       restoredEntries,
+      restoredCheckpoints,
       enhanceEnabled,
       initialAgentsMonitorOpen,
       initialFleetChat: fleetStreamController?.mode,
@@ -1568,10 +1577,17 @@ export function App({
       );
       // Revert file system changes first (read-only, safe to do eagerly).
       await rewinder.rewindToCheckpoint(sessionId, checkpointIndex);
-      // Then truncate the conversation history — this fires session.rewound
-      // on the EventBus, which the useEffect at line 2212 listens to and
-      // dispatches sessionRewound + clearHistory.
-      await agent.ctx.session.truncateToCheckpoint(checkpointIndex);
+      // Then cut BOTH the JSONL and the live conversation back to the
+      // checkpoint. Truncating the log alone would leave the model answering
+      // the next prompt against the rewound turns it still holds in memory.
+      // This fires session.rewound on the EventBus, which the useEffect at
+      // line 2212 listens to and dispatches sessionRewound + clearHistory.
+      await applyRewindToConversation({
+        session: agent.ctx.session,
+        state: agent.ctx.state,
+        sessionsDir: sessionsDir ?? '',
+        promptIndex: checkpointIndex,
+      });
     },
     [agent.ctx.session, sessionsDir, agent.ctx.projectRoot, agent.ctx.cwd],
   );
@@ -2604,7 +2620,13 @@ export function App({
       async run(args: string) {
         const idx = Number.parseInt(args.trim(), 10);
         if (!Number.isNaN(idx) && idx >= 0) {
-          handleRewindTo(idx);
+          // Awaited: rewindToCheckpoint throws SessionError for an unknown
+          // index, and an un-awaited rejection would surface as nothing at all.
+          try {
+            await handleRewindTo(idx);
+          } catch (err) {
+            return { message: `Rewind failed: ${toErrorMessage(err)}` };
+          }
           return {};
         }
         // No arg — open the timeline overlay

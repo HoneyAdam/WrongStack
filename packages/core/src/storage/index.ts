@@ -102,6 +102,12 @@ export {
   type SessionRewinderOptions,
 } from './session-rewinder.js';
 export {
+  applyRewindToConversation,
+  type ApplyRewindOptions,
+  type ApplyRewindResult,
+  type RewindableConversation,
+} from './session-rewind-apply.js';
+export {
   attachTodosCheckpoint,
   loadTodosCheckpoint,
   saveTodosCheckpoint,

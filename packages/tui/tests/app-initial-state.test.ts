@@ -1,6 +1,51 @@
-import type { Message } from '@wrongstack/core';
+import type { Message, SessionEvent } from '@wrongstack/core';
 import { describe, expect, it } from 'vitest';
-import { buildRestoredEntries, createInitialState, type RestoredToolCall } from '../src/app-initial-state.js';
+import {
+  buildRestoredCheckpoints,
+  buildRestoredEntries,
+  createInitialState,
+  type RestoredToolCall,
+} from '../src/app-initial-state.js';
+
+function checkpoint(promptIndex: number, promptPreview: string): SessionEvent {
+  return {
+    type: 'checkpoint',
+    ts: `2026-07-05T10:00:0${promptIndex}.000Z`,
+    promptIndex,
+    promptPreview,
+  } as SessionEvent;
+}
+
+describe('buildRestoredCheckpoints', () => {
+  it('returns an empty list without events', () => {
+    expect(buildRestoredCheckpoints(undefined)).toEqual([]);
+    expect(buildRestoredCheckpoints([])).toEqual([]);
+  });
+
+  it('rebuilds checkpoints from a resumed session so /rewind has targets', () => {
+    const restored = buildRestoredCheckpoints([
+      checkpoint(0, 'first prompt'),
+      { type: 'user_input', ts: '2026-07-05T10:00:01.000Z', content: 'noise' } as SessionEvent,
+      checkpoint(1, 'second prompt'),
+    ]);
+
+    expect(restored).toEqual([
+      { promptIndex: 0, promptPreview: 'first prompt', ts: '2026-07-05T10:00:00.000Z', fileCount: 0 },
+      { promptIndex: 1, promptPreview: 'second prompt', ts: '2026-07-05T10:00:01.000Z', fileCount: 0 },
+    ]);
+  });
+
+  it('keeps the last write per promptIndex and sorts ascending', () => {
+    const restored = buildRestoredCheckpoints([
+      checkpoint(2, 'later'),
+      checkpoint(1, 'earlier'),
+      { ...checkpoint(2, 'rewritten after a rewind') } as SessionEvent,
+    ]);
+
+    expect(restored.map((c) => c.promptIndex)).toEqual([1, 2]);
+    expect(restored[1]?.promptPreview).toBe('rewritten after a rewind');
+  });
+});
 
 function userMsg(text: string): Message {
   return { role: 'user', content: text, ts: '2026-07-05T10:00:00.000Z' };

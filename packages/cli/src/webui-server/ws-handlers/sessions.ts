@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import {
   type Agent,
+  applyRewindToConversation,
   DefaultSessionRewinder,
   loadTodosCheckpoint,
   type SessionStore,
@@ -160,12 +161,15 @@ export async function handleSessionNew(ctx: SessionsContext, _ws: WebSocket): Pr
   ctx.broadcast({ type: 'session.start', payload });
 }
 
+/** Sessions dir the rewinder and the post-truncation reload must agree on. */
+function sessionsDirFor(opts: SessionsOptions): string {
+  const projectRoot = opts.projectRoot ?? opts.agent.ctx.projectRoot;
+  return opts.sessionsDir ?? path.join(projectRoot, '.wrongstack', 'sessions');
+}
+
 function rewinderFor(opts: SessionsOptions): DefaultSessionRewinder {
   const projectRoot = opts.projectRoot ?? opts.agent.ctx.projectRoot;
-  return new DefaultSessionRewinder(
-    opts.sessionsDir ?? path.join(projectRoot, '.wrongstack', 'sessions'),
-    projectRoot,
-  );
+  return new DefaultSessionRewinder(sessionsDirFor(opts), projectRoot);
 }
 
 export async function handleSessionCheckpoints(ctx: SessionsContext, ws: WebSocket): Promise<void> {
@@ -195,7 +199,16 @@ export async function handleSessionRewind(
     // truncation (writer) must target the same session.
     const liveSession = ctx.opts.agent.ctx.session ?? ctx.opts.session;
     await rewinder.rewindToCheckpoint(liveSession.id, checkpointIndex);
-    await liveSession.truncateToCheckpoint(checkpointIndex);
+    // Cut the live conversation too, not just the JSONL: buildSessionStart
+    // below replays from ctx.state, so truncating only the log would hand the
+    // client back the very turns it just rewound — and leave the model holding
+    // them.
+    await applyRewindToConversation({
+      session: liveSession,
+      state: ctx.opts.agent.ctx.state,
+      sessionsDir: sessionsDirFor(ctx.opts),
+      promptIndex: checkpointIndex,
+    });
     sendResult(ctx, ws, true, `Rewound to checkpoint ${checkpointIndex}`);
     const payload = await ctx.buildSessionStart({ reset: true });
     ctx.broadcast({ type: 'session.start', payload });

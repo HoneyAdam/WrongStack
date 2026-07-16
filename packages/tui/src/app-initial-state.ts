@@ -36,6 +36,34 @@ export function buildRestoredEntries(
   return rehydrateHistory(visible, 1, restoredToolCalls);
 }
 
+/**
+ * Rebuild the checkpoint list from a resumed session's events.
+ *
+ * The live list is fed by the `checkpoint.written` EventBus bridge, which only
+ * fires for checkpoints written by THIS process — so without this a resumed
+ * session starts with an empty list and `/rewind` reports "no checkpoints"
+ * despite a JSONL full of them.
+ *
+ * `fileCount` is a live-only stat computed when the checkpoint is written; the
+ * JSONL does not carry it, so restored rows report 0.
+ */
+export function buildRestoredCheckpoints(
+  restoredEvents?: SessionEvent[] | undefined,
+): State['checkpoints'] {
+  if (!restoredEvents || restoredEvents.length === 0) return [];
+  const byIndex = new Map<number, State['checkpoints'][number]>();
+  for (const ev of restoredEvents) {
+    if (ev.type !== 'checkpoint') continue;
+    byIndex.set(ev.promptIndex, {
+      promptIndex: ev.promptIndex,
+      promptPreview: ev.promptPreview,
+      ts: ev.ts,
+      fileCount: 0,
+    });
+  }
+  return [...byIndex.values()].sort((a, b) => a.promptIndex - b.promptIndex);
+}
+
 export interface CreateInitialStateOptions {
   banner: boolean;
   appVersion?: string | undefined;
@@ -45,6 +73,8 @@ export interface CreateInitialStateOptions {
   family?: string | undefined;
   keyTail?: string | undefined;
   restoredEntries: State['entries'];
+  /** Checkpoints rebuilt from a resumed session's events. Empty for a fresh session. */
+  restoredCheckpoints?: State['checkpoints'] | undefined;
   enhanceEnabled: boolean;
   initialAgentsMonitorOpen?: boolean | undefined;
   /** Boot-time fleet-chat verbosity (from persisted config). Default 'compact'. */
@@ -61,6 +91,7 @@ export function createInitialState(options: CreateInitialStateOptions): State {
     family,
     keyTail,
     restoredEntries,
+    restoredCheckpoints,
     enhanceEnabled,
     initialAgentsMonitorOpen,
     initialFleetChat,
@@ -247,7 +278,7 @@ export function createInitialState(options: CreateInitialStateOptions): State {
     sessionsPanel: { sessions: [], busy: false, selected: -1 },
     sessionResumeConfirm: null,
     collabSession: null,
-    checkpoints: [],
+    checkpoints: restoredCheckpoints ?? [],
     rewindOverlay: null,
     eternalStage: null,
     goalSummary: null,
