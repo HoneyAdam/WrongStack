@@ -26,7 +26,8 @@ import {
 import { buildRecoveryStrategies } from '@wrongstack/core/execution';
 import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { getSessionRegistry } from '@wrongstack/core/storage';
-import { SuperMemoryStore } from '@wrongstack/super-memory';
+import { SuperMemoryStore, SqliteSuperMemoryStore } from '@wrongstack/super-memory';
+import type { MemoryStore } from '@wrongstack/core';
 
 export interface CreateContainerOptions {
   config: Config;
@@ -138,12 +139,23 @@ export function createDefaultContainer(opts: CreateContainerOptions): Container 
   // no longer swaps the backend — it only gates automatic context injection and
   // session-end hygiene (see wiring/super-memory.ts). This guarantees "one memory
   // system, no other" across TUI, slash commands, agent tools, and WebUI.
-  const memoryStore = new SuperMemoryStore({
-    projectRoot: wpaths.projectRoot,
-    directory: config.superMemory?.storage?.directory,
-    events: opts.events,
-  });
-  container.bind(TOKENS.MemoryStore, () => memoryStore);
+  //
+  // When `superMemory.storage.engine === 'sqlite'`, the store uses the SQLite
+  // backend (indexed + FTS5 search, auto-migrates from JSONL on first open).
+  // Otherwise the JSONL backend is used.
+  const useSqlite = config.superMemory?.storage?.engine === 'sqlite';
+  const memoryStore = useSqlite
+    ? new SqliteSuperMemoryStore({
+        projectRoot: wpaths.projectRoot,
+        directory: config.superMemory?.storage?.directory,
+        events: opts.events,
+      })
+    : new SuperMemoryStore({
+        projectRoot: wpaths.projectRoot,
+        directory: config.superMemory?.storage?.directory,
+        events: opts.events,
+      });
+  container.bind(TOKENS.MemoryStore, () => memoryStore as unknown as MemoryStore);
 
   const skillLoader = new DefaultSkillLoader({
     paths: wpaths,

@@ -6,6 +6,7 @@ export {
   resolveSuperMemoryPaths,
 } from './paths.js';
 export { SuperMemoryStore } from './store.js';
+export { SqliteSuperMemoryStore } from './sqlite-store.js';
 export {
   createSuperMemoryToolCallMiddleware,
   type MemoryToolTrigger,

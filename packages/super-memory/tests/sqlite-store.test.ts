@@ -1,0 +1,371 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { SqliteSuperMemoryStore } from '../src/sqlite-store.js';
+import { SuperMemoryStore } from '../src/store.js';
+import type { SuperMemory } from '../src/types.js';
+
+let tempDir: string;
+
+let activeStores: SqliteSuperMemoryStore[] = [];
+
+beforeEach(async () => {
+  tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'wrongstack-sqlite-mem-'));
+  activeStores = [];
+});
+
+afterEach(async () => {
+  for (const store of activeStores) {
+    try { store.close(); } catch { /* already closed */ }
+  }
+  // Give Windows a tick to release WAL file handles
+  await new Promise((r) => setTimeout(r, 10));
+  await fs.promises.rm(tempDir, { recursive: true, force: true });
+});
+
+function trackStore(store: SqliteSuperMemoryStore): SqliteSuperMemoryStore {
+  activeStores.push(store);
+  return store;
+}
+
+function makeMemory(overrides: Partial<SuperMemory> = {}): SuperMemory {
+  return {
+    id: 'test-' + Math.random().toString(36).slice(2, 10),
+    revision: 1,
+    text: 'Test memory content',
+    kind: 'fact',
+    scope: 'project',
+    status: 'active',
+    tags: ['test'],
+    anchors: [],
+    sources: [{ type: 'user' }],
+    importance: 0.7,
+    confidence: 0.8,
+    freshness: 1,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+describe('SqliteSuperMemoryStore', () => {
+  describe('initialize', () => {
+    it('creates the SQLite database and manifest on first open', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      const dbPath = path.join(tempDir, '.wrongstack', 'memories', 'super-memory.db');
+      const manifestPath = path.join(tempDir, '.wrongstack', 'memories', 'manifest.json');
+      expect(fs.existsSync(dbPath)).toBe(true);
+      expect(fs.existsSync(manifestPath)).toBe(true);
+
+    });
+
+    it('is idempotent — calling initialize twice does not throw', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      await store.initialize();
+
+    });
+  });
+
+  describe('rememberSuper', () => {
+    it('stores a new memory', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      const mem = await store.rememberSuper({ text: 'SQLite test memory', kind: 'fact' });
+      expect(mem.id).toBeTruthy();
+      expect(mem.text).toBe('SQLite test memory');
+      expect(mem.status).toBe('active');
+
+    });
+
+    it('merges duplicates by canonical text', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      const first = await store.rememberSuper({ text: 'Duplicate  test  content', kind: 'fact' });
+      const second = await store.rememberSuper({ text: 'duplicate test content', kind: 'fact', tags: ['new-tag'] });
+      expect(second.id).toBe(first.id);
+      expect(second.tags).toContain('new-tag');
+
+    });
+
+    it('stores anchors, tags, audience, and sources', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      const mem = await store.rememberSuper({
+        text: 'Anchored memory',
+        kind: 'file_note',
+        tags: ['api', 'v2'],
+        anchors: [{ type: 'file', path: 'src/index.ts' }],
+        audience: { roles: ['reviewer'] },
+        importance: 0.9,
+        confidence: 0.95,
+      });
+      expect(mem.anchors).toHaveLength(1);
+      expect(mem.anchors[0]?.path).toBe('src/index.ts');
+      expect(mem.tags).toEqual(expect.arrayContaining(['api', 'v2']));
+      expect(mem.audience?.roles).toEqual(['reviewer']);
+
+    });
+  });
+
+  describe('updateSuper', () => {
+    it('updates text and status', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      const mem = await store.rememberSuper({ text: 'Original text', kind: 'fact' });
+      const updated = await store.updateSuper(mem.id, { text: 'Updated text', status: 'stale' });
+      expect(updated.text).toBe('Updated text');
+      expect(updated.status).toBe('stale');
+      expect(updated.revision).toBe(mem.revision + 1);
+
+    });
+
+    it('throws for a non-existent id', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      await expect(store.updateSuper('nonexistent', { text: 'x' })).rejects.toThrow();
+
+    });
+  });
+
+  describe('deleteSuper', () => {
+    it('deletes a memory and its graph edges', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      const mem = await store.rememberSuper({ text: 'To be deleted', kind: 'fact' });
+      await store.addGraphEdge('mem:abc', `mem:${mem.id}`, 'relates_to');
+      const result = await store.deleteSuper(mem.id, 'test deletion');
+      expect(result.deleted).toBe(true);
+      const stats = await store.getStats();
+      expect(stats.total).toBe(0);
+
+    });
+  });
+
+  describe('searchSuper', () => {
+    it('finds memories by text content', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      await store.rememberSuper({ text: 'PostgreSQL connection pool settings', kind: 'fact' });
+      await store.rememberSuper({ text: 'Redis cache TTL configuration', kind: 'fact' });
+      await store.rememberSuper({ text: 'PostgreSQL index optimization', kind: 'fact' });
+
+      const results = await store.searchSuper('PostgreSQL');
+      expect(results.length).toBeGreaterThanOrEqual(2);
+      for (const r of results) {
+        expect(r.text.toLowerCase()).toContain('postgresql');
+      }
+
+    });
+
+    it('returns empty for non-matching query', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      await store.rememberSuper({ text: 'Some memory about databases', kind: 'fact' });
+      const results = await store.searchSuper('xyznonexistent');
+      expect(results).toHaveLength(0);
+
+    });
+
+    it('respects limit option', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      for (let i = 0; i < 5; i++) {
+        await store.rememberSuper({ text: `Limitable test memory ${i}`, kind: 'fact' });
+      }
+      const results = await store.searchSuper('Limitable', { limit: 2 });
+      expect(results.length).toBeLessThanOrEqual(2);
+
+    });
+  });
+
+  describe('retrieveForPath', () => {
+    it('finds memories anchored to a file path', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      await store.rememberSuper({
+        text: 'Config for auth module',
+        kind: 'file_note',
+        anchors: [{ type: 'file', path: 'src/auth/config.ts' }],
+      });
+      await store.rememberSuper({
+        text: 'Unrelated note',
+        kind: 'fact',
+      });
+      const results = await store.retrieveForPath(['src/auth/config.ts']);
+      expect(results.length).toBeGreaterThanOrEqual(1);
+      expect(results[0]!.text).toContain('auth module');
+
+    });
+
+    it('finds ancestor-anchored memories when includeAncestors is true', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      await store.rememberSuper({
+        text: 'Directory-level note',
+        kind: 'file_note',
+        anchors: [{ type: 'directory', path: 'src/auth' }],
+      });
+      const results = await store.retrieveForPath(['src/auth/config.ts'], { includeAncestors: true });
+      expect(results.length).toBeGreaterThanOrEqual(1);
+
+    });
+  });
+
+  describe('listMemories', () => {
+    it('lists memories sorted by updatedAt DESC', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      await store.rememberSuper({ text: 'First memory', kind: 'fact' });
+      await store.rememberSuper({ text: 'Second memory', kind: 'fact' });
+      const list = await store.listMemories({ limit: 10 });
+      expect(list.length).toBeGreaterThanOrEqual(2);
+      // Second memory should be newer or equal
+      const firstDate = list[0]!.updatedAt;
+      const secondDate = list[1]!.updatedAt;
+      expect(firstDate.localeCompare(secondDate)).toBeGreaterThanOrEqual(0);
+
+    });
+
+    it('filters by status', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      const mem = await store.rememberSuper({ text: 'Active memory', kind: 'fact' });
+      await store.updateSuper(mem.id, { status: 'archived' });
+      await store.rememberSuper({ text: 'Another active memory', kind: 'fact' });
+      const active = await store.listMemories({ status: 'active' });
+      const archived = await store.listMemories({ status: 'archived' });
+      expect(active.every((m) => m.status === 'active')).toBe(true);
+      expect(archived.every((m) => m.status === 'archived')).toBe(true);
+      expect(archived.length).toBe(1);
+
+    });
+
+    it('filters by kind', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      await store.rememberSuper({ text: 'A fact', kind: 'fact' });
+      await store.rememberSuper({ text: 'A decision', kind: 'decision' });
+      const facts = await store.listMemories({ kind: 'fact' });
+      expect(facts.every((m) => m.kind === 'fact')).toBe(true);
+
+    });
+  });
+
+  describe('getStats', () => {
+    it('returns correct counts', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      await store.rememberSuper({ text: 'Fact one', kind: 'fact' });
+      await store.rememberSuper({ text: 'Decision one', kind: 'decision' });
+      await store.addGraphEdge('mem:a', 'mem:b', 'relates_to');
+      const stats = await store.getStats();
+      expect(stats.total).toBe(2);
+      expect(stats.byStatus.active).toBe(2);
+      expect(stats.byKind.fact).toBe(1);
+      expect(stats.byKind.decision).toBe(1);
+      expect(stats.edges).toBeGreaterThanOrEqual(1);
+
+    });
+  });
+
+  describe('graph operations', () => {
+    it('adds and traverses edges', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      await store.addGraphEdge('mem:a', 'mem:b', 'supersedes');
+      await store.addGraphEdge('mem:b', 'mem:c', 'supersedes');
+      const edges = await store.traverseGraph(['mem:a'], { maxDepth: 3 });
+      expect(edges.length).toBeGreaterThanOrEqual(2);
+
+    });
+
+    it('aggregates edge weights on duplicate inserts', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      await store.addGraphEdge('mem:x', 'mem:y', 'relates_to', 1);
+      await store.addGraphEdge('mem:x', 'mem:y', 'relates_to', 1);
+      const edges = await store.traverseGraph(['mem:x']);
+      const xy = edges.find((e) => e.from === 'mem:x' && e.to === 'mem:y');
+      expect(xy).toBeDefined();
+      expect(xy!.weight).toBeGreaterThanOrEqual(2);
+
+    });
+  });
+
+  describe('runHygiene', () => {
+    it('marks memories with stale anchors', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      await store.rememberSuper({
+        text: 'Memory with valid anchor',
+        kind: 'file_note',
+        anchors: [{ type: 'file', path: 'package.json' }],
+      });
+      await store.rememberSuper({
+        text: 'Memory with stale anchor',
+        kind: 'file_note',
+        anchors: [{ type: 'file', path: 'nonexistent/file.ts' }],
+      });
+      const report = await store.runHygiene();
+      expect(report.examined).toBe(2);
+      expect(report.staled).toBeGreaterThanOrEqual(1);
+
+    });
+  });
+
+  describe('JSONL → SQLite migration', () => {
+    it('auto-migrates existing JSONL records on first open', async () => {
+      // First, write memories via the JSONL store (creates memories.jsonl)
+      const jsonlStore = new SuperMemoryStore({ projectRoot: tempDir });
+      await jsonlStore.initialize();
+      await jsonlStore.rememberSuper({ text: 'JSONL memory one', kind: 'fact' });
+      await jsonlStore.rememberSuper({ text: 'JSONL memory two', kind: 'decision' });
+
+      // Now open with SQLite store — should auto-migrate
+      const sqliteStore = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await sqliteStore.initialize();
+
+      const stats = await sqliteStore.getStats();
+      expect(stats.total).toBe(2);
+      expect(stats.byKind.fact).toBeGreaterThanOrEqual(1);
+      expect(stats.byKind.decision).toBeGreaterThanOrEqual(1);
+
+      // Search should find migrated content
+      const results = await sqliteStore.searchSuper('JSONL');
+      expect(results.length).toBeGreaterThanOrEqual(2);
+
+      sqliteStore.close();
+    });
+
+    it('does not re-migrate if SQLite db already has data', async () => {
+      // Seed JSONL
+      const jsonlStore = new SuperMemoryStore({ projectRoot: tempDir });
+      await jsonlStore.initialize();
+      await jsonlStore.rememberSuper({ text: 'JSONL original', kind: 'fact' });
+
+      // First SQLite open — migrates
+      const store1 = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store1.initialize();
+      await store1.rememberSuper({ text: 'SQLite-added memory', kind: 'fact' });
+      store1.close();
+
+      // Second SQLite open — should NOT re-migrate
+      const store2 = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store2.initialize();
+      const stats = await store2.getStats();
+      expect(stats.total).toBe(2); // 1 migrated + 1 added, not 3 (re-migration would double the JSONL one)
+      store2.close();
+    });
+  });
+
+  describe('close', () => {
+    it('closes the database without error', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      expect(() => store.close()).not.toThrow();
+    });
+  });
+});
