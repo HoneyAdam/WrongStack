@@ -59,6 +59,7 @@ import {
   syncBoardFromTaskGraph,
   transitionTask,
   transferTaskToBoard,
+  touchKanbanPresence,
   updateBoard,
   updateCheckOnTask,
   updateColumn,
@@ -234,9 +235,9 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
   name: 'kanban',
   category: 'Project',
   description:
-    'Manage and audit project-scoped multi-kanban boards stored under .wrongstack/kanbans. Managed cards enforce fully specified details and adjacent Backlog → Todo → Running → Review → Done transitions with persistent comments and evidence.',
+    'Manage and audit project-scoped multi-kanban boards stored under .wrongstack/kanbans. Managed cards enforce fully specified details and adjacent Backlog → Todo → Running → Review → Done transitions with persistent comments and evidence. Successful board access records live agent/session presence.',
   usageHint:
-    'Use this for durable project kanban state. For managed boards, fully fill card details, use transition_task after every material step, attach truthful evidence, and never use update_task/move_task to bypass lifecycle guards. Worker completion enters Review; only passed acceptance criteria plus review evidence allow Done.',
+    'Use this for durable project kanban state. Reassess with get_board whenever evidence changes; agents may add, update, split, merge, reprioritize, or remove tasks so the board remains a live plan. Presence includes active/last-seen session and agent metadata. For managed boards, fully fill card details, use transition_task after every material step, attach truthful evidence, and never use update_task/move_task to bypass lifecycle guards. Worker completion enters Review; only passed acceptance criteria plus review evidence allow Done.',
   permission: 'confirm',
   mutating: true,
   capabilities: ['fs.write'],
@@ -434,8 +435,28 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
     const projectRoot = ctx.projectRoot;
     if (!projectRoot) return fail('No project root is available.');
 
+    const withPresence = async (result: KanbanToolOutput): Promise<KanbanToolOutput> => {
+      const boardId = result.board?.id ?? input.boardId;
+      if (!result.ok || !boardId || !ctx.session?.id || !ctx.agentId) return result;
+      try {
+        const board = await touchKanbanPresence(projectRoot, boardId, {
+          sessionId: ctx.session.id,
+          agentId: ctx.agentId,
+          agentName: ctx.agentName,
+          taskId: input.taskId ?? result.task?.id,
+          runTaskId: input.runTaskId,
+        });
+        return board ? { ...result, board } : result;
+      } catch {
+        // Presence is observational. A failed heartbeat must not turn a
+        // successful board mutation into an apparent task failure.
+        return result;
+      }
+    };
+
     try {
-      switch (input.action) {
+      const result = await (async (): Promise<KanbanToolOutput> => {
+        switch (input.action) {
         case 'list_boards': {
           const boards = await listBoards(projectRoot);
           return { ok: true, message: `${boards.length} board(s).`, boards };
@@ -1141,7 +1162,9 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
         }
         default:
           return fail(`Unknown kanban action: ${(input as { action: string }).action}`);
-      }
+        }
+      })();
+      return withPresence(result);
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err));
     }

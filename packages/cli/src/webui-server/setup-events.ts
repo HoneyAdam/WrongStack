@@ -74,6 +74,20 @@ export function createSetupEvents(deps: SetupEventsDeps): () => void {
       for (const unsub of eventUnsubscribers) unsub();
       eventUnsubscribers.length = 0;
 
+      eventUnsubscribers.push(
+        deps.agent.ctx.state.onChange((change) => {
+          if (change.kind !== 'todos_replaced') return;
+          broadcast({
+            type: 'todos.updated',
+            payload: sessionPayload({
+              sessionId: currentSessionId(),
+              todos: [...change.todos],
+              revision: deps.agent.ctx.state.revision,
+            }),
+          });
+        }),
+      );
+
       // ── Leader identity — the host is always the leader (agentId 'leader').
       // Emit once so the WebUI's fleet store sets leaderId and shows the crown.
       broadcast({

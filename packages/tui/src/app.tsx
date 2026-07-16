@@ -184,6 +184,7 @@ import { useQueueManager } from './hooks/use-queue-manager.js';
 import { useStatuslineHiddenSync } from './hooks/use-statusline-hidden-sync.js';
 import { useStatuslineState } from './hooks/use-statusline-state.js';
 import { useStreamChipExpiration } from './hooks/use-stream-chip-expiration.js';
+import { useLiveTodos } from './hooks/use-live-todos.js';
 import { useTuiActivity } from './hooks/use-tui-activity.js';
 import { useTuiControllers } from './hooks/use-tui-controllers.js';
 import { useTuiEventBridge } from './hooks/use-tui-event-bridge.js';
@@ -1128,6 +1129,7 @@ export function App({
   // Stream chip auto-expiration code lives after useReducer (see below).
 
   const projectRoot = agent.ctx.projectRoot;
+  const liveTodos = useLiveTodos(agent.ctx);
   const promptUsageRef = useRef<PromptUsageStore | null>(null);
 
   // Rehydrate TUI chat history from restored messages (session resume).
@@ -1364,7 +1366,6 @@ export function App({
     displayThinkingWord,
     startedAt,
     nowTick,
-    setNowTick,
     workingTimeMs,
     fleetWorkingTimeMs,
     enhanceDots,
@@ -1574,22 +1575,10 @@ export function App({
     dispatch({ type: 'clearInput' });
   };
 
-  // ── Consolidated 2s tick: todos status + autonomy/yolo/mode/model/provider sync ──
-  // Previously two separate 2s intervals, each triggering its own React state
-  // update and re-render when their values changed. Merged into one tick so the
-  // two checks share a single interval timer, and when BOTH change in the same
-  // cycle (common after an agent turn that calls the `todo` tool and potentially
-  // mutates the model), they batch into one re-render instead of two.
-  const todosRef = useRef(JSON.stringify([]));
+  // ── Consolidated 2s tick: autonomy/yolo/mode/model/provider sync ──
   const staleGuardRef = useRef(JSON.stringify({ a: '', y: false, m: '', model: '', provider: '' }));
   useEffect(() => {
     const poll = () => {
-      // ── Todos check ──
-      const todoSnap = JSON.stringify(agent.ctx.todos.map((t) => ({ s: t.status })));
-      if (todoSnap !== todosRef.current) {
-        todosRef.current = todoSnap;
-        setNowTick(Date.now());
-      }
       // ── Status-bar live sync (autonomy, yolo, mode, model, provider) ──
       const a = getAutonomy?.() ?? 'off';
       const y = getYolo?.() ?? false;
@@ -1623,7 +1612,6 @@ export function App({
     liveProvider,
     agent.ctx.model,
     agent.ctx.provider,
-    agent.ctx.todos,
   ]);
 
   // Git branch + change counts. Polled every 5s (cheap, two short-lived
@@ -1928,16 +1916,13 @@ export function App({
   // a list that's typically < 20 items.
   const todos = useMemo(() => {
     const counts = { pending: 0, inProgress: 0, completed: 0 };
-    for (const t of agent.ctx.todos) {
+    for (const t of liveTodos) {
       if (t.status === 'pending') counts.pending++;
       else if (t.status === 'in_progress') counts.inProgress++;
       else if (t.status === 'completed') counts.completed++;
     }
     return counts;
-    // Tick on `nowTick` so we pick up todo changes even though
-    // agent.ctx.todos isn't React state — the 1s clock doubles as a
-    // poll for ctx-side state.
-  }, [nowTick, agent.ctx.todos]);
+  }, [liveTodos]);
 
   // Fleet breakdown for the status-bar chip. The coordinator retains idle
   // workers for reuse after a task closes, but the status bar is an active-work
@@ -7080,7 +7065,7 @@ export function App({
             setSuggestions={setSuggestions}
             autonomyMode={autonomyLive}
             multiDiffSummaryThreshold={state.settingsPicker.multiDiffSummaryThreshold}
-            todos={agent.ctx.todos}
+            todos={liveTodos}
           />
         ) : (
           <History
@@ -7095,7 +7080,7 @@ export function App({
             setSuggestions={setSuggestions}
             autonomyMode={autonomyLive}
             multiDiffSummaryThreshold={state.settingsPicker.multiDiffSummaryThreshold}
-            todos={agent.ctx.todos}
+            todos={liveTodos}
           />
         )}
         <Box flexDirection="column" flexShrink={0} ref={bottomRegionRef}>
@@ -7652,7 +7637,7 @@ export function App({
                 onClose={() => dispatch({ type: 'toggleWorktreeMonitor' })}
               />
             ) : state.todosMonitorOpen ? (
-              <TodosMonitor todos={agent.ctx.todos} />
+              <TodosMonitor todos={liveTodos} />
             ) : state.monitorOpen ? (
               <FleetMonitor
                 entries={state.fleet}
@@ -7741,7 +7726,7 @@ export function App({
                 entries={entriesWithLeader}
                 totalCost={state.fleetCost}
                 roster={fleetRoster}
-                todos={agent.ctx.todos}
+                todos={liveTodos}
                 nowTick={nowTick}
                 collabSession={state.collabSession}
               />

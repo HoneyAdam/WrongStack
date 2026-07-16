@@ -3,6 +3,7 @@ import { basename, dirname } from 'node:path';
 import {
   type Context,
   deserializeTaskGraph,
+  GlobalMailbox,
   loadPlan,
   loadTasks,
   mutatePlan,
@@ -15,15 +16,18 @@ import {
   type TaskStatus,
   type TodoItem,
 } from '@wrongstack/core';
+import { resolveWstackPaths } from '@wrongstack/core/utils';
 import {
   createBoard,
   getBoard,
+  getKanbanDir,
   type KanbanBoard,
   type KanbanColumn,
   type KanbanTask,
   listBoards,
   removeBoard,
   syncBoardFromTaskGraph,
+  touchKanbanPresence,
   updateBoard,
 } from '@wrongstack/kanban';
 
@@ -388,6 +392,48 @@ function fireAndForget(work: Promise<unknown>): void {
   });
 }
 
+function broadcastTodoUpdate(context: Context, todos: readonly TodoItem[]): void {
+  const sessionId = context.session?.id ?? '';
+  if (!context.agentId || !sessionId) return;
+  const projectDir = resolveWstackPaths({ projectRoot: context.projectRoot }).projectDir;
+  const mailbox = new GlobalMailbox(projectDir);
+  void mailbox
+    .send({
+      from: context.agentId,
+      to: '*',
+      type: 'status',
+      subject: `Kanban todo list updated (${todos.length} item${todos.length === 1 ? '' : 's'})`,
+      body: JSON.stringify({
+        kind: 'kanban.todos.updated',
+        sessionId,
+        revision: context.state.revision,
+        todos,
+      }),
+      priority: 'normal',
+      senderSessionId: sessionId,
+      ttlMs: 6 * 60 * 60 * 1000,
+    })
+    .catch(() => {
+      // Mailbox awareness is best-effort; canonical state is already updated.
+    });
+}
+
+function notifyTodoUpdate(context: Context, todos: readonly TodoItem[]): void {
+  const summary = todos.length
+    ? todos
+        .map((todo) => `- [${todo.status}] ${todo.content} (${todo.id})`)
+        .join('\n')
+    : '- No active todos remain.';
+  const text = `[KANBAN TODO UPDATE]\nAnother Kanban agent reassessed the shared board. The canonical todo list is now:\n${summary}\nReassess your current plan before continuing; do not rely on the initial todo snapshot.`;
+  const state = context.state as Partial<Context['state']>;
+  if (typeof state.appendBlockToLastUserMessage === 'function') {
+    if (state.appendBlockToLastUserMessage({ type: 'text', text })) return;
+  }
+  if (typeof state.appendMessage === 'function') {
+    state.appendMessage({ role: 'user', content: [{ type: 'text', text }] });
+  }
+}
+
 export function mirrorSessionTodosToKanban(
   projectRoot: string | undefined,
   todos: readonly TodoItem[],
@@ -441,6 +487,10 @@ export function attachSessionKanbanMirror(context: Context): () => void {
   let watcher: FSWatcher | null = null;
   let watchedDir = '';
   let timer: NodeJS.Timeout | null = null;
+  let boardWatcher: FSWatcher | null = null;
+  let watchedBoardId = '';
+  let boardTimer: NodeJS.Timeout | null = null;
+  let presenceTimer: NodeJS.Timeout | null = null;
 
   const sessionId = () => context.session?.id ?? '';
   const refreshFiles = async () => {
@@ -455,6 +505,51 @@ export function attachSessionKanbanMirror(context: Context): () => void {
     if (typeof taskPath === 'string' && taskPath) {
       const tasks = await loadTasks(taskPath);
       if (tasks) await projectSessionTasksToKanban(context.projectRoot, tasks.tasks, id);
+    }
+  };
+
+  const refreshBoard = async () => {
+    if (!watchedBoardId) return;
+    const board = await getBoard(context.projectRoot, watchedBoardId);
+    if (board) applySessionKanbanBoardToTodos(context, board);
+  };
+
+  const configureBoardWatcher = async () => {
+    const id = sessionId();
+    const board = id ? await ensureSessionKanbanBoard(context.projectRoot, id) : null;
+    if (!board || board.id === watchedBoardId) return;
+    boardWatcher?.close();
+    boardWatcher = null;
+    watchedBoardId = board.id;
+    try {
+      const boardFileName = `${board.id}.json`;
+      boardWatcher = watch(
+        getKanbanDir(context.projectRoot),
+        { persistent: false },
+        (_event, filename) => {
+          if (filename?.toString() !== boardFileName) return;
+          if (boardTimer) clearTimeout(boardTimer);
+          boardTimer = setTimeout(() => fireAndForget(refreshBoard()), 60);
+        },
+      );
+      const touchPresence = () =>
+        touchKanbanPresence(context.projectRoot, board.id, {
+          sessionId: id,
+          agentId: context.agentId,
+          agentName: context.agentName,
+        });
+      fireAndForget(touchPresence());
+      if (presenceTimer) clearInterval(presenceTimer);
+      presenceTimer = setInterval(() => fireAndForget(touchPresence()), 60_000);
+      presenceTimer.unref?.();
+      boardWatcher.on('error', () => {
+        boardWatcher?.close();
+        boardWatcher = null;
+        watchedBoardId = '';
+      });
+    } catch {
+      boardWatcher = null;
+      watchedBoardId = '';
     }
   };
 
@@ -506,16 +601,21 @@ export function attachSessionKanbanMirror(context: Context): () => void {
       syncActiveSessionRegistration();
       configureWatcher();
       fireAndForget(ensureSessionKanbanBoard(context.projectRoot, sessionId()));
+      fireAndForget(configureBoardWatcher());
       fireAndForget(refreshFiles());
     }
   });
 
   configureWatcher();
+  fireAndForget(configureBoardWatcher());
 
   const detach = () => {
     unsubscribe();
     if (timer) clearTimeout(timer);
+    if (boardTimer) clearTimeout(boardTimer);
+    if (presenceTimer) clearInterval(presenceTimer);
     watcher?.close();
+    boardWatcher?.close();
     bindings.delete(context);
     if (attachedProjectRoot && registeredSessionId) {
       releaseActiveSessionBoard(attachedProjectRoot, registeredSessionId);
@@ -563,6 +663,83 @@ function sourceStatus(task: KanbanTask): TaskStatus {
   if (task.status === 'blocked') return 'blocked';
   if (task.status === 'failed') return 'failed';
   return 'pending';
+}
+
+function todoStatus(task: KanbanTask): TodoItem['status'] {
+  const status = sourceStatus(task);
+  if (status === 'completed') return 'completed';
+  if (status === 'in_progress' || status === 'review') return 'in_progress';
+  return 'pending';
+}
+
+function sessionTodoFromTask(task: KanbanTask): TodoItem {
+  return {
+    id: task.origin?.taskId ?? task.id,
+    content: task.title,
+    status: todoStatus(task),
+    ...(task.description ? { activeForm: task.description } : {}),
+  };
+}
+
+function sameTodos(left: readonly TodoItem[], right: readonly TodoItem[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((todo, index) => {
+      const candidate = right[index];
+      return (
+        candidate?.id === todo.id &&
+        candidate.content === todo.content &&
+        candidate.status === todo.status &&
+        candidate.activeForm === todo.activeForm &&
+        candidate.promotedFromPlan === todo.promotedFromPlan &&
+        candidate.promotedFromTask === todo.promotedFromTask
+      );
+    })
+  );
+}
+
+/**
+ * Replace the tactical todo list from the current cards on a session-owned board.
+ *
+ * Existing mirrored todo cards retain their stable source ids. New cards created
+ * by a Kanban worker become todos under their card ids, so reassessment can add,
+ * split, merge, reprioritize, or remove work without being overwritten by the
+ * todo list that happened to exist when the run started.
+ */
+export function applySessionKanbanBoardToTodos(context: Context, board: KanbanBoard): TodoItem[] {
+  const sessionId = context.session?.id ?? '';
+  if (!sessionId || sessionIdFromTags(board.tags) !== sessionId || !isOwnedSessionBoard(board.tags)) {
+    return [...context.todos];
+  }
+
+  const projectedTodos = board.tasks
+    .filter(
+      (task) =>
+        task.status !== 'archived' &&
+        (!task.origin ||
+          task.origin.system === 'session-todo' ||
+          (task.origin.graphId ?? '').startsWith('todo:')),
+    )
+    .sort((left, right) => {
+      const leftColumn = board.columns.find((column) => column.id === left.columnId)?.order ?? 0;
+      const rightColumn = board.columns.find((column) => column.id === right.columnId)?.order ?? 0;
+      return leftColumn - rightColumn || left.order - right.order || left.createdAt.localeCompare(right.createdAt);
+    })
+    .map(sessionTodoFromTask);
+
+  const allCompleted =
+    projectedTodos.length > 0 && projectedTodos.every((todo) => todo.status === 'completed');
+  const effectiveTodos = allCompleted ? [] : projectedTodos;
+  if (sameTodos(context.todos, effectiveTodos)) return [...context.todos];
+  suppressedTodoMirrors.add(context);
+  try {
+    context.state.replaceTodos(projectedTodos);
+  } finally {
+    suppressedTodoMirrors.delete(context);
+  }
+  notifyTodoUpdate(context, context.todos);
+  broadcastTodoUpdate(context, context.todos);
+  return [...context.todos];
 }
 
 /** Reflect a TUI/WebUI Kanban card edit back to its originating work list. */

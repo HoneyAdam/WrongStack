@@ -1,5 +1,6 @@
 import type {
   KanbanBoard,
+  KanbanBoardPresence,
   KanbanColumn,
   KanbanModelRoutingMode,
   KanbanSupervisorSnapshot,
@@ -8,6 +9,8 @@ import type {
 import {
   Activity,
   ArrowLeft,
+  CircleUserRound,
+  Clock3,
   Check,
   ChevronDown,
   Columns3,
@@ -44,6 +47,51 @@ import { ModelPicker } from './ModelPicker';
 interface RunLink {
   engine: 'sdd' | 'autophase';
   runId?: string | undefined;
+}
+
+function relativeLastSeen(lastSeenAt: string): string {
+  const elapsed = Math.max(0, Date.now() - Date.parse(lastSeenAt));
+  if (elapsed < 60_000) return 'just now';
+  if (elapsed < 3_600_000) return `${Math.floor(elapsed / 60_000)}m ago`;
+  return `${Math.floor(elapsed / 3_600_000)}h ago`;
+}
+
+function BoardPresence({ presence = [] }: { presence?: KanbanBoardPresence[] | undefined }) {
+  if (presence.length === 0) return null;
+  return (
+    <section
+      aria-label="Board presence"
+      className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-card/50 px-4 py-2"
+    >
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        Live board users
+      </span>
+      {presence.map((entry) => (
+        <span
+          key={entry.id}
+          className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1 text-xs shadow-sm"
+          title={`Session ${entry.sessionId} · last seen ${entry.lastSeenAt}`}
+        >
+          <span
+            aria-label={entry.active ? 'active' : 'inactive'}
+            className={cn(
+              'h-2 w-2 shrink-0 rounded-full',
+              entry.active ? 'bg-success' : 'bg-muted-foreground/50',
+            )}
+          />
+          <CircleUserRound size={13} aria-hidden="true" />
+          <span className="max-w-32 truncate font-medium">
+            {entry.agentName ?? entry.agentId}
+          </span>
+          <span className="max-w-32 truncate text-muted-foreground">{entry.sessionId}</span>
+          <Clock3 size={12} className="text-muted-foreground" aria-hidden="true" />
+          <time dateTime={entry.lastSeenAt} className="tabular-nums text-muted-foreground">
+            {relativeLastSeen(entry.lastSeenAt)}
+          </time>
+        </span>
+      ))}
+    </section>
+  );
 }
 
 function SupervisorBar({
@@ -603,6 +651,7 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
           )}
         </header>
 
+        {activeBoard && <BoardPresence presence={activeBoard.presence} />}
         {activeBoard && runLink && <RunControlBar runLink={runLink} sendRaw={sendRaw} />}
         {activeBoard && !runLink && activeBoard.tasks.length > 0 && (
           <StartAsBar boardId={activeBoard.id} sendKanban={sendKanban} />

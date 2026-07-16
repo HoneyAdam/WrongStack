@@ -1,8 +1,9 @@
 import { getWSClient } from '@/lib/ws-client';
 import { cn } from '@/lib/utils';
 import { useAppTranslation } from '@/i18n';
+import { useSessionStore } from '@/stores';
 import { CheckCircle2, Circle, Clock, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 interface TodoItem {
   id: string;
@@ -31,19 +32,14 @@ const STATUS_ORDER: Record<TodoItem['status'], number> = {
  */
 export function TodosPanel(): React.ReactElement | null {
   const { t } = useAppTranslation();
-  const [todos, setTodos] = useState<TodoItem[]>([]);
+  const todos = useSessionStore((state) => state.todos) as TodoItem[];
+  const sessionId = useSessionStore((state) => state.session?.id);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
   const ws = getWSClient();
-  const offRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    ws.send({ type: 'todos.get' });
-    offRef.current = ws.on('todos.updated', (msg: unknown) => {
-      const payload = (msg as { payload?: { todos?: TodoItem[] | undefined } })?.payload;
-      if (payload?.todos) setTodos(payload.todos);
-    });
-    return () => { offRef.current?.(); };
-  }, [ws]);
+    if (sessionId) ws.send({ type: 'todos.get', payload: { sessionId } });
+  }, [sessionId, ws]);
 
   const handleRemove = useCallback((id: string) => { ws.removeTodo(id); }, [ws]);
 

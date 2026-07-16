@@ -316,6 +316,21 @@ export interface KanbanColumn {
   wipLimit?: number | undefined;
 }
 
+export interface KanbanBoardPresence {
+  /** Stable identity inside a board: one row per session + agent pair. */
+  id: string;
+  sessionId: string;
+  agentId: string;
+  agentName?: string | undefined;
+  taskId?: string | undefined;
+  runTaskId?: string | undefined;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  /** Presence is considered active until this deadline; readers recompute `active`. */
+  activeUntil: string;
+  active: boolean;
+}
+
 export interface KanbanBoard {
   id: string;
   title: string;
@@ -331,6 +346,8 @@ export interface KanbanBoard {
   supervisor?: KanbanSupervisorConfig | undefined;
   /** Opt-in strict Kanban Agent lifecycle policy. */
   lifecycle?: KanbanBoardLifecyclePolicy | undefined;
+  /** Sessions and agents that recently read or mutated this board. */
+  presence?: KanbanBoardPresence[] | undefined;
   version: number;
 }
 
@@ -342,6 +359,7 @@ export interface KanbanBoardMeta {
   taskCount: number;
   completedTaskCount: number;
   tags?: string[] | undefined;
+  presence?: KanbanBoardPresence[] | undefined;
   createdAt: string;
   updatedAt: string;
   lastActivity?: string | undefined;
@@ -349,7 +367,7 @@ export interface KanbanBoardMeta {
 
 export type KanbanBoardSummary = Pick<
   KanbanBoard,
-  'id' | 'title' | 'description' | 'tags' | 'createdAt' | 'updatedAt'
+  'id' | 'title' | 'description' | 'tags' | 'createdAt' | 'updatedAt' | 'presence'
 > & {
   columnCount: number;
   taskCount: number;

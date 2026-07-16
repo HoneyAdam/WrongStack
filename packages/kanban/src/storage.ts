@@ -214,6 +214,7 @@ export function summarizeBoard(board: KanbanBoard): KanbanBoardSummary {
     completedTaskCount: completed,
     ...(board.description !== undefined ? { description: board.description } : {}),
     ...(board.tags !== undefined ? { tags: board.tags } : {}),
+    ...(board.presence !== undefined ? { presence: board.presence.map((entry) => ({ ...entry })) } : {}),
     ...(lastActivity !== undefined ? { lastActivity } : {}),
   };
 }
@@ -230,6 +231,9 @@ export function boardMeta(board: KanbanBoard): KanbanBoardMeta {
     updatedAt: summary.updatedAt,
     ...(summary.description !== undefined ? { description: summary.description } : {}),
     ...(summary.tags !== undefined ? { tags: summary.tags } : {}),
+    ...(summary.presence !== undefined
+      ? { presence: summary.presence.map((entry) => ({ ...entry })) }
+      : {}),
     ...(summary.lastActivity !== undefined ? { lastActivity: summary.lastActivity } : {}),
   };
 }

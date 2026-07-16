@@ -33,6 +33,7 @@ import {
   uniqueColumnId,
 } from './_internal.js';
 import { initializeManagedTaskLifecycle, validateManagedLifecyclePolicy } from './lifecycle.js';
+import { withLiveKanbanPresence } from './presence.js';
 
 export async function createBoard(
   projectRoot: string,
@@ -70,11 +71,17 @@ export async function createBoard(
 }
 
 export async function listBoards(projectRoot: string) {
-  return listBoardSummaries(projectRoot);
+  return (await listBoardSummaries(projectRoot)).map((board) => ({
+    ...board,
+    ...(board.presence !== undefined
+      ? { presence: withLiveKanbanPresence({ ...board, columns: [], tasks: [], version: 1 }).presence }
+      : {}),
+  }));
 }
 
 export async function getBoard(projectRoot: string, boardId: string): Promise<KanbanBoard | null> {
-  return readBoard(projectRoot, boardId);
+  const board = await readBoard(projectRoot, boardId);
+  return board ? withLiveKanbanPresence(board) : null;
 }
 
 export async function updateBoard(

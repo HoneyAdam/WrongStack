@@ -1101,9 +1101,13 @@ export function findTaskByOrigin(
 ): KanbanTask | undefined {
   return board.tasks.find(
     (task) =>
-      task.origin?.graphId === graphId &&
-      task.origin?.taskId === nodeId &&
-      (phaseId === undefined || task.origin.phaseId === phaseId),
+      (task.origin?.graphId === graphId &&
+        task.origin?.taskId === nodeId &&
+        (phaseId === undefined || task.origin.phaseId === phaseId)) ||
+      // A board-created card is projected back to session todos with its card
+      // id. On the next todo mirror, adopt that same card instead of creating
+      // a duplicate; applyGraphNodeToTask then attaches the graph origin.
+      (task.id === nodeId && task.origin === undefined),
   );
 }
 

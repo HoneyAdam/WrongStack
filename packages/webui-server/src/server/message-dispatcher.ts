@@ -148,6 +148,7 @@ export function createMessageDispatcher(
       },
       send: (w, m) => send(w, m),
       broadcast: (m) => broadcast(state.getClients(), m),
+      replaceTodos: (todos) => deps.context.state.replaceTodos(todos),
     };
   }
 

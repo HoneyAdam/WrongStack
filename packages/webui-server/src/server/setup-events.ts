@@ -89,6 +89,19 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   const on = <E extends EventName>(event: E, listener: Listener<E>): void => {
     disposers.push(events.on(event, listener));
   };
+  disposers.push(
+    context.state.onChange((change) => {
+      if (change.kind !== 'todos_replaced') return;
+      broadcast(clients, {
+        type: 'todos.updated',
+        payload: {
+          sessionId: context.session?.id ?? '',
+          todos: [...change.todos],
+          revision: context.state.revision,
+        },
+      });
+    }),
+  );
   const currentSessionId = (): string => context.session?.id ?? '';
   const sessionPayload = <T extends Record<string, unknown>>(payload: T): T & { sessionId: string } => {
     const provided = payload['sessionId'];

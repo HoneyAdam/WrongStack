@@ -119,6 +119,7 @@ export { replaceTool } from './replace.js';
 export { scaffoldTool } from './scaffold.js';
 export { searchTool } from './search.js';
 export {
+  applySessionKanbanBoardToTodos,
   applySessionKanbanTaskToSource,
   attachSessionKanbanMirror,
   ensureSessionKanbanBoard,

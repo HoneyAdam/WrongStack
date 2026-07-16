@@ -9,9 +9,10 @@ import {
   saveTasks,
   type TodoItem,
 } from '@wrongstack/core';
-import { createBoard, getBoard, listBoards, moveTask } from '@wrongstack/kanban';
+import { addTask, createBoard, getBoard, listBoards, moveTask } from '@wrongstack/kanban';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  applySessionKanbanBoardToTodos,
   applySessionKanbanTaskToSource,
   attachSessionKanbanMirror,
   cleanupEmptySessionKanbanBoards,
@@ -126,6 +127,80 @@ describe('unified session kanban', () => {
     detach();
     await cleanupSessionKanbanBoardIfEmpty(dir, 'live-session');
     expect(await getBoard(dir, board!.id)).toBeNull();
+  });
+
+  it('replaces session todos when an agent reassesses and changes the board', async () => {
+    const todos: TodoItem[] = [{ id: 'initial', content: 'Initial work', status: 'pending' }];
+    const context = {
+      projectRoot: dir,
+      todos,
+      meta: {},
+      session: { id: 'dynamic-session' },
+      state: {
+        replaceTodos(next: TodoItem[]) {
+          todos.splice(0, todos.length, ...next);
+        },
+      },
+    } as never as Context;
+    let board = await projectSessionTodosToKanban(dir, todos, 'dynamic-session');
+    expect(board).not.toBeNull();
+
+    const added = await addTask(dir, board!.id, {
+      title: 'New evidence-driven work',
+      description: 'Handling the new evidence',
+      columnId: 'in-progress',
+      status: 'in_progress',
+    });
+    board = added?.board ?? board;
+    const initialCard = board?.tasks.find((task) => task.origin?.taskId === 'initial');
+    if (initialCard) {
+      board = (await moveTask(dir, board!.id, initialCard.id, 'done')) ?? board;
+    }
+
+    const next = applySessionKanbanBoardToTodos(context, board!);
+
+    expect(next).toEqual([
+      expect.objectContaining({
+        id: added?.task.id,
+        content: 'New evidence-driven work',
+        activeForm: 'Handling the new evidence',
+        status: 'in_progress',
+      }),
+      expect.objectContaining({ id: 'initial', content: 'Initial work', status: 'completed' }),
+    ]);
+    expect(todos).toEqual(next);
+
+    const remirrored = await projectSessionTodosToKanban(dir, next, 'dynamic-session');
+    expect(remirrored?.tasks.filter((task) => task.title === 'New evidence-driven work')).toHaveLength(
+      1,
+    );
+    expect(remirrored?.tasks.find((task) => task.id === added?.task.id)?.origin).toMatchObject({
+      system: 'session-todo',
+      taskId: added?.task.id,
+    });
+  });
+
+  it('deduplicates an already-cleared all-completed board snapshot', async () => {
+    const board = await projectSessionTodosToKanban(
+      dir,
+      [{ id: 'done', content: 'Done work', status: 'completed' }],
+      'completed-session',
+    );
+    let replacements = 0;
+    const context = {
+      projectRoot: dir,
+      todos: [],
+      meta: {},
+      session: { id: 'completed-session' },
+      state: {
+        replaceTodos() {
+          replacements++;
+        },
+      },
+    } as never as Context;
+
+    expect(applySessionKanbanBoardToTodos(context, board!)).toEqual([]);
+    expect(replacements).toBe(0);
   });
 
   it('writes Kanban moves back to todo, task, and plan sources', async () => {
