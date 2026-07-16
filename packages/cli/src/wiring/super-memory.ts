@@ -43,6 +43,7 @@ export function setupSuperMemory(deps: SuperMemoryWiringDeps): () => Promise<voi
         maxMemories: cfg?.inject?.maxTurnMemories,
         maxChars: cfg?.inject?.maxCharsPerTurn,
         minScore: cfg?.inject?.minScore,
+        metadataWeight: cfg?.retrieval?.metadataWeight,
       }),
     );
   }

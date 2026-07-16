@@ -739,6 +739,15 @@ export interface SuperMemoryConfig {
       boolean
     >> | undefined;
   } | undefined;
+  retrieval?: {
+    /**
+     * Weight given to the metadata score floor (0–1) in the relevance-blended
+     * scoring formula: `metadataScore * (metadataWeight + relevance * (1 - metadataWeight))`.
+     * At 0.0, relevance fully gates injection. At 1.0, metadata alone decides.
+     * Default: 0.3 — validated against 148 real query-memory pairs.
+     */
+    metadataWeight?: number | undefined;
+  } | undefined;
   hygiene?: {
     /** Run hygiene after successful sessions. Default: true. */
     autoAfterSession?: boolean | undefined;
