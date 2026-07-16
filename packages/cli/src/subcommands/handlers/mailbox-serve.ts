@@ -120,10 +120,15 @@ async function startServer(deps: SubcommandDeps): Promise<number> {
   // project's mailbox-bridge slot, we either join them (URL/token
   // reuse) or fail loud on port-conflict. Both paths skip the listen
   // step entirely — no HTTP server is started in this process.
+  //
+  // The user's --port is always forwarded so the lock can detect
+  // cross-project port collisions; --strict-port only controls the
+  // listen-phase behavior (fail on EADDRINUSE vs. fall back to OS port).
+  const portExplicitlySet = typeof flags['port'] === 'string';
   const acquireResult = await acquireOrJoin({
     projectDir,
     host,
-    requestedPort: strictPort ? portRaw : null,
+    requestedPort: portExplicitlySet ? portRaw : null,
     strictPort,
   });
 
@@ -188,14 +193,10 @@ async function startServer(deps: SubcommandDeps): Promise<number> {
   });
 
   // Listen semantics:
-  //  - strictPort: bind to the exact port requested; reject on
-  //    EADDRINUSE so the operator knows their port is taken. The lock
-  //    acquire already verified no WrongStack bridge owns this
-  //    project, so a strict-port failure here means an UNRELATED
-  //    process is sitting on the port.
-  //  - !strictPort: ask the OS for a free port (pass 0). Operator
-  //    gets a working URL no matter what else is bound to the
-  //    default port.
+  //  - An explicit --port is always honored. If the port is in use:
+  //    - strictPort: reject with EADDRINUSE so the operator knows.
+  //    - !strictPort: fall back to OS-assigned (pass 0).
+  //  - No explicit --port: ask the OS for a free port (pass 0).
   let boundPort = -1;
   try {
     await new Promise<void>((resolve, reject) => {
@@ -209,30 +210,63 @@ async function startServer(deps: SubcommandDeps): Promise<number> {
       };
       server.once('error', onError);
       server.once('listening', onListening);
-      const requestedPort = strictPort ? portRaw : 0;
-      server.listen(requestedPort, host);
+      const listenPort = portExplicitlySet ? portRaw : 0;
+      server.listen(listenPort, host);
     });
     const addr = server.address();
     boundPort = typeof addr === 'object' && addr !== null ? addr.port : portRaw;
   } catch (err) {
-    // Listen failed — release our tentative lock so the next
-    // acquire doesn't see a stale "owned" record pointing at a
-    // process that never bound.
-    clearInterval(rateLimitCleanup);
-    await release(projectDir, tentative.generation);
+    // Listen failed.
     const msg = (err as Error).message;
-    if (strictPort) {
-      deps.renderer.writeError(
-        `Failed to bind ${host}:${portRaw}: ${msg}\n` +
-        `Either pick a different --port or stop the process holding this port.\n`,
-      );
+
+    // Non-strict mode with an explicit port: fall back to OS-assigned.
+    if (portExplicitlySet && !strictPort) {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const onError = (e: Error) => {
+            server.off('listening', onListening);
+            reject(e);
+          };
+          const onListening = () => {
+            server.off('error', onError);
+            resolve();
+          };
+          server.once('error', onError);
+          server.once('listening', onListening);
+          server.listen(0, host);
+        });
+        const addr = server.address();
+        boundPort = typeof addr === 'object' && addr !== null ? addr.port : 0;
+        deps.renderer.writeWarning(
+          `Port ${portRaw} was in use; bound to OS-assigned port ${boundPort} instead.\n`,
+        );
+      } catch {
+        // Both the explicit port and the fallback failed — give up.
+        clearInterval(rateLimitCleanup);
+        await release(projectDir, tentative.generation);
+        deps.renderer.writeError(
+          `Failed to bind ${host}: ${msg}\n` +
+          `This usually means no port is available (extremely rare). Retry or pick an explicit --port.\n`,
+        );
+        return 1;
+      }
     } else {
-      deps.renderer.writeError(
-        `Failed to bind ${host} on an OS-assigned port: ${msg}\n` +
-        `This usually means no port is available (extremely rare). Retry or pick an explicit --port.\n`,
-      );
+      // strictPort or no explicit port — the failure is fatal.
+      clearInterval(rateLimitCleanup);
+      await release(projectDir, tentative.generation);
+      if (strictPort) {
+        deps.renderer.writeError(
+          `Failed to bind ${host}:${portRaw}: ${msg}\n` +
+          `Either pick a different --port, drop --strict-port to allow OS fallback, or stop the process holding this port.\n`,
+        );
+      } else {
+        deps.renderer.writeError(
+          `Failed to bind ${host} on an OS-assigned port: ${msg}\n` +
+          `This usually means no port is available (extremely rare). Retry or pick an explicit --port.\n`,
+        );
+      }
+      return 1;
     }
-    return 1;
   }
 
   // Phase 2 — finalize: write the lock + token with the actual
