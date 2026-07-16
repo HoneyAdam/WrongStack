@@ -47,7 +47,7 @@ describe('ActivityBar desktop responsive overflow', () => {
   });
 
   it('caps capacity at the total number of activity bar items', () => {
-    expect(calculateDesktopActivityCapacity(5000)).toBe(18);
+    expect(calculateDesktopActivityCapacity(5000)).toBe(19);
   });
 });
 
