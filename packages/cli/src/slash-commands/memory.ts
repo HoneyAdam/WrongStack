@@ -558,12 +558,41 @@ async function runAudienceMemory(
     }
   }
 
+  // /memory audience search <query>
+  // Searches audience-scoped memories by partial text/role/mode match.
+  // Unlike `list`, this does substring matching against the memory text
+  // and all audience selector values, not exact retrieveForAudience.
+  if (sub === 'search' || sub === 'find') {
+    const query = rest.slice(1).join(' ').trim().toLowerCase();
+    if (!query) return { message: 'Usage: /memory audience search <query>' };
+    const all = await store.listSuper(['active', 'stale']);
+    const scoped = all.filter((m) => m.audience);
+    const matches = scoped.filter((m) => {
+      const haystack = [
+        m.text,
+        m.audience?.roles?.join(' ') ?? '',
+        m.audience?.taskTypes?.join(' ') ?? '',
+        m.audience?.modes?.join(' ') ?? '',
+        m.tags.join(' '),
+      ].join(' ').toLowerCase();
+      return haystack.includes(query);
+    });
+    if (matches.length === 0) return { message: `No audience-scoped memories match "${query}".` };
+    const lines = [`## Audience-Scoped Memory — Search: "${query}"`, ''];
+    for (const mem of matches) {
+      const aud = mem.audience ? ` (${formatAudienceSelector(mem.audience)})` : '';
+      lines.push(`- \`${mem.id}\` [${mem.kind}|${mem.status}] ${mem.text}${aud}`);
+    }
+    return { message: lines.join('\n') };
+  }
+
   return {
     message: [
       '## /memory audience',
       '',
       '`/memory audience list [--role <r>] [--task-type <t>] [--mode <m>]` — view scoped memories',
       '`/memory audience remember --role <r> [--task-type <t>] [--mode <m>] <text>` — add a scoped memory',
+      '`/memory audience search <query>` — search scoped memories by partial text/role/mode',
       '`/memory audience clear <memory-id>` — remove scope (becomes general memory)',
     ].join('\n'),
   };
