@@ -509,6 +509,25 @@ describe('TelegramBot poll lock', () => {
     second.stop();
   });
 
+  it('standby instance never processes updates (it does not poll, so Telegram never sends them)', async () => {
+    // P1.10 safe-standby invariant: a standby instance is one that
+    // failed to acquire the poll lock, so it does not call getUpdates
+    // and Telegram therefore never sends it an update. If we manually
+    // drive an update through the bot (bypassing the gate), the bot
+    // processes it normally — the safety contract is "standby never
+    // polls, so Telegram never sends it updates", not "standby
+    // ignores updates". This test pins the contract end-to-end.
+    const standby = makeLockedBot('test:token-two', { standbyRetryMs: 30 });
+    const _other = makeLockedBot('test:token-one');
+    _other.start();
+    standby.start();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(standby.standby).toBe(true);
+    expect(polledUrls.some((u) => u.includes('token-two'))).toBe(false);
+    standby.stop();
+    _other.stop();
+  });
+
   it('stop releases the lock so a fresh instance can poll immediately', async () => {
     const first = makeLockedBot('test:token-one');
     first.start();
