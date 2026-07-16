@@ -51,6 +51,14 @@ export interface TelegramPluginConfig {
    * Set false only if this is guaranteed to be the sole consumer.
    */
   singleInstanceLock?: boolean | undefined;
+  /**
+   * Per-chat pending-message cap for the outbound queue. Older pending
+   * notification entries are dropped when this is exceeded; manual
+   * telegram_send entries surface the overflow as an error. Default: 32.
+   */
+  outboundQueuePerChat?: number | undefined;
+  /** Maximum concurrent outbound sends across all chats. Default: 4. */
+  outboundQueueConcurrency?: number | undefined;
 }
 
 export const DEFAULT_CONFIG: Required<
@@ -66,6 +74,8 @@ export const DEFAULT_CONFIG: Required<
   notifyOnDelegate: true,
   maxMessageLength: 4000,
   singleInstanceLock: true,
+  outboundQueuePerChat: 32,
+  outboundQueueConcurrency: 4,
 };
 
 export const telegramConfigSchema = {
@@ -112,6 +122,18 @@ export const telegramConfigSchema = {
       type: 'boolean',
       description:
         'Elect a single getUpdates poller per bot token across wstack instances (default true)',
+    },
+    outboundQueuePerChat: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 1000,
+      description: 'Per-chat pending outbound-message cap (default 32)',
+    },
+    outboundQueueConcurrency: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 64,
+      description: 'Maximum concurrent outbound sends across all chats (default 4)',
     },
   },
   required: ['botToken'],

@@ -7,6 +7,7 @@ import {
   scrubTelegramOutboundText,
   type TelegramOutboundTargetPolicy,
 } from '../security/outbound.js';
+import type { TelegramBotOutbound } from '../bot-queue.js';
 
 // ---------------------------------------------------------------------------
 // /telegram-health
@@ -51,6 +52,7 @@ interface TelegramSlashSendPolicy extends TelegramOutboundTargetPolicy {
 export function tgSendCommand(
   bot: TelegramBot,
   policyOrDefault: TelegramSlashSendPolicy | string | number | undefined,
+  outbound?: TelegramBotOutbound,
 ): SlashCommand {
   const policy: TelegramSlashSendPolicy =
     typeof policyOrDefault === 'object' && policyOrDefault !== null
@@ -92,6 +94,12 @@ Examples:
         const chatId = resolveTelegramOutboundTarget(requestedChatId, policy);
         const scrubbed = scrubTelegramOutboundText(text);
         const truncated = truncateForTelegram(scrubbed, policy.getMaxMessageLength?.() ?? 4000);
+        if (outbound) {
+          const res = await outbound.sendManual(chatId, truncated);
+          return {
+            message: `✅ Message sent to ${chatId} (msg_id=${res.result?.message_id ?? '?'})`,
+          };
+        }
         const res = await bot.sendMessage(chatId, truncated);
         return {
           message: `✅ Message sent to ${chatId} (msg_id=${res.result?.message_id ?? '?'})`,

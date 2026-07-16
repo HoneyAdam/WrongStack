@@ -487,4 +487,65 @@ describe('plugin entry', () => {
     expect(healthAfter!.ok).toBe(false);
     expect(healthAfter!.message).toBe('Plugin not initialized');
   });
+
+  it('routes notification events through the outbound queue', async () => {
+    const api = makeApi();
+    await plugin.setup(api);
+
+    // Trigger one of the three notification events. The session.ended handler
+    // reads event.usage.input/output; populate them so the enqueue path runs
+    // end-to-end without throwing inside the listener.
+    const calls: Array<{ url: string; body?: string }> = [];
+    const _fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    const wrappedFetch = vi.fn((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      calls.push({ url, body: init?.body ? String(init.body) : undefined });
+      if (url.includes('/getMe')) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              ok: true,
+              result: { id: 1, is_bot: true, first_name: 'TestBot', username: 'test_bot' },
+            }),
+        });
+      }
+      if (url.includes('/sendMessage')) {
+        // Block forever — this lets us observe queue inflight count.
+        return new Promise(() => {});
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ ok: true, result: [] }),
+      });
+    });
+    globalThis.fetch = wrappedFetch as never as typeof fetch;
+    _fetchMock.mockClear?.();
+
+    api.events.emit('session.ended', {
+      id: 's-1',
+      usage: { input: 10, output: 20, cacheRead: 0, cacheWrite: 0 },
+    } as never);
+
+    // Allow the listener to fire and queue the entry.
+    await new Promise((r) => setTimeout(r, 30));
+
+    const state = (
+      plugin as unknown as {
+        teardownState?: {
+          outbound: {
+            stats: () => { enqueued: number; sent: number; inflight: number; pending: number };
+          };
+        } | null;
+      }
+    ).teardownState;
+    expect(state).not.toBeNull();
+    const stats = state!.outbound.stats();
+    // The session.ended listener should have enqueued at least one notification.
+    expect(stats.enqueued).toBeGreaterThanOrEqual(1);
+    // sendMessage was called via the queue (the bot.transport mock intercepts it).
+    expect(calls.some((c) => c.url.includes('/sendMessage'))).toBe(true);
+
+    await plugin.teardown?.(api);
+  });
 });

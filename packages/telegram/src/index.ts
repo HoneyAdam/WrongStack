@@ -10,6 +10,7 @@ import { OffsetStore } from './offset-store.js';
 import { scrubTelegramOutboundText } from './security/outbound.js';
 import { tgChatIdCommand, tgHealthCommand, tgSendCommand } from './slash-commands/index.js';
 import { makeTelegramApproveTool } from './tools/telegram-approve.js';
+import { TelegramBotOutbound } from './bot-queue.js';
 import { makeTelegramReadTool } from './tools/telegram-read.js';
 import { makeTelegramSendTool } from './tools/telegram-send.js';
 
@@ -28,10 +29,13 @@ interface RuntimeConfig {
   notifyOnDelegate: boolean;
   longToolThresholdMs: number;
   maxMessageLength: number;
+  outboundQueuePerChat: number;
+  outboundQueueConcurrency: number;
 }
 
 interface RuntimeState {
   bot: TelegramBot;
+  outbound: TelegramBotOutbound;
   cleanups: Array<() => void>;
 }
 
@@ -169,6 +173,8 @@ const plugin: Plugin = {
       notifyOnDelegate: cfg.notifyOnDelegate ?? true,
       longToolThresholdMs: cfg.longToolThresholdMs ?? 30_000,
       maxMessageLength: cfg.maxMessageLength ?? 4000,
+      outboundQueuePerChat: cfg.outboundQueuePerChat ?? 32,
+      outboundQueueConcurrency: cfg.outboundQueueConcurrency ?? 4,
     };
 
     // ---- Bot ----
@@ -224,6 +230,20 @@ const plugin: Plugin = {
       // listener and registry entry has been detached.
       cleanups.push(() => bot.stop());
 
+      // Bounded outbound queue with per-chat backpressure. Notification events
+      // and the /telegram:send slash command both enqueue through it; manual
+      // telegram_send tool sends go through bot.sendMessage directly so user
+      // errors surface immediately. The queue is drained on teardown.
+      const outbound = new TelegramBotOutbound({
+        bot,
+        log,
+        maxPerChat: runtimeCfg.outboundQueuePerChat,
+        maxConcurrency: runtimeCfg.outboundQueueConcurrency,
+      });
+      cleanups.push(() => {
+        void outbound.stop();
+      });
+
       // ---- Register tools ----
       const sendTool = makeTelegramSendTool({
         bot,
@@ -273,11 +293,15 @@ const plugin: Plugin = {
       // commands already installed by this setup attempt.
       for (const command of [
         tgHealthCommand(bot, cfg),
-        tgSendCommand(bot, {
-          getDefaultChatId: () => runtimeCfg.notifyChatId,
-          getAllowedOutboundChatIds: () => runtimeCfg.allowedOutboundChats,
-          getMaxMessageLength: () => runtimeCfg.maxMessageLength,
-        }),
+        tgSendCommand(
+          bot,
+          {
+            getDefaultChatId: () => runtimeCfg.notifyChatId,
+            getAllowedOutboundChatIds: () => runtimeCfg.allowedOutboundChats,
+            getMaxMessageLength: () => runtimeCfg.maxMessageLength,
+          },
+          outbound,
+        ),
         tgChatIdCommand(cfg.notifyChatId),
       ]) {
         registerCommand(api, command, cleanups);
@@ -301,9 +325,7 @@ const plugin: Plugin = {
             scrubTelegramOutboundText(formatSessionEnded(payload)),
             runtimeCfg.maxMessageLength,
           );
-          void bot.sendMessage(expectDefined(runtimeCfg.notifyChatId), msg).catch((err) => {
-            log.debug(`Failed to send session end notification: ${(err as Error).message}`);
-          });
+          outbound.enqueueNotification(expectDefined(runtimeCfg.notifyChatId), msg);
         }),
       );
 
@@ -326,9 +348,7 @@ const plugin: Plugin = {
             scrubTelegramOutboundText(formatToolExecuted(payload)),
             runtimeCfg.maxMessageLength,
           );
-          void bot.sendMessage(expectDefined(runtimeCfg.notifyChatId), msg).catch((err) => {
-            log.debug(`Failed to send tool notification: ${(err as Error).message}`);
-          });
+          outbound.enqueueNotification(expectDefined(runtimeCfg.notifyChatId), msg);
         }),
       );
 
@@ -347,9 +367,7 @@ const plugin: Plugin = {
             scrubTelegramOutboundText(formatDelegateCompleted(safeEvent)),
             runtimeCfg.maxMessageLength,
           );
-          void bot.sendMessage(expectDefined(runtimeCfg.notifyChatId), msg).catch((err) => {
-            log.debug(`Failed to send delegate notification: ${(err as Error).message}`);
-          });
+          outbound.enqueueNotification(expectDefined(runtimeCfg.notifyChatId), msg);
         }),
       );
 
@@ -380,7 +398,7 @@ const plugin: Plugin = {
       // Polling is the final side effect: it may acquire the cross-process
       // lock and create timers, and bot.stop() releases all of them.
       bot.start();
-      teardownState = { bot, cleanups };
+      teardownState = { bot, outbound, cleanups };
       log.info('Telegram plugin ready');
     } catch (err) {
       teardownState = null;
