@@ -817,6 +817,7 @@ export function MemoryManager() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | SuperMemoryStatus>('all');
   const [kindFilter, setKindFilter] = useState('all');
+  const [audienceOnly, setAudienceOnly] = useState(false);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
 
   const hasLoadedRef = useRef(false);
@@ -1137,10 +1138,18 @@ export function MemoryManager() {
       if (statusFilter !== 'all' && memory.status !== statusFilter) return false;
       if (kindFilter !== 'all' && memory.kind !== kindFilter) return false;
       if (tagFilter && !memory.tags.includes(tagFilter)) return false;
+      if (audienceOnly && !memory.audience) return false;
       if (!query) return true;
       const anchorText = memory.anchors
         .map((anchor) => [anchor.path, anchor.symbol, anchor.command].filter(Boolean).join(' '))
         .join(' ');
+      const audienceText = memory.audience
+        ? [
+            memory.audience.roles?.join(' ') ?? '',
+            memory.audience.taskTypes?.join(' ') ?? '',
+            memory.audience.modes?.join(' ') ?? '',
+          ].join(' ')
+        : '';
       return [
         memory.id,
         memory.text,
@@ -1149,12 +1158,13 @@ export function MemoryManager() {
         memory.scope,
         memory.tags.join(' '),
         anchorText,
+        audienceText,
       ]
         .join(' ')
         .toLowerCase()
         .includes(query);
     });
-  }, [kindFilter, memories, searchQuery, statusFilter, tagFilter]);
+  }, [audienceOnly, kindFilter, memories, searchQuery, statusFilter, tagFilter]);
 
   const allTags = useMemo(() => {
     const counts = new Map<string, number>();
@@ -1178,10 +1188,11 @@ export function MemoryManager() {
     setSearchQuery('');
     setStatusFilter('all');
     setKindFilter('all');
+    setAudienceOnly(false);
     setTagFilter(null);
   };
   const hasFilters = Boolean(
-    searchQuery || statusFilter !== 'all' || kindFilter !== 'all' || tagFilter,
+    searchQuery || statusFilter !== 'all' || kindFilter !== 'all' || tagFilter || audienceOnly,
   );
   const detailOpen = creating || Boolean(selectedMemory);
 
@@ -1369,6 +1380,16 @@ export function MemoryManager() {
                   </button>
                 )}
               </div>
+              <Button
+                variant={audienceOnly ? 'default' : 'ghost'}
+                size="icon"
+                onClick={() => setAudienceOnly((v) => !v)}
+                aria-label="Filter audience-scoped only"
+                title="Show only audience-scoped memories"
+                className="shrink-0"
+              >
+                <BrainCircuit className="size-4" />
+              </Button>
               {hasFilters && (
                 <Button
                   variant="ghost"
