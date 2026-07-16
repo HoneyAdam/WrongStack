@@ -23,6 +23,7 @@ import type {
 } from '../coordination/brain.js';
 import {
   completeBrainLlm,
+  type BrainLlmTarget,
 } from './autonomy-brain.js';
 import { CouncilOrchestrator } from './council-orchestrator.js';
 import type { CouncilLLMCaller, CouncilModelTarget, CouncilProfileConfig, CouncilSeatConfig } from '../types/council.js';

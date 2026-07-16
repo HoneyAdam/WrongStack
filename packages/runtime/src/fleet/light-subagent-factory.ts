@@ -25,6 +25,7 @@ import {
   applyModelRuntime,
   type Config,
   type Container,
+  FallbackProfileManager,
   Context,
   createDefaultPipelines,
   createFallbackModelExtension,
@@ -86,6 +87,9 @@ export function abortLightSubagent(agent: Agent): void {
 
 export function makeLightSubagentFactory(deps: LightSubagentFactoryDeps): AgentFactory {
   const configStore = deps.container.resolve(TOKENS.ConfigStore);
+  const fallbackProfileManager = deps.container.safeResolve(TOKENS.FallbackProfileManager)
+    ?? new FallbackProfileManager(configStore.get() as Config);
+  configStore.watch((next) => fallbackProfileManager.reload(next as Config));
   const tokenCounter = deps.container.resolve(TOKENS.TokenCounter);
   const secretScrubber = deps.container.resolve(TOKENS.SecretScrubber);
   const systemPromptBuilder = deps.container.resolve(TOKENS.SystemPromptBuilder);
@@ -206,6 +210,7 @@ export function makeLightSubagentFactory(deps: LightSubagentFactoryDeps): AgentF
     agent.extensions.register(
       createFallbackModelExtension({
         getConfig: () => configStore.get() as Config,
+        fallbackProfileManager,
         getFallbackModels: () => subCfg.fallbackModels,
         getFallbackProfile: () => fallbackProfile,
         buildProvider: (id, model) =>

@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
  * There are two WebUI servers that drive the same browser client over the same
  * `WSClientMessage` protocol:
  *   - CLI-embedded  (`wrongstack --webui`) — packages/cli/src/webui-server.ts
- *   - standalone    (`wstackui`)           — packages/webui-server/src/server/index.ts
+ *   - standalone    (`wstack --webui`)      — packages/webui-server/src/server/index.ts
  *
  * Historically they drifted: a message type handled by one but not the other
  * silently breaks that surface (e.g. the embedded server once punted ALL

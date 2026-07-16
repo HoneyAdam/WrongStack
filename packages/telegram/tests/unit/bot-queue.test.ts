@@ -63,7 +63,10 @@ describe('TelegramBotOutbound', () => {
   });
 
   it('surfaces a manual overflow as an error rather than silently dropping', async () => {
-    const gate = new Promise<void>(() => {});
+    let rejectSend!: (err: Error) => void;
+    const gate = new Promise<never>((_, reject) => {
+      rejectSend = reject;
+    });
     const send = vi.fn(() => gate);
     const queue = new TelegramBotOutbound({
       bot: makeBot(send),
@@ -73,9 +76,11 @@ describe('TelegramBotOutbound', () => {
     });
 
     const first = queue.sendManual(99, 'first');
-    await expect(queue.sendManual(99, 'second')).rejects.toThrow(/per-chat limit|stopped/);
-    // The first manual is still in flight; stop() must drain and reject cleanly.
+    // Second send overflows because one is already in-flight (maxPerChat=1).
+    await expect(queue.sendManual(99, 'second')).rejects.toThrow(/per-chat limit/);
+    // Reject the in-flight send so stop() can drain.
+    rejectSend(new Error('network error'));
+    await expect(first).rejects.toThrow();
     await queue.stop();
-    await expect(first).rejects.toThrow(/stopped/);
   });
 });

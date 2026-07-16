@@ -89,7 +89,6 @@ export class CouncilOrchestrator {
   private readonly defaultProfile: string | undefined;
   private readonly maxConcurrency: number;
   private readonly refusalOptionId: string;
-  private readonly getConfig: (() => Config) | undefined;
   private readonly fallbackProfileManager: FallbackProfileManager | undefined;
   private readonly seatCaller: ((seatIndex: number) => CouncilLLMCaller) | undefined;
   private readonly judgeCaller: CouncilLLMCaller | undefined;
@@ -103,7 +102,6 @@ export class CouncilOrchestrator {
       opts.maxConcurrency ?? DEFAULT_COUNCIL_MAX_CONCURRENCY,
     );
     this.refusalOptionId = opts.refusalOptionId?.trim() || COUNCIL_REFUSAL_OPTION_ID;
-    this.getConfig = opts.getConfig;
     this.fallbackProfileManager = opts.fallbackProfileManager;
     this.seatCaller = opts.seatCaller;
     this.judgeCaller = opts.judgeCaller;

@@ -270,6 +270,15 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
         // control the review model. Budget is generous because reviews regularly
         // need 15–19 iterations, 21+ tools, and 2+ minutes of wall time for
         // deep multi-file reading + git cross-referencing.
+        //
+        // Fallback models: FIX-2026-07-16 — the `roleNeedsIndependentReviewModel()`
+        // guard discards the `*` default matrix entry for review roles, so the
+        // reviewer falls through to the session's own provider/model. If that model
+        // returns empty responses (common with some providers), the subagent fails
+        // immediately with 0 tool calls. The fallbackModels below give the subagent's
+        // fallback extension a chain to rotate through, trying alternative providers
+        // when the primary is unresponsive. These are parsed as `provider/model` refs.
+        // The `/setmodel set reviewer <p>/<m>` command still overrides all of this.
         const cfg: SubagentConfig = {
           name: 'chimera-review',
           role: 'reviewer',
@@ -277,6 +286,58 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
           maxIterations: 50,
           maxToolCalls: 250,
           timeoutMs: 900_000,
+          // Fallback chain: when the resolved model returns empty responses, the
+          // subagent's fallback extension rotates through these provider/model pairs.
+          // The first working entry is used for the remainder of the turn.
+          // Add/remove entries based on which providers/models are configured.
+          //
+          // Providers available in the catalog (packages/cli/data/providers.json):
+          //   deepseek, openai-codex, anthropic, google, openai, github-copilot, together, groq
+          //
+          // The extension (fallback-model.ts) also tries the "default" profile, the
+          // session primary, and all other configured providers via smart defaults,
+          // so this explicit list is only needed for cross-provider hops you want to
+          // guarantee in a specific order. Format: "providerId/modelId"
+          //
+          // ACTIVE PROVIDERS (from ~/.wrongstack/config.json — models determined by
+          // the models.dev catalog unless explicit `models[]` is set):
+          //   deepseek (primary)     — api.deepseek.com, pool: deepseek-v4-flash, deepseek-chat, deepseek-v4-pro, etc.
+          //   opencode               — opencode.ai/zen/v1 (OpenAI-compat, same deepseek pool)
+          //   opencode-go            — opencode.ai/zen/go/v1 (OpenAI-compat, same deepseek pool)
+          //   anthropic-oauth        — api.anthropic.com, explicit: claude-opus-4-8
+          //   openai-codex           — chatgpt.com/backend-api, explicit: gpt-5.3-codex-spark
+          //   kimi-for-coding        — api.kimi.com/coding/v1 (Anthropic-compat)
+          //   minimax-coding-plan    — api.minimax.io/anthropic/v1 (Anthropic-compat)
+          //   zai-coding-plan        — api.z.ai (OpenAI-compat)
+          //   github-copilot         — api.individual.githubcopilot.com, models: [] (empty)
+          //   omniroute              — localhost:20128/v1 (local proxy)
+          //
+          // The fallbackCandidates function (fallback-model.ts:fallbackCandidates)
+          // also adds the "default" profile + session primary + ALL OTHER configured
+          // providers as smart defaults, so this explicit list only needs entries
+          // when you want to guarantee a specific fallback ORDER.
+          //
+          // ENABLED FALLBACKS (verified against config at ~/.wrongstack/config.json):
+          //   10 providers total: deepseek (primary), opencode, opencode-go,
+          //   anthropic-oauth, openai-codex, kimi-for-coding, minimax-coding-plan,
+          //   zai-coding-plan, github-copilot, omniroute
+          //
+          // Fallback order:
+          //   1. Same model on alternative opencode endpoint (server-specific blips)
+          //   2. Different/smaller model on same deepseek provider (capacity issues)
+          //   3. Completely different provider/API (model-specific failures)
+          fallbackModels: [
+            // Tier 1 — same model pool, alternative endpoint:
+            "opencode/deepseek-chat",
+            "opencode-go/deepseek-v4-pro",
+            
+            // Tier 2 — smaller models on same provider:
+            "deepseek/deepseek-chat",
+            
+            // Tier 3 — different providers entirely:
+            "anthropic-oauth/claude-opus-4-8",
+            "openai-codex/gpt-5.3-codex-spark",
+          ],
         };
 
         const subagentId = await dir.spawn(cfg);

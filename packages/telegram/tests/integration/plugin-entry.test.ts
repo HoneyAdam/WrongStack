@@ -9,7 +9,7 @@ import {
 } from '@wrongstack/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PLUGIN_NAME } from '../../src/config.js';
-import plugin from '../../src/index.js';
+import plugin, { teardownState as _teardownState } from '../../src/index.js';
 import { lockPathForToken } from '../../src/poll-lock.js';
 
 const log: Logger = {
@@ -257,8 +257,9 @@ describe('plugin entry', () => {
       iterations: 1,
       toolCalls: 1,
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    // Give the outbound queue time to process all three notifications
+    // (queue processes sequentially, each send takes a microtask turn).
+    for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r, 5));
 
     const outboundBodies = fetchMock.mock.calls
       .filter(([url]) => String(url).includes('/sendMessage'))
@@ -490,6 +491,7 @@ describe('plugin entry', () => {
 
   it('routes notification events through the outbound queue', async () => {
     const api = makeApi();
+    (api.config.extensions[PLUGIN_NAME] as Record<string, unknown>).notifyOnSessionEnd = true;
     await plugin.setup(api);
 
     // Trigger one of the three notification events. The session.ended handler
@@ -530,17 +532,8 @@ describe('plugin entry', () => {
     // Allow the listener to fire and queue the entry.
     await new Promise((r) => setTimeout(r, 30));
 
-    const state = (
-      plugin as unknown as {
-        teardownState?: {
-          outbound: {
-            stats: () => { enqueued: number; sent: number; inflight: number; pending: number };
-          };
-        } | null;
-      }
-    ).teardownState;
-    expect(state).not.toBeNull();
-    const stats = state!.outbound.stats();
+    expect(_teardownState).not.toBeNull();
+    const stats = _teardownState!.outbound.stats();
     // The session.ended listener should have enqueued at least one notification.
     expect(stats.enqueued).toBeGreaterThanOrEqual(1);
     // sendMessage was called via the queue (the bot.transport mock intercepts it).

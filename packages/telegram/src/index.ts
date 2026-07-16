@@ -423,6 +423,9 @@ const plugin: Plugin = {
 
 export default plugin;
 
+// Exposed for tests to inspect the queue without going through the API surface.
+export { teardownState };
+
 // Re-export the types consumers may want
 export type { TelegramIncomingMessage } from './bot.js';
 export type { TelegramPluginConfig } from './config.js';

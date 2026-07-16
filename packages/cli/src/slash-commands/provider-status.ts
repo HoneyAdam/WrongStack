@@ -121,7 +121,7 @@ export function buildProviderStatusCommand(
 
   return {
     name: 'provider-status',
-    category: 'Diagnostics',
+    category: 'Inspect',
     description: 'View the live health status of all providers/models (healthy, degraded, blocked).',
     argsHint: '[blocked | degraded | healthy | clear]',
     help,

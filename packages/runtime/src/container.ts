@@ -4,6 +4,7 @@ import {
   createStrategyCompactor,
   DefaultConfigStore,
   DefaultErrorHandler,
+  FallbackProfileManager,
   DefaultModeStore,
   DefaultPermissionPolicy,
   DefaultPromptLoader,
@@ -67,7 +68,10 @@ export function createDefaultContainer(opts: CreateContainerOptions): Container 
   const container = new Container();
 
   const configStore = new DefaultConfigStore(config);
+  const fallbackProfileManager = new FallbackProfileManager(config);
+  configStore.watch((next) => fallbackProfileManager.reload(next as Config));
   container.bind(TOKENS.ConfigStore, () => configStore);
+  container.bind(TOKENS.FallbackProfileManager, () => fallbackProfileManager);
   container.bind(TOKENS.Logger, () => logger);
   container.bind(TOKENS.SecretScrubber, () => new DefaultSecretScrubber());
   container.bind(TOKENS.RetryPolicy, () => new DefaultRetryPolicy());

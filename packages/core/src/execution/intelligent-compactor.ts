@@ -228,7 +228,7 @@ export class IntelligentCompactor implements Compactor {
         timeoutMs: 30_000,
         maxTokens: 1024,
         signal: ctx.signal,
-        fallbackProfile: 'summary',
+        fallbackModels: ['/summary'],
       });
       if (result.text && !result.error) return result.text;
       // OneShotLLM failed — fall through to lossless digest below.

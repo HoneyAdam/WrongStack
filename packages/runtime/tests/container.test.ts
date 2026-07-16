@@ -1,4 +1,4 @@
-import { Container, DefaultConfigStore, TOKENS } from '@wrongstack/core';
+import { Container, DefaultConfigStore, FallbackProfileManager, TOKENS } from '@wrongstack/core';
 import { describe, expect, it } from 'vitest';
 import { createDefaultContainer } from '../src/container.js';
 
@@ -70,6 +70,35 @@ describe('createDefaultContainer', () => {
     expect(store).toBeInstanceOf(DefaultConfigStore);
   });
 
+  it('binds one live FallbackProfileManager and reloads it on ConfigStore updates', () => {
+    const c = createDefaultContainer({
+      config: {
+        ...mockConfig,
+        providers: {
+          anthropic: { type: 'anthropic', apiKey: 'test', models: ['old-model', 'new-model'] },
+        },
+        fallbackProfiles: { old: ['anthropic/old-model'] },
+      },
+      wpaths: mockWpaths,
+      logger: mockLogger,
+      modelsRegistry: mockModels,
+    });
+    const store = c.resolve(TOKENS.ConfigStore);
+    const manager = c.resolve(TOKENS.FallbackProfileManager);
+
+    expect(manager).toBeInstanceOf(FallbackProfileManager);
+    expect(c.resolve(TOKENS.FallbackProfileManager)).toBe(manager);
+    expect(manager.hasProfile('old')).toBe(true);
+
+    store.update({ fallbackProfiles: { new: ['anthropic/new-model'] } });
+
+    expect(c.resolve(TOKENS.FallbackProfileManager)).toBe(manager);
+    expect(manager.hasProfile('old')).toBe(false);
+    expect(manager.resolve('new')).toMatchObject([
+      { providerId: 'anthropic', model: 'new-model' },
+    ]);
+  });
+
   it('binds all required tokens', () => {
     const c = createDefaultContainer({
       config: mockConfig,
@@ -78,6 +107,7 @@ describe('createDefaultContainer', () => {
       modelsRegistry: mockModels,
     });
     expect(c.has(TOKENS.Logger)).toBe(true);
+    expect(c.has(TOKENS.FallbackProfileManager)).toBe(true);
     expect(c.has(TOKENS.SecretScrubber)).toBe(true);
     expect(c.has(TOKENS.RetryPolicy)).toBe(true);
     expect(c.has(TOKENS.ErrorHandler)).toBe(true);
@@ -101,6 +131,7 @@ describe('createDefaultContainer', () => {
     // Touching each .resolve() runs the bound factory — this is how we get
     // function-level coverage on the factory bodies in container.ts.
     expect(c.resolve(TOKENS.Logger)).toBe(mockLogger);
+    expect(c.resolve(TOKENS.FallbackProfileManager)).toBeDefined();
     expect(c.resolve(TOKENS.SecretScrubber)).toBeDefined();
     expect(c.resolve(TOKENS.RetryPolicy)).toBeDefined();
     expect(c.resolve(TOKENS.ErrorHandler)).toBeDefined();

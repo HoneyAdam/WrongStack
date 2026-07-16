@@ -77,19 +77,24 @@ export function createSetupEvents(deps: SetupEventsDeps): () => void {
       for (const unsub of eventUnsubscribers) unsub();
       eventUnsubscribers.length = 0;
 
-      eventUnsubscribers.push(
-        deps.agent.ctx.state.onChange((change) => {
+      // Some embedders and lightweight test agents expose only the Context
+      // fields needed by the server. Todo push updates are an optional
+      // enhancement for those partial contexts, so do not let a missing (or
+      // legacy) ConversationState prevent the WebSocket server from starting.
+      const conversationState = (deps.agent.ctx as { state?: Context['state'] }).state;
+      if (typeof conversationState?.onChange === 'function') {
+        eventUnsubscribers.push(conversationState.onChange((change) => {
           if (change.kind !== 'todos_replaced') return;
           broadcast({
             type: 'todos.updated',
             payload: sessionPayload({
               sessionId: currentSessionId(),
               todos: [...change.todos],
-              revision: deps.agent.ctx.state.revision,
+              revision: conversationState.revision,
             }),
           });
-        }),
-      );
+        }));
+      }
 
       // ── Kanban board file watcher ──────────────────────────────────────
       // Push live board updates when external agents mutate board JSON.

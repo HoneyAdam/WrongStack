@@ -10,7 +10,6 @@ import {
 } from '../types/provider.js';
 import type { FallbackChain } from '../core/fallback-profile-manager.js';
 import type { Config } from '../types/config.js';
-import type { ProviderModelStatusTracker } from '../coordination/provider-status-tracker.js';
 
 /**
  * Default timeout for one-shot LLM calls when the caller doesn't specify one.

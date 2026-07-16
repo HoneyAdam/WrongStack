@@ -67,6 +67,7 @@ export interface OutboundQueueStats {
   readonly dropped: number;
   readonly failed: number;
   readonly inflight: number;
+  /** Accepted entries not yet settled, including the in-flight sends. */
   readonly pending: number;
 }
 
@@ -88,6 +89,7 @@ export class OutboundQueue {
   };
   readonly #lanes = new Map<string, ChatLane>();
   #active = 0;
+  #notificationScheduleQueued = false;
   #stopped = false;
   #nextId = 0;
   #enqueued = 0;
@@ -146,10 +148,12 @@ export class OutboundQueue {
           );
         }
       }
-    } else if (lane.pending.length >= this.#opts.maxPerChat) {
+    } else if (lane.pending.length + (lane.running ? 1 : 0) >= this.#opts.maxPerChat) {
       // Manual overflow: surface a real error instead of silently dropping.
       // Per the P1.4 acceptance criterion, manual sends are never
       // silently dropped or coalesced.
+      // Counts both pending and in-flight entries since `running` means one
+      // entry has been dequeued from pending but is still being sent.
       return Promise.reject(
         new Error(
           `Telegram outbound queue per-chat limit reached for chat ${entry.chatId} (max ${this.#opts.maxPerChat})`,
@@ -159,6 +163,16 @@ export class OutboundQueue {
     lane.pending.push(internal);
     this.#enqueued += 1;
 
+    if (entry.kind === 'notification') {
+      // Notification delivery is best-effort. Its promise represents queue
+      // acceptance, not transport completion, so event handlers never block
+      // behind a slow Telegram request. Batch notifications enqueued in the
+      // same turn before dispatching; this lets the bounded queue consistently
+      // drop the oldest entries during a burst.
+      this.#scheduleNotifications();
+      return Promise.resolve(undefined);
+    }
+
     return new Promise<unknown>((resolve, reject) => {
       this.#resolvers.set(internal.id, { resolve, reject });
       this.#schedule();
@@ -167,7 +181,7 @@ export class OutboundQueue {
 
   /** Stats snapshot for `/telegram-health` and the P3.1 metrics surface. */
   stats(): OutboundQueueStats {
-    let pending = 0;
+    let pending = this.#active;
     for (const lane of this.#lanes.values()) pending += lane.pending.length;
     return {
       enqueued: this.#enqueued,
@@ -207,6 +221,21 @@ export class OutboundQueue {
   #mintId(): number {
     this.#nextId += 1;
     return this.#nextId;
+  }
+
+  #scheduleNotifications(): void {
+    if (this.#notificationScheduleQueued) return;
+    this.#notificationScheduleQueued = true;
+    // Two microtask hops preserve immediate acceptance while allowing both
+    // sequential awaits and Promise.all acceptance checks to settle before
+    // transport work begins. Synchronous notification bursts are therefore
+    // bounded as one batch instead of leaking the first entry in-flight.
+    queueMicrotask(() => {
+      queueMicrotask(() => {
+        this.#notificationScheduleQueued = false;
+        this.#schedule();
+      });
+    });
   }
 
   #schedule(): void {
@@ -260,18 +289,15 @@ export class OutboundQueue {
       const resolver = this.#resolvers.get(entry.id);
       if (resolver) {
         this.#resolvers.delete(entry.id);
-        if (entry.kind === 'manual') {
-          // Manual send failure must reach the caller.
-          resolver.reject(err);
-        } else {
-          // Best-effort notification: log the failure but never surface it
-          // to the notification caller (the fire-and-forget caller already
-          // moved on past the enqueue Promise).
-          this.#opts.log?.debug(
-            `Telegram outbound queue notification failed for chat ${entry.chatId}: ${(err as Error).message}`,
-          );
-          resolver.resolve(undefined);
-        }
+        // Only manual entries retain a completion resolver. Notification
+        // promises settle on acceptance, before transport work begins.
+        resolver.reject(err);
+      } else if (entry.kind === 'notification') {
+        // Best-effort notification failures are observable through logs and
+        // stats without becoming unhandled promise rejections at call sites.
+        this.#opts.log?.debug(
+          `Telegram outbound queue notification failed for chat ${entry.chatId}: ${(err as Error).message}`,
+        );
       }
     } finally {
       this.#active -= 1;
