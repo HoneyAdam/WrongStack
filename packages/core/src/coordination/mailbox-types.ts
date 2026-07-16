@@ -206,6 +206,8 @@ export interface MailboxQuery {
   limit?: number | undefined;
   /** ISO8601 — only messages after this timestamp. */
   since?: string | undefined;
+  /** Filter by the sender's session id (`MailboxMessage.senderSessionId`). */
+  sessionId?: string | undefined;
   /**
    * Include soft-deleted messages (where `deletedAt` is set). When
    * `false` (the default), soft-deleted messages are filtered out so
@@ -217,21 +219,38 @@ export interface MailboxQuery {
 
 // ── Mailbox operations ───────────────────────────────────────────────────
 
+/** Canonical prefix for mail addressed to every agent in one session. */
+export const SESSION_RECIPIENT_PREFIX = '@session:';
+
+/** Build the canonical recipient address for a session-scoped broadcast. */
+export function sessionRecipient(sessionId: string): string {
+  const normalizedSessionId = sessionId.trim();
+  if (!normalizedSessionId) {
+    throw new TypeError('sessionId is required for the "@session" recipient');
+  }
+  return `${SESSION_RECIPIENT_PREFIX}${normalizedSessionId}`;
+}
+
 /**
- * Normalize a recipient address. `"all"` (any casing) is an accepted
- * spelling of the broadcast address and is canonicalized to `'*'` at send
- * time — both agents and humans reach for "all" naturally, and a literal
- * "all" recipient would otherwise be deliverable to nobody. The word is
- * therefore RESERVED: no agent may register under the base id "all".
+ * Normalize a recipient address.
+ *
+ * - `"all"` (any casing) is canonicalized to `'*'`.
+ * - `"@session"` (any casing) is canonicalized to
+ *   `"@session:<sessionId>"`; callers must provide the sender's session id.
+ * - Already-canonical `"@session:<sessionId>"` addresses are preserved.
  */
-export function normalizeRecipient(to: string): string {
-  return to.trim().toLowerCase() === 'all' ? '*' : to.trim();
+export function normalizeRecipient(to: string, sessionId?: string): string {
+  const trimmed = to.trim();
+  const normalized = trimmed.toLowerCase();
+  if (normalized === 'all') return '*';
+  if (normalized === '@session') return sessionRecipient(sessionId ?? '');
+  return trimmed;
 }
 
 export interface MailboxSendInput {
   /** Sender agent id. */
   from: string;
-  /** Recipient agent id, '*' for broadcast (alias: "all"). */
+  /** Recipient agent id, '*' / "all" for project broadcast, or "@session" for the sender's session. */
   to: string;
   /** Message category. */
   type: MailboxMessageType;
@@ -245,6 +264,8 @@ export interface MailboxSendInput {
   replyTo?: string | undefined;
   /** Task context for assign-type messages. */
   taskContext?: MailboxTaskContext | undefined;
+  /** Sender session id. Required when `to` is the `"@session"` alias. */
+  senderSessionId?: string | undefined;
   /**
    * Time-to-live in milliseconds. When set, the message's `expiresAt` is
    * computed as `now + ttlMs` at send time. The auto-compaction sweep
@@ -537,7 +558,7 @@ export interface Mailbox {
    * Count unread messages for a specific agent.
    * Used for "new mail" notifications without pulling full message bodies.
    */
-  unreadCount(forAgentId: string): Promise<number>;
+  unreadCount(forAgentId: string, sessionId?: string): Promise<number>;
 
   /** Close and flush any pending writes. */
   close(): Promise<void>;

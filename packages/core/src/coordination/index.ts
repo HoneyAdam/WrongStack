@@ -273,7 +273,7 @@ export type {
   ReadReceipts,
   RegisteredAgent,
 } from './mailbox-types.js';
-export { normalizeRecipient } from './mailbox-types.js';
+export { normalizeRecipient, SESSION_RECIPIENT_PREFIX, sessionRecipient } from './mailbox-types.js';
 export {
   isValidMatrixKey,
   MATRIX_PHASE_KEYS,

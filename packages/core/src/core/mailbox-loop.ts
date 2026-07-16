@@ -39,6 +39,11 @@ export interface MailboxLoopOptions {
   aliases?: string[] | undefined;
   /** Optional delivery predicate applied before dedup/read receipts. */
   include?: ((message: MailboxMessage) => boolean) | undefined;
+  /**
+   * Current session id. When provided, mail addressed to `@session:<id>` is
+   * delivered alongside direct, alias, and project-broadcast mail.
+   */
+  sessionId?: string | (() => string) | undefined;
   /** Mark returned messages as read. Defaults to true for normal delivery. */
   ack?: boolean | undefined;
 }
@@ -48,6 +53,8 @@ export function createMailboxChecker(
 ): () => Promise<MailboxMessage[]> {
   const getMailbox = typeof opts.mailbox === 'function' ? opts.mailbox : () => opts.mailbox as Mailbox;
   const currentId = typeof opts.agentId === 'function' ? opts.agentId : () => opts.agentId as string;
+  const currentSessionId =
+    typeof opts.sessionId === 'function' ? opts.sessionId : () => opts.sessionId;
 
   const injectedIds = new Set<string>();
 
@@ -55,13 +62,15 @@ export function createMailboxChecker(
     try {
       const mailbox = getMailbox();
       const agentId = currentId();
+      const sessionId = currentSessionId();
       const targets = [
         agentId,
         ...(opts.aliases ?? []).filter((al) => al && al !== agentId),
+        ...(sessionId ? [`@session:${sessionId}`] : []),
       ];
       // Query ALL unread messages across every address this agent answers
-      // to (unique id, base-id aliases; '*' broadcasts match each query and
-      // are deduped below). Receipts always use the unique id.
+      // to (unique id, base-id aliases, session scope; '*' broadcasts match
+      // each query and are deduped below). Receipts always use the unique id.
       const batches = await Promise.all(
         targets.map((to) =>
           mailbox.query({ to, unreadBy: agentId, limit: 10 }).catch(() => [] as MailboxMessage[]),

@@ -105,7 +105,7 @@ export function makeMailboxTool(opts: MailboxToolOptions = {}): Tool {
   const sessionId = opts.sessionId ?? 'default';
 
   const shortHint =
-    'Sub-commands: check (unread), send (to/broadcast), ack (read/complete), query (filter), status (all agents), online (active only), unread (count).';
+    'Sub-commands: check (unread), send (exact/base/@session/project broadcast), ack (read/complete), query (filter), status (all agents), online (active only), unread (count).';
 
   return {
     name: 'mailbox',
@@ -113,7 +113,8 @@ export function makeMailboxTool(opts: MailboxToolOptions = {}): Tool {
       'Low-level inter-agent mailbox with 7 actions (check, send, ack, query, status, online, unread). ' +
       'For most use cases, prefer the simpler `mail_send` and `mail_inbox` tools — they cover the ' +
       'common send/read operations with a cleaner interface. This tool is for advanced queries ' +
-      '(filter by sender, priority, since-timestamp), agent status/online lists, and message ack/control.',
+      '(filter by sender, sender session, priority, since-timestamp), agent status/online lists, and message ack/control. ' +
+      'Use to="@session" only for session-local coordination; use "*" or a base alias when another session may be affected.',
     usageHint: shortHint + ' For simple send/read, use mail_send / mail_inbox instead.',
     category: 'Coordination',
     permission: 'auto',
@@ -127,7 +128,7 @@ export function makeMailboxTool(opts: MailboxToolOptions = {}): Tool {
           enum: ['check', 'send', 'ack', 'query', 'status', 'online', 'unread'],
           description: 'Which mailbox operation to perform.',
         },
-        to: { type: 'string', description: "Recipient agent id, or '*' / 'all' for broadcast." },
+        to: { type: 'string', description: "Recipient agent id, base alias, '@session' for the sender's session, or '*' / 'all' for project broadcast." },
         type: { type: 'string', enum: ['note', 'ask', 'assign', 'steer', 'btw', 'broadcast', 'status', 'result', 'review', 'control'], description: 'Message type.' },
         subject: { type: 'string', description: 'Short subject line.' },
         body: { type: 'string', description: 'Full message content.' },
@@ -143,6 +144,7 @@ export function makeMailboxTool(opts: MailboxToolOptions = {}): Tool {
         from: { type: 'string', description: "Filter by sender." },
         minPriority: { type: 'string', enum: ['low', 'normal', 'high'] },
         since: { type: 'string', description: 'ISO8601 timestamp — only messages after this.' },
+        sessionId: { type: 'string', description: 'Filter query results by sender session id.' },
         limit: { type: 'number', description: 'Max messages to return.' },
       },
       required: ['action'],
@@ -179,7 +181,7 @@ export function makeMailboxTool(opts: MailboxToolOptions = {}): Tool {
 
       switch (action) {
         case 'check':
-          return executeCheck(mb, callerId, [baseCallerId], i);
+          return executeCheck(mb, callerId, callerSessionId, [baseCallerId], i);
         case 'send':
           return executeSend(mb, callerId, callerSessionId, i);
         case 'ack':
@@ -191,7 +193,7 @@ export function makeMailboxTool(opts: MailboxToolOptions = {}): Tool {
         case 'online':
           return executeOnline(mb);
         case 'unread':
-          return executeUnread(mb, callerId, [baseCallerId]);
+          return executeUnread(mb, callerId, callerSessionId, [baseCallerId]);
         default:
           return { ok: false, error: `Unknown action: "${action}". Use check, send, ack, query, status, online, or unread.` };
       }
@@ -204,6 +206,7 @@ export function makeMailboxTool(opts: MailboxToolOptions = {}): Tool {
 async function executeCheck(
   mb: Mailbox,
   agentId: string,
+  sessionId: string,
   aliases: string[],
   i: Record<string, unknown>,
 ) {
@@ -211,9 +214,13 @@ async function executeCheck(
   const markRead = (i.markRead as boolean | undefined) ?? true;
   const completed = (i.completed as boolean | undefined) ?? false;
   const outcome = i.outcome as string | undefined;
-  // Check every address this agent answers to: unique id + base-id aliases
-  // ('*' broadcasts match each query — dedupe by message id below).
-  const targets = [agentId, ...aliases.filter((al) => al && al !== agentId)];
+  // Check unique id + base aliases + same-session broadcast. Project
+  // broadcasts match every query and are deduped by message id below.
+  const targets = [
+    agentId,
+    ...aliases.filter((al) => al && al !== agentId),
+    `@session:${sessionId}`,
+  ];
   const batches = await Promise.all(
     targets.map((to) =>
       mb.query({ to, unreadBy: agentId, limit, minPriority: 'low' }).catch(() => []),
@@ -252,7 +259,7 @@ async function executeCheck(
 }
 
 async function executeSend(
-  mb: Mailbox, agentId: string, _sessionId: string, i: Record<string, unknown>,
+  mb: Mailbox, agentId: string, sessionId: string, i: Record<string, unknown>,
 ) {
   const to = i.to as string | undefined;
   const tp = i.type as string | undefined;
@@ -271,6 +278,7 @@ async function executeSend(
     to, type: tp as MailboxMessageType, subject, body,
     priority: (i.priority as 'low' | 'normal' | 'high') ?? 'normal',
     replyTo: i.replyTo as string | undefined,
+    senderSessionId: sessionId,
   });
 
   return {
@@ -314,6 +322,7 @@ async function executeQuery(mb: Mailbox, i: Record<string, unknown>) {
     type: i.type as MailboxMessageType | undefined,
     minPriority: i.minPriority as 'low' | 'normal' | 'high' | undefined,
     since: i.since as string | undefined,
+    sessionId: i.sessionId as string | undefined,
     limit,
   });
   return { ok: true, count: messages.length, messages, summary: `${messages.length} message(s).` };
@@ -346,10 +355,19 @@ async function executeOnline(mb: Mailbox) {
   };
 }
 
-async function executeUnread(mb: Mailbox, agentId: string, aliases: string[] = []) {
-  // Count unread across every address this agent answers to (unique id +
-  // base-id aliases); '*' broadcasts match each query — dedupe by id.
-  const targets = [agentId, ...aliases.filter((al) => al && al !== agentId)];
+async function executeUnread(
+  mb: Mailbox,
+  agentId: string,
+  sessionId: string,
+  aliases: string[] = [],
+) {
+  // Count unique id + base aliases + same-session broadcast; project
+  // broadcasts match every query and are deduped by id.
+  const targets = [
+    agentId,
+    ...aliases.filter((al) => al && al !== agentId),
+    `@session:${sessionId}`,
+  ];
   const batches = await Promise.all(
     targets.map((to) => mb.query({ to, unreadBy: agentId, limit: 200 }).catch(() => [])),
   );

@@ -64,7 +64,7 @@ import type {
   RegisteredAgent,
   RegisteredClient,
 } from './mailbox-types.js';
-import { normalizeRecipient } from './mailbox-types.js';
+import { normalizeRecipient, sessionRecipient } from './mailbox-types.js';
 
 // ── Constants ────────────────────────────────────────────────────────────
 
@@ -272,9 +272,9 @@ export class GlobalMailbox implements Mailbox {
     const msg: MailboxMessage = {
       id: randomUUID(),
       from: input.from,
-      // "all" is an accepted spelling of the broadcast address — canonical
-      // form on disk is '*' so every query/checker matches it.
-      to: normalizeRecipient(input.to),
+      // "all" maps to project broadcast; "@session" is resolved against the
+      // sender's session before persistence so recipients can match it exactly.
+      to: normalizeRecipient(input.to, input.senderSessionId),
       type: normalizeMailboxMessageType(input.type),
       subject: input.subject,
       body: input.body,
@@ -284,6 +284,7 @@ export class GlobalMailbox implements Mailbox {
       timestamp: now,
       replyTo: input.replyTo,
       taskContext: input.taskContext,
+      senderSessionId: input.senderSessionId,
       expiresAt:
         input.ttlMs !== undefined ? new Date(Date.now() + input.ttlMs).toISOString() : undefined,
     };
@@ -390,6 +391,7 @@ export class GlobalMailbox implements Mailbox {
     for (const m of candidates) {
       if (q.to !== undefined && m.to !== q.to && m.to !== '*') continue;
       if (q.from !== undefined && m.from !== q.from) continue;
+      if (q.sessionId !== undefined && m.senderSessionId !== q.sessionId) continue;
       if (q.unreadBy !== undefined && q.unreadBy in m.readBy) continue;
       if (q.incompleteOnly && m.completed) continue;
       if (queryType !== undefined && m.type !== queryType) continue;
@@ -570,18 +572,24 @@ export class GlobalMailbox implements Mailbox {
     return updated;
   }
 
-  async unreadCount(forAgentId: string): Promise<number> {
+  async unreadCount(forAgentId: string, sessionId?: string): Promise<number> {
     const all = await this._readMessagesCached();
+    const scopedSessionRecipient =
+      sessionId === undefined ? undefined : sessionRecipient(sessionId);
     let count = 0;
 
-    // Recipient index fast-path: iterate only messages addressed to this
-    // agent + broadcasts, instead of the full cache.
+    // Recipient index fast-path: iterate direct + project broadcast + the
+    // recipient's session broadcast, instead of the full cache.
     if (this._recipientIndex !== null) {
       const indices = new Set<number>();
       const direct = this._recipientIndex.get(forAgentId);
       if (direct !== undefined) for (const i of direct) indices.add(i);
       const broadcasts = this._recipientIndex.get('*');
       if (broadcasts !== undefined) for (const i of broadcasts) indices.add(i);
+      if (scopedSessionRecipient !== undefined) {
+        const sessionBroadcasts = this._recipientIndex.get(scopedSessionRecipient);
+        if (sessionBroadcasts !== undefined) for (const i of sessionBroadcasts) indices.add(i);
+      }
       for (const i of indices) {
         const m = all[i]!;
         if (!(forAgentId in m.readBy) && !m.completed) count++;
@@ -589,9 +597,11 @@ export class GlobalMailbox implements Mailbox {
     } else {
       for (let i = 0; i < all.length; i++) {
         const m = all[i]!;
-        if ((m.to === forAgentId || m.to === '*') && !(forAgentId in m.readBy) && !m.completed) {
-          count++;
-        }
+        if (
+          (m.to === forAgentId || m.to === '*' || m.to === scopedSessionRecipient) &&
+          !(forAgentId in m.readBy) &&
+          !m.completed
+        ) count++;
       }
     }
     return count;

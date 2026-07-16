@@ -143,6 +143,7 @@ function attachMailboxCheckerInner(
     mailbox: getMailbox,
     agentId: () => ensureRegistered(),
     aliases: [baseIdOf()],
+    sessionId: () => a.ctx.session.id,
   };
   const checkMailbox = createMailboxChecker(mailboxCheckerOptions);
   const checkMailboxAwareness = createMailboxChecker({

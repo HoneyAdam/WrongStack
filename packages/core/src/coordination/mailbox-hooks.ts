@@ -19,6 +19,8 @@ export interface MailboxHooksOptions {
   mailbox: Mailbox;
   /** Agent id for read-receipt and unread-check purposes. */
   agentId: string;
+  /** Current session id, used to include same-session broadcasts in unread counts. */
+  sessionId?: string | undefined;
   /** Whether to emit new-mail notifications. Default: true. */
   notifyNewMail?: boolean | undefined;
   /** Whether to update heartbeat. Default: true. */
@@ -40,7 +42,7 @@ export interface MailboxHooksOptions {
  * the agent heartbeat.
  */
 export function createMailboxHooks(opts: MailboxHooksOptions) {
-  const { mailbox, agentId, notifyNewMail = true, heartbeat = true } = opts;
+  const { mailbox, agentId, sessionId, notifyNewMail = true, heartbeat = true } = opts;
 
   let lastUnreadCount = -1;
 
@@ -51,7 +53,7 @@ export function createMailboxHooks(opts: MailboxHooksOptions) {
      */
     async beforeTool(events: { emit: (type: string, payload: unknown) => void }): Promise<void> {
       try {
-        const count = await mailbox.unreadCount(agentId);
+        const count = await mailbox.unreadCount(agentId, sessionId);
 
         // Emit unread count if it changed (avoids spamming identical events)
         if (notifyNewMail && count !== lastUnreadCount) {

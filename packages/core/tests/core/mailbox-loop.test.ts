@@ -404,6 +404,29 @@ describe('createMailboxChecker', () => {
     expect(result.map((m) => m.id)).toEqual([messages[0]!.id, messages[1]!.id]);
   });
 
+  it('queries the current session address in addition to agentId and aliases', async () => {
+    const sessionMessage = msg({
+      type: 'broadcast',
+      to: '@session:session-a',
+      id: 'm_session',
+    });
+    const mb = fakeMailbox([[], [], [sessionMessage]]);
+    const check = createMailboxChecker({
+      mailbox: mb,
+      agentId: 'leader@a1b2',
+      aliases: ['leader'],
+      sessionId: 'session-a',
+    });
+
+    const result = await check();
+
+    expect(result.map((m) => m.id)).toEqual(['m_session']);
+    expect(mb.queryMock).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({ to: '@session:session-a', unreadBy: 'leader@a1b2' }),
+    );
+  });
+
   it('queries each alias in addition to agentId and dedups broadcast hits', async () => {
     // The same message arrives via both queries when `to === '*'` matches
     // every address. The checker must dedup by id so the recipient doesn't

@@ -126,6 +126,26 @@ describe('makeMailSendTool', () => {
     expect(result).toMatchObject({ ok: true, to: '*' });
   });
 
+  it('canonicalizes "@session" and records the sender session', async () => {
+    const result = await tool.execute(
+      { to: '@session', subject: 'session update', body: 'local' },
+      mockContext(),
+    );
+
+    expect(result).toMatchObject({ ok: true, to: `@session:${SESSION_ID}` });
+    const messages = await mailbox.query({ to: `@session:${SESSION_ID}` });
+    expect(messages[0]).toMatchObject({
+      type: 'broadcast',
+      senderSessionId: SESSION_ID,
+      subject: 'session update',
+    });
+  });
+
+  it('documents when session scope is too narrow', () => {
+    expect(tool.description).toContain('another session may be affected');
+    expect(tool.inputSchema.properties.to.description).toContain('@session');
+  });
+
   it('uses broadcast type when to is "*" and no type given', async () => {
     const result = await tool.execute(
       { to: '*', subject: 's', body: 'b' },
@@ -250,6 +270,29 @@ describe('makeMailInboxTool', () => {
     const result = await inboxTool.execute({}, mockContext());
     expect(result.count).toBe(1);
     expect(result.messages[0]?.subject).toBe('all');
+  });
+
+  it('returns mail for the current session but not another session', async () => {
+    await mailbox.send({
+      from: 'sender-a',
+      to: '@session',
+      type: 'broadcast',
+      subject: 'current-session',
+      body: 'local',
+      senderSessionId: SESSION_ID,
+    });
+    await mailbox.send({
+      from: 'sender-b',
+      to: '@session',
+      type: 'broadcast',
+      subject: 'other-session',
+      body: 'foreign',
+      senderSessionId: 'other-session',
+    });
+
+    const result = await inboxTool.execute({}, mockContext());
+    expect(result.messages.map((m: { subject: string }) => m.subject)).toContain('current-session');
+    expect(result.messages.map((m: { subject: string }) => m.subject)).not.toContain('other-session');
   });
 
   it('marks messages as read by default', async () => {

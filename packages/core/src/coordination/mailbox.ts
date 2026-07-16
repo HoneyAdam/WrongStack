@@ -34,7 +34,7 @@ import type {
   PurgeOptions,
   PurgeResult,
 } from './mailbox-types.js';
-import { normalizeRecipient } from './mailbox-types.js';
+import { normalizeRecipient, sessionRecipient } from './mailbox-types.js';
 
 const MAILBOX_FILE = '_mailbox.jsonl';
 const LINE_SEPARATOR = '\n';
@@ -76,9 +76,8 @@ export class DefaultMailbox implements Mailbox {
     const msg: MailboxMessage = {
       id: randomUUID(),
       from: input.from,
-      // "all" is an accepted spelling of the broadcast address — canonical
-      // form on disk is '*' so every query/checker matches it.
-      to: normalizeRecipient(input.to),
+      // Resolve project/session aliases before persisting the message.
+      to: normalizeRecipient(input.to, input.senderSessionId),
       type: normalizeMailboxMessageType(input.type),
       subject: input.subject,
       body: input.body,
@@ -88,6 +87,7 @@ export class DefaultMailbox implements Mailbox {
       timestamp: now,
       replyTo: input.replyTo,
       taskContext: input.taskContext,
+      senderSessionId: input.senderSessionId,
     };
     const line = JSON.stringify(msg) + LINE_SEPARATOR;
     await fsp.mkdir(path.dirname(this.filePath), { recursive: true });
@@ -131,7 +131,7 @@ export class DefaultMailbox implements Mailbox {
       if (q.to !== undefined) {
         const direct = this._byTo.get(q.to);
         const broadcast = this._byTo.get('*');
-        // Combine direct + broadcast candidates; deduplicate via Map insertion order
+        // Combine direct + broadcast candidates; deduplicate via Map insertion order.
         const combined = new Map<string, MailboxMessage>();
         if (direct) for (const m of direct) combined.set(m.id, m);
         if (broadcast) for (const m of broadcast) combined.set(m.id, m);
@@ -151,6 +151,7 @@ export class DefaultMailbox implements Mailbox {
     const passes = (msg: MailboxMessage): boolean => {
       if (q.to !== undefined && msg.to !== q.to && msg.to !== '*') return false;
       if (q.from !== undefined && msg.from !== q.from) return false;
+      if (q.sessionId !== undefined && msg.senderSessionId !== q.sessionId) return false;
       if (q.unreadBy !== undefined && q.unreadBy in msg.readBy) return false;
       if (q.incompleteOnly && msg.completed) return false;
       if (queryType !== undefined && msg.type !== queryType) return false;
@@ -322,10 +323,15 @@ export class DefaultMailbox implements Mailbox {
     // no-op: per-session mailbox doesn't track heartbeats
   }
 
-  async unreadCount(forAgentId: string): Promise<number> {
+  async unreadCount(forAgentId: string, sessionId?: string): Promise<number> {
     const all = await this._readAllCached();
+    const scopedSessionRecipient =
+      sessionId === undefined ? undefined : sessionRecipient(sessionId);
     return all.filter(
-      (m) => (m.to === forAgentId || m.to === '*') && !(forAgentId in m.readBy) && !m.completed,
+      (m) =>
+        (m.to === forAgentId || m.to === '*' || m.to === scopedSessionRecipient) &&
+        !(forAgentId in m.readBy) &&
+        !m.completed,
     ).length;
   }
 

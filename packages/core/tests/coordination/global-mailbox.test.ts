@@ -51,6 +51,37 @@ describe('GlobalMailbox messages', () => {
     expect(msg.id).toBeTruthy();
   });
 
+  it('canonicalizes @session and isolates delivery to that session address', async () => {
+    const sessionMessage = await send({
+      to: '@session',
+      senderSessionId: 'session-a',
+      subject: 'same-session',
+    });
+    await send({ to: '@session', senderSessionId: 'session-b', subject: 'other-session' });
+    await send({ to: '*', senderSessionId: 'session-b', subject: 'project-wide' });
+
+    expect(sessionMessage.to).toBe('@session:session-a');
+    expect(sessionMessage.senderSessionId).toBe('session-a');
+    expect((await mb.query({ to: '@session:session-a' })).map((m) => m.subject)).toEqual(
+      expect.arrayContaining(['same-session', 'project-wide']),
+    );
+    expect((await mb.query({ to: '@session:session-a' })).map((m) => m.subject)).not.toContain(
+      'other-session',
+    );
+    expect(await mb.unreadCount('agent-a', 'session-a')).toBe(2);
+  });
+
+  it('filters messages by sender session id', async () => {
+    await send({ senderSessionId: 'session-a', subject: 'from-a' });
+    await send({ senderSessionId: 'session-b', subject: 'from-b' });
+
+    expect((await mb.query({ sessionId: 'session-a' })).map((m) => m.subject)).toEqual(['from-a']);
+  });
+
+  it('rejects @session when the sender session id is missing', async () => {
+    await expect(send({ to: '@session' })).rejects.toThrow(/sessionId is required/);
+  });
+
   it('queries with every filter', async () => {
     await send({ from: 'x', to: 'y', type: 'task', priority: 'high', subject: 'one' });
     await send({ from: 'z', to: 'y', type: 'info', priority: 'low', subject: 'two' });

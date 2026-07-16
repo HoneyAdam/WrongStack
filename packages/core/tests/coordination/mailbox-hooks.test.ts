@@ -12,9 +12,14 @@ describe('createMailboxHooks', () => {
   it('beforeTool emits unread_count only when the count changes', async () => {
     const mailbox = makeMailbox({ unreadCount: vi.fn(async () => 3) as never });
     const emit = vi.fn();
-    const hooks = createMailboxHooks({ mailbox: mailbox as never, agentId: 'a1' });
+    const hooks = createMailboxHooks({
+      mailbox: mailbox as never,
+      agentId: 'a1',
+      sessionId: 'session-a',
+    });
 
     await hooks.beforeTool({ emit });
+    expect(mailbox.unreadCount).toHaveBeenCalledWith('a1', 'session-a');
     expect(emit).toHaveBeenCalledWith('mailbox.unread_count', { agentId: 'a1', count: 3 });
 
     emit.mockClear();

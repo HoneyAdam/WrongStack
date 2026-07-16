@@ -9,8 +9,8 @@
  * `mailbox action=send ...`.
  *
  *   mail_send  — message one agent (`to: "leader@a1b2c3d4"`), every leader
- *                (`to: "leader"`), or everyone (`to: "*"`)
- *   mail_inbox — read unread mail (unique id + base alias + broadcasts),
+ *                (`to: "leader"`), this session (`to: "@session"`), or everyone (`to: "*"`)
+ *   mail_inbox — read unread mail (unique id + base alias + session/project broadcasts),
  *                marking it read so it isn't re-injected next iteration
  *
  * Both share the identity convention with the agent-loop checker
@@ -76,8 +76,10 @@ export function makeMailSendTool(opts: MailToolsOptions = {}): Tool {
       'branches, and linked Git worktrees (CLI, TUI, WebUI, ACP/MCP/HTTP). ' +
       'Use it to hand off work, ask questions, announce what you just did, or request a ' +
       'review (type="review" — passive ask, no immediate reply required). to="*" broadcasts to ' +
-      'everyone; to="leader" reaches every leader process; an exact id like "leader@a1b2c3d4" ' +
-      'reaches one agent. Recipients see your mail automatically before their next step. ' +
+      'everyone; to="@session" reaches agents in your current session; to="leader" reaches every ' +
+      'leader process; an exact id like "leader@a1b2c3d4" reaches one agent. Use project-wide ' +
+      'scope (`*` or a base alias) whenever another session may be affected. Recipients see your ' +
+      'mail automatically before their next step. ' +
       'Pick the type that matches the intent: note (default), ask (blocking question), ' +
       'assign (task), steer (mid-task direction), result (completion notice), review ' +
       '(passive ask), btw/status/broadcast/control (informational).',
@@ -91,7 +93,7 @@ export function makeMailSendTool(opts: MailToolsOptions = {}): Tool {
       properties: {
         to: {
           type: 'string',
-          description: 'Recipient: exact agent id ("leader@a1b2c3d4"), base alias ("leader"), or "*" / "all" for everyone.',
+          description: 'Recipient: exact agent id ("leader@a1b2c3d4"), base alias ("leader"), "@session" for your current session, or "*" / "all" for everyone.',
         },
         subject: { type: 'string', description: 'Short subject line.' },
         body: { type: 'string', description: 'The message.' },
@@ -118,11 +120,14 @@ export function makeMailSendTool(opts: MailToolsOptions = {}): Tool {
       if (!rawTo || !subject || body === undefined || body === null) {
         return { ok: false, error: '"to", "subject" and "body" are required.' };
       }
-      // "all" is an accepted spelling of the broadcast address.
-      const to = normalizeRecipient(rawTo);
       const mb = resolveMailbox(ctx);
       const identity = await register(mb, ctx);
-      const type = (i.type as MailboxMessageType | undefined) ?? (to === '*' ? 'broadcast' : 'note');
+      // Normalize after identity resolution because "@session" needs the
+      // sender's full session id to produce a canonical recipient.
+      const to = normalizeRecipient(rawTo, identity.sessionId);
+      const type =
+        (i.type as MailboxMessageType | undefined) ??
+        (to === '*' || to.startsWith('@session:') ? 'broadcast' : 'note');
       const msg = await mb.send({
         from: identity.callerId,
         to,
@@ -131,6 +136,7 @@ export function makeMailSendTool(opts: MailToolsOptions = {}): Tool {
         body,
         priority: (i.priority as 'low' | 'normal' | 'high' | undefined) ?? 'normal',
         replyTo: i.replyTo as string | undefined,
+        senderSessionId: identity.sessionId,
       });
       return {
         ok: true,
@@ -150,7 +156,8 @@ export function makeMailInboxTool(opts: MailToolsOptions = {}): Tool {
     description:
       'Read your unread project-wide mail from agents in any client, session, branch, or linked ' +
       'Git worktree and mark it read. Covers mail ' +
-      'addressed to you directly, to your base name (e.g. "leader"), and broadcasts ("*"). ' +
+      'addressed to you directly, to your base name (e.g. "leader"), to your current session, ' +
+      'and project broadcasts ("*"). ' +
       'Urgent steer/btw mail is already injected automatically — use this to catch up on ' +
       'notes, questions, handoffs, results, and review requests (type="review" — passive ' +
       'asks where no reply is required). Best called after a long stretch of tool work. ' +
@@ -189,6 +196,7 @@ export function makeMailInboxTool(opts: MailToolsOptions = {}): Tool {
 
       const targets = [identity.callerId];
       if (identity.baseId !== identity.callerId) targets.push(identity.baseId);
+      targets.push(`@session:${identity.sessionId}`);
       const batches = await Promise.all(
         targets.map((to) =>
           mb

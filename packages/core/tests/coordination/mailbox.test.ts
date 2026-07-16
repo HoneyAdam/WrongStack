@@ -71,6 +71,37 @@ describe('DefaultMailbox', () => {
     expect(exists).toBe(true);
   });
 
+  it('supports session-scoped recipients and sender-session queries', async () => {
+    const scoped = await mailbox.send({
+      from: 'a',
+      to: '@session',
+      type: 'broadcast',
+      subject: 'session-a',
+      body: 'body',
+      senderSessionId: 'session-a',
+    });
+    await mailbox.send({
+      from: 'a',
+      to: '@session',
+      type: 'broadcast',
+      subject: 'session-b',
+      body: 'body',
+      senderSessionId: 'session-b',
+    });
+
+    expect(scoped.to).toBe('@session:session-a');
+    expect((await mailbox.query({ to: '@session:session-a' })).map((m) => m.subject)).toContain(
+      'session-a',
+    );
+    expect((await mailbox.query({ to: '@session:session-a' })).map((m) => m.subject)).not.toContain(
+      'session-b',
+    );
+    expect((await mailbox.query({ sessionId: 'session-b' })).map((m) => m.subject)).toEqual([
+      'session-b',
+    ]);
+    expect(await mailbox.unreadCount('reader', 'session-a')).toBe(1);
+  });
+
   it('query returns messages filtered by recipient', async () => {
     await mailbox.send({ from: 'a', to: 'b', type: 'note', subject: 'to b', body: 'body' });
     await mailbox.send({ from: 'a', to: 'c', type: 'note', subject: 'to c', body: 'body' });
@@ -399,6 +430,32 @@ describe('makeMailboxTool', () => {
     // Sends are attributed to the process-unique identity so replies route
     // back to the exact process that asked.
     expect(msgs[0]!.from).toBe(`sender@${mailboxSessionTag('default')}`);
+  });
+
+  it('send canonicalizes @session and query filters by sender session', async () => {
+    const context = mockCtx({
+      meta: { agentId: 'sender', sessionId: 'session-a' },
+      session: { id: 'session-a' },
+    });
+    const result = await toolForSender.execute({
+      action: 'send',
+      to: '@session',
+      type: 'broadcast',
+      subject: 'Session notice',
+      body: 'Session only',
+    }, context as any);
+
+    expect(result).toMatchObject({ ok: true, to: '@session:session-a' });
+    const queried = await toolForSender.execute(
+      { action: 'query', sessionId: 'session-a' },
+      context as any,
+    );
+    expect(queried.messages).toHaveLength(1);
+    expect(queried.messages[0]).toMatchObject({
+      to: '@session:session-a',
+      senderSessionId: 'session-a',
+    });
+    expect(toolForSender.description).toContain('another session may be affected');
   });
 
   it('send validates required fields', async () => {
