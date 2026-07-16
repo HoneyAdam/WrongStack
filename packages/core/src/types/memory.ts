@@ -106,6 +106,16 @@ export interface MemoryStore {
    */
   scoreRelevant?(ctx: MemoryRelevanceContext, scope?: MemoryScope, limit?: number): Promise<ScoredEntry[]>;
   /**
+   * Run memory hygiene: verify anchors, mark stale entries, archive
+   * low-confidence/old memories. Optional — only Super Memory stores
+   * implement this. Declared on the interface so callers can invoke
+   * it without a type-erasing cast.
+   */
+  hygiene?(opts?: {
+    retentionDays?: number | undefined;
+    archiveLowConfidenceAfterDays?: number | undefined;
+  }): Promise<unknown>;
+  /**
    * Attach a trace ID to this store so that all subsequent `storage.*`
    * events include it for observability correlation. Mutates the store
    * in place and returns the same instance (convenience chaining).

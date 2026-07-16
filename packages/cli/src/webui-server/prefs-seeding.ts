@@ -40,6 +40,7 @@ interface CliWebUIOptions {
 import {
   atomicWrite,
   DefaultSecretVault,
+  FallbackProfileManager,
   decryptConfigSecrets,
   encryptConfigSecrets,
 } from '@wrongstack/core';
@@ -109,6 +110,22 @@ export const PREF_KEYS = [
   'fsAccess',
   'debugStream',
   'chimeraAutoFix',
+  // Chimera (post-session) + auto-review (mid-session) settings.
+  // Persisted to config.extensions['wstack-chimera'] / ['wstack-auto-review']
+  // so the running plugins pick up changes after a session restart.
+  'chimeraEnabled',
+  'chimeraProvider',
+  'chimeraModel',
+  'chimeraMaxFiles',
+  'autoReviewEnabled',
+  'autoReviewProvider',
+  'autoReviewModel',
+  'autoReviewFallbackProfile',
+  'autoReviewFallbackModels',
+  'autoReviewDebounceMs',
+  'autoReviewMaxFilesPerBatch',
+  'autoReviewMaxConcurrentReviews',
+  'autoReviewCascadeOn',
   'pluginsEnabled',
 ] as const;
 
@@ -225,6 +242,75 @@ export async function seedConfigToMeta(opts: CliWebUIOptions): Promise<void> {
       meta['fsAccess'] = allow ? 'unrestricted' : 'project';
     }
     meta['debugStream'] = cfg.debugStream === true;
+
+    // Chimera (post-session) — seed from extensions['wstack-chimera'].
+    // Defaults match ResolvedChimeraConfig (chimera-plugin.ts:34):
+    // enabled=true; provider/model/session fallback.
+    const chimeraExt = (cfg.extensions as Record<string, Record<string, unknown>> | undefined)?.[
+      'wstack-chimera'
+    ];
+    meta['chimeraEnabled'] = chimeraExt?.['enabled'] !== false; // default true
+    meta['chimeraProvider'] = (chimeraExt?.['provider'] as string) ?? '';
+    meta['chimeraModel'] = (chimeraExt?.['model'] as string) ?? '';
+    meta['chimeraMaxFiles'] =
+      typeof chimeraExt?.['maxFiles'] === 'number' && (chimeraExt['maxFiles'] as number) >= 1
+        ? (chimeraExt['maxFiles'] as number)
+        : 15;
+    const autoFix = chimeraExt?.['autoFix'];
+    meta['chimeraAutoFix'] =
+      autoFix === 'off' || autoFix === 'ask' || autoFix === 'auto' ? autoFix : 'off';
+
+    // Auto-review (mid-session continuous) — seed from extensions['wstack-auto-review'].
+    // Defaults match ResolvedAutoReviewConfig (auto-review-plugin.ts:42):
+    // enabled=false; provider/model resolve via fallbackProfile/effective chain.
+    const autoReviewExt = (cfg.extensions as Record<string, Record<string, unknown>> | undefined)?.[
+      'wstack-auto-review'
+    ];
+    meta['autoReviewEnabled'] = autoReviewExt?.['enabled'] === true; // default false (strict opt-in)
+    meta['autoReviewProvider'] = (autoReviewExt?.['provider'] as string) ?? '';
+    meta['autoReviewModel'] = (autoReviewExt?.['model'] as string) ?? '';
+    meta['autoReviewFallbackProfile'] = (autoReviewExt?.['fallbackProfile'] as string) ?? '';
+    // Resolve the effective fallback chain for auto-review via the same
+    // FallbackProfileManager the plugin uses (auto-review-plugin.ts:62-69),
+    // so the SettingsPanel displays the chain the plugin will actually run.
+    // Inputs: extensions['wstack-auto-review'].fallbackProfile (named) OR
+    // the session-effective chain via config.fallbackModels/fallbackProfiles.
+    {
+      let resolvedChain: ReadonlyArray<{ providerId: string; model: string }> = [];
+      try {
+        // cfg is the parsed config.json (JSON.parse → Record<string, unknown>).
+        // FallbackProfileManager takes Config; cast through unknown since the
+        // resolver only reads the fallback-models fields it knows about.
+        const mgr = new FallbackProfileManager(cfg as unknown as Config);
+        const named = autoReviewExt?.['fallbackProfile'];
+        resolvedChain =
+          typeof named === 'string' && named.length > 0
+            ? mgr.resolve(named)
+            : mgr.resolveEffective({ fallbackAuto: true });
+      } catch {
+        resolvedChain = [];
+      }
+      meta['autoReviewFallbackModels'] = resolvedChain.map(
+        (e) => `${e.providerId}/${e.model}`,
+      );
+    }
+    meta['autoReviewDebounceMs'] =
+      typeof autoReviewExt?.['debounceMs'] === 'number' && (autoReviewExt['debounceMs'] as number) >= 0
+        ? (autoReviewExt['debounceMs'] as number)
+        : 5000;
+    meta['autoReviewMaxFilesPerBatch'] =
+      typeof autoReviewExt?.['maxFilesPerBatch'] === 'number' &&
+      (autoReviewExt['maxFilesPerBatch'] as number) >= 1
+        ? (autoReviewExt['maxFilesPerBatch'] as number)
+        : 15;
+    meta['autoReviewMaxConcurrentReviews'] =
+      typeof autoReviewExt?.['maxConcurrentReviews'] === 'number' &&
+      (autoReviewExt['maxConcurrentReviews'] as number) >= 1
+        ? (autoReviewExt['maxConcurrentReviews'] as number)
+        : 2;
+    const cascade = autoReviewExt?.['cascadeOn'];
+    meta['autoReviewCascadeOn'] =
+      cascade === 'critical' || cascade === 'high' ? cascade : 'off';
   } catch {
     // best-effort — missing/corrupt config just leaves prefs unseeded
   }
@@ -514,8 +600,103 @@ export function createPrefsSeeding(opts: CliWebUIOptions): PrefsSeeding {
       if (typeof payload['chimeraAutoFix'] === 'string') {
         const ext = (decrypted.extensions as Record<string, Record<string, unknown>>) ?? {};
         const chimera = ext['wstack-chimera'] ?? {};
-        chimera['autoFix'] = payload['chimeraAutoFix'];
+        // Narrow the write to the documented enum values, mirroring the
+        // autonomy.defaultMode guard at L369-372 — without this, a junk
+        // WS payload would persist any string and the seeder at L259-260
+        // would silently coerce it back to 'off' on the next load.
+        if (
+          payload['chimeraAutoFix'] === 'off' ||
+          payload['chimeraAutoFix'] === 'ask' ||
+          payload['chimeraAutoFix'] === 'auto'
+        ) {
+          chimera['autoFix'] = payload['chimeraAutoFix'];
+        }
         ext['wstack-chimera'] = chimera;
+        decrypted.extensions = ext;
+      }
+
+      // Chimera (post-session) → extensions['wstack-chimera'] (mirrors
+      // ResolvedChimeraConfig from chimera-plugin.ts:34).
+      const chimeraTouched =
+        typeof payload['chimeraEnabled'] === 'boolean' ||
+        typeof payload['chimeraProvider'] === 'string' ||
+        typeof payload['chimeraModel'] === 'string' ||
+        typeof payload['chimeraMaxFiles'] === 'number';
+      if (chimeraTouched) {
+        const ext = (decrypted.extensions as Record<string, Record<string, unknown>>) ?? {};
+        const chimera = ext['wstack-chimera'] ?? {};
+        if (typeof payload['chimeraEnabled'] === 'boolean')
+          chimera['enabled'] = payload['chimeraEnabled'];
+        if (typeof payload['chimeraProvider'] === 'string')
+          chimera['provider'] = payload['chimeraProvider'];
+        if (typeof payload['chimeraModel'] === 'string')
+          chimera['model'] = payload['chimeraModel'];
+        if (typeof payload['chimeraMaxFiles'] === 'number' && payload['chimeraMaxFiles'] >= 1) {
+          chimera['maxFiles'] = payload['chimeraMaxFiles'];
+        }
+        ext['wstack-chimera'] = chimera;
+        decrypted.extensions = ext;
+      }
+
+      // Auto-review (mid-session) → extensions['wstack-auto-review'] (mirrors
+      // ResolvedAutoReviewConfig from auto-review-plugin.ts:42).
+      const autoReviewTouched =
+        typeof payload['autoReviewEnabled'] === 'boolean' ||
+        typeof payload['autoReviewProvider'] === 'string' ||
+        typeof payload['autoReviewModel'] === 'string' ||
+        typeof payload['autoReviewFallbackProfile'] === 'string' ||
+        Array.isArray(payload['autoReviewFallbackModels']) ||
+        typeof payload['autoReviewDebounceMs'] === 'number' ||
+        typeof payload['autoReviewMaxFilesPerBatch'] === 'number' ||
+        typeof payload['autoReviewMaxConcurrentReviews'] === 'number' ||
+        typeof payload['autoReviewCascadeOn'] === 'string';
+      if (autoReviewTouched) {
+        const ext = (decrypted.extensions as Record<string, Record<string, unknown>>) ?? {};
+        const ar = ext['wstack-auto-review'] ?? {};
+        if (typeof payload['autoReviewEnabled'] === 'boolean')
+          ar['enabled'] = payload['autoReviewEnabled'];
+        if (typeof payload['autoReviewProvider'] === 'string')
+          ar['provider'] = payload['autoReviewProvider'];
+        if (typeof payload['autoReviewModel'] === 'string')
+          ar['model'] = payload['autoReviewModel'];
+        if (typeof payload['autoReviewFallbackProfile'] === 'string') {
+          // Empty string = clear the named profile (plugin falls back to
+          // resolveEffective({ fallbackAuto: true })).
+          if (payload['autoReviewFallbackProfile'] === '') {
+            delete ar['fallbackProfile'];
+          } else {
+            ar['fallbackProfile'] = payload['autoReviewFallbackProfile'];
+          }
+        }
+        // Note: `autoReviewFallbackModels` is not a config input — it's
+        // derived from `fallbackProfile` + `config.fallbackModels` by the
+        // plugin's resolver. Ignore incoming writes to avoid silently
+        // persisting a value that the plugin discards on every load.
+        if (typeof payload['autoReviewDebounceMs'] === 'number' && payload['autoReviewDebounceMs'] >= 0) {
+          ar['debounceMs'] = payload['autoReviewDebounceMs'];
+        }
+        if (
+          typeof payload['autoReviewMaxFilesPerBatch'] === 'number' &&
+          payload['autoReviewMaxFilesPerBatch'] >= 1
+        ) {
+          ar['maxFilesPerBatch'] = payload['autoReviewMaxFilesPerBatch'];
+        }
+        if (
+          typeof payload['autoReviewMaxConcurrentReviews'] === 'number' &&
+          payload['autoReviewMaxConcurrentReviews'] >= 1
+        ) {
+          ar['maxConcurrentReviews'] = payload['autoReviewMaxConcurrentReviews'];
+        }
+        if (typeof payload['autoReviewCascadeOn'] === 'string') {
+          if (
+            payload['autoReviewCascadeOn'] === 'off' ||
+            payload['autoReviewCascadeOn'] === 'critical' ||
+            payload['autoReviewCascadeOn'] === 'high'
+          ) {
+            ar['cascadeOn'] = payload['autoReviewCascadeOn'];
+          }
+        }
+        ext['wstack-auto-review'] = ar;
         decrypted.extensions = ext;
       }
 

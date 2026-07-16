@@ -186,7 +186,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         }
         case 'hygiene': {
           if (!isSuperMemoryStore(store)) return requiresSuperMemory('hygiene');
-          return { message: formatHygiene(await store.hygiene()) };
+          return { message: formatHygiene(await store.hygiene() as SuperMemoryHygieneReport) };
         }
         case 'candidates': {
           if (!isSuperMemoryStore(store)) return requiresSuperMemory('candidates');
