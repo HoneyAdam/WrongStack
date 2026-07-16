@@ -69,6 +69,7 @@ import { ToolExecutor } from '@wrongstack/core/execution';
 // symbols are imported from the published subpath (see commit 66c4eb68).
 import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { toErrorMessage } from '@wrongstack/core/utils/error';
+import type { ProviderModelStatusTracker } from '@wrongstack/core/coordination';
 import { makeProviderFromConfig } from '@wrongstack/providers';
 import { refreshRuntimeModelCatalog, resolveRuntimeMaxContext } from '../context-limit.js';
 import { buildRoutingRunner } from './routing.js';
@@ -313,6 +314,12 @@ export interface MultiAgentHostOptions {
    * audience-scoped memories targeting that mode are injected.
    */
   getLeaderMode?: (() => string | undefined) | undefined;
+  /**
+   * Shared provider/model status tracker. When set, the Director checks
+   * whether the resolved provider/model is blocked before spawning a new
+   * subagent.
+   */
+  statusTracker?: ProviderModelStatusTracker | undefined;
 }
 
 /**
@@ -505,6 +512,7 @@ export class MultiAgentHost {
       // project mailbox (injected inline before the leader's next step).
       taskResultNotifier: (n) => this.reportTaskResultToLeader(n),
       subagentIdleTimeoutMs,
+      ...(this.opts.statusTracker ? { statusTracker: this.opts.statusTracker } : {}),
       retireSubagentOnTaskComplete:
         this.opts.retireSubagentOnTaskComplete ??
         fleetLifecycle?.retireOnTaskComplete ??

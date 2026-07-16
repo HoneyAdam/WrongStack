@@ -83,4 +83,38 @@ export interface ProviderEventMap {
         }
       | undefined;
   };
+  /**
+   * Fired whenever a (providerId, model) pair transitions between
+   * healthy/degraded/blocked states. The tracker emits this so the
+   * CLI/TUI/WebUI can render a live status indicator.
+   */
+  'provider.status_changed': {
+    providerId: string;
+    model: string;
+    oldState: 'healthy' | 'degraded' | 'blocked';
+    newState: 'healthy' | 'degraded' | 'blocked';
+    reason: string;
+    timestamp: number;
+  };
+  /**
+   * Fired when the agent's actively selected (primary, not fallback)
+   * provider/model is blocked and will be skipped. The CLI/TUI should
+   * surface this prominently — the user's chosen provider has a known
+   * problem and the agent has rotated to a fallback. The user can then
+   * decide whether to switch providers, wait, or overrule the block.
+   *
+   * This is a one-shot event (one per agent turn when blocked).
+   */
+  'provider.active_blocked': {
+    providerId: string;
+    model: string;
+    state: 'blocked';
+    /** The fallback provider/model the agent will try instead. */
+    fallbackProviderId: string;
+    fallbackModel: string;
+    /** Description of the last error that led to this state. */
+    lastError: string;
+    sessionId?: string | undefined;
+    timestamp: number;
+  };
 }

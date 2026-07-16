@@ -1,4 +1,5 @@
 import type { TextBlock } from './blocks.js';
+import type { FallbackProfileManager } from '../core/fallback-profile-manager.js';
 import type { ResponseFormat } from './provider.js';
 
 /**
@@ -52,20 +53,12 @@ export interface OneShotLLMInput {
   // ── Fallback ──────────────────────────────────────────────────
 
   /**
-   * Named fallback profile from config.fallbackProfiles.
-   * Resolved via `FallbackProfileManager` (preferred).
+   * Resolved fallback model chain. Each entry is a model ref:
+   * "model", "provider/model", or "provider model".
    *
-   * @deprecated Use `FallbackProfileManager.resolve()` directly instead
-   * of passing profile names through the LLM input. The profile is now
-   * resolved upstream (e.g., in `CouncilOrchestrator.resolveCouncilTarget()`)
-   * and only the resolved `fallbackModels` chain is passed here.
-   * This field is kept for backward compat during migration.
-   */
-  fallbackProfile?: string | undefined;
-
-  /**
-   * Explicit fallback model chain. Takes precedence over fallbackProfile.
-   * Each entry is a model ref: "model", "provider/model", or "provider model".
+   * Named profiles are resolved upstream through the shared
+   * FallbackProfileManager (see {@link OneShotOrchestratorOptions.fallbackProfileManager})
+   * — the OneShot tool/runtime only sees the already-resolved chain.
    */
   fallbackModels?: string[] | undefined;
 
@@ -163,4 +156,11 @@ export interface OneShotOrchestratorOptions {
    * Optional logger for fallback warnings.
    */
   logger?: import('./logger.js').Logger | undefined;
+
+  /**
+   * Shared provider/model status tracker. When set, the orchestrator
+   * records failures and successes, and skips blocked entries in the
+   * fallback chain.
+   */
+  statusTracker?: import('../coordination/provider-status-tracker.js').ProviderModelStatusTracker | undefined;
 }

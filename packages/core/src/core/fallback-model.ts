@@ -19,10 +19,13 @@ import type { Logger } from '../types/logger.js';
 import { isFallbackWorthy, type Provider, ProviderError, type Response } from '../types/provider.js';
 import { FallbackProfileManager } from './fallback-profile-manager.js';
 import type { FallbackChain, FallbackChainEntry } from './fallback-profile-manager.js';
+import type { ProviderModelStatusTracker } from '../coordination/provider-status-tracker.js';
 
 export interface FallbackModelDeps {
   /** Returns the live config (re-read each turn so `/model` switches are honored). */
   getConfig: () => Config;
+  /** Shared live manager from the runtime container. */
+  fallbackProfileManager?: FallbackProfileManager | undefined;
   /** Live named profile selected for this worker (for example by `/setmodel`). */
   getFallbackProfile?: (() => string | undefined) | undefined;
   /** Live task/role-specific chain. Explicit task fallbacks may return a stable list. */
@@ -57,6 +60,12 @@ export interface FallbackModelDeps {
   primaryCooldownMaxMs?: number | undefined;
   /** Test hook for deterministic cooldown assertions. */
   now?: (() => number) | undefined;
+  /**
+   * Shared provider/model status tracker. When set, the extension records
+   * failures and successes in the tracker, and skips blocked entries in
+   * the fallback chain.
+   */
+  statusTracker?: ProviderModelStatusTracker | undefined;
 }
 
 interface ModelRef {
@@ -168,9 +177,10 @@ function fallbackCandidates(
   opts: {
     fallbackModels?: readonly string[] | undefined;
     fallbackProfile?: string | undefined;
+    sharedManager?: FallbackProfileManager | undefined;
   } = {},
 ): FallbackChain {
-  const mgr = new FallbackProfileManager(config);
+  const mgr = opts.sharedManager ?? new FallbackProfileManager(config);
   const configuredPrimary = primaryTarget(config);
   const selectedChain = mgr.resolveEffective({
     fallbackModels: opts.fallbackModels ?? config.fallbackModels,
@@ -313,36 +323,104 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
     },
 
     wrapProviderRunner: async (ctx, request, inner) => {
+      // ── Before calling, check if the current provider/model is blocked ──
+      const tracker = deps.statusTracker;
+      if (tracker && !tracker.isAvailable(ctx.provider.id, ctx.model)) {
+        deps.logger?.warn(
+          `provider-status: "${ctx.provider.id}/${ctx.model}" is blocked — trying fallback chain`,
+        );
+        // Emit active_blocked so the UI can surface a prominent warning
+        const status = tracker.getStatus(ctx.provider.id, ctx.model);
+        deps.events.emit('provider.active_blocked', {
+          providerId: ctx.provider.id,
+          model: ctx.model,
+          state: 'blocked',
+          fallbackProviderId: '',
+          fallbackModel: '',
+          lastError: status?.lastErrorMessage ?? 'Rate limit or repeated failures',
+          sessionId: ctx.session?.id,
+          timestamp: Date.now(),
+        });
+        // Skipping the blocked primary — simulate a fallback-worthy error
+        const skipErr = new ProviderError(
+          `Skipping blocked "${ctx.provider.id}/${ctx.model}" — try fallback`,
+          429,
+          true,
+          ctx.provider.id,
+          { kind: 'rate_limit' },
+        );
+        return runFallbackChain(ctx, request, inner, skipErr);
+      }
+
       try {
         const response = ensureUsableModelResponse(
           await inner(ctx, request),
           ctx.provider.id,
           ctx.model,
         );
+        // Record success in the tracker
+        tracker?.recordSuccess(ctx.provider.id, ctx.model, {
+          sessionId: ctx.session?.id,
+          agentId: ctx.agent?.id,
+        });
         const cfg = deps.getConfig();
         if (ctx.provider.id === cfg.provider && ctx.model === cfg.model) {
           resetPrimaryLadder(cfg);
         }
         return response;
       } catch (firstErr) {
-        let lastErr: unknown = firstErr;
+        return runFallbackChain(ctx, request, inner, firstErr);
+      }
+
+      // ── Shared fallback-chain runner with tracker integration ──
+      async function runFallbackChain(
+        ctx_: typeof ctx,
+        request_: typeof request,
+        inner_: typeof inner,
+        firstErr_: unknown,
+      ): Promise<Response> {
+        let lastErr: unknown = firstErr_;
         const cfg = deps.getConfig();
-        const current = { providerId: ctx.provider.id, model: ctx.model };
+        const current = { providerId: ctx_.provider.id, model: ctx_.model };
+
+        // Record the failure in the tracker (real ProviderError, not our synthetic skip)
+        if (firstErr_ instanceof ProviderError && tracker) {
+          tracker.recordFailure(
+            ctx_.provider.id,
+            ctx_.model,
+            firstErr_.kind,
+            firstErr_.status,
+            firstErr_.describe(),
+            {
+              sessionId: ctx_.session?.id,
+              agentId: ctx_.agent?.id,
+              retryAfterMs: firstErr_.body?.retryAfterMs,
+            },
+          );
+        }
+
         const chain = fallbackCandidates(cfg, current, {
           fallbackModels: deps.getFallbackModels?.(),
           fallbackProfile: deps.getFallbackProfile?.(),
+          sharedManager: deps.fallbackProfileManager,
         });
-        if (shouldFallback(firstErr) !== null && ctx.provider.id === cfg.provider && ctx.model === cfg.model) {
+
+        // Filter blocked entries from the chain via the tracker
+        const usableChain = tracker
+          ? chain.filter((e) => tracker.isAvailable(e.providerId, e.model))
+          : chain;
+
+        if (shouldFallback(firstErr_) !== null && ctx_.provider.id === cfg.provider && ctx_.model === cfg.model) {
           markPrimaryFailure(cfg);
         }
 
-        for (const entry of chain) {
+        for (const entry of usableChain) {
           const status = shouldFallback(lastErr);
           if (status === null) break; // not a fallback-worthy error
 
           const targetProviderId = entry.providerId;
           const targetModel = entry.model;
-          if (targetProviderId === ctx.provider.id && targetModel === ctx.model) continue;
+          if (targetProviderId === ctx_.provider.id && targetModel === ctx_.model) continue;
           if (
             primaryInCooldown(cfg) &&
             targetProviderId === cfg.provider &&
@@ -351,7 +429,7 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
             continue;
           }
 
-          const from = { providerId: ctx.provider.id, model: ctx.model };
+          const from = { providerId: ctx_.provider.id, model: ctx_.model };
 
           let nextProvider: Provider;
           try {
@@ -366,15 +444,15 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
           }
 
           const providerSwitched = nextProvider.id !== from.providerId;
-          const warning = contextWindowWarning(ctx.provider, nextProvider, ctx.lastRequestTokens);
-          ctx.provider = nextProvider;
-          ctx.model = targetModel;
-          request.model = targetModel;
+          const warning = contextWindowWarning(ctx_.provider, nextProvider, ctx_.lastRequestTokens);
+          ctx_.provider = nextProvider;
+          ctx_.model = targetModel;
+          request_.model = targetModel;
           dirty = true;
           await deps.onModelSwitch?.(targetProviderId, targetModel);
 
           deps.events.emit('provider.fallback', {
-            sessionId: ctx.session?.id,
+            sessionId: ctx_.session?.id,
             from,
             to: { providerId: nextProvider.id, model: targetModel },
             status,
@@ -384,11 +462,26 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
 
           try {
             return ensureUsableModelResponse(
-              await inner(ctx, request),
-              ctx.provider.id,
-              ctx.model,
+              await inner_(ctx_, request_),
+              ctx_.provider.id,
+              ctx_.model,
             );
           } catch (err) {
+            // Record fallback failure too
+            if (err instanceof ProviderError && tracker) {
+              tracker.recordFailure(
+                nextProvider.id,
+                targetModel,
+                err.kind,
+                err.status,
+                err.describe(),
+                {
+                  sessionId: ctx_.session?.id,
+                  agentId: ctx_.agent?.id,
+                  retryAfterMs: err.body?.retryAfterMs,
+                },
+              );
+            }
             lastErr = err;
           }
         }

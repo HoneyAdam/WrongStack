@@ -2,9 +2,11 @@ import {
   type Config,
   createFallbackModelExtension,
   type EventBus,
+  type FallbackProfileManager,
   type Logger,
   type Provider,
   type ProviderConfig,
+  type ProviderModelStatusTracker,
   type ProviderRegistry,
   type SecretVault,
   SessionMemoryConsolidator,
@@ -25,6 +27,8 @@ export interface ProviderRuntimeDeps {
   /** Called whenever the function patches config, so the caller stays in sync. */
   onConfigUpdate: (config: Config) => void;
   configStore: AnyObj;
+  /** Shared live fallback profile manager from the runtime container. */
+  fallbackProfileManager: FallbackProfileManager;
   providerRegistry: ProviderRegistry;
   agent: AnyObj;
   memoryStore: AnyObj;
@@ -38,6 +42,8 @@ export interface ProviderRuntimeDeps {
   events: EventBus;
   resolveProviderCfgRuntime: (config: Config, providerId: string) => { cfg: ProviderConfig };
   buildProviderForIdRuntime: (opts: { config: Config; providerRegistry: ProviderRegistry }, providerId: string) => Provider;
+  /** Shared provider/model status tracker. */
+  statusTracker: ProviderModelStatusTracker;
 }
 
 export interface ProviderRuntimeResult {
@@ -62,6 +68,7 @@ export function setupProviderRuntime(deps: ProviderRuntimeDeps): ProviderRuntime
     config: initialConfig,
     onConfigUpdate,
     configStore,
+    fallbackProfileManager,
     providerRegistry,
     agent,
     memoryStore,
@@ -75,6 +82,7 @@ export function setupProviderRuntime(deps: ProviderRuntimeDeps): ProviderRuntime
     events,
     resolveProviderCfgRuntime,
     buildProviderForIdRuntime,
+    statusTracker,
   } = deps;
 
   // Local mutable config — seeded from deps, kept in sync via onConfigUpdate.
@@ -111,10 +119,12 @@ export function setupProviderRuntime(deps: ProviderRuntimeDeps): ProviderRuntime
   agent.extensions.register(
     createFallbackModelExtension({
       getConfig: () => cfg,
+      fallbackProfileManager,
       buildProvider: buildProviderForId,
       onModelSwitch: refreshRuntimeModelStateFor,
       events,
       logger,
+      statusTracker,
     }),
   );
 

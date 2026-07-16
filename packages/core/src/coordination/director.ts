@@ -25,6 +25,7 @@ import type { BrainArbiter } from './brain.js';
 import { formatSubagentStructuredReport } from './subagent-result-tool.js';
 import { resolveMaxSpawnDepth } from './spawn-budget.js';
 import type { CollabDebugReport, CollabSessionOptions } from './collab-debug.js';
+import type { ProviderModelStatusTracker } from './provider-status-tracker.js';
 import {
   FleetContextOverflowError,
   FleetCostCapError,
@@ -352,6 +353,12 @@ export interface DirectorOptions {
         cwd: string;
       }) => Promise<boolean>)
     | undefined;
+  /**
+   * Shared provider/model status tracker. When set, the director checks
+   * whether the resolved provider/model is blocked BEFORE spawning the
+   * subagent — so a blocked model is never assigned to a new worker.
+   */
+  statusTracker?: ProviderModelStatusTracker | undefined;
 }
 
 /** Either a static matrix or a live getter (re-read on every spawn). */
@@ -609,6 +616,8 @@ export class Director implements ICoordinator {
   private readonly collab: DirectorCollabController;
   /** Prevents large `ask_subagent` answers from bloating the leader's context window. */
   readonly largeAnswerStore: LargeAnswerStore;
+  /** Shared provider/model status tracker, or undefined. */
+  private readonly statusTracker: ProviderModelStatusTracker | undefined;
 
   constructor(opts: DirectorOptions) {
     this.id = opts.config.coordinatorId || randomUUID();
@@ -655,6 +664,7 @@ export class Director implements ICoordinator {
         )
       : null;
     this.fleetManager = opts.fleetManager;
+    this.statusTracker = opts.statusTracker;
     this.logger = opts.logger;
     if (this.sharedScratchpadPath) {
       // Create the directory eagerly so subagents that try to write
@@ -1348,6 +1358,17 @@ export class Director implements ICoordinator {
       } else if (entry?.fallbackProfile) {
         config.fallbackProfile = entry.fallbackProfile;
         if (entry.modelRuntime) config.modelRuntime = entry.modelRuntime;
+      }
+    }
+    // Check the tracker — if the resolved provider/model is blocked, log a
+    // warning. The subagent itself will also check via its fallback extension
+    // and rotate away, but this early warning helps debugging.
+    if (this.statusTracker && config.provider && config.model) {
+      if (!this.statusTracker.isAvailable(config.provider, config.model)) {
+        this.logger?.warn(
+          `spawn: resolved model "${config.provider}/${config.model}" for role "${config.role ?? '?'}" is blocked by the status tracker. ` +
+            'The subagent will attempt its fallback chain.',
+        );
       }
     }
   }

@@ -43,6 +43,7 @@ import {
   loadDirectorState,
   mailboxSessionTag,
   ParallelEternalEngine,
+  ProviderModelStatusTracker,
   resolveFleetChatVerbosity,
   type LogLevel,
   type SystemPromptBuilder,
@@ -550,6 +551,15 @@ export async function main(argv: string[]): Promise<number> {
 
   // ── Provider runtime helpers + fallback + switch + credential watcher ──
   // Extracted to wiring/provider-runtime-setup.ts.
+  const fallbackProfileManager = container.resolve(TOKENS.FallbackProfileManager);
+
+  // ── Provider/Model Status Tracker (shared singleton) ──────────────────
+  // Created BEFORE the provider runtime so every component that touches
+  // providers gets the same instance. Bound to the FallbackProfileManager
+  // immediately so fallback chains filter blocked models even before the
+  // first agent run.
+  const statusTracker = new ProviderModelStatusTracker({ events });
+  fallbackProfileManager.setStatusTracker(statusTracker);
   const {
     buildProviderForId,
     switchProviderAndModel,
@@ -557,6 +567,7 @@ export async function main(argv: string[]): Promise<number> {
     config,
     onConfigUpdate: (newConfig) => { config = newConfig; },
     configStore,
+    fallbackProfileManager,
     providerRegistry,
     agent,
     memoryStore,
@@ -570,6 +581,7 @@ export async function main(argv: string[]): Promise<number> {
     events,
     resolveProviderCfgRuntime,
     buildProviderForIdRuntime,
+    statusTracker,
   });
 
   // Register the `llm` tool — one-shot LLM invocations with provider
@@ -577,6 +589,7 @@ export async function main(argv: string[]): Promise<number> {
   const llmTool = createOneShotLLMTool({
     buildProvider: buildProviderForId,
     getConfig: () => config,
+    fallbackProfileManager,
     defaultProvider: config.provider,
     defaultModel: config.model,
   });
@@ -587,11 +600,15 @@ export async function main(argv: string[]): Promise<number> {
   }
 
   // Register the provider-neutral Council tool with the same OneShot runtime.
+  const councilOrchestrator = new OneShotOrchestrator({
+    buildProvider: buildProviderForId,
+    getConfig: () => config,
+    fallbackProfileManager,
+    statusTracker,
+  });
   const councilTool = createCouncilTool({
-    caller: new OneShotOrchestrator({
-      buildProvider: buildProviderForId,
-      getConfig: () => config,
-    }),
+    caller: councilOrchestrator,
+    fallbackProfileManager,
   });
   try {
     toolRegistry.register(councilTool);
@@ -609,6 +626,8 @@ export async function main(argv: string[]): Promise<number> {
       const summarizer = new OneShotOrchestrator({
         buildProvider: buildProviderForId,
         getConfig: () => config,
+        fallbackProfileManager,
+        statusTracker,
       });
       toolRegistry.override(
         'context_manager',
@@ -703,6 +722,7 @@ export async function main(argv: string[]): Promise<number> {
     mcpRegistry,
     sessResult,
     modeId,
+    statusTracker,
   });
 
   // HQ command dispatch + telemetry bridges (WebSocket, session/fleet/brain/
@@ -961,6 +981,7 @@ export async function main(argv: string[]): Promise<number> {
     brainRuntime,
     getBrainLog: () => brainLog,
     coordinatorController,
+    statusTracker,
     shadowController,
     confirm: async (question, defaultYes = true): Promise<boolean | null> => {
       // Non-TTY / piped stdin → don't block. For destructive or surprising

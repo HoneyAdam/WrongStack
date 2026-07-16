@@ -7,8 +7,9 @@
  * provider-health filtering, and a single reload point on config changes.
  *
  * Design:
- * - Immutable: `resolve()` returns a frozen chain; the manager itself is
- *   replaced on config reload, never mutated in place.
+ * - Stable service identity: `reload()` atomically replaces the manager's
+ *   immutable config/profile snapshot so injected consumers stay live.
+ * - Immutable outputs: every resolved chain is frozen.
  * - Provider-aware: each profile entry is checked against live provider config
  *   (has API key?) before inclusion.
  * - Zero coupling: consumers only see `readonly FallbackChainEntry[]` —
@@ -17,6 +18,7 @@
 
 import type { Config, ProviderConfig } from '../types/config.js';
 import { parseModelRef } from './fallback-model.js';
+import type { ProviderModelStatusTracker } from '../coordination/provider-status-tracker.js';
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -34,22 +36,34 @@ export interface FallbackChainEntry {
 export type FallbackChain = readonly FallbackChainEntry[];
 
 /**
- * Provider health check result. Consumers can optionally probe before
- * building a provider instance.
+ * Configuration-level provider health used while resolving fallback chains.
+ *
+ * This deliberately answers whether the runtime has enough configuration to
+ * construct the provider; it does not perform a network probe. Keyless
+ * self-hosted endpoints are usable when they declare a `baseUrl`.
  */
-export interface ProviderAvailability {
+export interface ProviderHealth {
   readonly providerId: string;
   readonly hasKey: boolean;
+  readonly hasEndpoint: boolean;
   readonly hasModels: boolean;
+  readonly usable: boolean;
 }
+
+/** @deprecated Use {@link ProviderHealth}. */
+export type ProviderAvailability = ProviderHealth;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
+function hasText(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
 function providerHasKey(entry: ProviderConfig | undefined): boolean {
   if (!entry) return false;
-  if (typeof entry.apiKey === 'string' && entry.apiKey.length > 0) return true;
-  if (Array.isArray(entry.apiKeys) && entry.apiKeys.some((k) => k?.apiKey)) return true;
-  if (Array.isArray(entry.envVars) && entry.envVars.some((v) => !!process.env[v])) return true;
+  if (hasText(entry.apiKey)) return true;
+  if (Array.isArray(entry.apiKeys) && entry.apiKeys.some((k) => hasText(k?.apiKey))) return true;
+  if (Array.isArray(entry.envVars) && entry.envVars.some((v) => hasText(process.env[v]))) return true;
   return false;
 }
 
@@ -58,24 +72,38 @@ function visibleProviderModels(config: Config, providerId: string, providerModel
   return entry?.models !== undefined ? [...entry.models] : providerModels;
 }
 
+function buildProfiles(config: Config): ReadonlyMap<string, readonly string[]> {
+  const entries = new Map<string, readonly string[]>();
+  for (const [name, chain] of Object.entries(config.fallbackProfiles ?? {})) {
+    if (Array.isArray(chain) && chain.length > 0) {
+      entries.set(name, Object.freeze([...chain]));
+    }
+  }
+  return entries;
+}
+
 // ── Manager ─────────────────────────────────────────────────────────────────
 
 export class FallbackProfileManager {
-  /** Immutable snapshot of config.fallbackProfiles at construction time. */
-  private readonly profiles: ReadonlyMap<string, readonly string[]>;
-  /** Reference config snapshot for provider lookups. */
-  private readonly config: Config;
+  /** Immutable snapshot of config.fallbackProfiles for the active config. */
+  private profiles: ReadonlyMap<string, readonly string[]>;
+  /** Active frozen config snapshot for provider lookups. */
+  private config: Config;
+  /** Optional shared runtime status tracker. */
+  private statusTracker: ProviderModelStatusTracker | undefined;
 
-  constructor(config: Config) {
+  constructor(config: Config, opts?: { statusTracker?: ProviderModelStatusTracker | undefined }) {
     this.config = config;
-    const raw = config.fallbackProfiles ?? {};
-    const entries = new Map<string, readonly string[]>();
-    for (const [name, chain] of Object.entries(raw)) {
-      if (Array.isArray(chain) && chain.length > 0) {
-        entries.set(name, Object.freeze([...chain]));
-      }
-    }
-    this.profiles = entries;
+    this.profiles = buildProfiles(config);
+    this.statusTracker = opts?.statusTracker;
+  }
+
+  /**
+   * Bind (or replace) the shared runtime status tracker.
+   * Called by the boot path after the tracker is created.
+   */
+  setStatusTracker(tracker: ProviderModelStatusTracker | undefined): void {
+    this.statusTracker = tracker;
   }
 
   // ── Profile existence ──────────────────────────────────────────────────
@@ -131,6 +159,12 @@ export class FallbackProfileManager {
       // Skip self-reference
       if (excludeKey && key === excludeKey) continue;
 
+      const health = this.checkProvider(providerId);
+      if (!health.usable) continue;
+
+      // Skip entries that are blocked by the runtime status tracker
+      if (this.statusTracker && !this.statusTracker.isAvailable(providerId, parsed.model)) continue;
+
       // Skip entries whose provider has no matching model in its allow-list
       // (provider may restrict which models are available).
       const allowedModels = this.config.providers?.[providerId]?.models;
@@ -183,19 +217,32 @@ export class FallbackProfileManager {
 
   // ── Provider availability (read-only) ──────────────────────────────────
 
-  checkProvider(providerId: string): ProviderAvailability {
+  checkProvider(providerId: string): ProviderHealth {
     const entry = this.config.providers?.[providerId];
+    const isPrimary = providerId === this.config.provider;
+    const hasKey = providerHasKey(entry) || (isPrimary && hasText(this.config.apiKey));
+    const hasEndpoint = hasText(entry?.baseUrl) || (isPrimary && hasText(this.config.baseUrl));
+    const hasModels =
+      (Array.isArray(entry?.models) && entry.models.length > 0) ||
+      (isPrimary && hasText(this.config.model));
     return Object.freeze({
       providerId,
-      hasKey: providerHasKey(entry),
-      hasModels: Array.isArray(entry?.models) && entry.models.length > 0,
+      hasKey,
+      hasEndpoint,
+      hasModels,
+      usable: hasKey || hasEndpoint,
     });
   }
 
   // ── Rebuild on config change ───────────────────────────────────────────
 
-  reload(newConfig: Config): FallbackProfileManager {
-    return new FallbackProfileManager(newConfig);
+  /**
+   * Atomically replace the active immutable snapshot while preserving this
+   * service identity for every injected consumer.
+   */
+  reload(newConfig: Config): void {
+    this.config = newConfig;
+    this.profiles = buildProfiles(newConfig);
   }
 
   // ── Internal helpers ───────────────────────────────────────────────────
@@ -221,6 +268,9 @@ export class FallbackProfileManager {
       if (seen.has(key)) continue;
       seen.add(key);
       if (excludeKey && key === excludeKey) continue;
+
+      // Skip entries blocked by the runtime status tracker
+      if (this.statusTracker && !this.statusTracker.isAvailable(providerId, parsed.model)) continue;
 
       resolved.push({
         providerId,
@@ -262,7 +312,9 @@ export class FallbackProfileManager {
 
     for (const id of ids) {
       const entry = providers[id];
-      if (!providerHasKey(entry)) continue;
+      if (!this.checkProvider(id).usable) continue;
+      // Skip the entire provider if it's blocked at the provider level
+      // (all its models would be blocked too, but we check per-model below)
       const models = visibleProviderModels(this.config, id, entry?.models ?? []);
       for (const model of models) {
         if (id === leaderProvider && model === leaderModel) continue;
@@ -270,6 +322,8 @@ export class FallbackProfileManager {
         if (seen.has(ref)) continue;
         seen.add(ref);
         if (excludeKey && ref === excludeKey) continue;
+        // Skip models blocked by the runtime status tracker
+        if (this.statusTracker && !this.statusTracker.isAvailable(id, model)) continue;
         if (favoriteSet.has(ref)) { favorites.push(ref); continue; }
         if (favoritesOnly && hasFavorites) continue;
         (id === leaderProvider ? sameProvider : crossProvider).push(ref);

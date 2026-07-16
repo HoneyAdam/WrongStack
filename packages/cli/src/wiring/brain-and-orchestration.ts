@@ -85,6 +85,8 @@ export interface BrainOrchestrationDeps {
   sessResult: AnyObj;
   /** Leader's active mode id — propagated to spawned subagents as memoryContext.mode. */
   modeId?: string | undefined;
+  /** Shared provider/model status tracker for the Director. */
+  statusTracker?: import('@wrongstack/core/coordination').ProviderModelStatusTracker | undefined;
 }
 
 export interface BrainOrchestrationResult {
@@ -319,6 +321,7 @@ export function setupBrainAndOrchestration(
       providerRegistry,
       configStore,
       modelsRegistry,
+      fallbackProfileManager: container.resolve(TOKENS.FallbackProfileManager),
       events,
       systemPromptBuilder: promptBuilder,
       session,
@@ -354,6 +357,7 @@ export function setupBrainAndOrchestration(
         if (shadowController.activeId === subagentId) shadowController.clear();
       },
       ...(deps.modeId ? { getLeaderMode: () => deps.modeId } : {}),
+      ...(deps.statusTracker ? { statusTracker: deps.statusTracker } : {}),
     },
   );
 

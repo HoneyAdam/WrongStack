@@ -8,9 +8,9 @@ import {
   type Request,
   type Response,
 } from '../types/provider.js';
-import { FallbackProfileManager } from '../core/fallback-profile-manager.js';
 import type { FallbackChain } from '../core/fallback-profile-manager.js';
 import type { Config } from '../types/config.js';
+import { ProviderModelStatusTracker } from '../coordination/provider-status-tracker.js';
 
 /**
  * Default timeout for one-shot LLM calls when the caller doesn't specify one.
@@ -37,7 +37,7 @@ type CallAttempt =
  *   system: 'You are a helpful assistant.',
  *   userPrompt: 'Summarize this conversation.',
  *   model: 'deepseek-chat',
- *   fallbackProfile: 'summary',
+ *   fallbackModels: ['anthropic/claude-haiku'],
  * });
  * console.log(result.text);
  * ```
@@ -99,80 +99,80 @@ export class OneShotOrchestrator {
     const chain = this.resolveFallbackChain(input, config, target);
 
     // ── 4. Attempt the call with fallback rotation ─────────────────
+    const tracker = this.opts.statusTracker;
     let servingProviderId = provider.id;
     let servingModel = target.model;
     let fromFallback = false;
+    let lastError: unknown = undefined;
+    let fallbackEligible = false;
 
-    const primaryAttempt = await this.tryCall(provider, request, signal);
-    let result = primaryAttempt.response;
-    let lastError = primaryAttempt.error;
-    let fallbackEligible = primaryAttempt.fallbackEligible;
+    // Check if the primary target is blocked
+    if (tracker && !tracker.isAvailable(target.providerId, target.model)) {
+      this.opts.logger?.debug(
+        `one-shot: primary "${target.providerId}/${target.model}" is blocked — trying fallback`,
+      );
+      // Fall through to the fallback chain
+    } else {
+      const primaryAttempt = await this.tryCall(provider, request, signal, target.providerId, target.model);
+      const result = primaryAttempt.response;
+      lastError = primaryAttempt.error;
+      fallbackEligible = primaryAttempt.fallbackEligible;
 
-    if (!result && fallbackEligible && chain.length > 0) {
-      for (const entry of chain) {
-        if (entry.providerId === provider.id && entry.model === target.model) continue;
+      if (result) {
+        tracker?.recordSuccess(target.providerId, target.model);
+        servingProviderId = provider.id;
+        servingModel = target.model;
+        return this.buildResult(result, servingProviderId, servingModel, false, startedAt);
+      }
 
-        servingProviderId = entry.providerId;
-        servingModel = entry.model;
-
-        let fbProvider: Provider;
-        try {
-          fbProvider = await this.opts.buildProvider(entry.providerId, entry.model);
-        } catch (err) {
-          lastError = err;
-          continue;
-        }
-
-        servingProviderId = fbProvider.id;
-        const attempt = await this.tryCall(
-          fbProvider,
-          this.buildRequest(input, entry.model),
-          signal,
+      if (!fallbackEligible || chain.length === 0) {
+        return this.buildErrorResult(
+          lastError,
+          target.providerId,
+          target.model,
+          false,
+          startedAt,
         );
-        if (attempt.response) {
-          result = attempt.response;
-          fromFallback = true;
-          break;
-        }
-
-        lastError = attempt.error;
-        fallbackEligible = attempt.fallbackEligible;
-        if (!fallbackEligible) break;
       }
     }
 
-    // ── 5. Build the final result ──────────────────────────────────
-    const elapsed = Math.round(performance.now() - startedAt);
+    // ── 4b. Fallback chain ──────────────────────────────────────────
+    // Filter blocked entries from the chain
+    const usableChain = tracker ? chain.filter((e) => tracker.isAvailable(e.providerId, e.model)) : chain;
 
-    if (result) {
-      const textBlocks = result.content.filter(isTextBlock);
-      const text = textBlocks.map((b) => b.text).join('\n').trim();
+    for (const entry of usableChain) {
+      if (entry.providerId === provider.id && entry.model === target.model) continue;
 
-      return {
-        text: text || '(empty response)',
-        model: result.model ?? servingModel,
-        provider: servingProviderId,
-        tokens: {
-          input: result.usage?.input ?? 0,
-          output: result.usage?.output ?? 0,
-          total: (result.usage?.input ?? 0) + (result.usage?.output ?? 0),
-        },
-        durationMs: elapsed,
-        fromFallback,
-        stopReason: result.stopReason,
-      };
+      let fbProvider: Provider;
+      try {
+        fbProvider = await this.opts.buildProvider(entry.providerId, entry.model);
+      } catch (err) {
+        lastError = err;
+        continue;
+      }
+
+      servingProviderId = fbProvider.id;
+      servingModel = entry.model;
+      const attempt = await this.tryCall(
+        fbProvider,
+        this.buildRequest(input, entry.model),
+        signal,
+        entry.providerId,
+        entry.model,
+      );
+      if (attempt.response) {
+        tracker?.recordSuccess(entry.providerId, entry.model);
+        fromFallback = true;
+        return this.buildResult(attempt.response, servingProviderId, servingModel, true, startedAt);
+      }
+
+      lastError = attempt.error;
+      fallbackEligible = attempt.fallbackEligible;
+      if (!fallbackEligible) break;
     }
 
     // Total failure — all providers exhausted or non-retryable error.
-    return {
-      text: '',
-      model: servingModel,
-      provider: servingProviderId,
-      tokens: { input: 0, output: 0, total: 0 },
-      durationMs: elapsed,
-      fromFallback,
-      error: lastError instanceof Error ? lastError.message : String(lastError ?? 'Unknown error'),
-    };
+    return this.buildErrorResult(lastError, servingProviderId, servingModel, fromFallback, startedAt);
   }
 
   // ── Private helpers ─────────────────────────────────────────────
@@ -248,23 +248,21 @@ export class OneShotOrchestrator {
 
   /**
    * Build the fallback model chain from input + config + current target.
+   * The injected {@link OneShotOrchestratorOptions.fallbackProfileManager}
+   * is the only allowed manager — OneShot never owns a private snapshot
+   * so a live `ConfigStore` change reaches every call without rebuilding
+   * the manager.
    */
   private resolveFallbackChain(
     input: OneShotLLMInput,
     config: Config,
     target: { providerId: string; model: string },
   ): FallbackChain {
-    const mgr = new FallbackProfileManager(config);
+    const mgr = this.opts.fallbackProfileManager;
 
     // Explicit chain wins
     if (input.fallbackModels && input.fallbackModels.length > 0) {
       return mgr.resolveRefs(input.fallbackModels, target);
-    }
-
-    // Named profile
-    if (input.fallbackProfile) {
-      const chain = mgr.resolve(input.fallbackProfile, { exclude: target });
-      if (chain.length > 0) return chain;
     }
 
     // Config-level fallbackModels — independent of fallbackAuto
@@ -275,7 +273,6 @@ export class OneShotOrchestrator {
     // Smart default from config (only when auto-derivation is enabled)
     if (config.fallbackAuto !== false) {
       return mgr.resolveEffective({
-        fallbackProfile: undefined,
         fallbackAuto: true,
         exclude: target,
       });
@@ -289,6 +286,8 @@ export class OneShotOrchestrator {
     provider: Provider,
     request: Request,
     signal: AbortSignal,
+    providerId?: string,
+    model?: string,
   ): Promise<CallAttempt> {
     try {
       return {
@@ -296,6 +295,17 @@ export class OneShotOrchestrator {
         fallbackEligible: false,
       };
     } catch (err) {
+      // Record the failure in the tracker
+      if (err instanceof ProviderError && providerId && model) {
+        this.opts.statusTracker?.recordFailure(
+          providerId,
+          model,
+          err.kind,
+          err.status,
+          err.describe(),
+          { retryAfterMs: err.body?.retryAfterMs },
+        );
+      }
       return {
         error: err,
         fallbackEligible:
@@ -303,6 +313,50 @@ export class OneShotOrchestrator {
           (!(err instanceof ProviderError) || isFallbackWorthy(err.kind)),
       };
     }
+  }
+
+  /** Build a success result from a provider Response. */
+  private buildResult(
+    response: Response,
+    servingProviderId: string,
+    servingModel: string,
+    fromFallback: boolean,
+    startedAt: number,
+  ): OneShotLLMResult {
+    const textBlocks = response.content.filter(isTextBlock);
+    const text = textBlocks.map((b) => b.text).join('\n').trim();
+    return {
+      text: text || '(empty response)',
+      model: response.model ?? servingModel,
+      provider: servingProviderId,
+      tokens: {
+        input: response.usage?.input ?? 0,
+        output: response.usage?.output ?? 0,
+        total: (response.usage?.input ?? 0) + (response.usage?.output ?? 0),
+      },
+      durationMs: Math.round(performance.now() - startedAt),
+      fromFallback,
+      stopReason: response.stopReason,
+    };
+  }
+
+  /** Build a total-failure error result. */
+  private buildErrorResult(
+    error: unknown,
+    servingProviderId: string,
+    servingModel: string,
+    fromFallback: boolean,
+    startedAt: number,
+  ): OneShotLLMResult {
+    return {
+      text: '',
+      model: servingModel,
+      provider: servingProviderId,
+      tokens: { input: 0, output: 0, total: 0 },
+      durationMs: Math.round(performance.now() - startedAt),
+      fromFallback,
+      error: error instanceof Error ? error.message : String(error ?? 'Unknown error'),
+    };
   }
 }
 

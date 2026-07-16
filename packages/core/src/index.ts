@@ -49,6 +49,16 @@ export {
   ALL_AGENT_DEFINITIONS,
   getAgentDefinition,
 } from './coordination/agents/index.js';
+// ---- Provider/Model Status Tracker ----
+export {
+  ProviderModelStatusTracker,
+  type ErrorHistoryEntry,
+  type ProviderModelState,
+  type ProviderModelStatus,
+  type ProviderStatusSnapshot,
+  type ProviderStatusTrackerConfig,
+} from './coordination/provider-status-tracker.js';
+
 // ---- Coordination (fleet/multi-agent tools) ----
 export {
   type BrainArbiter,
@@ -353,6 +363,7 @@ export type {
   FallbackChain,
   FallbackChainEntry,
   ProviderAvailability,
+  ProviderHealth,
 } from './core/fallback-profile-manager.js';
 export {
   InputBuilder,

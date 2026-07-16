@@ -542,6 +542,11 @@ export interface SlashCommandContext {
           | undefined;
       }
     | undefined;
+  /**
+   * Shared provider/model status tracker. When set, the `/provider-status`
+   * command can render live health information.
+   */
+  statusTracker?: import('@wrongstack/core/coordination').ProviderModelStatusTracker | undefined;
 }
 
 // Re-export helpers for external consumers (pre-launch.ts)
@@ -569,6 +574,7 @@ import { buildEnhanceCommand } from './enhance.js';
 import { buildEnsembleCommand } from './ensemble.js';
 import { buildFKeyAliasCommands, buildFKeysCommand } from './f-keys.js';
 import { buildFallbackCommand } from './fallback.js';
+import { buildProviderStatusCommand } from './provider-status.js';
 import { buildFixCommand } from './fix.js';
 import {
   buildCommitCommand,
@@ -698,6 +704,9 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     buildSetModelCommand(opts),
     buildRefinerCommand(opts),
     buildFallbackCommand(opts),
+    ...(opts.statusTracker
+      ? [buildProviderStatusCommand(opts.statusTracker)]
+      : []),
     buildGitCommand(opts),
     buildCommitCommand(opts),
     buildGitcheckCommand(opts),

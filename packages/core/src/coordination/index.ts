@@ -374,6 +374,16 @@ export {
   wrapSubagentRunnerWithWorktrees,
 } from './worktree-task-runner.js';
 
+// ── Provider/Model Status Tracker ───────────────────────────────────────────
+export {
+  ProviderModelStatusTracker,
+  type ErrorHistoryEntry,
+  type ProviderModelState,
+  type ProviderModelStatus,
+  type ProviderStatusSnapshot,
+  type ProviderStatusTrackerConfig,
+} from './provider-status-tracker.js';
+
 // ── Autonomous coordination layer ──────────────────────────────────────────
 
 // ── Adaptive Concurrency Controller ──────────────────────────────────────────
