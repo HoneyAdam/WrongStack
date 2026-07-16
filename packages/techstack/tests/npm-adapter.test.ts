@@ -1,0 +1,296 @@
+/**
+ * TechStack — npm adapter tests.
+ *
+ * Tests the NpmAdapter against real fixture package.json + pnpm-lock.yaml
+ * files in the tests/fixtures/ directory.
+ */
+
+import { describe, it, expect } from 'vitest';
+import { readFileSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { NpmAdapter } from '../src/adapters/npm.js';
+import { workspaceId } from '../src/discovery/index.js';
+import type { Workspace } from '../src/types.js';
+
+function makeTempWorkspace(name: string, pkgJson: Record<string, unknown>, lockfile?: { filename: string; content: string }): { dir: string; workspace: Workspace } {
+  const dir = join(tmpdir(), `techstack-npm-${name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'package.json'), JSON.stringify(pkgJson, null, 2));
+  if (lockfile) {
+    writeFileSync(join(dir, lockfile.filename), lockfile.content);
+  }
+  const workspace: Workspace = {
+    id: workspaceId('', 'npm'),
+    relativeRoot: dir,
+    ecosystem: 'npm',
+    manifests: ['package.json'],
+    lockfiles: lockfile ? [lockfile.filename] : [],
+    confidence: 0.9,
+    coverage: 'full',
+  };
+  return { dir, workspace };
+}
+
+const SAMPLE_PNPM_LOCK = `lockfileVersion: '9.0'
+
+packages:
+
+  /react@19.1.0:
+    version: 19.1.0
+
+  /express@4.21.2:
+    version: 4.21.2
+
+  /@wrongstack/core@0.287.1:
+    version: 0.287.1
+
+  /vitest@1.0.0:
+    version: 1.0.0
+`;
+
+const SAMPLE_PKG_JSON = {
+  name: 'test-app',
+  version: '1.0.0',
+  dependencies: {
+    'react': '^19.1.0',
+    'express': '~4.21.0',
+    '@wrongstack/core': 'workspace:*',
+    'local-thing': 'file:../local-thing',
+    'git-pkg': 'git+https://github.com/foo/bar.git',
+  },
+  devDependencies: {
+    'vitest': '^1.0.0',
+  },
+  peerDependencies: {
+    'react': '^19.0.0',
+  },
+};
+
+describe('NpmAdapter', () => {
+  it('extracts dependencies from package.json', async () => {
+    const { dir, workspace } = makeTempWorkspace('basic', SAMPLE_PKG_JSON);
+    try {
+      const adapter = new NpmAdapter();
+      const deps = await adapter.inventory(workspace, {});
+
+      // react appears in deps + peer (deduped → first wins)
+      const names = deps.map(d => d.name);
+      expect(names).toContain('react');
+      expect(names).toContain('express');
+      expect(names).toContain('@wrongstack/core');
+      expect(names).toContain('local-thing');
+      expect(names).toContain('git-pkg');
+      expect(names).toContain('vitest');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('deduplicates by name (react in deps + peer → first wins)', async () => {
+    const { dir, workspace } = makeTempWorkspace('dedup', SAMPLE_PKG_JSON);
+    try {
+      const adapter = new NpmAdapter();
+      const deps = await adapter.inventory(workspace, {});
+      const reactEntries = deps.filter(d => d.name === 'react');
+      expect(reactEntries).toHaveLength(1);
+      // Should be runtime scope (first occurrence in dependencies)
+      expect(reactEntries[0]!.scope).toBe('runtime');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('classifies workspace: link as local_path', async () => {
+    const { dir, workspace } = makeTempWorkspace('workspace-dep', SAMPLE_PKG_JSON);
+    try {
+      const adapter = new NpmAdapter();
+      const deps = await adapter.inventory(workspace, {});
+      const wsDep = deps.find(d => d.name === '@wrongstack/core');
+      expect(wsDep).toBeDefined();
+      expect(wsDep!.status).toBe('local_path');
+      expect(wsDep!.sourceType).toBe('path');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('classifies file: link as local_path', async () => {
+    const { dir, workspace } = makeTempWorkspace('file-dep', SAMPLE_PKG_JSON);
+    try {
+      const adapter = new NpmAdapter();
+      const deps = await adapter.inventory(workspace, {});
+      const fileDep = deps.find(d => d.name === 'local-thing');
+      expect(fileDep).toBeDefined();
+      expect(fileDep!.status).toBe('local_path');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('classifies git+ as git_dependency', async () => {
+    const { dir, workspace } = makeTempWorkspace('git-dep', SAMPLE_PKG_JSON);
+    try {
+      const adapter = new NpmAdapter();
+      const deps = await adapter.inventory(workspace, {});
+      const gitDep = deps.find(d => d.name === 'git-pkg');
+      expect(gitDep).toBeDefined();
+      expect(gitDep!.status).toBe('git_dependency');
+      expect(gitDep!.sourceType).toBe('git');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves locked versions from pnpm-lock.yaml', async () => {
+    const { dir, workspace } = makeTempWorkspace('with-lock', SAMPLE_PKG_JSON, {
+      filename: 'pnpm-lock.yaml',
+      content: SAMPLE_PNPM_LOCK,
+    });
+    try {
+      const adapter = new NpmAdapter();
+      const deps = await adapter.inventory(workspace, {});
+
+      const react = deps.find(d => d.name === 'react');
+      expect(react).toBeDefined();
+      expect(react!.locked).toBe('19.1.0');
+
+      const express = deps.find(d => d.name === 'express');
+      expect(express).toBeDefined();
+      expect(express!.locked).toBe('4.21.2');
+
+      const vitest = deps.find(d => d.name === 'vitest');
+      expect(vitest).toBeDefined();
+      expect(vitest!.locked).toBe('1.0.0');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('builds PURL for registry deps with locked version', async () => {
+    const { dir, workspace } = makeTempWorkspace('purl', SAMPLE_PKG_JSON, {
+      filename: 'pnpm-lock.yaml',
+      content: SAMPLE_PNPM_LOCK,
+    });
+    try {
+      const adapter = new NpmAdapter();
+      const deps = await adapter.inventory(workspace, {});
+
+      const react = deps.find(d => d.name === 'react');
+      expect(react).toBeDefined();
+      expect(react!.purl).toBe('pkg:npm/react@19.1.0');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not build PURL for local/git deps', async () => {
+    const { dir, workspace } = makeTempWorkspace('no-purl', SAMPLE_PKG_JSON, {
+      filename: 'pnpm-lock.yaml',
+      content: SAMPLE_PNPM_LOCK,
+    });
+    try {
+      const adapter = new NpmAdapter();
+      const deps = await adapter.inventory(workspace, {});
+
+      const wsDep = deps.find(d => d.name === '@wrongstack/core');
+      expect(wsDep!.purl).toBeUndefined();
+
+      const fileDep = deps.find(d => d.name === 'local-thing');
+      expect(fileDep!.purl).toBeUndefined();
+
+      const gitDep = deps.find(d => d.name === 'git-pkg');
+      expect(gitDep!.purl).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('includes manifest evidence for all deps', async () => {
+    const { dir, workspace } = makeTempWorkspace('evidence', SAMPLE_PKG_JSON);
+    try {
+      const adapter = new NpmAdapter();
+      const deps = await adapter.inventory(workspace, {});
+
+      for (const dep of deps) {
+        const manifestEv = dep.evidence.find(e => e.kind === 'manifest');
+        expect(manifestEv).toBeDefined();
+        expect(manifestEv!.source).toContain('package.json');
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('includes lockfile evidence for resolved deps', async () => {
+    const { dir, workspace } = makeTempWorkspace('lock-ev', SAMPLE_PKG_JSON, {
+      filename: 'pnpm-lock.yaml',
+      content: SAMPLE_PNPM_LOCK,
+    });
+    try {
+      const adapter = new NpmAdapter();
+      const deps = await adapter.inventory(workspace, {});
+
+      const react = deps.find(d => d.name === 'react');
+      const lockEvs = react!.evidence.filter(e => e.kind === 'lockfile');
+      expect(lockEvs).toHaveLength(1);
+      expect(lockEvs[0]!.source).toContain('pnpm-lock.yaml');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('assigns correct scopes', async () => {
+    const { dir, workspace } = makeTempWorkspace('scopes', SAMPLE_PKG_JSON);
+    try {
+      const adapter = new NpmAdapter();
+      const deps = await adapter.inventory(workspace, {});
+
+      const vitest = deps.find(d => d.name === 'vitest');
+      expect(vitest!.scope).toBe('development');
+
+      // react deduped to runtime (first in dependencies)
+      const react = deps.find(d => d.name === 'react');
+      expect(react!.scope).toBe('runtime');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('stores requested (constraint) from manifest', async () => {
+    const { dir, workspace } = makeTempWorkspace('requested', SAMPLE_PKG_JSON);
+    try {
+      const adapter = new NpmAdapter();
+      const deps = await adapter.inventory(workspace, {});
+
+      const react = deps.find(d => d.name === 'react');
+      expect(react!.requested).toBe('^19.1.0');
+
+      const express = deps.find(d => d.name === 'express');
+      expect(express!.requested).toBe('~4.21.0');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns empty array for unreadable manifest', async () => {
+    const dir = join(tmpdir(), `techstack-npm-empty-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    const workspace: Workspace = {
+      id: workspaceId('', 'npm'),
+      relativeRoot: dir,
+      ecosystem: 'npm',
+      manifests: ['nonexistent.json'],
+      lockfiles: [],
+      confidence: 0.9,
+      coverage: 'full',
+    };
+    try {
+      const adapter = new NpmAdapter();
+      const deps = await adapter.inventory(workspace, {});
+      expect(deps).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

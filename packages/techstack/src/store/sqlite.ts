@@ -1,0 +1,306 @@
+/**
+ * TechStack — SQLite-backed store.
+ *
+ * Provides persistence for snapshots, jobs, and the delivery outbox
+ * using Node 22.5+'s built-in `node:sqlite` module.
+ *
+ * Store path: ~/.wrongstack/projects/<slug>/techstack/techstack.db
+ *
+ * @see docs/specs/techstack-sdd.md §3.2, §4.1
+ */
+
+import { DatabaseSync } from 'node:sqlite';
+import { mkdirSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
+import { applySchema } from './schema.js';
+import type {
+  DeliveryOutbox,
+  DeliveryStatus,
+  Snapshot,
+  TechStackJob,
+  TechStackJobStatus,
+  TechStackJobProgress,
+} from '../types.js';
+
+// ── Types ─────────────────────────────────────────────────────────────────
+
+export interface StoreOptions {
+  /** Project slug used for the store directory path. */
+  readonly projectSlug: string;
+  /** Optional explicit dbPath override (for testing). */
+  readonly dbPath?: string;
+}
+
+// ── Store class ───────────────────────────────────────────────────────────
+
+export class TechStackStore {
+  private db: DatabaseSync;
+  private dbPath: string;
+
+  constructor(options: StoreOptions) {
+    this.dbPath =
+      options.dbPath ??
+      join(
+        homedir(),
+        '.wrongstack',
+        'projects',
+        options.projectSlug,
+        'techstack',
+        'techstack.db',
+      );
+
+    // Ensure parent directory exists
+    const dir = this.dbPath.slice(0, this.dbPath.lastIndexOf('\\'));
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+
+    this.db = new DatabaseSync(this.dbPath);
+    this.db.exec('PRAGMA journal_mode = WAL;');
+    this.db.exec('PRAGMA foreign_keys = ON;');
+    applySchema(this.db);
+  }
+
+  // ── Lifecycle ───────────────────────────────────────────────────────────
+
+  /** Close the database connection. Idempotent. */
+  close(): void {
+    try {
+      this.db.close();
+    } catch {
+      // Already closed — idempotent
+    }
+  }
+
+  /** Get the database path (useful for tests). */
+  get path(): string {
+    return this.dbPath;
+  }
+
+  // ── Snapshots ───────────────────────────────────────────────────────────
+
+  /** Persist a snapshot. */
+  saveSnapshot(snapshot: Snapshot): void {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO snapshots (id, project_id, target_root, fingerprint, created_at, raw_json, adapter_version)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      snapshot.id,
+      snapshot.projectId,
+      snapshot.targetRoot,
+      snapshot.fingerprint,
+      snapshot.createdAt,
+      JSON.stringify(snapshot),
+      snapshot.adapterVersion,
+    );
+  }
+
+  /** Get a snapshot by project ID (latest). */
+  getSnapshot(projectId: string): Snapshot | undefined {
+    const stmt = this.db.prepare(`
+      SELECT raw_json FROM snapshots
+      WHERE project_id = ?
+      ORDER BY created_at DESC
+      LIMIT 1
+    `);
+    const row = stmt.get(projectId) as { raw_json: string } | undefined;
+    if (!row) return undefined;
+    try {
+      return JSON.parse(row.raw_json) as Snapshot;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Get a snapshot by ID. */
+  getSnapshotById(id: string): Snapshot | undefined {
+    const stmt = this.db.prepare(`
+      SELECT raw_json FROM snapshots WHERE id = ?
+    `);
+    const row = stmt.get(id) as { raw_json: string } | undefined;
+    if (!row) return undefined;
+    try {
+      return JSON.parse(row.raw_json) as Snapshot;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** List all snapshots for a project (newest first). */
+  listSnapshots(projectId: string, limit = 20): Snapshot[] {
+    const stmt = this.db.prepare(`
+      SELECT raw_json FROM snapshots
+      WHERE project_id = ?
+      ORDER BY created_at DESC
+      LIMIT ?
+    `);
+    const rows = stmt.all(projectId, limit) as Array<{ raw_json: string }>;
+    return rows
+      .map((r) => {
+        try {
+          return JSON.parse(r.raw_json) as Snapshot;
+        } catch {
+          return undefined;
+        }
+      })
+      .filter((s): s is Snapshot => s !== undefined);
+  }
+
+  /** Delete snapshots older than a given timestamp. */
+  deleteSnapshotsBefore(projectId: string, before: string): number {
+    const stmt = this.db.prepare(`
+      DELETE FROM snapshots WHERE project_id = ? AND created_at < ?
+    `);
+    const result = stmt.run(projectId, before);
+    return Number(result.changes);
+  }
+
+  // ── Jobs ────────────────────────────────────────────────────────────────
+
+  /** Persist a job. */
+  saveJob(job: TechStackJob): void {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO jobs
+        (id, project_id, target_root, kind, status, fingerprint, requested_by, session_id, created_at, completed_at, error, progress_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      job.id,
+      job.projectId,
+      job.targetRoot,
+      job.kind,
+      job.status,
+      job.fingerprint,
+      job.requestedBy,
+      job.sessionId ?? null,
+      job.createdAt,
+      job.completedAt ?? null,
+      job.error ?? null,
+      job.progress ? JSON.stringify(job.progress) : null,
+    );
+  }
+
+  /** Get a job by ID. */
+  getJob(id: string): TechStackJob | undefined {
+    const stmt = this.db.prepare(`
+      SELECT * FROM jobs WHERE id = ?
+    `);
+    const row = stmt.get(id) as Record<string, unknown> | undefined;
+    if (!row) return undefined;
+    return this.rowToJob(row);
+  }
+
+  /** Update job status and optional progress. */
+  updateJobStatus(id: string, status: TechStackJobStatus, progress?: TechStackJobProgress): void {
+    const progressJson = progress ? JSON.stringify(progress) : null;
+    const completedAt = status === 'completed' || status === 'failed' || status === 'cancelled'
+      ? new Date().toISOString()
+      : null;
+
+    const stmt = this.db.prepare(`
+      UPDATE jobs
+      SET status = ?, progress_json = ?, completed_at = COALESCE(?, completed_at)
+      WHERE id = ?
+    `);
+    stmt.run(status, progressJson, completedAt, id);
+  }
+
+  /** List jobs for a project (newest first). */
+  listJobs(projectId: string, limit = 50): TechStackJob[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM jobs WHERE project_id = ? ORDER BY created_at DESC LIMIT ?
+    `);
+    const rows = stmt.all(projectId, limit) as Array<Record<string, unknown>>;
+    return rows.map((r) => this.rowToJob(r));
+  }
+
+  // ── Outbox ──────────────────────────────────────────────────────────────
+
+  /** Create an outbox entry. */
+  createOutbox(deliveryId: string, reportId: string, sessionId: string): void {
+    const stmt = this.db.prepare(`
+      INSERT OR IGNORE INTO outbox (delivery_id, report_id, session_id, status, attempts)
+      VALUES (?, ?, ?, 'pending', 0)
+    `);
+    stmt.run(deliveryId, reportId, sessionId);
+  }
+
+  /** Claim an outbox entry (atomic CAS). */
+  claimOutbox(deliveryId: string, sessionId: string): boolean {
+    const stmt = this.db.prepare(`
+      UPDATE outbox
+      SET status = 'claimed', claimed_at = datetime('now'), attempts = attempts + 1
+      WHERE delivery_id = ? AND session_id = ? AND status = 'pending'
+    `);
+    const result = stmt.run(deliveryId, sessionId);
+    return result.changes > 0;
+  }
+
+  /** Mark an outbox entry as delivered. */
+  deliverOutbox(deliveryId: string): void {
+    const stmt = this.db.prepare(`
+      UPDATE outbox SET status = 'delivered', delivered_at = datetime('now')
+      WHERE delivery_id = ?
+    `);
+    stmt.run(deliveryId);
+  }
+
+  /** Mark an outbox entry as failed. */
+  failOutbox(deliveryId: string): void {
+    const stmt = this.db.prepare(`
+      UPDATE outbox SET status = 'failed' WHERE delivery_id = ?
+    `);
+    stmt.run(deliveryId);
+  }
+
+  /** List outbox entries by status. */
+  listOutboxByStatus(status: DeliveryStatus): DeliveryOutbox[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM outbox WHERE status = ?
+    `);
+    const rows = stmt.all(status) as Array<Record<string, unknown>>;
+    return rows.map((r) => this.rowToOutbox(r));
+  }
+
+  // ── Row mapping helpers ─────────────────────────────────────────────────
+
+  private rowToJob(row: Record<string, unknown>): TechStackJob {
+    let progress: TechStackJobProgress | undefined;
+    if (row.progress_json && typeof row.progress_json === 'string') {
+      try {
+        progress = JSON.parse(row.progress_json) as TechStackJobProgress;
+      } catch {
+        // ignore
+      }
+    }
+
+    return {
+      id: String(row.id),
+      projectId: String(row.project_id),
+      targetRoot: String(row.target_root),
+      kind: row.kind as TechStackJob['kind'],
+      status: row.status as TechStackJobStatus,
+      fingerprint: String(row.fingerprint ?? ''),
+      requestedBy: String(row.requested_by ?? ''),
+      sessionId: row.session_id ? String(row.session_id) : undefined,
+      createdAt: String(row.created_at),
+      completedAt: row.completed_at ? String(row.completed_at) : undefined,
+      error: row.error ? String(row.error) : undefined,
+      ...(progress ? { progress } : {}),
+    };
+  }
+
+  private rowToOutbox(row: Record<string, unknown>): DeliveryOutbox {
+    return {
+      deliveryId: String(row.delivery_id),
+      reportId: String(row.report_id),
+      sessionId: String(row.session_id),
+      status: row.status as DeliveryStatus,
+      attempts: Number(row.attempts),
+      claimedAt: row.claimed_at ? String(row.claimed_at) : undefined,
+      deliveredAt: row.delivered_at ? String(row.delivered_at) : undefined,
+    };
+  }
+}

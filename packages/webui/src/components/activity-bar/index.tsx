@@ -1,6 +1,7 @@
 import {
   Activity as ActivityIconSvg,
   Bot,
+  Boxes,
   BrainCircuit,
   Building2,
   Clock,
@@ -98,6 +99,7 @@ const VIEWS: ViewDef[] = [
   { id: 'sddboard', icon: <ActivityIconSvg size={16} />, label: 'Live Board' },
   { id: 'autophase', icon: <Rocket size={16} />, label: 'Phases' },
   { id: 'codemap', icon: <Network size={16} />, label: 'CodeMap' },
+  { id: 'techstack', icon: <Boxes size={16} />, label: 'TechStack' },
   { id: 'settings', icon: <SettingsIcon size={16} />, label: 'Settings' },
   { id: 'memory', icon: <BrainCircuit size={16} />, label: 'Memory' },
 ];

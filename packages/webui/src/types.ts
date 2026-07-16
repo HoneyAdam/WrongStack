@@ -1822,6 +1822,26 @@ export type WSServerMessage =
     }
   | { type: 'goal.updated'; payload: Record<string, unknown> | null }
   | { type: 'prefs.updated'; payload: Record<string, unknown> }
+  | { type: 'techstack.job.started'; payload: { jobId: string; kind: 'inventory' | 'analyze' } }
+  | {
+      type: 'techstack.job.progress';
+      payload: { jobId: string; phase: string; completed: number; total: number };
+    }
+  | {
+      type: 'techstack.workspace.completed';
+      payload: { jobId: string; workspaceId: string; ecosystem: string; dependencyCount: number };
+    }
+  | {
+      type: 'techstack.snapshot.updated';
+      payload: {
+        snapshot: import('@/stores/techstack-store').TechStackSnapshot;
+        stale?: boolean | undefined;
+      };
+    }
+  | { type: 'techstack.report.ready'; payload: { reportId: string; summary?: string | undefined } }
+  | { type: 'techstack.report.delivered'; payload: { deliveryId: string; sessionId: string } }
+  | { type: 'techstack.job.failed'; payload: { jobId: string; error: string } }
+  | { type: 'techstack.job.cancelled'; payload: { jobId: string } }
   | { type: 'client.status_update'; payload: Record<string, unknown> }
   | { type: 'sessions.status_update'; payload: { sessions: unknown[] } }
   | { type: 'mailbox.event'; payload: Record<string, unknown> & { event: string } }

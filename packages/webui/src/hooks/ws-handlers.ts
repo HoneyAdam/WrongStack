@@ -28,6 +28,7 @@ import { filesMailboxHandlerMap, queryMailbox } from './ws-handlers/files-mailbo
 import { fleetHandlerMap } from './ws-handlers/fleet-handlers.js';
 // Misc domain handlers extracted to misc-handlers.ts
 import { miscHandlerMap, handleMemoryEvent } from './ws-handlers/misc-handlers.js';
+import { techStackHandlerMap } from './ws-handlers/techstack-handlers.js';
 // Session domain handlers extracted to session-handlers.ts
 import {
   handleError as handleSessionDomainError,
@@ -383,6 +384,7 @@ export const WS_HANDLERS: Partial<Record<WSServerMessage['type'], (msg: WSServer
     ...filesMailboxHandlerMap,
     ...miscHandlerMap,
     ...coordinatorHandlerMap,
+    ...techStackHandlerMap,
     'session.start': (msg: WSServerMessage) => {
       handleSessionStart(msg);
       queryMailbox();

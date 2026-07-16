@@ -68,6 +68,7 @@ const VIEWS = [
   'refresh-debug',
   'analytics',
   'codemap',
+  'techstack',
 ] as const;
 type View = (typeof VIEWS)[number];
 

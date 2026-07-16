@@ -636,6 +636,8 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     onFleetPing: () => {
       void fleetBroadcastCli?.();
     },
+    onTechStackEvent: (event) => broadcast(event),
+    projectRoot: opts.projectRoot,
     publicWsUrl,
     apiToken: wsToken,
     requireToken,

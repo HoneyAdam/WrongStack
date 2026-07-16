@@ -47,6 +47,16 @@ import {
   handleCodemapPackages,
   handleCodemapSymbols,
 } from './codemap-handlers.js';
+import {
+  handleTechStackAnalyze,
+  handleTechStackCancel,
+  handleTechStackInventory,
+  handleTechStackJobStatus,
+  handleTechStackReport,
+  handleTechStackSnapshot,
+  type TechStackEvent,
+} from './techstack-handlers.js';
+import { generateProjectSlug } from './projects-manifest.js';
 import { extractTokenFromCookie, isLoopbackBind, tokenMatches } from './ws-auth.js';
 import type { FileWatcherMetrics } from './setup-events.js';
 
@@ -107,6 +117,8 @@ export interface CreateHttpServerOptions {
   projectRoot?: string | undefined;
   /** Optional codebase-index directory override (tests). */
   indexDir?: string | undefined;
+  /** Project-wide TechStack events projected onto the WebSocket transport. */
+  onTechStackEvent?: ((event: TechStackEvent) => void) | undefined;
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -306,8 +318,23 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
   // Loopback bind: no HTTP token required (mirrors WS loopback-bootstrap).
   // LAN bind: caller MUST supply a token; fail closed if it is absent.
   const requireAccessToken = Boolean(opts.requireToken) || !isLoopbackBind(opts.host);
+  let techStackRuntime:
+    | Promise<{
+        store: import('@wrongstack/techstack').TechStackStore;
+        engine: import('@wrongstack/techstack').TechStackEngine;
+        runningJobs: Map<string, AbortController>;
+      }>
+    | null = null;
+  const getTechStackRuntime = async () => {
+    if (!opts.projectRoot) throw new Error('Project root not configured');
+    techStackRuntime ??= import('@wrongstack/techstack').then(({ TechStackEngine, TechStackStore }) => {
+      const store = new TechStackStore({ projectSlug: generateProjectSlug(opts.projectRoot!) });
+      return { store, engine: new TechStackEngine(store), runningJobs: new Map() };
+    });
+    return techStackRuntime;
+  };
 
-  return http.createServer(async (req, res) => {
+  const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`);
       const providedAccessToken = requestToken(req, url);
@@ -568,6 +595,66 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
         return;
       }
 
+      // ── TechStack endpoints ───────────────────────────────────────────
+      if (url.pathname.startsWith('/api/techstack/')) {
+        if (requireAccessToken && !accessTokenOk) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Unauthorized' }));
+          return;
+        }
+        if (!opts.projectRoot) {
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Project root not configured' }));
+          return;
+        }
+        try {
+          const runtime = await getTechStackRuntime();
+          const deps = {
+            projectId: opts.projectRoot,
+            projectRoot: opts.projectRoot,
+            store: runtime.store,
+            engine: runtime.engine,
+            runningJobs: runtime.runningJobs,
+            emit: opts.onTechStackEvent,
+          };
+          if (url.pathname === '/api/techstack/snapshot' && req.method === 'GET') {
+            handleTechStackSnapshot(res, deps);
+            return;
+          }
+          if (url.pathname === '/api/techstack/inventory' && req.method === 'POST') {
+            handleTechStackInventory(res, deps);
+            return;
+          }
+          if (url.pathname === '/api/techstack/analyze' && req.method === 'POST') {
+            handleTechStackAnalyze(res, deps);
+            return;
+          }
+          const cancelMatch = /^\/api\/techstack\/jobs\/([^/]+)\/cancel$/.exec(url.pathname);
+          if (cancelMatch && req.method === 'POST') {
+            handleTechStackCancel(res, deps, decodeURIComponent(cancelMatch[1]!));
+            return;
+          }
+          const jobMatch = /^\/api\/techstack\/jobs\/([^/]+)$/.exec(url.pathname);
+          if (jobMatch && req.method === 'GET') {
+            handleTechStackJobStatus(res, deps, decodeURIComponent(jobMatch[1]!));
+            return;
+          }
+          const reportMatch = /^\/api\/techstack\/reports\/([^/]+)$/.exec(url.pathname);
+          if (reportMatch && req.method === 'GET') {
+            const fmt = url.searchParams.get('format') === 'json' ? 'json' : 'md';
+            handleTechStackReport(res, deps, decodeURIComponent(reportMatch[1]!), fmt);
+            return;
+          }
+        } catch (error) {
+          res.writeHead(503, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            error: 'TechStack store unavailable',
+            detail: error instanceof Error ? error.message : String(error),
+          }));
+          return;
+        }
+      }
+
       // Debug endpoint: /debug/watcher-metrics
       // Returns file watcher metrics as JSON. Protected by the same HTTP access
       // token when the server is bound beyond loopback.
@@ -673,4 +760,13 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
       }
     }
   });
+
+  server.once('close', () => {
+    void techStackRuntime?.then(({ store, runningJobs }) => {
+      for (const controller of runningJobs.values()) controller.abort();
+      runningJobs.clear();
+      store.close();
+    }).catch(() => undefined);
+  });
+  return server;
 }

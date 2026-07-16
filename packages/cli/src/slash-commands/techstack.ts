@@ -176,13 +176,14 @@ export function buildTechStackCommand(opts: SlashCommandContext): SlashCommand {
     category: 'Inspect',
     aliases: ['tech', 'deps'],
     description:
-      'Scan all project dependencies, verify versions against npm, and produce a techstack report.',
-    argsHint: '[--json] [--init]',
+        'Scan all project dependencies, verify versions against the npm registry, and produce a techstack report. Also triggers the TechStack inventory engine when the WebUI server is active.',
+    argsHint: '[--json] [--init] [--scan]',
     help: [
-      'Usage:',
-      '  /techstack              Scan dependencies + write techstack.md report',
-      '  /techstack --json       Write techstack.json instead of markdown',
-      '  /techstack --init       Init-mode scan (compares scaffolded vs latest)',
+        'Usage:',
+        '  /techstack              Scan dependencies + write techstack.md report',
+        '  /techstack --json       Write techstack.json instead of markdown',
+        '  /techstack --init       Init-mode scan (compares scaffolded vs latest)',
+        '  /techstack --scan       Run deterministic inventory only (no subagent)',
       '',
       'Spawns a subagent that:',
       '  1. Reads every package.json in the project',
@@ -197,6 +198,28 @@ export function buildTechStackCommand(opts: SlashCommandContext): SlashCommand {
       const trimmed = args.trim().toLowerCase();
       const outputFormat = /\b(--json|-j)\b/.test(trimmed) ? 'json' : 'md';
       const isInit = /\b(--init|-i)\b/.test(trimmed);
+      const isScanOnly = /\b(--scan|-s)\b/.test(trimmed);
+
+      // ── Compatibility shim: deterministic inventory via TechStack engine ──
+      // Runs the engine's inventory directly — no subagent, no network.
+      // The WebUI TechStackView can then read the snapshot via GET /snapshot.
+      if (isScanOnly) {
+        try {
+          const { TechStackEngine, TechStackStore } = await import('@wrongstack/techstack');
+          const projectSlug = opts.projectRoot.replace(/[^a-zA-Z0-9_-]/g, '_');
+          const store = new TechStackStore({ projectSlug });
+          const engine = new TechStackEngine(store);
+          const snapshot = await engine.inventory(opts.projectRoot, opts.projectRoot);
+          store.close();
+          return {
+            message: `TechStack inventory complete: ${snapshot.workspaces.length} workspaces, ${snapshot.dependencies.length} dependencies (fingerprint: ${snapshot.fingerprint})`,
+          };
+        } catch (err) {
+          const msg = `TechStack inventory failed: ${toErrorMessage(err)}`;
+          opts.renderer.writeWarning(msg);
+          return { message: msg };
+        }
+      }
 
       // Discover package files before spawning
       let packageFiles: string[] = [];

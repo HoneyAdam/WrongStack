@@ -344,6 +344,7 @@ export function startHttpServer(opts: {
   openBrowser: boolean;
   watcherMetrics: FileWatcherMetrics;
   onFleetPing: () => void;
+  onTechStackEvent?: ((event: import('./techstack-handlers.js').TechStackEvent) => void) | undefined;
   distDir?: string | undefined;
 }): import('node:http').Server {
   const httpServer = createHttpServer({
@@ -356,6 +357,7 @@ export function startHttpServer(opts: {
     requireToken: opts.requireToken,
     watcherMetrics: opts.watcherMetrics,
     onFleetPing: opts.onFleetPing,
+    onTechStackEvent: opts.onTechStackEvent,
     projectRoot: opts.projectRoot,
   });
   const registryBaseDir = path.dirname(opts.globalConfigPath);

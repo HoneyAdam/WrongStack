@@ -106,6 +106,9 @@ const SkillDetailView = lazy(() =>
 const SpecsView = lazy(() =>
   import('./components/SpecsView').then((m) => ({ default: m.SpecsView })),
 );
+const TechStackView = lazy(() =>
+  import('./components/TechStackView').then((m) => ({ default: m.TechStackView })),
+);
 const TerminalPanel = lazy(() =>
   import('./components/TerminalPanel').then((m) => ({ default: m.TerminalPanel })),
 );
@@ -680,6 +683,17 @@ function AppInner() {
             <Suspense fallback={<PanelSuspense label="Loading CodeMap…" />}>
               <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
                 <CodeMap />
+              </div>
+            </Suspense>
+          </ErrorBoundary>
+        )}
+
+        {/* ── TechStack — dependency inventory (workspaces, deps, coverage) ── */}
+        {currentView === 'techstack' && (
+          <ErrorBoundary level="panel" name="TechStack">
+            <Suspense fallback={<PanelSuspense label="Loading TechStack…" />}>
+              <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+                <TechStackView />
               </div>
             </Suspense>
           </ErrorBoundary>

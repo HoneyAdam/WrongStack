@@ -40,6 +40,10 @@ export interface StaticServeOptions {
   distDir?: string | undefined;
   /** Push-on-write hook for `POST /api/fleet/ping` (immediate fleet re-broadcast). */
   onFleetPing?: (() => void) | undefined;
+  /** TechStack HTTP job events projected to the embedded WebSocket server. */
+  onTechStackEvent?: ((event: import('@wrongstack/webui-server').WSServerMessage) => void) | undefined;
+  /** Active target project root for TechStack and CodeMap APIs. */
+  projectRoot?: string | undefined;
   /** Public browser-facing WS URL injected into the React app. */
   publicWsUrl?: string | undefined;
   /**
@@ -101,6 +105,8 @@ export function startStaticServe(
     wsPort: opts.wsPort,
     globalRoot: opts.globalRoot,
     onFleetPing: opts.onFleetPing,
+    onTechStackEvent: opts.onTechStackEvent,
+    projectRoot: opts.projectRoot,
     publicWsUrl: opts.publicWsUrl,
     apiToken: opts.apiToken,
     requireToken: opts.requireToken,

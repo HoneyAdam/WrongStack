@@ -10,7 +10,7 @@ export type PanelMainView =
   | 'sessions'
   | 'design-gallery';
 
-export type MainView = 'autophase' | 'specs' | 'kanban' | 'sddboard' | 'sddwizard' | 'settings' | 'memory' | 'codemap';
+export type MainView = 'autophase' | 'specs' | 'kanban' | 'sddboard' | 'sddwizard' | 'settings' | 'memory' | 'codemap' | 'techstack';
 
 export type AppView = PanelMainView | MainView | 'setup' | 'debug' | 'refresh-debug' | 'analytics';
 

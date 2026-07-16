@@ -1,0 +1,340 @@
+/**
+ * TechStack — Python ecosystem adapter.
+ *
+ * Parses pyproject.toml (PEP 621), requirements.txt, and Pipfile to produce
+ * DependencyObservation[] for Python workspaces.
+ *
+ * Supports: pip, pipenv, poetry, uv — determined by manifest/lockfile presence.
+ */
+
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import type {
+  DependencyObservation,
+  DependencyScope,
+  Evidence,
+  EcosystemId,
+  Workspace,
+} from '../types.js';
+import type {
+  EcosystemAdapter,
+  InventoryOptions,
+} from './interface.js';
+import { buildPurl } from '../registry/purl.js';
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+function manifestEvidence(path: string): Evidence {
+  return { kind: 'manifest', source: path, retrievedAt: new Date().toISOString() };
+}
+
+function lockfileEvidence(path: string): Evidence {
+  return { kind: 'lockfile', source: path, retrievedAt: new Date().toISOString() };
+}
+
+// ── Minimal TOML parser (line-based, sufficient for pyproject.toml) ───────
+
+interface TomlSection {
+  readonly name: string;
+  readonly lines: string[];
+}
+
+function parseTomlSections(content: string): TomlSection[] {
+  const sections: TomlSection[] = [];
+  let currentSection = '__header__';
+  let currentLines: string[] = [];
+  for (const raw of content.split('\n')) {
+    const line = raw.trim();
+    if (line.startsWith('#') || line === '') continue;
+    const sectionMatch = line.match(/^\[([^\]]+)\]$/);
+    if (sectionMatch) {
+      if (currentLines.length > 0) sections.push({ name: currentSection, lines: currentLines });
+      currentSection = sectionMatch[1]!;
+      currentLines = [];
+    } else {
+      currentLines.push(raw);
+    }
+  }
+  if (currentLines.length > 0) sections.push({ name: currentSection, lines: currentLines });
+  return sections;
+}
+
+function extractTomlArray(sectionLines: string[], key: string): string[] {
+  const result: string[] = [];
+  let inArray = false;
+  for (const line of sectionLines) {
+    const trimmed = line.trim();
+    if (!inArray) {
+      const match = trimmed.match(new RegExp(`^${key}\\s*=\\s*\\[`));
+      if (match) {
+        inArray = true;
+        const rest = trimmed.slice(match[0].length);
+        if (rest.includes(']')) {
+          const items = rest.replace(/\]\s*,?\s*$/, '').trim();
+          for (const item of items.split(',')) {
+            const cleaned = item.trim().replace(/^"|"$/g, '').trim();
+            if (cleaned) result.push(cleaned);
+          }
+          inArray = false;
+        }
+      }
+    } else {
+      const closeIdx = trimmed.indexOf(']');
+      if (closeIdx >= 0) {
+        const items = trimmed.slice(0, closeIdx).trim();
+        for (const item of items.split(',')) {
+          const cleaned = item.trim().replace(/^"|"$/g, '').trim();
+          if (cleaned) result.push(cleaned);
+        }
+        inArray = false;
+      } else {
+        const cleaned = trimmed.replace(/,$/, '').trim().replace(/^"|"$/g, '').trim();
+        if (cleaned) result.push(cleaned);
+      }
+    }
+  }
+  return result;
+}
+
+function parsePep508(spec: string): { name: string; constraint: string | undefined } {
+  let s = spec.trim();
+  s = s.replace(/\[.*?\]/g, '');
+  const match = s.match(/^([a-zA-Z0-9][a-zA-Z0-9._-]*)\s*(.*)$/);
+  if (!match) return { name: s, constraint: undefined };
+  return { name: match[1]!, constraint: match[2]?.trim() || undefined };
+}
+
+// ── pyproject.toml parser (PEP 621) ───────────────────────────────────────
+
+function parsePyprojectDeps(content: string): Array<{ name: string; constraint: string | undefined; scope: DependencyScope }> {
+  const deps: Array<{ name: string; constraint: string | undefined; scope: DependencyScope }> = [];
+  const sections = parseTomlSections(content);
+
+  const projectSection = sections.find((s) => s.name === 'project');
+  if (projectSection) {
+    const depSpecs = extractTomlArray(projectSection.lines, 'dependencies');
+    for (const spec of depSpecs) {
+      const { name, constraint } = parsePep508(spec);
+      if (name) deps.push({ name, constraint, scope: 'runtime' });
+    }
+  }
+
+  for (const section of sections) {
+    if (section.name === 'project.optional-dependencies') {
+      // Each line is: group_name = ["dep1", "dep2", ...]
+      for (const line of section.lines) {
+        const trimmed = line.trim();
+        const groupMatch = trimmed.match(/^([a-zA-Z0-9_-]+)\s*=\s*\[/);
+        if (groupMatch) {
+          const depSpecs = extractTomlArray(section.lines, groupMatch[1]!);
+          for (const spec of depSpecs) {
+            const { name, constraint } = parsePep508(spec);
+            if (name) deps.push({ name, constraint, scope: 'optional' });
+          }
+        }
+      }
+    }
+  }
+
+  return deps;
+}
+
+// ── requirements.txt parser ────────────────────────────────────────────────
+
+function parseRequirementsTxt(content: string): Array<{ name: string; constraint: string | undefined }> {
+  const deps: Array<{ name: string; constraint: string | undefined }> = [];
+  for (const raw of content.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#') || line.startsWith('-')) continue;
+    const { name, constraint } = parsePep508(line);
+    if (name) deps.push({ name, constraint });
+  }
+  return deps;
+}
+
+// ── Pipfile parser ────────────────────────────────────────────────────────
+
+function parsePipfileDeps(content: string): Array<{ name: string; constraint: string | undefined; scope: DependencyScope }> {
+  const deps: Array<{ name: string; constraint: string | undefined; scope: DependencyScope }> = [];
+  const sections = parseTomlSections(content);
+  for (const section of sections) {
+    const scope: DependencyScope = section.name === 'dev-packages' ? 'development' : 'runtime';
+    for (const line of section.lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('#')) continue;
+      const match = trimmed.match(/^([a-zA-Z0-9][a-zA-Z0-9._-]*)\s*=\s*"([^"]*)"$/);
+      if (match) {
+        const constraint = match[2]! === '*' ? undefined : match[2]!;
+        deps.push({ name: match[1]!, constraint, scope });
+      }
+    }
+  }
+  return deps;
+}
+
+function parseRequirementsLockVersions(content: string): Map<string, string> {
+  const versions = new Map<string, string>();
+  for (const raw of content.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#') || line.startsWith('-')) continue;
+    const match = line.match(/^([a-zA-Z0-9][a-zA-Z0-9._-]*)\s*==\s*([^\s;]+)/);
+    if (match) versions.set(match[1]!, match[2]!);
+  }
+  return versions;
+}
+
+/**
+ * Parse poetry.lock to extract resolved versions.
+ * Format:
+ * [[package]]
+ * name = "flask"
+ * version = "3.0.3"
+ */
+export function parsePoetryLock(content: string): Map<string, string> {
+  const versions = new Map<string, string>();
+  let currentName: string | undefined;
+  for (const raw of content.split('\n')) {
+    const line = raw.trim();
+    const nameMatch = line.match(/^name\s*=\s*"([^"]+)"/);
+    if (nameMatch) {
+      currentName = nameMatch[1]!;
+      continue;
+    }
+    const versionMatch = line.match(/^version\s*=\s*"([^"]+)"/);
+    if (versionMatch && currentName) {
+      versions.set(normalizePkgName(currentName), versionMatch[1]!);
+      currentName = undefined;
+    }
+  }
+  return versions;
+}
+
+/**
+ * Normalize Python package names per PEP 503:
+ * underscores and hyphens are equivalent, all lowercase.
+ */
+function normalizePkgName(name: string): string {
+  return name.toLowerCase().replace(/_/g, '-');
+}
+
+// ── Adapter ────────────────────────────────────────────────────────────────
+
+export class PythonAdapter implements EcosystemAdapter {
+  readonly ecosystem: EcosystemId = 'python';
+
+  async inventory(workspace: Workspace, _options: InventoryOptions): Promise<readonly DependencyObservation[]> {
+    const observations: DependencyObservation[] = [];
+    const root = workspace.relativeRoot || '.';
+    const seen = new Set<string>();
+
+    const hasPyproject = workspace.manifests.some((m) => m.includes('pyproject.toml')) || this.fileExists(join(root, 'pyproject.toml'));
+    const hasRequirements = workspace.manifests.some((m) => m.includes('requirements.txt')) || this.fileExists(join(root, 'requirements.txt'));
+    const hasPipfile = workspace.manifests.some((m) => m.includes('Pipfile')) || this.fileExists(join(root, 'Pipfile'));
+
+    const lockfilePath = this.detectLockfile(root);
+
+    let allDeps: Array<{ name: string; constraint: string | undefined; scope: DependencyScope; source: string }> = [];
+    let pyprojectEv: Evidence | undefined;
+
+    if (hasPyproject) {
+      try {
+        const content = readFileSync(join(root, 'pyproject.toml'), 'utf-8');
+        pyprojectEv = manifestEvidence(join(root, 'pyproject.toml'));
+        const parsed = parsePyprojectDeps(content);
+        for (const d of parsed) allDeps.push({ ...d, source: 'pyproject.toml' });
+      } catch { /* ignore */ }
+    }
+
+    let reqLockVersions = new Map<string, string>();
+    let requirementsEv: Evidence | undefined;
+
+    if (hasRequirements) {
+      try {
+        const content = readFileSync(join(root, 'requirements.txt'), 'utf-8');
+        requirementsEv = manifestEvidence(join(root, 'requirements.txt'));
+        const parsed = parseRequirementsTxt(content);
+        for (const d of parsed) {
+          if (!allDeps.some((existing) => existing.name === d.name)) {
+            allDeps.push({ ...d, scope: 'runtime', source: 'requirements.txt' });
+          }
+        }
+        reqLockVersions = parseRequirementsLockVersions(content);
+      } catch { /* ignore */ }
+    }
+
+    if (hasPipfile) {
+      try {
+        const content = readFileSync(join(root, 'Pipfile'), 'utf-8');
+        if (!pyprojectEv) pyprojectEv = manifestEvidence(join(root, 'Pipfile'));
+        const parsed = parsePipfileDeps(content);
+        for (const d of parsed) {
+          if (!allDeps.some((existing) => existing.name === d.name)) {
+            allDeps.push({ ...d, source: 'Pipfile' });
+          }
+        }
+      } catch { /* ignore */ }
+    }
+
+    let lockEv: Evidence | undefined;
+    if (lockfilePath) {
+      try {
+        readFileSync(lockfilePath, 'utf-8');
+        lockEv = lockfileEvidence(lockfilePath);
+      } catch { /* ignore */ }
+    }
+
+    const manifestEv = pyprojectEv || requirementsEv;
+
+    for (const dep of allDeps) {
+      if (seen.has(dep.name)) continue;
+      seen.add(dep.name);
+
+      const locked = reqLockVersions.get(dep.name) || undefined;
+      const isRegistry = !dep.constraint || (!dep.constraint.startsWith('file:') && !dep.constraint.startsWith('git+') && !dep.constraint.startsWith('-e'));
+
+      const purl = isRegistry && locked ? buildPurl({ type: 'python', name: dep.name, version: locked })
+        : isRegistry ? buildPurl({ type: 'python', name: dep.name }) : undefined;
+
+      const evidence: Evidence[] = [];
+      if (manifestEv) evidence.push(manifestEv);
+      if (lockEv && locked) evidence.push(lockEv);
+      if (evidence.length === 0) {
+        evidence.push({ kind: 'manifest', source: dep.source, retrievedAt: new Date().toISOString() });
+      }
+
+      const status: DependencyObservation['status'] =
+        dep.constraint && (dep.constraint.startsWith('file:') || dep.constraint.startsWith('-e')) ? 'local_path'
+        : dep.constraint?.startsWith('git+') ? 'git_dependency' : 'current';
+
+      observations.push({
+        id: `dep-${workspace.id}-${dep.name}`,
+        workspaceId: workspace.id,
+        ...(purl ? { purl } : {}),
+        ecosystem: 'python',
+        name: dep.name,
+        sourceType: isRegistry ? 'registry' : status === 'local_path' ? 'path' : 'git',
+        direct: true,
+        scope: dep.scope,
+        ...(dep.constraint ? { requested: dep.constraint } : {}),
+        ...(locked ? { locked } : {}),
+        status,
+        evidence,
+      });
+    }
+
+    return observations;
+  }
+
+  private fileExists(filePath: string): boolean {
+    try { readFileSync(filePath, 'utf-8'); return true; } catch { return false; }
+  }
+
+  private detectLockfile(workspaceRoot: string): string | undefined {
+    for (const file of ['Pipfile.lock', 'poetry.lock', 'uv.lock']) {
+      try { readFileSync(join(workspaceRoot, file), 'utf-8'); return join(workspaceRoot, file); } catch { /* not found */ }
+    }
+    return undefined;
+  }
+}
+
+export const pythonAdapter = new PythonAdapter();

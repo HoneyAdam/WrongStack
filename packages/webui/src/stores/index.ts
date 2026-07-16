@@ -57,6 +57,18 @@ export {
 export { useSessionStore } from './session-store.js';
 export { type SideEffectEntry, useSideEffectStore } from './side-effect-store.js';
 export {
+  type TechStackCoverage,
+  type TechStackDependency,
+  type TechStackEvidence,
+  type TechStackJobKind,
+  type TechStackJobStatus,
+  type TechStackJobView,
+  type TechStackProgress,
+  type TechStackSnapshot,
+  type TechStackWorkspace,
+  useTechStackStore,
+} from './techstack-store.js';
+export {
   type BoardTaskItem,
   type BoardTaskStatus,
   type SpecColumn,

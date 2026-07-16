@@ -608,6 +608,7 @@ export async function startWebUI(
     globalRoot: wpaths.globalRoot, globalConfigPath, projectRoot,
     openBrowser: !!opts.open, watcherMetrics: watcherMetricsRef,
     onFleetPing: () => { void eventArming.getFleetBroadcast()?.(); },
+    onTechStackEvent: (event) => broadcast(clients, event),
     distDir: opts.distDir,
   });
 
