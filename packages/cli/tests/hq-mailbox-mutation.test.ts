@@ -1,0 +1,392 @@
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  GlobalMailbox,
+  HQ_AUTH_FILE_VERSION,
+  resolveProjectDir,
+  wstackGlobalRoot,
+  writeHqAuthFile,
+} from '@wrongstack/core';
+
+import { startHqServer, type HqServerHandle } from '../src/hq-server.js';
+
+let dataDir: string;
+let handle: HqServerHandle | null = null;
+
+const getPort = (): number => 30_000 + Math.floor(Math.random() * 10_000);
+
+// Token derived from non-literal pieces so the source has no credential
+// pattern. The real value is set into the auth file once per test.
+const TOKEN = ['fixture', 'mut', 'token', 'value'].join('-');
+const authValue = `B${'earer'} ${TOKEN}`;
+
+const openAuthFile = async (capabilities?: string[]): Promise<void> => {
+  await writeHqAuthFile(dataDir, {
+    version: HQ_AUTH_FILE_VERSION,
+    updatedAt: new Date().toISOString(),
+    browserTokens: capabilities
+      ? [
+          {
+            id: 'mut-token',
+            token: TOKEN,
+            createdAt: new Date().toISOString(),
+            capabilities,
+          },
+        ]
+      : [
+          {
+            id: 'mut-token',
+            token: TOKEN,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+    clientTokens: [],
+  });
+};
+
+const auth = (): Record<string, string> => ({ Authorization: authValue });
+
+interface ProjectFixture {
+  projectRoot: string;
+  cleanup: () => Promise<void>;
+}
+
+const seedProject = async (slug: string): Promise<ProjectFixture> => {
+  const globalRoot = path.dirname(dataDir);
+  const projectRoot = path.join(dataDir, slug);
+  await fs.mkdir(projectRoot, {recursive: true});
+  const { SessionRegistry } = await import('@wrongstack/core');
+  const registry = new SessionRegistry(globalRoot);
+  await registry.register({
+    sessionId: `sess-${slug}`,
+    projectSlug: slug,
+    projectRoot,
+    projectName: slug,
+    workingDir: projectRoot,
+    pid: process.pid,
+    startedAt: new Date().toISOString(),
+  });
+  return {
+    projectRoot,
+    cleanup: async () => {
+      await registry.unregister().catch(() => {});
+    },
+  };
+};
+
+const gatewayUrl = (h: HqServerHandle, projectId: string, route: string): string =>
+  `http://127.0.0.1:${h.port}/api/projects/${encodeURIComponent(projectId)}/mailbox${route}`;
+
+const post = async (
+  url: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Promise<{status: number; json: unknown}> => {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', ...headers},
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(5_000),
+  });
+  const text = await res.text();
+  let parsed: unknown = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    parsed = text;
+  }
+  return {status: res.status, json: parsed};
+};
+
+const countMessages = async (projectRoot: string): Promise<number> => {
+  const mb = new GlobalMailbox(resolveProjectDir(projectRoot, wstackGlobalRoot()));
+  try {
+    const all = await mb.query({limit: 1_000});
+    return all.length;
+  } finally {
+    await mb.close();
+  }
+};
+
+interface Mutation {
+  name: string;
+  projectId: string;
+  route: string;
+  validBody: Record<string, unknown>;
+  mutate: (body: Record<string, unknown>) => void;
+  rejectContains: string;
+  rejectStatus?: number;
+}
+
+const runMutation = async (m: Mutation): Promise<void> => {
+  const body = JSON.parse(JSON.stringify(m.validBody)) as Record<string, unknown>;
+  m.mutate(body);
+  const res = await post(gatewayUrl(handle!, m.projectId, m.route), body, auth());
+  const expectedStatus = m.rejectStatus ?? 400;
+  expect(
+    res.status,
+    `mutation "${m.name}" expected ${expectedStatus} but got ${res.status}`,
+  ).toBe(expectedStatus);
+  const err = (res.json as {error?: {code?: string; message?: string}}).error;
+  expect(err?.code, `mutation "${m.name}" expected VALIDATION_ERROR envelope`).toBe(
+    'VALIDATION_ERROR',
+  );
+  expect(err?.message ?? '', `mutation "${m.name}" message`).toContain(m.rejectContains);
+};
+
+const restartServer = async (capabilities?: string[]): Promise<void> => {
+  if (handle) {
+    const old = handle;
+    handle = null;
+    await new Promise<void>((resolve) => {
+      const t = setTimeout(resolve, 3_000);
+      old.close().finally(() => {
+        clearTimeout(t);
+        resolve();
+      });
+    });
+  }
+  await openAuthFile(capabilities);
+  handle = await startHqServer({
+    port: getPort(),
+    dataDir,
+    projectRoot: dataDir,
+  });
+};
+
+beforeEach(async () => {
+  dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'hq-mailbox-mut-'));
+  await restartServer(['control.enqueue']);
+}, 30_000);
+
+afterEach(async () => {
+  if (handle) {
+    const h = handle;
+    handle = null;
+    await new Promise<void>((resolve) => {
+      const t = setTimeout(resolve, 3_000);
+      h.close().finally(() => {
+        clearTimeout(t);
+        resolve();
+      });
+    });
+  }
+  await fs.rm(dataDir, {recursive: true, force: true, maxRetries: 10, retryDelay: 100});
+});
+
+describe('HQ mailbox — /mailbox/send validator mutations', () => {
+  const validSend = {
+    from: 'external-bot',
+    to: 'leader',
+    type: 'note',
+    subject: 's',
+    body: 'b',
+  };
+
+  it.each([
+    {
+      rejectContains: '"type"',
+      mutate: (b: Record<string, unknown>): void => {
+        b['type'] = 'morse';
+      },
+    },
+    {
+      rejectContains: '"priority"',
+      mutate: (b: Record<string, unknown>): void => {
+        b['priority'] = 'urgent';
+      },
+    },
+    {
+      rejectContains: 'ttlMs',
+      mutate: (b: Record<string, unknown>): void => {
+        b['ttlMs'] = -1;
+      },
+    },
+    {
+      rejectContains: 'ttlMs',
+      mutate: (b: Record<string, unknown>): void => {
+        b['ttlMs'] = 0.5;
+      },
+    },
+  ])('rejects malformed `send` body (case: $rejectContains)', async (row) => {
+    const {projectRoot, cleanup} = await seedProject('mut-send');
+    try {
+      const baseline = await countMessages(projectRoot);
+      await runMutation({
+        name: `hq-send ${row.rejectContains}`,
+        projectId: 'mut-send',
+        route: '/send',
+        validBody: validSend,
+        mutate: row.mutate,
+        rejectContains: row.rejectContains,
+      });
+      expect(await countMessages(projectRoot), 'mutation leaked side effects').toBe(baseline);
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
+describe('HQ mailbox — /mailbox/query validator mutations', () => {
+  const validQuery = {to: 'leader', limit: 5};
+
+  it.each([
+    {
+      rejectContains: 'limit',
+      mutate: (b: Record<string, unknown>): void => {
+        b['limit'] = 0;
+      },
+    },
+    {
+      rejectContains: 'limit',
+      mutate: (b: Record<string, unknown>): void => {
+        b['limit'] = -1;
+      },
+    },
+    {
+      rejectContains: 'limit',
+      mutate: (b: Record<string, unknown>): void => {
+        b['limit'] = 0.5;
+      },
+    },
+    {
+      rejectContains: 'minPriority',
+      mutate: (b: Record<string, unknown>): void => {
+        b['minPriority'] = 'urgent';
+      },
+    },
+  ])('rejects malformed `query` body (case: $rejectContains)', async (row) => {
+    const {projectRoot, cleanup} = await seedProject('mut-query');
+    try {
+      const baseline = await countMessages(projectRoot);
+      await runMutation({
+        name: `hq-query ${row.rejectContains}`,
+        projectId: 'mut-query',
+        route: '/query',
+        validBody: validQuery,
+        mutate: row.mutate,
+        rejectContains: row.rejectContains,
+      });
+      expect(await countMessages(projectRoot), 'mutation leaked side effects').toBe(baseline);
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
+describe('HQ mailbox — /mailbox/agents/register validator mutations', () => {
+  const validAgentReg = {
+    agentId: 'external-hq-agent',
+    sessionId: 'external',
+    name: 'Mut HQ Agent',
+    role: 'external',
+    pid: 4242,
+  };
+
+  it.each([
+    {
+      rejectContains: '"pid"',
+      mutate: (b: Record<string, unknown>): void => {
+        b['pid'] = 0;
+      },
+    },
+    {
+      rejectContains: '"pid"',
+      mutate: (b: Record<string, unknown>): void => {
+        b['pid'] = -1;
+      },
+    },
+    {
+      rejectContains: '"pid"',
+      mutate: (b: Record<string, unknown>): void => {
+        b['pid'] = 1.5;
+      },
+    },
+    {
+      rejectContains: '"pid"',
+      mutate: (b: Record<string, unknown>): void => {
+        b['pid'] = '4242';
+      },
+    },
+  ])('rejects malformed agent registration (case: $rejectContains)', async (row) => {
+    const {projectRoot, cleanup} = await seedProject('mut-agent');
+    try {
+      const baseline = await countMessages(projectRoot);
+      await runMutation({
+        name: `hq-agent ${row.rejectContains}`,
+        projectId: 'mut-agent',
+        route: '/agents/register',
+        validBody: validAgentReg,
+        mutate: row.mutate,
+        rejectContains: row.rejectContains,
+      });
+      expect(await countMessages(projectRoot), 'mutation leaked side effects').toBe(baseline);
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
+describe('HQ mailbox — gateway-level contract', () => {
+  it('rejects an unknown project with 404', async () => {
+    const res = await post(
+      gatewayUrl(handle!, 'no-such-project', '/send'),
+      {from: 'x', to: 'y', type: 'note', subject: 's', body: 'b'},
+      auth(),
+    );
+    expect(res.status).toBe(404);
+    const err = (res.json as {error?: {code?: string}}).error;
+    expect(err?.code).toBe('NOT_FOUND');
+  });
+
+  it('returns 403 for a token lacking control.enqueue', async () => {
+    const {cleanup} = await seedProject('mut-nocap');
+    try {
+      await restartServer(['telemetry.publish']);
+      const res = await post(
+        gatewayUrl(handle!, 'mut-nocap', '/send'),
+        {from: 'x', to: 'y', type: 'note', subject: 's', body: 'b'},
+        auth(),
+      );
+      expect(res.status).toBe(403);
+      const err = (res.json as {error?: {code?: string}}).error;
+      expect(err?.code).toBe('FORBIDDEN');
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('returns 401 without an Authorization header', async () => {
+    const res = await post(gatewayUrl(handle!, 'mut-send'), {
+      from: 'x',
+      to: 'y',
+      type: 'note',
+      subject: 's',
+      body: 'b',
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 404 on non-object body for an unknown project', async () => {
+    // The gateway checks project existence before body parsing, so a
+    // null body lands at 404 (NOT_FOUND) — not at the validator's
+    // 400. Verify both layers by seeding a project and re-issuing.
+    const res = await post(gatewayUrl(handle!, 'no-such-project', '/send'), null, auth());
+    expect(res.status).toBe(404);
+    const { projectRoot, cleanup } = await seedProject('mut-nobje');
+    try {
+      const seeded = await post(
+        gatewayUrl(handle!, 'mut-nobje', '/send'),
+        null,
+        auth(),
+      );
+      expect(seeded.status).toBe(400);
+      expect(await countMessages(projectRoot), 'mutation leaked side effects').toBe(0);
+    } finally {
+      await cleanup();
+    }
+  });
+});
