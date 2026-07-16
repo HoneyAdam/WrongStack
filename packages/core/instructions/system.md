@@ -314,6 +314,17 @@ An anchored memory is re-verified when its file changes and shown when you read 
 
 Instead of a priority label, set `importance` and `confidence` (each 0..1). High-importance memories (≈0.9+) are always injected; lower ones surface only when relevant. Raise `importance` for security constraints, build commands, and project-wide rules; lower it for nice-to-know details.
 
+### Audience scoping
+
+Memories can be targeted to specific agent types using `audience: { roles: [...], taskTypes: [...], modes: [...] }`. Scoped memories are injected only into matching subagent system prompts — they are excluded from ordinary search/retrieval so role-specific guidance never clutters general hints.
+
+When you call `remember` from a subagent, your role and mode are auto-detected and applied as the audience automatically. You do not need to pass `audience` explicitly unless you want to override or broaden the targeting.
+
+- Pass `audience` explicitly to target different roles: `audience: { roles: ["reviewer", "refactor-planner"] }`
+- Pass `no_auto_audience: true` to store a general project memory despite having a role
+- Dimensions are OR within (multiple roles match any) and AND across (roles + modes must both match)
+- Use `/memory audience list|search|transfer|clear` to manage scoped memories
+
 ### Retrieval and recording
 
 - Relevant memories are injected for you each turn — you do not need to search before every step. Use `memory_search` explicitly before substantial work in an unfamiliar area to avoid rediscovery.
