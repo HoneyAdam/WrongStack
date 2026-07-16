@@ -702,6 +702,7 @@ export async function main(argv: string[]): Promise<number> {
     effectiveMaxContextRef,
     mcpRegistry,
     sessResult,
+    modeId,
   });
 
   // HQ command dispatch + telemetry bridges (WebSocket, session/fleet/brain/

@@ -304,6 +304,12 @@ export interface MultiAgentHostOptions {
    * Override for embedders whose leader uses a custom base id.
    */
   getLeaderMailboxId?: (() => string | undefined) | undefined;
+  /**
+   * Live getter for the leader's current mode id (e.g. 'teach', 'brief').
+   * When set, spawned subagents inherit it as `memoryContext.mode` so
+   * audience-scoped memories targeting that mode are injected.
+   */
+  getLeaderMode?: (() => string | undefined) | undefined;
 }
 
 /**
@@ -1268,7 +1274,7 @@ export class MultiAgentHost {
       : undefined;
     try {
       const taskType = subCfg.memoryContext?.taskType ?? contextualTaskType;
-      const mode = subCfg.memoryContext?.mode;
+      const mode = subCfg.memoryContext?.mode ?? this.opts.getLeaderMode?.();
       const matches = await memory.retrieveForAudience({
         ...(subCfg.role !== undefined ? { role: subCfg.role } : {}),
         ...(taskType !== undefined ? { taskType } : {}),

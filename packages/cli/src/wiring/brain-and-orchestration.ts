@@ -83,6 +83,8 @@ export interface BrainOrchestrationDeps {
   effectiveMaxContextRef: { current: number };
   mcpRegistry: AnyObj;
   sessResult: AnyObj;
+  /** Leader's active mode id — propagated to spawned subagents as memoryContext.mode. */
+  modeId?: string | undefined;
 }
 
 export interface BrainOrchestrationResult {
@@ -351,6 +353,7 @@ export function setupBrainAndOrchestration(
       onShadowAgentStopped: (subagentId: string) => {
         if (shadowController.activeId === subagentId) shadowController.clear();
       },
+      ...(deps.modeId ? { getLeaderMode: () => deps.modeId } : {}),
     },
   );
 
