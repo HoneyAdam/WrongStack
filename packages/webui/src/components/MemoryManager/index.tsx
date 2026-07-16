@@ -1523,6 +1523,12 @@ export function MemoryManager() {
                     <span className="border border-border/60 bg-background/50 px-1.5 py-0.5 font-mono text-[9px] uppercase text-muted-foreground">
                       {memory.scope}
                     </span>
+                    {memory.audience && (
+                      <span className="flex items-center gap-0.5 border border-primary/30 bg-primary/10 px-1.5 py-0.5 font-mono text-[9px] text-primary">
+                        <BrainCircuit className="size-2.5" />
+                        {(memory.audience.roles ?? memory.audience.taskTypes ?? memory.audience.modes ?? []).slice(0, 1)[0] ?? 'scoped'}
+                      </span>
+                    )}
                     {memory.tags.slice(0, 2).map((tagName) => (
                       <span
                         key={tagName}
