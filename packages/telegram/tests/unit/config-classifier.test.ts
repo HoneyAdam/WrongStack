@@ -11,6 +11,53 @@ const baseConfig: TelegramPluginConfig = {
   botToken: 'test:token',
 };
 
+describe('P2.3 — atomic live-reconfigure classifier gate', () => {
+  // P2.3 contract: a reconfigure plan that contains any
+  // `restart-required` change must NOT be silently applied as live.
+  // The classifier is the gate: a runtime that diff'd the previous
+  // and next configs and sees any `restart-required` entry must
+  // keep the old healthy bot (and surface the restart hint to the
+  // operator) instead of trying to splice a partial hot-only swap.
+  it('treats any restart-required change as a full-restart gate, not a partial live swap', () => {
+    const previous: TelegramPluginConfig = {
+      botToken: 'A',
+      pollIntervalSec: 2,
+      allowedUsers: ['u1'],
+    };
+    const next: TelegramPluginConfig = {
+      botToken: 'B',
+      pollIntervalSec: 5,
+      allowedUsers: ['u1', 'u2'],
+    };
+    const diff = diffConfigKeys(previous, next);
+    // botToken → restart-required (transport identity)
+    // pollIntervalSec → hot (read on every poll tick)
+    // allowedUsers → hot (re-evaluated per inbound)
+    expect(diff).toEqual([
+      { key: 'botToken', classification: 'restart-required' },
+      { key: 'pollIntervalSec', classification: 'hot' },
+      { key: 'allowedUsers', classification: 'hot' },
+    ]);
+    // The classifier gate contract: if ANY entry is restart-required,
+    // a live reconfigure must keep the old runtime. This is the single
+    // Boolean a runtime evaluates before swapping a hot-only patch.
+    const requiresRestart = diff.some((d) => d.classification === 'restart-required');
+    expect(requiresRestart).toBe(true);
+  });
+
+  it('emits zero entries for an empty diff (no change → no swap needed)', () => {
+    const same: TelegramPluginConfig = { botToken: 'A', pollIntervalSec: 2 };
+    expect(diffConfigKeys(same, same)).toEqual([]);
+  });
+
+  it('emits no duplicate keys when both sets overlap on a value-equal entry', () => {
+    const previous: TelegramPluginConfig = { botToken: 'A', pollIntervalSec: 2 };
+    const next: TelegramPluginConfig = { botToken: 'A', pollIntervalSec: 5 };
+    const diff = diffConfigKeys(previous, next);
+    expect(diff).toEqual([{ key: 'pollIntervalSec', classification: 'hot' }]);
+  });
+});
+
 describe('classifyReload', () => {
   it.each([
     ...Array.from(HOT_RELOAD_KEYS).map((k) => [k, 'hot'] as const),
