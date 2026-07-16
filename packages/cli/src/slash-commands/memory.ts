@@ -643,6 +643,44 @@ async function runAudienceMemory(
     };
   }
 
+  // /memory audience export [--role <r>] [--task-type <t>] [--mode <m>]
+  // Dumps matching audience-scoped memories as JSON for sharing/backup.
+  if (sub === 'export' || sub === 'dump') {
+    const flags = parseAudienceFlags(rest.slice(1));
+    if (flags.errors.length > 0) {
+      return { message: `Cannot parse audience flags:\n- ${flags.errors.join('\n- ')}` };
+    }
+    const all = await store.listSuper(['active', 'stale']);
+    let scoped = all.filter((m) => m.audience);
+    if (hasAudienceSelector(flags)) {
+      const roleMatch = flags.roles?.[0]?.toLowerCase();
+      const taskMatch = flags.taskTypes?.[0]?.toLowerCase();
+      const modeMatch = flags.modes?.[0]?.toLowerCase();
+      scoped = scoped.filter((m) => {
+        if (roleMatch && !(m.audience?.roles ?? []).some((r) => r.toLowerCase() === roleMatch)) return false;
+        if (taskMatch && !(m.audience?.taskTypes ?? []).some((r) => r.toLowerCase() === taskMatch)) return false;
+        if (modeMatch && !(m.audience?.modes ?? []).some((r) => r.toLowerCase() === modeMatch)) return false;
+        return true;
+      });
+    }
+    if (scoped.length === 0) {
+      return { message: 'No audience-scoped memories to export.' };
+    }
+    const exportData = scoped.map((m) => ({
+      id: m.id,
+      text: m.text,
+      kind: m.kind,
+      status: m.status,
+      audience: m.audience,
+      tags: m.tags,
+      importance: m.importance,
+      confidence: m.confidence,
+    }));
+    return {
+      message: '```json\n' + JSON.stringify(exportData, null, 2) + '\n```',
+    };
+  }
+
   return {
     message: [
       '## /memory audience',
@@ -651,6 +689,7 @@ async function runAudienceMemory(
       '`/memory audience remember --role <r> [--task-type <t>] [--mode <m>] <text>` — add a scoped memory',
       '`/memory audience search <query>` — search scoped memories by partial text/role/mode',
       '`/memory audience transfer <from-role> <to-role>` — bulk re-scope memories from one role to another',
+      '`/memory audience export [--role <r>]` — dump scoped memories as JSON',
       '`/memory audience clear <memory-id>` — remove scope (becomes general memory)',
     ].join('\n'),
   };
