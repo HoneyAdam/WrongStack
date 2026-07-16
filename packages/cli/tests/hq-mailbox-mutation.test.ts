@@ -277,6 +277,60 @@ describe('HQ mailbox — /mailbox/query validator mutations', () => {
   });
 });
 
+describe('HQ mailbox — /mailbox/ack-many validator mutations + empty-array boundary', () => {
+  const validAckMany = {
+    acks: [{ messageId: 'placeholder', readerId: 'mut-reader', read: true }],
+  };
+
+  it('accepts an empty acks array as a documented no-op through the gateway', async () => {
+    const {projectRoot, cleanup} = await seedProject('mut-ackmany');
+    try {
+      const baseline = await countMessages(projectRoot);
+      const res = await post(
+        gatewayUrl(handle!, 'mut-ackmany', '/ack-many'),
+        { acks: [] },
+        auth(),
+      );
+      expect(res.status).toBe(200);
+      expect((res.json as { count?: number }).count).toBe(0);
+      expect(await countMessages(projectRoot), 'empty ack-many leaked side effects').toBe(baseline);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it.each([
+    {
+      rejectContains: '"acks"',
+      mutate: (b: Record<string, unknown>): void => { b['acks'] = 'not-an-array'; },
+    },
+    {
+      rejectContains: '"acks"',
+      mutate: (b: Record<string, unknown>): void => { b['acks'] = null; },
+    },
+    {
+      rejectContains: '"acks"',
+      mutate: (b: Record<string, unknown>): void => { delete b['acks']; },
+    },
+  ])('rejects malformed `ack-many` body (case: $rejectContains)', async (row) => {
+    const {projectRoot, cleanup} = await seedProject('mut-ackmany');
+    try {
+      const baseline = await countMessages(projectRoot);
+      await runMutation({
+        name: `hq-ackmany ${row.rejectContains}`,
+        projectId: 'mut-ackmany',
+        route: '/ack-many',
+        validBody: validAckMany,
+        mutate: row.mutate,
+        rejectContains: row.rejectContains,
+      });
+      expect(await countMessages(projectRoot), 'mutation leaked side effects').toBe(baseline);
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
 describe('HQ mailbox — /mailbox/agents/register validator mutations', () => {
   const validAgentReg = {
     agentId: 'external-hq-agent',
