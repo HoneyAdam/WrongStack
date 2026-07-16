@@ -192,7 +192,7 @@ export function WorktreesPanel(): React.ReactElement {
       )}
 
       {/* List */}
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto px-2 pb-3">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-3 [scrollbar-gutter:stable]">
         {rows.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-xs text-muted-foreground">
             <GitBranch className="h-8 w-8 opacity-30" />

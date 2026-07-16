@@ -26,6 +26,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { LazyMarkdown as ReactMarkdown } from './MessageBubble/LazyMarkdown.js';
 import rehypeHighlight from 'rehype-highlight';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { useScrollPosition } from '@/hooks/useScrollPosition';
 import { cn } from '@/lib/utils';
 import { i18n, useAppTranslation } from '@/i18n';
 import { showPanel } from '@/lib/view-navigation';
@@ -823,7 +824,7 @@ export function SkillDetailView({ className }: { className?: string }) {
                   </Suspense>
                 </div>
                 <div className="w-px bg-border flex-shrink-0" />
-                <div className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-background/45 p-4 prose prose-sm dark:prose-invert max-w-none">
+                <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain bg-background/45 p-4 prose prose-sm dark:prose-invert max-w-none">
                   <ReactMarkdown rehypePlugins={[rehypeHighlight]} components={markdownComponents}>
                     {editContent}
                   </ReactMarkdown>
@@ -843,7 +844,7 @@ export function SkillDetailView({ className }: { className?: string }) {
             )}
           </div>
         ) : skillContent ? (
-          <div className="h-full min-h-0 overflow-y-auto p-5 sm:p-6 prose prose-sm dark:prose-invert max-w-none">
+          <div ref={useScrollPosition('skill-detail')} className="h-full min-h-0 overflow-y-auto overscroll-contain p-5 sm:p-6 prose prose-sm dark:prose-invert max-w-none">
             <ReactMarkdown rehypePlugins={[rehypeHighlight]} components={markdownComponents}>
               {skillContent.body}
             </ReactMarkdown>
@@ -885,7 +886,7 @@ export function SkillDetailView({ className }: { className?: string }) {
               <X className="h-4 w-4" />
             </button>
           </DialogHeader>
-          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-4">
             <p className="text-sm">{uninstallConfirmSkill && t('activity:skillDetail.uninstallConfirm', { name: uninstallConfirmSkill.name })}</p>
             <p className="text-xs text-muted-foreground">
               {uninstallConfirmSkill && t('activity:skillDetail.uninstallRemovePath', {

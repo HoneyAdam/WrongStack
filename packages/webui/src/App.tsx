@@ -1,5 +1,5 @@
 import { Bot, Command, Cpu, Search, Settings, Sparkles, Zap } from 'lucide-react';
-import { lazy, Suspense, useEffect } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useWebSocketBootstrap } from '@/hooks/useWebSocket';
 import { useDesktopBridge } from '@/hooks/useDesktopBridge';
@@ -357,18 +357,31 @@ function AppInner() {
   // the same as a fresh load. We only AUTO-close — re-opening (or keeping
   // it open) on small screens stays a user decision, so we never call
   // setSidebarOpen(true) here.
+  //
+  // Also tracks whether the sidebar is currently acting as a modal overlay
+  // (below md + open) so we can set `inert` on <main> for accessibility.
+  const [mobileSidebarModal, setMobileSidebarModal] = useState(false);
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const mq = window.matchMedia('(max-width: 768px)');
     const apply = () => {
-      if (mq.matches && useUIStore.getState().sidebarOpen) {
+      const open = useUIStore.getState().sidebarOpen;
+      if (mq.matches && open) {
         setSidebarOpen(false);
       }
+      setMobileSidebarModal(mq.matches && open);
     };
     apply();
     mq.addEventListener('change', apply);
     return () => mq.removeEventListener('change', apply);
   }, [setSidebarOpen]);
+
+  // Update mobileSidebarModal when sidebarOpen changes (user opens/closes).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(max-width: 768px)');
+    setMobileSidebarModal(mq.matches && sidebarOpen);
+  }, [sidebarOpen]);
   // Install WS handlers exactly once for the whole app. Every other consumer
   // (ChatInput, ConfirmDialog, SettingsPanel) uses the cheap `useWebSocket()`
   // hook which returns action methods only — see hooks/useWebSocket.ts for
@@ -436,6 +449,7 @@ function AppInner() {
       <main
         id="main-content"
         className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden bg-background/70"
+        {...(mobileSidebarModal ? { inert: true } : {})}
       >
         {currentView !== 'setup' && (
           <WorkbenchTopbar

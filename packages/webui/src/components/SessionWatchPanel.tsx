@@ -293,7 +293,7 @@ export function SessionWatchPanel({
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        className="min-h-0 min-w-0 flex-1 overflow-y-auto space-y-1.5 pr-1"
+        className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain space-y-1.5 pr-1"
       >
         {entries.length === 0 && !error && (
           <div className="text-[11px] text-muted-foreground italic">{t('activity:sessionWatch.loading')}</div>

@@ -87,7 +87,7 @@ export function TaskBoard({
       </div>
 
       {/* Task Groups */}
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 space-y-6">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-4 space-y-6">
         {statusOrder.map((groupKey) => {
           const groupTasks = grouped[groupKey];
           if (groupTasks.length === 0) return null;

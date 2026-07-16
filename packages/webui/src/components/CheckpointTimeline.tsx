@@ -101,7 +101,7 @@ export function CheckpointTimeline({
         </div>
 
         {/* Checkpoint timeline */}
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
           {checkpoints.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
               <Clock className="h-10 w-10 opacity-15" />

@@ -335,7 +335,7 @@ export function PromptLibraryModal() {
               ))}
             </div>
           </div>
-          <div className="min-h-0 min-w-0 flex-1 overflow-auto">
+          <div className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain">
             {filtered.map((p) => (
               <button type="button"
                 key={p.slug}
@@ -372,7 +372,7 @@ export function PromptLibraryModal() {
                   {t('common:action.cancel')}
                 </button>
               </div>
-              <div className="min-h-0 min-w-0 flex-1 space-y-2 overflow-auto p-3 text-xs">
+              <div className="min-h-0 min-w-0 flex-1 space-y-2 overflow-auto overscroll-contain p-3 text-xs">
                 <input
                   value={draft.title}
                   onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
@@ -550,7 +550,7 @@ export function PromptLibraryModal() {
                   {selected.favorite ? '★' : '☆'}
                 </button>
               </div>
-              <div className="min-h-0 min-w-0 flex-1 overflow-auto p-3">
+              <div className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain p-3">
                 <pre className="whitespace-pre-wrap break-words text-xs text-foreground">
                   {content || '…'}
                 </pre>

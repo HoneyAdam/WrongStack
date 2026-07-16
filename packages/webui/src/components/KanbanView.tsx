@@ -29,6 +29,8 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useKanbanMeta } from '@/hooks/useKanbanMeta';
+import { useHorizontalScroll } from '@/hooks/useHorizontalScroll';
+import { useScrollPosition } from '@/hooks/useScrollPosition';
 import { type ModelCandidate, useProviderModels } from '@/hooks/useProviderModels';
 import { cn } from '@/lib/utils';
 import { getWSClient } from '@/lib/ws-client';
@@ -267,6 +269,8 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
   } = useKanbanStore();
   const [newBoardTitle, setNewBoardTitle] = useState('');
   const [newTaskTitle, setNewTaskTitle] = useState('');
+  const boardScrollRef = useRef<HTMLDivElement>(null);
+  useHorizontalScroll(boardScrollRef);
   const [newColumnTitle, setNewColumnTitle] = useState('');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [dragTaskId, setDragTaskId] = useState<string | null>(null);
@@ -470,7 +474,7 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
           {boards.map((board) => (
             <button
               key={board.id}
@@ -583,7 +587,7 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
           </div>
         )}
 
-        <div className="kanban-scroll-area min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
+        <div ref={boardScrollRef} className="kanban-scroll-area min-h-0 flex-1 overflow-x-auto overflow-y-hidden overscroll-contain">
           {activeBoard ? (
             <>
               {queueHealth && (
@@ -924,7 +928,7 @@ function KanbanColumnView({
         </span>
       </div>
       <ul
-        className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2"
+        className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2 [scrollbar-gutter:stable]"
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => {
           event.preventDefault();
@@ -1270,7 +1274,7 @@ function TaskInspector({
         </button>
       </div>
       {task ? (
-        <div className="min-h-0 flex-1 overflow-y-auto p-3">
+        <div ref={useScrollPosition('kanban-task-inspector')} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
           <div className="space-y-3 rounded-md border bg-background p-2.5">
             <Field label="Title" value={title} onChange={setTitle} />
             <label className="block">

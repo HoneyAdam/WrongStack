@@ -379,7 +379,7 @@ export function WorkspaceDockInspector({ sessionId }: { sessionId: string }): Re
         </button>
       </header>
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3 sm:p-4">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-3 sm:p-4">
         {section === 'goal' &&
           (goal ? (
             <GoalPanel goal={goal} />

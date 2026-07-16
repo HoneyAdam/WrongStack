@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useProviderModels } from '@/hooks/useProviderModels';
+import { useScrollPosition } from '@/hooks/useScrollPosition';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { openMainView } from '@/lib/view-navigation';
 import { priorityStyle } from '@/lib/sdd-theme';
@@ -306,7 +307,7 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-auto p-4">
+      <div ref={useScrollPosition('sdd-wizard')} className="min-h-0 flex-1 overflow-auto overscroll-contain p-4">
         {error && (
           <div className="mb-3 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive">
             {error}

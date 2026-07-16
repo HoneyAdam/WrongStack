@@ -386,7 +386,7 @@ function UtilitiesMenu({
           }
           className={cn(
             'ws-nav-button relative flex items-center justify-center rounded-md transition-colors',
-            compact ? 'h-9 w-9' : 'h-10 w-10',
+            compact ? 'h-9 w-9' : 'h-11 w-11',
             'text-muted-foreground hover:border-border/70 hover:text-foreground hover:bg-muted/60',
             'data-[state=open]:text-primary data-[state=open]:bg-primary/10 data-[state=open]:border-primary/30',
             (monitorOpen || hiddenActive) && 'text-primary',
@@ -538,8 +538,8 @@ function ActivityIcon({
       aria-label={label}
       title={label}
       className={cn(
-        'ws-nav-button relative flex items-center justify-center rounded-md transition-colors',
-        compact ? 'h-9 w-9' : 'h-10 w-10',
+        'ws-nav-button relative flex shrink-0 items-center justify-center rounded-md transition-colors',
+        compact ? 'h-9 w-9' : 'h-11 w-11',
         'text-muted-foreground hover:border-border/70 hover:text-foreground hover:bg-muted/60',
         active && 'ws-nav-button-active',
       )}

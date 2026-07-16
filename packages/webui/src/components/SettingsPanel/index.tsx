@@ -25,6 +25,7 @@ import {
 import { useCallback, useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { toast } from '@/components/Toaster';
+import { useScrollPosition } from '@/hooks/useScrollPosition';
 import { useProviderModels } from '@/hooks/useProviderModels';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { i18n, LANGUAGES, useAppTranslation } from '@/i18n';
@@ -67,6 +68,14 @@ interface CatalogModel {
 }
 
 export function SettingsPanel() {
+  const { settingsActiveTab, setSettingsActiveTab } = useUIStore(
+    useShallow((s) => ({
+      settingsActiveTab: s.settingsActiveTab,
+      setSettingsActiveTab: s.setSettingsActiveTab,
+    })),
+  );
+  const scrollAreaRef = useScrollPosition('settings');
+
   const { provider, model: activeModel, setProvider, setModel, setConfig, wsConnected, wsUrl } = useConfigStore(
     useShallow((s) => ({
       provider: s.provider,
@@ -357,44 +366,49 @@ export function SettingsPanel() {
       </header>
 
       {/* Content */}
-      <ScrollArea className="min-h-0 flex-1">
+      <ScrollArea
+        className="min-h-0 flex-1"
+        ref={scrollAreaRef as React.Ref<HTMLDivElement>}
+      >
         <div className="mx-auto max-w-6xl p-4 sm:p-6">
-          <Tabs defaultValue="provider" className="grid min-h-[calc(100dvh-9rem)] gap-3 lg:grid-cols-[13.5rem_minmax(0,1fr)] lg:gap-5">
+          <Tabs
+            value={settingsActiveTab}
+            onValueChange={setSettingsActiveTab} className="grid min-h-[calc(100dvh-9rem)] gap-3 lg:grid-cols-[13.5rem_minmax(0,1fr)] lg:gap-5">
             <div className="relative min-w-0">
               <TabsList className="flex h-auto w-full justify-start gap-1 overflow-x-scroll rounded-lg border border-border/70 bg-card/60 p-1 pb-2 shadow-sm [scrollbar-gutter:stable] lg:sticky lg:top-4 lg:flex-col lg:overflow-visible lg:rounded-xl lg:bg-card/65 lg:p-2">
-              <TabsTrigger value="provider" className="h-9 shrink-0 gap-2 rounded-md px-3 text-xs lg:w-full lg:justify-start">
+              <TabsTrigger value="provider" className="h-9 shrink-0 gap-2 rounded-md px-3 text-xs scroll-mt-2 lg:w-full lg:justify-start">
                 <Network className="h-3.5 w-3.5" />
                 {t('settings:tabs.provider')}
               </TabsTrigger>
-              <TabsTrigger value="connection" className="h-9 shrink-0 gap-2 rounded-md px-3 text-xs lg:w-full lg:justify-start">
+              <TabsTrigger value="connection" className="h-9 shrink-0 gap-2 rounded-md px-3 text-xs scroll-mt-2 lg:w-full lg:justify-start">
                 <Globe className="h-3.5 w-3.5" />
                 {t('settings:tabs.connection')}
               </TabsTrigger>
-              <TabsTrigger value="appearance" className="h-9 shrink-0 gap-2 rounded-md px-3 text-xs lg:w-full lg:justify-start">
+              <TabsTrigger value="appearance" className="h-9 shrink-0 gap-2 rounded-md px-3 text-xs scroll-mt-2 lg:w-full lg:justify-start">
                 <Palette className="h-3.5 w-3.5" />
                 {t('settings:tabs.appearance')}
               </TabsTrigger>
-              <TabsTrigger value="agent" className="h-9 shrink-0 gap-2 rounded-md px-3 text-xs lg:w-full lg:justify-start">
+              <TabsTrigger value="agent" className="h-9 shrink-0 gap-2 rounded-md px-3 text-xs scroll-mt-2 lg:w-full lg:justify-start">
                 <Bot className="h-3.5 w-3.5" />
                 {t('settings:tabs.agent')}
               </TabsTrigger>
-              <TabsTrigger value="features" className="h-9 shrink-0 gap-2 rounded-md px-3 text-xs lg:w-full lg:justify-start">
+              <TabsTrigger value="features" className="h-9 shrink-0 gap-2 rounded-md px-3 text-xs scroll-mt-2 lg:w-full lg:justify-start">
                 <Puzzle className="h-3.5 w-3.5" />
                 {t('settings:tabs.features')}
               </TabsTrigger>
-              <TabsTrigger value="tools" className="h-9 shrink-0 gap-2 rounded-md px-3 text-xs lg:w-full lg:justify-start">
+              <TabsTrigger value="tools" className="h-9 shrink-0 gap-2 rounded-md px-3 text-xs scroll-mt-2 lg:w-full lg:justify-start">
                 <Wrench className="h-3.5 w-3.5" />
                 {t('settings:tabs.tools')}
               </TabsTrigger>
-              <TabsTrigger value="mcp" className="h-9 shrink-0 gap-2 rounded-md px-3 text-xs lg:w-full lg:justify-start">
+              <TabsTrigger value="mcp" className="h-9 shrink-0 gap-2 rounded-md px-3 text-xs scroll-mt-2 lg:w-full lg:justify-start">
                 <Server className="h-3.5 w-3.5" />
                 {t('settings:tabs.mcp')}
               </TabsTrigger>
-              <TabsTrigger value="brain" className="h-9 shrink-0 gap-2 rounded-md px-3 text-xs lg:w-full lg:justify-start">
+              <TabsTrigger value="brain" className="h-9 shrink-0 gap-2 rounded-md px-3 text-xs scroll-mt-2 lg:w-full lg:justify-start">
                 <Brain className="h-3.5 w-3.5" />
                 {t('settings:tabs.brain')}
               </TabsTrigger>
-              <TabsTrigger value="shadow" className="h-9 shrink-0 gap-2 rounded-md px-3 text-xs lg:w-full lg:justify-start">
+              <TabsTrigger value="shadow" className="h-9 shrink-0 gap-2 rounded-md px-3 text-xs scroll-mt-2 lg:w-full lg:justify-start">
                 <Eye className="h-3.5 w-3.5" />
                 {t('settings:tabs.shadow')}
               </TabsTrigger>

@@ -593,9 +593,38 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* Complete motion kill for users who opted out. Resetting `animation` alone
+   * leaves transforms/filters/scroll-behavior still animated via keyframes or
+   * transitions, so we reset every motion property with !important and a
+   * universal selector to cover any future children. */
   .ws-sheet-overlay,
-  .ws-sheet-content {
-    animation-duration: 1ms !important;
+  .ws-sheet-content,
+  .tool-details,
+  .jump-bottom,
+  .streaming-cursor::after,
+  .bar-sweep::after,
+  .led-pulse,
+  [class*='animate-'],
+  [class*='slide-in'],
+  .animate-message,
+  .animate-fade,
+  .animate-slide {
+    animation: none !important;
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition: none !important;
+    transform: none !important;
+    scroll-behavior: auto !important;
+  }
+  /* Preserve final visual state for finished animations (tool-expand pop, sdd-popIn)
+   * by forcing opacity:1 — the keyframes end at 1, so users still see the result. */
+  .tool-details,
+  .sdd-card-stack,
+  .sdd-task-card,
+  .sdd-complete-card,
+  .sdd-fail-card {
+    opacity: 1 !important;
   }
 }
 

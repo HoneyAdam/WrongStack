@@ -214,7 +214,7 @@ export function BoardView(): React.ReactElement {
                     <Plus className="h-4 w-4" />
                   </button>
                 </div>
-                <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
+                <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-2">
                   {phaseTasks.length === 0 ? (
                     <p className="px-1 py-4 text-center text-[11px] text-muted-foreground">{t('activity:board.dropHere')}</p>
                   ) : (
@@ -230,7 +230,7 @@ export function BoardView(): React.ReactElement {
           })}
         </div>
       ) : (
-        <div className="min-h-0 min-w-0 flex-1 overflow-auto p-3">
+        <div className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain p-3">
           {/* Status column headers */}
           <div className="grid min-w-[900px] gap-2" style={{ gridTemplateColumns: `9rem repeat(${STATUS_COLUMNS.length}, minmax(0, 1fr))` }}>
             <div />

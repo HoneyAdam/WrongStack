@@ -269,13 +269,40 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* Reset animation/transition on every thinking-bubble element so users
+   * who opt out of motion still see the reasoning indicator — just static.
+   * Killing `animation` alone leaves `filter: drop-shadow` (animated via
+   * keyframes) and `transition` on children; clearing both, plus
+   * `scroll-behavior` and any future property, gives a complete kill. */
+  .thinking-bubble,
+  .thinking-bubble *,
+  .thinking-orb,
   .thinking-orb::before,
+  .thinking-orb::after,
   .thinking-orb__icon,
   .thinking-orb__ring,
   .thinking-orb__spark,
+  .thinking-dots,
   .thinking-dots span,
+  .thinking-panel,
   .thinking-panel::before,
-  .thinking-wave span {
-    animation: none;
+  .thinking-wave,
+  .thinking-wave span,
+  .thinking-text {
+    animation: none !important;
+    animation-iteration-count: 1 !important;
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+  /* The drop-shadow filter and box-shadow glows are not motion, but their
+   * breathing scale (driven by the keyframes) is. Pin them to the rest
+   * state so the visual reads as static without a glowing animation. */
+  .thinking-orb__icon {
+    filter: none;
+  }
+  .thinking-panel {
+    transform: none;
   }
 }

@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { useScrollPosition } from '@/hooks/useScrollPosition';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { i18n, useAppTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
@@ -362,7 +363,7 @@ function LiveSessionsDashboard() {
   }
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-[hsl(var(--surface-2)/0.45)] p-4 sm:p-6">
+    <div ref={useScrollPosition('sessions')} className="h-full min-h-0 overflow-y-auto overscroll-contain bg-[hsl(var(--surface-2)/0.45)] p-4 sm:p-6">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
         <header className="border border-border/70 bg-card/75 p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useScrollPosition } from '@/hooks/useScrollPosition';
 import { useAppTranslation, i18n } from '@/i18n';
 import { Activity, AlertCircle, BarChart3, Clock, Eye, FileWarning, Gauge, RefreshCw, Server, TrendingUp } from 'lucide-react';
 
@@ -144,7 +145,7 @@ export function DebugDashboard() {
   };
 
   return (
-    <div className="h-full min-h-0 min-w-0 flex-1 overflow-y-auto bg-[hsl(var(--surface-2)/0.45)] p-4 sm:p-6">
+    <div ref={useScrollPosition('debug')} className="h-full min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain bg-[hsl(var(--surface-2)/0.45)] p-4 sm:p-6">
       <div className="mx-auto flex max-w-7xl flex-col gap-5">
         {/* Header */}
         <div className="rounded-xl border border-border/70 bg-card/75 p-4 shadow-sm">

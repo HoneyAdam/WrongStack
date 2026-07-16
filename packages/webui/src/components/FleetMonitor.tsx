@@ -162,7 +162,7 @@ function FleetAgentDetailPanel({
       </div>
 
       {/* Scrollable content */}
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-4 space-y-4">
         {/* Stats grid */}
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-lg border bg-card p-3">
@@ -645,7 +645,7 @@ export function FleetMonitor({
           </div>
 
           {/* Agent list */}
-          <div className="min-h-0 min-w-0 flex-1 overflow-auto">
+          <div className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain">
             {fleetList.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
                 <Users className="h-12 w-12 mb-3 opacity-20" />

@@ -13,6 +13,7 @@ import { Check, Download, Palette, Search, ShieldCheck, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAppTranslation, i18n } from '@/i18n';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { useScrollPosition } from '@/hooks/useScrollPosition';
 import { colorToHex } from '@/lib/color';
 import { cn } from '@/lib/utils';
 import { showPanel } from '@/lib/view-navigation';
@@ -335,7 +336,7 @@ export function DesignGalleryView({ className }: { className?: string }) {
         </div>
       </div>
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3 sm:p-4">
+      <div ref={useScrollPosition('design-gallery')} className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-3 sm:p-4">
         {filtered.length === 0 ? (
           <div className="ws-surface mx-auto mt-8 flex max-w-md flex-col items-center gap-3 rounded-xl p-6 text-center text-muted-foreground">
             <Palette className="h-8 w-8 text-primary/60" />

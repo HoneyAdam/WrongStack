@@ -581,7 +581,7 @@ export function SessionList({
         </div>
       ) : null}
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain overflow-x-hidden [scrollbar-gutter:stable]">
         {historyEntries.length === 0 && !historyLoading ? (
           <div className="flex min-h-56 flex-col items-center justify-center px-4 py-10 text-center text-muted-foreground">
             <History className="h-9 w-9 opacity-25" />

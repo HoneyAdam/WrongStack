@@ -115,7 +115,7 @@ export function AgentsPanel() {
           {t('activity:agents.totalCount', { count: fleetList.length })}
         </span>
       </div>
-      <div className="min-h-0 min-w-0 flex-1 space-y-1.5 overflow-y-auto bg-[hsl(var(--surface-2)/0.35)] p-2">
+      <div className="min-h-0 min-w-0 flex-1 space-y-1.5 overflow-y-auto overscroll-contain bg-[hsl(var(--surface-2)/0.35)] p-2">
         {fleetList.map((a) => (
           <AgentRow key={a.id} agent={a} onClick={() => setAgentDetailModalId(a.id)} />
         ))}

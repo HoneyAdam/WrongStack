@@ -206,7 +206,7 @@ export function ConfirmDialog() {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="py-2 pr-1 space-y-3 overflow-y-auto min-h-0 flex-1">
+        <div className="py-2 pr-1 space-y-3 overflow-y-auto overscroll-contain min-h-0 flex-1">
           <div className="flex items-center gap-3 p-3 rounded-lg bg-muted">
             <Icon className="h-5 w-5 text-muted-foreground" />
             <div className="min-w-0">

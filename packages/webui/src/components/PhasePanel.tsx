@@ -2,6 +2,7 @@ import { cn } from '@/lib/utils';
 import { useAppTranslation } from '@/i18n';
 import { CheckCircle2, Circle, Clock, Pause, Play, SkipForward, XCircle } from 'lucide-react';
 import type React from 'react';
+import { useScrollPosition } from '@/hooks/useScrollPosition';
 import type { TaskItem } from './TaskBoard';
 
 export interface PhaseItem {
@@ -120,7 +121,7 @@ export function PhasePanel({
       </div>
 
       {/* Phase List */}
-      <div className="min-h-0 min-w-0 flex-1 space-y-2 overflow-y-auto p-3">
+      <div ref={useScrollPosition('phases')} className="min-h-0 min-w-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-3">
         {phases.map((phase) => {
           const status = STATUS_CONFIG[phase.status];
           const isActive = phase.id === activePhaseId;

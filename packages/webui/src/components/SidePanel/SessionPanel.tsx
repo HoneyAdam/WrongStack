@@ -238,7 +238,7 @@ export function SessionPanel() {
     getWSClient(wsUrl)?.send?.(msg);
 
   return (
-    <div className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-[hsl(var(--surface-2)/0.28)]">
+    <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain bg-[hsl(var(--surface-2)/0.28)] [scrollbar-gutter:stable]">
       {/* ── Quick actions ── */}
       <div className="grid grid-cols-2 gap-1.5 border-b border-border/70 bg-card/55 px-3 py-2.5">
         {isLoading ? (

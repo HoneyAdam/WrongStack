@@ -482,7 +482,7 @@ export function SkillsList({ className }: { className?: string }) {
       </div>
 
       {/* Skill list */}
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-2">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-2 [scrollbar-gutter:stable]">
         {loading ? (
           <div className="rounded-lg border border-border/60 bg-card/55 p-4 text-center text-xs text-muted-foreground">{t('activity:skillsList.loading')}</div>
         ) : filteredSkills.length === 0 ? (
@@ -548,7 +548,7 @@ export function SkillsList({ className }: { className?: string }) {
             </button>
           </DialogHeader>
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-3">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 space-y-3">
               <p className="text-xs text-muted-foreground">
                 {t('activity:skillsList.installHint')}
               </p>
@@ -643,7 +643,7 @@ export function SkillsList({ className }: { className?: string }) {
             </button>
           </DialogHeader>
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-3">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 space-y-3">
               <p className="text-xs text-muted-foreground">
                 {t('activity:skillsList.createHint')}
               </p>

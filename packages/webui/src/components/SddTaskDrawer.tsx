@@ -145,7 +145,7 @@ export function SddTaskDrawer({
         </span>
       </div>
 
-      <div className="min-h-0 min-w-0 flex-1 space-y-3 overflow-auto p-3">
+      <div className="min-h-0 min-w-0 flex-1 space-y-3 overflow-auto overscroll-contain p-3">
         <h3 className="text-sm font-semibold leading-snug text-foreground">{task.title}</h3>
 
         {/* worker */}

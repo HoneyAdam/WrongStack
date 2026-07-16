@@ -198,7 +198,7 @@ export function SideEffectTimeline() {
       </div>
 
       {/* Table */}
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-card/95 text-muted-foreground backdrop-blur">
             <tr>

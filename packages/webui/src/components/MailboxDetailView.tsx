@@ -201,7 +201,7 @@ export function MailboxDetailView({ className }: { className?: string }) {
       </div>
 
       {/* ── Body ── */}
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
         <div className="mx-auto w-full max-w-4xl px-4 py-5">
           <div className="markdown-content prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed">
             <ReactMarkdown components={markdownComponents}>{msg.body}</ReactMarkdown>

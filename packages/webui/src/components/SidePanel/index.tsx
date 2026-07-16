@@ -97,6 +97,9 @@ export function SidePanel({ desktopShell = false }: { desktopShell?: boolean | u
         style={{
           width: panelWidth,
         }}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('activity:sidebar.label')}
         className={cn(
           'fixed inset-y-0 z-40 flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden border-r border-border/70 bg-card/95 shadow-2xl backdrop-blur-xl animate-slide-in md:relative md:inset-auto md:z-auto md:shadow-none',
           desktopShell ? 'left-10' : 'left-12',
@@ -148,13 +151,13 @@ export function SidePanel({ desktopShell = false }: { desktopShell?: boolean | u
         {activeActivity === 'agents' && <AgentsPanel />}
         {activeActivity === 'history' && <HistoryPanel />}
         {activeActivity === 'files' && (
-          <div className="flex-1 min-h-0 min-w-0 overflow-y-auto">
+          <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain">
             <FileExplorer />
           </div>
         )}
         {activeActivity === 'changes' && <ChangesPanel />}
         {activeActivity === 'mailbox' && (
-          <div className="flex-1 min-h-0 min-w-0 overflow-y-auto p-3">
+          <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain p-3">
             <MailboxPanel />
           </div>
         )}

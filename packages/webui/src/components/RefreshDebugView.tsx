@@ -111,7 +111,7 @@ export function RefreshDebugView() {
       : false;
 
   return (
-    <div className="h-full min-h-0 min-w-0 flex-1 overflow-y-auto bg-[hsl(var(--surface-2)/0.45)] p-4 sm:p-6">
+    <div className="h-full min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain bg-[hsl(var(--surface-2)/0.45)] p-4 sm:p-6">
       <div className="mx-auto max-w-5xl space-y-5 sm:space-y-6">
         <header className="rounded-xl border border-border/70 bg-card/75 p-4 shadow-sm">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

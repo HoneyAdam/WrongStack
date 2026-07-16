@@ -20,6 +20,7 @@ import {
   Users,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useScrollPosition } from '@/hooks/useScrollPosition';
 import { getWSClient } from '@/lib/ws-client';
 import { useAppTranslation } from '@/i18n';
 import { useConfigStore } from '@/stores';
@@ -303,7 +304,7 @@ export function AnalyticsDashboard() {
   }
 
   return (
-    <div className="h-full min-h-0 min-w-0 overflow-y-auto bg-[hsl(var(--surface-2)/0.45)] p-4 sm:p-6">
+    <div ref={useScrollPosition('analytics')} className="h-full min-h-0 min-w-0 overflow-y-auto overscroll-contain bg-[hsl(var(--surface-2)/0.45)] p-4 sm:p-6">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
       {/* ── Header ── */}
       <div className="rounded-xl border border-border/70 bg-card/75 p-4 shadow-sm">

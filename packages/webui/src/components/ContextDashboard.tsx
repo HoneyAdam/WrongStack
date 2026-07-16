@@ -27,6 +27,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import { useAppTranslation } from '@/i18n';
+import { useScrollPosition } from '@/hooks/useScrollPosition';
 import { getWSClient } from '@/lib/ws-client';
 import { cn } from '@/lib/utils';
 import { useConfigStore, useFleetStore, useSessionStore, type SubagentView } from '@/stores';
@@ -566,7 +567,7 @@ export function ContextDashboard() {
   const zone = zoneFor(pct);
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto">
+    <div ref={useScrollPosition('context')} className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
       {/* Header bar */}
       <div className={cn('sticky top-0 z-10 flex items-center gap-3 px-4 py-2 border-b', zone.bg)}>
         <Button

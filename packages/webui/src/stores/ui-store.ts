@@ -158,12 +158,19 @@ interface UIState {
   terminalOpen: boolean;
   /** Monotonic signal consumed by TerminalPanel to create another PTY tab. */
   terminalCreateNonce: number;
+  /** Persisted Settings panel scroll position and active category tab so the user
+   *  returns to the exact location after navigating away and back. */
+  settingsActiveTab: string;
+  /** Generic per-view scroll positions — keyed by view name, restored on remount. */
+  scrollPositions: Record<string, number>;
   setProcessMonitorOpen: (open: boolean) => void;
   setQueuePanelOpen: (open: boolean) => void;
   setCronJobsOpen: (open: boolean) => void;
   setTerminalOpen: (open: boolean) => void;
   toggleTerminal: () => void;
   requestTerminalCreate: () => void;
+  setSettingsActiveTab: (tab: string) => void;
+  setScrollPosition: (view: string, scrollTop: number) => void;
 
   /** Agent detail modal (triggered from side-panel agent row click). */
   agentDetailModalId: string | null;
@@ -368,6 +375,8 @@ export const useUIStore = create<UIState>()(
       cronJobsOpen: false,
       terminalOpen: false,
       terminalCreateNonce: 0,
+      settingsActiveTab: 'provider',
+      scrollPositions: {},
       agentDetailModalId: null,
       sideContextBreakdownOpen: false,
       selectedMailMessage: null,
@@ -494,6 +503,9 @@ export const useUIStore = create<UIState>()(
       setTerminalOpen: (open: boolean) => set({ terminalOpen: open }),
       toggleTerminal: () => set((s) => ({ terminalOpen: !s.terminalOpen })),
       requestTerminalCreate: () => set((s) => ({ terminalCreateNonce: s.terminalCreateNonce + 1 })),
+      setSettingsActiveTab: (tab: string) => set({ settingsActiveTab: tab }),
+      setScrollPosition: (view: string, scrollTop: number) =>
+        set((s) => ({ scrollPositions: { ...s.scrollPositions, [view]: scrollTop } })),
       setAgentDetailModalId: (id: string | null) => set({ agentDetailModalId: id }),
       setSideContextBreakdownOpen: (open: boolean) => set({ sideContextBreakdownOpen: open }),
       setSkillsState: (state) => set({ skillsState: state }),
@@ -582,6 +594,8 @@ export const useUIStore = create<UIState>()(
         // view *are* the user's persistent workspace, so they survive.
         currentView: s.currentView,
         dockSection: s.dockSection,
+        settingsActiveTab: s.settingsActiveTab,
+        scrollPositions: s.scrollPositions,
       }),
     },
   ),

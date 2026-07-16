@@ -91,7 +91,7 @@ export function SddKanbanView({
                 {items.length}
               </span>
             </div>
-            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain pr-1">
               {items.map((t) => (
                 <KanbanCard
                   key={t.id}

@@ -95,7 +95,7 @@ export function SpecsView({ onClose }: { onClose: () => void }): React.ReactElem
         </Button>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4">
         {specs.length === 0 ? (
           <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
             {t('activity:specs.empty', { command: '/sdd' })}

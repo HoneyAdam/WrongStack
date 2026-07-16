@@ -24,6 +24,7 @@ import {
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useScrollPosition } from '@/hooks/useScrollPosition';
 import { getWSClient } from '@/lib/ws-client';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useUIStore } from '@/stores';
@@ -569,7 +570,7 @@ export function MemoryManager() {
         )}
 
         {/* Memory list */}
-        <div className="flex-1 overflow-y-auto">
+        <div ref={useScrollPosition('memory')} className="flex-1 overflow-y-auto overscroll-contain">
           {filteredMemories.length === 0 ? (
             <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
               {memories.length === 0 ? 'No memories yet.' : 'No memories match the filter.'}
@@ -644,7 +645,7 @@ export function MemoryManager() {
                 </Button>
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-4">
+            <div className="flex-1 overflow-y-auto overscroll-contain p-4">
               <div className="space-y-4">
                 <div>
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">Text</label>
@@ -708,7 +709,7 @@ export function MemoryManager() {
                 </Button>
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-4">
+            <div className="flex-1 overflow-y-auto overscroll-contain p-4">
               <div className="space-y-4">
                 {/* Text */}
                 <div>
@@ -803,7 +804,7 @@ export function MemoryManager() {
                 </Button>
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto p-4">
+            <div className="flex-1 overflow-y-auto overscroll-contain p-4">
               <div className="space-y-4">
                 {/* Text */}
                 <div>

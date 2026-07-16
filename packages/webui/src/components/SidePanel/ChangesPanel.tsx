@@ -127,7 +127,7 @@ export function ChangesPanel() {
         </button>
       </div>
 
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-1.5">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-1.5">
         {error ? (
           <div className="px-2 py-6 text-center text-xs text-muted-foreground">{error}</div>
         ) : files.length === 0 ? (

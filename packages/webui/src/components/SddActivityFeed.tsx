@@ -23,7 +23,7 @@ export function SddActivityFeed({
         <Activity className="h-3.5 w-3.5 text-warning" />
         {t('activity:sdd.activityHeading')}
       </div>
-      <div className="min-h-0 min-w-0 flex-1 space-y-1 overflow-auto p-2">
+      <div className="min-h-0 min-w-0 flex-1 space-y-1 overflow-auto overscroll-contain p-2">
         {feed.length === 0 ? (
           <p className="px-1 pt-4 text-center text-[11px] text-muted-foreground">
             {t('activity:sdd.feedEmpty')}

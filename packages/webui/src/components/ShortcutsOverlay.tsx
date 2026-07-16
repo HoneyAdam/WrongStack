@@ -117,7 +117,7 @@ export function ShortcutsOverlay() {
           </div>
         </div>
         <DialogDescription className="sr-only">{t('activity:shortcuts.heading')}</DialogDescription>
-        <div className="overflow-y-auto px-5 py-4 space-y-6">
+        <div className="overflow-y-auto overscroll-contain px-5 py-4 space-y-6">
           {SHORTCUTS.map((group) => (
             <div key={group.sectionKey}>
               <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">

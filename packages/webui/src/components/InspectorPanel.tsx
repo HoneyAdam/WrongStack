@@ -226,7 +226,7 @@ export function InspectorPanel() {
             />
           </TabsList>
 
-          <TabsContent value="fleet" className="mt-0 min-h-0 min-w-0 flex-1 overflow-y-auto">
+          <TabsContent value="fleet" className="mt-0 min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
             <FleetTabContent
               fleetList={fleetList}
               leaderId={leaderId}
@@ -241,7 +241,7 @@ export function InspectorPanel() {
               onSelectAgent={handleSelectAgent}
             />
           </TabsContent>
-          <TabsContent value="agents" className="mt-0 min-h-0 min-w-0 flex-1 overflow-y-auto">
+          <TabsContent value="agents" className="mt-0 min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
             <AgentsTabContent
               fleetList={fleetList}
               selectedAgent={selectedAgent}
@@ -250,7 +250,7 @@ export function InspectorPanel() {
               onSelectAgent={setSelectedAgentId}
             />
           </TabsContent>
-          <TabsContent value="sideEffects" className="mt-0 min-h-0 min-w-0 flex-1 overflow-y-auto">
+          <TabsContent value="sideEffects" className="mt-0 min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
             <SideEffectTimeline />
           </TabsContent>
         </Tabs>
@@ -278,7 +278,7 @@ function TabButton({
     <TabsTrigger
       value={value}
       className={cn(
-        'flex h-6 items-center gap-1.5 rounded-md px-2.5 py-0 text-[11px] font-medium text-muted-foreground shadow-none transition-colors',
+        'flex h-6 items-center gap-1.5 rounded-md px-2.5 py-0 text-[11px] font-medium text-muted-foreground shadow-none transition-colors scroll-mt-12',
         'hover:bg-background/60 hover:text-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm data-[state=active]:ring-1 data-[state=active]:ring-border',
       )}
     >
@@ -356,7 +356,7 @@ function FleetTabContent({
           <p className="text-[11px] mt-0.5">{t('activity:inspector.agentsAppearHint')}</p>
         </div>
       ) : (
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-1.5">
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-1.5">
           {fleetList.map((agent) => (
             <FleetAgentRow
               key={agent.id}
@@ -413,7 +413,7 @@ function AgentsTabContent({
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       {/* Detail card */}
-      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-3">
         <div className="max-w-2xl mx-auto">
           <AgentCard agent={selectedAgent} isLeader={selectedAgent.id === leaderId} />
         </div>
