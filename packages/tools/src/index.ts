@@ -40,6 +40,14 @@ export {
   runStartupIndex,
   searchCodebaseIndex,
   shutdownCodebaseIndexHost,
+  fileGraphService,
+  packageGraphService,
+  symbolGraphService,
+} from './codebase-index/index.js';
+export type {
+  CodeMapGraph,
+  GraphEdge,
+  GraphNode,
 } from './codebase-index/index.js';
 export { designTool } from './design.js';
 export { diffTool } from './diff.js';
