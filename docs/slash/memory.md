@@ -25,6 +25,7 @@
 | `/memory clear` | Delete entries in all compatibility scopes |
 | `/memory audience list [--role <r>] [--task-type <t>] [--mode <m>]` | View role-scoped memories, optionally filtered by role/task/mode |
 | `/memory audience remember --role <r> [--task-type <t>] [--mode <m>] <text>` | Store a memory targeted at specific agent types (at least one selector required) |
+| `/memory audience search <query>` | Search scoped memories by partial text/role/mode match |
 | `/memory audience clear <memory-id>` | Remove the audience scope from a memory (it becomes general project memory) |
 
 ## Audience-scoped memory
