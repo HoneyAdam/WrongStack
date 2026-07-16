@@ -732,7 +732,7 @@ export class SqliteSuperMemoryStore {
 
   // ─── Hygiene ────────────────────────────────────────────────────────
 
-  async runHygiene(_opts?: SuperMemoryHygieneOptions): Promise<SuperMemoryHygieneReport> {
+  async hygiene(_opts?: SuperMemoryHygieneOptions): Promise<SuperMemoryHygieneReport> {
     await this.initialize();
     // Basic implementation — verifies anchors and marks stale
     const active = await this.listMemories({ status: 'active', limit: 10000 });

@@ -274,7 +274,7 @@ describe('SqliteSuperMemoryStore', () => {
     });
   });
 
-  describe('runHygiene', () => {
+  describe('hygiene', () => {
     it('marks memories with stale anchors', async () => {
       const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
       await store.initialize();
@@ -288,7 +288,7 @@ describe('SqliteSuperMemoryStore', () => {
         kind: 'file_note',
         anchors: [{ type: 'file', path: 'nonexistent/file.ts' }],
       });
-      const report = await store.runHygiene();
+      const report = await store.hygiene();
       expect(report.examined).toBe(2);
       expect(report.staled).toBeGreaterThanOrEqual(1);
 
