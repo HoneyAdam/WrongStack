@@ -18,6 +18,10 @@ coverage/
 /yarn-debug.log*
 /yarn-error.log*
 
+# TUI test artifacts
+packages/tui/_vr.txt
+packages/tui/tmp_*.log
+
 # Local environment
 .env
 .env.*
