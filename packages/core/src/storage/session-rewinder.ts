@@ -83,12 +83,16 @@ export class DefaultSessionRewinder implements SessionRewinder {
       });
     }
 
+    // Collect EVERY snapshot from the target checkpoint onwards. The writer
+    // emits checkpoint(N) first and then labels that prompt's snapshots with
+    // promptIndex N (file-session-writer.ts:652-659, :194-199), so later
+    // prompts contribute further checkpoint/snapshot pairs. Stopping at the
+    // next checkpoint would revert only the target prompt's files while the
+    // caller truncates the journal all the way back, leaving the working tree
+    // and the conversation in different eras.
     const snapshotsToRevert: Array<{ promptIndex: number; files: FileSnapshot[] }> = [];
     for (let i = targetIdx + 1; i < events.length; i++) {
       const event = expectDefined(events[i]);
-      if (event.type === 'checkpoint') {
-        break;
-      }
       if (event.type === 'file_snapshot') {
         const snapshotEvent = event as { promptIndex: number; files: FileSnapshot[] };
         if (snapshotEvent.promptIndex >= checkpointIndex) {
@@ -114,12 +118,16 @@ export class DefaultSessionRewinder implements SessionRewinder {
       }
     }
 
-    if (checkpoints.length === 0) {
+    if (checkpoints.length === 0 || n <= 0) {
       return { revertedFiles: [], errors: [], toPromptIndex: 0, removedEvents: 0 };
     }
 
+    // Undoing the last N prompts means rewinding TO the Nth-newest checkpoint,
+    // because rewinding to checkpoint K reverts prompt K and everything after
+    // it. So n=1 targets the newest checkpoint — index n-1, not n. Falling back
+    // to 0 when n exceeds the checkpoint count rewinds the whole session.
     checkpoints.sort((a, b) => b.promptIndex - a.promptIndex);
-    const targetIndex = checkpoints[n]?.promptIndex ?? 0;
+    const targetIndex = checkpoints[n - 1]?.promptIndex ?? 0;
 
     const snapshotsToRevert: Array<{ promptIndex: number; files: FileSnapshot[] }> = [];
     let shouldRevert = false;

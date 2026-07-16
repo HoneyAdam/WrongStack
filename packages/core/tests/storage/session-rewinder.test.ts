@@ -89,24 +89,54 @@ describe('DefaultSessionRewinder', () => {
   describe('rewindToCheckpoint', () => {
     it('reverts files after target checkpoint', async () => {
       const testFile = path.join(tmp, 'test.txt');
-      await fs.writeFile(testFile, 'original', 'utf8');
+      await fs.writeFile(testFile, 'changed2', 'utf8');
 
+      // Real writer layout: writeCheckpoint(N) appends checkpoint(N) and only
+      // THEN sets activePromptIndex = N, so prompt N's file_snapshot(N) always
+      // follows its checkpoint (file-session-writer.ts:652-659, :194-199).
       const id = await writeSession([
         makeCheckpoint(0, 'first'),
-        makeFileSnapshot(1, [{ path: testFile, action: 'modified', before: 'original', after: 'changed1' }]),
+        makeFileSnapshot(0, [{ path: testFile, action: 'modified', before: 'original', after: 'changed0' }]),
         makeCheckpoint(1, 'second'),
-        makeFileSnapshot(2, [{ path: testFile, action: 'modified', before: 'changed1', after: 'changed2' }]),
+        makeFileSnapshot(1, [{ path: testFile, action: 'modified', before: 'changed0', after: 'changed1' }]),
         makeCheckpoint(2, 'third'),
+        makeFileSnapshot(2, [{ path: testFile, action: 'modified', before: 'changed1', after: 'changed2' }]),
       ]);
 
       const rewind = new DefaultSessionRewinder(tmp, tmp);
       const result = await rewind.rewindToCheckpoint(id, 1);
 
       expect(result.revertedFiles).toContain(testFile);
+      // Rewinding to checkpoint 1 undoes prompt 1 AND every later prompt, so
+      // the file returns to the state checkpoint 1 was taken at.
       const content = await fs.readFile(testFile, 'utf8');
-      expect(content).toBe('changed1');
+      expect(content).toBe('changed0');
       expect(result.toPromptIndex).toBe(1);
       expect(result.removedEvents).toBeGreaterThanOrEqual(0);
+    });
+
+    it('reverts EVERY later prompt, not just the target one', async () => {
+      // Regression: the scan used to break at the first checkpoint after the
+      // target, reverting only the target prompt's files while the caller
+      // truncated the journal all the way back.
+      const a = path.join(tmp, 'a.txt');
+      const b = path.join(tmp, 'b.txt');
+      await fs.writeFile(a, 'a-prompt1', 'utf8');
+      await fs.writeFile(b, 'b-prompt2', 'utf8');
+
+      const id = await writeSession([
+        makeCheckpoint(1, 'p1'),
+        makeFileSnapshot(1, [{ path: a, action: 'modified', before: 'a-original', after: 'a-prompt1' }]),
+        makeCheckpoint(2, 'p2'),
+        makeFileSnapshot(2, [{ path: b, action: 'modified', before: 'b-original', after: 'b-prompt2' }]),
+      ]);
+
+      const rewind = new DefaultSessionRewinder(tmp, tmp);
+      const result = await rewind.rewindToCheckpoint(id, 1);
+
+      expect(result.revertedFiles).toEqual(expect.arrayContaining([a, b]));
+      expect(await fs.readFile(a, 'utf8')).toBe('a-original');
+      expect(await fs.readFile(b, 'utf8')).toBe('b-original');
     });
 
     it('throws when checkpoint not found', async () => {
@@ -195,34 +225,68 @@ describe('DefaultSessionRewinder', () => {
   });
 
   describe('rewindLastN', () => {
-    it('reverts last N checkpoints', async () => {
+    it('undoes exactly the last prompt for n=1', async () => {
       const testFile = path.join(tmp, 'test.txt');
-      await fs.writeFile(testFile, 'v0', 'utf8');
+      await fs.writeFile(testFile, 'v2', 'utf8');
 
+      // Real layout: each checkpoint(N) is followed by its own file_snapshot(N).
       const id = await writeSession([
-        makeCheckpoint(0, 'v0'),
-        makeFileSnapshot(1, [{ path: testFile, action: 'modified', before: 'v0', after: 'v1' }]),
-        makeCheckpoint(1, 'v1'),
-        makeFileSnapshot(2, [{ path: testFile, action: 'modified', before: 'v1', after: 'v2' }]),
-        makeCheckpoint(2, 'v2'),
+        makeCheckpoint(0, 'p0'),
+        makeFileSnapshot(0, [{ path: testFile, action: 'modified', before: 'v0', after: 'v1' }]),
+        makeCheckpoint(1, 'p1'),
+        makeFileSnapshot(1, [{ path: testFile, action: 'modified', before: 'v1', after: 'v2' }]),
       ]);
 
       const rewind = new DefaultSessionRewinder(tmp, tmp);
       const result = await rewind.rewindLastN(id, 1);
 
+      // n=1 must undo ONLY prompt 1 (the newest), leaving prompt 0's edit.
+      expect(result.toPromptIndex).toBe(1);
       expect(result.revertedFiles).toContain(testFile);
-      const content = await fs.readFile(testFile, 'utf8');
-      expect(content).toBe('v1');
+      expect(await fs.readFile(testFile, 'utf8')).toBe('v1');
+    });
+
+    it('undoes two prompts for n=2', async () => {
+      const testFile = path.join(tmp, 'test.txt');
+      await fs.writeFile(testFile, 'v2', 'utf8');
+
+      const id = await writeSession([
+        makeCheckpoint(0, 'p0'),
+        makeFileSnapshot(0, [{ path: testFile, action: 'modified', before: 'v0', after: 'v1' }]),
+        makeCheckpoint(1, 'p1'),
+        makeFileSnapshot(1, [{ path: testFile, action: 'modified', before: 'v1', after: 'v2' }]),
+      ]);
+
+      const rewind = new DefaultSessionRewinder(tmp, tmp);
+      const result = await rewind.rewindLastN(id, 2);
+
+      expect(result.toPromptIndex).toBe(0);
+      expect(await fs.readFile(testFile, 'utf8')).toBe('v0');
+    });
+
+    it('is a no-op for n=0 rather than rewinding everything', async () => {
+      const testFile = path.join(tmp, 'test.txt');
+      await fs.writeFile(testFile, 'v1', 'utf8');
+
+      const id = await writeSession([
+        makeCheckpoint(0, 'p0'),
+        makeFileSnapshot(0, [{ path: testFile, action: 'modified', before: 'v0', after: 'v1' }]),
+      ]);
+
+      const rewind = new DefaultSessionRewinder(tmp, tmp);
+      const result = await rewind.rewindLastN(id, 0);
+
+      expect(result.revertedFiles).toEqual([]);
+      expect(await fs.readFile(testFile, 'utf8')).toBe('v1');
     });
 
     it('reverts all when N exceeds checkpoint count', async () => {
       const testFile = path.join(tmp, 'test.txt');
-      await fs.writeFile(testFile, 'v0', 'utf8');
+      await fs.writeFile(testFile, 'v1', 'utf8');
 
       const id = await writeSession([
-        makeCheckpoint(0, 'v0'),
-        makeFileSnapshot(1, [{ path: testFile, action: 'modified', before: 'v0', after: 'v1' }]),
-        makeCheckpoint(1, 'v1'),
+        makeCheckpoint(0, 'p0'),
+        makeFileSnapshot(0, [{ path: testFile, action: 'modified', before: 'v0', after: 'v1' }]),
       ]);
 
       const rewind = new DefaultSessionRewinder(tmp, tmp);
