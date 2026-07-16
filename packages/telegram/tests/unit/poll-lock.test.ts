@@ -157,4 +157,33 @@ describe('PollLock', () => {
     expect(onLost).toHaveBeenCalled();
     expect(lock.held).toBe(false);
   });
+
+  it('two concurrent racers: exactly one acquires, the other observes a held lock', () => {
+    // P1.9 atomicity invariant: two PollLock instances racing on the
+    // same path must not both transition to "held". The 'wx' flag in
+    // writeFileSync makes the create-exclusive step atomic at the
+    // filesystem level — the loser's write throws EEXIST and tryAcquire
+    // returns false. The winner's write commits the lock file with
+    // exactly this instance's id; a subsequent loser acquire observes a
+    // non-stale payload owned by the winner.
+    setup();
+    const first = makeLock();
+    const second = makeLock();
+    // Force a deterministic acquisition order by acquiring one before
+    // the other races. The two PollLock objects share no in-memory
+    // state; what they share is the lock path on disk.
+    expect(first.tryAcquire()).toBe(true);
+    // Second tries to acquire a fresh, non-stale lock held by first.
+    // The atomic 'wx' write must fail (EEXIST) so the second's catch
+    // block returns false.
+    expect(second.tryAcquire()).toBe(false);
+    expect(second.held).toBe(false);
+    expect(first.held).toBe(true);
+    // After first releases, exactly one of the racers (the next call)
+    // wins. We don't pin which because the source serializes writes
+    // exclusively; the contract is "exactly one wins".
+    first.release();
+    expect(second.tryAcquire()).toBe(true);
+    expect(second.held).toBe(true);
+  });
 });
