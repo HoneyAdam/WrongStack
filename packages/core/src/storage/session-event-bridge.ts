@@ -90,6 +90,19 @@ const STANDARD_AUDIT_EVENTS = new Set<SessionEvent['type']>([
   'provider_error',
   'skill_activated',
   'skill_deactivated',
+  // Resume markers and fleet lifecycle. These reach disk today only because
+  // every producer appends to the raw SessionWriter and bypasses this bridge —
+  // routed through it while absent from both sets, `isAllowed` would drop them
+  // at the DEFAULT level and the resume timeline would lose them silently.
+  'mode_changed',
+  'agent_spawned',
+  'agent_stopped',
+  'agent_error',
+  'task_created',
+  'task_updated',
+  'task_completed',
+  'task_failed',
+  'side_effect',
 ]);
 
 /**

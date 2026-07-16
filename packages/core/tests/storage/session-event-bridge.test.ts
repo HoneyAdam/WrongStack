@@ -183,6 +183,31 @@ describe('SessionEventBridge', () => {
 
       expect(full.allows('tool_progress')).toBe(true);
     });
+
+    it('classifies resume markers and fleet lifecycle as standard audit detail', () => {
+      // These reach disk today only because their producers append to the raw
+      // SessionWriter and bypass the bridge. While they were in NEITHER set,
+      // routing any of them through it would have silently dropped them at the
+      // DEFAULT level — the resume timeline would just lose them.
+      const standard = createSessionEventBridge(null, 'standard');
+      const minimal = createSessionEventBridge(null, 'minimal');
+      for (const type of [
+        'mode_changed',
+        'agent_spawned',
+        'agent_stopped',
+        'agent_error',
+        'task_created',
+        'task_updated',
+        'task_completed',
+        'task_failed',
+        'side_effect',
+      ] as const) {
+        expect(standard.allows(type), `${type} at standard`).toBe(true);
+        // 'minimal' is an explicit opt-out of audit detail; only the core
+        // reconstruct set survives there.
+        expect(minimal.allows(type), `${type} at minimal`).toBe(false);
+      }
+    });
   });
 
   describe('setAuditLevel()', () => {

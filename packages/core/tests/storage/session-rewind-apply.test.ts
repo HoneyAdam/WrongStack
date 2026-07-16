@@ -109,6 +109,31 @@ describe('applyRewindToConversation', () => {
     expect(rewound?.revertedFiles).toEqual(['/proj/a.ts', '/proj/b.ts']);
   });
 
+  it('recounts the summary so a rewound session does not report undone work', async () => {
+    const store = new DefaultSessionStore({ dir: tmp });
+    const w = await store.create({ id: 'rw-5', model: 'm', provider: 'p' });
+    const ts = (n: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, n)).toISOString();
+
+    await w.writeCheckpoint(0, 'first');
+    await w.append({ type: 'tool_call_start', ts: ts(1), id: 'tc1', name: 'read_file', input: {} });
+    await w.writeCheckpoint(1, 'second');
+    // Work that the rewind will discard.
+    await w.append({ type: 'tool_call_start', ts: ts(2), id: 'tc2', name: 'write_file', input: {} });
+    await w.append({ type: 'tool_call_start', ts: ts(3), id: 'tc3', name: 'exec', input: {} });
+    await w.flush();
+
+    await w.truncateToCheckpoint(1);
+    await w.close();
+
+    // list() reads .summary.json — it must describe the session that remains,
+    // not the one that was rewound away.
+    const summary = JSON.parse(
+      await fs.readFile(path.join(tmp, 'rw-5.summary.json'), 'utf8'),
+    ) as { toolCallCount: number; toolBreakdown?: Record<string, number> };
+    expect(summary.toolCallCount).toBe(1);
+    expect(summary.toolBreakdown).toEqual({ read_file: 1 });
+  });
+
   it('reports how many events the truncation dropped', async () => {
     const store = new DefaultSessionStore({ dir: tmp });
     const w = await seedSession(store, 'rw-3');

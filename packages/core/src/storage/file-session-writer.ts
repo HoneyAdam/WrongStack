@@ -474,6 +474,48 @@ export class FileSessionWriter implements SessionWriter {
     }
   }
 
+  /**
+   * Rebuild every accumulated summary counter by replaying the JSONL as it now
+   * stands on disk.
+   *
+   * Only truncation needs this: the counters are fed by `observeForSummary` as
+   * events go by and cannot un-count. Reading the whole file is fine here —
+   * rewind is a rare, explicitly user-driven operation, and the alternative
+   * (reversing each counter per discarded event) has to stay in lockstep with
+   * observeForSummary forever.
+   *
+   * `title` is deliberately re-derived too: the first surviving user_input may
+   * differ once earlier prompts are gone.
+   */
+  private async recomputeSummaryFromDisk(): Promise<void> {
+    if (!this.filePath) return;
+    const raw = await fsp.readFile(this.filePath, 'utf8').catch(() => null);
+    if (raw === null) return;
+
+    this.iterationCount = 0;
+    this.toolCallCount = 0;
+    this.toolErrorCount = 0;
+    this.toolBreakdown = {};
+    this.fileChangeCount = 0;
+    this.compactionCount = 0;
+    this.outcome = undefined;
+    this.openToolUses = new Set<string>();
+    this.tokenIn = 0;
+    this.tokenOut = 0;
+    this.summary = { ...this.summary, title: '(empty session)', tokenTotal: 0 };
+
+    for (const line of raw.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed.length === 0) continue;
+      try {
+        this.observeForSummary(JSON.parse(trimmed) as SessionEvent);
+      } catch {
+        // Skip a malformed line — the rewrite preserves them verbatim, and a
+        // torn record must not abort the recount of everything after it.
+      }
+    }
+  }
+
   private observeForSummary(event: SessionEvent): void {
     // Track open tool uses so we can serialize them on close for resume.
     // The authoritative source is the llm_response content (a core event,
@@ -900,6 +942,12 @@ export class FileSessionWriter implements SessionWriter {
       throw err;
     }
     /* v8 ignore stop */
+
+    // The summary counters accumulate as events are observed and know nothing
+    // about truncation, so without this `close()` would write a .summary.json —
+    // and an _index.jsonl row, which list() reads — still counting the tool
+    // calls, file changes and tokens of the work just rewound.
+    await this.recomputeSummaryFromDisk();
 
     const reverted = [...revertedFiles];
     await this.append({
