@@ -11,18 +11,18 @@ describe('@wrongstack/webui package bin', () => {
       fs.readFileSync(path.join(repoRoot, 'packages/webui/package.json'), 'utf8'),
     ) as { bin?: Record<string, string> };
 
-    // The HTTP/WebSocket server (and its `wstackui` executable) was extracted
-    // to @wrongstack/webui-server, so the frontend-only @wrongstack/webui
-    // package no longer ships an executable.
+    // The HTTP/WebSocket server was extracted to @wrongstack/webui-server, so the
+    // frontend-only @wrongstack/webui package no longer ships an executable.
     expect(webuiPkg.bin).toBeUndefined();
   });
 
-  it('the standalone executable is published as wstackui by @wrongstack/webui-server, not webui', () => {
+  it('@wrongstack/webui-server ships no standalone bin — the WebUI is launched via `wstack --webui`', () => {
     const serverPkg = JSON.parse(
       fs.readFileSync(path.join(repoRoot, 'packages/webui-server/package.json'), 'utf8'),
     ) as { bin?: Record<string, string> };
 
-    expect(serverPkg.bin).toEqual({ wstackui: './dist/server/entry.js' });
-    expect(serverPkg.bin).not.toHaveProperty('webui');
+    // The server module is consumed by the CLI (`wstack --webui`) and the desktop
+    // app; it no longer publishes a direct executable of its own.
+    expect(serverPkg.bin).toBeUndefined();
   });
 });

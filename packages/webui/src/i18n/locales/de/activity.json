@@ -15,6 +15,7 @@
     "specs": "Spezifikationen",
     "sddboard": "Live-Board",
     "autophase": "Phasen",
+    "memory": "Speicher",
     "fleet": "Fleet",
     "inspector": "Inspektor",
     "prompts": "Prompts"
@@ -170,7 +171,14 @@
     "outcome": "Ergebnis:",
     "task": "Aufgabe:",
     "messageNotFound": "Nachricht nicht gefunden",
-    "messageNotFoundHint": "Diese Nachricht wurde möglicherweise gelöscht oder bereinigt."
+    "messageNotFoundHint": "Diese Nachricht wurde möglicherweise gelöscht oder bereinigt.",
+    "sessionLabel": "Sitzung",
+    "sessionScope": "Sitzung {{sid}}",
+    "sessionScopeTitle": "Nur an Agenten in Sitzung {{sid}} zugestellt",
+    "projectLabel": "Projekt",
+    "projectScope": "Projekt (jeder Agent)",
+    "directScope": "Direkt",
+    "scopeLabel": "Bereich"
   },
   "sessions": {
     "recentSessions": "Letzte Sitzungen",

@@ -59,7 +59,7 @@
     "wsUrlPlaceholder": "ws://localhost:3457",
     "wsUrlHint": "URL do servidor WebSocket do agente. O servidor é executado junto com o CLI.",
     "startingHeading": "Iniciando o servidor WebSocket",
-    "startingBody": "Autônomo: execute ./dev.ps1 da raiz do repo, ou defina WS_HOST/WS_PORT antes de iniciar wstackui. Ou junto à CLI: wstack --webui."
+    "startingBody": "Para desenvolvimento, execute ./dev.ps1 da raiz do repo (opcionalmente defina WS_HOST/WS_PORT antes). Caso contrário, inicie a WebUI com a CLI: wstack --webui."
   },
   "provider": {
     "savedProviderCount_one": "{{count}} provedor",

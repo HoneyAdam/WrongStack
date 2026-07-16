@@ -30,9 +30,6 @@
     },
     "./package.json": "./package.json"
   },
-  "bin": {
-    "wstackui": "./dist/server/entry.js"
-  },
   "files": [
     "dist"
   ],

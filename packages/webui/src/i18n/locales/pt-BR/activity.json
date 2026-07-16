@@ -15,6 +15,7 @@
     "specs": "Specs",
     "sddboard": "Painel ao vivo",
     "autophase": "Fases",
+    "memory": "Memória",
     "fleet": "Frota",
     "inspector": "Inspetor",
     "prompts": "Prompts"
@@ -170,7 +171,14 @@
     "outcome": "Resultado:",
     "task": "Tarefa:",
     "messageNotFound": "Mensagem não encontrada",
-    "messageNotFoundHint": "Esta mensagem pode ter sido excluída ou removida."
+    "messageNotFoundHint": "Esta mensagem pode ter sido excluída ou removida.",
+    "sessionLabel": "Sessão",
+    "sessionScope": "Sessão {{sid}}",
+    "sessionScopeTitle": "Entregue apenas a agentes na sessão {{sid}}",
+    "projectLabel": "Projeto",
+    "projectScope": "Projeto (todo agente)",
+    "directScope": "Direto",
+    "scopeLabel": "Escopo"
   },
   "sessions": {
     "recentSessions": "Sessões recentes",

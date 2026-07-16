@@ -1,331 +1,256 @@
-/**
- * MemoryGraph — a compact React Flow graph showing relationship edges
- * (supersedes, contradicts, supersededBy) AND file/symbol/command anchor
- * connections for a selected SuperMemory entry.
- *
- * Layout:
- *   - Center: the selected memory
- *   - Above: memory that supersedes this one (if any)
- *   - Below-left: memories this one supersedes
- *   - Below-right: memories this one contradicts
- *   - Right: file/symbol/command anchors
- */
-
-import { useCallback, useMemo } from 'react';
 import {
-  ReactFlow,
   Background,
   BackgroundVariant,
   Controls,
-  Handle,
-  Position,
-  type Node,
   type Edge,
+  Handle,
+  type Node,
   type NodeProps,
+  Position,
+  ReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-
-// ── Types ────────────────────────────────────────────────────────────
-
-interface MemoryEntry {
-  id: string;
-  kind: string;
-  status: string;
-  text: string;
-  tags: string[];
-  createdAt: string;
-  importance: number;
-  confidence: number;
-  supersedes?: string[] | undefined;
-  supersededBy?: string | undefined;
-  contradicts?: string[] | undefined;
-  anchors?: Array<{ type: string; path?: string; symbol?: string; command?: string }>;
-}
+import { useMemo } from 'react';
+import type { SuperMemoryAnchor, SuperMemoryEntry } from '@/types';
 
 interface MemoryGraphProps {
-  centerMemory: MemoryEntry;
-  allMemories: MemoryEntry[];
-  onSelectMemory: (id: string) => void;
+  centerMemory: SuperMemoryEntry;
+  allMemories: SuperMemoryEntry[];
 }
 
-// ── Kind emoji config ────────────────────────────────────────────────
+interface MemoryNodeData extends Record<string, unknown> {
+  entry: SuperMemoryEntry;
+  center: boolean;
+}
 
-const KIND_EMOJI: Record<string, string> = {
-  fact: '📌', decision: '⚖️', convention: '📐', preference: '⭐',
-  warning: '⚠️', anti_pattern: '🚫', workflow: '🔁',
-  bug_root_cause: '🐛', file_note: '📄', symbol_note: '🔣',
-  command_note: '⌨️', summary: '📋',
-};
+interface AnchorNodeData extends Record<string, unknown> {
+  anchor: SuperMemoryAnchor;
+  label: string;
+}
 
-// ── Anchor type config ────────────────────────────────────────────────
+const NODE_WIDTH = 212;
+const ANCHOR_WIDTH = 188;
 
-const ANCHOR_CONFIG: Record<string, { emoji: string; border: string; bg: string; text: string }> = {
-  file:      { emoji: '📄', border: 'border-blue-400', bg: 'bg-blue-50', text: 'text-blue-800' },
-  directory: { emoji: '📁', border: 'border-cyan-400',  bg: 'bg-cyan-50',  text: 'text-cyan-800' },
-  symbol:    { emoji: '🔣', border: 'border-purple-400', bg: 'bg-purple-50', text: 'text-purple-800' },
-  package:   { emoji: '📦', border: 'border-orange-400', bg: 'bg-orange-50', text: 'text-orange-800' },
-  command:   { emoji: '⌨️', border: 'border-teal-400',   bg: 'bg-teal-50',   text: 'text-teal-800' },
-  test:      { emoji: '🧪', border: 'border-red-400',    bg: 'bg-red-50',    text: 'text-red-800' },
-  git:       { emoji: '🔀', border: 'border-gray-400',   bg: 'bg-gray-50',   text: 'text-gray-800' },
-};
+function compactId(id: string): string {
+  return id.length > 14 ? `${id.slice(0, 11)}…` : id;
+}
 
-// ── Node dimensions ──────────────────────────────────────────────────
+function preview(text: string, max = 58): string {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
+}
 
-const NODE_W = 200;
-const ANCHOR_NODE_W = 170;
+function anchorLabel(anchor: SuperMemoryAnchor): string {
+  if (anchor.type === 'symbol') {
+    return [anchor.path, anchor.symbol ? `#${anchor.symbol}` : ''].filter(Boolean).join('');
+  }
+  return anchor.path ?? anchor.command ?? anchor.symbol ?? anchor.type;
+}
 
-// ── Custom memory-node component ─────────────────────────────────────
+function statusTone(status: string): string {
+  if (status === 'active') return 'border-success/45 bg-success/10 text-success';
+  if (status === 'stale') return 'border-warning/45 bg-warning/10 text-warning';
+  if (status === 'contradicted') return 'border-destructive/45 bg-destructive/10 text-destructive';
+  if (status === 'superseded') return 'border-warning/35 bg-warning/5 text-warning';
+  return 'border-border bg-muted/55 text-muted-foreground';
+}
 
-function MemoryGraphNode({ data }: NodeProps) {
-  const entry = data.entry as MemoryEntry;
-  const preview = entry.text.length > 40 ? `${entry.text.slice(0, 38)}…` : entry.text;
-  const kindEmoji = KIND_EMOJI[entry.kind] ?? '•';
-  const statusColor =
-    entry.status === 'active' ? 'bg-green-100 text-green-800 border-green-300'
-    : entry.status === 'stale' ? 'bg-yellow-100 text-yellow-800 border-yellow-300'
-    : entry.status === 'archived' ? 'bg-blue-100 text-blue-800 border-blue-300'
-    : entry.status === 'deleted' ? 'bg-gray-100 text-gray-500 border-gray-300'
-    : 'bg-gray-50 text-gray-600 border-gray-200';
-
+function MemoryNodeCard({ data }: NodeProps<Node<MemoryNodeData, 'memoryNode'>>) {
+  const { entry, center } = data;
   return (
     <div
-      className={`rounded-lg border-2 bg-white px-3 py-2 shadow-sm transition-shadow hover:shadow-md ${
-        data.isCenter ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-gray-200'
-      }`}
-      style={{ width: NODE_W }}
+      className={
+        center
+          ? 'border border-primary/70 bg-card px-3 py-2.5 text-card-foreground shadow-[0_0_0_1px_hsl(var(--primary)/0.2),0_0_24px_hsl(var(--primary)/0.12)]'
+          : 'border border-border/80 bg-card/95 px-3 py-2.5 text-card-foreground shadow-lg'
+      }
+      style={{ width: NODE_WIDTH }}
       title={entry.text}
     >
-      <Handle type="target" position={Position.Top} className="!bg-gray-400" />
-      <Handle type="source" position={Position.Bottom} className="!bg-gray-400" />
-      <Handle type="source" position={Position.Right} className="!bg-gray-400" />
-
-      <div className="flex items-center gap-1.5">
-        <span className="text-sm">{kindEmoji}</span>
-        <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${statusColor}`}>
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="!border-background !bg-muted-foreground"
+      />
+      <Handle type="source" position={Position.Bottom} className="!border-background !bg-primary" />
+      <Handle type="source" position={Position.Right} className="!border-background !bg-primary" />
+      <div className="flex min-w-0 items-center gap-2">
+        <span
+          className={`border px-1.5 py-0.5 text-[9px] font-bold uppercase ${statusTone(entry.status)}`}
+        >
           {entry.status}
         </span>
-        <span className="ml-auto font-mono text-[9px] text-gray-400">
-          {entry.id.length > 12 ? `${entry.id.slice(0, 10)}…` : entry.id}
+        <span className="ml-auto truncate font-mono text-[9px] text-muted-foreground">
+          {compactId(entry.id)}
         </span>
       </div>
-
-      <p className="mt-1 text-xs leading-4 text-gray-700 line-clamp-2">{preview}</p>
+      <p className="mt-2 line-clamp-2 text-[11px] leading-4 text-foreground/90">
+        {preview(entry.text)}
+      </p>
+      <p className="mt-1 font-mono text-[9px] uppercase text-muted-foreground">{entry.kind}</p>
     </div>
   );
 }
 
-// ── Custom anchor-node component ─────────────────────────────────────
-
-function AnchorNode({ data }: NodeProps) {
-  const cfg = ANCHOR_CONFIG[data.anchorType as string] ?? ANCHOR_CONFIG['file'];
-  const label = String(data.label ?? '');
-
+function AnchorNodeCard({ data }: NodeProps<Node<AnchorNodeData, 'anchorNode'>>) {
   return (
     <div
-      className={`rounded border-2 ${cfg.border} ${cfg.bg} px-2 py-1.5 shadow-sm`}
-      style={{ width: ANCHOR_NODE_W }}
-      title={label}
+      className="border border-info/40 bg-info/8 px-2.5 py-2 text-card-foreground shadow-lg"
+      style={{ width: ANCHOR_WIDTH }}
+      title={data.label}
     >
-      <Handle type="target" position={Position.Left} className="!bg-gray-400" />
-      <div className="flex items-center gap-1.5">
-        <span className="text-xs">{cfg.emoji}</span>
-        <span className={`truncate font-mono text-[10px] ${cfg.text}`}>{label}</span>
-      </div>
+      <Handle type="target" position={Position.Left} className="!border-background !bg-info" />
+      <p className="font-mono text-[9px] font-bold uppercase text-info">{data.anchor.type}</p>
+      <p className="mt-1 truncate font-mono text-[10px] text-foreground/85">{data.label}</p>
     </div>
   );
 }
 
-// ── Node type registry ───────────────────────────────────────────────
-
 const nodeTypes = {
-  memoryNode: MemoryGraphNode,
-  anchorNode: AnchorNode,
+  memoryNode: MemoryNodeCard,
+  anchorNode: AnchorNodeCard,
 };
 
-// ── Helper: build anchor ID ──────────────────────────────────────────
-
-function anchorId(idx: number): string {
-  return `anchor-${idx}`;
+function missingMemory(id: string): SuperMemoryEntry {
+  return {
+    id,
+    revision: 0,
+    scope: 'project',
+    kind: 'fact',
+    status: 'deleted',
+    text: 'Memory is unavailable or has been removed.',
+    importance: 0,
+    confidence: 0,
+    freshness: 0,
+    tags: [],
+    anchors: [],
+    createdAt: '',
+    updatedAt: '',
+  };
 }
 
-// ── Helper: edge color for anchor type ───────────────────────────────
-
-function anchorEdgeColor(type: string): string {
-  switch (type) {
-    case 'file': return '#60a5fa';
-    case 'directory': return '#22d3ee';
-    case 'symbol': return '#a78bfa';
-    case 'package': return '#fb923c';
-    case 'command': return '#2dd4bf';
-    case 'test': return '#f87171';
-    default: return '#9ca3af';
-  }
-}
-
-// ── Main component ───────────────────────────────────────────────────
-
-export function MemoryGraph({ centerMemory, allMemories, onSelectMemory }: MemoryGraphProps) {
-  // Count all visual elements
-  const anchors = centerMemory.anchors ?? [];
-  const totalItems =
-    (centerMemory.supersedes?.length ?? 0) +
-    (centerMemory.contradicts?.length ?? 0) +
-    (centerMemory.supersededBy ? 1 : 0) +
-    anchors.length;
-
-  // Build nodes and edges
+export function MemoryGraph({ centerMemory, allMemories }: MemoryGraphProps) {
   const { nodes, edges } = useMemo(() => {
-    const nodeList: Node[] = [];
-    const edgeList: Edge[] = [];
-    const CX = 260; // center x
-    const RY = 100; // row height
-    const SX = 200; // column spacing for sibling memory nodes
-    const ANCHOR_X = CX + 210; // anchor column x
+    const nextNodes: Node[] = [];
+    const nextEdges: Edge[] = [];
+    const memoryById = new Map(allMemories.map((memory) => [memory.id, memory]));
+    const centerX = 320;
+    const centerY = 120;
 
-    // ── Center node ──
-    nodeList.push({
+    nextNodes.push({
       id: centerMemory.id,
       type: 'memoryNode',
-      position: { x: CX - NODE_W / 2, y: RY },
-      data: { entry: centerMemory, isCenter: true },
+      position: { x: centerX - NODE_WIDTH / 2, y: centerY },
+      data: { entry: centerMemory, center: true },
     });
 
-    let belowCount = 0; // track how many rows below center are used
+    const related: Array<{ id: string; relation: 'supersedes' | 'contradicts' | 'superseded by' }> =
+      [
+        ...(centerMemory.supersededBy
+          ? [{ id: centerMemory.supersededBy, relation: 'superseded by' as const }]
+          : []),
+        ...(centerMemory.supersedes ?? []).map((id) => ({ id, relation: 'supersedes' as const })),
+        ...(centerMemory.contradicts ?? []).map((id) => ({ id, relation: 'contradicts' as const })),
+      ];
 
-    // ── SupersededBy (above center, row 0) ──
-    if (centerMemory.supersededBy) {
-      const ref = allMemories.find((m) => m.id === centerMemory.supersededBy);
-      const sid = centerMemory.supersededBy;
-      nodeList.push({
-        id: sid,
+    const startX = centerX - ((related.length - 1) * 220) / 2;
+    related.forEach((item, index) => {
+      const entry = memoryById.get(item.id) ?? missingMemory(item.id);
+      const above = item.relation === 'superseded by';
+      const nodeY = above ? 0 : 280 + Math.floor(index / 3) * 130;
+      const nodeX = above ? centerX - NODE_WIDTH / 2 : startX + index * 220 - NODE_WIDTH / 2;
+      nextNodes.push({
+        id: `memory:${item.id}:${index}`,
         type: 'memoryNode',
-        position: { x: CX - NODE_W / 2, y: 0 },
-        data: {
-          entry: ref ?? { id: sid, kind: 'fact', status: 'deleted', text: '(deleted)', tags: [], createdAt: '', importance: 0, confidence: 0 },
-          isCenter: false,
-        },
+        position: { x: nodeX, y: nodeY },
+        data: { entry, center: false },
       });
-      edgeList.push({
-        id: `supersededBy-${sid}`,
-        source: sid, target: centerMemory.id,
-        type: 'smoothstep', animated: true,
-        style: { stroke: '#f59e0b', strokeWidth: 2 },
-        label: 'supersedes',
-        labelStyle: { fill: '#f59e0b', fontSize: 9, fontWeight: 600 },
-      });
-    }
-
-    // ── Supersedes (below center, row 2) ──
-    if (centerMemory.supersedes && centerMemory.supersedes.length > 0) {
-      belowCount = 2;
-      const list = centerMemory.supersedes;
-      const startX = CX - ((list.length - 1) * SX) / 2;
-      for (let i = 0; i < list.length; i++) {
-        const sid = list[i]!;
-        const ref = allMemories.find((m) => m.id === sid);
-        nodeList.push({
-          id: sid, type: 'memoryNode',
-          position: { x: startX + i * SX - NODE_W / 2, y: RY * 2 },
-          data: { entry: ref ?? { id: sid, kind: 'fact', status: 'deleted', text: '(not found)' as string, tags: [], createdAt: '', importance: 0, confidence: 0 }, isCenter: false },
-        });
-        edgeList.push({
-          id: `supersedes-${sid}`, source: centerMemory.id, target: sid,
-          type: 'smoothstep', animated: true,
-          style: { stroke: '#22c55e', strokeWidth: 2 },
-          label: 'supersedes', labelStyle: { fill: '#22c55e', fontSize: 9, fontWeight: 600 },
-        });
-      }
-    }
-
-    // ── Contradicts (below center, row 3, or row 2 if no supersedes) ──
-    if (centerMemory.contradicts && centerMemory.contradicts.length > 0) {
-      const contradictRow = belowCount === 2 ? 3 : 2;
-      belowCount = Math.max(belowCount, contradictRow);
-      const list = centerMemory.contradicts;
-      const startX = CX - ((list.length - 1) * SX) / 2;
-      for (let i = 0; i < list.length; i++) {
-        const cid = list[i]!;
-        const ref = allMemories.find((m) => m.id === cid);
-        nodeList.push({
-          id: cid, type: 'memoryNode',
-          position: { x: startX + i * SX - NODE_W / 2, y: RY * contradictRow },
-          data: { entry: ref ?? { id: cid, kind: 'fact', status: 'deleted', text: '(not found)' as string, tags: [], createdAt: '', importance: 0, confidence: 0 }, isCenter: false },
-        });
-        edgeList.push({
-          id: `contradicts-${cid}`, source: centerMemory.id, target: cid,
-          type: 'smoothstep',
-          style: { stroke: '#ef4444', strokeWidth: 2, strokeDasharray: '6 3' },
-          label: 'contradicts', labelStyle: { fill: '#ef4444', fontSize: 9, fontWeight: 600 },
-        });
-      }
-    }
-
-    // ── Anchor nodes (to the right of center) ──
-    for (let i = 0; i < anchors.length; i++) {
-      const a = anchors[i]!;
-      const aId = anchorId(i);
-      const label = a.path ?? a.symbol ?? a.command ?? a.type;
-      const color = anchorEdgeColor(a.type);
-
-      nodeList.push({
-        id: aId, type: 'anchorNode',
-        position: { x: ANCHOR_X, y: RY + (i - (anchors.length - 1) / 2) * 50 },
-        data: { anchorType: a.type, label },
-      });
-
-      edgeList.push({
-        id: `anchor-${i}`,
-        source: centerMemory.id, target: aId,
+      const danger = item.relation === 'contradicts';
+      const source = above ? `memory:${item.id}:${index}` : centerMemory.id;
+      const target = above ? centerMemory.id : `memory:${item.id}:${index}`;
+      nextEdges.push({
+        id: `relation:${item.relation}:${item.id}:${index}`,
+        source,
+        target,
         type: 'smoothstep',
-        style: { stroke: color, strokeWidth: 1.5 },
-        label: a.type,
-        labelStyle: { fill: color, fontSize: 8, fontWeight: 600 },
+        animated: !danger,
+        label: item.relation,
+        style: {
+          stroke: danger ? 'hsl(var(--destructive))' : 'hsl(var(--primary))',
+          strokeWidth: 1.7,
+          ...(danger ? { strokeDasharray: '5 4' } : {}),
+        },
+        labelStyle: {
+          fill: danger ? 'hsl(var(--destructive))' : 'hsl(var(--muted-foreground))',
+          fontSize: 9,
+          fontWeight: 700,
+        },
+        labelBgStyle: { fill: 'hsl(var(--card))', fillOpacity: 0.9 },
       });
-    }
+    });
 
-    return { nodes: nodeList, edges: edgeList };
-  }, [centerMemory, allMemories, anchors]);
+    centerMemory.anchors.forEach((anchor, index) => {
+      const id = `anchor:${index}`;
+      nextNodes.push({
+        id,
+        type: 'anchorNode',
+        position: {
+          x: centerX + 220,
+          y: centerY + (index - (centerMemory.anchors.length - 1) / 2) * 66,
+        },
+        data: { anchor, label: anchorLabel(anchor) },
+      });
+      nextEdges.push({
+        id: `anchor-edge:${index}`,
+        source: centerMemory.id,
+        target: id,
+        type: 'smoothstep',
+        style: { stroke: 'hsl(var(--info))', strokeWidth: 1.3 },
+      });
+    });
 
-  // ── Click handler ──
-  const onNodeClick = useCallback(
-    (_event: React.MouseEvent, node: Node) => {
-      // Anchor nodes are not memories — clicking them does nothing
-      if (node.type === 'anchorNode') return;
-      if (node.id !== centerMemory.id) {
-        onSelectMemory(node.id);
-      }
-    },
-    [centerMemory.id, onSelectMemory],
-  );
+    return { nodes: nextNodes, edges: nextEdges };
+  }, [allMemories, centerMemory]);
 
-  if (totalItems === 0) return null;
+  if (nodes.length <= 1) return null;
 
   return (
-    <div className="rounded-lg border border-border bg-card">
-      <h4 className="px-3 py-2 text-xs font-medium text-muted-foreground border-b border-border">
-        🔗 Relationship Graph
-      </h4>
-      <div style={{ height: Math.max(220, (totalItems + 1) * 70) }} className="w-full">
+    <section
+      className="overflow-hidden border border-border/75 bg-background/35"
+      aria-label="Memory relationship graph"
+    >
+      <div className="flex items-center justify-between border-b border-border/70 bg-card/55 px-3 py-2">
+        <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+          Relationship map
+        </p>
+        <span className="font-mono text-[10px] text-muted-foreground">
+          {nodes.length} nodes · {edges.length} edges
+        </span>
+      </div>
+      <div className="h-[320px] w-full" aria-hidden="true">
         <ReactFlow
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
-          onNodeClick={onNodeClick}
           fitView
-          fitViewOptions={{ padding: 0.3 }}
-          nodesDraggable={true}
+          fitViewOptions={{ padding: 0.24, maxZoom: 1.05 }}
+          minZoom={0.4}
+          maxZoom={1.5}
           nodesConnectable={false}
           elementsSelectable={false}
-          panOnDrag={true}
+          panOnScroll={false}
           zoomOnScroll={false}
-          minZoom={0.5}
-          maxZoom={2}
           proOptions={{ hideAttribution: true }}
         >
-          <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#e5e7eb" />
-          <Controls showInteractive={false} className="!m-2 !scale-75" />
+          <Background
+            variant={BackgroundVariant.Dots}
+            gap={18}
+            size={1}
+            color="hsl(var(--muted-foreground) / 0.18)"
+          />
+          <Controls showInteractive={false} className="!border-border !bg-card !shadow-lg" />
         </ReactFlow>
       </div>
-    </div>
+    </section>
   );
 }

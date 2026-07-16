@@ -1,7 +1,7 @@
 /**
  * Running-instance registry for the standalone WebUI server.
  *
- * Every live `wstackui` process records itself in a single JSON file under the
+ * Every live `wstack --webui` process records itself in a single JSON file under the
  * wstack home dir (`~/.wrongstack/webui-instances.json`) so a user running
  * several instances (one per project, or several per project on different
  * ports) can see at a glance which ports are open for which path.
@@ -143,7 +143,7 @@ export async function listInstances(
   return live;
 }
 
-/** Human-readable table of running instances for `wstackui --list`. */
+/** Human-readable table of running instances for `wstack --webui --list`. */
 export function formatInstances(instances: WebUIInstanceRecord[]): string {
   if (instances.length === 0) {
     return 'No WebUI instances are currently running.';

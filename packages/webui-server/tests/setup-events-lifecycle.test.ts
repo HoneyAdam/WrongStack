@@ -14,6 +14,7 @@ describe('setupEvents lifecycle', () => {
       context: {
         meta: {},
         provider: { capabilities: { maxContext: 128_000 } },
+        state: { onChange: vi.fn(), revision: 0 },
       } as never,
       pendingConfirms: new Map(),
     });
@@ -38,6 +39,7 @@ describe('setupEvents lifecycle', () => {
         context: {
           meta: {},
           provider: { capabilities: { maxContext: 128_000 } },
+          state: { onChange: vi.fn(), revision: 0 },
         } as never,
         pendingConfirms: new Map(),
       });

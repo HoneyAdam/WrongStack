@@ -90,19 +90,23 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   const on = <E extends EventName>(event: E, listener: Listener<E>): void => {
     disposers.push(events.on(event, listener));
   };
-  disposers.push(
-    context.state.onChange((change) => {
+  // Standalone embedders may provide a partial Context when they do not use
+  // live todo state. Keep that optional surface from blocking all event
+  // wiring, while subscribing normally for a full core Context.
+  const conversationState = (context as { state?: Context['state'] }).state;
+  if (typeof conversationState?.onChange === 'function') {
+    disposers.push(conversationState.onChange((change) => {
       if (change.kind !== 'todos_replaced') return;
       broadcast(clients, {
         type: 'todos.updated',
         payload: {
           sessionId: context.session?.id ?? '',
           todos: [...change.todos],
-          revision: context.state.revision,
+          revision: conversationState.revision,
         },
       });
-    }),
-  );
+    }));
+  }
 
   // ── Kanban board file watcher ────────────────────────────────────────────
   // When any board JSON changes on disk (external agent, another process),
@@ -499,6 +503,36 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
       delayMs: e.delayMs,
       status: e.status,
       description: e.description,
+    });
+  });
+
+  on('provider.status_changed', (e) => {
+    broadcast(clients, {
+      type: 'provider.status_changed',
+      payload: sessionPayload({
+        providerId: e.providerId,
+        model: e.model,
+        oldState: e.oldState,
+        newState: e.newState,
+        reason: e.reason,
+        timestamp: e.timestamp,
+      }),
+    });
+  });
+
+  on('provider.active_blocked', (e) => {
+    broadcast(clients, {
+      type: 'provider.active_blocked',
+      payload: sessionPayload({
+        sessionId: e.sessionId,
+        providerId: e.providerId,
+        model: e.model,
+        state: e.state,
+        fallbackProviderId: e.fallbackProviderId,
+        fallbackModel: e.fallbackModel,
+        lastError: e.lastError,
+        timestamp: e.timestamp,
+      }),
     });
   });
 

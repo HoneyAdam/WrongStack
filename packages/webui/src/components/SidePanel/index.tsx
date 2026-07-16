@@ -23,7 +23,6 @@ import {
 import { FileExplorer } from '../FileExplorer';
 import { MailboxPanel } from '../MailboxPanel';
 import { Button } from '../ui/button';
-import { AgentsPanel } from './AgentsPanel';
 import { ChangesPanel } from './ChangesPanel';
 import { HistoryPanel } from './HistoryPanel';
 import { SessionPanel } from './SessionPanel';
@@ -148,7 +147,6 @@ export function SidePanel({ desktopShell = false }: { desktopShell?: boolean | u
       {/* Panel body — routed by activity */}
       <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden">
         {activeActivity === 'chat' && <SessionPanel />}
-        {activeActivity === 'agents' && <AgentsPanel />}
         {activeActivity === 'history' && <HistoryPanel />}
         {activeActivity === 'files' && (
           <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain">

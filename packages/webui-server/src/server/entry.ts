@@ -2,7 +2,7 @@
 // Bind defaults: 127.0.0.1:3457 (loopback only). Override with --host /
 // WEBUI_HOST / WS_HOST and --ws-port / WS_PORT. HTTP frontend defaults to 3456 (override with
 // --port / PORT). Run several instances on
-// different PORT/WS_PORT pairs — `wstackui --list` shows which are open for which
+// different PORT/WS_PORT pairs — `wstack --webui --list` shows which are open for which
 // project (registry: ~/.wrongstack/webui-instances.json).
 import { ToolValidationError } from '@wrongstack/core';
 import { startWebUI } from './index.js';
@@ -46,7 +46,7 @@ function envFlag(name: string): boolean {
 }
 
 function printHelp(): void {
-  console.log(`Usage: wstackui [options]
+  console.log(`Usage: wstack --webui [options]
 
 Options:
   --host <host>             Bind host/interface (default: 127.0.0.1)
@@ -63,7 +63,7 @@ Options:
 `);
 }
 
-// `wstackui --list` / `wstackui ls` — print running instances and exit. Cheap,
+// `--list` / `ls` — print running instances and exit. Cheap,
 // side-effect-free (it only prunes dead pids), so it never boots a server.
 if (argv.includes('--help') || argv.includes('-h')) {
   printHelp();

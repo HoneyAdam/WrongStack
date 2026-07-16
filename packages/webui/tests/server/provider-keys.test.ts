@@ -183,9 +183,9 @@ describe('addProvider', () => {
 
   it('adds a bare provider', () => {
     const providers: ProvidersRecord = {};
-    const r = addProvider(providers, { id: 'groq', family: 'openai', baseUrl: 'https://x' }, NOW);
+    const r = addProvider(providers, { id: 'acme', family: 'openai', baseUrl: 'https://x' }, NOW);
     expect(r.ok).toBe(true);
-    expect(providers.groq).toEqual({ type: 'groq', family: 'openai', baseUrl: 'https://x' });
+    expect(providers.acme).toEqual({ type: 'acme', family: 'openai', baseUrl: 'https://x' });
   });
 
   it('seeds a default key when one is supplied', () => {

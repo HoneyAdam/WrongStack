@@ -1,0 +1,175 @@
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { SuperMemoryEntry, SuperMemoryStats } from '../../src/types.js';
+
+const handlers = new Map<string, Set<(message: { type: string; payload: unknown }) => void>>();
+const sends: Array<{ type: string; payload?: unknown }> = [];
+
+const client = {
+  on(type: string, handler: (message: { type: string; payload: unknown }) => void) {
+    const registered = handlers.get(type) ?? new Set();
+    registered.add(handler);
+    handlers.set(type, registered);
+    return () => registered.delete(handler);
+  },
+};
+
+const websocket = {
+  client,
+  listSuperMemories: () => sends.push({ type: 'memory.super.list' }),
+  rememberSuperMemory: (payload: unknown) => sends.push({ type: 'memory.super.remember', payload }),
+  updateSuperMemory: (id: string, patch: unknown) =>
+    sends.push({ type: 'memory.super.update', payload: { id, ...(patch as object) } }),
+  deleteSuperMemory: (id: string, reason?: string) =>
+    sends.push({ type: 'memory.super.delete', payload: { id, reason } }),
+};
+
+vi.mock('@/hooks/useWebSocket', () => ({
+  useWebSocket: () => websocket,
+}));
+
+vi.mock('@/hooks/useScrollPosition', () => ({
+  useScrollPosition: () => ({ current: null }),
+}));
+
+vi.mock('@/components/MemoryManager/MemoryGraph', () => ({
+  MemoryGraph: () => <div data-testid="memory-graph" />,
+}));
+
+import { MemoryManager } from '../../src/components/MemoryManager/index.js';
+import { useConfigStore } from '../../src/stores/config-store.js';
+
+const memory: SuperMemoryEntry = {
+  id: 'mem_architecture',
+  revision: 3,
+  scope: 'project',
+  kind: 'decision',
+  status: 'active',
+  text: 'The WebUI uses a singleton WebSocket client for all server events.',
+  importance: 0.9,
+  confidence: 0.85,
+  freshness: 0.95,
+  tags: ['webui', 'architecture'],
+  anchors: [{ type: 'file', path: 'packages/webui/src/lib/ws-client.ts' }],
+  createdAt: '2026-07-15T08:00:00.000Z',
+  updatedAt: '2026-07-16T08:00:00.000Z',
+};
+
+const secondMemory: SuperMemoryEntry = {
+  ...memory,
+  id: 'mem_testing',
+  revision: 1,
+  kind: 'workflow',
+  text: 'Run focused WebUI tests before the package typecheck.',
+  tags: ['testing'],
+};
+
+const stats: SuperMemoryStats = {
+  total: 2,
+  byStatus: { active: 2 },
+  byKind: { decision: 1, workflow: 1 },
+  edges: 1,
+};
+
+function emit(type: string, payload: unknown) {
+  act(() => {
+    for (const handler of handlers.get(type) ?? []) handler({ type, payload });
+  });
+}
+
+async function loadManager() {
+  render(<MemoryManager />);
+  expect(sends).toContainEqual({ type: 'memory.super.list' });
+  emit('memory.super.list', { memories: [memory, secondMemory], stats });
+  await screen.findByText(memory.text);
+}
+
+beforeEach(() => {
+  sends.length = 0;
+  handlers.clear();
+  useConfigStore.setState({ wsConnected: true, wsStatus: { state: 'open' } });
+  vi.restoreAllMocks();
+});
+
+describe('MemoryManager', () => {
+  it('loads Super Memory records and filters the operator library', async () => {
+    await loadManager();
+
+    expect(screen.getByText(secondMemory.text)).toBeTruthy();
+    expect(screen.getByText('2 visible')).toBeTruthy();
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search memories' }), {
+      target: { value: 'singleton' },
+    });
+
+    expect(screen.getByText(memory.text)).toBeTruthy();
+    expect(screen.queryByText(secondMemory.text)).toBeNull();
+    expect(screen.getByText('1 of 2 memories')).toBeTruthy();
+  });
+
+  it('creates a fully described memory with scope, scores, anchors, and relationships', async () => {
+    await loadManager();
+    fireEvent.click(screen.getByRole('button', { name: 'New memory' }));
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Memory content' }), {
+      target: { value: 'Use stable IDs for every durable relationship.' },
+    });
+    fireEvent.change(screen.getByLabelText('Scope'), { target: { value: 'user' } });
+    fireEvent.change(screen.getByLabelText('Tags'), { target: { value: 'memory, identity' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add anchor' }));
+    fireEvent.change(screen.getByLabelText('Anchor 1 value'), {
+      target: { value: 'packages/super-memory/src/store.ts' },
+    });
+    fireEvent.change(screen.getByLabelText('Supersedes'), { target: { value: memory.id } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create memory' }));
+
+    const request = sends.find((entry) => entry.type === 'memory.super.remember');
+    expect(request).toEqual({
+      type: 'memory.super.remember',
+      payload: expect.objectContaining({
+        text: 'Use stable IDs for every durable relationship.',
+        scope: 'user',
+        tags: ['memory', 'identity'],
+        freshness: 1,
+        anchors: [{ type: 'file', path: 'packages/super-memory/src/store.ts' }],
+        supersedes: [memory.id],
+      }),
+    });
+  });
+
+  it('keeps the editor and draft visible when create fails', async () => {
+    await loadManager();
+    fireEvent.click(screen.getByRole('button', { name: 'New memory' }));
+    const editor = screen.getByRole('textbox', { name: 'Memory content' });
+    fireEvent.change(editor, { target: { value: 'A draft that must survive.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create memory' }));
+
+    emit('memory.super.remember', { error: 'Duplicate memory exists.' });
+
+    expect(screen.getByRole('alert').textContent).toContain('Duplicate memory exists.');
+    expect(
+      (screen.getByRole('textbox', { name: 'Memory content' }) as HTMLTextAreaElement).value,
+    ).toBe('A draft that must survive.');
+  });
+
+  it('uses an accessible confirmation dialog before deleting a record', async () => {
+    await loadManager();
+    fireEvent.click(screen.getByText(memory.text));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    expect(screen.getByText('Delete this memory?')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete memory' }));
+
+    expect(sends).toContainEqual({
+      type: 'memory.super.delete',
+      payload: {
+        id: memory.id,
+        reason: 'Deleted from the WebUI Memory Manager.',
+      },
+    });
+
+    emit('memory.super.delete', { success: true, message: 'Deleted.' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+});

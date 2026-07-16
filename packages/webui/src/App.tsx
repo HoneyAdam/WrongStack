@@ -27,7 +27,6 @@ import { ContextBreakdownModal } from './components/ContextBreakdownModal';
 import { ContextDashboard } from './components/ContextDashboard';
 import { CronTrigger } from './components/CronTrigger';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { AgentDetail } from './components/FleetPanel';
 import { InspectorPanel, InspectorTrigger } from './components/InspectorPanel';
 import { QuickModelSwitcher } from './components/QuickModelSwitcher';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -290,8 +289,6 @@ function AppInner() {
   const sessionTitle = useSessionStore((s) => s.session?.title);
   const sessionId = useSessionStore((s) => s.session?.id);
   const nickname = useUIStore((s) => (sessionId ? s.sessionNicknames[sessionId] : undefined));
-  const agentDetailModalId = useUIStore((s) => s.agentDetailModalId);
-  const setAgentDetailModalId = useUIStore((s) => s.setAgentDetailModalId);
   const sideContextBreakdownOpen = useUIStore((s) => s.sideContextBreakdownOpen);
   const setSideContextBreakdownOpen = useUIStore((s) => s.setSideContextBreakdownOpen);
   const fleetAgents = useFleetStore((s) => s.agents);
@@ -732,17 +729,7 @@ function AppInner() {
         </ErrorBoundary>
       )}
 
-      {/* Agent detail modal — triggered from side-panel agent row click */}
-      {agentDetailModalId &&
-        (() => {
-          const modalAgent = fleetAgents.get(agentDetailModalId) ?? null;
-          if (!modalAgent) return null;
-          return (
-            <Suspense fallback={null}>
-              <AgentDetail agent={modalAgent} onClose={() => setAgentDetailModalId(null)} />
-            </Suspense>
-          );
-        })()}
+      {/* Agent detail is now shown in the inspector sidebar — no modal needed */}
 
       {/* Context breakdown modal — triggered from side-panel session panel */}
       {sideContextBreakdownOpen && (

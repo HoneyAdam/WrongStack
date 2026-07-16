@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  calculateDesktopActivityCapacity,
+  PANEL_ORDER,
+  splitDesktopActivityBarItems,
+} from '@/components/activity-bar';
+import {
   ACTIVITY_SHORTCUT_BY_KEY,
   ACTIVITY_SHORTCUT_LABEL_BY_ACTIVITY,
   navigateToView,
@@ -8,11 +13,6 @@ import {
   pairedViewForActivity,
   showPanel,
 } from '@/components/activity-bar/nav';
-import {
-  calculateDesktopActivityCapacity,
-  PANEL_ORDER,
-  splitDesktopActivityBarItems,
-} from '@/components/activity-bar';
 import { PANEL_VIEW_BY_ACTIVITY } from '@/lib/view-navigation';
 import { useUIStore } from '@/stores';
 
@@ -47,7 +47,7 @@ describe('ActivityBar desktop responsive overflow', () => {
   });
 
   it('caps capacity at the total number of activity bar items', () => {
-    expect(calculateDesktopActivityCapacity(5000)).toBe(16);
+    expect(calculateDesktopActivityCapacity(5000)).toBe(17);
   });
 });
 

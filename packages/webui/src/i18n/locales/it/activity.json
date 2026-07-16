@@ -15,6 +15,7 @@
     "specs": "Specifiche",
     "sddboard": "Bacheca live",
     "autophase": "Fasi",
+    "memory": "Memoria",
     "fleet": "Flotta",
     "inspector": "Ispettore",
     "prompts": "Prompt"
@@ -170,7 +171,14 @@
     "outcome": "Risultato:",
     "task": "Attività:",
     "messageNotFound": "Messaggio non trovato",
-    "messageNotFoundHint": "Questo messaggio potrebbe essere stato eliminato o rimosso."
+    "messageNotFoundHint": "Questo messaggio potrebbe essere stato eliminato o rimosso.",
+    "sessionLabel": "Sessione",
+    "sessionScope": "Sessione {{sid}}",
+    "sessionScopeTitle": "Consegnato solo agli agenti nella sessione {{sid}}",
+    "projectLabel": "Progetto",
+    "projectScope": "Progetto (ogni agente)",
+    "directScope": "Diretto",
+    "scopeLabel": "Ambito"
   },
   "sessions": {
     "recentSessions": "Sessioni recenti",

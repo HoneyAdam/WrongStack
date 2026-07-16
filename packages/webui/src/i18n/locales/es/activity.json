@@ -15,6 +15,7 @@
     "specs": "Especificaciones",
     "sddboard": "Tablero en vivo",
     "autophase": "Fases",
+    "memory": "Memoria",
     "fleet": "Flota",
     "inspector": "Inspector",
     "prompts": "Prompts"
@@ -170,7 +171,14 @@
     "outcome": "Resultado:",
     "task": "Tarea:",
     "messageNotFound": "Mensaje no encontrado",
-    "messageNotFoundHint": "Este mensaje puede haber sido eliminado o purgado."
+    "messageNotFoundHint": "Este mensaje puede haber sido eliminado o purgado.",
+    "sessionLabel": "Sesión",
+    "sessionScope": "Sesión {{sid}}",
+    "sessionScopeTitle": "Solo entregado a agentes en la sesión {{sid}}",
+    "projectLabel": "Proyecto",
+    "projectScope": "Proyecto (cada agente)",
+    "directScope": "Directo",
+    "scopeLabel": "Ámbito"
   },
   "sessions": {
     "recentSessions": "Sesiones recientes",

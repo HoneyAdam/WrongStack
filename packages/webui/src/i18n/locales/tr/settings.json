@@ -59,7 +59,7 @@
     "wsUrlPlaceholder": "ws://localhost:3457",
     "wsUrlHint": "Vekil WebSocket sunucusunun URL'si. Sunucu CLI ile birlikte çalışır.",
     "startingHeading": "WebSocket Sunucusunu Başlatma",
-    "startingBody": "Bağımsız: repo kökünden ./dev.ps1 çalıştırın veya wstackui başlatmadan önce WS_HOST/WS_PORT ayarlayın. Veya CLI ile birlikte: wstack --webui."
+    "startingBody": "Geliştirme için repo kökünden ./dev.ps1 çalıştırın (isteğe bağlı olarak önce WS_HOST/WS_PORT ayarlayın). Aksi hâlde WebUI'yi CLI ile başlatın: wstack --webui."
   },
   "provider": {
     "subscriptionHeading": "Abonelik girişi",

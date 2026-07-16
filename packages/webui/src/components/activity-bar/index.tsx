@@ -1,6 +1,7 @@
 import {
   Activity as ActivityIconSvg,
   Bot,
+  BrainCircuit,
   Building2,
   Clock,
   Columns3,
@@ -96,6 +97,7 @@ const VIEWS: ViewDef[] = [
   { id: 'sddboard', icon: <ActivityIconSvg size={16} />, label: 'Live Board' },
   { id: 'autophase', icon: <Rocket size={16} />, label: 'Phases' },
   { id: 'settings', icon: <SettingsIcon size={16} />, label: 'Settings' },
+  { id: 'memory', icon: <BrainCircuit size={16} />, label: 'Memory' },
 ];
 
 const DESKTOP_CORE_PANEL_IDS: readonly Activity[] = [
@@ -187,6 +189,7 @@ export function ActivityBar({ desktopShell = false }: { desktopShell?: boolean |
   // Subscribe (not getState()) so the utility trigger updates its active
   // highlight when the inspector opens or closes.
   const inspectorOpen = useUIStore((s) => s.inspectorOpen);
+  const inspectorTab = useUIStore((s) => s.inspectorTab);
   const desktopCapacity = useDesktopActivityCapacity(desktopShell);
   const desktopSplit = useMemo(
     () => splitDesktopActivityBarItems(desktopCapacity),
@@ -290,9 +293,22 @@ export function ActivityBar({ desktopShell = false }: { desktopShell?: boolean |
             compact={desktopShell}
             icon={def.icon}
             label={`${navLabel(def.id, def.label)} (${shortcutLabelForActivity(def.id)})`}
-            active={sidebarOpen && activeActivity === def.id}
+            active={def.id === 'agents' ? (inspectorOpen && inspectorTab === 'agents') : (sidebarOpen && activeActivity === def.id)}
             badge={badgeFor(def.id)}
-            onClick={() => openPanel(def.id)}
+            onClick={() => {
+              if (def.id === 'agents') {
+                // Agents icon opens the inspector sidebar, not the side panel
+                const ui = useUIStore.getState();
+                if (ui.inspectorOpen && ui.inspectorTab === 'agents') {
+                  ui.setInspectorOpen(false);
+                } else {
+                  ui.setInspectorTab('agents');
+                  ui.setInspectorOpen(true);
+                }
+              } else {
+                openPanel(def.id);
+              }
+            }}
           />
         ))}
 
@@ -495,15 +511,7 @@ function UtilitiesMenu({
             <DropdownMenuShortcut>⇧⌘M</DropdownMenuShortcut>
           )}
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => toggleInspectorTab('agents')}>
-          <ActivityIconSvg size={16} />
-          <span>{t('activity:menu.agentsMonitor')}</span>
-          {inspectorOpen && inspectorTab === 'agents' ? (
-            <span className="ml-auto w-1.5 h-1.5 rounded-full bg-primary" />
-          ) : (
-            <DropdownMenuShortcut>⇧⌘A</DropdownMenuShortcut>
-          )}
-        </DropdownMenuItem>
+        {/* Agents Monitor is now directly on the activity bar (Bot icon) */}
         <DropdownMenuItem onSelect={() => toggleInspectorTab('sideEffects')}>
           <Zap size={16} />
           <span>{t('activity:inspector.tabAudit')}</span>

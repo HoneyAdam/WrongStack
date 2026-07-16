@@ -15,6 +15,7 @@
     "specs": "Spécifications",
     "sddboard": "Tableau en direct",
     "autophase": "Phases",
+    "memory": "Mémoire",
     "fleet": "Flotte",
     "inspector": "Inspecteur",
     "prompts": "Prompts"
@@ -170,7 +171,14 @@
     "outcome": "Résultat :",
     "task": "Tâche :",
     "messageNotFound": "Message introuvable",
-    "messageNotFoundHint": "Ce message a peut-être été supprimé ou purgé."
+    "messageNotFoundHint": "Ce message a peut-être été supprimé ou purgé.",
+    "sessionLabel": "Session",
+    "sessionScope": "Session {{sid}}",
+    "sessionScopeTitle": "Uniquement remis aux agents de la session {{sid}}",
+    "projectLabel": "Projet",
+    "projectScope": "Projet (tous les agents)",
+    "directScope": "Direct",
+    "scopeLabel": "Portée"
   },
   "sessions": {
     "recentSessions": "Sessions récentes",

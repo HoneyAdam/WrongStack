@@ -15,6 +15,7 @@
     "specs": "Spesifikasyonlar",
     "sddboard": "Canlı Pano",
     "autophase": "Aşamalar",
+    "memory": "Bellek",
     "fleet": "Filo",
     "inspector": "Denetçi",
     "prompts": "Promptlar"
@@ -170,7 +171,14 @@
     "outcome": "Sonuç:",
     "task": "Görev:",
     "messageNotFound": "Mesaj bulunamadı",
-    "messageNotFoundHint": "Bu mesaj silinmiş veya temizlenmiş olabilir."
+    "messageNotFoundHint": "Bu mesaj silinmiş veya temizlenmiş olabilir.",
+    "sessionLabel": "Oturum",
+    "sessionScope": "Oturum {{sid}}",
+    "sessionScopeTitle": "Yalnızca {{sid}} oturumundaki vekillere teslim edildi",
+    "projectLabel": "Proje",
+    "projectScope": "Proje (her vekil)",
+    "directScope": "Doğrudan",
+    "scopeLabel": "Kapsam"
   },
   "sessions": {
     "recentSessions": "Son oturumlar",

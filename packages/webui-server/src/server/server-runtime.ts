@@ -311,7 +311,7 @@ export function armEvents(
  * it lives in the separate `@wrongstack/webui` package. Callers can pass an
  * explicit `distDir`; when they don't, we try to resolve the frontend package
  * relative to the server entry that is asking. This lets the standalone
- * `wstackui` binary serve the webui assets when both packages are installed,
+ * standalone server serve the webui assets when both packages are installed,
  * while also allowing embedded callers (e.g. the desktop app) to pass an exact
  * path so they don't depend on module-resolution layout.
  */

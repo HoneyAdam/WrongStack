@@ -1,3 +1,4 @@
+import { safeId } from '@/lib/utils';
 import type {
   WSClientMessage,
   WSCompletionRequest,
@@ -11,17 +12,16 @@ import {
   buildUndoClearMessage,
 } from './ws-client-helpers';
 import {
-  type EventHandler,
-  type PendingConfirm,
-  type WsStatus,
-  getTokenFromWsUrl,
-  getTokenFromPageUrl,
   defaultWsUrl,
+  type EventHandler,
+  getTokenFromPageUrl,
+  getTokenFromWsUrl,
   httpOriginForAuth,
+  type PendingConfirm,
   stripTokenFromAddressBar,
   stripTokenFromUrl,
+  type WsStatus,
 } from './ws-client-utils';
-import { safeId } from '@/lib/utils';
 
 // Re-export types for backward compat
 export type { WsStatus };
@@ -140,12 +140,14 @@ export class WrongStackWebSocketClient {
         cache: 'no-store',
       });
       if (!res.ok) {
-        console.warn(JSON.stringify({
-          level: 'warn',
-          event: 'ws_client.ws_auth_failed',
-          status: res.status,
-          timestamp: new Date().toISOString(),
-        }));
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            event: 'ws_client.ws_auth_failed',
+            status: res.status,
+            timestamp: new Date().toISOString(),
+          }),
+        );
       } else {
         if (wsUrlCanUseAuthCookie(this.url)) {
           this.url = stripTokenFromUrl(this.url);
@@ -155,12 +157,14 @@ export class WrongStackWebSocketClient {
     } catch (err) {
       // Network failure on the auth bootstrap may still work for loopback or
       // explicit public-WS URL flows. Log it and let the handshake policy decide.
-      console.warn(JSON.stringify({
-        level: 'warn',
-        event: 'ws_client.ws_auth_error',
-        message: err instanceof Error ? err.message : String(err),
-        timestamp: new Date().toISOString(),
-      }));
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          event: 'ws_client.ws_auth_error',
+          message: err instanceof Error ? err.message : String(err),
+          timestamp: new Date().toISOString(),
+        }),
+      );
     }
   }
 
@@ -253,23 +257,27 @@ export class WrongStackWebSocketClient {
             const msg = JSON.parse(event.data) as WSServerMessage;
             this.handleMessage(msg);
           } catch (err) {
-            console.error(JSON.stringify({
-              level: 'error',
-              event: 'ws_client.message_parse_failed',
-              message: err instanceof Error ? err.message : String(err),
-              timestamp: new Date().toISOString(),
-            }));
+            console.error(
+              JSON.stringify({
+                level: 'error',
+                event: 'ws_client.message_parse_failed',
+                message: err instanceof Error ? err.message : String(err),
+                timestamp: new Date().toISOString(),
+              }),
+            );
           }
         };
 
         ws.onerror = (error) => {
           if (this.socketGeneration !== gen) return; // stale socket
-          console.error(JSON.stringify({
-            level: 'error',
-            event: 'ws_client.error',
-            message: error instanceof Error ? error.message : String(error),
-            timestamp: new Date().toISOString(),
-          }));
+          console.error(
+            JSON.stringify({
+              level: 'error',
+              event: 'ws_client.error',
+              message: error instanceof Error ? error.message : String(error),
+              timestamp: new Date().toISOString(),
+            }),
+          );
           // ErrorEvent in browsers is intentionally opaque — Chrome won't
           // expose the underlying reason for security. We stash a generic
           // hint so the UI has something to display.
@@ -334,12 +342,14 @@ export class WrongStackWebSocketClient {
         try {
           await this.connect();
         } catch (err) {
-          console.error(JSON.stringify({
-            level: 'error',
-            event: 'ws_client.reconnect_failed',
-            message: err instanceof Error ? err.message : String(err),
-            timestamp: new Date().toISOString(),
-          }));
+          console.error(
+            JSON.stringify({
+              level: 'error',
+              event: 'ws_client.reconnect_failed',
+              message: err instanceof Error ? err.message : String(err),
+              timestamp: new Date().toISOString(),
+            }),
+          );
         }
       }
     }, delay);
@@ -353,12 +363,16 @@ export class WrongStackWebSocketClient {
       this.reconnectTimer = null;
     }
     this.reconnectAttempts = 0;
-    void this.connect().catch((err) => console.warn(JSON.stringify({
-      level: 'warn',
-      event: 'ws_client.reconnect_failed',
-      message: err instanceof Error ? err.message : String(err),
-      timestamp: new Date().toISOString(),
-    })));
+    void this.connect().catch((err) =>
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          event: 'ws_client.reconnect_failed',
+          message: err instanceof Error ? err.message : String(err),
+          timestamp: new Date().toISOString(),
+        }),
+      ),
+    );
   }
 
   private flushMessageQueue() {
@@ -404,13 +418,15 @@ export class WrongStackWebSocketClient {
         try {
           handler(msg);
         } catch (err) {
-          console.error(JSON.stringify({
-            level: 'error',
-            event: 'ws_client.handler_error',
-            messageType: msg.type,
-            message: err instanceof Error ? err.message : String(err),
-            timestamp: new Date().toISOString(),
-          }));
+          console.error(
+            JSON.stringify({
+              level: 'error',
+              event: 'ws_client.handler_error',
+              messageType: msg.type,
+              message: err instanceof Error ? err.message : String(err),
+              timestamp: new Date().toISOString(),
+            }),
+          );
         }
       }
     }
@@ -430,18 +446,18 @@ export class WrongStackWebSocketClient {
       // FIFO-drop oldest when full. Keeps the queue bounded under
       // long disconnects and ensures the most recent user intent is
       // preserved (vs. a flood of stale earlier messages on reconnect).
-      if (
-        this.messageQueue.length >= WrongStackWebSocketClient.MAX_QUEUED_MESSAGES
-      ) {
+      if (this.messageQueue.length >= WrongStackWebSocketClient.MAX_QUEUED_MESSAGES) {
         const dropped = this.messageQueue.shift();
         if (dropped) {
-          console.warn(JSON.stringify({
-            level: 'warn',
-            event: 'ws_client.message_queue_full',
-            cap: WrongStackWebSocketClient.MAX_QUEUED_MESSAGES,
-            droppedType: dropped.type,
-            timestamp: new Date().toISOString(),
-          }));
+          console.warn(
+            JSON.stringify({
+              level: 'warn',
+              event: 'ws_client.message_queue_full',
+              cap: WrongStackWebSocketClient.MAX_QUEUED_MESSAGES,
+              droppedType: dropped.type,
+              timestamp: new Date().toISOString(),
+            }),
+          );
         }
       }
       this.messageQueue.push(message);
@@ -647,11 +663,29 @@ export class WrongStackWebSocketClient {
     this.send({ type: 'context.mode.switch', payload: this.withSession({ id }) });
   }
 
-  createContextMode(mode: { id: string; name: string; description: string; thresholds: { warn: number; soft: number; hard: number }; preserveK: number; eliseThreshold: number }) {
+  createContextMode(mode: {
+    id: string;
+    name: string;
+    description: string;
+    thresholds: { warn: number; soft: number; hard: number };
+    preserveK: number;
+    eliseThreshold: number;
+  }) {
     this.send({ type: 'context.mode.create', payload: this.withSession(mode) });
   }
 
-  updateContextMode(id: string, patch: { name?: string | undefined; description?: string | undefined; thresholds?: { warn?: number | undefined; soft?: number | undefined; hard?: number | undefined } | undefined; preserveK?: number | undefined; eliseThreshold?: number | undefined }) {
+  updateContextMode(
+    id: string,
+    patch: {
+      name?: string | undefined;
+      description?: string | undefined;
+      thresholds?:
+        | { warn?: number | undefined; soft?: number | undefined; hard?: number | undefined }
+        | undefined;
+      preserveK?: number | undefined;
+      eliseThreshold?: number | undefined;
+    },
+  ) {
     this.send({ type: 'context.mode.update', payload: this.withSession({ id, ...patch }) });
   }
 
@@ -701,7 +735,9 @@ export class WrongStackWebSocketClient {
     this.send({ type: 'memory.super.delete', payload: { id, reason } });
   }
 
-  rememberSuperMemory(opts: { text: string; kind?: string; tags?: string[]; importance?: number; confidence?: number }) {
+  rememberSuperMemory(
+    opts: Extract<WSClientMessage, { type: 'memory.super.remember' }>['payload'],
+  ) {
     this.send({ type: 'memory.super.remember', payload: opts });
   }
 
@@ -710,7 +746,19 @@ export class WrongStackWebSocketClient {
     this.send({ type: 'mcp.list' });
   }
 
-  addMcpServer(config: { name: string; transport: string; description?: string; enabled?: boolean; command?: string; args?: string[]; env?: Record<string, string>; allowedTools?: string[]; url?: string; headers?: Record<string, string>; lazy?: boolean }) {
+  addMcpServer(config: {
+    name: string;
+    transport: string;
+    description?: string;
+    enabled?: boolean;
+    command?: string;
+    args?: string[];
+    env?: Record<string, string>;
+    allowedTools?: string[];
+    url?: string;
+    headers?: Record<string, string>;
+    lazy?: boolean;
+  }) {
     this.send({ type: 'mcp.add', payload: config });
   }
 
@@ -718,7 +766,19 @@ export class WrongStackWebSocketClient {
     this.send({ type: 'mcp.remove', payload: { name } });
   }
 
-  updateMcpServer(config: { name: string; transport?: string; description?: string; enabled?: boolean; command?: string; args?: string[]; env?: Record<string, string>; allowedTools?: string[]; url?: string; headers?: Record<string, string>; lazy?: boolean }) {
+  updateMcpServer(config: {
+    name: string;
+    transport?: string;
+    description?: string;
+    enabled?: boolean;
+    command?: string;
+    args?: string[];
+    env?: Record<string, string>;
+    allowedTools?: string[];
+    url?: string;
+    headers?: Record<string, string>;
+    lazy?: boolean;
+  }) {
     this.send({ type: 'mcp.update', payload: config });
   }
 
@@ -838,9 +898,7 @@ export class WrongStackWebSocketClient {
   }
 
   removeTodo(idOrIndex: string | number) {
-    const payload = typeof idOrIndex === 'number'
-      ? { index: idOrIndex }
-      : { id: idOrIndex };
+    const payload = typeof idOrIndex === 'number' ? { index: idOrIndex } : { id: idOrIndex };
     this.send({ type: 'todos.remove', payload: this.withSession(payload) });
   }
 

@@ -14,6 +14,7 @@ describe('setupEvents session scoping', () => {
       context: {
         session: { id: '2026-06-29/sess_active' },
         todos: [],
+        state: { onChange: vi.fn(), revision: 0 },
       } as unknown as Context,
       pendingConfirms: new Map(),
       sessionBridge: { append } as unknown as SessionEventBridge,
