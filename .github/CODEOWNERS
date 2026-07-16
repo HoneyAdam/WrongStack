@@ -1,0 +1,32 @@
+# CODEOWNERS — GitHub code ownership rules.
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Format: <pattern> <owner1> <owner2> ...
+# Owners can be GitHub usernames (@user) or team names (@org/team).
+# The last matching pattern takes precedence.
+
+# ── Global default ────────────────────────────────────────────────────
+# All files not matched below require review from the maintainer.
+* @ersinkoc
+
+# ── Core package ──────────────────────────────────────────────────────
+/packages/core/ @ersinkoc
+
+# ── CLI ───────────────────────────────────────────────────────────────
+/packages/cli/ @ersinkoc
+
+# ── Security ──────────────────────────────────────────────────────────
+/SECURITY.md @ersinkoc
+/packages/security-scanner/ @ersinkoc
+
+# ── CI / Infrastructure ───────────────────────────────────────────────
+/.github/ @ersinkoc
+/.gitignore @ersinkoc
+/.gitattributes @ersinkoc
+/tsconfig.json @ersinkoc
+/tsconfig.base.json @ersinkoc
+/pnpm-workspace.yaml @ersinkoc
+/package.json @ersinkoc
+
+# ── Website ───────────────────────────────────────────────────────────
+/website/ @ersinkoc
