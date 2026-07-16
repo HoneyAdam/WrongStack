@@ -399,6 +399,42 @@ describe('mailbox-bridge — POST /mailbox/ack-many validator mutations', () => 
   });
 });
 
+describe('mailbox-bridge — POST /mailbox/ack-many empty-array acceptance boundary', () => {
+  const valid = {
+    acks: [{ messageId: 'placeholder', readerId: 'mut-reader', read: true }],
+  };
+
+  it('accepts an empty acks array as a documented no-op', async () => {
+    const baseline = await countMessages();
+    const res = await http('POST', '/mailbox/ack-many', { acks: [] }, auth());
+    expect(res.status).toBe(200);
+    const data = res.body as { count?: number; updated?: unknown };
+    expect(data).toHaveProperty('count', 0);
+    expect(data).toHaveProperty('updated');
+    expect(await countMessages(), 'empty ack-many leaked side effects').toBe(baseline);
+  });
+
+  it('rejects acks as null', async () => {
+    await runMutation({
+      name: 'ack-many null acks',
+      route: '/mailbox/ack-many',
+      validBody: valid,
+      mutate: (b) => { b['acks'] = null; },
+      rejectContains: '"acks"',
+    });
+  });
+
+  it('rejects missing acks field', async () => {
+    await runMutation({
+      name: 'ack-many missing acks',
+      route: '/mailbox/ack-many',
+      validBody: valid,
+      mutate: (b) => { delete b['acks']; },
+      rejectContains: '"acks"',
+    });
+  });
+});
+
 describe('mailbox-bridge — POST /mailbox/agents/register validator mutations', () => {
   const validAgentReg = {
     agentId: 'mut-agent',
