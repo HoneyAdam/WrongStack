@@ -25,9 +25,12 @@ import {
   LEADER_AGENT_ID,
   mergeSubagentSnapshot,
   parseAgentSessionReplays,
+  partitionAgentTabs,
   projectAgentTimelineEntry,
   projectCompletedAgentText,
+  pruneAgents,
   resolveSelectedAgentId,
+  stampAgentUpdates,
 } from './lib/agent-model.js';
 import { contentToText, replayToMessages, updateSubagents } from './lib/chat-model.js';
 import { copyText } from './lib/clipboard.js';
@@ -102,6 +105,7 @@ export function App() {
   const [providerLabels, setProviderLabels] = useState<Record<string, string>>({});
   const [subagents, setSubagents] = useState<SimpleSubagent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState(LEADER_AGENT_ID);
+  const [finishedMenuOpen, setFinishedMenuOpen] = useState(false);
   const [agentTranscripts, setAgentTranscripts] = useState<Record<string, AgentTranscriptEntry[]>>(
     {},
   );
@@ -548,17 +552,20 @@ export function App() {
             } satisfies SimpleSubagent,
           ];
         });
-        setSubagents((current) => mergeSubagentSnapshot(current, snapshot));
+        setSubagents((current) => stampAgentUpdates(current, mergeSubagentSnapshot(current, snapshot)));
         break;
       }
       case 'subagent.event': {
         const id = typeof payload['subagentId'] === 'string' ? payload['subagentId'] : '';
         setSubagents((current) =>
-          payload['kind'] === 'removed'
-            ? current.map((agent) =>
-                agent.id === id ? { ...agent, status: 'stopped', task: undefined } : agent,
-              )
-            : updateSubagents(current, payload),
+          stampAgentUpdates(
+            current,
+            payload['kind'] === 'removed'
+              ? current.map((agent) =>
+                  agent.id === id ? { ...agent, status: 'stopped', task: undefined } : agent,
+                )
+              : updateSubagents(current, payload),
+          ),
         );
         if (payload['kind'] === 'task_completed' && id) {
           const entry = projectCompletedAgentText(
@@ -700,7 +707,24 @@ export function App() {
     [models],
   );
   const agentTabs = useMemo(() => buildAgentTabs(subagents, running), [running, subagents]);
+  const { active: liveAgentTabs, finished: finishedAgentTabs } = useMemo(
+    () => partitionAgentTabs(agentTabs),
+    [agentTabs],
+  );
   const activeAgentId = resolveSelectedAgentId(selectedAgentId, agentTabs);
+
+  // Periodically prune idle/offline workers that have aged out so the strip and
+  // dropdown don't accumulate agents no longer worth viewing.
+  useEffect(() => {
+    if (subagents.length === 0) return;
+    const timer = setInterval(() => {
+      setSubagents((current) => {
+        const pruned = pruneAgents(current, Date.now());
+        return pruned.length === current.length ? current : pruned;
+      });
+    }, 15_000);
+    return () => clearInterval(timer);
+  }, [subagents.length]);
   const leaderSelected = canComposeForAgent(activeAgentId);
   const currentSessionSummary = useMemo(
     () => sessions.find((item) => item.id === session?.id),
@@ -967,7 +991,7 @@ export function App() {
           <Users size={14} aria-hidden="true" /> AGENTS
         </div>
         <div className="agent-list" role="tablist" aria-label="Agent conversations">
-          {agentTabs.map((agent, index) => {
+          {liveAgentTabs.map((agent, index) => {
             const selected = activeAgentId === agent.id;
             return (
               <button
@@ -985,7 +1009,8 @@ export function App() {
                   if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
                   event.preventDefault();
                   const direction = event.key === 'ArrowRight' ? 1 : -1;
-                  const next = agentTabs[(index + direction + agentTabs.length) % agentTabs.length];
+                  const next =
+                    liveAgentTabs[(index + direction + liveAgentTabs.length) % liveAgentTabs.length];
                   if (!next) return;
                   setSelectedAgentId(next.id);
                   requestAnimationFrame(() =>
@@ -1001,6 +1026,52 @@ export function App() {
             );
           })}
         </div>
+        {finishedAgentTabs.length > 0 && (
+          <div className="agent-finished">
+            <button
+              type="button"
+              className={`agent-finished-toggle${finishedMenuOpen ? ' open' : ''}`}
+              aria-haspopup="menu"
+              aria-expanded={finishedMenuOpen}
+              onClick={() => setFinishedMenuOpen((open) => !open)}
+            >
+              <ChevronDown size={13} aria-hidden="true" />
+              Finished ({finishedAgentTabs.length})
+            </button>
+            {finishedMenuOpen && (
+              <>
+                <button
+                  type="button"
+                  className="agent-finished-backdrop"
+                  aria-label="Close finished agents menu"
+                  tabIndex={-1}
+                  onClick={() => setFinishedMenuOpen(false)}
+                />
+                <div className="agent-finished-menu" role="menu" aria-label="Finished agents">
+                  {finishedAgentTabs.map((agent) => (
+                    <button
+                      type="button"
+                      key={agent.id}
+                      role="menuitem"
+                      className={`agent-finished-item${
+                        activeAgentId === agent.id ? ' active' : ''
+                      }`}
+                      title={agent.task ?? `${agent.name} · ${agent.status}`}
+                      onClick={() => {
+                        setSelectedAgentId(agent.id);
+                        setFinishedMenuOpen(false);
+                      }}
+                    >
+                      <span className={`agent-dot ${agent.status}`} aria-hidden="true" />
+                      <strong>{agent.name}</strong>
+                      <span>{agent.status}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </section>
 
       <ErrorBoundary>

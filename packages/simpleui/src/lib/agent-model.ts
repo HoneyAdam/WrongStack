@@ -3,12 +3,39 @@ import type { AgentSessionReplay, AgentTranscriptEntry, SimpleSubagent } from '.
 export const LEADER_AGENT_ID = 'leader';
 const MAX_AGENT_TRANSCRIPT_ENTRIES = 500;
 
+/**
+ * How long an idle/offline worker stays visible before it is pruned from the
+ * UI. Active (running/busy) agents are never pruned regardless of age.
+ */
+export const IDLE_AGENT_TTL_MS = 60_000;
+
+/** Statuses that mean the agent is still doing work and must stay a live tab. */
+const ACTIVE_STATUSES: ReadonlySet<string> = new Set(['running', 'busy', 'working', 'active']);
+
+/** Statuses that mean the agent is gone and should be pruned once it ages out. */
+const REMOVABLE_STATUSES: ReadonlySet<string> = new Set([
+  'idle',
+  'offline',
+  'off',
+  'stopped',
+  'cancelled',
+  'canceled',
+]);
+
+export function isActiveStatus(status: string): boolean {
+  return ACTIVE_STATUSES.has(status.toLowerCase());
+}
+
 export interface AgentTab {
   id: string;
   name: string;
   status: string;
   task?: string | undefined;
   isLeader: boolean;
+  /** true when running/busy — kept as a strip tab rather than in the dropdown. */
+  isActive: boolean;
+  /** Epoch ms of the last update, when known. */
+  updatedAt?: number | undefined;
 }
 
 /** The leader is always first; workers retain their stable discovery order. */
@@ -19,9 +46,67 @@ export function buildAgentTabs(subagents: SimpleSubagent[], leaderRunning: boole
       name: 'LEADER',
       status: leaderRunning ? 'running' : 'idle',
       isLeader: true,
+      isActive: true,
     },
-    ...subagents.map((agent) => ({ ...agent, isLeader: false })),
+    ...subagents.map((agent) => ({
+      ...agent,
+      isLeader: false,
+      isActive: isActiveStatus(agent.status),
+    })),
   ];
+}
+
+/**
+ * Refresh `updatedAt` on agents whose identity is new or whose status changed
+ * versus the previous list, leaving unchanged agents untouched so the idle TTL
+ * measures time since the last *real* update, not every re-render.
+ */
+export function stampAgentUpdates(
+  previous: SimpleSubagent[],
+  next: SimpleSubagent[],
+  now: number = Date.now(),
+): SimpleSubagent[] {
+  const before = new Map(previous.map((agent) => [agent.id, agent]));
+  return next.map((agent) => {
+    const prior = before.get(agent.id);
+    if (prior && prior.status === agent.status && typeof prior.updatedAt === 'number') {
+      return agent.updatedAt === prior.updatedAt ? agent : { ...agent, updatedAt: prior.updatedAt };
+    }
+    return { ...agent, updatedAt: now };
+  });
+}
+
+/** Split worker tabs into live (strip) and finished (dropdown) groups. */
+export function partitionAgentTabs(tabs: AgentTab[]): {
+  active: AgentTab[];
+  finished: AgentTab[];
+} {
+  const active: AgentTab[] = [];
+  const finished: AgentTab[] = [];
+  for (const tab of tabs) {
+    if (tab.isLeader || tab.isActive) active.push(tab);
+    else finished.push(tab);
+  }
+  return { active, finished };
+}
+
+/**
+ * Drop idle/offline workers that haven't updated within the TTL so the strip
+ * and dropdown don't accumulate agents no longer worth viewing. Agents without
+ * a known `updatedAt` are treated as freshly seen (kept) to avoid pruning a
+ * worker before its first timestamped update lands.
+ */
+export function pruneAgents(
+  subagents: SimpleSubagent[],
+  now: number,
+  ttlMs: number = IDLE_AGENT_TTL_MS,
+): SimpleSubagent[] {
+  return subagents.filter((agent) => {
+    if (isActiveStatus(agent.status)) return true;
+    if (!REMOVABLE_STATUSES.has(agent.status.toLowerCase())) return true;
+    if (typeof agent.updatedAt !== 'number') return true;
+    return now - agent.updatedAt < ttlMs;
+  });
 }
 
 /** Keep the current tab when it still exists, otherwise fall back to the leader. */

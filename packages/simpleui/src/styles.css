@@ -486,6 +486,111 @@ a:focus-visible {
   display: flex;
   align-items: stretch;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+.agent-finished {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  border-left: 1px solid var(--line);
+}
+
+.agent-finished-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 100%;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 120ms ease-out;
+}
+
+.agent-finished-toggle:hover,
+.agent-finished-toggle.open {
+  color: var(--text);
+}
+
+.agent-finished-toggle svg {
+  transition: transform 120ms ease-out;
+}
+
+.agent-finished-toggle.open svg {
+  transform: rotate(180deg);
+}
+
+.agent-finished-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  border: 0;
+  background: transparent;
+  cursor: default;
+}
+
+.agent-finished-menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 0;
+  z-index: 21;
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+  max-width: 320px;
+  max-height: 60vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.agent-finished-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  font-size: 10px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 120ms ease-out;
+}
+
+.agent-finished-item:last-child {
+  border-bottom: 0;
+}
+
+.agent-finished-item:hover,
+.agent-finished-item.active {
+  background: var(--surface-2);
+}
+
+.agent-finished-item strong {
+  overflow: hidden;
+  font-weight: 700;
+  text-overflow: ellipsis;
+}
+
+.agent-finished-item > span:not(.agent-dot) {
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9px;
+  text-transform: uppercase;
 }
 
 .agent-item {

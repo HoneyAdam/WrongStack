@@ -51,6 +51,8 @@ export interface SimpleSubagent {
   status: string;
   task?: string | undefined;
   model?: string | undefined;
+  /** Epoch ms of the last status/activity update — drives idle pruning. */
+  updatedAt?: number | undefined;
 }
 
 export type AgentTranscriptKind =

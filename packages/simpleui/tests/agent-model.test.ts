@@ -3,11 +3,16 @@ import {
   appendAgentTranscriptEntry,
   buildAgentTabs,
   canComposeForAgent,
+  IDLE_AGENT_TTL_MS,
+  isActiveStatus,
   mergeSubagentSnapshot,
   parseAgentSessionReplays,
+  partitionAgentTabs,
   projectAgentTimelineEntry,
   projectCompletedAgentText,
+  pruneAgents,
   resolveSelectedAgentId,
+  stampAgentUpdates,
 } from '../src/lib/agent-model.js';
 import type { AgentTranscriptEntry, SimpleSubagent } from '../src/types.js';
 
@@ -320,5 +325,94 @@ describe('SimpleUI per-agent histories', () => {
     expect(history).toHaveLength(500);
     expect(history[0]?.content).toBe('message-5');
     expect(history.at(-1)?.content).toBe('message-504');
+  });
+});
+
+describe('isActiveStatus', () => {
+  it('treats running-family statuses as active and everything else as inactive', () => {
+    expect(isActiveStatus('running')).toBe(true);
+    expect(isActiveStatus('BUSY')).toBe(true);
+    expect(isActiveStatus('working')).toBe(true);
+    expect(isActiveStatus('idle')).toBe(false);
+    expect(isActiveStatus('completed')).toBe(false);
+    expect(isActiveStatus('offline')).toBe(false);
+  });
+});
+
+describe('buildAgentTabs isActive flag', () => {
+  it('marks the leader and running workers active, finished workers inactive', () => {
+    const tabs = buildAgentTabs(
+      [
+        { id: 'w1', name: 'W1', status: 'running' },
+        { id: 'w2', name: 'W2', status: 'completed' },
+      ],
+      false,
+    );
+    const byId = new Map(tabs.map((tab) => [tab.id, tab]));
+    expect(byId.get('leader')?.isActive).toBe(true);
+    expect(byId.get('w1')?.isActive).toBe(true);
+    expect(byId.get('w2')?.isActive).toBe(false);
+  });
+});
+
+describe('partitionAgentTabs', () => {
+  it('keeps the leader and active workers as tabs, moving finished workers to the dropdown', () => {
+    const tabs = buildAgentTabs(
+      [
+        { id: 'w1', name: 'W1', status: 'running' },
+        { id: 'w2', name: 'W2', status: 'completed' },
+        { id: 'w3', name: 'W3', status: 'idle' },
+      ],
+      true,
+    );
+    const { active, finished } = partitionAgentTabs(tabs);
+    expect(active.map((tab) => tab.id)).toEqual(['leader', 'w1']);
+    expect(finished.map((tab) => tab.id)).toEqual(['w2', 'w3']);
+  });
+});
+
+describe('stampAgentUpdates', () => {
+  it('stamps new agents and status changes but preserves timestamps for unchanged agents', () => {
+    const previous: SimpleSubagent[] = [
+      { id: 'w1', name: 'W1', status: 'running', updatedAt: 1000 },
+    ];
+    const next: SimpleSubagent[] = [
+      { id: 'w1', name: 'W1', status: 'running' },
+      { id: 'w2', name: 'W2', status: 'idle' },
+    ];
+    const stamped = stampAgentUpdates(previous, next, 5000);
+    expect(stamped.find((a) => a.id === 'w1')?.updatedAt).toBe(1000);
+    expect(stamped.find((a) => a.id === 'w2')?.updatedAt).toBe(5000);
+  });
+
+  it('re-stamps an agent whose status changed', () => {
+    const previous: SimpleSubagent[] = [
+      { id: 'w1', name: 'W1', status: 'running', updatedAt: 1000 },
+    ];
+    const next: SimpleSubagent[] = [{ id: 'w1', name: 'W1', status: 'completed' }];
+    const stamped = stampAgentUpdates(previous, next, 5000);
+    expect(stamped[0]?.updatedAt).toBe(5000);
+  });
+});
+
+describe('pruneAgents', () => {
+  const now = 100_000;
+  it('removes idle/offline workers past the TTL', () => {
+    const agents: SimpleSubagent[] = [
+      { id: 'live', name: 'Live', status: 'running', updatedAt: 0 },
+      { id: 'fresh', name: 'Fresh', status: 'idle', updatedAt: now - 1000 },
+      { id: 'stale', name: 'Stale', status: 'idle', updatedAt: now - IDLE_AGENT_TTL_MS - 1 },
+      { id: 'off', name: 'Off', status: 'offline', updatedAt: now - IDLE_AGENT_TTL_MS - 1 },
+    ];
+    const kept = pruneAgents(agents, now).map((a) => a.id);
+    expect(kept).toEqual(['live', 'fresh']);
+  });
+
+  it('keeps agents without a timestamp and non-removable statuses', () => {
+    const agents: SimpleSubagent[] = [
+      { id: 'nots', name: 'NoTs', status: 'idle' },
+      { id: 'failed', name: 'Failed', status: 'failed', updatedAt: now - IDLE_AGENT_TTL_MS - 1 },
+    ];
+    expect(pruneAgents(agents, now).map((a) => a.id)).toEqual(['nots', 'failed']);
   });
 });
