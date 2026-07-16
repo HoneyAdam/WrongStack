@@ -6,6 +6,7 @@ import type { PendingConfirm } from './pending-confirms.js';
 import * as fs from 'node:fs/promises';
 import { watch as fsWatch } from 'node:fs';
 import * as path from 'node:path';
+import { getBoard, getKanbanDir } from '@wrongstack/kanban';
 
 /** Metrics for the file watcher that watches status.json files. */
 export interface FileWatcherMetrics {
@@ -102,6 +103,46 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
       });
     }),
   );
+
+  // ── Kanban board file watcher ────────────────────────────────────────────
+  // When any board JSON changes on disk (external agent, another process),
+  // push the updated board to every connected WebUI client so KanbanView
+  // renders the live state without waiting for the next polling tick.
+  let kanbanWatcher: ReturnType<typeof fsWatch> | null = null;
+  let kanbanDebounce: ReturnType<typeof setTimeout> | null = null;
+  const projectRoot = context.projectRoot;
+  if (projectRoot) {
+    try {
+      const kanbanDir = getKanbanDir(projectRoot);
+      kanbanWatcher = fsWatch(kanbanDir, { persistent: false }, (_eventType, filename) => {
+        const name = filename?.toString();
+        if (!name?.endsWith('.json')) return;
+        const boardId = name.slice(0, -5);
+        if (kanbanDebounce) clearTimeout(kanbanDebounce);
+        kanbanDebounce = setTimeout(async () => {
+          try {
+            const board = await getBoard(projectRoot, boardId);
+            if (board) {
+              broadcast(clients, {
+                type: 'kanban.get',
+                payload: { success: true, data: board },
+              });
+            }
+          } catch {
+            // best-effort: the next polling tick will catch transient errors
+          }
+        }, 60);
+      });
+      kanbanWatcher.on('error', () => kanbanWatcher?.close());
+      disposers.push(() => {
+        if (kanbanDebounce) clearTimeout(kanbanDebounce);
+        kanbanWatcher?.close();
+        kanbanWatcher = null;
+      });
+    } catch {
+      // Kanban directory may not exist yet
+    }
+  }
   const currentSessionId = (): string => context.session?.id ?? '';
   const sessionPayload = <T extends Record<string, unknown>>(payload: T): T & { sessionId: string } => {
     const provided = payload['sessionId'];

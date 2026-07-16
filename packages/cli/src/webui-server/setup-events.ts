@@ -16,6 +16,9 @@ import { createEternalSubscription } from '@wrongstack/webui-server';
 import type { StreamCoalescer } from './stream-coalescer.js';
 import type { PendingConfirm } from './ws-handlers/index.js';
 
+import { watch } from 'node:fs';
+import { getBoard, getKanbanDir } from '@wrongstack/kanban';
+
 export interface SetupEventsDeps {
   events: EventBus;
   agent: { ctx: Context };
@@ -87,6 +90,44 @@ export function createSetupEvents(deps: SetupEventsDeps): () => void {
           });
         }),
       );
+
+      // ── Kanban board file watcher ──────────────────────────────────────
+      // Push live board updates when external agents mutate board JSON.
+      const projectRoot = deps.agent.ctx.projectRoot;
+      let kanbanWatcher: ReturnType<typeof watch> | null = null;
+      let kanbanDebounce: ReturnType<typeof setTimeout> | null = null;
+      if (projectRoot) {
+        try {
+          const kanbanDir = getKanbanDir(projectRoot);
+          kanbanWatcher = watch(kanbanDir, { persistent: false }, (_eventType, filename) => {
+            const name = filename?.toString();
+            if (!name?.endsWith('.json')) return;
+            const boardId = name.slice(0, -5);
+            if (kanbanDebounce) clearTimeout(kanbanDebounce);
+            kanbanDebounce = setTimeout(async () => {
+              try {
+                const board = await getBoard(projectRoot, boardId);
+                if (board) {
+                  broadcast({
+                    type: 'kanban.get',
+                    payload: { success: true, data: board },
+                  });
+                }
+              } catch {
+                /* best-effort */
+              }
+            }, 60);
+          });
+          kanbanWatcher.on('error', () => kanbanWatcher?.close());
+          eventUnsubscribers.push(() => {
+            if (kanbanDebounce) clearTimeout(kanbanDebounce);
+            kanbanWatcher?.close();
+            kanbanWatcher = null;
+          });
+        } catch {
+          /* kanban dir may not exist yet */
+        }
+      }
 
       // ── Leader identity — the host is always the leader (agentId 'leader').
       // Emit once so the WebUI's fleet store sets leaderId and shows the crown.
