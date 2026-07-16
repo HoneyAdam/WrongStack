@@ -46,6 +46,7 @@
     "@wrongstack/runtime": "workspace:*",
     "@wrongstack/sdd": "workspace:*",
     "@wrongstack/super-memory": "workspace:*",
+    "@wrongstack/techstack": "workspace:*",
     "@wrongstack/tools": "workspace:*",
     "ws": "^8.21.0"
   },

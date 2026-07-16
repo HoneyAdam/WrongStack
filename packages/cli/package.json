@@ -58,6 +58,7 @@
     "@wrongstack/sdd": "workspace:*",
     "@wrongstack/simpleui": "workspace:*",
     "@wrongstack/super-memory": "workspace:*",
+    "@wrongstack/techstack": "workspace:*",
     "@wrongstack/telegram": "workspace:*",
     "@wrongstack/tools": "workspace:*",
     "@wrongstack/tui": "workspace:*",

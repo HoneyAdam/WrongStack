@@ -161,6 +161,9 @@ importers:
       '@wrongstack/super-memory':
         specifier: workspace:*
         version: link:../super-memory
+      '@wrongstack/techstack':
+        specifier: workspace:*
+        version: link:../techstack
       '@wrongstack/telegram':
         specifier: workspace:*
         version: link:../telegram
@@ -752,6 +755,9 @@ importers:
       '@wrongstack/super-memory':
         specifier: workspace:*
         version: link:../super-memory
+      '@wrongstack/techstack':
+        specifier: workspace:*
+        version: link:../techstack
       '@wrongstack/tools':
         specifier: workspace:*
         version: link:../tools
