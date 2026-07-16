@@ -53,7 +53,7 @@ This is a surface that earns the "extremely comprehensive autonomous coding assi
 
 - **20 packages:** kernel (core), providers, tools (~50 builtin tools, 3-tier token budget), mcp, plug-lsp, acp, cli, tui, runtime, kanban, sdd, security-scanner, super-memory, telegram, webui, webui-server, webui-hq, plugins (**63 first-party plugins**), bench. Plus `apps/{wrongstack,desktop}`.
 - **83 slash commands** + 28 subcommand handlers — assembled declaratively into a single flat `SlashCommand[]` (clean registration pattern).
-- **Surfaces:** CLI/REPL, TUI (Ink/React), WebUI (Vite/React), Desktop (Electron), HQ Command Center (port 3499, the only deliberately cross-machine server).
+- **Surfaces:** CLI/REPL, TUI (Ink/React), WebUI (Vite/React), SimpleUI (lightweight browser chat), Desktop (Electron), HQ Command Center (port 3499, the only deliberately cross-machine server).
 - **Multi-agent orchestration:** Director (leader-with-tools), Fleet (task queue + budget + supervisor), Brain (policy→LLM→human decision gate), TaskAuctioneer (task marketplace), AutoPhase, SDD (spec-driven), CollabSession (bug-hunter→refactor-planner→critic).
 - **Infrastructure:** cross-surface mailbox, SessionRegistry, super-memory (graph + verification + hygiene), codebase-index (worker thread + FTS5), OAuth login engine (ChatGPT/Claude/Copilot), MCP registry, LSP bridge.
 
@@ -111,7 +111,7 @@ The heart of the report: parallel structures doing the same job (**merge**) and 
 
 ### IV.A — 🔴 MERGE: Dual WebUI/HQ server stack *(highest priority)*
 
-One browser protocol is driven by **two parallel servers**: CLI-embedded (`wrongstack --webui`) and standalone (`@wrongstack/webui-server`). They share *some* handler code and re-implement large portions independently; sync is enforced only by a message-type coverage test that **does not verify behavior**.
+One browser protocol is driven by **two parallel servers**: CLI-launched (`wstack --webui`) and standalone (`@wrongstack/webui-server`). They share *some* handler code and re-implement large portions independently; sync is enforced only by a message-type coverage test that **does not verify behavior**.
 
 - **Canonical protocol:** `webui/src/types.ts:1130` (`WSClientMessage` union, 104 `WS*` members). Both servers degrade it to a `{type:string; payload?:unknown}` loose stub (`cli/src/webui-server.ts:150`, `webui-server/src/server/types.ts:21`) — discarding the discriminated union server-side.
 - **Two dispatch engines:** cli = declarative route table (`message-router.ts`, ~112 keys); standalone = `switch` (`message-dispatcher.ts:218-734`, 82 cases) + 16 `*-routes.ts`.

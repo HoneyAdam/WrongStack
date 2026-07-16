@@ -1,5 +1,7 @@
 # 2026-07 Architecture Review Backlog
 
+> **Historical issue set.** The canonical status mapping and dependency order now live in [`../../plans/architecture-refactor-task-graph-2026-07.md`](../../plans/architecture-refactor-task-graph-2026-07.md), governed by [`../../plans/adr-003-authority-first-refactor-program.md`](../../plans/adr-003-authority-first-refactor-program.md). The original issue details and dependency map below are retained as audit evidence; their former recommended order is not the active execution plan.
+
 This folder splits the backlog generated from the 2026-07 end-to-end system review into one file per issue.
 
 ## Contents

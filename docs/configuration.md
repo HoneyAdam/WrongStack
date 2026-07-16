@@ -719,7 +719,7 @@ When unset, git's own configuration applies (default behavior). Manage at runtim
 | `WRONGSTACK_CHILD_ENV_PASSTHROUGH` | Set `1` to opt back to old child-process env behavior. |
 | `WRONGSTACK_SHELL` | Windows only. Force the shell the `bash` tool uses: `cmd`/`cmd.exe`, `powershell`/`powershell.exe`, or `pwsh`/`pwsh.exe`. When unset, WrongStack pins one shell for the session at boot — **PowerShell by default** (pwsh 7+ if present, else Windows PowerShell 5.1) — and tells the model to write that shell's syntax. Set `WRONGSTACK_SHELL=cmd` to opt back into cmd.exe. See [Windows shell selection](#windows-shell-selection-wrongstack_shell). |
 | `WRONGSTACK_INDEX_QUESTION_THRESHOLD` | File-count threshold for the "Run codebase indexing now?" pre-launch prompt. Default `500`. Set to a high number to suppress the question. |
-| `WRONGSTACK_HQ_URL` | HQ command center URL for telemetry publishing (e.g. `http://localhost:3499`). When set, TUI/REPL/WebUI/CLI hosts connect to this HQ and publish mailbox events, fleet snapshots, and client lifecycle telemetry. See [HQ Command Center Plan](./plans/hq-command-center-2026-06.md). |
+| `WRONGSTACK_HQ_URL` | HQ command center URL for telemetry publishing (e.g. `http://localhost:3499`). When set, CLI/REPL/TUI/WebUI/SimpleUI hosts connect to this HQ and publish mailbox events, fleet snapshots, and client lifecycle telemetry. See [HQ Command Center Plan](./plans/hq-command-center-2026-06.md). |
 | `WRONGSTACK_HQ_TOKEN` | Client enrollment token for HQ authentication. Required for non-loopback HQ servers. Passed as `?token=` on the outbound `/ws/client` WebSocket. |
 | `WRONGSTACK_HQ_ENABLED` | Set `1` to force HQ publishing even when `WRONGSTACK_HQ_URL` is unset (defaults to `http://localhost:3499`). Set `0` to explicitly disable when `WRONGSTACK_HQ_URL` is set. |
 | `WRONGSTACK_HQ_RAW_CONTENT` | Raw prompt/tool/mailbox content publishing to HQ. **Defaults on for every HQ target** unless explicitly disabled. Set `0` to force raw-content redaction. |
@@ -742,7 +742,7 @@ wstack --hq --port 8080 --open   # custom port + open browser
 **Connect clients to HQ:**
 
 ```bash
-# All clients (TUI, REPL, WebUI) auto-publish telemetry when HQ_URL is set:
+# All clients (CLI/REPL, TUI, WebUI, SimpleUI) auto-publish telemetry when HQ_URL is set:
 export WRONGSTACK_HQ_URL=http://localhost:3499
 export WRONGSTACK_HQ_TOKEN=<enrollment-token>   # required for remote HQ
 wstack

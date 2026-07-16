@@ -15,7 +15,7 @@ WrongStack is organized around four ideas:
 | Observable agent runs | Agent runs emit typed lifecycle events for provider streaming, tool execution, compaction, MCP reconnects, subagents, errors, metrics, and UI updates. |
 | Replaceable edges | Providers, tools, permissions, storage, compaction, system prompt layers, observability, and plugins are all replaceable through interfaces. |
 
-At runtime, the CLI boots configuration and credentials, creates the dependency container, registers providers and tools, builds a `Context`, creates an `Agent`, then dispatches to single-shot mode, REPL, Ink TUI, or WebUI.
+At runtime, the CLI boots configuration and credentials, creates the dependency container, registers providers and tools, builds a `Context`, creates an `Agent`, then dispatches to single-shot mode, REPL, Ink TUI, WebUI, SimpleUI, Desktop, or HQ.
 
 ```mermaid
 flowchart LR
@@ -27,6 +27,7 @@ flowchart LR
   CLI --> MCP["@wrongstack/mcp"]
   CLI --> TUI["@wrongstack/tui"]
   CLI --> WebUI["@wrongstack/webui"]
+  CLI --> SimpleUI["@wrongstack/simpleui"]
   CLI --> LSP["@wrongstack/plug-lsp"]
   CLI --> ACP["@wrongstack/acp"]
   CLI --> Plugins["@wrongstack/plugins"]
@@ -39,6 +40,7 @@ flowchart LR
   Events --> CLI
   Events --> TUI
   Events --> WebUI
+  Events --> SimpleUI
   Events --> ACP[FleetBus / ACP subagents]
   WebUI --> CollaborationWS[collaboration-ws-handler]
   WebUI --> AutophaseWS[autophase-ws-handler]
@@ -68,7 +70,8 @@ packages/
   telegram/         Telegram bridge plugin.
   tui/              Ink/React terminal UI.
   webui/            Vite/React browser frontend.
-  webui-server/     Shared Node backend and `wstackui` binary.
+  simpleui/         Lightweight browser chat frontend.
+  webui-server/     Shared Node backend that powers `wstack --webui`.
   webui-hq/         React HQ command-center dashboard.
   cli/              Boot assembly, REPL, commands, and surface launchers.
   bench/            Benchmark harness.
@@ -96,7 +99,8 @@ The workspace currently contains these package-level responsibilities. File coun
 | `@wrongstack/cli` | CLI boot, runtime assembly, REPL, slash commands, plugin management, and surface launchers. |
 | `@wrongstack/tools` | Built-in tools and meta-tools. |
 | `@wrongstack/webui` | Vite/React browser frontend. |
-| `@wrongstack/webui-server` | Shared Node HTTP/WebSocket backend and standalone `wstackui` binary. |
+| `@wrongstack/simpleui` | Lightweight browser chat for conversations, live tool progress, and agent tabs without the full WebUI workspace. |
+| `@wrongstack/webui-server` | Shared Node HTTP/WebSocket backend that powers `wstack --webui`. |
 | `@wrongstack/plug-lsp` | LSP runtime, tools, slash commands, server lifecycle. |
 | `@wrongstack/providers` | Provider adapters, streaming parsers, tool wire conversions. |
 | `@wrongstack/plugins` | Bundled plugin library: 63 official plugins covering doc-sync, linting, security, versioning, notifications, and more. |
@@ -454,7 +458,7 @@ flowchart TD
   P --> Q[Create or resume session]
   Q --> R[Create Context]
   R --> S[Create pipelines and Agent]
-  S --> T[Dispatch execution mode: REPL / TUI / WebUI / HQ / subcommand]
+  S --> T[Dispatch execution mode: REPL / TUI / WebUI / SimpleUI / Desktop / HQ / subcommand]
 ```
 
 ### Execution Modes
@@ -465,7 +469,8 @@ flowchart TD
 |---|---|---|
 | Single-shot | Positional prompt or `--prompt` | Runs `agent.run(query)`, prints result and usage, exits. |
 | TUI | `--tui`, configured TUI launch, or goal/ask mode | Lazy-imports `@wrongstack/tui` and passes agent/events/slash commands/state. |
-| WebUI | `--webui` [`--port`] [`--open`] | Serves the React frontend (HTTP) + agent WebSocket and runs the REPL in parallel, sharing one agent. Auto-advances past busy ports and registers in `~/.wrongstack/webui-instances.json`. See [`docs/webui.md`](docs/webui.md). |
+| WebUI | `--webui` [`--webui-port`] [`--open`] | Serves the full React workspace (HTTP) + agent WebSocket and runs the REPL in parallel, sharing one agent. Auto-advances past busy ports and registers in `~/.wrongstack/webui-instances.json`. See [`docs/webui.md`](docs/webui.md). |
+| SimpleUI | `--simpleui` | Serves a lightweight browser chat with conversation, live tool progress, and agent tabs, without the full WebUI workspace. |
 | REPL | Default non-TUI interactive path | Runs terminal REPL with slash command registry. |
 
 ## Configuration and Local State
@@ -1012,13 +1017,15 @@ Each `WorktreeHandle` transitions through states: `allocating → active → com
 
 ## UI Architecture
 
-WrongStack has four major user surfaces:
+WrongStack has six major user surfaces:
 
 | Surface | Package/file | Runtime model |
 |---|---|---|
-| REPL | `packages/cli/src/repl.ts` | Terminal prompt loop driven by slash commands and `Agent.run`. |
+| CLI/REPL | `packages/cli/src/repl.ts` | Terminal prompt loop driven by slash commands and `Agent.run`. |
 | TUI | `packages/tui` | Ink/React UI subscribing to events and operating on shared agent/session state. |
-| WebUI | `packages/webui` plus `packages/cli/src/webui-server.ts` | Browser React app communicating with a WebSocket backend. |
+| WebUI | `packages/webui` plus `packages/cli/src/webui-server.ts` | Full browser workspace communicating with a WebSocket backend; launch with `wstack --webui`. |
+| SimpleUI | `packages/simpleui` | Lightweight browser chat for conversation, live tool progress, and agent tabs; launch with `wstack --simpleui`. |
+| Desktop | `apps/desktop` | Electron shell for the desktop product surface. |
 | HQ Command Center | `packages/webui-hq` plus `packages/cli/src/hq-server.ts` and `packages/core/src/hq/` | Multi-agent oversight UI: live fleet, brain, worktree, tool, cost, transcript panes. Connects over the HQ bridge. |
 
 ### CLI/TUI Event Flow
@@ -1036,7 +1043,7 @@ flowchart TD
 
 ### WebUI Flow
 
-The WebUI frontend lives in `packages/webui`; the shared backend service lives in `packages/webui-server`. The CLI also has a `webui-server.ts` launcher path, which reuses the webui package's static-serve / free-port / browser-opener / instance-registry building blocks via the `@wrongstack/webui/server` export (so that logic lives in one place). Both launch paths serve the frontend over HTTP (`PORT`, default 3456), run the agent WebSocket (`WS_PORT`, default 3457), auto-advance past busy ports unless `WEBUI_STRICT_PORT=1`, inject the live WS port into the served HTML as `<meta name="wrongstack-ws-port">` (so multiple instances work), and record themselves in `~/.wrongstack/webui-instances.json` (`wstackui --list`). Full reference: [`docs/webui.md`](docs/webui.md).
+The WebUI frontend lives in `packages/webui`; the shared backend service lives in `packages/webui-server` and powers `wstack --webui`. The CLI's `webui-server.ts` launcher path reuses the webui package's static-serve / free-port / browser-opener / instance-registry building blocks via the `@wrongstack/webui/server` export (so that logic lives in one place). It serves the frontend over HTTP (`PORT`, default 3456), runs the agent WebSocket (`WS_PORT`, default 3457), auto-advances past busy ports unless `WEBUI_STRICT_PORT=1`, injects the live WS port into the served HTML as `<meta name="wrongstack-ws-port">` (so multiple instances work), and records running instances in `~/.wrongstack/webui-instances.json`. Full reference: [`docs/webui.md`](docs/webui.md).
 
 The backend WebSocket server (`packages/webui-server/src/server/`, the `@wrongstack/webui-server` package extracted in PR #018b; `@wrongstack/webui/server` remains a back-compat re-export shim) handles multiple handler types:
 
@@ -1334,7 +1341,7 @@ testing           typescript-strict wrongstack-mailbox
 
 The skill loader in `packages/core/src/skills/` also exposes `SkillInstaller` (with `github-direct-adapter`, `registry-adapter`, `skills-sh-adapter` under `registry/`), `GitHubFetcher`, `foreign-sources` registry, `frontmatter` parser, `manifest-store`, `skill-generator`, and `limits` (token budget guard). Skills are discovered and installed into the bundled, user-global, or project-local skill trees.
 
-Modes are handled by `DefaultModeStore` (modes: `default`, `brief`, `teach`); the active mode contributes a prompt layer and can be switched by CLI/TUI/WebUI surfaces.
+Modes are handled by `DefaultModeStore` (modes: `default`, `brief`, `teach`); the active mode contributes a prompt layer and can be switched by CLI/TUI/WebUI/SimpleUI surfaces.
 
 ## Spec-Driven Development Area
 

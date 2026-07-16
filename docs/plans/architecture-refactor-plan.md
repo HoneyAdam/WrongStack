@@ -1,5 +1,11 @@
 # Architecture Refactor Plan
 
+> **Superseded for execution sequencing (2026-07-15).** This document remains historical analysis. The accepted decision and canonical live dependency/status registry are:
+> - [`adr-003-authority-first-refactor-program.md`](adr-003-authority-first-refactor-program.md)
+> - [`architecture-refactor-task-graph-2026-07.md`](architecture-refactor-task-graph-2026-07.md)
+>
+> Do not start work from the phase or PR order below without mapping it to an active task in the canonical graph.
+
 ## Status
 
 - **Status:** Draft

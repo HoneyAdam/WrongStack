@@ -12,7 +12,7 @@ The detailed source-to-roadmap classification is in [Gap assessment](00-gap-asse
 
 The source report is useful, but several statements no longer describe the repository accurately:
 
-- SuperMemory is already the default memory store across CLI, TUI, Desktop, and standalone WebUI. The remaining opportunity is semantic retrieval and stronger continuity, not default wiring.
+- SuperMemory is already the default memory store across CLI, TUI, WebUI, SimpleUI, and Desktop. The remaining opportunity is semantic retrieval and stronger continuity, not default wiring.
 - `/security` is implemented and registered. The remaining slash-command gap is operational parity for `/git`, `/health`, `/metrics`, and `/plan`.
 - WrongStack already accepts vision-capable model input. The remaining media gap is normalized OCR, generation, transformation, and artifact handling.
 - Browser use is available through a Playwright MCP preset and browser-agent instructions. The gap is a dependable first-party browser capability with lifecycle, policy, and cross-surface parity.

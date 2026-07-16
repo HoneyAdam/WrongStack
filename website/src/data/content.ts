@@ -109,9 +109,9 @@ export const pageMeta: Record<SiteRoute, { title: string; description: string }>
       'An evidence-based, official-source comparison of model routing, multi-agent coordination, mailbox, work tracking, extensions, security and operations.',
   },
   '/interfaces': {
-    title: 'CLI, TUI, WebUI, Desktop & HQ — WrongStack',
+    title: 'CLI, TUI, WebUI, SimpleUI, Desktop & HQ — WrongStack',
     description:
-      'Five interfaces, one agent kernel. Choose the surface that fits the way you work.',
+      'Six interfaces, one agent kernel. Choose the surface that fits the way you work.',
   },
   '/commands': {
     title: 'Slash command reference — WrongStack',
@@ -340,7 +340,7 @@ export const moreNav = [
   {
     href: '/interfaces',
     label: 'Interfaces',
-    description: 'CLI, TUI, WebUI, Desktop and HQ',
+    description: 'CLI, TUI, WebUI, SimpleUI, Desktop and HQ',
     icon: PanelTop,
     group: 'learn',
   },
@@ -1071,7 +1071,7 @@ export const surfaces = [
     tagline: 'The rich workspace',
     description:
       'A per-session browser workspace with chat search, code editing, live tool progress, checkpoints, tasks and model routing. Run standalone or share the CLI agent.',
-    launch: 'wstackui',
+    launch: 'wstack --webui',
     best: 'Visual inspection and browser-based work',
     traits: [
       'Standalone or shared agent',
@@ -1080,6 +1080,22 @@ export const surfaces = [
       'Token-gated remote access',
     ],
     icon: Globe2,
+  },
+  {
+    id: 'simpleui',
+    name: 'SimpleUI',
+    tagline: 'The lightweight chat',
+    description:
+      'A stripped-down browser chat for the agent—conversation, live tool progress and agent tabs without the full workspace. Fast to open when you just want to talk to the agent.',
+    launch: 'wstack --simpleui',
+    best: 'Quick browser chat without the full workspace',
+    traits: [
+      'Minimal chat surface',
+      'Live tool progress',
+      'Agent tabs and transcript',
+      'Shares the CLI agent',
+    ],
+    icon: MessageSquareMore,
   },
   {
     id: 'desktop',

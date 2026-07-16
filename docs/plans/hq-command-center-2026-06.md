@@ -11,9 +11,9 @@
 
 ## Executive Summary
 
-WrongStack already has local bidirectional data flows between CLI/TUI/REPL sessions, embedded WebUI, fleet telemetry, and persistent inter-agent mailboxes. The HQ feature extends that model into a project-independent command center: one process, one port, one machine or VPS, and one dedicated WebUI surface that receives live telemetry from every WrongStack client and mailbox.
+WrongStack already has local bidirectional data flows between CLI/TUI/REPL sessions, WebUI, SimpleUI, fleet telemetry, and persistent inter-agent mailboxes. The HQ feature extends that model into a project-independent command center: one process, one port, one machine or VPS, and one dedicated WebUI surface that receives live telemetry from every WrongStack client and mailbox.
 
-`wstack --hq` starts a standalone HQ server and a completely separate HQ web application. TUI, REPL, embedded WebUI, and standalone WebUI clients can connect to it from any project and report activity. HQ can show a unified all-project overview or drill down project by project.
+`wstack --hq` starts a standalone HQ server and a completely separate HQ web application. CLI/REPL, TUI, WebUI, SimpleUI, and Desktop clients can connect to it from any project and report activity. HQ can show a unified all-project overview or drill down project by project.
 
 This is not a replacement for project-scoped WebUI. It is a higher-level observability and coordination layer for all running clients.
 
@@ -24,7 +24,7 @@ This is not a replacement for project-scoped WebUI. It is a higher-level observa
 1. **One command center:** `wstack --hq` opens a dedicated HQ panel.
 2. **One machine, one port:** HTTP, WebSocket, and API traffic share a single configurable port, default `3499`.
 3. **Project-independent:** HQ state lives outside project roots under the user/global WrongStack data directory.
-4. **All clients report to HQ:** TUI, REPL, CLI-embedded WebUI, standalone WebUI, and future clients publish telemetry to the same HQ endpoint.
+4. **All clients report to HQ:** CLI/REPL, TUI, WebUI, SimpleUI, Desktop, and future clients publish telemetry to the same HQ endpoint.
 5. **Mailbox visibility:** HQ monitors project mailboxes and inter-agent messages across projects, including unread/incomplete/high-priority counts, agent presence, and safe message previews.
 6. **Live mailbox event feed:** when an HQ browser drilldown is open on a project, every new `mailbox.event` envelope (sent/read/completed, agent registered/heartbeat/offline) is appended to a per-project drawer feed in near-real-time, with a transient "live" status indicator and a 50-entry ring buffer per project.
 7. **Cross-project visibility:** HQ groups data by project while also supporting an all-project global overview.
@@ -55,7 +55,7 @@ Existing pieces this plan should build on:
 | Existing piece | Current role | HQ reuse |
 |---|---|---|
 | `packages/webui` | Project-scoped React + WebSocket UI | Reuse server primitives and build tooling, but create a separate HQ app/shell |
-| `wrongstack --webui` | CLI session + browser share one agent | Add optional HQ publisher from the same runtime events |
+| `wstack --webui` | CLI session + browser share one agent | Add optional HQ publisher from the same runtime events |
 | TUI fleet monitor | In-process graphical fleet status | Publish normalized fleet events to HQ |
 | `/fleet` + Director | Subagent orchestration and usage snapshots | Publish fleet snapshots, lifecycle events, cost/health summaries |
 | Inter-agent mailbox | Project-level cross-session messaging and agent presence | Publish safe mailbox snapshots, unread/incomplete counts, agent status, and redacted message previews |

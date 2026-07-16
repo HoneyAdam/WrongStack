@@ -59,7 +59,7 @@ This leads to four planning conclusions:
 
 | Report item | Assessment | Evidence/interpretation | Roadmap |
 |---|---|---|---|
-| SuperMemory default | Retired | Project invariants state it is the default on CLI/TUI/Desktop/standalone WebUI. | None |
+| SuperMemory default | Retired | Project invariants state it is the default on CLI/TUI/WebUI/SimpleUI/Desktop. | None |
 | Vector/semantic search | Confirmed | Current retrieval is lexical/graph/anchor-oriented. | [13](13-semantic-supermemory-retrieval.md) |
 | Cross-session continuity | Partial | Sessions and memory persist, but explicit handoff/resume state can improve. | [14](14-cross-session-continuity-and-project-state.md) |
 | Multi-session state machine | Partial | SDD, plans, worktrees, and mailbox state exist in separate models; a shared versioned project-state contract is missing. | [14](14-cross-session-continuity-and-project-state.md) |

@@ -6,7 +6,7 @@
 
 ## Outcome
 
-Create trustworthy coverage and regression signals across CLI, TUI, WebUI, Desktop, and shared packages.
+Create trustworthy coverage and regression signals across CLI, TUI, WebUI, SimpleUI, Desktop, and shared packages.
 
 ## Workstreams
 

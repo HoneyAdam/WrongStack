@@ -11,10 +11,14 @@ The commands are deliberately informational: a running slash-command host does n
 
 ```text
 wstack desktop
-wstack webui
+wstack --webui
+wstack --simpleui
 ```
+
+SimpleUI is the lightweight browser chat for conversation, live tool progress, and
+agent tabs; unlike WebUI, it does not include the full workspace.
 
 ## Code reference
 
 - `packages/cli/src/slash-commands/surfaces.ts`
-- `packages/cli/src/arg-parser.ts` — normalizes the shell-level `desktop` and `webui` forms to their flags
+- `packages/cli/src/arg-parser.ts` — parses the Desktop, `--webui`, and `--simpleui` launch forms

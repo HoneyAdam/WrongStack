@@ -4,8 +4,8 @@
 HTTP+WebSocket process that listens on one port and serves the
 **`@wrongstack/webui-hq` React dashboard** at `/` (with a self-contained
 inline-HTML fallback when the panel dist is unbuilt). The dashboard
-aggregates telemetry from every WrongStack client (TUI, REPL,
-CLI-embedded WebUI, standalone WebUI) that connects to the same URL, and
+aggregates telemetry from every WrongStack client (CLI/REPL, TUI, WebUI,
+SimpleUI, and Desktop) that connects to the same URL, and
 can steer/abort/spawn on connected clients through the control plane.
 
 **Same-machine clients need zero configuration.** Every WrongStack client
@@ -722,7 +722,7 @@ opt-in Playwright smoke drives the whole panel end-to-end:
 
 ## Client-side environment variables
 
-Clients (TUI / REPL / WebUI / standalone WebUI / brain mailbox / agent-loop
+Clients (CLI/REPL / TUI / WebUI / SimpleUI / Desktop / brain mailbox / agent-loop
 checker mailbox) read HQ config from the environment and publish telemetry
 when configured. The resolution logic lives in
 `packages/core/src/hq/factory.ts` (`resolveHqConfigFromEnv()`,
@@ -799,7 +799,7 @@ publishes events as they happen:
 
 ```bash
 # Terminal 4 — WebUI server on another machine
-WRONGSTACK_HQ_URL=http://hq-host:3499 wstackui --port 4000
+WRONGSTACK_HQ_URL=http://hq-host:3499 wstack --webui --webui-port 4000
 ```
 
 A client only needs to be in the same network as HQ; it does not need to

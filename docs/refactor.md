@@ -49,7 +49,7 @@ This is an **actionable backlog**. Each item is a self-contained ticket: current
 
 ### R1 · Unify the dual WebUI/HQ server stacks `[P0 · Merge · L]`
 
-**Problem.** One browser protocol is driven by **two parallel servers** — CLI-embedded (`wrongstack --webui`) and standalone (`@wrongstack/webui-server`) — kept in sync only by a message-type coverage test that does **not** verify behavior.
+**Problem.** One browser protocol is driven by **two parallel servers** — CLI-launched (`wstack --webui`) and standalone (`@wrongstack/webui-server`) — kept in sync only by a message-type coverage test that does **not** verify behavior.
 
 **Evidence.**
 - Canonical protocol: `packages/webui/src/types.ts:1130` (`WSClientMessage`, 104 `WS*` members). Both servers degrade it to a loose `{type:string; payload?:unknown}` stub (`packages/cli/src/webui-server.ts:150`, `packages/webui-server/src/server/types.ts:21`).

@@ -1,4 +1,13 @@
-import { ArrowRight, KeyRound, Laptop, LogIn, Rocket, ShieldCheck, Terminal } from 'lucide-react';
+import {
+  ArrowRight,
+  KeyRound,
+  Laptop,
+  LogIn,
+  MessageSquareMore,
+  Rocket,
+  ShieldCheck,
+  Terminal,
+} from 'lucide-react';
 import {
   CopyCommand,
   ExternalDoc,
@@ -168,7 +177,13 @@ export function GettingStartedPage() {
               Laptop,
               'Browser workspace',
               'wstack --webui --open',
-              'Shares the live CLI agent with a rich browser view, or use wstackui for a standalone agent.',
+              'Shares the live CLI agent with a rich browser view, or run wstack --webui for a standalone agent.',
+            ],
+            [
+              MessageSquareMore,
+              'Lightweight browser chat',
+              'wstack --simpleui',
+              'A stripped-down browser chat—conversation, live tool progress and agent tabs without the full workspace.',
             ],
             [
               ShieldCheck,

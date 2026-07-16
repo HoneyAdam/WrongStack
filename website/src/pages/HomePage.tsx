@@ -276,8 +276,8 @@ export function HomePage() {
                 Change the surface. Keep the system.
               </h2>
               <p className="mt-6 max-w-md text-base leading-7 text-zinc-400">
-                The CLI, TUI, WebUI, Desktop and HQ do not reimplement the agent. They compose and
-                observe the same contracts.
+                The CLI, TUI, WebUI, SimpleUI, Desktop and HQ do not reimplement the agent. They
+                compose and observe the same contracts.
               </p>
               <Link
                 href="/interfaces"
@@ -322,7 +322,7 @@ export function HomePage() {
                       Find your surface.
                     </h3>
                     <p className="mt-2 max-w-xs text-sm leading-6 text-zinc-400 transition-colors group-hover:text-white/75 group-focus-visible:text-white/75">
-                      Compare all five interfaces and choose the one that fits the work.
+                      Compare all six interfaces and choose the one that fits the work.
                     </p>
                   </div>
                 </Link>

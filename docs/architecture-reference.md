@@ -60,7 +60,8 @@ super-memory/      — memory store, graph, retrieval, and hygiene
 cli/           — boot assembly, REPL, commands, surface launchers
 tui/           — React/Ink terminal UI
 webui/         — Vite/React browser frontend
-webui-server/  — shared Node backend and `wstackui` bin
+simpleui/      — lightweight browser chat frontend
+webui-server/  — shared Node backend that powers `wstack --webui`
 webui-hq/      — HQ React dashboard
       ↓
 apps/wrongstack/ — published CLI shim
@@ -78,7 +79,8 @@ apps/desktop/   — Electron shell
 | `cli` | REPL, slash commands, subcommands, interactive pickers, plugin management |
 | `tui` | React/Ink terminal UI with live streaming, history, fleet monitoring, status bar |
 | `webui` | Vite/React browser frontend with Zustand stores and multi-panel layout |
-| `webui-server` | Shared Node HTTP/WebSocket backend and standalone `wstackui` binary |
+| `simpleui` | Lightweight browser chat with conversation, live tool progress, and agent tabs |
+| `webui-server` | Shared Node HTTP/WebSocket backend that powers `wstack --webui` |
 | `webui-hq` | React HQ command-center dashboard |
 | `kanban` | Task-board and queue primitives below core |
 | `runtime` | Default host composition and runtime helpers |

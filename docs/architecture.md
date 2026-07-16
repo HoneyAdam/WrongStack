@@ -23,7 +23,8 @@ packages/
   telegram/          Telegram bridge plugin
   tui/               React/Ink terminal UI
   webui/             Vite/React browser frontend
-  webui-server/      shared Node HTTP/WebSocket backend; owns the `wstackui` bin
+  simpleui/          lightweight browser chat frontend
+  webui-server/      shared Node HTTP/WebSocket backend that powers `wstack --webui`
   webui-hq/          React HQ command-center dashboard
   cli/               boot assembly, REPL, subcommands, slash commands, surface launchers
   bench/             benchmark harness and reporters
@@ -430,12 +431,11 @@ it's just the assembly of defaults + the interactive shell.
 
 ## WebUI
 
-The `@wrongstack/webui` Vite/React frontend is served by the CLI via
-`--webui` or by the `wstackui` binary owned by `@wrongstack/webui-server`.
-The shared backend mounts the compiled app and wires it to runtime events and
-session state.
+The `@wrongstack/webui` Vite/React frontend is launched with
+`wstack --webui`. The shared `@wrongstack/webui-server` backend mounts the
+compiled app and wires it to runtime events and session state.
 
-The standalone server lives in `packages/webui-server/src/server/` (the
+The shared server lives in `packages/webui-server/src/server/` (the
 `@wrongstack/webui-server` package, extracted in PR #018b) and was
 decomposed from a single ~2954-line god module (`index.ts`) into 11
 focused modules, each under 800 lines. `packages/webui/src/server/index.ts`
@@ -508,9 +508,9 @@ flattens `Promise<Promise<void>>`.
 
 ### Shared handler parity
 
-The standalone server and the CLI's embedded `--webui` server share the
-same WS protocol. `ws-handler-parity.test.ts` scans both servers' message
-dispatchers for identical `case` labels and asserts every
+The shared backend and the CLI's `--webui` launcher use the same WS protocol.
+`ws-handler-parity.test.ts` scans both servers' message dispatchers for identical
+`case` labels and asserts every
 `WSClientMessage` union member is handled — so a handler added to one
 but not the other fails CI loudly.
 

@@ -134,7 +134,8 @@ export const productComparisons: ProductComparison[] = [
     rows: [
       {
         capability: 'Execution surfaces',
-        wrongstack: 'Five first-class surfaces share one kernel: CLI, TUI, WebUI, Desktop and HQ.',
+        wrongstack:
+          'Six first-class surfaces share one kernel: CLI, TUI, WebUI, SimpleUI, Desktop and HQ.',
         competitor:
           'Officially available in the terminal, VS Code and JetBrains IDEs, desktop app and browser.',
         difference:
@@ -264,7 +265,8 @@ export const productComparisons: ProductComparison[] = [
     rows: [
       {
         capability: 'Execution surfaces',
-        wrongstack: 'CLI, TUI, WebUI, Electron Desktop and HQ run on the same TypeScript kernel.',
+        wrongstack:
+          'CLI, TUI, WebUI, SimpleUI, Electron Desktop and HQ run on the same TypeScript kernel.',
         competitor:
           'Codex runs in the ChatGPT desktop app, CLI and IDE extension, with local and OpenAI-managed cloud environments.',
         difference:
@@ -636,7 +638,7 @@ export const productComparisons: ProductComparison[] = [
     strongestCase:
       'Choose Pi when minimalism is the feature: four default tools, direct terminal observability and a highly hackable SDK/extension surface without a prescribed workflow.',
     wrongStackCase:
-      'Choose WrongStack when you want the batteries installed and governed already: MCP, permissions, roster, mailbox, Kanban, Brain, memory graph, five surfaces and HQ.',
+      'Choose WrongStack when you want the batteries installed and governed already: MCP, permissions, roster, mailbox, Kanban, Brain, memory graph, six surfaces and HQ.',
     sources: [
       {
         label: 'Coding agent README',

@@ -6,7 +6,7 @@
 
 ## Outcome
 
-Provide a dependable browser capability that works across CLI, TUI, WebUI, Desktop, and fleet workers without requiring users to discover and configure a separate Playwright MCP server.
+Provide a dependable browser capability that works across CLI, TUI, WebUI, SimpleUI, Desktop, and fleet workers without requiring users to discover and configure a separate Playwright MCP server.
 
 ## Current baseline
 
@@ -47,7 +47,7 @@ WrongStack already documents Playwright MCP tools and ships a preset. This initi
 Completed:
 
 - Added 16 lazy first-party `browser_*` tools to the shared builtin tool pack, making the same
-  capability available across CLI, TUI, WebUI, Desktop, and fleet workers without MCP setup.
+  capability available across CLI, TUI, WebUI, SimpleUI, Desktop, and fleet workers without MCP setup.
 - Added isolated per-agent contexts over one managed Chromium process, explicit open/list/close
   lifecycle, automatic last-context process reclamation, run-disposal cleanup, and abort cleanup.
 - Added navigation, accessibility snapshots, screenshots, click/type/select/press/hover/drag/wait,

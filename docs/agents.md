@@ -4,7 +4,7 @@
 
 ## Project brief
 
-WrongStack is a terminal AI coding agent in TypeScript: an LLM that reads code, edits files, runs shell commands, and reasons through bugs. Default behavior is opt-in per-call approval and project-root containment: tool calls that mutate or touch the network prompt the user unless YOLO is on; filesystem tools refuse to read or write outside the active project root unless `features.allowOutsideProjectRoot` is set; explicit deny rules in the trust file and `permission: 'deny'` tools still win over YOLO. YOLO mode (`--yolo`, `/yolo on`) is the explicit opt-in to auto-approve non-denied tool calls. Monorepo: 19 packages + 2 apps + website. Runtime surfaces: CLI (REPL), optional TUI (React/Ink), WebUI (Vite/React), Desktop (Electron), and HQ. Published entry: `apps/wrongstack/src/index.js` → `@wrongstack/cli` → `packages/cli/src/index.ts` / `cli-main.ts`.
+WrongStack is a terminal AI coding agent in TypeScript: an LLM that reads code, edits files, runs shell commands, and reasons through bugs. Default behavior is opt-in per-call approval and project-root containment: tool calls that mutate or touch the network prompt the user unless YOLO is on; filesystem tools refuse to read or write outside the active project root unless `features.allowOutsideProjectRoot` is set; explicit deny rules in the trust file and `permission: 'deny'` tools still win over YOLO. YOLO mode (`--yolo`, `/yolo on`) is the explicit opt-in to auto-approve non-denied tool calls. Monorepo: 19 packages + 2 apps + website. Runtime surfaces: CLI (REPL), optional TUI (React/Ink), WebUI (Vite/React), SimpleUI (lightweight browser chat), Desktop (Electron), and HQ. Published entry: `apps/wrongstack/src/index.js` → `@wrongstack/cli` → `packages/cli/src/index.ts` / `cli-main.ts`.
 
 ## Package map
 
@@ -24,7 +24,8 @@ security-scanner/  — Security scanning package surface
 super-memory/      — Project-local structured memory, graph, verification, hygiene, and retrieval
 telegram/          — Telegram bridge plugin
 webui/             — Vite+React web UI frontend and client state (docs/webui.md)
-webui-server/      — Shared Node WebUI backend used by standalone, CLI, and Desktop
+simpleui/          — Lightweight browser chat (conversation, tool progress, agent tabs)
+webui-server/      — Shared Node WebUI backend that powers `wstack --webui`
 webui-hq/          — React HQ Command Center dashboard
 plugins/           — 63-entry first-party plugin catalog and subpath exports
 bench/             — Benchmark harness (Aider polyglot + SWE-bench); docs/subcommands/bench.md
@@ -32,7 +33,7 @@ apps/wrongstack/   — bin entry (wrongstack / wstack)
 apps/desktop/      — Electron desktop shell
 ```
 
-**Dependency direction:** `@wrongstack/kanban` has no WrongStack dependency and sits below `core`; `core` declares it as its sole `@wrongstack/*` package dependency. `core` must not depend on `cli`, `tui`, `webui`, `webui-server`, `webui-hq`, apps, or other packages that consume core. Product surfaces compose the lower packages; never reverse a surface dependency into the kernel.
+**Dependency direction:** `@wrongstack/kanban` has no WrongStack dependency and sits below `core`; `core` declares it as its sole `@wrongstack/*` package dependency. `core` must not depend on `cli`, `tui`, `webui`, `simpleui`, `webui-server`, `webui-hq`, apps, or other packages that consume core. Product surfaces compose the lower packages; never reverse a surface dependency into the kernel.
 
 ## Kernel (`packages/core/src/kernel/`)
 

@@ -4,7 +4,7 @@
 
 WrongStack is a TypeScript/Node.js monorepo for an autonomous terminal AI coding agent. Its architecture is already unusually mature for this category of project: the codebase has a clear kernel, dependency-injection boundaries, provider abstraction, tool execution model, permission policy, plugin surfaces, optional UI layers, and documentation for many architectural decisions.
 
-The strongest design characteristic is the separation between the core agent kernel and the surrounding product layers. `packages/core` owns the foundational abstractions: dependency injection, middleware pipelines, typed events, run control, context state, session flow, tool execution, compaction, prompt loading, and core agent lifecycle. The surrounding packages then build upward: providers implement model adapters, tools expose local capabilities, runtime wires defaults together, CLI/TUI/WebUI/Desktop provide product surfaces, and plugins/MCP/ACP extend integration points.
+The strongest design characteristic is the separation between the core agent kernel and the surrounding product layers. `packages/core` owns the foundational abstractions: dependency injection, middleware pipelines, typed events, run control, context state, session flow, tool execution, compaction, prompt loading, and core agent lifecycle. The surrounding packages then build upward: providers implement model adapters, tools expose local capabilities, runtime wires defaults together, CLI/TUI/WebUI/SimpleUI/Desktop/HQ provide product surfaces, and plugins/MCP/ACP extend integration points.
 
 The main recommendation is not to perform a broad rewrite. WrongStack already has the right architectural direction. The best next step is to harden what exists: make architectural boundaries enforceable, add focused regression tests for high-risk flows, stabilize observability and session replay, and reduce long-file complexity in the CLI/TUI/WebUI seams.
 
@@ -23,7 +23,9 @@ The project currently supports or anticipates several user-facing surfaces:
 - Terminal CLI / REPL as the primary interface.
 - Optional TUI based on React/Ink.
 - Optional WebUI based on Vite/React.
+- SimpleUI lightweight browser chat for conversation, live tool progress, and agent tabs (`wstack --simpleui`).
 - Desktop/Electron integration.
+- HQ Command Center for cross-project telemetry and coordination.
 - ACP integration for editors such as Zed, JetBrains, and VSCode-compatible environments.
 - MCP support for external tool/server integrations.
 - Plugin and skill systems for customization.
@@ -354,9 +356,9 @@ The right direction is to have UI surfaces consume stable contracts:
 ### Recommendations
 
 1. Define a shared UI-facing event/state contract.
-2. Keep WebUI/Desktop/TUI as renderers and interaction shells, not separate agent implementations.
+2. Keep WebUI/SimpleUI/Desktop/TUI as renderers and interaction shells, not separate agent implementations.
 3. Add tests that simulate backend events and verify UI state reducers.
-4. Ensure permission prompts are consistent across CLI, TUI, WebUI, and Desktop.
+4. Ensure permission prompts are consistent across CLI, TUI, WebUI, SimpleUI, and Desktop.
 5. Avoid duplicating command semantics across UI packages.
 
 ---
@@ -747,7 +749,7 @@ The core package is meaningful as a cohesive kernel. Splitting it too early may 
 
 ### Avoid UI divergence
 
-Do not let CLI, TUI, WebUI, and Desktop each define separate semantics for permissions, sessions, tools, or slash commands.
+Do not let CLI, TUI, WebUI, SimpleUI, and Desktop each define separate semantics for permissions, sessions, tools, or slash commands.
 
 ### Avoid provider-specific leakage
 

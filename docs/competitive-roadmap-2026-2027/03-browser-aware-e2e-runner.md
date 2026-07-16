@@ -41,7 +41,7 @@ Turn generic test execution plus browser automation into a guided E2E workflow t
 
 Completed:
 
-- Added an auto-approved, read-only `e2e_plan` builtin shared by CLI, TUI, WebUI, Desktop, and
+- Added an auto-approved, read-only `e2e_plan` builtin shared by CLI, TUI, WebUI, SimpleUI, Desktop, and
   fleet workers through the normal tool registry.
 - Added bounded monorepo discovery for Playwright and Cypress configs, dependencies, package
   scripts, package managers, and specs with cancellation and traversal containment.
