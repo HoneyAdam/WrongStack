@@ -514,9 +514,7 @@ export class MultiAgentHost {
       subagentIdleTimeoutMs,
       ...(this.opts.statusTracker ? { statusTracker: this.opts.statusTracker } : {}),
       retireSubagentOnTaskComplete:
-        this.opts.retireSubagentOnTaskComplete ??
-        fleetLifecycle?.retireOnTaskComplete ??
-        true,
+        this.opts.retireSubagentOnTaskComplete ?? fleetLifecycle?.retireOnTaskComplete ?? true,
     });
     this.director.on('task.completed', ({ task, result }) => {
       this.fleetManager?.removePendingTask(task.id);
@@ -1209,7 +1207,7 @@ export class MultiAgentHost {
       // the fallback path forwards into the parent's session, which the
       // host owns and must not close here — the fallback shim's `close()`
       // is a no-op, so calling it unconditionally is safe in both cases.
-      // Bridge per-subagent tool.executed to the host EventBus so the
+      // Bridge per-subagent tool lifecycle to the host EventBus so the
       // TUI can update its compact live agent surfaces regardless of
       // director mode. The FleetBus path (director-only) covers the
       // richer FleetPanel stream; this bridge gives baseline visibility
@@ -1221,6 +1219,18 @@ export class MultiAgentHost {
       // discovered post-spawn, so we wire the bridge lazily with a
       // mutable holder and let the legacy emit path fill it.
       const hostEvents = this.deps.events;
+      const offToolStartedBridge = events.on('tool.started', (e) => {
+        hostEvents.emit('subagent.tool_started', {
+          sessionId: this.deps.session.id,
+          agentSessionId: e.sessionId,
+          subagentId: subCfg.id ?? subCfg.name ?? 'subagent',
+          agentName: e.agentName ?? subCfg.name,
+          traceId: e.traceId,
+          id: e.id,
+          name: e.name,
+          input: e.input,
+        });
+      });
       const offToolBridge = events.on('tool.executed', (e) => {
         // subCfg.id is populated by Director.spawn before this factory
         // is invoked, and by coord.spawn for the non-director path
@@ -1230,7 +1240,11 @@ export class MultiAgentHost {
         // attribution in that edge case.
         hostEvents.emit('subagent.tool_executed', {
           sessionId: this.deps.session.id,
+          agentSessionId: e.sessionId,
           subagentId: subCfg.id ?? subCfg.name ?? 'subagent',
+          agentName: e.agentName ?? subCfg.name,
+          traceId: e.traceId,
+          id: e.id,
           name: e.name,
           durationMs: e.durationMs,
           ok: e.ok,
@@ -1258,6 +1272,7 @@ export class MultiAgentHost {
       });
 
       const dispose = async () => {
+        offToolStartedBridge();
         offToolBridge();
         offSummaryBridge();
         offCtxBridge();
@@ -1276,25 +1291,33 @@ export class MultiAgentHost {
     subCfg: SubagentConfig,
     taskContext?: Record<string, unknown>,
   ): Promise<string[]> {
-    const memory = this.deps.container.safeResolve(TOKENS.MemoryStore) as ({
-      retrieveForAudience?: (
-        context: { role?: string; taskType?: string; mode?: string },
-        limit?: number,
-      ) => Promise<Array<{ id: string; text: string }>>;
-      recordInjection?: (ids: string[], trigger: string, sessionId?: string) => Promise<void> | void;
-    }) | undefined;
+    const memory = this.deps.container.safeResolve(TOKENS.MemoryStore) as
+      | {
+          retrieveForAudience?: (
+            context: { role?: string; taskType?: string; mode?: string },
+            limit?: number,
+          ) => Promise<Array<{ id: string; text: string }>>;
+          recordInjection?: (
+            ids: string[],
+            trigger: string,
+            sessionId?: string,
+          ) => Promise<void> | void;
+        }
+      | undefined;
     if (!memory?.retrieveForAudience) return [];
-    const contextualTaskType = typeof taskContext?.['taskType'] === 'string'
-      ? taskContext['taskType']
-      : undefined;
+    const contextualTaskType =
+      typeof taskContext?.['taskType'] === 'string' ? taskContext['taskType'] : undefined;
     try {
       const taskType = subCfg.memoryContext?.taskType ?? contextualTaskType;
       const mode = subCfg.memoryContext?.mode ?? this.opts.getLeaderMode?.();
-      const matches = await memory.retrieveForAudience({
-        ...(subCfg.role !== undefined ? { role: subCfg.role } : {}),
-        ...(taskType !== undefined ? { taskType } : {}),
-        ...(mode !== undefined ? { mode } : {}),
-      }, 20);
+      const matches = await memory.retrieveForAudience(
+        {
+          ...(subCfg.role !== undefined ? { role: subCfg.role } : {}),
+          ...(taskType !== undefined ? { taskType } : {}),
+          ...(mode !== undefined ? { mode } : {}),
+        },
+        20,
+      );
       await memory.recordInjection?.(
         matches.map((item) => item.id),
         'subagent_audience',
@@ -1520,10 +1543,7 @@ export class MultiAgentHost {
   private resolveSubagentCapabilities(subCfg: SubagentConfig): readonly string[] | undefined {
     if (subCfg.allowedCapabilities) {
       return Array.from(
-        new Set([
-          ...subCfg.allowedCapabilities,
-          ToolCapabilities.COORDINATION_RESULT_SUBMIT,
-        ]),
+        new Set([...subCfg.allowedCapabilities, ToolCapabilities.COORDINATION_RESULT_SUBMIT]),
       );
     }
     const allow = subCfg.tools;
@@ -2129,10 +2149,11 @@ export class MultiAgentHost {
     await this.fleetManager?.closeManifest();
     this.fleetManager?.dispose();
     this.fleetManager = undefined;
-    // Stop the AgentMonitorService
+    // Stop the AgentMonitorService and drain its transcript writes, so no late
+    // append outlives dispose — same reason the manifest writer is drained above.
     const monitor = this.opts.agentMonitor;
     if (monitor) {
-      monitor.stop();
+      await monitor.close();
     }
   }
 }

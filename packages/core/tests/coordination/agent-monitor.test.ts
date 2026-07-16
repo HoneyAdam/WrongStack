@@ -68,8 +68,10 @@ describe('AgentMonitorService', () => {
   });
 
   afterEach(async () => {
-    monitor.stop();
-    await fsp.rm(transcriptsDir, { recursive: true, force: true });
+    // close(), not stop(): stop() only starts the transcript flush, so removing
+    // the dir here would race the in-flight appends (ENOTEMPTY on Windows).
+    await monitor.close();
+    await fsp.rm(transcriptsDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
 
   // ── Lifecycle ────────────────────────────────────────────────────
@@ -504,6 +506,34 @@ describe('AgentMonitorService', () => {
     expect(textEntries[0].content).toBe('via setFleetBus');
 
     mon.stop();
+  });
+
+  // ── close(): draining transcript writes ──────────────────────────
+
+  describe('close', () => {
+    it('flushes the open streaming segment AND waits for it to reach disk', async () => {
+      monitor.start();
+      monitor.trackSubagent('a1', 'Agent 1');
+      fleetBus.emit(
+        makeFleetEvent('a1', 'provider.text_delta', { text: 'streaming reply', iteration: 0 }),
+      );
+
+      // The open segment lives only in the ring until it closes.
+      const file = path.join(transcriptsDir, 'a1', 'transcript.jsonl');
+      const before = await fsp.readFile(file, 'utf8').catch(() => '');
+      expect(before).not.toContain('streaming reply');
+
+      // close() must leave nothing in flight — a caller that exits right after
+      // it would otherwise lose exactly the text that was on screen.
+      await monitor.close();
+
+      const after = await fsp.readFile(file, 'utf8');
+      expect(after).toContain('streaming reply');
+    });
+
+    it('is safe to call without a started service', async () => {
+      await expect(monitor.close()).resolves.toBeUndefined();
+    });
   });
 
   // ── Resume: rebuilding the ring from disk ────────────────────────

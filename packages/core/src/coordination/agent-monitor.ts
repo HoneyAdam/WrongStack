@@ -91,6 +91,14 @@ export class AgentMonitorService {
    * the JSONL line is written once, when the segment closes.
    */
   private readonly _openStreams = new Map<string, { entry: AgentTimelineEntry }>();
+  /**
+   * FIFO chain of in-flight transcript appends. Writes stay fire-and-forget so
+   * a slow disk never stalls a subagent, but `close()` must be able to wait for
+   * them: without this the process can exit between `stop()` flushing the open
+   * segments and those appends reaching disk, losing exactly the text that was
+   * on screen. Mirrors FleetManager.closeManifest()'s drain.
+   */
+  private _writeChain: Promise<void> = Promise.resolve();
   /** Disposers for FleetBus subscriptions, keyed by subagentId. */
   private readonly _subscriptions = new Map<string, () => void>();
   /** Generic fleet-wide subscription disposer. */
@@ -220,6 +228,22 @@ export class AgentMonitorService {
     this._fleetDisposer = this._fleetBus.onAny((event) => {
       this._routeEvent(event.subagentId, event.type, event.payload as Record<string, unknown>);
     });
+  }
+
+  /**
+   * Stop listening and wait for every queued transcript write to reach disk.
+   *
+   * `stop()` alone only *starts* the flush of the open segments; the appends are
+   * fire-and-forget, so a caller that exits right after it loses precisely the
+   * text that was streaming. Shutdown paths should await this instead.
+   *
+   * A hard kill (SIGKILL, power loss) still loses the open segments — they live
+   * only in the ring until a segment closes. Bounding that would mean writing
+   * each delta, which fragments every reply into single-word JSONL lines.
+   */
+  async close(): Promise<void> {
+    this.stop();
+    await this._writeChain;
   }
 
   /** Stop listening and clean up all subscriptions. */
@@ -457,9 +481,7 @@ export class AgentMonitorService {
     const open = this._openStreams.get(subagentId);
     if (!open) return;
     this._openStreams.delete(subagentId);
-    this._appendToFile(subagentId, open.entry).catch(() => {
-      // Best-effort file write — failures must never crash the agent.
-    });
+    this._enqueueWrite(subagentId, open.entry);
     this._emitEntry(open.entry);
   }
 
@@ -477,10 +499,8 @@ export class AgentMonitorService {
       session.transcript.splice(0, session.transcript.length - this._maxEntries);
     }
 
-    // Write to JSONL file (async, fire-and-forget).
-    this._appendToFile(subagentId, entry).catch(() => {
-      // Best-effort file write — failures must never crash the agent.
-    });
+    // Write to JSONL file (async, fire-and-forget — but drainable via close()).
+    this._enqueueWrite(subagentId, entry);
 
     this._emitEntry(entry);
   }
@@ -503,6 +523,20 @@ export class AgentMonitorService {
 
     // Forward to HQ bridge callback.
     this._onEntry?.(entry);
+  }
+
+  /**
+   * Queue a transcript append. Serialized so two entries for the same subagent
+   * cannot interleave into a torn line, and retained on `_writeChain` so
+   * `close()` can wait for them. Never rejects — a transcript write failing must
+   * not take down the agent it is watching.
+   */
+  private _enqueueWrite(subagentId: string, entry: AgentTimelineEntry): void {
+    this._writeChain = this._writeChain.then(() =>
+      this._appendToFile(subagentId, entry).catch(() => {
+        // Best-effort file write — failures must never crash the agent.
+      }),
+    );
   }
 
   private async _appendToFile(subagentId: string, entry: AgentTimelineEntry): Promise<void> {
