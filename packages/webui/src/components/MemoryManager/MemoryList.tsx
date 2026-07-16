@@ -1,0 +1,172 @@
+import { BrainCircuit, ChevronRight, Database, FilterX, Plus } from 'lucide-react';
+import type { RefObject } from 'react';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+import type { SuperMemoryEntry } from '@/types';
+import { KIND_LABELS, kindClasses, memoryPreview, relativeDate, StatusBadge } from './shared';
+
+export interface MemoryListProps {
+  memoryListRef: RefObject<HTMLDivElement | null>;
+  memories: SuperMemoryEntry[];
+  filteredMemories: SuperMemoryEntry[];
+  selectedId: string | null;
+  onSelectMemory: (id: string) => void;
+  onOpenCreate: () => void;
+  onClearFilters: () => void;
+}
+
+export function MemoryList({
+  memoryListRef,
+  memories,
+  filteredMemories,
+  selectedId,
+  onSelectMemory,
+  onOpenCreate,
+  onClearFilters,
+}: MemoryListProps) {
+  return (
+    <>
+      <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-3 py-2 text-[10px] text-muted-foreground">
+        <span>
+          {filteredMemories.length} of {memories.length} memories
+        </span>
+        <span className="font-mono uppercase">updated ↓</span>
+      </div>
+
+      <section
+        ref={memoryListRef}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+        aria-label="Memories"
+      >
+        {filteredMemories.length === 0 ? (
+          <MemoryListEmpty
+            hasMemories={memories.length > 0}
+            onOpenCreate={onOpenCreate}
+            onClearFilters={onClearFilters}
+          />
+        ) : (
+          filteredMemories.map((memory) => (
+            <MemoryCard
+              key={memory.id}
+              memory={memory}
+              isSelected={selectedId === memory.id}
+              onClick={() => onSelectMemory(memory.id)}
+            />
+          ))
+        )}
+      </section>
+    </>
+  );
+}
+
+interface MemoryListEmptyProps {
+  hasMemories: boolean;
+  onOpenCreate: () => void;
+  onClearFilters: () => void;
+}
+
+function MemoryListEmpty({ hasMemories, onOpenCreate, onClearFilters }: MemoryListEmptyProps) {
+  return (
+    <div className="flex min-h-64 flex-col items-center justify-center px-6 text-center">
+      <span className="flex size-12 items-center justify-center border border-dashed border-border text-muted-foreground">
+        <Database className="size-5" />
+      </span>
+      <h2 className="mt-4 text-sm font-bold">
+        {hasMemories ? 'No matching memories' : 'Build your memory graph'}
+      </h2>
+      <p className="mt-1 max-w-xs text-xs leading-5 text-muted-foreground">
+        {hasMemories
+          ? 'Change the filters or clear the search query.'
+          : 'Capture durable facts, decisions, conventions, and file-bound notes for every agent.'}
+      </p>
+      <Button
+        className="mt-4"
+        variant="outline"
+        size="sm"
+        onClick={hasMemories ? onClearFilters : onOpenCreate}
+      >
+        {hasMemories ? <FilterX className="size-3.5" /> : <Plus className="size-3.5" />}
+        {hasMemories ? 'Clear filters' : 'Create first memory'}
+      </Button>
+    </div>
+  );
+}
+
+interface MemoryCardProps {
+  memory: SuperMemoryEntry;
+  isSelected: boolean;
+  onClick: () => void;
+}
+
+function MemoryCard({ memory, isSelected, onClick }: MemoryCardProps) {
+  return (
+    <button
+      type="button"
+      aria-current={isSelected ? 'true' : undefined}
+      onClick={onClick}
+      className={cn(
+        'group relative block w-full border-b border-border/55 px-3 py-3 text-left transition-[background-color,border-color] hover:bg-info/5',
+        isSelected && 'bg-info/8',
+      )}
+    >
+      {isSelected && (
+        <span className="absolute inset-y-0 left-0 w-0.5 bg-info shadow-[0_0_10px_hsl(var(--info)/0.7)]" />
+      )}
+      <div className="flex min-w-0 items-center gap-2">
+        <span
+          className={cn(
+            'truncate text-[10px] font-bold uppercase tracking-[0.1em]',
+            kindClasses(memory.kind),
+          )}
+        >
+          {KIND_LABELS[memory.kind] ?? memory.kind}
+        </span>
+        <StatusBadge status={memory.status} />
+        <span className="ml-auto shrink-0 font-mono text-[9px] text-muted-foreground">
+          r{memory.revision}
+        </span>
+      </div>
+      <p
+        className={cn(
+          'mt-2 line-clamp-2 text-xs leading-5 text-foreground/90',
+          memory.status === 'deleted' && 'line-through opacity-60',
+        )}
+      >
+        {memoryPreview(memory.text)}
+      </p>
+      <div className="mt-2 flex min-w-0 items-center gap-1.5">
+        <span className="border border-border/60 bg-background/50 px-1.5 py-0.5 font-mono text-[9px] uppercase text-muted-foreground">
+          {memory.scope}
+        </span>
+        {memory.audience && (
+          <span className="flex items-center gap-0.5 border border-primary/30 bg-primary/10 px-1.5 py-0.5 font-mono text-[9px] text-primary">
+            <BrainCircuit className="size-2.5" />
+            {(
+              memory.audience.roles ??
+              memory.audience.taskTypes ??
+              memory.audience.modes ??
+              []
+            ).slice(0, 1)[0] ?? 'scoped'}
+          </span>
+        )}
+        {memory.tags.slice(0, 2).map((tagName) => (
+          <span
+            key={tagName}
+            className="max-w-24 truncate border border-border/60 px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground"
+          >
+            #{tagName}
+          </span>
+        ))}
+        {memory.tags.length > 2 && (
+          <span className="font-mono text-[9px] text-muted-foreground">
+            +{memory.tags.length - 2}
+          </span>
+        )}
+        <span className="ml-auto shrink-0 text-[9px] text-muted-foreground">
+          {relativeDate(memory.updatedAt)}
+        </span>
+        <ChevronRight className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-info" />
+      </div>
+    </button>
+  );
+}
