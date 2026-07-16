@@ -453,8 +453,7 @@ export class FileSessionWriter implements SessionWriter {
       const now = Date.now();
       if (now - this.lastAppendWarnAt > 5000) {
         const suppressed = this.appendFailCount - 1;
-        const tail = suppressed > 0 ? ` (+${suppressed} suppressed)` : '';
-        console.warn('[session] flush failed:', toErrorMessage(err), tail);
+        console.warn(JSON.stringify({ level: 'warn', event: 'session.flush_failed', sessionId: this.id, message: toErrorMessage(err), ...(suppressed > 0 ? { suppressed } : {}), timestamp: new Date().toISOString() }));
         this.lastAppendWarnAt = now;
         this.appendFailCount = 0;
       }
