@@ -485,7 +485,7 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
         );
         const projectRoot = ctx.getProjectRoot();
         const rewinder = new DefaultSessionRewinder(ctx.sessionsDir, projectRoot);
-        await rewinder.rewindToCheckpoint(ctx.getSession().id, checkpointIndex);
+        const reverted = await rewinder.rewindToCheckpoint(ctx.getSession().id, checkpointIndex);
         // Cut the live conversation too — sessionStartPayload() below replays
         // from ctx.context.state, so truncating only the JSONL would replay the
         // rewound turns straight back to the client and leave them in the
@@ -495,6 +495,7 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
           state: ctx.context.state,
           sessionsDir: ctx.sessionsDir,
           promptIndex: checkpointIndex,
+          revertedFiles: reverted.revertedFiles,
         });
         sendResult(ws, true, `Rewound to checkpoint ${checkpointIndex}`);
         broadcast(ctx.clients, {

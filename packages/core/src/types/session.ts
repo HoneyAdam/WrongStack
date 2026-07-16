@@ -585,8 +585,13 @@ export interface SessionWriter {
    * Called after rewind — removes user_input/llm_response/tool_result events
    * that come after the target checkpoint, then writes a rewound event.
    * Returns the number of events removed.
+   *
+   * `revertedFiles` is recorded on that rewound event. The writer cannot
+   * discover it — reverting is the SessionRewinder's job and the file_snapshot
+   * events proving it are what this call truncates away — so the caller must
+   * pass it or the record is lost for good.
    */
-  truncateToCheckpoint(promptIndex: number): Promise<number>;
+  truncateToCheckpoint(promptIndex: number, revertedFiles?: readonly string[]): Promise<number>;
   /**
    * Clear the session transcript file, resetting the on-disk history.
    * Called by /clear to wipe chat history from persistent storage.

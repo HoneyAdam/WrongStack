@@ -85,6 +85,30 @@ describe('applyRewindToConversation', () => {
     expect(texts).toEqual(['first']);
   });
 
+  it('records the reverted files on the rewound event', async () => {
+    const store = new DefaultSessionStore({ dir: tmp });
+    const w = await seedSession(store, 'rw-4');
+    const convo = makeConversation([userMsg('first'), userMsg('second')]);
+
+    await applyRewindToConversation({
+      session: w,
+      state: convo,
+      sessionsDir: tmp,
+      promptIndex: 1,
+      revertedFiles: ['/proj/a.ts', '/proj/b.ts'],
+    });
+    await w.close();
+
+    // Only the caller knows what was reverted — the file_snapshot events that
+    // proved it were just truncated away, so the rewound event is the last
+    // record of it.
+    const events = (await new DefaultSessionStore({ dir: tmp }).load('rw-4')).events;
+    const rewound = events.find((e) => e.type === 'rewound') as
+      | { revertedFiles: string[] }
+      | undefined;
+    expect(rewound?.revertedFiles).toEqual(['/proj/a.ts', '/proj/b.ts']);
+  });
+
   it('reports how many events the truncation dropped', async () => {
     const store = new DefaultSessionStore({ dir: tmp });
     const w = await seedSession(store, 'rw-3');

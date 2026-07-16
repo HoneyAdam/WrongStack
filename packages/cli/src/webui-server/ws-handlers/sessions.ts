@@ -198,7 +198,7 @@ export async function handleSessionRewind(
     // Rewind the LIVE session — both the file (rewinder) and the JSONL
     // truncation (writer) must target the same session.
     const liveSession = ctx.opts.agent.ctx.session ?? ctx.opts.session;
-    await rewinder.rewindToCheckpoint(liveSession.id, checkpointIndex);
+    const reverted = await rewinder.rewindToCheckpoint(liveSession.id, checkpointIndex);
     // Cut the live conversation too, not just the JSONL: buildSessionStart
     // below replays from ctx.state, so truncating only the log would hand the
     // client back the very turns it just rewound — and leave the model holding
@@ -208,6 +208,7 @@ export async function handleSessionRewind(
       state: ctx.opts.agent.ctx.state,
       sessionsDir: sessionsDirFor(ctx.opts),
       promptIndex: checkpointIndex,
+      revertedFiles: reverted.revertedFiles,
     });
     sendResult(ctx, ws, true, `Rewound to checkpoint ${checkpointIndex}`);
     const payload = await ctx.buildSessionStart({ reset: true });

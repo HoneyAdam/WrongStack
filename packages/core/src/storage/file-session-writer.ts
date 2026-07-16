@@ -681,7 +681,10 @@ export class FileSessionWriter implements SessionWriter {
    * so post-checkpoint content is never read or parsed — O(1) memory instead
    * of O(N) JSON.parse calls over the full file.
    */
-  async truncateToCheckpoint(targetPromptIndex: number): Promise<number> {
+  async truncateToCheckpoint(
+    targetPromptIndex: number,
+    revertedFiles: readonly string[] = [],
+  ): Promise<number> {
     /* v8 ignore next -- defensive: filePath is always set for a live writer */
     if (!this.filePath) return 0;
 
@@ -898,18 +901,19 @@ export class FileSessionWriter implements SessionWriter {
     }
     /* v8 ignore stop */
 
+    const reverted = [...revertedFiles];
     await this.append({
       type: 'rewound',
       ts: new Date().toISOString(),
       toPromptIndex: targetPromptIndex,
-      revertedFiles: [],
+      revertedFiles: reverted,
     });
     this.activePromptIndex = targetPromptIndex;
 
     this.events?.emit('session.rewound', {
       sessionId: this.id,
       toPromptIndex: targetPromptIndex,
-      revertedFiles: [],
+      revertedFiles: reverted,
       removedEvents: removedCount,
     });
 

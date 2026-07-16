@@ -19,6 +19,12 @@ export interface ApplyRewindOptions {
   sessionsDir: string;
   /** Checkpoint promptIndex to rewind to. */
   promptIndex: number;
+  /**
+   * Files the SessionRewinder just reverted, recorded on the `rewound` event.
+   * Only this caller knows them: the file_snapshot events that prove what
+   * changed are truncated away by this very call.
+   */
+  revertedFiles?: readonly string[] | undefined;
 }
 
 export interface ApplyRewindResult {
@@ -51,8 +57,8 @@ export interface ApplyRewindResult {
 export async function applyRewindToConversation(
   opts: ApplyRewindOptions,
 ): Promise<ApplyRewindResult> {
-  const { session, state, sessionsDir, promptIndex } = opts;
-  const removedEvents = await session.truncateToCheckpoint(promptIndex);
+  const { session, state, sessionsDir, promptIndex, revertedFiles } = opts;
+  const removedEvents = await session.truncateToCheckpoint(promptIndex, revertedFiles ?? []);
 
   // A fresh store avoids serving a pre-truncation cache entry; load() keys its
   // cache on mtime+size, both of which the rewrite changes, but a caller's

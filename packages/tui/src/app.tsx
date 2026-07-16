@@ -1576,7 +1576,7 @@ export function App({
         agent.ctx.projectRoot ?? agent.ctx.cwd,
       );
       // Revert file system changes first (read-only, safe to do eagerly).
-      await rewinder.rewindToCheckpoint(sessionId, checkpointIndex);
+      const reverted = await rewinder.rewindToCheckpoint(sessionId, checkpointIndex);
       // Then cut BOTH the JSONL and the live conversation back to the
       // checkpoint. Truncating the log alone would leave the model answering
       // the next prompt against the rewound turns it still holds in memory.
@@ -1587,6 +1587,7 @@ export function App({
         state: agent.ctx.state,
         sessionsDir: sessionsDir ?? '',
         promptIndex: checkpointIndex,
+        revertedFiles: reverted.revertedFiles,
       });
     },
     [agent.ctx.session, sessionsDir, agent.ctx.projectRoot, agent.ctx.cwd],
