@@ -150,6 +150,7 @@ export function InspectorPanel() {
         showOverlay={false}
         showCloseButton={false}
         onPointerDownOutside={(event) => event.preventDefault()}
+        onFocusOutside={(event) => event.preventDefault()}
         onCloseAutoFocus={(event) => {
           event.preventDefault();
           document.querySelector<HTMLElement>('[data-testid="inspector-trigger"]')?.focus();
