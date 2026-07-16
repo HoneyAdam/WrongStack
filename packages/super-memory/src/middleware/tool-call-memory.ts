@@ -21,8 +21,9 @@ export interface SuperMemoryRetrieverLike {
     limit?: number;
     includeAncestors?: boolean;
     includeStatuses?: SuperMemory['status'][];
+    includeAudienceScoped?: boolean;
   }): Promise<SuperMemory[]>;
-  searchSuper(query: string, opts?: { limit?: number }): Promise<SuperMemory[]>;
+  searchSuper(query: string, opts?: { limit?: number; includeAudienceScoped?: boolean }): Promise<SuperMemory[]>;
   verifyForPaths?(paths: string[], signal?: AbortSignal): Promise<unknown>;
   recordInjection?(memoryIds: string[], trigger: string, sessionId?: string): void | Promise<void>;
 }
@@ -147,12 +148,16 @@ async function retrieveTriggeredMemories(
       limit,
       includeAncestors: true,
       includeStatuses: isMutationTrigger(trigger.trigger) ? ['active', 'stale'] : ['active'],
+      includeAudienceScoped: false,
     });
     for (const item of pathMatches) byId.set(item.id, item);
   }
 
   if (trigger.queryText.trim()) {
-    const queryMatches = await memory.searchSuper(trigger.queryText, { limit });
+    const queryMatches = await memory.searchSuper(trigger.queryText, {
+      limit,
+      includeAudienceScoped: false,
+    });
     for (const item of queryMatches) byId.set(item.id, item);
   }
 

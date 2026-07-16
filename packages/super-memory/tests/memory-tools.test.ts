@@ -280,6 +280,7 @@ describe('remember tool (structured write)', () => {
         scope: 'project',
         tags: ['pnpm'],
         anchors: [{ type: 'file', path: 'package.json' }],
+        audience: { roles: ['reviewer'] },
         importance: 0.9,
         supersedes: ['mem_old'],
       } as never,
@@ -293,6 +294,7 @@ describe('remember tool (structured write)', () => {
       scope: 'project',
       tags: ['pnpm'],
       anchors: [{ type: 'file', path: 'package.json' }],
+      audience: { roles: ['reviewer'] },
       importance: 0.9,
       supersedes: ['mem_old'],
     }));

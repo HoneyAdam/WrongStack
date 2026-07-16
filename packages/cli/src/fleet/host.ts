@@ -50,6 +50,7 @@ import {
   type SystemPromptBuilder,
   type TaskResult,
   type TaskResultNotification,
+  type TaskSpec,
   TOKENS,
   type TokenCounter,
   type Tool,
@@ -960,7 +961,7 @@ export class MultiAgentHost {
    * specialized, concurrency-safe agent instead of sharing the leader's Context.
    */
   makeSubagentFactory(config: Config): AgentFactory {
-    return async (subCfg: SubagentConfig) => {
+    return async (subCfg: SubagentConfig, task?: TaskSpec) => {
       const events = new EventBus();
       // Per-task model matrix safety net. Director.spawn already fills these in
       // for director-routed spawns, but direct-factory paths (e.g. the
@@ -971,11 +972,19 @@ export class MultiAgentHost {
       const matrixTarget = subCfg.model
         ? undefined
         : resolveSubagentModelTarget(liveConfig, subCfg.role);
-      const effProvider = subCfg.provider ?? matrixTarget?.provider ?? config.provider;
-      const effModel = subCfg.model ?? matrixTarget?.model ?? config.model;
-      const matrixFallbacks = matrixTarget?.fallbackModels;
+      let effProvider = subCfg.provider ?? matrixTarget?.provider ?? liveConfig.provider;
+      let effModel = subCfg.model ?? matrixTarget?.model ?? liveConfig.model;
+      const fallbackProfile = subCfg.fallbackProfile ?? matrixTarget?.fallbackProfile;
       const runtimeOverride = subCfg.modelRuntime ?? matrixTarget?.modelRuntime;
-      const provider = await this.buildSubagentProvider(config, effProvider, effModel);
+      let provider: Provider;
+      try {
+        provider = await this.buildSubagentProvider(liveConfig as Config, effProvider, effModel);
+      } catch (err) {
+        if (effProvider === liveConfig.provider && effModel === liveConfig.model) throw err;
+        effProvider = liveConfig.provider;
+        effModel = liveConfig.model;
+        provider = await this.buildSubagentProvider(liveConfig as Config, effProvider, effModel);
+      }
       let subReasoningConfig = await this.resolveSubagentReasoningConfig(effProvider, effModel);
 
       // Per-subagent cwd (defaults to the factory cwd). AutoPhase points this
@@ -1013,6 +1022,14 @@ export class MultiAgentHost {
       // role in the hierarchy before absorbing the full identity block.
       // The builder already includes the identity + tools + skills layers.
       baseSystem.unshift({ type: 'text', text: DEFAULT_SUBAGENT_BASELINE });
+
+      const audienceMemory = await this.retrieveSubagentMemory(subCfg, task?.context);
+      if (audienceMemory.length > 0) {
+        baseSystem.push({
+          type: 'text',
+          text: `Project memory for this agent role:\n${audienceMemory.map((text) => `- ${text}`).join('\n')}`,
+        });
+      }
 
       // Append the role persona. Priority:
       //   1. Explicit `systemPromptOverride` on the SubagentConfig (caller control)
@@ -1148,23 +1165,14 @@ export class MultiAgentHost {
         loopDetection: config.tools?.loopDetection,
       });
 
-      // Subagents inherit the same fallback chain as the leader (explicit
-      // `fallbackModels` or the smart default). Without this a 429/529/5xx on a
-      // subagent's model — after its own retries — fails the whole task instead
-      // of rotating to a working model. Emits `provider.fallback` on the
-      // subagent's own bus, mirroring its other provider.* events.
+      // Explicit task fallbacks stay pinned, while matrix-selected named
+      // profiles are re-resolved from ConfigStore for every provider attempt.
+      // This lets WebUI profile edits/reordering affect active workers.
       agent.extensions.register(
         createFallbackModelExtension({
-          // A per-task `fallbackModels` (set from the SDD board) overrides the
-          // leader's chain for this subagent; otherwise it inherits the config's
-          // explicit list or smart default. Mirrors the runtime light factory.
-          getConfig: () => {
-            const live = this.deps.configStore.get();
-            if (subCfg.fallbackModels?.length)
-              return { ...live, fallbackModels: subCfg.fallbackModels };
-            if (matrixFallbacks?.length) return { ...live, fallbackModels: matrixFallbacks };
-            return live;
-          },
+          getConfig: () => this.deps.configStore.get() as Config,
+          getFallbackModels: () => subCfg.fallbackModels,
+          getFallbackProfile: () => fallbackProfile,
           buildProvider: (id, model) => this.buildSubagentProvider(config, id, model ?? effModel),
           onModelSwitch: async (id, model) => {
             subReasoningConfig = await this.resolveSubagentReasoningConfig(id, model);
@@ -1241,6 +1249,40 @@ export class MultiAgentHost {
 
       return { agent, events, dispose };
     };
+  }
+
+  private async retrieveSubagentMemory(
+    subCfg: SubagentConfig,
+    taskContext?: Record<string, unknown>,
+  ): Promise<string[]> {
+    const memory = this.deps.container.safeResolve(TOKENS.MemoryStore) as ({
+      retrieveForAudience?: (
+        context: { role?: string; taskType?: string; mode?: string },
+        limit?: number,
+      ) => Promise<Array<{ id: string; text: string }>>;
+      recordInjection?: (ids: string[], trigger: string, sessionId?: string) => Promise<void> | void;
+    }) | undefined;
+    if (!memory?.retrieveForAudience) return [];
+    const contextualTaskType = typeof taskContext?.['taskType'] === 'string'
+      ? taskContext['taskType']
+      : undefined;
+    try {
+      const taskType = subCfg.memoryContext?.taskType ?? contextualTaskType;
+      const mode = subCfg.memoryContext?.mode;
+      const matches = await memory.retrieveForAudience({
+        ...(subCfg.role !== undefined ? { role: subCfg.role } : {}),
+        ...(taskType !== undefined ? { taskType } : {}),
+        ...(mode !== undefined ? { mode } : {}),
+      }, 20);
+      await memory.recordInjection?.(
+        matches.map((item) => item.id),
+        'subagent_audience',
+        this.deps.session.id,
+      );
+      return matches.map((item) => item.text);
+    } catch {
+      return [];
+    }
   }
 
   /**

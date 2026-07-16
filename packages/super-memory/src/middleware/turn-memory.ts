@@ -21,7 +21,10 @@ export function createSuperMemoryTurnMiddleware(
       try {
         const query = lastUserText(request.messages);
         if (query) {
-          const memories = await opts.memory.searchSuper(query, { limit: opts.maxMemories ?? 8 });
+          const memories = await opts.memory.searchSuper(query, {
+            limit: opts.maxMemories ?? 8,
+            includeAudienceScoped: false,
+          });
           const minScore = opts.minScore ?? 0.65;
           const existingSystem = (request.system ?? [])
             .map((block) => block.type === 'text' ? block.text.toLowerCase() : '')

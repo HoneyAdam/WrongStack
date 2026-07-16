@@ -115,6 +115,13 @@ export interface SubagentConfig {
   fallbackModels?: string[] | undefined;
 
   /**
+   * Named live fallback profile for this subagent. Unlike `fallbackModels`, the
+   * factory re-resolves this profile from ConfigStore on every provider attempt,
+   * so WebUI edits and reordering affect already-running workers immediately.
+   */
+  fallbackProfile?: string | undefined;
+
+  /**
    * Runtime request overrides for THIS subagent. When present, these are merged
    * over the leader's `Config.modelRuntime` before the subagent request pipeline
    * maps reasoning/cache/parameters onto provider requests. Used by the model
@@ -145,6 +152,12 @@ export interface SubagentConfig {
    * informed of same domain patterns the host agent knows.
    */
   skillContent?: string | undefined;
+
+  /** Optional task/mode selectors combined with the stable role for project agent-memory lookup. */
+  memoryContext?: {
+    taskType?: string | undefined;
+    mode?: string | undefined;
+  } | undefined;
 
   /**
    * Routing for streaming output. `'director'` (default) forwards

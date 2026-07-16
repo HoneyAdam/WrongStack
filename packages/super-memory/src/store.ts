@@ -24,6 +24,8 @@ import {
   superToLegacyScope,
   toLegacyEntry,
   type MemoryAnchor,
+  type MemoryAudienceContext,
+  type MemoryAudienceSelector,
   type LegacyImportResult,
   type MemoryCandidate,
   type MemoryGraphEdge,
@@ -138,6 +140,7 @@ export class SuperMemoryStore implements MemoryStore {
     const kind = input.kind ?? legacyTypeToKind(input.type);
     const tags = normalizeTags(input.tags);
     const anchors = normalizeAnchors(this.projectRoot, input.anchors ?? []);
+    const audience = normalizeAudience(input.audience);
     const sources = normalizeSources(input.sources ?? [{ type: 'user' }]);
     let created = false;
     const memory = await this.runMutation(async () => {
@@ -153,6 +156,7 @@ export class SuperMemoryStore implements MemoryStore {
           kind: duplicate.kind === 'fact' && kind !== 'fact' ? kind : duplicate.kind,
           tags: [...new Set([...duplicate.tags, ...tags])],
           anchors: dedupeAnchors([...duplicate.anchors, ...anchors]),
+          ...(audience ? { audience } : {}),
           sources: dedupeSources([...duplicate.sources, ...sources]),
           importance: Math.max(duplicate.importance, clamp01(input.importance ?? importanceFromPriority(input.priority))),
           confidence: Math.max(duplicate.confidence, clamp01(input.confidence ?? 0.8)),
@@ -189,6 +193,7 @@ export class SuperMemoryStore implements MemoryStore {
         freshness: clamp01(input.freshness ?? 1),
         tags,
         anchors,
+        ...(audience ? { audience } : {}),
         sources,
         supersedes: uniqueIds(input.supersedes),
         contradicts: uniqueIds(input.contradicts),
@@ -451,6 +456,9 @@ export class SuperMemoryStore implements MemoryStore {
       if (patch.anchors.length > MAX_MEMORY_METADATA_ITEMS) throw new Error(`anchors exceeds maximum of ${MAX_MEMORY_METADATA_ITEMS} items.`);
       validatedPatch.anchors = normalizeAnchors(this.projectRoot, patch.anchors);
     }
+    if (patch.audience !== undefined) {
+      validatedPatch.audience = normalizeAudience(patch.audience);
+    }
     if (patch.importance !== undefined) {
       validatedPatch.importance = clamp01(patch.importance);
     }
@@ -619,6 +627,7 @@ export class SuperMemoryStore implements MemoryStore {
       importance: clamp01(input.importance ?? 0.6),
       tags: normalizeTags(input.tags),
       anchors: normalizeAnchors(this.projectRoot, input.anchors ?? []),
+      ...(normalizeAudience(input.audience) ? { audience: normalizeAudience(input.audience) } : {}),
       sources: normalizeSources(input.sources ?? [{ type: 'session' }]),
       createdAt: now,
       updatedAt: now,
@@ -657,6 +666,7 @@ export class SuperMemoryStore implements MemoryStore {
         importance: candidate.importance,
         tags: candidate.tags,
         anchors: candidate.anchors,
+        audience: candidate.audience,
         sources: candidate.sources,
       });
       await appendJsonl(this.paths.candidatesLog, {
@@ -731,7 +741,9 @@ export class SuperMemoryStore implements MemoryStore {
 
   async retrieveForPath(opts: SuperMemoryForPathOptions): Promise<SuperMemory[]> {
     const statuses = new Set(opts.includeStatuses ?? ACTIVE_STATUSES);
-    const all = (await this.loadMemories()).filter((memory) => statuses.has(memory.status));
+    const all = (await this.loadMemories()).filter((memory) =>
+      statuses.has(memory.status)
+      && (opts.includeAudienceScoped !== false || !memory.audience));
     const target = normalizeProjectPath(this.projectRoot, opts.path);
     const includeAncestors = opts.includeAncestors !== false;
     const candidates = !includeAncestors
@@ -752,12 +764,32 @@ export class SuperMemoryStore implements MemoryStore {
     const all = await this.loadMemories();
     const scored = all
       .filter((memory) => statuses.includes(memory.status))
+      .filter((memory) => opts.includeAudienceScoped !== false || !memory.audience)
       .filter((memory) => !opts.scope || memory.scope === opts.scope)
       .filter((memory) => !opts.legacyScope || (memory.legacyScope ?? superToLegacyScope(memory.scope)) === opts.legacyScope)
       .map((memory) => ({ memory, score: scoreQueryMemory(memory, query) }))
       .filter((item) => item.score > 0)
       .sort((a, b) => b.score - a.score || b.memory.updatedAt.localeCompare(a.memory.updatedAt));
     return scored.slice(0, boundedLimit(opts.limit, DEFAULT_LIMIT, 500)).map((item) => item.memory);
+  }
+
+  /** Retrieve project policy targeted at the current stable agent/task identity. */
+  async retrieveForAudience(
+    context: MemoryAudienceContext,
+    limit = DEFAULT_LIMIT,
+    includeStatuses: SuperMemoryStatus[] = ACTIVE_STATUSES,
+  ): Promise<SuperMemory[]> {
+    const normalizedContext = normalizeAudienceContext(context);
+    if (!normalizedContext.role && !normalizedContext.taskType && !normalizedContext.mode) return [];
+    const statuses = new Set(includeStatuses);
+    return (await this.loadMemories())
+      .filter((memory) => statuses.has(memory.status))
+      .filter((memory) => memory.scope === 'project' && !!memory.audience)
+      .filter((memory) => memory.audience
+        ? audienceMatches(memory.audience, normalizedContext)
+        : false)
+      .sort(compareMemoryQuality)
+      .slice(0, boundedLimit(limit, DEFAULT_LIMIT, 100));
   }
 
   async readAll(): Promise<string> {
@@ -1262,6 +1294,7 @@ function isSuperMemory(value: unknown): value is SuperMemory {
     && Array.isArray(memory.tags)
     && memory.tags.every((tag) => typeof tag === 'string')
     && Array.isArray(memory.anchors)
+    && (memory.audience === undefined || isMemoryAudience(memory.audience))
     && Array.isArray(memory.sources)
     && typeof memory.createdAt === 'string'
     && Number.isFinite(Date.parse(memory.createdAt))
@@ -1319,6 +1352,7 @@ function validateRememberInput(input: RememberSuperMemoryInput): void {
   }
   if (input.scope && !VALID_SCOPES.has(input.scope)) throw new Error('Invalid Super Memory scope.');
   if (input.kind && !VALID_KINDS.has(input.kind)) throw new Error('Invalid Super Memory kind.');
+  normalizeAudience(input.audience);
   for (const anchor of input.anchors ?? []) {
     if (!anchor || !VALID_ANCHOR_TYPES.has(anchor.type)) throw new Error('Invalid Super Memory anchor type.');
     if (anchor.type === 'command') {
@@ -1359,10 +1393,74 @@ function canonicalMemoryText(text: string): string {
 }
 
 function memoryIdentity(
-  memory: Pick<SuperMemory, 'text' | 'scope'> & { legacyScope?: MemoryScope | undefined },
+  memory: Pick<SuperMemory, 'text' | 'scope'> & {
+    legacyScope?: MemoryScope | undefined;
+    audience?: MemoryAudienceSelector | undefined;
+  },
 ): string {
   const legacyScope = memory.legacyScope ?? superToLegacyScope(memory.scope);
-  return `${memory.scope}\0${legacyScope}\0${canonicalMemoryText(memory.text)}`;
+  return `${memory.scope}\0${legacyScope}\0${audienceIdentity(memory.audience)}\0${canonicalMemoryText(memory.text)}`;
+}
+
+const AUDIENCE_KEYS = ['roles', 'taskTypes', 'modes'] as const;
+
+function normalizeAudience(value: MemoryAudienceSelector | undefined): MemoryAudienceSelector | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Super Memory audience must be an object.');
+  }
+  const normalized: MemoryAudienceSelector = {};
+  for (const key of AUDIENCE_KEYS) {
+    const values = value[key];
+    if (values === undefined) continue;
+    if (!Array.isArray(values) || values.some((item) => typeof item !== 'string')) {
+      throw new Error(`Super Memory audience.${key} must be an array of strings.`);
+    }
+    if (values.length > MAX_MEMORY_METADATA_ITEMS) {
+      throw new Error(`Super Memory audience.${key} exceeds ${MAX_MEMORY_METADATA_ITEMS} items.`);
+    }
+    const items = [...new Set(values.map(normalizeSelectorValue).filter(Boolean))];
+    if (items.some((item) => item.length > 256)) {
+      throw new Error(`Super Memory audience.${key} values must be no longer than 256 characters.`);
+    }
+    if (items.length > 0) normalized[key] = items;
+  }
+  return AUDIENCE_KEYS.some((key) => normalized[key]?.length) ? normalized : undefined;
+}
+
+function normalizeAudienceContext(context: MemoryAudienceContext): MemoryAudienceContext {
+  return {
+    role: context.role ? normalizeSelectorValue(context.role) : undefined,
+    taskType: context.taskType ? normalizeSelectorValue(context.taskType) : undefined,
+    mode: context.mode ? normalizeSelectorValue(context.mode) : undefined,
+  };
+}
+
+function normalizeSelectorValue(value: string): string {
+  return value.normalize('NFKC').trim().toLowerCase();
+}
+
+function isMemoryAudience(value: unknown): value is MemoryAudienceSelector {
+  try {
+    return normalizeAudience(value as MemoryAudienceSelector) !== undefined;
+  } catch {
+    return false;
+  }
+}
+
+function audienceMatches(audience: MemoryAudienceSelector, context: MemoryAudienceContext): boolean {
+  return dimensionMatches(audience.roles, context.role)
+    && dimensionMatches(audience.taskTypes, context.taskType)
+    && dimensionMatches(audience.modes, context.mode);
+}
+
+function dimensionMatches(expected: string[] | undefined, actual: string | undefined): boolean {
+  return !expected?.length || (!!actual && expected.includes(actual));
+}
+
+function audienceIdentity(audience: MemoryAudienceSelector | undefined): string {
+  const normalized = normalizeAudience(audience);
+  return normalized ? JSON.stringify(normalized) : '*';
 }
 
 function normalizeTags(tags: string[] | undefined): string[] {

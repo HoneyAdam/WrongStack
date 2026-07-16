@@ -22,7 +22,7 @@ import { readSubagentStructuredReport } from './subagent-result-tool.js';
  * its own `EventBus` or a forwarded view, so per-subagent metrics can be
  * attributed correctly.
  */
-export type AgentFactory = (config: SubagentConfig) => Promise<AgentFactoryResult>;
+export type AgentFactory = (config: SubagentConfig, task?: TaskSpec) => Promise<AgentFactoryResult>;
 
 /**
  * Wrap a factory to automatically filter out disabled tools from subagent
@@ -37,8 +37,8 @@ export type AgentFactory = (config: SubagentConfig) => Promise<AgentFactoryResul
  *   const runner = makeAgentSubagentRunner({ factory: filteredFactory });
  */
 export function withDisabledToolFiltering(factory: AgentFactory): AgentFactory {
-  return async (config: SubagentConfig) => {
-    const result = await factory(config);
+  return async (config: SubagentConfig, task?: TaskSpec) => {
+    const result = await factory(config, task);
     const disabled = config.disabledTools ?? [];
     if (disabled.length === 0) return result;
 
@@ -107,7 +107,7 @@ export function makeAgentSubagentRunner(opts: AgentRunnerOptions): SubagentRunne
 
   return async (task: TaskSpec, ctx: SubagentRunContext): Promise<SubagentRunOutcome> => {
     const taskStartedAt = Date.now();
-    const factoryResult = await opts.factory(ctx.config);
+    const factoryResult = await opts.factory(ctx.config, task);
     const { agent, events } = factoryResult;
     // Tool calls such as fleet_emit need authoritative caller/task attribution.
     // The Agent and Context are task-scoped, so this cannot leak into a later

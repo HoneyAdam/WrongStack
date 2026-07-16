@@ -1,6 +1,7 @@
 import type { MemoryScope, MemoryStore, Tool } from '@wrongstack/core';
 import type {
   MemoryAnchor,
+  MemoryAudienceSelector,
   MemoryCandidate,
   MemoryGraphEdge,
   MemoryVerificationResult,
@@ -35,6 +36,7 @@ export interface SuperMemoryServiceLike extends MemoryStore {
     includeStatuses?: SuperMemory['status'][];
   }): Promise<SuperMemory[]>;
   searchSuper(query: string, opts?: { limit?: number; includeStatuses?: SuperMemory['status'][] }): Promise<SuperMemory[]>;
+  retrieveForAudience?(context: { role?: string; taskType?: string; mode?: string }, limit?: number): Promise<SuperMemory[]>;
   graphFor(query: string, maxDepth?: number, limit?: number): Promise<MemoryGraphEdge[]>;
   verify(memoryId?: string, signal?: AbortSignal): Promise<MemoryVerificationResult[]>;
   hygiene(options?: SuperMemoryHygieneOptions, signal?: AbortSignal): Promise<SuperMemoryHygieneReport>;
@@ -72,6 +74,7 @@ interface RememberToolInput {
   scope?: SuperMemoryScope | undefined;
   tags?: string[] | undefined;
   anchors?: MemoryAnchor[] | undefined;
+  audience?: MemoryAudienceSelector | undefined;
   importance?: number | undefined;
   confidence?: number | undefined;
   supersedes?: string[] | undefined;
@@ -113,6 +116,7 @@ function memoryRememberTool(memory: SuperMemoryServiceLike): Tool<RememberToolIn
       scope: enumSchema(SCOPE_VALUES, 'project (shared, default), user (personal), session, file, or symbol.'),
       tags: stringArraySchema('Hashtag-style tags for grouping and search (omit the #).'),
       anchors: anchorsSchema(),
+      audience: audienceSchema(),
       importance: numberSchema(0, 1),
       confidence: numberSchema(0, 1),
       supersedes: stringArraySchema('Memory ids this replaces (they become superseded).'),
@@ -128,6 +132,7 @@ function memoryRememberTool(memory: SuperMemoryServiceLike): Tool<RememberToolIn
         scope: input.scope,
         tags: input.tags,
         anchors: input.anchors,
+        audience: input.audience,
         importance: input.importance,
         confidence: input.confidence,
         supersedes: input.supersedes,
@@ -188,6 +193,7 @@ function memoryUpdateTool(memory: SuperMemoryServiceLike): Tool<{ id: string } &
       tags: stringArraySchema('Replacement tags (omit the #).'),
       kind: enumSchema(KIND_VALUES, 'New kind.'),
       anchors: anchorsSchema(),
+      audience: audienceSchema(),
       importance: numberSchema(0, 1),
       confidence: numberSchema(0, 1),
       freshness: numberSchema(0, 1),
@@ -414,6 +420,19 @@ function enumSchema(values: readonly string[], description: string) {
 
 function stringArraySchema(description: string) {
   return { type: 'array', items: { type: 'string' }, description };
+}
+
+function audienceSchema() {
+  return {
+    type: 'object',
+    description: 'Optional automatic-injection audience. Values are stable project role/task/mode ids.',
+    properties: {
+      roles: stringArraySchema('Agent role ids, for example reviewer, refactor-planner, or git.'),
+      taskTypes: stringArraySchema('Task classifications such as review, refactor, or bugfix.'),
+      modes: stringArraySchema('Runtime mode ids.'),
+    },
+    additionalProperties: false,
+  };
 }
 
 function anchorsSchema() {

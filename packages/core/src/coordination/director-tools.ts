@@ -971,6 +971,7 @@ export function makeKanbanQueueTool(
             ...(i.maxToolCalls !== undefined ? { maxToolCalls: i.maxToolCalls } : {}),
             ...(i.timeoutMs !== undefined ? { timeoutMs: i.timeoutMs } : {}),
             context: {
+              ...(claim.task.type !== undefined ? { taskType: claim.task.type } : {}),
               kanban: {
                 boardId: claim.board.id,
                 taskId: claim.task.id,
@@ -1218,7 +1219,10 @@ function buildKanbanFleetTaskPrompt(
     `- maxAttempts: ${task.assignment?.maxAttempts ?? '<unset>'}`,
     `- costCeilingUsd: ${task.assignment?.costCeilingUsd ?? task.costCeilingUsd ?? '<unset>'}`,
     '',
-    'Work this task end-to-end. If scope is too broad or too small, use the kanban tool to split_task or merge_tasks instead of losing traceability.',
+    'Work this task end-to-end. Treat the board as a live plan, not a frozen assignment snapshot.',
+    `Before material work and whenever evidence changes the plan, call kanban with action "get_board" and boardId "${board.id}" to reassess current tasks, dependencies, priorities, and peer changes.`,
+    'You may use kanban add_task, update_task, split_task, merge_tasks, move_task, delete_task, or dependency actions when reassessment shows the plan should change. Preserve traceability and do not keep obsolete work merely because it existed at dispatch time.',
+    'Every successful board mutation updates shared pending work and notifies the owning session. Re-read the board after mutations and adapt to changes made by other agents; never assume your initial todo list remains authoritative.',
     `When you start, call kanban with action "mark_assignment", boardId "${board.id}", taskId "${task.id}", and assignmentStatus "running". Include subagentId and runTaskId when you have them.`,
     `To stay alive in the queue, call kanban with action "heartbeat_assignment", boardId "${board.id}", taskId "${task.id}", and heartbeatAt set to the current time. Cadence must be <= heartbeatIntervalMs and well before leaseExpiresAt.`,
     `When you finish, call kanban with action "mark_assignment", boardId "${board.id}", taskId "${task.id}", and assignmentStatus "completed" or "failed". Include lastResult or error.`,

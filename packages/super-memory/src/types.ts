@@ -43,6 +43,21 @@ export interface MemoryAnchor {
   lineEnd?: number | undefined;
 }
 
+export interface MemoryAudienceSelector {
+  /** Stable fleet/catalog role ids (for example `reviewer`, `refactor-planner`, or `git`). */
+  roles?: string[] | undefined;
+  /** Work classifications such as `review`, `refactor`, or Kanban task types. */
+  taskTypes?: string[] | undefined;
+  /** Runtime modes that should receive the memory (for example `code-review`). */
+  modes?: string[] | undefined;
+}
+
+export interface MemoryAudienceContext {
+  role?: string | undefined;
+  taskType?: string | undefined;
+  mode?: string | undefined;
+}
+
 export interface MemorySourceRef {
   type:
     | 'user'
@@ -74,6 +89,8 @@ export interface SuperMemory {
   freshness: number;
   tags: string[];
   anchors: MemoryAnchor[];
+  /** Optional project-local audience. Omitted memories remain general project knowledge. */
+  audience?: MemoryAudienceSelector | undefined;
   sources: MemorySourceRef[];
   supersedes?: string[] | undefined;
   supersededBy?: string | undefined;
@@ -172,6 +189,7 @@ export interface MemoryCandidate {
   importance: number;
   tags: string[];
   anchors: MemoryAnchor[];
+  audience?: MemoryAudienceSelector | undefined;
   sources: MemorySourceRef[];
   createdAt: string;
   updatedAt: string;
@@ -274,6 +292,8 @@ export interface RememberSuperMemoryInput {
   legacyScope?: MemoryScope | undefined;
   kind?: SuperMemoryKind | undefined;
   tags?: string[] | undefined;
+  /** Limit automatic agent injection to matching project roles/tasks/modes. */
+  audience?: MemoryAudienceSelector | undefined;
   priority?: MemoryPriority | undefined;
   type?: MemoryType | undefined;
   importance?: number | undefined;
@@ -290,6 +310,8 @@ export interface UpdateSuperMemoryInput {
   tags?: string[] | undefined;
   kind?: SuperMemoryKind | undefined;
   anchors?: MemoryAnchor[] | undefined;
+  /** Replace the automatic-injection audience; `{}` clears role/task/mode restrictions. */
+  audience?: MemoryAudienceSelector | undefined;
   importance?: number | undefined;
   confidence?: number | undefined;
   freshness?: number | undefined;
@@ -303,6 +325,13 @@ export interface SuperMemorySearchOptions {
   legacyScope?: MemoryScope | undefined;
   limit?: number | undefined;
   includeStatuses?: SuperMemoryStatus[] | undefined;
+  /** Default true for management/search surfaces; automatic injection opts out explicitly. */
+  includeAudienceScoped?: boolean | undefined;
+}
+
+export interface SuperMemoryForAudienceOptions extends MemoryAudienceContext {
+  limit?: number | undefined;
+  includeStatuses?: SuperMemoryStatus[] | undefined;
 }
 
 export interface SuperMemoryForPathOptions {
@@ -310,6 +339,8 @@ export interface SuperMemoryForPathOptions {
   limit?: number | undefined;
   includeAncestors?: boolean | undefined;
   includeStatuses?: SuperMemoryStatus[] | undefined;
+  /** Default true for explicit reads; automatic tool-result injection sets false. */
+  includeAudienceScoped?: boolean | undefined;
 }
 
 export function superToLegacyScope(scope: SuperMemoryScope): MemoryScope {
