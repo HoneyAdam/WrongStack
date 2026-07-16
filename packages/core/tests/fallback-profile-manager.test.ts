@@ -51,7 +51,7 @@ describe('FallbackProfileManager', () => {
     expect(chain[1]?.model).toBe('gpt-4o-mini');
   });
 
-  it('resolves entries regardless of provider API key (key check is caller responsibility)', () => {
+  it('filters profile entries whose provider has no usable credentials or endpoint', () => {
     const mgr = new FallbackProfileManager(
       makeConfig({
         fallbackProfiles: {
@@ -60,10 +60,13 @@ describe('FallbackProfileManager', () => {
       }),
     );
     const chain = mgr.resolve('no-key-test');
-    // Both entries included — resolve() does NOT filter by API key
-    // (matching fallbackProfileChain() behavior); key gating is the
-    // caller's responsibility via buildProvider.
-    expect(chain).toHaveLength(2);
+    expect(chain).toEqual([
+      {
+        providerId: 'anthropic',
+        model: 'claude-opus-4-8',
+        providerSwitched: true,
+      },
+    ]);
   });
 
   it('filters out self-reference exclude', () => {
@@ -106,32 +109,43 @@ describe('FallbackProfileManager', () => {
     expect(names).not.toContain('does-not-exist');
   });
 
-  it('reload returns a new instance with updated config', () => {
+  it('reload preserves service identity and atomically replaces the active snapshot', () => {
     const oldCfg = makeConfig({ fallbackProfiles: { old: ['anthropic/claude-opus-4-8'] } });
     const newCfg = makeConfig({ fallbackProfiles: { new: ['openai/gpt-4o-mini'] } });
     const mgr = new FallbackProfileManager(oldCfg);
     expect(mgr.hasProfile('old')).toBe(true);
     expect(mgr.hasProfile('new')).toBe(false);
 
-    const reloaded = mgr.reload(newCfg);
-    expect(reloaded.hasProfile('old')).toBe(false);
-    expect(reloaded.hasProfile('new')).toBe(true);
-    // Original is unchanged
-    expect(mgr.hasProfile('old')).toBe(true);
+    expect(mgr.reload(newCfg)).toBeUndefined();
+    expect(mgr.hasProfile('old')).toBe(false);
+    expect(mgr.hasProfile('new')).toBe(true);
   });
 
   it('checks provider availability', () => {
     const mgr = new FallbackProfileManager(makeConfig());
     const openai = mgr.checkProvider('openai');
-    expect(openai.hasKey).toBe(true);
-    expect(openai.hasModels).toBe(true);
+    expect(openai).toMatchObject({
+      hasKey: true,
+      hasEndpoint: false,
+      hasModels: true,
+      usable: true,
+    });
 
     const unknown = mgr.checkProvider('does-not-exist');
-    expect(unknown.hasKey).toBe(false);
+    expect(unknown).toMatchObject({
+      hasKey: false,
+      hasEndpoint: false,
+      hasModels: false,
+      usable: false,
+    });
 
     const unkeyed = mgr.checkProvider('unkeyed');
-    expect(unkeyed.hasKey).toBe(false);
-    expect(unkeyed.hasModels).toBe(true);
+    expect(unkeyed).toMatchObject({
+      hasKey: false,
+      hasEndpoint: false,
+      hasModels: true,
+      usable: false,
+    });
   });
 
   describe('resolveEffective', () => {
@@ -201,6 +215,46 @@ describe('FallbackProfileManager', () => {
       } finally {
         delete process.env['FALLBACK_TEST_KEY'];
       }
+    });
+
+    it('accepts a keyless self-hosted provider with a configured endpoint', () => {
+      const cfg = makeConfig({
+        providers: {
+          local: {
+            type: 'openai-compatible',
+            baseUrl: 'http://127.0.0.1:11434/v1',
+            models: ['local-model'],
+          },
+        },
+        fallbackProfiles: {
+          local: ['local/local-model'],
+        },
+      });
+      const mgr = new FallbackProfileManager(cfg);
+      expect(mgr.checkProvider('local')).toMatchObject({
+        hasKey: false,
+        hasEndpoint: true,
+        usable: true,
+      });
+      expect(mgr.resolve('local')).toHaveLength(1);
+    });
+
+    it('inherits top-level credentials for the configured primary provider', () => {
+      const cfg = makeConfig({
+        apiKey: 'top-level-key',
+        providers: {
+          openai: { type: 'openai', models: ['gpt-4o', 'gpt-4o-mini'] },
+        },
+      });
+      const mgr = new FallbackProfileManager(cfg);
+      expect(mgr.checkProvider('openai').usable).toBe(true);
+      expect(mgr.resolve('primary-failover')).toEqual([
+        {
+          providerId: 'openai',
+          model: 'gpt-4o-mini',
+          providerSwitched: false,
+        },
+      ]);
     });
 
     it('excludes models not in provider allow-list', () => {

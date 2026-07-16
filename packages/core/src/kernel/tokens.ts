@@ -1,4 +1,5 @@
 import type { BrainArbiter } from '../coordination/brain.js';
+import type { FallbackProfileManager } from '../core/fallback-profile-manager.js';
 import type { HookRegistry } from '../hooks/registry.js';
 import type { Compactor } from '../types/compactor.js';
 import type { ConfigLoader, ConfigStore } from '../types/config.js';
@@ -45,6 +46,7 @@ export const TOKENS = {
   PathResolver: t<PathResolver>('PathResolver'),
   ConfigLoader: t<ConfigLoader>('ConfigLoader'),
   ConfigStore: t<ConfigStore>('ConfigStore'),
+  FallbackProfileManager: t<FallbackProfileManager>('FallbackProfileManager'),
   Renderer: t<Renderer>('Renderer'),
   InputReader: t<InputReader>('InputReader'),
   ErrorHandler: t<ErrorHandler>('ErrorHandler'),

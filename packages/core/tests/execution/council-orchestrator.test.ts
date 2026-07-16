@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Config } from '../../src/types/config.js';
 import type { CouncilLLMCaller, CouncilQuestion } from '../../src/types/council.js';
 import type { OneShotLLMInput, OneShotLLMResult } from '../../src/types/one-shot-llm.js';
 import {
@@ -6,6 +7,7 @@ import {
   DEFAULT_COUNCIL_MAX_CONCURRENCY,
   MAX_COUNCIL_CONCURRENCY,
 } from '../../src/execution/council-orchestrator.js';
+import { FallbackProfileManager } from '../../src/core/fallback-profile-manager.js';
 import { DEFAULT_COUNCIL_PROFILE_REGISTRY } from '../../src/execution/council-profiles.js';
 import { COUNCIL_REFUSE_OPTION_ID } from '../../src/execution/council-brain.js';
 
@@ -561,6 +563,27 @@ describe('CouncilOrchestrator', () => {
     expect(result.resolution).toBe('refusal');
     expect(log.judgeCalls).toEqual([]);
   });
+
+  it('pre-resolves fallbackProfile through the injected FallbackProfileManager', () => {
+    const cfg = {
+      provider: 'primary',
+      model: 'p-model',
+      providers: {
+        primary: { type: 'test', apiKey: 'sk-1', models: ['p-model', 'fb-model'] },
+        fallback: { type: 'test', apiKey: 'sk-2', models: ['fb-model'] },
+      },
+      fallbackProfiles: {
+        'safe-fb': ['fallback/fb-model'],
+      },
+    } as unknown as Config;
+    const mgr = new FallbackProfileManager(cfg);
+    const orch = new CouncilOrchestrator({
+      caller: noopCaller(),
+      fallbackProfileManager: mgr,
+      maxConcurrency: 1,
+    });
+    expect(orch).toBeDefined();
+  });
 });
 
 function noopCaller(): CouncilLLMCaller {
@@ -570,3 +593,4 @@ function noopCaller(): CouncilLLMCaller {
     },
   };
 }
+

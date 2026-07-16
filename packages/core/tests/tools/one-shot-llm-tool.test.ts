@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createOneShotLLMTool, ONE_SHOT_LLM_TOOL_NAME } from '../../src/tools/one-shot-llm-tool.js';
+import { FallbackProfileManager } from '../../src/core/fallback-profile-manager.js';
 import type { Provider, Request } from '../../src/types/provider.js';
 
 function fakeProvider(id: string): Provider {
@@ -16,11 +17,21 @@ function fakeProvider(id: string): Provider {
   };
 }
 
+function makeFakeConfig(overrides?: Record<string, unknown>) {
+  return {
+    provider: 'test',
+    model: 'test-model',
+    fallbackAuto: false,
+    ...overrides,
+  } as never;
+}
+
 describe('createOneShotLLMTool', () => {
   it('has the correct tool name', () => {
     const tool = createOneShotLLMTool({
       buildProvider: async () => fakeProvider('test'),
-      getConfig: () => ({ provider: 'test', model: 'test-model' }) as never,
+      getConfig: () => makeFakeConfig(),
+      fallbackProfileManager: new FallbackProfileManager(makeFakeConfig()),
     });
     expect(tool.name).toBe(ONE_SHOT_LLM_TOOL_NAME);
     expect(tool.name).toBe('llm');
@@ -29,7 +40,8 @@ describe('createOneShotLLMTool', () => {
   it('returns an error when no model/providerId and no defaults configured', async () => {
     const tool = createOneShotLLMTool({
       buildProvider: async () => fakeProvider('test'),
-      getConfig: () => ({ provider: 'test', model: 'test-model' }) as never,
+      getConfig: () => makeFakeConfig(),
+      fallbackProfileManager: new FallbackProfileManager(makeFakeConfig()),
     });
 
     const result = await tool.execute({ system: 'hello', userPrompt: 'world' }, {} as never, { signal: new AbortController().signal });
@@ -42,7 +54,8 @@ describe('createOneShotLLMTool', () => {
   it('produces a response when model and providerId are provided explicitly', async () => {
     const tool = createOneShotLLMTool({
       buildProvider: async (pid) => fakeProvider(pid),
-      getConfig: () => ({ provider: 'cfg', model: 'cfg-model' }) as never,
+      getConfig: () => makeFakeConfig(),
+      fallbackProfileManager: new FallbackProfileManager(makeFakeConfig()),
     });
 
     const result = await tool.execute(
@@ -59,7 +72,8 @@ describe('createOneShotLLMTool', () => {
   it('uses defaultProvider/defaultModel when caller omits them', async () => {
     const tool = createOneShotLLMTool({
       buildProvider: async (pid) => fakeProvider(pid),
-      getConfig: () => ({ provider: 'cfg', model: 'cfg-model' }) as never,
+      getConfig: () => makeFakeConfig(),
+      fallbackProfileManager: new FallbackProfileManager(makeFakeConfig()),
       defaultProvider: 'default-prov',
       defaultModel: 'default-model',
     });
@@ -86,7 +100,8 @@ describe('createOneShotLLMTool', () => {
     });
     const tool = createOneShotLLMTool({
       buildProvider: async () => provider,
-      getConfig: () => ({ provider: 'cfg', model: 'cfg-model' }) as never,
+      getConfig: () => makeFakeConfig(),
+      fallbackProfileManager: new FallbackProfileManager(makeFakeConfig()),
       defaultProvider: 'default-prov',
       defaultModel: 'default-model',
     });
@@ -116,7 +131,8 @@ describe('createOneShotLLMTool', () => {
     });
     const tool = createOneShotLLMTool({
       buildProvider: async () => provider,
-      getConfig: () => ({ provider: 'cfg', model: 'cfg-model' }) as never,
+      getConfig: () => makeFakeConfig(),
+      fallbackProfileManager: new FallbackProfileManager(makeFakeConfig()),
       defaultProvider: 'default-prov',
       defaultModel: 'default-model',
     });

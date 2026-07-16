@@ -43,6 +43,11 @@ export interface CouncilOrchestratorOptions {
   /** Live config accessor for fallback profile resolution. */
   getConfig?: (() => Config) | undefined;
   /**
+   * Shared live FallbackProfileManager — required for reliable fallback
+   * profile pre-resolution. Pass the runtime container's manager.
+   */
+  fallbackProfileManager?: FallbackProfileManager | undefined;
+  /**
    * Per-seat LLM caller factory. When set, each seat gets its own caller
    * instead of the shared `caller`. The factory receives (seatIndex) and
    * returns a CouncilLLMCaller. Used by Brain council arbitration where
@@ -85,6 +90,7 @@ export class CouncilOrchestrator {
   private readonly maxConcurrency: number;
   private readonly refusalOptionId: string;
   private readonly getConfig: (() => Config) | undefined;
+  private readonly fallbackProfileManager: FallbackProfileManager | undefined;
   private readonly seatCaller: ((seatIndex: number) => CouncilLLMCaller) | undefined;
   private readonly judgeCaller: CouncilLLMCaller | undefined;
 
@@ -98,6 +104,7 @@ export class CouncilOrchestrator {
     );
     this.refusalOptionId = opts.refusalOptionId?.trim() || COUNCIL_REFUSAL_OPTION_ID;
     this.getConfig = opts.getConfig;
+    this.fallbackProfileManager = opts.fallbackProfileManager;
     this.seatCaller = opts.seatCaller;
     this.judgeCaller = opts.judgeCaller;
   }
@@ -558,10 +565,10 @@ export class CouncilOrchestrator {
     target?: CouncilModelTarget | undefined,
   ): CouncilModelTarget | undefined {
     if (!target) return undefined;
-    if (!target.fallbackProfile || !this.getConfig) return target;
+    if (!target.fallbackProfile) return target;
 
-    const config = this.getConfig();
-    const mgr = new FallbackProfileManager(config);
+    const mgr = this.fallbackProfileManager;
+    if (!mgr) return target;
     const chain = mgr.resolve(target.fallbackProfile);
     if (chain.length === 0) return target;
 

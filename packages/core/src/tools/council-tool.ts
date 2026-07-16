@@ -1,4 +1,5 @@
 import { CouncilOrchestrator } from '../execution/council-orchestrator.js';
+import type { FallbackProfileManager } from '../core/fallback-profile-manager.js';
 import type {
   CouncilLLMCaller,
   CouncilOption,
@@ -29,6 +30,8 @@ export interface CreateCouncilToolOptions {
   defaultProfile?: string | undefined;
   maxConcurrency?: number | undefined;
   refusalOptionId?: string | undefined;
+  /** Shared live FallbackProfileManager. */
+  fallbackProfileManager?: FallbackProfileManager | undefined;
 }
 
 const INPUT_SCHEMA: JSONSchema = {
@@ -72,7 +75,10 @@ const INPUT_SCHEMA: JSONSchema = {
 export function createCouncilTool(
   opts: CreateCouncilToolOptions,
 ): Tool<CouncilToolInput, CouncilResult> {
-  const orchestrator = new CouncilOrchestrator(opts);
+  const orchestrator = new CouncilOrchestrator({
+    ...opts,
+    fallbackProfileManager: opts.fallbackProfileManager,
+  });
   return {
     name: COUNCIL_TOOL_NAME,
     description:

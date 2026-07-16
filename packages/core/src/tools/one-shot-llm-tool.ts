@@ -17,6 +17,8 @@ export const ONE_SHOT_LLM_TOOL_NAME = 'llm';
 export interface CreateOneShotLLMToolOptions {
   buildProvider: OneShotOrchestratorOptions['buildProvider'];
   getConfig: OneShotOrchestratorOptions['getConfig'];
+  /** Shared live FallbackProfileManager — required. */
+  fallbackProfileManager: OneShotOrchestratorOptions['fallbackProfileManager'];
   modelRouter?: OneShotOrchestratorOptions['modelRouter'];
   logger?: OneShotOrchestratorOptions['logger'];
   /**
@@ -77,14 +79,10 @@ const INPUT_SCHEMA: JSONSchema = {
       type: 'string',
       description: 'Roster role for model-matrix routing. Overrides model/providerId.',
     },
-    fallbackProfile: {
-      type: 'string',
-      description: 'Named fallback profile from config.fallbackProfiles.',
-    },
     fallbackModels: {
       type: 'array',
       items: { type: 'string' },
-      description: 'Explicit fallback model chain (e.g. ["anthropic/claude-haiku", "openai/gpt-4o-mini"]).',
+      description: 'Explicit fallback model chain (e.g. ["anthropic/claude-haiku", "openai/gpt-4o-mini"]). Resolved named profiles from FallbackProfileManager are passed here.',
     },
     maxTokens: {
       type: 'number',
@@ -143,6 +141,7 @@ export function createOneShotLLMTool(opts: CreateOneShotLLMToolOptions): Tool<On
   const orchestrator = new OneShotOrchestrator({
     buildProvider: opts.buildProvider,
     getConfig: opts.getConfig,
+    fallbackProfileManager: opts.fallbackProfileManager,
     modelRouter: opts.modelRouter,
     logger: opts.logger,
   });
@@ -157,7 +156,7 @@ export function createOneShotLLMTool(opts: CreateOneShotLLMToolOptions): Tool<On
     usageHint:
       'Provide `system` for the instruction and `userPrompt` for the input. ' +
       'Either set `model`+`providerId`, or have defaults configured on the tool. ' +
-      'Set `fallbackProfile` or `fallbackModels` for resilience. ' +
+      'Set `fallbackModels` for resilience. ' +
       'Check `error` on the result for failure details.',
     inputSchema: INPUT_SCHEMA,
     permission: 'auto',

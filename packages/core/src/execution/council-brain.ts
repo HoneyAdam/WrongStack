@@ -22,19 +22,23 @@ import type {
   BrainDecisionRequest,
 } from '../coordination/brain.js';
 import {
-  type BrainLlmTarget,
   completeBrainLlm,
 } from './autonomy-brain.js';
 import { CouncilOrchestrator } from './council-orchestrator.js';
 import type { CouncilLLMCaller, CouncilModelTarget, CouncilProfileConfig, CouncilSeatConfig } from '../types/council.js';
 import type { OneShotLLMInput, OneShotLLMResult } from '../types/one-shot-llm.js';
+import type { Provider } from '../types/provider.js';
 
 export const COUNCIL_REFUSE_OPTION_ID = 'council_refuse';
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
 /** One voting seat on the council. */
-export interface CouncilVoter extends BrainLlmTarget {
+export interface CouncilVoter {
+  /** Provider instance this voter uses. */
+  provider: Provider;
+  /** Model id this voter uses. */
+  model: string;
   /**
    * Decision lens. Built-ins: 'executor', 'skeptic', 'auditor'. Any other
    * string is injected verbatim as the persona description.
@@ -51,7 +55,7 @@ export interface CouncilVoter extends BrainLlmTarget {
 export interface CouncilBrainOptions {
   voters: CouncilVoter[];
   /** Tie-breaker / synthesizer. Default: none (ties call for human). */
-  judge?: BrainLlmTarget | undefined;
+  judge?: CouncilVoter | undefined;
   /** Fraction of voters that must vote. Default 0.5. */
   quorumFraction?: number | undefined;
   /** Winning option weight must exceed this fraction. Default 0.5. */
