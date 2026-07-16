@@ -20,6 +20,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { ulid, withFileLock } from '@wrongstack/core/utils';
 import { ensureDir } from '@wrongstack/core/utils';
 import { readJsonl } from './jsonl.js';
+import { normalizeTextKey } from './middleware/turn-memory.js';
 import type {
   LegacyImportResult,
   MemoryAnchor,
@@ -362,7 +363,7 @@ export class SqliteSuperMemoryStore {
 
     return this.runMutation(() => {
       // Check for duplicate by canonical text
-      const canonical = normalizedText.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+      const canonical = normalizeTextKey(normalizedText);
       const candidates = this.db
         .prepare(
           `SELECT data FROM memories
@@ -373,7 +374,7 @@ export class SqliteSuperMemoryStore {
 
       for (const c of candidates) {
         const existing = this.rowToMemory(c);
-        const existingCanonical = existing.text.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+        const existingCanonical = normalizeTextKey(existing.text);
         if (existingCanonical === canonical) {
           // Merge
           const merged: SuperMemory = {

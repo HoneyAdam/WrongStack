@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import type { Middleware } from '@wrongstack/core/kernel';
 import type { ToolCallPipelinePayload } from '@wrongstack/core';
 import { formatMemoryHintsDetailed } from '../retrieval/format.js';
+import { normalizeTextKey } from './turn-memory.js';
 import type { SuperMemory } from '../types.js';
 
 export interface SuperMemoryToolCallMiddlewareOptions {
@@ -374,7 +375,7 @@ function containsMemoryText(haystack: string, memoryText: string): boolean {
 function dedupeByText(memories: SuperMemory[]): SuperMemory[] {
   const seen = new Set<string>();
   return memories.filter((memory) => {
-    const key = memory.text.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+    const key = normalizeTextKey(memory.text);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
