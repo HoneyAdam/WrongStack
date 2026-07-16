@@ -1,12 +1,22 @@
 /**
  * Shared mutation fixture for mailbox HTTP validators.
  *
- * Defines per-route valid bodies and one-field mutation cases so both the
- * standalone bridge (`mailbox-bridge-mutation.test.ts`) and the HQ project
- * gateway (`hq-mailbox-mutation.test.ts`) iterate over the same contract.
+ * Defines per-route valid bodies and one-field mutation cases so
+ * host mutation suites iterate over the same contract.
  *
- * Adding a new `MutationCase` to a `RouteDef` here automatically adds it
- * to both host suites.
+ * The bridge suite (`mailbox-bridge-mutation.test.ts`) already imports
+ * this fixture (commit d6765457). Adding a new `MutationCase` to a
+ * `RouteDef` here automatically covers the bridge.
+ *
+ * The HQ gateway suite (`hq-mailbox-mutation.test.ts`) can be
+ * migrated once the gateway's project-resolution approach supports
+ * direct route dispatch (currently it resolves projectId server-side
+ * via SessionRegistry, which is incompatible with this fixture's
+ * direct dispatch pattern). See the HQ suite for the interface:
+ * import { addRouteMutationTests, type PostFn, SEND_DEF, ... } from
+ * '../../core/tests/coordination/mailbox-mutation-fixtures.js';
+ * const hqPost: PostFn = async (route, body, headers) => { ... };
+ * addRouteMutationTests([SEND_DEF, ...], hqPost);
  *
  * Each host provides its own `post` callback so harness differences
  * (subprocess URL vs in-process gateway URL, auth headers, cleanup)
