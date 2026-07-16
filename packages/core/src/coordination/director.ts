@@ -844,6 +844,16 @@ export class Director implements ICoordinator {
             title,
           },
     );
+    // task_failed pins the failure to the task; agent_error pins it to the
+    // agent, which is what the replay timeline renders per-subagent.
+    if (failed) {
+      void this.appendSessionEvent({
+        type: 'agent_error',
+        ts: new Date().toISOString(),
+        agentId: r.subagentId,
+        error: errorString ?? r.status,
+      });
+    }
     // Flush immediately on task completion — the result should be
     // visible in the manifest without waiting for the debounce window.
     // Use flushManifest() so any pending debounce timer is also cleared.
@@ -1988,6 +1998,14 @@ export class Director implements ICoordinator {
 
   async remove(subagentId: string): Promise<void> {
     this.clearSubagentIdleRetirement(subagentId);
+    // The terminal counterpart to the agent_spawned written in spawn(). Without
+    // it a resumed session replays every subagent starting and none of them
+    // finishing, and a crash is indistinguishable from a run still in flight.
+    void this.appendSessionEvent({
+      type: 'agent_stopped',
+      ts: new Date().toISOString(),
+      agentId: subagentId,
+    });
     await this.coordinator.remove(subagentId);
 
     // Clean up the bridge so it stops consuming resources.

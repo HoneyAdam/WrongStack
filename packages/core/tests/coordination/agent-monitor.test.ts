@@ -506,6 +506,97 @@ describe('AgentMonitorService', () => {
     mon.stop();
   });
 
+  // ── Resume: rebuilding the ring from disk ────────────────────────
+
+  describe('loadSessionsFromDisk', () => {
+    it('restores subagent transcripts a fresh process never observed', async () => {
+      // Exactly the resume case: the transcripts are on disk from a previous
+      // run, and this service instance has never seen the subagent.
+      const dir = path.join(transcriptsDir, 'worker-7');
+      await fsp.mkdir(dir, { recursive: true });
+      const entry = (kind: string, content: string, ts: string) =>
+        JSON.stringify({
+          id: `e-${content}`,
+          subagentId: 'worker-7',
+          agentName: 'Worker 7',
+          ts,
+          kind,
+          content,
+          iteration: 0,
+        });
+      await fsp.writeFile(
+        path.join(dir, 'transcript.jsonl'),
+        [
+          entry('text', 'hello from the previous run', '2026-07-16T10:00:00.000Z'),
+          entry('tool_use', 'read_file', '2026-07-16T10:00:01.000Z'),
+        ].join('\n') + '\n',
+      );
+
+      expect(monitor.getAllSessions()).toEqual([]);
+      const sessions = await monitor.loadSessionsFromDisk();
+
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]?.subagentId).toBe('worker-7');
+      expect(sessions[0]?.agentName).toBe('Worker 7');
+      expect(sessions[0]?.transcript.map((e) => e.content)).toEqual([
+        'hello from the previous run',
+        'read_file',
+      ]);
+      // Nothing on disk says whether the run finished or was killed.
+      expect(sessions[0]?.status).toBe('restored');
+    });
+
+    it('does not clobber a live subagent with its staler JSONL', async () => {
+      monitor.start();
+      monitor.trackSubagent('a1', 'Agent 1');
+      const dir = path.join(transcriptsDir, 'a1');
+      await fsp.mkdir(dir, { recursive: true });
+      await fsp.writeFile(
+        path.join(dir, 'transcript.jsonl'),
+        JSON.stringify({
+          id: 'stale',
+          subagentId: 'a1',
+          agentName: 'Agent 1',
+          ts: '2026-07-16T09:00:00.000Z',
+          kind: 'text',
+          content: 'stale disk copy',
+          iteration: 0,
+        }) + '\n',
+      );
+
+      const sessions = await monitor.loadSessionsFromDisk();
+      const a1 = sessions.find((s) => s.subagentId === 'a1');
+      // The ring holds the open streaming segment, which the JSONL never has.
+      expect(a1?.transcript.some((e) => e.content === 'stale disk copy')).toBe(false);
+    });
+
+    it('skips a torn trailing line rather than losing the whole transcript', async () => {
+      const dir = path.join(transcriptsDir, 'crashed');
+      await fsp.mkdir(dir, { recursive: true });
+      await fsp.writeFile(
+        path.join(dir, 'transcript.jsonl'),
+        JSON.stringify({
+          id: 'ok',
+          subagentId: 'crashed',
+          agentName: 'Crashed',
+          ts: '2026-07-16T10:00:00.000Z',
+          kind: 'text',
+          content: 'complete line',
+          iteration: 0,
+        }) +
+          '\n{"id":"partial","subagen',
+      );
+
+      const sessions = await monitor.loadSessionsFromDisk();
+      expect(sessions[0]?.transcript.map((e) => e.content)).toEqual(['complete line']);
+    });
+
+    it('returns the ring untouched when no transcripts dir exists', async () => {
+      await fsp.rm(transcriptsDir, { recursive: true, force: true });
+      await expect(monitor.loadSessionsFromDisk()).resolves.toEqual([]);
+    });
+  });
+
   // ── Iteration heartbeat ──────────────────────────────────────────
 
   it('emits status entry every 5 iterations', () => {

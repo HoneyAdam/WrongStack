@@ -197,6 +197,10 @@ export interface CliWebUIOptions {
   /** Read-only worker transcript snapshot used for F5/reconnect replay. */
   agentTranscripts?: {
     getAllSessions(): import('@wrongstack/core/coordination').AgentVirtualSession[];
+    /** Ring + on-disk transcripts, for surfaces that survive a process restart. */
+    loadSessionsFromDisk(): Promise<
+      import('@wrongstack/core/coordination').AgentVirtualSession[]
+    >;
   } | undefined;
   /**
    * Fired once the WebSocket server is accepting connections. Useful for
@@ -1109,7 +1113,10 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
           const usage = opts.agent.ctx.tokenCounter.total();
           return { messages: opts.agent.ctx.messages, usage };
         },
-        loadAgentSessions: () => opts.agentTranscripts?.getAllSessions() ?? [],
+        // Reads the on-disk transcripts when the in-memory ring is cold, which
+        // it always is after a resume — the ring only holds what this process
+        // watched happen.
+        loadAgentSessions: async () => (await opts.agentTranscripts?.loadSessionsFromDisk()) ?? [],
         needsSetup: opts.needsSetup ?? false,
       }),
     );

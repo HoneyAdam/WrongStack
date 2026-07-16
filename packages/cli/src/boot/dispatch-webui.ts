@@ -78,6 +78,9 @@ export interface WebUIDispatchContext {
   /** Read-only worker transcript snapshot used for browser refresh replay. */
   agentTranscripts?: {
     getAllSessions(): import('@wrongstack/core/coordination').AgentVirtualSession[];
+    loadSessionsFromDisk(): Promise<
+      import('@wrongstack/core/coordination').AgentVirtualSession[]
+    >;
   } | undefined;
   /** Per-task agent factory for the SDD wizard's multi-agent run. */
   sddSubagentFactory?: import('@wrongstack/core').AgentFactory | undefined;

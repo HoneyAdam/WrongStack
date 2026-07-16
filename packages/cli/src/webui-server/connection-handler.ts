@@ -71,9 +71,13 @@ export interface ConnectionHandlerDeps {
    * fallback because it is the model working set and can be compacted.
    */
   loadReplay?: (() => Promise<{ messages: Message[]; usage?: Usage | undefined } | null>) | undefined;
-  /** Read-only worker transcript snapshot for browser refresh/resume. */
+  /**
+   * Read-only worker transcript snapshot for browser refresh/resume. Async
+   * because a resumed process has an empty ring and must read the transcripts
+   * back from disk.
+   */
   loadAgentSessions?:
-    | (() => import('@wrongstack/core/coordination').AgentVirtualSession[])
+    | (() => Promise<import('@wrongstack/core/coordination').AgentVirtualSession[]>)
     | undefined;
   needsSetup: boolean;
 }
@@ -172,14 +176,27 @@ export function createConnectionHandler(
           return;
         }
       }
+      let msg: WSClientMessage;
       try {
-        const msg = JSON.parse(data.toString()) as WSClientMessage;
-        await deps.handleMessage(ws, client, msg);
+        msg = JSON.parse(data.toString()) as WSClientMessage;
       } catch (err) {
         console.error(
           JSON.stringify({
             level: 'error',
             event: 'webui_server.message_parse_failed',
+            message: err instanceof Error ? err.message : String(err),
+            timestamp: new Date().toISOString(),
+          }),
+        );
+        return;
+      }
+      try {
+        await deps.handleMessage(ws, client, msg);
+      } catch (err) {
+        console.error(
+          JSON.stringify({
+            level: 'error',
+            event: 'webui_server.message_handler_failed',
             message: err instanceof Error ? err.message : String(err),
             timestamp: new Date().toISOString(),
           }),
@@ -244,7 +261,7 @@ export function createConnectionHandler(
       // load races a writer or the store is unavailable.
     }
     try {
-      const agentSessions = deps.loadAgentSessions?.();
+      const agentSessions = await deps.loadAgentSessions?.();
       if (agentSessions && agentSessions.length > 0) {
         payload['agentSessions'] = agentSessions;
       }

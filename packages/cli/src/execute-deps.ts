@@ -194,6 +194,10 @@ export interface FleetDeps {
   agentTranscripts?: {
     getTranscript(subagentId: string, limit?: number): import('@wrongstack/core/coordination').AgentTimelineEntry[];
     getAllSessions(): import('@wrongstack/core/coordination').AgentVirtualSession[];
+    /** Ring + on-disk transcripts, for surfaces that survive a process restart. */
+    loadSessionsFromDisk(): Promise<
+      import('@wrongstack/core/coordination').AgentVirtualSession[]
+    >;
   } | undefined;
   authHost?: import('@wrongstack/tui').AuthPanelHost | undefined;
   onPanelOpen?: { current: ((action: string) => boolean) | null } | undefined;

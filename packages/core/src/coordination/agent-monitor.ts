@@ -14,6 +14,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { EventBus } from '../kernel/events.js';
+import { expectDefined } from '../utils/expect-defined.js';
 import type { FleetBus } from './fleet-bus.js';
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -126,6 +127,63 @@ export class AgentMonitorService {
   /** Get a snapshot of all known agent sessions. */
   getAllSessions(): AgentVirtualSession[] {
     return Array.from(this._sessions.values());
+  }
+
+  /**
+   * Rebuild the virtual sessions from the on-disk transcripts.
+   *
+   * The ring only holds what THIS process observed, so after a resume it is
+   * empty and `getAllSessions()` reports no subagents even though every
+   * transcript is sitting in `transcriptsDir`. This reads them back so a
+   * resumed surface can show the prior run's subagent work.
+   *
+   * Entries already in the ring win: a live subagent's in-memory segment is
+   * newer than its JSONL, which is only written when a segment closes.
+   */
+  async loadSessionsFromDisk(): Promise<AgentVirtualSession[]> {
+    let subagentIds: string[];
+    try {
+      const dirents = await fs.readdir(this._transcriptsDir, { withFileTypes: true });
+      subagentIds = dirents.filter((d) => d.isDirectory()).map((d) => d.name);
+    } catch {
+      return this.getAllSessions(); // no transcripts dir yet — nothing to restore
+    }
+
+    for (const subagentId of subagentIds) {
+      if (this._sessions.has(subagentId)) continue; // live ring is authoritative
+      const transcript = await this._readTranscriptFile(subagentId);
+      if (transcript.length === 0) continue;
+      const first = expectDefined(transcript[0]);
+      const last = expectDefined(transcript[transcript.length - 1]);
+      this._sessions.set(subagentId, {
+        subagentId,
+        agentName: last.agentName || first.agentName || subagentId,
+        createdAt: first.ts,
+        // The run is over as far as this process is concerned; nothing on disk
+        // says whether it finished or was killed mid-flight.
+        status: 'restored',
+        transcript: transcript.slice(-this._maxEntries),
+      });
+    }
+    return this.getAllSessions();
+  }
+
+  private async _readTranscriptFile(subagentId: string): Promise<AgentTimelineEntry[]> {
+    const file = path.join(this._transcriptsDir, subagentId, 'transcript.jsonl');
+    const raw = await fs.readFile(file, 'utf8').catch(() => null);
+    if (raw === null) return [];
+    const out: AgentTimelineEntry[] = [];
+    for (const line of raw.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed.length === 0) continue;
+      try {
+        out.push(JSON.parse(trimmed) as AgentTimelineEntry);
+      } catch {
+        // Skip a torn trailing line — the writer appends without fsync, so a
+        // crash can leave a partial record.
+      }
+    }
+    return out;
   }
 
   /** Get a specific agent's virtual session, or undefined. */
