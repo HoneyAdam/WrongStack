@@ -353,6 +353,24 @@ describe('remember tool (structured write)', () => {
       audience: { roles: ['refactor-planner'], taskTypes: ['refactor'] },
     }));
   });
+
+  it('no_auto_audience flag prevents auto-scoping despite having a role', async () => {
+    const rememberSuper = vi.fn().mockResolvedValue({ id: 'mem_5', kind: 'fact', text: 'x', tags: [] });
+    const service = createMockService();
+    service.rememberSuper = rememberSuper;
+
+    const tool = createSuperMemoryTools(service)[7]!;
+    await tool.execute(
+      { text: 'General note from a subagent.', no_auto_audience: true } as never,
+      { meta: { agentRole: 'reviewer', mode: 'teach' } } as never,
+      { signal: new AbortController().signal } as never,
+    );
+
+    expect(rememberSuper).toHaveBeenCalledWith(expect.objectContaining({
+      text: 'General note from a subagent.',
+      audience: undefined,
+    }));
+  });
 });
 
 describe('forget tool', () => {
