@@ -6,6 +6,7 @@ import { PLUGIN_NAME, readTelegramConfig, telegramConfigSchema } from './config.
 import type { SessionEndedLike, ToolExecutedLike } from './format.js';
 import { formatDelegateCompleted, formatSessionEnded, formatToolExecuted } from './format.js';
 import { lockPathForToken, PollLock } from './poll-lock.js';
+import { OffsetStore } from './offset-store.js';
 import { scrubTelegramOutboundText } from './security/outbound.js';
 import { tgChatIdCommand, tgHealthCommand, tgSendCommand } from './slash-commands/index.js';
 import { makeTelegramApproveTool } from './tools/telegram-approve.js';
@@ -178,13 +179,21 @@ const plugin: Plugin = {
       cfg.singleInstanceLock === false
         ? undefined
         : new PollLock(lockPathForToken(cfg.botToken), { log });
+    // Persist the polling cursor so a crash/restart doesn't replay messages.
+    // Default to a token-scoped store under ~/.wrongstack/telegram; an explicit
+    // offsetStoragePath overrides the location. Persistence is disabled only
+    // when offsetStoragePath is set to an empty string.
+    const offsetStore =
+      cfg.offsetStoragePath === ''
+        ? undefined
+        : new OffsetStore({ token: cfg.botToken, path: cfg.offsetStoragePath });
     const bot = new TelegramBot({
       token: cfg.botToken,
       pollIntervalSec: cfg.pollIntervalSec ?? 2,
       ...inboundAllowlist(cfg),
       bufferSize: 50,
       log,
-      offsetStoragePath: cfg.offsetStoragePath,
+      offsetStore,
       lock,
       onMessage(msg: TelegramIncomingMessage) {
         // Emit custom event so other plugins or the host can react.

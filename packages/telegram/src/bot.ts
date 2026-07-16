@@ -8,6 +8,7 @@ import {
   type TelegramApiCallbackQuery,
   type TelegramApiMessage,
 } from './api-client.js';
+import { OffsetStore } from './offset-store.js';
 import type { PollLock } from './poll-lock.js';
 
 export interface TelegramBotResponse<T> {
@@ -80,11 +81,11 @@ export interface TelegramBotOptions {
   /** Called for each incoming message that passes allowlist checks. */
   onMessage(msg: TelegramIncomingMessage): void;
   /**
-   * Optional path to a file that stores the polling offset. When provided,
-   * the offset is persisted on every successful poll and restored on startup,
-   * preventing message replay after crashes or restarts.
+   * Optional typed offset store. When provided, the polling offset is persisted
+   * atomically on every successful poll and restored on startup, preventing
+   * message replay after crashes or restarts.
    */
-  offsetStoragePath?: string | undefined;
+  offsetStore?: OffsetStore | undefined;
   /**
    * Optional cross-process single-poller lock. Telegram allows one
    * `getUpdates` consumer per token; when another wstack instance holds the
@@ -122,8 +123,8 @@ export class TelegramBot {
   private static readonly CONFLICT_BACKOFF_AFTER = 3;
   private static readonly CONFLICT_POLL_MS = 60_000;
   private _startedAt: number | null = null;
-  /** If set, the offset is persisted here after each successful poll. */
-  private readonly offsetStoragePath?: string | undefined;
+  /** Typed offset store for atomic polling-cursor persistence. */
+  private readonly offsetStore?: OffsetStore | undefined;
   /** Single-poller election across wstack instances sharing this token. */
   private readonly lock?: PollLock | undefined;
   private readonly standbyRetryMs: number;
@@ -147,7 +148,7 @@ export class TelegramBot {
     this.bufferMax = opts.bufferSize;
     this.log = opts.log;
     this.onMessage = opts.onMessage;
-    this.offsetStoragePath = opts.offsetStoragePath;
+    this.offsetStore = opts.offsetStore;
     this.lock = opts.lock;
     this.standbyRetryMs = opts.standbyRetryMs ?? 15_000;
     if (this.lock) {
@@ -155,7 +156,7 @@ export class TelegramBot {
     }
 
     // Restore persisted offset so a crash/restart doesn't cause message replay.
-    if (this.offsetStoragePath) {
+    if (this.offsetStore) {
       void this.loadOffset();
     }
   }
@@ -428,7 +429,7 @@ export class TelegramBot {
         this.processMessage({ ...raw, text: raw.text });
       }
 
-      if (this.offsetStoragePath && this.offset > 0) void this.saveOffset();
+      if (this.offsetStore && this.offset > 0) void this.saveOffset();
     } catch (err) {
       if (err instanceof TelegramNetworkError && err.aborted) return;
       if (err instanceof TelegramBotApiError && err.errorCode === 409) {
@@ -684,26 +685,22 @@ export class TelegramBot {
   }
 
   private async loadOffset(): Promise<void> {
-    if (!this.offsetStoragePath) return;
+    if (!this.offsetStore) return;
     try {
-      const { readFileSync } = await import('node:fs');
-      const raw = readFileSync(this.offsetStoragePath, 'utf8').trim();
-      const n = Number.parseInt(raw, 10);
-      if (Number.isFinite(n) && n >= 0) {
-        this.offset = n;
+      const saved = this.offsetStore.read();
+      if (saved !== null) {
+        this.offset = saved;
         this.log.debug(`Telegram polling offset restored: ${this.offset}`);
       }
     } catch {
-      // File doesn't exist yet — start from 0, which is correct.
+      // Best-effort — a corrupt or missing file starts from 0.
     }
   }
 
   private async saveOffset(): Promise<void> {
-    if (!this.offsetStoragePath) return;
+    if (!this.offsetStore) return;
     try {
-      const { writeFileSync } = await import('node:fs');
-      // Write atomically so a crash mid-write can't leave a corrupt file.
-      writeFileSync(this.offsetStoragePath, String(this.offset), 'utf8');
+      this.offsetStore.write(this.offset);
     } catch (err) {
       this.log.debug(`Failed to persist Telegram offset: ${err}`);
     }
