@@ -82,10 +82,12 @@ Primary implementation files:
 | Layer | File | Responsibility |
 |---|---|---|
 | Model | `packages/core/src/kanban/types.ts` | Board, column, task, assignment, chain, metric, graph-origin types |
-| Storage | `packages/core/src/kanban/storage.ts` | Project-local JSON storage, board id validation, locks, atomic writes |
-| Manager | `packages/core/src/kanban/manager.ts` | Board/task CRUD, dependency checks, claim/release, split/merge, chain, TaskGraph bridge |
-| Agent tool | `packages/tools/src/kanban.ts` | LLM-callable `kanban` tool actions |
-| Director tool | `packages/core/src/coordination/director-tools.ts` | `kanban_queue` fleet dispatch bridge |
+| Storage | `packages/kanban/src/storage.ts` | Project-local JSON storage, board id validation, locks, atomic writes |
+| Manager | `packages/kanban/src/manager.ts` | Board/task CRUD, dependency checks, claim/release, split/merge, chain, TaskGraph bridge |
+| Presence | `packages/kanban/src/manager/presence.ts` | Per-session/agent heartbeat, TTL-based active/inactive derivation |
+| Session mirror | `packages/tools/src/session-kanban.ts` | Bidirectional projection between session todo list and session-owned board |
+| Agent tool | `packages/tools/src/kanban.ts` | LLM-callable `kanban` tool actions; records presence on every successful mutation |
+| Director tool | `packages/core/src/coordination/director-tools.ts` | `kanban_queue` fleet dispatch bridge; subagent prompt includes reassessment contract |
 | CLI | `packages/cli/src/slash-commands/kanban.ts` | Human slash-command surface |
 | Embedded WebUI WS | `packages/cli/src/webui-server/ws-handlers/kanban.ts` | CLI-hosted WebUI messages |
 | Standalone WebUI WS | `packages/webui/src/server/kanban-routes.ts` | Standalone WebUI messages |
@@ -130,6 +132,7 @@ queue behavior.
 | Placement | `columnId`, `order`, `priority`, `status` |
 | Human ownership | `assignedAgent`, `assignee`, `labels` |
 | Agent routing | `assignment` |
+| Agent/session presence | `presence[]` — see [Board presence](#board-presence) below |
 | Graph shape | `dependsOn`, `chain`, `parentTaskId`, `childTaskIds`, `mergedIntoTaskId`, `mergedFromTaskIds`, `origin` |
 | Acceptance | `successCriteria`, `goalMetrics` |
 | Notes and links | `notes`, `links` |
@@ -152,6 +155,32 @@ work a task:
 | `lastResult`, `error` | Completion summary or failure reason |
 
 The assignment object is metadata. It does not execute work by itself.
+
+### Board Presence
+
+`KanbanBoardPresence` records which sessions and agents are actively reading or
+mutating a board. Presence is per-session + per-agent, stored as an array on the
+board JSON, never as an external store:
+
+| Field | Meaning |
+|---|---|
+| `id` | `"<sessionId>:<agentId>"` — stable composite key |
+| `sessionId`, `agentId` | Logical identity |
+| `agentName` | Human-readable name for the UI |
+| `taskId`, `runTaskId` | Which task (if any) the agent is currently associated with |
+| `firstSeenAt`, `lastSeenAt` | ISO8601 — first and most recent activity |
+| `activeUntil` | ISO8601 deadline after which `active` becomes `false` |
+| `active` | Derived at read time: `now < activeUntil` |
+
+**Lifecycle:**
+- Every successful `kanban` tool call calls `touchKanbanPresence()`, refreshing
+  `lastSeenAt` and extending `activeUntil` (default TTL: 2 minutes).
+- The board watcher on the owning session sends a heartbeat every 60 seconds.
+- Readers compare `activeUntil` against wall-clock time so a crashed process
+  does not appear active indefinitely.
+- `getBoard()` and `listBoards()` return live presence (computed on read).
+- The WebUI KanbanView renders a **Live board users** chip bar showing active
+  sessions, agent names, and relative last-seen time.
 
 ---
 
@@ -484,6 +513,62 @@ same operations for UI usage.
 
 This is the fleet bridge for autonomous orchestration. It is meant for leader
 or Director use, not for ordinary worker subagents.
+
+Kanban agents are instructed with the **reassessment contract**:
+
+1. The board is the live plan, not a frozen assignment snapshot.
+2. Before material work and whenever evidence changes, call `get_board` to
+   reassess tasks, dependencies, and peer changes.
+3. Agents may call `add_task`, `update_task`, `split_task`, `merge_tasks`,
+   `move_task`, `delete_task`, or dependency actions when the plan should
+   change.
+4. Every successful board mutation updates shared pending work, notifies the
+   owning session via `[KANBAN TODO UPDATE]` in the conversation, and
+   broadcasts a `kanban.todos.updated` status message to the project mailbox.
+
+### Session-Kanban Bridge
+
+Every WrongStack session has a **session-owned Kanban board** (tagged
+`session-work:session:<id>`). The session's leader writes todo, task, and plan
+state into this board through the `attachSessionKanbanMirror()` binding:
+
+```text
+Leader todo tool ──────────────────┐
+Leader task file (onChange) ───────┤
+Leader plan file (onChange) ───────┤
+                                   ▼
+                    ┌──────────────────────────┐
+                    │  session-kanban.ts        │
+                    │  projectSessionTodosTo... │
+                    │  (via TaskGraph sync)     │
+                    └──────────┬───────────────┘
+                               │ board JSON
+                               ▼
+                    ┌──────────────────────────┐
+                    │  .wrongstack/kanbans/     │
+                    │  <board-id>.json          │
+                    └──────────────────────────┘
+```
+
+**Reverse projection — board → todos:**
+
+When a Kanban agent (or another surface) mutates the session board, the board
+file watcher in `attachSessionKanbanMirror()` triggers
+`applySessionKanbanBoardToTodos()`. This function:
+
+1. Filters board tasks that originated from `session-todo` or are
+   origin-less (board-created cards).
+2. Sorts them by column order → task order → creation time.
+3. Maps card fields to `TodoItem` (id, content, status, activeForm).
+4. Calls `context.state.replaceTodos()`, which fires `todos_replaced` to every
+   consumer (TUI via `useLiveTodos`, WebUI via `todos.updated` WS broadcast).
+5. Fires a `[KANBAN TODO UPDATE]` block into the leader's conversation.
+6. Broadcasts a `kanban.todos.updated` status message to the project mailbox.
+
+**Idempotency:** Duplicate mirroring of the same snapshot is suppressed via
+`sameTodos()` structural comparison. A board-created card with no `origin` is
+matched by its kanban `id` in `findTaskByOrigin()`, so the next todo mirror
+adopts it instead of creating a duplicate card.
 
 ---
 

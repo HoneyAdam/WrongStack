@@ -45,7 +45,7 @@ inspect board
 | Human | Create/edit boards, adjust scope, review visible state, override stuck work | Edit `.wrongstack/kanbans/*.json` by hand while agents are running |
 | Leader agent | Plan non-trivial work into Kanban, claim/dispatch ready tasks, coordinate recovery, mark outcomes | Start substantial file-mutating work without an active Kanban task when operating in orchestration mode |
 | Director | Use `kanban_queue` to claim ready tasks, spawn workers, write runtime ids, await or surface results | Expose recursive fleet orchestration tools to ordinary subagents |
-| Subagent | Work one claimed task, report running/completed/failed, split/merge scope when instructed and allowed | Claim unrelated work or silently abandon a running assignment |
+| Subagent | Work one claimed task, report running/completed/failed, reassess scope by calling `get_board` before material work, mutate the board (add/update/split/merge/move/delete) when the plan should change | Claim unrelated work, silently abandon a running assignment, or assume the initial todo snapshot remains authoritative |
 | Reviewer/verifier | Update checks, metrics, notes, and review task outcomes | Mark implementation accepted without evidence required by the task |
 | Recovery loop | Detect expired claims and release, retry, or fail them according to policy | Recover active tasks with fresh heartbeat/lease evidence |
 
