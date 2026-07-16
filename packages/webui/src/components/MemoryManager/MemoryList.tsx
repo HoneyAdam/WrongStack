@@ -1,7 +1,6 @@
 import { BrainCircuit, ChevronRight, Database, FilterX, Plus } from 'lucide-react';
 import type { RefObject } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { SuperMemoryEntry } from '@/types';
@@ -31,12 +30,10 @@ export function MemoryList({
   onClearFilters,
 }: MemoryListProps) {
   const useVirtual = filteredMemories.length > VIRTUALIZE_THRESHOLD;
-  const scrollElementRef = useVirtual ? memoryListRef : undefined;
-  const parentRef = useRef<HTMLDivElement | null>(null);
 
   const virtualizer = useVirtualizer({
     count: filteredMemories.length,
-    getScrollElement: () => scrollElementRef?.current ?? parentRef.current,
+    getScrollElement: () => memoryListRef.current,
     estimateSize: () => 100,
     overscan: 8,
     enabled: useVirtual,
