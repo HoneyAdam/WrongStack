@@ -376,7 +376,10 @@ function requireNumber(object: unknown, key: string): number {
 function optionalString(object: unknown, key: string): string | undefined {
   if (typeof object !== 'object' || object === null) return undefined;
   const value = (object as Record<string, unknown>)[key];
-  if (value === undefined || value === null) return undefined;
+  if (value === undefined) return undefined;
+  if (value === null) {
+    throw validationError(`field "${key}" must not be null when present`);
+  }
   if (typeof value !== 'string') {
     throw validationError(`field "${key}" must be a string when present`);
   }
@@ -473,7 +476,12 @@ function validateSend(body: unknown): MailboxSendInput {
   const replyTo = optionalString(object, 'replyTo');
   if (replyTo !== undefined) result.replyTo = replyTo;
   const ttlMs = optionalNumber(object, 'ttlMs');
-  if (ttlMs !== undefined) result.ttlMs = ttlMs;
+  if (ttlMs !== undefined) {
+    if (!Number.isInteger(ttlMs) || ttlMs < 1) {
+      throw validationError('field "ttlMs" must be a positive integer when present');
+    }
+    result.ttlMs = ttlMs;
+  }
   return result;
 }
 
@@ -490,6 +498,11 @@ function validateQuery(body: unknown): MailboxQuery {
   const minPriority = optionalString(object, 'minPriority');
   const since = optionalString(object, 'since');
   const limit = optionalNumber(object, 'limit');
+  if (limit !== undefined) {
+    if (!Number.isInteger(limit) || limit < 1) {
+      throw validationError('field "limit" must be a positive integer when present');
+    }
+  }
   const incompleteOnly = optionalBoolean(object, 'incompleteOnly');
   if (to !== undefined) result.to = to;
   if (from !== undefined) result.from = from;
@@ -619,11 +632,15 @@ function validateAgentRegistration(body: unknown): AgentRegistrationInput {
   const object = body as Record<string, unknown>;
   const agentId = requireString(object, 'agentId');
   validateReaderId(agentId);
+  const pid = requireNumber(object, 'pid');
+  if (!Number.isInteger(pid) || pid < 1) {
+    throw validationError('field "pid" must be a positive integer');
+  }
   const result: AgentRegistrationInput = {
     agentId,
     sessionId: optionalString(object, 'sessionId') ?? 'external',
     name: requireString(object, 'name'),
-    pid: requireNumber(object, 'pid'),
+    pid,
     source: 'http',
   };
   const role = optionalString(object, 'role');
@@ -645,8 +662,18 @@ function validateAgentHeartbeat(body: unknown): AgentHeartbeatInput {
   if (status !== undefined) result.status = status as AgentHeartbeatInput['status'];
   if (currentTool !== undefined) result.currentTool = currentTool;
   if (currentTask !== undefined) result.currentTask = currentTask;
-  if (iterations !== undefined) result.iterations = iterations;
-  if (toolCalls !== undefined) result.toolCalls = toolCalls;
+  if (iterations !== undefined) {
+    if (!Number.isInteger(iterations) || iterations < 0) {
+      throw validationError('field "iterations" must be a non-negative integer when present');
+    }
+    result.iterations = iterations;
+  }
+  if (toolCalls !== undefined) {
+    if (!Number.isInteger(toolCalls) || toolCalls < 0) {
+      throw validationError('field "toolCalls" must be a non-negative integer when present');
+    }
+    result.toolCalls = toolCalls;
+  }
   return result;
 }
 
@@ -655,12 +682,16 @@ function validateClientRegistration(body: unknown): ClientRegistrationInput {
     throw validationError('expected JSON object body');
   }
   const object = body as Record<string, unknown>;
+  const pid = requireNumber(object, 'pid');
+  if (!Number.isInteger(pid) || pid < 1) {
+    throw validationError('field "pid" must be a positive integer');
+  }
   return {
     clientId: requireString(object, 'clientId'),
     sessionId: optionalString(object, 'sessionId') ?? 'external',
     name: requireString(object, 'name'),
     source: 'http',
-    pid: requireNumber(object, 'pid'),
+    pid,
   };
 }
 

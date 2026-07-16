@@ -470,6 +470,489 @@ describe('mailbox HTTP router', () => {
   });
 });
 
+describe('mailbox HTTP router — validator mutation matrix', () => {
+  // Each row starts from a known-valid body, alters **one** field
+  // (delete it, replace it with the wrong type, or use an out-of-domain
+  // value), and asserts that the router returns a 400 VALIDATION_ERROR
+  // **before** any Mailbox method is invoked.
+
+  interface Result400 {
+    error: { code: string; message: string };
+  }
+  function errorEnvelope(body: unknown): { code: string; message: string } | null {
+    if (!body || typeof body !== 'object') return null;
+    const candidate = body as { error?: { code?: unknown; message?: unknown } };
+    if (!candidate.error || typeof candidate.error !== 'object') return null;
+    if (typeof candidate.error.code !== 'string') return null;
+    if (typeof candidate.error.message !== 'string') return null;
+    return { code: candidate.error.code, message: candidate.error.message };
+  }
+
+  async function expectMutationRejected(input: {
+    method?: string;
+    route: string;
+    validBody: object;
+    mutate: (body: Record<string, unknown>) => void;
+    rejectContains: string;
+    assertNoCall?: keyof ReturnType<typeof makeMailbox>;
+  }): Promise<void> {
+    const stub = makeMailbox();
+    const body: Record<string, unknown> = JSON.parse(JSON.stringify(input.validBody));
+    input.mutate(body);
+    const response = await handle({
+      mailbox: stub.mailbox,
+      request: makeRequest({
+        method: input.method ?? 'POST',
+        url: input.route,
+        body,
+      }),
+    });
+    expect(response.status).toBe(400);
+    const envelope = errorEnvelope(response.json());
+    expect(envelope).not.toBeNull();
+    expect(envelope?.code).toBe('VALIDATION_ERROR');
+    expect(envelope?.message).toContain(input.rejectContains);
+    if (input.assertNoCall) {
+      expect(stub[input.assertNoCall]).not.toHaveBeenCalled();
+    }
+  }
+
+  it.each(['string', 'number', 'true', 'null', 'array'])(
+    'rejects non-object body (sent as %s) on /mailbox/send',
+    async (kind) => {
+      const stub = makeMailbox();
+      const scalar: unknown =
+        kind === 'number' ? 1 : kind === 'true' ? true : kind === 'array' ? [] : kind;
+      const response = await handle({
+        mailbox: stub.mailbox,
+        request: makeRequest({ method: 'POST', url: '/mailbox/send', body: scalar }),
+      });
+      expect(response.status).toBe(400);
+      const envelope = errorEnvelope(response.json());
+      expect(envelope?.code).toBe('VALIDATION_ERROR');
+      expect(stub.send).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    '/mailbox/send',
+    '/mailbox/query',
+    '/mailbox/check',
+    '/mailbox/ack',
+    '/mailbox/ack-many',
+    '/mailbox/unread-count',
+    '/mailbox/agents/register',
+    '/mailbox/agents/heartbeat',
+    '/mailbox/register-client',
+    '/mailbox/heartbeat',
+  ])('rejects raw invalid JSON on %s', async (route) => {
+    const response = await handle({
+      request: makeRequest({ method: 'POST', url: route, rawBody: '{broken' }),
+    });
+    expect(response.status).toBe(400);
+    const envelope = errorEnvelope(response.json());
+    expect(envelope?.code).toBe('VALIDATION_ERROR');
+  });
+
+  it.each([0, -1, 1.5, '60', false, []])(
+    'rejects invalid ttlMs (sent as %s)',
+    async (value) => {
+      await expectMutationRejected({
+        route: '/mailbox/send',
+        validBody: {
+          from: 'external-a',
+          to: 'agent-b',
+          type: 'note',
+          subject: 'subject',
+          body: 'body',
+          priority: 'normal',
+        },
+        mutate: (body) => {
+          body.ttlMs = value;
+        },
+        rejectContains: 'field "ttlMs"',
+        assertNoCall: 'send',
+      });
+    },
+  );
+
+  it.each([0, -1, 1.5, '20'])(
+    'rejects invalid query limit (sent as %s)',
+    async (value) => {
+      await expectMutationRejected({
+        route: '/mailbox/query',
+        validBody: {},
+        mutate: (body) => {
+          body.limit = value;
+        },
+        rejectContains: 'field "limit"',
+        assertNoCall: 'query',
+      });
+    },
+  );
+
+  it.each([0, -1, 1.5, '10'])(
+    'rejects invalid check limit (sent as %s)',
+    async (value) => {
+      await expectMutationRejected({
+        route: '/mailbox/check',
+        validBody: { agentId: 'agent-b' },
+        mutate: (body) => {
+          body.limit = value;
+        },
+        rejectContains: 'field "limit"',
+        assertNoCall: 'query',
+      });
+    },
+  );
+
+  it.each(['urgent', true, 1])(
+    'rejects invalid priority (sent as %s)',
+    async (value) => {
+      await expectMutationRejected({
+        route: '/mailbox/send',
+        validBody: {
+          from: 'external-a',
+          to: 'agent-b',
+          type: 'note',
+          subject: 'subject',
+          body: 'body',
+        },
+        mutate: (body) => {
+          body.priority = value as never;
+        },
+        rejectContains: 'priority',
+        assertNoCall: 'send',
+      });
+    },
+  );
+
+  it('rejects priority of null (must-not-be-null guard)', async () => {
+    // null is explicitly rejected by the `optionalString` body. The
+    // validator fails with a `must not be null` message before the
+    // enum check would have been consulted.
+    const stub = makeMailbox();
+    const response = await handle({
+      mailbox: stub.mailbox,
+      request: makeRequest({
+        method: 'POST',
+        url: '/mailbox/send',
+        body: {
+          from: 'external-a',
+          to: 'agent-b',
+          type: 'note',
+          subject: 's',
+          body: 'b',
+          priority: null,
+        },
+      }),
+    });
+    expect(response.status).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: expect.stringContaining('"priority" must not be null'),
+      },
+    });
+    expect(stub.send).not.toHaveBeenCalled();
+  });
+
+  it.each(['sms', 1, true])(
+    'rejects invalid message type (sent as %s)',
+    async (value) => {
+      await expectMutationRejected({
+        route: '/mailbox/send',
+        validBody: {
+          from: 'external-a',
+          to: 'agent-b',
+          type: 'note',
+          subject: 'subject',
+          body: 'body',
+        },
+        mutate: (body) => {
+          body.type = value as never;
+        },
+        rejectContains: 'type',
+        assertNoCall: 'send',
+      });
+    },
+  );
+
+  it('rejects message type of null (required-string guard)', async () => {
+    const stub = makeMailbox();
+    const response = await handle({
+      mailbox: stub.mailbox,
+      request: makeRequest({
+        method: 'POST',
+        url: '/mailbox/send',
+        body: {
+          from: 'external-a',
+          to: 'agent-b',
+          type: null,
+          subject: 's',
+          body: 'b',
+        },
+      }),
+    });
+    expect(response.status).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: { code: 'VALIDATION_ERROR', message: expect.stringContaining('type') },
+    });
+    expect(stub.send).not.toHaveBeenCalled();
+  });
+
+  it.each([0, -1, 0.5])(
+    'rejects invalid agent pid (sent as %s)',
+    async (value) => {
+      await expectMutationRejected({
+        route: '/mailbox/agents/register',
+        validBody: { agentId: 'agent-b', name: 'Agent', pid: 123 },
+        mutate: (body) => {
+          body.pid = value;
+        },
+        rejectContains: 'pid',
+        assertNoCall: 'registerAgent',
+      });
+    },
+  );
+
+  it('rejects client pid value of 5 (string not allowed)', async () => {
+    const stub = makeMailbox();
+    const response = await handle({
+      mailbox: stub.mailbox,
+      request: makeRequest({
+        method: 'POST',
+        url: '/mailbox/register-client',
+        body: { clientId: 'tui-1', name: 'TUI', pid: '5' },
+      }),
+    });
+    expect(response.status).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: { code: 'VALIDATION_ERROR', message: expect.stringContaining('pid') },
+    });
+    expect(stub.registerClient).not.toHaveBeenCalled();
+  });
+
+  it.each([0, -1, 0.5])(
+    'rejects invalid client pid (sent as %s)',
+    async (value) => {
+      await expectMutationRejected({
+        route: '/mailbox/register-client',
+        validBody: { clientId: 'tui-1', name: 'TUI', pid: 456 },
+        mutate: (body) => {
+          body.pid = value;
+        },
+        rejectContains: 'pid',
+        assertNoCall: 'registerClient',
+      });
+    },
+  );
+
+  it.each([-1, 0.5, '3'])(
+    'rejects invalid iterations counter (sent as %s)',
+    async (value) => {
+      await expectMutationRejected({
+        route: '/mailbox/agents/heartbeat',
+        validBody: { agentId: 'agent-b' },
+        mutate: (body) => {
+          body.iterations = value;
+        },
+        rejectContains: 'iterations',
+        assertNoCall: 'heartbeat',
+      });
+    },
+  );
+
+  it('accepts iterations counter at zero (valid non-negative integer)', async () => {
+    const stub = makeMailbox();
+    const response = await handle({
+      mailbox: stub.mailbox,
+      request: makeRequest({
+        method: 'POST',
+        url: '/mailbox/agents/heartbeat',
+        body: { agentId: 'agent-b', iterations: 0 },
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(stub.heartbeat).toHaveBeenCalledOnce();
+  });
+
+  it.each([-1, 0.5, '3'])(
+    'rejects invalid toolCalls counter (sent as %s)',
+    async (value) => {
+      await expectMutationRejected({
+        route: '/mailbox/agents/heartbeat',
+        validBody: { agentId: 'agent-b' },
+        mutate: (body) => {
+          body.toolCalls = value;
+        },
+        rejectContains: 'toolCalls',
+        assertNoCall: 'heartbeat',
+      });
+    },
+  );
+
+  it('accepts toolCalls counter at zero (valid non-negative integer)', async () => {
+    const stub = makeMailbox();
+    const response = await handle({
+      mailbox: stub.mailbox,
+      request: makeRequest({
+        method: 'POST',
+        url: '/mailbox/agents/heartbeat',
+        body: { agentId: 'agent-b', toolCalls: 0 },
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(stub.heartbeat).toHaveBeenCalledOnce();
+  });
+
+  // Type filter accepts any declared message-type literal string; non-string
+  // values are rejected at the type guard, not the enum check.
+  it('rejects non-string type filter in /mailbox/query', async () => {
+    await expectMutationRejected({
+      route: '/mailbox/query',
+      validBody: {},
+      mutate: (body) => {
+        body.type = 1 as never;
+      },
+      rejectContains: 'field "type"',
+      assertNoCall: 'query',
+    });
+  });
+
+
+  it.each([
+    'leader',
+    'fleet',
+    'hq',
+    'mailbox-bridge',
+    'mailbox-bridge-watchdog',
+    'tech-stack-consumer',
+  ])('rejects reserved sender identity "%s"', async (id) => {
+    await expectMutationRejected({
+      route: '/mailbox/send',
+      validBody: {
+        from: 'external-a',
+        to: 'agent-b',
+        type: 'note',
+        subject: 'subject',
+        body: 'body',
+      },
+      mutate: (body) => {
+        body.from = `${id}@peer`;
+      },
+      rejectContains: `reserved internal agent id "${id}"`,
+      assertNoCall: 'send',
+    });
+  });
+
+  it.each([
+    'leader',
+    'fleet',
+    'hq',
+    'mailbox-bridge',
+    'mailbox-bridge-watchdog',
+    'tech-stack-consumer',
+  ])('rejects reserved readerId "%s"', async (id) => {
+    await expectMutationRejected({
+      route: '/mailbox/ack',
+      validBody: { messageId: 'msg-1', readerId: 'agent-b' },
+      mutate: (body) => {
+        body.readerId = `${id}@peer`;
+      },
+      rejectContains: `reserved internal agent id "${id}"`,
+      assertNoCall: 'ack',
+    });
+  });
+
+  it('rejects missing required fields on /mailbox/ack', async () => {
+    for (const remove of ['messageId', 'readerId'] as const) {
+      await expectMutationRejected({
+        route: '/mailbox/ack',
+        validBody: { messageId: 'msg-1', readerId: 'agent-b' },
+        mutate: (body) => {
+          delete body[remove];
+        },
+        rejectContains: `field "${remove}" is required`,
+        assertNoCall: 'ack',
+      });
+    }
+  });
+
+  it('rejects malformed entry inside /mailbox/ack-many acks array', async () => {
+    await expectMutationRejected({
+      route: '/mailbox/ack-many',
+      validBody: { acks: [{ messageId: 'msg-1', readerId: 'agent-b' }] },
+      mutate: (body) => {
+        const list = body.acks as Array<Record<string, unknown>>;
+        list[0]!.readerId = '';
+      },
+      rejectContains: 'field "readerId" is required',
+      assertNoCall: 'ackMany',
+    });
+  });
+
+  it('rejects non-array acks on /mailbox/ack-many', async () => {
+    await expectMutationRejected({
+      route: '/mailbox/ack-many',
+      validBody: { acks: [] },
+      mutate: (body) => {
+        body.acks = 'not-an-array';
+      },
+      rejectContains: 'field "acks" is required (array)',
+      assertNoCall: 'ackMany',
+    });
+  });
+
+  it('rejects empty list acks on /mailbox/ack-many by passing null', async () => {
+    await expectMutationRejected({
+      route: '/mailbox/ack-many',
+      validBody: { acks: [] },
+      mutate: (body) => {
+        body.acks = null;
+      },
+      rejectContains: 'field "acks" is required (array)',
+      assertNoCall: 'ackMany',
+    });
+  });
+
+  it('rejects missing forAgentId on /mailbox/unread-count', async () => {
+    await expectMutationRejected({
+      route: '/mailbox/unread-count',
+      validBody: { forAgentId: 'agent-b' },
+      mutate: (body) => {
+        delete body.forAgentId;
+      },
+      rejectContains: 'forAgentId',
+      assertNoCall: 'unreadCount',
+    });
+  });
+
+  it('rejects non-boolean incompleteOnly on /mailbox/query', async () => {
+    await expectMutationRejected({
+      route: '/mailbox/query',
+      validBody: {},
+      mutate: (body) => {
+        body.incompleteOnly = 'true';
+      },
+      rejectContains: 'incompleteOnly',
+      assertNoCall: 'query',
+    });
+  });
+
+  it('rejects unknown minPriority on /mailbox/query', async () => {
+    await expectMutationRejected({
+      route: '/mailbox/query',
+      validBody: {},
+      mutate: (body) => {
+        body.minPriority = 'urgent';
+      },
+      rejectContains: 'field "minPriority" must be one of',
+      assertNoCall: 'query',
+    });
+  });
+});
+
 describe('mailbox HTTP authorization helpers', () => {
   it('accepts only the exact authorization value and returns it as the rate-limit key', () => {
     const scheme = ['Bea', 'rer'].join('');
