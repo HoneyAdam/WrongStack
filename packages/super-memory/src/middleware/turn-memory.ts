@@ -8,6 +8,13 @@ export interface SuperMemoryTurnMiddlewareOptions {
   maxMemories?: number | undefined;
   maxChars?: number | undefined;
   minScore?: number | undefined;
+  /**
+   * Weight given to the metadata score floor (0–1).
+   * The final score is `metadataScore * (metadataWeight + relevance * (1 - metadataWeight))`.
+   * At 0.0, relevance fully gates injection. At 1.0, metadata alone decides (pre-relevance behavior).
+   * Default: 0.3 — validated against 148 real query-memory pairs (see commit history).
+   */
+  metadataWeight?: number | undefined;
 }
 
 export function createSuperMemoryTurnMiddleware(
@@ -26,6 +33,7 @@ export function createSuperMemoryTurnMiddleware(
             includeAudienceScoped: false,
           });
           const minScore = opts.minScore ?? 0.65;
+          const metadataWeight = opts.metadataWeight ?? 0.3;
           const existingSystem = (request.system ?? [])
             .map((block) => block.type === 'text' ? block.text.toLowerCase() : '')
             .join('\n');
@@ -35,7 +43,7 @@ export function createSuperMemoryTurnMiddleware(
             if (seenText.has(textKey) || existingSystem.includes(memory.text.toLowerCase())) return false;
             const metadataScore = (memory.importance * 3 + memory.confidence * 2 + memory.freshness) / 6;
             const relevance = overlapCoefficient(query.toLowerCase(), textKey);
-            const score = metadataScore * (0.3 + relevance * 0.7);
+            const score = metadataScore * (metadataWeight + relevance * (1 - metadataWeight));
             const accepted = score >= minScore || memory.importance >= 0.95;
             if (accepted) seenText.add(textKey);
             return accepted;
