@@ -76,6 +76,16 @@ export default defineConfig({
         //   vendor  → everything else from node_modules
         manualChunks(id) {
           if (id.includes('node_modules')) {
+            // Keep React/React-DOM/Scheduler in the vendor chunk so all
+            // components share one React instance.  The markdown chunk
+            // (react-markdown + its micromark/unified/hast dependencies) can
+            // pull React as a transitive peer, which would create a *second*
+            // React instance — its hooks (useRef, useState, …) would have
+            // their own __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN, causing
+            // React error #310 ("Rendered more hooks than during the previous
+            // render") in any component that statically imports from that
+            // chunk (e.g. KanbanView → markdown).
+            if (id.includes('react') || id.includes('scheduler')) return 'vendor';
             if (id.includes('monaco-editor') || id.includes('@monaco-editor')) return 'monaco';
             if (id.includes('@xyflow')) return 'xyflow';
             if (id.includes('@xterm')) return 'xterm';
