@@ -437,30 +437,62 @@ export interface WSMemoryList {
   };
 }
 
-// ── SuperMemory response types ────────────────────────────────────────
+// ── Super Memory response types ───────────────────────────────────────
+
+export type SuperMemoryScope = 'project' | 'user' | 'session' | 'file' | 'symbol';
+export type SuperMemoryStatus =
+  | 'active'
+  | 'stale'
+  | 'superseded'
+  | 'contradicted'
+  | 'archived'
+  | 'deleted';
+
+export interface SuperMemoryAnchor {
+  type: 'file' | 'directory' | 'symbol' | 'package' | 'command' | 'test' | 'git';
+  path?: string | undefined;
+  symbol?: string | undefined;
+  command?: string | undefined;
+  lineStart?: number | undefined;
+  lineEnd?: number | undefined;
+}
+
+export interface SuperMemoryEntry {
+  id: string;
+  revision: number;
+  scope: SuperMemoryScope;
+  kind: string;
+  status: SuperMemoryStatus;
+  text: string;
+  summary?: string | undefined;
+  importance: number;
+  confidence: number;
+  freshness: number;
+  tags: string[];
+  anchors: SuperMemoryAnchor[];
+  audience?: { roles?: string[]; taskTypes?: string[]; modes?: string[] } | undefined;
+  supersedes?: string[] | undefined;
+  supersededBy?: string | undefined;
+  contradicts?: string[] | undefined;
+  createdAt: string;
+  updatedAt: string;
+  lastAccessedAt?: string | undefined;
+  lastVerifiedAt?: string | undefined;
+  expiresAt?: string | undefined;
+}
+
+export interface SuperMemoryStats {
+  total: number;
+  byStatus: Record<string, number>;
+  byKind: Record<string, number>;
+  edges: number;
+}
 
 export interface WSMemorySuperList {
   type: 'memory.super.list';
   payload: {
-    memories?: Array<{
-      id: string;
-      kind: string;
-      status: string;
-      text: string;
-      tags: string[];
-      createdAt: string;
-      updatedAt: string;
-      importance: number;
-      confidence: number;
-      revision: number;
-      anchors: Array<{ type: string; path?: string; symbol?: string; command?: string }>;
-    }>;
-    stats?: {
-      total: number;
-      byStatus: Record<string, number>;
-      byKind: Record<string, number>;
-      edges: number;
-    };
+    memories?: SuperMemoryEntry[] | undefined;
+    stats?: SuperMemoryStats | undefined;
     error?: string | undefined;
   };
 }
@@ -468,19 +500,7 @@ export interface WSMemorySuperList {
 export interface WSMemorySuperGet {
   type: 'memory.super.get';
   payload: {
-    memory?: {
-      id: string;
-      kind: string;
-      status: string;
-      text: string;
-      tags: string[];
-      createdAt: string;
-      updatedAt: string;
-      importance: number;
-      confidence: number;
-      revision: number;
-      anchors: Array<{ type: string; path?: string; symbol?: string; command?: string }>;
-    };
+    memory?: SuperMemoryEntry | undefined;
     error?: string | undefined;
   };
 }
@@ -488,19 +508,7 @@ export interface WSMemorySuperGet {
 export interface WSMemorySuperUpdate {
   type: 'memory.super.update';
   payload: {
-    memory?: {
-      id: string;
-      kind: string;
-      status: string;
-      text: string;
-      tags: string[];
-      createdAt: string;
-      updatedAt: string;
-      importance: number;
-      confidence: number;
-      revision: number;
-      anchors: Array<{ type: string; path?: string; symbol?: string; command?: string }>;
-    };
+    memory?: SuperMemoryEntry | undefined;
     error?: string | undefined;
   };
 }
@@ -508,19 +516,7 @@ export interface WSMemorySuperUpdate {
 export interface WSMemorySuperRemember {
   type: 'memory.super.remember';
   payload: {
-    memory?: {
-      id: string;
-      kind: string;
-      status: string;
-      text: string;
-      tags: string[];
-      createdAt: string;
-      updatedAt: string;
-      importance: number;
-      confidence: number;
-      revision: number;
-      anchors: Array<{ type: string; path?: string; symbol?: string; command?: string }>;
-    };
+    memory?: SuperMemoryEntry | undefined;
     error?: string | undefined;
   };
 }
@@ -1438,10 +1434,14 @@ export type WSClientMessage =
         text?: string | undefined;
         tags?: string[] | undefined;
         kind?: string | undefined;
-        status?: string | undefined;
+        status?: SuperMemoryStatus | undefined;
         importance?: number | undefined;
         confidence?: number | undefined;
-        anchors?: Array<{ type: string; path?: string; symbol?: string; command?: string }> | undefined;
+        freshness?: number | undefined;
+        anchors?: SuperMemoryAnchor[] | undefined;
+        audience?: { roles?: string[]; taskTypes?: string[]; modes?: string[] } | undefined;
+        supersedes?: string[] | undefined;
+        contradicts?: string[] | undefined;
       };
     }
   | { type: 'memory.super.delete'; payload: { id: string; reason?: string | undefined } }
@@ -1450,9 +1450,15 @@ export type WSClientMessage =
       payload: {
         text: string;
         kind?: string | undefined;
+        scope?: SuperMemoryScope | undefined;
         tags?: string[] | undefined;
         importance?: number | undefined;
         confidence?: number | undefined;
+        freshness?: number | undefined;
+        anchors?: SuperMemoryAnchor[] | undefined;
+        audience?: { roles?: string[]; taskTypes?: string[]; modes?: string[] } | undefined;
+        supersedes?: string[] | undefined;
+        contradicts?: string[] | undefined;
       };
     }
   | { type: 'skills.list' }
@@ -2190,21 +2196,27 @@ export type WSServerMessage =
   | { type: 'mailbox.cleared'; payload: { error?: string | undefined } }
   | { type: 'mailbox.purged'; payload: Record<string, unknown> & { error?: string | undefined } }
   // ── Cron plugin events — state snapshots and job lifecycle ──────────────────
-  | { type: 'cron.snapshot'; payload: {
-      count: number;
-      maxConcurrent: number;
-      jobs: Array<{
-        name: string;
-        intervalMs: number;
-        action: string;
-        enabled: boolean;
-        lastRun: string | null;
-        nextRun: string;
-        runCount: number;
-        overdue: boolean;
-      }>;
-    } }
-  | { type: 'cron.job_fired'; payload: { name: string; action: string; runCount: number; ts: string } }
+  | {
+      type: 'cron.snapshot';
+      payload: {
+        count: number;
+        maxConcurrent: number;
+        jobs: Array<{
+          name: string;
+          intervalMs: number;
+          action: string;
+          enabled: boolean;
+          lastRun: string | null;
+          nextRun: string;
+          runCount: number;
+          overdue: boolean;
+        }>;
+      };
+    }
+  | {
+      type: 'cron.job_fired';
+      payload: { name: string; action: string; runCount: number; ts: string };
+    }
   // ── Integrated terminal (node-pty) server events ──────────────────────────────
   | { type: 'terminal.output'; payload: { id: string; data: string } }
   | {

@@ -25,6 +25,7 @@ interface SuperMemoryLike {
   text: string;
   tags: string[];
   anchors: Array<{ type: string; path?: string; symbol?: string; command?: string }>;
+  audience?: { roles?: string[]; taskTypes?: string[]; modes?: string[] } | undefined;
   createdAt: string;
   updatedAt: string;
   importance: number;
@@ -48,6 +49,7 @@ interface UpdateSuperMemoryInput {
   confidence?: number | undefined;
   freshness?: number | undefined;
   anchors?: Array<{ type: string; path?: string; symbol?: string; command?: string }> | undefined;
+  audience?: { roles?: string[]; taskTypes?: string[]; modes?: string[] } | undefined;
   supersedes?: string[] | undefined;
   contradicts?: string[] | undefined;
 }
@@ -67,6 +69,7 @@ interface SuperMemoryStoreLike {
     importance?: number | undefined;
     confidence?: number | undefined;
     freshness?: number | undefined;
+    audience?: { roles?: string[]; taskTypes?: string[]; modes?: string[] } | undefined;
     supersedes?: string[] | undefined;
     contradicts?: string[] | undefined;
   }): Promise<SuperMemoryLike>;
@@ -269,6 +272,7 @@ export async function handleSuperMemoryRemember(
       importance: payload['importance'] as number | undefined,
       confidence: payload['confidence'] as number | undefined,
       freshness: payload['freshness'] as number | undefined,
+      audience: payload['audience'] as { roles?: string[]; taskTypes?: string[]; modes?: string[] } | undefined,
       supersedes: payload['supersedes'] as string[] | undefined,
       contradicts: payload['contradicts'] as string[] | undefined,
     });
