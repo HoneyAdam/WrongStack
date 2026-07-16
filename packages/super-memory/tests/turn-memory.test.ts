@@ -187,4 +187,52 @@ describe('createSuperMemoryTurnMiddleware', () => {
     // Only one injected because second has same normalized text
     expect(result.system).toHaveLength(1);
   });
+
+  it('skips memory already in system prompt despite whitespace differences', async () => {
+    // The system prompt has extra whitespace and mixed case, but after
+    // normalization it matches the memory's textKey. Before the dedup-form
+    // fix, this would slip past the raw toLowerCase() check.
+    const memory = {
+      searchSuper: async () => [
+        makeMemory({ text: 'Always run lifecycle tests.' }),
+      ],
+      recordInjection: async () => {},
+    };
+    const middleware = createSuperMemoryTurnMiddleware({ memory });
+    const request = {
+      model: 'test',
+      messages: [{ role: 'user' as const, content: 'lifecycle tests' }],
+      system: [{ type: 'text' as const, text: '  Always   run  LIFECYCLE  tests.  ' }],
+    };
+
+    const result = await middleware.handler(request as never, async (next) => next);
+    // The memory should NOT be re-injected — it's already in the system
+    // prompt despite the whitespace/case differences.
+    expect(result.system).toHaveLength(1);
+    expect(result.system?.[0]?.text).toBe('  Always   run  LIFECYCLE  tests.  ');
+  });
+
+  it('skips memory already in system prompt despite unicode normalization differences', async () => {
+    // The memory text uses composed Unicode (NFC): café
+    // The system prompt uses decomposed Unicode (NFD): café (with combining accent)
+    // After NFKC normalization, both forms collapse to the same string.
+    const memory = {
+      searchSuper: async () => [
+        makeMemory({ text: 'café au lait convention' }),
+      ],
+      recordInjection: async () => {},
+    };
+    const middleware = createSuperMemoryTurnMiddleware({ memory });
+    // '\u0065\u0301' is the decomposed form of é
+    const decomposed = 'caf\u0065\u0301 au lait convention';
+    const request = {
+      model: 'test',
+      messages: [{ role: 'user' as const, content: 'café convention' }],
+      system: [{ type: 'text' as const, text: decomposed }],
+    };
+
+    const result = await middleware.handler(request as never, async (next) => next);
+    // Should NOT be re-injected — normalized forms match
+    expect(result.system).toHaveLength(1);
+  });
 });
