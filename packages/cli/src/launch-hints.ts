@@ -169,9 +169,108 @@ export interface LaunchHintOptions {
    * Mainly for tests and `--hints`-style explicit selection.
    */
   readonly groupIndex?: number | undefined;
+  /** Terminal width used to wrap long hint rows. Defaults to stdout width. */
+  readonly termWidth?: number | undefined;
 }
 
+const DEFAULT_TERM_WIDTH = 80;
+const MIN_TERM_WIDTH = 20;
+const HINT_INDENT = '     ';
+const HINT_CONTINUATION_INDENT = '       ';
+
 const wrap = (n: number): number => ((n % GROUPS.length) + GROUPS.length) % GROUPS.length;
+
+function displayWidth(value: string): number {
+  return [...value].length;
+}
+
+function wrapWords(value: string, firstWidth: number, continuationWidth = firstWidth): string[] {
+  const words = value.trim().split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let line = '';
+  let width = Math.max(1, firstWidth);
+
+  for (const sourceWord of words) {
+    let word = sourceWord;
+    while (word) {
+      if (line) {
+        if (displayWidth(line) + 1 + displayWidth(word) <= width) {
+          line += ` ${word}`;
+          word = '';
+        } else {
+          lines.push(line);
+          line = '';
+          width = Math.max(1, continuationWidth);
+        }
+        continue;
+      }
+
+      if (displayWidth(word) <= width) {
+        line = word;
+        word = '';
+      } else {
+        const characters = [...word];
+        lines.push(characters.slice(0, width).join(''));
+        word = characters.slice(width).join('');
+        width = Math.max(1, continuationWidth);
+      }
+    }
+  }
+
+  if (line) lines.push(line);
+  return lines;
+}
+
+function renderHintLines(item: Hint, termWidth: number): string[] {
+  const inline = `${HINT_INDENT}${item.key}  — ${item.blurb}`;
+  if (displayWidth(inline) <= termWidth) {
+    return [
+      `${HINT_INDENT}${color.bold(item.key)}  ${color.dim('—')} ${color.dim(item.blurb)}`,
+    ];
+  }
+
+  const lines: string[] = [];
+  const keyLines = wrapWords(
+    item.key,
+    termWidth - displayWidth(HINT_INDENT),
+    termWidth - displayWidth(HINT_CONTINUATION_INDENT),
+  );
+  keyLines.forEach((line, index) => {
+    const indent = index === 0 ? HINT_INDENT : HINT_CONTINUATION_INDENT;
+    lines.push(`${indent}${color.bold(line)}`);
+  });
+
+  const blurbLines = wrapWords(
+    `— ${item.blurb}`,
+    termWidth - displayWidth(HINT_CONTINUATION_INDENT),
+  );
+  for (const line of blurbLines) lines.push(`${HINT_CONTINUATION_INDENT}${color.dim(line)}`);
+  return lines;
+}
+
+function renderHeaderLines(group: HintGroup, groupIndex: number, termWidth: number): string[] {
+  const progress = `(${groupIndex + 1}/${GROUPS.length} · more each launch)`;
+  const plain = `  ◆ ${group.title} ${progress}`;
+  if (displayWidth(plain) <= termWidth) {
+    return [`  ${color.cyan('◆')} ${color.bold(group.title)} ${color.dim(progress)}`];
+  }
+
+  return [
+    `  ${color.cyan('◆')} ${color.bold(group.title)}`,
+    ...wrapWords(progress, termWidth - 4).map((line) => `    ${color.dim(line)}`),
+  ];
+}
+
+function renderFooterLines(termWidth: number): string[] {
+  const footer = '/help lists everything · hide with --no-hints';
+  if (displayWidth(`  ${footer}`) <= termWidth) {
+    return [
+      `  ${color.dim(`${color.bold('/help')} lists everything · hide with ${color.bold('--no-hints')}`)}`,
+    ];
+  }
+
+  return wrapWords(footer, termWidth - 2).map((line) => `  ${color.dim(line)}`);
+}
 
 /**
  * Pick the category to show. Priority: explicit `groupIndex` → persisted
@@ -215,19 +314,17 @@ export async function printLaunchHints(
   const idx = await pickGroupIndex(opts);
   const group = GROUPS[idx];
   if (!group) return;
+  const termWidth = Math.max(
+    MIN_TERM_WIDTH,
+    Math.floor(opts.termWidth ?? process.stdout.columns ?? DEFAULT_TERM_WIDTH),
+  );
 
   const lines: string[] = [];
   lines.push('');
-  lines.push(
-    `  ${color.cyan('◆')} ${color.bold(group.title)} ${color.dim(`(${idx + 1}/${GROUPS.length} · more each launch)`)}`,
-  );
-  for (const item of group.items) {
-    lines.push(`     ${color.bold(item.key)}  ${color.dim('—')} ${color.dim(item.blurb)}`);
-  }
+  lines.push(...renderHeaderLines(group, idx, termWidth));
+  for (const item of group.items) lines.push(...renderHintLines(item, termWidth));
   lines.push('');
-  lines.push(
-    `  ${color.dim(`${color.bold('/help')} lists everything · hide with ${color.bold('--no-hints')}`)}`,
-  );
+  lines.push(...renderFooterLines(termWidth));
   lines.push('');
 
   renderer.write(`${lines.join('\n')}\n`);

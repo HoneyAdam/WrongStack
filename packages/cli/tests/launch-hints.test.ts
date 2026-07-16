@@ -62,7 +62,7 @@ describe('printLaunchHints', () => {
     const outputs: string[] = [];
     for (let groupIndex = 0; groupIndex < HINT_GROUP_COUNT; groupIndex++) {
       const r = makeRenderer();
-      await printLaunchHints(r, {}, { groupIndex });
+      await printLaunchHints(r, {}, { groupIndex, termWidth: 160 });
       outputs.push(r.output());
     }
 
@@ -79,6 +79,15 @@ describe('printLaunchHints', () => {
     expect(allHints).not.toContain('Multi-agent / fleet');
     expect(allHints).not.toContain('Daily ops');
     expect(allHints).not.toContain('/usage');
+  });
+
+  it.each([80, 50, 30, 20])('wraps every hint group within a %i-column terminal', async (termWidth) => {
+    for (let groupIndex = 0; groupIndex < HINT_GROUP_COUNT; groupIndex++) {
+      const r = makeRenderer();
+      await printLaunchHints(r, {}, { groupIndex, termWidth });
+      const lines = r.output().split('\n');
+      expect(Math.max(...lines.map((line) => [...line].length))).toBeLessThanOrEqual(termWidth);
+    }
   });
 
   it('wraps groupIndex out of range', async () => {
