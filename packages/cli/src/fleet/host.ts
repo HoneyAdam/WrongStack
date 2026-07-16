@@ -1134,6 +1134,8 @@ export class MultiAgentHost {
         agentName: subCfg.name ?? subagentName,
       });
       if (subCfg.role) ctx.meta['agentRole'] = subCfg.role;
+      const leaderMode = this.opts.getLeaderMode?.();
+      if (leaderMode) ctx.meta['mode'] = leaderMode;
       if (subCfg.spawnLineage) ctx.meta['spawnLineage'] = subCfg.spawnLineage;
 
       const baseRegistry = this.subagentToolRegistry(tools);
