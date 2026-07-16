@@ -174,9 +174,6 @@ interface UIState {
   setSettingsActiveTab: (tab: string) => void;
   setScrollPosition: (view: string, scrollTop: number) => void;
 
-  /** Agent detail modal (triggered from side-panel agent row click). */
-  agentDetailModalId: string | null;
-  setAgentDetailModalId: (id: string | null) => void;
   /** Context breakdown modal (triggered from side-panel session panel). */
   sideContextBreakdownOpen: boolean;
   setSideContextBreakdownOpen: (open: boolean) => void;
@@ -321,7 +318,6 @@ function homeNavigationStatePatch(
     processMonitorOpen: false,
     queuePanelOpen: false,
     cronJobsOpen: false,
-    agentDetailModalId: null,
     sideContextBreakdownOpen: false,
     inspectorOpen: false,
     terminalOpen: false,
@@ -379,7 +375,6 @@ export const useUIStore = create<UIState>()(
       terminalCreateNonce: 0,
       settingsActiveTab: 'provider',
       scrollPositions: {},
-      agentDetailModalId: null,
       sideContextBreakdownOpen: false,
       selectedMailMessage: null,
       skillsState: {
@@ -508,7 +503,6 @@ export const useUIStore = create<UIState>()(
       setSettingsActiveTab: (tab: string) => set({ settingsActiveTab: tab }),
       setScrollPosition: (view: string, scrollTop: number) =>
         set((s) => ({ scrollPositions: { ...s.scrollPositions, [view]: scrollTop } })),
-      setAgentDetailModalId: (id: string | null) => set({ agentDetailModalId: id }),
       setSideContextBreakdownOpen: (open: boolean) => set({ sideContextBreakdownOpen: open }),
       setSkillsState: (state) => set({ skillsState: state }),
       setSelectedMailMessage: (msg) => set({ selectedMailMessage: msg }),
