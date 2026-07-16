@@ -471,6 +471,21 @@ export class SqliteSuperMemoryStore {
     const limit = opts?.limit ?? 20;
     const statusFilter = opts?.includeStatuses ?? ['active'];
 
+    // Empty query → direct table scan (bypasses FTS5 which is slower for list-all)
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
+      const placeholders = statusFilter.map(() => '?').join(',');
+      const rows = this.db
+        .prepare(
+          `SELECT data FROM memories
+           WHERE status IN (${placeholders})
+           ORDER BY importance DESC, updated_at DESC
+           LIMIT ?`,
+        )
+        .all(...statusFilter, limit) as Array<{ data: string }>;
+      return rows.map((r) => this.rowToMemory(r));
+    }
+
     // Try FTS5 first
     try {
       const placeholders = statusFilter.map(() => '?').join(',');
