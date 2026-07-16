@@ -1183,6 +1183,10 @@ function TaskInspector({
   // Real registered tools + the live session provider/model (the dispatch
   // fallback so nothing has to be typed by hand).
   const meta = useKanbanMeta(Boolean(task));
+  // Scroll-position hook must be called unconditionally — calling it inside
+  // JSX within the {task ? … : …} ternary violates the Rules of Hooks
+  // (React error 310) when task toggles between null and non-null.
+  const inspectorScrollRef = useScrollPosition<HTMLDivElement>('kanban-task-inspector', Boolean(task));
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -1405,7 +1409,7 @@ function TaskInspector({
         </button>
       </div>
       {task ? (
-        <div ref={useScrollPosition('kanban-task-inspector')} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
+        <div ref={inspectorScrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
           <div className="space-y-3 rounded-md border bg-background p-2.5">
             <Field label="Title" value={title} onChange={setTitle} />
             <label className="block">
