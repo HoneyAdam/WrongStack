@@ -601,6 +601,48 @@ async function runAudienceMemory(
     return { message: lines.join('\n') };
   }
 
+  // /memory audience transfer <from-role> <to-role>
+  // Re-scopes all memories targeting <from-role> to <to-role> instead.
+  if (sub === 'transfer' || sub === 'reassign') {
+    const fromRole = rest[1]?.toLowerCase();
+    const toRole = rest[2]?.toLowerCase();
+    if (!fromRole || !toRole) {
+      return { message: 'Usage: /memory audience transfer <from-role> <to-role>' };
+    }
+    const all = await store.listSuper(['active', 'stale']);
+    const toUpdate = all.filter(
+      (m) => m.audience?.roles?.some((r) => r.toLowerCase() === fromRole),
+    );
+    if (toUpdate.length === 0) {
+      return { message: `No audience-scoped memories found for role "${fromRole}".` };
+    }
+    let updated = 0;
+    for (const mem of toUpdate) {
+      const roles = (mem.audience!.roles ?? []).map(
+        (r) => (r.toLowerCase() === fromRole ? toRole : r),
+      );
+      const deduped = [...new Set(roles)];
+      try {
+        await store.updateSuperMemory(mem.id, {
+          audience: {
+            roles: deduped,
+            ...(mem.audience!.taskTypes?.length ? { taskTypes: mem.audience!.taskTypes } : {}),
+            ...(mem.audience!.modes?.length ? { modes: mem.audience!.modes } : {}),
+          },
+        });
+        updated++;
+      } catch {
+        // continue on per-memory errors
+      }
+    }
+    return {
+      message:
+        updated === 0
+          ? `Failed to transfer any memories from "${fromRole}" to "${toRole}".`
+          : `Transferred ${updated} memor${updated === 1 ? 'y' : 'ies'} from role "${fromRole}" to "${toRole}".`,
+    };
+  }
+
   return {
     message: [
       '## /memory audience',
@@ -608,6 +650,7 @@ async function runAudienceMemory(
       '`/memory audience list [--role <r>] [--task-type <t>] [--mode <m>]` — view scoped memories',
       '`/memory audience remember --role <r> [--task-type <t>] [--mode <m>] <text>` — add a scoped memory',
       '`/memory audience search <query>` — search scoped memories by partial text/role/mode',
+      '`/memory audience transfer <from-role> <to-role>` — bulk re-scope memories from one role to another',
       '`/memory audience clear <memory-id>` — remove scope (becomes general memory)',
     ].join('\n'),
   };
