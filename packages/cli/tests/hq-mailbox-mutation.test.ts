@@ -330,6 +330,101 @@ describe('HQ mailbox — /mailbox/agents/register validator mutations', () => {
   });
 });
 
+describe('HQ mailbox — /api/mailbox/messages/:id/action validator mutations', () => {
+  const validAction = { action: 'acknowledge', readerId: 'op-mut', sessionId: 'sess-mut-action' };
+  const actionProjectId = 'mut-action';
+
+  const actionUrl = (mailId: string): string =>
+    `http://127.0.0.1:${handle!.port}/api/mailbox/messages/${encodeURIComponent(mailId)}/action`;
+
+  const seedMessage = async (): Promise<{mailId: string; cleanup: () => Promise<void>}> => {
+    const {projectRoot, cleanup} = await seedProject(actionProjectId);
+    const mb = new GlobalMailbox(resolveProjectDir(projectRoot, wstackGlobalRoot()));
+    try {
+      const sent = await mb.send({from: 'leader@x', to: 'op-mut', type: 'note', subject: 't', body: 'b'});
+      return {mailId: sent.id, cleanup};
+    } finally {
+      await mb.close();
+    }
+  };
+
+  const postAction = async (
+    mailId: string,
+    body: unknown,
+    headers: Record<string, string> = {},
+  ): Promise<{status: number; json: unknown}> => {
+    const res = await fetch(actionUrl(mailId), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', ...headers},
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(5_000),
+    });
+    const text = await res.text();
+    let parsed: unknown = null;
+    try { parsed = JSON.parse(text); } catch { parsed = text; }
+    return {status: res.status, json: parsed};
+  };
+
+  it.each([
+    {
+      rejectContains: 'unrecognized action',
+      mutate: (b: Record<string, unknown>): void => { b['action'] = 'explode'; },
+    },
+    {
+      rejectContains: 'readerId',
+      mutate: (b: Record<string, unknown>): void => { delete b['readerId']; },
+    },
+    {
+      rejectContains: 'readerId',
+      mutate: (b: Record<string, unknown>): void => { b['readerId'] = ''; },
+    },
+    {
+      rejectContains: 'sessionId or projectId',
+      mutate: (b: Record<string, unknown>): void => { delete b['sessionId']; },
+    },
+    {
+      rejectContains: 'readerId',
+      mutate: (b: Record<string, unknown>): void => { b['readerId'] = 42; },
+    },
+  ])('rejects malformed action body (case: $rejectContains)', async (row) => {
+    const {mailId, cleanup} = await seedMessage();
+    try {
+      const body = JSON.parse(JSON.stringify(validAction)) as Record<string, unknown>;
+      row.mutate(body);
+      const res = await postAction(mailId, body, auth());
+      expect(res.status, `expected 400 for ${row.rejectContains}`).toBe(400);
+      const err = (res.json as {error?: string}).error;
+      expect(err, `expected error message containing "${row.rejectContains}"`).toContain(
+        row.rejectContains,
+      );
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('rejects an unknown mailId (404)', async () => {
+    const {projectRoot, cleanup} = await seedProject(actionProjectId);
+    try {
+      const res = await postAction('no-such-mail', validAction, auth());
+      expect(res.status).toBe(404);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('rejects a message from an unresolved project (404)', async () => {
+    const res = await postAction('some-mail', {
+      action: 'mark-read', readerId: 'op-mut', projectId: 'no-such-project',
+    }, auth());
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 401 without Authorization header on the action route', async () => {
+    const res = await postAction('any-mail', validAction);
+    expect(res.status).toBe(401);
+  });
+});
+
 describe('HQ mailbox — gateway-level contract', () => {
   it('rejects an unknown project with 404', async () => {
     const res = await post(
