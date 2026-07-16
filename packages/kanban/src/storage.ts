@@ -241,6 +241,7 @@ export interface CreateBoardObjectOptions {
   columns?: KanbanBoard['columns'] | undefined;
   generatedBy?: string | undefined;
   supervisor?: KanbanBoard['supervisor'] | undefined;
+  lifecycle?: KanbanBoard['lifecycle'] | undefined;
 }
 
 export function createBoardObject(opts: CreateBoardObjectOptions): KanbanBoard {
@@ -259,6 +260,9 @@ export function createBoardObject(opts: CreateBoardObjectOptions): KanbanBoard {
     ...(opts.tags !== undefined ? { tags: opts.tags } : {}),
     ...(opts.generatedBy !== undefined ? { generatedBy: opts.generatedBy } : {}),
     ...(opts.supervisor !== undefined ? { supervisor: { ...opts.supervisor } } : {}),
+    ...(opts.lifecycle !== undefined
+      ? { lifecycle: { ...opts.lifecycle, columns: { ...opts.lifecycle.columns } } }
+      : {}),
   };
 }
 

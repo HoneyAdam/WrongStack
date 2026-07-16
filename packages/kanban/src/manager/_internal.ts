@@ -148,6 +148,7 @@ export function createTaskObject(board: KanbanBoard, input: CreateKanbanTaskInpu
     createdAt: now,
     updatedAt: now,
     ...(input.description !== undefined ? { description: input.description } : {}),
+    ...(input.dueDate !== undefined ? { dueDate: input.dueDate } : {}),
     ...(input.assignedAgent !== undefined ? { assignedAgent: input.assignedAgent } : {}),
     ...(input.assignee !== undefined ? { assignee: input.assignee } : {}),
     ...(input.assignment !== undefined ? { assignment: input.assignment } : {}),
@@ -208,6 +209,7 @@ export function cloneTaskForBoard(
     createdAt: now,
     updatedAt: now,
     ...(source.description !== undefined ? { description: source.description } : {}),
+    ...(source.dueDate !== undefined ? { dueDate: source.dueDate } : {}),
     ...(source.assignedAgent !== undefined && options.preserveAssignment === true
       ? { assignedAgent: source.assignedAgent }
       : {}),
@@ -251,6 +253,17 @@ export function cloneTaskForBoard(
     ...(source.notes !== undefined
       ? { notes: source.notes.map((note) => ({ ...note, id: randomUUID(), createdAt: now })) }
       : {}),
+    ...(source.lifecycle !== undefined
+      ? {
+          lifecycle: {
+            ...source.lifecycle,
+            history: source.lifecycle.history.map((entry) => ({
+              ...entry,
+              ...(entry.attachment ? { attachment: { ...entry.attachment } } : {}),
+            })),
+          },
+        }
+      : {}),
   };
   if (source.completedAt !== undefined && task.status === 'completed') {
     task.completedAt = source.completedAt;
@@ -271,6 +284,10 @@ export function applyTaskPatch(
   let shouldReorder = false;
   if (input.title !== undefined) task.title = requireNonBlank(input.title, 'Kanban task title');
   if (input.description !== undefined) task.description = input.description;
+  if (input.dueDate !== undefined) {
+    if (input.dueDate === null) delete task.dueDate;
+    else task.dueDate = input.dueDate;
+  }
   if (input.columnId !== undefined) {
     const columnId = existingColumnId(board, input.columnId);
     if (!columnId) throw new Error(`Column not found: ${input.columnId}`);
@@ -353,6 +370,18 @@ export function applyTaskPatch(
   if (input.successCriteria !== undefined) task.successCriteria = input.successCriteria;
   if (input.goalMetrics !== undefined) task.goalMetrics = input.goalMetrics;
   if (input.links !== undefined) task.links = input.links;
+  if (input.lifecycle !== undefined) {
+    if (input.lifecycle === null) delete task.lifecycle;
+    else {
+      task.lifecycle = {
+        ...input.lifecycle,
+        history: input.lifecycle.history.map((entry) => ({
+          ...entry,
+          ...(entry.attachment ? { attachment: { ...entry.attachment } } : {}),
+        })),
+      };
+    }
+  }
   if (shouldReorder) {
     if (previousColumnId !== task.columnId) normalizeColumnTaskOrders(board, previousColumnId);
     placeTaskInColumn(board, task, task.columnId, task.order);

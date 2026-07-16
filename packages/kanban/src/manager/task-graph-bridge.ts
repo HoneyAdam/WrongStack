@@ -114,6 +114,11 @@ export async function syncBoardFromTaskGraph(
   archivedTaskIds: string[];
 } | null> {
   const updated = await mutateBoard(projectRoot, boardId, (board) => {
+    if (board.lifecycle?.mode === 'managed') {
+      throw new Error(
+        'Task-graph synchronization cannot overwrite a managed Kanban Agent board. Import into a legacy board, then adopt cards through Backlog.',
+      );
+    }
     const now = nowIso();
     const sourceSystem = options.sourceSystem ?? 'task-graph';
     const nodes = Array.from(graph.nodes.values())

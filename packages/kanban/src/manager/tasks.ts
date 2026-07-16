@@ -16,6 +16,10 @@ import type {
   UpdateKanbanTaskInput,
 } from '../types.js';
 import {
+  assertManagedTaskPatchAllowed,
+  initializeManagedTaskLifecycle,
+} from './lifecycle.js';
+import {
   applyTaskPatch,
   cloneTaskForBoard,
   createKanbanEvent,
@@ -38,6 +42,7 @@ export async function addTask(
   let event: KanbanEvent | undefined;
   const updated = await mutateBoard(projectRoot, boardId, (board) => {
     const task = createTaskObject(board, input);
+    initializeManagedTaskLifecycle(board, task);
     board.tasks.push(task);
     placeTaskInColumn(board, task, task.columnId, task.order);
     board.updatedAt = nowIso();
@@ -65,11 +70,22 @@ export async function copyTaskToBoard(
   let event: KanbanEvent | undefined;
   const updated = await mutateBoard(projectRoot, targetBoardId, (targetBoard) => {
     const task = cloneTaskForBoard(targetBoard, sourceTask, {
-      targetColumnId: options.targetColumnId,
+      // Managed copies are new work and must restart at Backlog with a fresh
+      // lifecycle ledger; carrying a mid-stream stage would fake progression.
+      targetColumnId:
+        targetBoard.lifecycle?.mode === 'managed'
+          ? targetBoard.lifecycle.columns.backlog
+          : options.targetColumnId,
       targetOrder: options.targetOrder,
       preserveAssignment: options.preserveAssignment === true,
       preserveDependencies: options.preserveDependencies === true,
     });
+    if (targetBoard.lifecycle?.mode === 'managed') {
+      delete task.lifecycle;
+      task.status = 'pending';
+      delete task.completedAt;
+      initializeManagedTaskLifecycle(targetBoard, task);
+    }
     targetBoard.tasks.push(task);
     placeTaskInColumn(targetBoard, task, task.columnId, task.order);
     targetBoard.updatedAt = nowIso();
@@ -133,6 +149,7 @@ export async function updateTask(
     if (!task) return null;
     const beforeColumnId = task.columnId;
     const beforeStatus = task.status;
+    assertManagedTaskPatchAllowed(board, task, input);
     applyTaskPatch(board, task, input);
     const moved = task.columnId !== beforeColumnId;
     event = moved

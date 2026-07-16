@@ -53,6 +53,9 @@ export async function reconcileKanbanBoard(
   const reconciled: KanbanTask[] = [];
   const events: KanbanEvent[] = [];
   const updated = await mutateBoard(projectRoot, boardId, (board) => {
+    // Managed cards are advanced only through transitionTask. Assignment
+    // telemetry must never manufacture Review or Done on their behalf.
+    if (board.lifecycle?.mode === 'managed') return null;
     for (const task of board.tasks) {
       const assignment = task.assignment;
       const beforeStatus = task.status;
@@ -165,6 +168,24 @@ export async function updateTaskAssignment(
     }
     task.assignment = nextAssignment;
     if (task.assignment.agentId) task.assignedAgent = task.assignment.agentId;
+    if (board.lifecycle?.mode === 'managed') {
+      if (task.assignment.status === 'completed') {
+        task.assignment.completedAt = task.assignment.completedAt ?? nowIso();
+      } else if (task.assignment.status === 'running') {
+        task.assignment.dispatchedAt = task.assignment.dispatchedAt ?? nowIso();
+        delete task.assignment.completedAt;
+      }
+      // Keep the card's managed column/status/lifecycle intact. The worker must
+      // persist its result, then explicitly transition Running -> Review.
+      task.updatedAt = nowIso();
+      board.updatedAt = task.updatedAt;
+      event = createKanbanEvent(board.id, task, assignmentEventType(task.assignment.status), {
+        before: beforeAssignment,
+        after: { ...task.assignment },
+        note: patch.error ?? patch.lastResult,
+      });
+      return task;
+    }
     if (task.assignment.status === 'completed') {
       task.assignment.completedAt = task.assignment.completedAt ?? nowIso();
       task.status = 'completed';

@@ -227,10 +227,47 @@ export interface KanbanTaskOrigin {
   specId?: string | undefined;
 }
 
+export type KanbanLifecycleStage = 'backlog' | 'todo' | 'running' | 'review' | 'done';
+
+export interface KanbanLifecycleColumns {
+  backlog: string;
+  todo: string;
+  running: string;
+  review: string;
+  done: string;
+}
+
+export interface KanbanBoardLifecyclePolicy {
+  /** Legacy boards retain unrestricted/custom projection behavior. */
+  mode: 'legacy' | 'managed';
+  /** Explicit roles avoid unreliable inference from column titles or task status. */
+  columns: KanbanLifecycleColumns;
+  /** Review cards older than this are surfaced by Kanban Cleaner. */
+  staleReviewAfterMs?: number | undefined;
+}
+
+export interface KanbanLifecycleTransition {
+  from?: KanbanLifecycleStage | undefined;
+  to: KanbanLifecycleStage;
+  at: string;
+  actor: string;
+  action?: string | undefined;
+  comment?: string | undefined;
+  attachment?: KanbanLink | undefined;
+}
+
+export interface KanbanTaskLifecycle {
+  currentStage: KanbanLifecycleStage;
+  stageEnteredAt: string;
+  /** Authoritative board-local ledger; persisted atomically with the card. */
+  history: KanbanLifecycleTransition[];
+}
+
 export interface KanbanTask {
   id: string;
   title: string;
   description?: string | undefined;
+  dueDate?: string | undefined;
   columnId: string;
   order: number;
   priority: KanbanTaskPriority;
@@ -267,6 +304,7 @@ export interface KanbanTask {
   costCeilingUsd?: number | undefined;
   links?: KanbanLink[] | undefined;
   notes?: KanbanNote[] | undefined;
+  lifecycle?: KanbanTaskLifecycle | undefined;
 }
 
 export interface KanbanColumn {
@@ -291,6 +329,8 @@ export interface KanbanBoard {
   generatedBy?: string | undefined;
   /** Quiet health/reconciliation policy for this board. */
   supervisor?: KanbanSupervisorConfig | undefined;
+  /** Opt-in strict Kanban Agent lifecycle policy. */
+  lifecycle?: KanbanBoardLifecyclePolicy | undefined;
   version: number;
 }
 
@@ -325,6 +365,7 @@ export interface CreateKanbanBoardInput {
   tasks?: Array<Partial<KanbanTask> & Pick<KanbanTask, 'title'>> | undefined;
   generatedBy?: string | undefined;
   supervisor?: KanbanSupervisorConfig | undefined;
+  lifecycle?: KanbanBoardLifecyclePolicy | undefined;
 }
 
 export interface UpdateKanbanBoardInput {
@@ -334,6 +375,7 @@ export interface UpdateKanbanBoardInput {
   columns?: KanbanColumn[] | undefined;
   completedAt?: string | null | undefined;
   supervisor?: KanbanSupervisorConfig | null | undefined;
+  lifecycle?: KanbanBoardLifecyclePolicy | null | undefined;
 }
 
 export interface DuplicateKanbanBoardInput {
@@ -368,6 +410,7 @@ export interface RemoveKanbanColumnOptions {
 export interface CreateKanbanTaskInput {
   title: string;
   description?: string | undefined;
+  dueDate?: string | undefined;
   columnId?: string | undefined;
   order?: number | undefined;
   priority?: KanbanTaskPriority | undefined;
@@ -392,11 +435,13 @@ export interface CreateKanbanTaskInput {
   goalMetrics?: KanbanGoalMetric[] | undefined;
   links?: KanbanLink[] | undefined;
   notes?: KanbanNote[] | undefined;
+  lifecycle?: KanbanTaskLifecycle | undefined;
 }
 
 export interface UpdateKanbanTaskInput {
   title?: string | undefined;
   description?: string | undefined;
+  dueDate?: string | null | undefined;
   columnId?: string | undefined;
   order?: number | undefined;
   priority?: KanbanTaskPriority | undefined;
@@ -420,6 +465,35 @@ export interface UpdateKanbanTaskInput {
   successCriteria?: KanbanCheck[] | undefined;
   goalMetrics?: KanbanGoalMetric[] | undefined;
   links?: KanbanLink[] | undefined;
+  lifecycle?: KanbanTaskLifecycle | null | undefined;
+}
+
+export interface KanbanTaskTransitionInput {
+  to: KanbanLifecycleStage;
+  actor: string;
+  action?: string | undefined;
+  comment?: string | undefined;
+  attachment?: KanbanLink | undefined;
+  /** Detail fields may be filled atomically with the transition. */
+  patch?: Omit<UpdateKanbanTaskInput, 'columnId' | 'status' | 'lifecycle'> | undefined;
+}
+
+export interface KanbanTaskTransitionResult {
+  board: KanbanBoard;
+  task: KanbanTask;
+  transition: KanbanLifecycleTransition;
+}
+
+export interface KanbanLifecycleValidationIssue {
+  code:
+    | 'managed-policy-invalid'
+    | 'stage-mismatch'
+    | 'transition-skipped'
+    | 'task-detail-missing'
+    | 'review-evidence-missing'
+    | 'acceptance-criteria-incomplete';
+  field?: string | undefined;
+  message: string;
 }
 
 export interface CopyKanbanTaskOptions {

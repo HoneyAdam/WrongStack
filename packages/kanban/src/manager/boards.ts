@@ -32,6 +32,7 @@ import {
   statusForColumn,
   uniqueColumnId,
 } from './_internal.js';
+import { initializeManagedTaskLifecycle, validateManagedLifecyclePolicy } from './lifecycle.js';
 
 export async function createBoard(
   projectRoot: string,
@@ -45,17 +46,23 @@ export async function createBoard(
     ...(input.tags !== undefined ? { tags: input.tags } : {}),
     ...(input.generatedBy !== undefined ? { generatedBy: input.generatedBy } : {}),
     ...(input.supervisor !== undefined ? { supervisor: input.supervisor } : {}),
+    ...(input.lifecycle !== undefined ? { lifecycle: input.lifecycle } : {}),
   });
 
+  const policyIssues = validateManagedLifecyclePolicy(board);
+  if (policyIssues.length) throw new Error(policyIssues[0]!.message);
+
   if (input.tasks?.length) {
-    board.tasks = input.tasks.map((task, index) =>
-      createTaskObject(board, {
+    board.tasks = input.tasks.map((task, index) => {
+      const created = createTaskObject(board, {
         ...task,
         title: task.title,
         columnId: task.columnId ?? board.columns[0]?.id ?? 'backlog',
         order: task.order ?? index,
-      }),
-    );
+      });
+      initializeManagedTaskLifecycle(board, created);
+      return created;
+    });
   }
 
   await writeBoard(projectRoot, board);
@@ -92,6 +99,15 @@ export async function updateBoard(
       if (input.supervisor === null) delete board.supervisor;
       else board.supervisor = { ...input.supervisor };
     }
+    if (input.lifecycle !== undefined) {
+      if (input.lifecycle === null) delete board.lifecycle;
+      else board.lifecycle = {
+        ...input.lifecycle,
+        columns: { ...input.lifecycle.columns },
+      };
+    }
+    const policyIssues = validateManagedLifecyclePolicy(board);
+    if (policyIssues.length) throw new Error(policyIssues[0]!.message);
     normalizeAllColumnTaskOrders(board);
     board.updatedAt = now;
     return board;
@@ -117,6 +133,9 @@ export async function duplicateBoard(
     columns: source.columns.map((column) => ({ ...column })),
     generatedBy: input.generatedBy ?? `duplicate:${source.id}`,
     ...(source.supervisor !== undefined ? { supervisor: { ...source.supervisor } } : {}),
+    ...(source.lifecycle !== undefined
+      ? { lifecycle: { ...source.lifecycle, columns: { ...source.lifecycle.columns } } }
+      : {}),
   });
 
   if (input.includeTasks !== false) {
@@ -126,9 +145,17 @@ export async function duplicateBoard(
     const idMap = new Map<string, string>();
     board.tasks = sourceTasks.map((task) => {
       const cloned = cloneTaskForBoard(board, task, {
+        targetColumnId:
+          board.lifecycle?.mode === 'managed' ? board.lifecycle.columns.backlog : task.columnId,
         preserveAssignment: input.preserveAssignment === true,
         preserveDependencies: true,
       });
+      if (board.lifecycle?.mode === 'managed') {
+        delete cloned.lifecycle;
+        cloned.status = 'pending';
+        delete cloned.completedAt;
+        initializeManagedTaskLifecycle(board, cloned);
+      }
       idMap.set(task.id, cloned.id);
       return cloned;
     });
@@ -199,6 +226,12 @@ export async function removeColumn(
   const updated = await mutateBoard(projectRoot, boardId, (board) => {
     const resolvedColumnId = existingColumnId(board, columnId);
     if (!resolvedColumnId) return null;
+    if (
+      board.lifecycle?.mode === 'managed' &&
+      Object.values(board.lifecycle.columns).includes(resolvedColumnId)
+    ) {
+      throw new Error(`Cannot remove managed lifecycle column: ${resolvedColumnId}`);
+    }
     const index = board.columns.findIndex((column) => column.id === resolvedColumnId);
     if (index === -1) return null;
     const columnTasks = board.tasks.filter((task) => task.columnId === resolvedColumnId);

@@ -10,6 +10,7 @@ import type {
   KanbanBoard,
   KanbanBoardSummary,
   KanbanEvent,
+  KanbanLifecycleStage,
   KanbanOrchestrationSnapshot,
   KanbanQueueHealth,
   KanbanSearchResult,
@@ -56,6 +57,7 @@ import {
   setTaskChain,
   splitTask,
   syncBoardFromTaskGraph,
+  transitionTask,
   transferTaskToBoard,
   updateBoard,
   updateCheckOnTask,
@@ -92,6 +94,7 @@ type KanbanAction =
   | 'transfer_task'
   | 'get_task'
   | 'update_task'
+  | 'transition_task'
   | 'move_task'
   | 'delete_task'
   | 'set_chain'
@@ -122,6 +125,7 @@ interface KanbanToolInput extends Omit<AssignKanbanTaskInput, 'status'> {
   chainId?: string | undefined;
   title?: string | undefined;
   description?: string | undefined;
+  dueDate?: string | undefined;
   tags?: string[] | undefined;
   labels?: string[] | undefined;
   priority?: KanbanTaskPriority | undefined;
@@ -179,6 +183,12 @@ interface KanbanToolInput extends Omit<AssignKanbanTaskInput, 'status'> {
   lastResult?: string | undefined;
   error?: string | undefined;
   assignmentStatus?: KanbanAgentRunStatus | undefined;
+  lifecycleStage?: KanbanLifecycleStage | undefined;
+  transitionAction?: string | undefined;
+  transitionComment?: string | undefined;
+  attachmentUrl?: string | undefined;
+  attachmentTitle?: string | undefined;
+  attachmentType?: 'issue' | 'pr' | 'doc' | 'commit' | 'design' | 'file' | 'url' | 'other' | undefined;
   releaseStatus?: 'pending' | 'ready' | 'blocked' | undefined;
   releaseReason?: string | undefined;
   clearAssignee?: boolean | undefined;
@@ -224,9 +234,9 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
   name: 'kanban',
   category: 'Project',
   description:
-    'Manage project-scoped multi-kanban boards stored under .wrongstack/kanbans. Supports board/task/column CRUD, ready-task queues, dependency chains, split/merge, assignment metadata, provider/model/fallback routing hints, goal metrics, success checks, notes, links, and run status updates.',
+    'Manage and audit project-scoped multi-kanban boards stored under .wrongstack/kanbans. Managed cards enforce fully specified details and adjacent Backlog → Todo → Running → Review → Done transitions with persistent comments and evidence.',
   usageHint:
-    'Use this for durable project kanban state. Agents should call snapshot/ready_tasks, then claim_task before working. Use set_chain for ordered work, split_task/merge_tasks when task scope changes, assign_task with provider/model/fallback hints before spawning, mark_assignment when starting or finishing, and release_task if the claim cannot be worked.',
+    'Use this for durable project kanban state. For managed boards, fully fill card details, use transition_task after every material step, attach truthful evidence, and never use update_task/move_task to bypass lifecycle guards. Worker completion enters Review; only passed acceptance criteria plus review evidence allow Done.',
   permission: 'confirm',
   mutating: true,
   capabilities: ['fs.write'],
@@ -263,6 +273,7 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
           'transfer_task',
           'get_task',
           'update_task',
+          'transition_task',
           'move_task',
           'delete_task',
           'set_chain',
@@ -293,6 +304,7 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
       targetColumnId: { type: 'string' },
       title: { type: 'string' },
       description: { type: 'string' },
+      dueDate: { type: 'string' },
       tags: { type: 'array', items: { type: 'string' } },
       labels: { type: 'array', items: { type: 'string' } },
       priority: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] },
@@ -338,6 +350,18 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
       assignmentStatus: {
         type: 'string',
         enum: ['assigned', 'queued', 'running', 'completed', 'failed', 'cancelled'],
+      },
+      lifecycleStage: {
+        type: 'string',
+        enum: ['backlog', 'todo', 'running', 'review', 'done'],
+      },
+      transitionAction: { type: 'string' },
+      transitionComment: { type: 'string' },
+      attachmentUrl: { type: 'string' },
+      attachmentTitle: { type: 'string' },
+      attachmentType: {
+        type: 'string',
+        enum: ['issue', 'pr', 'doc', 'commit', 'design', 'file', 'url', 'other'],
       },
       releaseStatus: { type: 'string', enum: ['pending', 'ready', 'blocked'] },
       releaseReason: { type: 'string' },
@@ -795,6 +819,42 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
           );
           return board ? okBoard(board, 'Task updated.') : fail('Task not found.');
         }
+        case 'transition_task': {
+          if (
+            !input.boardId ||
+            !input.taskId ||
+            !input.lifecycleStage ||
+            !input.author ||
+            !input.transitionComment
+          ) {
+            return fail(
+              'transition_task requires boardId, taskId, lifecycleStage, author, and transitionComment.',
+            );
+          }
+          const result = await transitionTask(projectRoot, input.boardId, input.taskId, {
+            to: input.lifecycleStage,
+            actor: input.author,
+            comment: input.transitionComment,
+            ...(input.transitionAction !== undefined
+              ? { action: input.transitionAction }
+              : {}),
+            ...(input.attachmentUrl !== undefined
+              ? {
+                  attachment: {
+                    url: input.attachmentUrl,
+                    type: input.attachmentType ?? 'url',
+                    ...(input.attachmentTitle !== undefined
+                      ? { title: input.attachmentTitle }
+                      : {}),
+                  },
+                }
+              : {}),
+            patch: taskPatch(input),
+          });
+          return result
+            ? okTask(result.board, result.task, `Task advanced to ${result.transition.to}.`)
+            : fail('Board or task not found.');
+        }
         case 'move_task': {
           if (!input.boardId || !input.taskId || !input.targetColumnId) {
             return fail('move_task requires boardId, taskId, and targetColumnId.');
@@ -1113,6 +1173,7 @@ function taskInput(input: KanbanToolInput) {
     title: input.title ?? '',
     columnId: input.columnId,
     description: input.description,
+    dueDate: input.dueDate,
     priority: input.priority,
     ...(input.taskType !== undefined ? { type: input.taskType } : {}),
     status: input.status,
@@ -1142,6 +1203,7 @@ function taskPatch(input: KanbanToolInput) {
   return {
     title: input.title,
     description: input.description,
+    dueDate: input.dueDate,
     columnId: input.columnId,
     order: input.order,
     priority: input.priority,

@@ -32,10 +32,12 @@ import { useKanbanMeta } from '@/hooks/useKanbanMeta';
 import { useHorizontalScroll } from '@/hooks/useHorizontalScroll';
 import { useScrollPosition } from '@/hooks/useScrollPosition';
 import { type ModelCandidate, useProviderModels } from '@/hooks/useProviderModels';
+import { auditKanbanBoard } from '@/lib/kanban-cleaner';
 import { cn } from '@/lib/utils';
 import { getWSClient } from '@/lib/ws-client';
-import { useConfigStore, useKanbanStore, useSessionStore } from '@/stores';
+import { useConfigStore, useFleetStore, useKanbanStore, useSessionStore } from '@/stores';
 import { ChipMultiSelect, type ChipOption } from './ChipMultiSelect';
+import { KanbanCleanerAlert } from './KanbanCleanerAlert';
 import { ModelPicker } from './ModelPicker';
 
 /** A kanban board that mirrors a live AutoPhase/SDD run, detected from its tags. */
@@ -256,6 +258,7 @@ function parseRunLink(board: { tags?: string[] | undefined } | null | undefined)
 export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) {
   const wsUrl = useConfigStore((s) => s.wsUrl);
   const sessionId = useSessionStore((s) => s.session?.id ?? null);
+  const fleetAgents = useFleetStore((s) => s.agents);
   const {
     boards,
     activeBoardId,
@@ -278,6 +281,26 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
 
   const ws = useMemo(() => getWSClient(wsUrl), [wsUrl]);
   const selectedTask = activeBoard?.tasks.find((task) => task.id === selectedTaskId) ?? null;
+  const liveAgentIdentities = useMemo(() => {
+    const identities = new Set<string>();
+    for (const agent of fleetAgents.values()) {
+      if (agent.status !== 'running') continue;
+      identities.add(agent.id);
+      identities.add(agent.name);
+    }
+    return identities;
+  }, [fleetAgents]);
+  const boardAudit = useMemo(
+    () =>
+      activeBoard
+        ? auditKanbanBoard(activeBoard, {
+            now: Date.now(),
+            liveAgentIdentities,
+            requireDueDate: activeBoard.lifecycle?.mode === 'managed',
+          })
+        : null,
+    [activeBoard, liveAgentIdentities],
+  );
 
   const runningCostTotal = useMemo(() => {
     if (!activeBoard) return 0;
@@ -375,7 +398,19 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
     const title = newBoardTitle.trim();
     if (!title) return;
     setNewBoardTitle('');
-    sendKanban('kanban.create', { title });
+    sendKanban('kanban.create', {
+      title,
+      lifecycle: {
+        mode: 'managed',
+        columns: {
+          backlog: 'backlog',
+          todo: 'todo',
+          running: 'in-progress',
+          review: 'review',
+          done: 'done',
+        },
+      },
+    });
   };
 
   const createTask = () => {
@@ -578,6 +613,9 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
             snapshot={supervisorSnapshot}
             sendKanban={sendKanban}
           />
+        )}
+        {boardAudit && (
+          <KanbanCleanerAlert audit={boardAudit} onSelectTask={setSelectedTaskId} />
         )}
 
         {error && (
@@ -932,15 +970,19 @@ function KanbanColumnView({
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => {
           event.preventDefault();
-          if (dragTaskId) onMoveTask(dragTaskId, column.id);
+          if (board.lifecycle?.mode !== 'managed' && dragTaskId) {
+            onMoveTask(dragTaskId, column.id);
+          }
           setDragTaskId(null);
         }}
       >
         {tasks.map((task) => (
           <li
             key={task.id}
-            draggable
-            onDragStart={() => setDragTaskId(task.id)}
+            draggable={board.lifecycle?.mode !== 'managed'}
+            onDragStart={() => {
+              if (board.lifecycle?.mode !== 'managed') setDragTaskId(task.id);
+            }}
             onDragEnd={() => setDragTaskId(null)}
             className={cn(
               'relative rounded-md border bg-background p-3 shadow-sm transition-colors',
@@ -1096,7 +1138,11 @@ function TaskInspector({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [dueDate, setDueDate] = useState('');
   const [status, setStatus] = useState<KanbanTask['status']>('pending');
+  const [transitionComment, setTransitionComment] = useState('');
+  const [transitionAction, setTransitionAction] = useState('');
+  const [transitionAttachmentUrl, setTransitionAttachmentUrl] = useState('');
   const [priority, setPriority] = useState<KanbanTask['priority']>('medium');
   const [taskType, setTaskType] = useState<NonNullable<KanbanTask['type']>>('chore');
   const [labelsText, setLabelsText] = useState('');
@@ -1129,7 +1175,11 @@ function TaskInspector({
     setTargetBoardId(boards.find((candidate) => candidate.id !== board?.id)?.id ?? '');
     setTitle(task?.title ?? '');
     setDescription(task?.description ?? '');
+    setDueDate(task?.dueDate ?? '');
     setStatus(task?.status ?? 'pending');
+    setTransitionComment('');
+    setTransitionAction('');
+    setTransitionAttachmentUrl('');
     setPriority(task?.priority ?? 'medium');
     setTaskType(task?.type ?? 'chore');
     setLabelsText(task?.labels?.join(', ') ?? '');
@@ -1182,7 +1232,8 @@ function TaskInspector({
       taskId: task.id,
       title: title.trim(),
       description,
-      status,
+      dueDate: dueDate || null,
+      ...(board.lifecycle?.mode !== 'managed' ? { status } : {}),
       priority,
       type: taskType,
       labels: labelsText
@@ -1203,6 +1254,38 @@ function TaskInspector({
         enforceDependencies: enforceChainDependencies,
       });
     }
+    window.setTimeout(() => refreshBoard(board.id), 180);
+  };
+
+  const managedStageOrder = ['backlog', 'todo', 'running', 'review', 'done'] as const;
+  const currentManagedStage = task?.lifecycle?.currentStage;
+  const managedStageIndex = currentManagedStage
+    ? managedStageOrder.indexOf(currentManagedStage)
+    : -1;
+  const nextManagedStage =
+    managedStageIndex >= 0 && managedStageIndex < managedStageOrder.length - 1
+      ? managedStageOrder[managedStageIndex + 1]
+      : undefined;
+
+  const advanceManagedTask = () => {
+    if (!board || !task || !nextManagedStage || !transitionComment.trim()) return;
+    sendKanban('kanban.task.transition', {
+      boardId: board.id,
+      taskId: task.id,
+      to: nextManagedStage,
+      actor: agentId.trim() || name.trim() || task.assignee || task.assignedAgent || 'webui-agent',
+      comment: transitionComment.trim(),
+      ...(transitionAction.trim() ? { action: transitionAction.trim() } : {}),
+      ...(transitionAttachmentUrl.trim()
+        ? {
+            attachment: {
+              url: transitionAttachmentUrl.trim(),
+              type: 'url',
+              title: `Evidence for ${task.title}`,
+            },
+          }
+        : {}),
+    });
     window.setTimeout(() => refreshBoard(board.id), 180);
   };
 
@@ -1289,21 +1372,32 @@ function TaskInspector({
               />
             </label>
             <div className="grid grid-cols-2 gap-2">
-              <SelectField
-                label="Status"
-                value={status}
-                options={[
-                  'pending',
-                  'ready',
-                  'in_progress',
-                  'blocked',
-                  'review',
-                  'completed',
-                  'failed',
-                  'archived',
-                ]}
-                onChange={(value) => setStatus(value as KanbanTask['status'])}
-              />
+              {board?.lifecycle?.mode === 'managed' ? (
+                <div className="rounded-md border bg-muted/30 px-2 py-1.5">
+                  <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Managed stage
+                  </div>
+                  <div className="mt-1 text-xs font-semibold capitalize">
+                    {task.lifecycle?.currentStage ?? 'Backlog'}
+                  </div>
+                </div>
+              ) : (
+                <SelectField
+                  label="Status"
+                  value={status}
+                  options={[
+                    'pending',
+                    'ready',
+                    'in_progress',
+                    'blocked',
+                    'review',
+                    'completed',
+                    'failed',
+                    'archived',
+                  ]}
+                  onChange={(value) => setStatus(value as KanbanTask['status'])}
+                />
+              )}
               <SelectField
                 label="Priority"
                 value={priority}
@@ -1319,6 +1413,7 @@ function TaskInspector({
               <Field label="Labels (comma separated)" value={labelsText} onChange={setLabelsText} />
             </div>
             <div className="grid grid-cols-2 gap-2">
+              <Field label="Due date (ISO or YYYY-MM-DD)" value={dueDate} onChange={setDueDate} />
               <Field label="Estimated hours" value={estimatedHours} onChange={setEstimatedHours} />
               <Field label="Actual hours" value={actualHours} onChange={setActualHours} />
             </div>
@@ -1371,6 +1466,47 @@ function TaskInspector({
             >
               <Save size={15} /> Save task contract
             </button>
+            {board?.lifecycle?.mode === 'managed' && nextManagedStage && (
+              <section
+                aria-label="Managed lifecycle transition"
+                className="space-y-2 rounded-md border border-primary/30 bg-primary/5 p-2.5"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-primary">
+                      Kanban Agent transition
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {currentManagedStage} → {nextManagedStage}; no stages can be skipped.
+                    </div>
+                  </div>
+                  <ShieldCheck size={16} className="text-primary" />
+                </div>
+                <Field
+                  label="Completed action / reviewer action"
+                  value={transitionAction}
+                  onChange={setTransitionAction}
+                />
+                <Field
+                  label="Truthful progress comment (required)"
+                  value={transitionComment}
+                  onChange={setTransitionComment}
+                />
+                <Field
+                  label="Evidence attachment URL"
+                  value={transitionAttachmentUrl}
+                  onChange={setTransitionAttachmentUrl}
+                />
+                <button
+                  type="button"
+                  disabled={!transitionComment.trim()}
+                  onClick={advanceManagedTask}
+                  className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-primary text-sm text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <MoveRight size={15} /> Advance to {nextManagedStage}
+                </button>
+              </section>
+            )}
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
             <Metric label="Source" value={task.origin?.system ?? 'manual'} />

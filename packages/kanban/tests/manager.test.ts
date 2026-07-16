@@ -16,6 +16,7 @@ import {
   createBoard,
   createBoardFromTaskGraph,
   duplicateBoard,
+  copyTaskToBoard,
   exportBoardAsMarkdown,
   exportBoardToTaskGraph,
   findBlockedTasks,
@@ -29,6 +30,7 @@ import {
   mergeTasks,
   moveTask,
   parseLinesIntoTasks,
+  transitionTask,
   reconcileKanbanBoard,
   recoverStaleTaskAssignments,
   releaseTaskClaim,
@@ -38,6 +40,7 @@ import {
   searchKanban,
   setTaskChain,
   splitTask,
+  syncBoardFromTaskGraph,
   updateBoard,
   updateCheckOnTask,
   updateColumn,
@@ -113,6 +116,163 @@ function sampleBoard(overrides?: Partial<KanbanBoard>): KanbanBoard {
 }
 
 // ── generateBoardFromDescription ─────────────────────────────────────────
+
+describe('managed Kanban Agent lifecycle', () => {
+  async function managedBoard() {
+    return createBoard(tmpDir, {
+      title: 'Managed Board',
+      lifecycle: {
+        mode: 'managed',
+        columns: {
+          backlog: 'backlog',
+          todo: 'todo',
+          running: 'in-progress',
+          review: 'review',
+          done: 'done',
+        },
+      },
+    });
+  }
+
+  function completeDetails() {
+    const lease = '2026-07-15T12:00:00.000Z';
+    return {
+      description: 'Implement and verify the managed lifecycle.',
+      dueDate: '2026-07-20T00:00:00.000Z',
+      assignee: 'agent-1',
+      labels: ['kanban'],
+      childTaskIds: ['subtask-1'],
+      successCriteria: [
+        {
+          id: 'criterion-1',
+          description: 'Lifecycle enforcement is verified.',
+          type: 'manual' as const,
+          status: 'pending' as const,
+        },
+      ],
+      assignment: {
+        status: 'running' as const,
+        agentId: 'agent-1',
+        leaseId: 'lease-1',
+        claimedAt: lease,
+        heartbeatAt: lease,
+        leaseExpiresAt: '2026-07-16T12:00:00.000Z',
+      },
+    };
+  }
+
+  it('rejects under-filled cards and skipped direct moves', async () => {
+    const board = await managedBoard();
+    const created = await addTask(tmpDir, board.id, { title: 'Managed task' });
+    expect(created?.task.lifecycle?.currentStage).toBe('backlog');
+    await expect(
+      transitionTask(tmpDir, board.id, created!.task.id, {
+        to: 'todo',
+        actor: 'agent-1',
+        comment: 'Ready to plan.',
+      }),
+    ).rejects.toThrow('Add a complete task description');
+    await expect(moveTask(tmpDir, board.id, created!.task.id, 'done')).rejects.toThrow(
+      'must use transitionTask',
+    );
+    const stored = await getBoard(tmpDir, board.id);
+    expect(stored?.tasks[0]?.columnId).toBe('backlog');
+    expect(stored?.tasks[0]?.lifecycle?.history).toHaveLength(1);
+  });
+
+  it('persists every adjacent transition and blocks Done until review evidence passes', async () => {
+    const board = await managedBoard();
+    const created = await addTask(tmpDir, board.id, {
+      title: 'Managed task',
+      ...completeDetails(),
+    });
+    const todo = await transitionTask(tmpDir, board.id, created!.task.id, {
+      to: 'todo',
+      actor: 'agent-1',
+      comment: 'Details verified; task accepted.',
+    });
+    expect(todo?.task.status).toBe('ready');
+    expect(todo?.task.columnId).toBe('todo');
+    const running = await transitionTask(tmpDir, board.id, created!.task.id, {
+      to: 'running',
+      actor: 'agent-1',
+      comment: 'Implementation started.',
+    });
+    expect(running?.task.status).toBe('in_progress');
+    expect(running?.task.lifecycle?.history).toHaveLength(3);
+
+    await updateTaskAssignment(tmpDir, board.id, created!.task.id, {
+      status: 'completed',
+      lastResult: 'Implementation and focused tests completed.',
+    });
+    const afterWorker = await getBoard(tmpDir, board.id);
+    expect(afterWorker?.tasks[0]?.lifecycle?.currentStage).toBe('running');
+    expect(afterWorker?.tasks[0]?.status).toBe('in_progress');
+
+    const review = await transitionTask(tmpDir, board.id, created!.task.id, {
+      to: 'review',
+      actor: 'agent-1',
+      comment: 'Implementation complete; requesting review.',
+      attachment: { url: 'artifact://focused-tests', type: 'file' },
+    });
+    expect(review?.task.status).toBe('review');
+    await expect(
+      transitionTask(tmpDir, board.id, created!.task.id, {
+        to: 'done',
+        actor: 'reviewer-1',
+        action: 'Approved',
+        comment: 'Reviewed.',
+        attachment: { url: 'review://approval', type: 'url' },
+      }),
+    ).rejects.toThrow('explicitly passed');
+
+    await updateCheckOnTask(tmpDir, board.id, created!.task.id, 'criterion-1', {
+      status: 'passed',
+      checkedBy: 'reviewer-1',
+      checkedAt: '2026-07-15T13:00:00.000Z',
+    });
+    const done = await transitionTask(tmpDir, board.id, created!.task.id, {
+      to: 'done',
+      actor: 'reviewer-1',
+      action: 'Approved',
+      comment: 'Acceptance criteria passed and evidence reviewed.',
+      attachment: { url: 'review://approval', type: 'url' },
+    });
+    expect(done?.task.status).toBe('completed');
+    expect(done?.task.columnId).toBe('done');
+    expect(done?.task.lifecycle?.history.map((entry) => entry.to)).toEqual([
+      'backlog',
+      'todo',
+      'running',
+      'review',
+      'done',
+    ]);
+  });
+
+  it('restarts copied cards in managed Backlog and protects lifecycle columns', async () => {
+    const source = await makeBoard();
+    const sourceTask = await addTask(tmpDir, source.id, {
+      title: 'Copied task',
+      columnId: 'done',
+      status: 'completed',
+    });
+    const target = await managedBoard();
+    const copied = await copyTaskToBoard(tmpDir, source.id, sourceTask!.task.id, target.id);
+    expect(copied?.task.columnId).toBe('backlog');
+    expect(copied?.task.status).toBe('pending');
+    expect(copied?.task.lifecycle?.history.map((entry) => entry.to)).toEqual(['backlog']);
+    await expect(removeColumn(tmpDir, target.id, 'backlog')).rejects.toThrow(
+      'Cannot remove managed lifecycle column',
+    );
+  });
+
+  it('keeps legacy boards compatible with direct moves', async () => {
+    const board = await makeBoard();
+    const created = await addTask(tmpDir, board.id, { title: 'Legacy task' });
+    const moved = await moveTask(tmpDir, board.id, created!.task.id, 'done');
+    expect(moved?.tasks[0]?.status).toBe('completed');
+  });
+});
 
 describe('generateBoardFromDescription', () => {
   it('generates a board from a description with default columns', () => {
@@ -1025,6 +1185,52 @@ describe('createBoardFromTaskGraph', () => {
     });
     expect(result.board.tasks).toHaveLength(1);
     expect(result.board.tasks[0]!.title).toBe('Active task');
+  });
+
+  it('refuses bulk task-graph synchronization on managed boards', async () => {
+    const board = await createBoard(tmpDir, {
+      title: 'Managed graph board',
+      lifecycle: {
+        mode: 'managed',
+        columns: {
+          backlog: 'backlog',
+          todo: 'todo',
+          running: 'in-progress',
+          review: 'review',
+          done: 'done',
+        },
+      },
+    });
+    const now = Date.now();
+    const graph = {
+      id: 'managed-sync',
+      specId: 'managed-sync-spec',
+      title: 'Managed Sync',
+      nodes: new Map([
+        [
+          'node-1',
+          {
+            id: 'node-1',
+            title: 'Must not bypass lifecycle',
+            description: '',
+            type: 'feature' as const,
+            priority: 'high' as const,
+            status: 'completed' as const,
+            createdAt: now,
+            updatedAt: now,
+            completedAt: now,
+          },
+        ],
+      ]),
+      edges: [],
+      rootNodes: ['node-1'],
+      createdAt: now,
+      updatedAt: now,
+    };
+    await expect(syncBoardFromTaskGraph(tmpDir, board.id, graph)).rejects.toThrow(
+      'cannot overwrite a managed Kanban Agent board',
+    );
+    expect((await getBoard(tmpDir, board.id))?.tasks).toHaveLength(0);
   });
 });
 

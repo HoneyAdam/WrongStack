@@ -34,6 +34,10 @@ describe('DefaultSystemPromptBuilder', () => {
     // layer1 identity + tools + env + leader after-task (host-only, appended last)
     expect(blocks).toHaveLength(4);
     expect(blocks[0]?.text).toContain(LAYER_1_IDENTITY.slice(0, 40));
+    expect(blocks[0]?.text).toContain('## Kanban Agent hard conditions');
+    expect(blocks[0]?.text).toContain('Never abandon or misrepresent work');
+    expect(blocks[0]?.text).toContain('Backlog → Todo → Running → Review → Done');
+    expect(blocks[0]?.text).toContain('Worker completion means the card enters Review');
     expect(blocks[1]?.text).toContain('No tools registered');
     expect(blocks[2]?.text).toContain('2026-05-13');
     expect(blocks[2]?.text).toContain(tmp);

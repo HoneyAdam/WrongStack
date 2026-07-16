@@ -24,8 +24,11 @@ import {
   getTaskChain,
   type KanbanBoard,
   type KanbanColumn,
+  type KanbanLifecycleStage,
+  type KanbanLink,
   type KanbanTask,
   type KanbanTaskPriority,
+  type KanbanTaskTransitionInput,
   type KanbanTaskStatus,
   listBoards,
   listReadyTasks,
@@ -41,6 +44,7 @@ import {
   setTaskChain,
   splitTask,
   syncBoardFromTaskGraph,
+  transitionTask,
   transferTaskToBoard,
   updateBoard,
   updateCheckOnTask,
@@ -177,6 +181,9 @@ export async function handleKanbanRoute(
             ...(payload?.description ? { description: payload.description as string } : {}),
             ...(payload?.tags ? { tags: payload.tags as string[] } : {}),
             ...(payload?.columns ? { columns: payload.columns as KanbanColumn[] } : {}),
+            ...(has(payload, 'lifecycle')
+              ? { lifecycle: payload?.lifecycle as NonNullable<KanbanBoard['lifecycle']> }
+              : {}),
           }),
         );
         return true;
@@ -192,6 +199,9 @@ export async function handleKanbanRoute(
           ...(payload?.description ? { description: payload.description as string } : {}),
           ...(payload?.tags ? { tags: payload.tags as string[] } : {}),
           ...(payload?.columns ? { columns: payload.columns as KanbanColumn[] } : {}),
+          ...(has(payload, 'lifecycle')
+            ? { lifecycle: (payload?.lifecycle as KanbanBoard['lifecycle'] | null | undefined) ?? null }
+            : {}),
           ...(has(payload, 'supervisor')
             ? {
                 supervisor:
@@ -369,6 +379,7 @@ export async function handleKanbanRoute(
           title,
           columnId: (payload?.columnId as string | undefined) ?? 'backlog',
           ...(payload?.description ? { description: payload.description as string } : {}),
+          ...(payload?.dueDate ? { dueDate: payload.dueDate as string } : {}),
           ...(payload?.priority ? { priority: payload.priority as KanbanTaskPriority } : {}),
           ...(payload?.assignedAgent ? { assignedAgent: payload.assignedAgent as string } : {}),
           ...(payload?.labels ? { labels: payload.labels as string[] } : {}),
@@ -455,6 +466,9 @@ export async function handleKanbanRoute(
           ...(has(payload, 'description')
             ? { description: (payload?.description as string | undefined) ?? '' }
             : {}),
+          ...(has(payload, 'dueDate')
+            ? { dueDate: (payload?.dueDate as string | null | undefined) ?? null }
+            : {}),
           ...(has(payload, 'columnId') ? { columnId: payload?.columnId as string } : {}),
           ...(has(payload, 'priority')
             ? { priority: payload?.priority as KanbanTaskPriority }
@@ -500,6 +514,34 @@ export async function handleKanbanRoute(
         const task = findTask(board.tasks, taskId);
         if (task) await syncSessionSource(ctx, task);
         ok(ws, type, task);
+        return true;
+      }
+      case 'kanban.task.transition': {
+        const boardId = payload?.boardId as string | undefined;
+        const taskId = payload?.taskId as string | undefined;
+        const to = payload?.to as KanbanLifecycleStage | undefined;
+        const actor = payload?.actor as string | undefined;
+        const comment = payload?.comment as string | undefined;
+        if (!boardId || !taskId || !to || !actor || !comment) {
+          fail(ws, type, 'boardId, taskId, to, actor, and comment required');
+          return true;
+        }
+        const result = await transitionTask(ctx.projectRoot, boardId, taskId, {
+          to,
+          actor,
+          comment,
+          ...(payload?.action ? { action: payload.action as string } : {}),
+          ...(payload?.attachment ? { attachment: payload.attachment as KanbanLink } : {}),
+          ...(payload?.patch
+            ? { patch: payload.patch as NonNullable<KanbanTaskTransitionInput['patch']> }
+            : {}),
+        });
+        if (!result) {
+          fail(ws, type, 'Board or task not found');
+          return true;
+        }
+        await syncSessionSource(ctx, result.task);
+        ok(ws, type, result);
         return true;
       }
       case 'kanban.task.move': {
