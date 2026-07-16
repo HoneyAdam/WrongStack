@@ -5,7 +5,7 @@
  * by role, creating new scoped memories, and clearing the scope from
  * an existing memory.
  */
-import { Filter, Plus, RefreshCw, ShieldOff, Tag, Trash2, X } from 'lucide-react';
+import { Download, Filter, Plus, RefreshCw, ShieldOff, Tag, Trash2, Upload, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -105,6 +105,48 @@ export function AudienceMemoryPanel() {
     });
   };
 
+  const handleExport = () => {
+    const data = scoped.map((m) => ({
+      id: m.id, text: m.text, kind: m.kind, status: m.status,
+      audience: m.audience, tags: m.tags,
+      importance: m.importance, confidence: m.confidence,
+    }));
+    const json = JSON.stringify(data, null, 2);
+    navigator.clipboard?.writeText(json).then(
+      () => setError(null),
+      () => setError('Failed to copy to clipboard.'),
+    );
+  };
+
+  const handleImport = () => {
+    const input = prompt('Paste exported JSON array:');
+    if (!input) return;
+    try {
+      const cleaned = input.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+      const entries = JSON.parse(cleaned);
+      if (!Array.isArray(entries)) { setError('Input must be a JSON array.'); return; }
+      let count = 0;
+      for (const entry of entries) {
+        if (typeof entry.text !== 'string' || !entry.text.trim()) continue;
+        ws.client.send?.({
+          type: 'memory.super.remember',
+          payload: {
+            text: entry.text,
+            ...(typeof entry.kind === 'string' ? { kind: entry.kind } : {}),
+            ...(Array.isArray(entry.tags) ? { tags: entry.tags } : {}),
+            ...(entry.audience && typeof entry.audience === 'object' ? { audience: entry.audience } : {}),
+            ...(typeof entry.importance === 'number' ? { importance: entry.importance } : {}),
+            ...(typeof entry.confidence === 'number' ? { confidence: entry.confidence } : {}),
+          },
+        });
+        count++;
+      }
+      if (count === 0) setError('No valid entries found in JSON.');
+    } catch {
+      setError('Invalid JSON.');
+    }
+  };
+
   return (
     <div className="flex h-full flex-col gap-3 p-4">
       <div className="flex items-center justify-between gap-2">
@@ -116,6 +158,12 @@ export function AudienceMemoryPanel() {
         <div className="flex items-center gap-1.5">
           <Button variant="ghost" size="icon" className="size-7" onClick={refresh} title="Refresh">
             <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} />
+          </Button>
+          <Button variant="ghost" size="icon" className="size-7" onClick={handleExport} title="Export to clipboard" disabled={scoped.length === 0}>
+            <Download className="size-3.5" />
+          </Button>
+          <Button variant="ghost" size="icon" className="size-7" onClick={handleImport} title="Import from JSON">
+            <Upload className="size-3.5" />
           </Button>
           <Button
             variant="default"
