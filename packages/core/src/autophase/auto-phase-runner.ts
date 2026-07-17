@@ -136,14 +136,26 @@ export class AutoPhaseRunner {
       worktrees: this.opts.worktrees,
     });
 
-    // Progress reporting
-    if (this.opts.onProgress) {
-      this.progressInterval = setInterval(() => {
-        const progress = this.orchestrator?.getProgress();
-        if (progress) this.opts.onProgress?.(progress);
-      }, 2000);
+    // Register event listeners using the untyped surface to handle custom events.
+    // Call through the bus as the receiver — detaching the method (`const f =
+    // events.on`) loses `this`, and EventBus.on is a plain prototype method, so
+    // the detached call throws on `this.listeners`. The arrow wrapper keeps it
+    // bound to the bus.
+    if (this.opts.events) {
+      const bus = this.opts.events as unknown as {
+        on(event: string, handler: (payload: unknown) => void): () => void;
+      };
+      const onUntyped = (event: string, handler: (payload: unknown) => void): (() => void) =>
+        bus.on(event, handler);
+      // Store the unsubscribe functions for proper cleanup
+      this.unsubscribeCompleted = onUntyped('graph.completed', this.graphCompletedHandler);
+      this.unsubscribeFailed = onUntyped('graph.failed', this.graphFailedHandler);
     }
 
+    await this.orchestrator.start();
+
+    // Arm the max-run-duration timeout only AFTER orchestrator.start() settles,
+    // so the timer cannot fire mid-start and race with this.orchestrator.stop().
     this.maxRunTimer = setTimeout(
       () => {
         this.opts.onProgress?.({
@@ -162,23 +174,13 @@ export class AutoPhaseRunner {
     }
     this.maxRunTimer?.unref?.();
 
-    // Register event listeners using the untyped surface to handle custom events.
-    // Call through the bus as the receiver — detaching the method (`const f =
-    // events.on`) loses `this`, and EventBus.on is a plain prototype method, so
-    // the detached call throws on `this.listeners`. The arrow wrapper keeps it
-    // bound to the bus.
-    if (this.opts.events) {
-      const bus = this.opts.events as unknown as {
-        on(event: string, handler: (payload: unknown) => void): () => void;
-      };
-      const onUntyped = (event: string, handler: (payload: unknown) => void): (() => void) =>
-        bus.on(event, handler);
-      // Store the unsubscribe functions for proper cleanup
-      this.unsubscribeCompleted = onUntyped('graph.completed', this.graphCompletedHandler);
-      this.unsubscribeFailed = onUntyped('graph.failed', this.graphFailedHandler);
+    // Progress reporting — start after orchestrator is running.
+    if (this.opts.onProgress) {
+      this.progressInterval = setInterval(() => {
+        const progress = this.orchestrator?.getProgress();
+        if (progress) this.opts.onProgress?.(progress);
+      }, 2000);
     }
-
-    await this.orchestrator.start();
 
     return this.graph;
   }
