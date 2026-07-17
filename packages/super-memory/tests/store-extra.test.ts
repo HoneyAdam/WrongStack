@@ -352,6 +352,75 @@ describe('SuperMemoryStore — forget legacy', () => {
   it('returns 0 when no match', async () => {
     expect(await store.forget('nonexistent')).toBe(0);
   });
+
+  it('skips permanent memories and audit-logs the skip', async () => {
+    const normal = await store.rememberSuper({ text: 'Normal convention about pnpm.' });
+    const permanent = await store.rememberSuper({ text: 'Permanent pnpm rule.', persistence: 'permanent' });
+    const removed = await store.forget('pnpm');
+
+    // Only the non-permanent one was removed.
+    expect(removed).toBe(1);
+
+    // The permanent memory survives.
+    const surviving = await store.getSuperMemory(permanent.id);
+    expect(surviving?.status).toBe('active');
+
+    // The normal one is soft-deleted.
+    const deleted = await store.getSuperMemory(normal.id);
+    expect(deleted?.status).toBe('deleted');
+
+    // The skip is audit-logged.
+    const audit = await store.readAudit(50);
+    expect(audit.some((r) => r.event === 'memory.forget_skipped_permanent')).toBe(true);
+  });
+
+  it('cascade-deletes graph edges and cross-references on forget', async () => {
+    const keeper = await store.rememberSuper({ text: 'Keeper fact about pnpm.' });
+    const dup = await store.rememberSuper({ text: 'Duplicate pnpm fact.' });
+    // Simulate a reference: keeper supersedes dup.
+    const updated = await store.updateSuperMemory(keeper.id, { supersedes: [dup.id] });
+
+    await store.forget('Duplicate pnpm');
+
+    // The keeper's supersedes list no longer references the deleted memory.
+    const after = await store.getSuperMemory(updated.id);
+    expect(after?.supersedes ?? []).not.toContain(dup.id);
+
+    // Graph edges involving the deleted memory are removed.
+    const edges = await store.graph.list();
+    expect(edges.some((e) => e.from === `mem:${dup.id}` || e.to === `mem:${dup.id}`)).toBe(false);
+  });
+});
+
+describe('SuperMemoryStore — updateSuperMemory permanent guard', () => {
+  it('refuses to delete a permanent memory via status update without force', async () => {
+    const permanent = await store.rememberSuper({ text: 'Protected fact.', persistence: 'permanent' });
+    await expect(
+      store.updateSuperMemory(permanent.id, { status: 'deleted' }),
+    ).rejects.toThrow(/permanent/);
+
+    // The memory survives.
+    expect((await store.getSuperMemory(permanent.id))?.status).toBe('active');
+  });
+
+  it('allows deleting a permanent memory via status update with force:true', async () => {
+    const permanent = await store.rememberSuper({ text: 'Protected fact.', persistence: 'permanent' });
+    await store.updateSuperMemory(permanent.id, { status: 'deleted', force: true });
+
+    // The memory is soft-deleted.
+    expect((await store.getSuperMemory(permanent.id))?.status).toBe('deleted');
+
+    // The force override is audit-logged.
+    const audit = await store.readAudit(50);
+    const forceRecord = audit.find((r) => r.event === 'memory.updated' && r.memoryId === permanent.id);
+    expect(forceRecord?.details).toMatchObject({ force: true });
+  });
+
+  it('allows non-deletion status updates on permanent memories', async () => {
+    const permanent = await store.rememberSuper({ text: 'Protected fact.', persistence: 'permanent' });
+    const updated = await store.updateSuperMemory(permanent.id, { status: 'stale' });
+    expect(updated.status).toBe('stale');
+  });
 });
 
 describe('SuperMemoryStore — legacy list/search', () => {

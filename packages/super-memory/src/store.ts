@@ -1081,6 +1081,18 @@ export class SuperMemoryStore implements MemoryStore {
     }
     if (patch.status !== undefined) {
       if (!VALID_STATUSES.has(patch.status)) throw new Error(`Invalid status: ${patch.status}`);
+      // Permanent memories cannot be soft-deleted via updateSuperMemory —
+      // callers must pass `force: true` (mirrors deleteSuperMemory). This
+      // closes the bypass where updateSuperMemory({ status: 'deleted' })
+      // skipped the permanence guard entirely.
+      if (patch.status === 'deleted'
+        && (memory.persistence ?? DEFAULT_PERSISTENCE) === 'permanent'
+        && !patch.force) {
+        throw new Error(
+          `Super Memory "${id}" is marked 'permanent' and cannot be deleted via update. ` +
+          `Pass { force: true } to override; the override will be recorded in the audit log.`,
+        );
+      }
       validatedPatch.status = patch.status;
     }
     if (patch.supersedes !== undefined) {
@@ -1119,7 +1131,11 @@ export class SuperMemoryStore implements MemoryStore {
       }
 
       await this.afterMutation();
-      await this.audit('memory.updated', { memoryId: id, reason: 'updateSuperMemory' });
+      await this.audit('memory.updated', {
+        memoryId: id,
+        reason: 'updateSuperMemory',
+        details: { force: patch.force === true && validatedPatch.status === 'deleted' },
+      });
       this.events?.emit('memory.updated', this.eventPayload({ memoryId: id, status: updated.status }));
       return updated;
     });
@@ -1148,30 +1164,7 @@ export class SuperMemoryStore implements MemoryStore {
       if (!fresh) throw new Error(`Super Memory "${id}" was removed before delete completed.`);
       if (fresh.status === 'deleted') return; // Idempotent
 
-      // 1. Remove graph edges involving this memory
-      const removedEdges = await this.graph.removeNodeEdges(`mem:${id}`);
-
-      // 2. Cascade: clean up references in other memories
-      const all = await this.loadMemories();
-      for (const other of all) {
-        if (other.id === id || other.status === 'deleted') continue;
-        const patch: Record<string, unknown> = {};
-        if (other.supersedes?.includes(id)) {
-          patch.supersedes = other.supersedes.filter((s) => s !== id);
-        }
-        if (other.contradicts?.includes(id)) {
-          patch.contradicts = other.contradicts.filter((c) => c !== id);
-        }
-        if (other.supersededBy === id) {
-          patch.supersededBy = undefined;
-        }
-        if (Object.keys(patch).length > 0) {
-          await this.updateMemory(other, patch as Partial<Omit<SuperMemory, 'id' | 'revision' | 'createdAt'>>, { preserveUpdatedAt: true });
-        }
-      }
-
-      // 3. Soft-delete the memory itself
-      await this.updateMemory(fresh, { status: 'deleted' });
+      const removedEdges = await this.cascadeDeleteUnlocked(fresh);
 
       await this.afterMutation();
       await this.audit('memory.deleted', {
@@ -1181,6 +1174,42 @@ export class SuperMemoryStore implements MemoryStore {
       });
       this.events?.emit('memory.updated', this.eventPayload({ memoryId: id, status: 'deleted' }));
     });
+  }
+
+  /**
+   * Soft-delete a memory and remove every reference to it: graph edges are
+   * dropped and `supersedes`/`contradicts`/`supersededBy` pointers in other
+   * memories are cleaned (preserving their updatedAt). Must be called from
+   * inside a mutation (`runMutation`); the caller owns afterMutation/audit.
+   * Shared by `deleteSuperMemory` and `forgetUnlocked` so both paths leave
+   * the store in the same consistent state. Returns edges removed.
+   */
+  private async cascadeDeleteUnlocked(memory: SuperMemory): Promise<number> {
+    // 1. Remove graph edges involving this memory
+    const removedEdges = await this.graph.removeNodeEdges(`mem:${memory.id}`);
+
+    // 2. Cascade: clean up references in other memories
+    const all = await this.loadMemories();
+    for (const other of all) {
+      if (other.id === memory.id || other.status === 'deleted') continue;
+      const patch: Record<string, unknown> = {};
+      if (other.supersedes?.includes(memory.id)) {
+        patch.supersedes = other.supersedes.filter((s) => s !== memory.id);
+      }
+      if (other.contradicts?.includes(memory.id)) {
+        patch.contradicts = other.contradicts.filter((c) => c !== memory.id);
+      }
+      if (other.supersededBy === memory.id) {
+        patch.supersededBy = undefined;
+      }
+      if (Object.keys(patch).length > 0) {
+        await this.updateMemory(other, patch as Partial<Omit<SuperMemory, 'id' | 'revision' | 'createdAt'>>, { preserveUpdatedAt: true });
+      }
+    }
+
+    // 3. Soft-delete the memory itself
+    await this.updateMemory(memory, { status: 'deleted' });
+    return removedEdges;
   }
 
   async importLegacy(files: string | string[]): Promise<LegacyImportResult> {
@@ -1467,24 +1496,36 @@ export class SuperMemoryStore implements MemoryStore {
 
   private async forgetUnlocked(query: string, scope: MemoryScope): Promise<number> {
     const all = await this.loadMemories();
-    const now = this.nowIso();
     let removed = 0;
+    const skippedPermanent: string[] = [];
     for (const memory of all) {
       if (memory.status === 'deleted') continue;
       const legacyScope = memory.legacyScope ?? superToLegacyScope(memory.scope);
       if (legacyScope !== scope) continue;
       if (!matchesForget(memory, query)) continue;
+      // Permanent memories are never removed by a substring sweep. Deleting
+      // them requires the id-exact `deleteSuperMemory` path with
+      // `{ force: true }` — the same contract the public delete tool exposes.
+      if ((memory.persistence ?? DEFAULT_PERSISTENCE) === 'permanent') {
+        skippedPermanent.push(memory.id);
+        continue;
+      }
       removed++;
-      await this.appendRecord('delete', {
-        ...memory,
-        revision: memory.revision + 1,
-        status: 'deleted',
-        updatedAt: now,
-      });
+      await this.cascadeDeleteUnlocked(memory);
     }
-    if (removed > 0) {
-      await this.audit('memory.deleted', { reason: query, details: { removed, scope } });
-      this.events?.emit('memory.forgotten', { scope, query, removed });
+    if (removed > 0 || skippedPermanent.length > 0) {
+      if (removed > 0) {
+        await this.audit('memory.deleted', { reason: query, details: { removed, scope } });
+        this.events?.emit('memory.forgotten', { scope, query, removed });
+      }
+      if (skippedPermanent.length > 0) {
+        // The skip is audit-logged so a query that silently left permanent
+        // memories behind is always traceable.
+        await this.audit('memory.forget_skipped_permanent', {
+          reason: query,
+          details: { skipped: skippedPermanent, scope },
+        });
+      }
       await this.afterMutation();
     }
     return removed;
@@ -1527,14 +1568,27 @@ export class SuperMemoryStore implements MemoryStore {
       const scopes: MemoryScope[] = scope ? [scope] : ['project-agents', 'project-memory', 'user-memory'];
       const all = await this.loadMemories();
       let changed = false;
+      const skippedPermanent: string[] = [];
       for (const s of scopes) {
         for (const memory of all) {
           if (memory.status === 'deleted') continue;
           if ((memory.legacyScope ?? superToLegacyScope(memory.scope)) !== s) continue;
+          // Permanent memories survive a clear() — they require explicit
+          // per-id deleteSuperMemory({ force: true }). The skip is
+          // audit-logged so a clear that left permanents behind is traceable.
+          if ((memory.persistence ?? DEFAULT_PERSISTENCE) === 'permanent') {
+            skippedPermanent.push(memory.id);
+            continue;
+          }
           await this.updateMemory(memory, { status: 'deleted' });
           changed = true;
         }
         this.events?.emit('memory.cleared', { scope: s });
+      }
+      if (skippedPermanent.length > 0) {
+        await this.audit('memory.clear_skipped_permanent', {
+          details: { skipped: skippedPermanent, scope: scope ?? 'all' },
+        });
       }
       if (changed) await this.afterMutation();
     });

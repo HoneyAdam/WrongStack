@@ -503,6 +503,13 @@ export interface UpdateSuperMemoryInput {
   status?: SuperMemoryStatus | undefined;
   supersedes?: string[] | undefined;
   contradicts?: string[] | undefined;
+  /**
+   * Override the permanent-memory guard when setting `status: 'deleted'`.
+   * Mirrors the `{ force: true }` contract on `deleteSuperMemory`. The
+   * override is recorded in the audit log so the caller's intent is always
+   * traceable. Ignored for non-deletion patches.
+   */
+  force?: boolean | undefined;
 }
 
 export interface SuperMemorySearchOptions {

@@ -80,6 +80,78 @@ function buildConsolidationPrompt(
   });
 }
 
+// ── Super Memory backend (optional safe-delete path) ───────────────────
+//
+// The consolidator holds a `MemoryStore`, but the safe delete path
+// (`deleteSuperMemory`) lives on the Super Memory store only. When the
+// backend is a Super Memory store, we route LLM-issued delete/edit ops
+// through `deleteSuperMemory(id, reason)` so that:
+//   1. `persistence:'permanent'` memories are protected (throws without
+//      `force:true` — we catch and skip),
+//   2. graph edges and cross-memory references are cascaded cleanly,
+//   3. the LLM's query is audit-logged as the deletion reason.
+// When the backend is not a Super Memory store, we fall back to the legacy
+// `forget(query)` path.
+
+interface SuperMemoryDeletionBackend {
+  deleteSuperMemory(id: string, reason?: string, options?: { force?: boolean }): Promise<void>;
+  listSuper(statuses?: string[]): Promise<Array<{
+    id: string;
+    text: string;
+    scope: string;
+    legacyScope?: string | undefined;
+    status: string;
+    tags?: string[];
+    anchors?: Array<{ path?: string | undefined }>;
+  }>>;
+}
+
+function resolveDeletionBackend(store: MemoryStore): SuperMemoryDeletionBackend | undefined {
+  const backend = store.getBackend?.();
+  if (!backend || typeof backend !== 'object') return undefined;
+  const candidate = backend as Record<string, unknown>;
+  if (typeof candidate.deleteSuperMemory !== 'function') return undefined;
+  if (typeof candidate.listSuper !== 'function') return undefined;
+  return candidate as unknown as SuperMemoryDeletionBackend;
+}
+
+/**
+ * Resolve a substring `query` to concrete memory IDs and delete each via
+ * the safe `deleteSuperMemory` path. Matches the store's own
+ * `matchesForget` logic (text / id / tag / anchor-path). Permanent
+ * memories throw inside `deleteSuperMemory` — we catch and skip them so
+ * a broad LLM query can never silently remove a protected entry.
+ * Returns the number of memories actually deleted.
+ */
+async function deleteByQueryViaBackend(
+  backend: SuperMemoryDeletionBackend,
+  query: string,
+  reason: string,
+): Promise<number> {
+  const memories = await backend.listSuper(['active', 'stale']);
+  const needle = query.toLowerCase();
+  const matches = memories.filter((m) => {
+    const legacyScope = m.legacyScope ?? m.scope;
+    if (legacyScope !== 'project' && legacyScope !== 'project-memory') return false;
+    return (
+      m.id === query
+      || m.text.toLowerCase().includes(needle)
+      || (m.tags?.some((t) => t.toLowerCase() === needle) ?? false)
+      || (m.anchors?.some((a) => a.path?.toLowerCase().includes(needle)) ?? false)
+    );
+  });
+  let deleted = 0;
+  for (const m of matches) {
+    try {
+      await backend.deleteSuperMemory(m.id, reason);
+      deleted++;
+    } catch {
+      // Permanent memories throw without force:true — skip them.
+    }
+  }
+  return deleted;
+}
+
 // ── Consolidator ────────────────────────────────────────────────────────
 
 export class SessionMemoryConsolidator implements AgentExtension {
@@ -189,7 +261,13 @@ export class SessionMemoryConsolidator implements AgentExtension {
             }
             case 'edit': {
               if (op.query && op.text?.trim()) {
-                await this.memoryStore.forget(op.query);
+                const reason = `memory-consolidator edit: "${op.query}"`;
+                const backend = resolveDeletionBackend(this.memoryStore);
+                if (backend) {
+                  await deleteByQueryViaBackend(backend, op.query, reason);
+                } else {
+                  await this.memoryStore.forget(op.query);
+                }
                 await this.memoryStore.remember(op.text.trim(), undefined, {
                   type: op.type as MemoryEntry['type'],
                   tags: op.tags,
@@ -201,8 +279,13 @@ export class SessionMemoryConsolidator implements AgentExtension {
             }
             case 'delete': {
               if (op.query) {
-                const n = await this.memoryStore.forget(op.query);
-                deleted += n;
+                const reason = `memory-consolidator delete: "${op.query}"`;
+                const backend = resolveDeletionBackend(this.memoryStore);
+                if (backend) {
+                  deleted += await deleteByQueryViaBackend(backend, op.query, reason);
+                } else {
+                  deleted += await this.memoryStore.forget(op.query);
+                }
               }
               break;
             }

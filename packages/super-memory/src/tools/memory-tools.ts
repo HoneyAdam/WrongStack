@@ -249,6 +249,7 @@ function memoryUpdateTool(memory: SuperMemoryServiceLike): Tool<{ id: string } &
       status: enumSchema(STATUS_VALUES, 'New lifecycle status.'),
       supersedes: stringArraySchema('Memory ids this replaces.'),
       contradicts: stringArraySchema('Memory ids this contradicts.'),
+      force: { type: 'boolean', description: 'Override the permanent-memory guard when setting status to "deleted". The override is audit-logged.' },
     }, ['id']),
     validate(input) {
       const { id, ...patch } = input;
@@ -589,7 +590,7 @@ function memoryHygieneTool(memory: SuperMemoryServiceLike): Tool<SuperMemoryHygi
   return {
     name: 'memory_hygiene',
     category: 'Session',
-    description: 'Deduplicate, verify, stale, archive, supersede, and compact structured project memory.',
+    description: 'Deduplicate, verify anchors, mark stale, supersede old versions, and surface review candidates for deletion or archival. Never auto-deletes or auto-archives — final decisions belong to the user or agent.',
     inputSchema: objectSchema({
       retentionDays: numberSchema(0, 3650),
       archiveLowConfidenceAfterDays: numberSchema(0, 3650),

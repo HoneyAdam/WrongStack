@@ -536,24 +536,25 @@ Hygiene runs:
 Actions:
 
 - dedupe exact and near-duplicate entries
-- merge repeated facts
-- archive low-value stale entries
-- supersede old decisions
-- mark contradicted entries
-- update moved file/symbol anchors
-- delete expired session-only memory
-- compact long summaries
-- rebuild indexes
+- verify file/symbol anchors and mark `stale` on failure (self-heals to `active` on next successful verify)
+- supersede old versions of a fact (dedup keeps the highest-quality entry)
+- surface review candidates for expired, never-used, low-confidence, or stale memories
+
+> **Hygiene never auto-deletes or auto-archives.** The `archived` and `deleted`
+> report counters are always zero in the current pipeline. Instead, hygiene
+> creates **review candidates** (`memory_candidates`) that the user or agent
+> resolves via `memory_delete`, `memory_update`, or the ReviewQueue UI. Final
+> deletion/archival decisions always belong to the caller, never to hygiene.
 
 Staleness rules:
 
 - file anchor missing -> stale
 - symbol anchor missing -> stale
-- content hash changed -> verification needed
-- git blob hash changed -> verification needed
+- content hash changed -> stale
+- git blob hash changed -> stale
 - newer active decision on same topic -> old decision superseded
 - test/build evidence disproves memory -> contradicted
-- unused low-confidence memory past retention -> archived
+- unused low-confidence memory past retention -> review candidate (not auto-archived)
 
 ## Verification
 

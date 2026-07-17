@@ -288,6 +288,21 @@ describe('store.ts — legacy API coverage', () => {
     expect(entries).toHaveLength(0);
   });
 
+  it('clear skips permanent memories and audit-logs the skip', async () => {
+    const normal = await store.rememberSuper({ text: 'Normal clear target.' });
+    const permanent = await store.rememberSuper({ text: 'Permanent survivor.', persistence: 'permanent' });
+    await store.clear();
+
+    // Normal is deleted.
+    expect((await store.getSuperMemory(normal.id))?.status).toBe('deleted');
+    // Permanent survives.
+    expect((await store.getSuperMemory(permanent.id))?.status).toBe('active');
+
+    // Skip is audit-logged.
+    const audit = await store.readAudit(50);
+    expect(audit.some((r) => r.event === 'memory.clear_skipped_permanent')).toBe(true);
+  });
+
   it('readAll returns stored content', async () => {
     await store.rememberSuper({ text: 'Readable memory.', importance: 0.5 });
     const text = await store.readAll();
