@@ -190,14 +190,15 @@ export const theme: Theme = Object.freeze({
     worktree: pastel.green,
     phase: pastel.cyan,
   },
-  // Diff rows render Catppuccin text on a dark Catppuccin-tinted wash (see
-  // DiffBlock): blend the Catppuccin green/red accent into the Mocha base
-  // (#1e1e2e) at ≈12 % so each row carries a subtle colour cue without the
-  // harshness of a full-saturation tint. The foreground stays readable at
-  // full contrast on top — see applyWashTokens for the comment-promotion
-  // logic that keeps dim/gray tokens visible on these backgrounds.
-  diffAddBg: '#2e363c',
-  diffDelBg: '#382b3d',
+  // Diff rows render deep green/deep maroon tints on the Catppuccin Mocha
+  // base (#1e1e2e). Blend the Catppuccin green (#a6e3a1) / red (#f38ba8)
+  // accent into the base at ≈22 % saturation so each row carries a clear
+  // colour cue — not the subtle ~12 % of the previous values. The foreground
+  // stays readable at full contrast on top — see applyWashTokens for the
+  // comment-promotion logic that keeps dim/gray tokens visible on these
+  // backgrounds.
+  diffAddBg: '#1e3b2a',
+  diffDelBg: '#3b1f26',
   // Whether the host terminal can render truecolor backgrounds. Diff blocks
   // downgrade to marker-only rendering when this is false (e.g. `TERM=xterm`,
   // `NO_COLOR=1`, captured/piped output).
