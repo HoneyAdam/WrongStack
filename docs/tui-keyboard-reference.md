@@ -185,6 +185,8 @@ Each overlay can be open simultaneously with the chat input. The Input stays mou
 
 All toggles close any other overlay before opening. Prefer slash commands or F-key aliases over Ctrl chords when a terminal host intercepts a shortcut.
 
+> F-key and Ctrl-alias dispatch is **table-driven** via `fKeyEntryFor()` in `f-key-panels.ts`. Adding a new F-key panel requires one entry in `F_KEY_PANEL_ENTRIES` (with optional `ctrlAlias` and `hostAction` fields) instead of editing a hand-maintained `if` cascade.
+
 | Key | Overlay | Preferred fallback | Terminal conflict notes |
 |---|---|---|---|
 | F1 | Project switcher | `/project` | F1 is commonly reserved for terminal/app help |
@@ -194,17 +196,29 @@ All toggles close any other overlay before opening. Prefer slash commands or F-k
 | F5 | Plan panel | `/plan` | F5 may be reserved for refresh/run/debug by host apps |
 | F6 | Todos monitor | `/todos` | Usually low risk |
 | F7 | Queue panel | `/queue` | Usually low risk |
-| F8 | Process list | `/ps` | Usually low risk |
+| F8 | Process list ⚠️ modal | `/ps` | Blocks all input while open (destructive shortcuts) |
 | F9 | Goal panel | `/goal` | Usually low risk |
 | F10 | Sessions panel | `/resume` | F10 may activate terminal/app menus |
 | F11 | Coordinator monitor | `/coordinator` | F11 is commonly reserved for fullscreen |
 | F12 | Statusline picker | `/statusline` or `/sl` | F12 may be reserved by host tools/devtools |
+| Ctrl+B | SDD board overlay | — | Multi-agent SDD board (chord-only, no F-key alias) |
 | Ctrl+S | Settings picker | `/settings` | Ctrl+S may trigger terminal flow-control or host Save |
-| Ctrl+P | PhaseMonitor | `/autophase status` | Ctrl+P may be used for history/command-palette navigation |
+| Ctrl+P | PhaseMonitor | `/goal status` | Ctrl+P may be used for history/command-palette navigation |
 
 ### Esc close fallback
 
-At the bottom of the key handler, a catch-all Esc block closes whichever overlay is open, in priority order: AgentsMonitor → FleetMonitor → TodosMonitor → SettingsPicker → ProjectPicker → QueuePanel → ProcessList → GoalPanel → Help → SessionsPanel → CoordinatorMonitor. Some panels (WorktreeMonitor, PhaseMonitor) are intentionally excluded — they own their own Esc handler via `useInput` and would double-fire.
+When Esc is pressed and no earlier handler consumed it (no busy-interrupt, no picker, no help overlay), a data-driven table (`esc-close-panels.ts`) looks up the first open panel and dispatches its close action. The table is checked in priority order — fullscreen monitors first (F3 agents, F2 fleet), then non-modal overlays (F6 todos, F7 queue, F8 processList, F9 goal, context, F5 plan, cron, SDD board, coordinator, sessions), then modal pickers (settings, project, help) as a safety net.
+
+Panels **excluded** from the table own their own Esc handler via a child `useInput` hook — dispatching the toggle from the parent too would double-fire on a single keypress and immediately re-open the panel:
+
+| Panel | Why excluded | Own Esc handler |
+|---|---|---|
+| WorktreeMonitor (F4) | Double-toggle risk | `isWorktreeMonitorCloseKey` in WorktreeMonitor.tsx |
+| PhaseMonitor (Ctrl+P) | Double-toggle risk | Own `useInput` in PhaseMonitor.tsx |
+| KanbanPanel (`/kanban`) | Double-toggle risk | `key.escape \|\| 'q' → onClose` in KanbanPanel.tsx |
+| GoalKanbanPanel | Double-toggle risk | `key.escape \|\| 'q' → onClose` in GoalKanbanPanel.tsx |
+
+Adding a new panel to the Esc-close set requires one entry in `ESC_CLOSE_PANELS` — the table is the single source of truth, replacing a former 76-line hand-maintained `if` cascade.
 
 ### Agents monitor (F3) internal keys
 
@@ -215,15 +229,23 @@ At the bottom of the key handler, a catch-all Esc block closes whichever overlay
 
 ### Process list (F8) internal keys
 
+> **⚠️ Modal panel.** Unlike other F-key overlays (F2/F3/F4/F6/F7/F9) which keep the chat input live, the ProcessList **blocks all keyboard input** while open. This is intentional — the panel has destructive shortcuts (kill, force-kill, kill-all) that must not be triggered by chat typing. The panel footer shows a `⏸ INPUT PAUSED` badge. Press **F8** or **Esc** to close and resume typing.
+
 | Key | Effect |
 |---|---|
 | ↑ | Select previous process |
 | ↓ | Select next process |
-| Enter (return) | Send SIGTERM to selected process |
-| Delete | Send SIGKILL to selected process |
-| **a** | Kill all processes (SIGTERM) |
-| **A** | Kill all processes (SIGKILL) |
+| PgUp | Move selection up one page |
+| PgDn | Move selection down one page |
+| Home, Ctrl+A, **g** | Jump to first process |
+| End, Ctrl+E, **G** | Jump to last process |
+| Enter (return) | Send SIGTERM to selected process (confirms first) |
+| Delete | Send SIGKILL to selected process (confirms first) |
+| **a** | Kill all processes — SIGTERM (confirms first) |
+| **A** | Kill all processes — SIGKILL (confirms first) |
 | **r** | Force-reset circuit breaker |
+| **y**/Enter (in confirm) | Confirm kill action |
+| **n**/Esc (in confirm) | Cancel kill action |
 
 ### Coordinator panel (F11) internal keys
 
@@ -441,35 +463,50 @@ Shown when Esc is pressed while agent is running AND `confirmExit` is enabled.
 
 The central `handleKey` function in `app.tsx` checks keys in this **strict priority order**. The first matching condition wins; all others are skipped.
 
-1. Model picker (via `usePickerKeys`)
-2. Autonomy picker
-3. Resume picker
-4. Settings picker
-5. Statusline picker
-6. Project picker
-7. Sessions panel
-8. Slash picker (if `/` in buffer)
-9. F-key panel picker
-10. File/attachment picker
-11. **Esc while agent is busy** → interrupt (with optional confirm dialog)
-12. F-key overlay toggles (F1–F11, Ctrl+chords)
-13. Catch-all **Esc** → close whichever overlay is open
-14. **`?` on empty prompt** → help overlay
-15. **Enter** → submit / queue message
-16. **Tab** with auto-submit countdown → grab suggestion
-17. **Backspace/Ctrl+Backspace** → delete
-18. **Delete/Ctrl+Delete** → forward delete
-19. **←/→ (plain/Ctrl)** → cursor movement
-20. **Home/End** → cursor to start/end
-21. **↑/↓** on multi-line buffer → row navigation
-22. **↑/↓** on single-line, no overlay → history scroll
-23. **Ctrl+P** → PhaseMonitor toggle
-24. **Ctrl+A/E/U/K/D** → editing shortcuts
-25. **Ctrl+V** → paste text
-26. **Alt+V** → paste image
-27. Any printable char → insert at cursor
+1. Ctrl+C (unconditional — always first, before all modal guards)
+2. Modal guards: aborting, confirmQueue, shellCommandWarning, enhanceBusy, enhance, refineFailure, continueConfirm, escConfirm, sendModePicker
+3. Help overlay (Esc / `?` / `q` dismiss)
+4. Picker dispatch via `usePickerKeys` (model, autonomy, design, resume, settings, project, plugin, mcp, tools, help-panel, brain, shadow, statusline, sessions, slash, fKeyPicker, general picker)
+5. **Esc while agent is busy** → interrupt (with optional confirm dialog via `confirmExit`)
+6. F-key overlay toggles — table-driven via `fKeyEntryFor()` + Ctrl aliases (Ctrl+F/G/T/B, F1–F12)
+7. **Esc** → data-driven close via `escCloseAction()` (see "Esc close fallback" above)
+8. ProcessList (F8) modal guard — blocks all remaining keys
+9. **`?` on empty prompt** → help overlay
+10. **Enter** → submit / queue message
+11. **Tab** with auto-submit countdown → grab suggestion
+12. **Backspace/Ctrl+Backspace/Ctrl+W** → delete
+13. **Delete/Ctrl+Delete** → forward delete
+14. **←/→ (plain/Ctrl)** → cursor movement
+15. **Home/End** → cursor to start/end
+16. **↑/↓** on multi-line buffer → row navigation
+17. **↑/↓** on single-line, no overlay → history scroll
+18. **Ctrl+V** → paste text
+19. **Alt+V** → paste image
+20. Any printable char → insert at cursor
 
-Steps 14–27 are blocked when any overlay is open (checked via `overlayOpen` flag).
+Steps 9–20 are blocked when any overlay is open (checked via `overlayOpen` flag).
+
+## `/clear` and session generation
+
+When the user types `/clear`, the TUI performs a three-step cleanup to prevent stale fleet events from re-polluting the cleared conversation:
+
+1. **`terminateAll()`** — kills all running subagents (capped at 1.5s timeout so a wedged director bridge can't hang the clear). Without this, in-flight subagents keep executing and their completion events inject entries into the cleared history.
+
+2. **`sessionGenerationRef++`** — bumps a session generation counter. The provider-response/text-delta/thinking-delta listeners check this counter and discard any output from the pre-clear run. Even if a provider ignores the abort signal and resolves normally, its output is dropped.
+
+3. **`clearHistory` reducer** — resets `entries` to just the banner, clears `fleet: {}`, resets cost/token counters, and bumps `historyGen` to force Ink's `<Static>` to remount.
+
+### Fleet generation gate
+
+Both fleet event bridges (`useSubagentEvents` for EventBus lifecycle, `useDirectorFleetBridge` for Director FleetBus streaming) share a `useFleetGenerationGate` hook. The hook tracks each subagent's spawn generation and discards events from agents spawned before the last `/clear`:
+
+- **`gate.track(id)`** — called when a subagent is first seen (spawn event or initial status scan)
+- **`gate.isLive(id)`** — checked before processing any event; returns `false` after `/clear` bumps the generation
+- **`gate.forget(id)`** — called when a subagent is removed
+
+This prevents a dying subagent's `task.completed` or `fleetDone` dispatch from injecting entries into the freshly-cleared chat — a race that `terminateAll()` alone can't fully close because subagent termination is asynchronous.
+
+When `sessionGenerationRef` is not provided (no `/clear` support wired), `isLive` always returns `true` — backward-compatible no-op.
 
 ## Key event model
 
