@@ -220,7 +220,10 @@ export interface AgentEventMap {
     durationMs: number;
     ok: boolean;
     input?: unknown | undefined;
+    output?: string | undefined;
     outputBytes?: number | undefined;
+    outputTokens?: number | undefined;
+    outputLines?: number | undefined;
   };
   /**
    * Periodic progress snapshot emitted by the subagent runner every ~25

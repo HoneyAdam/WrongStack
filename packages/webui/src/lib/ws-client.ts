@@ -806,6 +806,42 @@ export class WrongStackWebSocketClient {
     this.send({ type: 'memory.super.forFile', payload: opts }, options);
   }
 
+  /**
+   * Restore a `deleted` Super Memory entry to active status (PR #1). The
+   * server replies with `memory.super.recover` carrying the restored memory
+   * (or `noop: true` when the id was already active/superseded).
+   */
+  recoverSuperMemory(
+    opts: Extract<WSClientMessage, { type: 'memory.super.recover' }>['payload'],
+    options?: WSSendOptions,
+  ) {
+    this.send({ type: 'memory.super.recover', payload: opts }, options);
+  }
+
+  /**
+   * Resolve a pending hygiene review candidate (PR #1): accept (delete the
+   * source memory + mark candidate accepted) or reject (keep the memory +
+   * mark candidate rejected). Optional `reason` is recorded in audit.
+   */
+  resolveMemoryCandidate(
+    opts: Extract<WSClientMessage, { type: 'memory.super.candidateResolve' }>['payload'],
+    options?: WSSendOptions,
+  ) {
+    this.send({ type: 'memory.super.candidateResolve', payload: opts }, options);
+  }
+
+  /**
+   * Scan `status='deleted'` records and create fresh active versions for
+   * the ones that pass the recoverability filter (PR #3). Default `apply`
+   * is false (dry-run); pass `apply: true` to actually write.
+   */
+  backfillRecoverable(
+    opts: Extract<WSClientMessage, { type: 'memory.super.backfillRecoverable' }>['payload'],
+    options?: WSSendOptions,
+  ) {
+    this.send({ type: 'memory.super.backfillRecoverable', payload: opts }, options);
+  }
+
   // ── MCP server management ─────────────────────────────────────────────────────
   listMcpServers() {
     this.send({ type: 'mcp.list' });

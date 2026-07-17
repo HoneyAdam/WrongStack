@@ -22,6 +22,8 @@ import { Composer } from './composer.js';
 import { ErrorBoundary } from './error-boundary.js';
 import { FileDiffPanel } from './file-diff-panel.js';
 import { FileChangesButton } from './file-changes-button.js';
+import { MemoryDrawer } from './memory-drawer.js';
+import { FileExplorer } from './file-explorer.js';
 import {
   appendAgentTranscriptEntry,
   buildAgentTabs,
@@ -39,6 +41,7 @@ import {
 } from './lib/agent-model.js';
 import { contentToText, replayToMessages, updateSubagents } from './lib/chat-model.js';
 import { copyText } from './lib/clipboard.js';
+import { playChime } from './lib/chime.js';
 import { clearComposerDraft, readComposerDraft, writeComposerDraft } from './lib/composer-draft.js';
 import {
   composePromptWithFileReferences,
@@ -147,6 +150,9 @@ export function App() {
   const [queue, setQueue] = useState<QueuedItem[]>([]);
   const [refineState, setRefineState] = useState<RefineState | null>(null);
   const [providerLabels, setProviderLabels] = useState<Record<string, string>>({});
+  const [savedProviders, setSavedProviders] = useState<
+    { id: string; family: string; label: string; hasKey: boolean; isActive: boolean }[]
+  >([]);
   const [subagents, setSubagents] = useState<SimpleSubagent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState(LEADER_AGENT_ID);
   const [agentTranscripts, setAgentTranscripts] = useState<Record<string, AgentTranscriptEntry[]>>(
@@ -190,6 +196,17 @@ export function App() {
   prefsRef.current = prefs;
   queueRef.current = queue;
 
+  // Refs for the global keyboard shortcut handler — read live state
+  // without re-registering the keydown listener on every render.
+  const messagesRef = useRef<ChatMessage[]>([]);
+  const diffFilesRef = useRef<FileEditMeta[] | null>(null);
+  const settingsOpenRef = useRef(false);
+  const sessionMenuOpenRef = useRef(false);
+  messagesRef.current = messages;
+  diffFilesRef.current = diffFiles;
+  settingsOpenRef.current = settingsOpen;
+  sessionMenuOpenRef.current = sessionMenuOpen;
+
   /** Send a message to the agent and reflect it locally. The single send
    *  path — the composer, the queue drain, and every refine decision all
    *  funnel through here. */
@@ -217,11 +234,14 @@ export function App() {
         dispatchUserMessage(content);
         return;
       }
+      const active = activeModelRef.current;
       setRefineState({
         original: content,
         refined: content,
         english: content,
         status: 'refining',
+        provider: active?.provider,
+        model: active?.model,
       });
       socketRef.current?.send('model.refine', { text: content });
     },
@@ -238,19 +258,95 @@ export function App() {
     }
   }, [theme]);
 
+  // ── Global keyboard shortcuts ──────────────────────────────────
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      // ── Escape: close the topmost open panel ──
+      if (event.key === 'Escape') {
+        if (diffFilesRef.current) {
+          event.preventDefault();
+          setDiffFiles(null);
+          return;
+        }
+        if (settingsOpenRef.current) {
+          event.preventDefault();
+          setSettingsOpen(false);
+          return;
+        }
+        if (refineStateRef.current) {
+          event.preventDefault();
+          setRefineState(null);
+          return;
+        }
+        if (sessionMenuOpenRef.current) {
+          event.preventDefault();
+          setSessionMenuOpen(false);
+          return;
+        }
+        return;
+      }
+
+      // ── Ctrl/Cmd+Enter: send the composer ──
+      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+        if (!runningRef.current && draftRef.current.trim()) {
+          event.preventDefault();
+          startSend(draftRef.current);
+        }
+        return;
+      }
+
+      // ── ArrowUp: recall last sent message into empty composer ──
+      if (
+        event.key === 'ArrowUp' &&
+        document.activeElement === textareaRef.current &&
+        !draftRef.current.trim() &&
+        !runningRef.current
+      ) {
+        event.preventDefault();
+        const lastUser = [...messagesRef.current]
+          .reverse()
+          .find((m) => m.role === 'user');
+        if (lastUser) {
+          setDraft(lastUser.text);
+          // Move cursor to end on next frame so the textarea has updated.
+          requestAnimationFrame(() => {
+            const ta = textareaRef.current;
+            if (ta) {
+              ta.selectionStart = ta.value.length;
+              ta.selectionEnd = ta.value.length;
+            }
+          });
+        }
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [startSend]);
+
+  // ── Exit confirmation via browser beforeunload ─────────────────
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (prefsRef.current.confirmExit && runningRef.current) {
+        event.preventDefault();
+        // Modern browsers show a generic "Leave site?" dialog; the
+        // returnValue assignment is required by the spec even though
+        // the string is ignored.
+        event.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
+
   useEffect(() => {
     if (!sessionMenuOpen) return;
     const closeOnOutsideClick = (event: PointerEvent) => {
       if (!sessionMenuRef.current?.contains(event.target as Node)) setSessionMenuOpen(false);
     };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSessionMenuOpen(false);
-    };
     document.addEventListener('pointerdown', closeOnOutsideClick);
-    document.addEventListener('keydown', closeOnEscape);
     return () => {
       document.removeEventListener('pointerdown', closeOnOutsideClick);
-      document.removeEventListener('keydown', closeOnEscape);
     };
   }, [sessionMenuOpen]);
 
@@ -402,12 +498,24 @@ export function App() {
       }
       case 'providers.saved': {
         const providers = Array.isArray(payload['providers']) ? payload['providers'] : [];
+        const saved: typeof savedProviders = [];
         for (const entry of providers) {
           if (!entry || typeof entry !== 'object') continue;
           const id = (entry as Record<string, unknown>)['id'];
-          if (typeof id === 'string')
+          if (typeof id === 'string') {
             socketRef.current?.send('provider.models', { providerId: id });
+            saved.push({
+              id,
+              family: typeof (entry as Record<string, unknown>)['family'] === 'string'
+                ? (entry as Record<string, unknown>)['family'] as string : id,
+              label: typeof (entry as Record<string, unknown>)['label'] === 'string'
+                ? (entry as Record<string, unknown>)['label'] as string : id,
+              hasKey: Boolean((entry as Record<string, unknown>)['hasKey']),
+              isActive: Boolean((entry as Record<string, unknown>)['isActive']),
+            });
+          }
         }
+        setSavedProviders(saved);
         break;
       }
       case 'provider.catalog': {
@@ -593,6 +701,7 @@ export function App() {
       case 'run.result': {
         setRunning(false);
         setActivity('');
+        if (prefsRef.current.chime) playChime();
         setMessages((current) =>
           current.map((item) => (item.streaming ? { ...item, streaming: false } : item)),
         );
@@ -982,6 +1091,18 @@ export function App() {
   };
 
   const submitWith = (mode: QueueMode) => {
+    // ── Slash commands ──
+    if (draft.trim() === '/clear' && sessionIdRef.current) {
+      clearComposerDraft(sessionIdRef.current);
+      draftRef.current = '';
+      fileRefsRef.current = [];
+      setDraft('');
+      setFileRefs([]);
+      setFileMention(null);
+      socketRef.current?.send('session.new', { sessionId: sessionIdRef.current });
+      return;
+    }
+
     const content = composePromptWithFileReferences(draft, fileRefs);
     // The refine panel owns the pending text; a second submit would race it.
     if (!content || connection !== 'open' || !sessionIdRef.current || refineState) return;
@@ -1401,6 +1522,9 @@ export function App() {
         onOpenDiff={(files) => setDiffFiles(files)}
       />
 
+      <MemoryDrawer socketRef={socketRef} />
+      <FileExplorer socketRef={socketRef} />
+
       {leaderSelected && showJumpToLatest && (
         <button type="button" className="jump-to-latest" onClick={jumpToLatest}>
           <ArrowDown size={13} aria-hidden="true" />
@@ -1458,10 +1582,20 @@ export function App() {
           modes={modes}
           activeModeId={activeModeId}
           connection={connection}
+          savedProviders={savedProviders}
           onClose={() => setSettingsOpen(false)}
           onAutonomyChange={switchAutonomy}
           onModeChange={switchMode}
           onPrefChange={updatePrefs}
+          onAddKey={(providerId, label, apiKey) =>
+            socketRef.current?.send('key.add', { providerId, label, apiKey })
+          }
+          onDeleteKey={(providerId, label) =>
+            socketRef.current?.send('key.delete', { providerId, label })
+          }
+          onSetActiveKey={(providerId, label) =>
+            socketRef.current?.send('key.set_active', { providerId, label })
+          }
         />
       </ErrorBoundary>
 

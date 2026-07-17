@@ -1,7 +1,15 @@
 import { Settings, X } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AUTONOMY_MODES, type AutonomyMode, type SimplePrefs } from './lib/prefs-model.js';
 import type { AgentMode } from './types.js';
+
+interface ProviderInfo {
+  id: string;
+  family: string;
+  label: string;
+  hasKey: boolean;
+  isActive: boolean;
+}
 
 interface SettingsPanelProps {
   open: boolean;
@@ -9,12 +17,14 @@ interface SettingsPanelProps {
   modes: AgentMode[];
   activeModeId: string;
   connection: string;
+  savedProviders: ProviderInfo[];
   onClose: () => void;
-  /** Autonomy routes through `autonomy.switch`, not `prefs.update` — the
-   *  latter only writes meta, which the running loop never reads. */
   onAutonomyChange: (mode: AutonomyMode) => void;
   onModeChange: (id: string) => void;
   onPrefChange: (patch: Partial<SimplePrefs>) => void;
+  onAddKey: (providerId: string, label: string, apiKey: string) => void;
+  onDeleteKey: (providerId: string, label: string) => void;
+  onSetActiveKey: (providerId: string, label: string) => void;
 }
 
 const AUTONOMY_HINT: Record<AutonomyMode, string> = {
@@ -55,13 +65,20 @@ export function SettingsPanel({
   modes,
   activeModeId,
   connection,
+  savedProviders,
   onClose,
   onAutonomyChange,
   onModeChange,
   onPrefChange,
+  onAddKey,
+  onDeleteKey,
+  onSetActiveKey,
 }: SettingsPanelProps) {
   const panelRef = useRef<HTMLElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
+  const [addProviderId, setAddProviderId] = useState('');
+  const [addLabel, setAddLabel] = useState('');
+  const [addApiKey, setAddApiKey] = useState('');
 
   useEffect(() => {
     if (!open) return;
@@ -190,6 +207,79 @@ export function SettingsPanel({
             <small className="settings-hint">
               {modes.find((mode) => mode.id === activeModeId)?.description ?? 'Default behaviour.'}
             </small>
+          </section>
+
+          <section className="settings-group" aria-label="Auth">
+            <h2>AUTH</h2>
+            {savedProviders.length === 0 ? (
+              <p className="settings-hint">No providers configured.</p>
+            ) : (
+              savedProviders.map((p) => (
+                <label key={p.id} className="settings-toggle">
+                  <span className="settings-toggle-copy">
+                    <strong>{p.label}</strong>
+                    <small>{p.id}{p.isActive ? ' · active' : ''}</small>
+                  </span>
+                  <span className="settings-auth-actions">
+                    {!p.isActive && p.hasKey && (
+                      <button
+                        type="button"
+                        className="settings-auth-btn"
+                        disabled={offline}
+                        onClick={() => onSetActiveKey(p.id, p.label)}
+                      >
+                        Activate
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="settings-auth-btn danger"
+                      disabled={offline}
+                      onClick={() => onDeleteKey(p.id, p.label)}
+                    >
+                      Remove
+                    </button>
+                  </span>
+                </label>
+              ))
+            )}
+            <div className="settings-auth-add">
+              <input
+                type="text"
+                placeholder="Provider ID"
+                value={addProviderId}
+                disabled={offline}
+                onChange={(e) => setAddProviderId(e.target.value)}
+              />
+              <input
+                type="text"
+                placeholder="Label"
+                value={addLabel}
+                disabled={offline}
+                onChange={(e) => setAddLabel(e.target.value)}
+              />
+              <input
+                type="password"
+                placeholder="API key"
+                value={addApiKey}
+                disabled={offline}
+                onChange={(e) => setAddApiKey(e.target.value)}
+              />
+              <button
+                type="button"
+                className="settings-auth-btn"
+                disabled={offline || !addProviderId.trim() || !addApiKey.trim()}
+                onClick={() => {
+                  if (!addProviderId.trim() || !addApiKey.trim()) return;
+                  onAddKey(addProviderId.trim(), addLabel.trim() || addProviderId.trim(), addApiKey.trim());
+                  setAddProviderId('');
+                  setAddLabel('');
+                  setAddApiKey('');
+                }}
+              >
+                Add
+              </button>
+            </div>
           </section>
 
           <section className="settings-group" aria-label="Session">

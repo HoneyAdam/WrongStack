@@ -141,6 +141,9 @@ export interface WSToolExecuted {
     input?: unknown | undefined;
     fileTargets?: WSCodeMapFileTarget[] | undefined;
     output?: string | undefined;
+    outputBytes?: number | undefined;
+    outputTokens?: number | undefined;
+    outputLines?: number | undefined;
   };
 }
 
@@ -156,6 +159,10 @@ export interface WSCodeMapToolStarted {
     name: string;
     input?: unknown | undefined;
     fileTargets?: WSCodeMapFileTarget[] | undefined;
+    output?: string | undefined;
+    outputBytes?: number | undefined;
+    outputTokens?: number | undefined;
+    outputLines?: number | undefined;
   };
 }
 

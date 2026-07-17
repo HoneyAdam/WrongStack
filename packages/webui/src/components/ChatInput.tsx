@@ -6,7 +6,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useAppTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
-import { useChatStore, useFileReferenceStore, useFileStore, useSessionStore, useUIStore } from '@/stores';
+import { useChatStore, useConfigStore, useFileReferenceStore, useFileStore, useSessionStore, useUIStore } from '@/stores';
 import { useLocalPrefs } from '@/stores/local-prefs';
 import { useAutoSubmitStreak } from '@/stores/auto-submit-streak.js';
 import type { QueueMode } from '@/stores/chat-store';
@@ -65,6 +65,8 @@ export function ChatInput({
   const { t } = useAppTranslation();
   const enhanceEnabled = useLocalPrefs((s) => s.enhanceEnabled);
   const refinePanel = useUIStore((s) => s.refinePanel);
+  const configProvider = useConfigStore((s) => s.provider);
+  const configModel = useConfigStore((s) => s.model);
   const promptInsertRequest = useUIStore((s) => s.promptInsertRequest);
   const clearPromptInsert = useUIStore((s) => s.clearPromptInsert);
   const setRefinePanel = useUIStore((s) => s.setRefinePanel);
@@ -467,6 +469,8 @@ export function ChatInput({
               resolve: (_decision) => {
                 // This is called when the refine panel is decided
               },
+              provider: configProvider,
+              model: configModel,
             });
             refineModel(combined);
           } else {
@@ -524,6 +528,8 @@ export function ChatInput({
       resetAutoSubmitStreak,
       clearPendingImages,
       pendingImagesRef,
+      configProvider,
+      configModel,
       t,
     ],
   );
@@ -839,6 +845,8 @@ export function ChatInput({
           status={refinePanel.status}
           error={refinePanel.error}
           fallbackRef={refinePanel.fallbackRef}
+          provider={refinePanel.provider}
+          model={refinePanel.model}
           onRetry={() => {
             // Retry on the SAME model with an extended window (the server
             // resolves the exact ms). Back into 'refining'; keep `retried` so

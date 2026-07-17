@@ -64,6 +64,10 @@ import {
   handleSuperMemoryList,
   handleSuperMemoryRemember,
   handleSuperMemoryUpdate,
+  handleSuperMemoryRecover,
+  handleSuperMemoryCandidateResolve,
+  handleSuperMemoryBackfillRecoverable,
+  handleSuperMemoryForFile,
 } from './memory-handlers.js';
 import { handleModeRoute } from './mode-routes.js';
 import { resolveProviderModelMetadata } from './model-catalog.js';
@@ -468,6 +472,14 @@ export function createMessageDispatcher(
         return handleSuperMemoryDelete(ws, msg, deps.memoryStore);
       case 'memory.super.remember':
         return handleSuperMemoryRemember(ws, msg, deps.memoryStore);
+      case 'memory.super.recover':
+        return handleSuperMemoryRecover(ws, msg, deps.memoryStore);
+      case 'memory.super.candidateResolve':
+        return handleSuperMemoryCandidateResolve(ws, msg, deps.memoryStore);
+      case 'memory.super.backfillRecoverable':
+        return handleSuperMemoryBackfillRecoverable(ws, msg, deps.memoryStore);
+      case 'memory.super.forFile':
+        return handleSuperMemoryForFile(ws, msg, deps.memoryStore);
 
       // ── MCP tripwires — handleMcpRoute claims these upstream. ──
       case 'mcp.list':

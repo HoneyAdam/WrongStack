@@ -32,6 +32,10 @@ interface RefinePanelProps {
   onRetryFallback?: ((ref: string) => void) | undefined;
   /** Open the model picker to retry on a chosen provider/model. */
   onPickModel?: (() => void) | undefined;
+  /** Provider id of the model running the refinement (e.g. "openai"). */
+  provider?: string | undefined;
+  /** Model name running the refinement (e.g. "gpt-4o"). */
+  model?: string | undefined;
 }
 
 /**
@@ -58,6 +62,8 @@ export function RefinePanel({
   onRetry,
   onRetryFallback,
   onPickModel,
+  provider,
+  model,
 }: RefinePanelProps) {
   const setRefinePanel = useUIStore((s) => s.setRefinePanel);
   const { t } = useAppTranslation();
@@ -185,7 +191,15 @@ export function RefinePanel({
         <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
           <div className="flex items-center gap-2">
             <Loader2 className="h-4 w-4 animate-spin text-primary" />
-            <span className="text-sm font-medium">{t('activity:refine.refining')}</span>
+            <span className="text-sm font-medium">
+              {t('activity:refine.refining')}
+              {provider && model ? (
+                <span className="text-muted-foreground font-normal">
+                  {' '}
+                  on {provider}/{model}
+                </span>
+              ) : null}
+            </span>
           </div>
           <button
             type="button"
@@ -217,7 +231,15 @@ export function RefinePanel({
         <div className="flex items-center justify-between px-4 py-2 border-b bg-destructive/10">
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-destructive" />
-            <span className="text-sm font-medium">{t('activity:refine.failedHeader')}</span>
+            <span className="text-sm font-medium">
+              {t('activity:refine.failedHeader')}
+              {provider && model ? (
+                <span className="text-muted-foreground font-normal">
+                  {' '}
+                  on {provider}/{model}
+                </span>
+              ) : null}
+            </span>
           </div>
           <button
             type="button"
@@ -288,7 +310,15 @@ export function RefinePanel({
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">{t('activity:refine.header')}</span>
+          <span className="text-sm font-medium">
+            {t('activity:refine.header')}
+            {provider && model ? (
+              <span className="text-muted-foreground font-normal">
+                {' '}
+                via {provider}/{model}
+              </span>
+            ) : null}
+          </span>
           {countdown !== null && !isEditing && (
             <span className="text-xs text-muted-foreground">
               {t('activity:refine.autoSend', { count: countdown })}

@@ -1,4 +1,4 @@
-import { isActiveSessionMessage } from '@/lib/ws-client-utils';
+import { isActiveSessionMessage, pipeViz } from '@/lib/ws-client-utils';
 import type { SideEffectEntry } from '@/stores';
 import {
   type AgentTranscriptKind,
@@ -641,12 +641,14 @@ export const WS_HANDLERS: Partial<Record<WSServerMessage['type'], (msg: WSServer
       }
     },
     'codemap.tool_started': (msg: WSServerMessage) => {
+      pipeViz(msg);
       const activities = extractActivitiesFromMessage(msg);
       if (activities.length > 0) {
         useCodemapActivityStore.getState().startActivities(activities);
       }
     },
     'codemap.tool_executed': (msg: WSServerMessage) => {
+      pipeViz(msg);
       const payload = msg.payload as {
         id?: string | undefined;
         durationMs?: number | undefined;

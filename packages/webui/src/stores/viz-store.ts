@@ -577,6 +577,32 @@ export function wsToVizEvent(
         flowGroup: `tool:${name}`,
       };
     }
+    case 'codemap.tool_started': {
+      const name = payload.name as string ?? 'tool';
+      const agentId = payload.agentId as string ?? 'subagent';
+      return {
+        id: nextId(), kind: 'tool:started', timestamp: Date.now(),
+        source: agentId, target: name,
+        label: name, magnitude: 1,
+        data: payload as Record<string, unknown>,
+        color: NODE_COLORS.tool,
+        flowGroup: `agent:${agentId}`,
+      };
+    }
+    case 'codemap.tool_executed': {
+      const name = payload.name as string ?? 'tool';
+      const agentId = payload.agentId as string ?? 'subagent';
+      const ok = payload.ok as boolean ?? true;
+      return {
+        id: nextId(), kind: 'tool:executed', timestamp: Date.now(),
+        source: agentId, target: name,
+        label: `${name} ${ok ? '✓' : '✗'} (${payload.durationMs as number ?? 0}ms)`,
+        magnitude: payload.durationMs as number ?? 0,
+        data: payload as Record<string, unknown>,
+        color: ok ? NODE_COLORS.tool : NODE_COLORS.error,
+        flowGroup: `agent:${agentId}`,
+      };
+    }
     case 'tool.loop_detected': {
       const tools = payload.tools as string ?? '';
       const kind = payload.kind as string ?? 'loop';

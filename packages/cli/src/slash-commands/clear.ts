@@ -44,7 +44,7 @@ export function buildClearCommand(opts: SlashCommandContext): SlashCommand {
         if (proceed !== true) {
           const cancelledMsg = 'Clear cancelled — the running operation was left untouched.';
           opts.renderer.writeInfo(cancelledMsg);
-          return { message: cancelledMsg };
+          return { message: cancelledMsg, metadata: { cleared: false } };
         }
       }
 
@@ -89,7 +89,7 @@ export function buildClearCommand(opts: SlashCommandContext): SlashCommand {
         ? 'Session cleared (context and history reset; memory preserved).'
         : 'Session cleared (context, memory, and history reset).';
       opts.renderer.writeInfo(msg);
-      return { message: msg };
+      return { message: msg, metadata: { cleared: true } };
     },
   };
 }

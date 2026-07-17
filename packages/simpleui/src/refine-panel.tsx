@@ -18,7 +18,9 @@ export function RefinePanel({ state, onDecision, onRetry, onRetryFallback }: Ref
     return (
       <div className="refine-panel refining" role="status" aria-live="polite">
         <Loader size={13} className="refine-spin" aria-hidden="true" />
-        <span>Refining your prompt…</span>
+        <span>
+          Refining your prompt{state.provider && state.model ? ` on ${state.provider}/${state.model}` : ''}…
+        </span>
         <button type="button" onClick={() => onDecision('original')}>
           Send as-is
         </button>
@@ -32,6 +34,11 @@ export function RefinePanel({ state, onDecision, onRetry, onRetryFallback }: Ref
         <div className="refine-head">
           <TriangleAlert size={13} aria-hidden="true" />
           <strong>Refine failed</strong>
+          {state.provider && state.model ? (
+            <span className="refine-model-label">
+              on {state.provider}/{state.model}
+            </span>
+          ) : null}
           <span>{state.error ?? 'Unknown error'}</span>
         </div>
         <div className="refine-actions">
@@ -60,6 +67,11 @@ export function RefinePanel({ state, onDecision, onRetry, onRetryFallback }: Ref
       <div className="refine-head">
         <Sparkles size={13} aria-hidden="true" />
         <strong>Refined prompt</strong>
+        {state.provider && state.model ? (
+          <span className="refine-model-label">
+            via {state.provider}/{state.model}
+          </span>
+        ) : null}
       </div>
       <div className="refine-compare">
         <div className="refine-column">

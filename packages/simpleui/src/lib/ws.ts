@@ -90,8 +90,15 @@ export class SimpleSocket {
   private reconnectAttempt = 0;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private queue: string[] = [];
+  private listeners: Set<(msg: ServerMessage) => void> = new Set();
 
   constructor(private readonly options: SimpleSocketOptions) {}
+
+  /** Subscribe to all incoming messages. Returns an unsubscribe function. */
+  onMessage(fn: (msg: ServerMessage) => void): () => void {
+    this.listeners.add(fn);
+    return () => { this.listeners.delete(fn); };
+  }
 
   async connect(): Promise<void> {
     if (this.stopped) return;
@@ -110,7 +117,10 @@ export class SimpleSocket {
     socket.addEventListener('message', (event) => {
       try {
         const parsed = JSON.parse(String(event.data)) as ServerMessage;
-        if (parsed && typeof parsed.type === 'string') this.options.onMessage(parsed);
+        if (parsed && typeof parsed.type === 'string') {
+          this.options.onMessage(parsed);
+          for (const fn of this.listeners) fn(parsed);
+        }
       } catch {
         // Ignore malformed server frames; the next valid frame keeps the UI alive.
       }

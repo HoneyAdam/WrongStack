@@ -341,6 +341,10 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
         input: e.input,
         fileTargets: extractCodeMapFileTargets(context.projectRoot, e.name, e.input),
         output: e.output,
+        outputBytes: e.outputBytes,
+        outputTokens: e.outputTokens,
+        outputLines: e.outputLines,
+        metadata: e.metadata,
       }),
     });
     appendForCurrentSession(e.sessionId, {
@@ -861,6 +865,10 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
         ok: e.ok,
         input: e.input,
         fileTargets: extractCodeMapFileTargets(context.projectRoot, e.name, e.input),
+        output: e.output,
+        outputBytes: e.outputBytes,
+        outputTokens: e.outputTokens,
+        outputLines: e.outputLines,
       },
     });
     forwardSubagent('tool_executed', {

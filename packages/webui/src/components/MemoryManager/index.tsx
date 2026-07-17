@@ -41,8 +41,8 @@ import {
 } from './shared';
 
 export function MemoryManager() {
-  const { client, listSuperMemories, rememberSuperMemory, updateSuperMemory, deleteSuperMemory } =
-    useWebSocket();
+  const { client, listSuperMemories, rememberSuperMemory, updateSuperMemory, deleteSuperMemory,
+    recoverSuperMemory, resolveMemoryCandidate, backfillRecoverable } = useWebSocket();
   const wsConnected = useConfigStore((state) => state.wsConnected);
   const setCurrentView = useUIStore((state) => state.setCurrentView);
   const memoryListRef = useScrollPosition<HTMLDivElement>('memory');
@@ -773,21 +773,25 @@ export function MemoryManager() {
                 onClose={() => setDrawerOpen(false)}
                 onShowMemory={(id) => setSelectedId(id)}
                 onAcceptDeletion={async (candidateId, memoryId) => {
-                  // PR #4 follow-up: wire to a real `memory_candidate_resolve`
-                  // + `memory_forget` tool when those WS methods land. For now
-                  // we surface a notice so the user sees their click was
-                  // captured; the active list refresh below picks up the
-                  // eventual write.
+                  // PR #1: resolve candidate as accept → server deletes the
+                  // source memory + marks the candidate accepted (audit-logged).
+                  resolveMemoryCandidate({ candidateId, action: 'accept' });
                   setNotice(
-                    `Accept Deletion requested for candidate ${candidateId} ` +
-                      `(${memoryId.slice(0, 12)}…). Wire-up pending follow-up PR.`,
+                    `Accepted hygiene review for ${memoryId.slice(0, 12)}… ` +
+                      `(candidate ${candidateId.slice(0, 12)}…).`,
                   );
-                  await loadMemories();
+                  // The server emits memory.deleted in response; refetch to
+                  // pick up the new state. Fallback timeout ensures the UI
+                  // doesn't hang if the server is slow.
+                  setTimeout(() => { void loadMemories(); }, 500);
                 }}
                 onKeep={async (candidateId, memoryId) => {
+                  // PR #1: reject candidate → server keeps the memory and
+                  // marks the candidate rejected.
+                  resolveMemoryCandidate({ candidateId, action: 'reject' });
                   setNotice(
-                    `Keep requested for candidate ${candidateId} ` +
-                      `(${memoryId.slice(0, 12)}…). Wire-up pending follow-up PR.`,
+                    `Kept ${memoryId.slice(0, 12)}… ` +
+                      `(candidate ${candidateId.slice(0, 12)}… rejected).`,
                   );
                 }}
                 onUpdate={(memoryId) => {
@@ -809,12 +813,12 @@ export function MemoryManager() {
                   }
                 }}
                 onRecover={async (memoryId) => {
-                  // PR #1 follow-up: wire to a real `memory_recover` WS method.
-                  setNotice(
-                    `Recover requested for ${memoryId.slice(0, 12)}… ` +
-                      `— wire-up pending follow-up PR.`,
-                  );
-                  await loadMemories();
+                  // PR #1: restore `deleted` memory to active status. The
+                  // server replies with `memory.super.recover` carrying the
+                  // restored entry (or `noop: true` if it was already active).
+                  recoverSuperMemory({ id: memoryId, reason: 'recovered via file drawer' });
+                  setNotice(`Recovered ${memoryId.slice(0, 12)}…`);
+                  setTimeout(() => { void loadMemories(); }, 500);
                 }}
               />
             ) : (

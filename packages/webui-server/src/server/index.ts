@@ -79,6 +79,10 @@ export {
   handleSuperMemoryList,
   handleSuperMemoryRemember,
   handleSuperMemoryUpdate,
+  handleSuperMemoryRecover,
+  handleSuperMemoryCandidateResolve,
+  handleSuperMemoryBackfillRecoverable,
+  handleSuperMemoryForFile,
 } from './memory-handlers.js';
 export { browserOpenCommand, openBrowser } from './open-browser.js';
 export {

@@ -204,6 +204,21 @@ export function useWebSocket() {
       client.findMemoriesForFile(opts, options),
     [client],
   );
+  const recoverSuperMemory = useCallback(
+    (opts: Parameters<typeof client.recoverSuperMemory>[0], options?: WSSendOptions) =>
+      client.recoverSuperMemory(opts, options),
+    [client],
+  );
+  const resolveMemoryCandidate = useCallback(
+    (opts: Parameters<typeof client.resolveMemoryCandidate>[0], options?: WSSendOptions) =>
+      client.resolveMemoryCandidate(opts, options),
+    [client],
+  );
+  const backfillRecoverable = useCallback(
+    (opts: Parameters<typeof client.backfillRecoverable>[0], options?: WSSendOptions) =>
+      client.backfillRecoverable(opts, options),
+    [client],
+  );
   const listSkills = useCallback((options?: WSSendOptions) => client.listSkills(options), [client]);
   const getDiag = useCallback((options?: WSSendOptions) => client.getDiag(options), [client]);
   const getStats = useCallback((options?: WSSendOptions) => client.getStats(options), [client]);
@@ -318,6 +333,9 @@ export function useWebSocket() {
     deleteSuperMemory,
     rememberSuperMemory,
     findMemoriesForFile,
+    recoverSuperMemory,
+    resolveMemoryCandidate,
+    backfillRecoverable,
     listSkills,
     getDiag,
     getStats,

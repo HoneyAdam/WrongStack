@@ -26,6 +26,10 @@ export interface RefineState {
   fallbackRef?: string | undefined;
   /** True once the automatic post-timeout retry has been spent. */
   retried?: boolean | undefined;
+  /** Provider id of the model running the refinement (e.g. "openai"). */
+  provider?: string | undefined;
+  /** Model name running the refinement (e.g. "gpt-4o"). */
+  model?: string | undefined;
 }
 
 export interface RefineResultPayload {

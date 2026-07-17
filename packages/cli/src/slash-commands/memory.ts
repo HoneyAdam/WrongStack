@@ -3,10 +3,12 @@ import { parseSubcommand, unknownSubcommand } from './helpers.js';
 import type { SlashCommandContext } from './index.js';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import type {
+  FindMemoriesForFileResponse,
   LegacyImportResult,
   MemoryAnchor,
   MemoryAudienceSelector,
   MemoryCandidate,
+  MemoryForFileMatch,
   MemoryGraphEdge,
   MemoryVerificationResult,
   SuperMemory,
@@ -189,7 +191,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
             const response = await store.findMemoriesForFile(pathArg, {
               ...(singleLine !== undefined ? { lineStart: singleLine, lineEnd: singleLine } : {}),
               limit,
-              showDeleted,
+              includeDeleted: showDeleted || undefined,
             });
             return { message: formatForFileResponse(pathArg, response) };
           } catch (err) {
@@ -473,9 +475,14 @@ function parseForFileFlags(tokens: string[]): ParsedForFileFlags {
 // Three buckets: cursor-boosted symbol matches, file/directory primary
 // matches, and weak "Mentioned in" matches. Each card shows why it
 // matched (`matchedVia`) so the user understands the signal.
+function previewText(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text;
+  return text.slice(0, maxLen - 1) + '…';
+}
+
 function formatForFileResponse(
   filePath: string,
-  response: import('../types.js').FindMemoriesForFileResponse,
+  response: FindMemoriesForFileResponse,
 ): string {
   const lines: string[] = [
     `## Super Memory — File: \`${filePath}\``,
@@ -486,7 +493,7 @@ function formatForFileResponse(
   ];
   const renderBucket = (
     label: string,
-    matches: ReadonlyArray<import('../types.js').MemoryForFileMatch>,
+    matches: ReadonlyArray<MemoryForFileMatch>,
   ): void => {
     if (matches.length === 0) return;
     lines.push('', `### ${label} (${matches.length})`);
@@ -501,7 +508,7 @@ function formatForFileResponse(
       const strengthPct = Math.round(match.matchStrength * 100);
       lines.push(
         `- **${match.memory.kind}** (${strengthPct}% via ${via})${flagSuffix}: ` +
-          `${memoryPreview(match.memory.text, 140)}`,
+          `${previewText(match.memory.text, 140)}`,
       );
       lines.push(`    \`${match.memory.id}\``);
     }

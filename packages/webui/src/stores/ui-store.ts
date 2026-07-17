@@ -241,6 +241,10 @@ interface UIState {
     fallbackRef?: string | undefined;
     /** True once the automatic timeout retry has been spent (so we don't loop). */
     retried?: boolean | undefined;
+    /** Provider id of the model running the refinement (e.g. "openai"). */
+    provider?: string | undefined;
+    /** Model name running the refinement (e.g. "gpt-4o"). */
+    model?: string | undefined;
   } | null;
 
   /** Prompt library modal (browse/search/insert prompts) open state. */

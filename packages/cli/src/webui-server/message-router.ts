@@ -69,6 +69,10 @@ import {
   handleSuperMemoryList,
   handleSuperMemoryRemember,
   handleSuperMemoryUpdate,
+  handleSuperMemoryRecover,
+  handleSuperMemoryCandidateResolve,
+  handleSuperMemoryBackfillRecoverable,
+  handleSuperMemoryForFile,
   handlePromptsContent,
   handlePromptsCreate,
   handlePromptsFavorite,
@@ -883,6 +887,43 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
         return;
       }
       return handleSuperMemoryRemember(ws, msg, opts.memoryStore);
+    },
+    'memory.super.recover': (msg, ws) => {
+      if (!opts.memoryStore) {
+        send(ws, { type: 'memory.super.recover', payload: { error: 'Memory store not available' } });
+        return;
+      }
+      return handleSuperMemoryRecover(ws, msg, opts.memoryStore);
+    },
+    'memory.super.candidateResolve': (msg, ws) => {
+      if (!opts.memoryStore) {
+        send(ws, {
+          type: 'memory.super.candidateResolve',
+          payload: { error: 'Memory store not available' },
+        });
+        return;
+      }
+      return handleSuperMemoryCandidateResolve(ws, msg, opts.memoryStore);
+    },
+    'memory.super.backfillRecoverable': (msg, ws) => {
+      if (!opts.memoryStore) {
+        send(ws, {
+          type: 'memory.super.backfillRecoverable',
+          payload: { error: 'Memory store not available' },
+        });
+        return;
+      }
+      return handleSuperMemoryBackfillRecoverable(ws, msg, opts.memoryStore);
+    },
+    'memory.super.forFile': (msg, ws) => {
+      if (!opts.memoryStore) {
+        send(ws, {
+          type: 'memory.super.forFile',
+          payload: { error: 'Memory store not available' },
+        });
+        return;
+      }
+      return handleSuperMemoryForFile(ws, msg, opts.memoryStore);
     },
 
     // ── MCP operations (shared handlers from @wrongstack/webui-server) ──

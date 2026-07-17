@@ -11,8 +11,11 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 export type BackgroundStyle = 'dots' | 'lines' | 'cross' | 'none';
+export type OfficeViewMode = 'office' | 'topology';
 
 interface OfficeMapState {
+  /** Primary Fleet surface: human-friendly office lanes or the topology graph. */
+  viewMode: OfficeViewMode;
   /** Real-time Session Stats HUD overlay (top-left). */
   showHud: boolean;
   /** Status + Connections legends (bottom corners). */
@@ -28,6 +31,7 @@ interface OfficeMapState {
   /** Background grid style. */
   background: BackgroundStyle;
 
+  setViewMode: (v: OfficeViewMode) => void;
   setShowHud: (v: boolean) => void;
   setShowLegend: (v: boolean) => void;
   setShowMinimap: (v: boolean) => void;
@@ -40,6 +44,7 @@ interface OfficeMapState {
 export const useOfficeMapStore = create<OfficeMapState>()(
   persist(
     (set) => ({
+      viewMode: 'office',
       showHud: true,
       showLegend: true,
       showMinimap: true,
@@ -48,6 +53,7 @@ export const useOfficeMapStore = create<OfficeMapState>()(
       showFeed: true,
       background: 'dots',
 
+      setViewMode: (v) => set({ viewMode: v }),
       setShowHud: (v) => set({ showHud: v }),
       setShowLegend: (v) => set({ showLegend: v }),
       setShowMinimap: (v) => set({ showMinimap: v }),

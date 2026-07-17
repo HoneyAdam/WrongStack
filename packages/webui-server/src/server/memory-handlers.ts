@@ -73,6 +73,32 @@ interface SuperMemoryStoreLike {
     supersedes?: string[] | undefined;
     contradicts?: string[] | undefined;
   }): Promise<SuperMemoryLike>;
+  // PR #1: restore a `deleted` memory to active status (or return head-of-chain for superseded).
+  recoverSuperMemory(id: string, reason?: string): Promise<SuperMemoryLike>;
+  // PR #1: resolve a hygiene review candidate (accept|reject).
+  acceptCandidate(candidateId: string): Promise<{ id: string; status: string } | undefined>;
+  rejectCandidate(candidateId: string, reason: string): Promise<boolean>;
+  // PR #3: scan `deleted` records + create fresh active versions (dryRun default).
+  backfillRecoverable(opts: {
+    apply?: boolean;
+    filter?: {
+      kinds?: string[];
+      scopes?: string[];
+      updatedAfter?: string;
+      updatedBefore?: string;
+    };
+  }): Promise<{
+    examined: number;
+    recovered: number;
+    recoverable: number;
+  }>;
+  // PR #4: rich file-drawer query — 3 buckets (primary/symbol/related).
+  findMemoriesForFile(filePath: string, options?: {
+    lineStart?: number;
+    lineEnd?: number;
+    limit?: number;
+    includeDeleted?: boolean;
+  }): Promise<Record<string, unknown>>;
 }
 
 function isSuperMemoryStore(store: MemoryStore): store is MemoryStore & SuperMemoryStoreLike {
@@ -82,7 +108,9 @@ function isSuperMemoryStore(store: MemoryStore): store is MemoryStore & SuperMem
     typeof s.listSuper === 'function' &&
     typeof s.getSuperMemory === 'function' &&
     typeof s.updateSuperMemory === 'function' &&
-    typeof s.deleteSuperMemory === 'function'
+    typeof s.deleteSuperMemory === 'function' &&
+    typeof s.acceptCandidate === 'function' &&
+    typeof s.rejectCandidate === 'function'
   );
 }
 
@@ -310,5 +338,222 @@ export async function handleSuperMemoryDelete(
     send(ws, { type: 'memory.super.delete', payload: { success: true, message: `Deleted memory "${id}".` } });
   } catch (err) {
     send(ws, { type: 'memory.super.delete', payload: { success: false, message: errMessage(err) } });
+  }
+}
+
+/**
+ * Restore a deleted Super Memory entry to active status (PR #1).
+ * Request:  { type: 'memory.super.recover', payload: { id, reason? } }
+ * Response: { type: 'memory.super.recover', payload: { memory?, noop?, activeId? } }
+ *
+ * - `noop: true` when the id was already active (no write happened)
+ * - `activeId: <id>` when the id was superseded — returns the head of the chain
+ * - otherwise returns the freshly-restored memory
+ */
+export async function handleSuperMemoryRecover(
+  ws: WebSocket,
+  msg: unknown,
+  memoryStore: MemoryStore,
+): Promise<void> {
+  if (!isSuperMemoryStore(memoryStore)) {
+    send(ws, { type: 'memory.super.recover', payload: { error: requiresSuperMemory('memory.super.recover') } });
+    return;
+  }
+  const payload = (msg as { payload: Record<string, unknown> }).payload;
+  const id = payload['id'] as string | undefined;
+  if (!id) {
+    send(ws, { type: 'memory.super.recover', payload: { error: 'id is required' } });
+    return;
+  }
+  const reason = payload['reason'] as string | undefined;
+  try {
+    const preExisting = await memoryStore.getSuperMemory(id);
+    if (!preExisting) {
+      send(ws, { type: 'memory.super.recover', payload: { error: `Super Memory "${id}" not found.` } });
+      return;
+    }
+    // Already active: no-op — return the existing record without calling recover.
+    if (preExisting.status === 'active') {
+      send(ws, { type: 'memory.super.recover', payload: { recovered: true, memory: preExisting, noop: true } });
+      return;
+    }
+    // Deleted or superseded: call recover to get the actual result.
+    const memory = await memoryStore.recoverSuperMemory(id, reason);
+    // Superseded: the store returns the chain head (different id).
+    const noop = memory.id !== id;
+    const response: Record<string, unknown> = { recovered: true, memory };
+    if (noop) {
+      response['activeId'] = memory.id;
+      response['noop'] = true;
+    }
+    send(ws, { type: 'memory.super.recover', payload: response });
+  } catch (err) {
+    send(ws, { type: 'memory.super.recover', payload: { error: errMessage(err) } });
+  }
+}
+
+/**
+ * Resolve a pending hygiene review candidate (PR #1).
+ * Request:  { type: 'memory.super.candidateResolve', payload: { candidateId, action: 'accept'|'reject', reason? } }
+ * Response: { type: 'memory.super.candidateResolve', payload: { candidate, resolvedAction } }
+ *
+ * The store handles audit + status mutation; the handler just relays the
+ * payload. If the candidate id is unknown, the store returns null and we
+ * surface a structured error.
+ */
+export async function handleSuperMemoryCandidateResolve(
+  ws: WebSocket,
+  msg: unknown,
+  memoryStore: MemoryStore,
+): Promise<void> {
+  if (!isSuperMemoryStore(memoryStore)) {
+    send(ws, {
+      type: 'memory.super.candidateResolve',
+      payload: { error: requiresSuperMemory('memory.super.candidateResolve') },
+    });
+    return;
+  }
+  const payload = (msg as { payload: Record<string, unknown> }).payload;
+  const candidateId = payload['candidateId'] as string | undefined;
+  const action = payload['action'] as 'accept' | 'reject' | undefined;
+  if (!candidateId) {
+    send(ws, {
+      type: 'memory.super.candidateResolve',
+      payload: { error: 'candidateId is required' },
+    });
+    return;
+  }
+  if (action !== 'accept' && action !== 'reject') {
+    send(ws, {
+      type: 'memory.super.candidateResolve',
+      payload: { error: 'action must be "accept" or "reject"' },
+    });
+    return;
+  }
+  const reason = payload['reason'] as string | undefined;
+  try {
+    let candidate: { id: string; status: string } | undefined;
+    if (action === 'accept') {
+      const accepted = await memoryStore.acceptCandidate(candidateId);
+      candidate = accepted ? { id: accepted.id, status: accepted.status ?? 'active' } : undefined;
+    } else {
+      const rejected = await memoryStore.rejectCandidate(
+        candidateId,
+        reason ?? 'Rejected via WebUI',
+      );
+      candidate = rejected ? { id: candidateId, status: 'rejected' } : undefined;
+    }
+    if (!candidate) {
+      send(ws, {
+        type: 'memory.super.candidateResolve',
+        payload: { error: `Candidate "${candidateId}" not found` },
+      });
+      return;
+    }
+    send(ws, {
+      type: 'memory.super.candidateResolve',
+      payload: { candidate, resolvedAction: action },
+    });
+  } catch (err) {
+    send(ws, {
+      type: 'memory.super.candidateResolve',
+      payload: { error: errMessage(err) },
+    });
+  }
+}
+
+/**
+ * Scan deleted records and either preview (dry-run) or apply a backfill
+ * that creates fresh active versions for recoverable entries (PR #3).
+ *
+ * Request:  { type: 'memory.super.backfillRecoverable', payload: { apply, filter? } }
+ * Response: { type: 'memory.super.backfillRecoverable', payload: { examined, recovered, recoverable, dryRun } }
+ *
+ * `apply` defaults to false (dry-run preview). When true, the store writes
+ * new active versions and links them to the original `deleted` records via
+ * `supersedes`. The report count fields are forwarded for dashboard / UI use.
+ */
+export async function handleSuperMemoryBackfillRecoverable(
+  ws: WebSocket,
+  msg: unknown,
+  memoryStore: MemoryStore,
+): Promise<void> {
+  if (!isSuperMemoryStore(memoryStore)) {
+    send(ws, {
+      type: 'memory.super.backfillRecoverable',
+      payload: { error: requiresSuperMemory('memory.super.backfillRecoverable') },
+    });
+    return;
+  }
+  const payload = (msg as { payload: Record<string, unknown> }).payload ?? {};
+  const apply = payload['apply'] === true;
+  // Filter passthrough is permissive: the store validates per-field. We
+  // only pass fields that are present so absent fields stay absent (the
+  // store defaults its own omission to "no filter").
+  const rawFilter = (payload['filter'] ?? {}) as Record<string, unknown>;
+  const filter: {
+    kinds?: string[];
+    scopes?: string[];
+    updatedAfter?: string;
+    updatedBefore?: string;
+  } = {};
+  if (Array.isArray(rawFilter['kinds'])) filter.kinds = rawFilter['kinds'] as string[];
+  if (Array.isArray(rawFilter['scopes'])) filter.scopes = rawFilter['scopes'] as string[];
+  if (typeof rawFilter['updatedAfter'] === 'string') filter.updatedAfter = rawFilter['updatedAfter'];
+  if (typeof rawFilter['updatedBefore'] === 'string') filter.updatedBefore = rawFilter['updatedBefore'];
+  try {
+    const report = await memoryStore.backfillRecoverable({
+      apply,
+      ...(Object.keys(filter).length > 0 ? { filter } : {}),
+    });
+    send(ws, {
+      type: 'memory.super.backfillRecoverable',
+      payload: {
+        examined: report.examined,
+        recovered: report.recovered,
+        recoverable: report.recoverable,
+        dryRun: !apply,
+      },
+    });
+  } catch (err) {
+    send(ws, {
+      type: 'memory.super.backfillRecoverable',
+      payload: { error: errMessage(err) },
+    });
+  }
+}
+
+/**
+ * Rich file-drawer query — returns 3 buckets (primary/symbol/related)
+ * with matchedVia, matchStrength, supersededByActiveId, pendingReview (PR #4).
+ */
+export async function handleSuperMemoryForFile(
+  ws: WebSocket,
+  msg: unknown,
+  memoryStore: MemoryStore,
+): Promise<void> {
+  if (!isSuperMemoryStore(memoryStore)) {
+    send(ws, {
+      type: 'memory.super.forFile',
+      payload: { error: requiresSuperMemory('memory.super.forFile') },
+    });
+    return;
+  }
+  const payload = (msg as { payload: Record<string, unknown> }).payload ?? {};
+  const filePath = payload['filePath'] as string | undefined;
+  if (!filePath) {
+    send(ws, { type: 'memory.super.forFile', payload: { error: 'filePath is required' } });
+    return;
+  }
+  try {
+    const response = await memoryStore.findMemoriesForFile(filePath, {
+      ...(typeof payload['lineStart'] === 'number' ? { lineStart: payload['lineStart'] as number } : {}),
+      ...(typeof payload['lineEnd'] === 'number' ? { lineEnd: payload['lineEnd'] as number } : {}),
+      ...(typeof payload['limit'] === 'number' ? { limit: payload['limit'] as number } : {}),
+      ...(payload['includeDeleted'] === true ? { includeDeleted: true } : {}),
+    });
+    send(ws, { type: 'memory.super.forFile', payload: response });
+  } catch (err) {
+    send(ws, { type: 'memory.super.forFile', payload: { error: errMessage(err) } });
   }
 }

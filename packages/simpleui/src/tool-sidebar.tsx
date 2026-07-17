@@ -93,7 +93,10 @@ export function ToolSidebar({
   useEffect(() => {
     if (!open) return;
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setView(null);
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        setView(null);
+      }
     };
     document.addEventListener('keydown', closeOnEscape);
     return () => document.removeEventListener('keydown', closeOnEscape);

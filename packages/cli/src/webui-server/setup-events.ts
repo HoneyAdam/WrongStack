@@ -301,6 +301,9 @@ export function createSetupEvents(deps: SetupEventsDeps): () => void {
             input: secretScrubber.scrubObject(e.input),
             fileTargets: extractCodeMapFileTargets(projectRoot, e.name, e.input),
             output: secretScrubber.scrubObject(e.output),
+            outputBytes: e.outputBytes,
+            outputTokens: e.outputTokens,
+            outputLines: e.outputLines,
           }),
         });
 
@@ -740,6 +743,10 @@ export function createSetupEvents(deps: SetupEventsDeps): () => void {
             ok: e.ok,
             input: secretScrubber.scrubObject(e.input),
             fileTargets: extractCodeMapFileTargets(projectRoot, e.name, e.input),
+            output: secretScrubber.scrubObject(e.output),
+            outputBytes: e.outputBytes,
+            outputTokens: e.outputTokens,
+            outputLines: e.outputLines,
           },
         });
         forwardSubagent('tool_executed', {
