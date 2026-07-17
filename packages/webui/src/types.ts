@@ -6,6 +6,7 @@ import type {
   KanbanEvent,
   KanbanTask,
 } from '@wrongstack/kanban';
+import type { CapturedInteraction } from './lib/interaction-capture.js';
 
 // Event types for WebSocket communication
 export interface WSMessage {
@@ -1457,7 +1458,7 @@ export interface BrainConfigPatchWire {
     | undefined;
 }
 
-export type WSClientMessage =
+export type WSClientMessageCore =
   | WSUserMessage
   | WSToolConfirmResult
   | { type: 'side_effects.list'; payload?: Record<string, never> }
@@ -1941,6 +1942,12 @@ export type WSClientMessage =
   | { type: 'plan.template_use'; payload: { template: string } }
   | { type: 'webui.shutdown' };
 
+/** Wire message sent from the webui client to the server. Carries an optional
+ *  `_chronicle` field (the most recent user interaction) attached by ws-client.ts. */
+export type WSClientMessage = WSClientMessageCore & {
+  _chronicle?: CapturedInteraction | undefined;
+};
+
 export type WSServerMessage =
   | WSSessionStart
   | WSSessionEnd
@@ -2087,7 +2094,7 @@ export type WSServerMessage =
         }>;
       };
     }
-  | { type: 'goal.updated'; payload: Record<string, unknown> | null }
+  | { type: 'goal-state.updated'; payload: Record<string, unknown> | null }
   | { type: 'prefs.updated'; payload: Record<string, unknown> }
   | { type: 'techstack.job.started'; payload: { jobId: string; kind: 'inventory' | 'analyze' } }
   | {

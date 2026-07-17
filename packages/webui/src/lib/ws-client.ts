@@ -5,6 +5,7 @@ import type {
   WSServerMessage,
   WSUserMessageImage,
 } from '../types';
+import { interactionForCommand } from './interaction-capture';
 import { streamCoalescer } from './stream-coalescer';
 import {
   buildClearModelsMessage,
@@ -460,6 +461,10 @@ export class WrongStackWebSocketClient {
   }
 
   send(message: WSClientMessage, options: WSSendOptions = {}) {
+    const wireMessage: WSClientMessage = {
+      ...message,
+      _chronicle: interactionForCommand(),
+    };
     if (options.echoToChat === false) {
       const responseType = CHAT_ECHO_RESPONSE_BY_REQUEST[message.type];
       if (responseType) {
@@ -476,7 +481,7 @@ export class WrongStackWebSocketClient {
       streamCoalescer.dropAll();
     }
     if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(message));
+      this.ws.send(JSON.stringify(wireMessage));
     } else {
       // FIFO-drop oldest when full. Keeps the queue bounded under
       // long disconnects and ensures the most recent user intent is
@@ -495,7 +500,7 @@ export class WrongStackWebSocketClient {
           );
         }
       }
-      this.messageQueue.push(message);
+      this.messageQueue.push(wireMessage);
     }
   }
 
