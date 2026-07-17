@@ -329,14 +329,17 @@ describe('store.ts — verify anchors on corrupt files', () => {
 // store.ts — hygiene with deleted old memories
 // =========================================================
 describe('store.ts — hygiene retention', () => {
-  it('archives low confidence old memories', async () => {
+  it('surfaces a review candidate (does NOT auto-archive) for low-confidence old memories', async () => {
     await store.rememberSuper({ text: 'Old low conf.', confidence: 0.2, importance: 0.2 });
     const report = await store.hygiene({
       archiveLowConfidenceAfterDays: 0,
       retentionDays: 365,
       verify: false,
     });
-    expect(report.examined).toBeGreaterThanOrEqual(0);
+    // Hygiene must NOT auto-archive; it produces a review candidate instead.
+    expect(report.archived).toBe(0);
+    expect(report.deleted).toBe(0);
+    expect(report.reviewCandidatesCreated).toBeGreaterThanOrEqual(1);
   });
 });
 

@@ -1,3 +1,4 @@
+import type { AutonomyAgentStatus } from './components/history/types.js';
 import type { FleetChatVerbosity, Message, SessionEvent, TokenSavingTier } from '@wrongstack/core';
 import { AUTH_PANEL_INITIAL } from './components/auth-panel-model.js';
 import { replaySessionMessages } from './components/history/replay.js';
@@ -72,6 +73,8 @@ export interface CreateInitialStateOptions {
   cwd: string;
   family?: string | undefined;
   keyTail?: string | undefined;
+  /** Background autonomy agents to display in the banner. */
+  autonomyAgents?: ReadonlyArray<AutonomyAgentStatus> | undefined;
   restoredEntries: State['entries'];
   /** Checkpoints rebuilt from a resumed session's events. Empty for a fresh session. */
   restoredCheckpoints?: State['checkpoints'] | undefined;
@@ -90,6 +93,7 @@ export function createInitialState(options: CreateInitialStateOptions): State {
     cwd,
     family,
     keyTail,
+    autonomyAgents,
     restoredEntries,
     restoredCheckpoints,
     enhanceEnabled,
@@ -112,6 +116,7 @@ export function createInitialState(options: CreateInitialStateOptions): State {
               cwd,
               family,
               keyTail,
+              autonomyAgents,
             },
           ]
         : []),

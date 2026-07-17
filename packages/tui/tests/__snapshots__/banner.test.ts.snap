@@ -14,7 +14,7 @@ exports[`<Banner /> snapshot — full rendered output > matches the snapshot at 
 │ ◆ route  openai › gpt-4o                 │
 │ ⌁ cwd    /workspace/my-project           │
 │                                          │
-│       ◆ wrongstack.com · ★ github        │
+│       ◆ ]8;;https://wrongstack.com\\wrongstack.com]8;;\\ · ★ ]8;;https://github.com/wrongstack/wrongstack\\github]8;;\\        │
 │                                          │
 ╰──────────────────────────────────────────╯"
 `;
@@ -41,7 +41,7 @@ exports[`<Banner /> snapshot — full rendered output > matches the snapshot at 
 │  ◈ key       •••• ABC                                                        │
 │  ⌁ workspace /workspace/wrongstack                                           │
 │                                                                              │
-│                         ◆ wrongstack.com · ★ github                          │
+│                         ◆ ]8;;https://wrongstack.com\\wrongstack.com]8;;\\ · ★ ]8;;https://github.com/wrongstack/wrongstack\\github]8;;\\                          │
 │                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯"
 `;

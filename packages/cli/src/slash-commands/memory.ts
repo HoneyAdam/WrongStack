@@ -25,7 +25,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
     name: 'memory',
     category: 'Inspect',
     description:
-      'Inspect or edit persistent memory: /memory [show|search|file|path|graph|remember|update|delete|forget|hygiene|verify|candidates|audit|import-legacy|clear|compact|stats|audience]',
+      'Inspect or edit persistent memory: /memory [show|search|file|path|for-file|graph|remember|update|delete|forget|hygiene|verify|candidates|audit|import-legacy|clear|compact|stats|audience]',
     async run(args) {
       const store = opts.memoryStore;
       if (!store) return { message: 'No memory store configured.' };
@@ -166,6 +166,35 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         case 'path': {
           if (!restJoined) return { message: `Usage: /memory ${cmd} <path>` };
           return runPathMemory(store, restJoined, cmd === 'path');
+        }
+        // PR #4: rich file-drawer query — returns 3 buckets (primary/symbol/related)
+        // with `matchedVia`, `matchStrength`, `supersededByActiveId`, `pendingReview`.
+        // Optional cursor line range boosts symbol-anchored memories that
+        // overlap the caret position.
+        case 'for-file': {
+          if (!isSuperMemoryStore(store)) return requiresSuperMemory('for-file');
+          if (!restJoined) return { message: 'Usage: /memory for-file <path> [--line <n>] [--limit <n>] [--show-deleted]' };
+          // Inline flag parsing — kept local so we don't widen the
+          // whitelist of the shared `parseMemoryFlags` (which is reused
+          // for remember/update and validates against the canonical
+          // memory-record field set).
+          const pathArg = rest[0];
+          if (!pathArg) return { message: 'Usage: /memory for-file <path> [--line <n>] [--limit <n>] [--show-deleted]' };
+          const forFileFlags = parseForFileFlags(rest.slice(1));
+          if (forFileFlags.errors.length > 0) {
+            return { message: `Cannot run /memory for-file:\n- ${forFileFlags.errors.join('\n- ')}` };
+          }
+          const { singleLine, limit, showDeleted } = forFileFlags;
+          try {
+            const response = await store.findMemoriesForFile(pathArg, {
+              ...(singleLine !== undefined ? { lineStart: singleLine, lineEnd: singleLine } : {}),
+              limit,
+              showDeleted,
+            });
+            return { message: formatForFileResponse(pathArg, response) };
+          } catch (err) {
+            return { message: `for-file failed: ${err instanceof Error ? err.message : String(err)}` };
+          }
         }
         case 'search': {
           if (!restJoined) return { message: 'Usage: /memory search <query>' };
@@ -375,6 +404,115 @@ function parseMemoryFlags(tokens: string[]): ParsedMemoryFlags {
   out.text = words.join(' ').trim();
   if (anchors.length > 0) out.anchors = anchors;
   return out;
+}
+
+// ── /memory for-file flag parsing (PR #4) ────────────────────────────────
+//
+// Kept deliberately separate from `parseMemoryFlags`: that parser
+// validates against the canonical memory-record field set (kind/scope/
+// status/tags/anchors/...) and rejects unknown flags. The for-file
+// subcommand takes *query* flags (`--line`, `--limit`, `--show-deleted`)
+// that aren't memory-record fields. Mixing them into one parser would
+// either widen the whitelist (looser validation for remember/update) or
+// leak false "Unknown flag" errors into for-file. So for-file gets its
+// own scoped parser.
+interface ParsedForFileFlags {
+  singleLine: number | undefined;
+  limit: number;
+  showDeleted: boolean;
+  errors: string[];
+}
+
+function parseForFileFlags(tokens: string[]): ParsedForFileFlags {
+  const out: ParsedForFileFlags = {
+    singleLine: undefined,
+    limit: 50,
+    showDeleted: false,
+    errors: [],
+  };
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i] ?? '';
+    if (!token.startsWith('--')) continue;
+    const name = token.slice(2).toLowerCase();
+    const next = tokens[i + 1];
+    if (name === 'line') {
+      if (next === undefined || next.startsWith('--')) {
+        out.errors.push('--line needs a 1-indexed line number.');
+        continue;
+      }
+      const parsed = Number.parseInt(next, 10);
+      if (!Number.isFinite(parsed) || parsed < 1) {
+        out.errors.push(`--line must be a positive integer (got "${next}").`);
+        continue;
+      }
+      out.singleLine = parsed;
+      i++;
+    } else if (name === 'limit') {
+      if (next === undefined || next.startsWith('--')) {
+        out.errors.push('--limit needs a value between 1 and 200.');
+        continue;
+      }
+      const parsed = Number.parseInt(next, 10);
+      if (!Number.isFinite(parsed) || parsed < 1 || parsed > 200) {
+        out.errors.push(`--limit must be between 1 and 200 (got "${next}").`);
+        continue;
+      }
+      out.limit = parsed;
+      i++;
+    } else if (name === 'show-deleted' || name === 'show-deleted-memories') {
+      out.showDeleted = true;
+    } else {
+      out.errors.push(`Unknown flag "--${name}".`);
+    }
+  }
+  return out;
+}
+
+// ── /memory for-file response formatter (PR #4) ─────────────────────────
+//
+// Three buckets: cursor-boosted symbol matches, file/directory primary
+// matches, and weak "Mentioned in" matches. Each card shows why it
+// matched (`matchedVia`) so the user understands the signal.
+function formatForFileResponse(
+  filePath: string,
+  response: import('../types.js').FindMemoriesForFileResponse,
+): string {
+  const lines: string[] = [
+    `## Super Memory — File: \`${filePath}\``,
+    '',
+    `Total ${response.totalCount} match${response.totalCount === 1 ? '' : 'es'} ` +
+      `(${response.activeCount} active, ${response.supersededCount} superseded, ` +
+      `${response.reviewPendingCount} pending review).`,
+  ];
+  const renderBucket = (
+    label: string,
+    matches: ReadonlyArray<import('../types.js').MemoryForFileMatch>,
+  ): void => {
+    if (matches.length === 0) return;
+    lines.push('', `### ${label} (${matches.length})`);
+    for (const match of matches) {
+      const via = match.matchedVia;
+      const flags: string[] = [];
+      if (match.pendingReview) {
+        flags.push(`review:${match.pendingReview.reason}`);
+      }
+      if (match.supersededByActiveId) flags.push('superseded');
+      const flagSuffix = flags.length > 0 ? `  [${flags.join(', ')}]` : '';
+      const strengthPct = Math.round(match.matchStrength * 100);
+      lines.push(
+        `- **${match.memory.kind}** (${strengthPct}% via ${via})${flagSuffix}: ` +
+          `${memoryPreview(match.memory.text, 140)}`,
+      );
+      lines.push(`    \`${match.memory.id}\``);
+    }
+  };
+  renderBucket('Cursor boost (symbol)', response.symbolMatches);
+  renderBucket('File-scoped', response.primaryMatches);
+  renderBucket('Mentioned in', response.relatedMatches);
+  if (response.totalCount === 0) {
+    lines.push('', '_No memories attached to this file yet._');
+  }
+  return lines.join('\n');
 }
 
 async function runPathMemory(

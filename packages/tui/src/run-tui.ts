@@ -124,6 +124,9 @@ export interface RunTuiOptions {
   family?: string | undefined;
   /** Last 3 chars of the active API key — shown in the banner for visual key-pick verification. */
   keyTail?: string | undefined;
+  /** Background autonomy agents to display in the banner (Brain, Shadow,
+   *  Kanban, Mailbox, Memory, etc.). Read from the mailbox at boot. */
+  autonomyAgents?: import('./components/history/types.js').AutonomyAgentStatus[] | undefined;
   /** Snapshot of keyed providers + their model lists for the `/model` picker. Async — the catalog fetch may need to hit disk/network. */
   getPickableProviders?:
     | (() => Promise<import('./components/model-picker.js').ProviderOption[]>)
@@ -1205,6 +1208,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           provider: opts.provider,
           family: opts.family,
           keyTail: opts.keyTail,
+          autonomyAgents: opts.autonomyAgents,
           getPickableProviders: opts.getPickableProviders,
           switchProviderAndModel: opts.switchProviderAndModel,
           switchAutonomy: opts.switchAutonomy,

@@ -71,6 +71,12 @@ export function RefinePanel({ state, onDecision, onRetry, onRetryFallback }: Ref
           <p>{state.refined}</p>
         </div>
       </div>
+      {showEnglish && (
+        <div className="refine-english">
+          <span>ENGLISH</span>
+          <p>{state.english}</p>
+        </div>
+      )}
       <div className="refine-actions">
         <button type="button" onClick={() => onDecision('edit')}>
           Edit

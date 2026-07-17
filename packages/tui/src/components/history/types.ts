@@ -5,6 +5,17 @@ import type { Lang } from '../../highlight.js';
 // Shared types for history components
 // ============================================
 
+// ── Autonomy agent status — used by the banner ────────────────────────────
+
+export interface AutonomyAgentStatus {
+  /** Short display name (e.g. "Brain", "Shadow", "Kanban", "Mailbox", "Memory"). */
+  name: string;
+  /** Whether this agent is currently alive and reporting. */
+  online: boolean;
+  /** Optional detail line (risk level, interval, model, etc.). */
+  detail?: string | undefined;
+}
+
 export type HistoryEntry =
   | { id: number; kind: 'user'; text: string; queued?: boolean | undefined; pasteContent?: string | undefined }
   | { id: number; kind: 'assistant'; text: string }
@@ -60,6 +71,9 @@ export type HistoryEntry =
       cwd: string;
       family?: string | undefined;
       keyTail?: string | undefined;
+      /** Background autonomy agents currently online/active (Brain, Shadow,
+       *  Kanban, Mailbox, Memory, etc.). Rendered below the footer links. */
+      autonomyAgents?: ReadonlyArray<AutonomyAgentStatus> | undefined;
     }
   | { id: number; kind: 'confirm'; toolName: string; input: unknown; suggestedPattern: string }
   | {

@@ -75,6 +75,7 @@ export const PREF_KEYS = [
   'thinkingWord',
   'statuslineMode',
   'animationStyle',
+  'showModelReasoning',
   // Safety / system prefs (parity with /settings breaker, fs-access, debug-stream).
   'breakerEnabled',
   'breakerAutoKillResetMs',
@@ -232,6 +233,8 @@ export async function persistPrefsToConfig(
       setAutonomy('statuslineMode', payload['statuslineMode']);
     if (typeof payload['animationStyle'] === 'string')
       setAutonomy('animationStyle', payload['animationStyle']);
+    if (typeof payload['showModelReasoning'] === 'boolean')
+      setAutonomy('showModelReasoning', payload['showModelReasoning']);
     if (autonomyTouched) decrypted.autonomy = autonomyCfg;
 
     if (typeof payload['nextPrediction'] === 'boolean')

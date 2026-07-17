@@ -105,6 +105,29 @@ export interface ToolCallInfo {
   output?: string | undefined;
   durationMs?: number | undefined;
   ok?: boolean | undefined;
+  /** ISO timestamp set when the tool call starts — drives timeline ordering. */
+  ts?: string | undefined;
+}
+
+/** File edit metadata extracted from tool call output (edit/write/patch). */
+export interface FileEditMeta {
+  path: string;
+  /** Number of replacements (edit tool). */
+  replacements?: number | undefined;
+  /** Unified diff string. */
+  diff?: string | undefined;
+  /** Bytes written (write tool). */
+  bytesWritten?: number | undefined;
+  /** Whether the file was created (write tool). */
+  created?: boolean | undefined;
+}
+
+/** Unified timeline entry — either a chat message or an interleaved tool call. */
+export interface TimelineEntry {
+  kind: 'message' | 'tool_call';
+  ts: string;
+  message?: ChatMessage | undefined;
+  toolCall?: ToolCallInfo | undefined;
 }
 
 export interface ServerMessage {

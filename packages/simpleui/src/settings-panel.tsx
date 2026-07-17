@@ -195,6 +195,13 @@ export function SettingsPanel({
           <section className="settings-group" aria-label="Session">
             <h2>SESSION</h2>
             <ToggleRow
+              label="Model reasoning"
+              hint="Show the model's thinking and reasoning in the chat."
+              checked={prefs.showModelReasoning}
+              disabled={offline}
+              onChange={(showModelReasoning) => onPrefChange({ showModelReasoning })}
+            />
+            <ToggleRow
               label="Chime"
               hint="Play a sound when a run finishes."
               checked={prefs.chime}

@@ -20,6 +20,8 @@ import { FinishedAgentsMenu } from './finished-agents-menu.js';
 import { ChatMessageList } from './chat-message-list.js';
 import { Composer } from './composer.js';
 import { ErrorBoundary } from './error-boundary.js';
+import { FileDiffPanel } from './file-diff-panel.js';
+import { FileChangesButton } from './file-changes-button.js';
 import {
   appendAgentTranscriptEntry,
   buildAgentTabs,
@@ -31,6 +33,7 @@ import {
   projectAgentTimelineEntry,
   projectCompletedAgentText,
   pruneAgents,
+  resetAgentNameCache,
   resolveSelectedAgentId,
   stampAgentUpdates,
 } from './lib/agent-model.js';
@@ -70,6 +73,7 @@ import {
   type RefineState,
 } from './lib/refine-model.js';
 import { projectStatusNotice, type StatusNoticeProjection } from './lib/status-notice.js';
+import { aggregateFileEdits } from './lib/timeline-model.js';
 import { agentTranscriptToToolCalls } from './lib/tool-model.js';
 import {
   createWorklistStore,
@@ -87,6 +91,7 @@ import type {
   ChatMessage,
   ConnectionState,
   ContextInfo,
+  FileEditMeta,
   ModelDescriptor,
   PendingConfirm,
   ServerMessage,
@@ -161,6 +166,7 @@ export function App() {
   const [toolCalls, setToolCalls] = useState<ToolCallInfo[]>([]);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [worklists] = useState(createWorklistStore);
+  const [diffFiles, setDiffFiles] = useState<FileEditMeta[] | null>(null);
   const socketRef = useRef<SimpleSocket | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const activeModelRef = useRef<{ provider: string; model: string } | null>(null);
@@ -363,6 +369,7 @@ export function App() {
           setActivity('');
           setToolCalls([]);
           setSelectedAgentId(LEADER_AGENT_ID);
+          resetAgentNameCache();
         }
         setSessionMenuOpen(false);
         const replayUsage = payload['replayUsage'];
@@ -543,7 +550,7 @@ export function App() {
         setActivity(`Running ${name}`);
         setToolCalls((current) => [
           ...current,
-          { id, name, input: payload['input'], status: 'running' },
+          { id, name, input: payload['input'], status: 'running', ts: new Date().toISOString() },
         ]);
         break;
       }
@@ -901,6 +908,13 @@ export function App() {
     return undefined;
   }, [messages]);
 
+  // Filter out thinking blocks when the user has disabled model reasoning display.
+  const displayMessages = useMemo(
+    () =>
+      prefs.showModelReasoning ? messages : messages.filter((m) => m.role !== 'thinking'),
+    [messages, prefs.showModelReasoning],
+  );
+
   const activeAgent = agentTabs.find((agent) => agent.id === activeAgentId) ?? agentTabs[0];
   const selectedToolCalls = useMemo(
     () =>
@@ -908,6 +922,11 @@ export function App() {
         ? toolCalls
         : agentTranscriptToToolCalls(agentTranscripts[activeAgentId] ?? []),
     [activeAgentId, agentTranscripts, leaderSelected, toolCalls],
+  );
+
+  const fileEditSummary = useMemo(
+    () => aggregateFileEdits(toolCalls),
+    [toolCalls],
   );
 
   const selectNextStep = (text: string) => {
@@ -1330,11 +1349,13 @@ export function App() {
           }}
         >
           <ChatMessageList
-            messages={messages}
+            messages={displayMessages}
+            toolCalls={leaderSelected ? toolCalls : undefined}
             latestAssistantId={latestAssistantId}
             copiedMessageId={copiedMessageId}
             running={running}
             activity={activity}
+            onOpenDiff={(meta) => setDiffFiles([meta])}
             emptyState={
               <div className="empty-state">
                 <Sparkles size={25} strokeWidth={1.5} />
@@ -1370,6 +1391,14 @@ export function App() {
         onTodoStatusChange={updateTodoStatus}
         onTaskStatusChange={updateTaskStatus}
         onPlanStatusChange={updatePlanStatus}
+      />
+
+      <FileChangesButton
+        fileCount={fileEditSummary.fileCount}
+        totalAdded={fileEditSummary.totalAdded}
+        totalRemoved={fileEditSummary.totalRemoved}
+        files={fileEditSummary.files}
+        onOpenDiff={(files) => setDiffFiles(files)}
       />
 
       {leaderSelected && showJumpToLatest && (
@@ -1435,6 +1464,13 @@ export function App() {
           onPrefChange={updatePrefs}
         />
       </ErrorBoundary>
+
+      {diffFiles && (
+        <FileDiffPanel
+          files={diffFiles}
+          onClose={() => setDiffFiles(null)}
+        />
+      )}
     </div>
   );
 }

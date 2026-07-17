@@ -38,6 +38,89 @@ export interface AgentTab {
   updatedAt?: number | undefined;
 }
 
+/** UUIDs are 36-char hex strings with 4 hyphens. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Pool of creative agent names — assigned round-robin when no explicit name
+ *  or task is available. Each agent keeps its assigned name for life. */
+const NAME_POOL: readonly string[] = [
+  'Einstein', 'Tesla', 'Curie', 'Turing', 'Feynman',
+  'Hopper', 'Neumann', 'Lovelace', 'Babbage', 'Knuth',
+  'Ritchie', 'Torvalds', 'Berners', 'Cerf', 'Lamport',
+  'Dijkstra', 'Shannon', 'McCarthy', 'Backus', 'Engelbart',
+  'Borg', 'Clarke', 'Asimov', 'Sagan', 'Hawking',
+  'Darwin', 'Newton', 'Galileo', 'Kepler', 'Copernicus',
+];
+
+/** Stable name assignments — an agent keeps its name forever once assigned. */
+const nameCache = new Map<string, string>();
+let nameCursor = 0;
+
+/** Clear the name cache (e.g. on session reset). */
+export function resetAgentNameCache(): void {
+  nameCache.clear();
+  nameCursor = 0;
+}
+
+/** Derive a short label from a task description — first sentence, max 48 chars. */
+function taskToName(task: string): string {
+  const firstSentence = task.split(/[.!?]\s/)[0] ?? task;
+  const trimmed = firstSentence.trim();
+  if (trimmed.length <= 48) return trimmed;
+  // Try to break at a word boundary.
+  const cut = trimmed.lastIndexOf(' ', 45);
+  return cut > 30 ? `${trimmed.slice(0, cut)}…` : `${trimmed.slice(0, 45)}…`;
+}
+
+/** Pick the next unused creative name from the pool (round-robin, skips taken). */
+function nextPoolName(): string {
+  for (let attempt = 0; attempt < NAME_POOL.length; attempt++) {
+    const name = NAME_POOL[nameCursor % NAME_POOL.length];
+    nameCursor++;
+    if (!nameCache.has(name)) return name;
+  }
+  // Pool exhausted — fall back to a numbered variant.
+  for (let suffix = 2; ; suffix++) {
+    const name = `${NAME_POOL[0]} ${suffix}`;
+    if (!nameCache.has(name)) return name;
+  }
+}
+
+/** Assign a stable, human-readable display name for an agent.
+ *
+ *  Priority order:
+ *  1. Explicit non-UUID name from the server (e.g. "bug-hunter").
+ *  2. Task-derived label ("Fix auth bug in login").
+ *  3. Creative name from the pool (Einstein, Tesla, …).
+ *
+ *  Once assigned, the name is cached per agent id — reordering the agent list
+ *  or re-rendering never changes an existing agent's display name. */
+function assignName(
+  id: string,
+  name: string,
+  task?: string | undefined,
+): string {
+  if (nameCache.has(id)) return nameCache.get(id)!;
+
+  const explicitName = name.trim();
+  if (explicitName && !UUID_RE.test(explicitName) && explicitName.toLowerCase() !== id.toLowerCase()) {
+    nameCache.set(id, explicitName);
+    return explicitName;
+  }
+
+  if (task && task.trim()) {
+    const derived = taskToName(task.trim());
+    // Avoid collisions with pool names by appending a suffix if needed.
+    const unique = nameCache.has(derived) ? `${derived} #${id.slice(0, 4)}` : derived;
+    nameCache.set(id, unique);
+    return unique;
+  }
+
+  const poolName = nextPoolName();
+  nameCache.set(id, poolName);
+  return poolName;
+}
+
 /** The leader is always first; workers retain their stable discovery order. */
 export function buildAgentTabs(subagents: SimpleSubagent[], leaderRunning: boolean): AgentTab[] {
   return [
@@ -50,6 +133,7 @@ export function buildAgentTabs(subagents: SimpleSubagent[], leaderRunning: boole
     },
     ...subagents.map((agent) => ({
       ...agent,
+      name: assignName(agent.id, agent.name, agent.task),
       isLeader: false,
       isActive: isActiveStatus(agent.status),
     })),

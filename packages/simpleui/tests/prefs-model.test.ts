@@ -6,6 +6,7 @@ const seeded: SimplePrefs = {
   yolo: true,
   enhanceEnabled: true,
   enhanceLanguage: 'turkish',
+  showModelReasoning: true,
   chime: true,
   confirmExit: true,
 };
@@ -26,6 +27,7 @@ describe('parsePrefs', () => {
       yolo: true,
       enhanceEnabled: true,
       enhanceLanguage: 'turkish',
+      showModelReasoning: true,
       chime: true,
       confirmExit: false,
     });

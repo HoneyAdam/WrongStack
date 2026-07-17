@@ -1,13 +1,16 @@
 import { Check, Copy, ListChecks, LoaderCircle } from 'lucide-react';
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { MarkdownHooks as ReactMarkdown } from 'react-markdown';
 import rehypePrettyCode from 'rehype-pretty-code';
 import remarkGfm from 'remark-gfm';
 import { projectAssistantMessage } from './lib/message-projection.js';
-import type { ChatMessage } from './types.js';
+import { buildTimeline } from './lib/timeline-model.js';
+import { ToolCallEntry } from './tool-call-entry.js';
+import type { ChatMessage, FileEditMeta, TimelineEntry, ToolCallInfo } from './types.js';
 
 interface ChatMessageListProps {
   messages: ChatMessage[];
+  toolCalls?: ToolCallInfo[] | undefined;
   latestAssistantId: string | undefined;
   copiedMessageId: string | null;
   running: boolean;
@@ -15,6 +18,8 @@ interface ChatMessageListProps {
   emptyState: React.ReactNode;
   onCopyMessage: (id: string, text: string) => void;
   onSelectNextStep: (text: string) => void;
+  /** Open the file diff panel for a file edit tool call. */
+  onOpenDiff?: ((meta: FileEditMeta) => void) | undefined;
 }
 
 // ── Memo'd sub-components ──────────────────────────────────────────
@@ -129,6 +134,7 @@ const MessageItem = memo(function MessageItem({
  */
 export function ChatMessageList({
   messages,
+  toolCalls,
   latestAssistantId,
   copiedMessageId,
   running,
@@ -136,21 +142,47 @@ export function ChatMessageList({
   emptyState,
   onCopyMessage,
   onSelectNextStep,
+  onOpenDiff,
 }: ChatMessageListProps) {
+  const timeline = useMemo(
+    () => (toolCalls ? buildTimeline(messages, toolCalls) : []),
+    [messages, toolCalls],
+  );
+  const hasTimeline = toolCalls && timeline.length > 0;
+
   return (
     <div className="conversation">
-      {messages.length === 0
+      {messages.length === 0 && !hasTimeline
         ? emptyState
-        : messages.map((message) => (
-            <MessageItem
-              key={message.id}
-              message={message}
-              isLatestAssistant={message.id === latestAssistantId}
-              copiedMessageId={copiedMessageId}
-              onCopyMessage={onCopyMessage}
-              onSelectNextStep={onSelectNextStep}
-            />
-          ))}
+        : hasTimeline
+          ? timeline.map((entry) =>
+              entry.kind === 'message' && entry.message ? (
+                <MessageItem
+                  key={entry.message.id}
+                  message={entry.message}
+                  isLatestAssistant={entry.message.id === latestAssistantId}
+                  copiedMessageId={copiedMessageId}
+                  onCopyMessage={onCopyMessage}
+                  onSelectNextStep={onSelectNextStep}
+                />
+              ) : entry.kind === 'tool_call' && entry.toolCall ? (
+                <ToolCallEntry
+                  key={entry.toolCall.id}
+                  toolCall={entry.toolCall}
+                  onOpenDiff={onOpenDiff}
+                />
+              ) : null,
+            )
+          : messages.map((message) => (
+              <MessageItem
+                key={message.id}
+                message={message}
+                isLatestAssistant={message.id === latestAssistantId}
+                copiedMessageId={copiedMessageId}
+                onCopyMessage={onCopyMessage}
+                onSelectNextStep={onSelectNextStep}
+              />
+            ))}
       {running && activity && (
         <div className="activity-line" role="status" aria-live="polite">
           <LoaderCircle size={14} className="spin" />

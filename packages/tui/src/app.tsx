@@ -562,6 +562,9 @@ export interface AppProps {
   family?: string | undefined;
   /** Last 3 chars of the active API key, shown in the banner for "did I pick the right key?" verification. */
   keyTail?: string | undefined;
+  /** Background autonomy agents to display in the banner (Brain, Shadow,
+   *  Kanban, Mailbox, Memory, etc.). */
+  autonomyAgents?: import('./components/history/types.js').AutonomyAgentStatus[] | undefined;
   /**
    * Snapshot the keyed providers (and their model lists) for the
    * `/model` picker. Called every time the picker opens, so the result
@@ -937,6 +940,7 @@ export function App({
   provider,
   family,
   keyTail,
+  autonomyAgents,
   tokenSavingMode,
   toolCount,
   getPickableProviders,
@@ -1155,6 +1159,7 @@ export function App({
       cwd: agent.ctx.cwd,
       family,
       keyTail,
+      autonomyAgents,
       restoredEntries,
       restoredCheckpoints,
       enhanceEnabled,
@@ -6430,7 +6435,7 @@ export function App({
         // conversation. Match the command name segment, not just the
         // prefix, so `/clearfoo` doesn't trigger.
         const cmd = trimmed.slice(1).split(/\s+/, 1)[0];
-        if (cmd === 'clear') {
+        if (cmd === 'clear' && res?.metadata?.cleared === true) {
           // Physically wipe the terminal (screen + scrollback) FIRST so the
           // old conversation isn't left reachable above the fresh banner;
           // the clearHistory remount below then reprints the banner onto a
@@ -7081,7 +7086,7 @@ export function App({
             autonomyMode={autonomyLive}
             multiDiffSummaryThreshold={state.settingsPicker.multiDiffSummaryThreshold}
             todos={liveTodos}
-            showModelReasoning={state.settingsPicker.showModelReasoning}
+            showModelReasoning={state.settingsPicker.open ? state.settingsPicker.showModelReasoning : (liveSettings?.showModelReasoning ?? true)}
           />
         ) : (
           <History
@@ -7097,7 +7102,7 @@ export function App({
             autonomyMode={autonomyLive}
             multiDiffSummaryThreshold={state.settingsPicker.multiDiffSummaryThreshold}
             todos={liveTodos}
-            showModelReasoning={state.settingsPicker.showModelReasoning}
+            showModelReasoning={state.settingsPicker.open ? state.settingsPicker.showModelReasoning : (liveSettings?.showModelReasoning ?? true)}
           />
         )}
         <Box flexDirection="column" flexShrink={0} ref={bottomRegionRef}>
@@ -7476,6 +7481,8 @@ export function App({
               original={state.buffer}
               elapsedMs={enhanceStartedAt === null ? 0 : Math.max(0, Date.now() - enhanceStartedAt)}
               pulseFrame={enhanceDots}
+              providerId={(agent.ctx.provider as { id?: string } | undefined)?.id}
+              model={agent.ctx.model}
             />
           ) : null}
           {state.enhance
@@ -7498,6 +7505,8 @@ export function App({
                     enhanceLanguage={state.settingsPicker.enhanceLanguage}
                     onDecision={onDecision}
                     onTick={(r) => setEnhanceCountdown(r > 0 ? r : null)}
+                    providerId={(agent.ctx.provider as { id?: string } | undefined)?.id}
+                    model={agent.ctx.model}
                   />
                 );
               })()

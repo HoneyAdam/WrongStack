@@ -794,6 +794,18 @@ export class WrongStackWebSocketClient {
     this.send({ type: 'memory.super.remember', payload: opts }, options);
   }
 
+  /**
+   * File-drawer query: returns memories grouped by how they match the file
+   * (primary / symbol / related), with cursor-aware boost when lineStart
+   * / lineEnd are provided. Read-only — opens a file without mutating store.
+   */
+  findMemoriesForFile(
+    opts: Extract<WSClientMessage, { type: 'memory.super.forFile' }>['payload'],
+    options?: WSSendOptions,
+  ) {
+    this.send({ type: 'memory.super.forFile', payload: opts }, options);
+  }
+
   // ── MCP server management ─────────────────────────────────────────────────────
   listMcpServers() {
     this.send({ type: 'mcp.list' });

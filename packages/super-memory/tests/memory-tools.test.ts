@@ -49,6 +49,7 @@ function createMockService(): SuperMemoryServiceLike {
         superseded: 0,
         contradicted: 0,
         staled: 0,
+        reviewCandidatesCreated: 0,
         archived: 0,
         archivedUnused: 0,
         deleted: 0,
@@ -71,6 +72,37 @@ function createMockService(): SuperMemoryServiceLike {
       return { id: 'mem_upd' } as never;
     },
     async deleteSuperMemory() {},
+    async recoverSuperMemory() {
+      return { id: 'mem_rec' } as never;
+    },
+    async backfillRecoverable() {
+      return {
+        startedAt: '',
+        completedAt: '',
+        dryRun: true,
+        examined: 0,
+        recoverable: 0,
+        recovered: 0,
+        skipped: 0,
+        skippedRecords: [],
+        recoverableRecords: [],
+        byKind: {},
+        byReason: {},
+      } as never;
+    },
+    async findMemoriesForFile() {
+      // Minimal stub shape — only fields the tool's response type requires.
+      return {
+        filePath: '',
+        primaryMatches: [],
+        symbolMatches: [],
+        relatedMatches: [],
+        totalCount: 0,
+        activeCount: 0,
+        supersededCount: 0,
+        reviewPendingCount: 0,
+      } as never;
+    },
     async getSuperMemory() {
       return { id: 'mem_get' } as never;
     },
@@ -78,10 +110,10 @@ function createMockService(): SuperMemoryServiceLike {
 }
 
 describe('createSuperMemoryTools', () => {
-  it('returns 11 tools with correct names', () => {
+  it('returns 13 tools with correct names', () => {
     const service = createMockService();
     const tools = createSuperMemoryTools(service);
-    expect(tools).toHaveLength(11);
+    expect(tools).toHaveLength(13);
     expect(tools.map((t) => t.name)).toEqual([
       'memory_for_file',
       'memory_for_path',
@@ -94,6 +126,8 @@ describe('createSuperMemoryTools', () => {
       'forget',
       'memory_update',
       'memory_delete',
+      'memory_recover',
+      'memory_backfill_recoverable',
     ]);
   });
 
@@ -109,20 +143,66 @@ describe('createSuperMemoryTools', () => {
 });
 
 describe('memory_for_file tool', () => {
-  it('calls retrieveForPath with includeAncestors: false', async () => {
-    const retrieveForPath = vi.fn().mockResolvedValue([]);
+  it('calls findMemoriesForFile with the provided path and cursor range, defaulting showSuperseded=true and showDeleted=false', async () => {
+    const findMemoriesForFile = vi.fn().mockResolvedValue({
+      filePath: 'src/file.ts',
+      primaryMatches: [],
+      symbolMatches: [],
+      relatedMatches: [],
+      totalCount: 0,
+      activeCount: 0,
+      supersededCount: 0,
+      reviewPendingCount: 0,
+    });
     const service = createMockService();
-    service.retrieveForPath = retrieveForPath;
+    service.findMemoriesForFile = findMemoriesForFile;
 
     const tool = createSuperMemoryTools(service)[0]!;
     const signal = new AbortController().signal;
-    await tool.execute({ path: 'src/file.ts', limit: 5 }, {} as never, { signal } as never);
+    await tool.execute(
+      { path: 'src/file.ts', lineStart: 42, lineEnd: 60, limit: 5 },
+      {} as never,
+      { signal } as never,
+    );
 
-    expect(retrieveForPath).toHaveBeenCalledWith({
-      path: 'src/file.ts',
+    expect(findMemoriesForFile).toHaveBeenCalledWith('src/file.ts', {
+      lineStart: 42,
+      lineEnd: 60,
       limit: 5,
-      includeAncestors: false,
+      includeSuperseded: true, // default true
+      includeDeleted: false,    // default false
     });
+  });
+
+  it('omits lineStart/lineEnd when not provided and forwards showDeleted=true verbatim', async () => {
+    const findMemoriesForFile = vi.fn().mockResolvedValue({
+      filePath: 'src/x.ts',
+      primaryMatches: [],
+      symbolMatches: [],
+      relatedMatches: [],
+      totalCount: 0,
+      activeCount: 0,
+      supersededCount: 0,
+      reviewPendingCount: 0,
+    });
+    const service = createMockService();
+    service.findMemoriesForFile = findMemoriesForFile;
+
+    const tool = createSuperMemoryTools(service)[0]!;
+    const signal = new AbortController().signal;
+    await tool.execute(
+      { path: 'src/x.ts', showDeleted: true, showSuperseded: false },
+      {} as never,
+      { signal } as never,
+    );
+
+    const call = findMemoriesForFile.mock.calls[0]!;
+    expect(call[0]).toBe('src/x.ts');
+    // Cursor fields must be absent (no undefined keys leaking through).
+    expect('lineStart' in (call[1] as object)).toBe(false);
+    expect('lineEnd' in (call[1] as object)).toBe(false);
+    expect((call[1] as { includeSuperseded: boolean }).includeSuperseded).toBe(false);
+    expect((call[1] as { includeDeleted: boolean }).includeDeleted).toBe(true);
   });
 
   it('throws on abort', async () => {
@@ -541,6 +621,8 @@ describe('memory_delete tool', () => {
       { signal: new AbortController().signal } as never,
     );
 
+    // When `force` is omitted, the tool forwards only the two required
+    // positional args so the mock's positional matcher stays unambiguous.
     expect(deleteSuperMemory).toHaveBeenCalledWith('mem_1', 'obsolete');
     expect(result).toEqual({ deleted: true, id: 'mem_1' });
   });

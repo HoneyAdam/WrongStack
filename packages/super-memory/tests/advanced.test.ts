@@ -243,6 +243,8 @@ describe('Super Memory integration surfaces', () => {
       'forget',
       'memory_update',
       'memory_delete',
+      'memory_recover',
+      'memory_backfill_recoverable',
     ]);
   });
 

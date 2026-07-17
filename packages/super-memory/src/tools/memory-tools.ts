@@ -7,11 +7,16 @@ import type {
   MemoryVerificationResult,
   RememberSuperMemoryInput,
   SuperMemory,
+  SuperMemoryBackfillFilter,
+  SuperMemoryBackfillOptions,
+  SuperMemoryBackfillReport,
   SuperMemoryHygieneOptions,
   SuperMemoryHygieneReport,
   SuperMemoryKind,
   SuperMemoryScope,
   SuperMemoryStatus,
+  FindMemoriesForFileOptions,
+  FindMemoriesForFileResponse,
   UpdateSuperMemoryInput,
 } from '../types.js';
 
@@ -45,7 +50,28 @@ export interface SuperMemoryServiceLike extends MemoryStore {
   rejectCandidate(candidateId: string, reason: string): Promise<boolean>;
   rememberSuper(input: RememberSuperMemoryInput): Promise<SuperMemory>;
   updateSuperMemory(id: string, patch: UpdateSuperMemoryInput): Promise<SuperMemory>;
-  deleteSuperMemory(id: string, reason?: string): Promise<void>;
+  deleteSuperMemory(id: string, reason?: string, options?: { force?: boolean }): Promise<void>;
+  /**
+   * Restore a `deleted` memory to `active`. Superseded memories return the
+   * head of their version chain (no-op write). Throws if the id is unknown.
+   */
+  recoverSuperMemory(id: string, reason?: string): Promise<SuperMemory>;
+  /**
+   * Scan `status='deleted'` records and create fresh active versions for
+   * the ones that pass the recoverability filter. Default `dryRun: true`.
+   * Used by users/LLMs to undo a hygiene-driven deletion from a prior
+   * session (legacy records from before the redesigned contract).
+   */
+  backfillRecoverable(options?: SuperMemoryBackfillOptions): Promise<SuperMemoryBackfillReport>;
+  /**
+   * File-drawer query: returns primary / symbol / related buckets with
+   * `matchedVia`, `matchStrength`, and `pendingReview` metadata.
+   * Read-only — opening a file in the editor must never mutate memory.
+   */
+  findMemoriesForFile(
+    filePath: string,
+    options?: FindMemoriesForFileOptions,
+  ): Promise<FindMemoriesForFileResponse>;
   getSuperMemory(id: string): Promise<SuperMemory | null>;
 }
 
@@ -65,6 +91,8 @@ export function createSuperMemoryTools(memory: SuperMemoryServiceLike): Tool[] {
     memoryForgetTool(memory),
     memoryUpdateTool(memory),
     memoryDeleteTool(memory),
+    memoryRecoverTool(memory),
+    memoryBackfillRecoverableTool(memory),
   ];
 }
 
@@ -238,14 +266,15 @@ function memoryUpdateTool(memory: SuperMemoryServiceLike): Tool<{ id: string } &
   };
 }
 
-function memoryDeleteTool(memory: SuperMemoryServiceLike): Tool<{ id: string; reason?: string }, { deleted: true; id: string }> {
+function memoryDeleteTool(memory: SuperMemoryServiceLike): Tool<{ id: string; reason?: string; force?: boolean }, { deleted: true; id: string }> {
   return {
     name: 'memory_delete',
     category: 'Session',
     description: 'Delete one Super Memory entry by id (soft-delete with graph/relationship cascade cleanup).',
     usageHint:
       'Exact, single-entry removal by id — safer than substring `forget`.\n' +
-      '- Find the id via `memory_search`. Provide a short `reason` for the audit log.',
+      '- Find the id via `memory_search`. Provide a short `reason` for the audit log.\n' +
+      '- Memories marked `permanent` are refused unless `force: true` is passed; the override is recorded in the audit log.',
     permission: 'confirm',
     mutating: true,
     riskTier: 'standard',
@@ -255,21 +284,206 @@ function memoryDeleteTool(memory: SuperMemoryServiceLike): Tool<{ id: string; re
     inputSchema: objectSchema({
       id: { type: 'string', minLength: 1, description: 'The memory id to delete.' },
       reason: stringSchema('Reason recorded in the audit log.'),
+      force: { type: 'boolean', description: 'Required to delete memories marked `permanent`. The override is audited.' },
     }, ['id']),
     async execute(input, _ctx, opts) {
       opts.signal.throwIfAborted();
-      await memory.deleteSuperMemory(input.id, input.reason);
+      // Only forward `force` when it's truthy — keeps the call signature
+      // backward-compatible for callers/tests that match on positional args.
+      if (input.force === true) {
+        await memory.deleteSuperMemory(input.id, input.reason, { force: true });
+      } else {
+        await memory.deleteSuperMemory(input.id, input.reason);
+      }
       return { deleted: true, id: input.id };
     },
   };
 }
 
-function memoryForFileTool(memory: SuperMemoryServiceLike): Tool<{ path: string; limit?: number }, SuperMemory[]> {
+interface RecoverToolOutput {
+  recovered: true;
+  id: string;
+  /** Memory returned (after restore for `deleted`, or head-of-chain for `superseded`). */
+  memory: SuperMemory;
+  /** True when the requested id was already-active or superseded (no-op write). */
+  noop: boolean;
+}
+
+function memoryRecoverTool(memory: SuperMemoryServiceLike): Tool<{ id: string; reason?: string }, RecoverToolOutput> {
+  return {
+    name: 'memory_recover',
+    category: 'Session',
+    description: 'Restore a deleted Super Memory entry to active status. Superseded entries resolve to the head of their version chain (no-op write).',
+    usageHint:
+      'Use after a `deleted` entry has been surfaced by `memory_search` with `includeStatuses: ["deleted"]`, ' +
+      'or from the MemoryManager "↺ Recover" button. Idempotent: already-active or superseded entries return `noop: true`.\n' +
+      '- Provide a short `reason` for the audit log.\n' +
+      '- Permanence is preserved — recovering a `deleted` memory does not alter its `persistence` class.',
+    permission: 'confirm',
+    mutating: true,
+    riskTier: 'standard',
+    timeoutMs: 2_000,
+    capabilities: ['memory.recover'],
+    icon: 'settings',
+    inputSchema: objectSchema({
+      id: { type: 'string', minLength: 1, description: 'The memory id to recover.' },
+      reason: stringSchema('Reason recorded in the audit log.'),
+    }, ['id']),
+    async execute(input, _ctx, opts) {
+      opts.signal.throwIfAborted();
+      // Read pre-call status: only `deleted` → `active` is a real write.
+      // Id-equality can't distinguish "wrote and returned same id" from
+      // "returned same id unchanged" (the idempotent already-active retry path).
+      const preCall = await memory.getSuperMemory(input.id);
+      if (!preCall) {
+        throw new Error(`Super Memory "${input.id}" not found.`);
+      }
+      const result = await memory.recoverSuperMemory(input.id, input.reason);
+      const noop = preCall.status !== 'deleted';
+      return { recovered: true, id: input.id, memory: result, noop };
+    },
+  };
+}
+
+interface BackfillRecoverableToolInput {
+  filter?: SuperMemoryBackfillFilter | undefined;
+  /** Default true: report only. Pass `--apply` (set false) to actually create new versions. */
+  apply?: boolean | undefined;
+  /** Optional operator/LLM reason recorded in audit. */
+  reason?: string | undefined;
+}
+
+function memoryBackfillRecoverableTool(
+  memory: SuperMemoryServiceLike,
+): Tool<BackfillRecoverableToolInput, SuperMemoryBackfillReport> {
+  return {
+    name: 'memory_backfill_recoverable',
+    category: 'Session',
+    description: 'Find status="deleted" memories that are still recoverable and either preview them (default) or restore them as fresh active versions.',
+    usageHint:
+      'Use when you want to undo legacy hygiene-driven deletions. Default is `dryRun: true` — the tool returns a report without writing anything.\n' +
+      '- Pass `--apply` (or `apply: false`) to actually create fresh active versions for each recoverable memory. The original `deleted` records are preserved (audit trail); a new active version is created and linked via `supersedes`.\n' +
+      '- Use `filter.kinds` / `filter.scopes` / `filter.updatedAfter` / `filter.updatedBefore` to narrow scope. `filter.requireText: false` lets in records with empty text; `filter.requireProvenance: false` lets in records with neither sources nor anchors.\n' +
+      '- The audit log records every run (`memory.backfill_dry_run` or `memory.backfill_applied`).',
+    permission: 'confirm',
+    mutating: false, // default dry-run; flips to true when apply is requested — see execute()
+    riskTier: 'standard',
+    timeoutMs: 5_000,
+    capabilities: ['memory.backfill'],
+    icon: 'search',
+    inputSchema: objectSchema({
+      filter: {
+        type: 'object',
+        description: 'Optional filter — see schema for fields. Empty/missing means "no filter".',
+        properties: {
+          kinds: {
+            type: 'array',
+            items: { type: 'string', enum: KIND_VALUES },
+            description: 'Only consider memories with one of these kinds.',
+          },
+          scopes: {
+            type: 'array',
+            items: { type: 'string', enum: SCOPE_VALUES },
+            description: 'Only consider memories with one of these scopes.',
+          },
+          updatedAfter: stringSchema('ISO-8601 cutoff: only memories with updatedAt >= this are considered.'),
+          updatedBefore: stringSchema('ISO-8601 cutoff: only memories with updatedAt <= this are considered.'),
+          requireText: { type: 'boolean', description: 'Default true. Set false to also consider empty-text records.' },
+          requireProvenance: { type: 'boolean', description: 'Default true. Set false to consider records with neither sources nor anchors.' },
+        },
+        additionalProperties: false,
+      },
+      apply: { type: 'boolean', description: 'Default false (dry-run). Set true to actually create new active versions.' },
+      reason: stringSchema('Optional reason recorded in the audit log.'),
+    }, []),
+    async execute(input, _ctx, opts) {
+      opts.signal.throwIfAborted();
+      // `--apply` semantics: the CLI surfaces the flag as `apply: true`,
+      // the JS API as `dryRun: false`. We accept both shapes here.
+      const dryRun = input.apply !== true;
+      const report = await memory.backfillRecoverable({
+        dryRun,
+        ...(input.filter !== undefined ? { filter: input.filter } : {}),
+      });
+      return report;
+    },
+  };
+}
+
+/**
+ * Rich file-drawer query: returns three buckets (`primaryMatches`,
+ * `symbolMatches`, `relatedMatches`) with `matchedVia`, `matchStrength`,
+ * `supersededByActiveId`, and `pendingReview` metadata so the file-editor
+ * UI can render "why this matched" + give the user recovery / review actions.
+ *
+ * Side-effect-free: opening a file in the editor must never mutate the memory
+ * store. Cursor-aware via `lineStart`/`lineEnd` — when both are provided,
+ * symbol anchors overlapping that range get a strength boost (0.95) so the
+ * user sees the most relevant notes pinned when their caret lands on a
+ * function/class.
+ */
+function memoryForFileTool(
+  memory: SuperMemoryServiceLike,
+): Tool<
+  {
+    path: string;
+    /** Optional cursor line — symbol anchors overlapping get a strength boost. */
+    lineStart?: number;
+    lineEnd?: number;
+    /** Per-bucket cap. Default 50. */
+    limit?: number;
+    /** Default true. Include superseded memories (with `supersededByActiveId`). */
+    showSuperseded?: boolean;
+    /**
+     * Default false. Set true (typically via a "Show recoverable" UI toggle)
+     * to surface `status='deleted'` memories for one-click recovery.
+     */
+    showDeleted?: boolean;
+  },
+  FindMemoriesForFileResponse
+> {
   return {
     name: 'memory_for_file',
     category: 'Inspect',
-    description: 'Retrieve verified project knowledge attached directly to a file.',
-    inputSchema: objectSchema({ path: stringSchema('Project-relative file path.'), limit: numberSchema(1, 50) }, ['path']),
+    description:
+      'Retrieve memories attached to a file, grouped by how they match. ' +
+      'Supports a cursor line range so symbol-anchored memories under the caret surface first.',
+    usageHint:
+      'Use when opening a file in the editor and you want to surface every memory ' +
+      'that is attached, anchored, or mentions the file. Pass `lineStart` / `lineEnd` ' +
+      'to pin symbol-anchored memories overlapping the cursor.\n' +
+      '- `primaryMatches`: scope_file or file/directory anchor (strongest).\n' +
+      '- `symbolMatches`: scope_symbol or symbol anchor (cursor-boosted).\n' +
+      '- `relatedMatches`: text mentions (weakest — shown under "Mentioned in").\n' +
+      'Set `showDeleted: true` after a Show-recoverable toggle to include deleted records.',
+    inputSchema: objectSchema(
+      {
+        path: stringSchema('Project-relative file path.'),
+        lineStart: {
+          type: 'integer',
+          minimum: 1,
+          description:
+            'Optional — caret line (1-indexed). When both `lineStart` and `lineEnd` are set, symbol anchors overlapping this range get a strength boost.',
+        },
+        lineEnd: {
+          type: 'integer',
+          minimum: 1,
+          description: 'Optional — last caret line. Pair with `lineStart`.',
+        },
+        limit: { ...numberSchema(1, 200), description: 'Per-bucket cap. Default 50.' },
+        showSuperseded: {
+          type: 'boolean',
+          description:
+            'Default true. Set false to hide superseded memories (use for compact UI).',
+        },
+        showDeleted: {
+          type: 'boolean',
+          description:
+            'Default false. Set true (typically via a "Show recoverable" UI toggle) to surface deleted memories for recovery.',
+        },
+      },
+      ['path'],
+    ),
     permission: 'auto',
     mutating: false,
     riskTier: 'safe',
@@ -277,7 +491,13 @@ function memoryForFileTool(memory: SuperMemoryServiceLike): Tool<{ path: string;
     icon: 'search',
     async execute(input, _ctx, opts) {
       opts.signal.throwIfAborted();
-      return memory.retrieveForPath({ path: input.path, limit: input.limit ?? 10, includeAncestors: false });
+      return memory.findMemoriesForFile(input.path, {
+        ...(input.lineStart !== undefined ? { lineStart: input.lineStart } : {}),
+        ...(input.lineEnd !== undefined ? { lineEnd: input.lineEnd } : {}),
+        limit: input.limit ?? 50,
+        includeSuperseded: input.showSuperseded !== false,
+        includeDeleted: input.showDeleted === true,
+      });
     },
   };
 }

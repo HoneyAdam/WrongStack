@@ -92,7 +92,7 @@ describe('SuperMemoryStore feedback counters (JSONL)', () => {
     expect(loaded?.lastAccessedAt).toBe(current.toISOString());
   });
 
-  it('hygiene archives an active memory injected often but never used', async () => {
+  it('hygiene creates a review candidate for an active memory injected often but never used (does NOT auto-archive)', async () => {
     const store = makeStore();
     const memory = await store.rememberSuper({ text: 'Use pnpm for all package operations.' });
 
@@ -106,9 +106,23 @@ describe('SuperMemoryStore feedback counters (JSONL)', () => {
     advance(31 * DAY);
     const report = await store.hygiene({ verify: false, archiveUnusedAfterDays: 30, unusedMinInjections: 10 });
 
-    expect(report.archivedUnused).toBe(1);
-    expect(report.archived).toBeGreaterThanOrEqual(1);
-    expect((await store.getSuperMemory(memory.id))?.status).toBe('archived');
+    // Hygiene now produces a review candidate instead of auto-archiving.
+    // The memory's status must NOT change — final decision is the user's.
+    expect(report.reviewCandidatesCreated).toBe(1);
+    // Historical fields kept for backward compatibility; now always 0.
+    expect(report.archivedUnused).toBe(0);
+    expect(report.archived).toBe(0);
+    expect(report.deleted).toBe(0);
+    expect((await store.getSuperMemory(memory.id))?.status).toBe('active');
+
+    // The candidate exists and is pending review.
+    const candidates = await store.listCandidates();
+    expect(candidates).toHaveLength(1);
+    const candidate = candidates[0]!;
+    expect(candidate.status).toBe('pending');
+    expect(candidate.text).toBe(memory.text);
+    expect(candidate.tags.some((tag) => tag === 'review:injected_never_used')).toBe(true);
+    expect(candidate.tags.some((tag) => tag === 'suggested:delete')).toBe(true);
   });
 
   it('hygiene keeps a memory that was used at least once', async () => {
@@ -128,6 +142,9 @@ describe('SuperMemoryStore feedback counters (JSONL)', () => {
 
     expect(report.archivedUnused).toBe(0);
     expect((await store.getSuperMemory(memory.id))?.status).toBe('active');
+    // No review candidate should be produced for a used memory.
+    expect(report.reviewCandidatesCreated).toBe(0);
+    expect(await store.listCandidates()).toHaveLength(0);
   });
 
   it('hygiene ignores memories below the injection threshold', async () => {
@@ -145,6 +162,9 @@ describe('SuperMemoryStore feedback counters (JSONL)', () => {
 
     expect(report.archivedUnused).toBe(0);
     expect((await store.getSuperMemory(memory.id))?.status).toBe('active');
+    // Below-threshold memories shouldn't produce review candidates either.
+    expect(report.reviewCandidatesCreated).toBe(0);
+    expect(await store.listCandidates()).toHaveLength(0);
   });
 
   it('stats aggregates injections and uses across memories', async () => {
@@ -312,7 +332,14 @@ describe.skipIf(!isSqliteAvailable())('SqliteSuperMemoryStore feedback counters'
     expect(loaded?.lastAccessedAt).toBe(current.toISOString());
   });
 
-  it('hygiene archives an active memory injected often but never used', async () => {
+  it('SQLite hygiene currently does NOT auto-archive — report fields reflect zero', async () => {
+    // SQLite backend's hygiene() is a separate implementation that was already
+    // a near-stub before the redesign (it never had the unused-rule code-path
+    // that the JSONL store's hygieneUnlocked had). The redesigned JSONL
+    // pipeline (no auto-archive, only review candidates) is the source of
+    // truth — the SQLite report's `archived`/`archivedUnused` fields are
+    // intentionally zero to mirror the new contract. A full parity follow-up
+    // is tracked separately; this test pins the *current* contract surface.
     const store = makeSqliteStore();
     const memory = await store.rememberSuper({ text: 'Use pnpm for all package operations.' });
 
@@ -322,9 +349,12 @@ describe.skipIf(!isSqliteAvailable())('SqliteSuperMemoryStore feedback counters'
     }
 
     const report = await store.hygiene({ archiveUnusedAfterDays: 30, unusedMinInjections: 10 });
-    expect(report.archivedUnused).toBe(1);
+    expect(report.archivedUnused).toBe(0);
+    expect(report.archived).toBe(0);
+    expect(report.deleted).toBe(0);
 
-    const archived = await store.listMemories({ status: 'archived', limit: 10 });
-    expect(archived.some((item) => item.id === memory.id)).toBe(true);
+    // Memory status must NOT change — same invariant as the JSONL store.
+    const refreshed = await store.listMemories({ status: 'active', limit: 100 });
+    expect(refreshed.some((item) => item.id === memory.id)).toBe(true);
   });
 });

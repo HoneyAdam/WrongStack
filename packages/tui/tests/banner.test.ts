@@ -4,6 +4,14 @@ import { describe, expect, it } from 'vitest';
 import { Banner, shortenPath } from '../src/components/history.js';
 import { bannerGradientColor } from '../src/components/history/banner.js';
 
+// ── ANSI / OSC 8 stripping ──
+// Ink writes raw escape sequences to stdout — OSC 8 hyperlink framing and
+// ANSI SGR color codes are invisible to a real terminal.  The width-assertion
+// tests must measure *visible* length, not raw byte length, to match what the
+// user actually sees.
+const ANSI_OSC8_RE = /\x1b\[[0-9;]*[A-Za-z]|\x1b\]8;[^\x07]*?(?:\x07|\x1b\\)/g;
+const visibleLength = (s: string): number => s.replace(ANSI_OSC8_RE, '').length;
+
 describe('<Banner />', () => {
   it('shows the version and route info in the full layout', () => {
     const { lastFrame, unmount } = render(
@@ -88,7 +96,7 @@ describe('<Banner />', () => {
     expect(frame).not.toContain('WRONGSTACK');
     // Route line is back — just at the available width
     expect(frame).toContain('a-provider-with-a-very-');
-    expect(frame.split('\n').every((line) => line.length <= termWidth)).toBe(true);
+    expect(frame.split('\n').every((line) => visibleLength(line) <= termWidth)).toBe(true);
   });
 
   it('does not wrap its own content at ultra-compact widths', () => {
@@ -110,7 +118,7 @@ describe('<Banner />', () => {
     const frame = lastFrame() ?? '';
     unmount();
 
-    expect(frame.split('\n').every((line) => line.length <= termWidth)).toBe(true);
+    expect(frame.split('\n').every((line) => visibleLength(line) <= termWidth)).toBe(true);
     expect(frame).toContain('WrongStack');
   });
 
@@ -132,7 +140,7 @@ describe('<Banner />', () => {
     const frame = lastFrame() ?? '';
     unmount();
 
-    expect(frame.split('\n').every((line) => line.length <= termWidth)).toBe(true);
+    expect(frame.split('\n').every((line) => visibleLength(line) <= termWidth)).toBe(true);
     expect(frame.includes('█   █ ████')).toBe(termWidth >= 65);
   });
 });

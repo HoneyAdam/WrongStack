@@ -13,6 +13,10 @@ export interface RefiningPanelProps {
   elapsedMs: number;
   /** Small animation frame; visual only and never presented as progress. */
   pulseFrame?: number | undefined;
+  /** Provider id of the model running the refinement (e.g. "openai"). */
+  providerId?: string | undefined;
+  /** Model name running the refinement (e.g. "gpt-4o"). */
+  model?: string | undefined;
 }
 
 export interface EnhancePanelProps {
@@ -39,6 +43,10 @@ export interface EnhancePanelProps {
    * changing countdown so this comparison panel stays visually stable.
    */
   onTick?: ((remaining: number) => void) | undefined;
+  /** Provider id of the model that produced the refinement (e.g. "openai"). */
+  providerId?: string | undefined;
+  /** Model name that produced the refinement (e.g. "gpt-4o"). */
+  model?: string | undefined;
 }
 
 function normalizePreviewText(text: string): string {
@@ -172,6 +180,8 @@ export function RefiningPanel({
   original,
   elapsedMs,
   pulseFrame = 0,
+  providerId,
+  model,
 }: RefiningPanelProps): React.ReactElement {
   const columns = useTerminalColumns();
   const previewWidth = Math.max(18, columns - 8);
@@ -196,6 +206,12 @@ export function RefiningPanel({
         <Text color={theme.brand} bold>
           {glyphs.brain} PROMPT REFINER
         </Text>
+        {providerId && model ? (
+          <Text color={theme.textMuted}>
+            {' '}
+            on {providerId}/{model}
+          </Text>
+        ) : null}
         {columns >= 48 ? <Text color={theme.textMuted}> / REFINING</Text> : null}
         <Box flexGrow={1} />
         <Text color={theme.brand}>● WORKING</Text>
@@ -239,6 +255,8 @@ export function EnhancePanel({
   enhanceLanguage = 'original',
   onDecision,
   onTick,
+  providerId,
+  model,
 }: EnhancePanelProps): React.ReactElement {
   const columns = useTerminalColumns();
 
@@ -308,6 +326,12 @@ export function EnhancePanel({
         <Text color={theme.accent} bold>
           {glyphs.brain} REFINEMENT READY
         </Text>
+        {providerId && model ? (
+          <Text color={theme.textMuted}>
+            {' '}
+            via {providerId}/{model}
+          </Text>
+        ) : null}
         <Box flexGrow={1} />
         <Text color={theme.success}>
           {glyphs.success} ready in {formatRefinementDuration(durationMs)}

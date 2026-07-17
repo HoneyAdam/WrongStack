@@ -65,6 +65,27 @@ export interface MemoryEventMap {
     sessionId?: string | undefined;
     traceId?: string | undefined;
   };
+  /** Fired when a deleted memory is restored to active via memory_recover. */
+  'memory.recovered': {
+    memoryId: string;
+    reason: string;
+    sessionId?: string | undefined;
+    traceId?: string | undefined;
+  };
+  /** Fired when memory_recover resolves to an already-active/superseded entry (no-op write). */
+  'memory.recover_noop': {
+    requestedId: string;
+    activeId: string;
+    sessionId?: string | undefined;
+    traceId?: string | undefined;
+  };
+  /** Fired when a hygiene review candidate is created for the ReviewQueue UI. */
+  'memory.review_candidate_created': {
+    candidateId: string;
+    reason: string;
+    sessionId?: string | undefined;
+    traceId?: string | undefined;
+  };
   'memory.contradicted': {
     memoryId: string;
     contradicts: string[];

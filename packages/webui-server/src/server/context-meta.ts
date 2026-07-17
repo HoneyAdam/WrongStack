@@ -87,6 +87,7 @@ export function seedContextMeta(
   meta['thinkingWord'] = (autonomyCfg['thinkingWord'] as string) ?? 'thinking';
   meta['statuslineMode'] = (autonomyCfg['statuslineMode'] as string) ?? 'detailed';
   meta['animationStyle'] = (autonomyCfg['animationStyle'] as string) ?? 'rainbow';
+  meta['showModelReasoning'] = autonomyCfg['showModelReasoning'] !== false;
   // Safety / system prefs
   meta['breakerEnabled'] = config.circuitBreaker?.enabled === true;
   meta['breakerAutoKillResetMs'] = config.circuitBreaker?.autoKillResetMs ?? 60_000;

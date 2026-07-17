@@ -797,36 +797,54 @@ export class SqliteSuperMemoryStore {
     }
 
     // Mark stale
-    for (const id of stale) {
-      this.db.prepare('UPDATE memories SET status = ?, data = json_set(data, \'$.status\', ?) WHERE id = ?').run(
-        'stale',
-        'stale',
-        id,
-      );
+    for (const _id of stale) {
+      // Note: we do NOT mutate `status` here. The redesigned hygiene pipeline
+      // never auto-archives or auto-marks memories; anchor failures surface
+      // as review candidates instead. The `stale` array is reported in the
+      // report (see below) so dashboards see the count, but no DB write
+      // happens. A future parity pass could write review candidates to a
+      // candidates table; until then, this is parity-safe with the JSONL
+      // store's hygieneUnlocked.
     }
 
-    // Archive active memories that were injected at least `unusedMinInjections`
-    // times but never referenced by the assistant, once their content has been
-    // untouched for `archiveUnusedAfterDays` days. Age is measured from
-    // updatedAt — injections bump lastAccessedAt, which is exactly the signal
-    // this rule targets, so measuring from it would never qualify.
+    // Surface unused memories as review candidates.  The candidates table
+    // exists (see initSchema) — we create a candidate for each unused
+    // memory so the ReviewQueue UI can surface it, matching the JSONL
+    // backend's hygieneUnlocked behavior.
     const unusedMs = (opts?.archiveUnusedAfterDays ?? 30) * 86_400_000;
     const unusedMinInjections = Math.max(1, Math.floor(opts?.unusedMinInjections ?? 10));
     const unusedCutoff = new Date(this.now().getTime() - unusedMs).toISOString();
     const unusedRows = this.db
       .prepare(
-        `SELECT id FROM memories
+        `SELECT id, data FROM memories
          WHERE status = 'active'
            AND COALESCE(json_extract(data, '$.injectionCount'), 0) >= ?
            AND COALESCE(json_extract(data, '$.useCount'), 0) = 0
            AND json_extract(data, '$.scope') != 'session'
            AND COALESCE(json_extract(data, '$.updatedAt'), '') <= ?`,
       )
-      .all(unusedMinInjections, unusedCutoff) as Array<{ id: string }>;
-    for (const row of unusedRows) {
-      this.db
-        .prepare('UPDATE memories SET status = ?, data = json_set(data, \'$.status\', ?) WHERE id = ?')
-        .run('archived', 'archived', row.id);
+      .all(unusedMinInjections, unusedCutoff) as Array<{ id: string; data: string }>;
+
+    let reviewCandidatesCreated = 0;
+    for (const { id, data } of unusedRows) {
+      const memory = JSON.parse(data) as SuperMemory;
+      await this.addCandidate({
+        id: ulid(),
+        schemaVersion: 1,
+        memoryId: id,
+        text: memory.text,
+        kind: 'memory_review',
+        status: 'pending',
+        scope: 'project',
+        confidence: 0.6,
+        importance: 0.4,
+        tags: ['review:injected_never_used', 'suggested:delete'],
+        anchors: memory.anchors,
+        sources: [{ type: 'session' }],
+        createdAt: this.nowIso(),
+        updatedAt: this.nowIso(),
+      });
+      reviewCandidatesCreated++;
     }
 
     const report: SuperMemoryHygieneReport = {
@@ -837,8 +855,9 @@ export class SqliteSuperMemoryStore {
       superseded: 0,
       contradicted: 0,
       staled: stale.length,
-      archived: unusedRows.length,
-      archivedUnused: unusedRows.length,
+      reviewCandidatesCreated,
+      archived: 0,
+      archivedUnused: 0,
       deleted: 0,
       verified: verified.length,
     };

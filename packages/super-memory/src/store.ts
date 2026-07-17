@@ -24,9 +24,19 @@ import {
   legacyTypeToKind,
   superToLegacyScope,
   toLegacyEntry,
+  DEFAULT_PERSISTENCE,
+  VALID_PERSISTENCE,
+  type FindMemoriesForFileOptions,
+  type FindMemoriesForFileResponse,
+  type MemoryForFileMatch,
+  type MemoryMatchVia,
   type MemoryAnchor,
   type MemoryAudienceContext,
   type MemoryAudienceSelector,
+  type MemoryReviewReason,
+  type PersistenceClass,
+  type SuperMemoryBackfillOptions,
+  type SuperMemoryBackfillReport,
   type LegacyImportResult,
   type MemoryCandidate,
   type MemoryGraphEdge,
@@ -61,6 +71,7 @@ const VALID_SCOPES = new Set<SuperMemory['scope']>(['project', 'user', 'session'
 const VALID_KINDS = new Set<SuperMemory['kind']>([
   'fact', 'decision', 'convention', 'preference', 'warning', 'anti_pattern',
   'workflow', 'bug_root_cause', 'file_note', 'symbol_note', 'command_note', 'summary',
+  'memory_review',
 ]);
 const VALID_ANCHOR_TYPES = new Set<MemoryAnchor['type']>([
   'file', 'directory', 'symbol', 'package', 'command', 'test', 'git',
@@ -153,6 +164,7 @@ export class SuperMemoryStore implements MemoryStore {
     const anchors = normalizeAnchors(this.projectRoot, input.anchors ?? []);
     const audience = normalizeAudience(input.audience);
     const sources = normalizeSources(input.sources ?? [{ type: 'user' }]);
+    const persistence = normalizePersistence(input.persistence);
     let created = false;
     const memory = await this.runMutation(async () => {
       const duplicate = (await this.loadMemories()).find((candidate) =>
@@ -206,6 +218,7 @@ export class SuperMemoryStore implements MemoryStore {
         anchors,
         ...(audience ? { audience } : {}),
         sources,
+        persistence,
         supersedes: uniqueIds(input.supersedes),
         contradicts: uniqueIds(input.contradicts),
         createdAt: now,
@@ -408,6 +421,7 @@ export class SuperMemoryStore implements MemoryStore {
       superseded: 0,
       contradicted: 0,
       staled: 0,
+      reviewCandidatesCreated: 0,
       archived: 0,
       archivedUnused: 0,
       deleted: 0,
@@ -454,15 +468,21 @@ export class SuperMemoryStore implements MemoryStore {
     const lowConfidenceMs = daysToMs(options.archiveLowConfidenceAfterDays ?? 30);
     const unusedMs = daysToMs(options.archiveUnusedAfterDays ?? 30);
     const unusedMinInjections = Math.max(1, Math.floor(options.unusedMinInjections ?? 10));
+    // Track ids we already produced a candidate for this run — prevents
+    // duplicate candidates if multiple rules match the same memory.
+    const candidateEmittedFor = new Set<string>();
     for (const memory of await this.loadMemories()) {
       if (memory.status === 'deleted' || memory.status === 'superseded' || memory.status === 'contradicted') continue;
       const age = nowMs - Date.parse(memory.lastAccessedAt ?? memory.updatedAt);
+      const persistence = memory.persistence ?? DEFAULT_PERSISTENCE;
+      let reason: MemoryReviewReason | undefined;
+      let suggestedAction: 'delete' | 'archive' | 'investigate' = 'investigate';
       if (memory.scope === 'session' && memory.expiresAt && Date.parse(memory.expiresAt) <= nowMs) {
-        await this.updateMemory(memory, { status: 'deleted' });
-        report.deleted++;
+        reason = 'expires_at_passed';
+        suggestedAction = 'delete';
       } else if (memory.expiresAt && Date.parse(memory.expiresAt) <= nowMs) {
-        await this.updateMemory(memory, { status: 'archived' });
-        report.archived++;
+        reason = 'expires_at_passed';
+        suggestedAction = 'delete';
       } else if (
         memory.status === 'active'
         && memory.scope !== 'session'
@@ -475,17 +495,56 @@ export class SuperMemoryStore implements MemoryStore {
         // so measuring from it would never let a frequently-injected memory
         // qualify. updatedAt only moves on real content edits (counter flushes
         // preserve it), making it the honest "untouched for N days" basis.
-        await this.updateMemory(memory, { status: 'archived' });
-        report.archived++;
-        report.archivedUnused++;
-        this.events?.emit('memory.archived', this.eventPayload({ memoryId: memory.id, reason: 'Injected repeatedly but never used.' }));
+        reason = 'injected_never_used';
+        suggestedAction = 'delete';
       } else if (
         (memory.status === 'stale' && age >= retentionMs)
         || (memory.confidence < 0.5 && age >= lowConfidenceMs)
       ) {
-        await this.updateMemory(memory, { status: 'archived' });
-        report.archived++;
-        this.events?.emit('memory.archived', this.eventPayload({ memoryId: memory.id, reason: 'Hygiene retention policy.' }));
+        reason = memory.confidence < 0.5 ? 'confidence_low' : 'freshness_low';
+        suggestedAction = 'investigate';
+      }
+
+      // `permanent` memories are exempt from time/usage rules. They may still
+      // be reported as `stale` by anchor verify above — that flow is the only
+      // hygiene surface for permanent.
+      if (reason && persistence !== 'permanent' && !candidateEmittedFor.has(memory.id)) {
+        candidateEmittedFor.add(memory.id);
+        const ageDays = Math.floor((nowMs - Date.parse(memory.updatedAt)) / 86_400_000);
+        const candidate = await this.createCandidateUnlocked({
+          // text + kind + scope mirror the memory so the ReviewQueue UI can
+          // render it without joining; review metadata rides on tags.
+          text: memory.text,
+          kind: memory.kind,
+          scope: memory.scope,
+          confidence: 0.6,
+          importance: 0.4,
+          anchors: memory.anchors,
+          sources: [{ type: 'session', sessionId: this.traceId }],
+          // Carry review metadata on the candidate for the UI to surface.
+          tags: [
+            ...memory.tags,
+            `review:${reason}`,
+            `suggested:${suggestedAction}`,
+            `persistence:${persistence}`,
+          ],
+        });
+        // Audit log is the durable source-of-truth for review metadata — the
+        // eventBus surface is left to subscribers that already consume the
+        // core MemoryEventMap (which doesn't include this key locally yet).
+        await this.audit('memory.review_candidate_created', {
+          memoryId: memory.id,
+          reason,
+          details: {
+            candidateId: candidate.id,
+            suggestedAction,
+            ageDays,
+            persistence,
+            status: memory.status,
+            confidence: memory.confidence,
+          },
+        });
+        report.reviewCandidatesCreated++;
       }
     }
     await this.afterMutation();
@@ -518,9 +577,455 @@ export class SuperMemoryStore implements MemoryStore {
     return { total: memories.length, byStatus, byKind, edges: (await this.graph.list()).length, injections, uses };
   }
 
+  /**
+   * Restore a deleted memory to `active`. Superseded memories resolve to
+   * the head of their version chain (the chain head is the active record).
+   * Already-active memories are returned unchanged with `noop: true`.
+   * Permanence is preserved — recovering a deleted memory does not alter
+   * its `persistence` class. The whole operation is audit-logged.
+   */
+  async recoverSuperMemory(id: string, reason = 'Manually recovered via API.'): Promise<SuperMemory> {
+    const memory = await this.getSuperMemory(id);
+    if (!memory) throw new Error(`Super Memory "${id}" not found.`);
+
+    // Superseded: return the head of the version chain without writing.
+    if (memory.status === 'superseded') {
+      if (memory.supersededBy) {
+        const head = await this.getSuperMemory(memory.supersededBy);
+        if (head) {
+          await this.audit('memory.recover_noop', {
+            memoryId: id,
+            reason: 'Already superseded; returning head of version chain.',
+            details: { activeId: head.id },
+          });
+          this.events?.emit('memory.recover_noop', this.eventPayload({ requestedId: id, activeId: head.id }));
+          return head;
+        }
+      }
+      throw new Error(
+        `Super Memory "${id}" is superseded but its chain head is unavailable. ` +
+        `Use memory_update to create a new active version.`
+      );
+    }
+
+    // Active: no-op.
+    if (memory.status === 'active') {
+      return memory;
+    }
+
+    // Deleted (or any other terminal status): restore to active.
+    if (memory.status !== 'deleted') {
+      throw new Error(
+        `Super Memory "${id}" has status "${memory.status}" and cannot be recovered. ` +
+        `Use memory_update to alter its status explicitly.`
+      );
+    }
+
+    return this.runMutation(async () => {
+      const fresh = (await this.loadMemories()).find((m) => m.id === id);
+      if (!fresh) throw new Error(`Super Memory "${id}" was removed before recover completed.`);
+      if (fresh.status === 'active') return fresh; // race-safe: another caller won.
+
+      const restored = await this.updateMemory(fresh, { status: 'active' });
+      await this.afterMutation();
+      await this.audit('memory.recovered', {
+        memoryId: id,
+        reason,
+        details: { persistence: restored.persistence ?? DEFAULT_PERSISTENCE },
+      });
+      this.events?.emit('memory.recovered', this.eventPayload({ memoryId: id, reason }));
+      return restored;
+    });
+  }
+
+  /**
+   * Backfill recoverable `deleted` memories into fresh active versions.
+   *
+   * Why "backfill" instead of "recover":
+   *   - The redesigned contract preserves the "once deleted, never active again"
+   *     invariant for the original record. So instead of mutating
+   *     `status: 'deleted'` → `'active'` (which would erase audit history),
+   *     we create a NEW active version of the memory and link it to the
+   *     original via the `supersedes` chain. The original stays `deleted`,
+   *     preserving the immutable audit trail of the deletion.
+   *   - This is the path used by users who want to undo a hygiene-driven
+   *     deletion from a prior session (the contract was already safer after
+   *     PR #2, but legacy deleted records from before then may still exist).
+   *
+   * `dryRun: true` (default) returns a report without writing anything.
+   * `dryRun: false` actually creates the new versions inside a single mutation.
+   */
+  async backfillRecoverable(
+    options: SuperMemoryBackfillOptions = {},
+  ): Promise<SuperMemoryBackfillReport> {
+    await this.initialize();
+    const dryRun = options.dryRun !== false;
+    const filter = options.filter ?? {};
+    const requireText = filter.requireText !== false;
+    const requireProvenance = filter.requireProvenance !== false;
+
+    const startedAt = this.nowIso();
+    const allMemories = await this.loadMemories();
+    const deleted = allMemories.filter((memory) => memory.status === 'deleted');
+
+    const report: SuperMemoryBackfillReport = {
+      startedAt,
+      completedAt: startedAt,
+      dryRun,
+      examined: deleted.length,
+      recoverable: 0,
+      recovered: 0,
+      skipped: 0,
+      skippedRecords: [],
+      recoverableRecords: [],
+      byKind: {},
+      byReason: {},
+    };
+
+    if (deleted.length === 0) {
+      report.completedAt = this.nowIso();
+      return report;
+    }
+
+    // Phase 1 — analyze and classify (no writes).
+    for (const memory of deleted) {
+      if (filter.kinds && !filter.kinds.includes(memory.kind)) {
+        report.skipped++;
+        report.byReason['filter_kinds'] = (report.byReason['filter_kinds'] ?? 0) + 1;
+        report.skippedRecords.push(this.toBackfillRecord(memory, 'filter_kinds', undefined));
+        continue;
+      }
+      if (filter.scopes && !filter.scopes.includes(memory.scope)) {
+        report.skipped++;
+        report.byReason['filter_scopes'] = (report.byReason['filter_scopes'] ?? 0) + 1;
+        report.skippedRecords.push(this.toBackfillRecord(memory, 'filter_scopes', undefined));
+        continue;
+      }
+      if (filter.updatedAfter && memory.updatedAt < filter.updatedAfter) {
+        report.skipped++;
+        report.byReason['filter_updatedAfter'] = (report.byReason['filter_updatedAfter'] ?? 0) + 1;
+        report.skippedRecords.push(this.toBackfillRecord(memory, 'filter_updatedAfter', undefined));
+        continue;
+      }
+      if (filter.updatedBefore && memory.updatedAt > filter.updatedBefore) {
+        report.skipped++;
+        report.byReason['filter_updatedBefore'] = (report.byReason['filter_updatedBefore'] ?? 0) + 1;
+        report.skippedRecords.push(this.toBackfillRecord(memory, 'filter_updatedBefore', undefined));
+        continue;
+      }
+      if (requireText && (!memory.text || memory.text.trim().length === 0)) {
+        report.skipped++;
+        report.byReason['empty_text'] = (report.byReason['empty_text'] ?? 0) + 1;
+        report.skippedRecords.push(this.toBackfillRecord(memory, 'empty_text', undefined));
+        continue;
+      }
+      if (
+        requireProvenance
+        && (!memory.sources || memory.sources.length === 0)
+        && (!memory.anchors || memory.anchors.length === 0)
+      ) {
+        report.skipped++;
+        report.byReason['no_provenance'] = (report.byReason['no_provenance'] ?? 0) + 1;
+        report.skippedRecords.push(this.toBackfillRecord(memory, 'no_provenance', undefined));
+        continue;
+      }
+
+      // Eligible for backfill.
+      report.recoverable++;
+      report.byKind[memory.kind] = (report.byKind[memory.kind] ?? 0) + 1;
+      report.recoverableRecords.push(this.toBackfillRecord(memory, 'recoverable', undefined));
+    }
+
+    // Phase 2 — apply (only when not dry-run). Single mutation so all
+    // new versions land atomically; the original `deleted` records are
+    // untouched (the JSONL append-only contract is preserved).
+    if (!dryRun && report.recoverable > 0) {
+      await this.runMutation(async () => {
+        // Re-read deleted set inside the mutation to avoid stale references.
+        const freshDeleted = new Set(
+          (await this.loadMemories())
+            .filter((memory) => memory.status === 'deleted')
+            .map((memory) => memory.id),
+        );
+        for (let i = 0; i < report.recoverableRecords.length; i++) {
+          const preview = report.recoverableRecords[i]!;
+          const originalId = preview.originalId;
+          if (!freshDeleted.has(originalId)) {
+            // The deleted record was modified (rare, since deletion is
+            // terminal under our contract). Skip rather than corrupt.
+            report.byReason['race_lost'] = (report.byReason['race_lost'] ?? 0) + 1;
+            preview.reason = 'race_lost';
+            continue;
+          }
+          const original = (await this.loadMemories()).find((memory) => memory.id === originalId);
+          if (!original) continue;
+
+          const newMemory = await this.createBackfilledVersionUnlocked(original);
+          preview.newActiveId = newMemory.id;
+          report.recovered++;
+          await this.audit('memory.backfilled', {
+            memoryId: original.id,
+            reason: 'backfillRecoverable',
+            details: {
+              newActiveId: newMemory.id,
+              kind: newMemory.kind,
+              scope: newMemory.scope,
+              persistence: newMemory.persistence,
+            },
+          });
+        }
+      });
+    }
+
+    report.completedAt = this.nowIso();
+    await this.audit(
+      dryRun ? 'memory.backfill_dry_run' : 'memory.backfill_applied',
+      { details: report as unknown as Record<string, unknown> },
+    );
+    // Event emission is intentionally skipped here: the consumer for these
+    // backfill signals is the same caller that invoked backfillRecoverable
+    // (they already have the report). Subscribing downstream callers via
+    // EventBus would only matter if we wanted real-time UI updates — the
+    // MemoryManager instead refreshes after the tool returns. The audit
+    // log remains the durable source-of-truth for analytics/dashboards.
+    return report;
+  }
+
+  /**
+   * Build a `SuperMemoryBackfillRecord` snapshot from a deleted memory.
+   * Used both for skipped (with a reason) and recoverable (reason: 'recoverable')
+   * classifications. Truncates `text` to 200 chars for UI display.
+   */
+  private toBackfillRecord(
+    memory: SuperMemory,
+    reason: string,
+    newActiveId: string | undefined,
+  ): SuperMemoryBackfillReport['recoverableRecords'][number] {
+    const preview = (memory.text ?? '').slice(0, 200);
+    return {
+      originalId: memory.id,
+      newActiveId,
+      reason,
+      kind: memory.kind,
+      scope: memory.scope,
+      textPreview: preview,
+      deletedAt: memory.updatedAt,
+      persistence: memory.persistence ?? DEFAULT_PERSISTENCE,
+    };
+  }
+
+  /**
+   * Build a fresh active version of a deleted memory. Mirrors every
+   * metadata field that still makes sense (anchors, sources, audience,
+   * tags, persistence) and threads the original id through `supersedes`
+   * so the version chain is discoverable.
+   *
+   * Must be called inside an existing mutation (uses `appendRecord` +
+   * `addAutomaticEdges` + `applyDeclaredRelationships` + `afterMutation`).
+   * Does NOT mutate the source record — its `status` stays `deleted`.
+   */
+  private async createBackfilledVersionUnlocked(
+    original: SuperMemory,
+  ): Promise<SuperMemory> {
+    const now = this.nowIso();
+    const newMemory: SuperMemory = {
+      id: `mem_${ulid()}`,
+      revision: 1,
+      scope: original.scope,
+      legacyScope: original.legacyScope,
+      kind: original.kind,
+      status: 'active',
+      persistence: original.persistence ?? DEFAULT_PERSISTENCE,
+      text: original.text,
+      summary: original.summary,
+      importance: original.importance,
+      confidence: original.confidence,
+      freshness: original.freshness,
+      tags: [...original.tags, 'backfill:recovered'],
+      anchors: original.anchors,
+      audience: original.audience,
+      sources: original.sources,
+      // Thread the original id through the supersedes chain so memory_graph
+      // can show "this version was backfilled from <originalId>".
+      supersedes: uniqueIds([...(original.supersedes ?? []), original.id]),
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.appendRecord('create', newMemory);
+    await this.addAutomaticEdges(newMemory);
+    await this.applyDeclaredRelationships(newMemory);
+    return newMemory;
+  }
+
   async getSuperMemory(id: string): Promise<SuperMemory | null> {
     const all = await this.loadMemories();
     return all.find((memory) => memory.id === id) ?? null;
+  }
+
+  /**
+   * Find memories attached to / relevant to a file path.
+   *
+   * The contract is read-only and side-effect-free: opening a file in the
+   * editor must never mutate the memory store. Returns three buckets:
+   *   - `primaryMatches`: scope='file' memories OR memory anchors that
+   *     directly match the file path (or sit in a parent directory if
+   *     `lineStart`/`lineEnd` aren't supplied).
+   *   - `symbolMatches`: memory anchors on a symbol whose line range
+   *     overlaps the supplied cursor range (when provided); otherwise empty.
+   *   - `relatedMatches`: memories whose text mentions the file basename
+   *     (weakest signal — surfaced as "💬 Mentioned in").
+   *
+   * Each match carries `matchedVia`, `matchStrength`, an optional
+   * `supersededByActiveId` (for navigation), and an optional
+   * `pendingReview` (for hygiene review candidates).
+   */
+  async findMemoriesForFile(
+    filePath: string,
+    options: FindMemoriesForFileOptions = {},
+  ): Promise<FindMemoriesForFileResponse> {
+    await this.initialize();
+    const normalizedPath = normalizeProjectPath(this.projectRoot, filePath);
+    const includeSuperseded = options.includeSuperseded !== false;
+    const includeDeleted = options.includeDeleted === true;
+    const limit = options.limit ?? 50;
+
+    const allMemories = await this.loadMemories();
+    // Build candidate id set first so we can resolve supersededByActiveId /
+    // pendingReview without O(n²) lookups inside the loop.
+    const memoryById = new Map<string, SuperMemory>();
+    for (const memory of allMemories) memoryById.set(memory.id, memory);
+
+    // Pending review candidate index — one pass over all candidates.
+    const pendingByMemoryId = new Map<string, NonNullable<MemoryForFileMatch['pendingReview']>>();
+    try {
+      const allCandidates = await this.listCandidates();
+      for (const candidate of allCandidates) {
+        if (candidate.status !== 'pending') continue;
+        // Candidates carry `tags: [..., 'review:<reason>', 'suggested:<action>', ...]`
+        // and `text` mirrors the source memory so we can reverse-lookup by text.
+        // Source memory id is exposed via tag `source:<memoryId>` (set by the
+        // review candidate emitter) — fall back to text match if absent.
+        const sourceTag = candidate.tags.find((tag) => tag.startsWith('source:'));
+        const sourceId = sourceTag ? sourceTag.slice('source:'.length) : undefined;
+        const reasonTag = candidate.tags.find((tag) => tag.startsWith('review:'));
+        const reason = reasonTag ? reasonTag.slice('review:'.length) : candidate.kind;
+        const actionTag = candidate.tags.find((tag) => tag.startsWith('suggested:'));
+        const actionRaw = actionTag ? actionTag.slice('suggested:'.length) : 'investigate';
+        const suggestedAction = (actionRaw === 'delete' || actionRaw === 'archive' || actionRaw === 'update')
+          ? actionRaw
+          : 'investigate';
+        const ageDays = Math.floor(
+          (Date.now() - Date.parse(candidate.createdAt)) / 86_400_000,
+        );
+        const review: NonNullable<MemoryForFileMatch['pendingReview']> = {
+          candidateId: candidate.id,
+          reason,
+          suggestedAction,
+          ageDays,
+        };
+        if (sourceId && memoryById.has(sourceId)) {
+          pendingByMemoryId.set(sourceId, review);
+        } else {
+          // Fall back: match by text equality (best-effort). This is rare
+          // because the candidate emitter always sets `source:<id>`.
+          for (const memory of memoryById.values()) {
+            if (memory.text === candidate.text && !pendingByMemoryId.has(memory.id)) {
+              pendingByMemoryId.set(memory.id, review);
+              break;
+            }
+          }
+        }
+      }
+    } catch {
+      // Candidate log missing or unreadable — proceed without review metadata.
+    }
+
+    const basename = normalizedPath.split('/').pop() ?? '';
+    const primaryMatches: MemoryForFileMatch[] = [];
+    const symbolMatches: MemoryForFileMatch[] = [];
+    const relatedMatches: MemoryForFileMatch[] = [];
+
+    for (const memory of allMemories) {
+      // Skip deleted unless the caller explicitly opted in.
+      if (memory.status === 'deleted' && !includeDeleted) continue;
+      // Superseded memories are surfaced but flagged via supersededByActiveId.
+      // Active + stale + archived + superseded all reach this point.
+      const matched = matchMemoryToFileDraw(
+        memory,
+        normalizedPath,
+        basename,
+        options.lineStart,
+        options.lineEnd,
+      );
+      if (!matched) continue;
+
+      const match: MemoryForFileMatch = {
+        memory,
+        matchedVia: matched.via,
+        matchStrength: matched.strength,
+        ...(memory.status === 'superseded' && memory.supersededBy
+          ? (() => {
+              const head = memoryById.get(memory.supersededBy);
+              return head && head.status === 'active'
+                ? { supersededByActiveId: head.id }
+                : {};
+            })()
+          : {}),
+        ...(pendingByMemoryId.has(memory.id)
+          ? { pendingReview: pendingByMemoryId.get(memory.id) }
+          : {}),
+      };
+
+      if (matched.via === 'scope_symbol' || matched.via === 'anchor_symbol') {
+        symbolMatches.push(match);
+      } else if (
+        matched.via === 'scope_file' ||
+        matched.via === 'anchor_file' ||
+        matched.via === 'anchor_directory'
+      ) {
+        primaryMatches.push(match);
+      } else {
+        relatedMatches.push(match);
+      }
+
+      // Respect includeSuperseded: if false, drop superseded matches.
+      if (!includeSuperseded && memory.status === 'superseded') {
+        const bucket = symbolMatches.includes(match)
+          ? symbolMatches
+          : primaryMatches.includes(match)
+            ? primaryMatches
+            : relatedMatches;
+        const idx = bucket.indexOf(match);
+        if (idx >= 0) bucket.splice(idx, 1);
+      }
+
+      // Apply per-bucket caps.
+      if (primaryMatches.length + symbolMatches.length + relatedMatches.length >= limit * 3) {
+        break;
+      }
+    }
+
+    // Sort each bucket by matchStrength DESC then updatedAt DESC.
+    const sorter = (a: MemoryForFileMatch, b: MemoryForFileMatch) =>
+      b.matchStrength - a.matchStrength
+      || b.memory.updatedAt.localeCompare(a.memory.updatedAt);
+    primaryMatches.sort(sorter);
+    symbolMatches.sort(sorter);
+    relatedMatches.sort(sorter);
+
+    // Apply final per-bucket cap so callers can rely on ≤ limit per bucket.
+    const cap = (arr: MemoryForFileMatch[]) => arr.slice(0, limit);
+    const all = [...primaryMatches, ...symbolMatches, ...relatedMatches];
+    return {
+      filePath: normalizedPath,
+      primaryMatches: cap(primaryMatches),
+      symbolMatches: cap(symbolMatches),
+      relatedMatches: cap(relatedMatches),
+      totalCount: all.length,
+      activeCount: all.filter((m) => m.memory.status === 'active').length,
+      supersededCount: all.filter((m) => m.memory.status === 'superseded').length,
+      reviewPendingCount: all.filter((m) => m.pendingReview !== undefined).length,
+    };
   }
 
   async updateSuperMemory(
@@ -544,6 +1049,14 @@ export class SuperMemoryStore implements MemoryStore {
       if (!Array.isArray(patch.tags)) throw new Error('tags must be an array of strings.');
       if (patch.tags.length > MAX_MEMORY_METADATA_ITEMS) throw new Error(`tags exceeds maximum of ${MAX_MEMORY_METADATA_ITEMS} items.`);
       validatedPatch.tags = normalizeTags(patch.tags);
+    }
+    if (patch.persistence !== undefined) {
+      // Forward-compat: only known values accepted. Throws on unknown so a
+      // future enum value never silently round-trips into an invalid record.
+      if (!VALID_PERSISTENCE.has(patch.persistence)) {
+        throw new Error(`Invalid persistence class: ${String(patch.persistence)}`);
+      }
+      validatedPatch.persistence = patch.persistence;
     }
     if (patch.kind !== undefined) {
       if (!VALID_KINDS.has(patch.kind)) throw new Error(`Invalid kind: ${patch.kind}`);
@@ -612,10 +1125,22 @@ export class SuperMemoryStore implements MemoryStore {
     });
   }
 
-  async deleteSuperMemory(id: string, reason = 'Manually deleted via API.'): Promise<void> {
+  async deleteSuperMemory(
+    id: string,
+    reason = 'Manually deleted via API.',
+    options: { force?: boolean } = {},
+  ): Promise<void> {
     const memory = await this.getSuperMemory(id);
     if (!memory) throw new Error(`Super Memory "${id}" not found.`);
     if (memory.status === 'deleted') return; // Idempotent
+    // Permanent memories require explicit override. The audit log records the
+    // force flag so the user/LLM's intent is always traceable.
+    if ((memory.persistence ?? DEFAULT_PERSISTENCE) === 'permanent' && !options.force) {
+      throw new Error(
+        `Super Memory "${id}" is marked 'permanent' and cannot be deleted. ` +
+        `Pass { force: true } to override; the override will be recorded in the audit log.`
+      );
+    }
 
     await this.runMutation(async () => {
       // Reload inside mutation
@@ -649,7 +1174,11 @@ export class SuperMemoryStore implements MemoryStore {
       await this.updateMemory(fresh, { status: 'deleted' });
 
       await this.afterMutation();
-      await this.audit('memory.deleted', { memoryId: id, reason, details: { removedEdges } });
+      await this.audit('memory.deleted', {
+        memoryId: id,
+        reason,
+        details: { removedEdges, force: options.force === true },
+      });
       this.events?.emit('memory.updated', this.eventPayload({ memoryId: id, status: 'deleted' }));
     });
   }
@@ -1166,7 +1695,7 @@ export class SuperMemoryStore implements MemoryStore {
         await this.audit('memory.snapshot_recovered', { details: { snapshotId: snapshot.id, memories: latest.size } });
       }
     }
-    this.loaded = [...latest.values()];
+    this.loaded = [...latest.values()].map(withDefaultPersistence);
     this.loadedLogSignature = snapshot.signature;
     return this.loaded;
   }
@@ -1608,6 +2137,27 @@ function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
 
+/**
+ * Normalize the persistence field at write time. Unknown values throw so a
+ * typo or future enum drift is caught immediately rather than silently
+ * round-tripping through the JSONL log.
+ */
+function normalizePersistence(value: unknown): PersistenceClass {
+  if (value === undefined || value === null) return DEFAULT_PERSISTENCE;
+  if (VALID_PERSISTENCE.has(value as PersistenceClass)) return value as PersistenceClass;
+  throw new Error(`Invalid persistence class: ${String(value)}`);
+}
+
+/**
+ * Migration shim: legacy records (and SQLite rows created before the field
+ * existed) have no `persistence` field. Treat them as `long_lived` so existing
+ * users see no behavior change.
+ */
+function withDefaultPersistence(memory: SuperMemory): SuperMemory {
+  if (memory.persistence !== undefined) return memory;
+  return { ...memory, persistence: DEFAULT_PERSISTENCE };
+}
+
 function scoreQueryMemory(memory: SuperMemory, query: string): number {
   const terms = tokenize(query);
   if (terms.length === 0) return 0;
@@ -1629,6 +2179,80 @@ function scoreQueryMemory(memory: SuperMemory, query: string): number {
   score += memory.confidence;
   score += memory.freshness;
   return score;
+}
+
+/**
+ * Match a memory against a file path for the drawer / file-editor surface.
+ * Returns the strongest `via` channel and a 0..1 strength score, or null when
+ * the memory is unrelated to the file.
+ *
+ * Priority order (highest first):
+ *   1. `scope_file` — the memory was created specifically for this file.
+ *   2. `scope_symbol` — the memory's scope is `symbol` and any anchor matches.
+ *   3. `anchor_file` — anchor.path matches the target file exactly.
+ *   4. `anchor_symbol` — anchor with line range overlapping the cursor range.
+ *   5. `anchor_directory` — anchor.path is a parent of the target.
+ *   6. `mention` — the file basename appears in the memory text.
+ */
+function matchMemoryToFileDraw(
+  memory: SuperMemory,
+  normalizedPath: string,
+  basename: string,
+  lineStart: number | undefined,
+  lineEnd: number | undefined,
+): { via: MemoryMatchVia; strength: number } | null {
+  // 1. scope_file — the memory's scope was set to the file path itself.
+  if (memory.scope === 'file') {
+    const scopePath = String(memory.legacyScope ?? '');
+    // scope='file' is a coarse signal; we accept it when its normalized
+    // path equals the target. (Scope doesn't currently carry the path
+    // in SuperMemory; we fall through to anchor matching in that case.)
+    if (scopePath && normalizeProjectPath(memory.scope === 'file' ? memory.scope : '', normalizedPath) === normalizedPath) {
+      return { via: 'scope_file', strength: 1.0 };
+    }
+  }
+
+  // 2 + 3 + 4 + 5. Anchors.
+  for (const anchor of memory.anchors ?? []) {
+    if (!anchor.path) continue;
+    const anchorPath = normalizeProjectPath(memory.scope, anchor.path);
+    if (anchorPath === normalizedPath) {
+      if (anchor.type === 'symbol') {
+        // Symbol anchor with line range → boosted when cursor overlaps.
+        if (
+          lineStart !== undefined && lineEnd !== undefined &&
+          anchor.lineStart !== undefined && anchor.lineEnd !== undefined &&
+          lineStart <= anchor.lineEnd && lineEnd >= anchor.lineStart
+        ) {
+          return { via: 'anchor_symbol', strength: 0.95 };
+        }
+        return { via: 'anchor_symbol', strength: 0.75 };
+      }
+      return { via: 'anchor_file', strength: 0.9 };
+    }
+    if (anchor.type === 'directory' && normalizedPath.startsWith(`${anchorPath}/`)) {
+      return { via: 'anchor_directory', strength: 0.5 };
+    }
+  }
+
+  // 2b. scope_symbol — memory.scope is 'symbol' and at least one anchor
+  // matches the file (even if not the line range).
+  if (memory.scope === 'symbol') {
+    for (const anchor of memory.anchors ?? []) {
+      if (!anchor.path) continue;
+      const anchorPath = normalizeProjectPath(memory.scope, anchor.path);
+      if (anchorPath === normalizedPath) {
+        return { via: 'scope_symbol', strength: 0.92 };
+      }
+    }
+  }
+
+  // 6. Mention — basename appears in memory text (weakest signal).
+  if (basename && memory.text.toLowerCase().includes(basename.toLowerCase())) {
+    return { via: 'mention', strength: 0.3 };
+  }
+
+  return null;
 }
 
 function scorePathMemory(

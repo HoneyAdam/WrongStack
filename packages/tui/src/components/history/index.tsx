@@ -8,7 +8,7 @@ import type { HistoryProps } from './types.js';
 
 // ── Re-exports ──
 
-export type { HistoryEntry, HistoryProps } from './types.js';
+export type { AutonomyAgentStatus, HistoryEntry, HistoryProps } from './types.js';
 export type { BodySegment } from './types.js';
 export { Banner } from './banner.js';
 export {
@@ -102,7 +102,7 @@ export const History = memo(function History({ entries, generation, streamingTex
 
   return (
     <>
-      <Static key={`${generation ?? 0}-w${termWidth}`} items={entries}>
+      <Static key={`${generation ?? 0}-w${termWidth}-mr${showModelReasoning}`} items={entries}>
         {(entry) => (
           <Box key={entry.id} marginBottom={entry.kind === 'turn-summary' ? 1 : 0}>
             <Entry entry={entry} termWidth={termWidth} setSuggestions={setSuggestions} autonomyMode={autonomyMode} multiDiffSummaryThreshold={multiDiffSummaryThreshold} todos={todos} showModelReasoning={showModelReasoning} />

@@ -3,6 +3,8 @@ import { Box, Text } from '../../ink.js';
 import type { HistoryEntry } from './types.js';
 import { shortenPath } from './utils.js';
 import { mixHex } from '../animation-style.js';
+import { useEffect, useState } from 'react';
+import type { AutonomyAgentStatus } from './types.js';
 
 // Canonical palette from website/public/wrongstack.svg. The mark itself keeps
 // these exact colours; only the large terminal wordmark interpolates between
@@ -130,20 +132,97 @@ function InfoRow({
   );
 }
 
+// OSC 8 terminal hyperlinks — the same escape-sequence mechanism used by the
+// OAuth flows. Terminals that support clickable links (iTerm2, Windows Terminal,
+// Kitty, etc.) will render these as interactive; others see plain underlined text.
+const OSC8_WRONGSTACK =
+  '\x1b]8;;https://wrongstack.com\x1b\\wrongstack.com\x1b]8;;\x1b\\';
+const OSC8_GITHUB =
+  '\x1b]8;;https://github.com/wrongstack/wrongstack\x1b\\github\x1b]8;;\x1b\\';
+
 function Footer({ contentWidth, compact }: { contentWidth: number; compact: boolean }): React.ReactElement {
   return (
     <Box flexDirection="column" alignItems="center" marginTop={1} marginBottom={1}>
       <Text>
         <Text color={SIGNAL_PINK}>◆ </Text>
-        <Text dimColor>wrongstack.com</Text>
+        <Text dimColor>{OSC8_WRONGSTACK}</Text>
         {!compact || contentWidth >= 35 ? (
           <>
             <Text dimColor> · </Text>
             <Text color={STACK_ORANGE}>★ </Text>
-            <Text dimColor>github</Text>
+            <Text dimColor>{OSC8_GITHUB}</Text>
           </>
         ) : null}
       </Text>
+    </Box>
+  );
+}
+
+// ── Animated autonomy agent status ────────────────────────────────────────
+
+/** Frames for the alive-spinner next to each online agent. */
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+const SPINNER_INTERVAL_MS = 100;
+/** Agent display order (canonical left-to-right). */
+const AGENT_ORDER: ReadonlyArray<string> = [
+  'Brain',
+  'Shadow',
+  'Kanban',
+  'Mailbox',
+  'Memory',
+];
+
+function AutonomyAgentsSection({
+  agents,
+  contentWidth,
+  compact,
+}: {
+  agents: ReadonlyArray<AutonomyAgentStatus>;
+  contentWidth: number;
+  compact: boolean;
+}): React.ReactElement {
+  // Animated spinner frame — cycles through the braille spinners.
+  const [frame, setFrame] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setFrame((f) => (f + 1) % SPINNER_FRAMES.length);
+    }, SPINNER_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Build a lookup so we preserve the canonical order.
+  const lookup = new Map(agents.map((a) => [a.name, a]));
+
+  // Decide per-agent indicator
+  const spinner = SPINNER_FRAMES[frame];
+  const maxLabelWidth = Math.max(1, contentWidth - 4);
+
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      {/* Thin rule to separate from footer */}
+      <Text color={BORDER}>──────────────</Text>
+      <Box flexDirection="row" flexWrap="wrap" marginTop={0}>
+        {AGENT_ORDER.map((name) => {
+          const agent = lookup.get(name);
+          if (!agent) return null;
+
+          const online = agent.online;
+          const indicator = online ? spinner : '·';
+          const color = online ? STACK_ORANGE : MUTED;
+          const detail = agent.detail;
+
+          return (
+            <Box key={name} flexDirection="row" marginRight={2}>
+              <Text color={color}>{indicator}</Text>
+              <Text color={color}>{' '}{trunc(compact ? name.slice(0, 4) : name, compact ? 4 : 8)}</Text>
+              {!compact && detail ? (
+                <Text dimColor>{' '}{trunc(detail, Math.max(1, maxLabelWidth - 12))}</Text>
+              ) : null}
+            </Box>
+          );
+        })}
+      </Box>
     </Box>
   );
 }
@@ -242,6 +321,14 @@ export function Banner({
       </Box>
 
       <Footer contentWidth={contentWidth} compact={compact} />
+
+      {entry.autonomyAgents && entry.autonomyAgents.length > 0 ? (
+        <AutonomyAgentsSection
+          agents={entry.autonomyAgents}
+          contentWidth={contentWidth}
+          compact={compact}
+        />
+      ) : null}
     </Box>
   );
 }

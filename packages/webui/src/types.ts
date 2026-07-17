@@ -588,6 +588,151 @@ export interface WSMemorySuperDelete {
   };
 }
 
+/**
+ * Why a memory matched the file/drawer query. Mirrors
+ * `MemoryMatchVia` from `@wrongstack/super-memory` (see PR #4 backend).
+ * Kept as a local re-declaration so the webui types module doesn't have to
+ * import from super-memory directly.
+ */
+export type MemoryMatchVia =
+  | 'scope_file'
+  | 'scope_symbol'
+  | 'anchor_file'
+  | 'anchor_symbol'
+  | 'anchor_directory'
+  | 'mention';
+
+export interface MemoryPendingReview {
+  candidateId: string;
+  reason: string;
+  suggestedAction: 'delete' | 'archive' | 'update' | 'investigate';
+  ageDays: number;
+}
+
+/** Web-side mirror of `MemoryForFileMatch` — superset kept local for layering. */
+export interface MemoryForFileMatch {
+  memory: SuperMemoryEntry;
+  matchedVia: MemoryMatchVia;
+  /** 0..1; higher = stronger match signal. */
+  matchStrength: number;
+  /** Populated for `status='superseded'` records when a head-of-chain exists. */
+  supersededByActiveId?: string | undefined;
+  /** Populated when hygiene has emitted a pending review candidate. */
+  pendingReview?: MemoryPendingReview | undefined;
+}
+
+export interface MemoryForFileResponse {
+  filePath: string;
+  primaryMatches: MemoryForFileMatch[];
+  symbolMatches: MemoryForFileMatch[];
+  relatedMatches: MemoryForFileMatch[];
+  totalCount: number;
+  activeCount: number;
+  supersededCount: number;
+  reviewPendingCount: number;
+}
+
+/**
+ * Request payload for `memory.super.forFile`. Cursor fields are optional —
+ * when both are provided, symbol-anchored memories overlapping the cursor
+ * range surface first (cursor-aware boost).
+ */
+export interface WSMemorySuperForFileRequest {
+  /** Project-relative file path. */
+  filePath: string;
+  /** Optional caret line (1-indexed). */
+  lineStart?: number;
+  /** Optional last caret line. Pair with `lineStart`. */
+  lineEnd?: number;
+  /** Per-bucket cap. Default 50. */
+  limit?: number;
+  /** Default true. Include superseded memories (with supersededByActiveId). */
+  showSuperseded?: boolean;
+  /** Default false. Show recoverable deleted memories for one-click recovery. */
+  showDeleted?: boolean;
+}
+
+export interface WSMemorySuperForFile {
+  type: 'memory.super.forFile';
+  payload: {
+    response?: MemoryForFileResponse | undefined;
+    error?: string | undefined;
+  };
+}
+
+// ── Memory recover (PR #1) ──────────────────────────────────────────────
+export interface WSMemorySuperRecover {
+  type: 'memory.super.recover';
+  payload: {
+    /** The restored memory (active status). */
+    memory?: SuperMemoryEntry | undefined;
+    /** True when the requested id was already active/superseded (no-op write). */
+    noop?: boolean | undefined;
+    /** Head-of-chain id when the requested id was superseded. */
+    activeId?: string | undefined;
+    error?: string | undefined;
+  };
+}
+
+// ── Memory candidate resolve (PR #1 hygiene review queue) ──────────────
+export interface WSMemorySuperCandidateResolve {
+  type: 'memory.super.candidateResolve';
+  payload: {
+    /** The resolved candidate (with updated status). */
+    candidate?: MemoryCandidateEntry | undefined;
+    /** The user-facing action that was applied: accept | reject. */
+    resolvedAction?: 'accept' | 'reject' | undefined;
+    error?: string | undefined;
+  };
+}
+
+/** Local mirror of super-memory's `MemoryCandidate`. */
+export interface MemoryCandidateEntry {
+  schemaVersion: 1;
+  id: string;
+  status: 'pending' | 'accepted' | 'rejected' | 'merged';
+  text: string;
+  kind: string;
+  confidence: number;
+  importance: number;
+  tags: string[];
+  anchors: SuperMemoryAnchor[];
+  sources: Array<{
+    type: 'user' | 'session' | 'tool_result' | 'project_instruction' | 'file' | 'test' | 'command' | 'legacy_memory';
+    sessionId?: string;
+    toolUseId?: string;
+    path?: string;
+    command?: string;
+    excerptHash?: string;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ── Memory backfill recoverable (PR #3) ───────────────────────────────
+export interface WSMemorySuperBackfillRecoverable {
+  type: 'memory.super.backfillRecoverable';
+  payload: {
+    /** Records that were backfilled into a fresh active version (dryRun=false). */
+    recoveredRecords?: Array<{
+      originalId: string;
+      newActiveId: string;
+      kind: string;
+      scope: string;
+      textPreview: string;
+      deletedAt: string;
+      persistence: string;
+    }> | undefined;
+    /** Total count of records recovered in this run. */
+    recovered?: number | undefined;
+    /** Total count examined. */
+    examined?: number | undefined;
+    /** True when the request was a dry-run (no writes). */
+    dryRun?: boolean | undefined;
+    error?: string | undefined;
+  };
+}
+
 export interface WSSkillsList {
   type: 'skills.list';
   payload: {
@@ -1523,6 +1668,32 @@ export type WSClientMessage =
     }
   | { type: 'memory.super.delete'; payload: { id: string; reason?: string | undefined } }
   | {
+      type: 'memory.super.recover';
+      payload: { id: string; reason?: string | undefined };
+    }
+  | {
+      type: 'memory.super.candidateResolve';
+      payload: {
+        candidateId: string;
+        action: 'accept' | 'reject';
+        reason?: string | undefined;
+      };
+    }
+  | {
+      type: 'memory.super.backfillRecoverable';
+      payload: {
+        apply: boolean;
+        kinds?: string[] | undefined;
+        scopes?: string[] | undefined;
+        updatedAfter?: string | undefined;
+        updatedBefore?: string | undefined;
+      };
+    }
+  | {
+      type: 'memory.super.forFile';
+      payload: WSMemorySuperForFileRequest;
+    }
+  | {
       type: 'memory.super.remember';
       payload: {
         text: string;
@@ -1801,6 +1972,10 @@ export type WSServerMessage =
   | WSMemorySuperUpdate
   | WSMemorySuperRemember
   | WSMemorySuperDelete
+  | WSMemorySuperRecover
+  | WSMemorySuperCandidateResolve
+  | WSMemorySuperBackfillRecoverable
+  | WSMemorySuperForFile
   | WSSkillsList
   | WSSkillContent
   | WSDesignList

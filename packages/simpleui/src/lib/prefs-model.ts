@@ -14,6 +14,7 @@ export interface SimplePrefs {
   yolo: boolean;
   enhanceEnabled: boolean;
   enhanceLanguage: string;
+  showModelReasoning: boolean;
   chime: boolean;
   confirmExit: boolean;
 }
@@ -23,6 +24,7 @@ export const DEFAULT_PREFS: SimplePrefs = {
   yolo: false,
   enhanceEnabled: false,
   enhanceLanguage: 'english',
+  showModelReasoning: true,
   chime: false,
   confirmExit: false,
 };
@@ -53,6 +55,7 @@ export function parsePrefs(payload: unknown, previous: SimplePrefs = DEFAULT_PRE
       typeof raw['enhanceLanguage'] === 'string' && raw['enhanceLanguage']
         ? raw['enhanceLanguage']
         : previous.enhanceLanguage,
+    showModelReasoning: bool(raw['showModelReasoning'], previous.showModelReasoning),
     chime: bool(raw['chime'], previous.chime),
     confirmExit: bool(raw['confirmExit'], previous.confirmExit),
   };

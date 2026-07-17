@@ -21,6 +21,7 @@ const VALID_KINDS = new Set<SuperMemoryKind>([
   'fact', 'decision', 'convention', 'preference',
   'warning', 'anti_pattern', 'workflow', 'bug_root_cause', 'file_note',
   'symbol_note', 'command_note', 'summary',
+  'memory_review',
 ]);
 const VALID_ANCHOR_TYPES = new Set<MemoryAnchor['type']>([
   'file', 'directory', 'symbol', 'package', 'command', 'test', 'git',

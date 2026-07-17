@@ -302,6 +302,7 @@ const BOOLEAN_PREF_KEYS = new Set([
   // Chimera + auto-review master toggles
   'chimeraEnabled',
   'autoReviewEnabled',
+  'showModelReasoning',
 ]);
 
 /** Keys whose value must be an array of strings (e.g. an ordered model list). */

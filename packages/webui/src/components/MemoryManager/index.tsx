@@ -4,6 +4,8 @@ import {
   BrainCircuit,
   Check,
   Loader2,
+  PanelRight,
+  PanelRightOpen,
   Plus,
   RefreshCw,
   Trash2,
@@ -24,6 +26,7 @@ import { cn } from '@/lib/utils';
 import { useConfigStore, useUIStore } from '@/stores';
 import type { SuperMemoryEntry, SuperMemoryStats, SuperMemoryStatus } from '@/types';
 import { MemoryDetail } from './MemoryDetail';
+import { MemoryDrawer } from './MemoryDrawer';
 import { MemoryEditor } from './MemoryEditor';
 import { MemoryFilters } from './MemoryFilters';
 import { MemoryList } from './MemoryList';
@@ -63,6 +66,15 @@ export function MemoryManager() {
   const [kindFilter, setKindFilter] = useState('all');
   const [audienceOnly, setAudienceOnly] = useState(false);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  // PR #4 file-drawer state. `currentFilePath` is set externally (e.g. from
+  // the file editor) — when non-null and `drawerOpen=true`, the right-hand
+  // panel renders `MemoryDrawer` instead of `MemoryDetail`. This keeps the
+  // MemoryManager responsive to any caller that wants to surface file-scoped
+  // memories without forcing the MemoryManager to know about file context.
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [currentFilePath, setCurrentFilePath] = useState<string | null>(null);
+  const [cursorLineStart, setCursorLineStart] = useState<number | undefined>(undefined);
+  const [cursorLineEnd, setCursorLineEnd] = useState<number | undefined>(undefined);
 
   const hasLoadedRef = useRef(false);
   const mountedRef = useRef(true);
@@ -452,6 +464,11 @@ export function MemoryManager() {
   );
   const detailOpen = creating || Boolean(selectedMemory);
 
+  // The drawer takes precedence over the detail view: when a file is open
+  // and the drawer is toggled, it consumes the right-hand column. Toggling
+  // back to `drawerOpen=false` restores the detail panel.
+  const drawerActive = drawerOpen && Boolean(currentFilePath);
+
   if (initialLoading && memories.length === 0) {
     return (
       <div className="flex h-full min-h-0 flex-col bg-background" aria-busy="true">
@@ -635,6 +652,63 @@ export function MemoryManager() {
           )}
           aria-label="Memory library"
         >
+          {/* PR #4: drawer toggle. `setCurrentFilePath` is a hook for callers
+              that own file context (e.g. the file editor). For the standalone
+              MemoryManager demo, we seed a sample file path so the toggle is
+              immediately useful — production callers will set the real path. */}
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/60 px-3 py-1.5">
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              File drawer
+            </span>
+            <div className="flex items-center gap-2">
+              <select
+                value={currentFilePath ?? ''}
+                onChange={(e) => {
+                  const next = e.target.value || null;
+                  setCurrentFilePath(next);
+                  if (next) setDrawerOpen(true);
+                }}
+                className="max-w-[180px] truncate rounded-sm border border-border/60 bg-background px-1.5 py-0.5 text-[10px] font-mono"
+                aria-label="File for memory drawer"
+                data-testid="memory-drawer-file-select"
+              >
+                <option value="">— select a file —</option>
+                {memories
+                  .flatMap((memory) => memory.anchors ?? [])
+                  .filter((anchor) => anchor.type === 'file' && anchor.path)
+                  .map((anchor, idx) => (
+                    <option key={`${anchor.path}-${idx}`} value={anchor.path}>
+                      {anchor.path}
+                    </option>
+                  ))}
+              </select>
+              <Button
+                type="button"
+                size="sm"
+                variant={drawerActive ? 'default' : 'outline'}
+                onClick={() => {
+                  if (!currentFilePath) return;
+                  setDrawerOpen((prev) => !prev);
+                }}
+                disabled={!currentFilePath}
+                className="h-7 gap-1 px-2 text-[11px]"
+                aria-pressed={drawerActive}
+                title={
+                  drawerActive
+                    ? 'Hide file memory drawer'
+                    : 'Show file memory drawer'
+                }
+              >
+                {drawerActive ? (
+                  <PanelRightOpen className="size-3" />
+                ) : (
+                  <PanelRight className="size-3" />
+                )}
+                {drawerActive ? 'Hide' : 'Show'} drawer
+              </Button>
+            </div>
+          </div>
+
           <MemoryFilters
             searchQuery={searchQuery}
             statusFilter={statusFilter}
@@ -689,6 +763,59 @@ export function MemoryManager() {
                 onChange={setDraft}
                 onCancel={cancelEditor}
                 onSubmit={submitUpdate}
+              />
+            ) : drawerActive ? (
+              <MemoryDrawer
+                filePath={currentFilePath}
+                lineStart={cursorLineStart}
+                lineEnd={cursorLineEnd}
+                open={drawerActive}
+                onClose={() => setDrawerOpen(false)}
+                onShowMemory={(id) => setSelectedId(id)}
+                onAcceptDeletion={async (candidateId, memoryId) => {
+                  // PR #4 follow-up: wire to a real `memory_candidate_resolve`
+                  // + `memory_forget` tool when those WS methods land. For now
+                  // we surface a notice so the user sees their click was
+                  // captured; the active list refresh below picks up the
+                  // eventual write.
+                  setNotice(
+                    `Accept Deletion requested for candidate ${candidateId} ` +
+                      `(${memoryId.slice(0, 12)}…). Wire-up pending follow-up PR.`,
+                  );
+                  await loadMemories();
+                }}
+                onKeep={async (candidateId, memoryId) => {
+                  setNotice(
+                    `Keep requested for candidate ${candidateId} ` +
+                      `(${memoryId.slice(0, 12)}…). Wire-up pending follow-up PR.`,
+                  );
+                }}
+                onUpdate={(memoryId) => {
+                  // Re-use the existing memory-editor flow by selecting
+                  // the memory first; the editor renders via `editing`.
+                  setSelectedId(memoryId);
+                  openEdit();
+                }}
+                onMarkPermanent={async (memoryId) => {
+                  setBusyAction('update');
+                  try {
+                    await updateSuperMemory(memoryId, { persistence: 'permanent' });
+                    setNotice(`Memory ${memoryId.slice(0, 12)}… promoted to permanent.`);
+                    await loadMemories();
+                  } catch (err) {
+                    setMutationError(err instanceof Error ? err.message : String(err));
+                  } finally {
+                    setBusyAction(null);
+                  }
+                }}
+                onRecover={async (memoryId) => {
+                  // PR #1 follow-up: wire to a real `memory_recover` WS method.
+                  setNotice(
+                    `Recover requested for ${memoryId.slice(0, 12)}… ` +
+                      `— wire-up pending follow-up PR.`,
+                  );
+                  await loadMemories();
+                }}
               />
             ) : (
               <MemoryDetail

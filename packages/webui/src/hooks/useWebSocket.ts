@@ -199,6 +199,11 @@ export function useWebSocket() {
       client.rememberSuperMemory(opts, options),
     [client],
   );
+  const findMemoriesForFile = useCallback(
+    (opts: Parameters<typeof client.findMemoriesForFile>[0], options?: WSSendOptions) =>
+      client.findMemoriesForFile(opts, options),
+    [client],
+  );
   const listSkills = useCallback((options?: WSSendOptions) => client.listSkills(options), [client]);
   const getDiag = useCallback((options?: WSSendOptions) => client.getDiag(options), [client]);
   const getStats = useCallback((options?: WSSendOptions) => client.getStats(options), [client]);
@@ -312,6 +317,7 @@ export function useWebSocket() {
     updateSuperMemory,
     deleteSuperMemory,
     rememberSuperMemory,
+    findMemoriesForFile,
     listSkills,
     getDiag,
     getStats,
