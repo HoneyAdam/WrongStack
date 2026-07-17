@@ -48,23 +48,21 @@ function _makeTaskNode(overrides: Partial<TaskNode> = {}): TaskNode {
 }
 
 describe('TaskFlow', () => {
-  let store: DefaultTaskStore;
-  let tracker: TaskTracker;
-  let events: EventBus;
-
-  beforeEach(() => {
-    store = new DefaultTaskStore();
-    tracker = new TaskTracker({ store });
-    events = new EventBus();
-  });
+  // NOTE: store/tracker/events are created fresh per test inside createFlow()
+  // (not in a shared beforeEach) to prevent cross-test state leakage that
+  // caused non-deterministic failures under vitest's default shuffle.
 
   function createFlow() {
-    return new TaskFlow({ tracker, events });
+    const store = new DefaultTaskStore();
+    const tracker = new TaskTracker({ store });
+    const events = new EventBus();
+    const flow = new TaskFlow({ tracker, events });
+    return { flow, tracker, events };
   }
 
   describe('fromSpec', () => {
     it('parses spec and sets phase to generating', async () => {
-      const flow = createFlow();
+      const { flow, tracker, events } = createFlow();
       const specContent = `# Test Spec\n\n## Overview\n\nOverview content.\n\n## Requirements\n\n[critical] Login feature\n\n## Acceptance\n\nCriteria here`;
 
       const graph = await flow.fromSpec(specContent);
@@ -77,7 +75,7 @@ describe('TaskFlow', () => {
     });
 
     it('emits spec.analyzed event with analysis', async () => {
-      const flow = createFlow();
+      const { flow, tracker, events } = createFlow();
       const specContent = `# Test\n\n## Overview\nOverview content\n\n## Requirements\n[functional] Some requirement\n\n## Acceptance\n\nSome acceptance`;
 
       let analysis: any = null;
@@ -92,7 +90,7 @@ describe('TaskFlow', () => {
     });
 
     it('throws when spec completeness is below 50%', async () => {
-      const flow = createFlow();
+      const { flow, tracker, events } = createFlow();
       // Low completeness: no sections, no requirements
       const specContent = `# Test\n\nSome content without proper sections`;
 
@@ -100,7 +98,7 @@ describe('TaskFlow', () => {
     });
 
     it('emits error event when spec too incomplete', async () => {
-      const flow = createFlow();
+      const { flow, tracker, events } = createFlow();
       const specContent = `# Test\n\nNo proper structure`;
 
       let _errorPayload: any = null;
@@ -112,7 +110,7 @@ describe('TaskFlow', () => {
     });
 
     it('generates an empty graph from spec (TaskGenerator.createGraph stub)', async () => {
-      const flow = createFlow();
+      const { flow, tracker, events } = createFlow();
       const specContent = `# Title\n\n## Overview\nContent\n\n## Requirements\n[high] Feature A\n[medium] Feature B\n\n## Acceptance\n\nDone`;
 
       const graph = await flow.fromSpec(specContent);
@@ -125,7 +123,7 @@ describe('TaskFlow', () => {
 
   describe('execute', () => {
     it('throws error if no graph loaded', async () => {
-      const flow = createFlow();
+      const { flow, tracker, events } = createFlow();
       await expect(
         flow.execute({
           executeTask: async () => 'result',
@@ -134,7 +132,7 @@ describe('TaskFlow', () => {
     });
 
     it('executes pending tasks and updates status to completed', async () => {
-      const flow = createFlow();
+      const { flow, tracker, events } = createFlow();
       const specContent = `# Title\n\n## Overview\nContent\n\n## Requirements\n[critical] Feature\n\n## Acceptance\n\nDone`;
       await flow.fromSpec(specContent);
 
@@ -150,7 +148,7 @@ describe('TaskFlow', () => {
     });
 
     it('calls onTaskComplete when task succeeds', async () => {
-      const flow = createFlow();
+      const { flow, tracker, events } = createFlow();
       const specContent = `# Title\n\n## Overview\nContent\n\n## Requirements\n[high] Feature\n\n## Acceptance\n\nDone`;
       await flow.fromSpec(specContent);
 
@@ -164,7 +162,7 @@ describe('TaskFlow', () => {
     });
 
     it('calls onTaskFail when task fails', async () => {
-      const flow = createFlow();
+      const { flow, tracker, events } = createFlow();
       const specContent = `# Title\n\n## Overview\nContent\n\n## Requirements\n[critical] Feature\n\n## Acceptance\n\nDone`;
       await flow.fromSpec(specContent);
 
@@ -180,7 +178,7 @@ describe('TaskFlow', () => {
     });
 
     it('updates phase to executing during execution', async () => {
-      const flow = createFlow();
+      const { flow, tracker, events } = createFlow();
       const specContent = `# Title\n\n## Overview\nContent\n\n## Requirements\n[high] Feature\n\n## Acceptance\n\nDone`;
       await flow.fromSpec(specContent);
 
@@ -193,7 +191,7 @@ describe('TaskFlow', () => {
     });
 
     it('emits task.started for each task', async () => {
-      const flow = createFlow();
+      const { flow, tracker, events } = createFlow();
       const specContent = `# Title\n\n## Overview\nContent\n\n## Requirements\n[high] Feature A\n\n## Acceptance\n\nDone`;
       await flow.fromSpec(specContent);
       // fromSpec creates an empty graph; add a task manually so execute has work
@@ -208,7 +206,7 @@ describe('TaskFlow', () => {
     });
 
     it('emits task.completed when task finishes', async () => {
-      const flow = createFlow();
+      const { flow, tracker, events } = createFlow();
       const specContent = `# Title\n\n## Overview\nContent\n\n## Requirements\n[high] Feature\n\n## Acceptance\n\nDone`;
       await flow.fromSpec(specContent);
       tracker.addNode({ title: 'Manual Task', description: 'd', type: 'feature', priority: 'high', status: 'pending' });
@@ -222,7 +220,7 @@ describe('TaskFlow', () => {
     });
 
     it('sets phase to done after execution completes', async () => {
-      const flow = createFlow();
+      const { flow, tracker, events } = createFlow();
       const specContent = `# Title\n\n## Overview\nContent\n\n## Requirements\n[medium] Feature\n\n## Acceptance\n\nDone`;
       await flow.fromSpec(specContent);
 
@@ -234,7 +232,7 @@ describe('TaskFlow', () => {
 
   describe('reviewTask', () => {
     it('throws error if task not found', async () => {
-      const flow = createFlow();
+      const { flow, tracker, events } = createFlow();
       const specContent = `# Title\n\n## Overview\nContent\n\n## Requirements\n[high] Feature\n\n## Acceptance\n\nDone`;
       await flow.fromSpec(specContent);
 
@@ -242,7 +240,7 @@ describe('TaskFlow', () => {
     });
 
     it('marks task as completed when approved', async () => {
-      const flow = createFlow();
+      const { flow, tracker, events } = createFlow();
       await flow.fromSpec(`# Title\n\n## Overview\nContent\n\n## Requirements\n[high] Feature\n\n## Acceptance\n\nDone`);
       // fromSpec creates an empty graph; add a task manually
       tracker.addNode({ title: 'Task', description: 'd', type: 'feature', priority: 'high', status: 'pending' });
@@ -255,7 +253,7 @@ describe('TaskFlow', () => {
     });
 
     it('marks task as in_progress when rejected', async () => {
-      const flow = createFlow();
+      const { flow, tracker, events } = createFlow();
       await flow.fromSpec(`# Title\n\n## Overview\nContent\n\n## Requirements\n[high] Feature\n\n## Acceptance\n\nDone`);
       tracker.addNode({ title: 'Task', description: 'd', type: 'feature', priority: 'high', status: 'pending' });
       const firstTaskId = tracker.getAllNodes()[0]!.id;
@@ -267,7 +265,7 @@ describe('TaskFlow', () => {
     });
 
     it('emits task.completed when approved', async () => {
-      const flow = createFlow();
+      const { flow, tracker, events } = createFlow();
       await flow.fromSpec(`# Title\n\n## Overview\nContent\n\n## Requirements\n[high] Feature\n\n## Acceptance\n\nDone`);
       tracker.addNode({ title: 'Task', description: 'd', type: 'feature', priority: 'high', status: 'pending' });
       const firstTaskId = tracker.getAllNodes()[0]!.id;
@@ -283,7 +281,7 @@ describe('TaskFlow', () => {
     });
 
     it('emits task.review when rejected', async () => {
-      const flow = createFlow();
+      const { flow, tracker, events } = createFlow();
       await flow.fromSpec(`# Title\n\n## Overview\nContent\n\n## Requirements\n[high] Feature\n\n## Acceptance\n\nDone`);
       tracker.addNode({ title: 'Task', description: 'd', type: 'feature', priority: 'high', status: 'pending' });
       const firstTaskId = tracker.getAllNodes()[0]!.id;
@@ -301,7 +299,7 @@ describe('TaskFlow', () => {
 
   describe('stop', () => {
     it('prevents further task execution', async () => {
-      const flow = createFlow();
+      const { flow, tracker, events } = createFlow();
       const specContent = `# Title\n\n## Overview\nContent\n\n## Requirements\n[high] Feature A\n[critical] Feature B\n\n## Acceptance\n\nDone`;
       await flow.fromSpec(specContent);
 
@@ -319,12 +317,12 @@ describe('TaskFlow', () => {
 
   describe('getPhase', () => {
     it('returns current phase', () => {
-      const flow = createFlow();
+      const { flow, tracker, events } = createFlow();
       expect(flow.getPhase()).toBe('idle');
     });
 
     it('returns done after successful execution', async () => {
-      const flow = createFlow();
+      const { flow, tracker, events } = createFlow();
       const specContent = `# Title\n\n## Overview\nContent\n\n## Requirements\n[high] Feature\n\n## Acceptance\n\nDone`;
       await flow.fromSpec(specContent);
       await flow.execute({ executeTask: async () => 'result' });
@@ -334,12 +332,12 @@ describe('TaskFlow', () => {
 
   describe('getGraph', () => {
     it('returns null before fromSpec is called', () => {
-      const flow = createFlow();
+      const { flow, tracker, events } = createFlow();
       expect(flow.getGraph()).toBeNull();
     });
 
     it('returns graph after fromSpec', async () => {
-      const flow = createFlow();
+      const { flow, tracker, events } = createFlow();
       const specContent = `# Title\n\n## Overview\nContent\n\n## Requirements\n[high] Feature\n\n## Acceptance\n\nDone`;
       await flow.fromSpec(specContent);
       expect(flow.getGraph()).not.toBeNull();
@@ -348,12 +346,12 @@ describe('TaskFlow', () => {
 
   describe('getSpec', () => {
     it('returns null before fromSpec', () => {
-      const flow = createFlow();
+      const { flow, tracker, events } = createFlow();
       expect(flow.getSpec()).toBeNull();
     });
 
     it('returns spec after fromSpec', async () => {
-      const flow = createFlow();
+      const { flow, tracker, events } = createFlow();
       const specContent = `# My Spec\n\n## Overview\nContent\n\n## Requirements\n[high] Feature\n\n## Acceptance\n\nDone`;
       await flow.fromSpec(specContent);
       expect(flow.getSpec()?.title).toBe('My Spec');
