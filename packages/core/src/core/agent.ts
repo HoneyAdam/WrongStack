@@ -1,4 +1,5 @@
 import { ExtensionRegistry } from '../extension/registry.js';
+import { createHash } from 'node:crypto';
 import type { Container } from '../kernel/container.js';
 import type { EventBus } from '../kernel/events.js';
 import { RunController } from '../kernel/run-controller.js';
@@ -78,6 +79,8 @@ export class Agent {
    * conversation or racing abort signals.
    */
   private _runInProgress = false;
+  /** SHA-256 of the last submitted input content — prevents duplicate runs. */
+  private _lastInputHash: string | undefined;
 
   constructor(init: AgentInit) {
     this.container = init.container;
@@ -185,6 +188,24 @@ export class Agent {
         context: { phase: 'concurrency-guard' },
       });
     }
+    // Dedup: silently skip a run when the input text is byte-identical to
+    // the immediately preceding submission.  Prevents terminal \r\n
+    // re-entrancy, stuck-key bursts, and client-side resubmission loops
+    // from firing duplicate runs back-to-back.
+    const inputText = typeof userInput === 'string'
+      ? userInput
+      : (userInput as { prompt?: string })?.prompt ?? '';
+    if (inputText.length > 0) {
+      const hash = createHash('sha256').update(inputText).digest('hex');
+      if (hash === this._lastInputHash) {
+        return {
+          status: 'done' as const,
+          iterations: 0,
+        };
+      }
+      this._lastInputHash = hash;
+    }
+
     this._runInProgress = true;
     const controller = new RunController({ parentSignal: opts.signal });
     const signal = controller.signal;
