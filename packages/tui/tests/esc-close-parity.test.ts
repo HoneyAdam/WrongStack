@@ -32,6 +32,7 @@ const PICKER_MANAGED = new Set([
   'settingsPicker.open', 'pluginPicker.open', 'mcpPicker.open',
   'toolsPicker.open', 'brainPanel.open', 'helpPanel.open',
   'shadowPanel.open', 'authPanel.open', 'fKeyPicker.open',
+  'statuslinePicker.open', // Esc handled by usePickerKeys (statuslineClose)
 ]);
 
 // Simple toggle panels in closePanels — each must be in ESC_CLOSE_PANELS.
@@ -53,7 +54,7 @@ const TOGGLE_PANELS: Array<{ field: string; setState: (s: ReturnType<typeof base
   { field: 'worktreeMonitorOpen', setState: (s) => { s.worktreeMonitorOpen = true; } },
   { field: 'coordinator.monitorOpen', setState: (s) => { s.coordinator = { ...s.coordinator, monitorOpen: true }; } },
   { field: 'autoPhase.monitorOpen', setState: (s) => { if (s.autoPhase) s.autoPhase = { ...s.autoPhase, monitorOpen: true }; } },
-  { field: 'sddBoard.monitorOpen', setState: (s) => { if (s.sddBoard) s.sddBoard = { ...s.sddBoard, monitorOpen: true }; } },
+  { field: 'sddBoard.monitorOpen', setState: (s) => { s.sddBoard = { monitorOpen: true, phases: {}, focusColumn: -1 }; } },
   { field: 'settingsPicker.open', setState: (s) => { s.settingsPicker = { ...s.settingsPicker, open: true }; } },
   { field: 'statuslinePicker.open', setState: (s) => { s.statuslinePicker = { ...s.statuslinePicker, open: true }; } },
   { field: 'projectPicker.open', setState: (s) => { s.projectPicker = { ...s.projectPicker, open: true }; } },
