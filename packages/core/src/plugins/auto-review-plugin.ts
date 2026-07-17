@@ -6,6 +6,7 @@ import type { SlashCommand } from '../types/slash-command.js';
 import type { Config } from '../types/config.js';
 import { toErrorMessage } from '../utils/error.js';
 import type { ChimeraReviewNeededPayload } from './chimera-plugin.js';
+import { buildReviewContext } from './review-context-builder.js';
 import { FallbackProfileManager } from '../core/fallback-profile-manager.js';
 
 // ---------------------------------------------------------------------------
@@ -352,8 +353,9 @@ export function createAutoReviewPlugin(): Plugin {
           };
           inFlight.push(inflightEntry);
 
-          // Emit the same chimera.review_needed event — execution.ts picks this up
-          const payload: ChimeraReviewNeededPayload = {
+          // ── Build enriched review context (diffs, siblings, commits) ──
+          const bundle = await buildReviewContext({
+            cwd,
             config: {
               enabled: true,
               provider: cfg.provider,
@@ -361,15 +363,14 @@ export function createAutoReviewPlugin(): Plugin {
               maxFiles: cfg.maxFilesPerBatch,
               autoFix: 'off',
             },
-            cwd,
             files: filesWithContent,
-          };
+          });
 
           api.log.info(
             `[auto-review] #${reviewCounter} emitting review_needed (${filesWithContent.length} files, provider=${cfg.provider} model=${cfg.model})`,
           );
 
-          api.emitCustom('chimera.review_needed', payload);
+          api.emitCustom('chimera.review_needed', bundle);
 
           // Note: chimera.review_needed is consumed by CLI execution.ts which
           // requires the Director (--director flag). Without it, reviews are
@@ -439,7 +440,9 @@ export function createAutoReviewPlugin(): Plugin {
           };
           inFlight.push(inflightEntry);
 
-          api.emitCustom('chimera.review_needed', {
+          // ── Build enriched review context (diffs, siblings, commits) ──
+          const bundle = await buildReviewContext({
+            cwd,
             config: {
               enabled: true,
               provider: cfg.provider,
@@ -447,9 +450,10 @@ export function createAutoReviewPlugin(): Plugin {
               maxFiles: cfg.maxFilesPerBatch,
               autoFix: 'off',
             },
-            cwd,
             files: filesWithContent,
-          } satisfies ChimeraReviewNeededPayload);
+          });
+
+          api.emitCustom('chimera.review_needed', bundle);
 
           api.log.info(`[auto-review] session end — final review (${filesWithContent.length} files)`);
         } catch (err) {

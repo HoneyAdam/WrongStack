@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import type { EventBus } from '../kernel/events.js';
 import type { Plugin } from '../types/plugin.js';
 import type { SlashCommand } from '../types/slash-command.js';
+import { buildReviewContext } from './review-context-builder.js';
 import { toErrorMessage } from '../utils/error.js';
 import { readBundledInstructionText } from '../utils/instruction-file.js';
 
@@ -58,14 +59,61 @@ export function resolveChimeraConfig(
 // ---------------------------------------------------------------------------
 // Event payload emitted on session.ended when chimera is enabled
 // ---------------------------------------------------------------------------
-export interface ChimeraReviewNeededPayload {
+
+/**
+ * A single changed file with its content and, for modified files, a
+ * unified diff against HEAD so the reviewer can focus on what changed.
+ */
+export interface ReviewFileEntry {
+  path: string;
+  status: 'added' | 'modified';
+  content: string;
+  /**
+   * Unified diff against HEAD for modified files.
+   * For added files, this is undefined (content is the full file).
+   * Capped at a reasonable size to avoid bloating the subagent task.
+   */
+  diff?: string | undefined;
+}
+
+/**
+ * Context bundle that enriches a review beyond "here are N files."
+ * Collects the *story*: what task motivated the change, what else
+ * changed alongside it, and what the recent commit history looks like.
+ *
+ * The review subagent receives this so it can:
+ * - Focus on the diff (what changed) rather than re-reviewing unchanged code
+ * - Understand the task intent (todos, narrative) to judge correctness
+ * - See sibling changes for cross-file consistency
+ * - Avoid re-reporting known issues (commit history context)
+ */
+export interface ReviewContextBundle {
   /** Resolved chimera config */
   config: ResolvedChimeraConfig;
   /** Project root for git operations */
   cwd: string;
-  /** Changed files with their contents */
-  files: Array<{ path: string; status: 'added' | 'modified'; content: string }>;
+  /** Changed files with their contents and diffs */
+  files: ReviewFileEntry[];
+
+  // ── Sibling awareness ──
+  /**
+   * All files changed in the working tree, including ones not in the
+   * current review batch. Lets the reviewer understand the broader
+   * change set without expanding its review scope.
+   */
+  allChangedFiles?: Array<{ path: string; status: string }> | undefined;
+
+  // ── Commit history ──
+  /**
+   * Recent commit messages (oneline), newest first.
+   * Helps the reviewer understand what was already committed vs.
+   * what's still uncommitted working-tree changes.
+   */
+  recentCommits?: string[] | undefined;
 }
+
+/** Legacy alias — the payload type is the bundle type. */
+export type ChimeraReviewNeededPayload = ReviewContextBundle;
 
 // ---------------------------------------------------------------------------
 // System prompt for the subagent (matches packages/core/skills/chimera/SKILL.md)
@@ -280,7 +328,7 @@ export function createChimeraPlugin(): Plugin {
         }
 
         // Read file contents
-        const filesWithContent: ChimeraReviewNeededPayload['files'] = [];
+        const filesWithContent: ReviewFileEntry[] = [];
         for (const f of toReview) {
           try {
             const absPath = path.join(cwd, f.path);
@@ -294,12 +342,15 @@ export function createChimeraPlugin(): Plugin {
           return;
         }
 
-        // Emit custom event — execution.ts picks this up and spawns the subagent
-        api.emitCustom('chimera.review_needed', {
-          config: cfg,
+        // ── Build enriched review context (diffs, siblings, commits) ──
+        const bundle = await buildReviewContext({
           cwd,
+          config: cfg,
           files: filesWithContent,
-        } satisfies ChimeraReviewNeededPayload);
+        });
+
+        // Emit custom event — execution.ts picks this up and spawns the subagent
+        api.emitCustom('chimera.review_needed', bundle satisfies ReviewContextBundle);
 
         api.log.info(`[chimera] emitted review_needed event (${filesWithContent.length} files)`);
         } catch (err) {
