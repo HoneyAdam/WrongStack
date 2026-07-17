@@ -316,3 +316,76 @@ describe('withFileLock unexpected error', () => {
     expect(result).toBe('eexist-recovered');
   });
 });
+
+// ── withFileLock: EPERM code path ─────────────────────────────────────
+
+describe('withFileLock EPERM handling', () => {
+  it('treats EPERM like EEXIST and waits for the stale lock to lapse', async () => {
+    // Windows returns EPERM (not EEXIST) when open(..., 'wx') hits an existing file.
+    // Mock fs.open to reject once with EPERM pointing at a real stale lock, then
+    // let the real implementation take over once the lock is unlinked.
+    const target = path.join(tmpDir, 'eperm', 'target.json');
+    const lockDir = path.join(tmpDir, 'eperm');
+    const lockPath = path.join(lockDir, '.target.json.lock');
+    await fs.mkdir(lockDir, { recursive: true });
+    await fs.writeFile(lockPath, '0:0', { flag: 'wx' });
+
+    const openMock = vi.mocked(fs.open);
+    openMock.mockRejectedValueOnce(errWithCode('EPERM'));
+
+    const result = await withFileLock(target, async () => 'eperm-recovered', {
+      timeoutMs: 5000,
+      staleMs: 0, // existing lock is immediately stale
+    });
+    expect(result).toBe('eperm-recovered');
+  });
+});
+
+// ── waitForLockRelease: watcher + access probe paths ──────────────────
+
+describe('waitForLockRelease paths', () => {
+  it('resolves when fs.watch observes the lock file being removed (rename event)', async () => {
+    // Acquire the lock externally so withFileLock enters the wait branch, then
+    // unlink it so the watcher fires the resolve path (not the timeout path).
+    const target = path.join(tmpDir, 'watcher-rename', 'target.json');
+    const lockDir = path.join(tmpDir, 'watcher-rename');
+    const lockPath = path.join(lockDir, '.target.json.lock');
+    await fs.mkdir(lockDir, { recursive: true });
+    await fs.writeFile(lockPath, '0:0', { flag: 'wx' });
+
+    // Release the lock shortly after the second caller starts waiting.
+    // staleMs is large so the stat-based re-acquire doesn't fire first; the
+    // watcher rename event must drive resolution.
+    setTimeout(() => fs.unlink(lockPath), 30);
+
+    const result = await withFileLock(target, async () => 'watcher-resolved', {
+      timeoutMs: 5000,
+      staleMs: 60_000,
+    });
+    expect(result).toBe('watcher-resolved');
+  });
+
+  it('resolves via the fs.access probe when the lock is already gone before the watcher attaches', async () => {
+    const target = path.join(tmpDir, 'watcher-access', 'target.json');
+    const lockDir = path.join(tmpDir, 'watcher-access');
+    const lockPath = path.join(lockDir, '.target.json.lock');
+    await fs.mkdir(lockDir, { recursive: true });
+    await fs.writeFile(lockPath, '0:0', { flag: 'wx' });
+
+    // Mock fs.open to reject with EEXIST, then remove the lock immediately so
+    // the `fs.access(lockPath)` probe inside waitForLockRelease fires resolve.
+    const openMock = vi.mocked(fs.open);
+    openMock.mockImplementationOnce(async () => {
+      // Remove the lock right before the EEXIST is thrown, so by the time
+      // waitForLockRelease runs its access probe, the file is already gone.
+      await fs.unlink(lockPath).catch(() => undefined);
+      throw errWithCode('EEXIST');
+    });
+
+    const result = await withFileLock(target, async () => 'access-resolved', {
+      timeoutMs: 5000,
+      staleMs: 60_000,
+    });
+    expect(result).toBe('access-resolved');
+  });
+});
