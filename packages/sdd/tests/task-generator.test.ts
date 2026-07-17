@@ -68,7 +68,7 @@ function makeFakeStore(): TaskStore & { graphs: Map<string, TaskGraph> } {
   };
 }
 
-describe.skip('TaskGenerator', () => {
+describe('TaskGenerator', () => {
   let store: ReturnType<typeof makeFakeStore>;
   let tracker: TaskTracker;
   let generator: TaskGenerator;
@@ -531,10 +531,7 @@ describe('TaskGenerator — verificationFromAcceptance (opt-in)', () => {
     expect(node?.metadata?.verificationCommand).toBeUndefined();
   });
 
-  // Skipped: generateFromSpec is currently a stub that creates a graph without
-  // adding task nodes (see task-generator.ts:46-49). This test depends on the
-  // generator actually populating tasks from spec requirements.
-  it.skip('extracts a marked command when enabled', async () => {
+  it('extracts a marked command when enabled', async () => {
     const node = await run(true, ['must be fast', 'verify: pnpm test auth']);
     expect(node?.metadata?.verificationCommand).toBe('pnpm test auth');
   });

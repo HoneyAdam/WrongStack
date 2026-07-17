@@ -45,6 +45,108 @@ export class TaskGenerator {
 
   async generateFromSpec(spec: Specification): Promise<TaskGraph> {
     const graph = await this.opts.taskTracker.createGraph(spec.id, spec.title);
+
+    // Overview task
+    const overviewSection = spec.sections?.find((s) => s.type === 'overview');
+    if (overviewSection?.content) {
+      this.opts.taskTracker.addNode({
+        title: `Implement: ${spec.title}`,
+        description: overviewSection.content,
+        type: 'feature',
+        priority: 'high',
+        status: 'pending',
+        estimateHours: 4,
+      });
+    }
+
+    // Requirement tasks (sorted by priority)
+    const priorityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+    const sorted = [...(spec.requirements ?? [])].sort(
+      (a, b) => (priorityOrder[a.priority] ?? 9) - (priorityOrder[b.priority] ?? 9),
+    );
+
+    for (const req of sorted) {
+      const estimateHours =
+        req.priority === 'critical' ? 8 : req.priority === 'high' ? 4 : req.priority === 'medium' ? 2 : 1;
+
+      const tags: string[] = [req.type, req.priority];
+
+      const acLines = (req.acceptanceCriteria ?? [])
+        .map((ac) => `- ${ac}`)
+        .join('\n');
+      const blockedLine = req.blockedBy?.length
+        ? `\n\n**Blocked by:** ${req.blockedBy.join(', ')}`
+        : '';
+      const description =
+        `${req.description}\n\n**Type:** ${req.type}` +
+        (acLines ? `\n\n**Acceptance Criteria:**\n${acLines}` : '') +
+        blockedLine;
+
+      const metadata: Record<string, unknown> = {};
+      if (this.opts.verificationFromAcceptance) {
+        const cmd = extractVerificationCommand(req.acceptanceCriteria ?? []);
+        if (cmd) metadata.verificationCommand = cmd;
+      }
+
+      this.opts.taskTracker.addNode({
+        title: req.description,
+        description,
+        type: 'feature',
+        priority: req.priority,
+        status: 'pending',
+        estimateHours,
+        tags,
+        specRequirementId: req.id,
+        ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+      });
+    }
+
+    // API endpoint tasks
+    if (spec.apiEndpoints?.length) {
+      const apiParent = this.opts.taskTracker.addNode({
+        title: 'API Implementation',
+        description: 'Implement API endpoints as specified in the spec.',
+        type: 'feature',
+        priority: 'high',
+        status: 'pending',
+        estimateHours: 0,
+      });
+
+      for (const ep of spec.apiEndpoints) {
+        const baseHours = 2;
+        const authHours = ep.auth ? 1 : 0;
+        const reqHours = ep.request ? 1 : 0;
+        this.opts.taskTracker.addNode({
+          title: `${ep.method} ${ep.path} — ${ep.description}`,
+          description: `${ep.method} ${ep.path}: ${ep.description}`,
+          type: 'feature',
+          priority: 'medium',
+          status: 'pending',
+          estimateHours: baseHours + authHours + reqHours,
+          parentId: apiParent.id,
+        });
+      }
+    }
+
+    // Always add closing tasks
+    this.opts.taskTracker.addNode({
+      title: 'Write Tests',
+      description: 'Write comprehensive tests for the implemented features.',
+      type: 'test',
+      priority: 'high',
+      status: 'pending',
+      estimateHours: 4,
+    });
+
+    this.opts.taskTracker.addNode({
+      title: 'Update Documentation',
+      description: 'Update project documentation to reflect the changes.',
+      type: 'docs',
+      priority: 'low',
+      status: 'pending',
+      estimateHours: 2,
+    });
+
     return graph;
   }
 
