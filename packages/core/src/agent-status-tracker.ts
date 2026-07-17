@@ -75,6 +75,8 @@ export class AgentStatusTracker {
   private readonly onUpdate: (() => void) | undefined;
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
   private partialTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Serialize registry writes so concurrent flush() calls don't race. */
+  private flushPromise: Promise<void> | null = null;
 
   constructor(opts: AgentStatusTrackerOptions) {
     this.events = opts.events;
@@ -478,10 +480,13 @@ export class AgentStatusTracker {
     } catch {
       /* best-effort */
     }
-    // Nudge local WebUIs only AFTER the write settles, so they re-read fresh
-    // data. Best-effort — never let a notifier failure surface here.
-    this.registry
-      .updateAgents(allAgents)
+    // Nudge local WebUIs only AFTER the write settles. Serialize through a
+    // promise chain so concurrent flush() calls never overlap: if flush() is
+    // called while the previous write is still in-flight, the new write chains
+    // after it and always captures the freshest allAgents snapshot (captured
+    // synchronously above). Best-effort — never let a notifier failure surface.
+    this.flushPromise = (this.flushPromise ?? Promise.resolve())
+      .then(() => this.registry.updateAgents(allAgents))
       .then(() => {
         try {
           this.onUpdate?.();
