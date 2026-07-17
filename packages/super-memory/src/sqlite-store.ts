@@ -410,6 +410,7 @@ export class SqliteSuperMemoryStore {
         importance: input.importance ?? 0.6,
         confidence: input.confidence ?? 0.8,
         freshness: input.freshness ?? 1,
+        persistence: input.persistence,
         supersedes: input.supersedes,
         contradicts: input.contradicts,
         supersededBy: undefined,
@@ -773,13 +774,14 @@ export class SqliteSuperMemoryStore {
 
   async hygiene(opts?: SuperMemoryHygieneOptions): Promise<SuperMemoryHygieneReport> {
     await this.initialize();
-    // Basic implementation — verifies anchors and marks stale
+    const startedAt = this.nowIso();
+
+    // ── Phase 1: Anchor verification ────────────────────────────────
     const active = await this.listMemories({ status: 'active', limit: 10000 });
     const stale: string[] = [];
     const verified: string[] = [];
 
     for (const m of active) {
-      // Simple check: if memory has anchors, check file existence
       let allValid = true;
       for (const anchor of m.anchors) {
         if (anchor.type === 'file' || anchor.type === 'symbol' || anchor.type === 'test' || anchor.type === 'git') {
@@ -796,63 +798,151 @@ export class SqliteSuperMemoryStore {
       else stale.push(m.id);
     }
 
-    // Mark stale
-    for (const _id of stale) {
-      // Note: we do NOT mutate `status` here. The redesigned hygiene pipeline
-      // never auto-archives or auto-marks memories; anchor failures surface
-      // as review candidates instead. The `stale` array is reported in the
-      // report (see below) so dashboards see the count, but no DB write
-      // happens. A future parity pass could write review candidates to a
-      // candidates table; until then, this is parity-safe with the JSONL
-      // store's hygieneUnlocked.
+    // ── Phase 2: Deduplication ──────────────────────────────────────
+    // Group active memories by (scope, canonical text). Keep the highest-
+    // quality entry (importance desc, confidence desc, createdAt asc) and
+    // mark duplicates as 'superseded'. Matches the JSONL store's
+    // hygieneUnlocked dedup logic.
+    let deduplicated = 0;
+    let superseded = 0;
+    const allActive = await this.listMemories({ status: 'active', limit: 10000 });
+    const groups = new Map<string, SuperMemory[]>();
+    for (const m of allActive) {
+      const key = `${m.scope}\0${normalizeTextKey(m.text)}`;
+      const group = groups.get(key);
+      if (group) group.push(m);
+      else groups.set(key, [m]);
     }
+    for (const group of groups.values()) {
+      if (group.length < 2) continue;
+      const sorted = [...group].sort((a, b) =>
+        b.importance - a.importance
+        || b.confidence - a.confidence
+        || a.createdAt.localeCompare(b.createdAt),
+      );
+      const keeper = sorted[0]!;
+      const duplicates = sorted.slice(1);
+      // Merge tags/anchors/sources into keeper
+      const updatedKeeper: SuperMemory = {
+        ...keeper,
+        tags: [...new Set(sorted.flatMap((m) => m.tags))],
+        anchors: [...new Map([...sorted.flatMap((m) => m.anchors)].map((a) => [JSON.stringify(a), a])).values()] as MemoryAnchor[],
+        sources: [...new Set(sorted.flatMap((m) => m.sources.map((s) => JSON.stringify(s))))].map((s) => JSON.parse(s)),
+        supersedes: [...new Set([...(keeper.supersedes ?? []), ...duplicates.map((m) => m.id)])],
+        updatedAt: this.nowIso(),
+      };
+      this.upsertMemory(updatedKeeper);
+      for (const dup of duplicates) {
+        const supersededDup: SuperMemory = {
+          ...dup,
+          status: 'superseded',
+          supersededBy: keeper.id,
+          updatedAt: this.nowIso(),
+        };
+        this.upsertMemory(supersededDup);
+        // Add graph edge (best-effort — the edges table may not exist in all configs)
+        try {
+          this.db
+            .prepare('INSERT INTO edges (from_node, to_node, relation, weight, created_at) VALUES (?, ?, ?, ?, ?)')
+            .run(`mem:${keeper.id}`, `mem:${dup.id}`, 'supersedes', 1, this.nowIso());
+        } catch { /* edges table may be absent */ }
+        deduplicated++;
+        superseded++;
+      }
+    }
+    this.audit('memory.hygiene_dedup', { details: { deduplicated, superseded } });
 
-    // Surface unused memories as review candidates.  The candidates table
-    // exists (see initSchema) — we create a candidate for each unused
-    // memory so the ReviewQueue UI can surface it, matching the JSONL
-    // backend's hygieneUnlocked behavior.
+    // ── Phase 3: Review candidates ──────────────────────────────────
+    // Matches the JSONL store's four rules: expires_at_passed,
+    // injected_never_used, confidence_low, freshness_low.
+    // Permanent memories are exempt from all candidate rules.
+    const nowMs = this.now().getTime();
+    const retentionMs = (opts?.retentionDays ?? 90) * 86_400_000;
+    const lowConfidenceMs = (opts?.archiveLowConfidenceAfterDays ?? 30) * 86_400_000;
     const unusedMs = (opts?.archiveUnusedAfterDays ?? 30) * 86_400_000;
     const unusedMinInjections = Math.max(1, Math.floor(opts?.unusedMinInjections ?? 10));
-    const unusedCutoff = new Date(this.now().getTime() - unusedMs).toISOString();
-    const unusedRows = this.db
-      .prepare(
-        `SELECT id, data FROM memories
-         WHERE status = 'active'
-           AND COALESCE(json_extract(data, '$.injectionCount'), 0) >= ?
-           AND COALESCE(json_extract(data, '$.useCount'), 0) = 0
-           AND json_extract(data, '$.scope') != 'session'
-           AND COALESCE(json_extract(data, '$.updatedAt'), '') <= ?`,
-      )
-      .all(unusedMinInjections, unusedCutoff) as Array<{ id: string; data: string }>;
+
+    // Load existing pending candidates so we can de-dup within this run
+    const existingCandidates = await this.listCandidates();
+    const existingPendingKeys = new Set(
+      existingCandidates
+        .filter((c) => c.status === 'pending')
+        .map((c) => c.memoryId ?? ''),
+    );
+    const candidateEmittedFor = new Set<string>();
 
     let reviewCandidatesCreated = 0;
-    for (const { id, data } of unusedRows) {
-      const memory = JSON.parse(data) as SuperMemory;
-      await this.addCandidate({
-        id: ulid(),
-        schemaVersion: 1,
-        memoryId: id,
-        text: memory.text,
-        kind: 'memory_review',
-        status: 'pending',
-        scope: 'project',
-        confidence: 0.6,
-        importance: 0.4,
-        tags: ['review:injected_never_used', 'suggested:delete'],
-        anchors: memory.anchors,
-        sources: [{ type: 'session' }],
-        createdAt: this.nowIso(),
-        updatedAt: this.nowIso(),
-      });
-      reviewCandidatesCreated++;
+
+    // Query non-deleted, non-superseded memories for candidate evaluation
+    const candidates = await this.listMemories({ status: 'all', limit: 10000 });
+    for (const m of candidates) {
+      if (m.status === 'deleted' || m.status === 'superseded' || m.status === 'contradicted') continue;
+
+      const age = nowMs - Date.parse(m.lastAccessedAt ?? m.updatedAt);
+      const persistence = m.persistence ?? 'long_lived';
+      let reason: string | undefined;
+      let suggestedAction: 'delete' | 'archive' | 'investigate' = 'investigate';
+
+      if (m.scope === 'session' && m.expiresAt && Date.parse(m.expiresAt) <= nowMs) {
+        reason = 'expires_at_passed';
+        suggestedAction = 'delete';
+      } else if (m.expiresAt && Date.parse(m.expiresAt) <= nowMs) {
+        reason = 'expires_at_passed';
+        suggestedAction = 'delete';
+      } else if (
+        m.status === 'active'
+        && m.scope !== 'session'
+        && (m.injectionCount ?? 0) >= unusedMinInjections
+        && (m.useCount ?? 0) === 0
+        && nowMs - Date.parse(m.updatedAt) >= unusedMs
+      ) {
+        reason = 'injected_never_used';
+        suggestedAction = 'delete';
+      } else if (
+        (m.status === 'stale' && age >= retentionMs)
+        || (m.confidence < 0.5 && age >= lowConfidenceMs)
+      ) {
+        reason = m.confidence < 0.5 ? 'confidence_low' : 'freshness_low';
+        suggestedAction = 'investigate';
+      }
+
+      // Permanent memories are exempt from time/usage rules
+      if (reason && persistence !== 'permanent'
+        && !candidateEmittedFor.has(m.id)
+        && !existingPendingKeys.has(m.id)) {
+        candidateEmittedFor.add(m.id);
+        const ageDays = Math.floor((nowMs - Date.parse(m.updatedAt)) / 86_400_000);
+        await this.addCandidate({
+          id: ulid(),
+          schemaVersion: 1,
+          memoryId: m.id,
+          text: m.text,
+          kind: 'memory_review',
+          status: 'pending',
+          scope: 'project',
+          confidence: 0.6,
+          importance: 0.4,
+          tags: [...m.tags, `review:${reason}`, `suggested:${suggestedAction}`, `persistence:${persistence}`],
+          anchors: m.anchors,
+          sources: [{ type: 'session' }],
+          createdAt: this.nowIso(),
+          updatedAt: this.nowIso(),
+        });
+        this.audit('memory.review_candidate_created', {
+          memoryId: m.id,
+          reason,
+          details: { suggestedAction, ageDays, persistence, status: m.status, confidence: m.confidence },
+        });
+        reviewCandidatesCreated++;
+      }
     }
 
     const report: SuperMemoryHygieneReport = {
-      startedAt: this.nowIso(),
+      startedAt,
       completedAt: this.nowIso(),
       examined: active.length,
-      deduplicated: 0,
-      superseded: 0,
+      deduplicated,
+      superseded,
       contradicted: 0,
       staled: stale.length,
       reviewCandidatesCreated,
@@ -861,6 +951,7 @@ export class SqliteSuperMemoryStore {
       deleted: 0,
       verified: verified.length,
     };
+    this.audit('memory.hygiene_completed', { details: report as unknown as Record<string, unknown> });
     return report;
   }
 
