@@ -160,8 +160,17 @@ function renderRow(row: AuthPanelRow, focused: boolean, i: number): React.ReactE
 
 const URL_LINE_RE = /^https?:\/\/\S+$/;
 
+/**
+ * OSC 8 terminal hyperlink sequences: `\x1b]8;;URL\x1b\\...text...\x1b]8;;\x1b\\`
+ * Strip them for URL detection — the renderer still outputs them so the
+ * terminal makes the text clickable (Windows Terminal, iTerm2, Kitty, WezTerm).
+ */
+const OSC8_RE = /\x1b]8;[^\x07]*?(?:\x07|\x1b\\)/g;
+
 export function isAuthFlowUrlLine(line: string): boolean {
-  return URL_LINE_RE.test(line.trim());
+  // Strip OSC 8 hyperlink sequences so the plain-URL regex matches
+  const plain = line.replace(OSC8_RE, '').trim();
+  return URL_LINE_RE.test(plain);
 }
 
 function viewTitle(panel: AuthPanelState): string {

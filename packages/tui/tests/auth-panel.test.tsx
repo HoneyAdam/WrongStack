@@ -70,6 +70,14 @@ describe('AuthPanel flow URL rendering helpers', () => {
     );
   });
 
+  it('recognizes OSC 8 terminal-hyperlink wrapped URLs', () => {
+    const osc8 =
+      '\x1b]8;;https://auth.openai.com/oauth/authorize?response_type=code&client_id=x\x1b\\' +
+      'https://auth.openai.com/oauth/authorize?response_type=code&client_id=x' +
+      '\x1b]8;;\x1b\\';
+    expect(isAuthFlowUrlLine(osc8)).toBe(true);
+  });
+
   it('does not treat explanatory log lines as URL-only lines', () => {
     expect(isAuthFlowUrlLine('Open this URL in your browser to sign in:')).toBe(false);
     expect(isAuthFlowUrlLine('Listening on http://localhost:1455/auth/callback')).toBe(false);

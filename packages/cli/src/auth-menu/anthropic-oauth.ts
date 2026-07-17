@@ -184,15 +184,27 @@ async function fetchClaudeModels(accessToken: string, signal: AbortSignal): Prom
 
 // ── Loopback server ──────────────────────────────────────────────────────────
 
+const ESCAPE_HTML: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+};
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (ch) => ESCAPE_HTML[ch] ?? ch);
+}
+
 function callbackHtml(ok: boolean, message: string): string {
   const heading = ok ? 'Authentication successful' : 'Authentication failed';
   return (
     `<!doctype html><html lang="en"><head><meta charset="utf-8"/>` +
-    `<title>${heading}</title><style>body{margin:0;min-height:100vh;display:flex;` +
+    `<title>${escapeHtml(heading)}</title><style>body{margin:0;min-height:100vh;display:flex;` +
     `align-items:center;justify-content:center;background:#09090b;color:#fafafa;` +
     `font-family:ui-sans-serif,system-ui,sans-serif;text-align:center}` +
     `h1{font-size:26px;margin:0 0 8px}p{color:#a1a1aa}</style></head><body><main>` +
-    `<h1>${heading}</h1><p>${message}</p></main></body></html>`
+    `<h1>${escapeHtml(heading)}</h1><p>${escapeHtml(message)}</p></main></body></html>`
   );
 }
 
@@ -342,6 +354,10 @@ export async function runClaudeOAuthLogin(
   // Anthropic reuses the PKCE verifier as the OAuth state.
   const state = verifier;
   const authorizeUrl = buildAuthorizeUrl(challenge, verifier);
+  // Wrap URL in OSC 8 terminal hyperlink sequences — makes it a clickable
+  // link in modern terminals (Windows Terminal, iTerm2, Kitty, WezTerm, etc.).
+  // The hyperlink is region-based: clicking any wrapped segment opens the URL.
+  const osc8 = (url: string) => `\x1b]8;;${url}\x1b\\${url}\x1b]8;;\x1b\\`;
 
   const ac = new AbortController();
   const onSig = () => ac.abort();
@@ -365,7 +381,7 @@ export async function runClaudeOAuthLogin(
       color.dim('\n\n') +
       color.bold(`  ${'─'.repeat(56)}\n`) +
       color.bold('  Open this URL in your browser to sign in:\n') +
-      color.cyan(`  ${authorizeUrl}\n`) +
+      color.cyan(`  ${osc8(authorizeUrl)}\n`) +
       color.bold(`  ${'─'.repeat(56)}\n\n`),
   );
 

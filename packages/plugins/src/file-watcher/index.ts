@@ -182,6 +182,20 @@ const plugin: Plugin = {
       try {
         const watcher = fsWatch(dirPath, { recursive }, (eventType, filename) => {
           if (!filename) return;
+          // Filter to the event types the caller requested.  fs.watch
+          // reports 'change' and 'rename'; 'rename' maps to the user-facing
+          // 'add' / 'delete' slots — a file appears/disappears, so the
+          // rename is allowed when EITHER slot is in handle.events.
+          if (
+            handle.events.length > 0 &&
+            !(
+              eventType === 'change'
+                ? handle.events.includes('change')
+                : handle.events.includes('add') || handle.events.includes('delete')
+            )
+          ) {
+            return;
+          }
           const rawPath = filename.startsWith(dirPath) ? filename : join(dirPath, filename);
           // Normalize to forward slashes for cross-platform consistency in
           // emitted events, logs, and reindex file lists.
