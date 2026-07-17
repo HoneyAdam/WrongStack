@@ -7,144 +7,92 @@
  */
 
 import {
-  ReactFlow,
-  Background,
-  Controls,
-  MiniMap,
-  useNodesState,
-  useEdgesState,
   addEdge,
-  type Node,
-  type Edge,
-  type Connection,
-  type NodeTypes,
-  type EdgeTypes,
-  type EdgeProps,
+  Background,
   BackgroundVariant,
-  useReactFlow,
-  Handle,
-  Position,
-  Panel,
-  getBezierPath,
+  type Connection,
+  Controls,
+  type Edge,
   EdgeLabelRenderer,
+  type EdgeProps,
+  type EdgeTypes,
+  getBezierPath,
+  Handle,
+  MiniMap,
+  type Node,
+  type NodeTypes,
+  Panel,
+  Position,
+  ReactFlow,
+  useEdgesState,
+  useNodesState,
+  useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useShallow } from 'zustand/react/shallow';
 import {
+  Activity,
+  Armchair,
   Bot,
-  Monitor,
-  Terminal,
+  Building2,
+  Cpu,
+  DollarSign,
+  Hash,
+  Inbox,
+  LayoutGrid,
   Mail,
+  Maximize2,
+  Monitor,
+  ScrollText,
+  Send,
+  Terminal,
+  Users,
   Wifi,
   WifiOff,
-  Cpu,
-  Send,
-  Inbox,
-  Building2,
-  Users,
-  Armchair,
   Zap,
-  Activity,
-  Hash,
-  DollarSign,
-  LayoutGrid,
-  ScrollText,
-  Maximize2,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppTranslation } from '@/i18n';
-import { AgentTranscript } from './AgentTranscript';
+import { cn } from '@/lib/utils';
 import {
   EMPTY_AGENT_TRANSCRIPT,
   useFleetStore,
-  useSessionStore,
-  useVizStore,
   useMailboxStore,
   useMonitorStore,
   useOfficeMapStore,
+  useSessionStore,
+  useVizStore,
 } from '@/stores';
 import type { VizEvent } from '@/stores/viz-store';
-import { SessionWatchPanel } from './SessionWatchPanel';
+import { AgentTranscript } from './AgentTranscript';
+import { feedColor, resolveClients } from './OfficeMapCanvas/resolve.js';
 import {
-  type ClientStatus,
-  type OfficeNodeData,
-  fmtCompact,
-  fmtAgo,
-  fmtUptime,
-  shortModel,
-  CENTER_X,
-  HUB_GAP,
-  MAILBOX_Y,
-  COORD_Y,
-  CLIENT_AGENT_GAP,
-  layoutClientClusters,
   agentFanPos,
+  CENTER_X,
+  CLIENT_AGENT_GAP,
+  type ClientStatus,
+  COORD_Y,
+  compactFlowLabel,
+  fmtAgo,
+  fmtCompact,
+  fmtUptime,
+  HUB_GAP,
+  layoutClientClusters,
+  MAILBOX_Y,
+  type OfficeNodeData,
+  shortModel,
   surfaceLabel,
 } from './OfficeMapCanvas/utils.js';
-import { feedColor, resolveClients } from './OfficeMapCanvas/resolve.js';
+import { SessionWatchPanel } from './SessionWatchPanel';
+import {
+  clampCtxPct,
+  FIT_VIEW_PADDING,
+  nodeTypes,
+  OFFICE_COLOR,
+} from './OfficeMapCanvas/nodes.js';
+import { edgeTypes } from './OfficeMapCanvas/edges.js';
 
-const OFFICE_COLOR = {
-  primary: 'hsl(var(--primary))',
-  info: 'hsl(var(--info))',
-  success: 'hsl(var(--success))',
-  warning: 'hsl(var(--warning))',
-  destructive: 'hsl(var(--destructive))',
-  muted: 'hsl(var(--muted-foreground))',
-} as const;
-
-const FIT_VIEW_PADDING = 0.12;
-
-function clampCtxPct(value: number | null | undefined): number {
-  return Math.min(100, Math.max(0, value ?? 0));
-}
-
-// ── Status LED ─────────────────────────────────────────────────────────────
-
-function StatusLED({ status, small, activity = 0 }: { status: ClientStatus; small?: boolean; activity?: number }) {
-  const size = small ? 'w-2 h-2' : 'w-3 h-3';
-
-  // Intensity of the glow: 0–1, driven by VizNode.activity from vizStore.
-  // At activity=0 the LED is flat; at activity=1 it glows at full brightness.
-  const glowRadius = small ? 4 + activity * 4 : 6 + activity * 6;
-
-  const baseColor: Record<ClientStatus, string> = {
-    idle: 'bg-muted-foreground',
-    active: 'bg-success',
-    streaming: 'bg-primary',
-    completed: 'bg-primary',
-    error: 'bg-destructive',
-    offline: 'bg-muted-foreground/60',
-  };
-
-  const glowColor: Record<ClientStatus, string> = {
-    idle: OFFICE_COLOR.muted,
-    active: OFFICE_COLOR.success,
-    streaming: OFFICE_COLOR.primary,
-    completed: OFFICE_COLOR.primary,
-    error: OFFICE_COLOR.destructive,
-    offline: OFFICE_COLOR.muted,
-  };
-
-  return (
-    <span
-      className={cn(
-        'rounded-full',
-        size,
-        activity > 0 && 'animate-pulse',
-        baseColor[status],
-      )}
-      style={{
-        boxShadow: activity > 0
-          ? `0 0 ${glowRadius}px ${glowColor[status]}`
-          : undefined,
-      }}
-    />
-  );
-}
-
-// ── Real-time Stats HUD ──────────────────────────────────────────────────────
 
 function StatsHUD() {
   const { t } = useAppTranslation();
@@ -167,7 +115,9 @@ function StatsHUD() {
     <div className="absolute left-4 top-20 z-10 rounded-xl border border-border/70 bg-card/90 p-3 text-foreground shadow-xl backdrop-blur">
       <div className="flex items-center gap-2 mb-2">
         <Activity className="h-3.5 w-3.5 text-success" />
-        <span className="text-[10px] font-bold uppercase text-muted-foreground">{t('activity:office.sessionStats')}</span>
+        <span className="text-[10px] font-bold uppercase text-muted-foreground">
+          {t('activity:office.sessionStats')}
+        </span>
       </div>
 
       <div className="space-y-1.5 text-[10px]">
@@ -227,7 +177,10 @@ function StatsHUD() {
               <Cpu className="h-3 w-3 text-muted-foreground" />
               <span className="text-muted-foreground">{t('activity:officeMap.model')}</span>
             </div>
-            <span className="max-w-[120px] truncate font-mono text-primary" title={currentSession.model}>
+            <span
+              className="max-w-[120px] truncate font-mono text-primary"
+              title={currentSession.model}
+            >
               {currentSession.model.split('/').pop()?.slice(0, 16)}
             </span>
           </div>
@@ -240,13 +193,16 @@ function StatsHUD() {
               <Zap className="h-3 w-3 text-muted-foreground" />
               <span className="text-muted-foreground">{t('activity:officeMap.mode')}</span>
             </div>
-            <span className={cn(
-              'font-mono uppercase text-[9px] px-1.5 py-0.5 rounded',
-              currentSession.mode === 'auto' && 'bg-primary/10 text-primary',
-              currentSession.mode === 'suggest' && 'bg-success/10 text-success',
-              currentSession.mode === 'off' && 'bg-muted text-muted-foreground',
-              !['auto', 'suggest', 'off'].includes(currentSession.mode || '') && 'bg-muted text-muted-foreground',
-            )}>
+            <span
+              className={cn(
+                'font-mono uppercase text-[9px] px-1.5 py-0.5 rounded',
+                currentSession.mode === 'auto' && 'bg-primary/10 text-primary',
+                currentSession.mode === 'suggest' && 'bg-success/10 text-success',
+                currentSession.mode === 'off' && 'bg-muted text-muted-foreground',
+                !['auto', 'suggest', 'off'].includes(currentSession.mode || '') &&
+                  'bg-muted text-muted-foreground',
+              )}
+            >
               {currentSession.mode}
             </span>
           </div>
@@ -268,14 +224,18 @@ function StatsHUD() {
               <span className="text-[8px] text-muted-foreground">IN</span>
               <span className="text-muted-foreground">{t('activity:office.input')}</span>
             </div>
-            <span className="font-mono text-[9px] text-foreground">{fmtNum(aggregate.tokensIn)}</span>
+            <span className="font-mono text-[9px] text-foreground">
+              {fmtNum(aggregate.tokensIn)}
+            </span>
           </div>
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-1.5">
               <span className="text-[8px] text-muted-foreground">OUT</span>
               <span className="text-muted-foreground">{t('activity:office.output')}</span>
             </div>
-            <span className="font-mono text-[9px] text-foreground">{fmtNum(aggregate.tokensOut)}</span>
+            <span className="font-mono text-[9px] text-foreground">
+              {fmtNum(aggregate.tokensOut)}
+            </span>
           </div>
         </div>
 
@@ -291,491 +251,6 @@ function StatsHUD() {
     </div>
   );
 }
-
-// ── Node Components ─────────────────────────────────────────────────────────
-
-/**
- * Hidden connection points. React Flow only renders an edge when BOTH endpoints
- * expose a matching handle — custom nodes get none by default, which is why the
- * office wires never appeared. Every node carries a top target + bottom source
- * so edges in either vertical direction attach. Kept invisible (the custom
- * `wire` edge draws its own bezier).
- */
-function NodeHandles() {
-  const style = { opacity: 0, width: 1, height: 1, minWidth: 0, border: 'none', background: 'transparent' } as const;
-  return (
-    <>
-      <Handle type="target" position={Position.Top} style={style} isConnectable={false} />
-      <Handle type="source" position={Position.Bottom} style={style} isConnectable={false} />
-    </>
-  );
-}
-
-/** Shared footer for client nodes: agent count + uptime. */
-function ClientMeta({ data }: { data: OfficeNodeData }) {
-  const { t } = useAppTranslation();
-  return (
-    <div className="mt-2 flex items-center justify-between border-t border-border/60 pt-1.5 text-[8px] text-muted-foreground">
-      <span>
-        <span className="font-mono text-foreground">{data.agentCount ?? 0}</span> {t('activity:office.agentsSuffix')}
-      </span>
-      {data.startedAt && <span>{t('activity:office.upPrefix', { time: fmtUptime(data.startedAt, Date.now()) })}</span>}
-    </div>
-  );
-}
-
-function WebUINode({ data }: { data: OfficeNodeData }) {
-  const { t } = useAppTranslation();
-  const isActive = data.status === 'active' || data.status === 'streaming';
-  const isError = data.status === 'error';
-  const isOffline = data.status === 'offline';
-  const color = data.color || OFFICE_COLOR.info;
-
-  return (
-    <div className={cn(
-      'rounded-xl border-2 p-4 min-w-[180px] transition-all backdrop-blur-sm',
-      isActive && 'shadow-lg shadow-primary/15',
-      isError && 'border-destructive/50 bg-destructive/10',
-      isOffline && 'border-border/70 bg-muted/35 opacity-60',
-      !isActive && !isError && !isOffline && 'border-primary/30 bg-primary/10',
-    )}>
-      <NodeHandles />
-      <div className="flex items-center gap-3 mb-3">
-        <div className={cn(
-          'flex items-center justify-center w-10 h-10 rounded-lg',
-          isActive ? 'bg-primary/15' : 'bg-primary/10',
-        )}>
-          <Monitor className="h-5 w-5" style={{ color }} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-xs font-bold truncate" style={{ color }}>{data.label}</div>
-          <div className="text-[10px] text-muted-foreground">{t('activity:office.webuiClient')}</div>
-        </div>
-        <StatusLED status={data.status} activity={data.vizActivity ?? 0} />
-      </div>
-
-      {data.sublabel && (
-        <div className="mb-2 truncate text-[10px] text-muted-foreground">
-          {data.sublabel}
-        </div>
-      )}
-
-      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-        {isOffline ? (
-          <>
-            <WifiOff className="h-3 w-3 text-muted-foreground" />
-            <span>{t('activity:office.disconnected')}</span>
-          </>
-        ) : (
-          <>
-            <Wifi className="h-3 w-3 text-success" />
-            <span>{t('activity:office.connected')}</span>
-          </>
-        )}
-      </div>
-
-      {isActive && (
-        <div className="mt-2 h-1 overflow-hidden rounded-full bg-primary/20">
-          <div className="h-full animate-pulse bg-primary" style={{ width: '60%' }} />
-        </div>
-      )}
-
-      <ClientMeta data={data} />
-    </div>
-  );
-}
-
-function TUINode({ data }: { data: OfficeNodeData }) {
-  const { t } = useAppTranslation();
-  const isActive = data.status === 'active' || data.status === 'streaming';
-  const isError = data.status === 'error';
-  const color = data.color || OFFICE_COLOR.success;
-
-  return (
-    <div className={cn(
-      'rounded-xl border-2 p-4 min-w-[180px] transition-all backdrop-blur-sm',
-      isActive && 'shadow-lg shadow-success/15',
-      isError && 'border-destructive/50 bg-destructive/10',
-      !isActive && !isError && 'border-success/30 bg-success/10',
-    )}>
-      <NodeHandles />
-      <div className="flex items-center gap-3 mb-3">
-        <div className={cn(
-          'flex items-center justify-center w-10 h-10 rounded-lg',
-          isActive ? 'bg-success/15' : 'bg-success/10',
-        )}>
-          <Terminal className="h-5 w-5" style={{ color }} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-xs font-bold truncate" style={{ color }}>{data.label}</div>
-          <div className="text-[10px] text-muted-foreground">{t('activity:office.tuiClient')}</div>
-        </div>
-        <StatusLED status={data.status} activity={data.vizActivity ?? 0} />
-      </div>
-
-      {data.sublabel && (
-        <div className="mb-2 truncate text-[10px] text-muted-foreground">
-          {data.sublabel}
-        </div>
-      )}
-
-      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-        <Terminal className="h-3 w-3 text-success" />
-        <span>{t('activity:office.terminal')}</span>
-      </div>
-
-      <ClientMeta data={data} />
-    </div>
-  );
-}
-
-function REPLNode({ data }: { data: OfficeNodeData }) {
-  const { t } = useAppTranslation();
-  const isActive = data.status === 'active' || data.status === 'streaming';
-  const color = data.color || OFFICE_COLOR.warning;
-
-  return (
-    <div className={cn(
-      'rounded-xl border-2 p-4 min-w-[160px] transition-all backdrop-blur-sm',
-      isActive && 'shadow-lg shadow-warning/15',
-      !isActive && 'border-warning/30 bg-warning/10',
-    )}>
-      <NodeHandles />
-      <div className="flex items-center gap-3 mb-3">
-        <div className={cn(
-          'flex items-center justify-center w-10 h-10 rounded-lg',
-          isActive ? 'bg-warning/15' : 'bg-warning/10',
-        )}>
-          <Terminal className="h-5 w-5" style={{ color }} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-xs font-bold truncate" style={{ color }}>{data.label}</div>
-          <div className="text-[10px] text-muted-foreground">{t('activity:office.repl')}</div>
-        </div>
-        <StatusLED status={data.status} activity={data.vizActivity ?? 0} />
-      </div>
-
-      {data.sublabel && (
-        <div className="mb-1 truncate text-[10px] text-muted-foreground">{data.sublabel}</div>
-      )}
-
-      <ClientMeta data={data} />
-    </div>
-  );
-}
-
-function CoordinatorNode({ data }: { data: OfficeNodeData }) {
-  const { t } = useAppTranslation();
-  const isActive = data.status === 'active' || data.status === 'streaming';
-  const color = data.color || OFFICE_COLOR.primary;
-
-  return (
-    <div className="relative min-w-[200px] rounded-xl border-2 border-border/70 bg-card/90 p-4 shadow-lg backdrop-blur-sm transition-all">
-      <NodeHandles />
-      <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-primary px-2 py-0.5 text-[9px] font-bold text-primary-foreground">
-        {t('activity:office.coordinator')}
-      </div>
-
-      <div className="flex items-center gap-3 mb-3 mt-2">
-        <div className={cn(
-          'flex items-center justify-center w-12 h-12 rounded-xl',
-          isActive ? 'bg-primary/15' : 'bg-primary/10',
-        )}>
-          <Cpu className="h-6 w-6" style={{ color }} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-bold truncate" style={{ color }}>{data.label}</div>
-          <div className="text-[10px] text-muted-foreground">{data.sublabel || t('activity:office.fleetSummary')}</div>
-        </div>
-        <StatusLED status={data.status} activity={data.vizActivity ?? 0} />
-      </div>
-
-      <div className="grid grid-cols-2 gap-2 text-[10px] mb-2">
-        <div className="rounded bg-muted/40 p-1.5 text-center">
-          <div className="font-mono">
-            <span className="text-success">{data.agentsActive || 0}</span>
-            <span className="text-muted-foreground"> / </span>
-            <span className="text-primary">{data.agentsTotal || 0}</span>
-          </div>
-          <div className="text-muted-foreground">{t('activity:officeMap.agents')}</div>
-        </div>
-        <div className="rounded bg-muted/40 p-1.5 text-center">
-          <div className="font-mono text-warning">{(data.toolCalls || 0).toLocaleString()}</div>
-          <div className="text-muted-foreground">{t('activity:office.toolCallsLabel')}</div>
-        </div>
-        <div className="rounded bg-muted/40 p-1.5 text-center">
-          <div className="font-mono text-foreground">{fmtCompact(data.tokensIn)}</div>
-          <div className="text-muted-foreground">{t('activity:office.tokensLabel')}</div>
-        </div>
-        <div className="rounded bg-muted/40 p-1.5 text-center">
-          <div className="font-mono text-success">${(data.costUsd || 0).toFixed(3)}</div>
-          <div className="text-muted-foreground">{t('activity:office.cost')}</div>
-        </div>
-      </div>
-
-      {isActive && (
-        <div className="flex items-center gap-2 text-[10px] text-primary">
-          <span className="h-2 w-2 animate-pulse rounded-full bg-primary" />
-          {t('activity:office.coordinatingFleet')}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function AgentNode({ data }: { data: OfficeNodeData }) {
-  const { t } = useAppTranslation();
-  const isActive = data.status === 'active' || data.status === 'streaming';
-  const isError = data.status === 'error';
-  const isCompleted = data.status === 'completed';
-  const color = data.color || OFFICE_COLOR.primary;
-  const ctxPct = clampCtxPct(data.ctxPct);
-
-  return (
-    <div className={cn(
-      'rounded-lg border p-3 min-w-[150px] transition-all backdrop-blur-sm',
-      isActive && 'border-primary/50 bg-primary/10 shadow-lg shadow-primary/10',
-      isError && 'border-destructive/50 bg-destructive/10',
-      isCompleted && 'border-border/70 bg-muted/35',
-      !isActive && !isError && !isCompleted && 'border-primary/30 bg-primary/10',
-    )}>
-      <NodeHandles />
-      <div className="flex items-center gap-2 mb-1.5">
-        <Bot className="h-4 w-4 shrink-0" style={{ color }} />
-        <div className="flex-1 min-w-0">
-          <div className="text-[11px] font-bold truncate" style={{ color }}>{data.label}</div>
-          {data.model && (
-            <div className="truncate text-[8px] text-muted-foreground">{shortModel(data.model)}</div>
-          )}
-        </div>
-        <StatusLED status={data.status} small activity={data.vizActivity ?? 0} />
-      </div>
-
-      {/* Live current tool */}
-      {data.currentTask && (
-        <div className="mb-1.5 flex items-center gap-1 truncate text-[9px] text-primary">
-          <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full bg-primary', isActive && 'animate-pulse')} />
-          <span className="truncate font-mono">{data.currentTask}</span>
-        </div>
-      )}
-
-      {/* Metric grid: iterations, tools, cost, tokens */}
-      <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[9px] mb-1.5">
-        <div className="flex justify-between"><span className="text-muted-foreground">iter</span><span className="font-mono text-foreground">{data.iteration || 0}</span></div>
-        <div className="flex justify-between"><span className="text-muted-foreground">tools</span><span className="font-mono text-warning">{data.toolCalls || 0}</span></div>
-        <div className="flex justify-between"><span className="text-muted-foreground">tok</span><span className="font-mono text-foreground">{fmtCompact((data.tokensIn || 0) + (data.tokensOut || 0))}</span></div>
-        <div className="flex justify-between"><span className="text-muted-foreground">cost</span><span className="font-mono text-success">${(data.costUsd || 0).toFixed(3)}</span></div>
-      </div>
-
-      {/* Context-fill bar */}
-      {ctxPct > 0 && (
-        <div className="mb-1">
-          <div className="mb-0.5 flex justify-between text-[8px] text-muted-foreground">
-            <span>ctx</span><span className={cn('font-mono', ctxPct >= 90 ? 'text-destructive' : ctxPct >= 70 ? 'text-warning' : 'text-muted-foreground')}>{ctxPct}%</span>
-          </div>
-          <div className="h-1 overflow-hidden rounded-full bg-muted">
-            <div className={cn('h-full', ctxPct >= 90 ? 'bg-destructive' : ctxPct >= 70 ? 'bg-warning' : 'bg-primary')} style={{ width: `${ctxPct}%` }} />
-          </div>
-        </div>
-      )}
-
-      {/* Last seen — prominent for finished agents (they reap ~30s after). */}
-      {data.lastActivityAt && (
-        <div className={cn('flex items-center gap-1 text-[8px]', isActive ? 'text-muted-foreground/70' : 'text-muted-foreground')}>
-          {isCompleted && <span className="text-success">{t('activity:office.donePrefix')}</span>}
-          {isError && <span className="text-destructive">{t('activity:office.failedPrefix')}</span>}
-          <span>{t('activity:office.seenPrefix', { time: fmtAgo(data.lastActivityAt, Date.now()) })}</span>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function DeskNode({ data }: { data: OfficeNodeData }) {
-  const { t } = useAppTranslation();
-  return (
-    <div className={cn(
-      'rounded-lg border border-dashed p-3 min-w-[120px] transition-all opacity-40',
-      'border-border/70 bg-muted/30',
-    )}>
-      <NodeHandles />
-      <div className="flex items-center gap-2 mb-2">
-        <Armchair className="h-4 w-4 text-muted-foreground" />
-        <div className="flex-1 min-w-0">
-          <div className="truncate text-[10px] text-muted-foreground">{data.label}</div>
-        </div>
-        <StatusLED status={data.status} small activity={data.vizActivity ?? 0} />
-      </div>
-      <div className="text-[9px] text-muted-foreground">{t('activity:office.availableDesk')}</div>
-    </div>
-  );
-}
-
-function MailboxNode({ data }: { data: OfficeNodeData }) {
-  const { t } = useAppTranslation();
-  const color = data.color || OFFICE_COLOR.warning;
-  const hasUnread = (data.unreadCount || 0) > 0;
-
-  return (
-    <div className={cn(
-      'rounded-xl border-2 p-4 min-w-[160px] transition-all backdrop-blur-sm',
-      hasUnread && 'border-warning/50 bg-warning/10 shadow-lg shadow-warning/10',
-      !hasUnread && 'border-warning/30 bg-warning/6',
-    )}>
-      <NodeHandles />
-      <div className="flex items-center gap-3 mb-3">
-        <div className={cn(
-          'flex items-center justify-center w-10 h-10 rounded-lg',
-          hasUnread ? 'bg-warning/18' : 'bg-warning/10',
-        )}>
-          <Mail className="h-5 w-5" style={{ color }} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-xs font-bold" style={{ color }}>{t('activity:office.mailboxHub')}</div>
-          <div className="text-[10px] text-muted-foreground">
-            {hasUnread ? t('activity:office.unreadSuffix', { count: data.unreadCount || 0 }) : t('activity:office.allClear')}
-          </div>
-        </div>
-        {hasUnread && (
-          <div className="flex h-5 w-5 items-center justify-center rounded-full bg-warning text-[10px] font-bold text-background">
-            {data.unreadCount}
-          </div>
-        )}
-      </div>
-
-      <div className="grid grid-cols-2 gap-2 text-[10px]">
-        <div className="rounded bg-muted/40 p-1.5 text-center">
-          <div className="flex items-center justify-center gap-1 text-warning">
-            <Send className="h-3 w-3" />
-            <span>{data.messageCount || 0}</span>
-          </div>
-          <div className="text-muted-foreground">{t('activity:office.total')}</div>
-        </div>
-        <div className="rounded bg-muted/40 p-1.5 text-center">
-          <div className="flex items-center justify-center gap-1 text-success">
-            <Inbox className="h-3 w-3" />
-            <span>{data.unreadCount || 0}</span>
-          </div>
-          <div className="text-muted-foreground">{t('activity:office.unreadLabel')}</div>
-        </div>
-      </div>
-
-      {/* Most recent message subject — shows mail is actually flowing. */}
-      {data.sublabel && (
-        <div className="mt-2 truncate border-t border-border/60 pt-1.5 text-[9px] text-muted-foreground">
-          ✉ {data.sublabel}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Node Type Map ────────────────────────────────────────────────────────────
-
-const nodeTypes: NodeTypes = {
-  webui: WebUINode,
-  tui: TUINode,
-  repl: REPLNode,
-  coordinator: CoordinatorNode,
-  agent: AgentNode,
-  mailbox: MailboxNode,
-  desk: DeskNode,
-};
-
-type OfficeEdgeData = {
-  color?: string;
-  animated?: boolean;
-  intensity?: number;
-  label?: string;
-};
-
-const edgeTypes: EdgeTypes = {
-  wire: ({
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-    sourcePosition,
-    targetPosition,
-    data,
-    selected,
-  }: EdgeProps<Edge<OfficeEdgeData>>) => {
-    const color = data?.color || OFFICE_COLOR.primary;
-    // Respect the global "animate edges" toggle from the settings panel.
-    // SUBSCRIBE (not getState()) so toggling the setting re-renders the edges.
-    const animateEdges = useOfficeMapStore((s) => s.animateEdges);
-    const isAnimated = data?.animated && animateEdges;
-    // Intensity (0–1) drives flow speed + glow — decays as activity fades.
-    const intensity = isAnimated ? Math.max(0.15, data?.intensity ?? 0.6) : 0;
-
-    // Clean React-Flow bezier between the top/bottom handles — no hand-rolled
-    // upward arc that balloons for far-apart nodes.
-    const [path, labelX, labelY] = getBezierPath({
-      sourceX,
-      sourceY,
-      sourcePosition: sourcePosition ?? Position.Bottom,
-      targetX,
-      targetY,
-      targetPosition: targetPosition ?? Position.Top,
-      curvature: 0.28,
-    });
-
-    const dashLen = 5 + intensity * 7;
-    const dashGap = 5 + intensity * 4;
-    const period = dashLen + dashGap;
-    const dur = `${Math.max(0.5, 1.6 - intensity).toFixed(2)}s`;
-
-    return (
-      <>
-        {/* Base wire — always visible so the topology reads even when idle. */}
-        <path
-          d={path}
-          fill="none"
-          stroke={color}
-          strokeWidth={selected ? 2.5 : 1.4}
-          strokeOpacity={selected ? 0.9 : 0.28}
-          className="react-flow__edge-path"
-        />
-        {/* Flowing dashes when active — direction shows source → target. */}
-        {intensity > 0.05 && (
-          <path
-            d={path}
-            fill="none"
-            stroke={color}
-            strokeWidth={2.2}
-            strokeOpacity={0.45 + intensity * 0.5}
-            strokeDasharray={`${dashLen} ${dashGap}`}
-            strokeLinecap="round"
-            style={{ filter: `drop-shadow(0 0 ${2 + intensity * 4}px ${color})` }}
-          >
-            <animate
-              attributeName="stroke-dashoffset"
-              from={period}
-              to="0"
-              dur={dur}
-              repeatCount="indefinite"
-            />
-          </path>
-        )}
-        {/* Label only on active flow — keeps idle wires uncluttered. */}
-        {data?.label && intensity > 0.1 && (
-          <EdgeLabelRenderer>
-            <div
-              style={{
-                position: 'absolute',
-                transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-              }}
-              className="pointer-events-none rounded-full border border-border/70 bg-card/90 px-1.5 py-0.5 text-[8px] font-medium text-foreground backdrop-blur-sm"
-            >
-              {data.label}
-            </div>
-          </EdgeLabelRenderer>
-        )}
-      </>
-    );
-  },
-};
-
 
 /**
  * Bottom Live Activity strip — the most recent cross-process viz events
@@ -793,7 +268,9 @@ function LiveFeed({ events, now }: { events: VizEvent[]; now: number }) {
           {t('activity:office.liveActivity')}
         </div>
         {recent.length === 0 ? (
-          <div className="text-[11px] italic text-muted-foreground">{t('activity:office.waitingActivity')}</div>
+          <div className="text-[11px] italic text-muted-foreground">
+            {t('activity:office.waitingActivity')}
+          </div>
         ) : (
           <div className="flex flex-col gap-0.5 max-h-32 overflow-hidden">
             {recent.map((e) => {
@@ -859,13 +336,14 @@ export function OfficeMapCanvas() {
   const liveSessions = useMonitorStore((s) => s.liveSessions);
 
   const mailboxMessages = useMailboxStore((s) => s.messages);
+  const mailboxAgents = useMailboxStore((s) => s.agents);
   const session = useSessionStore((s) => s.session);
 
   // Resolve the client/agent model once per snapshot/fleet change so the build
   // effect and the viz-overlay id-maps share a single source of truth.
   const clients = useMemo(
-    () => resolveClients(liveSessions, fleetAgents),
-    [liveSessions, fleetAgents],
+    () => resolveClients(liveSessions, fleetAgents, mailboxAgents),
+    [liveSessions, fleetAgents, mailboxAgents],
   );
 
   // Display preferences (driven from OfficeMapSettingsPanel in the secondary panel).
@@ -891,12 +369,13 @@ export function OfficeMapCanvas() {
   const [broadcastResult, setBroadcastResult] = useState<string | null>(null);
   const selectedAgentTranscript = useMemo(() => {
     if (selectedNode?.data.kind !== 'agent') return EMPTY_AGENT_TRANSCRIPT;
-    const serverId = selectedNode.data.serverId
-      ?? (selectedNode.id.includes('__agent-')
+    const serverId =
+      selectedNode.data.serverId ??
+      (selectedNode.id.includes('__agent-')
         ? selectedNode.id.split('__agent-').pop()
         : selectedNode.id.replace(/^agent-/, ''));
     return serverId
-      ? agentTranscripts.get(serverId) ?? EMPTY_AGENT_TRANSCRIPT
+      ? (agentTranscripts.get(serverId) ?? EMPTY_AGENT_TRANSCRIPT)
       : EMPTY_AGENT_TRANSCRIPT;
   }, [agentTranscripts, selectedNode]);
 
@@ -941,7 +420,9 @@ export function OfficeMapCanvas() {
 
   // Previous (toolCalls, iteration) per agent — drives delta-based movement so a
   // cross-process agent's desk pulses whenever it advances between snapshots.
-  const prevAgentStatsRef = useRef<Map<string, { toolCalls: number; iteration: number }>>(new Map());
+  const prevAgentStatsRef = useRef<Map<string, { toolCalls: number; iteration: number }>>(
+    new Map(),
+  );
 
   // Signature of the current node set. We only auto-fit the view when nodes are
   // added/removed — not on every data tick — so the canvas doesn't constantly
@@ -1012,8 +493,7 @@ export function OfficeMapCanvas() {
         label: t('activity:office.fleetHqLabel'),
         sublabel: t('activity:office.clientsSuffix', { count: clients.length }),
         kind: 'coordinator',
-        status:
-          leaderAgent?.status === 'failed' ? 'error' : anyAgentRunning ? 'active' : 'idle',
+        status: leaderAgent?.status === 'failed' ? 'error' : anyAgentRunning ? 'active' : 'idle',
         connections: clients.length,
         agentsActive: fleetActive,
         agentsTotal: fleetAgentsTotal,
@@ -1064,7 +544,12 @@ export function OfficeMapCanvas() {
         target: 'coordinator',
         type: 'wire',
         animated: clientActive,
-        data: { color, animated: clientActive, label: t('activity:office.controlLabel'), flowType: 'task' },
+        data: {
+          color,
+          animated: clientActive,
+          label: t('activity:office.controlLabel'),
+          flowType: 'task',
+        },
       });
 
       // Wire: Mailbox → Client
@@ -1088,7 +573,12 @@ export function OfficeMapCanvas() {
           id: `desk-${client.id}`,
           type: 'desk',
           position: { x: cx, y: cy + CLIENT_AGENT_GAP },
-          data: { label: t('activity:office.idleDesk'), kind: 'agent', status: 'idle', color: OFFICE_COLOR.muted },
+          data: {
+            label: t('activity:office.idleDesk'),
+            kind: 'agent',
+            status: 'idle',
+            color: OFFICE_COLOR.muted,
+          },
         });
         continue;
       }
@@ -1107,10 +597,7 @@ export function OfficeMapCanvas() {
           activeNodesRef.current.set(agent.officeId, now + ACTIVE_MS);
           const cur = vizActivityRef.current.get(agent.officeId) ?? 0;
           vizActivityRef.current.set(agent.officeId, Math.min(1, cur + (1 - cur) * 0.5));
-          for (const edgeId of [
-            `${client.id}->${agent.officeId}`,
-            `${client.id}->coordinator`,
-          ]) {
+          for (const edgeId of [`${client.id}->${agent.officeId}`, `${client.id}->coordinator`]) {
             const e = edgeIntensitiesRef.current.get(edgeId) ?? 0;
             edgeIntensitiesRef.current.set(edgeId, Math.min(1, e + 0.5));
           }
@@ -1154,7 +641,9 @@ export function OfficeMapCanvas() {
           data: {
             color: OFFICE_COLOR.primary,
             animated: isActive,
-            label: isActive ? agent.currentTask ?? t('activity:office.taskFallback') : undefined,
+            label: isActive
+              ? (compactFlowLabel(agent.currentTask, 48) ?? t('activity:office.taskFallback'))
+              : undefined,
             flowType: 'task',
           },
         });
@@ -1202,18 +691,29 @@ export function OfficeMapCanvas() {
       `${Math.round(canvasSize.width)}x${Math.round(canvasSize.height)}`,
       `${clientLayout.columns}x${clientLayout.rows}`,
       clients.map((client) => `${client.id}:${client.agents.length}`).join('|'),
-      overlaidNodes.map((node) => node.id).sort().join('|'),
+      overlaidNodes
+        .map((node) => node.id)
+        .sort()
+        .join('|'),
     ].join(':');
     if (sig !== prevNodeSigRef.current) {
       prevNodeSigRef.current = sig;
-      const fitTimer = setTimeout(
-        () => fitView({ padding: FIT_VIEW_PADDING, duration: 300 }),
-        50,
-      );
+      const fitTimer = setTimeout(() => fitView({ padding: FIT_VIEW_PADDING, duration: 300 }), 50);
       return () => clearTimeout(fitTimer);
     }
     return undefined;
-  }, [clients, leaderId, fleetAgents, mailboxMessages, session, canvasSize, ACTIVE_MS, setNodes, setEdges, fitView]);
+  }, [
+    clients,
+    leaderId,
+    fleetAgents,
+    mailboxMessages,
+    session,
+    canvasSize,
+    ACTIVE_MS,
+    setNodes,
+    setEdges,
+    fitView,
+  ]);
 
   // ── Viz event → node/edge highlight mapping ─────────────────────────
   // Maps generic viz event sources to office-map node IDs.
@@ -1223,7 +723,12 @@ export function OfficeMapCanvas() {
   // mapping is direct. We still build the set of currently-rendered agents (from
   // the resolved client model) to scope mailbox/iteration fan-outs to real nodes.
   const renderedAgents = clients.flatMap((c) =>
-    c.agents.map((a) => ({ clientId: c.id, clientType: c.type, officeId: a.officeId, serverId: a.serverId })),
+    c.agents.map((a) => ({
+      clientId: c.id,
+      clientType: c.type,
+      officeId: a.officeId,
+      serverId: a.serverId,
+    })),
   );
   const clientIds = clients.map((c) => c.id);
 
@@ -1246,10 +751,12 @@ export function OfficeMapCanvas() {
   // prefix before `__agent-` (falls back to the coordinator edge for un-namespaced ids).
   function agentEdgeId(officeId: string): string {
     const clientId = officeId.split('__agent-')[0];
-    return clientId && clientId !== officeId ? `${clientId}->${officeId}` : `coordinator->${officeId}`;
+    return clientId && clientId !== officeId
+      ? `${clientId}->${officeId}`
+      : `coordinator->${officeId}`;
   }
 
-  function vizEventToTargets(event: typeof vizEvents[0]): {
+  function vizEventToTargets(event: (typeof vizEvents)[0]): {
     nodes: string[];
     edges: string[];
     status: ClientStatus;
@@ -1260,9 +767,7 @@ export function OfficeMapCanvas() {
         return {
           nodes: ['mailbox'],
           // Mail flows from the hub out to every connected client.
-          edges: event.kind === 'mailbox:send'
-            ? clientIds.map((id) => `mailbox->${id}`)
-            : [],
+          edges: event.kind === 'mailbox:send' ? clientIds.map((id) => `mailbox->${id}`) : [],
           status: 'active',
         };
 
@@ -1282,7 +787,12 @@ export function OfficeMapCanvas() {
         return {
           nodes: ['coordinator', officeId],
           edges: [agentEdgeId(officeId)],
-          status: event.kind === 'tool:progress' ? 'streaming' : event.kind === 'tool:started' ? 'streaming' : 'active',
+          status:
+            event.kind === 'tool:progress'
+              ? 'streaming'
+              : event.kind === 'tool:started'
+                ? 'streaming'
+                : 'active',
         };
       }
 
@@ -1326,7 +836,13 @@ export function OfficeMapCanvas() {
         return {
           nodes: ['coordinator', officeId],
           edges: [agentEdgeId(officeId)],
-          status: event.data && typeof event.data === 'object' && 'status' in event.data && String((event.data as Record<string, unknown>).status) === 'failed' ? 'error' : 'completed',
+          status:
+            event.data &&
+            typeof event.data === 'object' &&
+            'status' in event.data &&
+            String((event.data as Record<string, unknown>).status) === 'failed'
+              ? 'error'
+              : 'completed',
         };
       }
 
@@ -1372,7 +888,18 @@ export function OfficeMapCanvas() {
 
       case 'fleet:snapshot': {
         // sessions.status_update periodic broadcast — update all active agent nodes
-        const sessions = (event.data as { sessions?: Array<{ id: string; status: string; agents?: Array<{ id: string; name: string; status: string }> }> | undefined })?.sessions ?? [];
+        const sessions =
+          (
+            event.data as {
+              sessions?:
+                | Array<{
+                    id: string;
+                    status: string;
+                    agents?: Array<{ id: string; name: string; status: string }>;
+                  }>
+                | undefined;
+            }
+          )?.sessions ?? [];
         const nodes: string[] = ['coordinator'];
         for (const session of sessions) {
           if (session.agents) {
@@ -1406,7 +933,10 @@ export function OfficeMapCanvas() {
         activeNodesRef.current.set(nodeId, now + ACTIVE_MS);
         const currentActivity = vizActivityRef.current.get(nodeId) ?? 0;
         // Boost: new activity = existing + (1 - existing) * 0.5 so repeated events saturate toward 1
-        vizActivityRef.current.set(nodeId, Math.min(1, currentActivity + (1 - currentActivity) * 0.5));
+        vizActivityRef.current.set(
+          nodeId,
+          Math.min(1, currentActivity + (1 - currentActivity) * 0.5),
+        );
       });
 
       setNodes((nds) =>
@@ -1491,7 +1021,7 @@ export function OfficeMapCanvas() {
       const nodeUpdates = new Map<string, number>();
       let nodesChanged = false;
       for (const [id, activity] of vizActivityRef.current) {
-        const decayed = activity * 0.90;
+        const decayed = activity * 0.9;
         if (decayed < 0.03) {
           vizActivityRef.current.delete(id);
           nodeUpdates.set(id, 0);
@@ -1562,7 +1092,10 @@ export function OfficeMapCanvas() {
   }, []);
 
   return (
-    <div ref={canvasRef} className="relative h-full w-full overflow-hidden bg-[hsl(var(--surface-2)/0.55)]">
+    <div
+      ref={canvasRef}
+      className="relative h-full w-full overflow-hidden bg-[hsl(var(--surface-2)/0.55)]"
+    >
       {/* Grid background */}
       <div
         className="absolute inset-0 opacity-[0.03]"
@@ -1585,51 +1118,55 @@ export function OfficeMapCanvas() {
             <Building2 className="h-4 w-4 text-primary" />
             {t('activity:office.fleetHq')}
             <span className="ml-2 h-2 w-2 animate-pulse rounded-full bg-success" />
-            <span className="text-[10px] font-normal text-muted-foreground">{t('activity:office.live')}</span>
+            <span className="text-[10px] font-normal text-muted-foreground">
+              {t('activity:office.live')}
+            </span>
           </div>
         </div>
       </div>
 
       {/* Legend */}
       {showLegend && (
-      <div className="absolute bottom-4 left-4 z-10 rounded-lg border border-border/70 bg-card/90 p-3 text-[10px] shadow-xl backdrop-blur">
-        <div className="mb-2 font-bold text-foreground">{t('activity:office.legendStatus')}</div>
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-success" />
-            <span className="text-muted-foreground">{t('activity:office.legendActive')}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-muted-foreground" />
-            <span className="text-muted-foreground">{t('activity:office.legendIdle')}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-destructive" />
-            <span className="text-muted-foreground">{t('activity:office.legendError')}</span>
+        <div className="absolute bottom-4 left-4 z-10 rounded-lg border border-border/70 bg-card/90 p-3 text-[10px] shadow-xl backdrop-blur">
+          <div className="mb-2 font-bold text-foreground">{t('activity:office.legendStatus')}</div>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-success" />
+              <span className="text-muted-foreground">{t('activity:office.legendActive')}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-muted-foreground" />
+              <span className="text-muted-foreground">{t('activity:office.legendIdle')}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-destructive" />
+              <span className="text-muted-foreground">{t('activity:office.legendError')}</span>
+            </div>
           </div>
         </div>
-      </div>
       )}
 
       {/* Connection type legend */}
       {showLegend && (
-      <div className="absolute bottom-4 right-4 z-10 rounded-lg border border-border/70 bg-card/90 p-3 text-[10px] shadow-xl backdrop-blur">
-        <div className="mb-2 font-bold text-foreground">{t('activity:office.legendConnections')}</div>
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="text-warning">✉</span>
-            <span className="text-muted-foreground">{t('activity:office.legendMail')}</span>
+        <div className="absolute bottom-4 right-4 z-10 rounded-lg border border-border/70 bg-card/90 p-3 text-[10px] shadow-xl backdrop-blur">
+          <div className="mb-2 font-bold text-foreground">
+            {t('activity:office.legendConnections')}
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-primary">→</span>
-            <span className="text-muted-foreground">{t('activity:office.legendTask')}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-success">●</span>
-            <span className="text-muted-foreground">{t('activity:office.legendStatusConn')}</span>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="text-warning">✉</span>
+              <span className="text-muted-foreground">{t('activity:office.legendMail')}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-primary">→</span>
+              <span className="text-muted-foreground">{t('activity:office.legendTask')}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-success">●</span>
+              <span className="text-muted-foreground">{t('activity:office.legendStatusConn')}</span>
+            </div>
           </div>
         </div>
-      </div>
       )}
 
       <ReactFlow
@@ -1652,8 +1189,8 @@ export function OfficeMapCanvas() {
         proOptions={{ hideAttribution: true }}
       >
         <Panel position="top-right" className="flex items-center gap-2">
-          <button type="button"
-            
+          <button
+            type="button"
             onClick={onArrange}
             title={t('activity:office.arrangeTitle')}
             className="flex items-center gap-1.5 rounded-md border border-border/70 bg-card/90 px-2.5 py-1.5 text-xs text-foreground shadow-sm transition-colors hover:bg-accent"
@@ -1661,8 +1198,8 @@ export function OfficeMapCanvas() {
             <LayoutGrid className="h-3.5 w-3.5" />
             {t('activity:office.arrange')}
           </button>
-          <button type="button"
-            
+          <button
+            type="button"
             onClick={() => setShowFeed(!showFeed)}
             title={t('activity:office.feedTitle')}
             className={cn(
@@ -1675,8 +1212,8 @@ export function OfficeMapCanvas() {
             <ScrollText className="h-3.5 w-3.5" />
             {t('activity:office.feed')}
           </button>
-          <button type="button"
-            
+          <button
+            type="button"
             onClick={() => setBroadcastOpen((v) => !v)}
             title={t('activity:office.broadcastTitle')}
             className={cn(
@@ -1705,34 +1242,32 @@ export function OfficeMapCanvas() {
           />
         )}
         {showControls && (
-        <Controls
-          className="rounded-lg border border-border/70 bg-card/90 [&>button]:bg-card [&>button]:text-foreground"
-        />
+          <Controls className="rounded-lg border border-border/70 bg-card/90 [&>button]:bg-card [&>button]:text-foreground" />
         )}
         {showMinimap && (
-        <MiniMap
-          className="rounded-lg border border-border/70 bg-card/90"
-          nodeColor={(n) => {
-            const data = n.data as OfficeNodeData;
-            switch (data.kind) {
-              case 'coordinator':
-                return OFFICE_COLOR.primary;
-              case 'webui':
-                return OFFICE_COLOR.info;
-              case 'tui':
-                return OFFICE_COLOR.success;
-              case 'repl':
-                return OFFICE_COLOR.warning;
-              case 'mailbox':
-                return OFFICE_COLOR.warning;
-              case 'agent':
-                return OFFICE_COLOR.primary;
-              default:
-                return OFFICE_COLOR.primary;
-            }
-          }}
-          maskColor="hsl(var(--background) / 0.72)"
-        />
+          <MiniMap
+            className="rounded-lg border border-border/70 bg-card/90"
+            nodeColor={(n) => {
+              const data = n.data as OfficeNodeData;
+              switch (data.kind) {
+                case 'coordinator':
+                  return OFFICE_COLOR.primary;
+                case 'webui':
+                  return OFFICE_COLOR.info;
+                case 'tui':
+                  return OFFICE_COLOR.success;
+                case 'repl':
+                  return OFFICE_COLOR.warning;
+                case 'mailbox':
+                  return OFFICE_COLOR.warning;
+                case 'agent':
+                  return OFFICE_COLOR.primary;
+                default:
+                  return OFFICE_COLOR.primary;
+              }
+            }}
+            maskColor="hsl(var(--background) / 0.72)"
+          />
         )}
       </ReactFlow>
 
@@ -1745,8 +1280,8 @@ export function OfficeMapCanvas() {
             <div className="flex items-center gap-1.5 text-[11px] font-semibold text-warning">
               <Send className="h-3.5 w-3.5" /> {t('activity:office.broadcastToAll')}
             </div>
-            <button type="button"
-              
+            <button
+              type="button"
               onClick={() => setBroadcastOpen(false)}
               className="text-base leading-none text-muted-foreground hover:text-foreground"
             >
@@ -1767,9 +1302,11 @@ export function OfficeMapCanvas() {
             className="w-full resize-none rounded-md border border-border/70 bg-background/70 px-2 py-1 text-[11px] text-foreground placeholder:text-muted-foreground focus:border-warning/45 focus:outline-none"
           />
           <div className="mt-1.5 flex items-center justify-between">
-            <span className="text-[9px] text-muted-foreground">{t('activity:office.broadcastSendHint')}</span>
-            <button type="button"
-              
+            <span className="text-[9px] text-muted-foreground">
+              {t('activity:office.broadcastSendHint')}
+            </span>
+            <button
+              type="button"
               onClick={() => void sendBroadcast()}
               disabled={broadcasting || !broadcastDraft.trim()}
               className="rounded-md border border-warning/35 bg-warning/12 px-2.5 py-1 text-[11px] text-warning transition-colors hover:bg-warning/18 disabled:cursor-not-allowed disabled:opacity-40"
@@ -1788,7 +1325,11 @@ export function OfficeMapCanvas() {
         <div
           className={cn(
             'absolute top-20 right-4 bg-background border border-border rounded-lg p-4 shadow-xl z-20',
-            selectedNode.data.kind === 'agent' ? 'w-[28rem] max-w-[calc(100%-2rem)]' : selectedNode.data.sessionId ? 'w-80' : 'w-64',
+            selectedNode.data.kind === 'agent'
+              ? 'w-[28rem] max-w-[calc(100%-2rem)]'
+              : selectedNode.data.sessionId
+                ? 'w-80'
+                : 'w-64',
           )}
         >
           <div className="flex items-center justify-between mb-3">
@@ -1802,8 +1343,8 @@ export function OfficeMapCanvas() {
             </div>
             <div className="flex items-center gap-1.5">
               {selectedNode.data.sessionId && (
-                <button type="button"
-                  
+                <button
+                  type="button"
                   title={t('activity:office.openFullView')}
                   onClick={() =>
                     setWatch({
@@ -1816,7 +1357,8 @@ export function OfficeMapCanvas() {
                   <Maximize2 className="h-3.5 w-3.5" />
                 </button>
               )}
-              <button type="button"
+              <button
+                type="button"
                 onClick={onPaneClick}
                 className="text-muted-foreground hover:text-foreground text-lg leading-none"
               >
@@ -1831,7 +1373,11 @@ export function OfficeMapCanvas() {
             const Row = ({ k, v, accent }: { k: string; v: React.ReactNode; accent?: string }) => (
               <div className="flex justify-between gap-3">
                 <span className="text-muted-foreground shrink-0">{k}</span>
-                <span className={cn('font-mono truncate text-right', accent ?? 'text-foreground/80')}>{v}</span>
+                <span
+                  className={cn('font-mono truncate text-right', accent ?? 'text-foreground/80')}
+                >
+                  {v}
+                </span>
               </div>
             );
             const isAgent = d.kind === 'agent';
@@ -1855,17 +1401,42 @@ export function OfficeMapCanvas() {
                 {isAgent && (
                   <>
                     {d.model && <Row k="Model" v={shortModel(d.model)} accent="text-primary" />}
-                    {d.currentTask && <Row k="Tool" v={d.currentTask} accent="text-primary" />}
+                    {d.currentTask && (
+                      <div className="pt-1">
+                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                          {t('activity:agentOffice.currentTask')}
+                        </div>
+                        <div className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[10px] text-primary">
+                          {d.currentTask}
+                        </div>
+                      </div>
+                    )}
                     <Row k="Iterations" v={d.iteration || 0} accent="text-primary" />
                     <Row k="Tool calls" v={d.toolCalls || 0} accent="text-warning" />
                     <Row k="Tokens in" v={fmtCompact(d.tokensIn)} />
                     <Row k="Tokens out" v={fmtCompact(d.tokensOut)} />
                     <Row k="Tokens total" v={fmtCompact(tokTotal)} />
                     {ctxPct > 0 && (
-                      <Row k="Context" v={`${ctxPct}%`} accent={ctxPct >= 90 ? 'text-destructive' : ctxPct >= 70 ? 'text-warning' : 'text-foreground/70'} />
+                      <Row
+                        k="Context"
+                        v={`${ctxPct}%`}
+                        accent={
+                          ctxPct >= 90
+                            ? 'text-destructive'
+                            : ctxPct >= 70
+                              ? 'text-warning'
+                              : 'text-foreground/70'
+                        }
+                      />
                     )}
                     <Row k="Cost" v={`$${(d.costUsd || 0).toFixed(4)}`} accent="text-success" />
-                    {d.lastActivityAt && <Row k="Last seen" v={fmtAgo(d.lastActivityAt, now)} accent="text-muted-foreground" />}
+                    {d.lastActivityAt && (
+                      <Row
+                        k="Last seen"
+                        v={fmtAgo(d.lastActivityAt, now)}
+                        accent="text-muted-foreground"
+                      />
+                    )}
                     <div className="pt-2">
                       <AgentTranscript
                         entries={selectedAgentTranscript}
@@ -1879,12 +1450,20 @@ export function OfficeMapCanvas() {
 
                 {isClient && (
                   <>
-                    <Row k="Surface" v={surfaceLabel(d.kind as 'tui' | 'webui' | 'repl')} accent="text-foreground/80" />
+                    <Row
+                      k="Surface"
+                      v={surfaceLabel(d.kind as 'tui' | 'webui' | 'repl')}
+                      accent="text-foreground/80"
+                    />
                     {d.branch && <Row k="Branch" v={`⎇ ${d.branch}`} accent="text-foreground/70" />}
                     {d.pid != null && <Row k="PID" v={d.pid} />}
-                    {d.workingDir && <Row k="Dir" v={d.workingDir} accent="text-muted-foreground" />}
+                    {d.workingDir && (
+                      <Row k="Dir" v={d.workingDir} accent="text-muted-foreground" />
+                    )}
                     <Row k="Agents" v={d.agentCount ?? 0} accent="text-primary" />
-                    {d.startedAt && <Row k="Uptime" v={fmtUptime(d.startedAt, now)} accent="text-foreground/70" />}
+                    {d.startedAt && (
+                      <Row k="Uptime" v={fmtUptime(d.startedAt, now)} accent="text-foreground/70" />
+                    )}
                   </>
                 )}
 
@@ -1894,7 +1473,9 @@ export function OfficeMapCanvas() {
                     <Row k="Unread" v={d.unreadCount || 0} accent="text-warning" />
                     {mailboxMessages.length > 0 && (
                       <div className="mt-1 space-y-1 border-t border-border pt-2">
-                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{t('activity:office.recent')}</div>
+                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                          {t('activity:office.recent')}
+                        </div>
                         {[...mailboxMessages]
                           .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
                           .slice(0, 6)
@@ -1909,7 +1490,9 @@ export function OfficeMapCanvas() {
                                   )}
                                 />
                                 <div className="min-w-0 flex-1">
-                                  <div className="truncate text-foreground/80">{m.subject || t('activity:office.noSubject')}</div>
+                                  <div className="truncate text-foreground/80">
+                                    {m.subject || t('activity:office.noSubject')}
+                                  </div>
                                   <div className="truncate font-mono text-[9px] text-muted-foreground">
                                     {m.from} → {m.to} · {fmtAgo(m.timestamp, now)}
                                   </div>
@@ -1954,7 +1537,7 @@ export function OfficeMapCanvas() {
                 </div>
               </div>
             </div>
-            <button 
+            <button
               type="button"
               onClick={() => setWatch(null)}
               title={t('activity:office.closeEsc')}
