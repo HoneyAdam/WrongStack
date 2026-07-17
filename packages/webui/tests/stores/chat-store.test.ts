@@ -272,6 +272,94 @@ describe('finalizeMessage', () => {
   });
 });
 
+// ── finalizeMessage: <nextsteps> strip + persist ─────────────────────
+// These tests pin the fix for the bug where the <nextsteps> block reappeared
+// in the rendered body after the user selected a suggestion. The block must
+// be stripped from content at finalization time and the parsed steps persisted
+// on message.nextSteps so the bar can read a stable field immune to
+// loading-state transitions.
+
+describe('finalizeMessage: nextsteps strip + persist', () => {
+  it('strips the <nextsteps> block from content and persists parsed steps', () => {
+    const id = addMsg({
+      role: 'assistant',
+      content: 'Here is my work.\n\n<nextsteps>\n1. Run the tests\n2. Commit the changes\n</nextsteps>',
+      streaming: true,
+    });
+    useChatStore.getState().finalizeMessage(id);
+    const msg = useChatStore.getState().messages[0];
+
+    // The block is gone from content — no raw XML leaks into the body.
+    expect(msg.content).not.toContain('<nextsteps>');
+    expect(msg.content).not.toContain('</nextsteps>');
+    expect(msg.content).not.toContain('Run the tests');
+    // The preceding prose survives.
+    expect(msg.content).toContain('Here is my work.');
+    // Parsed steps are stored on the message.
+    expect(msg.nextSteps).toEqual({
+      steps: [
+        { index: 1, text: 'Run the tests' },
+        { index: 2, text: 'Commit the changes' },
+      ],
+    });
+  });
+
+  it('preserves auto="true" flag on the first step', () => {
+    const id = addMsg({
+      role: 'assistant',
+      content: '<nextsteps>\n1. Continue automatically auto="true"\n2. Review\n</nextsteps>',
+    });
+    useChatStore.getState().finalizeMessage(id);
+    const msg = useChatStore.getState().messages[0];
+
+    expect(msg.nextSteps?.steps[0]).toEqual({
+      index: 1,
+      text: 'Continue automatically',
+      auto: true,
+    });
+    expect(msg.nextSteps?.steps[1]).toEqual({ index: 2, text: 'Review' });
+  });
+
+  it('does not set nextSteps when there is no block', () => {
+    const id = addMsg({
+      role: 'assistant',
+      content: 'Just a normal reply with no suggestions.',
+    });
+    useChatStore.getState().finalizeMessage(id);
+    const msg = useChatStore.getState().messages[0];
+
+    expect(msg.nextSteps).toBeUndefined();
+    expect(msg.content).toBe('Just a normal reply with no suggestions.');
+  });
+
+  it('does not set nextSteps for non-assistant messages', () => {
+    // Tool messages pass through finalizeMessage too (tool.started handler).
+    // They must not get parsed or stripped.
+    const id = addMsg({
+      role: 'tool',
+      toolName: 'bash',
+      content: '<nextsteps>\n1. Should not be parsed\n</nextsteps>',
+    });
+    useChatStore.getState().finalizeMessage(id);
+    const msg = useChatStore.getState().messages[0];
+
+    expect(msg.nextSteps).toBeUndefined();
+    // Content is untouched for non-assistant roles.
+    expect(msg.content).toContain('<nextsteps>');
+  });
+
+  it('leaves content without the block fully intact', () => {
+    const id = addMsg({
+      role: 'assistant',
+      content: 'Line one.\n\nLine two.\n\nLine three.',
+    });
+    useChatStore.getState().finalizeMessage(id);
+    expect(useChatStore.getState().messages[0].content).toBe(
+      'Line one.\n\nLine two.\n\nLine three.',
+    );
+  });
+});
+
 // ── setToolResult ─────────────────────────────────────────────────────
 
 describe('setToolResult', () => {
