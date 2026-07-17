@@ -5498,7 +5498,7 @@ export function App({
   }, [subscribeEternalStage]);
 
   const submit = async (overrideRaw?: string) => {
-    const raw = overrideRaw ?? draftRef.current.buffer;
+    const raw = overrideRaw ?? stateRef.current.buffer;
     const trimmed = raw.trim();
     // Attachment chips live inline in the buffer now, so a paste/file-only
     // message is already non-empty here — a single `!trimmed` guard suffices.
