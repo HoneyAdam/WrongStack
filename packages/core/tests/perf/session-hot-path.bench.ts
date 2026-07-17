@@ -257,7 +257,7 @@ describe('B5 — emitContextPct elision on idle autonomous loops', () => {
 
     bench(`${n} msgs — always compute (old)`, () => {
       // Old: unconditionally compute and emit
-      const { total } = estimateRequestTokens(messages, SYSTEM, IDLE_TOOLS);
+      const { total } = estimateRequestTokens(messages, systemPrompt, IDLE_TOOLS);
       return total; // prevent dead-code elimination
     });
 
@@ -270,7 +270,7 @@ describe('B5 — emitContextPct elision on idle autonomous loops', () => {
       if (msgCount === cached) {
         return 0; // early return — no compute, no emit
       }
-      const { total } = estimateRequestTokens(messages, SYSTEM, IDLE_TOOLS);
+      const { total } = estimateRequestTokens(messages, systemPrompt, IDLE_TOOLS);
       return total;
     });
   }

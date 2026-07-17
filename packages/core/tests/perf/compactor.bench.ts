@@ -24,15 +24,20 @@ function buildMessages(n: number): Message[] {
 }
 
 function fakeContext(messages: Message[]): Context {
-  (ctx as { state: unknown }).state = {
-    replaceMessages(next: Message[]) {
-      messages.length = 0;
-      messages.splice(0, 0, ...next);
+  const ctx = {
+    messages,
+    systemPrompt: [],
+    tools: [],
+    state: {
+      replaceMessages(next: Message[]) {
+        messages.length = 0;
+        messages.splice(0, 0, ...next);
+      },
+      appendMessage(m: Message) {
+        messages.splice(messages.length, 0, m);
+      },
     },
-    appendMessage(m: Message) {
-      messages.splice(messages.length, 0, m);
-    },
-  };
+  } as unknown as Context;
   return ctx;
 }
 
@@ -57,12 +62,13 @@ function buildMessagesWithOversizedToolResults(n: number): Message[] {
     });
     // Each tool_result block must exceed the eliseThreshold (2000 tokens ≈ 7000 chars).
     // RoughTokenEstimate divides by 3.5, so 7000 chars ≈ 2000 tokens.
+    // Production wraps tool_result blocks in `role: 'user'` messages (agent-loop).
     out.push({
-      role: 'tool',
-      tool_call_id: `tu_${i}`,
+      role: 'user',
       content: [
         {
           type: 'tool_result',
+          tool_use_id: `tu_${i}`,
           content: `output ${i} ${'x'.repeat(7000)}`, // ≈ 2001 tokens > 2000 threshold
         },
       ],
@@ -77,29 +83,48 @@ function buildMessagesWithOversizedToolResults(n: number): Message[] {
 const WITH_OVERSIZED_TOOL_RESULTS = buildMessagesWithOversizedToolResults(2000);
 
 describe('HybridCompactor', () => {
-  bench('aggressive over 1000 messages', async () => {
-    await new HybridCompactor({ preserveK: 5 }).compact(fakeContext([...MEDIUM]), {
-      aggressive: true,
-    });
-  });
-  bench('aggressive over 5000 messages', async () => {
-    await new HybridCompactor({ preserveK: 5 }).compact(fakeContext([...LARGE]), {
-      aggressive: true,
-    });
-  });
-  bench('full-pass elision with oversized tool_results', async () => {
-    // Every tool_result exceeds eliseThreshold → full pass must run
-    await new HybridCompactor({ preserveK: 5 }).compact(
-      fakeContext([...WITH_OVERSIZED_TOOL_RESULTS]),
-      { aggressive: true },
-    );
-  });
+  // Heavy benches: each iteration runs a full compaction over thousands of
+  // messages (the oversized case reprocesses ~42 MB of tool output). Bound
+  // the sampling explicitly so the suite terminates in seconds, not minutes.
+  bench(
+    'aggressive over 1000 messages',
+    async () => {
+      await new HybridCompactor({ preserveK: 5 }).compact(fakeContext([...MEDIUM]), {
+        aggressive: true,
+      });
+    },
+    { iterations: 10, warmupIterations: 2 },
+  );
+  bench(
+    'aggressive over 5000 messages',
+    async () => {
+      await new HybridCompactor({ preserveK: 5 }).compact(fakeContext([...LARGE]), {
+        aggressive: true,
+      });
+    },
+    { iterations: 5, warmupIterations: 1 },
+  );
+  bench(
+    'full-pass elision with oversized tool_results',
+    async () => {
+      // Every tool_result exceeds eliseThreshold → full pass must run
+      await new HybridCompactor({ preserveK: 5 }).compact(
+        fakeContext([...WITH_OVERSIZED_TOOL_RESULTS]),
+        { aggressive: true },
+      );
+    },
+    { iterations: 3, warmupIterations: 1 },
+  );
 });
 
 describe('IntelligentCompactor', () => {
-  bench('aggressive over 1000 messages', async () => {
-    await new IntelligentCompactor({ preserveK: 5 }).compact(fakeContext([...MEDIUM]), {
-      aggressive: true,
-    });
-  });
+  bench(
+    'aggressive over 1000 messages',
+    async () => {
+      await new IntelligentCompactor({ preserveK: 5 }).compact(fakeContext([...MEDIUM]), {
+        aggressive: true,
+      });
+    },
+    { iterations: 10, warmupIterations: 2 },
+  );
 });
