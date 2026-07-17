@@ -151,7 +151,7 @@ import { WorktreeMonitor } from './components/worktree-monitor.js';
 import { WorktreePanel } from './components/worktree-panel.js';
 import { createContextMemoryStatsGetter, createContextSlashCommand } from './context-slash.js';
 import { createCronJobsGetter, createCronSlashCommand } from './cron-slash.js';
-import { actionForFKeyPanel } from './f-key-panels.js';
+import { actionForFKeyPanel, fKeyEntryFor } from './f-key-panels.js';
 import { escCloseAction } from './esc-close-panels.js';
 import { type GitInfo, readGitInfo } from './git-info.js';
 import { hitRegion, statusBarLineRow } from './hit-test.js';
@@ -4409,44 +4409,59 @@ export function App({
     // All toggles are allowed even while aborting, so the user can check
     // subagent state mid-steer.
     // Opening actions are mutually exclusive in the reducer via closePanels().
-    // Keep the keyboard layer declarative so a newly-added panel cannot be
-    // forgotten in a hand-maintained cascade of close dispatches.
-    const toggleFleetOverlay = () => dispatch({ type: 'toggleMonitor' });
-    const toggleAgentsOverlay = () => dispatch({ type: 'toggleAgentsMonitor' });
-    const toggleWorktreeOverlay = () => dispatch({ type: 'toggleWorktreeMonitor' });
-    const toggleTodosOverlay = () => dispatch({ type: 'toggleTodosMonitor' });
-    // F1 → project switcher panel. Opening closes any other overlay or panel.
-    if (key.fn === 1) {
-      if (state.projectPicker.open) {
-        dispatch({ type: 'projectPickerClose' });
-      } else {
-        dispatch({ type: 'closeAllPanels' });
-        // Load project items from the manifest
-        openProjectPicker();
-      }
-      return;
-    }
-    // Ctrl+F / F2 → fleet orchestration monitor.
-    if ((key.ctrl && input === 'f') || key.fn === 2) {
-      toggleFleetOverlay();
-      return;
-    }
-    // Ctrl+G / F3 → agents live monitor.
-    if ((key.ctrl && input === 'g') || key.fn === 3) {
-      toggleAgentsOverlay();
-      return;
-    }
-    // Ctrl+T / F4 → worktree monitor. (Word-delete that used to live on Ctrl+T
-    // is covered by Ctrl+Backspace.)
-    if ((key.ctrl && input === 't') || key.fn === 4) {
-      toggleWorktreeOverlay();
-      return;
-    }
-    // Ctrl+B → live multi-agent SDD board overlay (no-op until the first
-    // sdd.board.snapshot arrives from a running /sdd execute).
+    // Ctrl+B → live multi-agent SDD board overlay (not in the F-key table —
+    // no F-key alias, chord-only).
     if (key.ctrl && input === 'b') {
       dispatch({ type: 'toggleSddBoardMonitor' });
       return;
+    }
+    // F-key / Ctrl-alias dispatch — table-driven via fKeyEntryFor.
+    // Entries with hostAction (F1, F10, F12) need host-side work; the
+    // rest dispatch directly via actionForFKeyPanel.
+    // Special cases: F10 also catches Esc when sessionsPanel is open (defence
+    // in depth); F11 also catches bare \x1b when coordinator is open.
+    const fKeyMatched =
+      fKeyEntryFor(key.fn, key.ctrl, input) ??
+      (key.fn === 10 && key.escape && state.sessionsPanelOpen
+        ? fKeyEntryFor(10, undefined, '')
+        : null) ??
+      (input === '\x1b' && state.coordinator.monitorOpen
+        ? fKeyEntryFor(11, undefined, '')
+        : null);
+    if (fKeyMatched) {
+      const entry = fKeyMatched;
+      switch (entry.hostAction) {
+        case 'openProjectPicker': {
+          if (state.projectPicker.open) {
+            dispatch({ type: 'projectPickerClose' });
+          } else {
+            dispatch({ type: 'closeAllPanels' });
+            openProjectPicker();
+          }
+          return;
+        }
+        case 'loadLiveSessions': {
+          if (!state.sessionsPanelOpen) {
+            dispatch({ type: 'toggleSessionsPanel' });
+            loadLiveSessions();
+          } else {
+            dispatch({ type: 'toggleSessionsPanel' });
+          }
+          return;
+        }
+        case 'openStatuslinePicker': {
+          openStatuslinePicker();
+          return;
+        }
+        case undefined: {
+          const action = actionForFKeyPanel(entry, statuslineHiddenItems);
+          if (action) {
+            dispatch(action);
+            return;
+          }
+          break;
+        }
+      }
     }
     // While the SDD board overlay is open, ←/→ drive the per-phase drill-down
     // (→ focuses a single topological column, ← steps back / exits to the
@@ -4488,57 +4503,6 @@ export function App({
         }
         return;
       }
-    }
-    // F5 → plan panel overlay. Opening closes any other overlay or panel.
-    if (key.fn === 5) {
-      dispatch({ type: 'togglePlanPanel' });
-      return;
-    }
-    // F6 → full-screen todos monitor overlay.
-    if (key.fn === 6) {
-      toggleTodosOverlay();
-      return;
-    }
-    // F7 → queue panel. Opening closes any other overlay or panel.
-    if (key.fn === 7) {
-      dispatch({ type: 'toggleQueuePanel' });
-      return;
-    }
-    // F8 → process list overlay. Opening closes any other overlay or panel.
-    if (key.fn === 8) {
-      dispatch({ type: 'toggleProcessList' });
-      return;
-    }
-    // F9 → goal panel. Opening closes any other overlay or panel.
-    if (key.fn === 9) {
-      dispatch({ type: 'toggleGoalPanel' });
-      return;
-    }
-    // F10 → live sessions panel. Opening closes any other overlay or panel.
-    // Also allow ESC to close the sessions panel directly from here (defence in depth:
-    // if the dedicated sessions-panel ESC handler at line 3623 is bypassed for any
-    // reason, this check still closes the panel).
-    if (key.fn === 10 || (key.escape && state.sessionsPanelOpen)) {
-      if (state.sessionsPanelOpen) {
-        dispatch({ type: 'toggleSessionsPanel' });
-      } else {
-        dispatch({ type: 'toggleSessionsPanel' });
-        // Load sessions from the registry
-        loadLiveSessions();
-      }
-      return;
-    }
-    // F11 → AutonomousCoordinator monitor. Opens the project-level coordination panel
-    // showing live goals, tasks, knowledge, and consensus across all sessions.
-    if (key.fn === 11 || (input === '\x1b' && state.coordinator.monitorOpen)) {
-      dispatch({ type: 'toggleCoordinatorMonitor' });
-      return;
-    }
-    // F12 → status line picker. Mirrors /statusline for terminals where slash
-    // commands are inconvenient during a busy session.
-    if (key.fn === 12) {
-      openStatuslinePicker();
-      return;
     }
     // Settings editor (also openable via `/settings`). Opening closes any other
     // overlay or panel. Arrow keys navigate between fields (↑↓) or cycle values

@@ -16,6 +16,9 @@ export type FKeyPanelAction =
   | 'toggleCronMonitor'
   | 'statuslineOpen';
 
+/** Host-side action keys that require work beyond a reducer dispatch. */
+export type FKeyHostAction = 'openProjectPicker' | 'loadLiveSessions' | 'openStatuslinePicker';
+
 /** A single F-key panel entry shared by the picker, help overlay, and tests. */
 export interface FKeyPanelEntry {
   key: number;
@@ -25,6 +28,11 @@ export interface FKeyPanelEntry {
   helpKeys: string;
   /** Short user-facing description for the help overlay. */
   helpDescription: string;
+  /** Optional Ctrl+letter chord alias (e.g. 'f' for Ctrl+F → F2). */
+  ctrlAlias?: string | undefined;
+  /** When present, this entry needs host-side work instead of (or in addition
+   *  to) a direct reducer dispatch. The caller resolves these. */
+  hostAction?: FKeyHostAction | undefined;
 }
 
 /** All 12 F-key panels in order. */
@@ -35,13 +43,15 @@ export const F_KEY_PANEL_ENTRIES: readonly FKeyPanelEntry[] = [
     action: 'projectPickerOpen',
     helpKeys: 'F1 or /project',
     helpDescription: 'project switcher (F1 may open terminal help)',
+    hostAction: 'openProjectPicker',
   },
   {
     key: 2,
     label: 'Fleet orchestration monitor',
     action: 'toggleMonitor',
-    helpKeys: 'F2 or /fleet',
+    helpKeys: 'F2 or Ctrl+F',
     helpDescription: 'fleet monitor (Ctrl+F may be terminal Find)',
+    ctrlAlias: 'f',
   },
   {
     key: 3,
@@ -49,6 +59,7 @@ export const F_KEY_PANEL_ENTRIES: readonly FKeyPanelEntry[] = [
     action: 'toggleAgentsMonitor',
     helpKeys: 'F3 or Ctrl+G',
     helpDescription: 'agents live monitor (F3 is safer)',
+    ctrlAlias: 'g',
   },
   {
     key: 4,
@@ -56,6 +67,7 @@ export const F_KEY_PANEL_ENTRIES: readonly FKeyPanelEntry[] = [
     action: 'toggleWorktreeMonitor',
     helpKeys: 'F4 or /worktree',
     helpDescription: 'worktree monitor (Ctrl+T may be reserved)',
+    ctrlAlias: 't',
   },
   {
     key: 5,
@@ -98,6 +110,7 @@ export const F_KEY_PANEL_ENTRIES: readonly FKeyPanelEntry[] = [
     action: 'toggleSessionsPanel',
     helpKeys: 'F10 or /resume',
     helpDescription: 'live sessions panel (F10 may open host menu)',
+    hostAction: 'loadLiveSessions',
   },
   {
     key: 11,
@@ -112,6 +125,7 @@ export const F_KEY_PANEL_ENTRIES: readonly FKeyPanelEntry[] = [
     action: 'statuslineOpen',
     helpKeys: 'F12 or /sl',
     helpDescription: 'status line picker (F12 may be host/devtools)',
+    hostAction: 'openStatuslinePicker',
   },
 ];
 
@@ -143,6 +157,25 @@ const PAYLOAD_FREE_ACTIONS = new Set<FKeyPanelAction>([
   'toggleCoordinatorMonitor',
   'toggleCronMonitor',
 ]);
+
+/**
+ * Find the F-key panel entry matching the pressed key — either a plain
+ * function key (1–12) or a Ctrl+letter chord alias. Returns null if no
+ * entry matches.
+ */
+export function fKeyEntryFor(
+  fn: number | undefined,
+  ctrl: boolean | undefined,
+  input: string,
+): FKeyPanelEntry | null {
+  if (fn !== undefined && fn >= 1 && fn <= 12) {
+    return F_KEY_PANEL_ENTRIES[fn - 1] ?? null;
+  }
+  if (ctrl && input) {
+    return F_KEY_PANEL_ENTRIES.find((e) => e.ctrlAlias === input) ?? null;
+  }
+  return null;
+}
 
 /**
  * Convert a picker entry into the reducer action it can dispatch directly.
