@@ -126,7 +126,7 @@ function stubState(over: Partial<State> = {}): State {
     rewindOverlay: null,
     eternalStage: null,
     goalSummary: null,
-    autoPhase: null,
+    goalRun: null,
     sddBoard: null,
     worktrees: {},
     worktreeMonitorOpen: false,

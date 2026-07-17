@@ -117,7 +117,7 @@ function minimalState(coordinator: State['coordinator'] = minimalCoordinatorStat
     rewindOverlay: null,
     eternalStage: null,
     goalSummary: null,
-    autoPhase: null,
+    goalRun: null,
     worktrees: {},
     worktreeMonitorOpen: false,
     coordinator,

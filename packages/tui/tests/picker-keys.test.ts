@@ -64,7 +64,7 @@ function baseState(overrides: Partial<State> = {}): State {
     goalPanelOpen: false,
     sessionsPanelOpen: false,
     coordinator: { monitorOpen: false, goals: [], timeline: [], knowledgeCount: 0, healthy: false },
-    autoPhase: null,
+    goalRun: null,
     rewindOverlay: null,
     ...overrides,
   } as unknown as State;

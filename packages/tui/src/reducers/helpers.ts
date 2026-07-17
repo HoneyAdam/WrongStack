@@ -30,7 +30,7 @@ type PanelResetState = Pick<
   | 'authPanel'
   | 'projectPicker'
   | 'fKeyPicker'
-  | 'autoPhase'
+  | 'goalRun'
   | 'sddBoard'
   | 'worktreeMonitorOpen'
   | 'coordinator'
@@ -63,7 +63,7 @@ export function closePanels(state: State): PanelResetState {
     authPanel: { ...state.authPanel, open: false, busy: false },
     projectPicker: { ...state.projectPicker, open: false },
     fKeyPicker: { ...state.fKeyPicker, open: false },
-    autoPhase: state.autoPhase ? { ...state.autoPhase, monitorOpen: false } : state.autoPhase,
+    goalRun: state.goalRun ? { ...state.goalRun, monitorOpen: false } : state.goalRun,
     sddBoard: state.sddBoard ? { ...state.sddBoard, monitorOpen: false } : state.sddBoard,
     worktreeMonitorOpen: false,
     coordinator: { ...state.coordinator, monitorOpen: false },

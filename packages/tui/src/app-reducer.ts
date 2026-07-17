@@ -1985,10 +1985,10 @@ export function reducer(state: State, action: Action): State {
     case 'goalSummary': {
       return { ...state, goalSummary: action.summary };
     }
-    case 'autoPhaseInit': {
+    case 'goalRunInit': {
       return {
         ...state,
-        autoPhase: {
+        goalRun: {
           title: action.title,
           phases: {},
           runningPhaseIds: [],
@@ -1997,10 +1997,10 @@ export function reducer(state: State, action: Action): State {
         },
       };
     }
-    case 'autoPhasePhaseUpdate': {
-      // Lazily initialize autoPhase state on first phase event — the title
+    case 'goalRunPhaseUpdate': {
+      // Lazily initialize goalRun state on first phase event — the title
       // is not shown in the PhaseMonitor so a placeholder is fine here.
-      const existing = state.autoPhase ?? {
+      const existing = state.goalRun ?? {
         title: 'AutoPhase',
         phases: {},
         runningPhaseIds: [],
@@ -2009,7 +2009,7 @@ export function reducer(state: State, action: Action): State {
       };
       return {
         ...state,
-        autoPhase: {
+        goalRun: {
           ...existing,
           phases: {
             ...existing.phases,
@@ -2026,9 +2026,9 @@ export function reducer(state: State, action: Action): State {
         },
       };
     }
-    case 'autoPhaseTaskActive': {
-      if (!state.autoPhase) return state;
-      const phase = state.autoPhase.phases[action.phaseId];
+    case 'goalRunTaskActive': {
+      if (!state.goalRun) return state;
+      const phase = state.goalRun.phases[action.phaseId];
       if (!phase) return state;
       const without = (phase.activeTasks ?? []).filter((t) => t.taskId !== action.taskId);
       const activeTasks = action.active
@@ -2036,42 +2036,42 @@ export function reducer(state: State, action: Action): State {
         : without;
       return {
         ...state,
-        autoPhase: {
-          ...state.autoPhase,
+        goalRun: {
+          ...state.goalRun,
           phases: {
-            ...state.autoPhase.phases,
+            ...state.goalRun.phases,
             [action.phaseId]: { ...phase, activeTasks },
           },
         },
       };
     }
-    case 'autoPhaseRunningPhases': {
-      if (!state.autoPhase) return state;
+    case 'goalRunRunningPhases': {
+      if (!state.goalRun) return state;
       return {
         ...state,
-        autoPhase: { ...state.autoPhase, runningPhaseIds: action.phaseIds },
+        goalRun: { ...state.goalRun, runningPhaseIds: action.phaseIds },
       };
     }
-    case 'autoPhaseElapsed': {
-      if (!state.autoPhase) return state;
-      return { ...state, autoPhase: { ...state.autoPhase, elapsedMs: action.ms } };
+    case 'goalRunElapsed': {
+      if (!state.goalRun) return state;
+      return { ...state, goalRun: { ...state.goalRun, elapsedMs: action.ms } };
     }
-    case 'autoPhaseMonitorToggle': {
-      if (!state.autoPhase) return state;
-      const opening = !state.autoPhase.monitorOpen;
+    case 'goalRunMonitorToggle': {
+      if (!state.goalRun) return state;
+      const opening = !state.goalRun.monitorOpen;
       return opening
         ? {
             ...state,
             ...closePanels(state),
-            autoPhase: { ...state.autoPhase, monitorOpen: true },
+            goalRun: { ...state.goalRun, monitorOpen: true },
           }
         : {
             ...state,
-            autoPhase: { ...state.autoPhase, monitorOpen: false },
+            goalRun: { ...state.goalRun, monitorOpen: false },
           };
     }
-    case 'autoPhaseReset': {
-      return { ...state, autoPhase: null };
+    case 'goalRunReset': {
+      return { ...state, goalRun: null };
     }
     case 'sddBoardSnapshot': {
       // Preserve the overlay's open state across snapshots; default closed on

@@ -116,7 +116,7 @@ function useAutoPhaseEvents(
         case 'phase.started': {
           const p = payload as { phaseId: string; name: string };
           dispatch({
-            type: 'autoPhasePhaseUpdate',
+            type: 'goalRunPhaseUpdate',
             phaseId: p.phaseId,
             name: p.name,
             status: 'running',
@@ -129,7 +129,7 @@ function useAutoPhaseEvents(
         case 'phase.completed': {
           const p = payload as { phaseId: string; name: string };
           dispatch({
-            type: 'autoPhasePhaseUpdate',
+            type: 'goalRunPhaseUpdate',
             phaseId: p.phaseId,
             name: p.name,
             status: 'completed',
@@ -141,7 +141,7 @@ function useAutoPhaseEvents(
         case 'phase.failed': {
           const p = payload as { phaseId: string; name: string };
           dispatch({
-            type: 'autoPhasePhaseUpdate',
+            type: 'goalRunPhaseUpdate',
             phaseId: p.phaseId,
             name: p.name,
             status: 'failed',
@@ -154,7 +154,7 @@ function useAutoPhaseEvents(
           const p = payload as { phaseId: string; name: string; to: string };
           const status = p.to === 'running' ? 'running' : p.to;
           dispatch({
-            type: 'autoPhasePhaseUpdate',
+            type: 'goalRunPhaseUpdate',
             phaseId: p.phaseId,
             name: p.name,
             status,
@@ -166,7 +166,7 @@ function useAutoPhaseEvents(
         case 'phase.taskStarted': {
           const p = payload as { phaseId: string; taskId: string; taskTitle: string; agentName?: string };
           dispatch({
-            type: 'autoPhaseTaskActive',
+            type: 'goalRunTaskActive',
             phaseId: p.phaseId,
             taskId: p.taskId,
             title: p.taskTitle,
@@ -177,12 +177,12 @@ function useAutoPhaseEvents(
         }
         case 'phase.taskAssigned': {
           const p = payload as { phaseId: string; taskId: string; agentName?: string };
-          const active = stateRef.current.autoPhase?.phases[p.phaseId]?.activeTasks?.find(
+          const active = stateRef.current.goalRun?.phases[p.phaseId]?.activeTasks?.find(
             (t) => t.taskId === p.taskId,
           );
           if (active) {
             dispatch({
-              type: 'autoPhaseTaskActive',
+              type: 'goalRunTaskActive',
               phaseId: p.phaseId,
               taskId: p.taskId,
               title: active.title,
@@ -195,7 +195,7 @@ function useAutoPhaseEvents(
         case 'phase.taskFailed': {
           const p = payload as { phaseId: string; taskId: string };
           dispatch({
-            type: 'autoPhaseTaskActive',
+            type: 'goalRunTaskActive',
             phaseId: p.phaseId,
             taskId: p.taskId,
             title: '',
@@ -205,10 +205,10 @@ function useAutoPhaseEvents(
         }
         case 'phase.taskCompleted': {
           const p = payload as { phaseId: string; taskId: string };
-          const existing = stateRef.current.autoPhase?.phases[p.phaseId];
+          const existing = stateRef.current.goalRun?.phases[p.phaseId];
           if (existing) {
             dispatch({
-              type: 'autoPhasePhaseUpdate',
+              type: 'goalRunPhaseUpdate',
               phaseId: p.phaseId,
               name: existing.name,
               status: existing.status,
@@ -217,7 +217,7 @@ function useAutoPhaseEvents(
             });
           }
           dispatch({
-            type: 'autoPhaseTaskActive',
+            type: 'goalRunTaskActive',
             phaseId: p.phaseId,
             taskId: p.taskId,
             title: '',
@@ -229,21 +229,21 @@ function useAutoPhaseEvents(
           const p = payload as {
             activePhases: Array<{ id: string }>;
           };
-          dispatch({ type: 'autoPhaseRunningPhases', phaseIds: p.activePhases.map((ph) => ph.id) });
-          const autoPhase = stateRef.current.autoPhase;
-          if (autoPhase) {
-            const firstPhase = autoPhase.phases[Object.keys(autoPhase.phases)[0] ?? ''];
+          dispatch({ type: 'goalRunRunningPhases', phaseIds: p.activePhases.map((ph) => ph.id) });
+          const goalRun = stateRef.current.goalRun;
+          if (goalRun) {
+            const firstPhase = goalRun.phases[Object.keys(goalRun.phases)[0] ?? ''];
             const elapsed =
-              autoPhase.elapsedMs > 0
-                ? autoPhase.elapsedMs + 1000
+              goalRun.elapsedMs > 0
+                ? goalRun.elapsedMs + 1000
                 : Date.now() - (firstPhase?.startedAt ?? Date.now());
-            dispatch({ type: 'autoPhaseElapsed', ms: elapsed });
+            dispatch({ type: 'goalRunElapsed', ms: elapsed });
           }
           break;
         }
         case 'graph.completed':
         case 'graph.failed': {
-          dispatch({ type: 'autoPhaseReset' });
+          dispatch({ type: 'goalRunReset' });
           break;
         }
         case 'sdd.board.snapshot': {

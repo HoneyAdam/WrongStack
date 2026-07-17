@@ -111,7 +111,7 @@ function initial(over: Partial<State> = {}): State {
     fKeyPicker: { open: false, selected: 0 },
     confirmQueue: [],
     shellCommandWarning: null,
-    autoPhase: null,
+    goalRun: null,
     sddBoard: null,
     worktreeMonitorOpen: false,
     coordinator: { goals: [], timeline: [], knowledgeCount: 0, monitorOpen: false, healthy: false },
@@ -163,7 +163,7 @@ describe('TUI reducer', () => {
       statuslinePicker: { ...initial().statuslinePicker, open: true },
       projectPicker: { ...initial().projectPicker, open: true },
       fKeyPicker: { open: true, selected: 4 },
-      autoPhase: {
+      goalRun: {
         title: 'Plan',
         phases: {},
         runningPhaseIds: [],
@@ -189,7 +189,7 @@ describe('TUI reducer', () => {
     expect(out.statuslinePicker.open).toBe(false);
     expect(out.projectPicker.open).toBe(false);
     expect(out.fKeyPicker.open).toBe(false);
-    expect(out.autoPhase?.monitorOpen).toBe(false);
+    expect(out.goalRun?.monitorOpen).toBe(false);
     expect(out.worktreeMonitorOpen).toBe(false);
     expect(out.coordinator.monitorOpen).toBe(false);
   });
@@ -218,7 +218,7 @@ describe('TUI reducer', () => {
       authPanel: { ...initial().authPanel, open: true },
       projectPicker: { ...initial().projectPicker, open: true, allItems: [], items: [], filter: '' },
       fKeyPicker: { open: true, selected: 0 },
-      autoPhase: {
+      goalRun: {
         title: 'Plan',
         phases: {},
         runningPhaseIds: [],
@@ -253,7 +253,7 @@ describe('TUI reducer', () => {
     expect(out.shadowPanel.open).toBe(false);
     expect(out.projectPicker.open).toBe(false);
     expect(out.fKeyPicker.open).toBe(false);
-    expect(out.autoPhase?.monitorOpen).toBe(false);
+    expect(out.goalRun?.monitorOpen).toBe(false);
     expect(out.sddBoard?.monitorOpen).toBe(false);
     expect(out.worktreeMonitorOpen).toBe(false);
     expect(out.coordinator.monitorOpen).toBe(false);
@@ -1446,7 +1446,7 @@ describe('settings picker reducer', () => {
 
 describe('Monitor overlays do not block input buffer mutations', () => {
   // Regression: F2 (fleet), F3 (agents), F4 (worktree), F6 (todos), F7 (queue)
-  // and the autoPhase monitor used to make handleKey swallow every keystroke
+  // and the goalRun monitor used to make handleKey swallow every keystroke
   // except F-keys and Esc, so typing into the chat input behind the panel
   // silently failed. The guard was removed; the reducer is now the only
   // place that decides whether a `setBuffer` action takes effect, and it
@@ -1476,11 +1476,11 @@ describe('Monitor overlays do not block input buffer mutations', () => {
     }
   });
 
-  it('setBuffer still mutates the buffer when autoPhase monitor is open', () => {
+  it('setBuffer still mutates the buffer when goalRun monitor is open', () => {
     const s = reducer(
       {
         ...initial(),
-        autoPhase: {
+        goalRun: {
           title: 't',
           phases: {},
           runningPhaseIds: [],
@@ -1550,10 +1550,10 @@ describe('Monitor overlays do not block input buffer mutations', () => {
   });
 });
 
-describe('autoPhase board reducer', () => {
+describe('goalRun board reducer', () => {
   function withPhase() {
     return reducer(initial() as never, {
-      type: 'autoPhasePhaseUpdate',
+      type: 'goalRunPhaseUpdate',
       phaseId: 'p1',
       name: 'Alpha',
       status: 'running',
@@ -1562,10 +1562,10 @@ describe('autoPhase board reducer', () => {
     } as never);
   }
 
-  it('autoPhaseTaskActive adds a live worker to its phase', () => {
+  it('goalRunTaskActive adds a live worker to its phase', () => {
     let s = withPhase();
     s = reducer(s, {
-      type: 'autoPhaseTaskActive',
+      type: 'goalRunTaskActive',
       phaseId: 'p1',
       taskId: 't1',
       title: 'Build login',
@@ -1574,16 +1574,16 @@ describe('autoPhase board reducer', () => {
     } as never);
     const active = (
       s as never as {
-        autoPhase: { phases: Record<string, { activeTasks?: Array<{ taskId: string; agent?: string }> }> };
+        goalRun: { phases: Record<string, { activeTasks?: Array<{ taskId: string; agent?: string }> }> };
       }
-    ).autoPhase.phases['p1']!.activeTasks;
+    ).goalRun.phases['p1']!.activeTasks;
     expect(active).toEqual([{ taskId: 't1', title: 'Build login', agent: 'Einstein' }]);
   });
 
-  it('autoPhasePhaseUpdate preserves activeTasks across status/count updates', () => {
+  it('goalRunPhaseUpdate preserves activeTasks across status/count updates', () => {
     let s = withPhase();
     s = reducer(s, {
-      type: 'autoPhaseTaskActive',
+      type: 'goalRunTaskActive',
       phaseId: 'p1',
       taskId: 't1',
       title: 'Build login',
@@ -1592,7 +1592,7 @@ describe('autoPhase board reducer', () => {
     } as never);
     // A later count update (e.g. taskCompleted) must not wipe live workers.
     s = reducer(s, {
-      type: 'autoPhasePhaseUpdate',
+      type: 'goalRunPhaseUpdate',
       phaseId: 'p1',
       name: 'Alpha',
       status: 'running',
@@ -1601,17 +1601,17 @@ describe('autoPhase board reducer', () => {
     } as never);
     const phase = (
       s as never as {
-        autoPhase: { phases: Record<string, { completedTasks: number; activeTasks?: unknown[] }> };
+        goalRun: { phases: Record<string, { completedTasks: number; activeTasks?: unknown[] }> };
       }
-    ).autoPhase.phases['p1']!;
+    ).goalRun.phases['p1']!;
     expect(phase.completedTasks).toBe(1);
     expect(phase.activeTasks).toHaveLength(1);
   });
 
-  it('autoPhaseTaskActive with active:false removes the worker', () => {
+  it('goalRunTaskActive with active:false removes the worker', () => {
     let s = withPhase();
     s = reducer(s, {
-      type: 'autoPhaseTaskActive',
+      type: 'goalRunTaskActive',
       phaseId: 'p1',
       taskId: 't1',
       title: 'x',
@@ -1619,15 +1619,15 @@ describe('autoPhase board reducer', () => {
       active: true,
     } as never);
     s = reducer(s, {
-      type: 'autoPhaseTaskActive',
+      type: 'goalRunTaskActive',
       phaseId: 'p1',
       taskId: 't1',
       title: '',
       active: false,
     } as never);
     const active = (
-      s as never as { autoPhase: { phases: Record<string, { activeTasks?: unknown[] }> } }
-    ).autoPhase.phases['p1']!.activeTasks;
+      s as never as { goalRun: { phases: Record<string, { activeTasks?: unknown[] }> } }
+    ).goalRun.phases['p1']!.activeTasks;
     expect(active).toEqual([]);
   });
 });

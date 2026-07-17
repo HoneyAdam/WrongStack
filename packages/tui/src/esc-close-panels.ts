@@ -14,7 +14,7 @@
  *
  * Excluded panels (own their own Esc):
  *  - worktreeMonitor  — `isWorktreeMonitorCloseKey` in WorktreeMonitor.tsx
- *  - autoPhase monitor — PhaseMonitor owns Esc via its own useInput
+ *  - goalRun monitor — PhaseMonitor owns Esc via its own useInput
  *  - kanbanPanel       — `key.escape || 'q' → onClose` in KanbanPanel.tsx
  *  - goalKanbanPanel   — `key.escape || 'q' → onClose` in GoalKanbanPanel.tsx
  *
@@ -44,6 +44,7 @@ export const ESC_CLOSE_PANELS: readonly EscCloseEntry[] = [
   { name: 'processList', isOpen: (s) => s.processListOpen, close: { type: 'toggleProcessList' } },
   { name: 'goalPanel', isOpen: (s) => s.goalPanelOpen, close: { type: 'toggleGoalPanel' } },
   { name: 'contextPanel', isOpen: (s) => s.contextPanelOpen, close: { type: 'toggleContextPanel' } },
+  { name: 'auditPanel', isOpen: (s) => s.auditPanelOpen, close: { type: 'toggleAuditPanel' } },
   { name: 'planPanel', isOpen: (s) => s.planPanelOpen, close: { type: 'togglePlanPanel' } },
   { name: 'cronMonitor', isOpen: (s) => s.cronMonitorOpen, close: { type: 'toggleCronMonitor' } },
   { name: 'sddBoard', isOpen: (s) => s.sddBoard?.monitorOpen ?? false, close: { type: 'toggleSddBoardMonitor' } },

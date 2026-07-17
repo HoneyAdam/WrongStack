@@ -67,7 +67,7 @@ function initialState(over: Partial<State> = {}): State {
     rewindOverlay: null,
     eternalStage: null,
     goalSummary: null,
-    autoPhase: null,
+    goalRun: null,
     worktrees: {},
     worktreeMonitorOpen: false,
     scrollOffset: 0,

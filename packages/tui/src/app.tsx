@@ -4176,7 +4176,7 @@ export function App({
 
     // ── Monitor overlays are NON-modal ───────────────────────────────
     // F2 fleet, F3 agents, F4 worktree, F6 todos, F7 queue, and the
-    // autoPhase monitor render in the lower region of the layout, but the
+    // goalRun monitor render in the lower region of the layout, but the
     // chat input above them stays LIVE — typing, backspace, paste, cursor
     // movement, and Enter (submit) all flow through to the input buffer.
     // Only the F-key toggles below and Esc are reserved for the panel:
@@ -4633,7 +4633,7 @@ export function App({
       state.sessionsPanelOpen ||
       state.coordinator.monitorOpen ||
       state.helpOpen ||
-      (state.autoPhase?.monitorOpen ?? false) ||
+      (state.goalRun?.monitorOpen ?? false) ||
       state.rewindOverlay !== null;
 
     // `?` on an empty prompt opens the keys-&-commands help overlay (lazygit
@@ -5026,7 +5026,7 @@ export function App({
     }
     // Ctrl+P → toggle PhaseMonitor overlay when AutoPhase is active.
     if (key.ctrl && input === 'p') {
-      if (state.autoPhase) dispatch({ type: 'autoPhaseMonitorToggle' });
+      if (state.goalRun) dispatch({ type: 'goalRunMonitorToggle' });
       else {
         // No active AutoPhase — treat as a command alias for /goal status
         slashRegistry.dispatch('/goal', agent.ctx).then((res) => {
@@ -5623,12 +5623,12 @@ export function App({
         if (res?.message) {
           dispatch({ type: 'addEntry', entry: { kind: 'info', text: res.message } });
         }
-        // autoPhaseInit: when /goal start succeeds, the graph title is
+        // goalRunInit: when /goal start succeeds, the graph title is
         // embedded in metadata so the TUI can show the PhasePanel immediately
         // even before the first orchestrator event fires.
-        if (res?.metadata?.autoPhaseInit) {
-          const m = res.metadata.autoPhaseInit as { title: string };
-          dispatch({ type: 'autoPhaseInit', title: m.title });
+        if (res?.metadata?.goalRunInit) {
+          const m = res.metadata.goalRunInit as { title: string };
+          dispatch({ type: 'goalRunInit', title: m.title });
         }
         // /mouse toggles full mouse mode. The command is stateless (it doesn't
         // know the live value), so it emits an intent and the App resolves it
@@ -6412,7 +6412,7 @@ export function App({
   const lowerFunctionPanelOpen =
     state.monitorOpen ||
     state.agentsMonitorOpen ||
-    (state.autoPhase?.monitorOpen ?? false) ||
+    (state.goalRun?.monitorOpen ?? false) ||
     state.worktreeMonitorOpen ||
     state.planPanelOpen ||
     state.kanbanPanelOpen ||
@@ -7000,11 +7000,11 @@ export function App({
                 transcripts={agentTranscripts}
                 leaderTranscript={getLeaderTranscript}
               />
-            ) : state.autoPhase?.monitorOpen ? (
+            ) : state.goalRun?.monitorOpen ? (
               <PhaseMonitor
-                phases={state.autoPhase.phases}
-                runningPhaseIds={state.autoPhase.runningPhaseIds}
-                elapsedMs={state.autoPhase.elapsedMs}
+                phases={state.goalRun.phases}
+                runningPhaseIds={state.goalRun.runningPhaseIds}
+                elapsedMs={state.goalRun.elapsedMs}
                 nowTick={nowTick}
               />
             ) : state.sddBoard?.monitorOpen ? (
@@ -7114,10 +7114,10 @@ export function App({
                 collabSession={state.collabSession}
               />
             ) : null}
-            {state.autoPhase && !lowerFunctionPanelOpen ? (
+            {state.goalRun && !lowerFunctionPanelOpen ? (
               <PhasePanel
-                phases={state.autoPhase.phases}
-                runningPhaseIds={state.autoPhase.runningPhaseIds}
+                phases={state.goalRun.phases}
+                runningPhaseIds={state.goalRun.runningPhaseIds}
                 nowTick={nowTick}
               />
             ) : null}
@@ -7128,7 +7128,7 @@ export function App({
             {(() => {
               const anyMonitorOpen =
                 state.agentsMonitorOpen ||
-                (state.autoPhase?.monitorOpen ?? false) ||
+                (state.goalRun?.monitorOpen ?? false) ||
                 state.worktreeMonitorOpen ||
                 state.todosMonitorOpen ||
                 state.monitorOpen ||
@@ -7142,7 +7142,7 @@ export function App({
               if (state.agentsMonitorOpen) {
                 nextPanelHint = { key: 'F6', label: 'todos' };
               } else if (
-                state.autoPhase?.monitorOpen ||
+                state.goalRun?.monitorOpen ||
                 state.worktreeMonitorOpen ||
                 state.todosMonitorOpen
               ) {

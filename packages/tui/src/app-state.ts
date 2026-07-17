@@ -547,7 +547,7 @@ export type State = {
     refined: string;
     /** Refined in English. */
     english: string;
-    resolve: (decision: 'refined' | 'english' | 'original' | 'edit' | 'cancel') => void;
+    resolve: (decision: 'refined' | 'english' | 'original' | 'edit' | 'retry' | 'cancel') => void;
   } | null;
   /** When true, free-text submits are run through the prompt refiner first. Toggled by `/enhance`. */
   enhanceEnabled: boolean;
@@ -745,7 +745,7 @@ export type State = {
   /** Loaded from .wrongstack/goal.json on mount for startup banner. */
   goalSummary: GoalSummary;
   /** AutoPhase orchestrator state — rendered by PhaseMonitor. */
-  autoPhase: {
+  goalRun: {
     /** AutoPhase graph title. */
     title: string;
     /** Per-phase task summary, keyed by phaseId. */
@@ -1330,9 +1330,9 @@ export type Action =
       stage: AutonomyStage;
     }
   | { type: 'goalSummary'; summary: GoalSummary }
-  | { type: 'autoPhaseInit'; title: string }
+  | { type: 'goalRunInit'; title: string }
   | {
-      type: 'autoPhasePhaseUpdate';
+      type: 'goalRunPhaseUpdate';
       phaseId: string;
       name: string;
       status: string;
@@ -1340,10 +1340,10 @@ export type Action =
       totalTasks: number;
       startedAt?: number | undefined;
     }
-  | { type: 'autoPhaseRunningPhases'; phaseIds: string[] }
-  | { type: 'autoPhaseElapsed'; ms: number }
+  | { type: 'goalRunRunningPhases'; phaseIds: string[] }
+  | { type: 'goalRunElapsed'; ms: number }
   | {
-      type: 'autoPhaseTaskActive';
+      type: 'goalRunTaskActive';
       phaseId: string;
       taskId: string;
       title: string;
@@ -1351,8 +1351,8 @@ export type Action =
       /** True when the task starts, false when it completes/fails. */
       active: boolean;
     }
-  | { type: 'autoPhaseMonitorToggle' }
-  | { type: 'autoPhaseReset' }
+  | { type: 'goalRunMonitorToggle' }
+  | { type: 'goalRunReset' }
   | { type: 'sddBoardSnapshot'; snapshot: SddBoardSnapshot }
   | { type: 'toggleSddBoardMonitor' }
   | { type: 'sddBoardFocusNext' }

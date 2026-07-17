@@ -26,7 +26,7 @@ function initialState(): State {
     pluginPicker: { open: false, items: [], selected: 0, busy: false },
     projectPicker: { open: false, allItems: [], items: [], selected: 0, filter: '' },
     fKeyPicker: { open: false, selected: 0 },
-    autoPhase: undefined,
+    goalRun: undefined,
     sddBoard: undefined,
     worktreeMonitorOpen: false,
     coordinator: { monitorOpen: false },
