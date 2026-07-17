@@ -711,7 +711,11 @@ function startHqServerWithAuth(
     // 127.0.0.1, so repeated failures from the same machine are gated —
     // enough to blunt a brute-force without needing a full account lockout
     // or persisted state. Cleaned up alongside the session sweep below.
-    const loginAttempts = new Map<string, { count: number; blockedUntil: number }>();
+    const loginAttempts = new Map<string, { count: number; blockedUntil: number; lastAttempt: number }>();
+    // Retain a failure counter well past its current block so the exponential
+    // backoff actually escalates against an attacker pacing requests just after
+    // each block expires. Entries are only pruned once idle for this window.
+    const LOGIN_ATTEMPT_RETENTION_MS = 15 * 60_000;
 
     // ── Browser-session lifecycle ──────────────────────────────────────────
     // Sessions live inside a Map with { createdAt } but no server-side
@@ -726,7 +730,10 @@ function startHqServerWithAuth(
       // Also sweep expired rate-limit blocks so the map doesn't grow unbounded.
       const now = Date.now();
       for (const [ip, entry] of loginAttempts) {
-        if (entry.blockedUntil < now) loginAttempts.delete(ip);
+        // Prune only entries idle for the retention window — NOT every entry
+        // whose current block has expired, which would reset the exponential
+        // counter and cap practical backoff at ~2 s for a paced attacker.
+        if (now - entry.lastAttempt > LOGIN_ATTEMPT_RETENTION_MS) loginAttempts.delete(ip);
       }
     }, SESSION_CLEANUP_INTERVAL_MS);
     sessionCleanupTimer.unref?.();
@@ -1041,8 +1048,12 @@ function startHqServerWithAuth(
           // Exponential backoff: 2^count seconds, capped at 16 s.
           const prev = loginAttempts.get(clientIp);
           const count = (prev?.count ?? 0) + 1;
-          const backoffMs = Math.min(Math.pow(2, count) * 1000, 16_000);
-          loginAttempts.set(clientIp, { count, blockedUntil: Date.now() + backoffMs });
+          const backoffMs = Math.min(2 ** count * 1000, 16_000);
+          loginAttempts.set(clientIp, {
+            count,
+            blockedUntil: Date.now() + backoffMs,
+            lastAttempt: Date.now(),
+          });
           res.writeHead(401, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: { code: 'INVALID_PASSWORD', message: 'Invalid password.' } }));
           return;
@@ -1670,7 +1681,10 @@ function startHqServerWithAuth(
         : tokenSet.size > 0;
       if (needsAuth) {
         const supplied = url.searchParams.get('token') ?? '';
-        const tokenValid = supplied && tokenSet.has(supplied);
+        // Constant-time membership test — mirror the HTTP path. A bare
+        // `tokenSet.has(supplied)` is a hash lookup that can leak token
+        // length/prefix via timing.
+        const tokenValid = HqServerAuth.timingSafeTokenMatch(tokenSet, supplied) !== undefined;
         const cookieValid =
           pathname === '/ws/browser' &&
           mutableAuth.passwordHash !== undefined &&

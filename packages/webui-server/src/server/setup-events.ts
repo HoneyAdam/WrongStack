@@ -151,7 +151,10 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
             if (board) {
               broadcast(clients, {
                 type: 'kanban.get',
-                payload: { success: true, data: board },
+                // Wrap in the { board } envelope like every other kanban
+                // broadcast so the client's isBoardEnvelope path handles it
+                // without hijacking another tab's activeBoardId.
+                payload: { success: true, data: { board } },
               });
             }
           } catch {

@@ -13,6 +13,16 @@ type RankedMatch = SlashCommandMatch & {
   rank: number;
 };
 
+export function selectedSlashCommandLine(picker: {
+  open: boolean;
+  matches: SlashCommandMatch[];
+  selected: number;
+}): string | null {
+  if (!picker.open || picker.matches.length === 0) return null;
+  const picked = picker.matches[picker.selected];
+  return picked ? `/${picked.name}` : null;
+}
+
 export function buildSlashCommandMatches(
   entries: SlashCommandEntry[],
   rawQuery: string,

@@ -1,5 +1,62 @@
 import { describe, expect, it } from 'vitest';
-import { isAuthFlowUrlLine } from '../src/components/auth-panel.js';
+import React from 'react';
+import { render } from 'ink-testing-library';
+import { AuthPanel, isAuthFlowUrlLine } from '../src/components/auth-panel.js';
+import { AUTH_PANEL_INITIAL, type AuthPanelState } from '../src/components/auth-panel-model.js';
+
+function panel(overrides: Partial<AuthPanelState> = {}): AuthPanelState {
+  return { ...AUTH_PANEL_INITIAL, open: true, ...overrides };
+}
+
+function frameOf(state: AuthPanelState): string {
+  const { lastFrame, unmount } = render(React.createElement(AuthPanel, { panel: state }));
+  const frame = lastFrame() ?? '';
+  unmount();
+  return frame;
+}
+
+/**
+ * The panel's controller sets `hint`/`confirm`/`input` for every direct action,
+ * but none of the three were rendered — so setting an active key, deleting a
+ * key, and confirming a provider removal all happened with no visible text.
+ * These tests pin that each one reaches the frame.
+ */
+describe('AuthPanel feedback rendering', () => {
+  it('renders the hint so direct-action results and errors are visible', () => {
+    expect(frameOf(panel({ hint: '✓ Active key → work' }))).toContain('Active key → work');
+    expect(frameOf(panel({ hint: '✗ Catalog unavailable: offline' }))).toContain(
+      'Catalog unavailable: offline',
+    );
+  });
+
+  it('renders the confirm question, not just a y/n legend', () => {
+    const frame = frameOf(
+      panel({
+        view: 'provider',
+        providerId: 'anthropic',
+        confirm: {
+          question: 'Remove provider "anthropic" and 2 key(s)?',
+          action: { kind: 'remove-provider', providerId: 'anthropic' },
+        },
+      }),
+    );
+    expect(frame).toContain('Remove provider "anthropic" and 2 key(s)?');
+  });
+
+  it('renders the masked prompt in list view, where slash-command secret prompts open', () => {
+    const frame = frameOf(
+      panel({ view: 'list', input: { label: 'API key:', masked: true, draft: 'sk-abc' } }),
+    );
+    expect(frame).toContain('API key:');
+    expect(frame).toContain('••••••');
+    expect(frame).not.toContain('sk-abc');
+  });
+
+  it('shows an empty state instead of a bare action list when nothing is configured', () => {
+    expect(frameOf(panel({ view: 'list', providers: [] }))).toContain('No providers configured');
+    expect(frameOf(panel({ view: 'list', providers: [], busy: true }))).toContain('Loading');
+  });
+});
 
 describe('AuthPanel flow URL rendering helpers', () => {
   it('recognizes standalone OAuth URLs so the TUI can wrap instead of truncate them', () => {

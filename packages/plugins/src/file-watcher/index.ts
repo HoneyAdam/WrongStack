@@ -182,7 +182,10 @@ const plugin: Plugin = {
       try {
         const watcher = fsWatch(dirPath, { recursive }, (eventType, filename) => {
           if (!filename) return;
-          const fullPath = filename.startsWith(dirPath) ? filename : join(dirPath, filename);
+          const rawPath = filename.startsWith(dirPath) ? filename : join(dirPath, filename);
+          // Normalize to forward slashes for cross-platform consistency in
+          // emitted events, logs, and reindex file lists.
+          const fullPath = rawPath.replace(/\\/g, '/');
           const key = `${handle.id}:${fullPath}:${eventType}`;
           debounceEvent(
             key,

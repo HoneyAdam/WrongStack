@@ -19,6 +19,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { Config } from '@wrongstack/core';
+import { FORBIDDEN_PROTO_KEYS } from '@wrongstack/core/utils';
 
 // Minimal shape of what seedConfigToMeta / createPrefsSeeding need from runWebUI's opts.
 // CliWebUIOptions is defined in webui-server.ts; importing it directly would create a
@@ -590,6 +591,10 @@ export function createPrefsSeeding(opts: CliWebUIOptions): PrefsSeeding {
       if (typeof payload['pluginsEnabled'] === 'object' && payload['pluginsEnabled'] !== null) {
         const ext = (decrypted.extensions as Record<string, Record<string, unknown>>) ?? {};
         for (const [pluginName, enabled] of Object.entries(payload['pluginsEnabled'] as Record<string, boolean>)) {
+          // See the twin guard in webui-server's pref-helpers.ts: a
+          // `__proto__` plugin name would make `ext[pluginName]` read back
+          // Object.prototype and the write below pollute it process-wide.
+          if (FORBIDDEN_PROTO_KEYS.has(pluginName)) continue;
           const pExt = ext[pluginName] ?? {};
           pExt['enabled'] = enabled;
           ext[pluginName] = pExt;

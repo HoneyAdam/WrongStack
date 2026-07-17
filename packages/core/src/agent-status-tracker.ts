@@ -481,20 +481,29 @@ export class AgentStatusTracker {
       /* best-effort */
     }
     // Nudge local WebUIs only AFTER the write settles. Serialize through a
-    // promise chain so concurrent flush() calls never overlap: if flush() is
-    // called while the previous write is still in-flight, the new write chains
-    // after it and always captures the freshest allAgents snapshot (captured
-    // synchronously above). Best-effort — never let a notifier failure surface.
-    this.flushPromise = (this.flushPromise ?? Promise.resolve())
-      .then(() => this.registry.updateAgents(allAgents))
-      .then(() => {
-        try {
-          this.onUpdate?.();
-        } catch {
-          /* best-effort */
-        }
-      })
-      .catch(() => undefined);
+    // promise chain so concurrent flush() calls never overlap: call
+    // updateAgents immediately (so the registry receives the freshest snapshot
+    // without a microtask delay), then chain onUpdate so concurrent flushes are
+    // still serialized. Best-effort — never let a notifier failure surface.
+    const write = this.registry.updateAgents(allAgents);
+    const chain = write.then(() => {
+      try {
+        this.onUpdate?.();
+      } catch {
+        /* best-effort */
+      }
+    });
+
+    if (this.flushPromise) {
+      // A previous flush is still settling — chain after it so onUpdate
+      // ordering is preserved. Use the rejection callback too so a failed
+      // previous flush never strands future updates.
+      this.flushPromise = this.flushPromise
+        .then(() => chain, () => chain)
+        .catch(() => undefined);
+    } else {
+      this.flushPromise = chain.catch(() => undefined);
+    }
   }
 
   private currentSessionId(): string | undefined {

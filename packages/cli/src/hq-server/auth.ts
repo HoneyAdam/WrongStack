@@ -204,6 +204,23 @@ export function extractBrowserToken(req: http.IncomingMessage, url: URL): string
   return undefined;
 }
 
+/**
+ * Constant-time membership test for a token set. Returns the matching stored
+ * token (so callers can look up its metadata) or undefined. Iterates and
+ * compares each candidate with `timingSafeEqual` instead of `Set.has()`, whose
+ * hash lookup can leak token length/prefix via timing. Use this everywhere an
+ * HQ token is checked — the HTTP path and the WS-upgrade path alike.
+ */
+export function timingSafeTokenMatch(tokens: Set<string>, supplied: string): string | undefined {
+  if (!supplied) return undefined;
+  const b = Buffer.from(supplied);
+  for (const candidate of tokens) {
+    const a = Buffer.from(candidate);
+    if (a.length === b.length && timingSafeEqual(a, b)) return candidate;
+  }
+  return undefined;
+}
+
 export function authenticateBrowserRequest(
   req: http.IncomingMessage,
   url: URL,
@@ -217,18 +234,7 @@ export function authenticateBrowserRequest(
 ): HqBrowserAuthResult {
   const token = extractBrowserToken(req, url);
   if (token) {
-    // Timing-safe token comparison: iterate the token set and compare each
-    // candidate with timingSafeEqual instead of relying on Set.has(), which
-    // uses a hash lookup that can leak token length/prefix via timing.
-    let matchedToken: string | undefined;
-    for (const candidate of mutableAuth.browserTokens) {
-      const a = Buffer.from(candidate);
-      const b = Buffer.from(token);
-      if (a.length === b.length && timingSafeEqual(a, b)) {
-        matchedToken = candidate;
-        break;
-      }
-    }
+    const matchedToken = timingSafeTokenMatch(mutableAuth.browserTokens, token);
     if (matchedToken) {
       const obj = mutableAuth.browserTokenObjs.get(matchedToken);
       const ctx: HqBrowserAuthContext = { kind: 'token', token: matchedToken, id: obj?.id ?? 'unknown' };

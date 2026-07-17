@@ -225,6 +225,46 @@ export function AuthPanel({ panel }: AuthPanelProps): React.ReactElement {
       </Text>
       <Text dimColor>{viewLegend(panel)}</Text>
 
+      {panel.hint ? (
+        <Text
+          wrap="truncate-end"
+          color={
+            panel.hint.startsWith('✗')
+              ? UI_COLORS.error
+              : panel.hint.startsWith('✓')
+                ? UI_COLORS.active
+                : UI_COLORS.hint
+          }
+        >
+          {panel.hint}
+        </Text>
+      ) : null}
+
+      {/* The legend above already carries the y/n keys — this states the target. */}
+      {panel.confirm ? (
+        <Box marginTop={1}>
+          <Text color={UI_COLORS.warning} wrap="truncate-end">
+            ⚠ {panel.confirm.question}
+          </Text>
+        </Box>
+      ) : null}
+
+      {panel.view === 'list' && panel.providers.length === 0 ? (
+        <Box marginTop={1}>
+          <Text dimColor wrap="truncate-end">
+            {panel.busy
+              ? 'Loading saved providers…'
+              : 'No providers configured yet — pick an action below to add one.'}
+          </Text>
+        </Box>
+      ) : null}
+
+      {panel.view === 'catalog' && panel.busy ? (
+        <Box marginTop={1}>
+          <Text dimColor>Loading models.dev catalog…</Text>
+        </Box>
+      ) : null}
+
       {panel.view === 'provider' && provider ? (
         <Box flexDirection="column" marginTop={1}>
           <Text dimColor wrap="truncate-end">
@@ -263,11 +303,11 @@ export function AuthPanel({ panel }: AuthPanelProps): React.ReactElement {
       {panel.view === 'flow' ? (
         <Box flexDirection="column" marginTop={1}>
           {logWindow.length === 0 && !panel.flowDone ? <Text dimColor>Starting…</Text> : null}
-          {logWindow.map((line) => {
+          {logWindow.map((line, li) => {
             const isUrl = isAuthFlowUrlLine(line);
             return (
               <Text
-                key={line}
+                key={`fl-${li}`}
                 wrap={isUrl ? 'wrap' : 'truncate-end'}
                 color={
                   isUrl
@@ -289,15 +329,24 @@ export function AuthPanel({ panel }: AuthPanelProps): React.ReactElement {
               {panel.flowOk ? '✓ Done.' : '✗ Not completed.'}{' '}
               <Text dimColor>Press Enter or Esc to go back.</Text>
             </Text>
-          ) : panel.input ? (
-            <Box>
-              <Text>{panel.input.label}</Text>
-              <Text color={UI_COLORS.hint}>
-                {panel.input.masked ? '•'.repeat(panel.input.draft.length) : panel.input.draft}
-              </Text>
-              <Text color={UI_COLORS.focused}>▏</Text>
-            </Box>
           ) : null}
+        </Box>
+      ) : null}
+
+      {/*
+        Rendered outside the `flow` block on purpose: `readSecret` (slash-command
+        secret prompts) raises this modal in `list` view, where there is no flow.
+      */}
+      {panel.input ? (
+        <Box marginTop={1}>
+          <Text wrap="truncate-end">
+            <Text color={UI_COLORS.warning}>? </Text>
+            {panel.input.label}{' '}
+            <Text color={UI_COLORS.hint}>
+              {panel.input.masked ? '•'.repeat(panel.input.draft.length) : panel.input.draft}
+            </Text>
+            <Text color={UI_COLORS.focused}>▏</Text>
+          </Text>
         </Box>
       ) : null}
 

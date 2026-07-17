@@ -99,14 +99,14 @@ export function SideEffectTimeline() {
   useEffect(() => {
     useSideEffectStore.getState().setLoading(true);
     import('@/lib/ws-client').then(({ getWSClient }) => {
-      getWSClient().send({ type: 'side_effects.list' } as never);
+      getWSClient().send({ type: 'side_effects.list' });
     });
   }, []);
 
   const refresh = () => {
     useSideEffectStore.getState().setLoading(true);
     import('@/lib/ws-client').then(({ getWSClient }) => {
-      getWSClient().send({ type: 'side_effects.list' } as never);
+      getWSClient().send({ type: 'side_effects.list' });
     });
   };
 

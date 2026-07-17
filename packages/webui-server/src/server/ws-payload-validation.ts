@@ -1,3 +1,5 @@
+import { FORBIDDEN_PROTO_KEYS } from '@wrongstack/core/utils';
+
 export type PayloadValidationResult<T> = { ok: true; value: T } | { ok: false; message: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -312,6 +314,10 @@ const STRING_ARRAY_PREF_KEYS = new Set([
 ]);
 const STRING_ARRAY_RECORD_PREF_KEYS = new Set(['fallbackProfiles']);
 const MODEL_MATRIX_PREF_KEYS = new Set(['modelMatrix']);
+// Object of booleans, e.g. { 'plugin-name': true }. Parity with the embedded
+// server, which accepts `pluginsEnabled` and persists it to
+// extensions.<name>.enabled — the standalone server rejected it as unknown.
+const BOOLEAN_RECORD_PREF_KEYS = new Set(['pluginsEnabled']);
 
 const NUMBER_PREF_KEYS = new Set([
   'autonomyDelayMs',
@@ -422,6 +428,21 @@ function validatePreferenceValue(key: string, value: unknown): string | null {
       )
       ? null
       : `prefs.update payload.${key} must be an object of string arrays`;
+  }
+  if (BOOLEAN_RECORD_PREF_KEYS.has(key)) {
+    if (!isRecord(value) || !Object.values(value).every((v) => typeof v === 'boolean')) {
+      return `prefs.update payload.${key} must be an object of booleans`;
+    }
+    // The KEYS here are plugin names that get used as property keys downstream
+    // (extensions.<name>.enabled), so they must be checked too — validating
+    // only the values let `{"__proto__": true}` through to a write that
+    // polluted Object.prototype. The persist layer guards as well; this
+    // rejects loudly instead of silently dropping the entry.
+    const badKey = Object.keys(value).find((k) => FORBIDDEN_PROTO_KEYS.has(k));
+    if (badKey) {
+      return `prefs.update payload.${key} contains a forbidden key: ${badKey}`;
+    }
+    return null;
   }
   if (MODEL_MATRIX_PREF_KEYS.has(key)) {
     if (!isRecord(value)) return `prefs.update payload.${key} must be an object`;

@@ -215,6 +215,28 @@ export class WrongStackACPServer {
         return;
       }
 
+      // Notifications (no `id`) — e.g. `session/cancel` — must NOT queue behind
+      // the request chain. A `session/prompt` awaits its whole turn while
+      // holding the chain, so a cancel routed through the chain would only be
+      // delivered after the very turn it is trying to stop already finished.
+      // Cancel/exit produce no outbound sends, so they need neither the
+      // send-capture swap nor the chain; deliver them immediately as an ack.
+      const isNotification =
+        typeof msg === 'object' &&
+        msg !== null &&
+        (msg as { id?: unknown }).id === undefined &&
+        typeof (msg as { method?: unknown }).method === 'string';
+      if (isNotification) {
+        try {
+          await handler.handleMessage(msg);
+        } catch {
+          /* best-effort: a cancel/exit that throws must not 500 the client */
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ notifications: [] }));
+        return;
+      }
+
       // Serialize this request's processing through a chain so concurrent
       // HTTP requests can't race on the shared transport.send capture.
       const requestPromise = httpChain.then(async () => {

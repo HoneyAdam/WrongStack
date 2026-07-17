@@ -33,7 +33,7 @@ describe('MessageBubble thinking logs', () => {
     const { container } = render(<MessageBubble message={thinkingMessage()} isFirst />);
 
     expect(screen.getByText('Thinking')).toBeDefined();
-    expect(screen.getByText('Thinking process')).toBeDefined();
+    expect(screen.getByText('Model Reasoning')).toBeDefined();
     expect(screen.getByText('iter 2 · 1.3s · 5 lines')).toBeDefined();
     expect(container.textContent).not.toContain('line 1');
 

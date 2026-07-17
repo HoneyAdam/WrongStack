@@ -126,8 +126,17 @@ export function validateRememberInput(input: RememberSuperMemoryInput): void {
     if (anchor.type === 'symbol' && !anchor.symbol?.trim()) {
       throw new Error('Symbol memory anchors require a symbol.');
     }
-    if ((anchor.path?.length ?? 0) > 256 || (anchor.symbol?.length ?? 0) > 256 || (anchor.command?.length ?? 0) > 256) {
-      throw new Error('Super Memory anchor strings must be no longer than 256 characters.');
+    // Per-type caps: paths can be deep absolute paths (Windows `C:\...`,
+    // node_modules chains), commands can be long shell one-liners. A flat 256
+    // rejects legitimate input — the stored form is relativized/short anyway.
+    if (
+      (anchor.path?.length ?? 0) > 4_096 ||
+      (anchor.symbol?.length ?? 0) > 1_024 ||
+      (anchor.command?.length ?? 0) > 8_192
+    ) {
+      throw new Error(
+        'Super Memory anchor strings are too long (path ≤ 4096, symbol ≤ 1024, command ≤ 8192 characters).',
+      );
     }
   }
   for (const source of input.sources ?? []) {

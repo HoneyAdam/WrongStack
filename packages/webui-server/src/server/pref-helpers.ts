@@ -15,7 +15,7 @@
  * two take explicit args. No behaviour change — the mutation ladder,
  * the FEATURE_MAP, and the touch-flags are preserved verbatim.
  */
-import { atomicWrite } from '@wrongstack/core/utils';
+import { atomicWrite, FORBIDDEN_PROTO_KEYS } from '@wrongstack/core/utils';
 import { decryptConfigSecrets, encryptConfigSecrets } from '@wrongstack/core/security';
 import type { SecretVault } from '@wrongstack/core';
 import * as fs from 'node:fs/promises';
@@ -97,6 +97,8 @@ export const PREF_KEYS = [
   'autoReviewMaxFilesPerBatch',
   'autoReviewMaxConcurrentReviews',
   'autoReviewCascadeOn',
+  // Per-plugin enable/disable map (parity with the embedded server).
+  'pluginsEnabled',
 ] as const;
 
 export interface PrefHelperDeps {
@@ -420,6 +422,30 @@ export async function persistPrefsToConfig(
     // panel writes the source inputs (`autoReviewFallbackProfile`,
     // `autoReviewProvider`, `autoReviewModel`) and the server seeds the
     // resolved chain from config on next boot.
+
+    // Per-plugin enable/disable → extensions.<name>.enabled. Parity with the
+    // embedded server (prefs-seeding.ts) so a browser toggling plugins against
+    // the standalone server persists instead of erroring.
+    if (typeof payload['pluginsEnabled'] === 'object' && payload['pluginsEnabled'] !== null) {
+      const ext = (decrypted.extensions as Record<string, Record<string, unknown>>) ?? {};
+      for (const [pluginName, enabled] of Object.entries(
+        payload['pluginsEnabled'] as Record<string, boolean>,
+      )) {
+        // Plugin names are the only attacker-controlled KEYS in this whole
+        // ladder (every other ext[...] site is a hardcoded literal). Without
+        // this guard, `{"pluginsEnabled":{"__proto__":true}}` makes
+        // `ext['__proto__']` read back Object.prototype, and the next line
+        // writes `Object.prototype.enabled = true` — every object in the
+        // process then inherits `.enabled`, silently defeating the
+        // `?? true`-style plugin gates. JSON.parse yields `__proto__` as an
+        // own enumerable key, so Object.entries hands it to us.
+        if (FORBIDDEN_PROTO_KEYS.has(pluginName)) continue;
+        const pExt = ext[pluginName] ?? {};
+        pExt['enabled'] = enabled;
+        ext[pluginName] = pExt;
+      }
+      decrypted.extensions = ext;
+    }
 
     // Chimera (post-session review) → extensions['wstack-chimera']
     // Matches the ResolvedChimeraConfig shape from chimera-plugin.ts:34.

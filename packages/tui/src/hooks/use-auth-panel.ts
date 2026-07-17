@@ -107,7 +107,7 @@ export function useAuthPanel(opts: UseAuthPanelOptions): AuthPanelController {
       const providers = await authHost.listProviders();
       dispatch({ type: 'authProviders', providers });
     } catch (err) {
-      dispatch({ type: 'authHint', text: `Failed to reload providers: ${toMessage(err)}` });
+      dispatch({ type: 'authHint', text: `✗ Failed to reload providers: ${toMessage(err)}` });
       dispatch({ type: 'authBusy', busy: false });
     }
   }, [authHost, dispatch]);
@@ -183,7 +183,7 @@ export function useAuthPanel(opts: UseAuthPanelOptions): AuthPanelController {
         dispatch({ type: 'authCatalog', catalog });
       } catch (err) {
         dispatch({ type: 'authBusy', busy: false });
-        dispatch({ type: 'authHint', text: `Catalog unavailable: ${toMessage(err)}` });
+        dispatch({ type: 'authHint', text: `✗ Catalog unavailable: ${toMessage(err)}` });
       }
     })();
   }, [authHost, dispatch]);
@@ -217,7 +217,7 @@ export function useAuthPanel(opts: UseAuthPanelOptions): AuthPanelController {
         const label = row.keyRow.label;
         void (async () => {
           const err = await authHost.setActiveKey(providerId, label);
-          dispatch({ type: 'authHint', text: err ?? `Active key → ${label}` });
+          dispatch({ type: 'authHint', text: err ? `✗ ${err}` : `✓ Active key → ${label}` });
           await reloadProviders();
         })();
         return;
@@ -349,11 +349,14 @@ export function useAuthPanel(opts: UseAuthPanelOptions): AuthPanelController {
         if (confirm.action.kind === 'delete-key') {
           const { providerId, label } = confirm.action;
           const err = await authHost.deleteKey(providerId, label);
-          dispatch({ type: 'authHint', text: err ?? `Deleted ${providerId}/${label}.` });
+          dispatch({
+            type: 'authHint',
+            text: err ? `✗ ${err}` : `✓ Deleted ${providerId}/${label}.`,
+          });
         } else {
           const { providerId } = confirm.action;
           const err = await authHost.removeProvider(providerId);
-          dispatch({ type: 'authHint', text: err ?? `Removed ${providerId}.` });
+          dispatch({ type: 'authHint', text: err ? `✗ ${err}` : `✓ Removed ${providerId}.` });
           if (!err) dispatch({ type: 'authView', view: 'list' });
         }
         await reloadProviders();

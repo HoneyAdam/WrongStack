@@ -1149,18 +1149,28 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
 
     let instance: ReturnType<typeof render>;
 
-    // Physically clear the terminal on `/clear`. `instance.clear()` erases the
-    // live frame AND resyncs Ink's log-update line tracking, so the subsequent
-    // raw clear-screen write doesn't fight Ink's cursor math (which is exactly
-    // why cli-main's onClear skips the escape in TUI mode). Then the same
-    // \x1b[2J\x1b[3J\x1b[H used at boot wipes the visible screen + native
-    // scrollback so the pre-clear conversation isn't left above the banner.
-    // The closure reads `instance` lazily — it only ever runs on a user
-    // /clear, long after render() has assigned it.
+    // Physically clear the visible screen + scrollback on `/clear`.
+    // Notably we do NOT call `instance?.clear()` and do NOT emit `\x1b[H`.
+    //
+    // Ink's `instance.clear()` calls logUpdate.clear() (which erases Ink's
+    // output and resets the line tracker) then logUpdate.sync(oldOutput)
+    // (which sets the tracker back to the OLD output dimensions).  Since
+    // the terminal is already empty after the clear, logUpdate now thinks
+    // N lines of phantom content are on screen.  When the subsequent render
+    // produces fresh (short) output, logUpdate tries to `eraseLines(N)` from
+    // cursor position (0,0) — the N cursor-up sequences overshoot the top
+    // of the terminal and the output lands in the wrong place, producing
+    // duplicated input lines and a garbled interface.
+    //
+    // Instead we only physically clear the screen (\x1b[2J) and scrollback
+    // (\x1b[3J) — WITHOUT \x1b[H (cursor home) — and let Ink's natural
+    // re-render (triggered by the state changes in onClearHistory) produce
+    // the fresh output from the correct cursor position.  Ink and logUpdate
+    // keep their pre-clear tracker values so the ANSI diff is calculated
+    // relative to a cursor that still matches reality.
     const clearTerminal = () => {
       try {
-        instance?.clear();
-        stdout.write('\x1b[2J\x1b[3J\x1b[H');
+        stdout.write('\x1b[2J\x1b[3J');
       } catch {
         // stdout may be closed mid-teardown — ignore.
       }

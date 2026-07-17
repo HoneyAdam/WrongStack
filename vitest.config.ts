@@ -73,7 +73,13 @@ export default defineConfig({
     // dir (WRONGSTACK_HOME) so tests never read the user's real config (live
     // Telegram tokens!) or leak fixture project dirs into the real home.
     setupFiles: ['./vitest.setup.ts'],
-    include: ['packages/**/tests/**/*.test.ts', 'apps/**/tests/**/*.test.ts'],
+    // `.tsx` is included explicitly: the Ink component tests in tui/ and
+    // simpleui/ are .tsx, and a `*.test.ts`-only glob silently skipped all of
+    // them — they passed CI by never running.
+    include: [
+      'packages/**/tests/**/*.test.{ts,tsx}',
+      'apps/**/tests/**/*.test.{ts,tsx}',
+    ],
     exclude: [
       '**/node_modules/**',
       '**/dist/**',

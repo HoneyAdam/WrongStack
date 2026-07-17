@@ -174,7 +174,10 @@ async function dispatchAction(
   }
 
   // --- Edit baseUrl ---
-  if (verb === 'B' || verb === 'baseurl' || verb === 'base-url') {
+  // `B` is capitalised because bare `b` is "back" — accept the spelled-out
+  // forms too so a user who types `b`, sees the menu close, and reaches for
+  // the obvious word doesn't have to guess the shift key.
+  if (verb === 'B' || verb === 'baseurl' || verb === 'base-url' || verb === 'url') {
     const current = cfg.baseUrl ?? '';
     const ans = (
       await deps.reader.readLine(

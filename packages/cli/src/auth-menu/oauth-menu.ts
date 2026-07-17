@@ -14,27 +14,57 @@ export function renderOAuthLoginOptions(deps: AuthMenuDeps, indent = '    '): vo
   );
 }
 
+export type OAuthMenuKind = 'chatgpt' | 'claude' | 'copilot';
+
+/**
+ * Single source of truth for the OAuth vocabulary. Every surface that accepts
+ * a subscription name — `wstack auth login <x>`, the OAuth submenu, and the
+ * catalog-cancel fallback — resolves through {@link resolveOAuthKind}, so the
+ * three never drift into accepting different spellings of the same thing.
+ */
+const OAUTH_ALIASES: Record<OAuthMenuKind, readonly string[]> = {
+  chatgpt: ['chatgpt', 'openai', 'codex', 'codex-cli', 'openai-codex', 'chatgpt-plus', 'plus', 'pro'],
+  claude: ['claude', 'anthropic', 'claude-pro', 'claude-max', 'anthropic-oauth', 'max'],
+  copilot: ['copilot', 'github', 'gh', 'github-copilot'],
+};
+
+const OAUTH_NUMERIC: Record<string, OAuthMenuKind> = { '1': 'chatgpt', '2': 'claude', '3': 'copilot' };
+
+/**
+ * Normalize a user-typed subscription name to an OAuth kind.
+ * `allowNumeric` enables the 1/2/3 menu picks (off for free-text prompts,
+ * where a bare digit is far more likely to be a typo than a menu choice).
+ */
+export function resolveOAuthKind(
+  choice: string,
+  opts: { allowNumeric?: boolean } = {},
+): OAuthMenuKind | undefined {
+  const pick = choice.trim().toLowerCase();
+  if (!pick) return undefined;
+  if (opts.allowNumeric !== false && OAUTH_NUMERIC[pick]) return OAUTH_NUMERIC[pick];
+  for (const [kind, aliases] of Object.entries(OAUTH_ALIASES)) {
+    if (aliases.includes(pick)) return kind as OAuthMenuKind;
+  }
+  return undefined;
+}
+
 /** Run an OAuth login for a normalized menu choice. Returns true when handled. */
 export async function runOAuthLoginChoice(
   deps: AuthMenuDeps,
   choice: string,
   opts: { allowNumeric?: boolean } = {},
 ): Promise<boolean> {
-  const pick = choice.trim().toLowerCase();
-  const allowNumeric = opts.allowNumeric ?? true;
-  if ((allowNumeric && pick === '1') || pick === 'chatgpt' || pick === 'openai' || pick === 'codex') {
-    await runCodexOAuthLogin(deps);
-    return true;
-  }
-  if ((allowNumeric && pick === '2') || pick === 'claude' || pick === 'anthropic') {
-    await runClaudeOAuthLogin(deps);
-    return true;
-  }
-  if ((allowNumeric && pick === '3') || pick === 'copilot' || pick === 'github' || pick === 'github-copilot') {
-    await runCopilotOAuthLogin(deps);
-    return true;
-  }
-  return false;
+  const kind = resolveOAuthKind(choice, opts);
+  if (!kind) return false;
+  await runOAuthLoginKind(deps, kind);
+  return true;
+}
+
+/** Run the OAuth login flow for an already-resolved kind. */
+export async function runOAuthLoginKind(deps: AuthMenuDeps, kind: OAuthMenuKind): Promise<number> {
+  if (kind === 'claude') return runClaudeOAuthLogin(deps);
+  if (kind === 'copilot') return runCopilotOAuthLogin(deps);
+  return runCodexOAuthLogin(deps);
 }
 
 /** Sub-menu: pick a subscription to sign in with (OAuth). */

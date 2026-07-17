@@ -72,7 +72,6 @@ import {
   type ResumeSessionEntry,
   reducer,
   type Settings,
-  type SlashCommandMatch,
   type State,
 } from './app-reducer.js';
 import {
@@ -211,7 +210,7 @@ import { feedPaste } from './paste-accumulator.js';
 import { createPsSlashCommand } from './ps-slash.js';
 import { renderRunningTools } from './running-tools.js';
 import { sddLifecycleEntry } from './sdd-lifecycle-entry.js';
-import { buildSlashCommandMatches } from './slash-command-search.js';
+import { buildSlashCommandMatches, selectedSlashCommandLine } from './slash-command-search.js';
 import { buildSteeringPreamble } from './steering-preamble.js';
 import { shouldPushSubmittedHistory } from './submit-history.js';
 
@@ -231,15 +230,7 @@ export { renderRunningTools } from './running-tools.js';
  *  columns the same way the input renders them. */
 const INPUT_PROMPT = DEFAULT_INPUT_PROMPT;
 
-export function selectedSlashCommandLine(picker: {
-  open: boolean;
-  matches: SlashCommandMatch[];
-  selected: number;
-}): string | null {
-  if (!picker.open || picker.matches.length === 0) return null;
-  const picked = picker.matches[picker.selected];
-  return picked ? `/${picked.name}` : null;
-}
+export { selectedSlashCommandLine } from './slash-command-search.js';
 
 // Word-navigation and word-deletion helpers live in input-editing.ts.
 // Imported for local use (handleKey) and re-exported so existing imports

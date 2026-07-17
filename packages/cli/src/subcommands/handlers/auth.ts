@@ -2,12 +2,10 @@ import { color } from '@wrongstack/core';
 import { parseAuthFlags } from '../../arg-parser.js';
 import {
   type AuthMenuDeps,
-  CODEX_PROVIDER_ID,
+  resolveOAuthKind,
   runAuthDirect,
   runAuthMenu,
-  runClaudeOAuthLogin,
-  runCodexOAuthLogin,
-  runCopilotOAuthLogin,
+  runOAuthLoginKind,
 } from '../../auth-menu/index.js';
 import {
   loadConfigProviders,
@@ -66,18 +64,12 @@ export const authCmd: SubcommandHandler = async (args, deps) => {
   // configured API-key `openai`/`anthropic` provider.
   if (first === 'login') {
     const pid = (flags.positional[1] ?? '').toLowerCase();
-    const codexAliases = new Set(['', 'openai', 'codex', 'chatgpt', 'codex-cli', CODEX_PROVIDER_ID]);
-    const claudeAliases = new Set(['claude', 'anthropic', 'claude-pro', 'claude-max', 'anthropic-oauth']);
-    const copilotAliases = new Set(['copilot', 'github', 'github-copilot', 'gh']);
-    if (claudeAliases.has(pid)) {
-      return runClaudeOAuthLogin(menuDeps);
-    }
-    if (copilotAliases.has(pid)) {
-      return runCopilotOAuthLogin(menuDeps);
-    }
-    if (codexAliases.has(pid)) {
-      return runCodexOAuthLogin(menuDeps);
-    }
+    // Bare `wstack auth login` keeps its historical default: ChatGPT.
+    if (!pid) return runOAuthLoginKind(menuDeps, 'chatgpt');
+    // Numeric picks are a menu affordance, not a CLI one — `auth login 2`
+    // is a typo, not a request to sign into Claude.
+    const kind = resolveOAuthKind(pid, { allowNumeric: false });
+    if (kind) return runOAuthLoginKind(menuDeps, kind);
     deps.renderer.writeError('OAuth login is only supported for ChatGPT, Claude, and GitHub Copilot.');
     deps.renderer.write(
       color.dim('  Sign in with ChatGPT: ') + color.bold('wstack auth login chatgpt') + '\n' +

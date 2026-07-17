@@ -2,3 +2,7 @@ node_modules
 dist
 *.local
 .DS_Store
+# Emitted by the composite tsconfig.node.json (tsc -b) — build output, not source.
+vite.config.js
+vite.config.d.ts
+*.tsbuildinfo

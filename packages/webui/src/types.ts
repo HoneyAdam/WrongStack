@@ -1308,6 +1308,7 @@ export interface BrainConfigPatchWire {
 export type WSClientMessage =
   | WSUserMessage
   | WSToolConfirmResult
+  | { type: 'side_effects.list'; payload?: Record<string, never> }
   | {
       type: 'autophase.start';
       payload: {
