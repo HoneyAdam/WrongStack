@@ -124,9 +124,22 @@ function delegatedPrefixes(files: string | readonly string[]): Set<string> {
  */
 function canonicalClientTypes(): Set<string> {
   const src = fs.readFileSync(typesFile, 'utf8');
-  const start = src.indexOf('export type WSClientMessage =');
+  // The union may be split: WSClientMessage = WSClientMessageCore & { _chronicle? }
+  // Search for the union declaration that actually contains type literals.
+  // Try 'WSClientMessage' first; if it's an intersection wrapper, fall back to 'WSClientMessageCore'.
+  let unionName = 'WSClientMessage';
+  let start = src.indexOf(`export type ${unionName} =`);
+  if (start !== -1) {
+    const after = src.indexOf('\nexport ', start + `export type ${unionName} =`.length);
+    const block = src.slice(start, after === -1 ? undefined : after);
+    // If this block has no type literals (it's an intersection wrapper), try Core
+    if (!/type:\s*'/.test(block)) {
+      unionName = 'WSClientMessageCore';
+      start = src.indexOf(`export type ${unionName} =`);
+    }
+  }
   if (start === -1) throw new Error('WSClientMessage union not found in types.ts');
-  const after = src.indexOf('\nexport ', start + 'export type WSClientMessage ='.length);
+  const after = src.indexOf('\nexport ', start + `export type ${unionName} =`.length);
   const block = src.slice(start, after === -1 ? undefined : after);
 
   const types = new Set<string>();
