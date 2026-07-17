@@ -12,7 +12,7 @@ export function cn(...inputs: ClassValue[]) {
    ========================================================================= */
 
 export const META = {
-  version: '0.287.1',
+  version: '0.288.0',
   repo: 'https://github.com/WrongStack/WrongStack',
   npm: 'wrongstack',
   node: '22',
@@ -295,9 +295,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: '0.288.0',
+    date: '2026-07-17',
+    latest: true,
+    tagline: 'Remembered launch menu and lockstep release alignment',
+    highlights: [
+      'Plain wstack launches now open a four-option TTY menu for TUI/REPL, WebUI, SimpleUI, or HQ when no surface flag is provided',
+      'WebUI, SimpleUI, and HQ choices can collect their optional host and port before boot, while TUI/REPL keeps the established inner picker',
+      'The selected launch shape is persisted as config.launch.menuChoice and offered through a concise Continue with these? summary on the next run',
+      'The --no-menu flag preserves the historical launch flow, and non-interactive runs plus explicit surface flags continue to bypass the menu',
+      'All 21 packages, both apps, and the marketing website are aligned to 0.288.0',
+    ],
+  },
+  {
     version: '0.287.0',
     date: '2026-07-15',
-    latest: true,
     tagline: 'Always-on Director Mode, Goal Kanban flow, and SuperMemory WebUI',
     highlights: [
       'Director Mode is permanently on — the --director flag, the directorMode config field, the runtime promoteToDirector() switch, and the /director "promote" semantics have all been removed, so the full fleet surface (/spawn, /fleet, /delegate, /goal, /supervisor, /shadow) is available on every session',
@@ -784,7 +796,7 @@ export const releaseProcess: ReleaseStep[] = [
     phase: 'Version bump',
     steps: [
       'node scripts/bump-version.mjs <patch|minor|major>',
-      'Version bumped in root + all 21 package/app workspace manifests + website/',
+      'Version bumped in root + all 21 package manifests + both apps + website/',
       'CHANGELOG.md updated with release date and highlights',
     ],
   },

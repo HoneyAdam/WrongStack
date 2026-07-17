@@ -35,7 +35,7 @@ async function startOpenHqServer(options: Omit<Parameters<typeof startHqServer>[
     browserTokens: [],
     clientTokens: [],
   });
-  return startHqServer({ ...options, dataDir });
+  return startHqServer({ host: '127.0.0.1', ...options, dataDir });
 }
 
 function getPort(): number {
@@ -43,14 +43,14 @@ function getPort(): number {
   return 30_000 + Math.floor(Math.random() * 10_000);
 }
 
-function occupyPort(port: number): Promise<http.Server> {
+function occupyPort(port: number, host = '127.0.0.1'): Promise<http.Server> {
   const server = http.createServer((_req, res) => {
     res.writeHead(204);
     res.end();
   });
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(port, '127.0.0.1', () => {
+    server.listen(port, host, () => {
       server.removeListener('error', reject);
       resolve(server);
     });
@@ -126,7 +126,7 @@ function makeBrowserCollector(ws: WebSocket) {
 
   const nextMessage = (
     predicate: (m: BrowserMessage) => boolean,
-    timeoutMs = 5_000,
+    timeoutMs = 15_000,
   ): Promise<BrowserMessage> =>
     new Promise((resolve, reject) => {
       const existing = queue.findIndex(predicate);
@@ -166,6 +166,7 @@ describe('HQ server', () => {
   it('writes and clears the runtime endpoint marker for same-machine discovery', async () => {
     const port = getPort();
     handle = await startOpenHqServer({ port });
+    expect(handle.host).toBe('127.0.0.1');
     const runtimePath = path.join(dataDir, 'runtime.json');
 
     const runtime = JSON.parse(await fs.readFile(runtimePath, 'utf8')) as { url: string; pid: number };
@@ -187,6 +188,9 @@ describe('HQ server', () => {
     const port = getPort();
 
     handle = await startHqServer({ port, dataDir });
+    // A caller that names no host gets loopback. The wide bind is opted into
+    // by the HQ CLI entry points (HQ_CLI_DEFAULT_HOST), not by this default.
+    expect(handle.host).toBe('127.0.0.1');
 
     expect(handle.firstRunSetup).toMatchObject({
       dataDir,
@@ -378,10 +382,21 @@ describe('HQ server', () => {
     // 2 MiB payload — comfortably over the 1 MiB server cap.
     offender.send(Buffer.alloc(2 * 1024 * 1024, 0x61));
 
-    // Wait for the offending socket to be torn down by the server.
+    // Wait for the offending socket to be torn down by the server. Poll up to
+    // 5 s so the test resolves the instant the close fires instead of always
+    // paying the full fixed delay (which can exceed the per-test Vitest
+    // timeout when the suite shares the machine with a large concurrent run).
     await new Promise<void>((resolve) => {
-      offender.once('close', () => resolve());
-      setTimeout(resolve, 1_000);
+      const deadline = Date.now() + 5_000;
+      const tick = () => {
+        if (offender.readyState === WebSocket.CLOSED || Date.now() >= deadline) {
+          resolve();
+          return;
+        }
+        setTimeout(tick, 25);
+      };
+      offender.once('close', resolve);
+      tick();
     });
 
     // Server must still be alive: a brand-new browser connection still gets a
@@ -425,7 +440,8 @@ describe('HQ server', () => {
     const snapshot = (await browserCol.nextMessage(
       (m) =>
         m.type === 'hq.snapshot' &&
-        (m as HqSnapshotMessage).snapshot.totals.activeClients === 1,
+        (m as HqSnapshotMessage).snapshot.totals.activeClients === 1 &&
+        (m as HqSnapshotMessage).snapshot.mailboxes.length >= 1,
     )) as HqSnapshotMessage;
     const body = snapshot.snapshot as {
       totals: {
@@ -1339,7 +1355,7 @@ describe('HQ server fleet telemetry', () => {
 
     const fleet = (await (await fetch(`http://127.0.0.1:${handle.port}/api/fleet`)).json()) as {
       machines: { machineId: string; hostname?: string; sessionCount: number; agentCount: number }[];
-      liveSessions: { sessionId: string; agents: { id: string }[] }[];
+      liveSessions: { sessionId: string; clientId?: string; agents: { id: string }[] }[];
       totals: { activeMachines: number; activeSessions: number; activeAgents: number; activeSubagents: number; totalCostUsd: number };
     };
 
@@ -1354,6 +1370,7 @@ describe('HQ server fleet telemetry', () => {
     expect(m!.sessionCount).toBe(1);
     expect(m!.agentCount).toBe(2);
     expect(fleet.liveSessions).toHaveLength(1);
+    expect(fleet.liveSessions[0]?.clientId).toBe('c1');
     expect(fleet.liveSessions[0]?.agents).toHaveLength(2);
 
     client.close();
@@ -1663,6 +1680,15 @@ describe('HQ control plane (Phase 3)', () => {
     client.send(helloFrameControl('ctrl-1', 'mach-C', 'projC'));
     await new Promise((r) => setTimeout(r, 30));
 
+    const browser = new WebSocket(`ws://127.0.0.1:${handle.port}/ws/browser`);
+    await waitForOpen(browser);
+    const queuedStatusPromise = nextMessage(
+      browser,
+      (message) =>
+        message.type === 'hq.command_status' &&
+        (message as { command?: { status?: string } }).command?.status === 'queued',
+    );
+
     // Enqueue a steer command from the browser (open mode — no token required).
     const postRes = await fetch(`http://127.0.0.1:${handle.port}/api/command`, {
       method: 'POST',
@@ -1673,8 +1699,22 @@ describe('HQ control plane (Phase 3)', () => {
     const postBody = (await postRes.json()) as { commandId: string; queued: boolean };
     expect(postBody.queued).toBe(true);
     expect(postBody.commandId).toBeTruthy();
+    const queuedStatus = (await queuedStatusPromise) as {
+      type: 'hq.command_status';
+      command: { commandId: string; status: string };
+    };
+    expect(queuedStatus.command).toMatchObject({
+      commandId: postBody.commandId,
+      status: 'queued',
+    });
 
     // Client polls — server should respond with a command_batch.
+    const deliveredStatusPromise = nextMessage(
+      browser,
+      (message) =>
+        message.type === 'hq.command_status' &&
+        (message as { command?: { status?: string } }).command?.status === 'delivered',
+    );
     client.send(JSON.stringify({ type: 'client.command_poll', clientId: 'ctrl-1', projectId: 'projC' }));
     const batch = (await nextMessage(client, (m) => m.type === 'hq.command_batch')) as {
       type: 'hq.command_batch';
@@ -1684,8 +1724,18 @@ describe('HQ control plane (Phase 3)', () => {
     expect(batch.commands[0]!.type).toBe('steer');
     expect(batch.commands[0]!.payload.to).toBe('leader');
     expect(batch.commands[0]!.payload.subject).toBe('pivot');
+    await expect(deliveredStatusPromise).resolves.toMatchObject({
+      type: 'hq.command_status',
+      command: { commandId: postBody.commandId, status: 'delivered' },
+    });
 
     // Client acks.
+    const ackedStatusPromise = nextMessage(
+      browser,
+      (message) =>
+        message.type === 'hq.command_status' &&
+        (message as { command?: { status?: string } }).command?.status === 'acked',
+    );
     client.send(
       JSON.stringify({
         type: 'client.command_ack',
@@ -1696,7 +1746,15 @@ describe('HQ control plane (Phase 3)', () => {
         message: 'steered',
       }),
     );
-    await new Promise((r) => setTimeout(r, 30));
+    await expect(ackedStatusPromise).resolves.toMatchObject({
+      type: 'hq.command_status',
+      command: {
+        commandId: postBody.commandId,
+        status: 'acked',
+        ackStatus: 'completed',
+        ackMessage: 'steered',
+      },
+    });
 
     // The audit log reflects the ack.
     const auditRes = await fetch(`http://127.0.0.1:${handle.port}/api/commands`);
@@ -1710,6 +1768,7 @@ describe('HQ control plane (Phase 3)', () => {
     expect(entry!.ackMessage).toBe('steered');
 
     client.close();
+    browser.close();
   });
 
   it('rejects a command to a client without control.receive capability', async () => {

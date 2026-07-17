@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.288.0] — 2026-07-17
+
+> The **interactive launch-menu release**. A plain `wstack` launch now opens a
+> remembered four-option surface picker on a TTY, covering TUI/REPL, WebUI,
+> SimpleUI, and HQ without requiring users to memorize flags. The release also
+> aligns the root, all 21 packages, both apps, and the marketing website to
+> `0.288.0`.
+
 ### Added — Interactive launch menu
 - **`wstack` shows a four-option launch menu on a TTY** when no surface
   flag is given. The menu lets the user pick between TUI/REPL, WebUI,
@@ -25,6 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   offer the summary gate.
 - **`docs/cli/launch-menu.md`** describes the menu flow, default ports,
   skip rules, and opt-out paths.
+
+### Changed — Release alignment
+- **All release surfaces are aligned to `0.288.0`** — the root manifest,
+  21 workspace packages, 2 apps, website package metadata, JSON-LD software
+  version, homepage version badge, README release summary, and website
+  changelog now share one package line.
 
 ## [0.287.0] — 2026-07-15
 
