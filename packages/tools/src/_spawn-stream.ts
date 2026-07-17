@@ -1,5 +1,10 @@
 import { spawn } from 'node:child_process';
-import { buildChildEnv } from '@wrongstack/core';
+import {
+  buildChildEnv,
+  emitProcessCompleted,
+  emitProcessOutput,
+  emitProcessStarted,
+} from '@wrongstack/core';
 import type { ToolProgressEvent } from '@wrongstack/core';
 import { createOutputSpool, spoolNote } from './_output-spool.js';
 import { getProcessRegistry, redactCommand } from './process-registry.js';
@@ -83,6 +88,19 @@ export async function* spawnStream(
   // were previously invisible to the registry.
   const registry = getProcessRegistry();
   const pid = child.pid;
+  const processStartedAt = Date.now();
+  let stdoutBytes = 0;
+  let stderrBytes = 0;
+  let telemetryCompleted = false;
+  emitProcessStarted({
+    ...(pid !== undefined ? { pid } : {}),
+    parentPid: process.pid,
+    command: redactCommand(`${opts.cmd} ${opts.args.join(' ')}`),
+    args: redactCommand(opts.args.join(' ')).split(' ').filter(Boolean),
+    cwd: opts.cwd,
+    background: false,
+    startedAt: new Date(processStartedAt).toISOString(),
+  });
   if (typeof pid === 'number') {
     registry.register({
       pid,
@@ -93,7 +111,7 @@ export async function* spawnStream(
     });
   }
 
-  type Chunk = { kind: 'out' | 'err' | 'close' | 'error'; data: string; code?: number | undefined };
+  type Chunk = { kind: 'out' | 'err' | 'close' | 'error'; data: string; code?: number | undefined; signal?: string | undefined };
   const queue: Chunk[] = [];
   let waiter: (() => void) | undefined;
   let paused = false;
@@ -120,6 +138,8 @@ export async function* spawnStream(
   // Named handlers so the teardown in `finally` can detach them.
   const onOut = (c: Buffer) => {
     const s = c.toString();
+    stdoutBytes += c.byteLength;
+    emitProcessOutput({ pid, stream: 'stdout', chunk: c });
     if (stdout.length < max) stdout += s;
     spool.write(s);
     queue.push({ kind: 'out', data: s });
@@ -133,6 +153,8 @@ export async function* spawnStream(
   };
   const onErr = (c: Buffer) => {
     const s = c.toString();
+    stderrBytes += c.byteLength;
+    emitProcessOutput({ pid, stream: 'stderr', chunk: c });
     if (stderr.length < max) stderr += s;
     spool.write(s);
     queue.push({ kind: 'err', data: s });
@@ -150,9 +172,25 @@ export async function* spawnStream(
     queue.push({ kind: 'error', data: e.message });
     wake();
   });
-  child.on('close', (code) => {
+  const completeTelemetry = (code: number, signal?: string | undefined, timedOut = false) => {
+    if (telemetryCompleted) return;
+    telemetryCompleted = true;
+    emitProcessCompleted({
+      ...(pid !== undefined ? { pid } : {}),
+      exitCode: code,
+      ...(signal ? { signal } : {}),
+      durationMs: Date.now() - processStartedAt,
+      stdoutBytes,
+      stderrBytes,
+      timedOut,
+      endedAt: new Date().toISOString(),
+    });
+  };
+  child.on('close', (code, signal) => {
     if (typeof pid === 'number') registry.unregister(pid);
-    queue.push({ kind: 'close', data: '', code: code ?? 0 });
+    const exitCode = code ?? (signal ? 1 : 0);
+    completeTelemetry(exitCode, signal ?? undefined);
+    queue.push({ kind: 'close', data: '', code: exitCode, ...(signal ? { signal } : {}) });
     wake();
   });
 
@@ -178,6 +216,7 @@ export async function* spawnStream(
       }
     }
     queue.push({ kind: 'close', data: '', code: 124 });
+    completeTelemetry(124, 'SIGKILL', true);
     wake();
   };
   if (isWin) {

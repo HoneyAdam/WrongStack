@@ -1,6 +1,13 @@
 import { spawn } from 'node:child_process';
 import * as os from 'node:os';
-import type { Context, Tool, ToolStreamEvent } from '@wrongstack/core';
+import {
+  emitProcessCompleted,
+  emitProcessOutput,
+  emitProcessStarted,
+  type Context,
+  type Tool,
+  type ToolStreamEvent,
+} from '@wrongstack/core';
 import { buildChildEnv } from './_env.js';
 import { createOutputSpool, spoolNote } from './_output-spool.js';
 import { normalizeCommandOutput } from './_util.js';
@@ -297,6 +304,32 @@ export const bashTool: Tool<BashInput, BashOutput> = {
         }
       }
       const pid = child.pid;
+      let stdoutBytes = 0;
+      let stderrBytes = 0;
+      let telemetryCompleted = false;
+      emitProcessStarted({
+        ...(pid !== undefined ? { pid } : {}),
+        parentPid: process.pid,
+        command: redactCommand(`${shell} ${args.join(' ')}`),
+        args: redactCommand(args.join(' ')).split(' ').filter(Boolean),
+        cwd: ctx.projectRoot,
+        background: true,
+        startedAt: new Date(startedAt).toISOString(),
+      });
+      const completeBackground = (exitCode: number, signal?: string | undefined) => {
+        if (telemetryCompleted) return;
+        telemetryCompleted = true;
+        emitProcessCompleted({
+          ...(pid !== undefined ? { pid } : {}),
+          exitCode,
+          ...(signal ? { signal } : {}),
+          durationMs: Date.now() - startedAt,
+          stdoutBytes,
+          stderrBytes,
+          timedOut: false,
+          endedAt: new Date().toISOString(),
+        });
+      };
       if (typeof pid === 'number') {
         registry.register({
           pid,
@@ -312,7 +345,10 @@ export const bashTool: Tool<BashInput, BashOutput> = {
         // can deliver the close event.
         child.on('close', () => registry.unregister(pid));
       }
-      const onBgData = (chunk: Buffer) => {
+      const onBgData = (chunk: Buffer, stream: 'stdout' | 'stderr') => {
+        if (stream === 'stdout') stdoutBytes += chunk.byteLength;
+        else stderrBytes += chunk.byteLength;
+        emitProcessOutput({ pid, stream, chunk });
         if (truncated) return;
         const remain = MAX_OUTPUT - buf.length;
         if (remain > 0) {
@@ -323,28 +359,32 @@ export const bashTool: Tool<BashInput, BashOutput> = {
           // Cap reached — stop accumulating. The streams stay in flowing
           // mode so the rest of the output is read and discarded (pausing
           // would fill the OS pipe buffer and block the background process).
-          child.stdout?.off('data', onBgData);
-          child.stderr?.off('data', onBgData);
+          child.stdout?.off('data', onBgStdout);
+          child.stderr?.off('data', onBgStderr);
         }
       };
-      child.stdout?.on('data', onBgData);
-      child.stderr?.on('data', onBgData);
+      const onBgStdout = (chunk: Buffer) => onBgData(chunk, 'stdout');
+      const onBgStderr = (chunk: Buffer) => onBgData(chunk, 'stderr');
+      child.stdout?.on('data', onBgStdout);
+      child.stderr?.on('data', onBgStderr);
       const cleanupBackground = () => {
-        child.stdout?.off('data', onBgData);
-        child.stderr?.off('data', onBgData);
+        child.stdout?.off('data', onBgStdout);
+        child.stderr?.off('data', onBgStderr);
       };
       child.on('error', () => {
         cleanupBackground();
         if (typeof pid === 'number') registry.unregister(pid);
         registry.afterCall(Date.now() - startedAt, true, bypassBreaker);
+        completeBackground(1);
       });
       // The pipe handles would otherwise keep the parent's event loop alive
       // for as long as the background process runs — child.unref() alone
       // does not release stdio. A one-shot (--print) run could never exit
       // while a background dev server kept its pipes open.
-      child.on('close', () => {
+      child.on('close', (code, signal) => {
         cleanupBackground();
         registry.afterCall(Date.now() - startedAt, false, bypassBreaker);
+        completeBackground(code ?? (signal ? 1 : 0), signal ?? undefined);
       });
       if (typeof pid === 'number') child.unref(); // unref() so the event loop can exit while this background process runs.
       yield {
@@ -401,6 +441,32 @@ export const bashTool: Tool<BashInput, BashOutput> = {
 
     // Register with global registry so Ctrl+C / /kill can find and kill it.
     const pid = child.pid;
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    let telemetryCompleted = false;
+    emitProcessStarted({
+      ...(pid !== undefined ? { pid } : {}),
+      parentPid: process.pid,
+      command: redactCommand(`${shell} ${args.join(' ')}`),
+      args: redactCommand(args.join(' ')).split(' ').filter(Boolean),
+      cwd: ctx.projectRoot,
+      background: false,
+      startedAt: new Date(startedAt).toISOString(),
+    });
+    const completeForeground = (exitCode: number, signal?: string | undefined) => {
+      if (telemetryCompleted) return;
+      telemetryCompleted = true;
+      emitProcessCompleted({
+        ...(pid !== undefined ? { pid } : {}),
+        exitCode,
+        ...(signal ? { signal } : {}),
+        durationMs: Date.now() - startedAt,
+        stdoutBytes,
+        stderrBytes,
+        timedOut,
+        endedAt: new Date().toISOString(),
+      });
+    };
     if (typeof pid === 'number') {
       registry.register({
         pid,
@@ -527,8 +593,11 @@ export const bashTool: Tool<BashInput, BashOutput> = {
         child.stderr?.resume();
       }
     };
-    const onData = (chunk: Buffer) => {
+    const onData = (chunk: Buffer, stream: 'stdout' | 'stderr') => {
       const text = chunk.toString();
+      if (stream === 'stdout') stdoutBytes += chunk.byteLength;
+      else stderrBytes += chunk.byteLength;
+      emitProcessOutput({ pid, stream, chunk });
       // Cap buf during accumulation to prevent heap exhaustion from unbounded
       // string growth. exec.ts uses the same pattern. The final output is
       // further normalized via normalizeCommandOutput which already caps at
@@ -541,18 +610,22 @@ export const bashTool: Tool<BashInput, BashOutput> = {
       push({ kind: 'data', text });
       pauseIfFlooded();
     };
-    child.stdout?.on('data', onData);
-    child.stderr?.on('data', onData);
+    const onStdoutData = (chunk: Buffer) => onData(chunk, 'stdout');
+    const onStderrData = (chunk: Buffer) => onData(chunk, 'stderr');
+    child.stdout?.on('data', onStdoutData);
+    child.stderr?.on('data', onStderrData);
 
     child.on('error', (err) => {
       for (const t of timers) clearTimeout(t);
       registry.afterCall(Date.now() - startedAt, true);
+      completeForeground(1);
       push({ kind: 'error', err });
     });
-    child.on('close', (code) => {
+    child.on('close', (code, signal) => {
       for (const t of timers) clearTimeout(t);
       if (typeof pid === 'number') registry.unregister(pid);
       registry.afterCall(Date.now() - startedAt, code !== 0 && code !== null);
+      completeForeground(timedOut ? 124 : (code ?? (signal ? 1 : 0)), signal ?? undefined);
       push({ kind: 'end', code });
     });
 
@@ -616,8 +689,8 @@ export const bashTool: Tool<BashInput, BashOutput> = {
       // child.kill() can feed the orphaned pipes for the rest of the
       // session, growing the host heap until OOM. Detach the handlers,
       // destroy the pipes, and make sure nothing is still running.
-      child.stdout?.off('data', onData);
-      child.stderr?.off('data', onData);
+      child.stdout?.off('data', onStdoutData);
+      child.stderr?.off('data', onStderrData);
       child.stdout?.destroy();
       child.stderr?.destroy();
       if (child.exitCode === null && !child.killed) {

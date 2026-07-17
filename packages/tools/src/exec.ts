@@ -1,5 +1,10 @@
 import { spawn } from 'node:child_process';
-import type { Tool } from '@wrongstack/core';
+import {
+  emitProcessCompleted,
+  emitProcessOutput,
+  emitProcessStarted,
+  type Tool,
+} from '@wrongstack/core';
 import { toErrorMessage } from '@wrongstack/core/utils/error';
 import { buildChildEnv } from './_env.js';
 import { createOutputSpool, spoolNote } from './_output-spool.js';
@@ -546,6 +551,10 @@ function runCommand(
       resolve(result);
     };
     const startedAt = Date.now();
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    let telemetryCompleted = false;
+    let timedOut = false;
     // Full-output spool (stdout+stderr interleaved as they arrive): the
     // in-memory buffers keep only the first MAX_OUTPUT bytes; the spool
     // captures everything on disk and the result points at the file.
@@ -559,6 +568,25 @@ function runCommand(
     const shim = needsShell ? buildWin32CmdShimInvocation(resolved, args) : null;
     const spawnCmd = shim?.command ?? resolved;
     const spawnArgs = shim?.args ?? args;
+
+    const emitCompletedOnce = (
+      exitCode: number,
+      pid: number | undefined,
+      signal?: string | undefined,
+    ): void => {
+      if (telemetryCompleted) return;
+      telemetryCompleted = true;
+      emitProcessCompleted({
+        ...(pid !== undefined ? { pid } : {}),
+        exitCode,
+        ...(signal ? { signal } : {}),
+        durationMs: Date.now() - startedAt,
+        stdoutBytes,
+        stderrBytes,
+        timedOut,
+        endedAt: new Date().toISOString(),
+      });
+    };
 
     // Wrap the entire spawn lifecycle in try/catch so a synchronous throw
     // (bad argv, ENOENT for missing binary, ERR_INVALID_ARG_TYPE for bad
@@ -587,6 +615,15 @@ function runCommand(
       // sees a structured error instead of an unhandled rejection that
       // would crash the host.
       spool.finalize();
+      emitProcessStarted({
+        parentPid: process.pid,
+        command: redactCommand(`${cmd} ${args.join(' ')}`),
+        args: redactCommand(args.join(' ')).split(' ').filter(Boolean),
+        cwd,
+        background: false,
+        startedAt: new Date(startedAt).toISOString(),
+      });
+      emitCompletedOnce(1, undefined);
       finish({
         command: cmd,
         args,
@@ -599,6 +636,16 @@ function runCommand(
       });
       return;
     }
+
+    emitProcessStarted({
+      ...(child.pid !== undefined ? { pid: child.pid } : {}),
+      parentPid: process.pid,
+      command: redactCommand(`${cmd} ${args.join(' ')}`),
+      args: redactCommand(args.join(' ')).split(' ').filter(Boolean),
+      cwd,
+      background: false,
+      startedAt: new Date(startedAt).toISOString(),
+    });
 
     // Attach the 'error' listener IMMEDIATELY after spawn, BEFORE any other
     // async setup (process registry call, setTimeout, abort listener). The
@@ -619,6 +666,7 @@ function runCommand(
       if (typeof pid === 'number') registry.unregister(pid);
       registry.afterCall(Date.now() - startedAt, true);
       spool.finalize();
+      emitCompletedOnce(isAbort ? 124 : 1, child.pid, isAbort ? 'ABORT' : undefined);
       finish({
         command: cmd,
         args,
@@ -640,6 +688,7 @@ function runCommand(
 
     const timer = setTimeout(() => {
       killed = true;
+      timedOut = true;
       if (typeof pid === 'number') registry.kill(pid);
       else child.kill('SIGTERM');
     }, timeout);
@@ -656,12 +705,16 @@ function runCommand(
 
     child.stdout?.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
+      stdoutBytes += chunk.byteLength;
+      emitProcessOutput({ pid, stream: 'stdout', chunk });
       if (stdout.length < MAX_OUTPUT) stdout += text;
       spool.write(text);
     });
 
     child.stderr?.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
+      stderrBytes += chunk.byteLength;
+      emitProcessOutput({ pid, stream: 'stderr', chunk });
       if (stderr.length < MAX_OUTPUT) stderr += text;
       spool.write(text);
     });
@@ -672,6 +725,7 @@ function runCommand(
       if (typeof pid === 'number') registry.unregister(pid);
       const durationMs = Date.now() - startedAt;
       const exitCode = killed ? 124 : (code ?? 1);
+      emitCompletedOnce(exitCode, pid);
       registry.afterCall(durationMs, exitCode !== 0);
       const spooled = spool.finalize();
       finish({
