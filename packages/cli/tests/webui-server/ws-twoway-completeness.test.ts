@@ -75,14 +75,15 @@ function clientHandledTypes(): Set<string> {
     'tool.confirm_needed',
     'pong',
   ]);
-  // Quoted keys may be camelCase (`memory.super.candidateResolve`), so the
-  // character class must allow uppercase — otherwise a wired handler reads as
-  // missing and this guard reports a false drop.
-  for (const m of handlerMap.matchAll(/^\s*'([A-Za-z0-9_.]+)'\s*:/gm)) types.add(m[1] as string);
+  // Quoted keys may be camelCase (`memory.super.candidateResolve`) or contain
+  // hyphens (`goal-state.updated`), so the character class must allow uppercase
+  // and hyphens — otherwise a wired handler reads as missing and this guard
+  // reports a false drop.
+  for (const m of handlerMap.matchAll(/^\s*'([A-Za-z0-9_.-]+)'\s*:/gm)) types.add(m[1] as string);
   for (const m of handlerMap.matchAll(/^\s*([a-z][A-Za-z0-9_]*)\s*:\s*\(/gm)) {
     types.add(m[1] as string);
   }
-  for (const m of subHandlers.matchAll(/^\s*'([A-Za-z0-9_.]+)'\s*:/gm)) types.add(m[1] as string);
+  for (const m of subHandlers.matchAll(/^\s*'([A-Za-z0-9_.-]+)'\s*:/gm)) types.add(m[1] as string);
   for (const m of subHandlers.matchAll(/^\s*([a-z][A-Za-z0-9_]*)\s*:\s*\(/gm)) {
     types.add(m[1] as string);
   }

@@ -78,9 +78,9 @@ export async function handleGoalGet(ctx: SessionsContext, _ws: WebSocket): Promi
   try {
     const goalPath = path.join(projectRoot, '.wrongstack', 'goal.json');
     const raw = await fs.readFile(goalPath, 'utf8');
-    ctx.broadcast({ type: 'goal.updated', payload: JSON.parse(raw) });
+    ctx.broadcast({ type: 'goal-state.updated', payload: JSON.parse(raw) });
   } catch {
-    ctx.broadcast({ type: 'goal.updated', payload: null });
+    ctx.broadcast({ type: 'goal-state.updated', payload: null });
   }
 }
 

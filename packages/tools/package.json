@@ -223,6 +223,10 @@
     "./codebase-index": {
       "types": "./dist/codebase-index/index.d.ts",
       "import": "./dist/codebase-index/index.js"
+    },
+    "./e2e": {
+      "types": "./dist/e2e.d.ts",
+      "import": "./dist/e2e.js"
     }
   },
   "files": [
