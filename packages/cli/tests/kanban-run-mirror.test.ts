@@ -4,14 +4,14 @@ import * as path from 'node:path';
 import { listBoards } from '@wrongstack/kanban';
 import { describe, expect, it } from 'vitest';
 import {
-  buildTaskGraphFromAutophasePhase,
+  buildTaskGraphFromGoalPhase,
   buildTaskGraphFromSddSnapshot,
   createKanbanRunMirror,
 } from '../src/webui-server/kanban-run-mirror.js';
 
 const settle = () => new Promise((r) => setTimeout(r, 500)); // > DEBOUNCE_MS (300)
 
-function autophaseState(over: { statusA?: string } = {}) {
+function goalState(over: { statusA?: string } = {}) {
   return {
     title: 'Feature X',
     phases: [
@@ -116,9 +116,9 @@ describe('buildTaskGraphFromSddSnapshot', () => {
   });
 });
 
-describe('buildTaskGraphFromAutophasePhase', () => {
+describe('buildTaskGraphFromGoalPhase', () => {
   it('stamps the RUN graphId and tags nodes with the phase name', () => {
-    const g = buildTaskGraphFromAutophasePhase('graph1', 'My run', {
+    const g = buildTaskGraphFromGoalPhase('graph1', 'My run', {
       id: 'phase-a',
       name: 'Design',
       tasks: [
@@ -146,10 +146,10 @@ describe('KanbanRunMirror AutoPhase → one board per phase', () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-mirror-ap-'));
     const mirror = createKanbanRunMirror({ projectRoot: dir, broadcast: () => {}, log: () => {} });
     try {
-      mirror.onAutophaseState('g-run', autophaseState() as any);
+      mirror.onGoalState('g-run', goalState() as any);
       await settle();
 
-      const ap = (await listBoards(dir)).filter((b) => b.tags?.includes('autophase'));
+      const ap = (await listBoards(dir)).filter((b) => b.tags?.includes('goal'));
       expect(ap.length).toBe(2); // one board PER PHASE, not one crowded board
       // All phase boards group under the same run.
       expect(ap.every((b) => b.tags?.includes('run:g-run'))).toBe(true);
@@ -169,7 +169,7 @@ describe('KanbanRunMirror AutoPhase → one board per phase', () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-mirror-ap2-'));
     const m1 = createKanbanRunMirror({ projectRoot: dir, broadcast: () => {}, log: () => {} });
     try {
-      m1.onAutophaseState('g-run', autophaseState() as any);
+      m1.onGoalState('g-run', goalState() as any);
       await settle();
       const first = (await listBoards(dir)).length;
       m1.dispose();
@@ -177,7 +177,7 @@ describe('KanbanRunMirror AutoPhase → one board per phase', () => {
       // Fresh mirror (empty in-memory map), same dir, a CHANGED state (new stamp
       // so it actually re-projects) → must reclaim the 2 boards via disk scan.
       const m2 = createKanbanRunMirror({ projectRoot: dir, broadcast: () => {}, log: () => {} });
-      m2.onAutophaseState('g-run', autophaseState({ statusA: 'in_progress' }) as any);
+      m2.onGoalState('g-run', goalState({ statusA: 'in_progress' }) as any);
       await settle();
       expect((await listBoards(dir)).length).toBe(first); // reclaimed, not duplicated
       m2.dispose();

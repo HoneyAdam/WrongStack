@@ -1,8 +1,8 @@
 /**
- * Tests for boot/tui-autophase-wiring.ts — AutoPhase event forwarding.
+ * Tests for boot/tui-goal-wiring.ts — AutoPhase event forwarding.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { wireAutoPhase } from '../../src/boot/tui-autophase-wiring.js';
+import { wireGoal } from '../../src/boot/tui-goal-wiring.js';
 
 function createEventBusMock() {
   const handlers = new Map<string, (payload: unknown) => void>();
@@ -21,10 +21,10 @@ function createEventBusMock() {
   };
 }
 
-describe('wireAutoPhase', () => {
+describe('wireGoal', () => {
   it('returns subscribe and cleanup functions', () => {
     const events = createEventBusMock();
-    const wiring = wireAutoPhase(events as never);
+    const wiring = wireGoal(events as never);
     expect(wiring.subscribe).toBeDefined();
     expect(wiring.cleanup).toBeDefined();
     expect(typeof wiring.subscribe).toBe('function');
@@ -33,7 +33,7 @@ describe('wireAutoPhase', () => {
 
   it('subscribe registers handlers for auto-phase events', () => {
     const events = createEventBusMock();
-    const wiring = wireAutoPhase(events as never);
+    const wiring = wireGoal(events as never);
     const handler = vi.fn();
     const unsub = wiring.subscribe(handler);
     // Should have called events.on for each event
@@ -45,7 +45,7 @@ describe('wireAutoPhase', () => {
 
   it('subscribe forwards events to the handler', () => {
     const events = createEventBusMock();
-    const wiring = wireAutoPhase(events as never);
+    const wiring = wireGoal(events as never);
     const handler = vi.fn();
     wiring.subscribe(handler);
 
@@ -63,7 +63,7 @@ describe('wireAutoPhase', () => {
 
   it('unsubscribe removes all handlers', () => {
     const events = createEventBusMock();
-    const wiring = wireAutoPhase(events as never);
+    const wiring = wireGoal(events as never);
     const handler = vi.fn();
     const unsub = wiring.subscribe(handler);
     unsub();
@@ -73,7 +73,7 @@ describe('wireAutoPhase', () => {
 
   it('cleanup removes all handlers without having subscribed first', () => {
     const events = createEventBusMock();
-    const wiring = wireAutoPhase(events as never);
+    const wiring = wireGoal(events as never);
     // cleanup should be safe even without a subscription
     wiring.cleanup();
     expect(events.off).not.toHaveBeenCalled();
@@ -81,7 +81,7 @@ describe('wireAutoPhase', () => {
 
   it('cleanup removes handlers after subscribe', () => {
     const events = createEventBusMock();
-    const wiring = wireAutoPhase(events as never);
+    const wiring = wireGoal(events as never);
     wiring.subscribe(vi.fn());
     wiring.cleanup();
     // Should have removed each handler
@@ -90,7 +90,7 @@ describe('wireAutoPhase', () => {
 
   it('cleanup is safe to call multiple times', () => {
     const events = createEventBusMock();
-    const wiring = wireAutoPhase(events as never);
+    const wiring = wireGoal(events as never);
     wiring.subscribe(vi.fn());
     wiring.cleanup();
     const offCalls = events.off.mock.calls.length;
