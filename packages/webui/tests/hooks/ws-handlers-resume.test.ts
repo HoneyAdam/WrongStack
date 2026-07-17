@@ -8,6 +8,7 @@ vi.mock('@/lib/ws-client', () => ({
 
 import { WS_HANDLERS } from '../../src/hooks/ws-handlers';
 import { useChatStore } from '../../src/stores/chat-store';
+import { useConfigStore } from '../../src/stores/config-store';
 import { useSessionStore } from '../../src/stores/session-store';
 import { useUIStore } from '../../src/stores/ui-store';
 
@@ -31,6 +32,7 @@ describe('session.start resume transition', () => {
     delete (window as unknown as { wrongstackDesktopHost?: unknown }).wrongstackDesktopHost;
     useChatStore.getState().clearMessages();
     useChatStore.getState().setLoading(false);
+    useConfigStore.setState({ provider: '', model: '' });
     useSessionStore.setState({ session: null, todos: [] });
     useUIStore.setState({
       activeActivity: 'chat',
@@ -70,6 +72,34 @@ describe('session.start resume transition', () => {
     useUIStore.getState().setCurrentView('sessions');
     fireSessionStart({ ...BASE_PAYLOAD, reset: true });
     expect(useUIStore.getState().currentView).toBe('sessions');
+  });
+
+  it('normalizes object-valued provider metadata before updating session and config stores', () => {
+    const provider = {
+      id: 'openai-codex',
+      apiKey: 'must-not-persist',
+      baseUrl: 'https://example.invalid',
+      debugStream: false,
+      reasoningEffort: 'high',
+    };
+    const model = { id: 'gpt-5.6-sol', capabilities: { reasoning: true } };
+
+    fireSessionStart({
+      ...BASE_PAYLOAD,
+      provider,
+      model,
+      reset: true,
+    });
+
+    expect(useSessionStore.getState().session).toMatchObject({
+      provider: 'openai-codex',
+      model: 'gpt-5.6-sol',
+    });
+    expect(useConfigStore.getState()).toMatchObject({
+      provider: 'openai-codex',
+      model: 'gpt-5.6-sol',
+    });
+    expect(JSON.stringify(useConfigStore.getState())).not.toContain('must-not-persist');
   });
 
   it('returns desktop shell sessions to the chat home on a plain session.start', () => {

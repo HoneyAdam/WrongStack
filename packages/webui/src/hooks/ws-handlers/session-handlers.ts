@@ -63,6 +63,23 @@ function providerResponseText(content: unknown): string {
     .join('\n');
 }
 
+/**
+ * Keep provider/model objects from crossing the WebSocket trust boundary into
+ * persisted Zustand state. Legacy provider instances expose a public id/name;
+ * never stringify the full object because it may also contain credentials.
+ */
+function sessionRouteIdentifier(value: unknown): string {
+  if (typeof value === 'string') return value.trim();
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
+
+  const record = value as Record<string, unknown>;
+  for (const key of ['id', 'name', 'type'] as const) {
+    const candidate = record[key];
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+  }
+  return '';
+}
+
 function hydrateReplayMessages(replay: ReplayMessage[]): ChatMessage[] {
   const messages: ChatMessage[] = [];
   const toolMessagesByUseId = new Map<string, ChatMessage>();
@@ -169,8 +186,8 @@ export function handleSessionStart(msg: WSServerMessage) {
 
   const payload = msg.payload as {
     sessionId: string;
-    model: string;
-    provider: string;
+    model: unknown;
+    provider: unknown;
     maxContext?: number | undefined;
     projectName?: string | undefined;
     cwd?: string | undefined;
@@ -183,6 +200,8 @@ export function handleSessionStart(msg: WSServerMessage) {
     clearedSessionId?: string | undefined;
     needsSetup?: boolean | undefined;
   };
+  const provider = sessionRouteIdentifier(payload.provider);
+  const model = sessionRouteIdentifier(payload.model);
   const prev = useSessionStore.getState().session?.id;
   const isNew = !prev || prev !== payload.sessionId;
   const isReset = isNew || payload.reset;
@@ -195,15 +214,15 @@ export function handleSessionStart(msg: WSServerMessage) {
     useSessionStore.getState().startSession({
       id: payload.sessionId,
       startedAt: Date.now(),
-      model: payload.model,
-      provider: payload.provider,
+      model,
+      provider,
     });
   } else {
     useSessionStore.getState().setSession({
       id: payload.sessionId,
       startedAt: useSessionStore.getState().session?.startedAt ?? Date.now(),
-      model: payload.model,
-      provider: payload.provider,
+      model,
+      provider,
     });
   }
 
@@ -218,10 +237,7 @@ export function handleSessionStart(msg: WSServerMessage) {
     outputCost: payload.outputCost,
     cacheReadCost: payload.cacheReadCost,
   });
-  useConfigStore.getState().setConfig({
-    provider: payload.provider,
-    model: payload.model,
-  });
+  useConfigStore.getState().setConfig({ provider, model });
   if (isReset) {
     if (!payload.needsSetup && isDesktopShell() && !isRoutePinnedView()) {
       resetUiNavigationToHome({ sidebarOpen: false });
