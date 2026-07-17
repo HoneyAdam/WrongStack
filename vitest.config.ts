@@ -94,7 +94,7 @@ export default defineConfig({
     ],
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html'],
+      reporter: ['text', 'json', 'json-summary', 'html'],
       include: ['packages/*/src/**/*.ts'],
       exclude: [
         '**/*.test.ts',
@@ -168,20 +168,15 @@ export default defineConfig({
       // Global: 72% lines is achievable with targeted tests.
       // 100% requires DOM/jsdom for webui/tui and LSP stubs for plug-lsp.
       thresholds: {
-        // Floor: 71% statements, 64% branches — must not regress.
-        // Raised after ~2000+ new tests added across all 19 packages:
-        // security-scanner (11 failures fixed, 200 tests), super-memory (359 tests),
-        // bench (239 tests), webui-server (416 new tests), webui (330+ tests),
-        // plugins (477 tests), tools (6 files 100%), cli (84+ tests),
-        // tui (140+ tests), core (40+ tests), kanban (47 tests),
-        // runtime (107 tests), telegram (135 tests), acp (305 tests).
-        lines: 73,
-        functions: 73,
-        // Measured at 64.00% before the payload-boundary coverage batch on
-        // 2026-07-12. Keep a small cross-platform margin below the new ~64.7%
-        // result while ratcheting toward the 70% target.
-        branches: 64,
-        statements: 72,
+        // Floor — must not regress.
+        // Raised after ~470+ new coverage tests added across kanban (95%),
+        // techstack (84%), super-memory (82%), sdd (90%), plug-lsp (84%).
+        lines: 75,
+        functions: 75,
+        // Branches lag behind lines (complex error paths); small margin
+        // below the new measured level.
+        branches: 65,
+        statements: 74,
       },
     },
   },
