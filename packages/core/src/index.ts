@@ -27,7 +27,7 @@ export {
   PhaseStore,
   type PhaseStoreOptions,
   type PhaseTemplate,
-} from './autophase/index.js';
+} from './goal/index.js';
 export {
   type BootConfigOptions,
   type BootConfigResult,

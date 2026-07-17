@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { PhaseGraphBuilder } from '../../src/autophase/phase-graph-builder.js';
+import { PhaseGraphBuilder } from '../../src/goal/phase-graph-builder.js';
 
 describe('PhaseGraphBuilder', () => {
   it('should build a phase graph with sequential dependencies', async () => {

@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   AutoPhasePlanner,
   extractJSONArray as extractAutoPhaseJSONArray,
-} from '../../src/autophase/auto-phase-planner.js';
-import { PhaseGraphBuilder } from '../../src/autophase/phase-graph-builder.js';
+} from '../../src/goal/auto-phase-planner.js';
+import { PhaseGraphBuilder } from '../../src/goal/phase-graph-builder.js';
 
 const VALID_PLAN = JSON.stringify([
   {

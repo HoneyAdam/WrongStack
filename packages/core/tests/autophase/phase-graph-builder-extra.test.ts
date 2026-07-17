@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PhaseGraphBuilder } from '../../src/autophase/phase-graph-builder.js';
+import { PhaseGraphBuilder } from '../../src/goal/phase-graph-builder.js';
 import type { TaskGraph, TaskNode } from '../../src/types/task-graph.js';
 
 function node(id: string, title: string, priority: TaskNode['priority'] = 'medium', estimateHours?: number): TaskNode {

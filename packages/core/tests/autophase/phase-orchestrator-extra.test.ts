@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { PhaseGraphBuilder } from '../../src/autophase/phase-graph-builder.js';
-import { PhaseOrchestrator } from '../../src/autophase/phase-orchestrator.js';
-import type { PhaseGraph } from '../../src/autophase/types.js';
+import { PhaseGraphBuilder } from '../../src/goal/phase-graph-builder.js';
+import { PhaseOrchestrator } from '../../src/goal/phase-orchestrator.js';
+import type { PhaseGraph } from '../../src/goal/types.js';
 import type { WorktreeHandle, WorktreeManager } from '../../src/worktree/worktree-manager.js';
 
 async function singlePhase(): Promise<PhaseGraph> {

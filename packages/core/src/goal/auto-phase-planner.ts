@@ -112,7 +112,7 @@ export class AutoPhasePlanner {
     const todos = this.opts.todosPerPhase ?? 6;
     const ctx = this.opts.projectContext?.trim();
 
-    return renderInstructionTemplate(readBundledInstructionText('autophase/phase-planner.md'), {
+    return renderInstructionTemplate(readBundledInstructionText('goal/phase-planner.md'), {
       minPhases: String(minP),
       maxPhases: String(maxP),
       todosPerPhase: String(todos),

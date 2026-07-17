@@ -2,15 +2,15 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { PhaseStore } from '../../src/autophase/phase-store.js';
-import { PhaseGraphBuilder } from '../../src/autophase/phase-graph-builder.js';
+import { PhaseStore } from '../../src/goal/phase-store.js';
+import { PhaseGraphBuilder } from '../../src/goal/phase-graph-builder.js';
 
 describe('PhaseStore', () => {
   let tmpDir: string;
   let store: PhaseStore;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'autophase-test-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'goal-test-'));
     store = new PhaseStore({ baseDir: tmpDir });
   });
 

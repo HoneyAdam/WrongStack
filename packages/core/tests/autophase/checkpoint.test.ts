@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { CheckpointManager } from '../../src/autophase/checkpoint.js';
-import { PhaseStore } from '../../src/autophase/phase-store.js';
-import { PhaseGraphBuilder } from '../../src/autophase/phase-graph-builder.js';
+import { CheckpointManager } from '../../src/goal/checkpoint.js';
+import { PhaseStore } from '../../src/goal/phase-store.js';
+import { PhaseGraphBuilder } from '../../src/goal/phase-graph-builder.js';
 
 describe('CheckpointManager', () => {
   let tmpDir: string;

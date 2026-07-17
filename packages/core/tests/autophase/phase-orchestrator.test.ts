@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { EventBus } from '../../src/kernel/events.js';
-import { PhaseGraphBuilder } from '../../src/autophase/phase-graph-builder.js';
-import { PhaseOrchestrator } from '../../src/autophase/phase-orchestrator.js';
-import type { PhaseExecutionContext, PhaseGraph } from '../../src/autophase/types.js';
+import { PhaseGraphBuilder } from '../../src/goal/phase-graph-builder.js';
+import { PhaseOrchestrator } from '../../src/goal/phase-orchestrator.js';
+import type { PhaseExecutionContext, PhaseGraph } from '../../src/goal/types.js';
 import type { TaskNode } from '../../src/types/task-graph.js';
 import type { WorktreeHandle, WorktreeManager } from '../../src/worktree/worktree-manager.js';
 

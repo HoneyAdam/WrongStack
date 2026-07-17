@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { EventBus } from '../../src/kernel/events.js';
-import { AutoPhaseRunner, createAutoPhaseFromTaskGraph } from '../../src/autophase/auto-phase-runner.js';
-import type { PhaseTemplate } from '../../src/autophase/types.js';
+import { AutoPhaseRunner, createAutoPhaseFromTaskGraph } from '../../src/goal/auto-phase-runner.js';
+import type { PhaseTemplate } from '../../src/goal/types.js';
 import type { WorktreeHandle, WorktreeManager } from '../../src/worktree/worktree-manager.js';
 
 function fakeWorktrees() {
