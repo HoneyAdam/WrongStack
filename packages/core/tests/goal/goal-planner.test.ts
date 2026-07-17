@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   GoalPlanner,
   extractJSONArray as extractGoalJSONArray,
-} from '../../src/goal/auto-phase-planner.js';
+} from '../../src/goal/goal-planner.js';
 import { PhaseGraphBuilder } from '../../src/goal/phase-graph-builder.js';
 
 const VALID_PLAN = JSON.stringify([

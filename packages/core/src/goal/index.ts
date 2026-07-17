@@ -21,7 +21,7 @@ export {
   GoalRunner,
   createGoalRunnerFromTaskGraph,
   type GoalRunnerOptions,
-} from './auto-phase-runner.js';
+} from './goal-runner.js';
 
 export {
   PhaseOrchestrator,
@@ -38,7 +38,7 @@ export {
   extractJSONArray as extractGoalJSONArray,
   type GoalPlannerOptions,
   type GoalPlanResult,
-} from './auto-phase-planner.js';
+} from './goal-planner.js';
 
 export type {
   PhaseGraph,
