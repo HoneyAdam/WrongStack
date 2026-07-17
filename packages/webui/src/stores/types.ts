@@ -95,6 +95,18 @@ export interface ChatMessage {
    * of leaving them indistinguishable from sent messages.
    */
   status?: 'sent' | 'failed' | undefined;
+  /**
+   * Parsed next-steps suggestions extracted from the assistant message
+   * at finalization time. The canonical `<nextsteps>` block is stripped
+   * from `content` once and the steps are stored here so the bar can
+   * render without re-parsing — and so the block never leaks back into
+   * the rendered body when the message stops being "latest" (e.g. while
+   * the next turn is streaming). Empty/undefined when there were none.
+   *
+   * `autoText` carries the first item's text when it was marked
+   * `auto="true"`, for YOLO+auto countdown. Undefined otherwise.
+   */
+  nextSteps?: { steps: Array<{ index: number; text: string; auto?: boolean | undefined }> } | undefined;
 }
 
 export interface SessionInfo {

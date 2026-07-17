@@ -25,13 +25,13 @@ import {
   User,
   XCircle,
 } from 'lucide-react';
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { useAppTranslation } from '@/i18n';
 import { LazyMarkdown as ReactMarkdown } from './LazyMarkdown.js';
 import remarkGfm from 'remark-gfm';
 import { ToolDiffView, diffFromToolInput } from '../DiffView';
 import { ToolResult } from '../ToolResult';
-import { NextStepsBar, fillInput, parseNextSteps } from '../NextStepsBar';
+import { NextStepsBar, fillInput } from '../NextStepsBar';
 import { toast } from '../Toaster';
 import { toWireImages } from '../ChatInput/image-attachments.js';
 import { AttachmentGallery } from './AttachmentGallery.js';
@@ -121,16 +121,21 @@ export const MessageBubble = memo(function MessageBubble({
   })();
 
   /**
-   * Parse the assistant output once and cache the result for both:
-   *   - the stripped content fed to react-markdown (so raw <nextsteps> tags
-   *     never leak into the rendered DOM)
-   *   - the steps array fed to the <NextStepsBar> below.
-   * Recomputes only when message.content changes.
+   * Next-steps source of truth.
+   *
+   * The canonical <nextsteps> block is stripped from message.content at
+   * finalization time (chat-store.finalizeMessage) and the parsed steps
+   * are persisted on message.nextSteps. We read them directly here — no
+   * re-parsing, no gating on isLatestAssistant.
+   *
+   * The previous implementation re-parsed content on every render and
+   * gated the strip on isLatestAssistant. When the user clicked a
+   * suggestion, setLoading(true) flipped isLatestAssistant to false,
+   * nextStepsResult became null, and the un-stripped content — including
+   * the raw <nextsteps> XML — rendered verbatim. Reading the persisted
+   * field breaks that coupling.
    */
-  const nextStepsResult = useMemo(
-    () => (isLatestAssistant && message.content ? parseNextSteps(message.content) : null),
-    [isLatestAssistant, message.content],
-  );
+  const nextSteps = message.nextSteps?.steps ?? [];
 
   useEffect(() => {
     if (!message.thinkingLog || !searchOpen || searchActiveMessageId !== message.id) return;
@@ -381,11 +386,12 @@ export const MessageBubble = memo(function MessageBubble({
               </div>
             );
           })() : (() => {
-            // For assistant output, strip the canonical <nextsteps> block
-            // before passing to react-markdown — otherwise the raw tags leak
-            // through as literal text. The parsed steps render as a separate
-            // <NextStepsBar> below the bubble.
-            const renderedContent = nextStepsResult ? nextStepsResult.stripped : message.content;
+            // For assistant output, the canonical <nextsteps> block was
+            // already stripped from message.content at finalization time
+            // (chat-store.finalizeMessage), so renderedContent is simply
+            // message.content. The parsed steps render as a separate
+            // <NextStepsBar> below the bubble, reading from message.nextSteps.
+            const renderedContent = message.content;
             const hasAttachments = !!message.attachments && message.attachments.length > 0;
             return (
               <div className={cn('text-sm leading-relaxed markdown-content', message.streaming && 'streaming-cursor')}>
@@ -423,10 +429,10 @@ export const MessageBubble = memo(function MessageBubble({
           </span>
         )}
 
-        {/* Next steps — parse canonical <nextsteps> from assistant output */}
-        {nextStepsResult && nextStepsResult.steps.length > 0 && (
+        {/* Next steps — read from message.nextSteps (parsed at finalize time) */}
+        {nextSteps.length > 0 && (
           <NextStepsBar
-            steps={nextStepsResult.steps}
+            steps={nextSteps}
             yoloMode={yolo}
             autoMode={autonomy === 'auto'}
             autoDelayMs={localPrefs.autonomyDelayMs}

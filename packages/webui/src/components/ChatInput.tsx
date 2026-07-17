@@ -206,19 +206,31 @@ export function ChatInput({
 
   // ── /next helpers ──────────────────────────────────────────────────
 
-  function parseNextStepsFromContent(content: string): Array<{ index: number; text: string }> {
-    return parseNextSteps(content).steps.map((step) => ({
+  /**
+   * Extract next-step suggestions from an assistant message.
+   *
+   * Preferred source: `message.nextSteps` (parsed at finalize time — the
+   * canonical path going forward). Falls back to re-parsing `content` for
+   * messages persisted before the finalize-time strip landed (old
+   * localStorage transcripts still carry the raw block in content).
+   */
+  function stepsFromMessage(m: { content: string; nextSteps?: { steps: Array<{ index: number; text: string }> } | undefined } | undefined): Array<{ index: number; text: string }> {
+    if (!m) return [];
+    if (m.nextSteps && m.nextSteps.steps.length > 0) {
+      return m.nextSteps.steps.map((s) => ({ index: s.index, text: s.text }));
+    }
+    return parseNextSteps(m.content).steps.map((step) => ({
       index: step.index,
       text: step.text,
     }));
   }
 
-  function parseNextStepsFromLastAssistant(): Array<{ index: number; text: string }> {
+  function stepsFromLastAssistant(): Array<{ index: number; text: string }> {
     const all = useChatStore.getState().messages;
     for (let i = all.length - 1; i >= 0; i--) {
       const m = all[i];
       if (m?.role === 'assistant' && m.content) {
-        return parseNextStepsFromContent(m.content);
+        return stepsFromMessage(m);
       }
     }
     return [];
@@ -290,18 +302,18 @@ export function ChatInput({
     };
   }, [client, addMessage, enqueue, sendMessage, setLoading]);
 
-  /** Parse canonical <nextsteps> from the last assistant message and show them. */
+  /** Read next-step suggestions from the last assistant message and show them. */
   function handleNextList(): true {
     const all = useChatStore.getState().messages;
-    let lastAssistant = '';
+    let lastMsg: { content: string; nextSteps?: { steps: Array<{ index: number; text: string }> } | undefined } | undefined;
     for (let i = all.length - 1; i >= 0; i--) {
       const m = all[i];
       if (m?.role === 'assistant' && m.content) {
-        lastAssistant = m.content;
+        lastMsg = m;
         break;
       }
     }
-    const steps = parseNextStepsFromContent(lastAssistant);
+    const steps = stepsFromMessage(lastMsg);
     if (steps.length === 0) {
       addMessage({
         role: 'assistant',
@@ -316,9 +328,9 @@ export function ChatInput({
     return true;
   }
 
-  /** Parse canonical <nextsteps> and execute the selected item(s). */
+  /** Execute the selected next-step item(s) from the last assistant message. */
   function handleNextSelect(input: string): true {
-    const steps = parseNextStepsFromLastAssistant();
+    const steps = stepsFromLastAssistant();
     if (steps.length === 0) {
       addMessage({
         role: 'assistant',

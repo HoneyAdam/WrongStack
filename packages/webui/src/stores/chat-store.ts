@@ -1,4 +1,5 @@
 import { expectDefined } from '@wrongstack/core';
+import { parseNextSteps } from '@wrongstack/tools/next-steps';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { ChatMessage } from './types.js';
@@ -233,9 +234,29 @@ export const useChatStore = create<ChatState>()(
 
       finalizeMessage: (id) => {
         set((state) => ({
-          messages: state.messages.map((m) =>
-            m.id === id ? { ...m, content: dedupeRepeatedBlocks(m.content), streaming: false } : m,
-          ),
+          messages: state.messages.map((m) => {
+            if (m.id !== id) return m;
+            // Parse the canonical <nextsteps> block once, at the streaming
+            // → final transition. The block is stripped from `content` so the
+            // raw XML tags never surface in the rendered body — the previous
+            // MessageBubble-only parse gated stripping on isLatestAssistant,
+            // which flipped to false the moment the user selected a suggestion
+            // (setLoading(true)), causing the un-stripped content to render
+            // verbatim. Persisting the steps on the message lets the bar and
+            // /next read them without re-parsing.
+            if (m.role !== 'assistant') {
+              return { ...m, content: dedupeRepeatedBlocks(m.content), streaming: false };
+            }
+            const parsed = parseNextSteps(m.content);
+            const nextSteps =
+              parsed.steps.length > 0 ? { steps: parsed.steps } : undefined;
+            return {
+              ...m,
+              content: dedupeRepeatedBlocks(parsed.stripped),
+              streaming: false,
+              ...(nextSteps ? { nextSteps } : {}),
+            };
+          }),
         }));
       },
 
