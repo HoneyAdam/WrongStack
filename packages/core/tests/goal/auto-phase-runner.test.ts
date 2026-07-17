@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { EventBus } from '../../src/kernel/events.js';
-import { AutoPhaseRunner, createAutoPhaseFromTaskGraph } from '../../src/goal/auto-phase-runner.js';
+import { GoalRunner, createGoalRunnerFromTaskGraph } from '../../src/goal/auto-phase-runner.js';
 import type { PhaseTemplate } from '../../src/goal/types.js';
 import type { WorktreeHandle, WorktreeManager } from '../../src/worktree/worktree-manager.js';
 
@@ -68,13 +68,13 @@ function phases(): PhaseTemplate[] {
   ];
 }
 
-describe('AutoPhaseRunner', () => {
+describe('GoalRunner', () => {
   it('forwards worktree env and verification hooks to the orchestrator', async () => {
     const wt = fakeWorktrees();
     const taskCwds: Array<string | undefined> = [];
     const verifyCwds: Array<string | undefined> = [];
 
-    const runner = new AutoPhaseRunner({
+    const runner = new GoalRunner({
       title: 'Runner propagation',
       phases: phases(),
       worktrees: wt.wm,
@@ -102,7 +102,7 @@ describe('AutoPhaseRunner', () => {
     let verifies = 0;
     let repairs = 0;
 
-    const runner = new AutoPhaseRunner({
+    const runner = new GoalRunner({
       title: 'Runner repair',
       phases: phases(),
       maxVerifyAttempts: 1,
@@ -131,7 +131,7 @@ describe('AutoPhaseRunner', () => {
     // methods). start() must register its graph.completed/failed listeners on
     // the bus and run to completion without throwing.
     const events = new EventBus();
-    const runner = new AutoPhaseRunner({
+    const runner = new GoalRunner({
       title: 'Runner events',
       phases: phases(),
       events,
@@ -142,11 +142,11 @@ describe('AutoPhaseRunner', () => {
   });
 });
 
-describe('AutoPhaseRunner event handlers + lifecycle', () => {
+describe('GoalRunner event handlers + lifecycle', () => {
   it('graph.completed fires onComplete + cleanup', async () => {
     const events = new EventBus();
     const onComplete = vi.fn();
-    const runner = new AutoPhaseRunner({
+    const runner = new GoalRunner({
       title: 't', phases: phases(), events, executeTask: async () => {}, onComplete,
     });
     const graph = await runner.start();
@@ -157,7 +157,7 @@ describe('AutoPhaseRunner event handlers + lifecycle', () => {
   it('graph.failed fires onFail; stopOnFailure=true cleans up', async () => {
     const events = new EventBus();
     const onFail = vi.fn();
-    const runner = new AutoPhaseRunner({
+    const runner = new GoalRunner({
       title: 't', phases: phases(), events, executeTask: async () => {}, onFail, stopOnFailure: true,
     });
     const graph = await runner.start();
@@ -172,7 +172,7 @@ describe('AutoPhaseRunner event handlers + lifecycle', () => {
   it('graph.failed with stopOnFailure=false does not clean up', async () => {
     const events = new EventBus();
     const onFail = vi.fn();
-    const runner = new AutoPhaseRunner({
+    const runner = new GoalRunner({
       title: 't', phases: phases(), events, executeTask: async () => {}, onFail, stopOnFailure: false,
     });
     const graph = await runner.start();
@@ -187,7 +187,7 @@ describe('AutoPhaseRunner event handlers + lifecycle', () => {
   it('ignores graph events for a different graph id', async () => {
     const events = new EventBus();
     const onComplete = vi.fn();
-    const runner = new AutoPhaseRunner({
+    const runner = new GoalRunner({
       title: 't', phases: phases(), events, executeTask: async () => {}, onComplete,
     });
     await runner.start();
@@ -199,7 +199,7 @@ describe('AutoPhaseRunner event handlers + lifecycle', () => {
     const onPhaseComplete = vi.fn();
     const onPhaseFail = vi.fn();
     const onTick = vi.fn();
-    const runner = new AutoPhaseRunner({
+    const runner = new GoalRunner({
       title: 't', phases: phases(), executeTask: async () => {},
       verifyPhase: async () => ({ ok: false }), // force a verify failure → onPhaseFail path
       maxRetries: 0,
@@ -221,7 +221,7 @@ describe('AutoPhaseRunner event handlers + lifecycle', () => {
   });
 
   it('maxRunDurationMs <= 0 cancels the safety-net timer immediately', async () => {
-    const runner = new AutoPhaseRunner({
+    const runner = new GoalRunner({
       title: 't', phases: phases(), executeTask: async () => {}, maxRunDurationMs: 0,
     });
     await runner.start();
@@ -232,7 +232,7 @@ describe('AutoPhaseRunner event handlers + lifecycle', () => {
     vi.useFakeTimers();
     try {
       const onProgress = vi.fn();
-      const runner = new AutoPhaseRunner({
+      const runner = new GoalRunner({
         title: 't', phases: phases(), executeTask: async () => {},
         onProgress, maxRunDurationMs: 5_000,
       });
@@ -250,7 +250,7 @@ describe('AutoPhaseRunner event handlers + lifecycle', () => {
   });
 });
 
-describe('createAutoPhaseFromTaskGraph', () => {
+describe('createGoalRunnerFromTaskGraph', () => {
   it('builds a runner from a TaskGraph (not started)', async () => {
     const taskGraph = {
       title: 'TG',
@@ -260,8 +260,8 @@ describe('createAutoPhaseFromTaskGraph', () => {
       edges: [],
       rootNodes: ['n1'],
     } as never;
-    const runner = await createAutoPhaseFromTaskGraph(taskGraph, { executeTask: async () => {} });
-    expect(runner).toBeInstanceOf(AutoPhaseRunner);
+    const runner = await createGoalRunnerFromTaskGraph(taskGraph, { executeTask: async () => {} });
+    expect(runner).toBeInstanceOf(GoalRunner);
     expect(runner.getGraph()).toBeNull(); // not started
   });
 });

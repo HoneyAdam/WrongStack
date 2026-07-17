@@ -1,7 +1,7 @@
 import { PhaseGraphBuilder } from './phase-graph-builder.js';
 import { PhaseOrchestrator } from './phase-orchestrator.js';
 import type {
-  AutoPhaseOptions,
+  GoalOptions,
   PhaseExecutionContext,
   PhaseGraph,
   PhaseNode,
@@ -9,7 +9,7 @@ import type {
   PhaseTemplate,
 } from './types.js';
 
-export interface AutoPhaseRunnerOptions extends AutoPhaseOptions {
+export interface GoalRunnerOptions extends GoalOptions {
   /** Project title. */
   title: string;
   description?: string | undefined;
@@ -42,10 +42,10 @@ export interface AutoPhaseRunnerOptions extends AutoPhaseOptions {
 }
 
 /**
- * AutoPhaseRunner - high-level API for managing the whole autonomous phase flow from one entry point.
+ * GoalRunner - high-level API for managing the whole autonomous phase flow from one entry point.
  *
  * Usage:
- *   const runner = new AutoPhaseRunner({
+ *   const runner = new GoalRunner({
  *     title: 'Auth Refactor',
  *     phases: [...],
  *     executeTask: async (task, phaseId) => { ... },
@@ -53,10 +53,10 @@ export interface AutoPhaseRunnerOptions extends AutoPhaseOptions {
  *   });
  *   await runner.start();
  */
-export class AutoPhaseRunner {
+export class GoalRunner {
   private graph: PhaseGraph | null = null;
   private orchestrator: PhaseOrchestrator | null = null;
-  private opts: AutoPhaseRunnerOptions;
+  private opts: GoalRunnerOptions;
   private progressInterval: ReturnType<typeof setInterval> | null = null;
   private maxRunTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -87,7 +87,7 @@ export class AutoPhaseRunner {
   private unsubscribeCompleted: (() => void) | null = null;
   private unsubscribeFailed: (() => void) | null = null;
 
-  constructor(opts: AutoPhaseRunnerOptions) {
+  constructor(opts: GoalRunnerOptions) {
     this.opts = opts;
   }
 
@@ -240,15 +240,15 @@ export class AutoPhaseRunner {
 }
 
 /**
- * Quick-start helper: create an AutoPhaseRunner from an existing TaskGraph.
+ * Quick-start helper: create an GoalRunner from an existing TaskGraph.
  */
-export async function createAutoPhaseFromTaskGraph(
+export async function createGoalRunnerFromTaskGraph(
   taskGraph: import('../types/task-graph.js').TaskGraph,
-  options: Omit<AutoPhaseRunnerOptions, 'phases' | 'title'> & {
+  options: Omit<GoalRunnerOptions, 'phases' | 'title'> & {
     title?: string | undefined;
     tasksPerPhase?: number | undefined;
   },
-): Promise<AutoPhaseRunner> {
+): Promise<GoalRunner> {
   const graph = await PhaseGraphBuilder.fromTaskGraph(taskGraph, {
     title: options.title ?? taskGraph.title,
     tasksPerPhase: options.tasksPerPhase,
@@ -263,7 +263,7 @@ export async function createAutoPhaseFromTaskGraph(
     parallelizable: p.parallelizable,
   }));
 
-  return new AutoPhaseRunner({
+  return new GoalRunner({
     ...options,
     title: options.title ?? taskGraph.title,
     phases,

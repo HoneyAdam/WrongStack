@@ -4,7 +4,7 @@ import type { TaskNode } from '../types/task-graph.js';
 import { toErrorMessage } from '../utils/error.js';
 import type { WorktreeHandle, WorktreeManager } from '../worktree/worktree-manager.js';
 import type {
-  AutoPhaseOptions,
+  GoalOptions,
   PhaseEventMap,
   PhaseEventName,
   PhaseExecutionContext,
@@ -14,13 +14,13 @@ import type {
   PhaseStatus,
 } from './types.js';
 
-export interface PhaseOrchestratorOptions extends AutoPhaseOptions {
+export interface PhaseOrchestratorOptions extends GoalOptions {
   graph: PhaseGraph;
   ctx: PhaseExecutionContext;
 }
 
-type NormalizedAutoPhaseOptions = Omit<
-  AutoPhaseOptions,
+type NormalizedGoalOptions = Omit<
+  GoalOptions,
   | 'maxConcurrentPhases'
   | 'maxConcurrentTasks'
   | 'maxRetries'
@@ -56,7 +56,7 @@ type NormalizedAutoPhaseOptions = Omit<
 export class PhaseOrchestrator {
   private graph: PhaseGraph;
   private ctx: PhaseExecutionContext;
-  private opts: NormalizedAutoPhaseOptions;
+  private opts: NormalizedGoalOptions;
   private events: EventBus;
   private stopped = false;
   private paused = false;

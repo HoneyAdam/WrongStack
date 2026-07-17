@@ -3,7 +3,7 @@
  *
  * Turns a free-text goal into a real, LLM-driven phase run:
  *   1. PLAN   — a one-shot subagent generates a phase-by-phase plan where each
- *               phase carries many concrete todos (AutoPhasePlanner).
+ *               phase carries many concrete todos (GoalPlanner).
  *   2. BUILD  — PhaseGraphBuilder materializes the plan into a PhaseGraph with a
  *               populated TaskGraph per phase, persisted as per-project JSON.
  *   3. RUN    — PhaseOrchestrator drives the graph in the background; every task
@@ -31,7 +31,7 @@ async function pathExists(p: string): Promise<boolean> {
 }
 
 import {
-  AutoPhasePlanner,
+  GoalPlanner,
   assignNickname,
   type BrainArbiter,
   buildChildEnv,
@@ -489,7 +489,7 @@ export function createGoalHost(deps: GoalHostDeps): GoalHostHooks {
       log(`🧠 Planning phases for: ${goal}`);
       let phases;
       try {
-        const planner = new AutoPhasePlanner({
+        const planner = new GoalPlanner({
           goal,
           projectContext,
           runOnce: (p) => runOnce(p, 'goal-planner', abort.signal),

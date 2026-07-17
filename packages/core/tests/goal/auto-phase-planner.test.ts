@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  AutoPhasePlanner,
-  extractJSONArray as extractAutoPhaseJSONArray,
+  GoalPlanner,
+  extractJSONArray as extractGoalJSONArray,
 } from '../../src/goal/auto-phase-planner.js';
 import { PhaseGraphBuilder } from '../../src/goal/phase-graph-builder.js';
 
@@ -29,9 +29,9 @@ const VALID_PLAN = JSON.stringify([
   },
 ]);
 
-describe('AutoPhasePlanner', () => {
+describe('GoalPlanner', () => {
   it('parses a fenced JSON plan into phase templates with todos', async () => {
-    const planner = new AutoPhasePlanner({
+    const planner = new GoalPlanner({
       goal: 'Build a thing',
       runOnce: async () => '```json\n' + VALID_PLAN + '\n```',
     });
@@ -56,7 +56,7 @@ describe('AutoPhasePlanner', () => {
         ],
       },
     ]);
-    const planner = new AutoPhasePlanner({ goal: 'x', runOnce: async () => plan });
+    const planner = new GoalPlanner({ goal: 'x', runOnce: async () => plan });
     const { phases } = await planner.plan();
 
     expect(phases).toHaveLength(1);
@@ -67,14 +67,14 @@ describe('AutoPhasePlanner', () => {
   });
 
   it('flags parseFailed when the model returns no JSON array', async () => {
-    const planner = new AutoPhasePlanner({ goal: 'x', runOnce: async () => 'Sorry, I cannot help.' });
+    const planner = new GoalPlanner({ goal: 'x', runOnce: async () => 'Sorry, I cannot help.' });
     const result = await planner.plan();
     expect(result.parseFailed).toBe(true);
     expect(result.phases).toHaveLength(0);
   });
 
   it('produces templates a PhaseGraphBuilder can materialize into a populated graph', async () => {
-    const planner = new AutoPhasePlanner({ goal: 'Build a thing', runOnce: async () => VALID_PLAN });
+    const planner = new GoalPlanner({ goal: 'Build a thing', runOnce: async () => VALID_PLAN });
     const { phases } = await planner.plan();
 
     const graph = await new PhaseGraphBuilder({ title: 'Build a thing', phases }).build();
@@ -87,18 +87,18 @@ describe('AutoPhasePlanner', () => {
   });
 });
 
-describe('extractAutoPhaseJSONArray', () => {
+describe('extractGoalJSONArray', () => {
   it('extracts from a ```json fence', () => {
-    const out = extractAutoPhaseJSONArray('blah\n```json\n[1,2,3]\n```\ntrailing');
+    const out = extractGoalJSONArray('blah\n```json\n[1,2,3]\n```\ntrailing');
     expect(out).toBe('[1,2,3]');
   });
 
   it('extracts the first balanced array even with brackets inside strings', () => {
-    const out = extractAutoPhaseJSONArray('noise [{"t":"a [nested] ]bracket"}] more');
+    const out = extractGoalJSONArray('noise [{"t":"a [nested] ]bracket"}] more');
     expect(out).toBe('[{"t":"a [nested] ]bracket"}]');
   });
 
   it('returns null when there is no array', () => {
-    expect(extractAutoPhaseJSONArray('just prose')).toBeNull();
+    expect(extractGoalJSONArray('just prose')).toBeNull();
   });
 });

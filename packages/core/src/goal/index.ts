@@ -1,10 +1,10 @@
-// AutoPhase - autonomous phase-based workflow system
+// Goal - autonomous phase-based workflow system
 //
-// AutoPhase splits large projects into phases and subtasks,
+// Goal splits large projects into phases and subtasks,
 // runs them with dependency awareness, and advances phase by phase autonomously.
 //
 // Usage:
-//   const runner = new AutoPhaseRunner({
+//   const runner = new GoalRunner({
 //     title: 'Auth Refactor',
 //     phases: [
 //       { name: 'Discovery', description: '...', priority: 'high', estimateHours: 2, parallelizable: false },
@@ -18,9 +18,9 @@
 //   await runner.start();
 
 export {
-  AutoPhaseRunner,
-  createAutoPhaseFromTaskGraph,
-  type AutoPhaseRunnerOptions,
+  GoalRunner,
+  createGoalRunnerFromTaskGraph,
+  type GoalRunnerOptions,
 } from './auto-phase-runner.js';
 
 export {
@@ -34,10 +34,10 @@ export {
 } from './phase-graph-builder.js';
 
 export {
-  AutoPhasePlanner,
-  extractJSONArray as extractAutoPhaseJSONArray,
-  type AutoPhasePlannerOptions,
-  type AutoPhasePlanResult,
+  GoalPlanner,
+  extractJSONArray as extractGoalJSONArray,
+  type GoalPlannerOptions,
+  type GoalPlanResult,
 } from './auto-phase-planner.js';
 
 export type {
@@ -48,7 +48,7 @@ export type {
   PhaseEventMap,
   PhaseEventName,
   PhaseExecutionContext,
-  AutoPhaseOptions,
+  GoalOptions,
   PhaseFilter,
   PhaseSort,
   PhaseTemplate,

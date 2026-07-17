@@ -254,7 +254,7 @@ export interface PhaseExecutionContext {
 
 // ─── AutoPhase Options ──────────────────────────────────────────────────────
 
-export interface AutoPhaseOptions {
+export interface GoalOptions {
   /** Maximum number of parallel phases. */
   maxConcurrentPhases?: number | undefined;
   /** Maximum number of parallel tasks within a phase. */

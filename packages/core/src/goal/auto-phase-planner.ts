@@ -1,5 +1,5 @@
 /**
- * AutoPhasePlanner - converts a goal into phases using a real LLM call,
+ * GoalPlanner - converts a goal into phases using a real LLM call,
  * producing a large task list with todos under each phase.
  *
  * Similar to SDD's spec-to-task flow, but different: the output is directly
@@ -21,7 +21,7 @@ import type { PhaseNode, PhaseTemplate } from './types.js';
 /** Single todo template, the element type of PhaseTemplate.taskTemplates. */
 type PhaseTaskTemplate = NonNullable<PhaseTemplate['taskTemplates']>[number];
 
-export interface AutoPhasePlannerOptions {
+export interface GoalPlannerOptions {
   /**
    * One-shot LLM call: receives a prompt and returns the model text output.
    * In the CLI this wraps subagent.run; in tests it can be a deterministic stub.
@@ -45,7 +45,7 @@ export interface AutoPhasePlannerOptions {
   maxTotalTasks?: number | undefined;
 }
 
-export interface AutoPhasePlanResult {
+export interface GoalPlanResult {
   /** Phase templates passed to PhaseGraphBuilder. */
   phases: PhaseTemplate[];
   /** Raw model output for debugging and logs. */
@@ -79,13 +79,13 @@ const VALID_PRIORITIES: ReadonlySet<TaskPriority> = new Set([
 ]);
 
 /**
- * AutoPhasePlanner drives the model through `plan()` and produces `PhaseTemplate[]`.
+ * GoalPlanner drives the model through `plan()` and produces `PhaseTemplate[]`.
  */
-export class AutoPhasePlanner {
-  constructor(private readonly opts: AutoPhasePlannerOptions) {}
+export class GoalPlanner {
+  constructor(private readonly opts: GoalPlannerOptions) {}
 
   /** Convert the goal into a phase-and-todo plan. */
-  async plan(): Promise<AutoPhasePlanResult> {
+  async plan(): Promise<GoalPlanResult> {
     const prompt = this.buildPrompt();
     const raw = await this.opts.runOnce(prompt);
     const { phases, warnings } = this.parse(raw);
