@@ -18,7 +18,7 @@ export interface UseTuiEventBridgeOptions {
   stateRef: { current: State };
   setActiveMaxContext: (value: number | undefined) => void;
   getSessionId?: (() => string | undefined) | undefined;
-  subscribeAutoPhase?:
+  subscribeGoal?:
     | ((handler: (event: string, payload: unknown) => void) => () => void)
     | undefined;
   onClearHistory?: ((dispatch: ClearHistoryDispatch) => void) | undefined;
@@ -37,7 +37,7 @@ export function useTuiEventBridge({
   stateRef,
   setActiveMaxContext,
   getSessionId,
-  subscribeAutoPhase,
+  subscribeGoal,
   onClearHistory,
   sessionGenerationRef,
 }: UseTuiEventBridgeOptions): void {
@@ -48,7 +48,7 @@ export function useTuiEventBridge({
   useSubagentEvents(events, dispatch, setActiveMaxContext, getSessionId, getChatMode, sessionGenerationRef);
   useSessionEvents(events, dispatch, onClearHistory, getSessionId);
   useBrainEvents(events, dispatch, getSessionId);
-  useAutoPhaseEvents(subscribeAutoPhase, dispatch, stateRef, getSessionId);
+  useGoalEvents(subscribeGoal, dispatch, stateRef, getSessionId);
 }
 
 function useSessionEvents(
@@ -91,8 +91,8 @@ function useSessionEvents(
   }, [events, dispatch, onClearHistory, getSessionId]);
 }
 
-function useAutoPhaseEvents(
-  subscribeAutoPhase:
+function useGoalEvents(
+  subscribeGoal:
     | ((handler: (event: string, payload: unknown) => void) => () => void)
     | undefined,
   dispatch: React.Dispatch<Action>,
@@ -100,7 +100,7 @@ function useAutoPhaseEvents(
   getSessionId?: (() => string | undefined) | undefined,
 ): void {
   useEffect(() => {
-    if (!subscribeAutoPhase) return;
+    if (!subscribeGoal) return;
     const isCurrentSession = (sessionId?: string | undefined): boolean => {
       const current = getSessionId?.();
       return !sessionId || !current || sessionId === current;
@@ -322,6 +322,6 @@ function useAutoPhaseEvents(
       }
     };
 
-    return subscribeAutoPhase(handler);
-  }, [subscribeAutoPhase, dispatch, stateRef, getSessionId]);
+    return subscribeGoal(handler);
+  }, [subscribeGoal, dispatch, stateRef, getSessionId]);
 }

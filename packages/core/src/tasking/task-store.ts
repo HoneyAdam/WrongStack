@@ -2,7 +2,7 @@ import type { TaskGraph } from '../types/task-graph.js';
 import type { TaskStore } from './task-tracker.js';
 
 /**
- * In-memory task-graph store used by AutoPhase and tests.
+ * In-memory task-graph store used by Goal and tests.
  *
  * The store clones the graph container on read/write so callers cannot replace
  * its Maps/arrays behind the store's back. Task nodes themselves intentionally

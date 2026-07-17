@@ -76,7 +76,7 @@ export interface SubagentConfig {
 
   /**
    * Working directory for this subagent's tools. Defaults to the factory's
-   * cwd. AutoPhase sets this to a per-phase git worktree so parallel phases
+   * cwd. Goal sets this to a per-phase git worktree so parallel phases
    * edit isolated checkouts instead of clobbering one shared working tree.
    * `projectRoot` is intentionally left unchanged — tools resolve the
    * worktree's `.git` gitlink from `cwd` while staying bounded to the repo.

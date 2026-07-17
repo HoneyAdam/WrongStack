@@ -141,7 +141,7 @@ describe('buildTaskGraphFromGoalPhase', () => {
   });
 });
 
-describe('KanbanRunMirror AutoPhase → one board per phase', () => {
+describe('KanbanRunMirror Goal → one board per phase', () => {
   it('creates a separate board per phase, grouped by run tag', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-mirror-ap-'));
     const mirror = createKanbanRunMirror({ projectRoot: dir, broadcast: () => {}, log: () => {} });

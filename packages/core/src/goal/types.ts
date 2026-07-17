@@ -1,5 +1,5 @@
 /**
- * AutoPhase - types for autonomous phase-based workflows.
+ * Goal - types for autonomous phase-based workflows.
  *
  * A project is split into phases; each phase contains tasks.
  * Phases are dependency-aware: the next phase cannot start until all tasks
@@ -252,7 +252,7 @@ export interface PhaseExecutionContext {
   onTick?: ((ctx: { activePhases: PhaseNode[]; readyPhases: PhaseNode[] }) => void) | undefined;
 }
 
-// ─── AutoPhase Options ──────────────────────────────────────────────────────
+// ─── Goal Options ──────────────────────────────────────────────────────
 
 export interface GoalOptions {
   /** Maximum number of parallel phases. */

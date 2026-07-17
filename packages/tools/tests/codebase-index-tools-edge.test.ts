@@ -14,6 +14,8 @@ const state: {
 } = { ready: true, indexing: false, currentFile: 0, totalFiles: 0, circuit: { state: 'closed', cooldownRemainingMs: 0 } };
 
 let isIndexingValue = false;
+let statsError: Error | undefined;
+let statsCalls = 0;
 const statsValue = {
   totalSymbols: 5,
   totalFiles: 2,
@@ -29,7 +31,11 @@ let circuitSnapshot: Circuit = { state: 'closed', cooldownRemainingMs: 0 };
 vi.mock('../src/codebase-index/background-indexer.js', () => ({
   getIndexState: () => state,
   isIndexing: () => isIndexingValue,
-  codebaseIndexStats: async () => statsValue,
+  codebaseIndexStats: async () => {
+    statsCalls += 1;
+    if (statsError) throw statsError;
+    return statsValue;
+  },
   searchCodebaseIndex: async () => ({ results: [], total: 0 }),
   runStartupIndex: async () => ({
     filesIndexed: 1,
@@ -41,6 +47,9 @@ vi.mock('../src/codebase-index/background-indexer.js', () => ({
 }));
 
 vi.mock('../src/codebase-index/circuit-breaker.js', () => ({
+  IndexTimeoutError: class IndexTimeoutError extends Error {
+    override name = 'IndexTimeoutError';
+  },
   indexCircuitBreaker: { snapshot: () => circuitSnapshot },
 }));
 
@@ -59,6 +68,8 @@ beforeEach(() => {
   state.lastError = undefined;
   state.circuit = { state: 'closed', cooldownRemainingMs: 0 };
   isIndexingValue = false;
+  statsError = undefined;
+  statsCalls = 0;
   circuitSnapshot = { state: 'closed', cooldownRemainingMs: 0 };
   statsValue.totalSymbols = 5;
   statsValue.totalFiles = 2;
@@ -92,6 +103,10 @@ describe('codebase-index tool gates', () => {
 });
 
 describe('codebase-stats tool gates', () => {
+  it('keeps the outer tool timeout above the index host read watchdog', () => {
+    expect(codebaseStatsTool.timeoutMs).toBeGreaterThan(8_000);
+  });
+
   it('reports "not yet built" when the persisted index has no data', async () => {
     state.ready = false;
     statsValue.totalSymbols = 0;
@@ -108,13 +123,27 @@ describe('codebase-stats tool gates', () => {
     state.currentFile = 3;
     state.totalFiles = 10;
     const out = await codebaseStatsTool.execute({}, ctx(), opts());
-    expect(out.indexStatus).toMatch(/Initial indexing in progress/);
+    expect(out.indexStatus).toMatch(/Startup indexing in progress/);
+    expect(out.statsAvailable).toBe(false);
+    expect(out.indexing).toEqual({ currentFile: 3, totalFiles: 10 });
+    expect(statsCalls).toBe(0);
   });
 
   it('reports refresh-in-progress when ready and indexing', async () => {
     state.indexing = true;
     const out = await codebaseStatsTool.execute({}, ctx(), opts());
     expect(out.indexStatus).toMatch(/refresh in progress/);
+    expect(out.statsAvailable).toBe(false);
+    expect(statsCalls).toBe(0);
+  });
+
+  it('returns structured guidance instead of throwing when the stats host times out', async () => {
+    const err = new Error('index stats timed out');
+    err.name = 'IndexTimeoutError';
+    statsError = err;
+    const out = await codebaseStatsTool.execute({}, ctx(), opts());
+    expect(out.indexStatus).toMatch(/statistics timed out.*codebase-search/s);
+    expect(out.statsAvailable).toBe(false);
   });
 
   it('appends a paused note when the circuit is open', async () => {

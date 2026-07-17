@@ -20,7 +20,7 @@ export interface HqFleetEventPayload {
 
 // ── Worktree lifecycle telemetry ────────────────────────────────────────────
 //
-// AutoPhase allocates one git worktree per phase so parallelizable phases run
+// Goal allocates one git worktree per phase so parallelizable phases run
 // isolated, then merges them back sequentially. These envelopes let HQ render
 // live build phase swim-lanes / DAG across every connected machine. All fields
 // are plain serializable data (the EventBus `worktree.*` payloads forwarded

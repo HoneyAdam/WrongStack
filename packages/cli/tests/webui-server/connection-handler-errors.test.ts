@@ -30,7 +30,7 @@ function createDeps(handleMessage: ConnectionHandlerDeps['handleMessage']): Conn
     publicWsUrl: undefined,
     clients: new Map(),
     currentSessionId: () => 'session-1',
-    autoPhaseHandler: clientHandler as never,
+    goalHandler: clientHandler as never,
     specsHandler: clientHandler as never,
     sddBoardHandler: clientHandler as never,
     sddWizardHandler: clientHandler as never,

@@ -744,9 +744,9 @@ export type State = {
   eternalStage: AutonomyStage | null;
   /** Loaded from .wrongstack/goal.json on mount for startup banner. */
   goalSummary: GoalSummary;
-  /** AutoPhase orchestrator state — rendered by PhaseMonitor. */
+  /** Goal orchestrator state — rendered by PhaseMonitor. */
   goalRun: {
-    /** AutoPhase graph title. */
+    /** Goal graph title. */
     title: string;
     /** Per-phase task summary, keyed by phaseId. */
     phases: Record<

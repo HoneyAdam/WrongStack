@@ -215,11 +215,11 @@ export interface AppProps {
    */
   subscribeEternalStage?: ((fn: (stage: AutonomyStage) => void) => () => void) | undefined;
   /**
-   * Subscribe to AutoPhase phase/task events from the PhaseOrchestrator.
+   * Subscribe to Goal phase/task events from the PhaseOrchestrator.
    * Drives `state.goalRun` used by the PhaseMonitor component.
    * Handlers receive the event name and payload from PhaseEventMap.
    */
-  subscribeAutoPhase?:
+  subscribeGoal?:
     | ((handler: (event: string, payload: unknown) => void) => () => void)
     | undefined;
   /**

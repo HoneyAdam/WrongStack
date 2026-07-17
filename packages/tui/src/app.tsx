@@ -301,7 +301,7 @@ export function App({
   onSddLifecycle,
   subscribeEternalIteration,
   subscribeEternalStage,
-  subscribeAutoPhase,
+  subscribeGoal,
   getSDDContext,
   onSDDOutput,
   appVersion,
@@ -3554,7 +3554,7 @@ export function App({
     stateRef,
     setActiveMaxContext,
     getSessionId: getActiveSessionId,
-    subscribeAutoPhase,
+    subscribeGoal,
     onClearHistory,
     sessionGenerationRef,
   });
@@ -5024,11 +5024,11 @@ export function App({
       }
       return;
     }
-    // Ctrl+P → toggle PhaseMonitor overlay when AutoPhase is active.
+    // Ctrl+P → toggle PhaseMonitor overlay when Goal is active.
     if (key.ctrl && input === 'p') {
       if (state.goalRun) dispatch({ type: 'goalRunMonitorToggle' });
       else {
-        // No active AutoPhase — treat as a command alias for /goal status
+        // No active Goal — treat as a command alias for /goal status
         slashRegistry.dispatch('/goal', agent.ctx).then((res) => {
           if (res?.message)
             dispatch({ type: 'addEntry', entry: { kind: 'info', text: res.message } });

@@ -544,7 +544,7 @@ export class PhaseOrchestrator {
     const decision = await this.ctx.brain.decide({
       id: `goal-conflict-${phase.id}`,
       source: 'goal',
-      question: `Should AutoPhase try to resolve merge conflicts for phase "${phase.name}" automatically?`,
+      question: `Should Goal try to resolve merge conflicts for phase "${phase.name}" automatically?`,
       context: [
         `Phase id: ${phase.id}`,
         `Conflicted files: ${info.conflictFiles.join(', ') || '(unknown)'}`,

@@ -27,7 +27,7 @@ export function BrainView(): React.ReactElement {
       <div className="hq-empty">
         {loading
           ? 'Loading brain history…'
-          : 'No brain decisions yet. Brain events appear when autonomous consumers (Director, AutoPhase, Eternal) route decisions through the Brain.'}
+          : 'No brain decisions yet. Brain events appear when autonomous consumers (Director, Goal, Eternal) route decisions through the Brain.'}
       </div>
     );
   }

@@ -43,7 +43,7 @@ function s(entry: string) {
 }
 
 /**
- * AutoPhase sidebar panel — shown below fleet panel when AutoPhase is active.
+ * Goal sidebar panel — shown below fleet panel when Goal is active.
  * Compact 2-line-per-phase view optimized for the TUI layout.
  * Unlike PhaseMonitor (an overlay), PhasePanel is always visible while active.
  */

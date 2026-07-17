@@ -1,5 +1,5 @@
 /**
- * Worktree view — git worktree lifecycle swim-lanes (AutoPhase build phases).
+ * Worktree view — git worktree lifecycle swim-lanes (Goal build phases).
  * Seeded from the persisted event log (`/api/events?type=worktree.event`),
  * then fed live. Events are grouped per owner so one worktree's lifecycle
  * reads as a single lane instead of interleaved noise.
@@ -64,7 +64,7 @@ export function WorktreeView(): React.ReactElement {
       <div className="hq-empty">
         {loading
           ? 'Loading worktree history…'
-          : 'No worktree events yet. These appear when AutoPhase allocates/merges git worktrees for parallel phases.'}
+          : 'No worktree events yet. These appear when Goal allocates/merges git worktrees for parallel phases.'}
       </div>
     );
   }

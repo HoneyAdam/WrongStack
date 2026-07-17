@@ -1,5 +1,5 @@
 /**
- * Tests for boot/tui-goal-wiring.ts — AutoPhase event forwarding.
+ * Tests for boot/tui-goal-wiring.ts — Goal event forwarding.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { wireGoal } from '../../src/boot/tui-goal-wiring.js';

@@ -1,6 +1,6 @@
 export interface WorktreeEventMap {
   /**
-   * Git-worktree lifecycle, emitted by WorktreeManager. AutoPhase allocates one
+   * Git-worktree lifecycle, emitted by WorktreeManager. Goal allocates one
    * worktree per phase so parallelizable phases run isolated, then merges them
    * back sequentially. The WebUI/TUI subscribe to render live swim-lanes/DAG.
    */

@@ -36,7 +36,7 @@ function st(status: string) {
 }
 
 /**
- * Worktree sidebar panel — shown beside the AutoPhase PhasePanel when git
+ * Worktree sidebar panel — shown beside the Goal PhasePanel when git
  * worktree isolation is active. One compact row per worktree (branch, owner
  * phase, diff stats, status). Always visible while live; details on Ctrl+T.
  */

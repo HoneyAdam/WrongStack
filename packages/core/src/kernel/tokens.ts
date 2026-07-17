@@ -59,7 +59,7 @@ export const TOKENS = {
   ModeStore: t<ModeStore>('ModeStore'),
   /** Replaces the entire provider call layer — retry, streaming, tracing. */
   ProviderRunner: t<ProviderRunner>('ProviderRunner'),
-  /** Optional git-worktree lifecycle manager (per-phase isolation in AutoPhase). */
+  /** Optional git-worktree lifecycle manager (per-phase isolation in Goal). */
   WorktreeManager: t<WorktreeManager>('WorktreeManager'),
   /** Optional global Brain arbiter for policy/decision escalation. */
   BrainArbiter: t<BrainArbiter>('BrainArbiter'),

@@ -32,7 +32,7 @@ export interface CollaborationHandlerOptions {
 
 /**
  * CollaborationWebSocketHandler — session-scoped collaboration transport.
- * Mirrors `WorktreeWebSocketHandler` and `AutoPhaseWebSocketHandler`.
+ * Mirrors `WorktreeWebSocketHandler` and `GoalWebSocketHandler`.
  *
  * Capabilities in this phase:
  *   - A second human (or any client) joins an active agent run as an

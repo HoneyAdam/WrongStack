@@ -44,7 +44,7 @@ export function isWorktreeMonitorCloseKey(
 
 /**
  * Full-screen Worktree monitor overlay (Ctrl+T to open, Ctrl+T to close).
- * Shows each AutoPhase worktree: branch, base→branch, owner phase, diff stats,
+ * Shows each Goal worktree: branch, base→branch, owner phase, diff stats,
  * and conflict files for any worktree left in needs-review.
  *
  * Prunes merged/failed worktrees older than TERMINAL_TTL_MS to prevent
@@ -141,7 +141,7 @@ export function WorktreeMonitor({
         <EmptyPanelState
           icon="◇"
           title="No isolated worktrees"
-          detail="They will appear when AutoPhase runs with worktree isolation enabled."
+          detail="They will appear when Goal runs with worktree isolation enabled."
           accent={theme.monitor.worktree}
         />
       ) : (

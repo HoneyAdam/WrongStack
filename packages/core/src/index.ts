@@ -1,4 +1,4 @@
-// AutoPhase - autonomous phase-based workflow
+// Goal - autonomous phase-based workflow
 export {
   type GoalOptions,
   GoalPlanner,

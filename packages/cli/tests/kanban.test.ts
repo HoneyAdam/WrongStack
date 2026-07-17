@@ -828,7 +828,7 @@ describe('kanban storage and manager', () => {
     });
   });
 
-  it('imports SDD/AutoPhase task graphs into kanban boards with dependency traceability', async () => {
+  it('imports SDD/Goal task graphs into kanban boards with dependency traceability', async () => {
     const graph: TaskGraph = {
       id: 'graph-1',
       specId: 'spec-1',

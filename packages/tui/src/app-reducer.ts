@@ -2001,7 +2001,7 @@ export function reducer(state: State, action: Action): State {
       // Lazily initialize goalRun state on first phase event — the title
       // is not shown in the PhaseMonitor so a placeholder is fine here.
       const existing = state.goalRun ?? {
-        title: 'AutoPhase',
+        title: 'Goal',
         phases: {},
         runningPhaseIds: [],
         elapsedMs: 0,

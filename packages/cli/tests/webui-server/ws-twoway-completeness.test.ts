@@ -104,7 +104,7 @@ const INTENTIONALLY_UNHANDLED = new Set<string>([
   // Eternal-autonomy iteration stream — observability only; the loop is started
   // from REPL/TUI/--eternal, not a WebUI action, and has no live consumer yet.
   'eternal.iteration',
-  // AutoPhase granular events — the client mirrors the full canonical state via
+  // Goal granular events — the client mirrors the full canonical state via
   // `goal.state` (handled), so these per-event signals are redundant.
   'goal.error',
   'goal.failed',

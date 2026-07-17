@@ -26,7 +26,7 @@ export interface WorktreeManagementDeps {
 }
 
 /**
- * WorktreeWebSocketHandler — mirrors AutoPhaseWebSocketHandler. Subscribes to
+ * WorktreeWebSocketHandler — mirrors GoalWebSocketHandler. Subscribes to
  * the shared EventBus `worktree.*` lifecycle events, keeps a live snapshot of
  * every worktree, and broadcasts:
  *   - `worktree.event` incrementally (drives the flowing activity strip)

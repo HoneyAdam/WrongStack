@@ -24,7 +24,7 @@ export type WorktreeStatus =
 export interface WorktreeHandle {
   /** Stable id (== slug). Used as the event `handleId`. */
   id: string;
-  /** Caller-supplied owner (a phase id in AutoPhase). */
+  /** Caller-supplied owner (a phase id in Goal). */
   ownerId: string;
   /** Human label for the owner (phase name). */
   ownerLabel: string;
@@ -851,7 +851,7 @@ export class WorktreeManager {
     if (name && email) return [];
     return [
       '-c',
-      `user.name=${name || 'AutoPhase'}`,
+      `user.name=${name || 'Goal'}`,
       '-c',
       `user.email=${email || 'goal@agent.local'}`,
     ];

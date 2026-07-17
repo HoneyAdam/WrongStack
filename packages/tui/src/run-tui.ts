@@ -376,11 +376,11 @@ export interface RunTuiOptions {
    */
   onSDDOutput?: ((output: string) => Promise<string[]>) | undefined;
   /**
-   * Subscribe to AutoPhase phase/graph events from the PhaseOrchestrator.
+   * Subscribe to Goal phase/graph events from the PhaseOrchestrator.
    * Returns an unsubscribe function. The TUI uses this to drive the
    * PhaseMonitor and PhasePanel live views via dispatch actions.
    */
-  subscribeAutoPhase?:
+  subscribeGoal?:
     | ((handler: (event: string, payload: unknown) => void) => () => void)
     | undefined;
   /**
@@ -632,7 +632,7 @@ const BRACKETED_PASTE_OFF = '\x1b[?2004l';
 // What we silence:
 //  1. console.log / warn / error / debug — 60+ sites across core + CLI
 //     that bypass the DefaultLogger (which already suppresses stderr in
-//     TUI mode). These fire during AutoPhase, session store, security
+//     TUI mode). These fire during Goal, session store, security
 //     scanner, config loader, and plugin teardown.
 //  2. process.emitWarning — used by Director, FleetManager, and
 //     SpecBuilder for non-fatal warnings. Node writes these to stderr by
@@ -1225,7 +1225,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           onSddLifecycle: opts.onSddLifecycle,
           subscribeEternalIteration: opts.subscribeEternalIteration,
           subscribeEternalStage: opts.subscribeEternalStage,
-          subscribeAutoPhase: opts.subscribeAutoPhase,
+          subscribeGoal: opts.subscribeGoal,
           appVersion: opts.appVersion,
           provider: opts.provider,
           family: opts.family,

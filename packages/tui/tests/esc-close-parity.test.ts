@@ -21,7 +21,7 @@ function baseState() {
 // Each owns its own Esc handler via a child useInput hook.
 const DOCUMENTED_EXCLUSIONS = new Set([
   'worktreeMonitorOpen',   // isWorktreeMonitorCloseKey in WorktreeMonitor.tsx
-  'autoPhase.monitorOpen',  // Own useInput in PhaseMonitor.tsx
+  'goalRun.monitorOpen',  // Own useInput in PhaseMonitor.tsx
   'kanbanPanelOpen',        // key.escape || 'q' → onClose in KanbanPanel.tsx
   'goalKanbanPanelOpen',    // key.escape || 'q' → onClose in GoalKanbanPanel.tsx
 ]);
@@ -53,7 +53,7 @@ const TOGGLE_PANELS: Array<{ field: string; setState: (s: ReturnType<typeof base
   { field: 'sessionsPanelOpen', setState: (s) => { s.sessionsPanelOpen = true; } },
   { field: 'worktreeMonitorOpen', setState: (s) => { s.worktreeMonitorOpen = true; } },
   { field: 'coordinator.monitorOpen', setState: (s) => { s.coordinator = { ...s.coordinator, monitorOpen: true }; } },
-  { field: 'autoPhase.monitorOpen', setState: (s) => { if (s.autoPhase) s.autoPhase = { ...s.autoPhase, monitorOpen: true }; } },
+  { field: 'goalRun.monitorOpen', setState: (s) => { if (s.goalRun) s.goalRun = { ...s.goalRun, monitorOpen: true }; } },
   { field: 'sddBoard.monitorOpen', setState: (s) => { s.sddBoard = { monitorOpen: true, phases: {}, focusColumn: -1 }; } },
   { field: 'settingsPicker.open', setState: (s) => { s.settingsPicker = { ...s.settingsPicker, open: true }; } },
   { field: 'statuslinePicker.open', setState: (s) => { s.statuslinePicker = { ...s.statuslinePicker, open: true }; } },

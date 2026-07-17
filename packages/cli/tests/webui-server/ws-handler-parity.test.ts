@@ -18,7 +18,7 @@ import { describe, expect, it } from 'vitest';
  * so any future handler added to one server but not the other fails CI loudly.
  *
  * `goal.*` and `collab.*` are intentionally NOT in these switches — both
- * servers route them to dedicated handlers (`AutoPhaseWebSocketHandler` /
+ * servers route them to dedicated handlers (`GoalWebSocketHandler` /
  * `CollaborationWebSocketHandler`) via a `msg.type.startsWith(...)` check before
  * the switch, so their absence here is correct and symmetric.
  */

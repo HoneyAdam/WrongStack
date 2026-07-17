@@ -8,7 +8,9 @@
 
 import type { Tool } from '@wrongstack/core';
 import { codebaseIndexStats, getIndexState } from './background-indexer.js';
-import { codebaseIndexDirOverride } from './writer.js';
+import { IndexTimeoutError } from './circuit-breaker.js';
+import { SCHEMA_VERSION } from './schema.js';
+import { codebaseIndexDirOverride, resolveIndexDir } from './writer.js';
 
 export const codebaseStatsTool: Tool<Record<string, never>, CodebaseStatsOutput> = {
   name: 'codebase-stats',
@@ -25,7 +27,10 @@ export const codebaseStatsTool: Tool<Record<string, never>, CodebaseStatsOutput>
   permission: 'auto',
   mutating: false,
   capabilities: ['fs.read'],
-  timeoutMs: 5_000,
+  // The index host has its own 8s read watchdog. Keep the outer tool budget
+  // longer so the host can return a structured timeout instead of being
+  // pre-empted by the generic tool executor.
+  timeoutMs: 12_000,
   inputSchema: {
     type: 'object',
     properties: {},
@@ -33,22 +38,59 @@ export const codebaseStatsTool: Tool<Record<string, never>, CodebaseStatsOutput>
   },
   async execute(_input, ctx, execOpts) {
     const idxState = getIndexState();
+    const indexPath = resolveIndexDir(ctx.projectRoot, codebaseIndexDirOverride(ctx));
+
+    // The index worker can be busy parsing or writing during a startup build.
+    // Do not queue a stats read merely to report progress: on large projects
+    // that made this lightweight tool hit its outer timeout. Return the
+    // process-local lifecycle state immediately and let callers retry later.
+    if (idxState.indexing) {
+      return {
+        totalSymbols: 0,
+        totalFiles: 0,
+        byLang: {},
+        byKind: {},
+        lastIndexed: null,
+        sizeBytes: 0,
+        indexPath,
+        version: SCHEMA_VERSION,
+        statsAvailable: false,
+        indexing: {
+          currentFile: idxState.currentFile,
+          totalFiles: idxState.totalFiles,
+        },
+        indexStatus: idxState.ready
+          ? `Index refresh in progress (${idxState.currentFile}/${idxState.totalFiles} files). The persisted snapshot remains available to codebase-search; retry stats after refresh.`
+          : `Startup indexing in progress (${idxState.currentFile}/${idxState.totalFiles} files). Do not start another index; retry stats or codebase-search after completion.`,
+      };
+    }
 
     // Always inspect persisted state. Readiness is process-local and resets on
     // every CLI launch, while the SQLite index intentionally survives launches.
     // Fetched via the index host (worker thread when available) — the main
     // thread never opens SQLite here.
-    const stats = await codebaseIndexStats(
-      { projectRoot: ctx.projectRoot, indexDir: codebaseIndexDirOverride(ctx) },
-      { signal: execOpts?.signal },
-    );
-
-    if (idxState.indexing) {
+    let stats;
+    try {
+      stats = await codebaseIndexStats(
+        { projectRoot: ctx.projectRoot, indexDir: codebaseIndexDirOverride(ctx) },
+        { signal: execOpts?.signal },
+      );
+    } catch (err) {
+      if (!(err instanceof IndexTimeoutError) && (err as Error)?.name !== 'IndexTimeoutError') {
+        throw err;
+      }
       return {
-        ...stats,
-        indexStatus: idxState.ready
-          ? `Index refresh in progress (${idxState.currentFile}/${idxState.totalFiles} files). Showing the persisted snapshot.`
-          : `Initial indexing in progress (${idxState.currentFile}/${idxState.totalFiles} files). Showing persisted data if available.`,
+        totalSymbols: 0,
+        totalFiles: 0,
+        byLang: {},
+        byKind: {},
+        lastIndexed: null,
+        sizeBytes: 0,
+        indexPath,
+        version: SCHEMA_VERSION,
+        statsAvailable: false,
+        indexStatus:
+          'Index statistics timed out. Do not repeatedly retry stats; try codebase-search directly or use the appropriate grep/glob/tree fallback.',
       };
     }
 
@@ -76,6 +118,7 @@ export const codebaseStatsTool: Tool<Record<string, never>, CodebaseStatsOutput>
       sizeBytes: stats.sizeBytes,
       indexPath: stats.indexPath,
       version: stats.version,
+      statsAvailable: true,
       ...(indexStatus ? { indexStatus } : {}),
     };
   },
@@ -90,6 +133,15 @@ interface CodebaseStatsOutput {
   sizeBytes: number;
   indexPath: string;
   version: number;
+  /** False when lifecycle state was returned without opening the SQLite index. */
+  statsAvailable: boolean;
+  /** Present while an index build or refresh is active. */
+  indexing?:
+    | {
+        currentFile: number;
+        totalFiles: number;
+      }
+    | undefined;
   /** Non-empty when the index is not ready or is still building. */
   indexStatus?: string | undefined;
 }

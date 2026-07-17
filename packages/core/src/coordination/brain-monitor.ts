@@ -1,7 +1,7 @@
 /**
  * BrainMonitor — the Brain's SELF-ACTIVATION layer.
  *
- * The BrainArbiter alone is reactive: subsystems (director, autophase,
+ * The BrainArbiter alone is reactive: subsystems (director, goal,
  * eternal engine) ask it questions. The monitor closes the loop the other
  * way — it WATCHES the live EventBus for distress signals, consults the
  * Brain proactively, and when the decision calls for it, INTERVENES in the
