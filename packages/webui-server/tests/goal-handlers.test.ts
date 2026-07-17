@@ -32,7 +32,7 @@ describe('goal-handlers', () => {
       await handleGoalGet('/tmp/project', broadcast);
 
       expect(broadcast).toHaveBeenCalledWith({
-        type: 'goal.updated',
+        type: 'goal-state.updated',
         payload: goalData,
       });
     });
@@ -47,7 +47,7 @@ describe('goal-handlers', () => {
       await handleGoalGet('/tmp/project', broadcast);
 
       expect(broadcast).toHaveBeenCalledWith({
-        type: 'goal.updated',
+        type: 'goal-state.updated',
         payload: null,
       });
     });
@@ -62,7 +62,7 @@ describe('goal-handlers', () => {
       await handleGoalGet('/tmp/project', broadcast);
 
       expect(broadcast).toHaveBeenCalledWith({
-        type: 'goal.updated',
+        type: 'goal-state.updated',
         payload: null,
       });
     });

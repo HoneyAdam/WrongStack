@@ -28,10 +28,10 @@ type SlashRoutingClientMessage = Extract<
   | { type: 'mcp.resource.read' }
   | { type: 'mcp.prompt.get' }
   | { type: 'working_dir.set' }
-  | { type: 'autophase.start' }
-  | { type: 'autophase.pause' }
-  | { type: 'autophase.resume' }
-  | { type: 'autophase.stop' }
+  | { type: 'goal.start' }
+  | { type: 'goal.pause' }
+  | { type: 'goal.resume' }
+  | { type: 'goal.stop' }
 >;
 
 interface SlashRoutingClient {
@@ -203,10 +203,35 @@ export function runChatSlashCommand(options: RunChatSlashCommandOptions): boolea
       return true;
     }
     case '/goal':
-      client?.send?.({ type: 'goal.get' });
-      showPanel('chat');
-      useUIStore.getState().setDockSection('goal');
-      return true;
+      // start <title> | pause | resume | stop. No arg → open the full view.
+      {
+        const [sub, ...rest] = args.split(/\s+/).filter(Boolean);
+        const subcmd = (sub ?? '').toLowerCase();
+        if (subcmd === 'start') {
+          const title = rest.join(' ').trim();
+          if (!title) {
+            addMessage({ role: 'assistant', content: 'Usage: `/goal start <title>`' });
+            return true;
+          }
+          client?.send?.({ type: 'goal.start', payload: { title } });
+          openMainView('goal');
+          return true;
+        }
+        if (subcmd === 'pause') {
+          client?.send?.({ type: 'goal.pause', payload: {} });
+          return true;
+        }
+        if (subcmd === 'resume') {
+          client?.send?.({ type: 'goal.resume', payload: {} });
+          return true;
+        }
+        if (subcmd === 'stop') {
+          client?.send?.({ type: 'goal.stop', payload: {} });
+          return true;
+        }
+        openMainView('goal');
+        return true;
+      }
     case '/fleet':
       useUIStore.getState().setFleetMonitorOpen(true);
       return true;
@@ -313,35 +338,6 @@ export function runChatSlashCommand(options: RunChatSlashCommandOptions): boolea
       }
       client?.send?.({ type: 'working_dir.set', payload: { path } });
       addMessage({ role: 'assistant', content: `📂 Working directory → \`${path}\`.` });
-      return true;
-    }
-    case '/autophase': {
-      // start <title> | pause | resume | stop. No arg → open the full view.
-      const [sub, ...rest] = args.split(/\s+/).filter(Boolean);
-      const subcmd = (sub ?? '').toLowerCase();
-      if (subcmd === 'start') {
-        const title = rest.join(' ').trim();
-        if (!title) {
-          addMessage({ role: 'assistant', content: 'Usage: `/autophase start <title>`' });
-          return true;
-        }
-        client?.send?.({ type: 'autophase.start', payload: { title } });
-        openMainView('autophase');
-        return true;
-      }
-      if (subcmd === 'pause') {
-        client?.send?.({ type: 'autophase.pause', payload: {} });
-        return true;
-      }
-      if (subcmd === 'resume') {
-        client?.send?.({ type: 'autophase.resume', payload: {} });
-        return true;
-      }
-      if (subcmd === 'stop') {
-        client?.send?.({ type: 'autophase.stop', payload: {} });
-        return true;
-      }
-      openMainView('autophase');
       return true;
     }
     case '/brain': {
@@ -591,7 +587,7 @@ export function runChatSlashCommand(options: RunChatSlashCommandOptions): boolea
       if (panel === 'goalPanel') {
         client?.send?.({ type: 'goal.get' });
         showPanel('chat');
-        ui.setDockSection('goal');
+        ui.setDockSection('goal-state');
         return true;
       }
       if (panel === 'sessionsPanel') {

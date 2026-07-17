@@ -22,7 +22,7 @@ export { WorkDashboard } from './WorkDashboard';
 export { PhasePanel, type PhaseItem } from './PhasePanel';
 export { WorktreeGraph } from './WorktreeGraph';
 export { WorktreeLanes } from './WorktreeLanes';
-export { AutoPhaseView } from './AutoPhaseView';
+export { GoalView } from './GoalView';
 export { TaskBoard, type TaskItem } from './TaskBoard';
 export { ContextBar, ContextFillBar } from './ContextBar';
 export { ContextBreakdownModal } from './ContextBreakdownModal';

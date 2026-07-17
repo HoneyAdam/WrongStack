@@ -4,13 +4,13 @@ import { toast } from '@/components/Toaster';
 import { getWSClient } from '@/lib/ws-client';
 import { isActiveSessionMessage } from '@/lib/ws-client-utils';
 import {
-  useAutoPhaseStore,
+  useGoalRunStore,
   useChatStore,
   useCronStore,
   useFileStore,
   useGitChangesStore,
   useGitInfoStore,
-  useGoalStore,
+  useGoalStateStore,
   useSessionStore,
   useUIStore,
   useVizStore,
@@ -18,7 +18,7 @@ import {
 import { useLocalPrefs } from '@/stores/local-prefs';
 import type { WSServerMessage } from '@/types';
 
-function deriveAutoPhaseStatus(
+function deriveGoalRunStatus(
   phases: PhaseItem[] | undefined,
 ): 'running' | 'paused' | 'completed' | 'failed' | undefined {
   if (!phases || phases.length === 0) return undefined;
@@ -29,11 +29,11 @@ function deriveAutoPhaseStatus(
   return 'running';
 }
 
-export function handleAutoPhaseState(msg: WSServerMessage) {
+export function handleGoalState(msg: WSServerMessage) {
   const p = msg.payload as Record<string, unknown>;
   const phases = Array.isArray(p.phases) ? (p.phases as PhaseItem[]) : undefined;
-  const status = deriveAutoPhaseStatus(phases);
-  useAutoPhaseStore.getState().setState({
+  const status = deriveGoalRunStatus(phases);
+  useGoalRunStore.getState().setState({
     phases,
     activePhaseId: typeof p.activePhaseId === 'string' ? p.activePhaseId : undefined,
     overallPercent: typeof p.overallPercent === 'number' ? p.overallPercent : undefined,
@@ -41,11 +41,11 @@ export function handleAutoPhaseState(msg: WSServerMessage) {
     title: typeof p.title === 'string' ? p.title : undefined,
     goal: typeof p.goal === 'string' ? p.goal : undefined,
     status,
-    lastError: status === 'failed' ? useAutoPhaseStore.getState().lastError : null,
+    lastError: status === 'failed' ? useGoalRunStore.getState().lastError : null,
   });
 }
 
-export function handleAutoPhaseProgress(msg: WSServerMessage) {
+export function handleGoalProgress(msg: WSServerMessage) {
   const p = msg.payload as Record<string, unknown>;
   const progress = {
     totalPhases: typeof p.totalPhases === 'number' ? p.totalPhases : 0,
@@ -55,7 +55,7 @@ export function handleAutoPhaseProgress(msg: WSServerMessage) {
     completedTasks: typeof p.completedTasks === 'number' ? p.completedTasks : 0,
     failedTasks: typeof p.failedTasks === 'number' ? p.failedTasks : 0,
   };
-  useAutoPhaseStore.getState().setState({
+  useGoalRunStore.getState().setState({
     progress,
     overallPercent:
       typeof p.percentComplete === 'number' ? Math.round(p.percentComplete) : undefined,
@@ -64,38 +64,38 @@ export function handleAutoPhaseProgress(msg: WSServerMessage) {
   });
 }
 
-export function handleAutoPhaseLifecycle(msg: WSServerMessage) {
+export function handleGoalLifecycle(msg: WSServerMessage) {
   const p = msg.payload as Record<string, unknown>;
-  const title = typeof p.title === 'string' && p.title ? p.title : 'AutoPhase';
+  const title = typeof p.title === 'string' && p.title ? p.title : 'Goal';
   const error = typeof p.error === 'string' && p.error ? p.error : undefined;
 
-  if (msg.type === 'autophase.paused') {
-    useAutoPhaseStore
+  if (msg.type === 'goal.paused') {
+    useGoalRunStore
       .getState()
       .setState({ status: 'paused', autonomous: false, lastEvent: 'paused' });
-    toast.info('AutoPhase paused');
+    toast.info('Goal paused');
     return;
   }
-  if (msg.type === 'autophase.resumed') {
-    useAutoPhaseStore
+  if (msg.type === 'goal.resumed') {
+    useGoalRunStore
       .getState()
       .setState({ status: 'running', autonomous: true, lastEvent: 'resumed' });
-    toast.info('AutoPhase resumed');
+    toast.info('Goal resumed');
     return;
   }
-  if (msg.type === 'autophase.stopped') {
-    useAutoPhaseStore
+  if (msg.type === 'goal.stopped') {
+    useGoalRunStore
       .getState()
       .setState({ status: 'stopped', autonomous: false, lastEvent: 'stopped' });
-    toast.warn('AutoPhase stopped');
+    toast.warn('Goal stopped');
     return;
   }
-  if (msg.type === 'autophase.cleared') {
+  if (msg.type === 'goal.cleared') {
     // Reset to an empty board → the view falls back to the goal-entry screen.
-    useAutoPhaseStore.getState().clear();
+    useGoalRunStore.getState().clear();
     return;
   }
-  if (msg.type === 'autophase.reverted') {
+  if (msg.type === 'goal.reverted') {
     const ok = (p as { ok?: boolean }).ok === true;
     const reverted = typeof p.reverted === 'number' ? p.reverted : 0;
     const reason = typeof p.reason === 'string' ? p.reason : undefined;
@@ -108,16 +108,16 @@ export function handleAutoPhaseLifecycle(msg: WSServerMessage) {
     } else {
       toast.error(`Revert failed: ${reason ?? 'unknown error'}`);
     }
-    useAutoPhaseStore.getState().setState({ lastEvent: 'reverted' });
+    useGoalRunStore.getState().setState({ lastEvent: 'reverted' });
     return;
   }
-  if (msg.type === 'autophase.saved') {
-    useAutoPhaseStore.getState().setState({ lastEvent: 'saved' });
-    toast.success('AutoPhase graph saved');
+  if (msg.type === 'goal.saved') {
+    useGoalRunStore.getState().setState({ lastEvent: 'saved' });
+    toast.success('Goal graph saved');
     return;
   }
-  if (msg.type === 'autophase.completed') {
-    useAutoPhaseStore.getState().setState({
+  if (msg.type === 'goal.completed') {
+    useGoalRunStore.getState().setState({
       status: 'completed',
       autonomous: false,
       overallPercent: 100,
@@ -127,20 +127,20 @@ export function handleAutoPhaseLifecycle(msg: WSServerMessage) {
     toast.success(`${title} completed`);
     return;
   }
-  if (msg.type === 'autophase.failed' || msg.type === 'autophase.error') {
+  if (msg.type === 'goal.failed' || msg.type === 'goal.error') {
     const message = error ?? (typeof p.message === 'string' ? p.message : `${title} failed`);
-    useAutoPhaseStore
+    useGoalRunStore
       .getState()
       .setState({ status: 'failed', autonomous: false, lastEvent: 'failed', lastError: message });
     toast.error(message);
   }
 }
 
-export function handleAutoPhaseList(msg: WSServerMessage) {
+export function handleGoalList(msg: WSServerMessage) {
   const p = msg.payload as {
     graphs?: Array<{ id: string; title: string; updatedAt: number; status: string }> | undefined;
   };
-  useAutoPhaseStore.getState().setState({
+  useGoalRunStore.getState().setState({
     lastEvent: 'list',
     graphs: Array.isArray(p.graphs) ? p.graphs : [],
   });
@@ -148,7 +148,7 @@ export function handleAutoPhaseList(msg: WSServerMessage) {
 
 export function handleGoalUpdated(msg: WSServerMessage) {
   const p = msg.payload as Record<string, unknown> | null;
-  useGoalStore.getState().setGoal(p);
+  useGoalStateStore.getState().setGoal(p);
 }
 
 export function handlePrefsUpdated(msg: WSServerMessage) {
@@ -307,7 +307,7 @@ export function handleEternalIteration(msg: WSServerMessage) {
   const status = typeof entry.status === 'string' ? entry.status : undefined;
   const timestamp = typeof entry.at === 'string' ? entry.at : new Date().toISOString();
 
-  useGoalStore.getState().appendJournalEntry({
+  useGoalStateStore.getState().appendJournalEntry({
     iteration,
     task,
     status,
@@ -464,20 +464,20 @@ export function handleCronJobFired(msg: WSServerMessage) {
 }
 
 export const miscHandlerMap: Partial<Record<string, (msg: WSServerMessage) => void>> = {
-  'goal.updated': handleGoalUpdated,
+  'goal-state.updated': handleGoalUpdated,
   'prefs.updated': handlePrefsUpdated,
-  'autophase.state': handleAutoPhaseState,
-  'autophase.progress': handleAutoPhaseProgress,
-  'autophase.paused': handleAutoPhaseLifecycle,
-  'autophase.resumed': handleAutoPhaseLifecycle,
-  'autophase.stopped': handleAutoPhaseLifecycle,
-  'autophase.cleared': handleAutoPhaseLifecycle,
-  'autophase.reverted': handleAutoPhaseLifecycle,
-  'autophase.saved': handleAutoPhaseLifecycle,
-  'autophase.completed': handleAutoPhaseLifecycle,
-  'autophase.failed': handleAutoPhaseLifecycle,
-  'autophase.error': handleAutoPhaseLifecycle,
-  'autophase.list': handleAutoPhaseList,
+  'goal.state': handleGoalState,
+  'goal.progress': handleGoalProgress,
+  'goal.paused': handleGoalLifecycle,
+  'goal.resumed': handleGoalLifecycle,
+  'goal.stopped': handleGoalLifecycle,
+  'goal.cleared': handleGoalLifecycle,
+  'goal.reverted': handleGoalLifecycle,
+  'goal.saved': handleGoalLifecycle,
+  'goal.completed': handleGoalLifecycle,
+  'goal.failed': handleGoalLifecycle,
+  'goal.error': handleGoalLifecycle,
+  'goal.list': handleGoalList,
   'brain.status': handleBrainStatus,
   'brain.answer': handleBrainAnswer,
   'brain.event': handleBrainEvent,
