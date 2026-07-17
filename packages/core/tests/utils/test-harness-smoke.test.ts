@@ -55,12 +55,12 @@ describe('test-harness', () => {
       expect(harness.tools.has('write')).toBe(true);
     });
 
-    it('ctx has projectRoot and sessionId', () => {
+    it('ctx has projectRoot and session id', () => {
       harness = createTestHarness({
         context: { projectRoot: '/custom', sessionId: 'sess-123' },
       });
       expect(harness.ctx.projectRoot).toBe('/custom');
-      expect(harness.ctx.sessionId).toBe('sess-123');
+      expect(harness.ctx.session.id).toBe('sess-123');
     });
   });
 
@@ -69,7 +69,7 @@ describe('test-harness', () => {
       const provider = createMockProvider({
         streamEvents: [
           { type: 'text', text: 'custom' },
-          { type: 'message_stop', stopReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 1 } as any },
+          { type: 'message_stop', stopReason: 'end_turn', usage: { input: 1, output: 1 } as any },
         ],
       });
       const events: any[] = [];
@@ -113,10 +113,10 @@ describe('test-harness', () => {
       expect(ctx.provider.id).toBe('mock');
     });
 
-    it('tools map is accessible', () => {
+    it('tools array is accessible', () => {
       const ctx = createMockContext();
-      expect(ctx.tools).toBeInstanceOf(Map);
-      expect(ctx.tools.size).toBeGreaterThan(0);
+      expect(Array.isArray(ctx.tools)).toBe(true);
+      expect(ctx.tools.length).toBeGreaterThan(0);
     });
   });
 

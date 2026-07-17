@@ -154,13 +154,14 @@ export interface MockContextOptions {
 }
 
 export function createMockContext(opts: MockContextOptions = {}): Context {
+  const toolsMap = opts.tools ?? createMockToolRegistry();
   return {
     projectRoot: opts.projectRoot ?? '/test-project',
-    sessionId: opts.sessionId ?? 'test-session',
+    session: { id: opts.sessionId ?? 'test-session' },
     messages: opts.messages ?? [],
-    tools: opts.tools ?? createMockToolRegistry(),
+    tools: Array.from(toolsMap.values()),
     events: opts.events ?? new EventBus(),
-    abortSignal: new AbortController().signal,
+    signal: new AbortController().signal,
     cwd: opts.projectRoot ?? '/test-project',
     // Minimal stub for the rest
     provider: createMockProvider(),
