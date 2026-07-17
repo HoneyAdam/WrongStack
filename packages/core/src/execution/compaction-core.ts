@@ -253,6 +253,32 @@ export function eliseOldToolResults(
 ): EliseResult {
   const preserveStart = findPreserveStart(messages, opts.preserveK);
 
+  // ── Per-block token-estimate cache ───────────────────────────────────────
+  //
+  // Both the fast-path probe and the full pass call estimateToolResultTokens /
+  // estimateToolInputTokens on the same block. On oversized-tool-result
+  // sessions (thousands of 7 KB+ results) the redundant re-estimate is the
+  // single biggest cost — profiling showed ~11 ms/msg dominated by the
+  // estimator running twice per oversized block. The cache is keyed by the
+  // block object itself (stable within one call), scoped to this invocation,
+  // and free of GC risk: it dies with the closure. A plain Map is used rather
+  // than WeakMap because ToolUseBlock/ToolResultBlock are plain object literals
+  // (no identity stability guarantee across callers, but stable within one
+  // pass — which is all we need).
+  const tokenCache = new Map<ContentBlock, number>();
+  const tokensFor = (b: ContentBlock): number => {
+    const cached = tokenCache.get(b);
+    if (cached !== undefined) return cached;
+    const t =
+      b.type === 'tool_result'
+        ? estimateToolResultTokens(b.content)
+        : b.type === 'tool_use'
+          ? estimateToolInputTokens(b.input)
+          : 0;
+    tokenCache.set(b, t);
+    return t;
+  };
+
   // ── Fast path: probe for oversized tool I/O ─────────────────────────────
   //
   // Instruments the ratio of actual iterations to message count so we can
@@ -268,9 +294,7 @@ export function eliseOldToolResults(
     if (!msg || !Array.isArray(msg.content)) continue;
     for (const b of msg.content) {
       fastPathInnerIterations++;
-      const oversized =
-        (b.type === 'tool_result' && estimateToolResultTokens(b.content) >= opts.eliseThreshold) ||
-        (b.type === 'tool_use' && estimateToolInputTokens(b.input) >= opts.eliseThreshold);
+      const oversized = tokensFor(b) >= opts.eliseThreshold;
       if (oversized) {
         hasOversized = true;
         firstOversizedIndex = i;
@@ -320,7 +344,7 @@ export function eliseOldToolResults(
       const b = original[idx];
       if (!b) continue;
       if (b.type === 'tool_use') {
-        const tokens = estimateToolInputTokens(b.input);
+        const tokens = tokensFor(b);
         if (tokens < opts.eliseThreshold) continue;
         const elidedInput = summarizeToolUseInputElision(b, tokens);
         saved += Math.max(0, tokens - estimateToolInputTokens(elidedInput));
@@ -330,7 +354,7 @@ export function eliseOldToolResults(
       }
 
       if (b.type !== 'tool_result') continue;
-      const tokens = estimateToolResultTokens(b.content);
+      const tokens = tokensFor(b);
       if (tokens < opts.eliseThreshold) continue;
       saved += tokens;
       const elided: ToolResultBlock = {
