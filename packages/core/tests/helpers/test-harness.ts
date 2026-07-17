@@ -109,7 +109,7 @@ export interface MockToolOptions {
   result?: string;
   error?: Error;
   permission?: Permission;
-  risk?: 'safe' | 'standard' | 'destructive';
+  riskTier?: 'safe' | 'standard' | 'destructive';
 }
 
 export function createMockTool(opts: MockToolOptions = {}): Tool {
@@ -118,7 +118,8 @@ export function createMockTool(opts: MockToolOptions = {}): Tool {
     name,
     description: opts.description ?? 'A mock tool for testing.',
     permission: opts.permission ?? 'auto',
-    risk: opts.risk ?? 'safe',
+    mutating: false,
+    riskTier: opts.riskTier ?? 'safe',
     inputSchema: { type: 'object', properties: {} },
     async execute(_input: unknown, _ctx: Context): Promise<string> {
       if (opts.error) throw opts.error;
