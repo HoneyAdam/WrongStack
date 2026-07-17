@@ -4603,12 +4603,15 @@ export function App({
       }
     }
     // ── ProcessList owns the keyboard ──────────────────────────────
-    // The ProcessList panel captures every keystroke through its own
-    // useInput (↑↓/PgUp/PgDn/Home/End/g/G navigation, Enter/Del/a/A/r
-    // actions). We return early here so NONE of those keys ever reach
-    // the chat input buffer — no typing, no backspace, no cursor
-    // movement, nothing. Only the F8 toggle and Esc close (handled
-    // above) bypass this guard so the panel can be dismissed.
+    // Unlike other F-key overlays (F2/F3/F4/F6/F7/F9), which keep the
+    // chat input LIVE while rendering below it, the ProcessList (F8) is
+    // MODAL by design: it blocks ALL keystrokes from reaching the input
+    // buffer. This is intentional because the panel has destructive
+    // shortcuts (Enter=kill, Del=force-kill, a=kill-all, A=force-all,
+    // r=reset breaker) — a stray keystroke typed into the chat could
+    // accidentally kill a running process. Only the F8 toggle and the
+    // Esc close (handled above in the escCloseAction block) bypass this
+    // guard so the panel can be dismissed.
     if (state.processListOpen) {
       return;
     }
