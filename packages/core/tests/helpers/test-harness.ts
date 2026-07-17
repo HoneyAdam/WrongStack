@@ -60,7 +60,7 @@ export function createMockProvider(opts: MockProviderOptions = {}): Provider {
   const id = opts.id ?? 'mock';
   const defaultStream: StreamEvent[] = [
     { type: 'text', text: 'Hello from mock provider.' },
-    { type: 'message_stop', stopReason: 'end_turn', usage: { inputTokens: 10, outputTokens: 5 } as unknown as Usage },
+    { type: 'message_stop', stopReason: 'end_turn', usage: { input: 10, output: 5 } as unknown as Usage },
   ];
   const streamEvents = opts.streamEvents ?? defaultStream;
 
@@ -82,7 +82,7 @@ export function createMockProvider(opts: MockProviderOptions = {}): Provider {
       if (opts.completeResponse) return opts.completeResponse;
       // Build a response from the stream events
       let text = '';
-      let usage: Usage = { inputTokens: 0, outputTokens: 0 } as unknown as Usage;
+      let usage: Usage = { input: 0, output: 0 } as unknown as Usage;
       let stopReason: string = 'end_turn';
       for (const e of streamEvents) {
         if (e.type === 'text') text += e.text;
