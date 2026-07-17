@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 import type { Action, State } from '../app-reducer.js';
 import { stripNextStepsBlock } from '@wrongstack/tools/next-steps';
 import { addTool, formatToolSummary, newToolAgg, type ToolAgg } from './fleet-chat-coalescer.js';
+import { useFleetGenerationGate } from './use-fleet-generation-gate.js';
 
 const FLUSH_MS = 150;
 const STREAM_COLORS = ['cyan', 'magenta', 'yellow', 'green', 'blue'];
@@ -63,6 +64,7 @@ export function useDirectorFleetBridge({
 }: UseDirectorFleetBridgeOptions): void {
   const labelsRef = useRef<Map<string, { label: string; color: string }>>(new Map());
   const chatModeRef = useRef(chatMode);
+  const gate = useFleetGenerationGate(sessionGenerationRef);
   useEffect(() => {
     chatModeRef.current = chatMode;
   }, [chatMode]);
@@ -70,18 +72,6 @@ export function useDirectorFleetBridge({
   useEffect(() => {
     const d = director;
     if (!d) return;
-
-    // Track the session generation at which each subagent was first seen.
-    // After /clear bumps sessionGenerationRef, events for subagents spawned
-    // before the bump are discarded — their enq/dispatch calls would
-    // re-pollute the cleared chat and fleet table.
-    const spawnGen = new Map<string, number>();
-    const isLive = (subagentId: string): boolean => {
-      if (!sessionGenerationRef) return true;
-      const gen = spawnGen.get(subagentId);
-      if (gen === undefined) return true; // unknown agent — allow
-      return gen === sessionGenerationRef.current;
-    };
 
     const batch: Action[] = [];
     let batchTimer: ReturnType<typeof setTimeout> | null = null;
@@ -129,7 +119,7 @@ export function useDirectorFleetBridge({
     const toolAgg = new Map<string, ToolAgg>();
     const finalizeTurn = (id: string): void => {
       // Skip committing buffered text for subagents spawned before /clear.
-      if (!isLive(id)) {
+      if (!gate.isLive(id)) {
         historyBuf.delete(id);
         toolAgg.delete(id);
         return;
@@ -172,7 +162,7 @@ export function useDirectorFleetBridge({
 
     const status = d.status();
     for (const subagent of status.subagents) {
-      spawnGen.set(subagent.id, sessionGenerationRef?.current ?? 0);
+      gate.track(subagent.id);
       const meta = d.getSubagentMeta(subagent.id);
       dispatch({
         type: 'fleetSpawn',
@@ -207,7 +197,7 @@ export function useDirectorFleetBridge({
       const fresh = !seen.has(event.subagentId);
       if (fresh) {
         seen.add(event.subagentId);
-        spawnGen.set(event.subagentId, sessionGenerationRef?.current ?? 0);
+        gate.track(event.subagentId);
         const meta = d.getSubagentMeta(event.subagentId);
         enqueue({
           type: 'fleetSpawn',
@@ -234,7 +224,7 @@ export function useDirectorFleetBridge({
       }
 
       // Discard events from subagents spawned before the last /clear.
-      if (!isLive(event.subagentId)) return;
+      if (!gate.isLive(event.subagentId)) return;
 
       switch (event.type) {
         case 'subagent.removed':
@@ -458,7 +448,7 @@ export function useDirectorFleetBridge({
 
     const offDone = d.on('task.completed', (payload) => {
       // Discard completions from subagents spawned before the last /clear.
-      if (!isLive(payload.result.subagentId)) return;
+      if (!gate.isLive(payload.result.subagentId)) return;
       dispatch({
         type: 'fleetDone',
         id: payload.result.subagentId,
@@ -499,7 +489,7 @@ export function useDirectorFleetBridge({
       if (batchTimer) clearTimeout(batchTimer);
       flushBatch();
     };
-  }, [director, dispatch, stateRef, sessionGenerationRef]);
+  }, [director, dispatch, stateRef, gate]);
 }
 
 function collabRole(subagentId: string): string | null {
