@@ -15,6 +15,8 @@ import {
   DefaultSessionRewinder,
   detectContinueIntent,
   type EnhanceFailureKind,
+  DEFAULT_REFINER_RETRY_FEEDBACK,
+  buildRefinerContextSections,
   enhanceUserPrompt,
   expectDefined,
   formatTodosList,
@@ -150,6 +152,7 @@ import { WorktreePanel } from './components/worktree-panel.js';
 import { createContextMemoryStatsGetter, createContextSlashCommand } from './context-slash.js';
 import { createCronJobsGetter, createCronSlashCommand } from './cron-slash.js';
 import { actionForFKeyPanel } from './f-key-panels.js';
+import { escCloseAction } from './esc-close-panels.js';
 import { type GitInfo, readGitInfo } from './git-info.js';
 import { hitRegion, statusBarLineRow } from './hit-test.js';
 import { useAuthPanel } from './hooks/use-auth-panel.js';
@@ -3553,6 +3556,7 @@ export function App({
     getSessionId: getActiveSessionId,
     subscribeAutoPhase,
     onClearHistory,
+    sessionGenerationRef,
   });
 
   useTuiControllers({
@@ -3595,6 +3599,7 @@ export function App({
     dispatch,
     stateRef,
     chatMode: state.fleetChat,
+    sessionGenerationRef,
   });
 
   // ── File search (@-token detection + picker selection) ───────────
@@ -4347,8 +4352,14 @@ export function App({
       };
 
       // ── confirmExit gate: show confirmation dialog ──────────────────
+      // Return immediately so the run is NOT aborted until the user
+      // confirms via EscConfirmPrompt (y/Enter = interrupt, n/Esc = cancel).
+      // Without this return the code falls through to the immediate-interrupt
+      // block below, aborting the run before the user answers the dialog —
+      // making confirmExit a complete no-op.
       if (confirmExitRef.current) {
         dispatch({ type: 'escConfirmOpen', snapshot });
+        return;
       }
 
       // ── Immediate interrupt (confirmExit is off) ────────────────────
@@ -4616,58 +4627,14 @@ export function App({
       }
       return;
     }
-    // Esc closes whichever overlay/panel is open.
+    // Esc closes whichever overlay/panel is open. The lookup is data-driven
+    // via escCloseAction — see esc-close-panels.ts for the full table and
+    // the excluded panels (worktreeMonitor, phaseMonitor, kanbanPanel,
+    // goalKanbanPanel) that own their own Esc handler via child useInput.
     if (key.escape) {
-      if (state.agentsMonitorOpen) {
-        dispatch({ type: 'toggleAgentsMonitor' });
-        return;
-      }
-      if (state.monitorOpen) {
-        dispatch({ type: 'toggleMonitor' });
-        return;
-      }
-      // worktreeMonitor and the autoPhase PhaseMonitor are intentionally NOT
-      // handled here: each owns its own Esc close via its own useInput. Because
-      // the Input stays mounted alongside them, dispatching the toggle here too
-      // would fire it twice in one keypress and the panel would re-open.
-      if (state.todosMonitorOpen) {
-        dispatch({ type: 'toggleTodosMonitor' });
-        return;
-      }
-      if (state.settingsPicker.open) {
-        dispatch({ type: 'settingsClose' });
-        return;
-      }
-      if (state.projectPicker.open) {
-        dispatch({ type: 'projectPickerClose' });
-        return;
-      }
-      if (state.queuePanelOpen) {
-        dispatch({ type: 'toggleQueuePanel' });
-        return;
-      }
-      if (state.processListOpen) {
-        dispatch({ type: 'toggleProcessList' });
-        return;
-      }
-      if (state.goalPanelOpen) {
-        dispatch({ type: 'toggleGoalPanel' });
-        return;
-      }
-      if (state.contextPanelOpen) {
-        dispatch({ type: 'toggleContextPanel' });
-        return;
-      }
-      if (state.helpOpen) {
-        dispatch({ type: 'toggleHelp' });
-        return;
-      }
-      if (state.sessionsPanelOpen) {
-        dispatch({ type: 'toggleSessionsPanel' });
-        return;
-      }
-      if (state.coordinator.monitorOpen) {
-        dispatch({ type: 'toggleCoordinatorMonitor' });
+      const action = escCloseAction(state);
+      if (action) {
+        dispatch(action);
         return;
       }
     }
@@ -5808,6 +5775,23 @@ export function App({
         // prefix, so `/clearfoo` doesn't trigger.
         const cmd = trimmed.slice(1).split(/\s+/, 1)[0];
         if (cmd === 'clear' && res?.metadata?.cleared === true) {
+          // Terminate any running subagents BEFORE clearing state. Without
+          // this, in-flight subagents keep executing and their completion
+          // events (task.completed, fleetDone, addEntry) re-pollute the
+          // freshly-cleared history within seconds — the fleet event bridge
+          // dispatches directly with no generation check, so it bypasses
+          // the provider-response guards below.
+          const clearDir = liveDirector();
+          if (clearDir) {
+            const cap = new Promise<void>((resolve) => {
+              const t = setTimeout(resolve, 1500);
+              t.unref?.();
+            });
+            void Promise.race([clearDir.terminateAll().catch(() => undefined), cap]);
+          }
+          // Bump the session generation so provider-response/text-delta
+          // listeners discard any stale output from the aborted run.
+          sessionGenerationRef.current++;
           // Physically wipe the terminal (screen + scrollback) FIRST so the
           // old conversation isn't left reachable above the fresh banner;
           // the clearHistory remount below then reprints the banner onto a
@@ -5897,20 +5881,27 @@ export function App({
       !continueResolved &&
       shouldEnhance(cleanText)
     ) {
-      const refineStartedAt = Date.now();
       let refineDurationMs = 0;
-      setEnhanceStartedAt(refineStartedAt);
       setEnhanceDurationMs(null);
       // One abort controller for EVERY attempt this submit — pressing Esc while
       // "refining…" shows aborts the in-flight call (handleKey calls
       // enhanceAbortRef.current.abort()), after which we send the original.
       const ac = new AbortController();
       const baseTimeoutMs = 90_000;
+      const contextSections = await buildRefinerContextSections({
+        text: cleanText,
+        memoryStore,
+        context: agent.ctx,
+      });
 
       type RefineOutcome = {
         result: { refined: string; english: string } | null;
         kind: EnhanceFailureKind | undefined;
         reason: string | null;
+      };
+      type RefineAttemptHints = {
+        previousRefinement?: { refined: string; english: string } | undefined;
+        retryFeedback?: string | undefined;
       };
       // Run ONE refine attempt on a given provider/model. Drives the
       // "refining…" indicator for its duration and accumulates elapsed time.
@@ -5919,9 +5910,12 @@ export function App({
         model: string,
         timeoutMs: number,
         reasoning: ReasoningRequest | undefined,
+        hints: RefineAttemptHints = {},
       ): Promise<RefineOutcome> => {
         let kind: EnhanceFailureKind | undefined;
         let reason: string | null = null;
+        const attemptStartedAt = Date.now();
+        setEnhanceStartedAt(attemptStartedAt);
         setEnhanceDurationMs(null);
         enhanceAbortRef.current = ac;
         dispatch({ type: 'enhanceBusy', on: true });
@@ -5940,10 +5934,15 @@ export function App({
             // Feed recent conversation so follow-ups ("do the same", "that
             // file") resolve against context instead of being refined blind.
             history: recentTextTurns(agent.ctx.messages),
+            contextSections,
+            ...(hints.previousRefinement
+              ? { previousRefinement: hints.previousRefinement }
+              : {}),
+            ...(hints.retryFeedback ? { retryFeedback: hints.retryFeedback } : {}),
             ...(reasoning ? { reasoning } : {}),
           })) as { refined: string; english: string } | null;
         } finally {
-          refineDurationMs = Math.max(0, Date.now() - refineStartedAt);
+          refineDurationMs = Math.max(0, Date.now() - attemptStartedAt);
           setEnhanceDurationMs(refineDurationMs);
           enhanceAbortRef.current = null;
           dispatch({ type: 'enhanceBusy', on: false });
@@ -5970,126 +5969,129 @@ export function App({
         );
       }
 
-      // Recovery loop: while the refine keeps failing (and the user hasn't
-      // aborted with Esc), ask how to recover — retry with more time, retry on
-      // the fallback/another model (ephemerally, no session switch), send the
-      // message as-is, or edit it.
       let sendOriginal = false;
       let editLoad = false;
-      while (outcome.result === null && !ac.signal.aborted) {
-        const fallbackRef = getEnhanceFallbackRef?.();
-        // "Pick another model" candidates — only offered when the host can
-        // build an ephemeral provider for the chosen pair.
-        const models: RefineFailureModel[] = buildEnhancerProvider
-          ? await (async () => {
-              try {
-                const providers = (await getPickableProviders?.()) ?? [];
-                const flat: RefineFailureModel[] = [];
-                for (const p of providers) {
-                  for (const m of p.models) {
-                    if (p.id === agent.ctx.provider.id && m === agent.ctx.model) continue;
-                    flat.push({ providerId: p.id, model: m, label: p.family });
-                    if (flat.length >= 200) return flat;
+      reviewLoop: while (true) {
+        // Recovery loop: while the refine keeps failing (and the user hasn't
+        // aborted with Esc), ask how to recover — retry with more time, retry on
+        // the fallback/another model (ephemerally, no session switch), send the
+        // message as-is, or edit it.
+        while (outcome.result === null && !ac.signal.aborted) {
+          const fallbackRef = getEnhanceFallbackRef?.();
+          // "Pick another model" candidates — only offered when the host can
+          // build an ephemeral provider for the chosen pair.
+          const models: RefineFailureModel[] = buildEnhancerProvider
+            ? await (async () => {
+                try {
+                  const providers = (await getPickableProviders?.()) ?? [];
+                  const flat: RefineFailureModel[] = [];
+                  for (const p of providers) {
+                    for (const m of p.models) {
+                      if (p.id === agent.ctx.provider.id && m === agent.ctx.model) continue;
+                      flat.push({ providerId: p.id, model: m, label: p.family });
+                      if (flat.length >= 200) return flat;
+                    }
                   }
+                  return flat;
+                } catch {
+                  return [];
                 }
-                return flat;
-              } catch {
-                return [];
-              }
-            })()
-          : [];
-        const decision = await new Promise<RefineFailureDecision>((resolve) => {
-          dispatch({
-            type: 'refineFailureOpen',
-            info: {
-              original: trimmed,
-              ...(outcome.reason ? { error: outcome.reason } : {}),
-              elapsedMs: refineDurationMs,
-              ...(fallbackRef && buildEnhancerProvider ? { fallbackRef } : {}),
-              models,
-              resolve,
-            },
+              })()
+            : [];
+          const decision = await new Promise<RefineFailureDecision>((resolve) => {
+            dispatch({
+              type: 'refineFailureOpen',
+              info: {
+                original: trimmed,
+                ...(outcome.reason ? { error: outcome.reason } : {}),
+                elapsedMs: refineDurationMs,
+                ...(fallbackRef && buildEnhancerProvider ? { fallbackRef } : {}),
+                models,
+                resolve,
+              },
+            });
           });
-        });
-        dispatch({ type: 'refineFailureClose' });
-        if (decision.kind === 'original') {
-          sendOriginal = true;
-          break;
+          dispatch({ type: 'refineFailureClose' });
+          if (decision.kind === 'original') {
+            sendOriginal = true;
+            break;
+          }
+          if (decision.kind === 'edit') {
+            editLoad = true;
+            break;
+          }
+          const retryTimeout = nextEnhanceTimeout(baseTimeoutMs, undefined);
+          if (decision.kind === 'retry') {
+            outcome = await runAttempt(
+              agent.ctx.provider,
+              agent.ctx.model,
+              retryTimeout,
+              getEnhancerReasoning?.(),
+            );
+            continue;
+          }
+          // fallback / pick → build an ephemeral provider (session model stays
+          // put) and refine on it. No reasoning hint: the gated hint is bound to
+          // the session model, not this one, so omitting it is the safe choice.
+          const ref =
+            decision.kind === 'fallback'
+              ? parseModelRef(fallbackRef ?? '')
+              : { provider: decision.providerId, model: decision.model };
+          const targetProvider = ref.provider ?? agent.ctx.provider.id;
+          const targetModel = ref.model;
+          let built: Provider | undefined;
+          try {
+            built = await buildEnhancerProvider?.(targetProvider, targetModel);
+          } catch {
+            built = undefined;
+          }
+          if (!built || !targetModel) {
+            dispatch({
+              type: 'addEntry',
+              entry: {
+                kind: 'warn',
+                text: `✨ couldn't use ${targetProvider}/${targetModel} for refinement`,
+              },
+            });
+            outcome = {
+              result: null,
+              kind: 'provider_error',
+              reason: `couldn't build ${targetProvider}/${targetModel}`,
+            };
+            continue;
+          }
+          outcome = await runAttempt(built, targetModel, retryTimeout, undefined);
         }
-        if (decision.kind === 'edit') {
-          editLoad = true;
-          break;
-        }
-        const retryTimeout = nextEnhanceTimeout(baseTimeoutMs, undefined);
-        if (decision.kind === 'retry') {
-          outcome = await runAttempt(
-            agent.ctx.provider,
-            agent.ctx.model,
-            retryTimeout,
-            getEnhancerReasoning?.(),
-          );
-          continue;
-        }
-        // fallback / pick → build an ephemeral provider (session model stays
-        // put) and refine on it. No reasoning hint: the gated hint is bound to
-        // the session model, not this one, so omitting it is the safe choice.
-        const ref =
-          decision.kind === 'fallback'
-            ? parseModelRef(fallbackRef ?? '')
-            : { provider: decision.providerId, model: decision.model };
-        const targetProvider = ref.provider ?? agent.ctx.provider.id;
-        const targetModel = ref.model;
-        let built: Provider | undefined;
-        try {
-          built = await buildEnhancerProvider?.(targetProvider, targetModel);
-        } catch {
-          built = undefined;
-        }
-        if (!built || !targetModel) {
-          dispatch({
-            type: 'addEntry',
-            entry: {
-              kind: 'warn',
-              text: `✨ couldn't use ${targetProvider}/${targetModel} for refinement`,
-            },
-          });
-          outcome = {
-            result: null,
-            kind: 'provider_error',
-            reason: `couldn't build ${targetProvider}/${targetModel}`,
-          };
-          continue;
-        }
-        outcome = await runAttempt(built, targetModel, retryTimeout, undefined);
-      }
 
-      setEnhanceStartedAt(null);
-      setEnhanceDurationMs(null);
+        setEnhanceStartedAt(null);
+        setEnhanceDurationMs(null);
 
-      const result = outcome.result;
-      if (editLoad) {
-        // Load the message back into the input for hand-editing; send nothing.
-        setDraft(trimmed, trimmed.length);
-        return;
-      }
-      // Esc during "refining…" → cancel the send and return to the input
-      // with the original text preserved for editing.
-      if (enhanceCancelledRef.current) {
-        enhanceCancelledRef.current = false;
-        setDraft(trimmed, trimmed.length);
-        return;
-      }
-      if (sendOriginal || result === null) {
-        // Send as-is (declined recovery).
-        effectiveText = trimmed;
-      } else if (!normalizedEqual(result.refined, cleanText)) {
-        // Re-attach chips stripped before refinement so file/image references
-        // survive the rewrite. Chips are appended at the end.
-        const chipSuffix = chips.length > 0 ? ` ${chips.join(' ')}` : '';
-        const refinedWithChips = result.refined + chipSuffix;
-        const englishWithChips = result.english + chipSuffix;
-        const decision = await new Promise<'refined' | 'english' | 'original' | 'edit' | 'cancel'>(
-          (resolve) => {
+        const result = outcome.result;
+        if (editLoad) {
+          // Load the message back into the input for hand-editing; send nothing.
+          setDraft(trimmed, trimmed.length);
+          return;
+        }
+        // Esc during "refining…" → cancel the send and return to the input
+        // with the original text preserved for editing.
+        if (enhanceCancelledRef.current) {
+          enhanceCancelledRef.current = false;
+          setDraft(trimmed, trimmed.length);
+          return;
+        }
+        if (sendOriginal || result === null) {
+          // Send as-is (declined recovery).
+          effectiveText = trimmed;
+          break reviewLoop;
+        } else if (!normalizedEqual(result.refined, cleanText)) {
+          // Re-attach chips stripped before refinement so file/image references
+          // survive the rewrite. Chips are appended at the end.
+          const chipSuffix = chips.length > 0 ? ` ${chips.join(' ')}` : '';
+          const refinedWithChips = result.refined + chipSuffix;
+          const englishWithChips = result.english + chipSuffix;
+          const decision = await new Promise<
+            'refined' | 'english' | 'original' | 'edit' | 'cancel' | 'retry'
+          >((resolve) => {
             dispatch({
               type: 'enhanceOpen',
               info: {
@@ -6099,28 +6101,43 @@ export function App({
                 resolve,
               },
             });
-          },
-        );
-        dispatch({ type: 'enhanceClose' });
-        setEnhanceStartedAt(null);
-        setEnhanceDurationMs(null);
-        if (decision === 'cancel') {
-          // Esc — load the original message back into the input so the user
-          // can edit it and re-submit. Nothing is sent this round.
-          setDraft(trimmed, trimmed.length);
-          return;
+          });
+          dispatch({ type: 'enhanceClose' });
+          setEnhanceStartedAt(null);
+          setEnhanceDurationMs(null);
+          if (decision === 'retry') {
+            outcome = await runAttempt(
+              agent.ctx.provider,
+              agent.ctx.model,
+              nextEnhanceTimeout(baseTimeoutMs, undefined),
+              getEnhancerReasoning?.(),
+              {
+                previousRefinement: result,
+                retryFeedback: DEFAULT_REFINER_RETRY_FEEDBACK,
+              },
+            );
+            continue reviewLoop;
+          }
+          if (decision === 'cancel') {
+            // Esc — load the original message back into the input so the user
+            // can edit it and re-submit. Nothing is sent this round.
+            setDraft(trimmed, trimmed.length);
+            return;
+          }
+          if (decision === 'edit') {
+            // Load the refined text back into the input so the user can tweak
+            // it and re-submit. Nothing is sent this round.
+            setDraft(refinedWithChips, refinedWithChips.length);
+            return;
+          }
+          if (decision === 'english') {
+            effectiveText = englishWithChips;
+          } else {
+            effectiveText = decision === 'refined' ? refinedWithChips : trimmed;
+          }
+          break reviewLoop;
         }
-        if (decision === 'edit') {
-          // Load the refined text back into the input so the user can tweak
-          // it and re-submit. Nothing is sent this round.
-          setDraft(refinedWithChips, refinedWithChips.length);
-          return;
-        }
-        if (decision === 'english') {
-          effectiveText = englishWithChips;
-        } else {
-          effectiveText = decision === 'refined' ? refinedWithChips : trimmed;
-        }
+        break reviewLoop;
       }
     }
 

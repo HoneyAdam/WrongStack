@@ -15,13 +15,14 @@ type ClearHistoryDispatch = React.Dispatch<
 export interface UseTuiEventBridgeOptions {
   events: EventBus;
   dispatch: React.Dispatch<Action>;
-  stateRef: React.MutableRefObject<State>;
+  stateRef: { current: State };
   setActiveMaxContext: (value: number | undefined) => void;
   getSessionId?: (() => string | undefined) | undefined;
   subscribeAutoPhase?:
     | ((handler: (event: string, payload: unknown) => void) => () => void)
     | undefined;
   onClearHistory?: ((dispatch: ClearHistoryDispatch) => void) | undefined;
+  sessionGenerationRef?: { current: number } | undefined;
 }
 
 /**
@@ -38,12 +39,13 @@ export function useTuiEventBridge({
   getSessionId,
   subscribeAutoPhase,
   onClearHistory,
+  sessionGenerationRef,
 }: UseTuiEventBridgeOptions): void {
   // The chat-mode getter reads through stateRef so a live `/agents chat`
   // flip is honored without re-subscribing the event bridge; memoized so
   // it doesn't churn the subscription effect on every render.
   const getChatMode = useCallback(() => stateRef.current.fleetChat, [stateRef]);
-  useSubagentEvents(events, dispatch, setActiveMaxContext, getSessionId, getChatMode);
+  useSubagentEvents(events, dispatch, setActiveMaxContext, getSessionId, getChatMode, sessionGenerationRef);
   useSessionEvents(events, dispatch, onClearHistory, getSessionId);
   useBrainEvents(events, dispatch, getSessionId);
   useAutoPhaseEvents(subscribeAutoPhase, dispatch, stateRef, getSessionId);
