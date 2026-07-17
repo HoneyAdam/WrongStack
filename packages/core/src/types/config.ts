@@ -757,6 +757,14 @@ export interface SuperMemoryConfig {
     retentionDays?: number | undefined;
     /** Archive low-confidence memories after this many days. Default: 30. */
     archiveLowConfidenceAfterDays?: number | undefined;
+    /**
+     * Archive active memories that were injected at least `unusedMinInjections`
+     * times but never referenced by the assistant, this many days after their
+     * last content update. Default: 30.
+     */
+    archiveUnusedAfterDays?: number | undefined;
+    /** Minimum injection count before a never-used memory is archived. Default: 10. */
+    unusedMinInjections?: number | undefined;
   } | undefined;
   embeddings?: {
     /** Optional future semantic layer. Disabled by default and never required. */

@@ -307,10 +307,23 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
     this.loaded = true;
   }
 
+  private _logDeny(tool: string, subject: string | undefined, reason: string): void {
+    console.warn(JSON.stringify({
+      level: 'warn',
+      event: 'permission.denied',
+      message: `Permission denied: ${tool}${subject ? ` (subject: ${subject})` : ''} — ${reason}`,
+      tool,
+      subject,
+      reason,
+      timestamp: new Date().toISOString(),
+    }));
+  }
+
   async evaluate(tool: Tool, input: unknown, ctx: Context): Promise<PermissionDecision> {
     if (!this.loaded) await this.reload();
 
     if (this.policyInvalid) {
+      this._logDeny(tool.name, undefined, 'trust policy is invalid');
       return {
         permission: 'deny',
         source: 'deny',
@@ -341,6 +354,7 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
     //     this session without writing to the trust file. Prevents LLM retry
     //     from re-triggering the confirm prompt.
     if (this.sessionDenied.has(cacheKey)) {
+      this._logDeny(tool.name, subject, 'session soft deny (user pressed no)');
       const decision: PermissionDecision = { permission: 'deny', source: 'deny', reason: 'session soft deny (user pressed no)' };
       this._evalCache.set(cacheKey, decision);
       return decision;
@@ -361,11 +375,13 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
 
     // 4. Deny — absolute
     if (entry?.deny && subject && matchesTrust(entry.deny, subject)) {
+      this._logDeny(tool.name, subject, 'matched deny pattern');
       const decision: PermissionDecision = { permission: 'deny', source: 'deny', reason: 'matched deny pattern' };
       this._evalCache.set(cacheKey, decision);
       return decision;
     }
     if (tool.permission === 'deny') {
+      this._logDeny(tool.name, subject, 'tool default deny');
       const decision: PermissionDecision = { permission: 'deny', source: 'default', reason: 'tool default deny' };
       this._evalCache.set(cacheKey, decision);
       return decision;
@@ -400,6 +416,7 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
         }
         if (userDecision === 'deny') {
           await this.deny({ tool: tool.name, pattern: subject ?? tool.name });
+          this._logDeny(tool.name, subject, 'user denied sensitive read');
           return { permission: 'deny', source: 'user', reason: 'user denied sensitive read' };
         }
         return {
@@ -469,6 +486,7 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
       }
       if (decision === 'deny') {
         await this.deny({ tool: tool.name, pattern: subject ?? tool.name });
+        this._logDeny(tool.name, subject, 'user denied');
         return { permission: 'deny', source: 'user', reason: 'user denied' };
       }
       return { permission: decision === 'yes' ? 'auto' : 'deny', source: 'user' };

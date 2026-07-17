@@ -105,7 +105,7 @@ describe('test-coverage-gate extra coverage', () => {
     });
     const status = await (api.tools.register.mock.calls.find(
       (c: unknown[]) => (c[0] as { name: string }).name === 'coverage_gate_status',
-    )?.[0] as { execute: () => Promise<unknown> }).execute({});
+    )![0] as { execute: () => Promise<unknown> }).execute({});
     expect((status as Record<string, unknown>).counters).toMatchObject({ errors: 1 });
   });
 
@@ -123,7 +123,7 @@ describe('test-coverage-gate extra coverage', () => {
     });
     const status = await (api.tools.register.mock.calls.find(
       (c: unknown[]) => (c[0] as { name: string }).name === 'coverage_gate_status',
-    )?.[0] as { execute: () => Promise<unknown> }).execute({});
+    )![0] as { execute: () => Promise<unknown> }).execute({});
     expect((status as Record<string, unknown>).counters).toMatchObject({ errors: 1 });
   });
 
@@ -143,7 +143,7 @@ describe('test-coverage-gate extra coverage', () => {
     });
     const status = await (api.tools.register.mock.calls.find(
       (c: unknown[]) => (c[0] as { name: string }).name === 'coverage_gate_status',
-    )?.[0] as { execute: () => Promise<unknown> }).execute({});
+    )![0] as { execute: () => Promise<unknown> }).execute({});
     expect((status as Record<string, unknown>).counters).toMatchObject({ passed: 1, runs: 1 });
   });
 
@@ -171,7 +171,7 @@ describe('test-coverage-gate extra coverage', () => {
     coverageGatePlugin.setup(api as never);
     const status = await (api.tools.register.mock.calls.find(
       (c: unknown[]) => (c[0] as { name: string }).name === 'coverage_gate_status',
-    )?.[0] as { execute: () => Promise<unknown> }).execute({});
+    )![0] as { execute: () => Promise<unknown> }).execute({});
     expect((status as Record<string, unknown>).threshold).toBe(80);
   });
 
@@ -180,7 +180,7 @@ describe('test-coverage-gate extra coverage', () => {
     coverageGatePlugin.setup(api as never);
     const status = await (api.tools.register.mock.calls.find(
       (c: unknown[]) => (c[0] as { name: string }).name === 'coverage_gate_status',
-    )?.[0] as { execute: () => Promise<unknown> }).execute({});
+    )![0] as { execute: () => Promise<unknown> }).execute({});
     expect((status as Record<string, unknown>).threshold).toBe(80);
   });
 
@@ -189,7 +189,7 @@ describe('test-coverage-gate extra coverage', () => {
     coverageGatePlugin.setup(api as never);
     const status = await (api.tools.register.mock.calls.find(
       (c: unknown[]) => (c[0] as { name: string }).name === 'coverage_gate_status',
-    )?.[0] as { execute: () => Promise<unknown> }).execute({});
+    )![0] as { execute: () => Promise<unknown> }).execute({});
     expect((status as Record<string, unknown>).deltaThreshold).toBe(1);
   });
 
@@ -198,7 +198,7 @@ describe('test-coverage-gate extra coverage', () => {
     coverageGatePlugin.setup(api as never);
     const status = await (api.tools.register.mock.calls.find(
       (c: unknown[]) => (c[0] as { name: string }).name === 'coverage_gate_status',
-    )?.[0] as { execute: () => Promise<unknown> }).execute({});
+    )![0] as { execute: () => Promise<unknown> }).execute({});
     expect((status as Record<string, unknown>).threshold).toBe(80);
   });
 });

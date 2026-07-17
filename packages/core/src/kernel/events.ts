@@ -6,6 +6,7 @@
 import type { AgentEventMap } from './events/agent-events.js';
 import type { BrainEventMap } from './events/brain-events.js';
 import type { FleetEventMap } from './events/fleet-events.js';
+import type { FileEventMap } from './events/file-events.js';
 import type { MemoryEventMap } from './events/memory-events.js';
 import type { ProviderEventMap } from './events/provider-events.js';
 import type { SddEventMap } from './events/sdd-events.js';
@@ -48,6 +49,7 @@ export interface EventMap
     BrainEventMap,
     SessionEventMap,
     ProviderEventMap,
+    FileEventMap,
     ToolEventMap,
     MemoryEventMap,
     SddEventMap,

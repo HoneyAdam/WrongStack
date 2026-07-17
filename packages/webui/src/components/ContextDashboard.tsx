@@ -517,7 +517,7 @@ export function ContextDashboard() {
     setLoading(true);
     setDebugError(null);
 
-    ws.send({ type: 'context.debug' });
+    ws.send({ type: 'context.debug' }, { echoToChat: false });
     // Cancelled flag prevents the timeout from overwriting a successful response
     // and the response handler from acting on a stale timeout. The first
     // completion (response or timeout) sets it; the other becomes a no-op.

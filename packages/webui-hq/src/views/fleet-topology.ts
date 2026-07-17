@@ -25,6 +25,7 @@ export interface FleetTopologyNode extends Record<string, unknown> {
   agent?: HqSessionAgentSummary;
   session?: HqSessionSnapshotPayload;
   isSyntheticSession?: boolean;
+  serviceMode?: 'mailbox-serve';
 }
 
 export interface FleetTopologyEdge {
@@ -36,6 +37,148 @@ export interface FleetTopologyEdge {
 export interface FleetTopology {
   nodes: FleetTopologyNode[];
   edges: FleetTopologyEdge[];
+}
+
+export type FleetTopologyScope = 'all' | 'machine' | 'project';
+
+/** Keep one operator-selected slice while preserving the hierarchy needed to
+ * understand it. Project scope intentionally spans machines: selecting a
+ * project shows every machine currently working on that project. */
+export function filterFleetTopology(
+  topology: FleetTopology,
+  scope: FleetTopologyScope,
+  scopeId?: string,
+): FleetTopology {
+  if (scope === 'all' || scopeId === undefined || scopeId.length === 0) return topology;
+
+  const included = new Set<string>();
+  if (scope === 'machine') {
+    for (const node of topology.nodes) {
+      if (node.machineId === scopeId) included.add(node.id);
+    }
+  } else {
+    const machineIds = new Set<string>();
+    for (const node of topology.nodes) {
+      if (node.projectId !== scopeId) continue;
+      included.add(node.id);
+      if (node.machineId !== undefined) machineIds.add(node.machineId);
+    }
+    for (const node of topology.nodes) {
+      if (
+        node.kind === 'machine' &&
+        node.machineId !== undefined &&
+        machineIds.has(node.machineId)
+      ) {
+        included.add(node.id);
+      }
+    }
+  }
+
+  return {
+    nodes: topology.nodes.filter((node) => included.has(node.id)),
+    edges: topology.edges.filter(
+      (edge) => included.has(edge.source) && included.has(edge.target),
+    ),
+  };
+}
+
+/** Search the visible fleet without losing the hierarchy around a match.
+ * Ancestors explain where a terminal/agent lives; descendants are included
+ * when a container or terminal itself matches so the result remains useful. */
+export function filterFleetTopologyByQuery(
+  topology: FleetTopology,
+  query: string,
+): FleetTopology {
+  const needle = query.trim().toLocaleLowerCase();
+  if (needle.length === 0) return topology;
+
+  const nodeById = new Map(topology.nodes.map((node) => [node.id, node]));
+  const parentById = new Map<string, string>();
+  const childrenById = new Map<string, string[]>();
+  for (const edge of topology.edges) {
+    parentById.set(edge.target, edge.source);
+    const children = childrenById.get(edge.source) ?? [];
+    children.push(edge.target);
+    childrenById.set(edge.source, children);
+  }
+
+  const included = new Set<string>();
+  const expanded = new Set<string>();
+  const addAncestors = (nodeId: string): void => {
+    let current: string | undefined = nodeId;
+    while (current !== undefined && !included.has(current)) {
+      included.add(current);
+      current = parentById.get(current);
+    }
+  };
+  const addDescendants = (nodeId: string): void => {
+    if (expanded.has(nodeId)) return;
+    expanded.add(nodeId);
+    included.add(nodeId);
+    for (const childId of childrenById.get(nodeId) ?? []) addDescendants(childId);
+  };
+
+  for (const node of topology.nodes) {
+    const haystack = [
+      node.kind,
+      node.label,
+      node.sub,
+      node.status,
+      node.clientKind,
+      node.serviceMode,
+      node.machineId,
+      node.projectId,
+      node.clientId,
+      node.sessionId,
+      node.agentId,
+      ...node.chips,
+    ]
+      .filter((value): value is string => typeof value === 'string')
+      .join(' ')
+      .toLocaleLowerCase();
+    if (!haystack.includes(needle)) continue;
+    addAncestors(node.id);
+    addDescendants(node.id);
+  }
+
+  // Guard against malformed edges while keeping the function total.
+  for (const id of [...included]) {
+    if (!nodeById.has(id)) included.delete(id);
+  }
+  return {
+    nodes: topology.nodes.filter((node) => included.has(node.id)),
+    edges: topology.edges.filter(
+      (edge) => included.has(edge.source) && included.has(edge.target),
+    ),
+  };
+}
+
+/** Return nodes in hierarchy order even though the topology builder stores
+ * machine records before session-derived project/terminal records. */
+export function orderFleetTopologyNodes(topology: FleetTopology): FleetTopologyNode[] {
+  const nodeById = new Map(topology.nodes.map((node) => [node.id, node]));
+  const childIds = new Set(topology.edges.map((edge) => edge.target));
+  const childrenById = new Map<string, string[]>();
+  for (const edge of topology.edges) {
+    const children = childrenById.get(edge.source) ?? [];
+    children.push(edge.target);
+    childrenById.set(edge.source, children);
+  }
+
+  const ordered: FleetTopologyNode[] = [];
+  const seen = new Set<string>();
+  const visit = (nodeId: string): void => {
+    if (seen.has(nodeId)) return;
+    seen.add(nodeId);
+    const node = nodeById.get(nodeId);
+    if (node !== undefined) ordered.push(node);
+    for (const childId of childrenById.get(nodeId) ?? []) visit(childId);
+  };
+  for (const node of topology.nodes) {
+    if (!childIds.has(node.id)) visit(node.id);
+  }
+  for (const node of topology.nodes) visit(node.id);
+  return ordered;
 }
 
 // ── Hierarchical auto-layout ────────────────────────────────────────────
@@ -192,6 +335,9 @@ function projectSub(project: HqProjectRecord | undefined, session?: HqSessionSna
 }
 
 function terminalLabel(session: HqSessionSnapshotPayload): string {
+  if (session.clientKind === 'mailbox') {
+    return `MAILBOX SERVE · ${session.pid ?? session.sessionId.slice(-8)}`;
+  }
   return `${session.clientKind.toUpperCase()} · ${session.sessionId.length > 18 ? `…${session.sessionId.slice(-14)}` : session.sessionId}`;
 }
 
@@ -207,6 +353,7 @@ function syntheticSessionFromClient(client: HqClientRecord, project: HqProjectRe
   const sessionId = client.sessionId ?? `client:${client.clientId}`;
   return {
     sessionId,
+    clientId: client.clientId,
     clientKind: client.kind,
     machineId: client.machineId,
     ...(client.hostname !== undefined ? { hostname: client.hostname } : {}),
@@ -215,7 +362,12 @@ function syntheticSessionFromClient(client: HqClientRecord, project: HqProjectRe
     projectName: project?.projectName ?? client.projectId,
     projectRoot: project?.projectRootDisplay ?? '',
     ...(project?.gitBranch !== undefined ? { gitBranch: project.gitBranch } : {}),
-    status: client.connected ? 'idle' : 'stale',
+    status:
+      client.connected && client.capabilities.includes('mailbox.serve')
+        ? 'active'
+        : client.connected
+          ? 'idle'
+          : 'stale',
     startedAt: client.connectedAt ?? client.lastSeenAt,
     lastActivityAt: client.lastSeenAt,
     agentCount: 0,
@@ -236,10 +388,21 @@ function machineRecordFor(
   const sessionCount = machine?.sessionCount ?? sessions.filter((s) => s.machineId === machineId).length;
   const agentCount = machine?.agentCount ?? sessions.reduce((sum, s) => sum + (s.machineId === machineId ? s.agents.length : 0), 0);
   const clientCount = machine?.clientCount ?? clients.filter((c) => c.machineId === machineId && c.connected).length;
+  const mailboxServeCount = clients.filter(
+    (c) =>
+      c.machineId === machineId &&
+      c.connected &&
+      c.capabilities.includes('mailbox.serve'),
+  ).length;
   return {
     label,
     sub: machineId,
-    chips: [`${clientCount} client${clientCount === 1 ? '' : 's'}`, `${sessionCount} terminal${sessionCount === 1 ? '' : 's'}`, `${agentCount} agent${agentCount === 1 ? '' : 's'}`],
+    chips: [
+      `${clientCount} client${clientCount === 1 ? '' : 's'}`,
+      `${sessionCount} terminal${sessionCount === 1 ? '' : 's'}`,
+      `${agentCount} agent${agentCount === 1 ? '' : 's'}`,
+      ...(mailboxServeCount > 0 ? [`mailbox serve ×${mailboxServeCount}`] : []),
+    ],
   };
 }
 
@@ -267,10 +430,13 @@ export function buildFleetTopology(snapshot: HqSnapshot | null): FleetTopology {
 
   for (const client of snapshot.clients ?? []) {
     if (!client.connected) continue;
+    const mailboxService = client.capabilities?.includes('mailbox.serve') === true;
     // Only session-telemetry surfaces qualify as a terminal-in-waiting.
     // Auxiliary sockets never publish session snapshots, so rendering them
     // would leave permanent phantom "waiting for session telemetry" nodes.
-    if (!client.capabilities?.includes('session.summary')) continue;
+    // mailbox.serve is the exception: it is a deliberate, operator-visible
+    // service client rather than a phantom terminal.
+    if (!client.capabilities?.includes('session.summary') && !mailboxService) continue;
     if (
       client.pid !== undefined &&
       liveSessionProcesses.has(`${client.machineId}:${client.pid}`)
@@ -281,6 +447,7 @@ export function buildFleetTopology(snapshot: HqSnapshot | null): FleetTopology {
     // legacy publisher, not a terminal that is still booting.
     const connectedAt = Date.parse(client.connectedAt ?? client.lastSeenAt);
     if (
+      !mailboxService &&
       Number.isFinite(generatedAt) &&
       Number.isFinite(connectedAt) &&
       generatedAt - connectedAt > SYNTHETIC_TERMINAL_GRACE_MS
@@ -325,6 +492,14 @@ export function buildFleetTopology(snapshot: HqSnapshot | null): FleetTopology {
         `${project?.activeSessions ?? sortedSessions.filter((s) => s.machineId === machineId && s.projectId === session.projectId).length} terminal${(project?.activeSessions ?? 0) === 1 ? '' : 's'}`,
       ];
       if (project?.gitBranch !== undefined) chips.push(project.gitBranch);
+      const mailboxServeCount = (snapshot.clients ?? []).filter(
+        (client) =>
+          client.connected &&
+          client.machineId === machineId &&
+          client.projectId === session.projectId &&
+          client.capabilities.includes('mailbox.serve'),
+      ).length;
+      if (mailboxServeCount > 0) chips.push('mailbox serve');
       nodes.push({
         id: pId,
         kind: 'project',
@@ -342,21 +517,35 @@ export function buildFleetTopology(snapshot: HqSnapshot | null): FleetTopology {
     const tId = terminalKey(session.sessionId);
     if (!nodeIds.has(tId)) {
       const isSynthetic = session.sessionId.startsWith('client:') && session.agents.length === 0;
-      const chips = [session.clientKind, session.status, `${session.agentCount} agent${session.agentCount === 1 ? '' : 's'}`];
+      const serviceMode = session.clientKind === 'mailbox' ? 'mailbox-serve' : undefined;
+      const chips = [
+        serviceMode === 'mailbox-serve' ? 'mailbox serve' : session.clientKind,
+        session.status,
+        ...(serviceMode === undefined
+          ? [`${session.agentCount} agent${session.agentCount === 1 ? '' : 's'}`]
+          : []),
+      ];
       if (session.gitBranch !== undefined) chips.push(session.gitBranch);
       nodes.push({
         id: tId,
         kind: 'terminal',
         label: terminalLabel(session),
-        sub: isSynthetic ? 'waiting for session telemetry' : session.projectName,
+        sub:
+          serviceMode === 'mailbox-serve'
+            ? 'mailbox HTTP bridge'
+            : isSynthetic
+              ? 'waiting for session telemetry'
+              : session.projectName,
         status: session.status,
         chips,
         machineId,
         projectId: session.projectId,
+        ...(session.clientId !== undefined ? { clientId: session.clientId } : {}),
         sessionId: session.sessionId,
         clientKind: session.clientKind,
         session,
         isSyntheticSession: isSynthetic,
+        ...(serviceMode !== undefined ? { serviceMode } : {}),
       });
       nodeIds.add(tId);
     }
@@ -378,6 +567,7 @@ export function buildFleetTopology(snapshot: HqSnapshot | null): FleetTopology {
         ],
         machineId,
         projectId: session.projectId,
+        ...(session.clientId !== undefined ? { clientId: session.clientId } : {}),
         sessionId: session.sessionId,
         agentId: agent.id,
         agent,

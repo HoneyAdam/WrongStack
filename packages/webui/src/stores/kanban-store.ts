@@ -162,6 +162,15 @@ export const useKanbanStore = create<KanbanState>()((set, get) => ({
     }
     if (isBoard(data)) {
       const summary = summarize(data);
+      if (type === 'kanban.get') {
+        set((state) => ({
+          boards: upsertSummary(state.boards, summary),
+          activeBoard: state.activeBoardId === data.id ? data : state.activeBoard,
+          loading: false,
+          error: null,
+        }));
+        return;
+      }
       set((state) => ({
         boards: upsertSummary(state.boards, summary),
         activeBoardId: data.id,

@@ -209,7 +209,7 @@ export function AnalyticsDashboard() {
         setStatsLoading(false);
         cleanup();
       });
-      ws.getStats();
+      ws.getStats({ echoToChat: false });
 
       // Timeout guard: remove listener after 8s so stale handlers don't pile up
       setTimeout(() => {

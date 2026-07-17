@@ -62,6 +62,6 @@ describe('tool-audit-log — extra coverage', () => {
       (c) => c[0] === 'storage.read' && (c[1] as { outcome?: string }).outcome === 'failure',
     );
     expect(err).toBeDefined();
-    expect((err?.[1] as { traceId?: string }).traceId).toBe('tr-a');
+    expect((err![1] as { traceId?: string }).traceId).toBe('tr-a');
   });
 });

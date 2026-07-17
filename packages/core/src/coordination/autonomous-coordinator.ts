@@ -318,7 +318,7 @@ export class AutonomousCoordinator {
           }
           if (this.dag.hasDeadlock()) {
             const blocked = this.dag.getBlocked();
-            (this.events?.emit as (type: string, payload: unknown) => void)('autonomous:deadlock', { blocked });
+            this._busEmit('autonomous:deadlock', { blocked });
             this._emit({ type: 'deadlock:detected', goalId: blocked[0]?.id ?? '', text: `Deadlock detected: ${blocked.map((n) => n.id).join(', ')}` });
           }
           break;
@@ -343,7 +343,7 @@ export class AutonomousCoordinator {
           // No clear direction — check for blocked goals
           const blocked = this.dag.getBlocked();
           if (blocked.length > 0 && this.dag.hasDeadlock()) {
-            (this.events?.emit as (type: string, payload: unknown) => void)('autonomous:deadlock', { blocked });
+            this._busEmit('autonomous:deadlock', { blocked });
             this._emit({ type: 'deadlock:detected', goalId: blocked[0]?.id ?? '', text: `Deadlock detected: ${blocked.map((n) => n.id).join(', ')}` });
             this.running = false;
           }
@@ -352,7 +352,7 @@ export class AutonomousCoordinator {
 
         // Handle ask_human — can't proceed autonomously, stop
         if (decision.type === 'ask_human') {
-          (this.events?.emit as (type: string, payload: unknown) => void)('autonomous:ask_human', { prompt: decision.prompt });
+          this._busEmit('autonomous:ask_human', { prompt: decision.prompt });
           break;
         }
 
@@ -851,16 +851,22 @@ export class AutonomousCoordinator {
     }
   }
 
+  /** Emit on the optional shared bus; no-op when no bus was wired. */
+  private _busEmit(type: string, payload: unknown): void {
+    if (!this.events) return;
+    (this.events.emit as (type: string, payload: unknown) => void)(type, payload);
+  }
+
   private _onDagEvent(event: DAGEdgeEvent): void {
     if (event.type === 'node:ready') {
       // A new task became runnable — broadcast it
       const node = this.dag.getNode(event.nodeId);
       if (node) {
-        (this.events?.emit as (type: string, payload: unknown) => void)('autonomous:task_ready', { taskId: event.nodeId, description: node.description });
+        this._busEmit('autonomous:task_ready', { taskId: event.nodeId, description: node.description });
       }
     }
     if (event.type === 'graph:done') {
-      (this.events?.emit as (type: string, payload: unknown) => void)('autonomous:all_done', this.getStats());
+      this._busEmit('autonomous:all_done', this.getStats());
     }
     // Note: 'deadlock' events are handled exclusively in the main run() loop
     // (line 286-289) to avoid duplicate autonomous:deadlock emissions.

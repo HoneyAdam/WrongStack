@@ -21,9 +21,20 @@ export interface StreamCoalescerDeps {
 
 export interface ToolProgressPayload {
   sessionId?: string | undefined;
+  traceId?: string | undefined;
+  agentId?: string | undefined;
+  agentName?: string | undefined;
   id: string;
   name: string;
-  event: { type?: string | undefined; text?: string | undefined };
+  event: {
+    type?: string | undefined;
+    text?: string | undefined;
+    data?: Record<string, unknown> | undefined;
+    path?: string | undefined;
+    operation?: 'write' | 'edit' | 'delete' | 'rename' | undefined;
+    line?: number | undefined;
+    endLine?: number | undefined;
+  };
 }
 
 export interface StreamCoalescer {

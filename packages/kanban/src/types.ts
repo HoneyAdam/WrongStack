@@ -48,6 +48,27 @@ export type KanbanGoalMetricStatus = 'pending' | 'met' | 'missed' | 'waived';
 
 export type KanbanRetryPolicy = 'off' | 'incremental' | 'exponential';
 
+export type KanbanManualActivityKind =
+  | 'decision'
+  | 'attempt'
+  | 'result'
+  | 'blocker'
+  | 'observation';
+
+export type KanbanManualActivityOutcome =
+  | 'succeeded'
+  | 'failed'
+  | 'partial'
+  | 'skipped'
+  | 'unknown';
+
+export interface RecordKanbanTaskActivityInput {
+  kind: KanbanManualActivityKind;
+  summary: string;
+  outcome?: KanbanManualActivityOutcome | undefined;
+  details?: string | undefined;
+}
+
 /** How an agent assigned to a task obtains its primary model. */
 export type KanbanModelRoutingMode = 'session' | 'fixed' | 'fallback_profile';
 
@@ -193,11 +214,22 @@ export interface KanbanEvent {
   ts: string;
   taskId?: string | undefined;
   actor?: string | undefined;
+  /** Session that initiated or observed this task mutation, when known. */
+  sessionId?: string | undefined;
   before?: unknown;
   after?: unknown;
   correlationId?: string | undefined;
   subagentId?: string | undefined;
   runTaskId?: string | undefined;
+  note?: string | undefined;
+}
+
+/** Request-scoped identity copied into durable Kanban activity events. */
+export interface KanbanEventContext {
+  actor?: string | undefined;
+  sessionId?: string | undefined;
+  correlationId?: string | undefined;
+  /** Human or system explanation for why this mutation happened. */
   note?: string | undefined;
 }
 
@@ -349,6 +381,20 @@ export interface KanbanBoard {
   /** Sessions and agents that recently read or mutated this board. */
   presence?: KanbanBoardPresence[] | undefined;
   version: number;
+  /** Per-write mutation counter for optimistic locking.
+   *  Incremented atomically inside `mutateBoard` on every successful write.
+   *  Unlike `version` (the immutable schema marker), `revision` changes
+   *  on every mutation and is used for stale-write detection. */
+  revision?: number | undefined;
+  /** Wall-clock timestamp of the most recent successful task dispatch.
+   *  Set atomically when a task transitions to `running` (via
+   *  `updateTaskAssignment` or claim). Cached here so `getKanbanQueueHealth`
+   *  can read it without scanning the entire event log. */
+  lastDispatchedAt?: string | undefined;
+  /** Wall-clock timestamp of the most recent stale-assignment recovery.
+   *  Set atomically by `recoverStaleTaskAssignments`. Cached here so
+   *  `getKanbanQueueHealth` can read it without scanning the event log. */
+  lastStaleRecoveredAt?: string | undefined;
 }
 
 export interface KanbanBoardMeta {

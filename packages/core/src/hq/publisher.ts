@@ -138,7 +138,10 @@ const DEFAULT_RECONNECT_BASE_MS = 1_000;
 const DEFAULT_RECONNECT_MAX_MS = 30_000;
 const DEFAULT_DISCOVERY_POLL_MS = 5_000;
 const DEFAULT_MAX_QUEUED_MESSAGES = 2000;
-const DEFAULT_COMMAND_POLL_INTERVAL_MS = 2_000;
+// Commands originate from an interactive operator console. Keep delivery
+// close to WebSocket-real-time while retaining the existing bounded poll
+// protocol (which also provides replay after a brief disconnect).
+const DEFAULT_COMMAND_POLL_INTERVAL_MS = 500;
 const DEFAULT_COMMAND_POLL_LIMIT = 25;
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 25_000;
 

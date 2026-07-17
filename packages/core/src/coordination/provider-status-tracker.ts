@@ -39,7 +39,7 @@
  * @module coordination/provider-status-tracker
  */
 
-import { EventBus } from '../kernel/events.js';
+import type { EventBus } from '../kernel/events.js';
 import type { ProviderErrorKind } from '../types/provider.js';
 import type { ProviderEventMap } from '../kernel/events/provider-events.js';
 

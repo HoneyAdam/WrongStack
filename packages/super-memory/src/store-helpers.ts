@@ -7,6 +7,7 @@ import type {
   MemoryAnchor,
   MemoryAudienceSelector,
   RememberSuperMemoryInput,
+  SuperMemory,
   SuperMemoryScope,
   SuperMemoryKind,
 } from './types.js';
@@ -29,6 +30,23 @@ const AUDIENCE_KEYS = ['roles', 'taskTypes', 'modes'] as const;
 
 export function normalizeText(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Canonical tokenizer for retrieval scoring across BOTH the stores and the
+ * injection middlewares — do not fork it. Invariants:
+ * - NFKC + lowercase: strings differing only in unicode form/case tokenize alike.
+ * - Unicode letters/numbers plus `_`, `.`, `-` are token characters, so
+ *   identifiers like `edge-case`, `snake_case`, and `foo.bar` stay whole.
+ * - Terms shorter than 3 characters are dropped: scoring does substring
+ *   matching (`haystack.includes(term)`), where 1–2 char terms ("in", "go")
+ *   match nearly every text and produce pure noise.
+ * - Output is deduplicated; scoring operates on sets.
+ */
+export function tokenize(text: string): string[] {
+  return [...new Set(
+    text.normalize('NFKC').toLowerCase().split(/[^\p{L}\p{N}_.-]+/u).filter((term) => term.length >= 3),
+  )];
 }
 
 export function normalizeTags(tags: string[] | undefined): string[] {
@@ -108,8 +126,8 @@ export function validateRememberInput(input: RememberSuperMemoryInput): void {
     if (anchor.type === 'symbol' && !anchor.symbol?.trim()) {
       throw new Error('Symbol memory anchors require a symbol.');
     }
-    if ((anchor.path?.length ?? 0) > 4_096 || (anchor.symbol?.length ?? 0) > 1_024 || (anchor.command?.length ?? 0) > 8_192) {
-      throw new Error('Super Memory anchor metadata is too long.');
+    if ((anchor.path?.length ?? 0) > 256 || (anchor.symbol?.length ?? 0) > 256 || (anchor.command?.length ?? 0) > 256) {
+      throw new Error('Super Memory anchor strings must be no longer than 256 characters.');
     }
   }
   for (const source of input.sources ?? []) {
@@ -149,6 +167,3 @@ function dedupeByKey<T>(values: T[], keyOf: (value: T) => string): T[] {
 function normalizeSelectorValue(value: string): string {
   return value.normalize('NFKC').trim().toLowerCase();
 }
-
-// Import SuperMemory type for normalizeSources return type
-import type { SuperMemory } from './types.js';

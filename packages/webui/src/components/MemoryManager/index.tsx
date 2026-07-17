@@ -130,7 +130,7 @@ export function MemoryManager() {
     }, 20_000);
 
     listCleanupRef.current = cleanup;
-    listSuperMemories();
+    listSuperMemories({ echoToChat: false });
   }, [client, listSuperMemories]);
 
   useEffect(() => {
@@ -276,29 +276,32 @@ export function MemoryManager() {
     runMutation(
       'memory.super.remember',
       () =>
-        rememberSuperMemory({
-          text: draft.text.trim(),
-          kind: draft.kind,
-          scope: draft.scope,
-          tags: splitList(draft.tags),
-          importance: draft.importance,
-          confidence: draft.confidence,
-          freshness: draft.freshness,
-          anchors: normalizeAnchors(draft.anchors),
-          ...(splitList(draft.audienceRoles).length ||
-          splitList(draft.audienceTaskTypes).length ||
-          splitList(draft.audienceModes).length
-            ? {
-                audience: {
-                  roles: splitList(draft.audienceRoles),
-                  taskTypes: splitList(draft.audienceTaskTypes),
-                  modes: splitList(draft.audienceModes),
-                },
-              }
-            : {}),
-          supersedes: splitList(draft.supersedes),
-          contradicts: splitList(draft.contradicts),
-        }),
+        rememberSuperMemory(
+          {
+            text: draft.text.trim(),
+            kind: draft.kind,
+            scope: draft.scope,
+            tags: splitList(draft.tags),
+            importance: draft.importance,
+            confidence: draft.confidence,
+            freshness: draft.freshness,
+            anchors: normalizeAnchors(draft.anchors),
+            ...(splitList(draft.audienceRoles).length ||
+            splitList(draft.audienceTaskTypes).length ||
+            splitList(draft.audienceModes).length
+              ? {
+                  audience: {
+                    roles: splitList(draft.audienceRoles),
+                    taskTypes: splitList(draft.audienceTaskTypes),
+                    modes: splitList(draft.audienceModes),
+                  },
+                }
+              : {}),
+            supersedes: splitList(draft.supersedes),
+            contradicts: splitList(draft.contradicts),
+          },
+          { echoToChat: false },
+        ),
       'create',
     );
   }, [draft, rememberSuperMemory, runMutation]);
@@ -308,29 +311,33 @@ export function MemoryManager() {
     runMutation(
       'memory.super.update',
       () =>
-        updateSuperMemory(selectedMemory.id, {
-          text: draft.text.trim(),
-          kind: draft.kind,
-          status: draft.status,
-          tags: splitList(draft.tags),
-          importance: draft.importance,
-          confidence: draft.confidence,
-          freshness: draft.freshness,
-          anchors: normalizeAnchors(draft.anchors),
-          ...(splitList(draft.audienceRoles).length ||
-          splitList(draft.audienceTaskTypes).length ||
-          splitList(draft.audienceModes).length
-            ? {
-                audience: {
-                  roles: splitList(draft.audienceRoles),
-                  taskTypes: splitList(draft.audienceTaskTypes),
-                  modes: splitList(draft.audienceModes),
-                },
-              }
-            : {}),
-          supersedes: splitList(draft.supersedes),
-          contradicts: splitList(draft.contradicts),
-        }),
+        updateSuperMemory(
+          selectedMemory.id,
+          {
+            text: draft.text.trim(),
+            kind: draft.kind,
+            status: draft.status,
+            tags: splitList(draft.tags),
+            importance: draft.importance,
+            confidence: draft.confidence,
+            freshness: draft.freshness,
+            anchors: normalizeAnchors(draft.anchors),
+            ...(splitList(draft.audienceRoles).length ||
+            splitList(draft.audienceTaskTypes).length ||
+            splitList(draft.audienceModes).length
+              ? {
+                  audience: {
+                    roles: splitList(draft.audienceRoles),
+                    taskTypes: splitList(draft.audienceTaskTypes),
+                    modes: splitList(draft.audienceModes),
+                  },
+                }
+              : {}),
+            supersedes: splitList(draft.supersedes),
+            contradicts: splitList(draft.contradicts),
+          },
+          { echoToChat: false },
+        ),
       'update',
     );
   }, [draft, runMutation, selectedMemory, updateSuperMemory]);

@@ -1,5 +1,11 @@
 import type { Usage } from '@wrongstack/core';
-import type { KanbanBoard, KanbanBoardSummary, KanbanTask } from '@wrongstack/kanban';
+import type {
+  KanbanBoard,
+  KanbanBoardPresence,
+  KanbanBoardSummary,
+  KanbanEvent,
+  KanbanTask,
+} from '@wrongstack/kanban';
 
 // Event types for WebSocket communication
 export interface WSMessage {
@@ -81,12 +87,23 @@ export interface WSThinkingDelta {
   };
 }
 
+export interface WSCodeMapFileTarget {
+  filePath: string;
+  operation: 'read' | 'write' | 'edit' | 'delete' | 'search';
+  line?: number | undefined;
+  endLine?: number | undefined;
+}
+
 export interface WSToolUseStart {
   type: 'tool.started';
   payload: SessionScopedPayload & {
     id: string;
     name: string;
+    traceId?: string | undefined;
+    agentId?: string | undefined;
+    agentName?: string | undefined;
     input?: unknown | undefined;
+    fileTargets?: WSCodeMapFileTarget[] | undefined;
     messageId: string;
   };
 }
@@ -96,10 +113,17 @@ export interface WSToolProgress {
   payload: SessionScopedPayload & {
     name: string;
     id: string;
+    traceId?: string | undefined;
+    agentId?: string | undefined;
+    agentName?: string | undefined;
     event: {
       type: 'log' | 'warning' | 'metric' | 'file_changed' | 'partial_output';
       text?: string | undefined;
       data?: Record<string, unknown>;
+      path?: string | undefined;
+      operation?: 'write' | 'edit' | 'delete' | 'rename' | undefined;
+      line?: number | undefined;
+      endLine?: number | undefined;
     };
   };
 }
@@ -109,10 +133,45 @@ export interface WSToolExecuted {
   payload: SessionScopedPayload & {
     id: string;
     name: string;
+    traceId?: string | undefined;
+    agentId?: string | undefined;
+    agentName?: string | undefined;
     durationMs: number;
     ok: boolean;
     input?: unknown | undefined;
+    fileTargets?: WSCodeMapFileTarget[] | undefined;
     output?: string | undefined;
+  };
+}
+
+/** Subagent tool lifecycle dedicated to CodeMap; intentionally does not create chat bubbles. */
+export interface WSCodeMapToolStarted {
+  type: 'codemap.tool_started';
+  payload: SessionScopedPayload & {
+    parentSessionId?: string | undefined;
+    traceId?: string | undefined;
+    agentId: string;
+    agentName: string;
+    id: string;
+    name: string;
+    input?: unknown | undefined;
+    fileTargets?: WSCodeMapFileTarget[] | undefined;
+  };
+}
+
+export interface WSCodeMapToolExecuted {
+  type: 'codemap.tool_executed';
+  payload: SessionScopedPayload & {
+    parentSessionId?: string | undefined;
+    traceId?: string | undefined;
+    agentId: string;
+    agentName: string;
+    id?: string | undefined;
+    name: string;
+    durationMs: number;
+    ok: boolean;
+    input?: unknown | undefined;
+    fileTargets?: WSCodeMapFileTarget[] | undefined;
   };
 }
 
@@ -1070,8 +1129,25 @@ export interface WSKanbanResult {
       | KanbanBoardSummary[]
       | KanbanTask
       | KanbanTask[]
+      | KanbanEvent[]
       | Record<string, unknown>
       | null;
+    error?: string | undefined;
+  };
+}
+
+export interface WSKanbanTaskActivity {
+  type: 'kanban.task.activity';
+  payload: {
+    success: boolean;
+    data?:
+      | {
+          boardId: string;
+          taskId: string;
+          events: KanbanEvent[];
+          presence?: KanbanBoardPresence[] | undefined;
+        }
+      | undefined;
     error?: string | undefined;
   };
 }
@@ -1689,6 +1765,8 @@ export type WSServerMessage =
   | WSToolUseStart
   | WSToolProgress
   | WSToolExecuted
+  | WSCodeMapToolStarted
+  | WSCodeMapToolExecuted
   | WSIterationStarted
   | WSIterationCompleted
   | WSIterationLimitReached
@@ -1788,6 +1866,7 @@ export type WSServerMessage =
   | WSAgentTimelineMessage
   | WSAgentStatusChanged
   | WSKanbanResult
+  | WSKanbanTaskActivity
   | {
       type: 'subagent.event';
       payload: SessionScopedPayload & Record<string, unknown> & { kind: string };
@@ -1972,6 +2051,23 @@ export type WSServerMessage =
       payload: SessionScopedPayload & Record<string, unknown> & { event: string };
     }
   | { type: 'file.saved'; payload: SessionScopedPayload & { filePath: string } }
+  | {
+      type: 'codemap.file_event';
+      payload: SessionScopedPayload & {
+        filePath: string;
+        operation: 'read' | 'write' | 'edit' | 'delete' | 'rename';
+        phase: 'started' | 'completed' | 'changed';
+        source: 'tool' | 'editor' | 'deterministic' | 'watcher' | 'external';
+        at: number;
+        traceId?: string | undefined;
+        agentId?: string | undefined;
+        agentName?: string | undefined;
+        toolUseId?: string | undefined;
+        toolName?: string | undefined;
+        line?: number | undefined;
+        endLine?: number | undefined;
+      };
+    }
   | { type: 'session.damaged'; payload: { sessionId: string; detail: string } }
   | {
       type: 'session.rewound';

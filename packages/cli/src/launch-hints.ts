@@ -249,15 +249,18 @@ function renderHintLines(item: Hint, termWidth: number): string[] {
 }
 
 function renderHeaderLines(group: HintGroup, groupIndex: number, termWidth: number): string[] {
-  const progress = `(${groupIndex + 1}/${GROUPS.length} · more each launch)`;
-  const plain = `  ◆ ${group.title} ${progress}`;
+  const progress = `${groupIndex + 1}/${GROUPS.length}`;
+  const plain = `  ${group.title}  ${progress}`;
   if (displayWidth(plain) <= termWidth) {
-    return [`  ${color.cyan('◆')} ${color.bold(group.title)} ${color.dim(progress)}`];
+    return [
+      `  ${color.cyan('◇')} ${color.bold(group.title)} ${color.dim(progress)}`,
+      `  ${color.dim('─'.repeat(Math.min(termWidth - 2, 48)))}`,
+    ];
   }
 
   return [
-    `  ${color.cyan('◆')} ${color.bold(group.title)}`,
-    ...wrapWords(progress, termWidth - 4).map((line) => `    ${color.dim(line)}`),
+    `  ${color.cyan('◇')} ${color.bold(group.title)}`,
+    `  ${color.dim('─'.repeat(Math.min(termWidth - 2, 48)))}`,
   ];
 }
 
@@ -265,11 +268,14 @@ function renderFooterLines(termWidth: number): string[] {
   const footer = '/help lists everything · hide with --no-hints';
   if (displayWidth(`  ${footer}`) <= termWidth) {
     return [
+      `  ${color.dim('─'.repeat(Math.min(termWidth - 2, 48)))}`,
       `  ${color.dim(`${color.bold('/help')} lists everything · hide with ${color.bold('--no-hints')}`)}`,
     ];
   }
 
-  return wrapWords(footer, termWidth - 2).map((line) => `  ${color.dim(line)}`);
+  return [
+    ...wrapWords(footer, termWidth - 2).map((line) => `  ${color.dim(line)}`),
+  ];
 }
 
 /**

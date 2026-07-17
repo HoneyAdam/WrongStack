@@ -148,14 +148,24 @@ export function parseCookieHeader(cookieHeader: string | undefined): Record<stri
   return out;
 }
 
-export function setHqSessionCookie(res: http.ServerResponse, value: string): void {
-  const header = `${HQ_SESSION_COOKIE}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(HQ_SESSION_MAX_AGE_MS / 1000)}`;
-  res.setHeader('Set-Cookie', header);
+export function setHqSessionCookie(res: http.ServerResponse, value: string, secure?: boolean): void {
+  const parts = [
+    `${HQ_SESSION_COOKIE}=${encodeURIComponent(value)}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    `Max-Age=${Math.floor(HQ_SESSION_MAX_AGE_MS / 1000)}`,
+  ];
+  if (secure) parts.push('Secure');
+  res.setHeader('Set-Cookie', parts.join('; '));
 }
 
-export function clearHqSessionCookie(res: http.ServerResponse): void {
-  const header = `${HQ_SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
-  res.setHeader('Set-Cookie', header);
+export function clearHqSessionCookie(res: http.ServerResponse, secure?: boolean): void {
+  const parts = [
+    `${HQ_SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`,
+  ];
+  if (secure) parts.push('Secure');
+  res.setHeader('Set-Cookie', parts.join('; '));
 }
 
 // ── Auth result helpers ─────────────────────────────────────────────────────
@@ -206,18 +216,41 @@ export function authenticateBrowserRequest(
   sessions: Map<string, { createdAt: number }>,
 ): HqBrowserAuthResult {
   const token = extractBrowserToken(req, url);
-  if (token && mutableAuth.browserTokens.has(token)) {
-    const obj = mutableAuth.browserTokenObjs.get(token);
-    const ctx: HqBrowserAuthContext = { kind: 'token', token, id: obj?.id ?? 'unknown' };
-    if (obj?.capabilities !== undefined) ctx.capabilities = obj.capabilities;
-    return ctx;
+  if (token) {
+    // Timing-safe token comparison: iterate the token set and compare each
+    // candidate with timingSafeEqual instead of relying on Set.has(), which
+    // uses a hash lookup that can leak token length/prefix via timing.
+    let matchedToken: string | undefined;
+    for (const candidate of mutableAuth.browserTokens) {
+      const a = Buffer.from(candidate);
+      const b = Buffer.from(token);
+      if (a.length === b.length && timingSafeEqual(a, b)) {
+        matchedToken = candidate;
+        break;
+      }
+    }
+    if (matchedToken) {
+      const obj = mutableAuth.browserTokenObjs.get(matchedToken);
+      const ctx: HqBrowserAuthContext = { kind: 'token', token: matchedToken, id: obj?.id ?? 'unknown' };
+      if (obj?.capabilities !== undefined) ctx.capabilities = obj.capabilities;
+      return ctx;
+    }
   }
   if (mutableAuth.passwordHash && mutableAuth.cookieSecret) {
     const cookies = parseCookieHeader(req.headers.cookie);
     const raw = cookies[HQ_SESSION_COOKIE];
     if (raw) {
       const sessionId = parseHqSessionCookie(raw, mutableAuth.cookieSecret);
-      if (sessionId && sessions.has(sessionId)) return 'cookie';
+      // Server-side session expiry: reject and evict entries past Max-Age
+      // even if the periodic cleanup timer hasn't run yet.
+      if (sessionId) {
+        const session = sessions.get(sessionId);
+        if (session && Date.now() - session.createdAt < HQ_SESSION_MAX_AGE_MS) {
+          return 'cookie';
+        }
+        // Stale session — evict so a replayed cookie doesn't linger.
+        if (session) sessions.delete(sessionId);
+      }
     }
   }
   return undefined;

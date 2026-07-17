@@ -55,7 +55,7 @@ describe('handleProcessList', () => {
     const { ctx, sent } = makeCtx();
     handleProcessList(ctx, FAKE_WS);
     const procs = (
-      lastOf(sent, 'process.list')?.payload as { processes: Array<Record<string, unknown>> }
+      lastOf(sent, 'process.list')!.payload as { processes: Array<Record<string, unknown>> }
     ).processes;
     expect(procs).toEqual([
       {
@@ -76,7 +76,7 @@ describe('handleProcessList', () => {
     });
     const { ctx, sent } = makeCtx();
     handleProcessList(ctx, FAKE_WS);
-    expect((lastOf(sent, 'process.list')?.payload as { processes: unknown[] }).processes).toEqual(
+    expect((lastOf(sent, 'process.list')!.payload as { processes: unknown[] }).processes).toEqual(
       [],
     );
   });

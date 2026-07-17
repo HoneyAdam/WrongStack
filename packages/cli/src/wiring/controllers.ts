@@ -49,11 +49,17 @@ export function createFleetStreamController(initialMode: FleetChatVerbosity = 'c
 
 export interface InterruptController {
   abortLeader: () => boolean;
+  /** Invalidate output buffers before a destructive session reset. */
+  resetSession: () => void;
+  /** Resolve after the currently aborted leader turn has fully unwound. */
+  waitForIdle: () => Promise<void>;
 }
 
 export function createInterruptController(): InterruptController {
   return {
     abortLeader: (): boolean => false,
+    resetSession: (): void => {},
+    waitForIdle: async (): Promise<void> => {},
   };
 }
 

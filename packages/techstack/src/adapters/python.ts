@@ -20,6 +20,7 @@ import type {
   EcosystemAdapter,
   InventoryOptions,
 } from './interface.js';
+import { workspaceRoot } from './paths.js';
 import { buildPurl } from '../registry/purl.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -222,9 +223,9 @@ function normalizePkgName(name: string): string {
 export class PythonAdapter implements EcosystemAdapter {
   readonly ecosystem: EcosystemId = 'python';
 
-  async inventory(workspace: Workspace, _options: InventoryOptions): Promise<readonly DependencyObservation[]> {
+  async inventory(workspace: Workspace, options: InventoryOptions): Promise<readonly DependencyObservation[]> {
     const observations: DependencyObservation[] = [];
-    const root = workspace.relativeRoot || '.';
+    const root = workspaceRoot(workspace, options);
     const seen = new Set<string>();
 
     const hasPyproject = workspace.manifests.some((m) => m.includes('pyproject.toml')) || this.fileExists(join(root, 'pyproject.toml'));

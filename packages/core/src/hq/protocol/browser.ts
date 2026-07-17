@@ -1,4 +1,5 @@
 import type { HqAlertMessage, HqEventEnvelope, HqHeartbeatMessage } from './core.js';
+import type { HqCommandAuditEntry } from '../commands.js';
 import type { HqSnapshot } from './session.js';
 
 export interface HqBrowserSnapshotMessage {
@@ -11,8 +12,17 @@ export interface HqBrowserEventMessage<TPayload = unknown> {
   event: HqEventEnvelope<TPayload>;
 }
 
+/** Live control-plane lifecycle update. Emitted for every queued, delivered,
+ * and acknowledged command so operator surfaces never need to poll to learn
+ * whether a steer/interrupt reached its target. */
+export interface HqBrowserCommandStatusMessage {
+  type: 'hq.command_status';
+  command: HqCommandAuditEntry;
+}
+
 export type HqBrowserMessage =
   | HqBrowserSnapshotMessage
   | HqBrowserEventMessage
+  | HqBrowserCommandStatusMessage
   | HqAlertMessage
   | HqHeartbeatMessage;

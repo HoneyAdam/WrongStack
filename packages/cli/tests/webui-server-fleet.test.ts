@@ -88,6 +88,49 @@ describe('runWebUI subagent fleet bridge', () => {
     expect(summaryPayload.toolCalls).toBe(47);
     expect(summaryPayload.currentTool).toBe('grep');
 
+    events.emit('subagent.tool_started', {
+      sessionId: 'test-session',
+      agentSessionId: 'sub-session-1',
+      subagentId: 'sub-1',
+      agentName: 'Von Neumann',
+      traceId: 'trace-1',
+      id: 'toolu-sub-1',
+      name: 'read',
+      input: { path: 'packages/core/src/index.ts', offset: 10, limit: 5 },
+    });
+    const toolStarted = await waitForMessage('codemap.tool_started');
+    expect(toolStarted.payload).toMatchObject({
+      sessionId: 'sub-session-1',
+      parentSessionId: 'test-session',
+      agentId: 'sub-1',
+      agentName: 'Von Neumann',
+      traceId: 'trace-1',
+      id: 'toolu-sub-1',
+      name: 'read',
+    });
+    expect((toolStarted.payload as { fileTargets: unknown[] }).fileTargets).toHaveLength(1);
+
+    events.emit('subagent.tool_executed', {
+      sessionId: 'test-session',
+      agentSessionId: 'sub-session-1',
+      subagentId: 'sub-1',
+      agentName: 'Von Neumann',
+      traceId: 'trace-1',
+      id: 'toolu-sub-1',
+      name: 'read',
+      durationMs: 18,
+      ok: true,
+      input: { path: 'packages/core/src/index.ts', offset: 10, limit: 5 },
+    });
+    const toolExecuted = await waitForMessage('codemap.tool_executed');
+    expect(toolExecuted.payload).toMatchObject({
+      sessionId: 'sub-session-1',
+      agentId: 'sub-1',
+      id: 'toolu-sub-1',
+      durationMs: 18,
+      ok: true,
+    });
+
     // completion → status + structured error flattened to {kind,message}.
     events.emit('subagent.task_completed', {
       subagentId: 'sub-1',
@@ -98,7 +141,10 @@ describe('runWebUI subagent fleet bridge', () => {
       durationMs: 1000,
       error: { kind: 'rate_limit', message: '429 slow down', retryable: true },
     });
-    const done = await waitForMessage('subagent.event', (m) => payloadOf(m).kind === 'task_completed');
+    const done = await waitForMessage(
+      'subagent.event',
+      (m) => payloadOf(m).kind === 'task_completed',
+    );
     const donePayload = payloadOf(done);
     expect(donePayload.status).toBe('failed');
     expect(donePayload.error).toEqual({ kind: 'rate_limit', message: '429 slow down' });

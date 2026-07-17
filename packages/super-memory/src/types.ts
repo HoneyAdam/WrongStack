@@ -99,7 +99,17 @@ export interface SuperMemory {
   updatedAt: string;
   lastAccessedAt?: string | undefined;
   lastVerifiedAt?: string | undefined;
+  /** Last time the assistant referenced an injected memory (usefulness signal). */
+  lastUsedAt?: string | undefined;
   expiresAt?: string | undefined;
+  /**
+   * How often this memory was injected into context. Approximate: stores batch
+   * counter persistence (JSONL) or count process-locally (SQLite); the audit
+   * log's `memory.injected` events remain the exact record.
+   */
+  injectionCount?: number | undefined;
+  /** How often an injected memory was referenced by the assistant afterwards. */
+  useCount?: number | undefined;
 }
 
 export type MemoryGraphRelation =
@@ -147,6 +157,14 @@ export interface MemoryVerificationResult {
 export interface SuperMemoryHygieneOptions {
   retentionDays?: number | undefined;
   archiveLowConfidenceAfterDays?: number | undefined;
+  /**
+   * Archive active memories that were injected at least `unusedMinInjections`
+   * times but never referenced by the assistant, this many days after their
+   * last content update. Default: 30.
+   */
+  archiveUnusedAfterDays?: number | undefined;
+  /** Minimum injection count before a never-used memory is archived. Default: 10. */
+  unusedMinInjections?: number | undefined;
   verify?: boolean | undefined;
 }
 
@@ -159,6 +177,8 @@ export interface SuperMemoryHygieneReport {
   contradicted: number;
   staled: number;
   archived: number;
+  /** Subset of `archived`: memories archived for repeated injection without use. */
+  archivedUnused: number;
   deleted: number;
   verified: number;
 }
@@ -168,6 +188,10 @@ export interface SuperMemoryStats {
   byStatus: Record<SuperMemoryStatus, number>;
   byKind: Partial<Record<SuperMemoryKind, number>>;
   edges: number;
+  /** Total recorded context injections across all memories. */
+  injections?: number | undefined;
+  /** Total recorded assistant references to injected memories. */
+  uses?: number | undefined;
 }
 
 export interface LegacyImportResult {

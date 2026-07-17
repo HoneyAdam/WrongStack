@@ -13,8 +13,8 @@ renders 10 views:
 | View | Source | Purpose |
 |------|--------|---------|
 | Cockpit | `hq.snapshot` + `/api/alerts` | fleet, alert, and cost overview with quick actions |
-| Fleet | `hq.snapshot` | machine → project → terminal → agent tree |
-| Console | `/api/sessions/:id/events` | live chat transcript per terminal |
+| Fleet | `hq.snapshot` | searchable graph/compact-list topology by full fleet, machine, or project, including mailbox-serve clients |
+| Console | transcript + `hq.command_status` | live chat plus leader/subagent messaging, interrupt controls, and inline command lifecycle |
 | Mailbox | `hq.snapshot.mailboxes` | unread/incomplete/high-priority counts |
 | Cost | `hq.snapshot.projects` | per-project cost breakdown |
 | Brain | `brain.event` envelopes | decision/intervention timeline |
@@ -48,10 +48,10 @@ served build, or proxy in dev.
 ## Architecture
 
 - `src/lib/hq-ws-client.ts` — `/ws/browser` client (reconnect, token from
-  `?token=` query, dispatches `hq.snapshot`/`hq.event`/`hq.alert`).
-- `src/store.ts` — lightweight React-based global store
-  (`useSyncExternalStore`, no zustand). Holds snapshot, events, alerts, UI state.
-- `src/app.tsx` — activity bar + view router + status bar.
-- `src/views/` — the 9 views.
+  `?token=` query, dispatches snapshot/event/alert/command-status frames).
+- `src/store.ts` — Zustand store for snapshots, events, alerts, command
+  lifecycle, selections, and connection state.
+- `src/app.tsx` — operator shell, lazy view router, persistent light/dark mode.
+- `src/views/` — the 10 views.
 
 All types come from `@wrongstack/core` (`HqSnapshot`, `HqEventEnvelope`, etc.).

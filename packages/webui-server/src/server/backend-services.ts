@@ -238,6 +238,7 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
     context,
     projectRoot,
     logger,
+    events,
   });
   // Compactor — honors config.context.strategy ('hybrid' default, lossless
   // rules; 'intelligent'/'selective' resolve their provider from ctx at

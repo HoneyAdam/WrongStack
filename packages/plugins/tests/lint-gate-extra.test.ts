@@ -49,7 +49,7 @@ describe('lint-gate extra coverage', () => {
     lintGatePlugin.setup(api as never);
     const status = await (api.tools.register.mock.calls.find(
       (c: unknown[]) => (c[0] as { name: string }).name === 'lint_gate_status',
-    )?.[0] as { execute: () => Promise<unknown> }).execute({});
+    )![0] as { execute: () => Promise<unknown> }).execute({});
     expect((status as Record<string, unknown>).mode).toBe('warn');
   });
 
@@ -58,7 +58,7 @@ describe('lint-gate extra coverage', () => {
     lintGatePlugin.setup(api as never);
     const status = await (api.tools.register.mock.calls.find(
       (c: unknown[]) => (c[0] as { name: string }).name === 'lint_gate_status',
-    )?.[0] as { execute: () => Promise<unknown> }).execute({});
+    )![0] as { execute: () => Promise<unknown> }).execute({});
     expect((status as Record<string, unknown>).mode).toBe('warn');
   });
 

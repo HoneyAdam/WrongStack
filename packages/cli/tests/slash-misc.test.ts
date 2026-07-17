@@ -37,9 +37,42 @@ describe('buildClearCommand', () => {
     const memoryStore = { clear: vi.fn().mockResolvedValue(undefined) };
     const onClear = vi.fn();
     const sessionStore = { clearHistory: vi.fn().mockResolvedValue(undefined) };
-    const cmd = buildClearCommand({ renderer, memoryStore, onClear, sessionStore } as never);
+    let settleActiveRun!: () => void;
+    const activeRunSettled = new Promise<void>((resolve) => {
+      settleActiveRun = resolve;
+    });
+    const interruptController = {
+      resetSession: vi.fn(),
+      abortLeader: vi.fn(() => true),
+      waitForIdle: vi.fn(() => activeRunSettled),
+    };
+    const onFleetKill = vi.fn().mockResolvedValue(2);
+    const cmd = buildClearCommand({
+      renderer,
+      memoryStore,
+      onClear,
+      sessionStore,
+      interruptController,
+      onFleetKill,
+    } as never);
     const ctx = fakeCtx();
-    const res = await cmd.run('', ctx);
+    let completed = false;
+    const runPromise = cmd.run('', ctx).then((result) => {
+      completed = true;
+      return result;
+    });
+    await Promise.resolve();
+    expect(completed).toBe(false);
+    expect(ctx.state.replaceMessages).not.toHaveBeenCalled();
+    settleActiveRun();
+    const res = await runPromise;
+    expect(interruptController.resetSession).toHaveBeenCalledTimes(1);
+    expect(interruptController.abortLeader).toHaveBeenCalledTimes(1);
+    expect(onFleetKill).toHaveBeenCalledTimes(1);
+    expect(interruptController.waitForIdle).toHaveBeenCalledTimes(1);
+    expect(interruptController.waitForIdle.mock.invocationCallOrder[0]).toBeLessThan(
+      (ctx.state.replaceMessages as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0] ?? Infinity,
+    );
     expect(ctx.state.replaceMessages).toHaveBeenCalledWith([]);
     expect(ctx.state.replaceTodos).toHaveBeenCalledWith([]);
     expect(ctx.readFiles.clear).toHaveBeenCalled();
@@ -58,6 +91,138 @@ describe('buildClearCommand', () => {
     const renderer = { write: vi.fn(), writeInfo: vi.fn(), clear: vi.fn() };
     const cmd = buildClearCommand({ renderer } as never);
     const res = await cmd.run('', undefined);
+    expect(res?.message ?? '').toContain('Session cleared');
+  });
+});
+
+// ── /clear confirmation gate (operation in flight) ───────────────────────────
+
+describe('buildClearCommand — confirm before clearing an active session', () => {
+  function baseOpts(overrides: Record<string, unknown>) {
+    return {
+      renderer: { write: vi.fn(), writeInfo: vi.fn(), clear: vi.fn() },
+      memoryStore: { clear: vi.fn().mockResolvedValue(undefined) },
+      onClear: vi.fn(),
+      sessionStore: { clearHistory: vi.fn().mockResolvedValue(undefined) },
+      ...overrides,
+    };
+  }
+
+  it('prompts for confirmation when an operation is running, then aborts the clear on "no"', async () => {
+    const confirm = vi.fn().mockResolvedValue(false);
+    const interruptController = {
+      abortLeader: vi.fn(() => true),
+      isRunning: vi.fn(() => true),
+      resetSession: vi.fn(),
+      waitForIdle: vi.fn().mockResolvedValue(undefined),
+    };
+    const onFleetKill = vi.fn().mockResolvedValue(0);
+    const opts = baseOpts({ interruptController, confirm, onFleetKill });
+    const cmd = buildClearCommand(opts as never);
+    const ctx = fakeCtx();
+
+    const res = await cmd.run('', ctx);
+
+    // The gate asked the user, defaulting to "no".
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirm.mock.calls[0]?.[1]).toBe(false);
+    // Nothing was torn down: no cancellation, no state wipe, no memory clear.
+    expect(interruptController.abortLeader).not.toHaveBeenCalled();
+    expect(interruptController.resetSession).not.toHaveBeenCalled();
+    expect(onFleetKill).not.toHaveBeenCalled();
+    expect(ctx.state.replaceMessages).not.toHaveBeenCalled();
+    expect(opts.memoryStore.clear).not.toHaveBeenCalled();
+    expect(opts.onClear).not.toHaveBeenCalled();
+    expect(res?.message ?? '').toContain('cancelled');
+  });
+
+  it('aborts the clear when the user cancels the prompt (null)', async () => {
+    const confirm = vi.fn().mockResolvedValue(null);
+    const interruptController = { abortLeader: vi.fn(() => true), isRunning: vi.fn(() => true) };
+    const opts = baseOpts({ interruptController, confirm });
+    const cmd = buildClearCommand(opts as never);
+    const ctx = fakeCtx();
+
+    const res = await cmd.run('', ctx);
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(ctx.state.replaceMessages).not.toHaveBeenCalled();
+    expect(res?.message ?? '').toContain('cancelled');
+  });
+
+  it('proceeds with the full reset when the user confirms "yes"', async () => {
+    const confirm = vi.fn().mockResolvedValue(true);
+    const interruptController = {
+      abortLeader: vi.fn(() => true),
+      isRunning: vi.fn(() => true),
+      resetSession: vi.fn(),
+      waitForIdle: vi.fn().mockResolvedValue(undefined),
+    };
+    const opts = baseOpts({ interruptController, confirm });
+    const cmd = buildClearCommand(opts as never);
+    const ctx = fakeCtx();
+
+    const res = await cmd.run('', ctx);
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(interruptController.resetSession).toHaveBeenCalledTimes(1);
+    expect(interruptController.abortLeader).toHaveBeenCalledTimes(1);
+    expect(ctx.state.replaceMessages).toHaveBeenCalledWith([]);
+    expect(opts.memoryStore.clear).toHaveBeenCalled();
+    expect(res?.message ?? '').toContain('Session cleared');
+  });
+
+  it('does NOT prompt when nothing is running (isRunning false)', async () => {
+    const confirm = vi.fn().mockResolvedValue(false);
+    const interruptController = {
+      abortLeader: vi.fn(() => false),
+      isRunning: vi.fn(() => false),
+      resetSession: vi.fn(),
+      waitForIdle: vi.fn().mockResolvedValue(undefined),
+    };
+    const opts = baseOpts({ interruptController, confirm });
+    const cmd = buildClearCommand(opts as never);
+    const ctx = fakeCtx();
+
+    const res = await cmd.run('', ctx);
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(interruptController.resetSession).toHaveBeenCalledTimes(1);
+    expect(ctx.state.replaceMessages).toHaveBeenCalledWith([]);
+    expect(res?.message ?? '').toContain('Session cleared');
+  });
+
+  it('does NOT prompt when no confirm hook is wired, even if running (non-TTY surface)', async () => {
+    const interruptController = {
+      abortLeader: vi.fn(() => true),
+      isRunning: vi.fn(() => true),
+      resetSession: vi.fn(),
+      waitForIdle: vi.fn().mockResolvedValue(undefined),
+    };
+    // No `confirm` in opts → gate is skipped, behavior unchanged.
+    const opts = baseOpts({ interruptController });
+    const cmd = buildClearCommand(opts as never);
+    const ctx = fakeCtx();
+
+    const res = await cmd.run('', ctx);
+
+    expect(interruptController.resetSession).toHaveBeenCalledTimes(1);
+    expect(ctx.state.replaceMessages).toHaveBeenCalledWith([]);
+    expect(res?.message ?? '').toContain('Session cleared');
+  });
+
+  it('treats a missing isRunning() as idle and does not prompt', async () => {
+    const confirm = vi.fn().mockResolvedValue(false);
+    // interruptController without isRunning (older surface) → optional-chain → idle.
+    const interruptController = { abortLeader: vi.fn(() => false), resetSession: vi.fn() };
+    const opts = baseOpts({ interruptController, confirm });
+    const cmd = buildClearCommand(opts as never);
+    const ctx = fakeCtx();
+
+    const res = await cmd.run('', ctx);
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(ctx.state.replaceMessages).toHaveBeenCalledWith([]);
     expect(res?.message ?? '').toContain('Session cleared');
   });
 });

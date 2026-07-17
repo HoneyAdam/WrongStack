@@ -114,6 +114,8 @@ export interface MemoryStore {
   hygiene?(opts?: {
     retentionDays?: number | undefined;
     archiveLowConfidenceAfterDays?: number | undefined;
+    archiveUnusedAfterDays?: number | undefined;
+    unusedMinInjections?: number | undefined;
   }): Promise<unknown>;
   /**
    * Attach a trace ID to this store so that all subsequent `storage.*`

@@ -7,7 +7,12 @@
  * postCommand) remain as standalone exports that access store state via
  * useHqStore.getState().
  */
-import type { HqAlertMessage, HqEventEnvelope, HqSnapshot } from '@wrongstack/core';
+import type {
+  HqAlertMessage,
+  HqCommandAuditEntry,
+  HqEventEnvelope,
+  HqSnapshot,
+} from '@wrongstack/core';
 import { create } from 'zustand';
 import { authorizedFetch } from './lib/auth.js';
 
@@ -27,6 +32,7 @@ interface HqState {
   snapshot: HqSnapshot | null;
   events: HqEventEnvelope[];
   alerts: HqAlertMessage[];
+  commandStatuses: HqCommandAuditEntry[];
   activeView: ViewId;
   selectedSessionId: string | null;
   selectedAgentId: string | null;
@@ -46,11 +52,13 @@ interface HqActions {
   _onSnapshot: (snapshot: HqSnapshot) => void;
   _onEvent: (event: HqEventEnvelope) => void;
   _onAlert: (alert: HqAlertMessage) => void;
+  _onCommandStatus: (command: HqCommandAuditEntry) => void;
   _setConnected: (connected: boolean) => void;
 }
 
 const MAX_EVENTS = 500;
 const MAX_ALERTS = 100;
+const MAX_COMMAND_STATUSES = 200;
 
 function snapshotPatch(state: HqState, snapshot: HqSnapshot): Partial<HqState> {
   const liveSessions = snapshot.liveSessions ?? [];
@@ -88,6 +96,7 @@ export const useHqStore = create<HqState & HqActions>()((set) => ({
   snapshot: null,
   events: [],
   alerts: [],
+  commandStatuses: [],
   activeView: 'cockpit',
   selectedSessionId: null,
   selectedAgentId: null,
@@ -130,6 +139,21 @@ export const useHqStore = create<HqState & HqActions>()((set) => ({
         ? {}
         : { alerts: [...state.alerts, alert].slice(-MAX_ALERTS) },
     ),
+
+  _onCommandStatus: (command) =>
+    set((state) => {
+      const existing = state.commandStatuses.findIndex(
+        (candidate) => candidate.commandId === command.commandId,
+      );
+      if (existing < 0) {
+        return {
+          commandStatuses: [...state.commandStatuses, command].slice(-MAX_COMMAND_STATUSES),
+        };
+      }
+      const next = [...state.commandStatuses];
+      next[existing] = command;
+      return { commandStatuses: next };
+    }),
 
   _setConnected: (connected) => set({ connected }),
 }));

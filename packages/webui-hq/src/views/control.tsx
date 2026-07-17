@@ -10,6 +10,7 @@
  * additionally needs the client started with `--hq-allow-exec` and a token
  * carrying `control.execute`.
  */
+import type { HqClientRecord, HqSnapshot } from '@wrongstack/core';
 import {
   AlertTriangle,
   Bot,
@@ -99,14 +100,32 @@ const CMD_META: Record<
 };
 
 export function ControlView(): React.ReactElement {
-  const { snapshot, selectedClientId } = useHqStore(
-    useShallow((s) => ({ snapshot: s.snapshot, selectedClientId: s.selectedClientId })),
+  const { snapshot, selectedClientId, commandStatuses } = useHqStore(
+    useShallow((s) => ({
+      snapshot: s.snapshot,
+      selectedClientId: s.selectedClientId,
+      commandStatuses: s.commandStatuses,
+    })),
   );
   const clients = (snapshot?.clients ?? []).filter((c) =>
     c.capabilities.includes('control.receive'),
   );
-  const selected = selectedClientId ?? clients[0]?.clientId ?? null;
-  const selectedClient = clients.find((c) => c.clientId === selected) ?? clients[0] ?? null;
+  const selected =
+    clients.some((client) => client.clientId === selectedClientId)
+      ? selectedClientId
+      : (clients[0]?.clientId ?? null);
+  const selectedClient = clients.find((c) => c.clientId === selected) ?? null;
+  const selectedSession =
+    selectedClient === null
+      ? undefined
+      : (snapshot?.liveSessions ?? []).find(
+          (session) =>
+            session.clientId === selectedClient.clientId ||
+            (session.machineId === selectedClient.machineId &&
+              session.projectId === selectedClient.projectId &&
+              session.pid !== undefined &&
+              session.pid === selectedClient.pid),
+        );
 
   const persisted = useHqLocalPrefs();
   const pctl = persisted.control;
@@ -191,9 +210,20 @@ export function ControlView(): React.ReactElement {
     // someone is looking at it.
     const timer = setInterval(() => {
       if (!document.hidden) void loadAudit();
-    }, 5_000);
+    }, 15_000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (commandStatuses.length === 0) return;
+    setAuditEntries((current) => {
+      const merged = new Map(current.map((entry) => [entry.commandId, entry]));
+      for (const command of commandStatuses) merged.set(command.commandId, command);
+      return [...merged.values()]
+        .sort((left, right) => right.enqueuedAt.localeCompare(left.enqueuedAt))
+        .slice(0, 25);
+    });
+  }, [commandStatuses]);
 
   async function dispatch(): Promise<void> {
     if (selected === null || !canDispatch) return;
@@ -328,7 +358,7 @@ export function ControlView(): React.ReactElement {
           >
             {clients.map((c) => (
               <option key={c.clientId} value={c.clientId}>
-                {c.kind} — {c.hostname ?? c.clientId} ({c.projectId})
+                {controlClientLabel(c, snapshot)}
               </option>
             ))}
           </select>
@@ -346,6 +376,12 @@ export function ControlView(): React.ReactElement {
               <span>
                 <strong>client</strong> {shortId(selectedClient.clientId)}
               </span>
+              {selectedSession !== undefined && (
+                <span>
+                  <strong>session</strong> {shortId(selectedSession.sessionId)} ·{' '}
+                  {selectedSession.agentCount} agents
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -711,6 +747,26 @@ export function ControlView(): React.ReactElement {
 
 function shortId(id: string): string {
   return id.length > 18 ? `${id.slice(0, 10)}…${id.slice(-6)}` : id;
+}
+
+export function controlClientLabel(
+  client: HqClientRecord,
+  snapshot: HqSnapshot | null,
+): string {
+  const project = snapshot?.projects.find((candidate) => candidate.projectId === client.projectId);
+  const session = (snapshot?.liveSessions ?? []).find(
+    (candidate) =>
+      candidate.clientId === client.clientId ||
+      (candidate.machineId === client.machineId &&
+        candidate.projectId === client.projectId &&
+        candidate.pid !== undefined &&
+        candidate.pid === client.pid),
+  );
+  const host = client.hostname ?? client.machineId;
+  const projectName = project?.projectName ?? client.projectId;
+  const process = `${client.kind.toUpperCase()}${client.pid !== undefined ? ` · pid ${client.pid}` : ''}`;
+  const identity = session?.sessionId ?? client.clientId;
+  return `${host} › ${projectName} › ${process} › ${shortId(identity)}`;
 }
 
 /** "12s ago" / "3m ago" / clock time past an hour — audit rows are about

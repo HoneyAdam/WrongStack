@@ -8,7 +8,7 @@
  * @see https://osv.dev/docs/
  */
 
-import { get as httpsGet, RequestOptions } from 'node:https';
+import { get as httpsGet, type RequestOptions } from 'node:https';
 import type { IncomingMessage } from 'node:http';
 import type { Evidence } from '../types.js';
 

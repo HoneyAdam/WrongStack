@@ -118,6 +118,17 @@ export function createMailboxHttpRouter(options: MailboxHttpRouterOptions): Mail
           ? await options.authorize(request)
           : { allowed: true };
         if (!access.allowed) {
+          const forwardedFor = request.headers['x-forwarded-for'];
+          const clientIp = (Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor)?.split(',')[0]?.trim() ?? request.socket?.remoteAddress ?? 'unknown';
+          console.warn(JSON.stringify({
+            level: 'warn',
+            event: 'mailbox.http_auth_failure',
+            message: `Mailbox HTTP auth rejected for ${request.method ?? '?'} ${request.url ?? '?'} from ${clientIp}`,
+            method: request.method,
+            url: request.url,
+            clientIp,
+            timestamp: new Date().toISOString(),
+          }));
           writeJson(
             response,
             access.status ?? 401,

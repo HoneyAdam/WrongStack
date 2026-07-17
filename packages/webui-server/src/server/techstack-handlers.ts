@@ -6,18 +6,26 @@
  *   POST /api/techstack/inventory
  *   POST /api/techstack/analyze
  *   POST /api/techstack/jobs/:id/cancel
+ *   POST /api/techstack/deps/:id/research
+ *
+ * Commands arrive over REST; progress goes back over the WebSocket via `emit`.
  *
  * @see docs/specs/techstack-sdd.md §4.2
  */
 
 import { randomUUID } from 'node:crypto';
 import type * as http from 'node:http';
+import type { Provider } from '@wrongstack/core';
 import type {
   Snapshot,
   TechStackEngine,
   TechStackJobKind,
+  TechStackResearcher,
   TechStackStore,
 } from '@wrongstack/techstack';
+
+/** Upper bound on a single-package deep dive: one search fan-out + one LLM call. */
+const DEEP_DIVE_TIMEOUT_MS = 60_000;
 
 function sendJson(res: http.ServerResponse, status: number, data: unknown): void {
   res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -37,6 +45,33 @@ export interface TechStackHandlerDeps {
   emit?: ((event: TechStackEvent) => void) | undefined;
   /** Abort controllers keyed by running job id. */
   runningJobs?: Map<string, AbortController> | undefined;
+  /**
+   * Live provider access for the LLM research stage. Returns `undefined` when
+   * no provider is configured, which downgrades `analyze` to a purely
+   * deterministic run rather than failing it.
+   *
+   * A getter, not a captured value: the user can switch model or rotate
+   * credentials mid-session (config hot-reload), and a provider snapshotted at
+   * server construction would go stale without anyone noticing.
+   */
+  getLlm?: (() => { provider: Provider; model: string } | undefined) | undefined;
+}
+
+/**
+ * Build the research stage for a job, or `undefined` when research should not
+ * run (offline inventory, or no provider wired).
+ */
+async function buildResearcher(
+  deps: TechStackHandlerDeps,
+  kind: TechStackJobKind,
+): Promise<TechStackResearcher | undefined> {
+  if (kind !== 'analyze' || !deps.getLlm) return undefined;
+  const { createProviderLlm, createResearcher, createToolSearch } = await import(
+    '@wrongstack/techstack'
+  );
+  const llm = createProviderLlm(deps.getLlm);
+  if (!llm) return undefined;
+  return createResearcher({ llm, search: createToolSearch() });
 }
 
 export type TechStackEvent =
@@ -98,20 +133,24 @@ function startJob(
   deps.emit?.({ type: 'techstack.job.started', payload: { jobId, kind } });
   sendJson(res, 202, { jobId, kind, status: 'queued' });
 
-  void deps.engine
-    .analyze(deps.projectId, {
-      targetRoot: deps.projectRoot,
-      requestedBy: 'webui',
-      online: kind === 'analyze',
-      jobId,
-      signal: controller.signal,
-      onProgress: (phase, completed, total) => {
-        deps.emit?.({
-          type: 'techstack.job.progress',
-          payload: { jobId, phase, completed, total },
-        });
-      },
-    })
+  void buildResearcher(deps, kind)
+    .catch(() => undefined)
+    .then((researcher) =>
+      deps.engine.analyze(deps.projectId, {
+        targetRoot: deps.projectRoot,
+        requestedBy: 'webui',
+        online: kind === 'analyze',
+        jobId,
+        signal: controller.signal,
+        researcher,
+        onProgress: (phase, completed, total) => {
+          deps.emit?.({
+            type: 'techstack.job.progress',
+            payload: { jobId, phase, completed, total },
+          });
+        },
+      }),
+    )
     .then(({ snapshot }) => {
       if (controller.signal.aborted) return;
       deps.emit?.({
@@ -161,6 +200,67 @@ export function handleTechStackCancel(
   deps.store.updateJobStatus(jobId, 'cancelled');
   deps.emit?.({ type: 'techstack.job.cancelled', payload: { jobId } });
   sendJson(res, 200, { jobId, status: 'cancelled' });
+}
+
+/**
+ * POST /api/techstack/deps/:id/research — deep dive on one dependency.
+ *
+ * Synchronous: one package is a single cluster and a single LLM call, so the
+ * caller gets the findings in the response rather than having to correlate a
+ * job id over the socket.
+ *
+ * Deliberately bypasses triage. Triage answers "what is worth spending tokens
+ * on unprompted"; an explicit click has already answered that, so a `current`
+ * package the user is curious about is fair game.
+ */
+export async function handleTechStackDependencyResearch(
+  res: http.ServerResponse,
+  deps: TechStackHandlerDeps,
+  dependencyId: string,
+): Promise<void> {
+  const snapshot = deps.store.getSnapshot(deps.projectId);
+  const dependency = snapshot?.dependencies.find((dep) => dep.id === dependencyId);
+  if (!dependency) {
+    sendJson(res, 404, { error: 'Dependency not found in the current snapshot' });
+    return;
+  }
+
+  let researcher: TechStackResearcher | undefined;
+  try {
+    researcher = await buildResearcher(deps, 'analyze');
+  } catch (error) {
+    sendJson(res, 503, { error: 'Research unavailable', detail: errorMessage(error) });
+    return;
+  }
+  if (!researcher) {
+    sendJson(res, 503, {
+      error: 'No model configured — connect a provider to run LLM analysis.',
+    });
+    return;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort(new Error('research timeout'));
+  }, DEEP_DIVE_TIMEOUT_MS);
+  timeout.unref?.();
+
+  try {
+    const { triageCandidates } = await import('@wrongstack/techstack');
+    // Reuse triage purely to derive the right cluster for this status; fall
+    // back to a breaking-change read when the status is one triage skips.
+    const [triaged] = triageCandidates([dependency], { limit: 1 });
+    const findings = await researcher.research(
+      [triaged ?? { dependency, cluster: 'breaking_change', priority: 0 }],
+      { signal: controller.signal },
+    );
+    sendJson(res, 200, { dependencyId, findings });
+  } catch (error) {
+    sendJson(res, 500, { error: 'Research failed', detail: errorMessage(error) });
+  } finally {
+    clearTimeout(timeout);
+    controller.abort();
+  }
 }
 
 /** GET /api/techstack/jobs/:id */

@@ -30,7 +30,7 @@ the control plane (browser → client `steer` / `btw` / `queue` / `abort` /
 
 | Command | Effect |
 |---|---|
-| `wstack --hq` | Start HQ on the default host/port (`127.0.0.1:3499`) |
+| `wstack --hq` | Start HQ on the default host/port (`0.0.0.0:3499`; local dashboard URL uses `127.0.0.1`) |
 | `wstack --hq --host 0.0.0.0` | Listen on all interfaces (LAN/VPS access) |
 | `wstack --hq --port 4000` | Override the default port |
 | `wstack --hq --strict-port` | Fail (exit non-zero) if the requested port is busy instead of auto-advancing |
@@ -90,7 +90,7 @@ All flags are parsed by the unified `parseArgs()` in
 | Flag | Form | Type | Default | Description |
 |---|---|---|---|---|
 | `--hq` | `--hq` | boolean | `false` | Start HQ command center instead of the normal REPL/TUI/WebUI flow |
-| `--host` | `--host <ip>` or `--host=<ip>` | string | `127.0.0.1` | Bind host. Use `0.0.0.0` for LAN/VPS access |
+| `--host` | `--host <ip>` or `--host=<ip>` | string | `0.0.0.0` | Bind host. Use `127.0.0.1` for local-only access |
 | `--port` | `--port <n>` or `--port=<n>` | number | `3499` | Bind port. Parsed via `Number.parseInt(value, 10)`; non-numeric values fall through as `NaN` and `startHqServer` will reject the bind |
 | `--strict-port` | `--strict-port` | boolean | `false` | Fail if the requested port is in use; otherwise scan forward for a free port (bounded) |
 | `--open` | `--open` | boolean | `false` | Open the dashboard URL in the default browser after the server prints its listening URL. Implementation: dynamic `import('@wrongstack/webui/server')` of `openBrowser()`. Errors are best-effort and silently swallowed |
@@ -706,15 +706,15 @@ header (live LED + fleet stat chips) and a tab bar:
 | View | Contents | Data source |
 |---|---|---|
 | **Cockpit** | Fleet overview, quick actions (broadcast / pause), alert + cost summaries | `hq.snapshot`, `hq.alert`, `/api/alerts` |
-| **Fleet** | machine → project → session → agent tree with cost/ctx/model rollups; clicking a session opens it in Console | `hq.snapshot` |
-| **Console** | Full chat transcript of the selected session: GFM markdown + syntax-highlighted code, collapsed thinking cards, collapsible tool cards with real result views (LCS/unified diff, bash exit-code footer, numbered Read output, JSON, todo checklist), session picker, virtualized list with pinned follow | `/api/sessions/:id/events` + live `session.transcript` |
+| **Fleet** | Searchable full-fleet, per-machine, or cross-machine per-project topology; switchable graph/compact-list layouts; machine → project → client/service → agent rollups; `mailbox serve` status; click-through to Console | `hq.snapshot` |
+| **Console** | Full chat transcript plus exact-client control composer for leader/subagent `steer` / `btw` / `queue`, targeted interrupt, optional leader+fleet interrupt, and optimistic outbound turns whose queued → delivered → acked state updates in the chat history | `/api/sessions/:id/events`, live `session.transcript`, `hq.command_status` |
 | **Mailbox** | Live feed + grouped-by-project message browser with type/priority/project/search filters | `hq.snapshot`, `mailbox.event` (backfilled from `/api/events`) |
 | **Cost** | Hero total, per-project share bars, per-session/model breakdown | `hq.snapshot` |
 | **Brain** | Decision / intervention timeline | `brain.event` (backfilled from `/api/events`) |
 | **Worktrees** | Per-owner lifecycle lanes (allocated → committed → merged / conflict / failed) | `worktree.event` (backfilled) |
 | **Trends** | KPI tiles + SVG column charts (cost / tokens / tool calls) with hover tooltips and 1h–7d range filters | `/api/trends/cost` |
 | **Alerts** | Live alert feed + history | `hq.alert`, `/api/alerts` |
-| **Control** | Staged command composer (`steer` / `btw` / `queue` / `abort` / `spawn` / `broadcast` / gated `run-command`) with preview + typed-confirmation gates and the command audit trail | `POST /api/command`, `/api/commands` |
+| **Control** | Advanced staged command composer (`steer` / `btw` / `queue` / `abort` / `spawn` / `broadcast` / gated `run-command`) with fully-qualified machine/project/process/session targets, preview + typed-confirmation gates, and live audit trail | `POST /api/command`, `/api/commands`, `hq.command_status` |
 
 Panel source: `packages/webui-hq/` (views under `src/views/`, the
 transcript accumulation layer in `src/lib/transcript-store.ts`). An
@@ -824,10 +824,11 @@ simultaneously.
 > in [SECURITY.md](../../SECURITY.md). Treat anything below as
 > forward-looking guidance, not a supported production configuration.
 
-### LAN / local network (loopback default)
+### LAN / local network (all-interface default)
 
-`--hq` binds to `127.0.0.1` by default. To allow connections from other
-machines on the same LAN, bind explicitly to all interfaces:
+`--hq` binds to `0.0.0.0` by default, so machines on the same LAN can connect.
+To restrict connections to this machine, pass `--host 127.0.0.1`. The explicit
+LAN form is:
 
 ```bash
 # On the relay machine (the HQ host)

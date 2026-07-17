@@ -24,7 +24,19 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { resolveWstackPaths } from '@wrongstack/core';
-import type { FileMeta, IndexStats, Ref, SearchResult, Symbol as IndexSymbol, SymbolKind, SymbolLang, CodeMapGraph, GraphNode, GraphEdge, CallType } from './schema.js';
+import type {
+  FileMeta,
+  IndexStats,
+  Ref,
+  SearchResult,
+  Symbol as IndexSymbol,
+  SymbolKind,
+  SymbolLang,
+  CodeMapGraph,
+  GraphNode,
+  GraphEdge,
+  CallType,
+} from './schema.js';
 import { SCHEMA_VERSION } from './schema.js';
 import { lspKindToInternalKind } from './lsp-kind.js';
 import { buildBm25Index, buildIndexableText, tokenise } from './bm25.js';
@@ -45,6 +57,7 @@ function assignRefsToSymbols(refs: Ref[], symbols: IndexSymbol[]): Ref[] {
       if (symbol.line > ref.line) break;
       owner = symbol;
     }
+    if (!owner && ref.callType === 'import') owner = ordered[0];
     if (!owner || owner.id <= 0) continue;
     const key = `${owner.id}:${ref.toName}:${ref.callType}`;
     if (seen.has(key)) continue;
@@ -70,7 +83,9 @@ export function resolveIndexDir(projectRoot: string, override?: string): string 
  * Production leaves it unset (the index resolves to the global per-project
  * dir); tests and bespoke wiring set `meta.codebaseIndexDir` to redirect it.
  */
-export function codebaseIndexDirOverride(ctx: { meta?: Record<string, unknown> }): string | undefined {
+export function codebaseIndexDirOverride(ctx: {
+  meta?: Record<string, unknown>;
+}): string | undefined {
   const v = ctx.meta?.['codebaseIndexDir'];
   return typeof v === 'string' ? v : undefined;
 }
@@ -87,7 +102,8 @@ function silenceSqliteExperimentalWarning(): void {
   const original = process.emitWarning.bind(process);
   process.emitWarning = ((warning: unknown, ...rest: unknown[]): void => {
     const msg = typeof warning === 'string' ? warning : ((warning as Error)?.message ?? '');
-    const name = typeof warning === 'string' ? String(rest[0] ?? '') : ((warning as Error)?.name ?? '');
+    const name =
+      typeof warning === 'string' ? String(rest[0] ?? '') : ((warning as Error)?.name ?? '');
     if (/sqlite/i.test(msg) && /experimental/i.test(`${name} ${msg}`)) return;
     (original as (w: unknown, ...r: unknown[]) => void)(warning, ...rest);
   }) as typeof process.emitWarning;
@@ -230,10 +246,7 @@ export class IndexStore {
           throw new LockError(`SQLite lock conflict after ${MAX_LOCK_RETRIES} retries: ${msg}`);
         }
         // Exponential backoff: 50ms → 100ms → 200ms, capped at 500ms.
-        const delay = Math.min(
-          LOCK_RETRY_BASE_DELAY_MS * 2 ** attempt,
-          LOCK_RETRY_MAX_DELAY_MS,
-        );
+        const delay = Math.min(LOCK_RETRY_BASE_DELAY_MS * 2 ** attempt, LOCK_RETRY_MAX_DELAY_MS);
         sleepSync(delay);
       }
     }
@@ -271,7 +284,9 @@ export class IndexStore {
     // Schema migration: the index is derived, rebuildable data — on any
     // version mismatch we drop everything and let the next index run repopulate
     // from source, instead of maintaining per-version migration scripts.
-    const storedRows = this.db.prepare('SELECT value FROM metadata WHERE key = ?').all('version') as { value: string }[];
+    const storedRows = this.db
+      .prepare('SELECT value FROM metadata WHERE key = ?')
+      .all('version') as { value: string }[];
     const storedVersion = storedRows.length ? Number(storedRows[0]?.value) : null;
     if (storedVersion !== null && storedVersion !== SCHEMA_VERSION) {
       this.db.exec(`
@@ -280,9 +295,13 @@ export class IndexStore {
         DROP TABLE IF EXISTS refs;
       `);
       this.db.exec('DROP TABLE IF EXISTS symbols_fts');
-      this.db.prepare('UPDATE metadata SET value = ? WHERE key = ?').run(String(SCHEMA_VERSION), 'version');
+      this.db
+        .prepare('UPDATE metadata SET value = ? WHERE key = ?')
+        .run(String(SCHEMA_VERSION), 'version');
     } else if (storedVersion === null) {
-      this.db.prepare('INSERT INTO metadata(key, value) VALUES (?, ?)').run('version', String(SCHEMA_VERSION));
+      this.db
+        .prepare('INSERT INTO metadata(key, value) VALUES (?, ?)')
+        .run('version', String(SCHEMA_VERSION));
     }
 
     this.db.exec(`
@@ -340,16 +359,23 @@ export class IndexStore {
     // in-process BM25 build: MATCH uses the inverted index and bm25() ranks
     // natively. Kept in sync explicitly in insertSymbols/delete*/clearAll.
     try {
-      this.db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(text, tokenize = 'unicode61')");
+      this.db.exec(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(text, tokenize = 'unicode61')",
+      );
       this.ftsAvailable = true;
       // A database may have been populated by a runtime without FTS5. Backfill
       // the derived table when FTS later becomes available instead of making
       // every historical symbol invisible until a forced rebuild.
       const symbolCount = Number(
-        (this.db.prepare('SELECT COUNT(*) AS n FROM symbols').get() as { n?: number } | undefined)?.n ?? 0,
+        (this.db.prepare('SELECT COUNT(*) AS n FROM symbols').get() as { n?: number } | undefined)
+          ?.n ?? 0,
       );
       const ftsCount = Number(
-        (this.db.prepare('SELECT COUNT(*) AS n FROM symbols_fts').get() as { n?: number } | undefined)?.n ?? 0,
+        (
+          this.db.prepare('SELECT COUNT(*) AS n FROM symbols_fts').get() as
+            | { n?: number }
+            | undefined
+        )?.n ?? 0,
       );
       if (symbolCount !== ftsCount) {
         this.db.exec('DELETE FROM symbols_fts');
@@ -387,7 +413,9 @@ export class IndexStore {
       // we assign — no collisions.
       this.db.exec('BEGIN IMMEDIATE');
       try {
-        const maxRows = this.db.prepare('SELECT MAX(id) AS m FROM symbols').all() as { m: number | null }[];
+        const maxRows = this.db.prepare('SELECT MAX(id) AS m FROM symbols').all() as {
+          m: number | null;
+        }[];
         let nextId = (maxRows[0]?.m ?? 0) + 1;
 
         const stmt = this.db.prepare(
@@ -431,8 +459,9 @@ export class IndexStore {
   deleteSymbolsForFile(file: string): void {
     this.runWithRetry(() => {
       if (this.ftsAvailable) {
-        this.stmt('DELETE FROM symbols_fts WHERE rowid IN (SELECT id FROM symbols WHERE file_fk = ?)')
-          .run(file);
+        this.stmt(
+          'DELETE FROM symbols_fts WHERE rowid IN (SELECT id FROM symbols WHERE file_fk = ?)',
+        ).run(file);
       }
       this.stmt('DELETE FROM symbols WHERE file_fk = ?').run(file);
     });
@@ -448,13 +477,15 @@ export class IndexStore {
       this.db.exec('BEGIN IMMEDIATE');
       try {
         if (this.ftsAvailable) {
-          this.db.prepare(
-            'DELETE FROM symbols_fts WHERE rowid IN (SELECT id FROM symbols WHERE file_fk = ?)',
-          ).run(file);
+          this.db
+            .prepare(
+              'DELETE FROM symbols_fts WHERE rowid IN (SELECT id FROM symbols WHERE file_fk = ?)',
+            )
+            .run(file);
         }
-        this.db.prepare(
-          'DELETE FROM refs WHERE from_id IN (SELECT id FROM symbols WHERE file_fk = ?)',
-        ).run(file);
+        this.db
+          .prepare('DELETE FROM refs WHERE from_id IN (SELECT id FROM symbols WHERE file_fk = ?)')
+          .run(file);
         this.db.prepare('DELETE FROM symbols WHERE file_fk = ?').run(file);
         this.db.prepare('DELETE FROM files WHERE file = ?').run(file);
         this.db.exec('COMMIT');
@@ -484,25 +515,54 @@ export class IndexStore {
   getFileMeta(file: string): FileMeta | null {
     const rows = this.stmt(
       'SELECT file, lang, mtime_ms, symbol_count, last_indexed FROM files WHERE file = ?',
-    ).all(file) as { file: string; lang: string; mtime_ms: number; symbol_count: number; last_indexed: number }[];
+    ).all(file) as {
+      file: string;
+      lang: string;
+      mtime_ms: number;
+      symbol_count: number;
+      last_indexed: number;
+    }[];
     if (!rows.length) return null;
     const r = expectDefined(rows[0]);
-    return { file: r.file, lang: r.lang as SymbolLang, mtimeMs: r.mtime_ms, symbolCount: r.symbol_count, lastIndexed: r.last_indexed };
+    return {
+      file: r.file,
+      lang: r.lang as SymbolLang,
+      mtimeMs: r.mtime_ms,
+      symbolCount: r.symbol_count,
+      lastIndexed: r.last_indexed,
+    };
   }
 
   getAllFileMetas(): FileMeta[] {
-    return (this.db.prepare(
-      'SELECT file, lang, mtime_ms, symbol_count, last_indexed FROM files',
-    ).all() as { file: string; lang: string; mtime_ms: number; symbol_count: number; last_indexed: number }[]).map(
-      (r) => ({ file: r.file, lang: r.lang as SymbolLang, mtimeMs: r.mtime_ms, symbolCount: r.symbol_count, lastIndexed: r.last_indexed }),
-    );
+    return (
+      this.db
+        .prepare('SELECT file, lang, mtime_ms, symbol_count, last_indexed FROM files')
+        .all() as {
+        file: string;
+        lang: string;
+        mtime_ms: number;
+        symbol_count: number;
+        last_indexed: number;
+      }[]
+    ).map((r) => ({
+      file: r.file,
+      lang: r.lang as SymbolLang,
+      mtimeMs: r.mtime_ms,
+      symbolCount: r.symbol_count,
+      lastIndexed: r.last_indexed,
+    }));
   }
 
   // ─── Search ──────────────────────────────────────────────────────────────────
 
   search(
     query: string,
-    filter?: { kind?: SymbolKind | undefined; lang?: SymbolLang | undefined; file?: string | undefined; lspKind?: number | undefined },
+    filter?: {
+      kind?: SymbolKind | undefined;
+      lang?: SymbolLang | undefined;
+      file?: string | undefined;
+      lspKind?: number | undefined;
+    },
   ): SearchResult[] {
     const conditions: string[] = [];
     const values: unknown[] = [];
@@ -541,9 +601,17 @@ export class IndexStore {
     const sql = `SELECT id, lang, kind, name, file, line, col, signature, doc_comment, text FROM symbols ${where}`;
 
     const stmt = this.db.prepare(sql);
-    const rows = stmt.all(...values as (string | number)[]) as {
-      id: number; lang: string; kind: string; name: string; file: string;
-      line: number; col: number; signature: string; doc_comment: string; text: string;
+    const rows = stmt.all(...(values as (string | number)[])) as {
+      id: number;
+      lang: string;
+      kind: string;
+      name: string;
+      file: string;
+      line: number;
+      col: number;
+      signature: string;
+      doc_comment: string;
+      text: string;
     }[];
 
     return rows.map((r) => ({
@@ -575,7 +643,12 @@ export class IndexStore {
   searchRanked(
     query: string,
     filter:
-      | { kind?: SymbolKind | undefined; lang?: SymbolLang | undefined; file?: string | undefined; lspKind?: number | undefined }
+      | {
+          kind?: SymbolKind | undefined;
+          lang?: SymbolLang | undefined;
+          file?: string | undefined;
+          lspKind?: number | undefined;
+        }
       | undefined,
     limit: number,
   ): { results: SearchResult[]; total: number } {
@@ -614,7 +687,9 @@ export class IndexStore {
     const where = conditions.join(' AND ');
 
     const countRows = this.db
-      .prepare(`SELECT COUNT(*) AS n FROM symbols_fts JOIN symbols s ON s.id = symbols_fts.rowid WHERE ${where}`)
+      .prepare(
+        `SELECT COUNT(*) AS n FROM symbols_fts JOIN symbols s ON s.id = symbols_fts.rowid WHERE ${where}`,
+      )
       .all(...values) as { n: number }[];
     const total = countRows[0] ? Number(countRows[0].n) : 0;
     if (total === 0) return { results: [], total: 0 };
@@ -634,9 +709,17 @@ export class IndexStore {
          LIMIT ?`,
       )
       .all(...values, query.trim(), `${escapeLike(query.trim())}%`, safeLimit) as {
-      id: number; lang: string; kind: string; name: string; file: string;
-      line: number; col: number; signature: string; doc_comment: string;
-      score: number; snippet: string;
+      id: number;
+      lang: string;
+      kind: string;
+      name: string;
+      file: string;
+      line: number;
+      col: number;
+      signature: string;
+      doc_comment: string;
+      score: number;
+      snippet: string;
     }[];
 
     return {
@@ -664,7 +747,12 @@ export class IndexStore {
   private searchRankedFallback(
     query: string,
     filter:
-      | { kind?: SymbolKind | undefined; lang?: SymbolLang | undefined; file?: string | undefined; lspKind?: number | undefined }
+      | {
+          kind?: SymbolKind | undefined;
+          lang?: SymbolLang | undefined;
+          file?: string | undefined;
+          lspKind?: number | undefined;
+        }
       | undefined,
     limit: number,
   ): { results: SearchResult[]; total: number } {
@@ -677,7 +765,10 @@ export class IndexStore {
 
     const candidateById = new Map(candidates.map((c) => [c.id, c]));
     const bm25 = buildBm25Index(
-      candidates.map((c) => ({ id: c.id, text: buildIndexableText(c.name, c.signature, c.docComment) })),
+      candidates.map((c) => ({
+        id: c.id,
+        text: buildIndexableText(c.name, c.signature, c.docComment),
+      })),
     );
     const scored = bm25.score(query, (id) => candidateById.has(id));
     const q = query.trim().toLowerCase();
@@ -694,9 +785,13 @@ export class IndexStore {
       if (scoreDiff !== 0) return scoreDiff;
       const left = expectDefined(candidateById.get(a.id));
       const right = expectDefined(candidateById.get(b.id));
-      return left.name.localeCompare(right.name) ||
+      return (
+        left.name.localeCompare(right.name) ||
         left.file.localeCompare(right.file) ||
-        left.line - right.line || left.col - right.col || left.id - right.id;
+        left.line - right.line ||
+        left.col - right.col ||
+        left.id - right.id
+      );
     });
     const qTokens = tokenise(query);
 
@@ -708,9 +803,9 @@ export class IndexStore {
   }
 
   getAllIndexable(): Array<{ id: number; text: string }> {
-    return (this.db.prepare('SELECT id, text FROM symbols').all() as { id: number; text: string }[]).map(
-      ({ id, text }) => ({ id, text }),
-    );
+    return (
+      this.db.prepare('SELECT id, text FROM symbols').all() as { id: number; text: string }[]
+    ).map(({ id, text }) => ({ id, text }));
   }
 
   /**
@@ -721,7 +816,9 @@ export class IndexStore {
    * `symbols.id`). Ids may have gaps — that is fine.
    */
   getMaxSymbolId(): number {
-    const rows = this.db.prepare('SELECT MAX(id) AS m FROM symbols').all() as { m: number | null }[];
+    const rows = this.db.prepare('SELECT MAX(id) AS m FROM symbols').all() as {
+      m: number | null;
+    }[];
     return rows[0]?.m ?? 0;
   }
 
@@ -730,26 +827,32 @@ export class IndexStore {
   getStats(): IndexStats {
     const sizeBytes = this.sizeBytes();
 
-    const lastRows = this.db.prepare(
-      "SELECT value FROM metadata WHERE key = 'last_indexed'",
-    ).all() as { value: string }[];
+    const lastRows = this.db
+      .prepare("SELECT value FROM metadata WHERE key = 'last_indexed'")
+      .all() as { value: string }[];
     const lastIndexed = lastRows.length ? Number(lastRows[0]?.value) : null;
 
-    const totalRows = this.db.prepare('SELECT COUNT(*) FROM symbols').all() as { 'COUNT(*)': number }[];
+    const totalRows = this.db.prepare('SELECT COUNT(*) FROM symbols').all() as {
+      'COUNT(*)': number;
+    }[];
     const totalSymbols = totalRows[0] ? Number(totalRows[0]['COUNT(*)']) : 0;
 
-    const fileRows = this.db.prepare('SELECT COUNT(*) FROM files').all() as { 'COUNT(*)': number }[];
+    const fileRows = this.db.prepare('SELECT COUNT(*) FROM files').all() as {
+      'COUNT(*)': number;
+    }[];
     const totalFiles = fileRows[0] ? Number(fileRows[0]['COUNT(*)']) : 0;
 
-    const langRows = this.db.prepare(
-      'SELECT lang, COUNT(*) FROM symbols GROUP BY lang',
-    ).all() as { lang: string; 'COUNT(*)': number }[];
+    const langRows = this.db.prepare('SELECT lang, COUNT(*) FROM symbols GROUP BY lang').all() as {
+      lang: string;
+      'COUNT(*)': number;
+    }[];
     const byLang = {} as Record<SymbolLang, number>;
     for (const row of langRows) byLang[row.lang as SymbolLang] = Number(row['COUNT(*)']);
 
-    const kindRows = this.db.prepare(
-      'SELECT kind, COUNT(*) FROM symbols GROUP BY kind',
-    ).all() as { kind: string; 'COUNT(*)': number }[];
+    const kindRows = this.db.prepare('SELECT kind, COUNT(*) FROM symbols GROUP BY kind').all() as {
+      kind: string;
+      'COUNT(*)': number;
+    }[];
     const byKind = {} as Record<SymbolKind, number>;
     for (const row of kindRows) byKind[row.kind as SymbolKind] = Number(row['COUNT(*)']);
 
@@ -767,9 +870,22 @@ export class IndexStore {
 
   setLastIndexed(ts: number): void {
     this.runWithRetry(() => {
-      this.db.prepare(
-        "INSERT OR REPLACE INTO metadata(key, value) VALUES('last_indexed', ?)",
-      ).run(String(ts));
+      this.db
+        .prepare("INSERT OR REPLACE INTO metadata(key, value) VALUES('last_indexed', ?)")
+        .run(String(ts));
+    });
+  }
+
+  getMetadata(key: string): string | undefined {
+    const rows = this.db.prepare('SELECT value FROM metadata WHERE key = ?').all(key) as {
+      value: string;
+    }[];
+    return rows[0]?.value;
+  }
+
+  setMetadata(key: string, value: string): void {
+    this.runWithRetry(() => {
+      this.db.prepare('INSERT OR REPLACE INTO metadata(key, value) VALUES(?, ?)').run(key, value);
     });
   }
 
@@ -892,7 +1008,9 @@ export class IndexStore {
         }
 
         // 2) Assign ids + insert symbols.
-        const maxRows = this.db.prepare('SELECT MAX(id) AS m FROM symbols').all() as { m: number | null }[];
+        const maxRows = this.db.prepare('SELECT MAX(id) AS m FROM symbols').all() as {
+          m: number | null;
+        }[];
         let nextId = (maxRows[0]?.m ?? 0) + 1;
 
         const symStmt = this.db.prepare(
@@ -973,9 +1091,9 @@ export class IndexStore {
    */
   deleteRefsForFile(file: string): void {
     this.runWithRetry(() => {
-      this.db.prepare(
-        'DELETE FROM refs WHERE from_id IN (SELECT id FROM symbols WHERE file = ?)',
-      ).run(file);
+      this.db
+        .prepare('DELETE FROM refs WHERE from_id IN (SELECT id FROM symbols WHERE file = ?)')
+        .run(file);
     });
   }
 
@@ -989,12 +1107,14 @@ export class IndexStore {
    */
   resolveRefs(): number {
     return this.runWithRetry(() => {
-      const result = this.db.prepare(
-        `UPDATE refs SET to_id = (
+      const result = this.db
+        .prepare(
+          `UPDATE refs SET to_id = (
            SELECT id FROM symbols WHERE name = refs.to_name LIMIT 1
          ) WHERE to_id IS NULL AND to_name IS NOT NULL
            AND to_name IN (SELECT name FROM symbols)`,
-      ).run() as { changes?: number };
+        )
+        .run() as { changes?: number };
       return result.changes ?? 0;
     });
   }
@@ -1003,10 +1123,26 @@ export class IndexStore {
    * Find all references TO a given symbol (who calls / uses this symbol?).
    */
   findRefsTo(symbolId: number): Ref[] {
-    return (this.db.prepare(
-      'SELECT id, from_id, to_name, to_id, call_type, line FROM refs WHERE to_id = ? OR to_name = (SELECT name FROM symbols WHERE id = ?)',
-    ).all(symbolId, symbolId) as { id: number; from_id: number; to_name: string; to_id: number | null; call_type: string; line: number }[]).map((r) => ({
-      id: r.id, fromId: r.from_id, toName: r.to_name, toId: r.to_id ?? undefined, callType: r.call_type as Ref['callType'], line: r.line,
+    return (
+      this.db
+        .prepare(
+          'SELECT id, from_id, to_name, to_id, call_type, line FROM refs WHERE to_id = ? OR to_name = (SELECT name FROM symbols WHERE id = ?)',
+        )
+        .all(symbolId, symbolId) as {
+        id: number;
+        from_id: number;
+        to_name: string;
+        to_id: number | null;
+        call_type: string;
+        line: number;
+      }[]
+    ).map((r) => ({
+      id: r.id,
+      fromId: r.from_id,
+      toName: r.to_name,
+      toId: r.to_id ?? undefined,
+      callType: r.call_type as Ref['callType'],
+      line: r.line,
     }));
   }
 
@@ -1014,10 +1150,24 @@ export class IndexStore {
    * Find all references FROM a given symbol (what does this symbol call/use?).
    */
   findRefsFrom(symbolId: number): Ref[] {
-    return (this.db.prepare(
-      'SELECT id, from_id, to_name, to_id, call_type, line FROM refs WHERE from_id = ?',
-    ).all(symbolId) as { id: number; from_id: number; to_name: string; to_id: number | null; call_type: string; line: number }[]).map((r) => ({
-      id: r.id, fromId: r.from_id, toName: r.to_name, toId: r.to_id ?? undefined, callType: r.call_type as Ref['callType'], line: r.line,
+    return (
+      this.db
+        .prepare('SELECT id, from_id, to_name, to_id, call_type, line FROM refs WHERE from_id = ?')
+        .all(symbolId) as {
+        id: number;
+        from_id: number;
+        to_name: string;
+        to_id: number | null;
+        call_type: string;
+        line: number;
+      }[]
+    ).map((r) => ({
+      id: r.id,
+      fromId: r.from_id,
+      toName: r.to_name,
+      toId: r.to_id ?? undefined,
+      callType: r.call_type as Ref['callType'],
+      line: r.line,
     }));
   }
 
@@ -1055,6 +1205,40 @@ export class IndexStore {
     return undefined;
   }
 
+  private static packageFromImport(moduleName: string): string | undefined {
+    if (!moduleName.startsWith('@wrongstack/')) return undefined;
+    const parts = moduleName.split('/');
+    return parts[1] ? `@wrongstack/${parts[1]}` : undefined;
+  }
+
+  private static resolveRelativeImport(
+    fromFile: string,
+    moduleName: string,
+    indexedFiles: Set<string>,
+  ): string | undefined {
+    if (!moduleName.startsWith('.')) return undefined;
+    const normalizedFrom = fromFile.replace(/\\/g, '/');
+    const absolute = path.posix.normalize(
+      path.posix.join(path.posix.dirname(normalizedFrom), moduleName),
+    );
+    const extension = path.posix.extname(absolute);
+    const base = extension ? absolute.slice(0, -extension.length) : absolute;
+    const candidates = [
+      absolute,
+      ...['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts'].map((ext) => `${base}${ext}`),
+      ...['.ts', '.tsx', '.js', '.jsx'].map((ext) => path.posix.join(absolute, `index${ext}`)),
+      ...['.ts', '.tsx', '.js', '.jsx'].map((ext) => path.posix.join(base, `index${ext}`)),
+    ];
+    const indexedByPortablePath = new Map(
+      [...indexedFiles].map((file) => [file.replace(/\\/g, '/').toLocaleLowerCase(), file]),
+    );
+    for (const candidate of candidates) {
+      const indexed = indexedByPortablePath.get(candidate.toLocaleLowerCase());
+      if (indexed) return indexed;
+    }
+    return undefined;
+  }
+
   /**
    * Package-level graph: each workspace package is a node; edges are derived
    * from cross-package symbol references (a symbol in package A references a
@@ -1062,9 +1246,9 @@ export class IndexStore {
    */
   getPackageGraph(): CodeMapGraph {
     type Row = { file: string; id: number; name: string; kind: string; lang: string; line: number };
-    const symbols = this.db.prepare(
-      'SELECT file, id, name, kind, lang, line FROM symbols ORDER BY id',
-    ).all() as Row[];
+    const symbols = this.db
+      .prepare('SELECT file, id, name, kind, lang, line FROM symbols ORDER BY id')
+      .all() as Row[];
 
     // Build per-package aggregates
     const pkgNodes = new Map<string, GraphNode>();
@@ -1099,14 +1283,17 @@ export class IndexStore {
     }
 
     // Cross-package edges from resolved refs
-    const refRows = this.db.prepare(
-      `SELECT r.from_id, r.to_id, r.call_type
+    const refRows = this.db
+      .prepare(
+        `SELECT r.from_id, r.to_id, r.call_type
        FROM refs r
        WHERE r.to_id IS NOT NULL`,
-    ).all() as { from_id: number; to_id: number; call_type: string }[];
+      )
+      .all() as { from_id: number; to_id: number; call_type: string }[];
 
     const edgeMap = new Map<string, { weight: number; types: Map<string, number> }>();
     for (const r of refRows) {
+      if (r.call_type === 'import') continue;
       const fromPkg = symbolToPkg.get(r.from_id);
       const toPkg = symbolToPkg.get(r.to_id);
       if (!fromPkg || !toPkg || fromPkg === toPkg) continue;
@@ -1120,6 +1307,30 @@ export class IndexStore {
       e.types.set(r.call_type, (e.types.get(r.call_type) ?? 0) + 1);
     }
 
+    // Module imports are path/package references, not symbol names. They must
+    // bypass symbol resolution or aliases/barrels leave the architecture with
+    // isolated boxes even though source imports are explicit.
+    const importRows = this.db
+      .prepare(
+        `SELECT r.from_id, r.to_name
+       FROM refs r
+       WHERE r.call_type = 'import'`,
+      )
+      .all() as { from_id: number; to_name: string }[];
+    for (const r of importRows) {
+      const fromPkg = symbolToPkg.get(r.from_id);
+      const toPkg = IndexStore.packageFromImport(r.to_name);
+      if (!fromPkg || !toPkg || fromPkg === toPkg || !pkgNodes.has(toPkg)) continue;
+      const key = `${fromPkg}\u0000${toPkg}`;
+      let edge = edgeMap.get(key);
+      if (!edge) {
+        edge = { weight: 0, types: new Map() };
+        edgeMap.set(key, edge);
+      }
+      edge.weight++;
+      edge.types.set('import', (edge.types.get('import') ?? 0) + 1);
+    }
+
     const edges: GraphEdge[] = [];
     for (const [key, e] of edgeMap) {
       const [source, target] = key.split('\u0000');
@@ -1127,7 +1338,10 @@ export class IndexStore {
       let bestType = 'call';
       let bestCount = 0;
       for (const [t, c] of e.types) {
-        if (c > bestCount) { bestType = t; bestCount = c; }
+        if (c > bestCount) {
+          bestType = t;
+          bestCount = c;
+        }
       }
       edges.push({
         source: `pkg:${source}`,
@@ -1145,45 +1359,76 @@ export class IndexStore {
    * derived from cross-file symbol references within the package.
    */
   getFileGraph(packageFilter: string): CodeMapGraph {
-    type SymRow = { file: string; id: number; name: string; kind: string; lang: string; line: number };
-    const allSymbols = this.db.prepare(
-      'SELECT file, id, name, kind, lang, line FROM symbols ORDER BY id',
-    ).all() as SymRow[];
+    type SymRow = {
+      file: string;
+      id: number;
+      name: string;
+      kind: string;
+      lang: string;
+      line: number;
+    };
+    const allSymbols = this.db
+      .prepare('SELECT file, id, name, kind, lang, line FROM symbols ORDER BY id')
+      .all() as SymRow[];
 
     // Filter symbols to the requested package
-    const pkgSyms = allSymbols.filter((s) => (IndexStore.derivePackage(s.file) ?? '(root)') === packageFilter);
+    const pkgSyms = allSymbols.filter(
+      (s) => (IndexStore.derivePackage(s.file) ?? '(root)') === packageFilter,
+    );
     if (pkgSyms.length === 0) return { nodes: [], edges: [] };
 
     const fileNodes = new Map<string, GraphNode>();
     const symToFile = new Map<number, string>();
-    for (const s of pkgSyms) {
+    const fileStats = new Map<string, { count: number; lang: SymbolLang }>();
+    for (const s of allSymbols) {
       symToFile.set(s.id, s.file);
-      if (!fileNodes.has(s.file)) {
-        fileNodes.set(s.file, {
-          id: `file:${s.file}`,
-          label: s.file.replace(/\\/g, '/').split('/').pop() ?? s.file,
-          kind: 'file' as const,
-          package: packageFilter,
-          file: s.file,
-          symbolCount: 0,
-        });
-      }
-      const node = fileNodes.get(s.file)!;
-      node.symbolCount = (node.symbolCount ?? 0) + 1;
+      const current = fileStats.get(s.file);
+      fileStats.set(s.file, {
+        count: (current?.count ?? 0) + 1,
+        lang: (current?.lang ?? s.lang) as SymbolLang,
+      });
     }
 
-    // Cross-file edges within the package
-    const refRows = this.db.prepare(
-      `SELECT r.from_id, r.to_id, r.call_type
+    const localFiles = new Set(pkgSyms.map((s) => s.file));
+    const indexedFiles = new Set(allSymbols.map((s) => s.file));
+    const ensureFileNode = (file: string): void => {
+      if (fileNodes.has(file)) return;
+      const stats = fileStats.get(file);
+      fileNodes.set(file, {
+        id: `file:${file}`,
+        label: file.replace(/\\/g, '/').split('/').pop() ?? file,
+        kind: 'file' as const,
+        package: IndexStore.derivePackage(file) ?? '(root)',
+        file,
+        symbolCount: stats?.count ?? 0,
+        lang: stats?.lang,
+        external: !localFiles.has(file),
+      });
+    };
+    for (const file of localFiles) {
+      ensureFileNode(file);
+    }
+
+    // Cross-file edges that touch the package. Direct external neighbours are
+    // intentionally retained so drilling into a package does not erase the
+    // architectural context that led the user there.
+    const refRows = this.db
+      .prepare(
+        `SELECT r.from_id, r.to_id, r.call_type
        FROM refs r
        WHERE r.to_id IS NOT NULL`,
-    ).all() as { from_id: number; to_id: number; call_type: string }[];
+      )
+      .all() as { from_id: number; to_id: number; call_type: string }[];
 
     const edgeMap = new Map<string, { weight: number; types: Map<string, number> }>();
     for (const r of refRows) {
+      if (r.call_type === 'import') continue;
       const fromFile = symToFile.get(r.from_id);
       const toFile = symToFile.get(r.to_id);
       if (!fromFile || !toFile || fromFile === toFile) continue;
+      if (!localFiles.has(fromFile) && !localFiles.has(toFile)) continue;
+      ensureFileNode(fromFile);
+      ensureFileNode(toFile);
       const key = `${fromFile}\u0000${toFile}`;
       let e = edgeMap.get(key);
       if (!e) {
@@ -1194,13 +1439,40 @@ export class IndexStore {
       e.types.set(r.call_type, (e.types.get(r.call_type) ?? 0) + 1);
     }
 
+    const importRows = this.db
+      .prepare(
+        `SELECT r.from_id, r.to_name
+       FROM refs r
+       WHERE r.call_type = 'import'`,
+      )
+      .all() as { from_id: number; to_name: string }[];
+    for (const r of importRows) {
+      const fromFile = symToFile.get(r.from_id);
+      if (!fromFile || !localFiles.has(fromFile)) continue;
+      const toFile = IndexStore.resolveRelativeImport(fromFile, r.to_name, indexedFiles);
+      if (!toFile || fromFile === toFile) continue;
+      ensureFileNode(fromFile);
+      ensureFileNode(toFile);
+      const key = `${fromFile}\u0000${toFile}`;
+      let edge = edgeMap.get(key);
+      if (!edge) {
+        edge = { weight: 0, types: new Map() };
+        edgeMap.set(key, edge);
+      }
+      edge.weight++;
+      edge.types.set('import', (edge.types.get('import') ?? 0) + 1);
+    }
+
     const edges: GraphEdge[] = [];
     for (const [key, e] of edgeMap) {
       const [source, target] = key.split('\u0000');
       let bestType = 'call';
       let bestCount = 0;
       for (const [t, c] of e.types) {
-        if (c > bestCount) { bestType = t; bestCount = c; }
+        if (c > bestCount) {
+          bestType = t;
+          bestCount = c;
+        }
       }
       edges.push({
         source: `file:${source}`,
@@ -1218,42 +1490,68 @@ export class IndexStore {
    * derived from intra-file and cross-file symbol references (who calls whom).
    */
   getSymbolGraph(fileFilter: string): CodeMapGraph {
-    type SymRow = { id: number; name: string; kind: string; lang: string; file: string; line: number; signature: string; scope: string };
-    const syms = this.db.prepare(
-      'SELECT id, name, kind, lang, file, line, signature, scope FROM symbols WHERE file = ? ORDER BY line, id',
-    ).all(fileFilter) as SymRow[];
+    type SymRow = {
+      id: number;
+      name: string;
+      kind: string;
+      lang: string;
+      file: string;
+      line: number;
+      signature: string;
+      scope: string;
+    };
+    const allSymbols = this.db
+      .prepare(
+        'SELECT id, name, kind, lang, file, line, signature, scope FROM symbols ORDER BY file, line, id',
+      )
+      .all() as SymRow[];
+    const syms = allSymbols.filter((symbol) => symbol.file === fileFilter);
 
     if (syms.length === 0) return { nodes: [], edges: [] };
 
-    const symById = new Map<number, SymRow>();
-    const nodes: GraphNode[] = syms.map((s) => {
-      symById.set(s.id, s);
-      return {
-        id: `sym:${s.id}`,
-        label: s.name,
-        kind: 'symbol' as const,
-        symbolId: s.id,
-        symbolKind: s.kind as SymbolKind,
-        file: s.file,
-        package: IndexStore.derivePackage(s.file) ?? '(root)',
-      };
+    const symById = new Map(allSymbols.map((symbol) => [symbol.id, symbol]));
+    const relatedIds = new Set(syms.map((symbol) => symbol.id));
+
+    const toGraphNode = (s: SymRow): GraphNode => ({
+      id: `sym:${s.id}`,
+      label: s.name,
+      kind: 'symbol' as const,
+      symbolId: s.id,
+      symbolKind: s.kind as SymbolKind,
+      file: s.file,
+      package: IndexStore.derivePackage(s.file) ?? '(root)',
+      lang: s.lang as SymbolLang,
+      line: s.line,
+      signature: s.signature,
+      scope: s.scope,
+      external: s.file !== fileFilter,
     });
 
     // Collect refs FROM symbols in this file (outgoing) and TO symbols in this
     // file (incoming), so the graph shows both callers and callees.
     const symIds = new Set(syms.map((s) => s.id));
-    const refRows = this.db.prepare(
-      `SELECT r.from_id, r.to_id, r.to_name, r.call_type, r.line
+    const refRows = this.db
+      .prepare(
+        `SELECT r.from_id, r.to_id, r.to_name, r.call_type, r.line
        FROM refs r
        WHERE r.from_id IN (SELECT id FROM symbols WHERE file = ?)
           OR r.to_id IN (SELECT id FROM symbols WHERE file = ?)`,
-    ).all(fileFilter, fileFilter) as { from_id: number; to_id: number | null; to_name: string; call_type: string; line: number }[];
+      )
+      .all(fileFilter, fileFilter) as {
+      from_id: number;
+      to_id: number | null;
+      to_name: string;
+      call_type: string;
+      line: number;
+    }[];
 
     const edgeMap = new Map<string, { weight: number; types: Map<string, number> }>();
     for (const r of refRows) {
       if (r.to_id === null) continue;
       // Only include edges where at least one endpoint is in our file
       if (!symIds.has(r.from_id) && !symIds.has(r.to_id)) continue;
+      relatedIds.add(r.from_id);
+      relatedIds.add(r.to_id);
       const key = `${r.from_id}\u0000${r.to_id}`;
       let e = edgeMap.get(key);
       if (!e) {
@@ -1270,7 +1568,10 @@ export class IndexStore {
       let bestType = 'call';
       let bestCount = 0;
       for (const [t, c] of e.types) {
-        if (c > bestCount) { bestType = t; bestCount = c; }
+        if (c > bestCount) {
+          bestType = t;
+          bestCount = c;
+        }
       }
       edges.push({
         source: `sym:${fromId}`,
@@ -1280,6 +1581,21 @@ export class IndexStore {
       });
     }
 
+    // Include direct callers/callees from other files. Previously their edges
+    // pointed at missing React Flow nodes, which made cross-file relations
+    // invisible exactly where users expected to inspect them.
+    const nodes = [...relatedIds]
+      .map((id) => symById.get(id))
+      .filter((symbol): symbol is SymRow => symbol !== undefined)
+      .sort((a, b) => {
+        const aExternal = a.file === fileFilter ? 0 : 1;
+        const bExternal = b.file === fileFilter ? 0 : 1;
+        return (
+          aExternal - bExternal || a.file.localeCompare(b.file) || a.line - b.line || a.id - b.id
+        );
+      })
+      .map(toGraphNode);
+
     return { nodes, edges };
   }
 
@@ -1287,6 +1603,10 @@ export class IndexStore {
     // Drop cached StatementSync references before closing; db.close() finalizes
     // them, and keeping the map would retain handles to a dead connection.
     this.stmtCache.clear();
-    try { this.db.close(); } catch { /* already closed */ }
+    try {
+      this.db.close();
+    } catch {
+      /* already closed */
+    }
   }
 }

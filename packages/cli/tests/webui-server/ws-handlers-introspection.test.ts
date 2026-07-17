@@ -255,7 +255,7 @@ describe('handleSkillsList', () => {
     await handleSkillsList(ctx, FAKE_WS);
     const p = payloadOf(sent, 'skills.list');
     expect(p?.enabled).toBe(true);
-    expect((p?.skills as Array<Record<string, unknown>>)[0]).toMatchObject({
+    expect((p!.skills as Array<Record<string, unknown>>)[0]).toMatchObject({
       name: 's1',
       trigger: '/s1',
       scope: ['a'],

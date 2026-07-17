@@ -177,6 +177,7 @@ import {
   handleUserMessage,
   handleWorkingDirSet,
 } from './ws-handlers/index.js';
+import { handleKanbanMessage, type KanbanContext } from './ws-handlers/kanban.js';
 import {
   handleMailboxAgents,
   handleMailboxClear,
@@ -1034,9 +1035,7 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
         msg as { type: string; payload?: Record<string, unknown> },
       );
     } else if (msgType.startsWith('kanban.')) {
-      const { handleKanbanMessage } = await import('./ws-handlers/kanban.js');
-      type KContext = import('./ws-handlers/kanban.js').KanbanContext;
-      const kanbanCtx: KContext = {
+      const kanbanCtx: KanbanContext = {
         send,
         broadcast: deps.wsCommon?.broadcast ?? (() => {}),
         log: (msg: string) => consoleLogger.info(msg),

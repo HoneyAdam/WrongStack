@@ -4,6 +4,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ToolSidebar } from '../src/tool-sidebar.js';
+import { createWorklistStore } from '../src/lib/worklist-store.js';
 import type { ToolCallInfo } from '../src/types.js';
 
 const roots: Array<ReturnType<typeof createRoot>> = [];
@@ -47,6 +48,53 @@ describe('SimpleUI floating tool sidebar', () => {
 
     act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
     expect(container.querySelector('#tool-sidebar')).toBeNull();
+  });
+
+  it('requests a worklist only on first open and renders its badge updates', async () => {
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    roots.push(root);
+    const store = createWorklistStore();
+    store.reset('session-1');
+    const requested: string[] = [];
+    act(() =>
+      root.render(
+        <ToolSidebar
+          agentId="leader"
+          agentName="LEADER"
+          calls={calls}
+          worklists={store}
+          requestWorklist={(view) => requested.push(view)}
+        />,
+      ),
+    );
+
+    const todoTrigger = Array.from(container.querySelectorAll('.tool-sidebar-trigger')).find(
+      (button) => button.textContent?.includes('TODOS'),
+    );
+    await act(async () => {
+      click(todoTrigger as Element);
+      await import('../src/worklist-sidebar.js');
+    });
+    expect(requested).toEqual(['todos']);
+
+    await act(async () => {
+      store.applyMessage({
+        type: 'todos.updated',
+        payload: {
+          sessionId: 'session-1',
+          todos: [{ id: 'todo-1', content: 'Add SimpleUI todos', status: 'pending' }],
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(todoTrigger?.textContent).toContain('1');
+    expect(container.textContent).toContain('Add SimpleUI todos');
+
+    act(() => click(todoTrigger as Element));
+    act(() => click(todoTrigger as Element));
+    expect(requested).toEqual(['todos']);
   });
 
   it('shows tool input/output only after expanding a call', () => {

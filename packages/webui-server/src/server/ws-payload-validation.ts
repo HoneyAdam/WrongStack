@@ -297,10 +297,19 @@ const BOOLEAN_PREF_KEYS = new Set([
   'favoriteModelsOnly',
   'breakerEnabled',
   'debugStream',
+  // Chimera + auto-review master toggles
+  'chimeraEnabled',
+  'autoReviewEnabled',
 ]);
 
 /** Keys whose value must be an array of strings (e.g. an ordered model list). */
-const STRING_ARRAY_PREF_KEYS = new Set(['fallbackModels', 'favoriteModels']);
+const STRING_ARRAY_PREF_KEYS = new Set([
+  'fallbackModels',
+  'favoriteModels',
+  // Auto-review explicit fallback chain (derived when fallbackProfile is unset;
+  // surfaced for visibility/override).
+  'autoReviewFallbackModels',
+]);
 const STRING_ARRAY_RECORD_PREF_KEYS = new Set(['fallbackProfiles']);
 const MODEL_MATRIX_PREF_KEYS = new Set(['modelMatrix']);
 
@@ -312,6 +321,11 @@ const NUMBER_PREF_KEYS = new Set([
   'enhanceDelayMs',
   'tgLongToolMs',
   'breakerAutoKillResetMs',
+  // Chimera + auto-review numeric knobs
+  'chimeraMaxFiles',
+  'autoReviewDebounceMs',
+  'autoReviewMaxFilesPerBatch',
+  'autoReviewMaxConcurrentReviews',
 ]);
 
 const STRING_PREF_KEYS = new Set([
@@ -322,6 +336,12 @@ const STRING_PREF_KEYS = new Set([
   'refinerProvider',
   'refinerModel',
   'refinerFallbackProfile',
+  // Chimera + auto-review override strings
+  'chimeraProvider',
+  'chimeraModel',
+  'autoReviewProvider',
+  'autoReviewModel',
+  'autoReviewFallbackProfile',
 ]);
 
 const ENUM_PREF_KEYS: Record<string, Set<string>> = {
@@ -338,6 +358,9 @@ const ENUM_PREF_KEYS: Record<string, Set<string>> = {
   statuslineMode: new Set(['minimum', 'detailed', 'no-color']),
   animationStyle: new Set(['rainbow', 'wave', 'pulse', 'dots', 'breathe', 'cycle']),
   fsAccess: new Set(['unrestricted', 'project']),
+  // Chimera autoFix + auto-review cascade threshold
+  chimeraAutoFix: new Set(['off', 'ask', 'auto']),
+  autoReviewCascadeOn: new Set(['off', 'critical', 'high']),
 };
 
 function validateModelRuntimeValue(modelRuntime: Record<string, unknown>, path: string): string | null {

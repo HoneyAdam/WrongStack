@@ -21,6 +21,7 @@
     { "path": "./packages/simpleui" },
     { "path": "./packages/super-memory" },
     { "path": "./packages/bench" },
+    { "path": "./packages/techstack" },
     { "path": "./website" }
   ]
 }

@@ -18,6 +18,20 @@
 import { useSyncExternalStore } from 'react';
 
 export interface HqLocalPrefs {
+  appearance: {
+    theme: 'dark' | 'light';
+  };
+  fleet: {
+    scope: 'all' | 'machine' | 'project';
+    layout: 'map' | 'compact';
+    machineId: string;
+    projectId: string;
+  };
+  console: {
+    delivery: 'steer' | 'btw' | 'queue';
+    subject: string;
+    body: string;
+  };
   control: {
     cmdType: 'steer' | 'btw' | 'queue' | 'abort' | 'spawn' | 'broadcast' | 'run-command';
     abortTarget: 'leader' | 'fleet';
@@ -43,6 +57,20 @@ export interface HqLocalPrefs {
 const STORAGE_KEY = 'wrongstack.hq.local-prefs.v1';
 
 const DEFAULT_PREFS: HqLocalPrefs = {
+  appearance: {
+    theme: 'dark',
+  },
+  fleet: {
+    scope: 'all',
+    layout: 'map',
+    machineId: '',
+    projectId: '',
+  },
+  console: {
+    delivery: 'steer',
+    subject: '',
+    body: '',
+  },
   control: {
     cmdType: 'steer',
     abortTarget: 'leader',
@@ -95,9 +123,32 @@ function loadFromStorage(): HqLocalPrefs {
 
 function mergeWithDefaults(input: unknown): HqLocalPrefs {
   if (!isPlainObject(input)) return deepClone(DEFAULT_PREFS);
+  const appearance = isPlainObject(input['appearance']) ? input['appearance'] : {};
+  const fleet = isPlainObject(input['fleet']) ? input['fleet'] : {};
+  const consolePrefs = isPlainObject(input['console']) ? input['console'] : {};
   const ctl = isPlainObject(input['control']) ? input['control'] : {};
   const mb = isPlainObject(input['mailbox']) ? input['mailbox'] : {};
   const merged: HqLocalPrefs = {
+    appearance: {
+      theme: appearance['theme'] === 'light' ? 'light' : 'dark',
+    },
+    fleet: {
+      scope:
+        fleet['scope'] === 'machine' || fleet['scope'] === 'project'
+          ? fleet['scope']
+          : 'all',
+      layout: fleet['layout'] === 'compact' ? 'compact' : 'map',
+      machineId: typeof fleet['machineId'] === 'string' ? fleet['machineId'] : '',
+      projectId: typeof fleet['projectId'] === 'string' ? fleet['projectId'] : '',
+    },
+    console: {
+      delivery:
+        consolePrefs['delivery'] === 'btw' || consolePrefs['delivery'] === 'queue'
+          ? consolePrefs['delivery']
+          : 'steer',
+      subject: typeof consolePrefs['subject'] === 'string' ? consolePrefs['subject'] : '',
+      body: typeof consolePrefs['body'] === 'string' ? consolePrefs['body'] : '',
+    },
     control: {
       cmdType:
         ctl['cmdType'] === 'btw' ||
@@ -179,6 +230,27 @@ export function useHqLocalPrefs(): HqLocalPrefs {
 export function setHqControlPrefs(patch: Partial<HqLocalPrefs['control']>): void {
   const next = ensureLoaded();
   cached = { ...next, control: { ...next.control, ...patch } };
+  writeToStorage(cached);
+  notify();
+}
+
+export function setHqAppearancePrefs(patch: Partial<HqLocalPrefs['appearance']>): void {
+  const next = ensureLoaded();
+  cached = { ...next, appearance: { ...next.appearance, ...patch } };
+  writeToStorage(cached);
+  notify();
+}
+
+export function setHqFleetPrefs(patch: Partial<HqLocalPrefs['fleet']>): void {
+  const next = ensureLoaded();
+  cached = { ...next, fleet: { ...next.fleet, ...patch } };
+  writeToStorage(cached);
+  notify();
+}
+
+export function setHqConsolePrefs(patch: Partial<HqLocalPrefs['console']>): void {
+  const next = ensureLoaded();
+  cached = { ...next, console: { ...next.console, ...patch } };
   writeToStorage(cached);
   notify();
 }

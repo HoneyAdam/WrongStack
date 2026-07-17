@@ -110,8 +110,8 @@ describe('OpenAICompatibleProvider', () => {
       { signal: new AbortController().signal },
     );
     const [, init] = spy.mock.calls[0]!;
-    expect((init?.headers as Record<string, string>)['x-custom']).toBe('1');
-    expect((init?.headers as Record<string, string>)['authorization']).toMatch(/Bearer sk-x/);
+    expect((init!.headers as Record<string, string>)['x-custom']).toBe('1');
+    expect((init!.headers as Record<string, string>)['authorization']).toMatch(/Bearer sk-x/);
   });
 
   it('honours capabilities override', () => {

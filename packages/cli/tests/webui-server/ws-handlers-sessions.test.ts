@@ -146,7 +146,7 @@ describe('handleSessionsList', () => {
     const { ctx, sent } = makeCtx({ sessionStore: store as never });
     await handleSessionsList(ctx, FAKE_WS, 50);
     const list = (
-      lastOf(sent, 'sessions.list')?.payload as {
+      lastOf(sent, 'sessions.list')!.payload as {
         sessions: Array<{
           id: string;
           name?: string;

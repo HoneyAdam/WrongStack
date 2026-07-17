@@ -8,7 +8,6 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import type {
   DependencyObservation,
   DependencyScope,
@@ -20,6 +19,7 @@ import type {
   EcosystemAdapter,
   InventoryOptions,
 } from './interface.js';
+import { resolveIn, workspaceRoot } from './paths.js';
 import { buildPurl } from '../registry/purl.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -178,19 +178,19 @@ export class RustAdapter implements EcosystemAdapter {
 
   async inventory(
     workspace: Workspace,
-    _options: InventoryOptions,
+    options: InventoryOptions,
   ): Promise<readonly DependencyObservation[]> {
     const observations: DependencyObservation[] = [];
-    const root = workspace.relativeRoot || '.';
+    const root = workspaceRoot(workspace, options);
     const seen = new Set<string>();
 
     // Find manifests
     const cargoTomlPath = workspace.manifests.find((m) => m.includes('Cargo.toml'))
-      || (this.fileExists(join(root, 'Cargo.toml')) ? 'Cargo.toml' : undefined);
+      || (this.fileExists(resolveIn(root, 'Cargo.toml')) ? 'Cargo.toml' : undefined);
 
     if (!cargoTomlPath) return [];
 
-    const fullManifestPath = join(root, cargoTomlPath);
+    const fullManifestPath = resolveIn(root, cargoTomlPath);
     let cargoContent: string;
     try {
       cargoContent = readFileSync(fullManifestPath, 'utf-8');
@@ -201,7 +201,7 @@ export class RustAdapter implements EcosystemAdapter {
     const manifestEv = manifestEvidence(fullManifestPath);
 
     // Find lockfile
-    const cargoLockPath = join(root, 'Cargo.lock');
+    const cargoLockPath = resolveIn(root, 'Cargo.lock');
     let lockVersions = new Map<string, string>();
     let lockEv: Evidence | undefined;
     try {

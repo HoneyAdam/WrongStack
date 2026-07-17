@@ -1,8 +1,20 @@
-import { FileText, CircleStop, Send, ShieldAlert, X } from 'lucide-react';
+import {
+  CircleStop,
+  FileText,
+  ListPlus,
+  Send,
+  ShieldAlert,
+  Split,
+  X,
+} from 'lucide-react';
 import type { PendingConfirm, SessionInfo } from './types.js';
 import type { StatusNoticeProjection } from './lib/status-notice.js';
 import { detectFileMention, fileBasename } from './lib/file-mention.js';
 import type { FileMention } from './lib/file-mention.js';
+import type { QueueMode, QueuedItem } from './lib/queue-model.js';
+import type { RefineDecision, RefineState } from './lib/refine-model.js';
+import { QueuedMessages } from './queued-messages.js';
+import { RefinePanel } from './refine-panel.js';
 
 interface ComposerProps {
   draft: string;
@@ -21,10 +33,17 @@ interface ComposerProps {
   pendingConfirm: PendingConfirm | null;
   notice: (StatusNoticeProjection & { id: string }) | null;
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
-  sendPrompt: () => void;
+  queue: readonly QueuedItem[];
+  refineState: RefineState | null;
+  submitWith: (mode: QueueMode) => void;
   abort: () => void;
   decideConfirm: (decision: 'yes' | 'no' | 'always') => void;
   selectFile: (path: string) => void;
+  clearQueue: () => void;
+  removeQueued: (id: string) => void;
+  onRefineDecision: (decision: RefineDecision) => void;
+  onRefineRetry: () => void;
+  onRefineRetryFallback: (ref: string) => void;
 }
 
 function safeLine(value: unknown): string {
@@ -53,11 +72,24 @@ export function Composer({
   pendingConfirm,
   notice,
   textareaRef,
-  sendPrompt,
+  queue,
+  refineState,
+  submitWith,
   abort,
   decideConfirm,
   selectFile,
+  clearQueue,
+  removeQueued,
+  onRefineDecision,
+  onRefineRetry,
+  onRefineRetryFallback,
 }: ComposerProps) {
+  const empty = !draft.trim() && fileRefs.length === 0;
+  const offline = connection !== 'open';
+  // While the refine panel owns the text, the composer must not accept a
+  // second submit for the same message.
+  const locked = offline || refineState !== null;
+
   return (
     <div className="composer-inner">
       {pendingConfirm && (
@@ -80,11 +112,23 @@ export function Composer({
           </div>
         </div>
       )}
+
+      {refineState && (
+        <RefinePanel
+          state={refineState}
+          onDecision={onRefineDecision}
+          onRetry={onRefineRetry}
+          onRetryFallback={onRefineRetryFallback}
+        />
+      )}
+
+      <QueuedMessages queue={queue} onClear={clearQueue} onRemove={removeQueued} />
+
       <form
         className="composer"
         onSubmit={(event) => {
           event.preventDefault();
-          sendPrompt();
+          submitWith('btw');
         }}
       >
         {fileMention && (
@@ -142,11 +186,13 @@ export function Composer({
           aria-label="Message"
           value={draft}
           placeholder={
-            connection === 'open'
-              ? 'Tell WrongStack what to do…  @ file'
-              : 'Waiting for connection…'
+            offline
+              ? 'Waiting for connection…'
+              : running
+                ? 'Add to the run…  ENTER rides alongside · @ file'
+                : 'Tell WrongStack what to do…  @ file'
           }
-          disabled={connection !== 'open'}
+          disabled={locked}
           onChange={(event) => {
             const value = event.target.value;
             setDraft(value);
@@ -190,36 +236,68 @@ export function Composer({
             }
             if (event.key === 'Enter' && !event.shiftKey) {
               event.preventDefault();
-              sendPrompt();
+              // Enter is the softest send: it never interrupts a run.
+              // Steering is an explicit, separate button.
+              submitWith(event.ctrlKey || event.metaKey ? 'queue' : 'btw');
             }
           }}
         />
-        {running ? (
+        <div className="composer-actions">
+          {/* Stop stays reachable while a run is in flight even with a draft
+              typed — aborting and sending are independent intents. */}
+          {running && (
+            <button
+              type="button"
+              className="mode-button stop"
+              onClick={abort}
+              title="Stop the run"
+              aria-label="Stop run"
+            >
+              <CircleStop size={15} />
+            </button>
+          )}
+          {running && (
+            <button
+              type="button"
+              className="mode-button steer"
+              onClick={() => submitWith('steer')}
+              disabled={locked || empty}
+              title="Interrupt the run and send this instead"
+              aria-label="Steer the run with this message"
+            >
+              <Split size={15} />
+            </button>
+          )}
           <button
             type="button"
-            className="send-button stop"
-            onClick={abort}
-            aria-label="Stop run"
+            className="mode-button queue"
+            onClick={() => submitWith('queue')}
+            disabled={locked || empty}
+            title="Hold this until the current run finishes"
+            aria-label="Add message to queue"
           >
-            <CircleStop size={18} />
+            <ListPlus size={15} />
           </button>
-        ) : (
           <button
             type="submit"
             className="send-button"
-            disabled={(!draft.trim() && fileRefs.length === 0) || connection !== 'open'}
-            aria-label="Send message"
+            disabled={empty || locked}
+            title={running ? 'Send alongside the run' : 'Send'}
+            aria-label={running ? 'Send message alongside the run' : 'Send message'}
           >
             <Send size={18} />
           </button>
-        )}
+        </div>
       </form>
       <div className="composer-meta">
         <span
           className={notice ? `composer-notice ${notice.tone}` : undefined}
           aria-live="polite"
         >
-          {notice?.text ?? '@ FILE · ENTER SEND · SHIFT+ENTER NEW LINE'}
+          {notice?.text ??
+            (running
+              ? '@ FILE · ENTER ADDS TO RUN · CTRL+ENTER QUEUES'
+              : '@ FILE · ENTER SEND · SHIFT+ENTER NEW LINE')}
         </span>
         <span>{session?.model ?? 'NO MODEL'}</span>
       </div>

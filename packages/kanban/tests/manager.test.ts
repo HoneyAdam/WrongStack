@@ -13,10 +13,10 @@ import {
   assignTask,
   buildTaskGraphFromKanbanBoard,
   claimReadyTask,
+  copyTaskToBoard,
   createBoard,
   createBoardFromTaskGraph,
   duplicateBoard,
-  copyTaskToBoard,
   exportBoardAsMarkdown,
   exportBoardToTaskGraph,
   findBlockedTasks,
@@ -30,7 +30,6 @@ import {
   mergeTasks,
   moveTask,
   parseLinesIntoTasks,
-  transitionTask,
   reconcileKanbanBoard,
   recoverStaleTaskAssignments,
   releaseTaskClaim,
@@ -41,13 +40,14 @@ import {
   setTaskChain,
   splitTask,
   syncBoardFromTaskGraph,
+  transitionTask,
   updateBoard,
   updateCheckOnTask,
   updateColumn,
   updateTask,
   updateTaskAssignment,
 } from '../src/manager.js';
-import type { KanbanBoard } from '../src/types.js';
+import { CURRENT_KANBAN_VERSION, type KanbanBoard } from '../src/types.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -615,7 +615,8 @@ describe('createBoard', () => {
     expect(board.id).toBeTruthy();
     expect(board.title).toBe('Test Board');
     expect(board.columns.length).toBeGreaterThanOrEqual(1);
-    expect(board.version).toBe(1);
+    expect(board.version).toBe(CURRENT_KANBAN_VERSION);
+    expect(board.revision).toBe(0);
   });
 
   it('creates a board with provided tasks', async () => {

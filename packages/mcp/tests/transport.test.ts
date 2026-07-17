@@ -34,7 +34,7 @@ describe('extractJsonRpcResults', () => {
     const r = extractJsonRpcResults(sse);
     expect(r).toHaveLength(1);
     expect(r[0]?.id).toBe(2);
-    expect((r[0]?.result as { tools: unknown[] }).tools).toEqual([]);
+    expect((r[0]!.result as { tools: unknown[] }).tools).toEqual([]);
   });
 
   it('excludes notifications and server requests from response results', () => {

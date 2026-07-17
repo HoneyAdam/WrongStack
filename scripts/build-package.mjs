@@ -179,6 +179,7 @@ const profiles = {
   },
   '@wrongstack/sdd': standard(['@wrongstack/core']),
   '@wrongstack/security-scanner': standard(['@wrongstack/core']),
+  '@wrongstack/techstack': standard(['@wrongstack/core', '@wrongstack/tools']),
   '@wrongstack/simpleui': {
     entries: { index: 'src/index.ts' },
     target: 'es2022',
@@ -355,7 +356,15 @@ if (!profile) {
   throw new Error(`No package build profile registered for ${packageJson.name}`);
 }
 
-if (profile.clean !== false) rmSync(join(packageRoot, 'dist'), { recursive: true, force: true });
+if (profile.clean !== false)
+  // maxRetries/retryDelay: Windows throws EPERM/EBUSY when another process
+  // (e.g. a concurrent vitest run) briefly holds a handle on a dist file.
+  rmSync(join(packageRoot, 'dist'), {
+    recursive: true,
+    force: true,
+    maxRetries: 10,
+    retryDelay: 200,
+  });
 
 const builds = profile.builds ?? [profile];
 const emitted = [];

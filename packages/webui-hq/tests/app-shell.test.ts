@@ -50,6 +50,7 @@ afterEach(() => {
     snapshot: null,
     alerts: [],
     events: [],
+    commandStatuses: [],
     activeView: 'cockpit',
     connected: false,
     authRequired: false,

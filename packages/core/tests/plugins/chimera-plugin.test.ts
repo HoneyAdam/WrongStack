@@ -144,7 +144,7 @@ describe('session.ended review handler', () => {
     createChimeraPlugin().setup!(api);
     await events['session.ended']!();
     expect(log.info).toHaveBeenCalledWith(expect.stringContaining('capping review at 1 of 2'));
-    expect((emitCustom.mock.calls[0]?.[1] as { files: unknown[] }).files).toHaveLength(1);
+    expect((emitCustom.mock.calls[0]![1] as { files: unknown[] }).files).toHaveLength(1);
   });
 
   it('ignores .wrongstack/ changes', async () => {

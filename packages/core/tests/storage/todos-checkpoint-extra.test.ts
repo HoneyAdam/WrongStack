@@ -25,7 +25,7 @@ describe('todos-checkpoint — extra coverage', () => {
       (c) => c[0] === 'storage.read' && (c[1] as { error?: string }).error === 'parse_failed',
     );
     expect(read).toBeDefined();
-    expect((read?.[1] as { traceId?: string }).traceId).toBe('tr-1');
+    expect((read![1] as { traceId?: string }).traceId).toBe('tr-1');
   });
 
   it('saveTodosCheckpoint emits storage.write success', async () => {

@@ -1231,6 +1231,31 @@ export class MultiAgentHost {
           input: e.input,
         });
       });
+      const offToolProgressBridge = events.on('tool.progress', (e) => {
+        if (e.event.type !== 'file_changed') return;
+        const rawPath =
+          e.event.path ??
+          (typeof e.event.data?.['path'] === 'string' ? e.event.data['path'] : undefined);
+        if (!rawPath) return;
+        const filePath = path.normalize(
+          path.isAbsolute(rawPath) ? rawPath : path.resolve(ctx.projectRoot, rawPath),
+        );
+        hostEvents.emit('file.activity', {
+          filePath,
+          operation: e.event.operation ?? 'edit',
+          phase: 'changed',
+          source: 'deterministic',
+          at: Date.now(),
+          sessionId: e.sessionId,
+          traceId: e.traceId,
+          agentId: subCfg.id ?? subCfg.name ?? 'subagent',
+          agentName: e.agentName ?? subCfg.name,
+          toolUseId: e.id,
+          toolName: e.name,
+          line: e.event.line,
+          endLine: e.event.endLine,
+        });
+      });
       const offToolBridge = events.on('tool.executed', (e) => {
         // subCfg.id is populated by Director.spawn before this factory
         // is invoked, and by coord.spawn for the non-director path
@@ -1273,6 +1298,7 @@ export class MultiAgentHost {
 
       const dispose = async () => {
         offToolStartedBridge();
+        offToolProgressBridge();
         offToolBridge();
         offSummaryBridge();
         offCtxBridge();

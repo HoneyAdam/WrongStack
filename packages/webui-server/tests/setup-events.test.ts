@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { EventBus, type Context, type SessionEventBridge } from '@wrongstack/core';
 import { setupEvents } from '@wrongstack/webui-server';
@@ -42,6 +43,129 @@ describe('setupEvents session scoping', () => {
       type: 'provider_retry',
       attempt: 2,
     });
+    dispose();
+  });
+
+  it('broadcasts attributed tool targets and raw filesystem events to CodeMap', () => {
+    const events = new EventBus();
+    const broadcast = vi.fn();
+    const projectRoot = path.resolve('D:/repo');
+    const dispose = setupEvents({
+      events,
+      broadcast,
+      clients: new Map(),
+      config: {},
+      context: {
+        projectRoot,
+        session: { id: 'session-live' },
+        todos: [],
+        state: { onChange: vi.fn(), revision: 0 },
+      } as unknown as Context,
+      pendingConfirms: new Map(),
+    });
+
+    events.emit('tool.started', {
+      sessionId: 'session-live',
+      traceId: 'trace-live',
+      agentId: 'agent-live',
+      agentName: 'IMPLEMENTER',
+      id: 'tool-live',
+      name: 'read',
+      input: { path: 'src/agent.ts', offset: 12, limit: 4 },
+    });
+    events.emit('file.activity', {
+      filePath: path.join(projectRoot, 'src/agent.ts'),
+      operation: 'edit',
+      phase: 'changed',
+      source: 'watcher',
+      at: 123,
+    });
+    events.emit('tool.progress', {
+      sessionId: 'session-live',
+      traceId: 'trace-live',
+      agentId: 'agent-live',
+      agentName: 'IMPLEMENTER',
+      id: 'tool-live',
+      name: 'read',
+      event: {
+        type: 'file_changed',
+        path: 'src/generated.ts',
+        operation: 'write',
+        line: 9,
+      },
+    });
+    events.emit('subagent.tool_started', {
+      sessionId: 'session-live',
+      agentSessionId: 'session-worker',
+      subagentId: 'worker-1',
+      agentName: 'WORKER ONE',
+      id: 'worker-tool-1',
+      name: 'edit',
+      input: { path: 'src/worker.ts' },
+    });
+
+    expect(broadcast).toHaveBeenCalledWith(
+      expect.any(Map),
+      expect.objectContaining({
+        type: 'tool.started',
+        payload: expect.objectContaining({
+          sessionId: 'session-live',
+          traceId: 'trace-live',
+          agentId: 'agent-live',
+          agentName: 'IMPLEMENTER',
+          fileTargets: [
+            {
+              filePath: path.join(projectRoot, 'src/agent.ts'),
+              operation: 'read',
+              line: 12,
+              endLine: 15,
+            },
+          ],
+        }),
+      }),
+    );
+    expect(broadcast).toHaveBeenCalledWith(
+      expect.any(Map),
+      expect.objectContaining({
+        type: 'codemap.file_event',
+        payload: expect.objectContaining({ source: 'watcher', at: 123 }),
+      }),
+    );
+    expect(broadcast).toHaveBeenCalledWith(
+      expect.any(Map),
+      expect.objectContaining({
+        type: 'tool.progress',
+        payload: expect.objectContaining({
+          traceId: 'trace-live',
+          agentId: 'agent-live',
+          event: expect.objectContaining({
+            type: 'file_changed',
+            path: path.join(projectRoot, 'src/generated.ts'),
+            operation: 'write',
+            line: 9,
+          }),
+        }),
+      }),
+    );
+    expect(broadcast).toHaveBeenCalledWith(
+      expect.any(Map),
+      expect.objectContaining({
+        type: 'codemap.tool_started',
+        payload: expect.objectContaining({
+          sessionId: 'session-worker',
+          parentSessionId: 'session-live',
+          agentId: 'worker-1',
+          agentName: 'WORKER ONE',
+          id: 'worker-tool-1',
+          fileTargets: [
+            expect.objectContaining({
+              filePath: path.join(projectRoot, 'src/worker.ts'),
+              operation: 'edit',
+            }),
+          ],
+        }),
+      }),
+    );
     dispose();
   });
 });

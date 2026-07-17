@@ -54,6 +54,48 @@ export interface TechStackDependency {
   readonly evidence: readonly TechStackEvidence[];
 }
 
+export type TechStackFindingType =
+  | 'upgrade'
+  | 'vulnerability'
+  | 'deprecated'
+  | 'license'
+  | 'replacement'
+  | 'unsupported'
+  | 'investigate';
+
+export type TechStackFindingSeverity = 'info' | 'low' | 'medium' | 'high' | 'critical';
+
+export type TechStackFindingAction =
+  | 'none'
+  | 'upgrade_patch'
+  | 'upgrade_minor'
+  | 'upgrade_major'
+  | 'replace'
+  | 'remove'
+  | 'investigate';
+
+/**
+ * Mirrors `Finding` in `packages/techstack/src/types.ts`.
+ *
+ * Duplicated rather than imported: `@wrongstack/techstack` reaches for
+ * `node:crypto` and SQLite, so it cannot cross into the browser bundle.
+ *
+ * `confidence` is the fact/interpretation divide — deterministic findings from
+ * the registry and OSV are `1.0`; anything the LLM research stage produced is
+ * strictly below it and carries its sources in `evidence`.
+ */
+export interface TechStackFinding {
+  readonly id: string;
+  readonly dependencyId: string;
+  readonly type: TechStackFindingType;
+  readonly severity: TechStackFindingSeverity;
+  readonly action: TechStackFindingAction;
+  readonly confidence: number;
+  readonly rationale: string;
+  readonly breakingRisk?: string | undefined;
+  readonly evidence: readonly TechStackEvidence[];
+}
+
 export interface TechStackSnapshot {
   readonly id: string;
   readonly projectId: string;
@@ -62,7 +104,7 @@ export interface TechStackSnapshot {
   readonly createdAt: string;
   readonly workspaces: readonly TechStackWorkspace[];
   readonly dependencies: readonly TechStackDependency[];
-  readonly findings: readonly unknown[];
+  readonly findings: readonly TechStackFinding[];
   readonly coverage: TechStackCoverage;
   readonly adapterVersion: string;
 }

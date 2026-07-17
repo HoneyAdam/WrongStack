@@ -52,6 +52,7 @@ import {
   handleTechStackCancel,
   handleTechStackInventory,
   handleTechStackJobStatus,
+  handleTechStackDependencyResearch,
   handleTechStackReport,
   handleTechStackSnapshot,
   type TechStackEvent,
@@ -119,6 +120,15 @@ export interface CreateHttpServerOptions {
   indexDir?: string | undefined;
   /** Project-wide TechStack events projected onto the WebSocket transport. */
   onTechStackEvent?: ((event: TechStackEvent) => void) | undefined;
+  /**
+   * Live provider access for TechStack's LLM research stage. Omit it and
+   * `analyze` stays deterministic (registry + advisories only).
+   *
+   * A getter, not a value — see `TechStackHandlerDeps.getLlm`.
+   */
+  getLlm?:
+    | (() => { provider: import('@wrongstack/core').Provider; model: string } | undefined)
+    | undefined;
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -616,6 +626,7 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
             engine: runtime.engine,
             runningJobs: runtime.runningJobs,
             emit: opts.onTechStackEvent,
+            getLlm: opts.getLlm,
           };
           if (url.pathname === '/api/techstack/snapshot' && req.method === 'GET') {
             handleTechStackSnapshot(res, deps);
@@ -643,6 +654,15 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
           if (reportMatch && req.method === 'GET') {
             const fmt = url.searchParams.get('format') === 'json' ? 'json' : 'md';
             handleTechStackReport(res, deps, decodeURIComponent(reportMatch[1]!), fmt);
+            return;
+          }
+          const researchMatch = /^\/api\/techstack\/deps\/([^/]+)\/research$/.exec(url.pathname);
+          if (researchMatch && req.method === 'POST') {
+            await handleTechStackDependencyResearch(
+              res,
+              deps,
+              decodeURIComponent(researchMatch[1]!),
+            );
             return;
           }
         } catch (error) {

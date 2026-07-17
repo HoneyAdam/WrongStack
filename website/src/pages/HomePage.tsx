@@ -17,6 +17,7 @@ import { useEffect, useState } from 'react';
 import { ConnectWithPreview } from '@/components/site/ConnectWithPreview';
 import { CoordinationLitePreviews } from '@/components/site/CoordinationLitePreviews';
 import { FleetTopologyPreview } from '@/components/site/FleetTopologyPreview';
+import { TuiShowcase } from '@/components/site/TuiShowcase';
 import { CopyCommand, Eyebrow, Reveal, SectionIntro } from '@/components/site/primitives';
 import {
   capabilityIndex,
@@ -175,10 +176,12 @@ export function HomePage() {
               <span>MIT licensed</span>
             </div>
             <h1 className="max-w-[820px] font-display text-[clamp(4rem,7.5vw,7.05rem)] font-bold leading-[0.86] tracking-[-0.022em] text-fg">
-              <span className="block whitespace-nowrap">CODE.</span>
-              <span className="block whitespace-nowrap text-brand-2">COMMAND.</span>
-              <span className="relative inline-block whitespace-nowrap text-brand">
-                SHIP.
+              <span className="hero-line block whitespace-nowrap">CODE.</span>
+              <span className="hero-line hero-line--brand-2 hero-line--delay-1 block whitespace-nowrap">
+                COMMAND.
+              </span>
+              <span className="relative inline-block whitespace-nowrap">
+                <span className="hero-line hero-line--brand hero-line--delay-2">SHIP.</span>
                 <span className="absolute -right-5 -top-1 font-mono text-sm tracking-normal text-brand-2">
                   ↗
                 </span>
@@ -240,6 +243,8 @@ export function HomePage() {
 
       <ConnectWithPreview />
 
+      <TuiShowcase />
+
       <section className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10 lg:py-36">
         <SectionIntro
           index="01"
@@ -292,7 +297,7 @@ export function HomePage() {
                 <Reveal
                   key={surface.id}
                   delay={index * 0.04}
-                  className="bg-[#0c0d12] p-6 last:sm:col-span-2 last:lg:col-span-1"
+                  className="bg-[#0c0d12] p-6"
                 >
                   <surface.icon className="size-5 text-brand" />
                   <h3 className="mt-6 text-lg font-black">{surface.name}</h3>
@@ -304,27 +309,28 @@ export function HomePage() {
                   </code>
                 </Reveal>
               ))}
-              <Reveal delay={surfaces.length * 0.04} className="bg-[#0c0d12]">
+              <Reveal
+                delay={surfaces.length * 0.04}
+                className="bg-[#0c0d12] sm:col-span-2 lg:col-span-3"
+              >
                 <Link
                   href="/interfaces"
-                  className="group flex h-full min-h-[210px] flex-col justify-between bg-white/[0.04] p-6 transition-colors duration-300 hover:bg-brand focus-visible:bg-brand"
+                  className="group flex items-center justify-between gap-6 bg-white/[0.04] p-6 transition-colors duration-300 hover:bg-brand focus-visible:bg-brand"
                 >
-                  <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
                     <span className="font-mono text-xs font-black uppercase tracking-[0.18em] text-brand transition-colors group-hover:text-white/70 group-focus-visible:text-white/70">
                       Surface guide
                     </span>
-                    <span className="grid size-9 shrink-0 place-items-center rounded-full border border-white/15 text-brand transition-all group-hover:border-white group-hover:bg-white group-focus-visible:border-white group-focus-visible:bg-white">
-                      <ArrowUpRight className="size-4 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-focus-visible:-translate-y-0.5 group-focus-visible:translate-x-0.5" />
-                    </span>
-                  </div>
-                  <div>
-                    <h3 className="text-2xl font-black tracking-[-0.035em] text-white">
+                    <h3 className="mt-1.5 text-xl font-black tracking-[-0.035em] text-white">
                       Find your surface.
                     </h3>
-                    <p className="mt-2 max-w-xs text-sm leading-6 text-zinc-400 transition-colors group-hover:text-white/75 group-focus-visible:text-white/75">
+                    <p className="mt-1 max-w-xl text-sm leading-6 text-zinc-400 transition-colors group-hover:text-white/75 group-focus-visible:text-white/75">
                       Compare all six interfaces and choose the one that fits the work.
                     </p>
                   </div>
+                  <span className="grid size-11 shrink-0 place-items-center rounded-full border border-white/15 text-brand transition-all group-hover:border-white group-hover:bg-white group-focus-visible:border-white group-focus-visible:bg-white">
+                    <ArrowUpRight className="size-5 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-focus-visible:-translate-y-0.5 group-focus-visible:translate-x-0.5" />
+                  </span>
                 </Link>
               </Reveal>
             </div>

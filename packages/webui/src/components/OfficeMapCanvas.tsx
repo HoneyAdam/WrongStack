@@ -78,12 +78,8 @@ import {
   HUB_GAP,
   MAILBOX_Y,
   COORD_Y,
-  CLIENT_Y,
-  AGENT_Y0,
-  CLIENT_COL_W,
-  AGENT_COLS,
-  AGENT_FAN_W,
-  layoutClientXs,
+  CLIENT_AGENT_GAP,
+  layoutClientClusters,
   agentFanPos,
   surfaceLabel,
 } from './OfficeMapCanvas/utils.js';
@@ -97,6 +93,8 @@ const OFFICE_COLOR = {
   destructive: 'hsl(var(--destructive))',
   muted: 'hsl(var(--muted-foreground))',
 } as const;
+
+const FIT_VIEW_PADDING = 0.12;
 
 function clampCtxPct(value: number | null | undefined): number {
   return Math.min(100, Math.max(0, value ?? 0));
@@ -825,6 +823,31 @@ function LiveFeed({ events, now }: { events: VizEvent[]; now: number }) {
 export function OfficeMapCanvas() {
   const { t } = useAppTranslation();
   const { fitView } = useReactFlow();
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const [canvasSize, setCanvasSize] = useState({ width: 1280, height: 720 });
+
+  // React Flow's fitView can only zoom a layout after it exists. Measure the
+  // actual Fleet HQ surface first so the layout itself has the same aspect
+  // ratio as the available canvas (including desktop/sidebar resizing).
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const syncSize = () => {
+      const { width, height } = canvas.getBoundingClientRect();
+      if (width < 1 || height < 1) return;
+      setCanvasSize((current) =>
+        Math.abs(current.width - width) < 2 && Math.abs(current.height - height) < 2
+          ? current
+          : { width, height },
+      );
+    };
+
+    syncSize();
+    const observer = new ResizeObserver(syncSize);
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, []);
 
   // Store subscriptions
   const vizEvents = useVizStore((s) => s.events);
@@ -912,8 +935,8 @@ export function OfficeMapCanvas() {
   // Node activity: keyed by office-map node id, decays over time.
   const vizActivityRef = useRef<Map<string, number>>(new Map());
 
-  // Computed floor-plan position per node id — the "home" the Arrange button
-  // snaps dragged nodes back to. Refreshed every rebuild.
+  // Computed responsive position per node id — the "home" the Arrange button
+  // snaps dragged nodes back to. Refreshed every rebuild/canvas resize.
   const layoutPosRef = useRef<Map<string, { x: number; y: number }>>(new Map());
 
   // Previous (toolCalls, iteration) per agent — drives delta-based movement so a
@@ -931,12 +954,10 @@ export function OfficeMapCanvas() {
     const rfEdges: Edge[] = [];
     const now = Date.now();
 
-    // Widen client columns when any client fans out multiple agents, so one
-    // client's agent fan never overlaps the neighbouring client's.
-    const maxAgents = Math.max(1, ...clients.map((c) => c.agents.length || 1));
-    const fanCols = Math.min(AGENT_COLS, maxAgents);
-    const dynamicColW = Math.max(CLIENT_COL_W, fanCols * AGENT_FAN_W + 80);
-    const clientXs = layoutClientXs(clients.map((c) => c.id), dynamicColW);
+    const clientLayout = layoutClientClusters(
+      clients.map((client) => ({ id: client.id, agentCount: client.agents.length })),
+      canvasSize,
+    );
 
     // ── Mailbox Node ──────────────────────────────────────────────
     const unreadCount = mailboxMessages.filter(
@@ -1011,14 +1032,16 @@ export function OfficeMapCanvas() {
     };
 
     for (const client of clients) {
-      const cx = clientXs.get(client.id) ?? CENTER_X;
+      const clusterPosition = clientLayout.positions.get(client.id) ?? { x: CENTER_X, y: 370 };
+      const cx = clusterPosition.x;
+      const cy = clusterPosition.y;
       const color = clientColor[client.type];
       const clientActive = client.status === 'active';
 
       rfNodes.push({
         id: client.id,
         type: client.type,
-        position: { x: cx, y: CLIENT_Y },
+        position: { x: cx, y: cy },
         data: {
           label: client.label,
           sublabel: client.sublabel,
@@ -1064,7 +1087,7 @@ export function OfficeMapCanvas() {
         rfNodes.push({
           id: `desk-${client.id}`,
           type: 'desk',
-          position: { x: cx, y: AGENT_Y0 },
+          position: { x: cx, y: cy + CLIENT_AGENT_GAP },
           data: { label: t('activity:office.idleDesk'), kind: 'agent', status: 'idle', color: OFFICE_COLOR.muted },
         });
         continue;
@@ -1100,7 +1123,7 @@ export function OfficeMapCanvas() {
         rfNodes.push({
           id: agent.officeId,
           type: 'agent',
-          position: agentFanPos(cx, j, client.agents.length),
+          position: agentFanPos(cx, j, client.agents.length, cy + CLIENT_AGENT_GAP),
           data: {
             label: agent.name,
             kind: 'agent',
@@ -1173,16 +1196,24 @@ export function OfficeMapCanvas() {
     setNodes(overlaidNodes);
     setEdges(overlaidEdges);
 
-    // Only re-fit when the node *set* changed (added/removed), not on every
-    // counter update — otherwise the canvas recenters on each 5s snapshot.
-    const sig = overlaidNodes.map((n) => n.id).sort().join('|');
+    // Re-fit when topology or canvas geometry changes, not on every counter
+    // update — otherwise the canvas recenters on each 5s snapshot.
+    const sig = [
+      `${Math.round(canvasSize.width)}x${Math.round(canvasSize.height)}`,
+      `${clientLayout.columns}x${clientLayout.rows}`,
+      clients.map((client) => `${client.id}:${client.agents.length}`).join('|'),
+      overlaidNodes.map((node) => node.id).sort().join('|'),
+    ].join(':');
     if (sig !== prevNodeSigRef.current) {
       prevNodeSigRef.current = sig;
-      const fitTimer = setTimeout(() => fitView({ padding: 0.2, duration: 300 }), 50);
+      const fitTimer = setTimeout(
+        () => fitView({ padding: FIT_VIEW_PADDING, duration: 300 }),
+        50,
+      );
       return () => clearTimeout(fitTimer);
     }
     return undefined;
-  }, [clients, leaderId, fleetAgents, mailboxMessages, session, ACTIVE_MS, setNodes, setEdges, fitView]);
+  }, [clients, leaderId, fleetAgents, mailboxMessages, session, canvasSize, ACTIVE_MS, setNodes, setEdges, fitView]);
 
   // ── Viz event → node/edge highlight mapping ─────────────────────────
   // Maps generic viz event sources to office-map node IDs.
@@ -1507,8 +1538,8 @@ export function OfficeMapCanvas() {
     return () => window.removeEventListener('keydown', onKey);
   }, [watch]);
 
-  // Snap every node back to its computed floor-plan home, then re-fit. Lets the
-  // user tidy the office after dragging nodes around.
+  // Snap every node back to its responsive grid home, then use the whole
+  // available canvas. This also tidies the office after manual dragging.
   const onArrange = useCallback(() => {
     setNodes((nds) =>
       nds.map((n) => {
@@ -1516,7 +1547,7 @@ export function OfficeMapCanvas() {
         return home ? { ...n, position: { ...home } } : n;
       }),
     );
-    setTimeout(() => fitView({ padding: 0.2, duration: 300 }), 50);
+    setTimeout(() => fitView({ padding: FIT_VIEW_PADDING, duration: 300 }), 50);
   }, [setNodes, fitView]);
 
   // Live indicator pulse. Skipped while the tab is hidden — the tick's only
@@ -1531,7 +1562,7 @@ export function OfficeMapCanvas() {
   }, []);
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-[hsl(var(--surface-2)/0.55)]">
+    <div ref={canvasRef} className="relative h-full w-full overflow-hidden bg-[hsl(var(--surface-2)/0.55)]">
       {/* Grid background */}
       <div
         className="absolute inset-0 opacity-[0.03]"
@@ -1612,8 +1643,8 @@ export function OfficeMapCanvas() {
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         fitView
-        fitViewOptions={{ padding: 0.2 }}
-        minZoom={0.3}
+        fitViewOptions={{ padding: FIT_VIEW_PADDING }}
+        minZoom={0.15}
         maxZoom={1.5}
         defaultEdgeOptions={{
           type: 'wire',

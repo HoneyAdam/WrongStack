@@ -29,7 +29,13 @@ function statusPillClass(status: string | undefined): string {
 
 /** Build a drawer target from a clicked topology node (terminal or agent). */
 export function chatTargetFromNode(node: FleetTopologyNode): FleetChatTarget | null {
-  if (node.sessionId === undefined) return null;
+  if (
+    node.sessionId === undefined ||
+    node.serviceMode !== undefined ||
+    node.isSyntheticSession === true
+  ) {
+    return null;
+  }
   return {
     sessionId: node.sessionId,
     agentId: node.agentId ?? null,

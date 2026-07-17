@@ -15,6 +15,7 @@
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { atomicWrite } from '../utils/atomic-write.js';
 
 export interface FileAuthorEntry {
   /** Absolute or relative file path. */
@@ -76,10 +77,9 @@ async function loadLog(storageDir: string, projectRoot: string): Promise<FileAut
 }
 
 async function saveLog(storageDir: string, log: FileAuthorLog): Promise<void> {
-  await fs.mkdir(storageDir, { recursive: true });
-  const tmp = `${logPath(storageDir)}.tmp.${Date.now()}`;
-  await fs.writeFile(tmp, JSON.stringify(log, null, 2) + '\n', 'utf-8');
-  await fs.rename(tmp, logPath(storageDir));
+  // atomicWrite retries transient Windows rename failures (EPERM/EBUSY from
+  // antivirus or watcher handles) and uses a collision-safe tmp suffix.
+  await atomicWrite(logPath(storageDir), `${JSON.stringify(log, null, 2)}\n`);
 }
 
 /**

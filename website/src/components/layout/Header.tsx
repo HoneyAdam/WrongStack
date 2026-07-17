@@ -1,4 +1,4 @@
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { ArrowUpRight, ChevronDown, Menu, Moon, Sun, X } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -52,6 +52,7 @@ export function Header() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [activeGroup, setActiveGroup] = useState<(typeof moreNavGroups)[number]['id']>(moreNavGroups[0]!.id);
+  const reducedMotion = useReducedMotion();
   const moreRef = useRef<HTMLDivElement>(null);
   const hoverTimer = useRef<number | undefined>(undefined);
   const leaveTimer = useRef<number | undefined>(undefined);
@@ -149,13 +150,14 @@ export function Header() {
                   <div className="relative flex">
                     {/* ── Left rail: category tabs ── */}
                     <div className="w-[210px] shrink-0 border-r border-line bg-bg/40 py-3">
-                      {moreNavGroups.map((group) => (
+                      {moreNavGroups.map((group, groupIndex) => (
                         <button
                           key={group.id}
                           type="button"
                           onMouseEnter={() => setActiveGroup(group.id)}
+                          style={{ animationDelay: `${30 + groupIndex * 24}ms` }}
                           className={cn(
-                            'relative w-full px-4 py-3 text-left transition-colors',
+                            'menu-item-enter relative w-full px-4 py-3 text-left transition-colors',
                             activeGroup === group.id
                               ? 'bg-card text-fg'
                               : 'text-muted hover:bg-card/50 hover:text-fg',
@@ -165,9 +167,16 @@ export function Header() {
                           <span className="mt-0.5 block text-xs leading-4 text-faint">
                             {group.description}
                           </span>
-                          {activeGroup === group.id && (
-                            <span className="absolute right-0 top-1/2 h-8 w-[3px] -translate-y-1/2 rounded-l-sm bg-brand" />
-                          )}
+                          {activeGroup === group.id &&
+                            (reducedMotion ? (
+                              <span className="absolute right-0 top-1/2 h-8 w-[3px] -translate-y-1/2 rounded-l-sm bg-brand" />
+                            ) : (
+                              <motion.span
+                                layoutId="more-nav-rail"
+                                transition={{ type: 'spring', stiffness: 520, damping: 42 }}
+                                className="absolute right-0 top-1/2 h-8 w-[3px] -translate-y-1/2 rounded-l-sm bg-brand"
+                              />
+                            ))}
                         </button>
                       ))}
                     </div>
@@ -182,17 +191,21 @@ export function Header() {
                           {activeItems.length} pages
                         </span>
                       </div>
-                      <div className="grid grid-cols-2 gap-2">
-                        {activeItems.map((item) => (
+                      <div
+                        key={activeGroup}
+                        className="grid min-h-[351px] grid-cols-2 content-start gap-2"
+                      >
+                        {activeItems.map((item, itemIndex) => (
                           <Link
                             key={item.href}
                             href={item.href}
+                            style={{ animationDelay: `${itemIndex * 18}ms` }}
                             className={cn(
-                              'group flex gap-3 rounded-xl p-3 transition-colors hover:bg-card',
+                              'menu-item-enter group flex gap-3 rounded-xl p-3 transition-colors hover:bg-card',
                               path === item.href && 'bg-card',
                             )}
                           >
-                            <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-line bg-bg text-brand">
+                            <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-line bg-bg text-brand transition-colors group-hover:border-brand/40">
                               <item.icon className="size-4" />
                             </span>
                             <span className="min-w-0 pt-0.5">
@@ -203,12 +216,16 @@ export function Header() {
                                 {item.description}
                               </span>
                             </span>
+                            <ArrowUpRight className="ml-auto size-3.5 shrink-0 text-faint opacity-0 transition-all duration-200 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-brand group-hover:opacity-100" />
                           </Link>
                         ))}
                       </div>
                     </div>
                   </div>
-                  <div className="relative flex items-center justify-between gap-6 border-t border-line bg-ink px-5 py-3 text-white">
+                  <div
+                    className="menu-item-enter relative flex items-center justify-between gap-6 border-t border-line bg-ink px-5 py-3 text-white"
+                    style={{ animationDelay: '140ms' }}
+                  >
                     <div className="flex items-center gap-3">
                       <span className="size-2 rounded-sm bg-brand-2 shadow-[13px_0_0_#ff3154]" />
                       <span className="ml-3 font-mono text-xs font-black uppercase tracking-[0.16em]">
@@ -288,7 +305,11 @@ export function Header() {
               </div>
               <div className="mt-5 grid gap-5 sm:grid-cols-2">
                 {moreNavGroups.map((group, groupIndex) => (
-                  <div key={group.id}>
+                  <div
+                    key={group.id}
+                    className="menu-item-enter"
+                    style={{ animationDelay: `${60 + groupIndex * 45}ms` }}
+                  >
                     <div className="mb-2 px-2">
                       <span
                         className={cn(

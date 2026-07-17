@@ -17,9 +17,9 @@ export type SymbolKind =
   | 'property'
   | 'parameter'
   | 'namespace'
-  | 'object'   // JSON root object
+  | 'object' // JSON root object
   | 'literal' // scalar value in JSON/YAML
-  | 'schema'  // JSON Schema $ref/$schema entry
+  | 'schema' // JSON Schema $ref/$schema entry
   // Rust-specific
   | 'struct'
   | 'trait'
@@ -33,13 +33,13 @@ export interface Symbol {
   lang: SymbolLang;
   kind: SymbolKind;
   name: string;
-  file: string;       // absolute path
-  line: number;        // 1-based
-  col: number;         // 0-based
-  signature: string;   // e.g. "function foo(a: string): Promise<void>"
-  docComment: string;  // JSDoc / docstring first line
-  scope: string;       // e.g. "MyClass.method" or module-level ""
-  text: string;       // concatenated searchable text: name + signature + docComment
+  file: string; // absolute path
+  line: number; // 1-based
+  col: number; // 0-based
+  signature: string; // e.g. "function foo(a: string): Promise<void>"
+  docComment: string; // JSDoc / docstring first line
+  scope: string; // e.g. "MyClass.method" or module-level ""
+  text: string; // concatenated searchable text: name + signature + docComment
 }
 
 /** Extracted symbols and cross-references for one file. */
@@ -47,7 +47,7 @@ export interface FileSymbols {
   file: string;
   lang: SymbolLang;
   symbols: Symbol[];
-  refs?: Ref[] | undefined;   // cross-references extracted from this file (optional for back-compat)
+  refs?: Ref[] | undefined; // cross-references extracted from this file (optional for back-compat)
   mtimeMs: number;
 }
 
@@ -106,11 +106,11 @@ export type CallType = 'call' | 'type_ref' | 'inherit' | 'implement' | 'import';
 /** A cross-reference between two symbols (who references whom). */
 export interface Ref {
   id?: number | undefined;
-  fromId: number;     // symbol that makes the reference
-  toName: string;      // resolved name of the referenced symbol
-  toId?: number | undefined;       // resolved target symbol id (filled after index resolution)
-  callType: CallType;  // kind of reference
-  line: number;        // source line where the reference occurs
+  fromId: number; // symbol that makes the reference
+  toName: string; // resolved name of the referenced symbol
+  toId?: number | undefined; // resolved target symbol id (filled after index resolution)
+  callType: CallType; // kind of reference
+  line: number; // source line where the reference occurs
 }
 
 // ─── CodeMap graph types ──────────────────────────────────────────────────────
@@ -132,6 +132,16 @@ export interface GraphNode {
   symbolCount?: number | undefined;
   /** Number of files contained (for package nodes). */
   fileCount?: number | undefined;
+  /** Source language when the node represents a file or symbol. */
+  lang?: SymbolLang | undefined;
+  /** Declaration line when the node represents a symbol. */
+  line?: number | undefined;
+  /** Indexed declaration signature when the node represents a symbol. */
+  signature?: string | undefined;
+  /** Indexed declaration scope when the node represents a symbol. */
+  scope?: string | undefined;
+  /** True when this is a direct relation outside the current drill-down scope. */
+  external?: boolean | undefined;
 }
 
 /** A directed edge: source references / depends-on target. */
@@ -156,4 +166,6 @@ export interface CodeMapGraph {
 // v3: parser/search format update (navigable TS declarations, valid ref owners,
 //     acronym/digit token splitting). Derived data must be rebuilt.
 // A version mismatch on open drops & rebuilds the index (it is derived data).
+// Non-structural CodeMap relation migrations use `relation_graph_version`
+// metadata so older running processes sharing the DB cannot downgrade it.
 export const SCHEMA_VERSION = 3;

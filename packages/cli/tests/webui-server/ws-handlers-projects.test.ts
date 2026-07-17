@@ -110,7 +110,7 @@ describe('handleProjectsList', () => {
   it('returns [] when no manifest exists', async () => {
     const { ctx, sent } = makeCtx();
     await handleProjectsList(ctx, FAKE_WS);
-    expect((lastOf(sent, 'projects.list')?.payload as { projects: unknown[] }).projects).toEqual(
+    expect((lastOf(sent, 'projects.list')!.payload as { projects: unknown[] }).projects).toEqual(
       [],
     );
   });
@@ -151,14 +151,14 @@ describe('handleProjectsAdd', () => {
     const second = makeCtx();
     await handleProjectsAdd(second.ctx, FAKE_WS, { root: proj });
     expect(
-      (lastOf(second.sent, 'projects.added')?.payload as { message: string }).message,
+      (lastOf(second.sent, 'projects.added')!.payload as { message: string }).message,
     ).toContain('Already registered');
   });
 
   it('reports a non-directory error', async () => {
     const { ctx, sent } = makeCtx();
     await handleProjectsAdd(ctx, FAKE_WS, { root: path.join(tmpDir, 'nope') });
-    expect((lastOf(sent, 'projects.added')?.payload as { message: string }).message).toContain(
+    expect((lastOf(sent, 'projects.added')!.payload as { message: string }).message).toContain(
       'Not a directory',
     );
   });
@@ -204,7 +204,7 @@ describe('handleProjectsSelect', () => {
     const { ctx, sent, opts } = makeCtx();
     const before = opts.projectRoot;
     await handleProjectsSelect(ctx, FAKE_WS, { root: path.join(tmpDir, 'ghost') });
-    expect((lastOf(sent, 'projects.selected')?.payload as { message: string }).message).toContain(
+    expect((lastOf(sent, 'projects.selected')!.payload as { message: string }).message).toContain(
       'Cannot switch',
     );
     expect(opts.projectRoot).toBe(before);
@@ -224,7 +224,7 @@ describe('handleProjectsSelect', () => {
     expect(t.opts.sessionStore).toBeDefined();
     expect(t.swapped).toHaveLength(1);
     // Reported + full-state broadcast.
-    expect((lastOf(t.sent, 'projects.selected')?.payload as { name: string }).name).toBe('New');
+    expect((lastOf(t.sent, 'projects.selected')!.payload as { name: string }).name).toBe('New');
     expect(lastOf(t.bc, 'session.start')).toBeDefined();
   });
 });

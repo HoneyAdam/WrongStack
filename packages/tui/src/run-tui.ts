@@ -274,6 +274,9 @@ export interface RunTuiOptions {
   interruptController?:
     | {
         abortLeader: () => boolean;
+        isRunning?: (() => boolean) | undefined;
+        resetSession?: (() => void) | undefined;
+        waitForIdle?: (() => Promise<void>) | undefined;
       }
     | undefined;
   /**

@@ -67,7 +67,6 @@ function snapshot(tasks: Array<Record<string, unknown>>) {
     wave: 1,
     tasks,
     columns: [],
-    // biome-ignore lint/suspicious/noExplicitAny: test fixture cast to the SDD type
   } as any;
 }
 
@@ -132,7 +131,6 @@ describe('buildTaskGraphFromAutophasePhase', () => {
           assignee: 'Bohr',
         },
       ],
-      // biome-ignore lint/suspicious/noExplicitAny: test fixture
     } as any);
     expect(g.id).toBe('graph1'); // run graphId, NOT phase id
     expect((g.nodes as Array<{ id: string }>).length).toBe(1);
@@ -148,7 +146,6 @@ describe('KanbanRunMirror AutoPhase → one board per phase', () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-mirror-ap-'));
     const mirror = createKanbanRunMirror({ projectRoot: dir, broadcast: () => {}, log: () => {} });
     try {
-      // biome-ignore lint/suspicious/noExplicitAny: loose buildState() fixture
       mirror.onAutophaseState('g-run', autophaseState() as any);
       await settle();
 
@@ -172,7 +169,6 @@ describe('KanbanRunMirror AutoPhase → one board per phase', () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-mirror-ap2-'));
     const m1 = createKanbanRunMirror({ projectRoot: dir, broadcast: () => {}, log: () => {} });
     try {
-      // biome-ignore lint/suspicious/noExplicitAny: fixture
       m1.onAutophaseState('g-run', autophaseState() as any);
       await settle();
       const first = (await listBoards(dir)).length;
@@ -181,7 +177,6 @@ describe('KanbanRunMirror AutoPhase → one board per phase', () => {
       // Fresh mirror (empty in-memory map), same dir, a CHANGED state (new stamp
       // so it actually re-projects) → must reclaim the 2 boards via disk scan.
       const m2 = createKanbanRunMirror({ projectRoot: dir, broadcast: () => {}, log: () => {} });
-      // biome-ignore lint/suspicious/noExplicitAny: fixture
       m2.onAutophaseState('g-run', autophaseState({ statusA: 'in_progress' }) as any);
       await settle();
       expect((await listBoards(dir)).length).toBe(first); // reclaimed, not duplicated

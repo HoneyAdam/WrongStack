@@ -53,8 +53,11 @@ describe('CLI wiring controllers', () => {
     expect(controller.enabled).toBe(true);
   });
 
-  it('uses a safe no-op interrupt controller until a surface binds it', () => {
-    expect(createInterruptController().abortLeader()).toBe(false);
+  it('uses safe no-op interrupt/reset hooks until a surface binds them', async () => {
+    const controller = createInterruptController();
+    expect(controller.abortLeader()).toBe(false);
+    expect(controller.resetSession()).toBeUndefined();
+    await expect(controller.waitForIdle()).resolves.toBeUndefined();
   });
 
   it('preserves the grouped ExecuteDeps object at the wiring boundary', () => {

@@ -94,6 +94,10 @@ export interface HqSessionAgentSummary {
 /** Payload for `session.snapshot` — one connected terminal's live state. */
 export interface HqSessionSnapshotPayload {
   sessionId: string;
+  /** HQ publisher that owns this live session. Added by the HQ server when
+   *  folding client telemetry, so browser controls can target the exact
+   *  process instead of guessing from machine/project metadata. */
+  clientId?: string;
   clientKind: HqClientKind;
   machineId: string;
   hostname?: string;

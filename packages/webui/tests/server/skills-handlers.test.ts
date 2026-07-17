@@ -81,7 +81,7 @@ describe('handleSkillsList', () => {
     await handleSkillsList(ws, ctx);
     const p = payloadOf(messages, 'skills.list');
     expect(p?.enabled).toBe(true);
-    expect((p?.skills as Array<Record<string, unknown>>)[0]).toMatchObject({
+    expect((p!.skills as Array<Record<string, unknown>>)[0]).toMatchObject({
       name: 's1',
       trigger: 'use when x',
       scope: ['project'],
@@ -314,7 +314,7 @@ describe('handleSkillsExport', () => {
     const p = payloadOf(messages, 'skills.exported');
     expect(p?.skillCount).toBe(2);
     expect(typeof p?.zipBase64).toBe('string');
-    expect((p?.zipBase64 as string).length).toBeGreaterThan(0);
+    expect((p!.zipBase64 as string).length).toBeGreaterThan(0);
   });
 });
 

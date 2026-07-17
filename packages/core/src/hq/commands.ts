@@ -13,7 +13,7 @@
  *
  * @module hq/commands
  */
-import type { HqQueuedCommand } from './protocol.js';
+import type { HqQueuedCommand } from './protocol/fleet.js';
 
 // ── Command types ───────────────────────────────────────────────────────────
 
@@ -232,6 +232,10 @@ export class HqCommandAuditLog {
       Object.assign(entry, patch);
       this.onPersist?.(entry);
     }
+  }
+
+  get(commandId: string): HqCommandAuditEntry | undefined {
+    return this.entries.find((entry) => entry.commandId === commandId);
   }
 
   /** Update only when the command belongs to the authenticated client. */

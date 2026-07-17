@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mutateBoard, readBoard, readKanbanEvents } from '../storage.js';
+import { EVENT_LOG_TRIM_TO, mutateBoard, readBoard, readKanbanEvents } from '../storage.js';
 import type {
   AddKanbanGoalMetricInput,
   CopyKanbanTaskOptions,
@@ -8,17 +8,15 @@ import type {
   KanbanCheck,
   KanbanCheckStatus,
   KanbanEvent,
+  KanbanEventContext,
   KanbanGoalMetric,
   KanbanLink,
   KanbanNote,
   KanbanTask,
+  RecordKanbanTaskActivityInput,
   UpdateKanbanGoalMetricInput,
   UpdateKanbanTaskInput,
 } from '../types.js';
-import {
-  assertManagedTaskPatchAllowed,
-  initializeManagedTaskLifecycle,
-} from './lifecycle.js';
 import {
   applyTaskPatch,
   cloneTaskForBoard,
@@ -33,11 +31,63 @@ import {
   placeTaskInColumn,
   requireNonBlank,
 } from './_internal.js';
+import { assertManagedTaskPatchAllowed, initializeManagedTaskLifecycle } from './lifecycle.js';
+
+function taskEventSnapshot(task: KanbanTask): Record<string, unknown> {
+  return {
+    title: task.title,
+    description: task.description ?? null,
+    dueDate: task.dueDate ?? null,
+    columnId: task.columnId,
+    order: task.order,
+    priority: task.priority,
+    type: task.type ?? null,
+    status: task.status,
+    assignedAgent: task.assignedAgent ?? null,
+    assignee: task.assignee ?? null,
+    assignment: task.assignment ? { ...task.assignment } : null,
+    dependsOn: task.dependsOn ? [...task.dependsOn] : null,
+    chain: task.chain ? { ...task.chain } : null,
+    parentTaskId: task.parentTaskId ?? null,
+    childTaskIds: task.childTaskIds ? [...task.childTaskIds] : null,
+    mergedIntoTaskId: task.mergedIntoTaskId ?? null,
+    mergedFromTaskIds: task.mergedFromTaskIds ? [...task.mergedFromTaskIds] : null,
+    origin: task.origin ? { ...task.origin } : null,
+    labels: task.labels ? [...task.labels] : null,
+    estimatedHours: task.estimatedHours ?? null,
+    actualHours: task.actualHours ?? null,
+    retryPolicy: task.retryPolicy ?? null,
+    costCeilingUsd: task.costCeilingUsd ?? null,
+    successCriteria: task.successCriteria?.map((check) => ({ ...check })) ?? null,
+    goalMetrics: task.goalMetrics?.map((metric) => ({ ...metric })) ?? null,
+    links: task.links?.map((link) => ({ ...link })) ?? null,
+    lifecycle: task.lifecycle
+      ? {
+          ...task.lifecycle,
+          history: task.lifecycle.history.map((transition) => ({ ...transition })),
+        }
+      : null,
+  };
+}
+
+function changedTaskState(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+): { before: Record<string, unknown>; after: Record<string, unknown> } {
+  const changed = Object.keys(after).filter(
+    (key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]),
+  );
+  return {
+    before: Object.fromEntries(changed.map((key) => [key, before[key]])),
+    after: Object.fromEntries(changed.map((key) => [key, after[key]])),
+  };
+}
 
 export async function addTask(
   projectRoot: string,
   boardId: string,
   input: CreateKanbanTaskInput,
+  eventContext: KanbanEventContext = {},
 ): Promise<{ board: KanbanBoard; task: KanbanTask } | null> {
   let event: KanbanEvent | undefined;
   const updated = await mutateBoard(projectRoot, boardId, (board) => {
@@ -47,7 +97,13 @@ export async function addTask(
     placeTaskInColumn(board, task, task.columnId, task.order);
     board.updatedAt = nowIso();
     event = createKanbanEvent(board.id, task, 'task.created', {
-      after: { title: task.title, columnId: task.columnId, priority: task.priority, status: task.status },
+      ...eventContext,
+      after: {
+        title: task.title,
+        columnId: task.columnId,
+        priority: task.priority,
+        status: task.status,
+      },
     });
     return task;
   });
@@ -142,24 +198,26 @@ export async function updateTask(
   boardId: string,
   taskId: string,
   input: UpdateKanbanTaskInput,
+  eventContext: KanbanEventContext = {},
 ): Promise<KanbanBoard | null> {
   let event: KanbanEvent | undefined;
   const updated = await mutateBoard(projectRoot, boardId, (board) => {
     const task = findTask(board, taskId);
     if (!task) return null;
-    const beforeColumnId = task.columnId;
-    const beforeStatus = task.status;
+    const before = taskEventSnapshot(task);
     assertManagedTaskPatchAllowed(board, task, input);
     applyTaskPatch(board, task, input);
-    const moved = task.columnId !== beforeColumnId;
+    const after = taskEventSnapshot(task);
+    const changes = changedTaskState(before, after);
+    const moved = before['columnId'] !== after['columnId'];
     event = moved
       ? createKanbanEvent(board.id, task, 'task.moved', {
-          before: { columnId: beforeColumnId },
-          after: { columnId: task.columnId },
+          ...eventContext,
+          ...changes,
         })
       : createKanbanEvent(board.id, task, 'task.updated', {
-          before: { status: beforeStatus },
-          after: { status: task.status },
+          ...eventContext,
+          ...changes,
         });
     return task;
   });
@@ -173,11 +231,18 @@ export async function moveTask(
   taskId: string,
   targetColumnId: string,
   targetOrder?: number,
+  eventContext: KanbanEventContext = {},
 ): Promise<KanbanBoard | null> {
-  return updateTask(projectRoot, boardId, taskId, {
-    columnId: targetColumnId,
-    ...(targetOrder !== undefined ? { order: targetOrder } : {}),
-  });
+  return updateTask(
+    projectRoot,
+    boardId,
+    taskId,
+    {
+      columnId: targetColumnId,
+      ...(targetOrder !== undefined ? { order: targetOrder } : {}),
+    },
+    eventContext,
+  );
 }
 
 export async function removeTask(
@@ -238,11 +303,54 @@ export async function listKanbanEvents(
   return readKanbanEvents(projectRoot, boardId);
 }
 
+export async function listTaskActivity(
+  projectRoot: string,
+  boardId: string,
+  taskId: string,
+  options: { limit?: number | undefined } = {},
+): Promise<KanbanEvent[]> {
+  const limit = Math.max(1, Math.min(EVENT_LOG_TRIM_TO, Math.trunc(options.limit ?? 100)));
+  return (await readKanbanEvents(projectRoot, boardId))
+    .filter((event) => event.taskId === taskId)
+    .reverse()
+    .slice(0, limit);
+}
+
+export async function recordTaskActivity(
+  projectRoot: string,
+  boardId: string,
+  taskId: string,
+  input: RecordKanbanTaskActivityInput,
+  eventContext: KanbanEventContext = {},
+): Promise<KanbanBoard | null> {
+  let event: KanbanEvent | undefined;
+  const updated = await mutateBoard(projectRoot, boardId, (board) => {
+    const task = findTask(board, taskId);
+    if (!task) return null;
+    const summary = requireNonBlank(input.summary, 'Kanban task activity summary');
+    task.updatedAt = nowIso();
+    board.updatedAt = task.updatedAt;
+    event = createKanbanEvent(board.id, task, `task.activity.${input.kind}`, {
+      ...eventContext,
+      note: summary,
+      after: {
+        kind: input.kind,
+        outcome: input.outcome ?? 'unknown',
+        ...(input.details?.trim() ? { details: input.details.trim() } : {}),
+      },
+    });
+    return task;
+  });
+  if (updated?.result && event) await emitKanbanEvent(projectRoot, event);
+  return updated?.result ? updated.board : null;
+}
+
 export async function addGoalMetricToTask(
   projectRoot: string,
   boardId: string,
   taskId: string,
   metric: AddKanbanGoalMetricInput,
+  eventContext: KanbanEventContext = {},
 ): Promise<KanbanBoard | null> {
   let event: KanbanEvent | undefined;
   const updated = await mutateBoard(projectRoot, boardId, (board) => {
@@ -263,7 +371,8 @@ export async function addGoalMetricToTask(
     task.updatedAt = now;
     board.updatedAt = now;
     event = createKanbanEvent(board.id, task, 'task.metric.added', {
-      after: { name: nextMetric.name, status: nextMetric.status },
+      ...eventContext,
+      after: { ...nextMetric },
     });
     return nextMetric;
   });
@@ -277,12 +386,14 @@ export async function updateGoalMetricOnTask(
   taskId: string,
   metricId: string,
   patch: UpdateKanbanGoalMetricInput,
+  eventContext: KanbanEventContext = {},
 ): Promise<KanbanBoard | null> {
   let event: KanbanEvent | undefined;
   const updated = await mutateBoard(projectRoot, boardId, (board) => {
     const task = findTask(board, taskId);
     const metric = task ? findGoalMetric(task.goalMetrics ?? [], metricId) : undefined;
     if (!task || !metric) return null;
+    const before = { ...metric };
     if (patch.name !== undefined)
       metric.name = requireNonBlank(patch.name, 'Kanban goal metric name');
     if (patch.status !== undefined) metric.status = patch.status;
@@ -295,7 +406,9 @@ export async function updateGoalMetricOnTask(
     task.updatedAt = now;
     board.updatedAt = now;
     event = createKanbanEvent(board.id, task, 'task.metric.updated', {
-      after: { name: metric.name, status: metric.status },
+      ...eventContext,
+      before,
+      after: { ...metric },
     });
     return metric;
   });
@@ -308,6 +421,7 @@ export async function addCheckToTask(
   boardId: string,
   taskId: string,
   check: Omit<KanbanCheck, 'id' | 'status'> & { status?: KanbanCheckStatus | undefined },
+  eventContext: KanbanEventContext = {},
 ): Promise<KanbanBoard | null> {
   let event: KanbanEvent | undefined;
   const updated = await mutateBoard(projectRoot, boardId, (board) => {
@@ -326,7 +440,8 @@ export async function addCheckToTask(
     task.updatedAt = nowIso();
     board.updatedAt = task.updatedAt;
     event = createKanbanEvent(board.id, task, 'task.check.added', {
-      after: { description: newCheck.description, status: newCheck.status },
+      ...eventContext,
+      after: { ...newCheck },
     });
     return newCheck;
   });
@@ -340,12 +455,14 @@ export async function updateCheckOnTask(
   taskId: string,
   checkId: string,
   patch: Partial<Omit<KanbanCheck, 'id'>>,
+  eventContext: KanbanEventContext = {},
 ): Promise<KanbanBoard | null> {
   let event: KanbanEvent | undefined;
   const updated = await mutateBoard(projectRoot, boardId, (board) => {
     const task = findTask(board, taskId);
     const check = task?.successCriteria?.find((candidate) => candidate.id === checkId);
     if (!task || !check) return null;
+    const before = { ...check };
     Object.assign(check, patch);
     if (patch.status && patch.status !== 'pending' && !check.checkedAt) {
       check.checkedAt = nowIso();
@@ -353,7 +470,9 @@ export async function updateCheckOnTask(
     task.updatedAt = nowIso();
     board.updatedAt = task.updatedAt;
     event = createKanbanEvent(board.id, task, 'task.check.updated', {
-      after: { description: check.description, status: check.status },
+      ...eventContext,
+      before,
+      after: { ...check },
     });
     return check;
   });
@@ -366,6 +485,7 @@ export async function addNoteToTask(
   boardId: string,
   taskId: string,
   note: { author: string; content: string },
+  eventContext: KanbanEventContext = {},
 ): Promise<KanbanBoard | null> {
   let event: KanbanEvent | undefined;
   const updated = await mutateBoard(projectRoot, boardId, (board) => {
@@ -380,7 +500,10 @@ export async function addNoteToTask(
     task.notes = [...(task.notes ?? []), newNote];
     task.updatedAt = nowIso();
     board.updatedAt = task.updatedAt;
-    event = createKanbanEvent(board.id, task, 'task.note.added', { note: newNote.content });
+    event = createKanbanEvent(board.id, task, 'task.note.added', {
+      ...eventContext,
+      note: newNote.content,
+    });
     return newNote;
   });
   if (updated?.result && event) await emitKanbanEvent(projectRoot, event);
@@ -392,6 +515,7 @@ export async function addLinkToTask(
   boardId: string,
   taskId: string,
   link: KanbanLink,
+  eventContext: KanbanEventContext = {},
 ): Promise<KanbanBoard | null> {
   let event: KanbanEvent | undefined;
   const updated = await mutateBoard(projectRoot, boardId, (board) => {
@@ -401,7 +525,8 @@ export async function addLinkToTask(
     task.updatedAt = nowIso();
     board.updatedAt = task.updatedAt;
     event = createKanbanEvent(board.id, task, 'task.link.added', {
-      after: { url: link.url, type: link.type },
+      ...eventContext,
+      after: { ...link },
     });
     return link;
   });

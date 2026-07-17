@@ -745,8 +745,8 @@ export class FileSessionWriter implements SessionWriter {
     // the target checkpoint is found — no I/O or parsing for post-checkpoint data.
     const CHUNK_SIZE = 65_536;
     let fd: fsp.FileHandle | undefined;
-    let fileOffset = 0; // cumulative byte position of the start of the current chunk
-    let lineStartOffset = 0; // byte offset within the file where the current line begins
+    let fileOffset = 0; // cumulative byte position of the start of the next disk read
+    let pendingLine = Buffer.alloc(0); // bytes after the last newline, carried across chunks
     let checkpointByteOffset = -1; // byte offset where we will truncate the file
     let removedCount = 0;
     let targetCheckpointSeen = false; // has the target checkpoint been found yet?
@@ -759,21 +759,24 @@ export class FileSessionWriter implements SessionWriter {
         const { bytesRead } = await fd.read(buf, 0, CHUNK_SIZE, fileOffset);
         if (bytesRead === 0) break;
 
+        const carriedBytes = pendingLine.length;
+        const chunk =
+          carriedBytes === 0
+            ? buf.subarray(0, bytesRead)
+            : Buffer.concat([pendingLine, buf.subarray(0, bytesRead)]);
+        const chunkFileOffset = fileOffset - carriedBytes;
         let chunkPos = 0;
-        while (chunkPos < bytesRead) {
-          const idx = buf.indexOf('\n', chunkPos);
-          if (idx === -1) {
-            // No complete line in this chunk — save partial for next iteration.
-            lineStartOffset = fileOffset + chunkPos;
-            break;
-          }
+        while (chunkPos < chunk.length) {
+          const idx = chunk.indexOf('\n', chunkPos);
+          if (idx === -1) break;
 
+          const lineStartOffset = chunkFileOffset + chunkPos;
           if (checkpointByteOffset !== -1) {
             // Target already found — every subsequent line is removed.
             removedCount++;
           } else {
             // Only parse lines that could precede or be the checkpoint.
-            const lineBytes = buf.subarray(chunkPos, idx);
+            const lineBytes = chunk.subarray(chunkPos, idx);
             // eslint-disable-next-line no-sync
             const line = new TextDecoder('utf-8', { fatal: false }).decode(lineBytes);
             if (line.trim()) {
@@ -830,16 +833,11 @@ export class FileSessionWriter implements SessionWriter {
             }
           }
 
-          // Move to start of next line.
           chunkPos = idx + 1;
-          lineStartOffset = fileOffset + chunkPos;
         }
 
+        pendingLine = chunk.subarray(chunkPos);
         fileOffset += bytesRead;
-        if (chunkPos >= bytesRead) {
-          // Finished all complete lines; prepare for next chunk.
-          lineStartOffset = fileOffset;
-        }
       }
     } finally {
       await fd?.close();

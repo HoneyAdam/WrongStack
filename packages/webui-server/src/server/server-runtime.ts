@@ -345,6 +345,10 @@ export function startHttpServer(opts: {
   watcherMetrics: FileWatcherMetrics;
   onFleetPing: () => void;
   onTechStackEvent?: ((event: import('./techstack-handlers.js').TechStackEvent) => void) | undefined;
+  /** Live provider access for TechStack's LLM research stage. */
+  getLlm?:
+    | (() => { provider: import('@wrongstack/core').Provider; model: string } | undefined)
+    | undefined;
   distDir?: string | undefined;
 }): import('node:http').Server {
   const httpServer = createHttpServer({
@@ -358,6 +362,7 @@ export function startHttpServer(opts: {
     watcherMetrics: opts.watcherMetrics,
     onFleetPing: opts.onFleetPing,
     onTechStackEvent: opts.onTechStackEvent,
+    getLlm: opts.getLlm,
     projectRoot: opts.projectRoot,
   });
   const registryBaseDir = path.dirname(opts.globalConfigPath);

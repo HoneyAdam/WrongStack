@@ -84,6 +84,12 @@ export interface AgentSessionReplay {
   transcript: AgentTranscriptEntry[];
 }
 
+export interface AgentMode {
+  id: string;
+  name: string;
+  description?: string | undefined;
+}
+
 export interface PendingConfirm {
   id: string;
   toolName: string;

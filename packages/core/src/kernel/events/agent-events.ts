@@ -181,6 +181,24 @@ export interface AgentEventMap {
     totalExtensions: number;
   };
   /**
+   * Live per-tool start bridged from a subagent EventBus to the host. This is
+   * distinct from the post-completion summary so observability surfaces can
+   * show the exact worker/file while the operation is still running.
+   */
+  'subagent.tool_started': {
+    /** Parent/host session id. */
+    sessionId?: string | undefined;
+    /** The subagent's own persisted session, when it differs from the host. */
+    agentSessionId?: string | undefined;
+    subagentId: string;
+    agentName?: string | undefined;
+    taskId?: string | undefined;
+    traceId?: string | undefined;
+    id: string;
+    name: string;
+    input?: unknown | undefined;
+  };
+  /**
    * Per-tool-call event re-emitted from a subagent's own EventBus
    * onto the host EventBus, so the TUI / non-director surfaces can
    * render "AGENT#1 ● bash 250ms" without having to subscribe to
@@ -192,7 +210,12 @@ export interface AgentEventMap {
     /** Parent/host session id. */
     sessionId?: string | undefined;
     subagentId: string;
+    agentSessionId?: string | undefined;
+    agentName?: string | undefined;
     taskId?: string | undefined;
+    traceId?: string | undefined;
+    /** Original provider tool_use id; pairs with subagent.tool_started.id. */
+    id?: string | undefined;
     name: string;
     durationMs: number;
     ok: boolean;

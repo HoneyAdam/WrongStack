@@ -609,6 +609,13 @@ export async function startWebUI(
     openBrowser: !!opts.open, watcherMetrics: watcherMetricsRef,
     onFleetPing: () => { void eventArming.getFleetBroadcast()?.(); },
     onTechStackEvent: (event) => broadcast(clients, event),
+    // Read through `context` on every call rather than capturing: the running
+    // loop swaps provider/model when the user switches (same live source the
+    // completion handler reads).
+    getLlm: () =>
+      context.provider && context.model
+        ? { provider: context.provider, model: context.model }
+        : undefined,
     distDir: opts.distDir,
   });
 

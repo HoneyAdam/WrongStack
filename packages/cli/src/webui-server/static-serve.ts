@@ -42,6 +42,15 @@ export interface StaticServeOptions {
   onFleetPing?: (() => void) | undefined;
   /** TechStack HTTP job events projected to the embedded WebSocket server. */
   onTechStackEvent?: ((event: import('@wrongstack/webui-server').WSServerMessage) => void) | undefined;
+  /**
+   * Live provider access for TechStack's LLM research stage. Omitting it
+   * leaves `analyze` deterministic — so this must be threaded here as well as
+   * in the standalone `start-webui` server, or the CLI-hosted WebUI silently
+   * loses LLM analysis while the standalone one has it.
+   */
+  getLlm?:
+    | (() => { provider: import('@wrongstack/core').Provider; model: string } | undefined)
+    | undefined;
   /** Active target project root for TechStack and CodeMap APIs. */
   projectRoot?: string | undefined;
   /** Public browser-facing WS URL injected into the React app. */
@@ -106,6 +115,7 @@ export function startStaticServe(
     globalRoot: opts.globalRoot,
     onFleetPing: opts.onFleetPing,
     onTechStackEvent: opts.onTechStackEvent,
+    getLlm: opts.getLlm,
     projectRoot: opts.projectRoot,
     publicWsUrl: opts.publicWsUrl,
     apiToken: opts.apiToken,

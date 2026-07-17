@@ -484,6 +484,41 @@ export class SqliteSuperMemoryStore {
     return { deleted: true, id };
   }
 
+  async recordInjection(memoryIds: string[], trigger: string, sessionId?: string): Promise<void> {
+    if (memoryIds.length === 0) return;
+    await this.initialize();
+    await this.runMutation(() => {
+      const now = this.nowIso();
+      // Counter increments are indexed json_set updates — cheap enough to
+      // apply immediately, unlike the JSONL store's batched flush.
+      const stmt = this.db.prepare(
+        `UPDATE memories SET data = json_set(data,
+           '$.injectionCount', COALESCE(json_extract(data, '$.injectionCount'), 0) + 1,
+           '$.lastAccessedAt', ?)
+         WHERE id = ? AND status != 'deleted'`,
+      );
+      for (const id of memoryIds) stmt.run(now, id);
+      this.audit('memory.injected', { details: { memoryIds, trigger, sessionId } });
+    });
+  }
+
+  async recordUse(memoryIds: string[], source: string, sessionId?: string): Promise<void> {
+    if (memoryIds.length === 0) return;
+    await this.initialize();
+    await this.runMutation(() => {
+      const now = this.nowIso();
+      const stmt = this.db.prepare(
+        `UPDATE memories SET data = json_set(data,
+           '$.useCount', COALESCE(json_extract(data, '$.useCount'), 0) + 1,
+           '$.lastUsedAt', ?,
+           '$.lastAccessedAt', ?)
+         WHERE id = ? AND status != 'deleted'`,
+      );
+      for (const id of memoryIds) stmt.run(now, now, id);
+      this.audit('memory.used', { details: { memoryIds, source, sessionId } });
+    });
+  }
+
   async searchSuper(query: string, opts?: SuperMemorySearchOptions): Promise<SuperMemory[]> {
     await this.initialize();
     const limit = opts?.limit ?? 20;
@@ -585,30 +620,34 @@ export class SqliteSuperMemoryStore {
     const taskType = context.taskType?.toLowerCase() ?? '';
     const mode = context.mode?.toLowerCase() ?? '';
 
-    // Search audience JSON for matching role/task/mode (OR within, AND across)
+    // Query all audience-scoped memories, then filter in JS for correctness.
+    // The SQLite LIKE approach was fragile — it produced false negatives when
+    // a memory targeted only one audience dimension (e.g. only roles) because
+    // the cyclical fallback logic couldn't express "this dimension is absent
+    // so it's automatically satisfied."
     const rows = this.db
       .prepare(
         `SELECT data FROM memories
          WHERE status IN ('active','stale')
          AND audience IS NOT NULL
-         AND (
-           (LOWER(audience) LIKE ? OR LOWER(audience) LIKE ?)
-           AND (LOWER(audience) LIKE ? OR LOWER(audience) LIKE ?)
-           AND (LOWER(audience) LIKE ? OR LOWER(audience) LIKE ?)
-         )
          ORDER BY importance DESC
          LIMIT ?`,
       )
-      .all(
-        `%"roles":["%${role}%`,
-        '%"taskTypes":["%',
-        `%"taskTypes":["%${taskType}%`,
-        '%"modes":["%',
-        `%"modes":["%${mode}%`,
-        '%"roles":["%',
-        limit,
-      ) as Array<{ data: string }>;
-    return rows.map((r) => this.rowToMemory(r));
+      .all(1000) as Array<{ data: string }>;
+
+    return rows
+      .map((r) => this.rowToMemory(r))
+      .filter((m) => {
+        if (!m.audience) return false;
+        const a = m.audience;
+        // For each dimension the memory defines, the context must match.
+        // Undefined/unset dimensions in memory are pass-through (no constraint).
+        if (a.roles?.length && !a.roles.some((r) => r.toLowerCase() === role)) return false;
+        if (a.taskTypes?.length && !a.taskTypes.some((t) => t.toLowerCase() === taskType)) return false;
+        if (a.modes?.length && !a.modes.some((m) => m.toLowerCase() === mode)) return false;
+        return true;
+      })
+      .slice(0, limit);
   }
 
   async listMemories(opts?: {
@@ -732,7 +771,7 @@ export class SqliteSuperMemoryStore {
 
   // ─── Hygiene ────────────────────────────────────────────────────────
 
-  async hygiene(_opts?: SuperMemoryHygieneOptions): Promise<SuperMemoryHygieneReport> {
+  async hygiene(opts?: SuperMemoryHygieneOptions): Promise<SuperMemoryHygieneReport> {
     await this.initialize();
     // Basic implementation — verifies anchors and marks stale
     const active = await this.listMemories({ status: 'active', limit: 10000 });
@@ -766,6 +805,30 @@ export class SqliteSuperMemoryStore {
       );
     }
 
+    // Archive active memories that were injected at least `unusedMinInjections`
+    // times but never referenced by the assistant, once their content has been
+    // untouched for `archiveUnusedAfterDays` days. Age is measured from
+    // updatedAt — injections bump lastAccessedAt, which is exactly the signal
+    // this rule targets, so measuring from it would never qualify.
+    const unusedMs = (opts?.archiveUnusedAfterDays ?? 30) * 86_400_000;
+    const unusedMinInjections = Math.max(1, Math.floor(opts?.unusedMinInjections ?? 10));
+    const unusedCutoff = new Date(this.now().getTime() - unusedMs).toISOString();
+    const unusedRows = this.db
+      .prepare(
+        `SELECT id FROM memories
+         WHERE status = 'active'
+           AND COALESCE(json_extract(data, '$.injectionCount'), 0) >= ?
+           AND COALESCE(json_extract(data, '$.useCount'), 0) = 0
+           AND json_extract(data, '$.scope') != 'session'
+           AND COALESCE(json_extract(data, '$.updatedAt'), '') <= ?`,
+      )
+      .all(unusedMinInjections, unusedCutoff) as Array<{ id: string }>;
+    for (const row of unusedRows) {
+      this.db
+        .prepare('UPDATE memories SET status = ?, data = json_set(data, \'$.status\', ?) WHERE id = ?')
+        .run('archived', 'archived', row.id);
+    }
+
     const report: SuperMemoryHygieneReport = {
       startedAt: this.nowIso(),
       completedAt: this.nowIso(),
@@ -774,7 +837,8 @@ export class SqliteSuperMemoryStore {
       superseded: 0,
       contradicted: 0,
       staled: stale.length,
-      archived: 0,
+      archived: unusedRows.length,
+      archivedUnused: unusedRows.length,
       deleted: 0,
       verified: verified.length,
     };

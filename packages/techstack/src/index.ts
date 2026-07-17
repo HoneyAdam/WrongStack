@@ -121,6 +121,31 @@ export type { AdvisoryStatusData, RegistryStatusData } from './policy/status.js'
 export { TechStackEngine } from './service.js';
 export type { AnalyzeOptions, EnrichOptions } from './service.js';
 
+// ── Research stage (§31, §557) ────────────────────────────────────────────
+export {
+  clusterCandidates,
+  createProviderLlm,
+  createResearcher,
+  createToolSearch,
+  parseResearchJson,
+  triageCandidates,
+  DEFAULT_TRIAGE_LIMIT,
+} from './research/index.js';
+export type {
+  CreateResearcherOptions,
+  LlmAccessor,
+  ResearchCluster,
+  ResearchLlm,
+  ResearchLlmRequest,
+  ResearchOptions,
+  ResearchSearch,
+  ResearchSearchResult,
+  SearchToolOptions,
+  TechStackResearcher,
+  TriageCandidate,
+  TriageOptions,
+} from './research/index.js';
+
 // ── SQLite store (§3.2) ──────────────────────────────────────────────────
 export { TechStackStore } from './store/sqlite.js';
 export { applySchema, DDL } from './store/schema.js';

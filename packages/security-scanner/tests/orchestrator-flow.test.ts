@@ -108,7 +108,7 @@ describe('SecurityScannerOrchestrator.run — full flow', () => {
     // ctx with provider+model — model flows through to request.model
     const ctx = { provider: fakeProvider(complete), model: 'gpt-x' };
     await orch.run(ctx, { projectRoot, reportOptions: { outputDir }, skipGitignore: true });
-    expect((complete.mock.calls[0]?.[0] as Request).model).toBe('gpt-x');
+    expect((complete.mock.calls[0]![0] as Request).model).toBe('gpt-x');
   });
 
   it('renders declared dependencies into the skill-generation prompt', async () => {
@@ -123,7 +123,7 @@ describe('SecurityScannerOrchestrator.run — full flow', () => {
       }),
     };
     await orch.run(fakeProvider(complete), { projectRoot, reportOptions: { outputDir }, skipGitignore: true });
-    expect((complete.mock.calls[0]?.[0] as Request).messages[0]?.content).toContain('express@4.0.0');
+    expect((complete.mock.calls[0]![0] as Request).messages[0]?.content).toContain('express@4.0.0');
   });
 
   it('honors a quick scan depth limit and tolerates an unreadable file batch', async () => {

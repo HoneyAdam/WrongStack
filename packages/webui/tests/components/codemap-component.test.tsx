@@ -1,7 +1,5 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, fireEvent, cleanup } from '@testing-library/react';
-
-// ── Polyfills for jsdom (React Flow needs ResizeObserver + DOMMatrix) ────────
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 class ResizeObserverPolyfill {
   observe(): void {}
@@ -11,63 +9,137 @@ class ResizeObserverPolyfill {
 vi.stubGlobal('ResizeObserver', ResizeObserverPolyfill);
 
 if (typeof globalThis.DOMMatrix === 'undefined') {
-  vi.stubGlobal('DOMMatrix', class {
-    constructor() {}
-    multiply(): unknown { return this; }
-  });
+  vi.stubGlobal(
+    'DOMMatrix',
+    class {
+      multiply(): unknown {
+        return this;
+      }
+    },
+  );
 }
 
-// Must import AFTER polyfills are set
 const { CodeMap } = await import('../../src/components/CodeMap');
 const { useCodemapActivityStore } = await import('../../src/stores/codemap-activity-store');
 
-// ── Mock fetch ────────────────────────────────────────────────────────────────
+const agentFile = '/workspace/packages/core/src/agent.ts';
+const toolFile = '/workspace/packages/core/src/tool.ts';
 
 const mockPackageGraph = {
   nodes: [
-    { id: 'pkg:core', label: '@wrongstack/core', kind: 'package', package: '@wrongstack/core', symbolCount: 120, fileCount: 30 },
-    { id: 'pkg:cli', label: '@wrongstack/cli', kind: 'package', package: '@wrongstack/cli', symbolCount: 80, fileCount: 20 },
+    {
+      id: 'pkg:core',
+      label: '@wrongstack/core',
+      kind: 'package',
+      package: '@wrongstack/core',
+      symbolCount: 120,
+      fileCount: 30,
+    },
+    {
+      id: 'pkg:cli',
+      label: '@wrongstack/cli',
+      kind: 'package',
+      package: '@wrongstack/cli',
+      symbolCount: 80,
+      fileCount: 20,
+    },
   ],
-  edges: [
-    { source: 'pkg:cli', target: 'pkg:core', weight: 5, refType: 'import' },
-  ],
+  edges: [{ source: 'pkg:cli', target: 'pkg:core', weight: 5, refType: 'import' }],
 };
 
 const mockFileGraph = {
   nodes: [
-    { id: 'file:core/agent.ts', label: 'agent.ts', kind: 'file', package: '@wrongstack/core', file: 'src/core/agent.ts', symbolCount: 15 },
-    { id: 'file:core/tool.ts', label: 'tool.ts', kind: 'file', package: '@wrongstack/core', file: 'src/core/tool.ts', symbolCount: 8 },
+    {
+      id: `file:${agentFile}`,
+      label: 'agent.ts',
+      kind: 'file',
+      package: '@wrongstack/core',
+      file: agentFile,
+      symbolCount: 15,
+      lang: 'ts',
+    },
+    {
+      id: `file:${toolFile}`,
+      label: 'tool.ts',
+      kind: 'file',
+      package: '@wrongstack/core',
+      file: toolFile,
+      symbolCount: 8,
+      lang: 'ts',
+    },
   ],
-  edges: [
-    { source: 'file:core/agent.ts', target: 'file:core/tool.ts', weight: 3, refType: 'call' },
+  edges: [{ source: `file:${agentFile}`, target: `file:${toolFile}`, weight: 3, refType: 'call' }],
+};
+
+const mockSymbolGraph = {
+  nodes: [
+    {
+      id: 'sym:1',
+      label: 'runAgent',
+      kind: 'symbol',
+      package: '@wrongstack/core',
+      file: agentFile,
+      symbolId: 1,
+      symbolKind: 'function',
+      line: 12,
+      signature: 'function runAgent(): void',
+    },
+    {
+      id: 'sym:2',
+      label: 'readTool',
+      kind: 'symbol',
+      package: '@wrongstack/core',
+      file: toolFile,
+      symbolId: 2,
+      symbolKind: 'function',
+      line: 4,
+      signature: 'function readTool(): void',
+      external: true,
+    },
   ],
+  edges: [{ source: 'sym:1', target: 'sym:2', weight: 2, refType: 'call' }],
 };
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
-// ── Helper: set the fetch response for a URL ──────────────────────────────────
-
-function setFetchResponse(url: string, data: unknown): void {
+function mockAllGraphs(): void {
   mockFetch.mockImplementation(async (input: string | URL) => {
-    const u = typeof input === 'string' ? input : input.toString();
-    if (u.includes(url)) {
+    const url = typeof input === 'string' ? input : input.toString();
+    const data = url.includes('/api/codemap/packages')
+      ? mockPackageGraph
+      : url.includes('/api/codemap/files')
+        ? mockFileGraph
+        : url.includes('/api/codemap/symbols')
+          ? mockSymbolGraph
+          : undefined;
+    if (!data)
       return {
-        ok: true,
-        json: async () => data,
-        statusText: 'OK',
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        json: async () => ({ error: 'not found' }),
       } as Response;
-    }
-    return {
-      ok: false,
-      json: async () => ({ error: 'not found' }),
-      status: 404,
-      statusText: 'Not Found',
-    } as Response;
+    return { ok: true, statusText: 'OK', json: async () => data } as Response;
   });
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
+async function openCoreFileMap(): Promise<void> {
+  await waitFor(() => expect(graphNode('@wrongstack/core')).toBeDefined());
+  const open = graphNode('@wrongstack/core')
+    .closest('.react-flow__node')
+    ?.querySelector('button[aria-label="Open @wrongstack/core map"]');
+  expect(open).toBeTruthy();
+  fireEvent.click(open!);
+  await waitFor(() => expect(graphNode('agent.ts')).toBeDefined());
+}
+
+function graphNode(label: string): HTMLElement {
+  const text = screen.getAllByText(label).find((element) => element.closest('.react-flow__node'));
+  const node = text?.closest('button');
+  if (!(node instanceof HTMLElement)) throw new Error(`Graph node not found: ${label}`);
+  return node;
+}
 
 describe('CodeMap component', () => {
   beforeEach(() => {
@@ -75,262 +147,224 @@ describe('CodeMap component', () => {
     useCodemapActivityStore.getState().clear();
   });
 
-  afterEach(() => {
-    cleanup();
-  });
+  afterEach(() => cleanup());
 
-  it('renders the toolbar with Packages breadcrumb on initial load', async () => {
-    setFetchResponse('/api/codemap/packages', mockPackageGraph);
+  it('renders the persistent atlas shell and package graph', async () => {
+    mockAllGraphs();
     render(<CodeMap />);
 
     await waitFor(() => {
-      expect(screen.getByText('Packages')).toBeDefined();
+      expect(screen.getByText('Code Atlas')).toBeDefined();
+      expect(screen.getByText('Code tree')).toBeDefined();
+      expect(screen.getByText('Relation inspector')).toBeDefined();
+      expect(graphNode('@wrongstack/core')).toBeDefined();
     });
   });
 
-  it('renders package nodes after fetch completes', async () => {
-    setFetchResponse('/api/codemap/packages', mockPackageGraph);
-    render(<CodeMap />);
-
-    await waitFor(() => {
-      expect(screen.getByText('@wrongstack/core')).toBeDefined();
-      expect(screen.getByText('@wrongstack/cli')).toBeDefined();
-    });
-  });
-
-  it('shows loading spinner before fetch resolves', () => {
-    // Never resolves — pending promise
+  it('shows a loading state while the graph request is pending', () => {
     mockFetch.mockReturnValue(new Promise(() => {}));
     render(<CodeMap />);
-
-    // The component renders a Loader2 (spin) — check via svg role
-    const spinner = document.querySelector('.animate-spin');
-    expect(spinner).toBeTruthy();
+    expect(screen.getByText('Mapping relationships')).toBeDefined();
   });
 
-  it('shows error message when the index is unavailable (503)', async () => {
-    mockFetch.mockImplementation(async () => ({
+  it('shows index guidance when the backend reports an unavailable map', async () => {
+    mockFetch.mockResolvedValue({
       ok: false,
-      json: async () => ({ error: 'CodeMap index unavailable' }),
       status: 503,
       statusText: 'Service Unavailable',
-    }) as Response);
-
+      json: async () => ({ error: 'CodeMap index unavailable' }),
+    } as Response);
     render(<CodeMap />);
 
+    await waitFor(() => expect(screen.getByText('CodeMap index unavailable')).toBeDefined());
+    expect(screen.getByText(/codebase-index/)).toBeDefined();
+  });
+
+  it('focuses a node on click and renders its incoming/outgoing relation tree', async () => {
+    mockAllGraphs();
+    render(<CodeMap />);
+    await waitFor(() => expect(graphNode('@wrongstack/core')).toBeDefined());
+    const core = graphNode('@wrongstack/core');
+
+    fireEvent.click(core);
+
     await waitFor(() => {
-      expect(screen.getByText(/CodeMap index unavailable/)).toBeDefined();
+      expect(screen.getByText('Who depends on this')).toBeDefined();
+      expect(screen.getByText('What this depends on')).toBeDefined();
+      expect(
+        screen.getByRole('button', { name: /Expand relation @wrongstack\/cli/ }),
+      ).toBeDefined();
+    });
+    // A focus click must not replace the architecture with a file list.
+    expect(graphNode('@wrongstack/cli')).toBeDefined();
+  });
+
+  it('opens a package explicitly while keeping the code tree visible', async () => {
+    mockAllGraphs();
+    render(<CodeMap />);
+
+    await openCoreFileMap();
+
+    expect(screen.getByText('Code tree')).toBeDefined();
+    expect(graphNode('tool.ts')).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Back' })).toBeDefined();
+  });
+
+  it('navigates back from file graph to the cached package graph', async () => {
+    mockAllGraphs();
+    render(<CodeMap />);
+    await openCoreFileMap();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+
+    await waitFor(() => expect(graphNode('@wrongstack/core')).toBeDefined());
+    expect(
+      mockFetch.mock.calls.filter(([url]) => String(url).includes('/api/codemap/packages')),
+    ).toHaveLength(1);
+  });
+
+  it('switches to relationship-orbit layout without losing the selected node', async () => {
+    mockAllGraphs();
+    render(<CodeMap />);
+    await waitFor(() => expect(graphNode('@wrongstack/core')).toBeDefined());
+    const core = graphNode('@wrongstack/core');
+    fireEvent.click(core);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Relations' }));
+
+    expect(screen.getByText('Who depends on this')).toBeDefined();
+    expect(graphNode('@wrongstack/core')).toBeDefined();
+  });
+
+  it('opens and closes file activity from a Shift+click', async () => {
+    mockAllGraphs();
+    render(<CodeMap />);
+    await openCoreFileMap();
+
+    fireEvent.click(graphNode('agent.ts'), { shiftKey: true });
+    await waitFor(() => expect(screen.getByText(agentFile)).toBeDefined());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close activity' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Close activity' })).toBeNull(),
+    );
+  });
+
+  it('shows recorded activity details in the file drawer', async () => {
+    mockAllGraphs();
+    render(<CodeMap />);
+    await openCoreFileMap();
+    act(() =>
+      useCodemapActivityStore.getState().recordActivity({
+        filePath: agentFile,
+        type: 'edit',
+        timestamp: Date.now(),
+        toolName: 'edit',
+        summary: 'Updated agent routing',
+        agent: 'test-agent',
+        status: 'completed',
+        durationMs: 37,
+        watcherConfirmed: true,
+        change: { added: 2, removed: 1, before: 'old route', after: 'new route' },
+      }),
+    );
+
+    fireEvent.click(graphNode('agent.ts'), { shiftKey: true });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('edit').length).toBeGreaterThan(0);
+      expect(screen.getByText('via edit')).toBeDefined();
+      expect(screen.getAllByText('test-agent').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('+2').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('−1').length).toBeGreaterThan(0);
+      expect(screen.getByText('fs verified')).toBeDefined();
     });
   });
 
-  it('drills down into a package on click and shows file nodes', async () => {
-    // First call returns packages, second returns files
-    let callCount = 0;
-    mockFetch.mockImplementation(async (input: string | URL) => {
-      callCount++;
-      const u = typeof input === 'string' ? input : input.toString();
-      if (callCount === 1 || u.includes('/api/codemap/packages')) {
-        return { ok: true, json: async () => mockPackageGraph, statusText: 'OK' } as Response;
-      }
-      return { ok: true, json: async () => mockFileGraph, statusText: 'OK' } as Response;
-    });
-
+  it('shows a live agent on the mapped node and resolves its current function', async () => {
+    mockAllGraphs();
     render(<CodeMap />);
+    await waitFor(() => expect(graphNode('@wrongstack/core')).toBeDefined());
 
-    // Wait for package nodes to appear
+    act(() =>
+      useCodemapActivityStore.getState().startActivities([
+        {
+          id: 'live-tool:0',
+          toolUseId: 'live-tool',
+          filePath: agentFile,
+          type: 'read',
+          toolName: 'read',
+          summary: 'read current implementation',
+          timestamp: Date.now(),
+          status: 'active',
+          source: 'tool',
+          sessionId: 'session-live',
+          agentId: 'agent-live',
+          agentName: 'IMPLEMENTER',
+          line: 14,
+          attribution: 'exact',
+        },
+      ]),
+    );
+
     await waitFor(() => {
-      expect(screen.getByText('@wrongstack/core')).toBeDefined();
+      expect(screen.getByText('Live agent operations')).toBeDefined();
+      expect(screen.getAllByText('IMPLEMENTER').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('runAgent').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('LIVE').length).toBeGreaterThan(0);
     });
 
-    // Click the @wrongstack/core node (it has role="button" and tabIndex)
-    const coreNode = screen.getByText('@wrongstack/core');
-    const clickableParent = coreNode.closest('[role="button"]') ?? coreNode;
-    fireEvent.click(clickableParent);
+    expect(screen.getByLabelText('Filter CodeMap by agent and session')).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Follow' }));
+    await waitFor(() => expect(screen.getAllByText('src/agent.ts').length).toBeGreaterThan(0));
 
-    // Should now show file-level nodes
-    await waitFor(() => {
-      expect(screen.getByText('agent.ts')).toBeDefined();
-      expect(screen.getByText('tool.ts')).toBeDefined();
-    });
+    fireEvent.click(screen.getByRole('button', { name: 'Live' }));
+    expect(screen.getByRole('button', { name: 'Resume' })).toBeDefined();
+
+    act(() =>
+      useCodemapActivityStore.getState().finishTool('live-tool', {
+        ok: true,
+        durationMs: 50,
+      }),
+    );
+    expect(screen.getByText('Live agent operations')).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Resume' }));
+    await waitFor(() => expect(screen.queryByText('Live agent operations')).toBeNull());
   });
 
-  it('shows breadcrumb trail after drilling into a package', async () => {
-    let callCount = 0;
-    mockFetch.mockImplementation(async (input: string | URL) => {
-      callCount++;
-      const u = typeof input === 'string' ? input : input.toString();
-      if (callCount === 1 || u.includes('/api/codemap/packages')) {
-        return { ok: true, json: async () => mockPackageGraph, statusText: 'OK' } as Response;
-      }
-      return { ok: true, json: async () => mockFileGraph, statusText: 'OK' } as Response;
-    });
-
+  it('draws an animated temporal trail between files touched by the same agent', async () => {
+    mockAllGraphs();
     render(<CodeMap />);
+    await openCoreFileMap();
 
-    await waitFor(() => {
-      expect(screen.getByText('@wrongstack/core')).toBeDefined();
+    act(() => {
+      const store = useCodemapActivityStore.getState();
+      store.recordActivity({
+        filePath: agentFile,
+        type: 'read',
+        toolName: 'read',
+        summary: 'inspect agent',
+        timestamp: 100,
+        status: 'completed',
+        sessionId: 'trail-session',
+        agentId: 'trail-agent',
+        agentName: 'TRAILER',
+      });
+      store.recordActivity({
+        filePath: toolFile,
+        type: 'edit',
+        toolName: 'edit',
+        summary: 'update tool',
+        timestamp: 200,
+        status: 'completed',
+        sessionId: 'trail-session',
+        agentId: 'trail-agent',
+        agentName: 'TRAILER',
+      });
     });
 
-    // Click to drill down
-    const coreNode = screen.getByText('@wrongstack/core');
-    const clickableParent = coreNode.closest('[role="button"]') ?? coreNode;
-    fireEvent.click(clickableParent);
-
-    // Back button should appear
-    await waitFor(() => {
-      expect(screen.getByText('Back')).toBeDefined();
-    });
-  });
-
-  it('navigates back to package level via Back button', async () => {
-    let callCount = 0;
-    mockFetch.mockImplementation(async (input: string | URL) => {
-      callCount++;
-      const u = typeof input === 'string' ? input : input.toString();
-      if (u.includes('/api/codemap/packages')) {
-        return { ok: true, json: async () => mockPackageGraph, statusText: 'OK' } as Response;
-      }
-      return { ok: true, json: async () => mockFileGraph, statusText: 'OK' } as Response;
-    });
-
-    render(<CodeMap />);
-
-    await waitFor(() => {
-      expect(screen.getByText('@wrongstack/core')).toBeDefined();
-    });
-
-    // Drill into @wrongstack/core
-    const coreNode = screen.getByText('@wrongstack/core');
-    fireEvent.click(coreNode.closest('[role="button"]') ?? coreNode);
-
-    await waitFor(() => {
-      expect(screen.getByText('agent.ts')).toBeDefined();
-    });
-
-    // Click Back
-    fireEvent.click(screen.getByText('Back'));
-
-    // Should show package nodes again
-    await waitFor(() => {
-      expect(screen.getByText('@wrongstack/core')).toBeDefined();
-    });
-  });
-
-  it('opens activity history drawer on Shift+click of a file node', async () => {
-    // Start at file level directly by mocking the first fetch as files
-    let callCount = 0;
-    mockFetch.mockImplementation(async () => {
-      callCount++;
-      if (callCount === 1) {
-        return { ok: true, json: async () => mockPackageGraph, statusText: 'OK' } as Response;
-      }
-      return { ok: true, json: async () => mockFileGraph, statusText: 'OK' } as Response;
-    });
-
-    render(<CodeMap />);
-
-    await waitFor(() => {
-      expect(screen.getByText('@wrongstack/core')).toBeDefined();
-    });
-
-    // Drill into the package
-    fireEvent.click(screen.getByText('@wrongstack/core').closest('[role="button"]')!);
-
-    await waitFor(() => {
-      expect(screen.getByText('agent.ts')).toBeDefined();
-    });
-
-    // Shift+click the agent.ts node
-    const agentNode = screen.getByText('agent.ts');
-    const clickable = agentNode.closest('[role="button"]') ?? agentNode;
-    fireEvent.click(clickable, { shiftKey: true });
-
-    // The drawer should show the file path
-    await waitFor(() => {
-      expect(screen.getByText('src/core/agent.ts')).toBeDefined();
-    });
-  });
-
-  it('closes activity history drawer when X is clicked', async () => {
-    let callCount = 0;
-    mockFetch.mockImplementation(async () => {
-      callCount++;
-      if (callCount === 1) {
-        return { ok: true, json: async () => mockPackageGraph, statusText: 'OK' } as Response;
-      }
-      return { ok: true, json: async () => mockFileGraph, statusText: 'OK' } as Response;
-    });
-
-    const { container } = render(<CodeMap />);
-
-    await waitFor(() => {
-      expect(screen.getByText('@wrongstack/core')).toBeDefined();
-    });
-
-    fireEvent.click(screen.getByText('@wrongstack/core').closest('[role="button"]')!);
-
-    await waitFor(() => {
-      expect(screen.getByText('agent.ts')).toBeDefined();
-    });
-
-    // Open drawer
-    fireEvent.click(screen.getByText('agent.ts').closest('[role="button"]')!, { shiftKey: true });
-
-    await waitFor(() => {
-      expect(screen.getByText('src/core/agent.ts')).toBeDefined();
-    });
-
-    // Find and click the X button (it has an svg X icon inside the drawer header)
-    const drawer = container.querySelector('.absolute.right-0');
-    expect(drawer).toBeTruthy();
-    const xButton = drawer!.querySelector('button');
-    expect(xButton).toBeTruthy();
-    fireEvent.click(xButton!);
-
-    // Drawer should be gone
-    await waitFor(() => {
-      expect(container.querySelector('.absolute.right-0')).toBeNull();
-    });
-  });
-
-  it('records activity in the store and shows it in the drawer', async () => {
-    let callCount = 0;
-    mockFetch.mockImplementation(async () => {
-      callCount++;
-      if (callCount === 1) {
-        return { ok: true, json: async () => mockPackageGraph, statusText: 'OK' } as Response;
-      }
-      return { ok: true, json: async () => mockFileGraph, statusText: 'OK' } as Response;
-    });
-
-    render(<CodeMap />);
-
-    await waitFor(() => {
-      expect(screen.getByText('@wrongstack/core')).toBeDefined();
-    });
-
-    fireEvent.click(screen.getByText('@wrongstack/core').closest('[role="button"]')!);
-
-    await waitFor(() => {
-      expect(screen.getByText('agent.ts')).toBeDefined();
-    });
-
-    // Record an activity manually
-    useCodemapActivityStore.getState().recordActivity({
-      filePath: 'src/core/agent.ts',
-      type: 'edit',
-      timestamp: Date.now(),
-      toolName: 'edit',
-      agentName: 'test-agent',
-    });
-
-    // Open drawer via Shift+click
-    fireEvent.click(screen.getByText('agent.ts').closest('[role="button"]')!, { shiftKey: true });
-
-    // Should show the activity type and tool name
-    await waitFor(() => {
-      expect(screen.getByText('edit')).toBeDefined();
-      expect(screen.getByText(/via edit/)).toBeDefined();
-    });
+    await waitFor(() =>
+      expect(screen.getByTestId('agent-trail-count').textContent).toContain('×1'),
+    );
   });
 });

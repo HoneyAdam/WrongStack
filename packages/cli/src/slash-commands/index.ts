@@ -131,6 +131,16 @@ export interface SlashCommandContext {
   interruptController?:
     | {
         abortLeader: () => boolean;
+        /**
+         * Report whether an operation (leader run, autonomy loop, or SDD run)
+         * is currently in flight. Used by `/clear` to confirm before wiping a
+         * session that still has active work. Absent → treated as idle.
+         */
+        isRunning?: (() => boolean) | undefined;
+        /** Drop buffered output that belongs to the session being cleared. */
+        resetSession?: (() => void) | undefined;
+        /** Wait until the aborted leader turn can no longer mutate context. */
+        waitForIdle?: (() => Promise<void>) | undefined;
       }
     | undefined;
   /**

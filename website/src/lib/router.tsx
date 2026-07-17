@@ -1,5 +1,6 @@
 import {
   createContext,
+  type CSSProperties,
   type MouseEvent,
   type ReactNode,
   useCallback,
@@ -62,6 +63,7 @@ export function Link({
   children: ReactNode;
   onClick?: () => void;
   className?: string;
+  style?: CSSProperties;
   'aria-label'?: string;
 }) {
   const { navigate } = useRouter();

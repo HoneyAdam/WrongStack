@@ -1,6 +1,7 @@
 // Kanban data model + manager moved from @wrongstack/core to the standalone
 // @wrongstack/kanban package; only the Tool contract and the task-graph
 // serialization types still come from core.
+import { randomUUID } from 'node:crypto';
 import type { SerializableTaskGraph, SerializedTaskGraph, Tool } from '@wrongstack/core';
 import { deserializeTaskGraph, loadTasks, serializeTaskGraph } from '@wrongstack/core';
 import type {
@@ -212,6 +213,8 @@ interface KanbanToolInput extends Omit<AssignKanbanTaskInput, 'status'> {
   dependsOn?: string[] | undefined;
   /** Estimated effort in hours for add_task/update_task. */
   estimatedHours?: number | undefined;
+  /** Actual effort in hours for add_task/update_task. */
+  actualHours?: number | undefined;
 }
 
 interface KanbanToolOutput {
@@ -1209,7 +1212,77 @@ function taskInput(input: KanbanToolInput) {
       : {}),
     ...(mergedDependsOn(input) ? { dependsOn: mergedDependsOn(input) } : {}),
     ...(input.estimatedHours !== undefined ? { estimatedHours: input.estimatedHours } : {}),
+    ...(input.actualHours !== undefined ? { actualHours: input.actualHours } : {}),
     ...(assignment ? { assignment } : {}),
+    ...(input.order !== undefined ? { order: input.order } : {}),
+    // Sprint 3 durable task-level fields
+    ...(input.retryPolicy !== undefined ? { retryPolicy: input.retryPolicy } : {}),
+    ...(input.costCeilingUsd !== undefined ? { costCeilingUsd: input.costCeilingUsd } : {}),
+    // Relationships — chainId alone cannot construct a KanbanTaskChainRef,
+    // so chain/previousTaskId/nextTaskId must be set via update_task.
+    ...(input.childTitles !== undefined ? { childTaskIds: input.childTitles } : {}),
+    // Detail objects
+    ...(input.checkDescription !== undefined
+      ? {
+          successCriteria: [
+            {
+              id: randomUUID(),
+              description: input.checkDescription,
+              type: 'manual' as const,
+              status: input.checkStatus ?? ('pending' as const),
+            },
+          ],
+        }
+      : {}),
+    ...(input.metricName !== undefined
+      ? {
+          goalMetrics: [
+            {
+              id: randomUUID(),
+              name: input.metricName,
+              status: input.metricStatus ?? ('pending' as const),
+              ...(input.metricTarget !== undefined ? { target: input.metricTarget } : {}),
+              ...(input.metricCurrent !== undefined ? { current: input.metricCurrent } : {}),
+              ...(input.metricUnit !== undefined ? { unit: input.metricUnit } : {}),
+              ...(input.metricNotes !== undefined ? { notes: input.metricNotes } : {}),
+            },
+          ],
+        }
+      : {}),
+    ...(input.url !== undefined
+      ? {
+          links: [
+            {
+              url: input.url,
+              type: input.linkType ?? ('url' as const),
+              ...(input.linkTitle !== undefined ? { title: input.linkTitle } : {}),
+            },
+          ],
+        }
+      : {}),
+    ...(input.note !== undefined
+      ? {
+          notes: [
+            {
+              id: randomUUID(),
+              author: input.author ?? 'agent',
+              content: input.note,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        }
+      : {}),
+    // Origin tracking
+    ...(input.graphId !== undefined
+      ? {
+          origin: {
+            system: input.sourceSystem ?? 'kanban-tool',
+            ...(input.graphId !== undefined ? { graphId: input.graphId } : {}),
+            ...(input.specId !== undefined ? { specId: input.specId } : {}),
+            ...(input.phaseId !== undefined ? { phaseId: input.phaseId } : {}),
+          },
+        }
+      : {}),
   };
 }
 

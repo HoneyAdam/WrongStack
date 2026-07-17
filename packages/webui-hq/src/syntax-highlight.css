@@ -1,6 +1,6 @@
 /* ===========================================================================
-   Syntax Highlighting Theme — HQ Console (dark-only)
-   Ported from the main WebUI's syntax-highlight.css (its .dark variants),
+   Syntax Highlighting Theme — HQ Console
+   Ported from the main WebUI's syntax-highlight.css,
    keyed on the HQ token set so highlighted code follows the panel theme.
    =========================================================================== */
 
@@ -105,4 +105,36 @@
 .hljs-link {
   text-decoration: underline;
   color: var(--primary);
+}
+
+:root[data-hq-theme="light"] .hljs-keyword,
+:root[data-hq-theme="light"] .hljs-selector-tag,
+:root[data-hq-theme="light"] .hljs-type,
+:root[data-hq-theme="light"] .hljs-literal {
+  color: #9f2862;
+}
+:root[data-hq-theme="light"] .hljs-string,
+:root[data-hq-theme="light"] .hljs-attr,
+:root[data-hq-theme="light"] .hljs-template-tag,
+:root[data-hq-theme="light"] .hljs-template-variable,
+:root[data-hq-theme="light"] .hljs-addition {
+  color: #146b39;
+}
+:root[data-hq-theme="light"] .hljs-function .hljs-keyword,
+:root[data-hq-theme="light"] .hljs-title.function_,
+:root[data-hq-theme="light"] .hljs-title.class_,
+:root[data-hq-theme="light"] .hljs-title.class_.inherited__ {
+  color: #175aa3;
+}
+:root[data-hq-theme="light"] .hljs-tag,
+:root[data-hq-theme="light"] .hljs-name,
+:root[data-hq-theme="light"] .hljs-deletion {
+  color: #b32947;
+}
+:root[data-hq-theme="light"] .hljs-attribute,
+:root[data-hq-theme="light"] .hljs-property {
+  color: #8b4b00;
+}
+:root[data-hq-theme="light"] .hljs-regexp {
+  color: #08746c;
 }

@@ -1,4 +1,9 @@
-import type { MemoryClearedPayload, MemoryConsolidatedPayload, MemoryForgottenPayload, MemoryRememberedPayload } from '../../types/memory.js';
+import type {
+  MemoryClearedPayload,
+  MemoryConsolidatedPayload,
+  MemoryForgottenPayload,
+  MemoryRememberedPayload,
+} from '../../types/memory.js';
 
 export interface MemoryEventMap {
   /** Cache hit on session store load — used by observability layers. */
@@ -26,18 +31,81 @@ export interface MemoryEventMap {
   'memory.cleared': MemoryClearedPayload;
   'memory.consolidated': MemoryConsolidatedPayload;
   /** Structured Super Memory lifecycle events. Kept structural so core never depends on the package. */
-  'memory.accepted': { memoryId: string; sessionId?: string | undefined; traceId?: string | undefined };
-  'memory.candidate_created': { candidateId: string; sessionId?: string | undefined; traceId?: string | undefined };
-  'memory.candidate_rejected': { candidateId: string; reason: string; sessionId?: string | undefined; traceId?: string | undefined };
-  'memory.updated': { memoryId: string; status: string; sessionId?: string | undefined; traceId?: string | undefined };
-  'memory.merged': { memoryId: string; mergedIds: string[]; sessionId?: string | undefined; traceId?: string | undefined };
-  'memory.superseded': { memoryId: string; supersededBy: string; sessionId?: string | undefined; traceId?: string | undefined };
-  'memory.contradicted': { memoryId: string; contradicts: string[]; sessionId?: string | undefined; traceId?: string | undefined };
-  'memory.staled': { memoryId: string; reason: string; sessionId?: string | undefined; traceId?: string | undefined };
-  'memory.archived': { memoryId: string; reason: string; sessionId?: string | undefined; traceId?: string | undefined };
-  'memory.injected': { memoryIds: string[]; trigger: string; sessionId?: string | undefined; traceId?: string | undefined };
-  'memory.verified': { memoryId: string; status: string; sessionId?: string | undefined; traceId?: string | undefined };
-  'memory.hygiene_started': { examined: number; sessionId?: string | undefined; traceId?: string | undefined };
+  'memory.accepted': {
+    memoryId: string;
+    sessionId?: string | undefined;
+    traceId?: string | undefined;
+  };
+  'memory.candidate_created': {
+    candidateId: string;
+    sessionId?: string | undefined;
+    traceId?: string | undefined;
+  };
+  'memory.candidate_rejected': {
+    candidateId: string;
+    reason: string;
+    sessionId?: string | undefined;
+    traceId?: string | undefined;
+  };
+  'memory.updated': {
+    memoryId: string;
+    status: string;
+    sessionId?: string | undefined;
+    traceId?: string | undefined;
+  };
+  'memory.merged': {
+    memoryId: string;
+    mergedIds: string[];
+    sessionId?: string | undefined;
+    traceId?: string | undefined;
+  };
+  'memory.superseded': {
+    memoryId: string;
+    supersededBy: string;
+    sessionId?: string | undefined;
+    traceId?: string | undefined;
+  };
+  'memory.contradicted': {
+    memoryId: string;
+    contradicts: string[];
+    sessionId?: string | undefined;
+    traceId?: string | undefined;
+  };
+  'memory.staled': {
+    memoryId: string;
+    reason: string;
+    sessionId?: string | undefined;
+    traceId?: string | undefined;
+  };
+  'memory.archived': {
+    memoryId: string;
+    reason: string;
+    sessionId?: string | undefined;
+    traceId?: string | undefined;
+  };
+  'memory.injected': {
+    memoryIds: string[];
+    trigger: string;
+    sessionId?: string | undefined;
+    traceId?: string | undefined;
+  };
+  'memory.used': {
+    memoryIds: string[];
+    source: string;
+    sessionId?: string | undefined;
+    traceId?: string | undefined;
+  };
+  'memory.verified': {
+    memoryId: string;
+    status: string;
+    sessionId?: string | undefined;
+    traceId?: string | undefined;
+  };
+  'memory.hygiene_started': {
+    examined: number;
+    sessionId?: string | undefined;
+    traceId?: string | undefined;
+  };
   'memory.hygiene_completed': {
     examined: number;
     deduplicated: number;

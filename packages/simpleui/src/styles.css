@@ -385,7 +385,21 @@ a:focus-visible {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 4px 10px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  transition: opacity 180ms ease;
 }
+.context-meter:hover { opacity: 0.85; }
+.context-meter:hover .context-compact-hint { opacity: 1; }
+.context-meter:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+.context-meter:disabled { cursor: default; opacity: 0.5; }
 
 .context-copy {
   grid-column: 1 / -1;
@@ -424,6 +438,17 @@ a:focus-visible {
   font-family: "IBM Plex Mono", monospace;
   font-size: 8px;
   white-space: nowrap;
+}
+
+.context-compact-hint {
+  grid-column: 1 / -1;
+  text-align: center;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 7px;
+  letter-spacing: 0.15em;
+  color: var(--accent);
+  opacity: 0;
+  transition: opacity 180ms ease;
 }
 
 .connection {
@@ -1233,9 +1258,14 @@ a:focus-visible {
 .composer {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 48px;
+  grid-template-columns: minmax(0, 1fr) auto;
   border: 1px solid var(--line-strong);
   background: var(--surface);
+}
+
+.composer-actions {
+  display: flex;
+  align-items: stretch;
 }
 
 .composer:focus-within {
@@ -1272,6 +1302,9 @@ a:focus-visible {
 .file-picker-list {
   max-height: min(260px, 42vh);
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
 }
 
 .file-picker-list > button {
@@ -1380,6 +1413,8 @@ a:focus-visible {
   border: 0;
   padding: 13px 14px 12px;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
   background: transparent;
   color: var(--text);
   font-size: 13px;
@@ -1438,12 +1473,602 @@ a:focus-visible {
   white-space: nowrap;
 }
 
+.composer-notice.info {
+  color: var(--accent);
+}
+
 .composer-notice.warning {
   color: var(--warning);
 }
 
 .composer-notice.error {
   color: var(--danger);
+}
+
+/* ── Send-mode buttons ─────────────────────────────────────────────────── */
+
+.mode-button {
+  width: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-left: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 140ms ease, background 140ms ease;
+}
+
+.mode-button:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.mode-button:disabled {
+  color: var(--subtle);
+  cursor: default;
+  opacity: 0.5;
+}
+
+.mode-button.steer:hover:not(:disabled) {
+  color: var(--warning);
+}
+
+.mode-button.stop:hover:not(:disabled) {
+  color: var(--danger);
+}
+
+/* ── Queued messages ───────────────────────────────────────────────────── */
+
+.queue-strip {
+  margin-bottom: 9px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--accent);
+  background: var(--surface);
+}
+
+.queue-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 9px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 8px;
+  letter-spacing: 0.08em;
+}
+
+.queue-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.queue-head-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 0;
+  padding: 3px 5px;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.queue-head-actions button:hover {
+  color: var(--text);
+}
+
+.queue-list {
+  max-height: min(150px, 24vh);
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.queue-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 5px;
+  background: var(--surface-2);
+}
+
+.queue-tag {
+  padding: 1px 4px;
+  border: 1px solid var(--line-strong);
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.queue-tag.btw {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  color: var(--accent);
+}
+
+.queue-tag.steer {
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--line));
+  color: var(--warning);
+}
+
+.queue-tag.queue {
+  border-color: color-mix(in srgb, var(--success) 45%, var(--line));
+  color: var(--success);
+}
+
+.queue-text {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-list li button {
+  display: flex;
+  align-items: center;
+  border: 0;
+  padding: 2px;
+  background: transparent;
+  color: var(--subtle);
+  cursor: pointer;
+}
+
+.queue-list li button:hover {
+  color: var(--danger);
+}
+
+/* ── Refine panel ──────────────────────────────────────────────────────── */
+
+.refine-panel {
+  margin-bottom: 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  border-left: 2px solid var(--accent);
+  padding: 9px 10px;
+  background: color-mix(in srgb, var(--surface) 90%, var(--accent) 10%);
+}
+
+.refine-panel.refining {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+
+.refine-panel.refining button {
+  margin-left: auto;
+  border: 1px solid var(--line-strong);
+  padding: 4px 9px;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.refine-panel.refining button:hover {
+  border-color: var(--muted);
+  color: var(--text);
+}
+
+.refine-panel.failed {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--line));
+  border-left-color: var(--danger);
+  background: color-mix(in srgb, var(--surface) 88%, var(--danger) 12%);
+}
+
+.refine-spin {
+  animation: spin 1s linear infinite;
+}
+
+.refine-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+}
+
+.refine-panel.failed .refine-head {
+  color: var(--danger);
+}
+
+.refine-head strong {
+  color: var(--text);
+  font-size: 11px;
+}
+
+.refine-head span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.refine-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.refine-column {
+  min-width: 0;
+  border: 1px solid var(--line);
+  padding: 6px 7px;
+  background: var(--surface);
+}
+
+.refine-column.refined {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+}
+
+.refine-column span {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--subtle);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 7px;
+  letter-spacing: 0.14em;
+}
+
+.refine-column.refined span {
+  color: var(--accent);
+}
+
+.refine-column p {
+  max-height: 84px;
+  margin: 0;
+  overflow-y: auto;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.refine-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.refine-actions button {
+  height: 28px;
+  border: 1px solid var(--line-strong);
+  padding: 0 10px;
+  background: transparent;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.refine-actions button:hover {
+  border-color: var(--muted);
+  color: var(--text);
+}
+
+.refine-actions .primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+}
+
+/* ── Settings drawer ───────────────────────────────────────────────────── */
+
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  border: 0;
+  padding: 0;
+  background: color-mix(in srgb, var(--bg) 62%, transparent);
+  cursor: default;
+}
+
+.settings-panel {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 41;
+  width: min(320px, 88vw);
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line-strong);
+  background: var(--surface);
+  box-shadow: 18px 0 60px var(--shadow);
+  animation: settings-in 160ms ease;
+}
+
+@keyframes settings-in {
+  from {
+    transform: translateX(-12px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-panel {
+    animation: none;
+  }
+}
+
+.settings-head {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px 0 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+}
+
+.settings-head span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-head button {
+  display: flex;
+  align-items: center;
+  border: 0;
+  padding: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.settings-head button:hover {
+  color: var(--text);
+}
+
+.settings-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+  padding: 12px 14px 20px;
+}
+
+.settings-offline {
+  margin: 0 0 12px;
+  border-left: 2px solid var(--warning);
+  padding: 6px 8px;
+  background: color-mix(in srgb, var(--surface) 88%, var(--warning) 12%);
+  color: var(--warning);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9px;
+}
+
+.settings-group {
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-group:last-child {
+  margin-bottom: 0;
+  border-bottom: 0;
+}
+
+.settings-group h2 {
+  margin: 0 0 9px;
+  color: var(--subtle);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+}
+
+.settings-segmented {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border: 1px solid var(--line-strong);
+}
+
+.settings-segment {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-right: 1px solid var(--line);
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.settings-segment:last-child {
+  border-right: 0;
+}
+
+.settings-segment.active {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+}
+
+.settings-segment:hover:not(.active):not(:has(input:disabled)) {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.settings-segment:has(input:disabled) {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* The radio stays focusable and screen-reader visible; the label paints it. */
+.settings-segment input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.settings-segment:has(input:focus-visible) {
+  outline: 1px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.settings-hint {
+  display: block;
+  margin: 6px 0 0;
+  color: var(--subtle);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.settings-toggle {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-top: 11px;
+  cursor: pointer;
+}
+
+.settings-toggle.disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.settings-toggle-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-toggle-copy strong {
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.settings-toggle-copy small {
+  color: var(--subtle);
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+/* The native checkbox stays in the layout (focusable, screen-reader
+   visible) but is painted over by the switch that follows it. */
+.settings-toggle input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.settings-switch {
+  position: relative;
+  width: 32px;
+  height: 17px;
+  flex-shrink: 0;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-2);
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.settings-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 11px;
+  height: 11px;
+  background: var(--muted);
+  transition: transform 140ms ease, background 140ms ease;
+}
+
+.settings-toggle input:checked ~ .settings-switch {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.settings-toggle input:checked ~ .settings-switch::after {
+  background: var(--accent-ink);
+  transform: translateX(15px);
+}
+
+.settings-toggle input:focus-visible ~ .settings-switch {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 11px;
+}
+
+.settings-field span {
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.settings-field input,
+.settings-field select {
+  height: 30px;
+  border: 1px solid var(--line-strong);
+  padding: 0 7px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+}
+
+.settings-field input:focus,
+.settings-field select:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.settings-field input:disabled,
+.settings-field select:disabled {
+  color: var(--subtle);
+  cursor: default;
+  opacity: 0.6;
 }
 
 .composer-meta span:last-child {
@@ -1509,23 +2134,32 @@ a:focus-visible {
   color: var(--accent);
 }
 
-/* Floating tool call drawer */
+/* Floating workspace drawer */
 
-.tool-sidebar-trigger {
+.tool-sidebar-launcher {
   position: fixed;
   top: 68px;
   right: 14px;
   z-index: 18;
-  min-width: 84px;
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  box-shadow: 0 8px 24px var(--shadow);
+}
+
+.tool-sidebar-trigger {
+  position: relative;
+  min-width: 76px;
   height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  border: 1px solid var(--line-strong);
+  border: 0;
+  border-right: 1px solid var(--line);
   padding: 0 9px;
-  background: var(--surface);
-  box-shadow: 0 8px 24px var(--shadow);
+  background: transparent;
   color: var(--muted);
   font-family: "IBM Plex Mono", monospace;
   font-size: 9px;
@@ -1533,10 +2167,18 @@ a:focus-visible {
   cursor: pointer;
 }
 
+.tool-sidebar-trigger:last-child {
+  border-right: 0;
+}
+
 .tool-sidebar-trigger:hover,
 .tool-sidebar-trigger.active {
-  border-color: var(--accent);
+  background: var(--surface-2);
   color: var(--accent);
+}
+
+.tool-sidebar-trigger.active {
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
 .tool-sidebar-trigger b {
@@ -1722,11 +2364,182 @@ a:focus-visible {
   word-break: break-word;
 }
 
-@media (max-width: 560px) {
-  .tool-sidebar-trigger {
+.worklist-content {
+  min-height: 0;
+}
+
+.worklist-empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+}
+
+.worklist-empty svg {
+  color: var(--accent);
+}
+
+.worklist-empty small {
+  color: var(--subtle);
+  font-size: 9px;
+}
+
+.worklist-summary {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  padding: 0 9px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 8px;
+  letter-spacing: 0.08em;
+}
+
+.worklist-summary button {
+  margin-left: auto;
+  border: 0;
+  padding: 4px;
+  background: transparent;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 8px;
+  cursor: pointer;
+}
+
+.worklist-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.worklist-item {
+  position: relative;
+  min-height: 50px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--line-strong);
+  padding: 9px;
+  background: var(--bg);
+}
+
+.worklist-item.running {
+  border-left-color: var(--warning);
+  background: color-mix(in srgb, var(--surface) 88%, var(--warning) 12%);
+}
+
+.worklist-item.blocked,
+.worklist-item.failed {
+  border-left-color: var(--danger);
+}
+
+.worklist-item.done {
+  opacity: 0.68;
+}
+
+.worklist-status-icon {
+  margin-top: 2px;
+  color: var(--muted);
+}
+
+.worklist-item.running .worklist-status-icon {
+  color: var(--warning);
+}
+
+.worklist-item.done .worklist-status-icon {
+  color: var(--success);
+}
+
+.worklist-item.failed .worklist-status-icon,
+.worklist-item.blocked .worklist-status-icon,
+.worklist-alert {
+  color: var(--danger);
+}
+
+.worklist-item-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.worklist-item-copy strong {
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.worklist-item.done .worklist-item-copy strong {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.worklist-item-copy span {
+  overflow: hidden;
+  color: var(--subtle);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 8px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.worklist-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.worklist-actions button {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--line-strong);
+  padding: 0 6px;
+  background: transparent;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 8px;
+  cursor: pointer;
+}
+
+.worklist-actions button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.worklist-alert {
+  position: absolute;
+  right: 7px;
+  bottom: 6px;
+}
+
+@media (max-width: 700px) {
+  .tool-sidebar-launcher {
     top: auto;
     right: 12px;
     bottom: 86px;
+  }
+
+  .tool-sidebar-trigger {
+    min-width: 42px;
+    padding: 0 7px;
+  }
+
+  .tool-sidebar-trigger span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
   }
 
   .tool-sidebar {

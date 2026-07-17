@@ -1,7 +1,11 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { Symbol as IndexSymbol, SymbolKind, SymbolLang } from '../src/codebase-index/schema.js';
+import type {
+  Symbol as IndexSymbol,
+  SymbolKind,
+  SymbolLang,
+} from '../src/codebase-index/schema.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   IndexStore,
@@ -39,9 +43,27 @@ describe('IndexStore search filters', () => {
   beforeEach(() => {
     store.insertSymbols(
       [
-        sym({ name: 'UserClass', kind: 'class', lang: 'ts', file: '/p/user.ts', text: 'UserClass entity' }),
-        sym({ name: 'helperFn', kind: 'function', lang: 'ts', file: '/p/util.ts', text: 'helperFn util' }),
-        sym({ name: 'goThing', kind: 'function', lang: 'go', file: '/p/main.go', text: 'goThing main' }),
+        sym({
+          name: 'UserClass',
+          kind: 'class',
+          lang: 'ts',
+          file: '/p/user.ts',
+          text: 'UserClass entity',
+        }),
+        sym({
+          name: 'helperFn',
+          kind: 'function',
+          lang: 'ts',
+          file: '/p/util.ts',
+          text: 'helperFn util',
+        }),
+        sym({
+          name: 'goThing',
+          kind: 'function',
+          lang: 'go',
+          file: '/p/main.go',
+          text: 'goThing main',
+        }),
       ],
       1,
     );
@@ -82,8 +104,20 @@ describe('IndexStore searchRanked filters', () => {
   beforeEach(() => {
     store.insertSymbols(
       [
-        sym({ name: 'parseConfig', kind: 'function', lang: 'ts', file: '/p/cfg.ts', text: 'parseConfig config loader' }),
-        sym({ name: 'ConfigType', kind: 'type', lang: 'ts', file: '/p/types.ts', text: 'ConfigType config shape' }),
+        sym({
+          name: 'parseConfig',
+          kind: 'function',
+          lang: 'ts',
+          file: '/p/cfg.ts',
+          text: 'parseConfig config loader',
+        }),
+        sym({
+          name: 'ConfigType',
+          kind: 'type',
+          lang: 'ts',
+          file: '/p/types.ts',
+          text: 'ConfigType config shape',
+        }),
       ],
       1,
     );
@@ -122,10 +156,7 @@ describe('IndexStore refs', () => {
 
   beforeEach(() => {
     store.insertSymbols(
-      [
-        sym({ name: 'caller', file: '/p/a.ts' }),
-        sym({ name: 'callee', file: '/p/b.ts' }),
-      ],
+      [sym({ name: 'caller', file: '/p/a.ts' }), sym({ name: 'callee', file: '/p/b.ts' })],
       1,
     );
     const all = store.search('', {});
@@ -162,11 +193,98 @@ describe('IndexStore refs', () => {
   });
 });
 
+describe('IndexStore CodeMap graphs', () => {
+  const coreFile = '/workspace/packages/core/src/agent.ts';
+  const siblingFile = '/workspace/packages/core/src/sibling.ts';
+  const toolsFile = '/workspace/packages/tools/src/read.ts';
+
+  beforeEach(() => {
+    store.insertSymbols(
+      [
+        sym({ name: 'runAgent', file: coreFile, line: 10, signature: 'function runAgent(): void' }),
+        sym({ name: 'sibling', file: siblingFile, line: 5 }),
+        sym({
+          name: 'readFile',
+          file: toolsFile,
+          line: 20,
+          signature: 'function readFile(path: string): string',
+        }),
+      ],
+      1,
+    );
+    const all = store.search('', {});
+    const callerId = all.find((symbol) => symbol.name === 'runAgent')!.id;
+    store.insertRefs(callerId, [
+      { fromId: callerId, toName: 'readFile', callType: 'call', line: 11 },
+      { fromId: callerId, toName: './sibling.js', callType: 'import', line: 1 },
+      { fromId: callerId, toName: '@wrongstack/tools', callType: 'import', line: 2 },
+    ]);
+    store.resolveRefs();
+  });
+
+  it('keeps direct external files when a package graph is opened', () => {
+    const graph = store.getFileGraph('@wrongstack/core');
+
+    expect(graph.nodes.find((node) => node.file === coreFile)?.external).toBe(false);
+    expect(graph.nodes.find((node) => node.file === toolsFile)?.external).toBe(true);
+    expect(graph.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: `file:${coreFile}`,
+          target: `file:${toolsFile}`,
+          refType: 'call',
+        }),
+        expect.objectContaining({
+          source: `file:${coreFile}`,
+          target: `file:${siblingFile}`,
+          refType: 'import',
+        }),
+      ]),
+    );
+  });
+
+  it('builds package edges directly from unresolved workspace imports', () => {
+    const graph = store.getPackageGraph();
+    expect(graph.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: 'pkg:@wrongstack/core',
+          target: 'pkg:@wrongstack/tools',
+          weight: 2,
+        }),
+      ]),
+    );
+  });
+
+  it('materializes cross-file symbol neighbours with declaration metadata', () => {
+    const graph = store.getSymbolGraph(coreFile);
+    const external = graph.nodes.find((node) => node.label === 'readFile');
+
+    expect(external).toEqual(
+      expect.objectContaining({
+        file: toolsFile,
+        line: 20,
+        lang: 'ts',
+        signature: 'function readFile(path: string): string',
+        external: true,
+      }),
+    );
+    expect(graph.edges).toHaveLength(1);
+    expect(graph.nodes.some((node) => node.id === graph.edges[0]?.target)).toBe(true);
+  });
+});
+
 describe('IndexStore file ops + ranked fallback', () => {
   it('deleteFile removes symbols, refs, and the file row', () => {
     const inserted = store.insertSymbols([sym({ name: 'gone', file: '/p/gone.ts' })]);
     const id = inserted[0].id;
-    store.upsertFile({ file: '/p/gone.ts', mtimeMs: 1, lang: 'ts', symbolCount: 1, lastIndexed: 1 });
+    store.upsertFile({
+      file: '/p/gone.ts',
+      mtimeMs: 1,
+      lang: 'ts',
+      symbolCount: 1,
+      lastIndexed: 1,
+    });
     store.insertRefs(id, [{ fromId: id, toName: 'x', callType: 'call', line: 1 }]);
     store.deleteFile('/p/gone.ts');
     expect(store.search('', { file: 'gone' })).toEqual([]);
@@ -220,15 +338,19 @@ describe('IndexStore.runWithRetry', () => {
   });
 
   it('rethrows a non-lock error immediately', () => {
-    expect(() => store.runWithRetry(() => {
-      throw new Error('not a lock');
-    })).toThrow('not a lock');
+    expect(() =>
+      store.runWithRetry(() => {
+        throw new Error('not a lock');
+      }),
+    ).toThrow('not a lock');
   });
 
   it('rethrows a non-Error throw immediately', () => {
-    expect(() => store.runWithRetry(() => {
-      throw 'string failure';
-    })).toThrow();
+    expect(() =>
+      store.runWithRetry(() => {
+        throw 'string failure';
+      }),
+    ).toThrow();
   });
 
   it('retries a lock error then succeeds', () => {
@@ -243,9 +365,11 @@ describe('IndexStore.runWithRetry', () => {
   });
 
   it('wraps a persistent lock conflict in a LockError after exhausting retries', () => {
-    expect(() => store.runWithRetry(() => {
-      throw Object.assign(new Error('locked'), { sqliteCode: 6 }); // numeric SQLITE_LOCKED
-    })).toThrow(/lock conflict after/);
+    expect(() =>
+      store.runWithRetry(() => {
+        throw Object.assign(new Error('locked'), { sqliteCode: 6 }); // numeric SQLITE_LOCKED
+      }),
+    ).toThrow(/lock conflict after/);
   });
 
   it('detects a lock error reported only in the message', () => {
@@ -268,7 +392,13 @@ describe('IndexStore stats and clear', () => {
       ],
       1,
     );
-    store.upsertFile({ file: '/p/a.ts', mtimeMs: 1, lang: 'ts', symbolCount: 1, lastIndexed: 2000 });
+    store.upsertFile({
+      file: '/p/a.ts',
+      mtimeMs: 1,
+      lang: 'ts',
+      symbolCount: 1,
+      lastIndexed: 2000,
+    });
     store.setLastIndexed(123);
     const stats = store.getStats();
     expect(stats.totalSymbols).toBe(2);

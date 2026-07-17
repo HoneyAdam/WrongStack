@@ -19,6 +19,16 @@ import type {
  * Options passed to inventory() controlling what data the adapter collects.
  */
 export interface InventoryOptions {
+  /**
+   * Absolute path of the project being analyzed. `Workspace.relativeRoot` is
+   * resolved against it.
+   *
+   * Without this, adapters resolve against `process.cwd()` and read nothing
+   * whenever the server was started from anywhere but the project root.
+   *
+   * @see ./paths.ts
+   */
+  readonly projectRoot?: string | undefined;
   /** Include transitive dependencies from lockfiles, not just direct. */
   readonly includeTransitive?: boolean | undefined;
   /** Abort signal for cancellation. */

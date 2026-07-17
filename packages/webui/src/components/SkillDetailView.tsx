@@ -250,7 +250,7 @@ export function SkillDetailView({ className }: { className?: string }) {
           unchanged: m.payload.unchanged ?? [],
           errors: m.payload.errors ?? [],
         });
-        client.send({ type: 'skills.list' });
+        client.send({ type: 'skills.list' }, { echoToChat: false });
       } else {
         setUpdateResult({ updated: [], unchanged: [], errors: [{ name: '', error: m.payload.error ?? i18n.t('activity:skillDetail.updateFailed') }] });
       }
@@ -393,7 +393,7 @@ export function SkillDetailView({ className }: { className?: string }) {
         setDraftRestored(false);
         setEditMode(false);
         client.send({ type: 'skills.content', payload: { name: selectedSkill.name, source: selectedSkill.source } });
-        client.send({ type: 'skills.list' });
+        client.send({ type: 'skills.list' }, { echoToChat: false });
       } else {
         setEditError(m.payload.error ?? i18n.t('activity:skillDetail.saveFailed'));
       }
@@ -446,7 +446,7 @@ export function SkillDetailView({ className }: { className?: string }) {
         setUninstalling(false);
         if (m.payload.success) {
           setUninstallConfirmSkill(null);
-          client.send({ type: 'skills.list' });
+          client.send({ type: 'skills.list' }, { echoToChat: false });
           handleClose();
         } else {
           setEditError(m.payload.error ?? i18n.t('activity:skillDetail.uninstallFailed'));

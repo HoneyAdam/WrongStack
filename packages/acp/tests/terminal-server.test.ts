@@ -88,6 +88,52 @@ describe('TerminalServer', () => {
     expect(out.truncated).toBe(true);
   });
 
+  it('caps agent output limits at the host maximum', async () => {
+    const cappedServer = new TerminalServer({
+      projectRoot,
+      commandTimeoutMs: 10_000,
+      outputByteLimit: 128,
+      maxOutputByteLimit: 64,
+    });
+    try {
+      const { terminalId } = cappedServer.create({
+        sessionId: 's1',
+        command: 'node',
+        args: ['-e', "process.stdout.write('A'.repeat(1024))"],
+        outputByteLimit: 1024,
+      });
+      await cappedServer.waitForExit(terminalId);
+      const out = cappedServer.output(terminalId);
+      expect(Buffer.byteLength(out.output, 'utf8')).toBeLessThanOrEqual(64);
+      expect(out.truncated).toBe(true);
+    } finally {
+      cappedServer.releaseAll();
+    }
+  });
+
+  it('falls back to the configured output limit for non-finite values', async () => {
+    const fallbackServer = new TerminalServer({
+      projectRoot,
+      commandTimeoutMs: 10_000,
+      outputByteLimit: 32,
+      maxOutputByteLimit: 64,
+    });
+    try {
+      const { terminalId } = fallbackServer.create({
+        sessionId: 's1',
+        command: 'node',
+        args: ['-e', "process.stdout.write('A'.repeat(1024))"],
+        outputByteLimit: Number.POSITIVE_INFINITY,
+      });
+      await fallbackServer.waitForExit(terminalId);
+      const out = fallbackServer.output(terminalId);
+      expect(Buffer.byteLength(out.output, 'utf8')).toBeLessThanOrEqual(32);
+      expect(out.truncated).toBe(true);
+    } finally {
+      fallbackServer.releaseAll();
+    }
+  });
+
   it('kill() terminates a long-running command', async () => {
     const { terminalId } = server.create({
       sessionId: 's1',
@@ -160,6 +206,56 @@ describe('TerminalServer', () => {
     expect(out.output.trim()).toBe('agent-env-value');
   });
 
+  it('strips sensitive host credentials from the child environment', async () => {
+    const previous = process.env['ACP_TERMINAL_SECRET_TOKEN'];
+    process.env['ACP_TERMINAL_SECRET_TOKEN'] = 'must-not-leak';
+    try {
+      const { terminalId } = server.create({
+        sessionId: 's1',
+        command: 'node',
+        args: ['-e', "console.log(process.env.ACP_TERMINAL_SECRET_TOKEN ?? 'missing')"],
+      });
+      const exit = await server.waitForExit(terminalId);
+      expect(exit.exitCode).toBe(0);
+      expect(server.output(terminalId).output.trim()).toBe('missing');
+    } finally {
+      if (previous === undefined) delete process.env['ACP_TERMINAL_SECRET_TOKEN'];
+      else process.env['ACP_TERMINAL_SECRET_TOKEN'] = previous;
+    }
+  });
+
+  it('rejects agent overrides that enable code injection or path hijacking', async () => {
+    const { terminalId } = server.create({
+      sessionId: 's1',
+      command: process.execPath,
+      args: [
+        '-e',
+        "console.log(JSON.stringify({ node: process.env.NODE_OPTIONS, path: process.env.PATH, preload: process.env.LD_PRELOAD, dyld: process.env.DYLD_INSERT_LIBRARIES, allowed: process.env.MY_TEST_VAR }))",
+      ],
+      env: [
+        { name: 'node_options', value: '--require definitely-not-a-real-module' },
+        { name: 'Path', value: 'attacker-controlled-path' },
+        { name: 'LD_PRELOAD', value: 'attacker-controlled-library' },
+        { name: 'DYLD_INSERT_LIBRARIES', value: 'attacker-controlled-library' },
+        { name: 'MY_TEST_VAR', value: 'allowed' },
+      ],
+    });
+    const exit = await server.waitForExit(terminalId);
+    expect(exit.exitCode).toBe(0);
+    const env = JSON.parse(server.output(terminalId).output.trim()) as {
+      node?: string;
+      path?: string;
+      preload?: string;
+      dyld?: string;
+      allowed?: string;
+    };
+    expect(env.node ?? '').not.toContain('definitely-not-a-real-module');
+    expect(env.path).not.toBe('attacker-controlled-path');
+    expect(env.preload).toBeUndefined();
+    expect(env.dyld).toBeUndefined();
+    expect(env.allowed).toBe('allowed');
+  });
+
   it('resolveCwd uses projectRoot when the requested cwd is outside', async () => {
     const outsideCwd = path.resolve(os.tmpdir(), 'some-outside-dir-' + Date.now());
     await fsp.mkdir(outsideCwd, { recursive: true }).catch(() => {});
@@ -176,6 +272,24 @@ describe('TerminalServer', () => {
       expect(out.output.trim()).toContain(projectRoot);
     } finally {
       await fsp.rm(outsideCwd, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('resolveCwd uses projectRoot when cwd resolves through an outside symlink', async () => {
+    const outsideCwd = await fsp.mkdtemp(path.join(os.tmpdir(), 'wstack-term-outside-'));
+    const linkedCwd = path.join(projectRoot, 'outside-link');
+    try {
+      await fsp.symlink(outsideCwd, linkedCwd, process.platform === 'win32' ? 'junction' : 'dir');
+      const { terminalId } = server.create({
+        sessionId: 's1',
+        command: process.execPath,
+        args: ['-e', 'console.log(process.cwd())'],
+        cwd: linkedCwd,
+      });
+      await server.waitForExit(terminalId);
+      expect(server.output(terminalId).output.trim()).toBe(await fsp.realpath(projectRoot));
+    } finally {
+      await fsp.rm(outsideCwd, { recursive: true, force: true });
     }
   });
 

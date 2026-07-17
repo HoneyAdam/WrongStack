@@ -41,7 +41,7 @@ describe('printLaunchHints', () => {
     const out = r.output();
     // Header names the category and its position in the rotation.
     expect(out).toContain(HINT_GROUP_TITLES[0] as string);
-    expect(out).toContain(`(1/${HINT_GROUP_COUNT}`);
+    expect(out).toContain(`1/${HINT_GROUP_COUNT}`);
     // Autonomy group is shown…
     expect(out).toContain('/goal');
     // …but a hint unique to a different group is NOT.
@@ -94,7 +94,7 @@ describe('printLaunchHints', () => {
     const r = makeRenderer();
     await printLaunchHints(r, {}, { groupIndex: HINT_GROUP_COUNT });
     // Index N wraps to 0.
-    expect(r.output()).toContain(`(1/${HINT_GROUP_COUNT}`);
+    expect(r.output()).toContain(`1/${HINT_GROUP_COUNT}`);
   });
 
   it('advances a persisted cursor across launches (round-robin)', async () => {
@@ -109,7 +109,7 @@ describe('printLaunchHints', () => {
         const header = r
           .output()
           .split('\n')
-          .find((l) => l.includes(`(${i + 1}/${HINT_GROUP_COUNT}`));
+          .find((l) => l.includes(`${i + 1}/${HINT_GROUP_COUNT}`));
         expect(header).toBeTruthy();
         seen.push(header as string);
       }

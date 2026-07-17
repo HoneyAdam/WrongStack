@@ -164,16 +164,20 @@ export const Entry = React.memo(function Entry({
           borderTop={false}
           borderRight={false}
           borderBottom={false}
-          borderColor={theme.brandAccent}
+          borderColor={theme.textMuted}
           paddingLeft={1}
         >
           <Box flexDirection="row">
-            <Text bold color={theme.brandAccent}>
-              {'⟳ THINKING'}
+            <Text color={theme.textMuted}>{'⟳ THINKING'}</Text>
+            <Text color={theme.textMuted} dimColor>
+              {'  (model reasoning…)'}
             </Text>
-            <Text dimColor>{'  (model reasoning…)'}</Text>
           </Box>
-          <AssistantBody text={entry.text} termWidth={termWidth} contentWidth={contentWidth} />
+          <Box width={contentWidth}>
+            <Text color={theme.textMuted} dimColor>
+              {entry.text}
+            </Text>
+          </Box>
         </Box>
       );
     }

@@ -1,5 +1,6 @@
-import type { SlashCommand } from '@wrongstack/core';
+import { createContextEvidenceState, type SlashCommand } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
+import { interruptAll } from './interrupt.js';
 
 export function buildClearCommand(opts: SlashCommandContext): SlashCommand {
   return {
@@ -18,11 +19,46 @@ export function buildClearCommand(opts: SlashCommandContext): SlashCommand {
     ].join('\n'),
     async run(args, ctx) {
       const keepMemory = /(^|\s)--keep-memory(\s|$)|(^|\s)--keep-mem(\s|$)/.test(args);
+
+      // When an operation is still in flight (leader run, autonomy loop, or a
+      // subagent), clearing would abort it and discard its output. Confirm with
+      // the user first so a stray `/clear` can't silently kill active work.
+      // The gate is skipped when nothing is running, or when no confirm hook is
+      // wired (plain/non-TTY surfaces), preserving the previous behavior.
+      const operationActive = opts.interruptController?.isRunning?.() ?? false;
+      if (operationActive && opts.confirm) {
+        const proceed = await opts.confirm(
+          'An operation is still running. Clear anyway? This will stop it and reset the session.',
+          false,
+        );
+        if (proceed !== true) {
+          const cancelledMsg = 'Clear cancelled — the running operation was left untouched.';
+          opts.renderer.writeInfo(cancelledMsg);
+          return { message: cancelledMsg };
+        }
+      }
+
+      // Establish the reset boundary before mutating context or persistence.
+      // Otherwise an in-flight TUI stream (or subagent) can finish after these
+      // clears and append old-session output back into the fresh session.
+      opts.interruptController?.resetSession?.();
+      await interruptAll(opts);
+      await opts.interruptController?.waitForIdle?.();
+
       if (ctx) {
         ctx.state.replaceMessages([]);
         ctx.state.replaceTodos([]);
-        ctx.readFiles.clear();
-        ctx.fileMtimes.clear();
+        // Prefer the complete Context reset when available: it also clears
+        // written-file hashes and the side-effect trail, not just read mtimes.
+        if (typeof ctx.clearFileTracking === 'function') ctx.clearFileTracking();
+        else {
+          ctx.readFiles.clear();
+          ctx.fileMtimes.clear();
+        }
+        ctx.contextEvidence = createContextEvidenceState();
+        ctx.toolAdjacencyDirty = false;
+        ctx.pendingPostToolContext = undefined;
+        ctx.lastRequestTokens = undefined;
         for (const key of Object.keys(ctx.meta)) ctx.state.deleteMeta(key);
       }
       // Clear on-disk chat history via the session writer

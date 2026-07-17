@@ -165,4 +165,41 @@ describe('kanban-store', () => {
     expect(state.activeBoard?.id).toBe(active.id);
     expect(state.boards.find((item) => item.id === other.id)?.taskCount).toBe(1);
   });
+
+  it('does not switch boards when a realtime kanban.get arrives for another board', () => {
+    const active = board('b1');
+    const changedElsewhere = board('b2', [task('t2', 'Realtime task')]);
+    useKanbanStore.setState({
+      activeBoardId: active.id,
+      activeBoard: active,
+    });
+
+    useKanbanStore.getState().handleResult('kanban.get', {
+      success: true,
+      data: changedElsewhere,
+    });
+
+    const state = useKanbanStore.getState();
+    expect(state.activeBoardId).toBe(active.id);
+    expect(state.activeBoard?.id).toBe(active.id);
+    expect(state.boards.find((item) => item.id === changedElsewhere.id)?.taskCount).toBe(1);
+  });
+
+  it('applies kanban.get when it matches the selected board', () => {
+    const active = board('b1');
+    const refreshed = board('b1', [task('t1', 'Fresh task')]);
+    useKanbanStore.setState({
+      activeBoardId: active.id,
+      activeBoard: active,
+    });
+
+    useKanbanStore.getState().handleResult('kanban.get', {
+      success: true,
+      data: refreshed,
+    });
+
+    const state = useKanbanStore.getState();
+    expect(state.activeBoardId).toBe(active.id);
+    expect(state.activeBoard?.tasks.map((item) => item.title)).toEqual(['Fresh task']);
+  });
 });

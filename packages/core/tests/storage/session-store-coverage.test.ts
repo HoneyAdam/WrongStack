@@ -101,7 +101,7 @@ describe('DefaultSessionStore — observability + edge coverage', () => {
       (c) => c[0] === 'storage.write' && (c[1] as { operation?: string }).operation === 'compact',
     );
     expect(writeFail).toBeDefined();
-    expect((writeFail?.[1] as { outcome?: string }).outcome).toBe('failure');
+    expect((writeFail![1] as { outcome?: string }).outcome).toBe('failure');
   });
 
   it('collectSessionIds returns empty for an unreadable directory', async () => {

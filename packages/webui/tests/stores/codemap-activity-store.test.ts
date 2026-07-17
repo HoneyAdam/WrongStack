@@ -156,6 +156,132 @@ describe('codemap-activity-store', () => {
   // ── extractActivitiesFromMessage ────────────────────────────────────────────
 
   describe('extractActivitiesFromMessage', () => {
+    it('extracts attributed tool lifecycle targets with line metadata', () => {
+      const activities = extractActivitiesFromMessage(
+        makeMsg('tool.started', {
+          id: 'tool-1',
+          name: 'read',
+          input: { path: 'ignored-relative-path.ts' },
+          sessionId: 'session-1',
+          traceId: 'trace-1',
+          agentId: 'agent-1',
+          agentName: 'RESEARCHER',
+          fileTargets: [
+            {
+              filePath: 'D:\\repo\\src\\agent.ts',
+              operation: 'read',
+              line: 42,
+              endLine: 64,
+            },
+          ],
+        }),
+      );
+
+      expect(activities).toEqual([
+        expect.objectContaining({
+          toolUseId: 'tool-1',
+          filePath: 'D:\\repo\\src\\agent.ts',
+          type: 'read',
+          status: 'active',
+          sessionId: 'session-1',
+          traceId: 'trace-1',
+          agentId: 'agent-1',
+          agentName: 'RESEARCHER',
+          line: 42,
+          endLine: 64,
+          attribution: 'exact',
+        }),
+      ]);
+    });
+
+    it('keeps pathless tools visible as live execute operations', () => {
+      const activities = extractActivitiesFromMessage(
+        makeMsg('tool.started', {
+          id: 'shell-1',
+          name: 'bash',
+          input: { command: 'pnpm test' },
+          sessionId: 'session-1',
+          agentId: 'agent-1',
+          agentName: 'BUILDER',
+          fileTargets: [],
+        }),
+      );
+
+      expect(activities).toEqual([
+        expect.objectContaining({
+          filePath: '(tool:bash)',
+          type: 'execute',
+          toolName: 'bash',
+          status: 'active',
+        }),
+      ]);
+    });
+
+    it('extracts dedicated subagent CodeMap lifecycle without chat coupling', () => {
+      const activities = extractActivitiesFromMessage(
+        makeMsg('codemap.tool_started', {
+          id: 'sub-tool-1',
+          name: 'edit',
+          input: { path: 'D:/repo/src/subagent.ts' },
+          fileTargets: [{ filePath: 'D:/repo/src/subagent.ts', operation: 'edit' }],
+          sessionId: 'subagent-session',
+          parentSessionId: 'leader-session',
+          traceId: 'trace-sub',
+          agentId: 'worker-7',
+          agentName: 'IMPLEMENTER-7',
+        }),
+      );
+
+      expect(activities).toEqual([
+        expect.objectContaining({
+          toolUseId: 'sub-tool-1',
+          filePath: 'D:/repo/src/subagent.ts',
+          status: 'active',
+          sessionId: 'subagent-session',
+          traceId: 'trace-sub',
+          agentId: 'worker-7',
+          agentName: 'IMPLEMENTER-7',
+        }),
+      ]);
+    });
+
+    it('builds a compact change lens for edit and patch operations', () => {
+      const edit = extractActivitiesFromMessage(
+        makeMsg('tool.started', {
+          id: 'edit-change',
+          name: 'edit',
+          input: {
+            path: 'D:/repo/src/change.ts',
+            old_string: 'function oldName() {\n  return false;\n}',
+            new_string: 'function newName() {\n  return true;\n}',
+          },
+          fileTargets: [{ filePath: 'D:/repo/src/change.ts', operation: 'edit' }],
+        }),
+      )[0]!;
+      expect(edit.change).toEqual(
+        expect.objectContaining({
+          added: 3,
+          removed: 3,
+          before: expect.any(String),
+          after: expect.any(String),
+        }),
+      );
+      expect(edit.summary).toContain('→');
+
+      const patch = extractActivitiesFromMessage(
+        makeMsg('tool.started', {
+          id: 'patch-change',
+          name: 'apply_patch',
+          input: { patch: '@@\n-old line\n+new line\n+second line' },
+          fileTargets: [{ filePath: 'D:/repo/src/change.ts', operation: 'edit' }],
+        }),
+      )[0]!;
+      expect(patch.change).toEqual(
+        expect.objectContaining({ added: 2, removed: 1, before: 'old line', after: 'new line' }),
+      );
+      expect(patch.summary).toBe('apply_patch +2 −1');
+    });
+
     it('extracts file paths from provider.response tool_use blocks', () => {
       const msg = makeMsg('provider.response', {
         blocks: [
@@ -253,6 +379,218 @@ describe('codemap-activity-store', () => {
     });
   });
 
+  describe('live tool lifecycle and filesystem correlation', () => {
+    it('tracks active agent presence and completes the operation in-place', () => {
+      const started = extractActivitiesFromMessage(
+        makeMsg('tool.started', {
+          id: 'tool-2',
+          name: 'edit',
+          input: { path: 'D:/repo/src/live.ts' },
+          fileTargets: [{ filePath: 'D:/repo/src/live.ts', operation: 'edit' }],
+          sessionId: 'session-2',
+          agentId: 'agent-2',
+          agentName: 'IMPLEMENTER',
+        }),
+      );
+      useCodemapActivityStore.getState().startActivities(started);
+
+      let state = useCodemapActivityStore.getState();
+      expect(state.getActiveOperations()).toHaveLength(1);
+      expect(state.getAgentPresences()).toEqual([
+        expect.objectContaining({
+          agentId: 'agent-2',
+          agentName: 'IMPLEMENTER',
+          sessionId: 'session-2',
+        }),
+      ]);
+
+      state.finishTool('tool-2', {
+        timestamp: started[0]!.timestamp + 25,
+        durationMs: 25,
+        ok: true,
+      });
+      state = useCodemapActivityStore.getState();
+      expect(state.getActiveOperations()).toHaveLength(0);
+      expect(state.getActivityForFile('D:/repo/src/live.ts')[0]).toEqual(
+        expect.objectContaining({ status: 'completed', durationMs: 25, ok: true }),
+      );
+    });
+
+    it('confirms an exact tool target without duplicating its history event', () => {
+      const started = extractActivitiesFromMessage(
+        makeMsg('tool.started', {
+          id: 'tool-3',
+          name: 'write',
+          input: {},
+          fileTargets: [{ filePath: 'D:/repo/src/exact.ts', operation: 'write' }],
+          sessionId: 'session-3',
+          agentId: 'agent-3',
+        }),
+      );
+      const store = useCodemapActivityStore.getState();
+      store.startActivities(started);
+      store.recordFileEvent({
+        ...makeActivity('D:/repo/src/exact.ts', 'write', started[0]!.timestamp + 10),
+        source: 'watcher',
+      });
+
+      const history = useCodemapActivityStore.getState().getActivityForFile('D:/repo/src/exact.ts');
+      expect(history).toHaveLength(1);
+      expect(history[0]?.watcherConfirmed).toBe(true);
+    });
+
+    it('correlates a watcher touch to the only active pathless tool', () => {
+      const started = extractActivitiesFromMessage(
+        makeMsg('tool.started', {
+          id: 'shell-2',
+          name: 'bash',
+          input: { command: 'generate files' },
+          fileTargets: [],
+          sessionId: 'session-shell',
+          agentId: 'builder-1',
+          agentName: 'BUILDER',
+        }),
+      );
+      const store = useCodemapActivityStore.getState();
+      store.startActivities(started);
+      store.recordFileEvent({
+        ...makeActivity('D:/repo/src/generated.ts', 'write', started[0]!.timestamp + 20),
+        source: 'watcher',
+      });
+
+      const correlated = useCodemapActivityStore
+        .getState()
+        .getActivityForFile('D:/repo/src/generated.ts')[0];
+      expect(correlated).toEqual(
+        expect.objectContaining({
+          toolUseId: 'shell-2',
+          agentId: 'builder-1',
+          agentName: 'BUILDER',
+          attribution: 'correlated',
+          watcherConfirmed: true,
+          status: 'active',
+        }),
+      );
+      expect(useCodemapActivityStore.getState().getActiveOperations()).toHaveLength(2);
+    });
+
+    it('attaches deterministic file_changed progress to its exact active tool id', () => {
+      const store = useCodemapActivityStore.getState();
+      store.startActivities(
+        extractActivitiesFromMessage(
+          makeMsg('tool.started', {
+            id: 'generator-1',
+            name: 'generator',
+            input: {},
+            fileTargets: [],
+            sessionId: 'generator-session',
+            agentId: 'generator-agent',
+            agentName: 'GENERATOR',
+          }),
+        ),
+      );
+      const progress = extractActivitiesFromMessage(
+        makeMsg('tool.progress', {
+          id: 'generator-1',
+          name: 'generator',
+          sessionId: 'generator-session',
+          traceId: 'generator-trace',
+          agentId: 'generator-agent',
+          agentName: 'GENERATOR',
+          event: {
+            type: 'file_changed',
+            path: 'D:/repo/src/generated-by-progress.ts',
+            operation: 'write',
+            line: 8,
+          },
+        }),
+      );
+      expect(progress).toEqual([
+        expect.objectContaining({
+          toolUseId: 'generator-1',
+          filePath: 'D:/repo/src/generated-by-progress.ts',
+          type: 'write',
+          source: 'deterministic',
+          line: 8,
+        }),
+      ]);
+      store.recordFileEvent(progress[0]!);
+
+      expect(useCodemapActivityStore.getState().getActiveOperations()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            toolUseId: 'generator-1',
+            filePath: 'D:/repo/src/generated-by-progress.ts',
+            agentId: 'generator-agent',
+            attribution: 'exact',
+          }),
+        ]),
+      );
+    });
+
+    it('keeps unmatched filesystem events explicitly external', () => {
+      useCodemapActivityStore.getState().recordFileEvent({
+        ...makeActivity('D:/repo/src/external.ts', 'delete'),
+        source: 'watcher',
+      });
+      expect(
+        useCodemapActivityStore.getState().getActivityForFile('D:/repo/src/external.ts')[0],
+      ).toEqual(expect.objectContaining({ attribution: 'external' }));
+    });
+
+    it('resolves the active operation to an indexed symbol', () => {
+      const store = useCodemapActivityStore.getState();
+      store.startActivities([
+        {
+          ...makeActivity('D:/repo/src/symbol.ts', 'read'),
+          id: 'symbol-op',
+          toolUseId: 'tool-symbol',
+          status: 'active',
+        },
+      ]);
+      store.resolveActivitySymbol('tool-symbol', 'D:/repo/src/symbol.ts', {
+        id: 'sym:42',
+        name: 'runAgent',
+        kind: 'function',
+        line: 42,
+      });
+      expect(useCodemapActivityStore.getState().getActiveOperations()[0]?.symbol).toEqual({
+        id: 'sym:42',
+        name: 'runAgent',
+        kind: 'function',
+        line: 42,
+      });
+    });
+
+    it('expires orphaned active tools so the live HUD cannot remain stuck forever', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-07-16T12:00:00Z'));
+      const store = useCodemapActivityStore.getState();
+      store.startActivities([
+        {
+          ...makeActivity('D:/repo/src/orphan.ts', 'edit'),
+          id: 'orphan:0',
+          toolUseId: 'orphan',
+          status: 'active',
+          agentId: 'worker-orphan',
+        },
+      ]);
+
+      vi.advanceTimersByTime(30 * 60_000 + 1);
+      store._sweep();
+
+      const state = useCodemapActivityStore.getState();
+      expect(state.getActiveOperations()).toHaveLength(0);
+      expect(state.getActivityForFile('D:/repo/src/orphan.ts')[0]).toEqual(
+        expect.objectContaining({ status: 'failed', ok: false }),
+      );
+      expect(state.getActivityForFile('D:/repo/src/orphan.ts')[0]?.summary).toContain(
+        'telemetry timeout',
+      );
+      vi.useRealTimers();
+    });
+  });
+
   // ── clear ───────────────────────────────────────────────────────────────────
 
   describe('clear', () => {
@@ -267,6 +605,7 @@ describe('codemap-activity-store', () => {
       const after = useCodemapActivityStore.getState();
       expect(after.history.size).toBe(0);
       expect(after.pulses.size).toBe(0);
+      expect(after.activeOperations.size).toBe(0);
       expect(after.totalCount).toBe(0);
     });
   });

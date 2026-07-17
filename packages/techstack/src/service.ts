@@ -26,8 +26,10 @@ import type { RegistryEntry } from './registry/client.js';
 import { queryOsvBatch } from './advisory/osv.js';
 import { classifyStatus } from './policy/status.js';
 import type { RegistryStatusData, AdvisoryStatusData } from './policy/status.js';
-import { TechStackStore } from './store/sqlite.js';
+import type { TechStackStore } from './store/sqlite.js';
 import { discoverWorkspaces } from './discovery/workspace.js';
+import { triageCandidates } from './research/triage.js';
+import type { TechStackResearcher } from './research/types.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -57,6 +59,15 @@ export interface AnalyzeOptions {
   readonly signal?: AbortSignal | undefined;
   /** Progress callback for WebSocket projection. */
   readonly onProgress?: ((phase: string, completed: number, total: number) => void) | undefined;
+  /**
+   * LLM interpretation stage. Omit it and `analyze()` stays a purely
+   * deterministic tool — research is strictly additive enrichment.
+   *
+   * @see docs/specs/techstack-sdd.md §31
+   */
+  readonly researcher?: TechStackResearcher | undefined;
+  /** Cap on packages sent to research. Defaults to `DEFAULT_TRIAGE_LIMIT`. */
+  readonly researchLimit?: number | undefined;
 }
 
 // ── Adapter registry ───────────────────────────────────────────────────────
@@ -152,7 +163,10 @@ export class TechStackEngine {
 
       if (adapter) {
         try {
-          deps = await adapter.inventory(ws, {});
+          // `targetRoot` is the absolute base every adapter resolves
+          // `ws.relativeRoot` against. Without it they fall back to
+          // `process.cwd()` and silently inventory nothing.
+          deps = await adapter.inventory(ws, { projectRoot: targetRoot });
         } catch {
           deps = [];
         }
@@ -358,10 +372,73 @@ export class TechStackEngine {
     };
   }
 
+  // ── Research ───────────────────────────────────────────────────────────
+
+  /**
+   * Interpret an enriched snapshot with the LLM: triage the problem cases,
+   * research them, and append the resulting findings.
+   *
+   * Additive by construction. Two invariants hold here, and they are the whole
+   * reason this is a separate pass rather than part of `enrich()`:
+   *
+   * 1. **`snapshot.dependencies` is returned untouched.** Version facts come
+   *    only from registry evidence — the LLM cannot fabricate a `latestStable`
+   *    because `Finding` has nowhere to put one (SDD §472).
+   * 2. **Failure is not fatal.** No researcher, no candidates, a provider
+   *    outage, a dry web search — every one of them returns the input snapshot
+   *    unchanged. A deterministic report is the floor, never a casualty of the
+   *    optional stage above it.
+   *
+   * @see docs/specs/techstack-sdd.md §31, §472
+   */
+  async research(
+    snapshot: Snapshot,
+    options: {
+      researcher?: TechStackResearcher | undefined;
+      researchLimit?: number | undefined;
+      signal?: AbortSignal | undefined;
+      /** Only ever emits the two research phases — narrow so callers can feed
+       * `updateJob` without casting. */
+      onProgress?:
+        | ((phase: 'researching' | 'synthesizing', completed: number, total: number) => void)
+        | undefined;
+    } = {},
+  ): Promise<Snapshot> {
+    if (!options.researcher || options.signal?.aborted) return snapshot;
+
+    const candidates = triageCandidates(snapshot.dependencies, {
+      limit: options.researchLimit,
+    });
+    if (candidates.length === 0) return snapshot;
+
+    options.onProgress?.('researching', 0, candidates.length);
+
+    let findings: readonly Finding[];
+    try {
+      findings = await options.researcher.research(candidates, {
+        signal: options.signal,
+        onProgress: (completed, total) => {
+          // Cluster-level progress, reported against the phase the UI shows.
+          options.onProgress?.('researching', completed, total);
+        },
+      });
+    } catch {
+      // The deterministic snapshot stands on its own.
+      return snapshot;
+    }
+
+    options.onProgress?.('synthesizing', 1, 1);
+    if (findings.length === 0) return snapshot;
+
+    // Deterministic findings first — facts outrank interpretations in the
+    // order the report and the UI render them.
+    return { ...snapshot, findings: [...snapshot.findings, ...findings] };
+  }
+
   // ── Analyze ───────────────────────────────────────────────────────────
 
   /**
-   * Run a full analysis: inventory + enrich + persist.
+   * Run a full analysis: inventory + enrich + research + persist.
    * This is the main entry point for the analyze job flow.
    */
   async analyze(
@@ -419,13 +496,24 @@ export class TechStackEngine {
         });
         throwIfAborted();
 
+        // Phase 3: Research (LLM interpretation) — additive and optional.
+        const researched = await this.research(enriched, {
+          researcher: options.researcher,
+          researchLimit: options.researchLimit,
+          signal: options.signal,
+          onProgress: (phase, completed, total) => {
+            updateJob(phase, { phase, completed, total });
+          },
+        });
+        throwIfAborted();
+
         // Persist enriched snapshot
-        this.store.saveSnapshot(enriched);
+        this.store.saveSnapshot(researched);
 
         updateJob('completed', { phase: 'completed', completed: 1, total: 1 });
 
         return {
-          snapshot: enriched,
+          snapshot: researched,
           job: { ...job, status: 'completed', completedAt: new Date().toISOString() },
         };
       }

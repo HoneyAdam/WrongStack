@@ -6,7 +6,10 @@
 import { act, createElement, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { FleetChatDrawer } from '../src/views/fleet-chat-drawer.js';
+import {
+  chatTargetFromNode,
+  FleetChatDrawer,
+} from '../src/views/fleet-chat-drawer.js';
 
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
@@ -41,6 +44,29 @@ afterEach(() => {
 });
 
 describe('FleetChatDrawer', () => {
+  it('does not create chat targets for services or clients awaiting session telemetry', () => {
+    expect(
+      chatTargetFromNode({
+        id: 'terminal:pending',
+        kind: 'terminal',
+        label: 'TUI · pending',
+        chips: ['idle'],
+        sessionId: 'client:pending',
+        isSyntheticSession: true,
+      }),
+    ).toBeNull();
+    expect(
+      chatTargetFromNode({
+        id: 'terminal:mailbox',
+        kind: 'terminal',
+        label: 'MAILBOX SERVE',
+        chips: ['mailbox serve'],
+        sessionId: 'client:mailbox',
+        serviceMode: 'mailbox-serve',
+      }),
+    ).toBeNull();
+  });
+
   it('moves focus into the drawer, closes on Escape, and restores the trigger', async () => {
     vi.stubGlobal(
       'fetch',

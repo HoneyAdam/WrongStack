@@ -2,9 +2,12 @@ import type { HqSnapshot } from '@wrongstack/core';
 import { describe, expect, it } from 'vitest';
 import {
   buildFleetTopology,
+  filterFleetTopology,
+  filterFleetTopologyByQuery,
   FLEET_COLUMN_GAP,
   FLEET_LEAF_H,
   layoutFleetTopology,
+  orderFleetTopologyNodes,
   type FleetTopologyNode,
 } from '../src/views/fleet-topology.js';
 
@@ -192,6 +195,46 @@ describe('buildFleetTopology', () => {
     expect(topology.nodes.some((n) => n.kind === 'terminal')).toBe(false);
   });
 
+  it('shows mailbox serve as an explicit service client, not a phantom terminal', () => {
+    const topology = buildFleetTopology(
+      baseSnapshot({
+        clients: [
+          {
+            clientId: 'mailbox-1',
+            kind: 'mailbox',
+            machineId: 'machine-1',
+            hostname: 'devbox',
+            pid: 7788,
+            connected: true,
+            connectedAt: '2026-07-09T00:00:00.000Z',
+            lastSeenAt: '2026-07-09T00:00:10.000Z',
+            projectId: 'proj-1',
+            capabilities: ['telemetry.publish', 'mailbox.summary', 'mailbox.serve'],
+          },
+        ],
+        projects: [
+          {
+            projectId: 'proj-1',
+            projectName: 'WrongStack',
+            projectRootDisplay: '/work/wrongstack',
+            machineIds: ['machine-1'],
+            activeClients: 1,
+            activeSessions: 0,
+            activeSubagents: 0,
+            totalCostUsd: 0,
+            lastActivityAt: '2026-07-09T00:00:10.000Z',
+            status: 'active',
+          },
+        ],
+      }),
+    );
+
+    const service = topology.nodes.find((node) => node.serviceMode === 'mailbox-serve');
+    expect(service?.label).toContain('MAILBOX SERVE');
+    expect(service?.sub).toBe('mailbox HTTP bridge');
+    expect(topology.nodes.some((node) => node.kind === 'project')).toBe(true);
+  });
+
   it('does not duplicate a process already represented by a live session', () => {
     // One wstack process holds several publisher sockets. Once its session
     // telemetry is live, the sibling sockets must not spawn extra terminals.
@@ -312,6 +355,92 @@ describe('layoutFleetTopology', () => {
     expect(pos.get('machine:solo')).toBeDefined();
     expect(pos.get('machine:m1')?.y).not.toBe(pos.get('machine:solo')?.y);
     expect(pos.get('project:m1:p1')).toBeDefined();
+  });
+});
+
+describe('filterFleetTopology', () => {
+  const nodes: FleetTopologyNode[] = [
+    { id: 'machine:m1', kind: 'machine', label: 'm1', chips: [], machineId: 'm1' },
+    { id: 'machine:m2', kind: 'machine', label: 'm2', chips: [], machineId: 'm2' },
+    { id: 'project:m1:p1', kind: 'project', label: 'p1', chips: [], machineId: 'm1', projectId: 'p1' },
+    { id: 'project:m2:p1', kind: 'project', label: 'p1', chips: [], machineId: 'm2', projectId: 'p1' },
+    { id: 'project:m2:p2', kind: 'project', label: 'p2', chips: [], machineId: 'm2', projectId: 'p2' },
+    { id: 'terminal:s1', kind: 'terminal', label: 's1', chips: [], machineId: 'm1', projectId: 'p1', sessionId: 's1' },
+    { id: 'terminal:s2', kind: 'terminal', label: 's2', chips: [], machineId: 'm2', projectId: 'p1', sessionId: 's2' },
+    { id: 'terminal:s3', kind: 'terminal', label: 's3', chips: [], machineId: 'm2', projectId: 'p2', sessionId: 's3' },
+  ];
+  const topology = {
+    nodes,
+    edges: [
+      { id: 'm1-p1', source: 'machine:m1', target: 'project:m1:p1' },
+      { id: 'p1-s1', source: 'project:m1:p1', target: 'terminal:s1' },
+      { id: 'm2-p1', source: 'machine:m2', target: 'project:m2:p1' },
+      { id: 'p1-s2', source: 'project:m2:p1', target: 'terminal:s2' },
+      { id: 'm2-p2', source: 'machine:m2', target: 'project:m2:p2' },
+      { id: 'p2-s3', source: 'project:m2:p2', target: 'terminal:s3' },
+    ],
+  };
+
+  it('shows one whole machine slice', () => {
+    const filtered = filterFleetTopology(topology, 'machine', 'm1');
+    expect(filtered.nodes.map((node) => node.id)).toEqual([
+      'machine:m1',
+      'project:m1:p1',
+      'terminal:s1',
+    ]);
+  });
+
+  it('shows one project across every participating machine', () => {
+    const filtered = filterFleetTopology(topology, 'project', 'p1');
+    expect(filtered.nodes.map((node) => node.id)).toEqual([
+      'machine:m1',
+      'machine:m2',
+      'project:m1:p1',
+      'project:m2:p1',
+      'terminal:s1',
+      'terminal:s2',
+    ]);
+    expect(filtered.edges).toHaveLength(4);
+  });
+});
+
+describe('fleet topology compact search', () => {
+  const topology = {
+    nodes: [
+      { id: 'machine:m1', kind: 'machine' as const, label: 'devbox', chips: ['2 clients'], machineId: 'm1' },
+      { id: 'project:m1:p1', kind: 'project' as const, label: 'WrongStack', chips: ['main'], machineId: 'm1', projectId: 'p1' },
+      { id: 'terminal:s1', kind: 'terminal' as const, label: 'TUI · s1', chips: ['tui'], machineId: 'm1', projectId: 'p1', sessionId: 's1' },
+      { id: 'agent:s1:a1', kind: 'agent' as const, label: 'Release reviewer', status: 'active', chips: ['active'], machineId: 'm1', projectId: 'p1', sessionId: 's1', agentId: 'a1' },
+    ],
+    edges: [
+      { id: 'm-p', source: 'machine:m1', target: 'project:m1:p1' },
+      { id: 'p-t', source: 'project:m1:p1', target: 'terminal:s1' },
+      { id: 't-a', source: 'terminal:s1', target: 'agent:s1:a1' },
+    ],
+  };
+
+  it('keeps every ancestor around an agent search match', () => {
+    expect(filterFleetTopologyByQuery(topology, 'reviewer').nodes.map((node) => node.id)).toEqual([
+      'machine:m1',
+      'project:m1:p1',
+      'terminal:s1',
+      'agent:s1:a1',
+    ]);
+  });
+
+  it('includes descendants when a container matches and returns no rows for a miss', () => {
+    expect(filterFleetTopologyByQuery(topology, 'devbox').nodes).toHaveLength(4);
+    expect(filterFleetTopologyByQuery(topology, 'not-present').nodes).toEqual([]);
+  });
+
+  it('orders compact rows as machine → project → terminal → agent', () => {
+    const shuffled = { ...topology, nodes: [...topology.nodes].reverse() };
+    expect(orderFleetTopologyNodes(shuffled).map((node) => node.id)).toEqual([
+      'machine:m1',
+      'project:m1:p1',
+      'terminal:s1',
+      'agent:s1:a1',
+    ]);
   });
 });
 

@@ -23,10 +23,17 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type HqServerHandle, startHqServer } from '../src/hq-server.js';
 
 let handle: HqServerHandle | null = null;
+let tempRoot: string;
 let dataDir: string;
 
 beforeEach(async () => {
-  dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'hq-mb-actions-'));
+  // Keep the HQ data dir one level below a per-test global root. The server
+  // resolves the SessionRegistry from dirname(dataDir); placing dataDir
+  // directly in os.tmpdir made every parallel test worker share the same
+  // os.tmpdir/session-registry.json file.
+  tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'hq-mb-actions-'));
+  dataDir = path.join(tempRoot, 'hq');
+  await fs.mkdir(dataDir, { recursive: true });
 });
 
 afterEach(async () => {
@@ -34,7 +41,7 @@ afterEach(async () => {
     await handle.close();
     handle = null;
   }
-  await fs.rm(dataDir, { recursive: true, force: true });
+  await fs.rm(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 });
 
 function getPort(): number {

@@ -129,7 +129,6 @@ describe('wstack hq — token create', () => {
     expect(token?.label).toBe('my-laptop');
     expect(token?.capabilities).toEqual(['control.enqueue']);
     expect(token?.token.length).toBeGreaterThanOrEqual(32);
-    expect(deps.renderer.captured ? null : null).toBeNull();
     // `create` prints the token once to stdout.
     const written = deps.renderer.captured.out.join('');
     expect(written).toContain('Created browser token.');
@@ -267,7 +266,9 @@ describe('wstack hq — dispatch + help', () => {
       expect(code).toBe(0);
       expect(startHqServerMock).toHaveBeenCalledTimes(1);
       expect(startHqServerMock.mock.calls[0]?.[0]).toMatchObject({
-        host: '127.0.0.1',
+        // The HQ CLI opts into the wide bind on purpose; startHqServer's own
+        // default stays loopback for programmatic callers.
+        host: '0.0.0.0',
         port: 3499,
         dataDir,
       });

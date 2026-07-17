@@ -99,7 +99,7 @@ describe('ReplayLogStore — readAll envelope + error emits', () => {
       (c) => c[0] === 'storage.read' && (c[1] as { outcome?: string }).outcome === 'failure',
     );
     expect(err).toBeDefined();
-    expect((err?.[1] as { traceId?: string }).traceId).toBe('tr-1');
+    expect((err![1] as { traceId?: string }).traceId).toBe('tr-1');
   });
 
   it('emits storage.error and rethrows when lookup hits a non-ENOENT I/O error', async () => {

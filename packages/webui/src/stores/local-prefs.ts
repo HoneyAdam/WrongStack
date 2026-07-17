@@ -144,6 +144,36 @@ export interface LocalPrefs {
   /** How Chimera review findings are handled. */
   chimeraAutoFix: 'off' | 'ask' | 'auto';
 
+  // ── Chimera (post-session review) — mirrors ResolvedChimeraConfig ──
+  /** Master enable for `wstack-chimera`. Defaults to true (matches plugin: `cfg.enabled !== false`). */
+  chimeraEnabled: boolean;
+  /** Override provider id for the review subagent. Empty = use session provider. */
+  chimeraProvider: string;
+  /** Override model id for the review subagent. Empty = use session model. */
+  chimeraModel: string;
+  /** Maximum number of files considered per review (default 15). */
+  chimeraMaxFiles: number;
+
+  // ── Auto-review (mid-session continuous) — mirrors ResolvedAutoReviewConfig ──
+  /** Master enable for `wstack-auto-review`. Defaults to false (matches plugin: `cfg.enabled === true`). */
+  autoReviewEnabled: boolean;
+  /** Override provider id for the review subagent. Empty = resolve via fallbackProfile/effective chain. */
+  autoReviewProvider: string;
+  /** Override model id for the review subagent. Empty = resolve via fallbackProfile/effective chain. */
+  autoReviewModel: string;
+  /** Named fallback profile (from `config.fallbackProfiles`) used to derive provider/model + fallback chain. */
+  autoReviewFallbackProfile: string;
+  /** Explicit fallback chain (derived when no fallbackProfile is set, surfaced for visibility). */
+  autoReviewFallbackModels: string[];
+  /** Debounce window in ms — wait for quiet before firing review (default 5000). */
+  autoReviewDebounceMs: number;
+  /** Max files per review batch (default 15). */
+  autoReviewMaxFilesPerBatch: number;
+  /** Max concurrent in-flight reviews (default 2). */
+  autoReviewMaxConcurrentReviews: number;
+  /** Cascade severity threshold: when a review finds findings at or above this level, spawn follow-up agents. */
+  autoReviewCascadeOn: 'off' | 'critical' | 'high';
+
   set: (patch: Partial<LocalPrefs>) => void;
   reset: () => void;
 }
@@ -211,6 +241,23 @@ const DEFAULTS: Omit<LocalPrefs, 'set' | 'reset'> = {
   tgLongToolMs: 30_000,
   uiLocale: detectLocale(),
   chimeraAutoFix: 'off',
+  // Chimera (post-session): mirrors ResolvedChimeraConfig. Enabled-by-default
+  // matches `cfg.enabled !== false` in chimera-plugin.ts:50.
+  chimeraEnabled: true,
+  chimeraProvider: '',
+  chimeraModel: '',
+  chimeraMaxFiles: 15,
+  // Auto-review (mid-session): mirrors ResolvedAutoReviewConfig. Strict opt-in
+  // matches `cfg.enabled === true` in auto-review-plugin.ts:72.
+  autoReviewEnabled: false,
+  autoReviewProvider: '',
+  autoReviewModel: '',
+  autoReviewFallbackProfile: '',
+  autoReviewFallbackModels: [],
+  autoReviewDebounceMs: 5000,
+  autoReviewMaxFilesPerBatch: 15,
+  autoReviewMaxConcurrentReviews: 2,
+  autoReviewCascadeOn: 'off',
   pluginsEnabled: {},
 };
 
@@ -223,7 +270,7 @@ export const useLocalPrefs = create<LocalPrefs>()(
     }),
     {
       name: 'wrongstack-local-prefs',
-      version: 8,
+      version: 9,
       // v1 stored option values that don't exist in core's config schema —
       // contextStrategy frugal/balanced/deep/archival (context-window modes,
       // a different setting) and auditLevel 'verbose'. Map them onto the
@@ -244,8 +291,17 @@ export const useLocalPrefs = create<LocalPrefs>()(
       //
       // v8 added breakerEnabled / breakerAutoKillResetMs / fsAccess /
       // debugStream (safety & system prefs, parity with /settings).
+      //
+      // v9 added Chimera + auto-review settings (chimeraEnabled, chimeraProvider,
+      // chimeraModel, chimeraMaxFiles, autoReviewEnabled, autoReviewProvider,
+      // autoReviewModel, autoReviewFallbackProfile, autoReviewFallbackModels,
+      // autoReviewDebounceMs, autoReviewMaxFilesPerBatch,
+      // autoReviewMaxConcurrentReviews, autoReviewCascadeOn). Older stores
+      // simply get the defaults via the spread of DEFAULTS; no explicit remap
+      // is needed.
       migrate: (persisted) => {
-        const p = (persisted ?? {}) as Record<string, unknown>;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const p = (persisted ?? {}) as any;
         const validStrategies = ['hybrid', 'intelligent', 'selective'];
         if (!validStrategies.includes(p.contextStrategy as string)) {
           p.contextStrategy = 'hybrid';
@@ -273,6 +329,69 @@ export const useLocalPrefs = create<LocalPrefs>()(
         if (typeof p.breakerAutoKillResetMs !== 'number') p.breakerAutoKillResetMs = 60_000;
         if (p.fsAccess !== 'unrestricted' && p.fsAccess !== 'project') p.fsAccess = 'unrestricted';
         if (typeof p.debugStream !== 'boolean') p.debugStream = false;
+        // Chimera/auto-review migration — backfill with the canonical defaults
+        // so persisted stores from pre-v9 don't expose `undefined` to the panel.
+        if (typeof p.chimeraEnabled !== 'boolean') p.chimeraEnabled = true;
+        if (typeof p.chimeraProvider !== 'string') p.chimeraProvider = '';
+        if (typeof p.chimeraModel !== 'string') p.chimeraModel = '';
+        // chimeraAutoFix: enum allow-list (off | ask | auto). Without this
+        // guard a legacy/corrupt persisted value (e.g. 'always') would
+        // survive migration and reach the panel + plugin as a non-member
+        // string. Mirrors the sibling autoReviewCascadeOn guard below.
+        if (
+          p.chimeraAutoFix !== 'off' &&
+          p.chimeraAutoFix !== 'ask' &&
+          p.chimeraAutoFix !== 'auto'
+        ) {
+          p.chimeraAutoFix = 'off';
+        }
+        // chimeraMaxFiles: must be a finite number AND >= 1. The plugin's
+        // resolver uses `?? DEFAULT_MAX_FILES` without clamping, so a 0,
+        // NaN, or Infinity here would silently no-op the review. `typeof`
+        // narrows for TypeScript; `Number.isFinite` rejects NaN/Infinity.
+        if (
+          typeof p.chimeraMaxFiles !== 'number' ||
+          !Number.isFinite(p.chimeraMaxFiles) ||
+          p.chimeraMaxFiles < 1
+        ) {
+          p.chimeraMaxFiles = 15;
+        }
+        if (typeof p.autoReviewEnabled !== 'boolean') p.autoReviewEnabled = false;
+        if (typeof p.autoReviewProvider !== 'string') p.autoReviewProvider = '';
+        if (typeof p.autoReviewModel !== 'string') p.autoReviewModel = '';
+        if (typeof p.autoReviewFallbackProfile !== 'string') p.autoReviewFallbackProfile = '';
+        if (!Array.isArray(p.autoReviewFallbackModels)) p.autoReviewFallbackModels = [];
+        // autoReviewDebounceMs: must be a finite number AND >= 0 (0 is a
+        // valid "no debounce" choice, so the bound is `>= 0` not `> 0`).
+        // `typeof` narrows for TypeScript; `Number.isFinite` rejects NaN/Infinity.
+        if (
+          typeof p.autoReviewDebounceMs !== 'number' ||
+          !Number.isFinite(p.autoReviewDebounceMs) ||
+          p.autoReviewDebounceMs < 0
+        ) {
+          p.autoReviewDebounceMs = 5000;
+        }
+        if (
+          typeof p.autoReviewMaxFilesPerBatch !== 'number' ||
+          !Number.isFinite(p.autoReviewMaxFilesPerBatch) ||
+          p.autoReviewMaxFilesPerBatch < 1
+        ) {
+          p.autoReviewMaxFilesPerBatch = 15;
+        }
+        if (
+          typeof p.autoReviewMaxConcurrentReviews !== 'number' ||
+          !Number.isFinite(p.autoReviewMaxConcurrentReviews) ||
+          p.autoReviewMaxConcurrentReviews < 1
+        ) {
+          p.autoReviewMaxConcurrentReviews = 2;
+        }
+        if (
+          p.autoReviewCascadeOn !== 'off' &&
+          p.autoReviewCascadeOn !== 'critical' &&
+          p.autoReviewCascadeOn !== 'high'
+        ) {
+          p.autoReviewCascadeOn = 'off';
+        }
         return p as never as LocalPrefs;
       },
     },

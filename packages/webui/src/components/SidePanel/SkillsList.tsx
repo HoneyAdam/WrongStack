@@ -177,7 +177,7 @@ export function SkillsList({ className }: { className?: string }) {
         if (m.payload.success) {
           const names = m.payload.results?.map((r) => r.name).join(', ') ?? installRef;
           setInstallSuccess(i18n.t('activity:skillsList.installedMsg', { names }));
-          client.send({ type: 'skills.list' });
+          client.send({ type: 'skills.list' }, { echoToChat: false });
         } else {
           setInstallError(m.payload.error ?? i18n.t('activity:skillsList.installFailed'));
         }
@@ -204,7 +204,7 @@ export function SkillsList({ className }: { className?: string }) {
         setCreating(false);
         if (m.payload.success) {
           setCreateSuccess(i18n.t('activity:skillsList.createdMsg', { name: m.payload.skill?.name ?? '' }));
-          client.send({ type: 'skills.list' });
+          client.send({ type: 'skills.list' }, { echoToChat: false });
         } else {
           setCreateError(m.payload.error ?? i18n.t('activity:skillsList.createFailed'));
         }
@@ -315,13 +315,13 @@ export function SkillsList({ className }: { className?: string }) {
           knownRefs: newKnownRefs,
           updateAvailableCount: 0,
         });
-        client.send({ type: 'skills.list' });
+        client.send({ type: 'skills.list' }, { echoToChat: false });
       }
     };
 
     client.on('skills.list', handleSkillsList as (msg: unknown) => void);
     client.on('skills.updated', handleSkillsUpdated as (msg: unknown) => void);
-    client.send({ type: 'skills.list' });
+    client.send({ type: 'skills.list' }, { echoToChat: false });
 
     return () => {
       client.off('skills.list', handleSkillsList as (msg: unknown) => void);

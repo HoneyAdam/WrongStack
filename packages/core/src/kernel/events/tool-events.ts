@@ -6,6 +6,9 @@ import type { ToolOutputMetadata } from '../../types/context-evidence.js';
 export interface ToolEventMap {
   'tool.started': {
     sessionId?: string | undefined;
+    traceId?: string | undefined;
+    agentId?: string | undefined;
+    agentName?: string | undefined;
     name: string;
     id: string;
     input?: unknown | undefined;
@@ -47,6 +50,9 @@ export interface ToolEventMap {
    */
   'tool.progress': {
     sessionId?: string | undefined;
+    traceId?: string | undefined;
+    agentId?: string | undefined;
+    agentName?: string | undefined;
     name: string;
     id: string;
     event: ToolProgressEvent;
@@ -129,6 +135,9 @@ export interface ToolEventMap {
    */
   'tool.executed': {
     sessionId?: string | undefined;
+    traceId?: string | undefined;
+    agentId?: string | undefined;
+    agentName?: string | undefined;
     /**
      * The tool_use id (e.g. "toolu_…") issued by the provider for this call.
      * Pairs with `tool.started.id` so subscribers can correlate start/finish

@@ -2,7 +2,9 @@ import type { ServerMessage } from '../types.js';
 
 export interface StatusNoticeProjection {
   text: string;
-  tone: 'warning' | 'error';
+  /** `info` is never projected from a server message — it is reserved for
+   *  local confirmations the composer raises (queueing, steering). */
+  tone: 'info' | 'warning' | 'error';
 }
 
 function compactLine(value: unknown, prefix = ''): string {

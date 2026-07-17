@@ -186,6 +186,7 @@ import { usePasteHandling } from './hooks/use-paste-handling.js';
 import { usePickerKeys } from './hooks/use-picker-keys.js';
 import { usePromptPicker } from './hooks/use-prompt-picker.js';
 import { useQueueManager } from './hooks/use-queue-manager.js';
+import { type SessionInterruptController, useSessionInterruptController } from './hooks/use-session-interrupt-controller.js';
 import { useStatuslineHiddenSync } from './hooks/use-statusline-hidden-sync.js';
 import { useStatuslineState } from './hooks/use-statusline-state.js';
 import { useStreamChipExpiration } from './hooks/use-stream-chip-expiration.js';
@@ -745,11 +746,7 @@ export interface AppProps {
    * run (slash commands don't get the RunController). The fleet teardown is the
    * command's own `onFleetKill`.
    */
-  interruptController?:
-    | {
-        abortLeader: () => boolean;
-      }
-    | undefined;
+  interruptController?: SessionInterruptController | undefined;
   /**
    * Controller for status bar hidden items. App installs a dispatch-backed
    * setter on mount so the /statusline slash command can update the TUI's
@@ -1285,6 +1282,10 @@ export function App({
   }
 
   const activeCtrlRef = useRef<AbortController | null>(null);
+  const eternalLoopRunningRef = useRef(false);
+  const parallelLoopRunningRef = useRef(false);
+  // `/clear` waits for the complete runBlocks lifecycle before resetting Context.
+  const activeRunSettledRef = useRef<Promise<void>>(Promise.resolve());
   // Set once we've asked Ink to unmount on a Ctrl+C exit. A synchronous ref
   // (not React state) because consecutive SIGINTs can fire faster than a
   // re-render — without it, `stateRef.current.interrupts` reads stale and a
@@ -1366,6 +1367,9 @@ export function App({
   const streamSegmentsRef = useRef<Array<{ kind: 'assistant' | 'thinking'; text: string }>>([]);
   const pendingDeltaRef = useRef('');
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Generations prevent a cooperatively aborted run from writing after `/clear`.
+  const sessionGenerationRef = useRef(0);
+  const activeRunGenerationRef = useRef(0);
   // Set synchronously by the `provider.response` listener whenever it commits
   // an assistant text entry during the current run. `runBlocks` reads it after
   // `agent.run()` returns to decide whether the `finalText` recovery path is
@@ -3714,6 +3718,7 @@ export function App({
       flushTimerRef.current = null;
     };
     const offDelta = events.on('provider.text_delta', (e) => {
+      if (activeRunGenerationRef.current !== sessionGenerationRef.current) return;
       // Strip any bracketed-paste DCS sequences that some providers echo
       // into the stream. They are invisible in a real terminal but appear as
       // junk text if Ink's raw rendering catches them. The ESC byte is
@@ -3726,6 +3731,7 @@ export function App({
       if (!flushTimerRef.current) flushTimerRef.current = setTimeout(flush, FLUSH_MS);
     });
     const offThinking = events.on('provider.thinking_delta', (e) => {
+      if (activeRunGenerationRef.current !== sessionGenerationRef.current) return;
       // Reasoning/thinking deltas (Codex reasoning summaries, Anthropic
       // extended thinking, OpenAI-compatible <think> blocks). Buffered in
       // stream-order alongside assistant prose so the per-iteration flush
@@ -3854,6 +3860,7 @@ export function App({
     // becomes purely the loop driver — it no longer adds the assistant entry,
     // since the per-iteration flushes have already done so.
     const offProvResp = events.on('provider.response', (e) => {
+      if (activeRunGenerationRef.current !== sessionGenerationRef.current) return;
       const text = streamingTextRef.current;
       const segments = streamSegmentsRef.current;
       const fallbackText = contentBlocksText(e.content);
@@ -4191,61 +4198,22 @@ export function App({
     agentsMonitorController,
   });
 
-  // Install the leader-abort handler for the /interrupt slash command. Slash
-  // commands don't get the RunController, so the command can't stop the current
-  // iteration on its own — it calls this. The fleet teardown is /interrupt's
-  // own onFleetKill, so this aborts the leader, stops any autonomy driver,
-  // and flips the status. Because slash commands dispatch even mid-run in the
-  // TUI, /interrupt stops a run that is wedged retrying a 429.
-  useEffect(() => {
-    if (!interruptController) return;
-    interruptController.abortLeader = () => {
-      let interrupted = false;
-      // Stop autonomy drivers FIRST so they can't kick off the next
-      // iteration after the in-flight one aborts. /interrupt is a direct
-      // user command — the same stop authority as Ctrl+C. Checked
-      // independently of `status`: the driver loop parks status at 'idle'
-      // for a 200ms yield between iterations, and /interrupt landing in
-      // that window must still stop the loop.
-      const eternalEngine = getEternalEngine?.();
-      const parallelEngine = getParallelEngine?.();
-      const autonomyRunning =
-        eternalLoopRunningRef.current ||
-        parallelLoopRunningRef.current ||
-        eternalEngine?.currentState === 'running' ||
-        parallelEngine?.currentState === 'running';
-      if (autonomyRunning) {
-        eternalEngine?.stop();
-        parallelEngine?.stop();
-        switchAutonomy?.('off');
-        interrupted = true;
-      }
-      const sddRun = getSddRun?.();
-      if (sddRun?.isRunning()) {
-        sddRun.stop();
-        interrupted = true;
-      }
-      if (stateRef.current.status !== 'idle') {
-        activeCtrlRef.current?.abort('user interrupt (/interrupt)');
-        // The abort signal has already resolved any pending tool-confirm
-        // promise as 'abort' (synchronously, inside abort()); tear the panels
-        // down too so input routing returns to the composer immediately.
-        clearPendingConfirms();
-        dispatch({ type: 'status', status: 'aborting' });
-        interrupted = true;
-      }
-      return interrupted;
-    };
-  }, [
-    interruptController,
-    dispatch,
-    stateRef,
+  useSessionInterruptController({
+    interruptController, dispatch, stateRef,
+    activeCtrlRef, activeRunSettledRef,
+    sessionGenerationRef,
+    streamingTextRef,
+    streamSegmentsRef,
+    pendingDeltaRef,
+    assistantCommittedThisRunRef,
+    flushTimerRef,
+    eternalLoopRunningRef, parallelLoopRunningRef,
     clearPendingConfirms,
     getEternalEngine,
     getParallelEngine,
     getSddRun,
     switchAutonomy,
-  ]);
+  });
 
   // Track double-Esc for input buffer clearing.
   const lastEscAtRef = useRef(0);
@@ -5859,6 +5827,12 @@ export function App({
    * when the queue is empty (status stays idle).
    */
   const runBlocks = async (blocks: ContentBlock[]): Promise<void> => {
+    const runGeneration = sessionGenerationRef.current;
+    activeRunGenerationRef.current = runGeneration;
+    let settleRun = () => {};
+    activeRunSettledRef.current = new Promise<void>((resolve) => {
+      settleRun = resolve;
+    });
     const ctrl = new AbortController();
     activeCtrlRef.current = ctrl;
     // Each run starts a fresh interrupt cycle: 1st Ctrl+C aborts, 2nd exits.
@@ -5901,6 +5875,11 @@ export function App({
       // whether the finalText recovery below is still needed.
       assistantCommittedThisRunRef.current = false;
       const result = await agent.run(routed.blocks, { signal: ctrl.signal });
+
+      // `/clear` invalidates the generation before aborting. Even if a
+      // provider ignores cancellation and resolves normally, none of that old
+      // turn may be committed into the fresh transcript.
+      if (runGeneration !== sessionGenerationRef.current) return;
 
       // Per-iteration assistant text is normally committed by the
       // `provider.response` listener as each LLM call finishes. Safety nets:
@@ -6024,22 +6003,30 @@ export function App({
         }
       }
     } catch (err) {
-      dispatch({
-        type: 'addEntry',
-        entry: { kind: 'error', text: toErrorMessage(err) },
-      });
+      if (runGeneration === sessionGenerationRef.current) {
+        dispatch({
+          type: 'addEntry',
+          entry: { kind: 'error', text: toErrorMessage(err) },
+        });
+      }
     } finally {
       activeCtrlRef.current = null;
       dispatch({ type: 'status', status: 'idle' });
       // Completion chime: terminal bell when agent finishes.
-      if (chimeRef.current) {
+      if (runGeneration === sessionGenerationRef.current && chimeRef.current) {
         try {
           process.stdout.write('\x07');
         } catch {
           /* stdout closed */
         }
       }
+      settleRun();
     }
+
+    // A clear invalidates queued work as well as the foreground turn. The
+    // reducer dispatch above is asynchronous, so do not rely on queue state
+    // having updated before this continuation runs.
+    if (runGeneration !== sessionGenerationRef.current) return;
 
     // Drain the queue. If the run was aborted, the SIGINT handler has
     // already cleared the queue, so the head will be undefined.
@@ -6128,7 +6115,6 @@ export function App({
       }
     }
   };
-  const eternalLoopRunningRef = useRef(false);
   const runEternalLoopRef = useRef(runEternalLoop);
   runEternalLoopRef.current = runEternalLoop;
 
@@ -6170,7 +6156,6 @@ export function App({
       }
     }
   };
-  const parallelLoopRunningRef = useRef(false);
   const runParallelLoopRef = useRef(runParallelLoop);
   runParallelLoopRef.current = runParallelLoop;
 

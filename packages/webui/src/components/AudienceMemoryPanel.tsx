@@ -1,280 +1,45 @@
 /**
- * AudienceMemoryPanel — browse and manage role-scoped project memories.
+ * AudienceMemoryPanel — browse and manage audience-scoped project memories.
  *
- * Displays memories that have an `audience` selector, supports filtering
- * by role, creating new scoped memories, and clearing the scope from
- * an existing memory.
+ * The panel deliberately stays focused on routing: it summarizes selectors,
+ * searches across every audience dimension, and provides safe create/import/
+ * un-scope/delete workflows without duplicating the full Memory Manager editor.
  */
-import { Download, Filter, Plus, RefreshCw, ShieldOff, Tag, Trash2, Upload, X } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Download,
+  Filter,
+  Plus,
+  RefreshCw,
+  Search,
+  ShieldOff,
+  Tag,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  KIND_LABELS,
+  MEMORY_KINDS,
+  memoryPreview,
+  splitList,
+} from '@/components/MemoryManager/shared';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
 import type { SuperMemoryEntry } from '@/types';
 
-function formatAudience(audience: NonNullable<SuperMemoryEntry['audience']>): string {
-  const parts: string[] = [];
-  if (audience.roles?.length) parts.push(`roles: ${audience.roles.join(', ')}`);
-  if (audience.taskTypes?.length) parts.push(`tasks: ${audience.taskTypes.join(', ')}`);
-  if (audience.modes?.length) parts.push(`modes: ${audience.modes.join(', ')}`);
-  return parts.join(' · ');
-}
-
-export function AudienceMemoryPanel() {
-  const ws = useWebSocket();
-  const [memories, setMemories] = useState<SuperMemoryEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [filterRole, setFilterRole] = useState('');
-  const [showCreate, setShowCreate] = useState(false);
-  const mountedRef = useRef(false);
-
-  // Stable send ref so refresh() doesn't change on every ws.client reference change
-  const sendRef = useRef<(msg: unknown) => void>(() => {});
-  sendRef.current = (msg) => ws.client.send?.(msg as never);
-
-  const refresh = useCallback(() => {
-    setLoading(true);
-    setError(null);
-    sendRef.current({ type: 'memory.super.list' });
-  }, []);
-
-  // Only load on mount — not every time ws.client reference changes
-  useEffect(() => {
-    if (mountedRef.current) return;
-    mountedRef.current = true;
-    refresh();
-  }, [refresh]);
-
-  useEffect(() => {
-    const client = ws.client;
-    if (!client) return;
-    const unsubList = client.on?.('memory.super.list', (msg: unknown) => {
-      const payload = (msg as { payload?: { memories?: SuperMemoryEntry[]; error?: string } })
-        ?.payload;
-      if (payload?.error) setError(payload.error);
-      else setMemories(payload?.memories ?? []);
-      setLoading(false);
-    });
-    const unsubRemember = client.on?.('memory.super.remember', (msg: unknown) => {
-      const payload = (msg as { payload?: { memory?: SuperMemoryEntry; error?: string } })?.payload;
-      if (payload?.error) setError(payload.error);
-      else if (payload?.memory) {
-        setMemories((prev) => [payload.memory!, ...prev]);
-        setShowCreate(false);
-      }
-    });
-    const unsubUpdate = client.on?.('memory.super.update', (msg: unknown) => {
-      const payload = (msg as { payload?: { memory?: SuperMemoryEntry; error?: string } })?.payload;
-      if (!payload?.error && payload?.memory) {
-        setMemories((prev) =>
-          prev.map((m) => (m.id === payload.memory!.id ? payload.memory! : m)),
-        );
-      }
-    });
-    const unsubDelete = client.on?.('memory.super.delete', () => {
-      refresh();
-    });
-    return () => {
-      unsubList?.();
-      unsubRemember?.();
-      unsubUpdate?.();
-      unsubDelete?.();
-    };
-  }, [refresh, ws.client]);
-
-  const scoped = memories.filter(
-    (m) => m.audience && (m.audience.roles?.length || m.audience.taskTypes?.length || m.audience.modes?.length),
-  );
-  const filtered = filterRole
-    ? scoped.filter((m) =>
-        m.audience?.roles?.some((r) => r.toLowerCase().includes(filterRole.toLowerCase())),
-      )
-    : scoped;
-
-  const handleClearScope = (id: string) => {
-    ws.client.send?.({ type: 'memory.super.update', payload: { id, audience: undefined } });
-  };
-
-  const handleDelete = (id: string) => {
-    ws.client.send?.({
-      type: 'memory.super.delete',
-      payload: { id, reason: 'Removed from audience panel' },
-    });
-  };
-
-  const handleExport = () => {
-    const data = scoped.map((m) => ({
-      id: m.id, text: m.text, kind: m.kind, status: m.status,
-      audience: m.audience, tags: m.tags,
-      importance: m.importance, confidence: m.confidence,
-    }));
-    const json = JSON.stringify(data, null, 2);
-    navigator.clipboard?.writeText(json).then(
-      () => setError(null),
-      () => setError('Failed to copy to clipboard.'),
-    );
-  };
-
-  const handleImport = () => {
-    const input = prompt('Paste exported JSON array:');
-    if (!input) return;
-    try {
-      const cleaned = input.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-      const entries = JSON.parse(cleaned);
-      if (!Array.isArray(entries)) { setError('Input must be a JSON array.'); return; }
-      let count = 0;
-      for (const entry of entries) {
-        if (typeof entry.text !== 'string' || !entry.text.trim()) continue;
-        ws.client.send?.({
-          type: 'memory.super.remember',
-          payload: {
-            text: entry.text,
-            ...(typeof entry.kind === 'string' ? { kind: entry.kind } : {}),
-            ...(Array.isArray(entry.tags) ? { tags: entry.tags } : {}),
-            ...(entry.audience && typeof entry.audience === 'object' ? { audience: entry.audience } : {}),
-            ...(typeof entry.importance === 'number' ? { importance: entry.importance } : {}),
-            ...(typeof entry.confidence === 'number' ? { confidence: entry.confidence } : {}),
-          },
-        });
-        count++;
-      }
-      if (count === 0) setError('No valid entries found in JSON.');
-    } catch {
-      setError('Invalid JSON.');
-    }
-  };
-
-  return (
-    <div className="flex h-full flex-col gap-3 p-4">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Tag className="size-4 text-muted-foreground" />
-          <h2 className="text-sm font-semibold">Audience-Scoped Memory</h2>
-          <span className="text-xs text-muted-foreground">({scoped.length})</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <Button variant="ghost" size="icon" className="size-7" onClick={refresh} title="Refresh">
-            <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} />
-          </Button>
-          <Button variant="ghost" size="icon" className="size-7" onClick={handleExport} title="Export to clipboard" disabled={scoped.length === 0}>
-            <Download className="size-3.5" />
-          </Button>
-          <Button variant="ghost" size="icon" className="size-7" onClick={handleImport} title="Import from JSON">
-            <Upload className="size-3.5" />
-          </Button>
-          <Button
-            variant="default"
-            size="sm"
-            className="h-7 gap-1 text-xs"
-            onClick={() => setShowCreate(true)}
-          >
-            <Plus className="size-3" />
-            Add
-          </Button>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <Filter className="size-3.5 text-muted-foreground" />
-        <Input
-          value={filterRole}
-          onChange={(e) => setFilterRole(e.target.value)}
-          placeholder="Filter by role…"
-          className="h-7 text-xs"
-        />
-        {filterRole && (
-          <Button variant="ghost" size="icon" className="size-7" onClick={() => setFilterRole('')}>
-            <X className="size-3" />
-          </Button>
-        )}
-      </div>
-
-      {error && (
-        <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-          {error}
-        </div>
-      )}
-
-      {showCreate && (
-        <CreateAudienceMemory
-          onCancel={() => setShowCreate(false)}
-          onCreate={(entry) => {
-            ws.client.send?.({
-              type: 'memory.super.remember',
-              payload: {
-                text: entry.text,
-                kind: entry.kind,
-                audience: {
-                  roles: entry.roles.length > 0 ? entry.roles : undefined,
-                  taskTypes: entry.taskTypes.length > 0 ? entry.taskTypes : undefined,
-                  modes: entry.modes.length > 0 ? entry.modes : undefined,
-                },
-              },
-            });
-          }}
-        />
-      )}
-
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {loading ? (
-          <p className="py-8 text-center text-xs text-muted-foreground">Loading…</p>
-        ) : filtered.length === 0 ? (
-          <p className="py-8 text-center text-xs text-muted-foreground">
-            No audience-scoped memories. Add one with the Add button or{' '}
-            <code className="text-foreground">/memory audience remember</code>.
-          </p>
-        ) : (
-          <ul className="space-y-1.5">
-            {filtered.map((mem) => (
-              <li
-                key={mem.id}
-                className="rounded-md border border-border/60 bg-background/50 p-2.5"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs">{mem.text}</p>
-                    {mem.audience && (
-                      <p className="mt-1 text-[11px] text-muted-foreground">
-                        {formatAudience(mem.audience)}
-                      </p>
-                    )}
-                    <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground/70">
-                      <span className="rounded bg-muted px-1 py-0.5">{mem.kind}</span>
-                      <span className="rounded bg-muted px-1 py-0.5">{mem.status}</span>
-                      <code>{mem.id.slice(0, 12)}</code>
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-6"
-                      onClick={() => handleClearScope(mem.id)}
-                      title="Remove scope (becomes general)"
-                    >
-                      <ShieldOff className="size-3" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-6 text-destructive"
-                      onClick={() => handleDelete(mem.id)}
-                      title="Delete"
-                    >
-                      <Trash2 className="size-3" />
-                    </Button>
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
-  );
-}
+type MemoryAudience = NonNullable<SuperMemoryEntry['audience']>;
+type Feedback = { tone: 'error' | 'success'; text: string };
 
 interface CreateEntry {
   text: string;
@@ -284,12 +49,644 @@ interface CreateEntry {
   modes: string[];
 }
 
-function CreateAudienceMemory({
-  onCreate,
-  onCancel,
+interface ImportedEntry {
+  text: string;
+  kind?: string | undefined;
+  tags?: string[] | undefined;
+  audience: MemoryAudience;
+  importance?: number | undefined;
+  confidence?: number | undefined;
+}
+
+function cleanStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const cleaned = [
+    ...new Set(
+      value
+        .filter((item): item is string => typeof item === 'string')
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ];
+  return cleaned.length > 0 ? cleaned : undefined;
+}
+
+function normalizeAudience(value: unknown): MemoryAudience | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const source = value as Record<string, unknown>;
+  const audience: MemoryAudience = {
+    roles: cleanStringArray(source['roles']),
+    taskTypes: cleanStringArray(source['taskTypes']),
+    modes: cleanStringArray(source['modes']),
+  };
+  return audience.roles || audience.taskTypes || audience.modes ? audience : undefined;
+}
+
+function parseImport(raw: string): { entries: ImportedEntry[]; skipped: number } {
+  const cleaned = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '');
+  const parsed: unknown = JSON.parse(cleaned);
+  if (!Array.isArray(parsed)) throw new Error('Input must be a JSON array.');
+
+  const entries: ImportedEntry[] = [];
+  let skipped = 0;
+  for (const value of parsed) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      skipped++;
+      continue;
+    }
+    const source = value as Record<string, unknown>;
+    const text = typeof source['text'] === 'string' ? source['text'].trim() : '';
+    const audience = normalizeAudience(source['audience']);
+    if (!text || !audience) {
+      skipped++;
+      continue;
+    }
+    const kind =
+      typeof source['kind'] === 'string' && MEMORY_KINDS.some((value) => value === source['kind'])
+        ? source['kind']
+        : undefined;
+    const tags = cleanStringArray(source['tags']);
+    entries.push({
+      text,
+      audience,
+      kind,
+      tags,
+      importance: typeof source['importance'] === 'number' ? source['importance'] : undefined,
+      confidence: typeof source['confidence'] === 'number' ? source['confidence'] : undefined,
+    });
+  }
+  return { entries, skipped };
+}
+
+function includesQuery(memory: SuperMemoryEntry, query: string): boolean {
+  if (!query) return true;
+  const audience = memory.audience;
+  return [
+    memory.text,
+    memory.kind,
+    memory.status,
+    ...(audience?.roles ?? []),
+    ...(audience?.taskTypes ?? []),
+    ...(audience?.modes ?? []),
+  ]
+    .join(' ')
+    .toLocaleLowerCase()
+    .includes(query.toLocaleLowerCase());
+}
+
+function uniqueAudienceValues(memories: SuperMemoryEntry[], key: keyof MemoryAudience): string[] {
+  return [
+    ...new Set(
+      memories
+        .flatMap((memory) => memory.audience?.[key] ?? [])
+        .filter((value) => value.length > 0),
+    ),
+  ].sort((a, b) => a.localeCompare(b));
+}
+
+export function AudienceMemoryPanel() {
+  const ws = useWebSocket();
+  const [memories, setMemories] = useState<SuperMemoryEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const [query, setQuery] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const deletingIdRef = useRef<string | null>(null);
+
+  const refresh = useCallback(() => {
+    setLoading(true);
+    setFeedback(null);
+    ws.listSuperMemories({ echoToChat: false });
+  }, [ws.listSuperMemories]);
+
+  useEffect(() => {
+    const client = ws.client;
+    const unsubList = client.on('memory.super.list', (msg) => {
+      const payload = msg.payload as { memories?: SuperMemoryEntry[]; error?: string };
+      if (payload.error) setFeedback({ tone: 'error', text: payload.error });
+      else setMemories(payload.memories ?? []);
+      setLoading(false);
+    });
+    const unsubRemember = client.on('memory.super.remember', (msg) => {
+      const payload = msg.payload as { memory?: SuperMemoryEntry; error?: string };
+      setCreating(false);
+      if (payload.error) {
+        setFeedback({ tone: 'error', text: payload.error });
+        return;
+      }
+      if (payload.memory) {
+        setMemories((current) => [
+          payload.memory!,
+          ...current.filter((memory) => memory.id !== payload.memory!.id),
+        ]);
+        setShowCreate(false);
+      }
+    });
+    const unsubUpdate = client.on('memory.super.update', (msg) => {
+      const payload = msg.payload as { memory?: SuperMemoryEntry; error?: string };
+      if (payload.error) {
+        setFeedback({ tone: 'error', text: payload.error });
+      } else if (payload.memory) {
+        setMemories((current) =>
+          current.map((memory) => (memory.id === payload.memory!.id ? payload.memory! : memory)),
+        );
+        if (!payload.memory.audience) {
+          setFeedback({
+            tone: 'success',
+            text: 'Audience scope removed. The memory is now general.',
+          });
+        }
+      }
+    });
+    const unsubDelete = client.on('memory.super.delete', (msg) => {
+      const payload = msg.payload as { success?: boolean; message?: string };
+      const pendingId = deletingIdRef.current;
+      if (payload.success && pendingId) {
+        setMemories((current) => current.filter((memory) => memory.id !== pendingId));
+        setFeedback({ tone: 'success', text: 'Audience memory deleted.' });
+        setDeletingId(null);
+        setDeleting(false);
+        deletingIdRef.current = null;
+      } else if (payload.success) {
+        refresh();
+      } else {
+        setFeedback({ tone: 'error', text: payload.message ?? 'Could not delete the memory.' });
+        setDeleting(false);
+        deletingIdRef.current = null;
+      }
+    });
+
+    refresh();
+    return () => {
+      unsubList();
+      unsubRemember();
+      unsubUpdate();
+      unsubDelete();
+    };
+  }, [refresh, ws.client]);
+
+  const scoped = useMemo(
+    () =>
+      memories.filter((memory) => {
+        const audience = memory.audience;
+        return Boolean(
+          audience &&
+            (audience.roles?.length || audience.taskTypes?.length || audience.modes?.length),
+        );
+      }),
+    [memories],
+  );
+  const normalizedQuery = query.trim();
+  const filtered = useMemo(
+    () => scoped.filter((memory) => includesQuery(memory, normalizedQuery)),
+    [normalizedQuery, scoped],
+  );
+  const roles = useMemo(() => uniqueAudienceValues(scoped, 'roles'), [scoped]);
+  const taskTypes = useMemo(() => uniqueAudienceValues(scoped, 'taskTypes'), [scoped]);
+  const modes = useMemo(() => uniqueAudienceValues(scoped, 'modes'), [scoped]);
+
+  const handleClearScope = (id: string) => {
+    setFeedback(null);
+    ws.updateSuperMemory(id, { audience: undefined }, { echoToChat: false });
+  };
+
+  const confirmDelete = () => {
+    if (!deletingId) return;
+    deletingIdRef.current = deletingId;
+    setDeleting(true);
+    setFeedback(null);
+    ws.deleteSuperMemory(deletingId, 'Removed from the audience memory panel.');
+  };
+
+  const handleExport = async () => {
+    const data = scoped.map((memory) => ({
+      id: memory.id,
+      text: memory.text,
+      kind: memory.kind,
+      status: memory.status,
+      audience: memory.audience,
+      tags: memory.tags,
+      importance: memory.importance,
+      confidence: memory.confidence,
+    }));
+    try {
+      if (!navigator.clipboard) throw new Error('Clipboard access is unavailable.');
+      await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+      setFeedback({
+        tone: 'success',
+        text: `${data.length} audience memor${data.length === 1 ? 'y' : 'ies'} copied as JSON.`,
+      });
+    } catch (error) {
+      setFeedback({
+        tone: 'error',
+        text: error instanceof Error ? error.message : 'Failed to copy JSON to the clipboard.',
+      });
+    }
+  };
+
+  const handleCreate = (entry: CreateEntry) => {
+    setFeedback(null);
+    setCreating(true);
+    ws.rememberSuperMemory(
+      {
+        text: entry.text,
+        kind: entry.kind,
+        audience: {
+          roles: entry.roles.length > 0 ? entry.roles : undefined,
+          taskTypes: entry.taskTypes.length > 0 ? entry.taskTypes : undefined,
+          modes: entry.modes.length > 0 ? entry.modes : undefined,
+        },
+      },
+      { echoToChat: false },
+    );
+  };
+
+  const handleImport = (raw: string) => {
+    try {
+      const { entries, skipped } = parseImport(raw);
+      if (entries.length === 0) {
+        setFeedback({
+          tone: 'error',
+          text: 'No valid audience-scoped memories were found in the JSON.',
+        });
+        return false;
+      }
+      for (const entry of entries) {
+        ws.rememberSuperMemory(entry, { echoToChat: false });
+      }
+      setFeedback({
+        tone: 'success',
+        text: `${entries.length} memor${entries.length === 1 ? 'y' : 'ies'} queued for import${skipped ? `; ${skipped} invalid ${skipped === 1 ? 'entry was' : 'entries were'} skipped` : ''}.`,
+      });
+      setShowImport(false);
+      return true;
+    } catch (error) {
+      setFeedback({
+        tone: 'error',
+        text: error instanceof Error ? error.message : 'Invalid JSON.',
+      });
+      return false;
+    }
+  };
+
+  return (
+    <>
+      <section
+        className="flex h-full min-h-0 flex-col bg-card/20"
+        aria-labelledby="audience-memory-title"
+      >
+        <div className="shrink-0 border-b border-border/60 p-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-primary/20 bg-primary/10 text-primary">
+                  <Tag className="size-3.5" />
+                </span>
+                <div className="min-w-0">
+                  <h2 id="audience-memory-title" className="truncate text-sm font-semibold">
+                    Audience Memory
+                  </h2>
+                  <p className="truncate text-[10px] text-muted-foreground">
+                    Guidance routed to matching agents
+                  </p>
+                </div>
+              </div>
+            </div>
+            <Button
+              variant="default"
+              size="sm"
+              className="h-7 shrink-0 gap-1 px-2 text-xs"
+              onClick={() => setShowCreate(true)}
+            >
+              <Plus className="size-3" />
+              Add
+            </Button>
+          </div>
+
+          <div className="mt-3 grid grid-cols-4 gap-px overflow-hidden rounded-md border border-border/60 bg-border/60">
+            <AudienceStat value={scoped.length} label="Memories" />
+            <AudienceStat value={roles.length} label="Roles" />
+            <AudienceStat value={taskTypes.length} label="Tasks" />
+            <AudienceStat value={modes.length} label="Modes" />
+          </div>
+
+          <div className="mt-3 flex items-center gap-1.5">
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search text, role, task or mode…"
+                aria-label="Search audience memories"
+                className="h-8 pl-8 pr-8 text-xs"
+              />
+              {query && (
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
+                  onClick={() => setQuery('')}
+                  aria-label="Clear audience memory search"
+                >
+                  <X className="size-3" />
+                </button>
+              )}
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 shrink-0"
+              onClick={refresh}
+              aria-label="Refresh audience memories"
+              title="Refresh"
+            >
+              <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 shrink-0"
+              onClick={() => setShowImport(true)}
+              aria-label="Import audience memories"
+              title="Import JSON"
+            >
+              <Upload className="size-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 shrink-0"
+              onClick={() => void handleExport()}
+              aria-label="Copy audience memories as JSON"
+              title="Copy JSON"
+              disabled={scoped.length === 0}
+            >
+              <Download className="size-3.5" />
+            </Button>
+          </div>
+        </div>
+
+        {feedback && (
+          <div
+            role={feedback.tone === 'error' ? 'alert' : 'status'}
+            className={cn(
+              'mx-3 mt-3 flex shrink-0 items-start justify-between gap-2 rounded-md border px-2.5 py-2 text-[11px]',
+              feedback.tone === 'error'
+                ? 'border-destructive/30 bg-destructive/5 text-destructive'
+                : 'border-success/30 bg-success/5 text-success',
+            )}
+          >
+            <span>{feedback.text}</span>
+            <button
+              type="button"
+              onClick={() => setFeedback(null)}
+              className="shrink-0 rounded-sm opacity-70 hover:opacity-100"
+              aria-label="Dismiss message"
+            >
+              <X className="size-3" />
+            </button>
+          </div>
+        )}
+
+        <div className="flex min-h-0 flex-1 flex-col">
+          {!loading && scoped.length > 0 && (
+            <div className="flex shrink-0 items-center justify-between px-3 pb-1.5 pt-3 text-[10px] text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <Filter className="size-3" />
+                {normalizedQuery
+                  ? `${filtered.length} of ${scoped.length}`
+                  : `${scoped.length} scoped`}
+              </span>
+              {normalizedQuery && (
+                <button
+                  type="button"
+                  className="hover:text-foreground"
+                  onClick={() => setQuery('')}
+                >
+                  Clear filter
+                </button>
+              )}
+            </div>
+          )}
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+            {loading ? (
+              <AudienceMemorySkeleton />
+            ) : scoped.length === 0 ? (
+              <EmptyAudienceMemory onAdd={() => setShowCreate(true)} />
+            ) : filtered.length === 0 ? (
+              <div className="flex h-full min-h-32 flex-col items-center justify-center px-4 text-center">
+                <Search className="mb-2 size-5 text-muted-foreground/60" />
+                <p className="text-xs font-medium">No matching memories</p>
+                <p className="mt-1 text-[10px] text-muted-foreground">
+                  Try another role, task, mode, or phrase.
+                </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-2 h-7 text-xs"
+                  onClick={() => setQuery('')}
+                >
+                  Clear search
+                </Button>
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {filtered.map((memory) => (
+                  <AudienceMemoryCard
+                    key={memory.id}
+                    memory={memory}
+                    onFilter={setQuery}
+                    onClearScope={() => handleClearScope(memory.id)}
+                    onDelete={() => setDeletingId(memory.id)}
+                  />
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <CreateAudienceMemoryDialog
+        open={showCreate}
+        busy={creating}
+        onOpenChange={(open) => {
+          if (!creating) setShowCreate(open);
+        }}
+        onCreate={handleCreate}
+      />
+      <ImportAudienceMemoryDialog
+        open={showImport}
+        onOpenChange={setShowImport}
+        onImport={handleImport}
+      />
+      <Dialog
+        open={Boolean(deletingId)}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeletingId(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete this audience memory?</DialogTitle>
+            <DialogDescription>
+              This removes the memory from active use. To keep it as general project guidance,
+              cancel and use the un-scope action instead.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border border-border/70 bg-background/45 p-3 text-xs text-muted-foreground">
+            {memoryPreview(memories.find((memory) => memory.id === deletingId)?.text ?? '', 180)}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeletingId(null)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete} disabled={deleting}>
+              <Trash2 className="size-4" />
+              {deleting ? 'Deleting…' : 'Delete memory'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function AudienceStat({ value, label }: { value: number; label: string }) {
+  return (
+    <div className="bg-card/95 px-1.5 py-2 text-center">
+      <p className="text-sm font-semibold tabular-nums">{value}</p>
+      <p className="truncate text-[9px] uppercase tracking-wide text-muted-foreground">{label}</p>
+    </div>
+  );
+}
+
+function AudienceMemoryCard({
+  memory,
+  onFilter,
+  onClearScope,
+  onDelete,
 }: {
+  memory: SuperMemoryEntry;
+  onFilter: (value: string) => void;
+  onClearScope: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <li className="group rounded-md border border-border/65 bg-card/55 p-2.5 transition-colors hover:border-border hover:bg-card/85">
+      <p className="break-words text-xs leading-5">{memory.text}</p>
+      {memory.audience && <AudienceBadges audience={memory.audience} onFilter={onFilter} />}
+      <div className="mt-2 flex items-center justify-between gap-2 border-t border-border/45 pt-2">
+        <div className="flex min-w-0 items-center gap-1.5 text-[9px] uppercase tracking-wide text-muted-foreground">
+          <span className="truncate">{KIND_LABELS[memory.kind] ?? memory.kind}</span>
+          <span aria-hidden="true">·</span>
+          <span>{memory.status}</span>
+        </div>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6"
+            onClick={onClearScope}
+            aria-label={`Remove audience scope from ${memoryPreview(memory.text, 42)}`}
+            title="Make general memory"
+          >
+            <ShieldOff className="size-3" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6 text-destructive hover:text-destructive"
+            onClick={onDelete}
+            aria-label={`Delete ${memoryPreview(memory.text, 42)}`}
+            title="Delete"
+          >
+            <Trash2 className="size-3" />
+          </Button>
+        </div>
+      </div>
+    </li>
+  );
+}
+
+function AudienceBadges({
+  audience,
+  onFilter,
+}: {
+  audience: MemoryAudience;
+  onFilter: (value: string) => void;
+}) {
+  const badges = [
+    ...(audience.roles ?? []).map((value) => ({ label: 'role', value })),
+    ...(audience.taskTypes ?? []).map((value) => ({ label: 'task', value })),
+    ...(audience.modes ?? []).map((value) => ({ label: 'mode', value })),
+  ];
+  return (
+    <div className="mt-2 flex flex-wrap gap-1">
+      {badges.map(({ label, value }) => (
+        <button
+          key={`${label}:${value}`}
+          type="button"
+          className="max-w-full truncate rounded border border-primary/15 bg-primary/7 px-1.5 py-0.5 font-mono text-[9px] text-primary/90 transition-colors hover:border-primary/35 hover:bg-primary/12"
+          onClick={() => onFilter(value)}
+          title={`Filter by ${label}: ${value}`}
+        >
+          {label}:{value}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function AudienceMemorySkeleton() {
+  return (
+    <div className="space-y-2 pt-3" role="status" aria-label="Loading audience memories">
+      {[0, 1, 2].map((item) => (
+        <div key={item} className="animate-pulse rounded-md border border-border/50 p-3">
+          <div className="h-2.5 w-full rounded bg-muted" />
+          <div className="mt-2 h-2.5 w-2/3 rounded bg-muted" />
+          <div className="mt-3 h-4 w-24 rounded bg-muted" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EmptyAudienceMemory({ onAdd }: { onAdd: () => void }) {
+  return (
+    <div className="flex h-full min-h-44 flex-col items-center justify-center px-5 text-center">
+      <span className="mb-3 flex size-10 items-center justify-center rounded-full border border-dashed border-primary/35 bg-primary/5 text-primary">
+        <Tag className="size-4" />
+      </span>
+      <p className="text-xs font-medium">Route guidance to the right agents</p>
+      <p className="mt-1 max-w-52 text-[10px] leading-4 text-muted-foreground">
+        Scope a memory by role, task type, or operating mode. Matching agents receive it
+        automatically.
+      </p>
+      <Button variant="outline" size="sm" className="mt-3 h-7 gap-1 text-xs" onClick={onAdd}>
+        <Plus className="size-3" />
+        Add scoped memory
+      </Button>
+    </div>
+  );
+}
+
+function CreateAudienceMemoryDialog({
+  open,
+  busy,
+  onOpenChange,
+  onCreate,
+}: {
+  open: boolean;
+  busy: boolean;
+  onOpenChange: (open: boolean) => void;
   onCreate: (entry: CreateEntry) => void;
-  onCancel: () => void;
 }) {
   const [text, setText] = useState('');
   const [kind, setKind] = useState('workflow');
@@ -297,67 +694,194 @@ function CreateAudienceMemory({
   const [taskTypes, setTaskTypes] = useState('');
   const [modes, setModes] = useState('');
 
-  const csv = (v: string) =>
-    v
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
+  useEffect(() => {
+    if (open) return;
+    setText('');
+    setKind('workflow');
+    setRoles('');
+    setTaskTypes('');
+    setModes('');
+  }, [open]);
 
-  const canSubmit = text.trim() && (roles.trim() || taskTypes.trim() || modes.trim());
+  const parsedRoles = splitList(roles);
+  const parsedTaskTypes = splitList(taskTypes);
+  const parsedModes = splitList(modes);
+  const canSubmit =
+    text.trim().length > 0 &&
+    (parsedRoles.length > 0 || parsedTaskTypes.length > 0 || parsedModes.length > 0);
 
   return (
-    <div className="rounded-md border border-primary/30 bg-primary/5 p-3">
-      <div className="space-y-2">
-        <Input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Memory text…"
-          autoFocus
-          className="h-8 text-xs"
-        />
-        <div className="grid grid-cols-3 gap-2">
-          <Input
-            value={roles}
-            onChange={(e) => setRoles(e.target.value)}
-            placeholder="roles (csv)"
-            className="h-7 text-xs"
-          />
-          <Input
-            value={taskTypes}
-            onChange={(e) => setTaskTypes(e.target.value)}
-            placeholder="task types (csv)"
-            className="h-7 text-xs"
-          />
-          <Input
-            value={modes}
-            onChange={(e) => setModes(e.target.value)}
-            placeholder="modes (csv)"
-            className="h-7 text-xs"
-          />
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Add audience-scoped memory</DialogTitle>
+          <DialogDescription>
+            This guidance is injected only when an agent matches at least one supplied selector.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <label htmlFor="audience-memory-text" className="mb-1.5 block text-xs font-medium">
+              Memory
+            </label>
+            <textarea
+              id="audience-memory-text"
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              placeholder="What should matching agents remember?"
+              rows={4}
+              autoFocus
+              className="w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            />
+          </div>
+          <div>
+            <label htmlFor="audience-memory-kind" className="mb-1.5 block text-xs font-medium">
+              Kind
+            </label>
+            <select
+              id="audience-memory-kind"
+              value={kind}
+              onChange={(event) => setKind(event.target.value)}
+              className="h-9 w-full rounded-md border border-input bg-background px-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {MEMORY_KINDS.map((value) => (
+                <option key={value} value={value}>
+                  {KIND_LABELS[value] ?? value}
+                </option>
+              ))}
+            </select>
+          </div>
+          <fieldset className="space-y-3 rounded-md border border-border/70 bg-background/35 p-3">
+            <legend className="px-1 text-xs font-medium">Audience selectors</legend>
+            <AudienceInput
+              id="audience-memory-roles"
+              label="Roles"
+              value={roles}
+              onChange={setRoles}
+              placeholder="reviewer, refactor-planner"
+            />
+            <AudienceInput
+              id="audience-memory-task-types"
+              label="Task types"
+              value={taskTypes}
+              onChange={setTaskTypes}
+              placeholder="review, refactor, bugfix"
+            />
+            <AudienceInput
+              id="audience-memory-modes"
+              label="Modes"
+              value={modes}
+              onChange={setModes}
+              placeholder="teach, code-review"
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Comma-separate multiple values. At least one selector is required.
+            </p>
+          </fieldset>
         </div>
-        <div className="flex justify-end gap-1.5">
-          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={onCancel}>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
             Cancel
           </Button>
           <Button
-            variant="default"
-            size="sm"
-            className="h-7 text-xs"
-            disabled={!canSubmit}
             onClick={() =>
               onCreate({
                 text: text.trim(),
                 kind,
-                roles: csv(roles),
-                taskTypes: csv(taskTypes),
-                modes: csv(modes),
+                roles: parsedRoles,
+                taskTypes: parsedTaskTypes,
+                modes: parsedModes,
               })
             }
+            disabled={!canSubmit || busy}
           >
-            Remember
+            {busy ? 'Remembering…' : 'Remember'}
           </Button>
-        </div>
-      </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AudienceInput({
+  id,
+  label,
+  value,
+  placeholder,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  placeholder: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="grid gap-1.5 sm:grid-cols-[6rem_1fr] sm:items-center">
+      <label htmlFor={id} className="text-[11px] font-medium text-muted-foreground">
+        {label}
+      </label>
+      <Input
+        id={id}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="h-8 font-mono text-xs"
+      />
     </div>
+  );
+}
+
+function ImportAudienceMemoryDialog({
+  open,
+  onOpenChange,
+  onImport,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onImport: (raw: string) => boolean;
+}) {
+  const [raw, setRaw] = useState('');
+
+  useEffect(() => {
+    if (!open) setRaw('');
+  }, [open]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Import audience memories</DialogTitle>
+          <DialogDescription>
+            Paste the JSON produced here or by <code>/memory audience export</code>. Entries without
+            a valid audience selector are skipped.
+          </DialogDescription>
+        </DialogHeader>
+        <div>
+          <label htmlFor="audience-memory-import" className="mb-1.5 block text-xs font-medium">
+            JSON array
+          </label>
+          <textarea
+            id="audience-memory-import"
+            value={raw}
+            onChange={(event) => setRaw(event.target.value)}
+            placeholder={'[\n  { "text": "…", "audience": { "roles": ["reviewer"] } }\n]'}
+            rows={10}
+            autoFocus
+            spellCheck={false}
+            className="w-full resize-y rounded-md border border-input bg-background p-3 font-mono text-xs outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button onClick={() => onImport(raw)} disabled={!raw.trim()}>
+            <Upload className="size-4" />
+            Import memories
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

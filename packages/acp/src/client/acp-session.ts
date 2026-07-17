@@ -1206,6 +1206,52 @@ export class ACPSession {
     }
   }
 
+  /**
+   * Enforce authorization at privileged callback sinks (fs/write,
+   * terminal/create). Unlike `handlePermissionRequest` which responds to
+   * agent-initiated `session/request_permission` messages, this method is
+   * called by the handler BEFORE dispatching to FileServer/TerminalServer,
+   * closing the gap where the agent simply skips the voluntary permission
+   * request and sends the privileged callback directly.
+   *
+   * Uses the session's permission policy. The default policy
+   * (`defaultPermissionPolicy`) auto-approves everything — this is correct
+   * for trusted local agents (CLI `acp spawn`, Director fan-out). For
+   * untrusted/remote agents, the host should inject
+   * `readOnlyPermissionPolicy` or an interactive policy.
+   *
+   * Returns true if the callback is authorized, false if denied.
+   */
+  private async authorizeCallback(partial: {
+    toolCallId: string;
+    title: string;
+    kind: import('../types/acp-v1.js').ToolKind;
+  }): Promise<boolean> {
+    try {
+      const outcome = await this.permissionPolicy({
+        toolCall: {
+          sessionUpdate: 'tool_call_update',
+          toolCallId: partial.toolCallId as import('../types/acp-v1.js').ToolCallId,
+          title: partial.title,
+          kind: partial.kind,
+          status: 'pending',
+        },
+        options: [
+          { optionId: 'allow', name: 'Allow', kind: 'allow_once' },
+          { optionId: 'reject', name: 'Reject', kind: 'reject_once' },
+        ],
+        signal: new AbortController().signal,
+      });
+      return outcome.outcome === 'selected' &&
+        outcome.optionId !== 'reject' &&
+        outcome.optionId !== 'reject_once' &&
+        outcome.optionId !== 'reject_always';
+    } catch {
+      // If the policy throws, deny rather than crash.
+      return false;
+    }
+  }
+
   private async handleFsRequest(msg: ACPMessage): Promise<void> {
     const id = msg.id;
     if (id === undefined) return;
@@ -1213,6 +1259,22 @@ export class ACPSession {
     if (!params?.path) {
       await this.sendErrorResponse(id, -32602, 'path is required');
       return;
+    }
+    // Authorization gate: the ACP spec makes session/request_permission
+    // voluntary — the agent is NOT required to ask before sending fs/*.
+    // Enforce authorization at the sink: synthesize a permission request
+    // for write operations (reads are auto-approved), and reject if the
+    // policy denies.
+    if (msg.method === 'fs/write_text_file') {
+      const allowed = await this.authorizeCallback({
+        toolCallId: `acp-fs-write-${id}`,
+        title: `Write file: ${params.path}`,
+        kind: 'edit',
+      });
+      if (!allowed) {
+        await this.sendErrorResponse(id, -32602, 'filesystem write denied by permission policy');
+        return;
+      }
     }
     try {
       if (msg.method === 'fs/read_text_file') {
@@ -1243,6 +1305,18 @@ export class ACPSession {
     try {
       switch (msg.method) {
         case 'terminal/create': {
+          // Authorization gate: terminal/create spawns a process with the
+          // agent's chosen command/args. Require explicit policy approval
+          // before allowing it, since this is arbitrary code execution.
+          const allowed = await this.authorizeCallback({
+            toolCallId: `acp-terminal-create-${id}`,
+            title: `Run command: ${String(params.command ?? '')} ${(Array.isArray(params.args) ? params.args : []).join(' ')}`.trim(),
+            kind: 'execute',
+          });
+          if (!allowed) {
+            await this.sendErrorResponse(id, -32602, 'terminal create denied by permission policy');
+            return;
+          }
           const createOpts: Parameters<TerminalServer['create']>[0] = {
             sessionId: String(params.sessionId ?? ''),
             command: String(params.command ?? ''),

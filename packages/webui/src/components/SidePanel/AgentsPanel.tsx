@@ -75,7 +75,6 @@ function AgentRow({ agent, onClick }: { agent: SubagentView; onClick: () => void
 export function AgentsPanel() {
   const fleetAgents = useFleetStore((s) => s.agents);
   const { t } = useAppTranslation();
-  const setAgentDetailModalId = useUIStore((s) => s.setAgentDetailModalId);
 
   const fleetList = useMemo(() => {
     const arr = Array.from(fleetAgents.values());
@@ -106,6 +105,12 @@ export function AgentsPanel() {
     );
   }
 
+  const openFleetInspector = () => {
+    const ui = useUIStore.getState();
+    ui.setInspectorTab('fleet');
+    ui.setInspectorOpen(true);
+  };
+
   return (
     <>
       <div className="flex items-center gap-2 border-b border-border/70 bg-muted/20 px-3 py-2 text-[10px] text-muted-foreground">
@@ -117,13 +122,13 @@ export function AgentsPanel() {
       </div>
       <div className="min-h-0 min-w-0 flex-1 space-y-1.5 overflow-y-auto overscroll-contain bg-[hsl(var(--surface-2)/0.35)] p-2">
         {fleetList.map((a) => (
-          <AgentRow key={a.id} agent={a} onClick={() => setAgentDetailModalId(a.id)} />
+          <AgentRow key={a.id} agent={a} onClick={openFleetInspector} />
         ))}
       </div>
       <div className="shrink-0 border-t border-border/70 bg-card/75 px-3 py-2">
         <button
           type="button"
-          onClick={() => useUIStore.getState().setAgentsMonitorOpen(true)}
+          onClick={openFleetInspector}
           className="w-full flex items-center justify-center gap-1.5 h-7 rounded-md border border-border text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
         >
           <LayoutGrid className="h-3 w-3" />

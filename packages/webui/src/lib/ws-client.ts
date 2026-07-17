@@ -26,6 +26,32 @@ import {
 // Re-export types for backward compat
 export type { WsStatus };
 
+export interface WSSendOptions {
+  /**
+   * Inspect-style responses normally render a summary in chat. UI surfaces
+   * that consume the same response themselves disable that echo so opening or
+   * refreshing a panel does not pollute the conversation history.
+   */
+  echoToChat?: boolean | undefined;
+}
+
+const CHAT_ECHO_RESPONSE_BY_REQUEST: Partial<
+  Record<WSClientMessage['type'], WSServerMessage['type']>
+> = {
+  'context.debug': 'context.debug',
+  'diag.get': 'diag.get',
+  'memory.list': 'memory.list',
+  'memory.super.get': 'memory.super.get',
+  'memory.super.list': 'memory.super.list',
+  'memory.super.remember': 'memory.super.remember',
+  'memory.super.update': 'memory.super.update',
+  'skills.list': 'skills.list',
+  'stats.get': 'stats.get',
+  'tools.list': 'tools.list',
+};
+
+const CHAT_ECHO_SUPPRESSION_TTL_MS = 30_000;
+
 // C-2 fix (Phase 1.4): the auth token is delivered via the HttpOnly
 // cookie set by `/ws-auth` (preferred) OR via the `?token=…` query param
 // (non-browser fallback). The legacy in-sessionStorage path has been
@@ -74,6 +100,7 @@ export class WrongStackWebSocketClient {
   private lastErrorText: string | undefined;
   private statusListeners = new Set<(s: WsStatus) => void>();
   private currentStatus: WsStatus = { state: 'connecting' };
+  private suppressedChatEchoes = new Map<string, number[]>();
 
   onStatus(fn: (s: WsStatus) => void): () => void {
     this.statusListeners.add(fn);
@@ -432,7 +459,15 @@ export class WrongStackWebSocketClient {
     }
   }
 
-  send(message: WSClientMessage) {
+  send(message: WSClientMessage, options: WSSendOptions = {}) {
+    if (options.echoToChat === false) {
+      const responseType = CHAT_ECHO_RESPONSE_BY_REQUEST[message.type];
+      if (responseType) {
+        const pending = this.suppressedChatEchoes.get(responseType) ?? [];
+        pending.push(Date.now() + CHAT_ECHO_SUPPRESSION_TTL_MS);
+        this.suppressedChatEchoes.set(responseType, pending);
+      }
+    }
     if (
       message.type === 'context.clear' ||
       message.type === 'session.new' ||
@@ -462,6 +497,23 @@ export class WrongStackWebSocketClient {
       }
       this.messageQueue.push(message);
     }
+  }
+
+  /** Consume one UI-originated response that must not be mirrored into chat. */
+  consumeSuppressedChatEcho(responseType: string): boolean {
+    const pending = this.suppressedChatEchoes.get(responseType);
+    if (!pending) return false;
+
+    const now = Date.now();
+    while (pending.length > 0 && pending[0]! <= now) pending.shift();
+    if (pending.length === 0) {
+      this.suppressedChatEchoes.delete(responseType);
+      return false;
+    }
+
+    pending.shift();
+    if (pending.length === 0) this.suppressedChatEchoes.delete(responseType);
+    return true;
   }
 
   /**
@@ -651,8 +703,8 @@ export class WrongStackWebSocketClient {
     this.send({ type: 'context.repair', payload: this.withSession({}) });
   }
 
-  debugContext() {
-    this.send({ type: 'context.debug', payload: this.withSession({}) });
+  debugContext(options?: WSSendOptions) {
+    this.send({ type: 'context.debug', payload: this.withSession({}) }, options);
   }
 
   listContextModes() {
@@ -709,26 +761,26 @@ export class WrongStackWebSocketClient {
 
   // ---- Inspect commands (mirror TUI/CLI's /tools /memory /skill /diag /stats) ----
 
-  listTools() {
-    this.send({ type: 'tools.list' });
+  listTools(options?: WSSendOptions) {
+    this.send({ type: 'tools.list' }, options);
   }
 
-  listMemory() {
-    this.send({ type: 'memory.list' });
+  listMemory(options?: WSSendOptions) {
+    this.send({ type: 'memory.list' }, options);
   }
 
   // ---- SuperMemory commands ----
 
-  listSuperMemories() {
-    this.send({ type: 'memory.super.list' });
+  listSuperMemories(options?: WSSendOptions) {
+    this.send({ type: 'memory.super.list' }, options);
   }
 
-  getSuperMemory(id: string) {
-    this.send({ type: 'memory.super.get', payload: { id } });
+  getSuperMemory(id: string, options?: WSSendOptions) {
+    this.send({ type: 'memory.super.get', payload: { id } }, options);
   }
 
-  updateSuperMemory(id: string, patch: Record<string, unknown>) {
-    this.send({ type: 'memory.super.update', payload: { id, ...patch } });
+  updateSuperMemory(id: string, patch: Record<string, unknown>, options?: WSSendOptions) {
+    this.send({ type: 'memory.super.update', payload: { id, ...patch } }, options);
   }
 
   deleteSuperMemory(id: string, reason?: string) {
@@ -737,8 +789,9 @@ export class WrongStackWebSocketClient {
 
   rememberSuperMemory(
     opts: Extract<WSClientMessage, { type: 'memory.super.remember' }>['payload'],
+    options?: WSSendOptions,
   ) {
-    this.send({ type: 'memory.super.remember', payload: opts });
+    this.send({ type: 'memory.super.remember', payload: opts }, options);
   }
 
   // ── MCP server management ─────────────────────────────────────────────────────
@@ -825,8 +878,8 @@ export class WrongStackWebSocketClient {
     this.send({ type: 'mcp.restart', payload: { name } });
   }
 
-  listSkills() {
-    this.send({ type: 'skills.list' });
+  listSkills(options?: WSSendOptions) {
+    this.send({ type: 'skills.list' }, options);
   }
 
   getSkillContent(name: string, source: string) {
@@ -857,12 +910,12 @@ export class WrongStackWebSocketClient {
     this.send({ type: 'skills.export' });
   }
 
-  getDiag() {
-    this.send({ type: 'diag.get', payload: this.withSession({}) });
+  getDiag(options?: WSSendOptions) {
+    this.send({ type: 'diag.get', payload: this.withSession({}) }, options);
   }
 
-  getStats() {
-    this.send({ type: 'stats.get', payload: this.withSession({}) });
+  getStats(options?: WSSendOptions) {
+    this.send({ type: 'stats.get', payload: this.withSession({}) }, options);
   }
 
   saveSession() {

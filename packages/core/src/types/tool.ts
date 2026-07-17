@@ -17,29 +17,29 @@ export type RiskTier = 'safe' | 'standard' | 'destructive';
  * Add the icon directly on each Tool so all UIs consume the same canonical value.
  */
 export type ToolIconId =
-  | 'file'       // read, write — document operations
-  | 'edit'       // edit, patch — modifying files
-  | 'search'     // grep, search — searching content
-  | 'folder'     // glob — file discovery
-  | 'terminal'   // bash, exec — shell commands
-  | 'web'        // fetch — HTTP requests
-  | 'git'        // git — version control
-  | 'tree'       // tree — directory structure
-  | 'code'       // lint, format, typecheck — code quality
-  | 'test'       // test — testing
-  | 'package'     // install, audit, outdated — package management
-  | 'document'   // document — documentation
-  | 'scaffold'   // scaffold — project generation
-  | 'todo'       // todo — task tracking
-  | 'plan'       // plan — planning
-  | 'task'       // task — structured work items
-  | 'meta'       // tool-use, batch-tool-use, tool-search, tool-help — meta tools
-  | 'index'      // codebase-index, codebase-search, codebase-stats — code indexing
-  | 'json'       // json — JSON operations
-  | 'diff'       // diff — comparing changes
-  | 'logs'       // logs — log viewing
-  | 'settings'    // set-working-dir — configuration
-  | 'fallback';  // unknown tool — fallback icon
+  | 'file' // read, write — document operations
+  | 'edit' // edit, patch — modifying files
+  | 'search' // grep, search — searching content
+  | 'folder' // glob — file discovery
+  | 'terminal' // bash, exec — shell commands
+  | 'web' // fetch — HTTP requests
+  | 'git' // git — version control
+  | 'tree' // tree — directory structure
+  | 'code' // lint, format, typecheck — code quality
+  | 'test' // test — testing
+  | 'package' // install, audit, outdated — package management
+  | 'document' // document — documentation
+  | 'scaffold' // scaffold — project generation
+  | 'todo' // todo — task tracking
+  | 'plan' // plan — planning
+  | 'task' // task — structured work items
+  | 'meta' // tool-use, batch-tool-use, tool-search, tool-help — meta tools
+  | 'index' // codebase-index, codebase-search, codebase-stats — code indexing
+  | 'json' // json — JSON operations
+  | 'diff' // diff — comparing changes
+  | 'logs' // logs — log viewing
+  | 'settings' // set-working-dir — configuration
+  | 'fallback'; // unknown tool — fallback icon
 
 export interface JSONSchema {
   type?: string | undefined;
@@ -71,6 +71,11 @@ export interface ToolProgressEvent {
   type: 'log' | 'warning' | 'metric' | 'file_changed' | 'partial_output';
   text?: string | undefined;
   data?: Record<string, unknown>;
+  /** Canonical or project-relative target for file_changed events. */
+  path?: string | undefined;
+  operation?: 'write' | 'edit' | 'delete' | 'rename' | undefined;
+  line?: number | undefined;
+  endLine?: number | undefined;
 }
 
 /**
@@ -97,12 +102,14 @@ export interface Tool<I = unknown, O = unknown> {
   _estDefTokens?: number | undefined;
   usageHint?: string | undefined;
   /** Structured guidance for choosing between similar tools. */
-  selection?: {
-    /** A concise boundary where this tool should not be selected. */
-    doNotUseWhen: string;
-    /** Tool names the model should prefer for that boundary. */
-    useInstead?: readonly string[] | undefined;
-  } | undefined;
+  selection?:
+    | {
+        /** A concise boundary where this tool should not be selected. */
+        doNotUseWhen: string;
+        /** Tool names the model should prefer for that boundary. */
+        useInstead?: readonly string[] | undefined;
+      }
+    | undefined;
   /** Optional category for grouping in help lists and system prompts. */
   category?: string | undefined;
   inputSchema: JSONSchema;
@@ -265,11 +272,11 @@ export interface ToolCallContext {
  * Used by the executor to classify errors and determine retry strategy.
  */
 export enum ToolErrorCategory {
-  TRANSIENT = "transient", // ETIMEDOUT, ECONNRESET, network timeout, HTTP 429/503
-  NOT_FOUND = "not_found", // ENOENT, ENOTDIR, HTTP 404
-  PERMISSION = "permission", // EACCES, EPERM, HTTP 401/403
-  VALIDATION = "validation", // schema validation error, HTTP 400
-  FATAL = "fatal", // unhandled exception, crash, invariant violation
+  TRANSIENT = 'transient', // ETIMEDOUT, ECONNRESET, network timeout, HTTP 429/503
+  NOT_FOUND = 'not_found', // ENOENT, ENOTDIR, HTTP 404
+  PERMISSION = 'permission', // EACCES, EPERM, HTTP 401/403
+  VALIDATION = 'validation', // schema validation error, HTTP 400
+  FATAL = 'fatal', // unhandled exception, crash, invariant violation
 }
 
 /**

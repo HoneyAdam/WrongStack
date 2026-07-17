@@ -124,7 +124,7 @@ describe('Kanban queue health (Sprint 2 helper)', () => {
     expect(health?.dependencyBlocked.count).toBe(1);
     // The dependencyBlocked bucket must be a subset of counts.ready tasks.
     const blockedIds = new Set(
-      (health?.dependencyBlocked.tasks as Array<{ task: { id: string } }>).map(
+      (health!.dependencyBlocked.tasks as Array<{ task: { id: string } }>).map(
         (entry) => entry.task.id,
       ),
     );

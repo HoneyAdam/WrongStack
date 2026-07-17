@@ -32,7 +32,7 @@ describe('QueueStore — clear + read coverage', () => {
       (c) => c[0] === 'storage.error' && (c[1] as { operation?: string }).operation === 'clear',
     );
     expect(err).toBeDefined();
-    expect((err?.[1] as { traceId?: string }).traceId).toBe('tr-q');
+    expect((err![1] as { traceId?: string }).traceId).toBe('tr-q');
     expect(warn).toHaveBeenCalled();
   });
 
@@ -44,7 +44,7 @@ describe('QueueStore — clear + read coverage', () => {
     const ok = events.emit.mock.calls.find(
       (c) => c[0] === 'storage.write' && (c[1] as { operation?: string }).operation === 'clear',
     );
-    expect((ok?.[1] as { outcome?: string }).outcome).toBe('success');
+    expect((ok![1] as { outcome?: string }).outcome).toBe('success');
     expect(await store.read()).toEqual([]); // file gone
   });
 

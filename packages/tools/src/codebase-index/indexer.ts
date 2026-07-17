@@ -41,9 +41,7 @@ function yieldEventLoop(): Promise<void> {
 function throwIfAborted(signal: AbortSignal | undefined): void {
   if (!signal?.aborted) return;
   if (signal.reason instanceof Error) throw signal.reason;
-  throw new Error(
-    typeof signal.reason === 'string' ? signal.reason : 'Indexing cancelled',
-  );
+  throw new Error(typeof signal.reason === 'string' ? signal.reason : 'Indexing cancelled');
 }
 
 /**
@@ -56,8 +54,15 @@ function isAbortError(err: unknown): boolean {
 }
 
 const DEFAULT_IGNORE = [
-  'node_modules', '.git', 'dist', 'build', '.next', 'coverage',
-  '.turbo', '__snapshots__', '.nyc_output',
+  'node_modules',
+  '.git',
+  'dist',
+  'build',
+  '.next',
+  'coverage',
+  '.turbo',
+  '__snapshots__',
+  '.nyc_output',
 ];
 const DEFAULT_IGNORE_FILES = new Set(['package-lock.json', 'pnpm-lock.yaml', 'pnpm-lock.yml']);
 const MAX_INDEX_FILE_BYTES = 5 * 1024 * 1024;
@@ -107,16 +112,16 @@ async function findSourceFiles(
   const ignoreSet = new Set([...DEFAULT_IGNORE, ...ignore]);
   // compileGlob does not support brace expansion — use one pattern per extension
   const globs = [
-    { ext: '.ts',   pat: compileGlob('**/*.ts') },
-    { ext: '.tsx',  pat: compileGlob('**/*.tsx') },
-    { ext: '.js',   pat: compileGlob('**/*.js') },
-    { ext: '.jsx',  pat: compileGlob('**/*.jsx') },
-    { ext: '.go',   pat: compileGlob('**/*.go') },
-    { ext: '.py',   pat: compileGlob('**/*.py') },
-    { ext: '.rs',   pat: compileGlob('**/*.rs') },
+    { ext: '.ts', pat: compileGlob('**/*.ts') },
+    { ext: '.tsx', pat: compileGlob('**/*.tsx') },
+    { ext: '.js', pat: compileGlob('**/*.js') },
+    { ext: '.jsx', pat: compileGlob('**/*.jsx') },
+    { ext: '.go', pat: compileGlob('**/*.go') },
+    { ext: '.py', pat: compileGlob('**/*.py') },
+    { ext: '.rs', pat: compileGlob('**/*.rs') },
     { ext: '.json', pat: compileGlob('**/*.json') },
     { ext: '.yaml', pat: compileGlob('**/*.yaml') },
-    { ext: '.yml',  pat: compileGlob('**/*.yml') },
+    { ext: '.yml', pat: compileGlob('**/*.yml') },
   ];
 
   let dirCount = 0;
@@ -207,8 +212,10 @@ function assignRefsToSymbols(refs: Ref[], symbols: IndexSymbol[]): Ref[] {
       if (symbol.line > ref.line) break;
       owner = symbol;
     }
-    // Imports and other file-level refs before the first declaration have no
-    // meaningful source symbol in this schema, so do not persist fake owner 0.
+    // Imports usually appear before the first declaration. Attach them to the
+    // first real symbol so file/package dependency graphs retain the module
+    // edge without inventing an invalid owner id 0.
+    if (!owner && ref.callType === 'import') owner = ordered[0];
     if (!owner || owner.id <= 0) continue;
     const key = `${owner.id}:${ref.toName}:${ref.callType}`;
     if (seen.has(key)) continue;
@@ -219,10 +226,7 @@ function assignRefsToSymbols(refs: Ref[], symbols: IndexSymbol[]): Ref[] {
 }
 
 /** Run a full or incremental index and return statistics. */
-export async function runIndexer(
-  _ctx: Context,
-  opts: IndexerOptions,
-): Promise<IndexResult> {
+export async function runIndexer(_ctx: Context, opts: IndexerOptions): Promise<IndexResult> {
   const store = new IndexStore(opts.projectRoot, { indexDir: opts.indexDir });
   try {
     return await runIndexerWithStore(store, opts);
@@ -238,7 +242,13 @@ export async function runIndexer(
 }
 
 async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Promise<IndexResult> {
-  const { projectRoot, force = false, langs, ignore = [], signal } = opts;
+  const { projectRoot, langs, ignore = [], signal } = opts;
+  // Graph semantics changed without a structural SQLite schema change. Keep a
+  // separate data-version marker so older running processes do not downgrade
+  // and wipe the same shared DB while a new WebUI is being rolled out.
+  const relationGraphVersion = '2';
+  const force =
+    (opts.force ?? false) || store.getMetadata('relation_graph_version') !== relationGraphVersion;
   const startMs = Date.now();
   const errors: string[] = [];
   const langStats: Record<string, number> = {};
@@ -263,9 +273,11 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
       .filter((f) => {
         if (!isWithinProject(projectRoot, f)) return false;
         const rel = path.relative(projectRoot, f).replace(/\\/g, '/');
-        return !rel.split('/').some((seg) => DEFAULT_IGNORE.includes(seg)) &&
+        return (
+          !rel.split('/').some((seg) => DEFAULT_IGNORE.includes(seg)) &&
           !DEFAULT_IGNORE_FILES.has(path.basename(f)) &&
-          !isGitIgnored(rel, false);
+          !isGitIgnored(rel, false)
+        );
       });
   } else {
     const discovery = await findSourceFiles(projectRoot, ignore, isGitIgnored, signal);
@@ -312,56 +324,83 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
     // Phase 1: Parallel stat + incremental skip + read + parse
     const statOpts = signal ? { signal } : {};
     const statReadParse = await Promise.allSettled(
-      batchFiles.map(async (file): Promise<{ file: string; stat: Stats; lang: string; parsed: Awaited<ReturnType<typeof parseFile>> | null; content?: string; skippedMeta?: FileMeta; error?: string; missing?: boolean }> => {
-        let stat: Stats;
-        try {
-          stat = await (fs.stat as (path: string, opts: { signal?: AbortSignal }) => Promise<Stats>)(file, statOpts);
-        } catch (e) {
-          if (isAbortError(e)) throw e;
-          return {
-            file,
-            stat: null as never as Stats,
-            lang: '',
-            parsed: null,
-            error: `stat error: ${e instanceof Error ? e.message : String(e)}`,
-            missing: isMissingPathError(e),
-          };
-        }
-        if (!stat.isFile()) return { file, stat, lang: '', parsed: null };
+      batchFiles.map(
+        async (
+          file,
+        ): Promise<{
+          file: string;
+          stat: Stats;
+          lang: string;
+          parsed: Awaited<ReturnType<typeof parseFile>> | null;
+          content?: string;
+          skippedMeta?: FileMeta;
+          error?: string;
+          missing?: boolean;
+        }> => {
+          let stat: Stats;
+          try {
+            stat = await (
+              fs.stat as (path: string, opts: { signal?: AbortSignal }) => Promise<Stats>
+            )(file, statOpts);
+          } catch (e) {
+            if (isAbortError(e)) throw e;
+            return {
+              file,
+              stat: null as never as Stats,
+              lang: '',
+              parsed: null,
+              error: `stat error: ${e instanceof Error ? e.message : String(e)}`,
+              missing: isMissingPathError(e),
+            };
+          }
+          if (!stat.isFile()) return { file, stat, lang: '', parsed: null };
 
-        const lang = detectLang(file);
-        if (!lang) return { file, stat, lang: '', parsed: null };
-        if (stat.size > MAX_INDEX_FILE_BYTES) {
-          return {
-            file,
-            stat,
-            lang,
-            parsed: null,
-            error: `file too large (${stat.size} bytes; max ${MAX_INDEX_FILE_BYTES})`,
-          };
-        }
+          const lang = detectLang(file);
+          if (!lang) return { file, stat, lang: '', parsed: null };
+          if (stat.size > MAX_INDEX_FILE_BYTES) {
+            return {
+              file,
+              stat,
+              lang,
+              parsed: null,
+              error: `file too large (${stat.size} bytes; max ${MAX_INDEX_FILE_BYTES})`,
+            };
+          }
 
-        const meta = existingMeta.get(file);
-        if (!force && meta && meta.mtimeMs === Math.floor(stat.mtimeMs)) {
-          return { file, stat, lang, parsed: null, skippedMeta: meta };
-        }
+          const meta = existingMeta.get(file);
+          if (!force && meta && meta.mtimeMs === Math.floor(stat.mtimeMs)) {
+            return { file, stat, lang, parsed: null, skippedMeta: meta };
+          }
 
-        let content: string;
-        try {
-          content = await fs.readFile(file, { encoding: 'utf8', signal });
-        } catch (e) {
-          if (isAbortError(e)) throw e;
-          return { file, stat, lang, parsed: null, error: `read error: ${e instanceof Error ? e.message : String(e)}` };
-        }
+          let content: string;
+          try {
+            content = await fs.readFile(file, { encoding: 'utf8', signal });
+          } catch (e) {
+            if (isAbortError(e)) throw e;
+            return {
+              file,
+              stat,
+              lang,
+              parsed: null,
+              error: `read error: ${e instanceof Error ? e.message : String(e)}`,
+            };
+          }
 
-        let parsed: Awaited<ReturnType<typeof parseFile>>;
-        try {
-          parsed = await parseFile(file, content, lang);
-        } catch (e) {
-          return { file, stat, lang, parsed: null, error: `parse error: ${e instanceof Error ? e.message : String(e)}` };
-        }
-        return { file, stat, lang, parsed, content };
-      })
+          let parsed: Awaited<ReturnType<typeof parseFile>>;
+          try {
+            parsed = await parseFile(file, content, lang);
+          } catch (e) {
+            return {
+              file,
+              stat,
+              lang,
+              parsed: null,
+              error: `parse error: ${e instanceof Error ? e.message : String(e)}`,
+            };
+          }
+          return { file, stat, lang, parsed, content };
+        },
+      ),
     );
 
     // Phase 2: Sequential SQLite writes — amortized across the whole batch.
@@ -488,7 +527,9 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
               lastIndexed: Date.now(),
             });
           } catch (innerErr) {
-            errors.push(`fallback write failed: ${entry.file}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`);
+            errors.push(
+              `fallback write failed: ${entry.file}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`,
+            );
           }
         }
       }
@@ -507,6 +548,11 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
       }
     }
   }
+
+  // Resolution must run even when every file was an incremental-cache hit:
+  // older indexes can contain unresolved refs from a previous interrupted run.
+  store.resolveRefs();
+  store.setMetadata('relation_graph_version', relationGraphVersion);
 
   const durationMs = Date.now() - startMs;
   store.setLastIndexed(Date.now());

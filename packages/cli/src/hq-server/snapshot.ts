@@ -8,6 +8,7 @@ import type {
   HqBrowserMessage,
   HqClientCapability,
   HqClientRecord,
+  HqCommandAuditEntry,
   HqEventEnvelope,
   HqFleetSnapshotPayload,
   HqFleetSummary,
@@ -27,7 +28,7 @@ import { hqMachineKey } from './utils.js';
 
 // ── Broadcast debounce ─────────────────────────────────────────────────────
 
-export const HQ_SNAPSHOT_BROADCAST_DEBOUNCE_MS = 250;
+export const HQ_SNAPSHOT_BROADCAST_DEBOUNCE_MS = 100;
 
 // ── buildSnapshot ──────────────────────────────────────────────────────────
 
@@ -93,6 +94,7 @@ export function buildSnapshot(clients: Map<WebSocket, ConnectedClient>): HqSnaps
       });
       sessionById.set(tracked.payload.sessionId, {
         ...tracked.payload,
+        clientId: client.clientId,
         agents,
         agentCount: agents.length,
       });
@@ -267,7 +269,7 @@ export function buildSnapshot(clients: Map<WebSocket, ConnectedClient>): HqSnaps
     return {
       sessionId: s.sessionId,
       projectId: s.projectId,
-      clientId: `${s.machineId}:${s.clientKind}`,
+      clientId: s.clientId ?? `${s.machineId}:${s.clientKind}`,
       status: s.status === 'active' ? 'running' : 'idle',
       ...(provider !== undefined ? { model: provider } : {}),
       startedAt: s.startedAt,
@@ -449,6 +451,17 @@ export function buildProjectDetail(
 export function broadcastEvent(event: HqEventEnvelope, browsers: Set<WebSocket>): void {
   const msg: HqBrowserMessage = { type: 'hq.event', event };
   const data = JSON.stringify(msg);
+  for (const ws of browsers) {
+    if (ws.readyState === WebSocket.OPEN) ws.send(data);
+  }
+}
+
+/** Push one control command's lifecycle to every authenticated HQ browser. */
+export function broadcastCommandStatus(
+  command: HqCommandAuditEntry,
+  browsers: Set<WebSocket>,
+): void {
+  const data = JSON.stringify({ type: 'hq.command_status', command } satisfies HqBrowserMessage);
   for (const ws of browsers) {
     if (ws.readyState === WebSocket.OPEN) ws.send(data);
   }

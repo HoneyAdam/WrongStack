@@ -2,13 +2,14 @@ import type { HqEventEnvelope, HqProtocolVersion } from './core.js';
 import type { HqProjectIdentity, HqProjectStatus } from './project.js';
 import type { HqRedactionPolicy } from './tool.js';
 
-export type HqClientKind = 'tui' | 'repl' | 'webui' | 'cli' | 'unknown';
+export type HqClientKind = 'tui' | 'repl' | 'webui' | 'cli' | 'mailbox' | 'unknown';
 
 export type HqClientCapability =
   | 'telemetry.publish'
   | 'session.summary'
   | 'fleet.summary'
   | 'mailbox.summary'
+  | 'mailbox.serve'
   | 'control.receive';
 
 export interface HqClientIdentity {

@@ -25,7 +25,7 @@ import {
   buildCouncilVoterUserPrompt,
 } from './council-prompts.js';
 import { resolveCouncilVotes } from './council-resolution.js';
-import { FallbackProfileManager } from '../core/fallback-profile-manager.js';
+import type { FallbackProfileManager } from '../core/fallback-profile-manager.js';
 import type { Config } from '../types/config.js';
 
 /** Synthetic ballot entry for "refuse every real option". */

@@ -41,7 +41,7 @@ describe('api-compatibility-gate extra coverage', () => {
     apiCompatPlugin.setup(api as never);
     const status = await (api.tools.register.mock.calls.find(
       (c: unknown[]) => (c[0] as { name: string }).name === 'api_compat_status',
-    )?.[0] as { execute: () => Promise<unknown> }).execute({});
+    )![0] as { execute: () => Promise<unknown> }).execute({});
     const s = status as Record<string, unknown>;
     expect(s.severity).toBe('warn');
     expect(s.enabled).toBe(false); // default is false
@@ -52,7 +52,7 @@ describe('api-compatibility-gate extra coverage', () => {
     apiCompatPlugin.setup(api as never);
     const status = await (api.tools.register.mock.calls.find(
       (c: unknown[]) => (c[0] as { name: string }).name === 'api_compat_status',
-    )?.[0] as { execute: () => Promise<unknown> }).execute({});
+    )![0] as { execute: () => Promise<unknown> }).execute({});
     expect((status as Record<string, unknown>).severity).toBe('block');
   });
 
@@ -61,7 +61,7 @@ describe('api-compatibility-gate extra coverage', () => {
     apiCompatPlugin.setup(api as never);
     const status = await (api.tools.register.mock.calls.find(
       (c: unknown[]) => (c[0] as { name: string }).name === 'api_compat_status',
-    )?.[0] as { execute: () => Promise<unknown> }).execute({});
+    )![0] as { execute: () => Promise<unknown> }).execute({});
     expect((status as Record<string, unknown>).entryPointPatterns).toEqual(['**/index.ts']);
   });
 
@@ -96,7 +96,7 @@ describe('api-compatibility-gate extra coverage', () => {
     await hook({ toolName: 'write', toolInput: { path: 'src/index.ts' }, toolResult: { content: '', isError: false } });
     const status = await (api.tools.register.mock.calls.find(
       (c: unknown[]) => (c[0] as { name: string }).name === 'api_compat_status',
-    )?.[0] as { execute: () => Promise<unknown> }).execute({});
+    )![0] as { execute: () => Promise<unknown> }).execute({});
     expect((status as Record<string, unknown>).counters).toMatchObject({ skipped: 1 });
   });
 

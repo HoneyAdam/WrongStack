@@ -24,18 +24,21 @@ import {
   getTaskChain,
   type KanbanBoard,
   type KanbanColumn,
+  type KanbanEventContext,
   type KanbanLifecycleStage,
   type KanbanLink,
   type KanbanTask,
   type KanbanTaskPriority,
-  type KanbanTaskTransitionInput,
   type KanbanTaskStatus,
+  type KanbanTaskTransitionInput,
   listBoards,
   listReadyTasks,
+  listTaskActivity,
   mergeTasks,
   moveTask,
   parseLinesIntoTasks,
   reconcileKanbanBoard,
+  recordTaskActivity,
   recoverStaleTaskAssignments,
   releaseTaskClaim,
   removeBoard,
@@ -44,8 +47,9 @@ import {
   setTaskChain,
   splitTask,
   syncBoardFromTaskGraph,
-  transitionTask,
+  touchKanbanPresence,
   transferTaskToBoard,
+  transitionTask,
   updateBoard,
   updateCheckOnTask,
   updateGoalMetricOnTask,
@@ -88,6 +92,39 @@ function fail(ws: WebSocket, type: string, message: string): void {
 
 function has(payload: Record<string, unknown> | undefined, key: string): boolean {
   return payload !== undefined && Object.hasOwn(payload, key);
+}
+
+function activityContext(
+  ctx: KanbanRouteContext,
+  actor?: string,
+  note?: string,
+): KanbanEventContext {
+  const sessionId = ctx.context?.session?.id;
+  return {
+    ...(sessionId ? { sessionId } : {}),
+    ...(actor ? { actor } : {}),
+    ...(note?.trim() ? { note: note.trim() } : {}),
+  };
+}
+
+async function touchTaskPresence(
+  ctx: KanbanRouteContext,
+  boardId: string,
+  taskId: string,
+): Promise<KanbanBoard | null> {
+  const context = ctx.context;
+  const sessionId = context?.session?.id;
+  if (!context || !sessionId) return null;
+  try {
+    return await touchKanbanPresence(ctx.projectRoot, boardId, {
+      sessionId,
+      agentId: context.agentId || 'webui',
+      agentName: context.agentName || context.agentId || 'WebUI',
+      taskId,
+    });
+  } catch {
+    return null;
+  }
 }
 
 export async function handleKanbanRoute(
@@ -200,7 +237,10 @@ export async function handleKanbanRoute(
           ...(payload?.tags ? { tags: payload.tags as string[] } : {}),
           ...(payload?.columns ? { columns: payload.columns as KanbanColumn[] } : {}),
           ...(has(payload, 'lifecycle')
-            ? { lifecycle: (payload?.lifecycle as KanbanBoard['lifecycle'] | null | undefined) ?? null }
+            ? {
+                lifecycle:
+                  (payload?.lifecycle as KanbanBoard['lifecycle'] | null | undefined) ?? null,
+              }
             : {}),
           ...(has(payload, 'supervisor')
             ? {
@@ -375,15 +415,20 @@ export async function handleKanbanRoute(
           fail(ws, type, 'boardId and title required');
           return true;
         }
-        const result = await addTask(ctx.projectRoot, boardId, {
-          title,
-          columnId: (payload?.columnId as string | undefined) ?? 'backlog',
-          ...(payload?.description ? { description: payload.description as string } : {}),
-          ...(payload?.dueDate ? { dueDate: payload.dueDate as string } : {}),
-          ...(payload?.priority ? { priority: payload.priority as KanbanTaskPriority } : {}),
-          ...(payload?.assignedAgent ? { assignedAgent: payload.assignedAgent as string } : {}),
-          ...(payload?.labels ? { labels: payload.labels as string[] } : {}),
-        });
+        const result = await addTask(
+          ctx.projectRoot,
+          boardId,
+          {
+            title,
+            columnId: (payload?.columnId as string | undefined) ?? 'backlog',
+            ...(payload?.description ? { description: payload.description as string } : {}),
+            ...(payload?.dueDate ? { dueDate: payload.dueDate as string } : {}),
+            ...(payload?.priority ? { priority: payload.priority as KanbanTaskPriority } : {}),
+            ...(payload?.assignedAgent ? { assignedAgent: payload.assignedAgent as string } : {}),
+            ...(payload?.labels ? { labels: payload.labels as string[] } : {}),
+          },
+          activityContext(ctx, 'webui', payload?.activityNote as string | undefined),
+        );
         result ? ok(ws, type, result.task) : fail(ws, type, `Board not found: ${boardId}`);
         return true;
       }
@@ -461,52 +506,58 @@ export async function handleKanbanRoute(
           fail(ws, type, 'boardId and taskId required');
           return true;
         }
-        const board = await updateTask(ctx.projectRoot, boardId, taskId, {
-          ...(has(payload, 'title') ? { title: payload?.title as string } : {}),
-          ...(has(payload, 'description')
-            ? { description: (payload?.description as string | undefined) ?? '' }
-            : {}),
-          ...(has(payload, 'dueDate')
-            ? { dueDate: (payload?.dueDate as string | null | undefined) ?? null }
-            : {}),
-          ...(has(payload, 'columnId') ? { columnId: payload?.columnId as string } : {}),
-          ...(has(payload, 'priority')
-            ? { priority: payload?.priority as KanbanTaskPriority }
-            : {}),
-          ...(has(payload, 'type')
-            ? { type: payload?.type as NonNullable<KanbanTask['type']> }
-            : {}),
-          ...(has(payload, 'status') ? { status: payload?.status as KanbanTaskStatus } : {}),
-          ...(has(payload, 'dependsOn')
-            ? { dependsOn: (payload?.dependsOn as string[] | undefined) ?? [] }
-            : {}),
-          ...(has(payload, 'chain')
-            ? { chain: (payload?.chain as KanbanTask['chain'] | null | undefined) ?? null }
-            : {}),
-          ...(has(payload, 'labels')
-            ? { labels: (payload?.labels as string[] | undefined) ?? [] }
-            : {}),
-          ...(has(payload, 'estimatedHours')
-            ? { estimatedHours: Number(payload?.estimatedHours ?? 0) }
-            : {}),
-          ...(has(payload, 'actualHours')
-            ? { actualHours: Number(payload?.actualHours ?? 0) }
-            : {}),
-          ...(has(payload, 'retryPolicy')
-            ? {
-                retryPolicy:
-                  (payload?.retryPolicy as KanbanTask['retryPolicy'] | null | undefined) ?? null,
-              }
-            : {}),
-          ...(has(payload, 'costCeilingUsd')
-            ? {
-                costCeilingUsd:
-                  payload?.costCeilingUsd === null || payload?.costCeilingUsd === ''
-                    ? null
-                    : Number(payload?.costCeilingUsd),
-              }
-            : {}),
-        });
+        const board = await updateTask(
+          ctx.projectRoot,
+          boardId,
+          taskId,
+          {
+            ...(has(payload, 'title') ? { title: payload?.title as string } : {}),
+            ...(has(payload, 'description')
+              ? { description: (payload?.description as string | undefined) ?? '' }
+              : {}),
+            ...(has(payload, 'dueDate')
+              ? { dueDate: (payload?.dueDate as string | null | undefined) ?? null }
+              : {}),
+            ...(has(payload, 'columnId') ? { columnId: payload?.columnId as string } : {}),
+            ...(has(payload, 'priority')
+              ? { priority: payload?.priority as KanbanTaskPriority }
+              : {}),
+            ...(has(payload, 'type')
+              ? { type: payload?.type as NonNullable<KanbanTask['type']> }
+              : {}),
+            ...(has(payload, 'status') ? { status: payload?.status as KanbanTaskStatus } : {}),
+            ...(has(payload, 'dependsOn')
+              ? { dependsOn: (payload?.dependsOn as string[] | undefined) ?? [] }
+              : {}),
+            ...(has(payload, 'chain')
+              ? { chain: (payload?.chain as KanbanTask['chain'] | null | undefined) ?? null }
+              : {}),
+            ...(has(payload, 'labels')
+              ? { labels: (payload?.labels as string[] | undefined) ?? [] }
+              : {}),
+            ...(has(payload, 'estimatedHours')
+              ? { estimatedHours: Number(payload?.estimatedHours ?? 0) }
+              : {}),
+            ...(has(payload, 'actualHours')
+              ? { actualHours: Number(payload?.actualHours ?? 0) }
+              : {}),
+            ...(has(payload, 'retryPolicy')
+              ? {
+                  retryPolicy:
+                    (payload?.retryPolicy as KanbanTask['retryPolicy'] | null | undefined) ?? null,
+                }
+              : {}),
+            ...(has(payload, 'costCeilingUsd')
+              ? {
+                  costCeilingUsd:
+                    payload?.costCeilingUsd === null || payload?.costCeilingUsd === ''
+                      ? null
+                      : Number(payload?.costCeilingUsd),
+                }
+              : {}),
+          },
+          activityContext(ctx, 'webui', payload?.activityNote as string | undefined),
+        );
         if (!board) {
           fail(ws, type, 'Board or task not found');
           return true;
@@ -558,6 +609,7 @@ export async function handleKanbanRoute(
           taskId,
           columnId,
           payload?.order as number | undefined,
+          activityContext(ctx, 'webui', payload?.activityNote as string | undefined),
         );
         if (!board) {
           fail(ws, type, 'Move failed');
@@ -702,18 +754,28 @@ export async function handleKanbanRoute(
           fail(ws, type, 'boardId, taskId, and name required');
           return true;
         }
-        const board = await addGoalMetricToTask(ctx.projectRoot, boardId, taskId, {
-          name,
-          ...(payload?.status
-            ? { status: payload.status as 'pending' | 'met' | 'missed' | 'waived' }
-            : {}),
-          ...(payload?.target !== undefined ? { target: payload.target as string | number } : {}),
-          ...(payload?.current !== undefined
-            ? { current: payload.current as string | number }
-            : {}),
-          ...(payload?.unit ? { unit: payload.unit as string } : {}),
-          ...(payload?.notes ? { notes: payload.notes as string } : {}),
-        });
+        const board = await addGoalMetricToTask(
+          ctx.projectRoot,
+          boardId,
+          taskId,
+          {
+            name,
+            ...(payload?.status
+              ? { status: payload.status as 'pending' | 'met' | 'missed' | 'waived' }
+              : {}),
+            ...(payload?.target !== undefined ? { target: payload.target as string | number } : {}),
+            ...(payload?.current !== undefined
+              ? { current: payload.current as string | number }
+              : {}),
+            ...(payload?.unit ? { unit: payload.unit as string } : {}),
+            ...(payload?.notes ? { notes: payload.notes as string } : {}),
+          },
+          activityContext(
+            ctx,
+            'webui',
+            (payload?.activityNote as string | undefined) ?? `Goal metric added: ${name}.`,
+          ),
+        );
         board ? ok(ws, type, board) : fail(ws, type, 'Board or task not found');
         return true;
       }
@@ -725,18 +787,29 @@ export async function handleKanbanRoute(
           fail(ws, type, 'boardId, taskId, and metricId required');
           return true;
         }
-        const board = await updateGoalMetricOnTask(ctx.projectRoot, boardId, taskId, metricId, {
-          ...(payload?.name ? { name: payload.name as string } : {}),
-          ...(payload?.status
-            ? { status: payload.status as 'pending' | 'met' | 'missed' | 'waived' }
-            : {}),
-          ...(payload?.target !== undefined ? { target: payload.target as string | number } : {}),
-          ...(payload?.current !== undefined
-            ? { current: payload.current as string | number }
-            : {}),
-          ...(payload?.unit ? { unit: payload.unit as string } : {}),
-          ...(payload?.notes ? { notes: payload.notes as string } : {}),
-        });
+        const board = await updateGoalMetricOnTask(
+          ctx.projectRoot,
+          boardId,
+          taskId,
+          metricId,
+          {
+            ...(payload?.name ? { name: payload.name as string } : {}),
+            ...(payload?.status
+              ? { status: payload.status as 'pending' | 'met' | 'missed' | 'waived' }
+              : {}),
+            ...(payload?.target !== undefined ? { target: payload.target as string | number } : {}),
+            ...(payload?.current !== undefined
+              ? { current: payload.current as string | number }
+              : {}),
+            ...(payload?.unit ? { unit: payload.unit as string } : {}),
+            ...(payload?.notes ? { notes: payload.notes as string } : {}),
+          },
+          activityContext(
+            ctx,
+            'webui',
+            (payload?.activityNote as string | undefined) ?? 'Goal metric updated in WebUI.',
+          ),
+        );
         board ? ok(ws, type, board) : fail(ws, type, 'Metric not found');
         return true;
       }
@@ -747,37 +820,43 @@ export async function handleKanbanRoute(
           fail(ws, type, 'boardId and taskId required');
           return true;
         }
-        const board = await assignTask(ctx.projectRoot, boardId, taskId, {
-          ...(payload?.agentId ? { agentId: payload.agentId as string } : {}),
-          ...(payload?.name ? { name: payload.name as string } : {}),
-          ...(payload?.role ? { role: payload.role as string } : {}),
-          ...(payload?.provider ? { provider: payload.provider as string } : {}),
-          ...(payload?.model ? { model: payload.model as string } : {}),
-          ...(payload?.modelRouting
-            ? { modelRouting: payload.modelRouting as 'session' | 'fixed' | 'fallback_profile' }
-            : {}),
-          ...(payload?.fallbackProfile
-            ? { fallbackProfile: payload.fallbackProfile as string }
-            : {}),
-          ...(payload?.fallbackModels
-            ? { fallbackModels: payload.fallbackModels as string[] }
-            : {}),
-          ...(payload?.skills ? { skills: payload.skills as string[] } : {}),
-          ...(payload?.tools ? { tools: payload.tools as string[] } : {}),
-          ...(payload?.allowedCapabilities
-            ? { allowedCapabilities: payload.allowedCapabilities as string[] }
-            : {}),
-          ...(payload?.assignee ? { assignee: payload.assignee as string } : {}),
-          ...(payload?.maxAttempts !== undefined
-            ? { maxAttempts: Number(payload.maxAttempts) }
-            : {}),
-          ...(payload?.costCeilingUsd !== undefined
-            ? { costCeilingUsd: Number(payload.costCeilingUsd) }
-            : {}),
-          ...(payload?.retryPolicy
-            ? { retryPolicy: payload.retryPolicy as NonNullable<KanbanTask['retryPolicy']> }
-            : {}),
-        });
+        const board = await assignTask(
+          ctx.projectRoot,
+          boardId,
+          taskId,
+          {
+            ...(payload?.agentId ? { agentId: payload.agentId as string } : {}),
+            ...(payload?.name ? { name: payload.name as string } : {}),
+            ...(payload?.role ? { role: payload.role as string } : {}),
+            ...(payload?.provider ? { provider: payload.provider as string } : {}),
+            ...(payload?.model ? { model: payload.model as string } : {}),
+            ...(payload?.modelRouting
+              ? { modelRouting: payload.modelRouting as 'session' | 'fixed' | 'fallback_profile' }
+              : {}),
+            ...(payload?.fallbackProfile
+              ? { fallbackProfile: payload.fallbackProfile as string }
+              : {}),
+            ...(payload?.fallbackModels
+              ? { fallbackModels: payload.fallbackModels as string[] }
+              : {}),
+            ...(payload?.skills ? { skills: payload.skills as string[] } : {}),
+            ...(payload?.tools ? { tools: payload.tools as string[] } : {}),
+            ...(payload?.allowedCapabilities
+              ? { allowedCapabilities: payload.allowedCapabilities as string[] }
+              : {}),
+            ...(payload?.assignee ? { assignee: payload.assignee as string } : {}),
+            ...(payload?.maxAttempts !== undefined
+              ? { maxAttempts: Number(payload.maxAttempts) }
+              : {}),
+            ...(payload?.costCeilingUsd !== undefined
+              ? { costCeilingUsd: Number(payload.costCeilingUsd) }
+              : {}),
+            ...(payload?.retryPolicy
+              ? { retryPolicy: payload.retryPolicy as NonNullable<KanbanTask['retryPolicy']> }
+              : {}),
+          },
+          activityContext(ctx, undefined, payload?.activityNote as string | undefined),
+        );
         board
           ? ok(ws, type, findTask(board.tasks, taskId))
           : fail(ws, type, 'Board or task not found');
@@ -791,11 +870,23 @@ export async function handleKanbanRoute(
           fail(ws, type, 'boardId, taskId, and description required');
           return true;
         }
-        const board = await addCheckToTask(ctx.projectRoot, boardId, taskId, {
-          description,
-          type: (payload?.checkType as 'manual' | 'auto' | 'agent' | 'test' | 'review') ?? 'manual',
-          status: (payload?.status as 'pending' | 'passed' | 'failed' | 'skipped') ?? 'pending',
-        });
+        const board = await addCheckToTask(
+          ctx.projectRoot,
+          boardId,
+          taskId,
+          {
+            description,
+            type:
+              (payload?.checkType as 'manual' | 'auto' | 'agent' | 'test' | 'review') ?? 'manual',
+            status: (payload?.status as 'pending' | 'passed' | 'failed' | 'skipped') ?? 'pending',
+          },
+          activityContext(
+            ctx,
+            'webui',
+            (payload?.activityNote as string | undefined) ??
+              `Acceptance check added: ${description}.`,
+          ),
+        );
         board ? ok(ws, type, board) : fail(ws, type, 'Board or task not found');
         return true;
       }
@@ -807,11 +898,23 @@ export async function handleKanbanRoute(
           fail(ws, type, 'boardId, taskId, and checkId required');
           return true;
         }
-        const board = await updateCheckOnTask(ctx.projectRoot, boardId, taskId, checkId, {
-          ...(has(payload, 'status')
-            ? { status: payload?.status as 'pending' | 'passed' | 'failed' | 'skipped' }
-            : {}),
-        });
+        const board = await updateCheckOnTask(
+          ctx.projectRoot,
+          boardId,
+          taskId,
+          checkId,
+          {
+            ...(has(payload, 'status')
+              ? { status: payload?.status as 'pending' | 'passed' | 'failed' | 'skipped' }
+              : {}),
+          },
+          activityContext(
+            ctx,
+            'webui',
+            (payload?.activityNote as string | undefined) ??
+              `Acceptance check updated${payload?.status ? ` to ${String(payload.status)}` : ''}.`,
+          ),
+        );
         if (!board) fail(ws, type, 'Check not found');
         else ok(ws, type, (await reconcileKanbanBoard(ctx.projectRoot, boardId))?.board ?? board);
         return true;
@@ -824,10 +927,17 @@ export async function handleKanbanRoute(
           fail(ws, type, 'boardId, taskId, and content required');
           return true;
         }
-        const board = await addNoteToTask(ctx.projectRoot, boardId, taskId, {
-          author: (payload?.author as string | undefined) ?? 'webui',
-          content,
-        });
+        const author = (payload?.author as string | undefined) ?? 'webui';
+        const board = await addNoteToTask(
+          ctx.projectRoot,
+          boardId,
+          taskId,
+          {
+            author,
+            content,
+          },
+          activityContext(ctx, author),
+        );
         board ? ok(ws, type, board) : fail(ws, type, 'Board or task not found');
         return true;
       }
@@ -870,7 +980,66 @@ export async function handleKanbanRoute(
           return true;
         }
         const task = await getTask(ctx.projectRoot, boardId, taskId);
-        task ? ok(ws, type, task) : fail(ws, type, 'Task not found');
+        if (task) {
+          await touchTaskPresence(ctx, boardId, task.id);
+          ok(ws, type, task);
+        } else {
+          fail(ws, type, 'Task not found');
+        }
+        return true;
+      }
+      case 'kanban.task.activity': {
+        const boardId = payload?.boardId as string | undefined;
+        const taskId = payload?.taskId as string | undefined;
+        if (!boardId || !taskId) {
+          fail(ws, type, 'boardId and taskId required');
+          return true;
+        }
+        const presenceBoard = await touchTaskPresence(ctx, boardId, taskId);
+        const events = await listTaskActivity(ctx.projectRoot, boardId, taskId, {
+          ...(typeof payload?.limit === 'number' ? { limit: payload.limit } : {}),
+        });
+        ok(ws, type, {
+          boardId,
+          taskId,
+          events,
+          presence: presenceBoard?.presence?.filter((entry) => entry.taskId === taskId) ?? [],
+        });
+        return true;
+      }
+      case 'kanban.task.activity.add': {
+        const boardId = payload?.boardId as string | undefined;
+        const taskId = payload?.taskId as string | undefined;
+        const kind = payload?.kind as string | undefined;
+        const summary = payload?.summary as string | undefined;
+        const allowedKinds = ['decision', 'attempt', 'result', 'blocker', 'observation'] as const;
+        const allowedOutcomes = ['succeeded', 'failed', 'partial', 'skipped', 'unknown'] as const;
+        if (!boardId || !taskId || !summary?.trim() || !allowedKinds.includes(kind as never)) {
+          fail(ws, type, 'boardId, taskId, summary, and a valid activity kind required');
+          return true;
+        }
+        const requestedOutcome = payload?.outcome as string | undefined;
+        const outcome = allowedOutcomes.includes(requestedOutcome as never)
+          ? (requestedOutcome as (typeof allowedOutcomes)[number])
+          : 'unknown';
+        const board = await recordTaskActivity(
+          ctx.projectRoot,
+          boardId,
+          taskId,
+          {
+            kind: kind as (typeof allowedKinds)[number],
+            summary: summary.trim(),
+            outcome,
+            ...(typeof payload?.details === 'string' && payload.details.trim()
+              ? { details: payload.details.trim() }
+              : {}),
+          },
+          activityContext(
+            ctx,
+            (payload?.actor as string | undefined) ?? ctx.context?.agentId ?? 'webui',
+          ),
+        );
+        board ? ok(ws, type, board) : fail(ws, type, 'Board or task not found');
         return true;
       }
       case 'kanban.column.add': {

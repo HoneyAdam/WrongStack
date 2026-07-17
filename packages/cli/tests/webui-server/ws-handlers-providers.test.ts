@@ -292,7 +292,7 @@ describe('ws-handlers/providers (PR 5 of #30)', () => {
     await handleProvidersSaved(ctx, FAKE_WS);
     const msg = cap.sent.find((m) => m.type === 'providers.saved');
     expect(msg).toBeDefined();
-    expect((msg?.payload as { providers: unknown[] }).providers).toEqual([]);
+    expect((msg!.payload as { providers: unknown[] }).providers).toEqual([]);
   });
 
   it('handleProviderAdd: persists provider, broadcasts providers.saved, reports success', async () => {

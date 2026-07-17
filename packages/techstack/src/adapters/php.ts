@@ -20,6 +20,7 @@ import type {
   EcosystemAdapter,
   InventoryOptions,
 } from './interface.js';
+import { workspaceRoot } from './paths.js';
 import { buildPurl } from '../registry/purl.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -95,10 +96,10 @@ export class PhpAdapter implements EcosystemAdapter {
 
   async inventory(
     workspace: Workspace,
-    _options: InventoryOptions,
+    options: InventoryOptions,
   ): Promise<readonly DependencyObservation[]> {
     const observations: DependencyObservation[] = [];
-    const root = workspace.relativeRoot || '.';
+    const root = workspaceRoot(workspace, options);
     const seen = new Set<string>();
 
     // Find composer.json

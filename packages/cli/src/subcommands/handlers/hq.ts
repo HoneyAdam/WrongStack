@@ -20,6 +20,8 @@
  */
 import {
   HQ_AUTH_FILE_VERSION,
+  HQ_CLI_DEFAULT_HOST,
+  HqInsecureExposureError,
   expectDefined,
   mutateHqAuthFile,
   mintHqToken,
@@ -61,13 +63,32 @@ async function startServer(deps: SubcommandDeps): Promise<number> {
   const { startHqServer } = await import('../../hq-server.js');
   const dataDir = resolveDataDir(deps);
   const flags = deps.flags ?? {};
-  const host = typeof flags['host'] === 'string' ? flags['host'] : '127.0.0.1';
+  const host = typeof flags['host'] === 'string' ? flags['host'] : HQ_CLI_DEFAULT_HOST;
   const port = typeof flags['port'] === 'string' ? Number.parseInt(flags['port'], 10) : 3499;
   const strictPort = flags['strict-port'] === true;
   const open = flags['open'] === true;
   const password = typeof flags['password'] === 'string' ? flags['password'] : undefined;
+  const allowInsecureOpen = flags['insecure-open'] === true;
 
-  const handle = await startHqServer({ host, port, strictPort, dataDir, ...(password !== undefined ? { password } : {}) });
+  let handle: HqServerHandle;
+  try {
+    handle = await startHqServer({
+      host,
+      port,
+      strictPort,
+      dataDir,
+      allowInsecureOpen,
+      ...(password !== undefined ? { password } : {}),
+    });
+  } catch (err) {
+    // A refusal is operator-actionable guidance, not a crash — print the
+    // remedies rather than a stack trace.
+    if (err instanceof HqInsecureExposureError) {
+      deps.renderer.writeError(`${err.message}\n`);
+      return 1;
+    }
+    throw err;
+  }
 
   if (open) {
     try {
@@ -349,7 +370,8 @@ function printHelp(deps: SubcommandDeps): void {
   deps.renderer.write('\n');
   deps.renderer.write(`Flags (apply to all subcommands):\n`);
   deps.renderer.write(`  --data-dir <path>   Override HQ data directory (default ~/.wrongstack/hq).\n`);
-  deps.renderer.write(`  --host <ip>         Bind host (default 127.0.0.1).\n`);
+  deps.renderer.write(`  --host <ip>         Bind host (default 0.0.0.0; use 127.0.0.1 for local-only).\n`);
+  deps.renderer.write(`  --insecure-open     Allow a non-loopback bind with no token/password set.\n`);
   deps.renderer.write(`  --port <n>          Bind port (default 3499).\n`);
   deps.renderer.write(`  --strict-port       Fail if port is in use.\n`);
   deps.renderer.write(`  --open              Open the dashboard in the default browser.\n`);

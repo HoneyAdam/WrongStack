@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from 'react';
 import { installFaviconVisibilityReset } from '@/lib/favicon';
-import type { WrongStackWebSocketClient } from '@/lib/ws-client';
+import type { WrongStackWebSocketClient, WSSendOptions } from '@/lib/ws-client';
 import { getWSClient } from '@/lib/ws-client';
 import { useConfigStore, useHistoryStore, useUIStore } from '@/stores';
 import { WS_HANDLERS } from './ws-handlers.js';
@@ -25,7 +25,12 @@ function installHandlers(ws: WrongStackWebSocketClient): () => void {
   const offs: Array<() => void> = [];
   for (const [type, handler] of Object.entries(WS_HANDLERS)) {
     if (!handler) continue;
-    offs.push(ws.on(type, handler));
+    offs.push(
+      ws.on(type, (message) => {
+        if (ws.consumeSuppressedChatEcho(type)) return;
+        handler(message);
+      }),
+    );
   }
   return () => {
     for (const off of offs) off();
@@ -170,12 +175,19 @@ export function useWebSocket() {
   );
   const resumeSession = useCallback((id: string) => client.resumeSessionById(id), [client]);
   const saveSession = useCallback(() => client.saveSession(), [client]);
-  const listTools = useCallback(() => client.listTools(), [client]);
-  const listMemory = useCallback(() => client.listMemory(), [client]);
-  const listSuperMemories = useCallback(() => client.listSuperMemories(), [client]);
-  const getSuperMemory = useCallback((id: string) => client.getSuperMemory(id), [client]);
+  const listTools = useCallback((options?: WSSendOptions) => client.listTools(options), [client]);
+  const listMemory = useCallback((options?: WSSendOptions) => client.listMemory(options), [client]);
+  const listSuperMemories = useCallback(
+    (options?: WSSendOptions) => client.listSuperMemories(options),
+    [client],
+  );
+  const getSuperMemory = useCallback(
+    (id: string, options?: WSSendOptions) => client.getSuperMemory(id, options),
+    [client],
+  );
   const updateSuperMemory = useCallback(
-    (id: string, patch: Record<string, unknown>) => client.updateSuperMemory(id, patch),
+    (id: string, patch: Record<string, unknown>, options?: WSSendOptions) =>
+      client.updateSuperMemory(id, patch, options),
     [client],
   );
   const deleteSuperMemory = useCallback(
@@ -183,12 +195,13 @@ export function useWebSocket() {
     [client],
   );
   const rememberSuperMemory = useCallback(
-    (opts: Parameters<typeof client.rememberSuperMemory>[0]) => client.rememberSuperMemory(opts),
+    (opts: Parameters<typeof client.rememberSuperMemory>[0], options?: WSSendOptions) =>
+      client.rememberSuperMemory(opts, options),
     [client],
   );
-  const listSkills = useCallback(() => client.listSkills(), [client]);
-  const getDiag = useCallback(() => client.getDiag(), [client]);
-  const getStats = useCallback(() => client.getStats(), [client]);
+  const listSkills = useCallback((options?: WSSendOptions) => client.listSkills(options), [client]);
+  const getDiag = useCallback((options?: WSSendOptions) => client.getDiag(options), [client]);
+  const getStats = useCallback((options?: WSSendOptions) => client.getStats(options), [client]);
   const getPlan = useCallback(() => client.getPlan(), [client]);
   const listModes = useCallback(() => client.listModes(), [client]);
   const switchMode = useCallback((id: string) => client.switchMode(id), [client]);

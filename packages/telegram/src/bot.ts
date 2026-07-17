@@ -8,7 +8,7 @@ import {
   type TelegramApiCallbackQuery,
   type TelegramApiMessage,
 } from './api-client.js';
-import { OffsetStore } from './offset-store.js';
+import type { OffsetStore } from './offset-store.js';
 import type { PollLock } from './poll-lock.js';
 
 export interface TelegramBotResponse<T> {

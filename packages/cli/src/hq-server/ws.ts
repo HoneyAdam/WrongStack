@@ -42,7 +42,7 @@ import {
   recordTimeseriesSignal,
   truncateHqSummary,
 } from './utils.js';
-import { broadcastEvent } from './snapshot.js';
+import { broadcastCommandStatus, broadcastEvent } from './snapshot.js';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -250,7 +250,7 @@ export function handleClient(
     if (!registered) return;
 
     // ── Phase 3 control plane: client polls for commands & acks them ──────
-    // The client SDK (HqPublisher) polls every ~2s with an `afterCommandId`
+    // The client SDK (HqPublisher) polls every ~500ms with an `afterCommandId`
     // cursor; we drain the per-client queue back to it as a `hq.command_batch`.
     if (frame.type === 'client.command_poll') {
       const client = clients.get(ws);
@@ -277,6 +277,8 @@ export function handleClient(
           if (ws.readyState === WebSocket.OPEN) ws.send(batch);
           for (const cmd of toSend) {
             auditLog?.update(cmd.commandId, { status: 'delivered' });
+            const updated = auditLog?.get(cmd.commandId);
+            if (updated !== undefined) broadcastCommandStatus(updated, browsers);
           }
         }
       }
@@ -293,12 +295,16 @@ export function handleClient(
         client.lastSeenAt = new Date().toISOString();
       }
       if (client) {
-        auditLog?.updateForClient(frame.commandId, client.clientId, {
+        const updated = auditLog?.updateForClient(frame.commandId, client.clientId, {
           status: 'acked',
           ackStatus: frame.status,
           ...(frame.message !== undefined ? { ackMessage: frame.message } : {}),
           ackedAt: new Date().toISOString(),
         });
+        if (updated === true) {
+          const entry = auditLog?.get(frame.commandId);
+          if (entry !== undefined) broadcastCommandStatus(entry, browsers);
+        }
       }
       return;
     }

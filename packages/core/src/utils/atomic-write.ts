@@ -93,7 +93,12 @@ export async function withFileLock<T>(
   const dir = path.dirname(targetPath);
   await fs.mkdir(dir, { recursive: true });
   const lockPath = path.join(dir, `.${path.basename(targetPath)}.lock`);
-  const timeoutMs = opts.timeoutMs ?? 5_000;
+  // A lock holder can be scheduled out for several seconds when the full test
+  // suite (or a busy workstation) is spawning many child processes. Five
+  // seconds was short enough to turn ordinary contention into a dropped
+  // best-effort index write. Keep the wait bounded, but leave enough headroom
+  // for the holder to resume and release before stale-lock recovery applies.
+  const timeoutMs = opts.timeoutMs ?? 15_000;
   const staleMs = opts.staleMs ?? 30_000;
   const started = Date.now();
   let handle: fs.FileHandle | undefined;

@@ -2,6 +2,7 @@ import type { AgentPipelines, Config, Logger, MemoryStore } from '@wrongstack/co
 import {
   createSuperMemoryToolCallMiddleware,
   createSuperMemoryTurnMiddleware,
+  InjectionTracker,
   type SuperMemoryRetrieverLike,
 } from '@wrongstack/super-memory';
 
@@ -23,6 +24,12 @@ export function setupSuperMemory(deps: SuperMemoryWiringDeps): () => Promise<voi
     return noop;
   }
 
+  // One tracker shared by both middlewares: tool-result injections must be
+  // matchable when the turn middleware scans assistant messages for references
+  // (the usefulness signal behind recordUse). A tracker per middleware would
+  // silently drop every cross-path use.
+  const injectionTracker = new InjectionTracker();
+
   if (cfg?.inject?.toolResults !== false) {
     deps.pipelines.toolCall.use(
       createSuperMemoryToolCallMiddleware({
@@ -33,6 +40,7 @@ export function setupSuperMemory(deps: SuperMemoryWiringDeps): () => Promise<voi
         repeatCooldownMs: cfg?.inject?.repeatCooldownMs,
         verifyOnMutation: cfg?.hygiene?.autoOnFileChange,
         triggers: cfg?.inject?.triggers,
+        tracker: injectionTracker,
       }),
     );
   }
@@ -44,6 +52,7 @@ export function setupSuperMemory(deps: SuperMemoryWiringDeps): () => Promise<voi
         maxChars: cfg?.inject?.maxCharsPerTurn,
         minScore: cfg?.inject?.minScore,
         metadataWeight: cfg?.retrieval?.metadataWeight,
+        tracker: injectionTracker,
       }),
     );
   }
@@ -55,6 +64,8 @@ export function setupSuperMemory(deps: SuperMemoryWiringDeps): () => Promise<voi
     await candidate.hygiene?.call(candidate, {
       retentionDays: cfg?.hygiene?.retentionDays,
       archiveLowConfidenceAfterDays: cfg?.hygiene?.archiveLowConfidenceAfterDays,
+      archiveUnusedAfterDays: cfg?.hygiene?.archiveUnusedAfterDays,
+      unusedMinInjections: cfg?.hygiene?.unusedMinInjections,
     });
   };
 }

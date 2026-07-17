@@ -154,6 +154,9 @@ export function createAgentToolHandler(a: AgentInternals): AgentToolHandler {
     });
     a.events.emit('tool.executed', {
       sessionId: a.ctx.session.id,
+      ...(a.ctx.traceId ? { traceId: a.ctx.traceId } : {}),
+      agentId: a.ctx.agentId,
+      agentName: a.ctx.agentName,
       id: toolUseId,
       name: toolName,
       durationMs,

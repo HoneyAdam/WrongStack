@@ -157,19 +157,14 @@ interface CostTrackerConfig {
  * @internal
  */
 function readCostTrackerConfig(raw: Record<string, unknown> | undefined): CostTrackerConfig {
+  const digestEveryN = raw?.['mailboxDigestEveryN'];
+  const digestTo = raw?.['mailboxDigestTo'];
   return {
     budgetLimit: typeof raw?.['budgetLimit'] === 'number' ? raw['budgetLimit'] : 0,
     warningThreshold: typeof raw?.['warningThreshold'] === 'number' ? raw['warningThreshold'] : 80,
     mailboxDigestEveryN:
-      typeof raw?.['mailboxDigestEveryN'] === 'number' &&
-      (raw?.['mailboxDigestEveryN'] as number) >= 0
-        ? Math.floor(raw?.['mailboxDigestEveryN'] as number)
-        : 0,
-    mailboxDigestTo:
-      typeof raw?.['mailboxDigestTo'] === 'string' &&
-      (raw?.['mailboxDigestTo'] as string).length > 0
-        ? (raw?.['mailboxDigestTo'] as string)
-        : 'cost-tracker',
+      typeof digestEveryN === 'number' && digestEveryN >= 0 ? Math.floor(digestEveryN) : 0,
+    mailboxDigestTo: typeof digestTo === 'string' && digestTo.length > 0 ? digestTo : 'cost-tracker',
   };
 }
 

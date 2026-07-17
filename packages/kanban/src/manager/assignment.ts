@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mutateBoard, readKanbanEvents, summarizeBoard } from '../storage.js';
+import { mutateBoard, summarizeBoard } from '../storage.js';
 import type {
   AssignKanbanTaskInput,
   ClaimKanbanTaskInput,
@@ -8,6 +8,7 @@ import type {
   KanbanAgentRunStatus,
   KanbanBoard,
   KanbanEvent,
+  KanbanEventContext,
   KanbanOrchestrationSnapshot,
   KanbanQueueHealth,
   KanbanSearchInput,
@@ -117,6 +118,7 @@ export async function assignTask(
   boardId: string,
   taskId: string,
   input: AssignKanbanTaskInput,
+  eventContext: KanbanEventContext = {},
 ): Promise<KanbanBoard | null> {
   let event: KanbanEvent | undefined;
   const updated = await mutateBoard(projectRoot, boardId, (board) => {
@@ -135,6 +137,7 @@ export async function assignTask(
     // `assign` is distinct from `claim` — record the routing decision (provider/
     // model/role) so it leaves an audit trail like claim/release do.
     event = createKanbanEvent(board.id, task, 'task.assigned', {
+      ...eventContext,
       ...(before ? { before } : {}),
       after: { ...assignment },
     });
@@ -149,6 +152,7 @@ export async function updateTaskAssignment(
   boardId: string,
   taskId: string,
   patch: Partial<KanbanAgentAssignment> & { status?: KanbanAgentRunStatus | undefined },
+  eventContext: KanbanEventContext = {},
 ): Promise<KanbanBoard | null> {
   let event: KanbanEvent | undefined;
   const updated = await mutateBoard(projectRoot, boardId, (board) => {
@@ -180,10 +184,12 @@ export async function updateTaskAssignment(
       task.updatedAt = nowIso();
       board.updatedAt = task.updatedAt;
       event = createKanbanEvent(board.id, task, assignmentEventType(task.assignment.status), {
+        ...eventContext,
         before: beforeAssignment,
         after: { ...task.assignment },
         note: patch.error ?? patch.lastResult,
       });
+      if (task.assignment.status === 'running') board.lastDispatchedAt = nowIso();
       return task;
     }
     if (task.assignment.status === 'completed') {
@@ -221,10 +227,12 @@ export async function updateTaskAssignment(
     task.updatedAt = nowIso();
     board.updatedAt = task.updatedAt;
     event = createKanbanEvent(board.id, task, assignmentEventType(task.assignment.status), {
+      ...eventContext,
       before: beforeAssignment,
       after: { ...task.assignment },
       note: patch.error ?? patch.lastResult,
     });
+    if (task.assignment.status === 'running') board.lastDispatchedAt = nowIso();
     return task;
   });
   if (updated && event) await emitKanbanEvent(projectRoot, event);
@@ -348,6 +356,7 @@ export async function recoverStaleTaskAssignments(
         ...task,
         assignment: task.assignment ? { ...task.assignment } : undefined,
       });
+      board.lastStaleRecoveredAt = now;
       events.push(
         createKanbanEvent(board.id, task, 'task.stale_recovered', {
           before: beforeAssignment,
@@ -557,16 +566,17 @@ export async function getKanbanQueueHealth(
     }
   }
 
+  // Read cached timestamps from the board JSON instead of scanning
+  // the full event log. These are set atomically by updateTaskAssignment
+  // (for lastDispatchedAt) and recoverStaleTaskAssignments (for lastStaleRecoveredAt).
   let lastDispatchedAt: string | undefined;
   let lastStaleRecoveredAt: string | undefined;
-  for (const boardId of boardIds) {
-    const events = await readKanbanEvents(projectRoot, boardId);
-    for (const event of events) {
-      if (event.type === 'task.assignment.running') {
-        lastDispatchedAt = later(lastDispatchedAt, event.ts);
-      } else if (event.type === 'task.stale_recovered') {
-        lastStaleRecoveredAt = later(lastStaleRecoveredAt, event.ts);
-      }
+  for (const board of boards) {
+    if (board.lastDispatchedAt !== undefined) {
+      lastDispatchedAt = later(lastDispatchedAt, board.lastDispatchedAt);
+    }
+    if (board.lastStaleRecoveredAt !== undefined) {
+      lastStaleRecoveredAt = later(lastStaleRecoveredAt, board.lastStaleRecoveredAt);
     }
   }
 

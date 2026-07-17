@@ -80,7 +80,7 @@ describe('DefaultSessionStore.searchEvents — streaming walker', () => {
     expect(out).toHaveLength(1);
     // session_start=0, message-1=1, message-2=2, message-3=3.
     expect(out[0]?.eventIndex).toBe(3);
-    expect((out[0]?.event as { content: string }).content).toBe('message-3');
+    expect((out[0]!.event as { content: string }).content).toBe('message-3');
   });
 
   it('assigns eventIndex monotonically, skipping malformed lines', async () => {
@@ -99,8 +99,8 @@ describe('DefaultSessionStore.searchEvents — streaming walker', () => {
     // unknown-but-shape-valid future type), in document order:
     //   0=session_start, 1=alpha (user_input), 2=unknown_future_type, 3=beta.
     expect(out.map((m) => m.eventIndex)).toEqual([1, 3]);
-    expect((out[0]?.event as { content: string }).content).toBe('alpha');
-    expect((out[1]?.event as { content: string }).content).toBe('beta');
+    expect((out[0]!.event as { content: string }).content).toBe('alpha');
+    expect((out[1]!.event as { content: string }).content).toBe('beta');
   });
 
   it('skips lines missing the required shape (no type, no ts)', async () => {
@@ -117,7 +117,7 @@ describe('DefaultSessionStore.searchEvents — streaming walker', () => {
 
     const out = await store.searchEvents('s', (ev) => ev.type === 'user_input');
     expect(out).toHaveLength(1);
-    expect((out[0]?.event as { content: string }).content).toBe('kept');
+    expect((out[0]!.event as { content: string }).content).toBe('kept');
     // The kept event is the 4th line in the file but only the 2nd that
     // passes the shape guard (after session_start at index 0).
     expect(out[0]?.eventIndex).toBe(1);
@@ -161,7 +161,7 @@ describe('DefaultSessionStore.searchEvents — streaming walker', () => {
 
     const out = await store.searchEvents('s', (ev) => ev.type === 'user_input');
     expect(out).toHaveLength(1);
-    expect((out[0]?.event as { content: string }).content).toBe('tail');
+    expect((out[0]!.event as { content: string }).content).toBe('tail');
   });
 
   it('drops a partial trailing line (truncated JSON)', async () => {
@@ -274,8 +274,8 @@ describe('DefaultSessionStore.searchEvents — streaming walker', () => {
 
     const out = await store.searchEvents('s', (ev) => ev.type === 'user_input');
     expect(out).toHaveLength(2);
-    expect((out[0]?.event as { content: string }).content.length).toBe(80_000);
-    expect((out[1]?.event as { content: string }).content).toBe('after-big');
+    expect((out[0]!.event as { content: string }).content.length).toBe(80_000);
+    expect((out[1]!.event as { content: string }).content).toBe('after-big');
     // eventIndex is independent of payload size.
     expect(out[0]?.eventIndex).toBe(1);
     expect(out[1]?.eventIndex).toBe(2);

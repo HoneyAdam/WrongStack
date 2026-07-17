@@ -11,7 +11,7 @@
 import * as fs from 'node:fs/promises';
 import * as net from 'node:net';
 import * as path from 'node:path';
-import { color, resolveHqDataDir } from '@wrongstack/core';
+import { color, resolveHqDataDir, HQ_CLI_DEFAULT_HOST } from '@wrongstack/core';
 import { DEFAULT_PORT } from '../hq-server.js';
 
 interface HqRuntimeMarker {
@@ -80,7 +80,8 @@ export async function handleHqShortCircuit(
   if (flags['hq'] !== true) return null;
 
   const { startHqServer } = await import('../hq-server.js');
-  const host = typeof flags['host'] === 'string' ? flags['host'] : '127.0.0.1';
+  // The CLI opts into the wide bind explicitly; the library default stays loopback.
+  const host = typeof flags['host'] === 'string' ? flags['host'] : HQ_CLI_DEFAULT_HOST;
 
   // Port: use --port flag if explicitly given; otherwise use the documented
   // default without prompting so `wstack --hq` and `wstack hq` are direct
@@ -132,6 +133,7 @@ export async function handleHqShortCircuit(
       port,
       strictPort: flags['strict-port'] === true,
       exactPort: userProvidedPort,
+      allowInsecureOpen: flags['insecure-open'] === true,
       ...(dataDir !== undefined ? { dataDir } : {}),
       ...(password !== undefined ? { password } : {}),
     });

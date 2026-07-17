@@ -1,31 +1,41 @@
 import { describe, expect, it } from 'vitest';
 import { overlapCoefficient, tokenize } from '../src/middleware/turn-memory.js';
+import { tokenize as helpersTokenize } from '../src/store-helpers.js';
 
 describe('tokenize', () => {
+  it('is the single canonical implementation shared with the stores', () => {
+    // turn-memory re-exports the store-helpers tokenizer — if this identity
+    // breaks, retrieval scoring and injection scoring silently diverge again.
+    expect(tokenize).toBe(helpersTokenize);
+  });
+
   it('splits a simple sentence into lowercase tokens', () => {
     expect(tokenize('Hello World')).toEqual(['hello', 'world']);
   });
 
-  it('strips non-alphanumeric characters', () => {
-    expect(tokenize('foo-bar_baz!@#')).toEqual(['foo', 'bar', 'baz']);
+  it('keeps identifier characters (hyphen, underscore, dot) inside tokens', () => {
+    expect(tokenize('foo-bar_baz!@#')).toEqual(['foo-bar_baz']);
   });
 
   it('handles mixed case', () => {
-    expect(tokenize('CamelCase SNAKE_CASE')).toEqual(['camelcase', 'snake', 'case']);
+    expect(tokenize('CamelCase SNAKE_CASE')).toEqual(['camelcase', 'snake_case']);
   });
 
-  it('filters out single-character tokens', () => {
+  it('filters out tokens shorter than 3 characters', () => {
     expect(tokenize('a big x tool')).toEqual(['big', 'tool']);
   });
 
-  it('handles numbers (filters single-digit tokens)', () => {
-    // '2' is filtered (length <= 1), '4096' survives (length > 1)
+  it('handles numbers (filters tokens shorter than 3 characters)', () => {
+    // '2' and 'of' are filtered (length < 3), '4096' survives
     expect(tokenize('version 2 of 4096 chars')).toEqual([
       'version',
-      'of',
       '4096',
       'chars',
     ]);
+  });
+
+  it('deduplicates repeated tokens', () => {
+    expect(tokenize('test Test TEST')).toEqual(['test']);
   });
 
   it('collapses multiple spaces', () => {
@@ -44,8 +54,8 @@ describe('tokenize', () => {
     expect(tokenize('   \t\n  ')).toEqual([]);
   });
 
-  it('handles unicode by stripping non-ascii-alphanumeric to spaces', () => {
-    expect(tokenize('café—naïve')).toEqual(['caf', 'na', 've']);
+  it('preserves unicode letters via NFKC instead of stripping them', () => {
+    expect(tokenize('café—naïve')).toEqual(['café', 'naïve']);
   });
 });
 

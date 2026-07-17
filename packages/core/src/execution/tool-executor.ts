@@ -25,7 +25,13 @@ import { coerceAgainstSchema, validateAgainstSchema } from '../utils/json-schema
 import { subjectForToolInput } from '../utils/tool-subject.js';
 import { createToolOutputSerializer } from '../utils/tool-output-serializer.js';
 import { wstackGlobalRoot } from '../utils/wstack-paths.js';
-import { FetchError, isWrongStackError, ToolError, ToolValidationError, WrongStackError } from '../types/errors.js';
+import {
+  FetchError,
+  isWrongStackError,
+  ToolError,
+  ToolValidationError,
+  WrongStackError,
+} from '../types/errors.js';
 import { MALFORMED_ARG_MARKERS } from '../types/tool-markers.js';
 import type { ToolResultRenderMode } from '../types/config.js';
 import { resolveToolResultRenderMode } from '../utils/tool-result-render-mode.js';
@@ -172,9 +178,8 @@ export class ToolExecutor {
     ctx: Context,
     strategy: ToolExecutorStrategy,
   ): Promise<ToolBatchResult> {
-    return this.withGovernedExecutionBridge(
-      ctx,
-      () => this.executeBatchInternal(toolUses, ctx, strategy),
+    return this.withGovernedExecutionBridge(ctx, () =>
+      this.executeBatchInternal(toolUses, ctx, strategy),
     );
   }
 
@@ -416,7 +421,8 @@ export class ToolExecutor {
           }
           // fall through to execute
         } else {
-          const suggestedPattern = subjectForToolInput(tool.name, use.input, tool.subjectKey) ?? tool.name;
+          const suggestedPattern =
+            subjectForToolInput(tool.name, use.input, tool.subjectKey) ?? tool.name;
           const pending: ToolConfirmPendingResult = {
             type: 'tool_confirm_pending',
             toolUseId: use.id,
@@ -444,9 +450,8 @@ export class ToolExecutor {
         'tool.name': tool.name,
         'tool.mutating': tool.mutating,
         'tool.permission': tool.permission,
-        'tool.capabilities': toolCapsForAudit.length > 0
-          ? JSON.stringify(tool.capabilities ?? [])
-          : '[]',
+        'tool.capabilities':
+          toolCapsForAudit.length > 0 ? JSON.stringify(tool.capabilities ?? []) : '[]',
         'tool.has_dangerous_capabilities': toolCapsForAudit.length > 0,
       });
       try {
@@ -566,9 +571,7 @@ export class ToolExecutor {
         const result = {
           type: 'tool_result' as const,
           tool_use_id: use.id,
-          content: isStructured
-            ? scrubbed
-            : `Tool "${use.name}" execution failed: ${scrubbed}`,
+          content: isStructured ? scrubbed : `Tool "${use.name}" execution failed: ${scrubbed}`,
           is_error: true,
         };
         budget = this.budgetForString(result.content, budget);
@@ -694,6 +697,9 @@ export class ToolExecutor {
   ): Promise<string> {
     this.opts.events?.emit('tool.started', {
       sessionId: ctx.session.id,
+      ...(ctx.traceId ? { traceId: ctx.traceId } : {}),
+      agentId: ctx.agentId,
+      agentName: ctx.agentName,
       name: tool.name,
       id: use.id,
       input: use.input,
@@ -878,6 +884,9 @@ export class ToolExecutor {
     const emitProgress = (ev: ToolProgressEvent) => {
       this.opts.events?.emit('tool.progress', {
         sessionId: ctx.session.id,
+        ...(ctx.traceId ? { traceId: ctx.traceId } : {}),
+        agentId: ctx.agentId,
+        agentName: ctx.agentName,
         name: tool.name,
         id: toolUseId ?? '<unknown>',
         event: ev,
@@ -1029,7 +1038,6 @@ export class ToolExecutor {
   private budgetForString(content: string, budget: number): number {
     return Math.max(0, budget - Buffer.byteLength(content, 'utf8'));
   }
-
 }
 
 function clampTimeoutMs(timeoutMs: number, maxTimeoutMs: number): number {
@@ -1099,7 +1107,11 @@ const TOOL_OUTPUT_ARTIFACT_OMISSION = '\n…[artifact middle omitted]…\n';
  * Classify a tool execution error into a structured ToolErrorCategory.
  * Used for observability (span attributes) and retry strategy decisions.
  */
-export function classifyToolError(err: unknown): { category: ToolErrorCategory; retryable: boolean; detail?: string } {
+export function classifyToolError(err: unknown): {
+  category: ToolErrorCategory;
+  retryable: boolean;
+  detail?: string;
+} {
   // AbortError — user cancellation, never retry
   if (err instanceof Error && err.name === 'AbortError') {
     return { category: ToolErrorCategoryEnum.FATAL, retryable: false, detail: 'aborted' };
@@ -1168,9 +1180,7 @@ export function classifyToolError(err: unknown): { category: ToolErrorCategory; 
   if (err instanceof WrongStackError) {
     const wse = err as WrongStackError;
     const category =
-      wse.severity === 'warning'
-        ? ToolErrorCategoryEnum.TRANSIENT
-        : ToolErrorCategoryEnum.FATAL;
+      wse.severity === 'warning' ? ToolErrorCategoryEnum.TRANSIENT : ToolErrorCategoryEnum.FATAL;
     return {
       category,
       retryable: wse.recoverable,
@@ -1190,18 +1200,34 @@ export function classifyToolError(err: unknown): { category: ToolErrorCategory; 
  * Map an HTTP status code to a ToolErrorCategory. Shared by the FetchError
  * and duck-typed-response paths in classifyToolError.
  */
-function httpStatusToCategory(status: number): { category: ToolErrorCategory; retryable: boolean; detail: string } {
+function httpStatusToCategory(status: number): {
+  category: ToolErrorCategory;
+  retryable: boolean;
+  detail: string;
+} {
   if (status === 429 || status === 503 || status === 502 || status === 504) {
     return { category: ToolErrorCategoryEnum.TRANSIENT, retryable: true, detail: `HTTP ${status}` };
   }
   if (status === 404 || status === 410) {
-    return { category: ToolErrorCategoryEnum.NOT_FOUND, retryable: false, detail: `HTTP ${status}` };
+    return {
+      category: ToolErrorCategoryEnum.NOT_FOUND,
+      retryable: false,
+      detail: `HTTP ${status}`,
+    };
   }
   if (status === 401 || status === 403) {
-    return { category: ToolErrorCategoryEnum.PERMISSION, retryable: false, detail: `HTTP ${status}` };
+    return {
+      category: ToolErrorCategoryEnum.PERMISSION,
+      retryable: false,
+      detail: `HTTP ${status}`,
+    };
   }
   if (status === 400) {
-    return { category: ToolErrorCategoryEnum.VALIDATION, retryable: false, detail: `HTTP ${status}` };
+    return {
+      category: ToolErrorCategoryEnum.VALIDATION,
+      retryable: false,
+      detail: `HTTP ${status}`,
+    };
   }
   return { category: ToolErrorCategoryEnum.FATAL, retryable: false, detail: `HTTP ${status}` };
 }

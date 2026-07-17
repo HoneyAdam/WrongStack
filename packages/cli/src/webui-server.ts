@@ -641,6 +641,12 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       void fleetBroadcastCli?.();
     },
     onTechStackEvent: (event) => broadcast(event),
+    // Read through the live agent context so a mid-session model switch or a
+    // credential hot-reload takes effect on the next analyze.
+    getLlm: () =>
+      opts.agent.ctx.provider && opts.agent.ctx.model
+        ? { provider: opts.agent.ctx.provider, model: opts.agent.ctx.model }
+        : undefined,
     projectRoot: opts.projectRoot,
     publicWsUrl,
     apiToken: wsToken,

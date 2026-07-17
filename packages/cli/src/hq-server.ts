@@ -49,6 +49,8 @@ import {
   type HqCommand,
   type HqCommandAuditEntry,
   type HqQueuedCommand,
+  assessHqExposure,
+  HqInsecureExposureError as HqInsecureExposureErrorClass,
   ensureHqFirstRunAuthFile,
   validateHqCommand,
   verifyHqPassword,
@@ -97,7 +99,22 @@ export interface HqServerOptions {
   sessionSnapshotTtlMs?: number;
   /** Optional browser password login. When provided on first-run, the auth file stores a scrypt hash. */
   password?: string;
+  /**
+   * Allow a non-loopback bind while HQ is in open mode (no tokens, no
+   * password). Off by default: that pairing serves POST /api/command
+   * unauthenticated to the whole network. See assessHqExposure.
+   */
+  allowInsecureOpen?: boolean;
+  /**
+   * Set `Secure` flag on session cookies. Enable this when HQ is behind a
+   * TLS-terminating reverse proxy. Defaults to `false` because HQ speaks
+   * plain HTTP; setting `Secure` on an HTTP cookie makes it invisible to
+   * the browser.
+   */
+  secureCookies?: boolean;
 }
+
+export { HqInsecureExposureError } from '@wrongstack/core';
 
 export interface HqStartupConnectionInfo {
   dataDir: string;
@@ -274,7 +291,18 @@ export async function readLocalSubagentTranscript(
   }
 }
 
-const DEFAULT_HOST = '127.0.0.1';
+/**
+ * Library default: loopback. `startHqServer` is called programmatically
+ * (tests, embedders) as well as from the CLI, and a caller that never
+ * mentions a host has not asked to be reachable from the network.
+ *
+ * HQ is still the deliberate cross-machine surface — the CLI entry points
+ * (`wstack hq`, the launch menu) pass HQ_CLI_DEFAULT_HOST explicitly, so
+ * `wstack hq` binds every interface with no extra flag. Keeping the wide
+ * bind at the CLI edge rather than in this default is what stops an
+ * unrelated embedder from silently publishing HQ to its whole network.
+ */
+export const DEFAULT_HOST = '127.0.0.1';
 export const DEFAULT_PORT = 3499;
 const MAX_EVENT_LOG = 5000;
 const MAX_NON_STRICT_PORT_SCAN = 50;
@@ -302,6 +330,8 @@ const setHqSecurityHeaders = HqServerAuth.setHqSecurityHeaders;
 /** Allow non-browser clients (no Origin) and same-host browser traffic only. */
 const hasTrustedBrowserOrigin = HqServerAuth.hasTrustedBrowserOrigin;
 const HQ_SESSION_COOKIE = 'hq.session';
+/** Browser-session Max-Age (7 days) — see setHqSessionCookie Max-Age. */
+const HQ_SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 const serializeHqSessionCookie = HqServerAuth.serializeHqSessionCookie;
 const parseHqSessionCookie = HqServerAuth.parseHqSessionCookie;
@@ -557,6 +587,29 @@ export async function startHqServer(options: HqServerOptions = {}): Promise<HqSe
     warn: (msg: string) => console.warn(JSON.stringify({ level: 'warn', event: 'hq.auth_load_failed', message: msg, timestamp: new Date().toISOString() })),
     ...(options.password !== undefined ? { password: options.password } : {}),
   });
+
+  // Guard the bind before listening. Both entry points (`wstack hq` and the
+  // launch menu) funnel through here, so this is the one place that sees the
+  // resolved host and the resolved auth together.
+  const exposure = assessHqExposure({
+    host,
+    hasBrowserTokens: (firstRunAuth.authFile.browserTokens ?? []).length > 0,
+    hasPassword: firstRunAuth.authFile.passwordHash !== undefined,
+    allowInsecure: options.allowInsecureOpen,
+  });
+  if (exposure.kind === 'refuse') {
+    throw new HqInsecureExposureErrorClass(exposure.message);
+  }
+  if (exposure.kind === 'warn') {
+    console.warn(JSON.stringify({
+      level: 'warn',
+      event: 'hq.insecure_exposure',
+      message: exposure.message,
+      host,
+      timestamp: new Date().toISOString(),
+    }));
+  }
+
   return startHqServerWithAuth(options, host, port, dataDir, firstRunAuth);
 }
 
@@ -651,6 +704,32 @@ function startHqServerWithAuth(
       120_000,
     );
     mailboxGatewayRateLimitCleanup.unref?.();
+
+    // ── Login rate limiting ────────────────────────────────────────────────
+    // Exponential backoff for password login: 1s → 2s → 4s → 8s → 16s (cap).
+    // Uses the client IP for tracking; on loopback this is always ::1 or
+    // 127.0.0.1, so repeated failures from the same machine are gated —
+    // enough to blunt a brute-force without needing a full account lockout
+    // or persisted state. Cleaned up alongside the session sweep below.
+    const loginAttempts = new Map<string, { count: number; blockedUntil: number }>();
+
+    // ── Browser-session lifecycle ──────────────────────────────────────────
+    // Sessions live inside a Map with { createdAt } but no server-side
+    // expiry. Sweep stale entries every 60 s so a copied/leaked cookie
+    // cannot be used past the Max-Age window even if the process stays up.
+    const SESSION_CLEANUP_INTERVAL_MS = 60_000;
+    const sessionCleanupTimer = setInterval(() => {
+      const cutoff = Date.now() - HQ_SESSION_MAX_AGE_MS;
+      for (const [id, session] of sessions) {
+        if (session.createdAt < cutoff) sessions.delete(id);
+      }
+      // Also sweep expired rate-limit blocks so the map doesn't grow unbounded.
+      const now = Date.now();
+      for (const [ip, entry] of loginAttempts) {
+        if (entry.blockedUntil < now) loginAttempts.delete(ip);
+      }
+    }, SESSION_CLEANUP_INTERVAL_MS);
+    sessionCleanupTimer.unref?.();
 
     // ── Persistence (Phase 2) ──────────────────────────────────────────────
     // Survives restart: event log, snapshot checkpoint, cost/activity trends.
@@ -929,6 +1008,21 @@ function startHqServerWithAuth(
           res.end(JSON.stringify({ error: { code: 'PASSWORD_NOT_CONFIGURED', message: 'Password login is not enabled on this HQ server.' } }));
           return;
         }
+        // Rate limiting with exponential backoff per client IP.
+        const forwardedFor = req.headers['x-forwarded-for'];
+        const forwardedValue = Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor;
+        const clientIp =
+          forwardedValue?.split(',')[0]?.trim() ?? req.socket.remoteAddress ?? 'unknown';
+        const existing = loginAttempts.get(clientIp);
+        if (existing && existing.blockedUntil > Date.now()) {
+          const retryAfter = Math.ceil((existing.blockedUntil - Date.now()) / 1000);
+          res.writeHead(429, {
+            'Content-Type': 'application/json',
+            'Retry-After': String(retryAfter),
+          });
+          res.end(JSON.stringify({ error: { code: 'RATE_LIMITED', message: `Too many failed login attempts. Retry after ${retryAfter} seconds.` } }));
+          return;
+        }
         let body: { password?: unknown };
         try {
           body = JSON.parse(await readRequestBody(req)) as { password?: unknown };
@@ -943,13 +1037,20 @@ function startHqServerWithAuth(
         }
         const ok = await verifyHqPassword(body.password, mutableAuth.passwordHash);
         if (!ok || !mutableAuth.cookieSecret) {
+          // Exponential backoff: 2^count seconds, capped at 16 s.
+          const prev = loginAttempts.get(clientIp);
+          const count = (prev?.count ?? 0) + 1;
+          const backoffMs = Math.min(Math.pow(2, count) * 1000, 16_000);
+          loginAttempts.set(clientIp, { count, blockedUntil: Date.now() + backoffMs });
           res.writeHead(401, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: { code: 'INVALID_PASSWORD', message: 'Invalid password.' } }));
           return;
         }
+        // Success — reset rate limit for this IP.
+        loginAttempts.delete(clientIp);
         const sessionId = randomUUID();
         sessions.set(sessionId, { createdAt: Date.now() });
-        setHqSessionCookie(res, serializeHqSessionCookie(sessionId, mutableAuth.cookieSecret));
+        setHqSessionCookie(res, serializeHqSessionCookie(sessionId, mutableAuth.cookieSecret), options.secureCookies);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ loggedIn: true }));
         return;
@@ -965,7 +1066,7 @@ function startHqServerWithAuth(
             if (sessionId) sessions.delete(sessionId);
           }
         }
-        clearHqSessionCookie(res);
+        clearHqSessionCookie(res, options.secureCookies);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ loggedIn: false }));
         return;
@@ -1186,6 +1287,7 @@ function startHqServerWithAuth(
           status: 'queued',
         };
         auditLog.record(auditEntry);
+        HqServerSnapshot.broadcastCommandStatus(auditEntry, browsers);
 
         res.writeHead(202, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ commandId, queued: true, clientId: target.clientId }));

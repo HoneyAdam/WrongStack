@@ -213,13 +213,26 @@ export function createConnectionHandler(
         });
         return;
       }
+      let rawObj: unknown;
+      try {
+        rawObj = JSON.parse(data.toString());
+      } catch (err) {
+        console.error(
+          JSON.stringify({
+            level: 'error',
+            event: 'webui.ws_message_parse_failed',
+            message: err instanceof Error ? err.message : String(err),
+            timestamp: new Date().toISOString(),
+          }),
+        );
+        return;
+      }
       try {
         // Prototype-pollution guard: reject messages whose root-level payload
         // contains __proto__, constructor, or prototype keys. These could
         // cause prototype pollution via Object.assign({}, payload) or spread
         // {...payload}. Own-property check only — `in` walks the prototype
         // chain and would reject every plain object.
-        const rawObj = JSON.parse(data.toString());
         if (typeof rawObj === 'object' && rawObj !== null) {
           const obj = rawObj as Record<string, unknown>;
           if (
@@ -242,7 +255,7 @@ export function createConnectionHandler(
         console.error(
           JSON.stringify({
             level: 'error',
-            event: 'webui.ws_message_parse_failed',
+            event: 'webui.ws_message_handler_failed',
             message: err instanceof Error ? err.message : String(err),
             timestamp: new Date().toISOString(),
           }),

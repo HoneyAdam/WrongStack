@@ -19,7 +19,12 @@ import {
 import type { WSServerMessage } from '@/types';
 
 // Chat domain handlers extracted to chat-handlers.ts
-import { chatHandlerMap } from './ws-handlers/chat-handlers.js';
+import {
+  chatHandlerMap,
+  handleToolExecuted,
+  handleToolProgress,
+  handleToolStarted,
+} from './ws-handlers/chat-handlers.js';
 // Coordinator domain handlers extracted to coordinator-handlers.ts
 import { coordinatorHandlerMap } from './ws-handlers/coordinator-handlers.js';
 // Files/mailbox domain handlers extracted to files-mailbox-handlers.ts
@@ -84,8 +89,20 @@ export function handleMemoryList(msg: WSServerMessage) {
 
 export function handleMemorySuperList(msg: WSServerMessage) {
   const p = msg.payload as {
-    memories?: Array<{ id: string; kind: string; status: string; text: string; tags: string[]; createdAt: string }>;
-    stats?: { total: number; byStatus: Record<string, number>; byKind: Record<string, number>; edges: number };
+    memories?: Array<{
+      id: string;
+      kind: string;
+      status: string;
+      text: string;
+      tags: string[];
+      createdAt: string;
+    }>;
+    stats?: {
+      total: number;
+      byStatus: Record<string, number>;
+      byKind: Record<string, number>;
+      edges: number;
+    };
     error?: string | undefined;
   };
   if (p.error) {
@@ -99,7 +116,9 @@ export function handleMemorySuperList(msg: WSServerMessage) {
     const active = stats.byStatus['active'] ?? 0;
     const stale = stats.byStatus['stale'] ?? 0;
     const archived = stats.byStatus['archived'] ?? 0;
-    lines.push(`**Total:** ${stats.total} · Active: ${active} · Stale: ${stale} · Archived: ${archived} · Graph edges: ${stats.edges}`);
+    lines.push(
+      `**Total:** ${stats.total} · Active: ${active} · Stale: ${stale} · Archived: ${archived} · Graph edges: ${stats.edges}`,
+    );
     const kinds = Object.entries(stats.byKind)
       .filter(([, count]) => count > 0)
       .map(([kind, count]) => `${kind}=${count}`)
@@ -114,7 +133,9 @@ export function handleMemorySuperList(msg: WSServerMessage) {
       const preview = mem.text.length > 80 ? `${mem.text.slice(0, 78)}…` : mem.text;
       const tags = mem.tags.length > 0 ? mem.tags.map((t) => `\`${t}\``).join(' ') : '';
       const date = mem.createdAt.slice(0, 10);
-      lines.push(`- \`${mem.id.slice(0, 12)}…\` [${mem.kind}|${mem.status}] ${date} — ${preview}${tags ? ` ${tags}` : ''}`);
+      lines.push(
+        `- \`${mem.id.slice(0, 12)}…\` [${mem.kind}|${mem.status}] ${date} — ${preview}${tags ? ` ${tags}` : ''}`,
+      );
     }
     if (memories.length > 20) lines.push(`_…and ${memories.length - 20} more_`);
   }
@@ -125,7 +146,18 @@ export function handleMemorySuperList(msg: WSServerMessage) {
 
 export function handleMemorySuperGet(msg: WSServerMessage) {
   const p = msg.payload as {
-    memory?: { id: string; kind: string; status: string; text: string; tags: string[]; createdAt: string; updatedAt: string; importance: number; confidence: number; anchors: Array<{ type: string; path?: string }> };
+    memory?: {
+      id: string;
+      kind: string;
+      status: string;
+      text: string;
+      tags: string[];
+      createdAt: string;
+      updatedAt: string;
+      importance: number;
+      confidence: number;
+      anchors: Array<{ type: string; path?: string }>;
+    };
     error?: string | undefined;
   };
   if (p.error) {
@@ -138,9 +170,7 @@ export function handleMemorySuperGet(msg: WSServerMessage) {
   }
   const m = p.memory;
   const tags = m.tags.length > 0 ? m.tags.map((t) => `\`${t}\``).join(' ') : '—';
-  const anchors = m.anchors.length > 0
-    ? m.anchors.map((a) => a.path ?? a.type).join(', ')
-    : '—';
+  const anchors = m.anchors.length > 0 ? m.anchors.map((a) => a.path ?? a.type).join(', ') : '—';
   const lines = [
     `## 🧠 Memory: \`${m.id}\``,
     '',
@@ -157,24 +187,32 @@ export function handleMemorySuperGet(msg: WSServerMessage) {
 export function handleMemorySuperUpdate(msg: WSServerMessage) {
   const p = msg.payload as { memory?: Record<string, unknown>; error?: string | undefined };
   if (p.error) {
-    useChatStore.getState().addMessage({ role: 'assistant', content: `❌ Update failed: ${p.error}` });
+    useChatStore
+      .getState()
+      .addMessage({ role: 'assistant', content: `❌ Update failed: ${p.error}` });
     return;
   }
   if (p.memory) {
     const id = String(p.memory['id'] ?? '');
-    useChatStore.getState().addMessage({ role: 'assistant', content: `✅ Memory \`${id}\` updated.` });
+    useChatStore
+      .getState()
+      .addMessage({ role: 'assistant', content: `✅ Memory \`${id}\` updated.` });
   }
 }
 
 export function handleMemorySuperRemember(msg: WSServerMessage) {
   const p = msg.payload as { memory?: Record<string, unknown>; error?: string | undefined };
   if (p.error) {
-    useChatStore.getState().addMessage({ role: 'assistant', content: `❌ Failed to create memory: ${p.error}` });
+    useChatStore
+      .getState()
+      .addMessage({ role: 'assistant', content: `❌ Failed to create memory: ${p.error}` });
     return;
   }
   if (p.memory) {
     const id = String(p.memory['id'] ?? '');
-    useChatStore.getState().addMessage({ role: 'assistant', content: `✅ Memory \`${id}\` created.` });
+    useChatStore
+      .getState()
+      .addMessage({ role: 'assistant', content: `✅ Memory \`${id}\` created.` });
   }
 }
 
@@ -567,25 +605,70 @@ export const WS_HANDLERS: Partial<Record<WSServerMessage['type'], (msg: WSServer
       // SettingsPanel/ToolsSection listens on the raw message stream and refreshes tools.list.
     },
     // ── CodeMap activity overlay ──────────────────────────────────────────
-    // Every provider.response / file.saved / memory.event message is scanned
-    // for file-touching tool calls. Matching activities are recorded in the
-    // codemap-activity store, which drives the realtime highlight/pulse overlay
-    // and the per-file activity history on the CodeMap graph.
+    // Tool lifecycle drives active agent presence. Filesystem watcher events
+    // confirm mutations (or surface deterministic/external writes that did not
+    // pass through ToolExecutor at all).
     // IMPORTANT: these compose with — not replace — the existing handlers from
     // sessionHandlerMap/miscHandlerMap. We call the original first, then record.
     'provider.response': (msg: WSServerMessage) => {
       handleProviderResponse(msg);
+    },
+    'tool.progress': (msg: WSServerMessage) => {
+      handleToolProgress(msg);
+      const activities = extractActivitiesFromMessage(msg);
+      const store = useCodemapActivityStore.getState();
+      for (const activity of activities) store.recordFileEvent(activity);
+    },
+    'tool.started': (msg: WSServerMessage) => {
+      handleToolStarted(msg);
       const activities = extractActivitiesFromMessage(msg);
       if (activities.length > 0) {
-        const store = useCodemapActivityStore.getState();
-        for (const a of activities) store.recordActivity(a);
+        useCodemapActivityStore.getState().startActivities(activities);
       }
+    },
+    'tool.executed': (msg: WSServerMessage) => {
+      handleToolExecuted(msg);
+      const payload = msg.payload as {
+        id?: string | undefined;
+        durationMs?: number | undefined;
+        ok?: boolean | undefined;
+      };
+      if (payload.id) {
+        useCodemapActivityStore.getState().finishTool(payload.id, {
+          durationMs: payload.durationMs,
+          ok: payload.ok !== false,
+        });
+      }
+    },
+    'codemap.tool_started': (msg: WSServerMessage) => {
+      const activities = extractActivitiesFromMessage(msg);
+      if (activities.length > 0) {
+        useCodemapActivityStore.getState().startActivities(activities);
+      }
+    },
+    'codemap.tool_executed': (msg: WSServerMessage) => {
+      const payload = msg.payload as {
+        id?: string | undefined;
+        durationMs?: number | undefined;
+        ok?: boolean | undefined;
+      };
+      if (payload.id) {
+        useCodemapActivityStore.getState().finishTool(payload.id, {
+          durationMs: payload.durationMs,
+          ok: payload.ok !== false,
+        });
+      }
+    },
+    'codemap.file_event': (msg: WSServerMessage) => {
+      const activities = extractActivitiesFromMessage(msg);
+      const store = useCodemapActivityStore.getState();
+      for (const activity of activities) store.recordFileEvent(activity);
     },
     'file.saved': (msg: WSServerMessage) => {
       const activities = extractActivitiesFromMessage(msg);
       if (activities.length > 0) {
         const store = useCodemapActivityStore.getState();
-        for (const a of activities) store.recordActivity(a);
+        for (const activity of activities) store.recordFileEvent(activity);
       }
     },
     'memory.event': (msg: WSServerMessage) => {

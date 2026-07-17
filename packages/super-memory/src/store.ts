@@ -17,6 +17,7 @@ import {
   normalizeSlashes,
   resolveSuperMemoryPaths,
 } from './paths.js';
+import { tokenize } from './store-helpers.js';
 import {
   SUPER_MEMORY_SCHEMA_VERSION,
   legacyToSuperScope,
@@ -52,6 +53,8 @@ import {
 const DEFAULT_LIMIT = 20;
 const MAX_MEMORY_TEXT_CHARS = 20_000;
 const MAX_MEMORY_METADATA_ITEMS = 128;
+/** Minimum interval between persisted feedback-counter flushes (per store instance). */
+const COUNTER_FLUSH_INTERVAL_MS = 60 * 60_000;
 const ACTIVE_STATUSES: SuperMemoryStatus[] = ['active'];
 const VALID_STATUSES = new Set<SuperMemoryStatus>(['active', 'stale', 'superseded', 'contradicted', 'archived', 'deleted']);
 const VALID_SCOPES = new Set<SuperMemory['scope']>(['project', 'user', 'session', 'file', 'symbol']);
@@ -83,6 +86,14 @@ export class SuperMemoryStore implements MemoryStore {
   private initialized = false;
   private initializing: Promise<void> | undefined;
   private mutationChain: Promise<unknown> = Promise.resolve();
+  /**
+   * Feedback-counter deltas accumulated since the last persisted flush.
+   * Flushing writes one JSONL record per touched memory, so increments are
+   * batched: the flush applies `onDisk + pendingDelta` inside a mutation
+   * (which reloads from disk first), keeping multi-process increments additive.
+   */
+  private readonly pendingCounters = new Map<string, { injections: number; uses: number }>();
+  private lastCounterFlushAtMs = 0;
 
   constructor(opts: SuperMemoryStoreOptions) {
     this.projectRoot = path.resolve(opts.projectRoot);
@@ -295,21 +306,82 @@ export class SuperMemoryStore implements MemoryStore {
   async recordInjection(memoryIds: string[], trigger: string, sessionId?: string): Promise<void> {
     if (memoryIds.length === 0) return;
     await this.initialize();
-    await this.runMutation(async () => {
-      const now = this.nowIso();
-      const cutoff = this.now().getTime() - 60 * 60_000;
-      const wanted = new Set(memoryIds);
-      let changed = false;
-      for (const memory of await this.loadMemories()) {
-        if (!wanted.has(memory.id)) continue;
-        if (memory.lastAccessedAt && Date.parse(memory.lastAccessedAt) >= cutoff) continue;
-        await this.updateMemory(memory, { lastAccessedAt: now }, { preserveUpdatedAt: true });
-        changed = true;
-      }
-      if (changed) await this.afterMutation();
-      await this.audit('memory.injected', { details: { memoryIds, trigger, sessionId } });
-    });
+    this.accumulateCounters(memoryIds, 'injections');
+    await this.audit('memory.injected', { details: { memoryIds, trigger, sessionId } });
     this.events?.emit('memory.injected', this.eventPayload({ memoryIds, trigger, sessionId }));
+    await this.flushCountersIfDue();
+  }
+
+  async recordUse(memoryIds: string[], source: string, sessionId?: string): Promise<void> {
+    if (memoryIds.length === 0) return;
+    await this.initialize();
+    this.accumulateCounters(memoryIds, 'uses');
+    await this.audit('memory.used', { details: { memoryIds, source, sessionId } });
+    this.events?.emit('memory.used', this.eventPayload({ memoryIds, source, sessionId }));
+    // Uses are rare (at most one per injection) and are the higher-value
+    // signal — persist them promptly instead of waiting out the batch window.
+    await this.flushCounters();
+  }
+
+  private accumulateCounters(memoryIds: string[], field: 'injections' | 'uses'): void {
+    for (const id of memoryIds) {
+      const pending = this.pendingCounters.get(id) ?? { injections: 0, uses: 0 };
+      pending[field] += 1;
+      this.pendingCounters.set(id, pending);
+    }
+  }
+
+  private async flushCountersIfDue(): Promise<void> {
+    if (this.pendingCounters.size === 0) return;
+    const nowMs = this.now().getTime();
+    if (this.lastCounterFlushAtMs !== 0 && nowMs - this.lastCounterFlushAtMs < COUNTER_FLUSH_INTERVAL_MS) return;
+    await this.flushCounters();
+  }
+
+  private async flushCounters(): Promise<void> {
+    if (this.pendingCounters.size === 0) return;
+    this.lastCounterFlushAtMs = this.now().getTime();
+    try {
+      await this.runMutation(() => this.flushCountersUnlocked());
+    } catch (error) {
+      // Counters are advisory analytics; a failed flush must not break the
+      // tool call that triggered it. Unapplied deltas stay pending because
+      // flushCountersUnlocked only deletes entries it has persisted.
+      this.lastCounterFlushAtMs = 0;
+      await this.audit('memory.counter_flush_failed', {
+        reason: error instanceof Error ? error.message : String(error),
+      }).catch(() => undefined);
+    }
+  }
+
+  private async flushCountersUnlocked(opts: { skipAfterMutation?: boolean } = {}): Promise<void> {
+    if (this.pendingCounters.size === 0) return;
+    const now = this.nowIso();
+    const memories = await this.loadMemories();
+    const seen = new Set<string>();
+    let changed = false;
+    for (const memory of memories) {
+      const pending = this.pendingCounters.get(memory.id);
+      if (!pending) continue;
+      seen.add(memory.id);
+      if (memory.status === 'deleted') {
+        this.pendingCounters.delete(memory.id);
+        continue;
+      }
+      await this.updateMemory(memory, {
+        injectionCount: (memory.injectionCount ?? 0) + pending.injections,
+        useCount: (memory.useCount ?? 0) + pending.uses,
+        lastAccessedAt: now,
+        ...(pending.uses > 0 ? { lastUsedAt: now } : {}),
+      }, { preserveUpdatedAt: true });
+      this.pendingCounters.delete(memory.id);
+      changed = true;
+    }
+    // Drop deltas for memories that no longer exist; they can never be applied.
+    for (const id of this.pendingCounters.keys()) {
+      if (!seen.has(id) && !memories.some((memory) => memory.id === id)) this.pendingCounters.delete(id);
+    }
+    if (changed && !opts.skipAfterMutation) await this.afterMutation();
   }
 
   async hygiene(options: SuperMemoryHygieneOptions = {}, signal?: AbortSignal): Promise<SuperMemoryHygieneReport> {
@@ -323,6 +395,9 @@ export class SuperMemoryStore implements MemoryStore {
     signal?: AbortSignal,
   ): Promise<SuperMemoryHygieneReport> {
     await this.initialize();
+    // Apply this instance's pending feedback deltas so archive-unused
+    // decisions below see current counters.
+    await this.flushCountersUnlocked({ skipAfterMutation: true });
     const startedAt = this.nowIso();
     const initial = await this.loadMemories();
     const report: SuperMemoryHygieneReport = {
@@ -334,6 +409,7 @@ export class SuperMemoryStore implements MemoryStore {
       contradicted: 0,
       staled: 0,
       archived: 0,
+      archivedUnused: 0,
       deleted: 0,
       verified: 0,
     };
@@ -376,6 +452,8 @@ export class SuperMemoryStore implements MemoryStore {
     const nowMs = this.now().getTime();
     const retentionMs = daysToMs(options.retentionDays ?? 90);
     const lowConfidenceMs = daysToMs(options.archiveLowConfidenceAfterDays ?? 30);
+    const unusedMs = daysToMs(options.archiveUnusedAfterDays ?? 30);
+    const unusedMinInjections = Math.max(1, Math.floor(options.unusedMinInjections ?? 10));
     for (const memory of await this.loadMemories()) {
       if (memory.status === 'deleted' || memory.status === 'superseded' || memory.status === 'contradicted') continue;
       const age = nowMs - Date.parse(memory.lastAccessedAt ?? memory.updatedAt);
@@ -385,6 +463,22 @@ export class SuperMemoryStore implements MemoryStore {
       } else if (memory.expiresAt && Date.parse(memory.expiresAt) <= nowMs) {
         await this.updateMemory(memory, { status: 'archived' });
         report.archived++;
+      } else if (
+        memory.status === 'active'
+        && memory.scope !== 'session'
+        && (memory.injectionCount ?? 0) >= unusedMinInjections
+        && (memory.useCount ?? 0) === 0
+        && nowMs - Date.parse(memory.updatedAt) >= unusedMs
+      ) {
+        // Age is measured from updatedAt, not lastAccessedAt: every injection
+        // bumps lastAccessedAt, which is exactly the signal this rule targets,
+        // so measuring from it would never let a frequently-injected memory
+        // qualify. updatedAt only moves on real content edits (counter flushes
+        // preserve it), making it the honest "untouched for N days" basis.
+        await this.updateMemory(memory, { status: 'archived' });
+        report.archived++;
+        report.archivedUnused++;
+        this.events?.emit('memory.archived', this.eventPayload({ memoryId: memory.id, reason: 'Injected repeatedly but never used.' }));
       } else if (
         (memory.status === 'stale' && age >= retentionMs)
         || (memory.confidence < 0.5 && age >= lowConfidenceMs)
@@ -413,11 +507,15 @@ export class SuperMemoryStore implements MemoryStore {
       ['active', 'stale', 'superseded', 'contradicted', 'archived', 'deleted'].map((status) => [status, 0]),
     ) as Record<SuperMemoryStatus, number>;
     const byKind: SuperMemoryStats['byKind'] = {};
+    let injections = 0;
+    let uses = 0;
     for (const memory of memories) {
       byStatus[memory.status]++;
       byKind[memory.kind] = (byKind[memory.kind] ?? 0) + 1;
+      injections += memory.injectionCount ?? 0;
+      uses += memory.useCount ?? 0;
     }
-    return { total: memories.length, byStatus, byKind, edges: (await this.graph.list()).length };
+    return { total: memories.length, byStatus, byKind, edges: (await this.graph.list()).length, injections, uses };
   }
 
   async getSuperMemory(id: string): Promise<SuperMemory | null> {
@@ -1299,7 +1397,13 @@ function isSuperMemory(value: unknown): value is SuperMemory {
     && typeof memory.createdAt === 'string'
     && Number.isFinite(Date.parse(memory.createdAt))
     && typeof memory.updatedAt === 'string'
-    && Number.isFinite(Date.parse(memory.updatedAt));
+    && Number.isFinite(Date.parse(memory.updatedAt))
+    && (memory.injectionCount === undefined || isNonNegativeInteger(memory.injectionCount))
+    && (memory.useCount === undefined || isNonNegativeInteger(memory.useCount));
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }
 
 function isUnitNumber(value: unknown): value is number {
@@ -1502,12 +1606,6 @@ function importanceFromPriority(priority: MemoryEntry['priority']): number {
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.min(1, Math.max(0, value));
-}
-
-function tokenize(text: string): string[] {
-  return [...new Set(
-    text.normalize('NFKC').toLowerCase().split(/[^\p{L}\p{N}_.-]+/u).filter((term) => term.length >= 3),
-  )];
 }
 
 function scoreQueryMemory(memory: SuperMemory, query: string): number {

@@ -66,6 +66,7 @@
  * @module subcommands/handlers/mailbox-serve
  */
 import { createServer } from 'node:http';
+import * as path from 'node:path';
 import {
   authorizeMailboxBearerToken,
   createMailboxHttpRouter,
@@ -75,12 +76,13 @@ import {
   resolveProjectDir,
   wstackGlobalRoot,
 } from '@wrongstack/core';
-import type { SubcommandDeps, SubcommandHandler } from '../index.js';
 import {
   acquireOrJoin,
   finalize,
   release,
 } from '@wrongstack/core/coordination';
+import { startCliHqConnection, type CliHqConnection } from '../../hq-publisher.js';
+import type { SubcommandDeps, SubcommandHandler } from '../index.js';
 
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 7788;
@@ -173,7 +175,13 @@ async function startServer(deps: SubcommandDeps): Promise<number> {
   // the HTTP server.
   const tentative = acquireResult.lock;
   const eventEmitter = new MailboxEventEmitter();
-  const mailbox = new GlobalMailbox(projectDir, undefined, undefined, eventEmitter);
+  let hqConnection: CliHqConnection | undefined;
+  const mailbox = new GlobalMailbox(
+    projectDir,
+    undefined,
+    () => hqConnection?.getPublisher(),
+    eventEmitter,
+  );
 
   // Authentication and protocol handling are shared with HQ; this host keeps
   // ownership of the standalone bridge token, rate-limiter lifecycle, and
@@ -272,6 +280,20 @@ async function startServer(deps: SubcommandDeps): Promise<number> {
   // Phase 2 — finalize: write the lock + token with the actual
   // bound port and the same token, atomically.
   const finalized = await finalize(projectDir, tentative, boundPort);
+  hqConnection = startCliHqConnection({
+    clientKind: 'mailbox',
+    projectRoot: deps.projectRoot,
+    projectName: path.basename(deps.projectRoot),
+    appConfig: deps.config,
+    capabilities: ['telemetry.publish', 'mailbox.summary', 'mailbox.serve'],
+    onConnect: (publisher) => {
+      // Announce the bridge immediately; subsequent HTTP mutations publish
+      // mailbox events/snapshots through the GlobalMailbox getter above.
+      void publisher
+        .publishMailboxSnapshot(mailbox, { mailboxId: `${path.basename(projectDir)}:mailbox` })
+        .catch(() => undefined);
+    },
+  });
   writeStartupInfo(deps, { host, port: boundPort, projectDir, tokenPath: acquireResult.tokenPath });
 
   // Keep the process alive until SIGINT/SIGTERM. We resolve once the
@@ -282,6 +304,7 @@ async function startServer(deps: SubcommandDeps): Promise<number> {
       if (shuttingDown) return;
       shuttingDown = true;
       clearInterval(rateLimitCleanup);
+      hqConnection?.stop();
       console.log(JSON.stringify({ event: 'mailbox_serve_stopping', signal: sig, host, port: boundPort }));
       // Close long-lived SSE responses before waiting for server.close().
       router.close();

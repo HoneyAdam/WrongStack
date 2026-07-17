@@ -7,6 +7,7 @@ import {
   History,
   Moon,
   Plus,
+  Settings,
   Sparkles,
   Sun,
   Users,
@@ -46,11 +47,42 @@ import {
   relativeSessionTime,
   sessionDisplayName,
 } from './lib/session-model.js';
+import {
+  DEFAULT_PREFS,
+  parsePrefs,
+  type AutonomyMode,
+  type SimplePrefs,
+} from './lib/prefs-model.js';
+import {
+  dequeueItem,
+  enqueueFront,
+  enqueueItem,
+  removeQueuedAt,
+  resolveSendPlan,
+  type QueueMode,
+  type QueuedItem,
+} from './lib/queue-model.js';
+import {
+  parseFallbackRef,
+  projectRefineResult,
+  resolveRefineText,
+  type RefineDecision,
+  type RefineState,
+} from './lib/refine-model.js';
 import { projectStatusNotice, type StatusNoticeProjection } from './lib/status-notice.js';
 import { agentTranscriptToToolCalls } from './lib/tool-model.js';
+import {
+  createWorklistStore,
+  type PlanStatus,
+  type TaskStatus,
+  type TodoStatus,
+  type WorklistView,
+} from './lib/worklist-store.js';
 import { SimpleSocket } from './lib/ws.js';
+import { SettingsPanel } from './settings-panel.js';
 import { ToolSidebar } from './tool-sidebar.js';
 import type {
+  AgentMode,
   AgentTranscriptEntry,
   ChatMessage,
   ConnectionState,
@@ -103,6 +135,12 @@ export function App() {
   const [context, setContext] = useState<ContextInfo>(EMPTY_CONTEXT);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [models, setModels] = useState<Record<string, ModelDescriptor[]>>({});
+  const [modes, setModes] = useState<AgentMode[]>([]);
+  const [activeModeId, setActiveModeId] = useState('default');
+  const [prefs, setPrefs] = useState<SimplePrefs>(DEFAULT_PREFS);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [queue, setQueue] = useState<QueuedItem[]>([]);
+  const [refineState, setRefineState] = useState<RefineState | null>(null);
   const [providerLabels, setProviderLabels] = useState<Record<string, string>>({});
   const [subagents, setSubagents] = useState<SimpleSubagent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState(LEADER_AGENT_ID);
@@ -122,6 +160,7 @@ export function App() {
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [toolCalls, setToolCalls] = useState<ToolCallInfo[]>([]);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+  const [worklists] = useState(createWorklistStore);
   const socketRef = useRef<SimpleSocket | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const activeModelRef = useRef<{ provider: string; model: string } | null>(null);
@@ -132,9 +171,56 @@ export function App() {
   const draftRef = useRef('');
   const fileRefsRef = useRef<string[]>([]);
   const runningRef = useRef(false);
+  // handleServerMessage is a stable []-callback, so the drain and refine
+  // paths it triggers read live state through refs rather than closing over
+  // a stale render.
+  const refineStateRef = useRef<RefineState | null>(null);
+  const prefsRef = useRef<SimplePrefs>(DEFAULT_PREFS);
+  const queueRef = useRef<QueuedItem[]>([]);
   draftRef.current = draft;
   fileRefsRef.current = fileRefs;
   runningRef.current = running;
+  refineStateRef.current = refineState;
+  prefsRef.current = prefs;
+  queueRef.current = queue;
+
+  /** Send a message to the agent and reflect it locally. The single send
+   *  path — the composer, the queue drain, and every refine decision all
+   *  funnel through here. */
+  const dispatchUserMessage = useCallback((content: string) => {
+    const sessionId = sessionIdRef.current;
+    if (!content || !sessionId) return;
+    stickToBottomRef.current = true;
+    setShowJumpToLatest(false);
+    setMessages((current) => [...current, { id: messageId('user'), role: 'user', text: content }]);
+    setRunning(true);
+    setToolCalls([]);
+    setActivity('Thinking');
+    socketRef.current?.send('user_message', {
+      sessionId,
+      id: messageId('prompt'),
+      content,
+      timestamp: Date.now(),
+    });
+  }, []);
+
+  /** Open the refine round-trip, or send straight through when refine is off. */
+  const startSend = useCallback(
+    (content: string) => {
+      if (!prefsRef.current.enhanceEnabled) {
+        dispatchUserMessage(content);
+        return;
+      }
+      setRefineState({
+        original: content,
+        refined: content,
+        english: content,
+        status: 'refining',
+      });
+      socketRef.current?.send('model.refine', { text: content });
+    },
+    [dispatchUserMessage],
+  );
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -193,6 +279,7 @@ export function App() {
 
   const handleServerMessage = useCallback((message: ServerMessage) => {
     const payload = message.payload ?? {};
+    worklists.applyMessage(message);
     const projectedNotice = projectStatusNotice(message);
     if (projectedNotice) {
       setNotice({ ...projectedNotice, id: messageId('notice') });
@@ -217,6 +304,7 @@ export function App() {
           setShowJumpToLatest(false);
         }
         sessionIdRef.current = id || null;
+        if (!previousId || resetSessionState) worklists.reset(id || null);
         activeModelRef.current = provider && model ? { provider, model } : null;
         setSession({
           id,
@@ -495,13 +583,70 @@ export function App() {
         }
         break;
       }
-      case 'run.result':
+      case 'run.result': {
         setRunning(false);
         setActivity('');
         setMessages((current) =>
           current.map((item) => (item.streaming ? { ...item, streaming: false } : item)),
         );
+        // Drain one held message per turn boundary, in arrival order. Queued
+        // text is sent as written rather than through refine: the point of
+        // queueing is to walk away, and a review panel would stall the drain.
+        const { item, rest } = dequeueItem(queueRef.current);
+        if (item) {
+          queueRef.current = rest;
+          setQueue(rest);
+          dispatchUserMessage(item.text);
+        }
         break;
+      }
+      case 'prefs.updated':
+        // Snapshots may be partial (autonomy.switch broadcasts one key), so
+        // merge onto the previous value rather than reparsing from defaults.
+        setPrefs((current) => parsePrefs(payload, current));
+        break;
+      case 'modes.list': {
+        const list = Array.isArray(payload['modes'])
+          ? payload['modes'].flatMap((entry) => {
+              if (!entry || typeof entry !== 'object') return [];
+              const item = entry as Record<string, unknown>;
+              if (typeof item['id'] !== 'string') return [];
+              return [
+                {
+                  id: item['id'],
+                  name: typeof item['name'] === 'string' ? item['name'] : item['id'],
+                  description:
+                    typeof item['description'] === 'string' ? item['description'] : undefined,
+                } satisfies AgentMode,
+              ];
+            })
+          : [];
+        setModes(list);
+        if (typeof payload['activeId'] === 'string') setActiveModeId(payload['activeId']);
+        break;
+      }
+      case 'model.refine_result': {
+        const current = refineStateRef.current;
+        // A result with no open panel is a late arrival from a cancelled
+        // round — dropping it is correct, sending it would be a surprise.
+        if (!current) break;
+        const action = projectRefineResult(payload, current);
+        if (action.kind === 'retry') {
+          setRefineState(action.state);
+          socketRef.current?.send('model.refine', {
+            text: action.state.original,
+            timeoutMs: action.timeoutMs,
+          });
+          break;
+        }
+        if (action.kind === 'send') {
+          setRefineState(null);
+          dispatchUserMessage(action.text);
+          break;
+        }
+        setRefineState(action.state);
+        break;
+      }
       case 'error': {
         const text = typeof payload['message'] === 'string' ? payload['message'] : 'Run failed';
         setRunning(false);
@@ -621,7 +766,9 @@ export function App() {
         break;
       }
     }
-  }, []);
+    // dispatchUserMessage is []-stable, so this stays identity-stable and the
+    // socket effect below never reconnects on a re-render.
+  }, [dispatchUserMessage, worklists]);
 
   useEffect(() => {
     const socket = new SimpleSocket({
@@ -631,6 +778,10 @@ export function App() {
         if (state === 'open') {
           socket.send('providers.saved');
           socket.send('providers.list');
+          // The server owns preference truth; seed from it rather than
+          // trusting whatever this tab last rendered.
+          socket.send('prefs.get');
+          socket.send('modes.list');
           if (sessionIdRef.current) {
             socket.send('sessions.list', { sessionId: sessionIdRef.current, limit: 12 });
           }
@@ -802,27 +953,99 @@ export function App() {
     setSessionMenuOpen(false);
   };
 
-  const sendPrompt = () => {
+  const submitWith = (mode: QueueMode) => {
     const content = composePromptWithFileReferences(draft, fileRefs);
-    if (!content || connection !== 'open' || !sessionIdRef.current || running) return;
-    stickToBottomRef.current = true;
-    setShowJumpToLatest(false);
+    // The refine panel owns the pending text; a second submit would race it.
+    if (!content || connection !== 'open' || !sessionIdRef.current || refineState) return;
+
+    const plan = resolveSendPlan(mode, running);
     clearComposerDraft(sessionIdRef.current);
     draftRef.current = '';
     fileRefsRef.current = [];
-    setMessages((current) => [...current, { id: messageId('user'), role: 'user', text: content }]);
     setDraft('');
     setFileRefs([]);
     setFileMention(null);
-    setRunning(true);
-    setToolCalls([]);
-    setActivity('Thinking');
-    socketRef.current?.send('user_message', {
-      sessionId: sessionIdRef.current,
-      id: messageId('prompt'),
-      content,
-      timestamp: Date.now(),
+
+    if (plan === 'send') {
+      startSend(content);
+      return;
+    }
+
+    const item: QueuedItem = { id: messageId('queued'), text: content, mode, addedAt: Date.now() };
+    if (plan === 'abort-then-enqueue-front') {
+      // Stop the in-flight run, then let that run's run.result drain this
+      // from the head of the queue. Sending inline here would race the very
+      // run.result the abort triggers.
+      socketRef.current?.send('abort', { sessionId: sessionIdRef.current });
+      setQueue((current) => enqueueFront(current, item));
+      setNotice({ id: messageId('notice'), text: 'Steering the run…', tone: 'info' });
+      return;
+    }
+    setQueue((current) => enqueueItem(current, item));
+    setNotice({
+      id: messageId('notice'),
+      text: mode === 'queue' ? 'Queued for after this run' : 'Added to the run',
+      tone: 'info',
     });
+  };
+
+  const refineDecision = (decision: RefineDecision) => {
+    const state = refineState;
+    if (!state) return;
+    const text = resolveRefineText(state, decision);
+    setRefineState(null);
+    if (text === null) {
+      // `edit` hands the text back to the composer instead of sending.
+      setDraft(state.original);
+      requestAnimationFrame(() => textareaRef.current?.focus());
+      return;
+    }
+    dispatchUserMessage(text);
+  };
+
+  const refineRetry = () => {
+    const state = refineState;
+    if (!state) return;
+    // A manual retry re-arms the one automatic post-timeout retry.
+    setRefineState({
+      ...state,
+      status: 'refining',
+      error: undefined,
+      errorKind: undefined,
+      retried: false,
+    });
+    socketRef.current?.send('model.refine', { text: state.original });
+  };
+
+  const refineRetryFallback = (ref: string) => {
+    const state = refineState;
+    if (!state) return;
+    const target = parseFallbackRef(ref);
+    if (!target) return;
+    setRefineState({ ...state, status: 'refining', retried: true });
+    socketRef.current?.send('model.refine', {
+      text: state.original,
+      timeoutMs: 180_000,
+      provider: target.provider,
+      model: target.model,
+    });
+  };
+
+  const updatePrefs = (patch: Partial<SimplePrefs>) => {
+    setPrefs((current) => ({ ...current, ...patch }));
+    socketRef.current?.send('prefs.update', patch as Record<string, unknown>);
+  };
+
+  const switchAutonomy = (mode: AutonomyMode) => {
+    setPrefs((current) => ({ ...current, autonomy: mode }));
+    // Autonomy has its own route: prefs.update only writes meta, which the
+    // running loop never reads.
+    socketRef.current?.send('autonomy.switch', { mode });
+  };
+
+  const switchMode = (id: string) => {
+    setActiveModeId(id);
+    socketRef.current?.send('mode.switch', { id });
   };
 
   const decideConfirm = (decision: 'yes' | 'no' | 'always') => {
@@ -839,6 +1062,29 @@ export function App() {
     socketRef.current?.send('abort', { sessionId: sessionIdRef.current ?? undefined });
     setActivity('Stopping');
   };
+
+  const requestWorklist = useCallback((view: WorklistView) => {
+    const sessionId = sessionIdRef.current;
+    if (!sessionId) return;
+    socketRef.current?.send(view === 'todos' ? 'todos.get' : view === 'tasks' ? 'tasks.get' : 'plan.get', {
+      sessionId,
+    });
+  }, []);
+
+  const updateTodoStatus = useCallback((id: string, status: TodoStatus) => {
+    const sessionId = sessionIdRef.current;
+    if (sessionId) socketRef.current?.send('todo.update', { sessionId, id, status });
+  }, []);
+
+  const updateTaskStatus = useCallback((id: string, status: TaskStatus) => {
+    const sessionId = sessionIdRef.current;
+    if (sessionId) socketRef.current?.send('task.update', { sessionId, id, status });
+  }, []);
+
+  const updatePlanStatus = useCallback((target: string, status: PlanStatus) => {
+    const sessionId = sessionIdRef.current;
+    if (sessionId) socketRef.current?.send('plan.item.update', { sessionId, target, status });
+  }, []);
 
   return (
     <div className="app-shell">
@@ -952,7 +1198,21 @@ export function App() {
         </div>
 
         <div className="topbar-right">
-          <div className="context-meter" title={`${context.tokens} / ${context.maxContext} tokens`}>
+            <button
+            type="button"
+            className="context-meter"
+            title={`${context.tokens} / ${context.maxContext} tokens — Click to compact`}
+            disabled={!session || running}
+            onClick={() => {
+              if (sessionIdRef.current) {
+                socketRef.current?.send('context.compact', {
+                  sessionId: sessionIdRef.current,
+                  aggressive: false,
+                });
+                setActivity('Compacting context');
+              }
+            }}
+          >
             <div className="context-copy">
               <span>CONTEXT</span>
               <strong>{Math.round(load * 100)}%</strong>
@@ -969,7 +1229,8 @@ export function App() {
             <small>
               {compactTokens(context.tokens)} / {compactTokens(context.maxContext)}
             </small>
-          </div>
+            <span className="context-compact-hint">COMPACT</span>
+          </button>
           <button
             type="button"
             className="theme-toggle"
@@ -978,6 +1239,16 @@ export function App() {
             title={`Use ${theme === 'dark' ? 'light' : 'dark'} theme`}
           >
             {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+          </button>
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="Open settings"
+            aria-expanded={settingsOpen}
+            title="Settings"
+          >
+            <Settings size={15} />
           </button>
           <div className={`connection ${connection}`} title={`WebSocket: ${connection}`}>
             {connection === 'open' ? <Wifi size={15} /> : <WifiOff size={15} />}
@@ -1085,6 +1356,11 @@ export function App() {
         agentId={activeAgentId}
         agentName={activeAgent?.name ?? activeAgentId}
         calls={selectedToolCalls}
+        worklists={worklists}
+        requestWorklist={requestWorklist}
+        onTodoStatusChange={updateTodoStatus}
+        onTaskStatusChange={updateTaskStatus}
+        onPlanStatusChange={updatePlanStatus}
       />
 
       {leaderSelected && showJumpToLatest && (
@@ -1114,14 +1390,42 @@ export function App() {
               pendingConfirm={pendingConfirm}
               notice={notice}
               textareaRef={textareaRef}
-              sendPrompt={sendPrompt}
+              queue={queue}
+              refineState={refineState}
+              submitWith={submitWith}
               abort={abort}
               decideConfirm={decideConfirm}
               selectFile={selectFile}
+              clearQueue={() => setQueue([])}
+              removeQueued={(id) =>
+                setQueue((current) =>
+                  removeQueuedAt(
+                    current,
+                    current.findIndex((item) => item.id === id),
+                  ),
+                )
+              }
+              onRefineDecision={refineDecision}
+              onRefineRetry={refineRetry}
+              onRefineRetryFallback={refineRetryFallback}
             />
           </footer>
         </ErrorBoundary>
       )}
+
+      <ErrorBoundary>
+        <SettingsPanel
+          open={settingsOpen}
+          prefs={prefs}
+          modes={modes}
+          activeModeId={activeModeId}
+          connection={connection}
+          onClose={() => setSettingsOpen(false)}
+          onAutonomyChange={switchAutonomy}
+          onModeChange={switchMode}
+          onPrefChange={updatePrefs}
+        />
+      </ErrorBoundary>
     </div>
   );
 }

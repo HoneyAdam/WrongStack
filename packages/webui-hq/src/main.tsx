@@ -24,6 +24,8 @@ if (container !== null) {
       useHqStore.getState()._onEvent(msg.event);
     } else if (msg.type === 'hq.alert') {
       useHqStore.getState()._onAlert(msg);
+    } else if (msg.type === 'hq.command_status') {
+      useHqStore.getState()._onCommandStatus(msg.command);
     }
   });
   const root = createRoot(container);

@@ -725,7 +725,7 @@ export class GlobalMailbox implements Mailbox {
       toolCalls: 0,
       registeredAt: now,
       lastSeenAt: now,
-      pid: input.pid,
+      pid: input.pid ?? process.pid,
       source: input.source,
     };
 
@@ -765,7 +765,7 @@ export class GlobalMailbox implements Mailbox {
         lastActivityAt: now,
         lastSeenAt: now,
         online: true,
-        pid: input.pid,
+        pid: input.pid ?? process.pid,
         ...(input.source !== undefined ? { source: input.source } : {}),
       },
     });
@@ -917,7 +917,7 @@ export class GlobalMailbox implements Mailbox {
       source: input.source,
       registeredAt: now,
       lastSeenAt: now,
-      pid: input.pid,
+      pid: input.pid ?? process.pid,
     };
 
     await withFileLock(this.clientRegistryPath, async () => {
@@ -1556,6 +1556,43 @@ export class GlobalMailbox implements Mailbox {
     await fsp.mkdir(path.dirname(this.registryPath), { recursive: true });
   }
 
+  /** Minimal shape-check for a deserialized agent registry entry.
+   *  Logs a warning and returns `false` for structurally invalid data
+   *  so a single corrupted entry doesn't break the entire registry. */
+  private _parseAgentEntry(value: unknown): RegisteredAgent | null {
+    if (typeof value !== 'object' || value === null) return null;
+    const v = value as Record<string, unknown>;
+    // Required string fields
+    if (typeof v.agentId !== 'string') return null;
+    if (typeof v.sessionId !== 'string') return null;
+    if (typeof v.name !== 'string') return null;
+    if (typeof v.registeredAt !== 'string') return null;
+    if (typeof v.lastSeenAt !== 'string') return null;
+    // Required number fields
+    if (typeof v.iterations !== 'number' || !Number.isFinite(v.iterations)) return null;
+    if (typeof v.toolCalls !== 'number' || !Number.isFinite(v.toolCalls)) return null;
+    if (v.pid !== undefined && (typeof v.pid !== 'number' || !Number.isFinite(v.pid))) return null;
+    // Required enum field
+    const statuses = ['idle', 'busy', 'running', 'streaming', 'waiting_user', 'error'] as const;
+    if (typeof v.status !== 'string' || !(statuses as readonly string[]).includes(v.status)) return null;
+    return { ...v, pid: v.pid ?? 0 } as unknown as RegisteredAgent;
+  }
+
+  /** Minimal shape-check for a deserialized client registry entry. */
+  private _parseClientEntry(value: unknown): RegisteredClient | null {
+    if (typeof value !== 'object' || value === null) return null;
+    const v = value as Record<string, unknown>;
+    if (typeof v.clientId !== 'string') return null;
+    if (typeof v.sessionId !== 'string') return null;
+    if (typeof v.name !== 'string') return null;
+    if (typeof v.registeredAt !== 'string') return null;
+    if (typeof v.lastSeenAt !== 'string') return null;
+    if (v.pid !== undefined && (typeof v.pid !== 'number' || !Number.isFinite(v.pid))) return null;
+    const sources = ['repl', 'tui', 'webui', 'http'] as const;
+    if (typeof v.source !== 'string' || !(sources as readonly string[]).includes(v.source)) return null;
+    return { ...v, pid: v.pid ?? 0 } as unknown as RegisteredClient;
+  }
+
   private async _readRegistry(opts?: { fresh?: boolean }): Promise<Map<string, RegisteredAgent>> {
     // The registry file is shared across processes. Reads may use a short
     // TTL cache; writers (under the file lock) MUST pass { fresh: true } —
@@ -1571,11 +1608,15 @@ export class GlobalMailbox implements Mailbox {
 
     try {
       const raw = await fsp.readFile(this.registryPath, 'utf8');
-      const data = JSON.parse(raw) as Record<string, RegisteredAgent>;
-      // Parse lastSeenAt strings back into objects
+      const data = JSON.parse(raw) as Record<string, unknown>;
       const map = new Map<string, RegisteredAgent>();
       for (const [id, agent] of Object.entries(data)) {
-        map.set(id, agent as RegisteredAgent);
+        const parsed = this._parseAgentEntry(agent);
+        if (parsed) {
+          map.set(id, parsed);
+        } else {
+          console.warn(JSON.stringify({ level: 'warn', event: 'mailbox.registry.invalid_agent', message: `Skipping malformed agent entry "${id}" in registry`, timestamp: new Date().toISOString() }));
+        }
       }
       this._registryCache = map;
       this._registryCacheAt = Date.now();
@@ -1633,10 +1674,15 @@ export class GlobalMailbox implements Mailbox {
 
     try {
       const raw = await fsp.readFile(this.clientRegistryPath, 'utf8');
-      const data = JSON.parse(raw) as Record<string, RegisteredClient>;
+      const data = JSON.parse(raw) as Record<string, unknown>;
       const map = new Map<string, RegisteredClient>();
       for (const [id, client] of Object.entries(data)) {
-        map.set(id, client as RegisteredClient);
+        const parsed = this._parseClientEntry(client);
+        if (parsed) {
+          map.set(id, parsed);
+        } else {
+          console.warn(JSON.stringify({ level: 'warn', event: 'mailbox.registry.invalid_client', message: `Skipping malformed client entry "${id}" in client registry`, timestamp: new Date().toISOString() }));
+        }
       }
       this._clientRegistryCache = map;
       this._clientRegistryCacheAt = Date.now();

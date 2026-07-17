@@ -48,6 +48,13 @@ export interface WrongStackACPServerOptions {
   transport?: 'stdio' | number | undefined;
   /** Host for HTTP transport. Defaults to '127.0.0.1'. */
   host?: string | undefined;
+  /**
+   * Bearer token required for HTTP transport authentication. When set,
+   * every HTTP request must include `Authorization: Bearer <token>` or
+   * `?token=<token>` in the query string. When unset, the server is
+   * unauthenticated (acceptable for loopback-only development).
+   */
+  authToken?: string | undefined;
   /** Emit the pre-v1 startup marker on stdio. Defaults to false. */
   legacyStartupMarker?: boolean | undefined;
   /**
@@ -122,15 +129,39 @@ export class WrongStackACPServer {
   private async startHttp(port: number): Promise<void> {
     const host = this.options.host ?? '127.0.0.1';
     const handler = this.handler;
+    const authToken = this.options.authToken;
+
+    // Serialize HTTP requests to prevent concurrent transport.send races.
+    // The ACPProtocolHandler stores a single transport reference; without
+    // serialization, concurrent requests would overwrite each other's
+    // monkey-patched send capture, causing cross-talk or lost responses.
+    let httpChain: Promise<void> = Promise.resolve();
 
     this.httpServer = createServer(async (req, res) => {
+      // ── Authentication ──────────────────────────────────────────────
+      // When an authToken is configured, require it on every request.
+      // Accept `Authorization: Bearer <token>` header or `?token=<token>`
+      // query parameter (the latter for browser clients).
+      if (authToken) {
+        const url = new URL(req.url ?? '/', `http://${host}:${port}`);
+        const queryToken = url.searchParams.get('token');
+        const authHeader = req.headers['authorization'];
+        const bearerToken = Array.isArray(authHeader)
+          ? authHeader[0]?.replace(/^Bearer\s+/i, '')
+          : authHeader?.replace(/^Bearer\s+/i, '');
+        const supplied = queryToken ?? bearerToken ?? '';
+        if (supplied !== authToken) {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: { code: -32001, message: 'Unauthorized' } }));
+          return;
+        }
+      }
+
       // Origin guard. Real ACP/MCP clients (Zed, JetBrains, curl, the MCP SDK)
       // are non-browser and send no `Origin` header, so they are unaffected. A
       // browser making a cross-origin request DOES send `Origin`; reject it so a
-      // malicious web page the user visits cannot reach this loopback agent and
-      // drive it (a real `runTurn` executes tools/commands — i.e. RCE). This
-      // replaces the previous `Access-Control-Allow-Origin: *`, which let any
-      // site read responses from, and POST to, this server.
+      // malicious web page the user visits cannot reach this agent and
+      // drive it (a real `runTurn` executes tools/commands — i.e. RCE).
       const selfOrigin = `http://${host}:${port}`;
       const reqOrigin = Array.isArray(req.headers.origin)
         ? req.headers.origin[0]
@@ -140,12 +171,9 @@ export class WrongStackACPServer {
         res.end(JSON.stringify({ error: 'cross-origin request forbidden' }));
         return;
       }
-      // Never reflect a wildcard — only echo our own origin back (for same-origin
-      // browser tooling). `Authorization` is intentionally omitted from the
-      // allow-list: it is not enforced here, so advertising it would mislead.
       if (reqOrigin) res.setHeader('Access-Control-Allow-Origin', reqOrigin);
       res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Mcp-Session-Id');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Mcp-Session-Id, Authorization');
 
       if (req.method === 'OPTIONS') {
         res.writeHead(204);
@@ -159,10 +187,23 @@ export class WrongStackACPServer {
         return;
       }
 
-      // Parse JSON body
+      // Reject oversized request bodies (CWE-400).
+      const MAX_HTTP_BODY = 10 * 1024 * 1024;
       let body = '';
+      let bodyBytes = 0;
+      let tooLarge = false;
       for await (const chunk of req) {
+        bodyBytes += chunk.length;
+        if (bodyBytes > MAX_HTTP_BODY) {
+          tooLarge = true;
+          break;
+        }
         body += chunk;
+      }
+      if (tooLarge) {
+        res.writeHead(413, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: { code: -32700, message: 'Request body too large' } }));
+        return;
       }
 
       let msg: unknown;
@@ -174,38 +215,47 @@ export class WrongStackACPServer {
         return;
       }
 
-      // Process the message and return the response. For HTTP transport we
-      // must NOT let the handler write to stdout — instead we intercept
-      // `transport.send` and capture the JSON-RPC response + any buffered
-      // notifications, then return them inline (Streamable HTTP pattern).
-      const notifications: unknown[] = [];
-      let response: ACPMessage | null = null;
-      const originalSend = this.transport.send.bind(this.transport);
-      this.transport.send = async (m: ACPMessage) => {
-        if (m.id !== undefined && (m.result !== undefined || m.error !== undefined)) {
-          // The JSON-RPC response to this request — capture, don't write
-          // to stdout (which is meaningless over HTTP).
-          response = m;
-        } else if (m.method === 'session/update') {
-          notifications.push(m.params);
-        } else {
-          // Any other server-initiated notification — buffer it too.
-          notifications.push(m);
+      // Serialize this request's processing through a chain so concurrent
+      // HTTP requests can't race on the shared transport.send capture.
+      const requestPromise = httpChain.then(async () => {
+        const notifications: unknown[] = [];
+        let response: ACPMessage | null = null;
+        const originalSend = this.transport.send.bind(this.transport);
+        this.transport.send = async (m: ACPMessage) => {
+          if (m.id !== undefined && (m.result !== undefined || m.error !== undefined)) {
+            response = m;
+          } else if (m.method === 'session/update') {
+            notifications.push(m.params);
+          } else {
+            notifications.push(m);
+          }
+        };
+
+        try {
+          await handler.handleMessage(msg);
+        } finally {
+          this.transport.send = originalSend;
         }
-      };
 
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        const responseBody =
+          response !== null
+            ? { ...(response as ACPMessage), notifications }
+            : { notifications };
+        res.end(JSON.stringify(responseBody));
+      });
+
+      // Chain the next request after this one completes (success or failure).
+      httpChain = requestPromise.catch(() => undefined);
+
+      // Await the chained promise so the response is sent before the
+      // function returns. Errors are caught by the chain wrapper.
       try {
-        await handler.handleMessage(msg);
-      } finally {
-        this.transport.send = originalSend;
+        await requestPromise;
+      } catch {
+        // Response already ended or an error occurred after res.end.
+        // The chain's catch ensures httpChain doesn't stay rejected.
       }
-
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      const responseBody =
-        response !== null
-          ? { ...(response as ACPMessage), notifications }
-          : { notifications };
-      res.end(JSON.stringify(responseBody));
     });
 
     return new Promise<void>((resolve) => {

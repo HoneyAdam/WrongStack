@@ -33,7 +33,6 @@ import { OfficeMapSettingsPanel } from '../OfficeMapSettingsPanel';
 
 const PANEL_DESCRIPTIONS: Record<string, string> = {
   chat: 'Run state, model, context and quick controls',
-  agents: 'Fleet members, live status and routing',
   history: 'Resume or inspect previous sessions',
   files: 'Browse and open project files',
   changes: 'Review source control changes',

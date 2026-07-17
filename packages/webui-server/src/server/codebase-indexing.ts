@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { Context, IndexingConfig, Logger } from '@wrongstack/core';
+import type { Context, EventBus, IndexingConfig, Logger } from '@wrongstack/core';
 import {
   cancelPendingReindexes,
   enqueueReindex,
@@ -26,6 +26,7 @@ export interface WebUICodebaseIndexingDeps {
   context: Context;
   projectRoot: string;
   logger: Logger;
+  events?: EventBus | undefined;
 }
 
 export interface WebUICodebaseIndexing {
@@ -33,24 +34,21 @@ export interface WebUICodebaseIndexing {
   dispose(): void;
 }
 
-export function setupWebUICodebaseIndexing(
-  deps: WebUICodebaseIndexingDeps,
-): WebUICodebaseIndexing {
-  const indexing = deps.config.indexing;
-  if (!indexing) return noopIndexing();
-  const idx: IndexingConfig = indexing;
+export function setupWebUICodebaseIndexing(deps: WebUICodebaseIndexingDeps): WebUICodebaseIndexing {
+  const idx: IndexingConfig | undefined = deps.config.indexing;
 
-  const indexDir = typeof deps.context.meta['codebaseIndexDir'] === 'string'
-    ? deps.context.meta['codebaseIndexDir']
-    : undefined;
-  const debounceMs = idx.debounceMs ?? 400;
+  const indexDir =
+    typeof deps.context.meta['codebaseIndexDir'] === 'string'
+      ? deps.context.meta['codebaseIndexDir']
+      : undefined;
+  const debounceMs = idx?.debounceMs ?? 400;
   const onError = (err: unknown) => {
     deps.logger.debug(
       `webui codebase auto-index failed: ${err instanceof Error ? err.message : String(err)}`,
     );
   };
 
-  if (idx.onSessionStart) {
+  if (idx?.onSessionStart) {
     void runStartupIndex({
       projectRoot: deps.projectRoot,
       indexDir,
@@ -70,13 +68,26 @@ export function setupWebUICodebaseIndexing(
   }
 
   let watcher: fs.FSWatcher | undefined;
-  if (idx.watchExternal) {
+  const lastWatcherEvent = new Map<string, number>();
+  if (idx?.watchExternal || deps.events) {
     try {
-      watcher = fs.watch(deps.projectRoot, { recursive: true }, (_event, filename) => {
+      watcher = fs.watch(deps.projectRoot, { recursive: true }, (eventType, filename) => {
         if (!filename) return;
         const rel = filename.toString();
         if (isIgnored(rel)) return;
         const abs = path.resolve(deps.projectRoot, rel);
+        if (!isInside(deps.projectRoot, abs) || !isIndexableFile(abs)) return;
+        const now = Date.now();
+        if (now - (lastWatcherEvent.get(abs) ?? 0) > 75) {
+          lastWatcherEvent.set(abs, now);
+          deps.events?.emit('file.activity', {
+            filePath: path.normalize(abs),
+            operation: eventType === 'rename' && !fs.existsSync(abs) ? 'delete' : 'edit',
+            phase: 'changed',
+            source: 'watcher',
+            at: now,
+          });
+        }
         enqueueFile(abs);
       });
       watcher.on('error', (err) => deps.logger.debug(`webui codebase index watcher error: ${err}`));
@@ -89,7 +100,7 @@ export function setupWebUICodebaseIndexing(
   }
 
   function enqueueFile(filePath: string): void {
-    if (!idx.onEdit && !idx.watchExternal) return;
+    if (!idx || (!idx.onEdit && !idx.watchExternal)) return;
     const abs = path.isAbsolute(filePath)
       ? path.normalize(filePath)
       : path.resolve(deps.projectRoot, filePath);
@@ -106,7 +117,20 @@ export function setupWebUICodebaseIndexing(
 
   return {
     onFileWritten(filePath) {
-      if (idx.onEdit) enqueueFile(filePath);
+      const abs = path.isAbsolute(filePath)
+        ? path.normalize(filePath)
+        : path.resolve(deps.projectRoot, filePath);
+      deps.events?.emit('file.activity', {
+        filePath: abs,
+        operation: 'write',
+        phase: 'completed',
+        source: 'editor',
+        at: Date.now(),
+        sessionId: deps.context.session?.id,
+        agentId: 'webui-editor',
+        agentName: 'WebUI Editor',
+      });
+      if (idx?.onEdit) enqueueFile(abs);
     },
     dispose() {
       try {
@@ -114,16 +138,11 @@ export function setupWebUICodebaseIndexing(
       } catch {
         /* ignore */
       }
-      cancelPendingReindexes();
-      shutdownCodebaseIndexHost();
+      if (idx) {
+        cancelPendingReindexes();
+        shutdownCodebaseIndexHost();
+      }
     },
-  };
-}
-
-function noopIndexing(): WebUICodebaseIndexing {
-  return {
-    onFileWritten() {},
-    dispose() {},
   };
 }
 
@@ -134,5 +153,7 @@ function isIgnored(rel: string): boolean {
 function isInside(root: string, target: string): boolean {
   const normalizedRoot = path.resolve(root);
   const normalizedTarget = path.resolve(target);
-  return normalizedTarget === normalizedRoot || normalizedTarget.startsWith(normalizedRoot + path.sep);
+  return (
+    normalizedTarget === normalizedRoot || normalizedTarget.startsWith(normalizedRoot + path.sep)
+  );
 }

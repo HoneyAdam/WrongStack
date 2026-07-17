@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { atomicWrite, withFileLock } from './utils/atomic-write.js';
 import {
   CURRENT_KANBAN_VERSION,
   DEFAULT_COLUMNS,
@@ -10,6 +9,7 @@ import {
   type KanbanBoardSummary,
   type KanbanEvent,
 } from './types.js';
+import { atomicWrite, withFileLock } from './utils/atomic-write.js';
 
 const KANBANS_DIR = 'kanbans';
 const BOARD_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
@@ -127,6 +127,19 @@ export async function writeBoard(projectRoot: string, board: KanbanBoard): Promi
   });
 }
 
+/**
+ * Maximum number of event log entries before rotation is triggered.
+ * After reaching this threshold, the oldest entries are pruned to
+ * EVENT_LOG_TRIM_TO to prevent unbounded file growth.
+ */
+export const EVENT_LOG_MAX_ENTRIES = 10_000;
+
+/**
+ * Target entry count after a rotation trim. Keeps the most recent
+ * entries so recent audit history is always available.
+ */
+export const EVENT_LOG_TRIM_TO = 5_000;
+
 export async function appendKanbanEvent(
   projectRoot: string,
   boardId: string,
@@ -136,7 +149,32 @@ export async function appendKanbanEvent(
   await withFileLock(filePath, async () => {
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.appendFile(filePath, `${JSON.stringify(event)}\n`, 'utf8');
+    // Trim the event log to prevent unbounded growth (best-effort).
+    // The size pre-check avoids reading the full file on every append.
+    await trimKanbanEventLog(filePath);
   });
+}
+
+/**
+ * Best-effort: read the events file, prune old entries if the count
+ * exceeds EVENT_LOG_MAX_ENTRIES, and rewrite with only the most recent
+ * EVENT_LOG_TRIM_TO entries. A failure here must never break event
+ * recording — the catch handler ensures that.
+ */
+async function trimKanbanEventLog(filePath: string): Promise<void> {
+  try {
+    const stat = await fs.stat(filePath);
+    // Quick heuristic: files under 512 KB are unlikely to exceed 10K JSON lines.
+    // Avoids reading the full file on every append for quiet boards.
+    if (stat.size < 512_000) return;
+    const raw = await fs.readFile(filePath, 'utf8');
+    const lines = raw.split(/\r?\n/).filter(Boolean);
+    if (lines.length <= EVENT_LOG_MAX_ENTRIES) return;
+    const trimmed = lines.slice(-EVENT_LOG_TRIM_TO);
+    await atomicWrite(filePath, `${trimmed.join('\n')}\n`, { encoding: 'utf8' });
+  } catch {
+    // Best-effort only: log-space management must never interrupt event recording.
+  }
 }
 
 export async function readKanbanEvents(
@@ -194,7 +232,23 @@ export async function mutateBoard<T>(
       if (isEnoent(err)) return null;
       throw err;
     }
+    const readRevision = board.revision ?? 0;
     const result = await mutator(board);
+    // Stale-write detection: re-read the on-disk revision under the same file lock
+    // to catch cross-process modifications since our initial read. If the revision
+    // changed, another agent or process mutated the board while we were computing,
+    // and our mutation is based on stale state.
+    const currentRaw = await fs.readFile(filePath, 'utf8');
+    const currentBoard = JSON.parse(currentRaw) as KanbanBoard;
+    const currentRevision = currentBoard.revision ?? 0;
+    if (currentRevision !== readRevision) {
+      throw new Error(
+        `Stale write detected for board "${boardId}": on-disk revision ${currentRevision} ` +
+          `does not match read revision ${readRevision}. The board was modified ` +
+          'by another process since it was loaded. Rerun the operation.',
+      );
+    }
+    board.revision = (board.revision ?? 0) + 1;
     await writeBoardUnlocked(filePath, normalizeBoard(board));
     return { board, result };
   });
@@ -214,7 +268,9 @@ export function summarizeBoard(board: KanbanBoard): KanbanBoardSummary {
     completedTaskCount: completed,
     ...(board.description !== undefined ? { description: board.description } : {}),
     ...(board.tags !== undefined ? { tags: board.tags } : {}),
-    ...(board.presence !== undefined ? { presence: board.presence.map((entry) => ({ ...entry })) } : {}),
+    ...(board.presence !== undefined
+      ? { presence: board.presence.map((entry) => ({ ...entry })) }
+      : {}),
     ...(lastActivity !== undefined ? { lastActivity } : {}),
   };
 }
@@ -260,6 +316,7 @@ export function createBoardObject(opts: CreateBoardObjectOptions): KanbanBoard {
     createdAt: now,
     updatedAt: now,
     version: CURRENT_KANBAN_VERSION,
+    revision: 0,
     ...(opts.description !== undefined ? { description: opts.description } : {}),
     ...(opts.tags !== undefined ? { tags: opts.tags } : {}),
     ...(opts.generatedBy !== undefined ? { generatedBy: opts.generatedBy } : {}),
@@ -304,6 +361,7 @@ function normalizeBoard(board: KanbanBoard): KanbanBoard {
   return {
     ...board,
     version: board.version ?? CURRENT_KANBAN_VERSION,
+    revision: board.revision ?? 0,
     createdAt: board.createdAt ?? now,
     updatedAt: board.updatedAt ?? now,
     columns,

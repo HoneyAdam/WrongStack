@@ -14,6 +14,10 @@ export {
   type SuperMemoryToolCallMiddlewareOptions,
 } from './middleware/tool-call-memory.js';
 export {
+  InjectionTracker,
+  type InjectionTrackerOptions,
+} from './middleware/injection-tracker.js';
+export {
   createSuperMemoryTurnMiddleware,
   normalizeTextKey,
   overlapCoefficient,

@@ -1527,7 +1527,7 @@
     "legendTask": "Tarea",
     "legendStatusConn": "Estado",
     "arrange": "Organizar",
-    "arrangeTitle": "Volver los nodos al plano",
+    "arrangeTitle": "Organizar los nodos para ajustarlos al lienzo disponible",
     "feed": "Feed",
     "feedTitle": "Alternar el feed de actividad en vivo",
     "broadcast": "Difundir",

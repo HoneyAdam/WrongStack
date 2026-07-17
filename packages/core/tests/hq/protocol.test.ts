@@ -187,6 +187,17 @@ describe('parseHqFrame', () => {
     expect(result.frame.payload.capabilities).toEqual(['telemetry.publish']);
   });
 
+  it('recognizes a mailbox-serve HQ client', () => {
+    const frame = structuredClone(validHello);
+    frame.payload.client.kind = 'mailbox';
+    frame.payload.capabilities = ['telemetry.publish', 'mailbox.summary', 'mailbox.serve'];
+    const result = parseHqFrame(JSON.stringify(frame));
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.frame.type !== 'client.hello') return;
+    expect(result.frame.payload.client.kind).toBe('mailbox');
+    expect(result.frame.payload.capabilities).toContain('mailbox.serve');
+  });
+
   it('parses a valid client.event frame with the embedded HqEventEnvelope', () => {
     const event = {
       type: 'client.event',

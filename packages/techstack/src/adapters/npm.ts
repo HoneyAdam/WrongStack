@@ -9,8 +9,8 @@
  * @see docs/specs/techstack-sdd.md §6 Tier A
  */
 
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
 import type {
   DependencyObservation,
   DependencyScope,
@@ -23,6 +23,7 @@ import type {
   EcosystemAdapter,
   InventoryOptions,
 } from './interface.js';
+import { resolveIn, workspaceRoot } from './paths.js';
 import { buildPurl } from '../registry/purl.js';
 
 // ── Lockfile types ───────────────────────────────────────────────────────
@@ -50,47 +51,129 @@ interface PackageJson {
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-function detectLockfile(workspaceRoot: string): LockfileInfo {
+/**
+ * Locate the lockfile that governs a workspace.
+ *
+ * Walks up from the workspace to `stopAt` (the project root). In a pnpm or npm
+ * workspace only the repo root holds a lockfile — `packages/cli` has none — so
+ * looking only in the workspace directory finds nothing for every package but
+ * the root, and every dependency ends up with no resolved version.
+ */
+function detectLockfile(workspaceDir: string, stopAt?: string): LockfileInfo {
   const candidates: Array<{ file: string; kind: LockfileKind }> = [
     { file: 'pnpm-lock.yaml', kind: 'pnpm' },
     { file: 'package-lock.json', kind: 'npm' },
     { file: 'yarn.lock', kind: 'yarn' },
     { file: 'bun.lockb', kind: 'bun' },
   ];
-  for (const c of candidates) {
-    try {
-      readFileSync(join(workspaceRoot, c.file), 'utf-8');
-      return { kind: c.kind, path: join(workspaceRoot, c.file) };
-    } catch {
-      // not found
+
+  const ceiling = stopAt ? resolve(stopAt) : undefined;
+  let dir = resolve(workspaceDir);
+
+  for (;;) {
+    for (const c of candidates) {
+      const candidate = join(dir, c.file);
+      if (existsSync(candidate)) return { kind: c.kind, path: candidate };
     }
+    if (ceiling && dir === ceiling) break;
+    const parent = dirname(dir);
+    if (parent === dir) break; // filesystem root
+    // Without a ceiling, don't wander above the workspace at all.
+    if (!ceiling) break;
+    dir = parent;
   }
   return { kind: 'none', path: '' };
 }
 
-/**
- * Parse pnpm-lock.yaml to extract resolved versions.
- * Uses a minimal line-based parser — no YAML dependency.
- */
-function parsePnpmLockVersions(lockContent: string): Map<string, string> {
-  const versions = new Map<string, string>();
+/** Strip pnpm's peer-dependency suffix: `19.1.0(react@19.1.0)` → `19.1.0`. */
+function stripPeerSuffix(version: string): string {
+  const paren = version.indexOf('(');
+  return (paren === -1 ? version : version.slice(0, paren)).trim();
+}
 
-  // pnpm-lock v9 format: packages section with entries like:
-  //   /react@19.1.0:
-  //     resolution: ...
-  //     engines: ...
-  //     dependencies: ...
-  // The key line starts with optional indentation, then `/name@version:`.
-  // We must allow leading whitespace because the packages are indented under the `packages:` key.
-  const packageBlockRegex = /^\s+\/(.+?)@([^@\n]+):$/gm;
-  let match: RegExpExecArray | null;
-  while ((match = packageBlockRegex.exec(lockContent)) !== null) {
-    const name = match[1]!;
-    const version = match[2]!;
-    versions.set(name, version);
+/**
+ * Extract the resolved versions pnpm recorded for one importer (workspace).
+ *
+ * pnpm's `importers:` section maps each workspace to the exact version it
+ * resolved for every declared dependency — which is precisely the per-workspace
+ * question this adapter asks, and it stays correct when two workspaces pin
+ * different versions of the same package.
+ *
+ * Line-based on purpose: the lockfile is machine-generated with a stable
+ * 2-space indent, and pulling in a YAML parser for four fields isn't worth the
+ * dependency.
+ *
+ * ```yaml
+ * importers:
+ *   packages/cli:            # 2 spaces — importer
+ *     dependencies:          # 4 spaces — section
+ *       react:               # 6 spaces — package
+ *         specifier: ^19.0.0 # 8 spaces — fields
+ *         version: 19.1.0
+ * ```
+ */
+function parsePnpmImporterVersions(lockContent: string, importerPath: string): Map<string, string> {
+  const versions = new Map<string, string>();
+  const lines = lockContent.split(/\r?\n/);
+
+  let inImporters = false;
+  let inTargetImporter = false;
+  let currentPackage: string | undefined;
+
+  for (const raw of lines) {
+    if (raw.trim() === '' || raw.trimStart().startsWith('#')) continue;
+
+    // Top-level key ends the importers block.
+    if (!/^\s/.test(raw)) {
+      if (inImporters) break;
+      inImporters = raw.startsWith('importers:');
+      continue;
+    }
+    if (!inImporters) continue;
+
+    const indent = raw.length - raw.trimStart().length;
+    const line = raw.trim();
+
+    if (indent === 2) {
+      // New importer — `packages/cli:` or `.:`
+      const key = line.endsWith(':') ? unquote(line.slice(0, -1)) : undefined;
+      inTargetImporter = key === importerPath;
+      currentPackage = undefined;
+      continue;
+    }
+    if (!inTargetImporter) continue;
+
+    if (indent === 4) {
+      currentPackage = undefined; // dependencies: / devDependencies: / …
+      continue;
+    }
+    if (indent === 6 && line.endsWith(':')) {
+      currentPackage = unquote(line.slice(0, -1));
+      continue;
+    }
+    if (indent >= 8 && currentPackage && line.startsWith('version:')) {
+      const version = stripPeerSuffix(unquote(line.slice('version:'.length).trim()));
+      // `link:../core` is a workspace link, not a released version — recording
+      // it as `locked` would make a local package look like a registry one.
+      if (version && !version.startsWith('link:') && !version.startsWith('file:')) {
+        versions.set(currentPackage, version);
+      }
+      currentPackage = undefined;
+    }
   }
 
   return versions;
+}
+
+function unquote(value: string): string {
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith("'") && trimmed.endsWith("'")) ||
+    (trimmed.startsWith('"') && trimmed.endsWith('"'))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
 }
 
 /**
@@ -203,11 +286,16 @@ export class NpmAdapter implements EcosystemAdapter {
 
   async inventory(
     workspace: Workspace,
-    _options: InventoryOptions,
+    options: InventoryOptions,
   ): Promise<readonly DependencyObservation[]> {
     const observations: DependencyObservation[] = [];
-    const root = workspace.relativeRoot || '.';
-    const manifestPath = join(root, workspace.manifests[0] ?? 'package.json');
+    const root = workspaceRoot(workspace, options);
+    // Pick the actual package.json rather than `manifests[0]` — discovery also
+    // reports tsconfig.json as a manifest, and sort order is not a contract.
+    const manifestPath = resolveIn(
+      root,
+      workspace.manifests.find((m) => m.endsWith('package.json')) ?? 'package.json',
+    );
 
     // Read package.json
     let pkg: PackageJson;
@@ -222,15 +310,19 @@ export class NpmAdapter implements EcosystemAdapter {
     const manifestEv = manifestEvidence(manifestPath);
 
     // Read lockfile for resolved versions
-    const lockInfo = detectLockfile(root);
+    const lockInfo = detectLockfile(root, options.projectRoot);
     const resolvedVersions = new Map<string, string>();
     let lockEv: Evidence | undefined;
     if (lockInfo.kind === 'pnpm') {
       try {
         const lockContent = readFileSync(lockInfo.path, 'utf-8');
-        const parsed = parsePnpmLockVersions(lockContent);
+        // The importer key is this workspace's path relative to the lockfile,
+        // POSIX-style; the root workspace is `.`.
+        const importerPath =
+          relative(dirname(lockInfo.path), root).split(/[/\\]/).filter(Boolean).join('/') || '.';
+        const parsed = parsePnpmImporterVersions(lockContent, importerPath);
         for (const [k, v] of parsed) resolvedVersions.set(k, v);
-        lockEv = lockfileEvidence(lockInfo.path);
+        if (parsed.size > 0) lockEv = lockfileEvidence(lockInfo.path);
       } catch {
         // ignore
       }

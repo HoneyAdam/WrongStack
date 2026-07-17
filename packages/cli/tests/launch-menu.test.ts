@@ -347,6 +347,7 @@ describe('runLaunchMenu', () => {
     expect(result!.mode).toBe('hq');
     // Default HQ port is 3499 (matches packages/cli/src/hq-server.ts).
     expect(result!.port).toBe(3499);
+    expect(result!.host).toBe('0.0.0.0');
   });
 
   it('cancels when user types q at the mode prompt', async () => {

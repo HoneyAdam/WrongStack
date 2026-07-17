@@ -47,7 +47,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { WebSocket } from 'ws';
 import { kanbanTool } from '../../tools/src/kanban.js';
 import type { WsServerMessage } from '../src/webui-server/ws-handlers/index.js';
-import { handleKanbanMessage, type KanbanContext } from '../src/webui-server/ws-handlers/kanban.js';
+import {
+  handleKanbanMessage,
+  type KanbanContext,
+  parseResolvedDispatchRoute,
+} from '../src/webui-server/ws-handlers/kanban.js';
 
 const FAKE_WS = {} as WebSocket;
 
@@ -1293,7 +1297,9 @@ describe('kanban websocket handler', () => {
     expect(payload.data.task.assignment).toMatchObject({
       agentId: 'runner',
       status: 'running',
+      attempt: 1,
       subagentId: 'kanban-123',
+      runTaskId: 'task-456',
     });
 
     await onDone?.({ status: 'completed', result: 'agent finished' });
@@ -1302,6 +1308,59 @@ describe('kanban websocket handler', () => {
       agentId: 'runner',
       status: 'completed',
       lastResult: 'agent finished',
+    });
+  });
+
+  it('extracts the exact resolved primary and fallback chain from dispatch summaries', () => {
+    expect(
+      parseResolvedDispatchRoute(
+        'Spawned subagent kanban-123 (openai / gpt-5.4 / fallback=anthropic/claude-opus,google/gemini-pro / profile=resilient / skills=testing / "Release Agent") for task task-456.',
+      ),
+    ).toEqual({
+      provider: 'openai',
+      model: 'gpt-5.4',
+      fallbackProfile: 'resilient',
+      fallbackModels: ['anthropic/claude-opus', 'google/gemini-pro'],
+    });
+  });
+
+  it('persists the exact provider and model resolved from session routing', async () => {
+    const { ctx, sent } = wsRig();
+    ctx.sessionContext = {
+      session: { id: 'session-dispatch' },
+      provider: { id: 'anthropic' },
+      model: 'claude-session-model',
+    } as never;
+    ctx.dispatchTask = async (_description, opts) => {
+      expect(opts).toMatchObject({ provider: 'anthropic', model: 'claude-session-model' });
+      return 'Spawned subagent session-agent for task session-run.';
+    };
+
+    const board = await createBoard(tmpDir, { title: 'Session route audit' });
+    const task = await addTask(tmpDir, board.id, { title: 'Use the live session route' });
+
+    await handleKanbanMessage(ctx, FAKE_WS, {
+      type: 'kanban.task.dispatch',
+      payload: {
+        boardId: board.id,
+        taskId: task!.task.id,
+        agentId: 'session-runner',
+        modelRouting: 'session',
+      },
+    });
+
+    const response = lastPayload<{
+      success: true;
+      data: { task: { assignment: unknown } };
+    }>(sent, 'kanban.task.dispatch');
+    expect(response.data.task.assignment).toMatchObject({
+      agentId: 'session-runner',
+      modelRouting: 'session',
+      provider: 'anthropic',
+      model: 'claude-session-model',
+      attempt: 1,
+      subagentId: 'session-agent',
+      runTaskId: 'session-run',
     });
   });
 

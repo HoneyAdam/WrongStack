@@ -18,7 +18,7 @@ import { DefaultPermissionPolicy } from '../../src/security/permission-policy.js
 import { DefaultSecretScrubber } from '../../src/security/secret-scrubber.js';
 import { DefaultSessionStore } from '../../src/storage/session-store.js';
 import { ProviderError } from '../../src/types/provider.js';
-import { AgentError, isAgentError } from '../../src/types/errors.js';
+import { type AgentError, isAgentError } from '../../src/types/errors.js';
 import type {
   Capabilities,
   Provider,

@@ -164,13 +164,21 @@ const KNOWN_HQ_CLIENT_FRAME_TYPES = new Set<HqClientMessage['type']>([
   'client.command_ack',
 ]);
 
-const HQ_CLIENT_KINDS = new Set<HqClientKind>(['tui', 'repl', 'webui', 'cli', 'unknown']);
+const HQ_CLIENT_KINDS = new Set<HqClientKind>([
+  'tui',
+  'repl',
+  'webui',
+  'cli',
+  'mailbox',
+  'unknown',
+]);
 const HQ_WORKSPACE_KINDS = new Set<HqWorkspaceKind>(['git', 'directory', 'unknown']);
 const HQ_CLIENT_CAPABILITIES = new Set<HqClientCapability>([
   'telemetry.publish',
   'session.summary',
   'fleet.summary',
   'mailbox.summary',
+  'mailbox.serve',
   'control.receive',
 ]);
 const HQ_COMMAND_ACK_STATUSES = new Set<HqClientCommandAckMessage['status']>([

@@ -350,7 +350,7 @@ describe('AnthropicProvider', () => {
     const p = new AnthropicProvider({ apiKey: 'k', fetchImpl });
     await p.complete({ model: 'm', messages: [{ role: 'user', content: 'hi' }], maxTokens: 100, reasoning: { enabled: true, effort: 'high' } }, { signal: new AbortController().signal });
     expect(captured?.['thinking']).toMatchObject({ type: 'enabled' });
-    expect((captured?.['thinking'] as { budget_tokens: number }).budget_tokens).toBeGreaterThan(0);
+    expect((captured!['thinking'] as { budget_tokens: number }).budget_tokens).toBeGreaterThan(0);
   });
 
   it('sends thinking.disabled when reasoning is off', async () => {

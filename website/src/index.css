@@ -139,12 +139,31 @@
 
 .signal-line {
   height: 2px;
-  background: linear-gradient(
-    90deg,
-    var(--color-brand) 0 16%,
-    var(--color-brand-2) 16% 21%,
-    transparent 21%
-  );
+  background:
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent) -30% 0 / 22%
+      100% no-repeat,
+    linear-gradient(
+      90deg,
+      var(--color-brand) 0 16%,
+      var(--color-brand-2) 16% 21%,
+      transparent 21%
+    );
+  animation: signal-sweep 9s ease-in-out infinite;
+}
+
+/* A soft glint travels the signal line every cycle, then rests. */
+@keyframes signal-sweep {
+  0%,
+  55% {
+    background-position:
+      -30% 0,
+      0 0;
+  }
+  100% {
+    background-position:
+      130% 0,
+      0 0;
+  }
 }
 
 .manual-grid {
@@ -157,6 +176,20 @@
 }
 
 .hero-noise {
+  position: absolute;
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 62px 62px;
+  -webkit-mask-image: linear-gradient(to bottom, #000 75%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 75%, transparent 100%);
+}
+
+/* Brand glow lives on a pseudo-element so it can drift while the grid stays put. */
+.hero-noise::before {
+  content: "";
+  position: absolute;
+  inset: -6%;
   background-image:
     radial-gradient(
       circle at 72% 8%,
@@ -167,16 +200,20 @@
       circle at 11% 62%,
       color-mix(in oklab, var(--color-brand-2) 9%, transparent),
       transparent 24%
-    ),
-    linear-gradient(var(--grid) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-  background-size:
-    auto,
-    auto,
-    62px 62px,
-    62px 62px;
-  -webkit-mask-image: linear-gradient(to bottom, #000 75%, transparent 100%);
-  mask-image: linear-gradient(to bottom, #000 75%, transparent 100%);
+    );
+  animation: hero-glow-drift 22s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+@keyframes hero-glow-drift {
+  from {
+    opacity: 0.85;
+    transform: translate3d(-1.8%, -1.2%, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(2.2%, 1.6%, 0);
+  }
 }
 
 .hero-orbit::before,
@@ -192,6 +229,61 @@
 .hero-orbit::after {
   inset: 29%;
   border-color: color-mix(in oklab, var(--color-brand) 35%, var(--line));
+  border-top-color: var(--color-brand-2);
+  animation: hero-orbit-spin 48s linear infinite;
+}
+
+@keyframes hero-orbit-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+/* Periodic light sweep across the hero title lines. Each line keeps its own
+   color; a whitened band of it travels left → right, cascading top → bottom
+   via the delay modifiers. Parked positions show the plain base color. */
+.hero-line {
+  --line-base: var(--fg);
+  background-image: linear-gradient(
+    105deg,
+    var(--line-base) 44%,
+    color-mix(in oklab, var(--line-base) 42%, #ffffff) 50%,
+    var(--line-base) 56%
+  );
+  background-size: 260% 100%;
+  background-position: 100% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: hero-line-shine 7.2s ease-in-out infinite;
+}
+
+.hero-line--brand-2 {
+  --line-base: var(--color-brand-2);
+}
+
+.hero-line--brand {
+  --line-base: var(--color-brand);
+}
+
+.hero-line--delay-1 {
+  animation-delay: 0.35s;
+}
+
+.hero-line--delay-2 {
+  animation-delay: 0.7s;
+}
+
+@keyframes hero-line-shine {
+  0%,
+  50% {
+    background-position: 100% 0;
+  }
+  82%,
+  100% {
+    background-position: 0% 0;
+  }
 }
 
 /* Persistent engineering marks shared by every route. */
@@ -268,7 +360,14 @@
 
 .site-decor__orbit::before {
   inset: 18%;
-  border: 1px solid color-mix(in oklab, var(--color-brand) 28%, var(--line));
+  border: 1px dashed color-mix(in oklab, var(--color-brand) 28%, var(--line));
+  animation: decor-orbit-spin 64s linear infinite;
+}
+
+@keyframes decor-orbit-spin {
+  to {
+    transform: rotate(1turn);
+  }
 }
 
 .site-decor__orbit::after {
@@ -356,6 +455,82 @@
   animation: decor-packet-float 17s ease-in-out infinite alternate;
 }
 
+/* Barely-there brand wash breathing behind every route. */
+.site-decor__aurora {
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(
+      ellipse 46% 34% at 84% 6%,
+      color-mix(in oklab, var(--color-brand) 6%, transparent),
+      transparent 72%
+    ),
+    radial-gradient(
+      ellipse 40% 32% at 6% 92%,
+      color-mix(in oklab, var(--color-brand-2) 5%, transparent),
+      transparent 70%
+    );
+  animation: decor-aurora-drift 26s ease-in-out infinite alternate;
+  will-change: transform, opacity;
+}
+
+/* Data packet streaking down a rail. */
+.site-decor__pulse {
+  position: absolute;
+  display: none;
+  top: 70px;
+  width: 3px;
+  height: 72px;
+  border-radius: 99px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in oklab, var(--color-brand) 65%, transparent),
+    transparent
+  );
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+.site-decor__pulse--left {
+  left: calc(max(24px, 50% - 720px) - 1px);
+  animation: decor-pulse-run 12s linear infinite;
+}
+
+.site-decor__pulse--right {
+  right: calc(max(24px, 50% - 720px) - 1px);
+  animation: decor-pulse-run 17s linear 5s infinite;
+}
+
+@keyframes decor-aurora-drift {
+  from {
+    opacity: 0.75;
+    transform: translate3d(-1.2%, -0.8%, 0) scale(1);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(1.4%, 1%, 0) scale(1.03);
+  }
+}
+
+@keyframes decor-pulse-run {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, -80px, 0);
+  }
+  7% {
+    opacity: 0.55;
+  }
+  60% {
+    opacity: 0.55;
+  }
+  78%,
+  100% {
+    opacity: 0;
+    transform: translate3d(0, 92vh, 0);
+  }
+}
+
 .page-hero-enter {
   animation: page-hero-enter 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -370,13 +545,13 @@
 
 @keyframes decor-drift-primary {
   to {
-    transform: translate3d(-8px, -7px, 0);
+    transform: translate3d(-8px, -7px, 0) rotate(8deg);
   }
 }
 
 @keyframes decor-drift-secondary {
   to {
-    transform: translate3d(7px, 6px, 0);
+    transform: translate3d(7px, 6px, 0) rotate(-6deg);
   }
 }
 
@@ -441,8 +616,25 @@
   }
 }
 
+/* Menu cards cascade in — driven by inline animation-delay for the stagger. */
+.menu-item-enter {
+  animation: menu-item-enter 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes menu-item-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (min-width: 1024px) {
   .site-decor__rail,
+  .site-decor__pulse,
   .site-decor__orbit--secondary,
   .site-decor__object--diamond,
   .site-decor__object--packet {
@@ -823,14 +1015,21 @@
    ========================================================================= */
 @media (prefers-reduced-motion: reduce) {
   .site-decor__orbit,
+  .site-decor__orbit::before,
   .site-decor__object,
+  .site-decor__aurora,
+  .site-decor__pulse,
+  .hero-noise::before,
+  .hero-orbit::after,
   .page-hero-enter {
     animation: none;
     transform: none;
   }
 
   .site-decor__orbit,
-  .site-decor__object {
+  .site-decor__object,
+  .site-decor__aurora,
+  .site-decor__pulse {
     will-change: auto;
   }
 

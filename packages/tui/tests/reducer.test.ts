@@ -516,6 +516,54 @@ describe('TUI reducer', () => {
     expect(out.historyGen).toBe(1);
   });
 
+  it('clearHistory resets active run, queue, stream, tool, confirm, and steering state', () => {
+    const out = reducer(
+      initial({
+        status: 'running',
+        interrupts: 2,
+        steeringPending: true,
+        steerSnapshot: {
+          runningTools: ['bash'],
+          subagents: [],
+          subagentsTerminated: 0,
+          partialAssistantText: 'stale',
+        },
+        streamingText: 'partial reply',
+        toolStream: { toolUseId: 'tool-1', name: 'bash', text: 'output', startedAt: 1 },
+        runningTools: new Map([['tool-1', { name: 'bash', startedAt: 1 }]]),
+        queue: [{ id: 1, displayText: 'later', blocks: [{ type: 'text', text: 'later' }] }],
+        confirmQueue: [
+          {
+            toolUseId: 'tool-1',
+            toolName: 'bash',
+            input: {},
+            resolve: () => {},
+            destructive: false,
+          },
+        ],
+        debugStreamStats: {
+          chunkCount: 1,
+          lastChunkSize: 4,
+          lastDeltaMs: 10,
+          totalBytes: 4,
+          lastChunkAt: new Date().toISOString(),
+        },
+      }),
+      { type: 'clearHistory' },
+    );
+
+    expect(out.status).toBe('idle');
+    expect(out.interrupts).toBe(0);
+    expect(out.steeringPending).toBe(false);
+    expect(out.steerSnapshot).toBeNull();
+    expect(out.streamingText).toBe('');
+    expect(out.toolStream).toBeNull();
+    expect(out.runningTools.size).toBe(0);
+    expect(out.queue).toEqual([]);
+    expect(out.confirmQueue).toEqual([]);
+    expect(out.debugStreamStats).toBeNull();
+  });
+
   it('setBuffer + clearInput reset cursor and history index', () => {
     let s = initial();
     s = reducer(s, { type: 'historyPush', text: 'older message' });

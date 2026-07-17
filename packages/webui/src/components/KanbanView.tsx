@@ -2,6 +2,9 @@ import type {
   KanbanBoard,
   KanbanBoardPresence,
   KanbanColumn,
+  KanbanEvent,
+  KanbanManualActivityKind,
+  KanbanManualActivityOutcome,
   KanbanModelRoutingMode,
   KanbanSupervisorSnapshot,
   KanbanTask,
@@ -36,18 +39,25 @@ import { useHorizontalScroll } from '@/hooks/useHorizontalScroll';
 import { useScrollPosition } from '@/hooks/useScrollPosition';
 import { type ModelCandidate, useProviderModels } from '@/hooks/useProviderModels';
 import { auditKanbanBoard } from '@/lib/kanban-cleaner';
+import { kanbanMetadataText } from '@/lib/kanban-metadata';
 import { cn } from '@/lib/utils';
 import { getWSClient } from '@/lib/ws-client';
 import { useConfigStore, useFleetStore, useKanbanStore, useSessionStore } from '@/stores';
 import { ChipMultiSelect, type ChipOption } from './ChipMultiSelect';
 import { KanbanCleanerAlert } from './KanbanCleanerAlert';
 import { ModelPicker } from './ModelPicker';
+import { TaskActivityTimeline } from './TaskActivityTimeline';
+import { TaskExecutionAttempts } from './TaskExecutionAttempts';
+import { TaskIntelligencePanel } from './TaskIntelligencePanel';
+import { analyzeTaskRisk, TaskRiskPanel } from './TaskRiskPanel';
 
 /** A kanban board that mirrors a live AutoPhase/SDD run, detected from its tags. */
 interface RunLink {
   engine: 'sdd' | 'autophase';
   runId?: string | undefined;
 }
+
+export const TASK_ACTIVITY_LOAD_LIMIT = 5_000;
 
 function relativeLastSeen(lastSeenAt: string): string {
   const elapsed = Math.max(0, Date.now() - Date.parse(lastSeenAt));
@@ -324,6 +334,13 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
   useHorizontalScroll(boardScrollRef);
   const [newColumnTitle, setNewColumnTitle] = useState('');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [taskActivity, setTaskActivity] = useState<KanbanEvent[]>([]);
+  const [taskActivityPresence, setTaskActivityPresence] = useState<
+    KanbanBoardPresence[] | undefined
+  >();
+  const [taskActivityLoading, setTaskActivityLoading] = useState(false);
+  const [taskActivityError, setTaskActivityError] = useState<string | null>(null);
+  const [taskActivityRefresh, setTaskActivityRefresh] = useState(0);
   const [dragTaskId, setDragTaskId] = useState<string | null>(null);
   const autoSelectedSessionRef = useRef<string | null>(null);
 
@@ -441,6 +458,46 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
     return () => clearInterval(interval);
   }, [ws]);
 
+  useEffect(() => {
+    setTaskActivityPresence(undefined);
+  }, [activeBoardId, selectedTaskId]);
+
+  useEffect(() => {
+    if (!activeBoardId || !selectedTaskId) {
+      return;
+    }
+    const boardId = activeBoardId;
+    const taskId = selectedTaskId;
+    setTaskActivityLoading(true);
+    setTaskActivityError(null);
+    const off = ws.on('kanban.task.activity', (message) => {
+      const payload = message.payload as {
+        success?: boolean;
+        error?: string;
+        data?: {
+          boardId?: string;
+          taskId?: string;
+          events?: KanbanEvent[];
+          presence?: KanbanBoardPresence[];
+        };
+      };
+      if (payload.success === false) {
+        setTaskActivityError(payload.error ?? 'Task activity could not be loaded.');
+        setTaskActivityLoading(false);
+        return;
+      }
+      if (payload.data?.boardId !== boardId || payload.data.taskId !== taskId) return;
+      setTaskActivity(payload.data.events ?? []);
+      setTaskActivityPresence(payload.data.presence ?? []);
+      setTaskActivityLoading(false);
+    });
+    ws.send({
+      type: 'kanban.task.activity',
+      payload: { boardId, taskId, limit: TASK_ACTIVITY_LOAD_LIMIT },
+    });
+    return off;
+  }, [activeBoardId, selectedTaskId, selectedTask?.updatedAt, taskActivityRefresh, ws]);
+
   const createBoard = () => {
     const title = newBoardTitle.trim();
     if (!title) return;
@@ -469,6 +526,7 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
       boardId: activeBoard.id,
       title,
       columnId: activeBoard.columns[0]?.id ?? 'backlog',
+      activityNote: 'Task created manually in WebUI.',
     });
     window.setTimeout(() => refreshBoard(activeBoard.id), 150);
   };
@@ -505,7 +563,15 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
 
   const moveTask = (taskId: string, columnId: string) => {
     if (!activeBoard) return;
-    sendKanban('kanban.task.move', { boardId: activeBoard.id, taskId, columnId });
+    const task = activeBoard.tasks.find((candidate) => candidate.id === taskId);
+    const from = activeBoard.columns.find((column) => column.id === task?.columnId)?.title;
+    const to = activeBoard.columns.find((column) => column.id === columnId)?.title ?? columnId;
+    sendKanban('kanban.task.move', {
+      boardId: activeBoard.id,
+      taskId,
+      columnId,
+      activityNote: `Moved in WebUI${from ? ` from ${from}` : ''} to ${to}.`,
+    });
     window.setTimeout(() => refreshBoard(activeBoard.id), 150);
   };
 
@@ -782,6 +848,12 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
         sendKanban={sendKanban}
         sendRaw={sendRaw}
         refreshBoard={refreshBoard}
+        activityEvents={taskActivity}
+        activityPresence={taskActivityPresence}
+        activityLoading={taskActivityLoading}
+        activityError={taskActivityError}
+        activitySessionId={activeBoard?.tags?.find((tag) => tag.startsWith('session:'))?.slice(8)}
+        refreshActivity={() => setTaskActivityRefresh((value) => value + 1)}
       />
     </div>
   );
@@ -973,6 +1045,60 @@ function RunTaskControls({
   );
 }
 
+export interface TaskCardIntelligence {
+  owner: string;
+  route: string;
+  blockers: number;
+  attempts: string;
+  fallbackCount: number;
+  activeUsers: number;
+  failed: boolean;
+  criticalRisks: number;
+  warningRisks: number;
+}
+
+export function deriveTaskCardIntelligence(
+  board: KanbanBoard,
+  task: KanbanTask,
+): TaskCardIntelligence {
+  const assignment = task.assignment;
+  const operationalFindings = analyzeTaskRisk(board, task, []).findings.filter(
+    (finding) => finding.category === 'operational',
+  );
+  const provider = kanbanMetadataText(assignment?.provider);
+  const model = kanbanMetadataText(assignment?.model);
+  return {
+    owner:
+      kanbanMetadataText(assignment?.name) ??
+      kanbanMetadataText(assignment?.agentId) ??
+      kanbanMetadataText(assignment?.role) ??
+      kanbanMetadataText(task.assignee) ??
+      kanbanMetadataText(task.assignedAgent) ??
+      'Unassigned',
+    route:
+      provider || model
+        ? `${provider ? `${provider}/` : ''}${model ?? 'default'}`
+        : assignment?.modelRouting === 'session'
+          ? 'session default'
+          : 'default route',
+    blockers: (task.dependsOn ?? []).filter((dependencyId) => {
+      const dependency = board.tasks.find((candidate) => candidate.id === dependencyId);
+      return !dependency || !['completed', 'archived'].includes(dependency.status);
+    }).length,
+    attempts: assignment?.attempt
+      ? `${assignment.attempt}${assignment.maxAttempts ? `/${assignment.maxAttempts}` : ''}`
+      : '0',
+    fallbackCount:
+      (assignment?.fallbackProfile ? 1 : 0) + (assignment?.fallbackModels?.length ?? 0),
+    activeUsers: (board.presence ?? []).filter(
+      (entry) => entry.taskId === task.id && entry.active,
+    ).length,
+    failed: task.status === 'failed' || assignment?.status === 'failed' || !!assignment?.error,
+    criticalRisks: operationalFindings.filter((finding) => finding.severity === 'critical').length,
+    warningRisks: operationalFindings.filter((finding) => finding.severity === 'warning').length,
+  };
+}
+
 function KanbanColumnView({
   board,
   column,
@@ -1024,8 +1150,10 @@ function KanbanColumnView({
           setDragTaskId(null);
         }}
       >
-        {tasks.map((task) => (
-          <li
+        {tasks.map((task) => {
+          const intelligence = deriveTaskCardIntelligence(board, task);
+          return (
+            <li
             key={task.id}
             draggable={board.lifecycle?.mode !== 'managed'}
             onDragStart={() => {
@@ -1067,24 +1195,51 @@ function KanbanColumnView({
               <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">
                 {task.status}
               </span>
-              {task.assignedAgent && (
+              {intelligence.owner !== 'Unassigned' && (
                 <span className="rounded bg-primary/10 px-1.5 py-0.5 text-primary">
-                  {task.assignedAgent}
+                  {intelligence.owner}
                 </span>
               )}
-              {task.assignment?.model && (
+              {task.assignment && (
                 <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">
-                  {task.assignment.model}
+                  {intelligence.route}
                 </span>
               )}
-              {task.assignment?.modelRouting === 'session' && (
-                <span className="rounded bg-info/10 px-1.5 py-0.5 text-info">session model</span>
-              )}
-              {task.dependsOn?.length ? (
-                <span className="rounded bg-warning/10 px-1.5 py-0.5 text-warning">
-                  {task.dependsOn.length} deps
+              {task.assignment?.attempt ? (
+                <span className="rounded bg-info/10 px-1.5 py-0.5 text-info">
+                  attempt {intelligence.attempts}
                 </span>
               ) : null}
+              {intelligence.fallbackCount > 0 && (
+                <span className="rounded bg-info/10 px-1.5 py-0.5 text-info">
+                  {intelligence.fallbackCount} fallback
+                </span>
+              )}
+              {intelligence.blockers > 0 ? (
+                <span className="rounded bg-warning/10 px-1.5 py-0.5 text-warning">
+                  {intelligence.blockers} blocker
+                </span>
+              ) : null}
+              {intelligence.activeUsers > 0 && (
+                <span className="rounded bg-success/10 px-1.5 py-0.5 text-success">
+                  {intelligence.activeUsers} active
+                </span>
+              )}
+              {intelligence.failed && (
+                <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-destructive">
+                  run failed
+                </span>
+              )}
+              {intelligence.criticalRisks > 0 && (
+                <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-destructive">
+                  {intelligence.criticalRisks} critical risk
+                </span>
+              )}
+              {intelligence.warningRisks > 0 && (
+                <span className="rounded bg-warning/10 px-1.5 py-0.5 text-warning">
+                  {intelligence.warningRisks} warning
+                </span>
+              )}
               {task.chain && (
                 <span className="rounded bg-primary/10 px-1.5 py-0.5 text-primary">
                   chain {task.chain.order + 1}
@@ -1096,8 +1251,9 @@ function KanbanColumnView({
                 </span>
               ) : null}
             </div>
-          </li>
-        ))}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
@@ -1155,6 +1311,12 @@ function TaskInspector({
   sendKanban,
   sendRaw,
   refreshBoard,
+  activityEvents,
+  activityPresence,
+  activityLoading,
+  activityError,
+  activitySessionId,
+  refreshActivity,
 }: {
   boards: Array<{ id: string; title: string }>;
   board: KanbanBoard | null;
@@ -1164,6 +1326,12 @@ function TaskInspector({
   sendKanban: (type: `kanban.${string}`, payload?: Record<string, unknown>) => void;
   sendRaw: (type: string, payload?: Record<string, unknown>) => void;
   refreshBoard: (boardId?: string | null) => void;
+  activityEvents: KanbanEvent[];
+  activityPresence?: KanbanBoardPresence[] | undefined;
+  activityLoading: boolean;
+  activityError: string | null;
+  activitySessionId?: string | undefined;
+  refreshActivity: () => void;
 }) {
   const [agentId, setAgentId] = useState('');
   const [name, setName] = useState('');
@@ -1183,6 +1351,8 @@ function TaskInspector({
   // Real registered tools + the live session provider/model (the dispatch
   // fallback so nothing has to be typed by hand).
   const meta = useKanbanMeta(Boolean(task));
+  const sessionProvider = kanbanMetadataText(meta.sessionProvider);
+  const sessionModel = kanbanMetadataText(meta.sessionModel);
   // Scroll-position hook must be called unconditionally — calling it inside
   // JSX within the {task ? … : …} ternary violates the Rules of Hooks
   // (React error 310) when task toggles between null and non-null.
@@ -1208,18 +1378,27 @@ function TaskInspector({
   const [maxAttempts, setMaxAttempts] = useState('');
   const [newCheck, setNewCheck] = useState('');
   const [newNote, setNewNote] = useState('');
+  const [newActivityDetails, setNewActivityDetails] = useState('');
+  const [newActivityKind, setNewActivityKind] = useState<KanbanManualActivityKind>('observation');
+  const [newActivityOutcome, setNewActivityOutcome] =
+    useState<KanbanManualActivityOutcome>('unknown');
+  const [changeReason, setChangeReason] = useState('');
 
   useEffect(() => {
-    setAgentId(task?.assignment?.agentId ?? task?.assignedAgent ?? '');
-    setName(task?.assignment?.name ?? '');
-    setRole(task?.assignment?.role ?? '');
-    setProvider(task?.assignment?.provider ?? '');
-    setModel(task?.assignment?.model ?? '');
+    const assignmentProvider = kanbanMetadataText(task?.assignment?.provider);
+    const assignmentModel = kanbanMetadataText(task?.assignment?.model);
+    setAgentId(
+      kanbanMetadataText(task?.assignment?.agentId) ?? kanbanMetadataText(task?.assignedAgent) ?? '',
+    );
+    setName(kanbanMetadataText(task?.assignment?.name) ?? '');
+    setRole(kanbanMetadataText(task?.assignment?.role) ?? '');
+    setProvider(assignmentProvider ?? '');
+    setModel(assignmentModel ?? '');
     setRoutingMode(
       task?.assignment?.modelRouting ??
-        (task?.assignment?.provider || task?.assignment?.model ? 'fixed' : 'session'),
+        (assignmentProvider || assignmentModel ? 'fixed' : 'session'),
     );
-    setFallbackProfile(task?.assignment?.fallbackProfile ?? '');
+    setFallbackProfile(kanbanMetadataText(task?.assignment?.fallbackProfile) ?? '');
     setFallbackModels(task?.assignment?.fallbackModels ?? []);
     setSkills(task?.assignment?.skills ?? []);
     setTools(task?.assignment?.tools ?? []);
@@ -1254,9 +1433,13 @@ function TaskInspector({
     setMaxAttempts(task?.assignment?.maxAttempts?.toString() ?? '');
     setNewCheck('');
     setNewNote('');
+    setNewActivityDetails('');
+    setNewActivityKind('observation');
+    setNewActivityOutcome('unknown');
+    setChangeReason('');
   }, [board?.id, boards, task]);
 
-  const payload = () => ({
+  const payload = (action: 'assign' | 'dispatch') => ({
     boardId: board?.id,
     taskId: task?.id,
     ...(agentId.trim() ? { agentId: agentId.trim() } : {}),
@@ -1275,6 +1458,9 @@ function TaskInspector({
     ...(maxAttempts ? { maxAttempts: Number(maxAttempts) } : {}),
     ...(costCeilingUsd ? { costCeilingUsd: Number(costCeilingUsd) } : {}),
     retryPolicy,
+    activityNote:
+      changeReason.trim() ||
+      `${action === 'dispatch' ? 'Dispatched' : 'Assigned'} from WebUI to ${name.trim() || agentId.trim() || role.trim() || 'the configured agent route'}.`,
   });
 
   const saveDetails = () => {
@@ -1298,6 +1484,7 @@ function TaskInspector({
       actualHours: actualHours ? Number(actualHours) : 0,
       retryPolicy,
       costCeilingUsd: costCeilingUsd ? Number(costCeilingUsd) : null,
+      activityNote: changeReason.trim() || 'Task contract edited in WebUI.',
     });
     if (chainMembers.length > 1) {
       sendKanban('kanban.task.chain', {
@@ -1307,6 +1494,7 @@ function TaskInspector({
       });
     }
     window.setTimeout(() => refreshBoard(board.id), 180);
+    setChangeReason('');
   };
 
   const managedStageOrder = ['backlog', 'todo', 'running', 'review', 'done'] as const;
@@ -1352,26 +1540,33 @@ function TaskInspector({
     setNewCheck('');
   };
 
-  const addNote = () => {
+  const recordActivity = () => {
     if (!board || !task || !newNote.trim()) return;
-    sendKanban('kanban.task.note.add', {
+    sendKanban('kanban.task.activity.add', {
       boardId: board.id,
       taskId: task.id,
-      content: newNote.trim(),
-      author: 'webui',
+      kind: newActivityKind,
+      outcome: newActivityOutcome,
+      summary: newNote.trim(),
+      ...(newActivityDetails.trim() ? { details: newActivityDetails.trim() } : {}),
+      actor: name.trim() || agentId.trim() || 'webui-operator',
     });
     setNewNote('');
+    setNewActivityDetails('');
+    window.setTimeout(refreshActivity, 150);
   };
 
   const assign = () => {
     if (!board || !task) return;
-    sendKanban('kanban.task.assign', payload());
+    sendKanban('kanban.task.assign', payload('assign'));
+    setChangeReason('');
     window.setTimeout(() => refreshBoard(board.id), 150);
   };
 
   const dispatch = () => {
     if (!board || !task) return;
-    sendKanban('kanban.task.dispatch', payload());
+    sendKanban('kanban.task.dispatch', payload('dispatch'));
+    setChangeReason('');
     window.setTimeout(() => refreshBoard(board.id), 200);
   };
 
@@ -1385,19 +1580,19 @@ function TaskInspector({
     sendKanban('kanban.task.transfer', { boardId: board.id, taskId: task.id, targetBoardId });
   };
 
+  // The inspector is contextual UI, not a permanent empty sidebar. Keep all
+  // hooks above unconditional, then render nothing until the user selects a task.
+  if (!task) return null;
+
   return (
     <aside
-      className={cn(
-        'w-full shrink-0 flex-col border-t bg-card/40 md:w-[420px] md:border-l md:border-t-0 xl:w-[480px]',
-        task ? 'flex max-h-[42dvh] md:max-h-none' : 'hidden md:flex',
-      )}
+      aria-label="Task inspector"
+      className="flex max-h-[42dvh] w-full shrink-0 flex-col border-t bg-card/40 md:max-h-none md:w-[420px] md:border-l md:border-t-0 xl:w-[480px]"
     >
       <div className="flex h-12 items-center gap-2 border-b px-3">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold">{task ? 'Task' : 'Selection'}</div>
-          <div className="truncate text-[11px] text-muted-foreground">
-            {task?.id.slice(0, 8) ?? 'No task selected'}
-          </div>
+          <div className="truncate text-sm font-semibold">Task</div>
+          <div className="truncate text-[11px] text-muted-foreground">{task.id.slice(0, 8)}</div>
         </div>
         <button
           type="button"
@@ -1511,6 +1706,11 @@ function TaskInspector({
                 Enforce chain order as dependencies
               </label>
             </div>
+            <Field
+              label="Change / assignment reason (persisted to activity)"
+              value={changeReason}
+              onChange={setChangeReason}
+            />
             <button
               type="button"
               onClick={saveDetails}
@@ -1560,6 +1760,26 @@ function TaskInspector({
               </section>
             )}
           </div>
+
+          {board && (
+            <>
+              <TaskIntelligencePanel
+                board={board}
+                task={task}
+                events={activityEvents}
+                presence={activityPresence}
+                sessionId={activitySessionId}
+                sessionProvider={sessionProvider}
+                sessionModel={sessionModel}
+              />
+              <TaskExecutionAttempts
+                task={task}
+                events={activityEvents}
+                sessionId={activitySessionId}
+              />
+              <TaskRiskPanel board={board} task={task} events={activityEvents} />
+            </>
+          )}
           <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
             <Metric label="Source" value={task.origin?.system ?? 'manual'} />
             <Metric label="Task ID" value={task.id.slice(0, 8)} />
@@ -1589,9 +1809,8 @@ function TaskInspector({
                 />
                 {routingMode === 'session' && (
                   <div className="rounded-md border bg-info/5 px-2 py-1.5 text-[11px] text-muted-foreground">
-                    Uses the live session model:{' '}
-                    {meta.sessionProvider ? `${meta.sessionProvider}/` : ''}
-                    {meta.sessionModel || 'not available'}.
+                    Uses the live session model: {sessionProvider ? `${sessionProvider}/` : ''}
+                    {sessionModel || 'not available'}.
                   </div>
                 )}
                 {routingMode === 'fixed' && (
@@ -1853,44 +2072,76 @@ function TaskInspector({
             </div>
           </div>
 
-          <div className="mt-5">
+          <TaskActivityTimeline
+            task={task}
+            events={activityEvents}
+            sessionId={activitySessionId}
+            loading={activityLoading}
+            error={activityError}
+            onRefresh={refreshActivity}
+          />
+
+          <div className="mt-4">
             <div className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
-              Notes / audit trail
+              Record decision / outcome
             </div>
-            <div className="space-y-1.5">
-              {(task.notes ?? []).map((note) => (
-                <div key={note.id} className="rounded-md border bg-background px-2 py-1.5 text-xs">
-                  <div className="mb-1 flex justify-between text-[10px] text-muted-foreground">
-                    <span>{note.author}</span>
-                    <span>{new Date(note.createdAt).toLocaleString()}</span>
-                  </div>
-                  <div className="whitespace-pre-wrap leading-5">{note.content}</div>
-                </div>
-              ))}
-              <div className="flex gap-1.5">
-                <input
-                  value={newNote}
-                  onChange={(event) => setNewNote(event.target.value)}
-                  onKeyDown={(event) => event.key === 'Enter' && addNote()}
-                  placeholder="Add operator note…"
-                  className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2 text-xs outline-none focus:border-primary"
-                />
-                <button
-                  type="button"
-                  onClick={addNote}
-                  className="h-8 rounded-md border px-2 hover:bg-muted"
-                >
-                  <Plus size={14} />
-                </button>
-              </div>
+            <div className="mb-1.5 grid grid-cols-2 gap-1.5">
+              <select
+                value={newActivityKind}
+                onChange={(event) =>
+                  setNewActivityKind(event.target.value as KanbanManualActivityKind)
+                }
+                aria-label="Task activity kind"
+                className="h-8 rounded-md border bg-background px-2 text-xs"
+              >
+                {['decision', 'attempt', 'result', 'blocker', 'observation'].map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={newActivityOutcome}
+                onChange={(event) =>
+                  setNewActivityOutcome(event.target.value as KanbanManualActivityOutcome)
+                }
+                aria-label="Task activity outcome"
+                className="h-8 rounded-md border bg-background px-2 text-xs"
+              >
+                {['unknown', 'succeeded', 'failed', 'partial', 'skipped'].map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
             </div>
+            <div className="flex gap-1.5">
+              <input
+                value={newNote}
+                onChange={(event) => setNewNote(event.target.value)}
+                onKeyDown={(event) => event.key === 'Enter' && recordActivity()}
+                placeholder="What was decided, attempted, or produced?"
+                className="h-8 min-w-0 flex-1 rounded-md border bg-background px-2 text-xs outline-none focus:border-primary"
+              />
+              <button
+                type="button"
+                onClick={recordActivity}
+                className="h-8 rounded-md border px-2 hover:bg-muted"
+                aria-label="Record task decision or outcome"
+              >
+                <Plus size={14} />
+              </button>
+            </div>
+            <input
+              value={newActivityDetails}
+              onChange={(event) => setNewActivityDetails(event.target.value)}
+              placeholder="Optional evidence, rationale, command, link, or failure detail…"
+              aria-label="Task activity details"
+              className="mt-1.5 h-8 w-full rounded-md border bg-background px-2 text-xs outline-none focus:border-primary"
+            />
           </div>
         </div>
-      ) : (
-        <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
-          Select a task to edit assignment and dispatch settings.
-        </div>
-      )}
+      ) : null}
     </aside>
   );
 }
@@ -1932,19 +2183,21 @@ function fmtElapsed(fromIso?: string, toIso?: string): string | null {
 function AgentRunPanel({ assignment }: { assignment: NonNullable<KanbanTask['assignment']> }) {
   const running = assignment.status === 'running';
   const elapsed = fmtElapsed(assignment.dispatchedAt, assignment.completedAt);
+  const agentName = kanbanMetadataText(assignment.name) ?? kanbanMetadataText(assignment.agentId);
+  const role = kanbanMetadataText(assignment.role);
+  const provider = kanbanMetadataText(assignment.provider);
+  const model = kanbanMetadataText(assignment.model);
   const rows: Array<{ label: string; value: React.ReactNode }> = [];
-  if (assignment.name || assignment.agentId) {
-    rows.push({ label: 'Agent', value: assignment.name ?? assignment.agentId });
-  }
-  if (assignment.role) rows.push({ label: 'Role', value: assignment.role });
+  if (agentName) rows.push({ label: 'Agent', value: agentName });
+  if (role) rows.push({ label: 'Role', value: role });
   if (assignment.modelRouting) rows.push({ label: 'Model source', value: assignment.modelRouting });
-  if (assignment.provider || assignment.model) {
+  if (provider || model) {
     rows.push({
       label: 'Model',
       value: (
         <span className="font-mono text-[11px]">
-          {assignment.provider ? `${assignment.provider}/` : ''}
-          {assignment.model ?? '—'}
+          {provider ? `${provider}/` : ''}
+          {model ?? '—'}
         </span>
       ),
     });

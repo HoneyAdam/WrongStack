@@ -45,6 +45,71 @@ describe('truncateToCheckpoint edge cases', () => {
     expect(lines.some((l) => l.includes('NOT_VALID_JSON'))).toBe(true);
   });
 
+  it('finds a checkpoint whose JSONL record straddles the scan chunk boundary', async () => {
+    const id = 'checkpoint-crosses-chunk';
+    const chunkSize = 65_536;
+    const checkpointStart = chunkSize - 16;
+    const sessionStart = JSON.stringify({
+      type: 'session_start',
+      ts: '2024-01-01T00:00:00Z',
+      id,
+      model: 'gpt4',
+      provider: 'openai',
+    });
+    const emptyPadding = JSON.stringify({
+      type: 'user_input',
+      ts: '2024-01-01T00:00:01Z',
+      content: '',
+      promptIndex: 0,
+    });
+    const paddingLength =
+      checkpointStart - Buffer.byteLength(`${sessionStart}\n${emptyPadding}\n`, 'utf8');
+    expect(paddingLength).toBeGreaterThan(0);
+
+    const paddingEvent = JSON.stringify({
+      type: 'user_input',
+      ts: '2024-01-01T00:00:01Z',
+      content: 'x'.repeat(paddingLength),
+      promptIndex: 0,
+    });
+    const targetCheckpoint = JSON.stringify({
+      type: 'checkpoint',
+      ts: '2024-01-01T00:00:02Z',
+      promptIndex: 0,
+    });
+    const laterEvent = JSON.stringify({
+      type: 'user_input',
+      ts: '2024-01-01T00:00:03Z',
+      content: 'remove me',
+      promptIndex: 1,
+    });
+    const laterCheckpoint = JSON.stringify({
+      type: 'checkpoint',
+      ts: '2024-01-01T00:00:04Z',
+      promptIndex: 1,
+    });
+    const fileContent = `${sessionStart}\n${paddingEvent}\n${targetCheckpoint}\n${laterEvent}\n${laterCheckpoint}\n`;
+    expect(Buffer.byteLength(`${sessionStart}\n${paddingEvent}\n`, 'utf8')).toBe(checkpointStart);
+    expect(Buffer.byteLength(targetCheckpoint, 'utf8')).toBeGreaterThan(chunkSize - checkpointStart);
+    await fs.writeFile(path.join(tmp, `${id}.jsonl`), fileContent);
+
+    const resumed = await store.resume(id);
+    const removed = await resumed.writer.truncateToCheckpoint(0);
+    await resumed.writer.close();
+
+    // truncateToCheckpoint flushes lazy initialization before scanning, so the
+    // later event, later checkpoint, and session_resumed marker are removed.
+    expect(removed).toBe(3);
+    const raw = await fs.readFile(path.join(tmp, `${id}.jsonl`), 'utf8');
+    const events = raw
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { type?: string; promptIndex?: number });
+    expect(events).toContainEqual(expect.objectContaining({ type: 'checkpoint', promptIndex: 0 }));
+    expect(events).not.toContainEqual(expect.objectContaining({ promptIndex: 1 }));
+    expect(events).toContainEqual(expect.objectContaining({ type: 'rewound' }));
+  });
+
   it('truncateToCheckpoint returns 0 when filePath is undefined (no-op)', async () => {
     // This exercises the early return when filePath is falsy
     // We can't directly test this since filePath is set on create, but we can

@@ -171,6 +171,27 @@ describe('classifyStatus — version comparison', () => {
     const result = classifyStatus(dep, registryData);
     expect(result).toBe('update_available_breaking');
   });
+
+  // An exact pin means "don't move without a decision" — a manifest question,
+  // not a compatibility one. Reading every pinned patch release as breaking
+  // marked most of a pin-heavy repo as needing a major upgrade.
+  it('treats a patch bump under an exact pin as safe, not breaking', () => {
+    const registryData: RegistryStatusData = { latestStable: '2.5.4' };
+    const dep = makeDep({ locked: '2.5.3', requested: '2.5.3' });
+    expect(classifyStatus(dep, registryData)).toBe('update_available_safe');
+  });
+
+  it('treats a minor bump under an exact pin as safe', () => {
+    const registryData: RegistryStatusData = { latestStable: '2.6.0' };
+    const dep = makeDep({ locked: '2.5.3', requested: '2.5.3' });
+    expect(classifyStatus(dep, registryData)).toBe('update_available_safe');
+  });
+
+  it('still reports breaking for a major bump under an exact pin', () => {
+    const registryData: RegistryStatusData = { latestStable: '3.0.0' };
+    const dep = makeDep({ locked: '2.5.3', requested: '2.5.3' });
+    expect(classifyStatus(dep, registryData)).toBe('update_available_breaking');
+  });
 });
 
 // ── Helper factory tests ───────────────────────────────────────────────────

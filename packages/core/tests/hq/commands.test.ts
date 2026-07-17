@@ -70,7 +70,7 @@ describe('HqCommandAuditLog', () => {
     const log = new HqCommandAuditLog();
     log.record({ commandId: 'c1', type: 'steer', clientId: 'cl-1', enqueuedBy: 'tok-1', enqueuedAt: 't1', status: 'queued' });
     log.update('c1', { status: 'acked', ackStatus: 'completed', ackedAt: 't2' });
-    const entry = log.recent()[0]!;
+    const entry = log.get('c1')!;
     expect(entry.status).toBe('acked');
     expect(entry.ackStatus).toBe('completed');
   });

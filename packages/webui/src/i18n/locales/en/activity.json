@@ -1527,7 +1527,7 @@
     "legendTask": "Task",
     "legendStatusConn": "Status",
     "arrange": "Arrange",
-    "arrangeTitle": "Snap nodes back to the floor plan",
+    "arrangeTitle": "Arrange nodes to fit the available canvas",
     "feed": "Feed",
     "feedTitle": "Toggle the live activity feed",
     "broadcast": "Broadcast",

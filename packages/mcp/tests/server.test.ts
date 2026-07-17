@@ -38,7 +38,7 @@ describe('MCPServer.handleMessage', () => {
   it('lists tools', async () => {
     const server = new MCPServer({ host: makeHost() });
     const res = await call(server, { jsonrpc: '2.0', id: 2, method: 'tools/list' });
-    const tools = (res?.result as { tools: unknown[] }).tools;
+    const tools = (res!.result as { tools: unknown[] }).tools;
     expect(tools).toHaveLength(1);
     expect((tools[0] as { name: string }).name).toBe('echo');
   });
@@ -87,13 +87,13 @@ describe('MCPServer.handleMessage', () => {
       method: 'tools/call',
       params: { name: 'echo' },
     });
-    expect((res?.error as { code: number }).code).toBe(-32603);
+    expect((res!.error as { code: number }).code).toBe(-32603);
   });
 
   it('returns METHOD_NOT_FOUND for unknown methods', async () => {
     const server = new MCPServer({ host: makeHost() });
     const res = await call(server, { jsonrpc: '2.0', id: 6, method: 'does/not/exist' });
-    expect((res?.error as { code: number }).code).toBe(-32601);
+    expect((res!.error as { code: number }).code).toBe(-32601);
   });
 
   it('returns a parse error for malformed JSON', async () => {
@@ -133,10 +133,10 @@ describe('MCPServer.handleMessage', () => {
     });
     const initialized = await call(server, { jsonrpc: '2.0', id: 1, method: 'initialize' });
     expect(
-      (initialized?.result as { capabilities: { resources?: unknown } }).capabilities.resources,
+      (initialized!.result as { capabilities: { resources?: unknown } }).capabilities.resources,
     ).toBeDefined();
     const listed = await call(server, { jsonrpc: '2.0', id: 2, method: 'resources/list' });
-    expect((listed?.result as { resources: unknown[] }).resources).toEqual([
+    expect((listed!.result as { resources: unknown[] }).resources).toEqual([
       {
         uri: 'file:///project/README.md',
         name: 'README.md',
@@ -150,7 +150,7 @@ describe('MCPServer.handleMessage', () => {
       method: 'resources/read',
       params: { uri: 'file:///project/README.md' },
     });
-    expect((read?.result as { contents: Array<{ text: string }> }).contents[0]?.text).toBe('hello');
+    expect((read!.result as { contents: Array<{ text: string }> }).contents[0]?.text).toBe('hello');
   });
 
   it('paginates explicitly configured resources', async () => {
@@ -161,15 +161,15 @@ describe('MCPServer.handleMessage', () => {
     }));
     const server = new MCPServer({ host: makeHost(), resources });
     const first = await call(server, { jsonrpc: '2.0', id: 1, method: 'resources/list' });
-    expect((first?.result as { resources: unknown[] }).resources).toHaveLength(100);
-    expect((first?.result as { nextCursor: string }).nextCursor).toBe('100');
+    expect((first!.result as { resources: unknown[] }).resources).toHaveLength(100);
+    expect((first!.result as { nextCursor: string }).nextCursor).toBe('100');
     const second = await call(server, {
       jsonrpc: '2.0',
       id: 2,
       method: 'resources/list',
       params: { cursor: '100' },
     });
-    expect((second?.result as { resources: unknown[] }).resources).toHaveLength(1);
+    expect((second!.result as { resources: unknown[] }).resources).toHaveLength(1);
   });
 
   it('lists and renders explicitly configured prompt templates', async () => {
@@ -185,7 +185,7 @@ describe('MCPServer.handleMessage', () => {
       ],
     });
     const listed = await call(server, { jsonrpc: '2.0', id: 1, method: 'prompts/list' });
-    expect((listed?.result as { prompts: Array<{ name: string }> }).prompts[0]?.name).toBe(
+    expect((listed!.result as { prompts: Array<{ name: string }> }).prompts[0]?.name).toBe(
       'review',
     );
     const selected = await call(server, {
@@ -196,7 +196,7 @@ describe('MCPServer.handleMessage', () => {
     });
     expect(
       (
-        selected?.result as {
+        selected!.result as {
           messages: Array<{ content: { text: string } }>;
         }
       ).messages[0]?.content.text,
@@ -207,7 +207,7 @@ describe('MCPServer.handleMessage', () => {
     const server = new MCPServer({ host: makeHost() });
     for (const method of ['resources/list', 'prompts/list']) {
       const response = await call(server, { jsonrpc: '2.0', id: 1, method });
-      expect((response?.error as { code: number }).code).toBe(-32601);
+      expect((response!.error as { code: number }).code).toBe(-32601);
     }
   });
 });

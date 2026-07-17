@@ -26,6 +26,7 @@ afterEach(() => {
     snapshot: null,
     events: [],
     alerts: [],
+    commandStatuses: [],
     activeView: 'cockpit',
     selectedSessionId: null,
     selectedAgentId: null,
@@ -145,6 +146,35 @@ describe('live telemetry ingestion', () => {
     state._onAlert({ ...alert });
 
     expect(storeModule.useHqStore.getState().alerts).toHaveLength(1);
+  });
+
+  it('folds queued, delivered and acked command lifecycle frames by command id', () => {
+    const state = storeModule.useHqStore.getState();
+    state._onCommandStatus({
+      commandId: 'command-1',
+      type: 'steer',
+      clientId: 'client-1',
+      enqueuedBy: 'operator',
+      enqueuedAt: '2026-07-14T12:00:00.000Z',
+      status: 'queued',
+    });
+    state._onCommandStatus({
+      commandId: 'command-1',
+      type: 'steer',
+      clientId: 'client-1',
+      enqueuedBy: 'operator',
+      enqueuedAt: '2026-07-14T12:00:00.000Z',
+      status: 'acked',
+      ackStatus: 'completed',
+    });
+
+    expect(storeModule.useHqStore.getState().commandStatuses).toEqual([
+      expect.objectContaining({
+        commandId: 'command-1',
+        status: 'acked',
+        ackStatus: 'completed',
+      }),
+    ]);
   });
 });
 

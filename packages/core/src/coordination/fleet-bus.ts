@@ -103,32 +103,43 @@ export class FleetBus {
   }
 
   emit(event: FleetEvent): void {
+    // Snapshot each Set before iteration so a handler that calls its own
+    // disposer (which calls set.delete(handler)) mid-emit doesn't trigger
+    // engine-dependent behavior — ECMA leaves Set mutation during iteration
+    // under-specified. This is the same pattern EventBus.emit() uses.
     // Each fan-out is best-effort — a misbehaving handler must not
     // bring down the bus or other handlers. Errors are swallowed
     // (matching the rest of the project's listener-error policy).
     const byId = this.byId.get(event.subagentId);
-    if (byId)
-      for (const h of byId) {
+    if (byId && byId.size > 0) {
+      const snapshot = [...byId];
+      for (const h of snapshot) {
         try {
           h(event);
         } catch {
           /* ignore */
         }
       }
+    }
     const byType = this.byType.get(event.type);
-    if (byType)
-      for (const h of byType) {
+    if (byType && byType.size > 0) {
+      const snapshot = [...byType];
+      for (const h of snapshot) {
         try {
           h(event);
         } catch {
           /* ignore */
         }
       }
-    for (const h of this.any) {
-      try {
-        h(event);
-      } catch {
-        /* ignore */
+    }
+    if (this.any.size > 0) {
+      const snapshot = [...this.any];
+      for (const h of snapshot) {
+        try {
+          h(event);
+        } catch {
+          /* ignore */
+        }
       }
     }
   }

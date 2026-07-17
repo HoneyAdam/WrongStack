@@ -15,6 +15,7 @@ import {
   LayoutDashboard,
   type LucideIcon,
   MessageSquareText,
+  Moon,
   Network,
   PanelLeftClose,
   PanelLeftOpen,
@@ -22,6 +23,7 @@ import {
   RotateCcw,
   Server,
   ShieldCheck,
+  Sun,
   Users,
   Wifi,
   WifiOff,
@@ -39,6 +41,7 @@ import {
 import { useShallow } from 'zustand/react/shallow';
 import { resolveHqToken } from './lib/auth.js';
 import { fetchJson, useHqStore, type ViewId } from './store.js';
+import { setHqAppearancePrefs, useHqLocalPrefs } from './stores/hq-local-prefs.js';
 import { TokenGate } from './views/token-gate.js';
 import './app.css';
 import './syntax-highlight.css';
@@ -242,6 +245,14 @@ export function HqApp(): React.ReactElement {
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window === 'undefined' || window.innerWidth >= 1180,
   );
+  const { theme } = useHqLocalPrefs().appearance;
+
+  useEffect(() => {
+    document.documentElement.dataset.hqTheme = theme;
+    return () => {
+      delete document.documentElement.dataset.hqTheme;
+    };
+  }, [theme]);
 
   useEffect(() => {
     let cancelled = false;
@@ -298,7 +309,7 @@ export function HqApp(): React.ReactElement {
   };
 
   return (
-    <div className="hq-app" data-testid="hq-workbench">
+    <div className="hq-app" data-theme={theme} data-testid="hq-workbench">
       <button
         type="button"
         className="hq-sidebar-scrim"
@@ -408,6 +419,15 @@ export function HqApp(): React.ReactElement {
             {connected ? <Wifi size={13} /> : <WifiOff size={13} />}
             {connected ? 'Live' : 'Reconnecting'}
           </div>
+          <button
+            type="button"
+            className="hq-icon-button hq-theme-toggle"
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+            onClick={() => setHqAppearancePrefs({ theme: theme === 'dark' ? 'light' : 'dark' })}
+          >
+            {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
         </header>
 
         <main className="hq-main" id="hq-main" tabIndex={-1}>

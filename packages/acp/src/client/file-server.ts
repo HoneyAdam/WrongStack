@@ -3,15 +3,18 @@
  * from an ACP agent, scoped to a single project root.
  *
  * Per the spec, all file paths in ACP MUST be absolute. We additionally
- * require them to resolve under `projectRoot` after normalisation;
- * anything else is rejected with a JSON-RPC error so the agent can't
- * use us to read `/etc/passwd` or write to `~/.ssh/`.
+ * require them to resolve under `projectRoot` after normalisation AND after
+ * resolving symlinks (`fs.realpath`). A path that passes a lexical prefix
+ * check but points outside the root via an in-project symlink/junction is
+ * rejected. This closes the CWE-22/CWE-59 symlink-escape vector that a
+ * purely textual containment check leaves open.
  *
  * The server itself is transport-agnostic: the caller (ACPSession)
- * routes incoming fs/* requests to `handle()` and sends the result
- * back. Keeping the routing out of this class lets the file logic be
- * unit-tested in isolation.
+ * routes incoming fs/* requests to `readTextFile`/`writeTextFile` and
+ * sends the result back. Keeping the routing out of this class lets the
+ * file logic be unit-tested in isolation.
  */
+import { randomBytes } from 'node:crypto';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 
@@ -20,6 +23,17 @@ export interface FileServerOptions {
   projectRoot: string;
   /** Per-call timeout, default 30s. */
   timeoutMs?: number;
+  /**
+   * Hard cap on the number of bytes that may be read in a single
+   * `readTextFile` call. Protects against a malicious agent requesting a
+   * gigantic file to exhaust host memory. Default 5 MiB.
+   */
+  maxReadBytes?: number;
+  /**
+   * Hard cap on the number of bytes that may be written in a single
+   * `writeTextFile` call. Default 5 MiB.
+   */
+  maxWriteBytes?: number;
 }
 
 export interface ReadFileParams {
@@ -33,7 +47,16 @@ export interface WriteFileParams {
   content: string;
 }
 
-export type FsErrorCode = 'ENOENT' | 'EACCES' | 'OUTSIDE_ROOT' | 'TIMEOUT' | 'INVALID_PATH';
+export type FsErrorCode =
+  | 'ENOENT'
+  | 'EACCES'
+  | 'OUTSIDE_ROOT'
+  | 'TIMEOUT'
+  | 'INVALID_PATH'
+  | 'TOO_LARGE';
+
+const DEFAULT_MAX_READ_BYTES = 5 * 1024 * 1024;
+const DEFAULT_MAX_WRITE_BYTES = 5 * 1024 * 1024;
 
 /**
  * Thrown for protocol-level rejections (path outside root, etc.).
@@ -52,25 +75,48 @@ export class FsError extends Error {
 
 export class FileServer {
   private readonly root: string;
+  private readonly realRoot: string;
   private readonly timeoutMs: number;
+  private readonly maxReadBytes: number;
+  private readonly maxWriteBytes: number;
 
   constructor(opts: FileServerOptions) {
     this.root = path.resolve(opts.projectRoot);
+    // Resolve the root itself once — it may be a symlink (macOS /var →
+    // /private/var, Windows 8.3 short names, etc.). All realpaths are
+    // compared against this canonical root for a like-for-like check.
+    // Synchronous in constructor: the root must exist for an ACP session
+    // and this keeps the per-call path simple.
+    this.realRoot = safeRealpathSync(this.root);
     this.timeoutMs = opts.timeoutMs ?? 30_000;
+    this.maxReadBytes = opts.maxReadBytes ?? DEFAULT_MAX_READ_BYTES;
+    this.maxWriteBytes = opts.maxWriteBytes ?? DEFAULT_MAX_WRITE_BYTES;
   }
 
   /** Read a text file. Returns the content as a string. */
   async readTextFile(params: ReadFileParams): Promise<{ content: string }> {
-    const safe = this.resolveInside(params.path);
+    const safe = await this.resolveInside(params.path);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
+      // Size check before reading to prevent loading a huge file.
+      const stat = await fsp.stat(safe).catch((err) => {
+        throw mapFsError(err, safe);
+      });
+      if (stat.size > this.maxReadBytes) {
+        throw new FsError(
+          'TOO_LARGE',
+          safe,
+          `file is ${stat.size} bytes, max read is ${this.maxReadBytes} bytes`,
+        );
+      }
       const content = await fsp.readFile(safe, {
         encoding: 'utf8',
         signal: controller.signal,
       });
       return { content };
     } catch (err) {
+      if (err instanceof FsError) throw err;
       if (controller.signal.aborted) {
         throw new FsError('TIMEOUT', safe, `readTextFile timed out after ${this.timeoutMs}ms`);
       }
@@ -82,17 +128,36 @@ export class FileServer {
 
   /** Write a text file. Atomic via write-then-rename. */
   async writeTextFile(params: WriteFileParams): Promise<void> {
-    const safe = this.resolveInside(params.path);
+    const byteLength = Buffer.byteLength(params.content, 'utf8');
+    if (byteLength > this.maxWriteBytes) {
+      throw new FsError(
+        'TOO_LARGE',
+        params.path,
+        `content is ${byteLength} bytes, max write is ${this.maxWriteBytes} bytes`,
+      );
+    }
+
+    const safe = await this.resolveInside(params.path);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-    const tmp = `${safe}.${randomHex(4)}.tmp`;
+    const tmp = `${safe}.${randomBytes(6).toString('hex')}.tmp`;
     try {
       await fsp.writeFile(tmp, params.content, {
         encoding: 'utf8',
         signal: controller.signal,
       });
+      // Re-verify both tmp and the rename destination's parent dir before
+      // rename. This closes the TOCTOU window where an attacker could plant a
+      // symlink at the destination's parent between resolveInside and rename.
+      await this.assertRealInside(tmp);
+      await this.assertRealInside(path.dirname(safe));
       await fsp.rename(tmp, safe);
     } catch (err) {
+      if (err instanceof FsError) {
+        // Best-effort cleanup of the tmp file
+        await fsp.unlink(tmp).catch(() => undefined);
+        throw err;
+      }
       // Best-effort cleanup of the tmp file
       try {
         await fsp.unlink(tmp);
@@ -109,12 +174,14 @@ export class FileServer {
   }
 
   /**
-   * Resolve a path; throw `FsError('OUTSIDE_ROOT')` if the result is
-   * not under the project root. Symlinks are not followed here — we
-   * operate on the textual path. A future hardening pass can
-   * `fs.realpath` each access to catch symlink escapes.
+   * Resolve a path and verify it is inside the project root by realpath.
+   * Rejects with `FsError` if the textual path, the resolved path, or the
+   * real (symlink-resolved) path escapes the project root.
+   *
+   * For files that don't exist yet (e.g. a write to a new file), the
+   * nearest existing ancestor directory is realpath-checked instead.
    */
-  private resolveInside(p: string): string {
+  private async resolveInside(p: string): Promise<string> {
     if (typeof p !== 'string' || p.length === 0) {
       throw new FsError('INVALID_PATH', p, 'path is empty or not a string');
     }
@@ -127,7 +194,40 @@ export class FileServer {
     if (resolved !== this.root && !resolved.startsWith(rootWithSep)) {
       throw new FsError('OUTSIDE_ROOT', resolved, 'path is outside the project root');
     }
+
+    // Now resolve symlinks and compare against the canonical root.
+    await this.assertRealInside(resolved);
     return resolved;
+  }
+
+  /**
+   * Resolve `resolvedPath` through `fs.realpath` and verify the result is
+   * inside `realRoot`. For non-existent paths (new files), walk up to the
+   * nearest existing ancestor and check that instead.
+   */
+  private async assertRealInside(resolvedPath: string): Promise<void> {
+    let probe = resolvedPath;
+    for (;;) {
+      let real: string;
+      try {
+        real = await fsp.realpath(probe);
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === 'ENOENT') {
+          const parent = path.dirname(probe);
+          if (parent === probe) return; // reached fs root without escaping
+          probe = parent;
+          continue;
+        }
+        throw mapFsError(err, resolvedPath);
+      }
+      if (real === this.realRoot || real.startsWith(this.realRoot + path.sep)) return;
+      throw new FsError(
+        'OUTSIDE_ROOT',
+        resolvedPath,
+        'path resolves through a symlink outside the project root',
+      );
+    }
   }
 }
 
@@ -141,12 +241,17 @@ function mapFsError(err: unknown, p: string): FsError {
   return new FsError('INVALID_PATH', p, msg);
 }
 
-function randomHex(bytes: number): string {
-  // Avoid importing node:crypto for a 4-byte hex string — use Math.random
-  // with a clear warning-free use case (temp file suffix only).
-  let out = '';
-  for (let i = 0; i < bytes * 2; i++) {
-    out += Math.floor(Math.random() * 16).toString(16);
+/**
+ * Synchronous realpath that falls back to the input on failure (root may be
+ * a fresh directory that hasn't been statted yet). The constructor needs the
+ * canonical root before any async call so per-request resolveInside has a
+ * stable comparison target.
+ */
+function safeRealpathSync(p: string): string {
+  try {
+    const { realpathSync } = require('node:fs') as typeof import('node:fs');
+    return realpathSync(p);
+  } catch {
+    return p;
   }
-  return out;
 }

@@ -28,11 +28,18 @@
  * or session — those are owned by the post-boot phase.
  */
 
-import { atomicWrite, color, isStdinTTY, type LaunchMenuChoice } from '@wrongstack/core';
+import {
+  atomicWrite,
+  color,
+  isStdinTTY,
+  HQ_CLI_DEFAULT_HOST,
+  type LaunchMenuChoice,
+} from '@wrongstack/core';
 import * as fs from 'node:fs/promises';
 import { DEFAULT_PORT as HQ_DEFAULT_PORT } from '../hq-server.js';
 import type { ReadlineInputReader } from '../input-reader.js';
 import type { TerminalRenderer } from '../renderer.js';
+import { CLI_VERSION } from '../version.js';
 
 /** Top-level surfaces the user can launch from the menu. */
 export type LaunchMenuMode = LaunchMenuChoice['mode'];
@@ -56,13 +63,19 @@ const DEFAULT_PORTS: Record<Exclude<LaunchMenuMode, 'tui-repl'>, number> = {
 };
 
 const DEFAULT_HOST = '127.0.0.1';
+/** Shared with the other HQ entry points so the two cannot drift apart. */
+const HQ_DEFAULT_HOST = HQ_CLI_DEFAULT_HOST;
+
+function defaultHostFor(mode: Exclude<LaunchMenuMode, 'tui-repl'>): string {
+  return mode === 'hq' ? HQ_DEFAULT_HOST : DEFAULT_HOST;
+}
 
 /** Numbered choices shown to the user. Order MUST match the menu printout. */
-const MODE_OPTIONS: ReadonlyArray<{ key: number; mode: LaunchMenuMode; label: string; hint: string }> = [
-  { key: 1, mode: 'tui-repl', label: 'TUI / REPL', hint: 'interactive terminal (default)' },
-  { key: 2, mode: 'webui', label: 'WebUI', hint: 'browser-based project UI' },
-  { key: 3, mode: 'simpleui', label: 'SimpleUI', hint: 'lightweight browser UI' },
-  { key: 4, mode: 'hq', label: 'HQ', hint: 'project-independent HQ dashboard' },
+const MODE_OPTIONS: ReadonlyArray<{ key: number; mode: LaunchMenuMode; label: string; hint: string; icon: string }> = [
+  { key: 1, mode: 'tui-repl', label: 'TUI / REPL', hint: 'interactive terminal (default)', icon: '⌨' },
+  { key: 2, mode: 'webui', label: 'WebUI', hint: `browser-based project UI (port ${DEFAULT_PORTS.webui})`, icon: '🌐' },
+  { key: 3, mode: 'simpleui', label: 'SimpleUI', hint: `lightweight browser UI (port ${DEFAULT_PORTS.simpleui})`, icon: '📄' },
+  { key: 4, mode: 'hq', label: 'HQ', hint: `project-independent dashboard (port ${HQ_DEFAULT_PORT})`, icon: '📊' },
 ];
 
 const MENU_TIMEOUT_MS = 8_000;
@@ -198,15 +211,15 @@ export async function runLaunchMenu(deps: RunLaunchMenuDeps): Promise<LaunchMenu
     // accept === 're-prompt' → fall through to the numbered menu.
   }
 
-  renderer.write(`\n  ${color.bold('✱ WrongStack launch mode')}\n`);
-  renderer.write(
-    `  ${color.amber('?')} Choose how to run WrongStack:\n`,
-  );
+  renderer.write(`\n  ${color.bold('✱ WrongStack launch mode')}  ${color.dim(`v${CLI_VERSION}`)}\n`);
+  renderer.write(`  ${color.dim('─'.repeat(48))}\n`);
+  renderer.write(`  ${color.amber('?')} Choose how to run WrongStack:\n\n`);
   for (const opt of MODE_OPTIONS) {
     renderer.write(
-      `    ${color.bold(String(opt.key))}) ${color.bold(opt.label)}  ${color.dim(`(${opt.hint})`)}\n`,
+      `    ${color.bold(String(opt.key))}) ${opt.icon}  ${color.bold(opt.label)}  ${color.dim(opt.hint)}\n`,
     );
   }
+  renderer.write(`\n  ${color.dim('─'.repeat(48))}\n`);
   const answer = (
     await reader.readLine(
       `  ${color.amber('?')} Mode ${color.dim('[1-4, q to quit]')} ${color.dim(`(auto 1 in ${MENU_TIMEOUT_MS / 1000}s)`)} `,
@@ -232,8 +245,9 @@ export async function runLaunchMenu(deps: RunLaunchMenuDeps): Promise<LaunchMenu
   if (choice.mode !== 'tui-repl') {
     const port = await promptPort(deps, ports[choice.mode]);
     choice.port = port;
-    const host = await promptHost(deps);
-    if (host !== DEFAULT_HOST) choice.host = host;
+    const defaultHost = defaultHostFor(choice.mode);
+    const host = await promptHost(deps, defaultHost);
+    if (host !== defaultHost) choice.host = host;
   }
 
   return finalize(choice, ports);
@@ -261,9 +275,11 @@ async function promptSummaryGate(
       : '';
   const hostStr =
     typeof lastChoice.host === 'string' ? ` · host ${color.dim(lastChoice.host)}` : '';
+  renderer.write(`\n  ${color.dim('─'.repeat(48))}\n`);
   renderer.write(
-    `\n  ${color.dim('Last settings:')} ${color.bold(modeLabel)}${portStr}${hostStr}\n`,
+    `  ${color.cyan('⏎')}  ${color.dim('Last settings:')} ${color.bold(modeLabel)}${portStr}${hostStr}\n`,
   );
+  renderer.write(`  ${color.dim('─'.repeat(48))}\n`);
 
   const answer = (
     await reader.readLine(
@@ -312,24 +328,25 @@ async function promptPort(deps: RunLaunchMenuDeps, defaultPort: number): Promise
 }
 
 /**
- * Ask for an optional host. Accepts the default `127.0.0.1` on Enter
- * or timeout. We deliberately don't validate beyond a non-empty string
+ * Ask for an optional host. HQ defaults to all interfaces (`0.0.0.0`);
+ * project-scoped browser surfaces remain loopback-first (`127.0.0.1`).
+ * Enter or timeout accepts that default. We deliberately don't validate beyond a non-empty string
  * — node's `net.createServer().listen(port, host)` will surface any
  * DNS failure at bind time.
  */
-async function promptHost(deps: RunLaunchMenuDeps): Promise<string> {
+async function promptHost(deps: RunLaunchMenuDeps, defaultHost: string): Promise<string> {
   const { renderer, reader } = deps;
   renderer.write(
-    `  ${color.dim('ℹ')} Press Enter to bind to ${color.bold(DEFAULT_HOST)} (loopback).\n`,
+    `  ${color.dim('ℹ')} Press Enter to bind to ${color.bold(defaultHost)}${defaultHost === HQ_DEFAULT_HOST ? ' (all interfaces)' : ' (loopback)'}.\n`,
   );
   const answer = (
     await reader.readLine(
-      `  ${color.amber('?')} Host ${color.dim(`[${DEFAULT_HOST}]`)} ${color.dim('(Enter = default, q = cancel)')} `,
+      `  ${color.amber('?')} Host ${color.dim(`[${defaultHost}]`)} ${color.dim('(Enter = default, q = cancel)')} `,
       { timeoutMs: PORT_TIMEOUT_MS, defaultAnswer: '' },
     )
   ).trim();
 
-  if (answer === '' || answer === 'q' || answer === 'quit') return DEFAULT_HOST;
+  if (answer === '' || answer === 'q' || answer === 'quit') return defaultHost;
   return answer;
 }
 
@@ -348,7 +365,9 @@ function finalize(
   return {
     ...choice,
     port: typeof choice.port === 'number' ? choice.port : fallback,
-    host: choice.host ?? DEFAULT_HOST,
+    host:
+      choice.host ??
+      defaultHostFor(choice.mode),
     cancelled: false,
   };
 }

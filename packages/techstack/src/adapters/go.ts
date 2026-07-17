@@ -8,7 +8,6 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import type {
   DependencyObservation,
   DependencyScope,
@@ -20,6 +19,7 @@ import type {
   EcosystemAdapter,
   InventoryOptions,
 } from './interface.js';
+import { resolveIn, workspaceRoot } from './paths.js';
 import { buildPurl } from '../registry/purl.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -148,18 +148,18 @@ export class GoAdapter implements EcosystemAdapter {
 
   async inventory(
     workspace: Workspace,
-    _options: InventoryOptions,
+    options: InventoryOptions,
   ): Promise<readonly DependencyObservation[]> {
     const observations: DependencyObservation[] = [];
-    const root = workspace.relativeRoot || '.';
+    const root = workspaceRoot(workspace, options);
     const seen = new Set<string>();
 
     // Find go.mod
     const goModPath = workspace.manifests.find((m) => m.includes('go.mod'))
-      || (this.fileExists(join(root, 'go.mod')) ? 'go.mod' : undefined);
+      || (this.fileExists(resolveIn(root, 'go.mod')) ? 'go.mod' : undefined);
     if (!goModPath) return [];
 
-    const fullManifestPath = join(root, goModPath);
+    const fullManifestPath = resolveIn(root, goModPath);
     let goModContent: string;
     try {
       goModContent = readFileSync(fullManifestPath, 'utf-8');
@@ -174,7 +174,7 @@ export class GoAdapter implements EcosystemAdapter {
     const modName = parseGoModuleName(goModContent);
 
     // Parse go.sum for locked versions
-    const goSumPath = join(root, 'go.sum');
+    const goSumPath = resolveIn(root, 'go.sum');
     let lockVersions = new Map<string, string>();
     let lockEv: Evidence | undefined;
     try {

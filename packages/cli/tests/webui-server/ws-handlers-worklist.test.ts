@@ -93,7 +93,7 @@ describe('todos', () => {
   it('todos.get sends the current list', () => {
     const { ctx, sent } = makeCtx(makeAgent(seed()));
     handleTodosGet(ctx, FAKE_WS);
-    expect((lastOf(sent, 'todos.updated')?.payload as { todos: unknown[] }).todos).toHaveLength(2);
+    expect((lastOf(sent, 'todos.updated')!.payload as { todos: unknown[] }).todos).toHaveLength(2);
   });
 
   it('todos.clear empties and broadcasts', () => {
@@ -102,7 +102,7 @@ describe('todos', () => {
     handleTodosClear(ctx, FAKE_WS);
     expect(result(sent)?.success).toBe(true);
     expect(agent.ctx.todos).toEqual([]);
-    expect((lastOf(bc, 'todos.updated')?.payload as { todos: unknown[] }).todos).toEqual([]);
+    expect((lastOf(bc, 'todos.updated')!.payload as { todos: unknown[] }).todos).toEqual([]);
   });
 
   it('todos.remove by id removes the matching todo', () => {

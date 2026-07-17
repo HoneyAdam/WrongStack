@@ -18,6 +18,7 @@ interface NavAgent {
   status?: string | undefined;
 }
 interface NavClient {
+  clientId?: string | undefined;
   sessionId: string;
   label: string;
   clientKind?: string | undefined;
@@ -64,10 +65,11 @@ export function buildNav(snapshot: HqSnapshot | null): NavMachine[] {
     machine.projects.push(p);
   }
   for (const n of topo.nodes) {
-    if (n.kind !== 'terminal' || n.sessionId === undefined) continue;
+    if (n.kind !== 'terminal' || n.sessionId === undefined || n.serviceMode !== undefined) continue;
     const project = projectById.get(projectKey(n));
     if (project === undefined) continue;
     const c: NavClient = {
+      clientId: n.clientId,
       sessionId: n.sessionId,
       label: n.label,
       clientKind: n.clientKind,
@@ -190,9 +192,20 @@ export function FleetNav({
                               )}
                               <button
                                 type="button"
-                                className={'hq-nav-row client' + (clientSelected ? ' selected' : '')}
-                                onClick={() => useHqStore.getState().selectSession(client.sessionId)}
-                                title={client.synthetic ? 'waiting for session telemetry' : client.label}
+                                className={
+                                  'hq-nav-row client' + (clientSelected ? ' selected' : '')
+                                }
+                                disabled={client.synthetic}
+                                onClick={() => {
+                                  if (client.synthetic) return;
+                                  useHqStore.getState().selectSession(client.sessionId);
+                                  if (client.clientId !== undefined) {
+                                    useHqStore.getState().selectClient(client.clientId);
+                                  }
+                                }}
+                                title={
+                                  client.synthetic ? 'waiting for session telemetry' : client.label
+                                }
                               >
                                 <span className={'hq-nav-dot ' + dotClass(client.status)} />
                                 <SquareTerminal size={12} />
@@ -217,7 +230,12 @@ export function FleetNav({
                                     className={
                                       'hq-nav-row agent' + (agentSelected ? ' selected' : '')
                                     }
-                                    onClick={() => useHqStore.getState().selectAgent(client.sessionId, agent.id)}
+                                    onClick={() => {
+                                      useHqStore.getState().selectAgent(client.sessionId, agent.id);
+                                      if (client.clientId !== undefined) {
+                                        useHqStore.getState().selectClient(client.clientId);
+                                      }
+                                    }}
                                     title={agent.label}
                                   >
                                     <span className={'hq-nav-dot ' + dotClass(agent.status)} />

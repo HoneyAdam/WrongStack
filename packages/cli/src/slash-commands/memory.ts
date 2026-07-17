@@ -775,10 +775,11 @@ function formatVerification(results: MemoryVerificationResult[]): string {
 }
 
 function formatHygiene(report: SuperMemoryHygieneReport): string {
+  const unusedNote = report.archivedUnused > 0 ? ` (${report.archivedUnused} for repeated injection without use)` : '';
   return [
     '## Super Memory Hygiene',
     `Examined ${report.examined}; deduplicated ${report.deduplicated}; superseded ${report.superseded}.`,
-    `Verified ${report.verified}; staled ${report.staled}; archived ${report.archived}; deleted ${report.deleted}.`,
+    `Verified ${report.verified}; staled ${report.staled}; archived ${report.archived}${unusedNote}; deleted ${report.deleted}.`,
   ].join('\n');
 }
 

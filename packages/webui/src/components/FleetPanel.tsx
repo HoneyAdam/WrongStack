@@ -2,7 +2,7 @@ import { cn } from '@/lib/utils';
 import { AgentTranscript } from '@/components/AgentTranscript';
 import { EMPTY_AGENT_TRANSCRIPT, type SubagentView, useFleetStore } from '@/stores';
 import { compareAgentsByActivity, tallyAgents } from '@/lib/agent-status';
-import { Bot, Check, ChevronDown, ChevronRight, Clock, Copy, Cpu, Crown, Wrench, X, Zap } from 'lucide-react';
+import { Bot, Check, ChevronDown, ChevronRight, Clock, Copy, Cpu, Wrench, X, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAppTranslation } from '@/i18n';
 import { SparklineChart } from '@/components/ui/sparkline';
@@ -67,40 +67,7 @@ export function AgentDetail({
         : 'bg-muted text-muted-foreground';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-[10dvh] bg-black/40 backdrop-blur-sm">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={agent.name}
-        className="w-full max-w-xl max-h-[80dvh] overflow-y-auto rounded-xl border bg-card shadow-2xl"
-      >
-        {/* Header */}
-        <div
-          className={cn(
-            'flex items-center justify-between px-4 py-3 border-b',
-            active ? 'border-primary/20' : 'border-border',
-          )}
-        >
-          <div className="flex items-center gap-2">
-            <span className={cn('led', meta.led, meta.pulse && 'led-pulse')} />
-            <h3 className="text-sm font-semibold">{agent.name}</h3>
-            {isLeader && <Crown className="h-3.5 w-3.5 text-warning shrink-0" aria-label={t('activity:fleet.leader')} />}
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              {t(`activity:fleet.status.${agent.status}`)}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={t('common:action.close')}
-            className="p-1 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="p-4 space-y-4">
+    <div className="p-3 space-y-3">
           {/* Description / Task */}
           {agent.description && (
             <div className="text-xs text-muted-foreground leading-relaxed">
@@ -319,8 +286,6 @@ export function AgentDetail({
               </div>
             </div>
           )}
-        </div>
-      </div>
     </div>
   );
 }
@@ -462,17 +427,13 @@ export function FleetPanel({
   const effectiveCollapsed = collapsed && list.length >= 3;
 
   return (
-    <>
-      <div
-        className={cn(
-          'rounded-lg border border-border bg-card/50 backdrop-blur-sm overflow-hidden',
-          className,
-        )}
-      >
+    <div className={cn('flex min-h-0 min-w-0 gap-3', className)}>
+      {/* Agent cards column */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col rounded-lg border border-border bg-card/50 backdrop-blur-sm overflow-hidden">
         <button
           type="button"
           onClick={() => setCollapsed((v) => !v)}
-          className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-muted/30 transition-colors"
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-muted/30 transition-colors shrink-0"
         >
           <Bot className="h-3.5 w-3.5 text-primary" />
           <span className="text-[11px] font-semibold text-foreground">Fleet</span>
@@ -504,16 +465,41 @@ export function FleetPanel({
         </button>
 
         {!effectiveCollapsed && (
-          <div className="flex gap-2 overflow-x-auto px-2 pb-2">
+          <div className="flex gap-2 overflow-x-auto px-2 pb-2 min-h-0">
             {list.map((a) => (
-              <AgentCard key={a.id} a={a} onClick={() => setSelectedId(a.id)} />
+              <AgentCard
+                key={a.id}
+                a={a}
+                onClick={() => setSelectedId(selectedId === a.id ? null : a.id)}
+              />
             ))}
           </div>
         )}
       </div>
 
-      {/* Agent detail overlay */}
-      {selected && <AgentDetail agent={selected} onClose={() => setSelectedId(null)} />}
-    </>
+      {/* Agent detail inline panel — replaces the modal overlay */}
+      {selected && (
+        <div className="w-96 max-w-full shrink-0 rounded-lg border border-border bg-card shadow-lg overflow-hidden">
+          <div className="flex h-full min-h-0 min-w-0 flex-col">
+            {/* Detail header */}
+            <div className="shrink-0 flex items-center justify-between px-3 py-2 border-b bg-muted/20">
+              <span className="text-xs font-semibold text-foreground truncate">{selected.name}</span>
+              <button
+                type="button"
+                onClick={() => setSelectedId(null)}
+                className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                aria-label={t('common:action.close')}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            {/* Scrollable detail content */}
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
+              <AgentDetail agent={selected} onClose={() => setSelectedId(null)} />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

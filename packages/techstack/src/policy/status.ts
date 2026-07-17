@@ -122,7 +122,8 @@ function isSimpleConstraint(constraint: string): boolean {
  * - ^ means compatible (major must match)
  * - ~ means approximately (minor must match)
  * - >= means compatible if major matches
- * - Exact version means breaking if any diff
+ * - an exact pin is a manifest constraint, not a compatibility one — still
+ *   only breaking on a major bump
  */
 function isBreakingUpgrade(locked: string, latestStable: string, constraint?: string): boolean {
   const constraintNorm = constraint?.trim() ?? '';
@@ -152,9 +153,12 @@ function isBreakingUpgrade(locked: string, latestStable: string, constraint?: st
     return lockedMajor !== latestMajor;
   }
 
-  // Exact version — any change could be breaking
+  // Exact pin (`"biome": "2.5.3"`). The pin means "don't move without a
+  // decision", but that is a manifest question, not a compatibility one —
+  // breaking is still a major bump. Treating every pinned patch release as
+  // breaking flags most of a pin-heavy repo as a major upgrade.
   if (isValidSemver(constraintNorm)) {
-    return locked !== latestStable;
+    return lockedMajor !== latestMajor;
   }
 
   // Unknown constraint type — assume breaking

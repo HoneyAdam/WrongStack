@@ -8,12 +8,14 @@
  * and to give the runner a clean signal when something is stuck.
  *
  * Scoping: commands run with `cwd` set to the agent's requested cwd
- * if it's inside `projectRoot`, else `projectRoot`. There is no
- * per-terminal `env` allowlist in v1; the agent's env is propagated
- * from the spawn options.
+ * if its canonical path is inside `projectRoot`, else `projectRoot`.
+ * Agent env entries are overlaid on a credential-scrubbed base, except
+ * for variables that enable preload injection or path hijacking.
  */
 import { spawn } from 'node:child_process';
+import { realpathSync } from 'node:fs';
 import * as path from 'node:path';
+import { buildChildEnv } from '@wrongstack/core/utils';
 
 export interface TerminalServerOptions {
   projectRoot: string;
@@ -21,6 +23,13 @@ export interface TerminalServerOptions {
   commandTimeoutMs?: number;
   /** Bytes of output to retain per terminal. Default 1 MiB. */
   outputByteLimit?: number;
+  /**
+   * Hard maximum cap on the per-call `outputByteLimit`. The agent can request
+   * a lower limit per terminal/create, but it can never raise it above this
+   * host-configured ceiling. Protects against memory exhaustion from a
+   * malicious agent requesting `outputByteLimit: Infinity`. Default 16 MiB.
+   */
+  maxOutputByteLimit?: number;
   /** Optional abort signal that kills ALL active terminals. */
   signal?: AbortSignal;
 }
@@ -48,12 +57,14 @@ export class TerminalServer {
   private readonly projectRoot: string;
   private readonly commandTimeoutMs: number;
   private readonly outputByteLimit: number;
+  private readonly maxOutputByteLimit: number;
   private nextId = 1;
 
   constructor(opts: TerminalServerOptions) {
     this.projectRoot = path.resolve(opts.projectRoot);
     this.commandTimeoutMs = opts.commandTimeoutMs ?? 5 * 60_000;
     this.outputByteLimit = opts.outputByteLimit ?? 1024 * 1024;
+    this.maxOutputByteLimit = opts.maxOutputByteLimit ?? 16 * 1024 * 1024;
     if (opts.signal) {
       opts.signal.addEventListener('abort', () => this.releaseAll());
     }
@@ -117,13 +128,16 @@ export class TerminalServer {
           const exitStatus = { exitCode: 127, signal: null };
           state.exitStatus = exitStatus;
           state.output += `[spawn error] ${err.message}\n`;
-          state.retainedBytes += Buffer.byteLength(state.output, 'utf8');
+          state.retainedBytes = Buffer.byteLength(state.output, 'utf8');
           resolve(exitStatus);
         });
       }),
     };
 
-    const perCallByteLimit = params.outputByteLimit ?? this.outputByteLimit;
+    const perCallByteLimit = Math.min(
+      Math.max(1, this.clampFiniteInt(params.outputByteLimit, this.outputByteLimit)),
+      this.maxOutputByteLimit,
+    );
     proc.stdout?.setEncoding('utf8');
     proc.stderr?.setEncoding('utf8');
     const onData = (chunk: string): void => {
@@ -226,30 +240,79 @@ export class TerminalServer {
     if (resolved !== this.projectRoot && !resolved.startsWith(rootWithSep)) {
       return this.projectRoot;
     }
-    return resolved;
+    try {
+      const realRoot = realpathSync(this.projectRoot);
+      const realCwd = realpathSync(resolved);
+      const realRootWithSep = realRoot.endsWith(path.sep) ? realRoot : realRoot + path.sep;
+      if (realCwd !== realRoot && !realCwd.startsWith(realRootWithSep)) {
+        return realRoot;
+      }
+      return realCwd;
+    } catch {
+      // A process cannot start in a missing/unresolvable cwd. Fall back to the
+      // configured root rather than allowing spawn to fail or follow a bad link.
+      return this.projectRoot;
+    }
   }
 
   private buildEnv(
     agentEnv?: { name: string; value: string }[],
   ): NodeJS.ProcessEnv {
-    // On Windows, `process.env` stores PATH as `Path` (the OS-native
-    // case). Node's child_process.spawn looks up `env.PATH` (uppercase)
-    // when resolving the binary. A plain `{ ...process.env }` spread
-    // preserves `Path` but not `PATH`, which causes ENOENT for any
-    // binary resolved via $PATH on Windows. Copy uppercase aliases so
-    // spawn can find the binary.
-    const env: NodeJS.ProcessEnv = { ...process.env };
-    if (process.platform === 'win32') {
-      if (env.Path !== undefined && env.PATH === undefined) env.PATH = env.Path;
-      if (env.PATHEXT !== undefined && env.PATHEXT_CASE === undefined) {
-        env.PATHEXT_CASE = env.PATHEXT;
-      }
-    }
+    // Use the sanitized child env from @wrongstack/core instead of raw
+    // process.env. This strips API keys, tokens, and other credentials from
+    // the host environment so a compromised ACP agent cannot exfiltrate them
+    // via `terminal/create`. buildChildEnv preserves system/tooling variables
+    // (PATH, HOME, LANG, ...) and handles the Windows Path/PATH aliasing.
+    const env: NodeJS.ProcessEnv = buildChildEnv();
     if (agentEnv) {
       for (const { name, value } of agentEnv) {
+        // Deny agent overrides of environment variables that could re-introduce
+        // code injection (NODE_OPTIONS --require/--import/--loader), shared-library
+        // preloading (LD_PRELOAD, DYLD_*), or path hijacking (PATH). buildChildEnv
+        // already stripped these from the host env; the agent must not be able to
+        // add them back.
+        const upper = name.toUpperCase();
+        if (DENIED_AGENT_ENV_KEYS.has(upper)) continue;
         env[name] = value;
       }
     }
     return env;
   }
+
+  /**
+   * Clamp an agent-supplied numeric to a finite positive safe integer, falling
+   * back to `defaultValue` for undefined/NaN/non-finite values. Prevents
+   * negative, NaN, or Infinity values from disabling output caps or causing
+   * unbounded memory growth.
+   */
+  private clampFiniteInt(
+    value: number | undefined,
+    defaultValue: number,
+  ): number {
+    if (value === undefined || !Number.isFinite(value) || value < 1) {
+      return defaultValue;
+    }
+    return Math.trunc(value);
+  }
 }
+
+/**
+ * Environment variables an ACP agent must NOT be allowed to set, because they
+ * can re-introduce code injection or path hijacking after `buildChildEnv`
+ * already stripped them from the host env. Checked case-insensitively.
+ */
+const DENIED_AGENT_ENV_KEYS: ReadonlySet<string> = new Set([
+  'NODE_OPTIONS',
+  'LD_PRELOAD',
+  'LD_LIBRARY_PATH',
+  'DYLD_INSERT_LIBRARIES',
+  'DYLD_LIBRARY_PATH',
+  'DYLD_FALLBACK_LIBRARY_PATH',
+  'PATH',
+  'PYTHONPATH',
+  'PYTHONSTARTUP',
+  'PERL5OPT',
+  'PERLLIB',
+  'RUBYOPT',
+  'RUBYLIB',
+]);

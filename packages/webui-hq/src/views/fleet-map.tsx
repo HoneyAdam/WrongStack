@@ -19,18 +19,27 @@ import {
   FolderGit2,
   GitBranch,
   LayoutGrid,
+  ListTree,
   MonitorSmartphone,
+  Network,
+  Search,
   SquareTerminal,
 } from 'lucide-react';
 import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useHqStore } from '../store.js';
+import { setHqFleetPrefs, useHqLocalPrefs } from '../stores/hq-local-prefs.js';
 import { chatTargetFromNode, FleetChatDrawer, type FleetChatTarget } from './fleet-chat-drawer.js';
 import {
   buildFleetTopology,
   type FleetTopology,
   type FleetTopologyNode,
+  type FleetTopologyScope,
+  filterFleetTopology,
+  filterFleetTopologyByQuery,
+  fleetColumnFor,
   layoutFleetTopology,
+  orderFleetTopologyNodes,
 } from './fleet-topology.js';
 
 const NODE_WIDTH = 220;
@@ -59,7 +68,10 @@ function FleetFlowNode({
   data,
   selected,
 }: NodeProps<Node<FleetTopologyNode, 'fleet'>>): React.ReactElement {
-  const clickable = data.kind === 'terminal' || data.kind === 'agent';
+  const clickable =
+    (data.kind === 'terminal' || data.kind === 'agent') &&
+    data.serviceMode === undefined &&
+    data.isSyntheticSession !== true;
   return (
     <div
       className={`hq-flow-node ${data.kind}${selected ? ' selected' : ''}${clickable ? ' clickable' : ''}`}
@@ -179,11 +191,15 @@ function FleetFlow({ topology }: { topology: FleetTopology }): React.ReactElemen
         nodesConnectable={false}
         elementsSelectable
         onNodeClick={(_, node) => {
+          if (node.data.serviceMode !== undefined || node.data.isSyntheticSession === true) return;
           const target = chatTargetFromNode(node.data);
           if (target === null) return;
           if (target.agentId !== null)
             useHqStore.getState().selectAgent(target.sessionId, target.agentId);
           else useHqStore.getState().selectSession(target.sessionId);
+          if (node.data.clientId !== undefined) {
+            useHqStore.getState().selectClient(node.data.clientId);
+          }
           setChatTarget(target);
         }}
       >
@@ -207,15 +223,132 @@ function FleetFlow({ topology }: { topology: FleetTopology }): React.ReactElemen
   );
 }
 
+function FleetCompactList({ topology }: { topology: FleetTopology }): React.ReactElement {
+  const nodes = useMemo(() => orderFleetTopologyNodes(topology), [topology]);
+
+  const openConsole = (node: FleetTopologyNode): void => {
+    if (node.serviceMode !== undefined || node.sessionId === undefined) return;
+    if (node.agentId !== undefined) {
+      useHqStore.getState().selectAgent(node.sessionId, node.agentId);
+    } else {
+      useHqStore.getState().selectSession(node.sessionId);
+    }
+    const clientId = node.clientId ?? node.session?.clientId;
+    if (clientId !== undefined) useHqStore.getState().selectClient(clientId);
+    useHqStore.getState().setActiveView('console');
+  };
+
+  if (nodes.length === 0) {
+    return <div className="hq-empty hq-fleet-list-empty">No fleet entries match this search.</div>;
+  }
+
+  return (
+    <div className="hq-fleet-list" role="table" aria-label="Fleet clients and agents">
+      <div className="hq-fleet-list-header" role="row">
+        <span role="columnheader">Fleet member</span>
+        <span role="columnheader">Context</span>
+        <span role="columnheader">Status</span>
+        <span role="columnheader">Details</span>
+      </div>
+      <div className="hq-fleet-list-body" role="rowgroup">
+        {nodes.map((node) => {
+          const clickable =
+            (node.kind === 'terminal' || node.kind === 'agent') &&
+            node.serviceMode === undefined &&
+            node.isSyntheticSession !== true;
+          const Tag = clickable ? 'button' : 'div';
+          return (
+            <Tag
+              key={node.id}
+              type={clickable ? 'button' : undefined}
+              className={`hq-fleet-list-row ${node.kind}${clickable ? ' clickable' : ''}`}
+              role="row"
+              onClick={clickable ? () => openConsole(node) : undefined}
+            >
+              <span
+                className="hq-fleet-list-member"
+                role="cell"
+                style={{ paddingLeft: `${10 + fleetColumnFor(node.kind) * 22}px` }}
+              >
+                {kindIcon(node.kind, node.clientKind)}
+                <span>
+                  <strong>{node.label}</strong>
+                  <small>{node.kind.replace('-', ' ')}</small>
+                </span>
+              </span>
+              <span className="hq-fleet-list-context" role="cell" title={node.sub}>
+                {node.sub ?? '—'}
+              </span>
+              <span role="cell">
+                <span className={`hq-pill ${statusClass(node.status)}`}>
+                  {node.status ?? (node.kind === 'machine' ? 'connected' : 'ready')}
+                </span>
+              </span>
+              <span className="hq-fleet-list-chips" role="cell">
+                {node.chips.slice(0, 5).map((chip) => (
+                  <span key={chip} className={`hq-pill ${statusClass(chip)}`}>
+                    {chip}
+                  </span>
+                ))}
+              </span>
+            </Tag>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function FleetMapView(): React.ReactElement {
   const snap = useHqStore((state) => state.snapshot);
-  const topology = useMemo(() => buildFleetTopology(snap), [snap]);
+  const fullTopology = useMemo(() => buildFleetTopology(snap), [snap]);
+  const fleetPrefs = useHqLocalPrefs().fleet;
+  const scope: FleetTopologyScope = fleetPrefs.scope;
+  const layout = fleetPrefs.layout;
+  const [query, setQuery] = useState('');
+  const scopeId = scope === 'machine' ? fleetPrefs.machineId : fleetPrefs.projectId;
+  const machineOptions = useMemo(
+    () =>
+      fullTopology.nodes
+        .filter((node) => node.kind === 'machine' && node.machineId !== undefined)
+        .map((node) => ({ id: node.machineId!, label: node.label })),
+    [fullTopology],
+  );
+  const projectOptions = useMemo(
+    () => {
+      const unique = new Map<string, string>();
+      for (const node of fullTopology.nodes) {
+        if (node.kind === 'project' && node.projectId !== undefined) {
+          unique.set(node.projectId, node.label);
+        }
+      }
+      return [...unique].map(([id, label]) => ({ id, label })).sort((left, right) =>
+        left.label.localeCompare(right.label),
+      );
+    },
+    [fullTopology],
+  );
+  const options = scope === 'machine' ? machineOptions : projectOptions;
+  const effectiveScopeId =
+    scope === 'all'
+      ? undefined
+      : options.some((option) => option.id === scopeId)
+        ? scopeId
+        : options[0]?.id;
+  const scopedTopology = useMemo(
+    () => filterFleetTopology(fullTopology, scope, effectiveScopeId),
+    [effectiveScopeId, fullTopology, scope],
+  );
+  const topology = useMemo(
+    () => filterFleetTopologyByQuery(scopedTopology, query),
+    [query, scopedTopology],
+  );
 
   if (snap === null) {
     return <div className="hq-empty">Waiting for fleet data…</div>;
   }
 
-  if (topology.nodes.length === 0) {
+  if (fullTopology.nodes.length === 0) {
     return (
       <div className="hq-empty">
         No machines or connected clients yet. Open a WrongStack CLI/TUI/WebUI with HQ running and
@@ -224,13 +357,19 @@ export function FleetMapView(): React.ReactElement {
     );
   }
 
-  const machines =
-    snap.machines?.length ?? new Set(topology.nodes.map((n) => n.machineId).filter(Boolean)).size;
+  const machines = new Set(topology.nodes.map((n) => n.machineId).filter(Boolean)).size;
   const terminals = topology.nodes.filter((n) => n.kind === 'terminal').length;
   const agents = topology.nodes.filter((n) => n.kind === 'agent').length;
   const liveAgents = topology.nodes.filter(
     (n) => n.kind === 'agent' && isLiveStatus(n.status),
   ).length;
+  const mailboxServeCount = topology.nodes.filter(
+    (node) => node.serviceMode === 'mailbox-serve',
+  ).length;
+
+  const chooseScope = (next: FleetTopologyScope): void => {
+    setHqFleetPrefs({ scope: next });
+  };
 
   return (
     <div className="hq-flow-shell">
@@ -250,11 +389,89 @@ export function FleetMapView(): React.ReactElement {
           <span className={`hq-pill ${liveAgents > 0 ? 'active' : 'info'}`}>
             {liveAgents > 0 ? `${liveAgents}/${agents} agents live` : `${agents} agents`}
           </span>
+          <span className={`hq-pill ${mailboxServeCount > 0 ? 'active' : 'idle'}`}>
+            {mailboxServeCount} mailbox serve
+          </span>
+        </div>
+        <div className="hq-flow-scope">
+          <div className="hq-flow-scope-buttons" role="group" aria-label="Fleet view scope">
+            {(['all', 'machine', 'project'] as const).map((candidate) => (
+              <button
+                key={candidate}
+                type="button"
+                className={'hq-btn secondary' + (scope === candidate ? ' active' : '')}
+                aria-pressed={scope === candidate}
+                onClick={() => chooseScope(candidate)}
+              >
+                {candidate === 'all'
+                  ? 'Full fleet'
+                  : candidate === 'machine'
+                    ? 'By machine'
+                    : 'By project'}
+              </button>
+            ))}
+          </div>
+          {scope !== 'all' && (
+            <select
+              className="hq-select hq-flow-scope-select"
+              aria-label={scope === 'machine' ? 'Select machine' : 'Select project'}
+              value={effectiveScopeId ?? ''}
+              onChange={(event) =>
+                setHqFleetPrefs(
+                  scope === 'machine'
+                    ? { machineId: event.target.value }
+                    : { projectId: event.target.value },
+                )
+              }
+            >
+              {options.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          )}
+          <span className="hq-flow-toolbar-spacer" />
+          <div className="hq-flow-layout" role="group" aria-label="Fleet layout">
+            <button
+              type="button"
+              className={'hq-btn secondary' + (layout === 'map' ? ' active' : '')}
+              aria-pressed={layout === 'map'}
+              onClick={() => setHqFleetPrefs({ layout: 'map' })}
+            >
+              <Network size={13} /> Map
+            </button>
+            <button
+              type="button"
+              className={'hq-btn secondary' + (layout === 'compact' ? ' active' : '')}
+              aria-pressed={layout === 'compact'}
+              onClick={() => setHqFleetPrefs({ layout: 'compact' })}
+            >
+              <ListTree size={13} /> Compact list
+            </button>
+          </div>
+          <label className="hq-flow-search">
+            <Search size={13} />
+            <input
+              className="hq-input"
+              type="search"
+              aria-label="Search fleet"
+              placeholder="Search machine, project, client, agent…"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
         </div>
       </div>
-      <ReactFlowProvider>
-        <FleetFlow topology={topology} />
-      </ReactFlowProvider>
+      {topology.nodes.length === 0 ? (
+        <div className="hq-empty hq-fleet-list-empty">No fleet entries match this search.</div>
+      ) : layout === 'map' ? (
+        <ReactFlowProvider>
+          <FleetFlow topology={topology} />
+        </ReactFlowProvider>
+      ) : (
+        <FleetCompactList topology={topology} />
+      )}
       <div className="hq-flow-legend">
         <span>
           <MonitorSmartphone size={12} /> machine

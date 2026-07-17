@@ -5,6 +5,7 @@ import {
   fmtAgo,
   fmtCompact,
   fmtUptime,
+  layoutClientClusters,
   layoutClientXs,
   mapAgentStatus,
   shortModel,
@@ -115,6 +116,69 @@ describe('OfficeMapCanvas utils', () => {
     it('respects custom column width', () => {
       const map = layoutClientXs(['a', 'b'], 200);
       expect(map.get('b')! - map.get('a')!).toBe(200);
+    });
+  });
+
+  describe('layoutClientClusters', () => {
+    it('keeps a small fleet on one row when that best fits a wide canvas', () => {
+      const layout = layoutClientClusters(
+        [
+          { id: 'a', agentCount: 1 },
+          { id: 'b', agentCount: 1 },
+          { id: 'c', agentCount: 1 },
+        ],
+        { width: 1440, height: 800 },
+      );
+
+      expect(layout.columns).toBe(3);
+      expect(layout.rows).toBe(1);
+      expect(layout.positions.get('a')?.y).toBe(layout.positions.get('c')?.y);
+    });
+
+    it('wraps a growing fleet across rows instead of making a horizontal strip', () => {
+      const clients = Array.from({ length: 10 }, (_, index) => ({
+        id: `client-${index}`,
+        agentCount: 3,
+      }));
+      const layout = layoutClientClusters(clients, { width: 1280, height: 720 });
+
+      expect(layout.columns).toBeGreaterThan(1);
+      expect(layout.columns).toBeLessThan(clients.length);
+      expect(layout.rows).toBeGreaterThan(1);
+      expect(layout.positions.get('client-0')?.y).toBeLessThan(
+        layout.positions.get(`client-${layout.columns}`)?.y ?? 0,
+      );
+    });
+
+    it('uses additional vertical space on a portrait canvas', () => {
+      const clients = Array.from({ length: 6 }, (_, index) => ({
+        id: `client-${index}`,
+        agentCount: 1,
+      }));
+      const wide = layoutClientClusters(clients, { width: 1400, height: 700 });
+      const portrait = layoutClientClusters(clients, { width: 600, height: 1000 });
+
+      expect(portrait.columns).toBeLessThan(wide.columns);
+      expect(portrait.rows).toBeGreaterThan(wide.rows);
+    });
+
+    it('reserves taller rows for clients with multi-row agent fans', () => {
+      const layout = layoutClientClusters(
+        [
+          { id: 'busy', agentCount: 7 },
+          { id: 'peer', agentCount: 1 },
+          { id: 'next', agentCount: 1 },
+          { id: 'last', agentCount: 1 },
+        ],
+        { width: 1000, height: 900 },
+      );
+
+      const ids = ['busy', 'peer', 'next', 'last'];
+      const firstRowY = layout.positions.get(ids[0]!)?.y ?? 0;
+      const secondRowY = layout.positions.get(ids[layout.columns]!)?.y ?? firstRowY;
+
+      expect(layout.rows).toBeGreaterThan(1);
+      expect(secondRowY - firstRowY).toBeGreaterThan(700);
     });
   });
 

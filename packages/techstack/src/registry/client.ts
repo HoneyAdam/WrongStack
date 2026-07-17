@@ -8,7 +8,7 @@
  * @see docs/specs/techstack-sdd.md §5, §6
  */
 
-import { get as httpsGet, RequestOptions } from 'node:https';
+import { get as httpsGet, type RequestOptions } from 'node:https';
 import type { IncomingMessage } from 'node:http';
 import { get as httpGet } from 'node:http';
 
@@ -188,6 +188,42 @@ interface EcosystemFetcher {
   readonly parser: (json: Record<string, unknown>, name: string, ecosystem: string) => RegistryEntry | undefined;
 }
 
+// ── Per-ecosystem parsers ──────────────────────────────────────────────────
+
+/**
+ * Parse an npm packument into a {@link RegistryEntry}.
+ *
+ * Exported so the deprecation rule is unit-testable without a network round
+ * trip — it was untested, and drifted into flagging most of the ecosystem dead.
+ */
+export function parseNpmPackument(json: Record<string, unknown>, name: string): RegistryEntry {
+  const latestVersion = (json['dist-tags'] as Record<string, string> | undefined)?.['latest'];
+
+  // A package counts as deprecated only when its *latest* version is marked so
+  // — that's what `npm deprecate` leaves behind for a dead package, and it's
+  // the signal other tooling reads.
+  //
+  // Deliberately NOT "any version in history is deprecated": every long-lived
+  // package eventually deprecates an old beta or a bad patch, so that rule
+  // flags essentially the entire mature ecosystem. It marked vitest, biome and
+  // cross-env dead in this very repo.
+  let deprecated: boolean | undefined;
+  if (latestVersion && json.versions && typeof json.versions === 'object') {
+    const versions = json.versions as Record<string, Record<string, unknown>>;
+    deprecated = versions[latestVersion]?.deprecated ? true : undefined;
+  }
+
+  // npm has no standard "yanked" field in registry metadata.
+  return {
+    latestStable: latestVersion,
+    license: (json.license as string) ?? undefined,
+    deprecated: deprecated ?? undefined,
+    yanked: undefined,
+    retrievedAt: new Date().toISOString(),
+    source: `https://registry.npmjs.org/${name}`,
+  };
+}
+
 // ── Per-ecosystem fetcher definitions ──────────────────────────────────────
 
 const ECOSYSTEM_FETCHERS: Readonly<Record<string, EcosystemFetcher>> = {
@@ -198,35 +234,7 @@ const ECOSYSTEM_FETCHERS: Readonly<Record<string, EcosystemFetcher>> = {
       const encoded = name.startsWith('@') ? name.replace('/', '%2F') : name;
       return `/${encoded}`;
     },
-    parser: (json: Record<string, unknown>, name: string): RegistryEntry => {
-      const latestVersion = ((json['dist-tags'] as Record<string, string> | undefined)?.['latest']);
-      // Check deprecation
-      let deprecated: boolean | undefined;
-      if (json.versions && typeof json.versions === 'object') {
-        const versions = json.versions as Record<string, Record<string, unknown>>;
-        if (latestVersion && versions[latestVersion]) {
-          deprecated = versions[latestVersion]!.deprecated ? true : undefined;
-        }
-        // Also check if ANY version is deprecated
-        if (!deprecated) {
-          for (const ver of Object.values(versions)) {
-            if (ver.deprecated) {
-              deprecated = true;
-              break;
-            }
-          }
-        }
-      }
-      // npm doesn't have a standard "yanked" field in registry metadata
-      return {
-        latestStable: latestVersion,
-        license: (json.license as string) ?? undefined,
-        deprecated: deprecated ?? undefined,
-        yanked: undefined,
-        retrievedAt: new Date().toISOString(),
-        source: `https://registry.npmjs.org/${name}`,
-      };
-    },
+    parser: parseNpmPackument,
   },
 
   python: {

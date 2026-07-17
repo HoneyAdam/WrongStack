@@ -12,6 +12,22 @@ import type { SlashCommandContext } from './index.js';
  * while a run is in flight, so there `/interrupt` is mostly useful at the prompt
  * (Ctrl+C remains the mid-run path — it now also stops the fleet).
  */
+export interface InterruptAllResult {
+  aborted: boolean;
+  killed: number;
+}
+
+/**
+ * Stop every producer that can still mutate the current session. Keeping this
+ * in one helper makes `/interrupt all` and destructive session boundaries such
+ * as `/clear` share the same cancellation path and ordering.
+ */
+export async function interruptAll(opts: SlashCommandContext): Promise<InterruptAllResult> {
+  const aborted = opts.interruptController?.abortLeader() ?? false;
+  const killed = opts.onFleetKill ? await opts.onFleetKill() : 0;
+  return { aborted, killed };
+}
+
 export function buildInterruptCommand(opts: SlashCommandContext): SlashCommand {
   return {
     name: 'interrupt',
@@ -28,8 +44,7 @@ export function buildInterruptCommand(opts: SlashCommandContext): SlashCommand {
       'REPL use it at the prompt (Ctrl+C interrupts a run in flight).',
     ].join('\n'),
     async run() {
-      const aborted = opts.interruptController?.abortLeader() ?? false;
-      const killed = opts.onFleetKill ? await opts.onFleetKill() : 0;
+      const { aborted, killed } = await interruptAll(opts);
 
       if (!aborted && killed === 0) {
         return { message: color.dim('  Nothing to interrupt — no run in progress.') };

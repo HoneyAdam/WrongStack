@@ -19,7 +19,10 @@ import {
   getHqLocalPrefsSnapshot,
   reloadHqLocalPrefs,
   resetHqLocalPrefs,
+  setHqAppearancePrefs,
+  setHqConsolePrefs,
   setHqControlPrefs,
+  setHqFleetPrefs,
   setHqMailboxPrefs,
   useHqLocalPrefs,
 } from '../src/stores/hq-local-prefs.js';
@@ -82,6 +85,10 @@ describe('hq-local-prefs', () => {
     try {
       const prefs = handle.value();
       expect(prefs.control.cmdType).toBe('steer');
+      expect(prefs.appearance.theme).toBe('dark');
+      expect(prefs.fleet.scope).toBe('all');
+      expect(prefs.fleet.layout).toBe('map');
+      expect(prefs.console.delivery).toBe('steer');
       expect(prefs.control.abortTarget).toBe('leader');
       expect(prefs.control.spawnRole).toBe('bug-hunter');
       expect(prefs.mailbox.includeCompleted).toBe(true);
@@ -192,6 +199,44 @@ describe('hq-local-prefs', () => {
       expect(prefs.mailbox.types).toEqual(['ask', 'result']);
       expect(prefs.mailbox.priorities).toEqual(['high']);
       expect(prefs.mailbox.includeCompleted).toBe(false);
+    } finally {
+      unmountHook(handle);
+    }
+  });
+
+  it('persists the light appearance', () => {
+    const handle = mountHook();
+    try {
+      act(() => setHqAppearancePrefs({ theme: 'light' }));
+      expect(handle.value().appearance.theme).toBe('light');
+      reloadHqLocalPrefs();
+      expect(getHqLocalPrefsSnapshot().appearance.theme).toBe('light');
+    } finally {
+      unmountHook(handle);
+    }
+  });
+
+  it('persists fleet scope and Console drafts', () => {
+    const handle = mountHook();
+    try {
+      act(() => {
+        setHqFleetPrefs({ scope: 'project', layout: 'compact', projectId: 'project-42' });
+        setHqConsolePrefs({
+          delivery: 'queue',
+          subject: 'After this turn',
+          body: 'Run the verification suite.',
+        });
+      });
+      expect(handle.value().fleet).toMatchObject({
+        scope: 'project',
+        layout: 'compact',
+        projectId: 'project-42',
+      });
+      expect(handle.value().console).toEqual({
+        delivery: 'queue',
+        subject: 'After this turn',
+        body: 'Run the verification suite.',
+      });
     } finally {
       unmountHook(handle);
     }

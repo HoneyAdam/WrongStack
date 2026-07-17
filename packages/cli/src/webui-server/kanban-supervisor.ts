@@ -62,7 +62,7 @@ export function createKanbanSupervisor(deps: KanbanSupervisorDeps): KanbanSuperv
   const agentLastRun = new Map<string, number>();
   const agentRunning = new Set<string>();
   let disposed = false;
-  let ticking = false;
+  let nextTimer: ReturnType<typeof setTimeout> | undefined;
 
   const publish = (snapshot: KanbanSupervisorSnapshot) => {
     snapshots.set(snapshot.boardId, snapshot);
@@ -198,16 +198,40 @@ export function createKanbanSupervisor(deps: KanbanSupervisorDeps): KanbanSuperv
         ).then((items) => items.filter((board): board is KanbanBoard => Boolean(board)));
     const results: KanbanSupervisorSnapshot[] = [];
     for (const board of boards) results.push(await auditBoard(board));
+    scheduleNext();
     return results;
   };
 
+  /** Compute the soonest `nextDue` across all boards and schedule the next tick. */
+  const scheduleNext = () => {
+    if (disposed) return;
+    const now = Date.now();
+    let minDue = Infinity;
+    for (const due of nextDue.values()) {
+      if (due < minDue) minDue = due;
+    }
+    if (!Number.isFinite(minDue) || minDue <= now) {
+      // Either no boards have been seen yet, or a board is already due.
+      // Fall back to MIN_INTERVAL_MS to avoid busy-waiting.
+      nextTimer = setTimeout(() => void tick(), MIN_INTERVAL_MS);
+      nextTimer.unref?.();
+      return;
+    }
+    const delay = Math.min(minDue - now, DEFAULT_INTERVAL_MS);
+    if (delay <= 0) {
+      nextTimer = setTimeout(() => void tick(), MIN_INTERVAL_MS);
+    } else {
+      nextTimer = setTimeout(() => void tick(), delay);
+    }
+    nextTimer.unref?.();
+  };
+
   const tick = async () => {
-    if (disposed || ticking) return;
-    ticking = true;
+    if (disposed) return;
     try {
       const now = Date.now();
-      const boards = await listBoards(deps.projectRoot);
-      for (const summary of boards) {
+      const summaries = await listBoards(deps.projectRoot);
+      for (const summary of summaries) {
         if ((nextDue.get(summary.id) ?? 0) > now) continue;
         const board = await getBoard(deps.projectRoot, summary.id);
         if (board) await auditBoard(board);
@@ -215,20 +239,22 @@ export function createKanbanSupervisor(deps: KanbanSupervisorDeps): KanbanSuperv
     } catch (error) {
       deps.log?.(`[KanbanSupervisor] ${error instanceof Error ? error.message : String(error)}`);
     } finally {
-      ticking = false;
+      scheduleNext();
     }
   };
 
-  const timer = setInterval(() => void tick(), MIN_INTERVAL_MS);
-  timer.unref?.();
-  void tick();
+  // Initial run — kick off the first audit cycle.
+  void scheduleNext();
 
   return {
     getSnapshot: (boardId) => snapshots.get(boardId),
     auditNow,
     dispose() {
       disposed = true;
-      clearInterval(timer);
+      if (nextTimer !== undefined) {
+        clearTimeout(nextTimer);
+        nextTimer = undefined;
+      }
     },
   };
 }

@@ -41,6 +41,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { ScrollArea } from '../ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { ChimeraSettingsPanel } from './ChimeraSettingsPanel';
 import { MCPSection } from './MCPSection';
 import { ToolsSection } from './ToolsSection';
 import { BrainSection } from './BrainSection';
@@ -1080,16 +1081,21 @@ export function SettingsPanel() {
                   <Zap className="h-4 w-4 text-muted-foreground" />
                   {t('settings:features.chimeraHeading')}
                 </h3>
-                <PreferenceSelect
-                  label={t('settings:features.chimeraAutoFixLabel')}
-                  hint={t('settings:features.chimeraAutoFixHint')}
-                  value={localPrefs.chimeraAutoFix}
-                  options={[
-                    { value: 'off' as const, label: t('settings:features.chimeraAutoFixOff') },
-                    { value: 'ask' as const, label: t('settings:features.chimeraAutoFixAsk') },
-                    { value: 'auto' as const, label: t('settings:features.chimeraAutoFixAuto') },
-                  ]}
-                  onChange={(v) => syncPref('chimeraAutoFix', v)}
+                {/* Chimera + auto-review settings are exposed by the dedicated
+                    ChimeraSettingsPanel below — it surfaces every knob
+                    (provider, model, maxFiles, autoFix, fallbackProfile,
+                    fallbackModels, debounce, concurrency, cascade, toggles)
+                    rather than just the auto-fix mode. */}
+                <p className="text-xs text-muted-foreground">
+                  {t('settings:features.chimeraAutoFixHint')}
+                </p>
+              </div>
+
+              <div className="pt-2 border-t">
+                <ChimeraSettingsPanel
+                  syncPref={syncPref}
+                  sessionProvider={provider}
+                  sessionModel={activeModel}
                 />
               </div>
 

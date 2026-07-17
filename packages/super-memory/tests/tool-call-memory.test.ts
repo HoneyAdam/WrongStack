@@ -284,7 +284,9 @@ describe('SuperMemoryToolCallMiddleware — cooldown with high importance bypass
       result: { type: 'tool_result', tool_use_id: 'tu2', name: 'read', content: 'file content' },
     });
     await mw.handler(payload2 as never, async (p) => p);
-    // Still might inject because high importance has reduced cooldown
+    // High importance reduces cooldown to min(cooldownMs, 5min) = 60s here,
+    // but the second call is immediate (<60s), so it should NOT inject.
+    expect(payload2.result.content).toBe('file content');
   });
 });
 
@@ -325,5 +327,65 @@ describe('SuperMemoryToolCallMiddleware — tool name -> trigger mapping', () =>
       await mw.handler(payload as never, async (p) => p);
       expect(payload.result.content).toBe(`result from ${name}`);
     }
+  });
+});
+
+describe('SuperMemoryToolCallMiddleware — parallel retrieval', () => {
+  it('starts path lookups and the query lookup concurrently', async () => {
+    // Every lookup blocks on `gate`, which only opens once ALL THREE lookups
+    // have started. If retrieval were serial, the first lookup would await a
+    // gate that can never open and the test would time out.
+    const started: string[] = [];
+    let openGate!: () => void;
+    const gate = new Promise<void>((resolve) => { openGate = resolve; });
+    const memoryTemplate = (id: string) => ({
+      id,
+      revision: 1,
+      scope: 'project' as const,
+      kind: 'fact' as const,
+      status: 'active' as const,
+      text: `Parallel retrieval memory ${id}`,
+      importance: 0.95,
+      confidence: 0.95,
+      freshness: 0.9,
+      tags: [],
+      anchors: [],
+      sources: [],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    });
+    const memory = {
+      retrieveForPath: vi.fn((opts: { path: string }) => {
+        started.push(`path:${opts.path}`);
+        if (started.length === 3) openGate();
+        return gate.then(() => [memoryTemplate(`mem_${started.length}`)]);
+      }),
+      searchSuper: vi.fn(() => {
+        started.push('query');
+        if (started.length === 3) openGate();
+        return gate.then(() => []);
+      }),
+      recordInjection: async () => {},
+    };
+    const mw = createSuperMemoryToolCallMiddleware({ memory, repeatCooldownMs: 0 });
+    const payload = makePayload({
+      toolUse: {
+        type: 'tool_use',
+        id: 'tu_parallel',
+        name: 'replace',
+        input: { files: 'src/a.ts,src/b.ts', pattern: 'needle', dry_run: true },
+      },
+      result: { type: 'tool_result', tool_use_id: 'tu_parallel', name: 'replace', content: 'preview' },
+    });
+
+    await mw.handler(payload as never, async (p) => p);
+
+    expect(started).toHaveLength(3);
+    // resolveTriggerPaths maps tool inputs to absolute paths under projectRoot
+    expect(started).toContain(`path:${path.join(tmpDir, 'src/a.ts')}`);
+    expect(started).toContain(`path:${path.join(tmpDir, 'src/b.ts')}`);
+    expect(started).toContain('query');
+    expect(memory.retrieveForPath).toHaveBeenCalledTimes(2);
+    expect(memory.searchSuper).toHaveBeenCalledTimes(1);
   });
 });

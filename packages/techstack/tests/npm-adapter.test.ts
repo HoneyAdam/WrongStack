@@ -32,21 +32,61 @@ function makeTempWorkspace(name: string, pkgJson: Record<string, unknown>, lockf
   return { dir, workspace };
 }
 
+/**
+ * A real pnpm v9 lockfile.
+ *
+ * The previous fixture used `packages:` keys of the form `/react@19.1.0:` with
+ * a nested `version:` field — a shape pnpm has never emitted in any version.
+ * The parser was written against that same fiction, so the two agreed with each
+ * other and the suite stayed green while every real lockfile silently resolved
+ * to zero locked versions. Keep this fixture faithful to pnpm's actual output.
+ *
+ * Real v9 puts the per-workspace resolved versions under `importers:`, and its
+ * `packages:` keys carry no leading slash and no `version:` field.
+ */
 const SAMPLE_PNPM_LOCK = `lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      react:
+        specifier: ^19.1.0
+        version: 19.1.0
+      express:
+        specifier: ~4.21.0
+        version: 4.21.2
+      '@wrongstack/core':
+        specifier: workspace:*
+        version: link:../core
+      local-thing:
+        specifier: file:../local-thing
+        version: file:../local-thing
+      git-pkg:
+        specifier: git+https://github.com/foo/bar.git
+        version: https://codeload.github.com/foo/bar/tar.gz/abc1234
+    devDependencies:
+      vitest:
+        specifier: ^1.0.0
+        version: 1.0.0
 
 packages:
 
-  /react@19.1.0:
-    version: 19.1.0
+  express@4.21.2:
+    resolution: {integrity: sha512-fake-express-integrity}
+    engines: {node: '>= 0.10.0'}
 
-  /express@4.21.2:
-    version: 4.21.2
+  react@19.1.0:
+    resolution: {integrity: sha512-fake-react-integrity}
+    engines: {node: '>=0.10.0'}
 
-  /@wrongstack/core@0.287.1:
-    version: 0.287.1
-
-  /vitest@1.0.0:
-    version: 1.0.0
+  vitest@1.0.0:
+    resolution: {integrity: sha512-fake-vitest-integrity}
+    engines: {node: ^18.0.0 || >=20.0.0}
 `;
 
 const SAMPLE_PKG_JSON = {

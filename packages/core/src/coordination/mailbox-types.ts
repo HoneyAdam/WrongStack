@@ -348,7 +348,7 @@ export interface AgentRegistrationInput {
   sessionId: string;
   name: string;
   role?: string | undefined;
-  pid: number;
+  pid?: number | undefined;
   source?: 'cli' | 'webui' | 'mcp' | 'acp' | 'http' | undefined;
 }
 
@@ -395,7 +395,7 @@ export interface ClientRegistrationInput {
   sessionId: string;
   name: string;
   source: ClientSource;
-  pid: number;
+  pid?: number | undefined;
 }
 
 export interface ClientHeartbeatInput {

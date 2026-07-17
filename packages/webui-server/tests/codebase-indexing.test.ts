@@ -1,5 +1,6 @@
 import * as path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { EventBus } from '@wrongstack/core';
 
 const {
   cancelPendingReindexes,
@@ -120,6 +121,40 @@ describe('WebUI codebase indexing', () => {
         timeoutMs: 999,
       }),
     );
+  });
+
+  it('emits an attributed filesystem activity for WebUI editor saves', async () => {
+    const { setupWebUICodebaseIndexing } = await import('@wrongstack/webui-server');
+    const events = new EventBus();
+    const received: unknown[] = [];
+    events.on('file.activity', (event) => received.push(event));
+    const controller = setupWebUICodebaseIndexing({
+      config: {},
+      context: {
+        signal: new AbortController().signal,
+        meta: {},
+        session: { id: 'session-editor' },
+      } as never,
+      projectRoot,
+      logger: logger as never,
+      events,
+    });
+    const file = path.join(projectRoot, 'src/editor.ts');
+
+    controller.onFileWritten(file);
+    controller.dispose();
+
+    expect(received).toEqual([
+      expect.objectContaining({
+        filePath: file,
+        operation: 'write',
+        phase: 'completed',
+        source: 'editor',
+        sessionId: 'session-editor',
+        agentId: 'webui-editor',
+        agentName: 'WebUI Editor',
+      }),
+    ]);
   });
 
   it('cleans up pending reindexes and the index host on dispose', async () => {

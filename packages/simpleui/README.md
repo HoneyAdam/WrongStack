@@ -7,6 +7,10 @@ A compact header switcher creates a new session or resumes one of the 12 most
 recent auto-saved sessions; management actions stay in the full WebUI.
 Unsent composer text and file references are restored per session. Long chats
 show a small `LATEST` return control only while the reader is away from the bottom.
+The compact right-side workspace launcher exposes tool calls, live todos, structured
+tasks, and the persistent plan. Worklists reuse the existing WebSocket, fetch only
+when first opened, and render from a sidebar-local store so chat does not rerender
+for every work-item broadcast.
 
 Prompts are sent directly as `user_message` frames; SimpleUI never invokes the
 optional WebUI prompt-refinement route. Canonical `<nextsteps>` metadata is

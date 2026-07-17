@@ -175,7 +175,7 @@ describe('mcp.list (WebUI panel load / refresh)', () => {
     const ws = fakeWs();
     await handleMcpList(ws as never, msg('mcp.list'), configPath, makeRegistry());
     const list = ws.sent.find((m) => m.type === 'mcp.list');
-    expect((list?.payload as { servers: unknown[] }).servers).toEqual([]);
+    expect((list!.payload as { servers: unknown[] }).servers).toEqual([]);
   });
 
   it('merges live registry status + real tool names', async () => {
@@ -190,7 +190,7 @@ describe('mcp.list (WebUI panel load / refresh)', () => {
       }),
     );
     const servers = (
-      ws.sent.find((m) => m.type === 'mcp.list')?.payload as {
+      ws.sent.find((m) => m.type === 'mcp.list')!.payload as {
         servers: Array<{ status: string; tools: string[] }>;
       }
     ).servers;
@@ -210,7 +210,7 @@ describe('mcp.list (WebUI panel load / refresh)', () => {
       makeRegistry({ list: () => [{ name: 'ctx', state: 'dormant', toolCount: 1, tools: ['t'] }] }),
     );
     const s = (
-      ws.sent.find((m) => m.type === 'mcp.list')?.payload as {
+      ws.sent.find((m) => m.type === 'mcp.list')!.payload as {
         servers: Array<{ status: string; lazy?: boolean; tools: string[] }>;
       }
     ).servers[0];
@@ -245,7 +245,7 @@ describe('mcp.list (WebUI panel load / refresh)', () => {
       }),
     );
     const server = (
-      ws.sent.find((item) => item.type === 'mcp.list')?.payload as {
+      ws.sent.find((item) => item.type === 'mcp.list')!.payload as {
         servers: Array<{ health?: { healthState: string; failures: { tool: number } } }>;
       }
     ).servers[0];

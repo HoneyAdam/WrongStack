@@ -55,7 +55,7 @@ export function ContextBreakdownModal({ open, onClose }: ContextBreakdownModalPr
       return;
     }
 
-    ws.send({ type: 'context.debug' });
+    ws.send({ type: 'context.debug' }, { echoToChat: false });
 
     // Listen for context.debug response
     const handler = (msg: { type: string; payload?: unknown }) => {

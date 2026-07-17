@@ -82,8 +82,25 @@ export const CLIENT_COL_W = 380;
 export const AGENT_COLS = 3;
 export const AGENT_FAN_W = 190;
 export const AGENT_ROW_H = 150;
+export const CLIENT_AGENT_GAP = AGENT_Y0 - CLIENT_Y;
+export const CLIENT_ROW_GAP = 100;
 
-export function layoutClientXs(clientIds: string[], colW: number = CLIENT_COL_W): Map<string, number> {
+export interface ClientClusterInput {
+  id: string;
+  agentCount: number;
+}
+
+export interface ClientClusterLayout {
+  positions: Map<string, { x: number; y: number }>;
+  columns: number;
+  rows: number;
+  columnWidth: number;
+}
+
+export function layoutClientXs(
+  clientIds: string[],
+  colW: number = CLIENT_COL_W,
+): Map<string, number> {
   const map = new Map<string, number>();
   const n = Math.max(1, clientIds.length);
   clientIds.forEach((id, i) => {
@@ -93,14 +110,106 @@ export function layoutClientXs(clientIds: string[], colW: number = CLIENT_COL_W)
   return map;
 }
 
-export function agentFanPos(cx: number, j: number, total: number): { x: number; y: number } {
+/**
+ * Lay client/session clusters out in the grid that makes the best use of the
+ * current canvas aspect ratio. Each candidate column count is scored by the
+ * zoom level React Flow can use to fit it, so adding sessions grows the map in
+ * both directions instead of producing one increasingly tiny horizontal row.
+ */
+export function layoutClientClusters(
+  clients: ClientClusterInput[],
+  viewport: { width: number; height: number },
+): ClientClusterLayout {
+  if (clients.length === 0) {
+    return {
+      positions: new Map(),
+      columns: 0,
+      rows: 0,
+      columnWidth: CLIENT_COL_W,
+    };
+  }
+
+  const maxAgents = Math.max(1, ...clients.map((client) => client.agentCount));
+  const fanCols = Math.min(AGENT_COLS, maxAgents);
+  const columnWidth = Math.max(CLIENT_COL_W, fanCols * AGENT_FAN_W + 80);
+  const rowContentHeight = (rowClients: ClientClusterInput[]): number => {
+    const maxRows = Math.max(
+      1,
+      ...rowClients.map((client) => Math.ceil(Math.max(1, client.agentCount) / AGENT_COLS)),
+    );
+    return CLIENT_AGENT_GAP + maxRows * AGENT_ROW_H;
+  };
+
+  // The two hub nodes span roughly this width. Including it in the estimate
+  // avoids selecting a narrow single-column graph that the hubs widen anyway.
+  const hubWidth = HUB_GAP * 2 + 200;
+  const headerHeight = CLIENT_Y - HUB_Y;
+  const viewWidth = Math.max(320, viewport.width);
+  const viewHeight = Math.max(240, viewport.height);
+
+  let bestColumns = 1;
+  let bestScale = Number.NEGATIVE_INFINITY;
+  let bestAspectDelta = Number.POSITIVE_INFINITY;
+
+  for (let columns = 1; columns <= clients.length; columns += 1) {
+    const rowHeights: number[] = [];
+    for (let start = 0; start < clients.length; start += columns) {
+      rowHeights.push(rowContentHeight(clients.slice(start, start + columns)));
+    }
+
+    const rows = rowHeights.length;
+    const graphWidth = Math.max(hubWidth, Math.min(columns, clients.length) * columnWidth);
+    const graphHeight =
+      headerHeight +
+      rowHeights.reduce((sum, height) => sum + height, 0) +
+      Math.max(0, rows - 1) * CLIENT_ROW_GAP;
+    const scale = Math.min(viewWidth / graphWidth, viewHeight / graphHeight);
+    const aspectDelta = Math.abs(Math.log(graphWidth / graphHeight / (viewWidth / viewHeight)));
+
+    if (
+      scale > bestScale + 1e-9 ||
+      (Math.abs(scale - bestScale) <= 1e-9 && aspectDelta < bestAspectDelta)
+    ) {
+      bestColumns = columns;
+      bestScale = scale;
+      bestAspectDelta = aspectDelta;
+    }
+  }
+
+  const positions = new Map<string, { x: number; y: number }>();
+  let y = CLIENT_Y;
+  for (let start = 0; start < clients.length; start += bestColumns) {
+    const rowClients = clients.slice(start, start + bestColumns);
+    rowClients.forEach((client, column) => {
+      positions.set(client.id, {
+        x: CENTER_X + (column - (rowClients.length - 1) / 2) * columnWidth,
+        y,
+      });
+    });
+    y += rowContentHeight(rowClients) + CLIENT_ROW_GAP;
+  }
+
+  return {
+    positions,
+    columns: bestColumns,
+    rows: Math.ceil(clients.length / bestColumns),
+    columnWidth,
+  };
+}
+
+export function agentFanPos(
+  cx: number,
+  j: number,
+  total: number,
+  y0: number = AGENT_Y0,
+): { x: number; y: number } {
   const cols = Math.min(AGENT_COLS, total);
   const row = Math.floor(j / cols);
   const col = j % cols;
   const inRow = Math.min(cols, total - row * cols);
   const rowWidth = (inRow - 1) * AGENT_FAN_W;
   const x = cx - rowWidth / 2 + col * AGENT_FAN_W;
-  const y = AGENT_Y0 + row * AGENT_ROW_H;
+  const y = y0 + row * AGENT_ROW_H;
   return { x, y };
 }
 

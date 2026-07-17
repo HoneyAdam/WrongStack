@@ -4,6 +4,7 @@ import type { ToolCallPipelinePayload } from '@wrongstack/core';
 import { formatMemoryHintsDetailed } from '../retrieval/format.js';
 import { normalizeTextKey } from './turn-memory.js';
 import type { SuperMemory } from '../types.js';
+import type { InjectionTracker } from './injection-tracker.js';
 
 export interface SuperMemoryToolCallMiddlewareOptions {
   memory: SuperMemoryRetrieverLike;
@@ -14,6 +15,13 @@ export interface SuperMemoryToolCallMiddlewareOptions {
   repeatCooldownMs?: number | undefined;
   verifyOnMutation?: boolean | undefined;
   triggers?: Partial<Record<MemoryToolTrigger, boolean>> | undefined;
+  /**
+   * Shared registry of recently injected memories, used by the turn
+   * middleware to detect assistant references and credit `recordUse`.
+   * No default: a private tracker here would register injections the turn
+   * middleware could never match, silently dropping use signals.
+   */
+  tracker?: InjectionTracker | undefined;
 }
 
 export interface SuperMemoryRetrieverLike {
@@ -27,11 +35,12 @@ export interface SuperMemoryRetrieverLike {
   searchSuper(query: string, opts?: { limit?: number; includeAudienceScoped?: boolean }): Promise<SuperMemory[]>;
   verifyForPaths?(paths: string[], signal?: AbortSignal): Promise<unknown>;
   recordInjection?(memoryIds: string[], trigger: string, sessionId?: string): void | Promise<void>;
+  recordUse?(memoryIds: string[], source: string, sessionId?: string): void | Promise<void>;
 }
 
 export type SuperMemorySearchLike = Pick<
   SuperMemoryRetrieverLike,
-  'searchSuper' | 'recordInjection'
+  'searchSuper' | 'recordInjection' | 'recordUse'
 >;
 
 export type MemoryToolTrigger =
@@ -122,6 +131,13 @@ export function createSuperMemoryToolCallMiddleware(
         const now = Date.now();
         for (const memoryId of rendered.memoryIds) seen.set(cooldownKey(memoryId, sessionId), now);
         pruneCooldowns(seen, now, opts.repeatCooldownMs ?? DEFAULT_REPEAT_COOLDOWN_MS);
+        if (opts.tracker) {
+          const injectedById = new Map(fresh.map((memory) => [memory.id, memory]));
+          for (const memoryId of rendered.memoryIds) {
+            const memory = injectedById.get(memoryId);
+            if (memory) opts.tracker.record(memoryId, memory.text, now);
+          }
+        }
         await opts.memory.recordInjection?.(
           rendered.memoryIds,
           trigger.trigger,
@@ -142,24 +158,29 @@ async function retrieveTriggeredMemories(
   trigger: ExtractedTriggerContext,
   limit: number,
 ): Promise<SuperMemory[]> {
-  const byId = new Map<string, SuperMemory>();
-  for (const p of trigger.paths) {
-    const pathMatches = await memory.retrieveForPath({
+  // Path lookups and the lexical query lookup are independent reads — run
+  // them concurrently instead of serially awaiting each path in turn.
+  // Promise.all preserves the previous failure mode: any rejection rejects
+  // the whole retrieve, which the handler's outer try/catch turns into
+  // "no injection" (memory is advisory).
+  const pending: Array<Promise<SuperMemory[]>> = trigger.paths.map((p) =>
+    memory.retrieveForPath({
       path: p,
       limit,
       includeAncestors: true,
       includeStatuses: isMutationTrigger(trigger.trigger) ? ['active', 'stale'] : ['active'],
       includeAudienceScoped: false,
-    });
-    for (const item of pathMatches) byId.set(item.id, item);
-  }
-
+    }),
+  );
   if (trigger.queryText.trim()) {
-    const queryMatches = await memory.searchSuper(trigger.queryText, {
+    pending.push(memory.searchSuper(trigger.queryText, {
       limit,
       includeAudienceScoped: false,
-    });
-    for (const item of queryMatches) byId.set(item.id, item);
+    }));
+  }
+  const byId = new Map<string, SuperMemory>();
+  for (const matches of await Promise.all(pending)) {
+    for (const item of matches) byId.set(item.id, item);
   }
 
   return [...byId.values()]

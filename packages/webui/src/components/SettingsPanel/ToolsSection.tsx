@@ -122,7 +122,7 @@ export function ToolsSection(): ReactElement {
           return next;
         });
         if (p.ok) {
-          client.send({ type: 'tools.list' });
+          client.send({ type: 'tools.list' }, { echoToChat: false });
         } else {
           toast.error(`Tool "${p.name}" ${msg.type === 'tool.disabled' ? 'disable' : 'enable'} failed.`);
         }
@@ -139,7 +139,7 @@ export function ToolsSection(): ReactElement {
 
   // Fetch tools on mount
   useEffect(() => {
-    client.send({ type: 'tools.list' });
+    client.send({ type: 'tools.list' }, { echoToChat: false });
   }, [client]);
 
   const handleToggle = useCallback(

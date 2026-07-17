@@ -492,9 +492,9 @@ function AppInner() {
         )}
         {currentView === 'memory' && (
           <ErrorBoundary level="panel" name="Memory Manager">
-            <div className="flex min-h-0 flex-1 min-w-0">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row">
               <Suspense fallback={<PanelSuspense label="Loading…" />}>
-                <div className="h-full w-72 shrink-0 border-r border-border/40">
+                <div className="h-[38dvh] min-h-56 w-full shrink-0 border-b border-border/40 lg:h-full lg:min-h-0 lg:w-80 lg:border-b-0 lg:border-r">
                   <AudienceMemoryPanel />
                 </div>
               </Suspense>

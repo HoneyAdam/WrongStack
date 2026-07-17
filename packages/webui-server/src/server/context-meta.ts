@@ -12,6 +12,7 @@
  * Pure config → meta projection. No behaviour change.
  */
 import type { Config } from '@wrongstack/core/types';
+import { FallbackProfileManager } from '@wrongstack/core';
 
 /**
  * Seed `context.meta` from the loaded config. Mirrors the CLI's
@@ -121,4 +122,75 @@ export function seedContextMeta(
   meta['tgDelegate'] = tgExt?.['notifyOnDelegate'] !== false; // default true
   const tgMs = tgExt?.['longToolThresholdMs'];
   meta['tgLongToolMs'] = typeof tgMs === 'number' ? tgMs : 30_000;
+
+  // Chimera (post-session review) — seed from extensions['wstack-chimera']
+  // so the dedicated panel reflects the persisted config on first connect,
+  // before any prefs.update arrives. Defaults match ResolvedChimeraConfig in
+  // chimera-plugin.ts:34 (enabled=true; provider/model/session fallback).
+  const chimeraExt = (config.extensions as Record<string, Record<string, unknown>> | undefined)?.[
+    'wstack-chimera'
+  ];
+  meta['chimeraEnabled'] = chimeraExt?.['enabled'] !== false; // default true
+  meta['chimeraProvider'] = (chimeraExt?.['provider'] as string) ?? '';
+  meta['chimeraModel'] = (chimeraExt?.['model'] as string) ?? '';
+  meta['chimeraMaxFiles'] =
+    typeof chimeraExt?.['maxFiles'] === 'number' && (chimeraExt['maxFiles'] as number) >= 1
+      ? (chimeraExt['maxFiles'] as number)
+      : 15;
+  const autoFix = chimeraExt?.['autoFix'];
+  meta['chimeraAutoFix'] =
+    autoFix === 'off' || autoFix === 'ask' || autoFix === 'auto' ? autoFix : 'off';
+
+  // Auto-review (mid-session continuous) — seed from extensions['wstack-auto-review'].
+  // Defaults match ResolvedAutoReviewConfig in auto-review-plugin.ts:42
+  // (enabled=false; provider/model resolve via fallbackProfile/effective chain).
+  const autoReviewExt = (config.extensions as Record<string, Record<string, unknown>> | undefined)?.[
+    'wstack-auto-review'
+  ];
+  meta['autoReviewEnabled'] = autoReviewExt?.['enabled'] === true; // default false (strict opt-in)
+  meta['autoReviewProvider'] = (autoReviewExt?.['provider'] as string) ?? '';
+  meta['autoReviewModel'] = (autoReviewExt?.['model'] as string) ?? '';
+  meta['autoReviewFallbackProfile'] = (autoReviewExt?.['fallbackProfile'] as string) ?? '';
+  meta['autoReviewFallbackModels'] = Array.isArray(autoReviewExt?.['fallbackModels'])
+    ? (autoReviewExt?.['fallbackModels'] as string[])
+    : [];
+  meta['autoReviewDebounceMs'] =
+    typeof autoReviewExt?.['debounceMs'] === 'number' && (autoReviewExt['debounceMs'] as number) >= 0
+      ? (autoReviewExt['debounceMs'] as number)
+      : 5000;
+  meta['autoReviewMaxFilesPerBatch'] =
+    typeof autoReviewExt?.['maxFilesPerBatch'] === 'number' &&
+    (autoReviewExt['maxFilesPerBatch'] as number) >= 1
+      ? (autoReviewExt['maxFilesPerBatch'] as number)
+      : 15;
+  meta['autoReviewMaxConcurrentReviews'] =
+    typeof autoReviewExt?.['maxConcurrentReviews'] === 'number' &&
+    (autoReviewExt['maxConcurrentReviews'] as number) >= 1
+      ? (autoReviewExt['maxConcurrentReviews'] as number)
+      : 2;
+  const cascade = autoReviewExt?.['cascadeOn'];
+  meta['autoReviewCascadeOn'] =
+    cascade === 'critical' || cascade === 'high' ? cascade : 'off';
+
+  // Resolve the effective fallback chain for auto-review via the same
+  // FallbackProfileManager the plugin uses (auto-review-plugin.ts:62-69), so
+  // the SettingsPanel displays the chain the plugin will actually run with.
+  // Inputs: autoReviewExt.fallbackProfile (named profile) OR the session's
+  // effective chain via config.fallbackModels + config.fallbackProfiles.
+  {
+    let resolvedChain: ReadonlyArray<{ providerId: string; model: string }> = [];
+    try {
+      const mgr = new FallbackProfileManager(config);
+      const named = autoReviewExt?.['fallbackProfile'];
+      resolvedChain =
+        typeof named === 'string' && named.length > 0
+          ? mgr.resolve(named)
+          : mgr.resolveEffective({ fallbackAuto: true });
+    } catch {
+      resolvedChain = [];
+    }
+    meta['autoReviewFallbackModels'] = resolvedChain.map(
+      (e) => `${e.providerId}/${e.model}`,
+    );
+  }
 }
