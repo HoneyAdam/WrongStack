@@ -274,6 +274,10 @@ describe('startSddRun — control-drain branches', () => {
   });
 
   it('drains split_task control command', async () => {
+    // Give t2 a dependency on t1 so it can't enter the single slot
+    // while t1 holds the gate — this prevents the race where the scheduler
+    // advances t2 to in_progress before split_task drains (splitTask refuses
+    // in-progress tasks).
     const { tracker, graph } = await makeGraph(2);
     const events = new EventBus();
     const boardStore = new SddBoardStore({ baseDir: tmp() });
@@ -282,6 +286,14 @@ describe('startSddRun — control-drain branches', () => {
     const gate = new Promise<void>((r) => {
       release = r;
     });
+
+    const [t1, t2] = tracker
+      .getAllNodes()
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map((n) => n.id) as [string, string];
+
+    // Make t2 depend on t1 so it stays pending while t1 is in-flight
+    tracker.addDependency(t1, t2);
 
     const handle = startSddRun({
       tracker,
@@ -295,14 +307,9 @@ describe('startSddRun — control-drain branches', () => {
       controlDrainMs: 15,
     });
 
-    const [t1, t2] = tracker
-      .getAllNodes()
-      .sort((a, b) => a.createdAt - b.createdAt)
-      .map((n) => n.id) as [string, string];
-
     await expect.poll(() => tracker.getNode(t1)?.status === 'in_progress', { timeout: 3000 }).toBe(true);
 
-    // Split t2 into two subtasks
+    // Split t2 into two subtasks — t2 is guaranteed pending (blocked by t1)
     await boardStore.appendControl(handle.runId, {
       ts: 1,
       type: 'split_task',
