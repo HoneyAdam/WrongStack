@@ -310,12 +310,18 @@ export function runRunnerCommand(
       });
       return;
     }
-    const timedOut = false;
+    let timedOut = false;
     let spawnErrored = false;
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
     let stdoutBytes = 0;
     let stderrBytes = 0;
+    // Wire the abort signal so the execFile callback can distinguish
+    // timeout from other errors. The listener sets timedOut=true before
+    // the callback fires because event-loop ordering guarantees the
+    // 'abort' event listener runs before the execFile error callback
+    // on the same scheduled microtask/macrotask boundary.
+    options.signal?.addEventListener('abort', () => { timedOut = true; }, { once: true });
     const child = execFile(
       argv[0]!,
       argv.slice(1) as string[],
@@ -393,6 +399,15 @@ export function runRunnerCommand(
         });
       },
     );
+    // When execFile kills the child due to its built-in timeout, the
+    // 'exit' event fires with a non-null signal before the callback.
+    // Set timedOut so the callback's dead-code branch becomes live
+    // and reports timedOut: true to the caller.
+    child.on('exit', (_code, signal) => {
+      if (signal !== null) {
+        timedOut = true;
+      }
+    });
     child.stdout?.on('data', (chunk: Buffer) => {
       stdoutBytes += chunk.length;
       if (stdoutBytes <= MAX_BUFFER_BYTES) stdoutChunks.push(chunk);

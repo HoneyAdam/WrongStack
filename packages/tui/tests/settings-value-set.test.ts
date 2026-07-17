@@ -224,7 +224,7 @@ describe('resolveSettingsFieldValue', () => {
     });
 
     it('all boolean field indices are covered', () => {
-      const boolFields = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 18, 20, 25, 27, 33];
+      const boolFields = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 18, 20, 25, 27, 33, 37, 39];
       for (const f of boolFields) {
         const r = resolveSettingsFieldValue(f, 'on');
         expect(r.ok).toBe(true);
@@ -232,7 +232,7 @@ describe('resolveSettingsFieldValue', () => {
     });
 
     it('all enum field indices are covered', () => {
-      const enumFields = [0, 13, 19, 23, 24, 26, 28, 29, 31, 32, 34, 35];
+      const enumFields = [0, 4, 13, 19, 23, 24, 26, 28, 29, 31, 32, 34, 35, 36];
       for (const f of enumFields) {
         // Use the first value from SETTINGS_FIELD_LABELS to construct a dummy test
         const r = resolveSettingsFieldValue(f, 'invalid_value_xyz');
@@ -241,7 +241,7 @@ describe('resolveSettingsFieldValue', () => {
     });
 
     it('all preset field indices are covered', () => {
-      const presetFields = [1, 15, 16, 17, 21, 30];
+      const presetFields = [1, 15, 16, 17, 21, 30, 38];
       for (const f of presetFields) {
         const r = resolveSettingsFieldValue(f, '999999');
         expect(r.ok).toBe(false); // should fail with error, not crash

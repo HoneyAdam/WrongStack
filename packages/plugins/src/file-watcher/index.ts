@@ -8,7 +8,7 @@
  */
 import type { Plugin } from '@wrongstack/core';
 import { watch as fsWatch } from 'node:fs';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 
 const API_VERSION = '^0.1.10';
 
@@ -182,7 +182,7 @@ const plugin: Plugin = {
       try {
         const watcher = fsWatch(dirPath, { recursive }, (eventType, filename) => {
           if (!filename) return;
-          const fullPath = `${dirPath}/${filename}`;
+          const fullPath = filename.startsWith(dirPath) ? filename : join(dirPath, filename);
           const key = `${handle.id}:${fullPath}:${eventType}`;
           debounceEvent(
             key,
