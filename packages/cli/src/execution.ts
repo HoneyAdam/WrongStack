@@ -253,18 +253,59 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
     // happens before the finally block checks pendingChimeraWork.
     pendingChimeraWork = (async () => {
       try {
-        const fileList = p.files.map((f) => `- [${f.status.toUpperCase()}] ${f.path}`).join('\n');
+        // ── Build enriched task description from ReviewContextBundle ──
+        const lines: string[] = [];
 
-        const taskDesc = [
-          `Review the following ${p.files.length} file(s) changed in this session at ${p.cwd}.`,
-          '',
-          fileList,
-          '',
-          '---',
-          '',
-          'Read each file using the read tool. Check for bugs, type issues,',
-          'security problems, and produce a structured review report.',
-        ].join('\n');
+        // Section 1: File list with diffs
+        lines.push(`Review the following ${p.files.length} file(s) changed in this session at ${p.cwd}.`);
+        lines.push('');
+        for (const f of p.files) {
+          lines.push(`## [${f.status.toUpperCase()}] ${f.path}`);
+          if (f.diff) {
+            lines.push('');
+            lines.push('```diff');
+            lines.push(f.diff);
+            lines.push('```');
+          } else if (f.status === 'added') {
+            lines.push('');
+            lines.push('(New file — full content provided)');
+          }
+          lines.push('');
+        }
+
+        // Section 2: Sibling changes (context only, not review scope)
+        if (p.allChangedFiles && p.allChangedFiles.length > p.files.length) {
+          const reviewedPaths = new Set(p.files.map((f) => f.path));
+          const siblings = p.allChangedFiles
+            .filter((s) => !reviewedPaths.has(s.path))
+            .map((s) => `  ${s.path} (${s.status})`);
+          if (siblings.length > 0) {
+            lines.push('---');
+            lines.push('');
+            lines.push(`**Also changed this session (${siblings.length} files — for context, NOT in your review scope):**`);
+            lines.push(siblings.slice(0, 30).join('\n'));
+            lines.push('');
+          }
+        }
+
+        // Section 3: Recent commits
+        if (p.recentCommits && p.recentCommits.length > 0) {
+          lines.push('---');
+          lines.push('');
+          lines.push('**Recent commits (newest first):**');
+          for (const c of p.recentCommits) lines.push(`  ${c}`);
+          lines.push('');
+        }
+
+        // Section 4: Instructions
+        lines.push('---');
+        lines.push('');
+        lines.push('Read each file using the read tool. For modified files, focus on the');
+        lines.push('diff above — do not re-review unchanged pre-existing code.');
+        lines.push('Check for bugs, type issues, security problems, and produce a');
+        lines.push('structured review report.');
+
+        const taskDesc = lines.join('\n');
 
         // Role-based model matrix resolution: the Director.spawn() resolves
         // provider/model from the model matrix by role (→ phase → * → leader)
@@ -922,19 +963,19 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
               },
             };
           },
-          // /clear: signal the TUI to wipe entries and reset fleet/leader stats
-          // AND bump the context chip version — so the display reflects a
-          // completely fresh session after the backend has been cleared.
+          // /clear: signal the TUI to wipe entries and reset fleet/leader stats,
+          // refresh the preserved banner from the live Context, and bump the
+          // context chip version so every surface reflects the fresh session.
           onClearHistory: (
             dispatch: (
               action:
-                | { type: 'clearHistory' }
+                | { type: 'clearHistory'; model?: string | undefined }
                 | { type: 'resetContextChip' }
                 | { type: 'streamReset' }
                 | { type: 'toolStreamClear' },
             ) => void,
           ) => {
-            dispatch({ type: 'clearHistory' });
+            dispatch({ type: 'clearHistory', model: context.model });
             dispatch({ type: 'resetContextChip' });
             dispatch({ type: 'streamReset' });
             dispatch({ type: 'toolStreamClear' });
