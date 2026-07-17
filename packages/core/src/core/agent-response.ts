@@ -166,6 +166,12 @@ export function createAgentResponseHandler(a: AgentInternals): AgentResponseHand
     });
     a.ctx.tokenCounter.account(res.usage, req.model);
 
+    // Issue #271: never append or persist a semantically empty assistant
+    // response (e.g. a stream interrupted before the first meaningful delta,
+    // which the response builders represent as a single empty text block).
+    // Strict providers reject empty assistant turns on the next request, and
+    // once journaled, the malformed turn survived every repair path. Partial
+    // text, tool calls, and thinking content remain meaningful and are kept.
     if (hasMeaningfulContent(res.content)) {
       a.ctx.state.appendMessage({ role: 'assistant', content: res.content });
       // If the assistant emitted tool_use blocks, mark the message adjacency
@@ -196,7 +202,11 @@ export function createAgentResponseHandler(a: AgentInternals): AgentResponseHand
         (a.logger.debug ?? a.logger.warn)?.(`LLM response flush failed: ${toErrorMessage(err)}`);
       }
     } else {
-      a.logger.warn('Skipping empty assistant response; nothing was added to session history.');
+      a.logger.warn('Empty assistant response — not appended to context or session', {
+        model: req.model,
+        stopReason: res.stopReason,
+        aborted: a.ctx.signal.aborted,
+      });
     }
 
     if (a.ctx.signal.aborted) {

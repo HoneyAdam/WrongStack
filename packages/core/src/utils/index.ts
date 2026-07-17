@@ -53,6 +53,7 @@ export {
   hasMeaningfulContent,
   type MessageRepairReport,
   type MessageRepairResult,
+  hasMeaningfulContent,
   repairToolUseAdjacency,
 } from './message-invariants.js';
 export * from './newline-normalize.js';
