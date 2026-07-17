@@ -125,9 +125,11 @@ export function reducer(state: State, action: Action): State {
       // (user messages, assistant responses, slash results) are discarded so
       // the TUI starts fresh after /clear.
       const banner = state.entries.find((e) => e.kind === 'banner');
+      const refreshedBanner =
+        banner && action.model !== undefined ? { ...banner, model: action.model } : banner;
       return {
         ...state,
-        entries: banner ? [banner] : [],
+        entries: refreshedBanner ? [refreshedBanner] : [],
         queue: [],
         nextQueueId: 1,
         streamingText: '',

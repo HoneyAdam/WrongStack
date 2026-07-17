@@ -382,9 +382,10 @@ export function App({
   const { exit } = useApp();
   const { stdout } = useStdout();
   // Reactive mirrors of agent.ctx.{model,provider.id} so the status bar
-  // re-renders when /model or /use mutate them. The banner is `Static`
-  // and never re-renders — the user gets the textual confirmation from
-  // the slash command's message in history instead.
+  // re-renders when /model or /use mutate them. The banner is `Static`, so
+  // `/clear` refreshes its preserved history entry from the live Context
+  // before remounting it; ordinary model switches still use the statusline
+  // and slash-command confirmation without rewriting terminal scrollback.
   //
   // Statusline state was previously inlined as 8 useState calls here; it
   // lives in `useStatuslineState` now (PR 1b of the tui/app.tsx split,
@@ -2311,8 +2312,6 @@ export function App({
   // Consecutive auto-submitted turns since the last MANUAL input.
   const autoSubmitStreakRef = useRef(0);
   const autoSubmitCapWarnedRef = useRef(false);
-  // Last submitted text — blocks immediate duplicate submissions.
-  const lastSubmittedRef = useRef('');
   // Bumped on a slow poll while idle+auto with no suggestions, so the
   // auto-submit effect re-checks for suggestions that arrived out-of-band.
   const [nextStepsRecheck, setNextStepsRecheck] = useState(0);
@@ -5513,11 +5512,6 @@ export function App({
       }
       return;
     }
-
-    // Dedup: if this exact text was just submitted, skip.  Prevents
-    // \r\n double-fires, auto-submit loops, and stuck-key bursts.
-    if (trimmed === lastSubmittedRef.current) return;
-    lastSubmittedRef.current = trimmed;
 
     interruptsSyncRef.current = 0;
     dispatch({ type: 'resetInterrupts' });

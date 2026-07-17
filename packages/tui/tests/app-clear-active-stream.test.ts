@@ -19,7 +19,7 @@ import type { State } from '../src/app-state.js';
 function streamingState(): State {
   return {
     entries: [
-      { kind: 'banner', id: 0 } as never,
+      { kind: 'banner', id: 0, model: 'initial-model' } as never,
       { kind: 'user', id: 1, text: 'do work' } as never,
     ],
     buffer: '',
@@ -65,12 +65,13 @@ function streamingState(): State {
 }
 
 describe('/clear during an active TUI stream', () => {
-  it('discards all in-flight stream/tool/queue state and keeps only the banner', () => {
-    const out = reducer(streamingState(), { type: 'clearHistory' });
+  it('discards all in-flight stream/tool/queue state and refreshes the preserved banner model', () => {
+    const out = reducer(streamingState(), { type: 'clearHistory', model: 'current-model' });
 
-    // Transcript resets to the banner only — no user/assistant carryover.
+    // Transcript resets to the banner only — no user/assistant carryover — and
+    // the remounted banner follows the same live model that the statusline uses.
     expect(out.entries).toHaveLength(1);
-    expect((out.entries[0] as { kind: string }).kind).toBe('banner');
+    expect(out.entries[0]).toMatchObject({ kind: 'banner', model: 'current-model' });
     expect(out.historyGen).toBe(4);
 
     // No live stream can repopulate the fresh session.

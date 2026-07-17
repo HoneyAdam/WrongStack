@@ -945,7 +945,7 @@ export type Action =
   | { type: 'addEntry'; entry: DraftEntry }
   | { type: 'setBuffer'; buffer: string; cursor: number }
   | { type: 'clearInput' }
-  | { type: 'clearHistory' }
+  | { type: 'clearHistory'; model?: string | undefined }
   | { type: 'streamDelta'; delta: string }
   | { type: 'streamReset' }
   | { type: 'status'; status: State['status'] }

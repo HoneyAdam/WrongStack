@@ -390,7 +390,7 @@ export interface AppProps {
   onClearHistory?:
     | ((
         dispatch: React.Dispatch<
-          | { type: 'clearHistory' }
+          | { type: 'clearHistory'; model?: string | undefined }
           | { type: 'resetContextChip' }
           | { type: 'streamReset' }
           | { type: 'toolStreamClear' }

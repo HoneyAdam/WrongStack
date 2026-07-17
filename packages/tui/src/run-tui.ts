@@ -218,7 +218,7 @@ export interface RunTuiOptions {
   onClearHistory?:
     | ((
         dispatch: React.Dispatch<
-          | { type: 'clearHistory' }
+          | { type: 'clearHistory'; model?: string | undefined }
           | { type: 'resetContextChip' }
           | { type: 'streamReset' }
           | { type: 'toolStreamClear' }
@@ -835,14 +835,14 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
   };
 
   // ── Rapid Ctrl+C force-exit ─────────────────────────────────────────────
-  // Tracks consecutive SIGINT signals. When the user presses Ctrl+C 3 times
+  // Tracks consecutive SIGINT signals. When the user presses Ctrl+C twice
   // within RAPID_EXIT_WINDOW_MS, we force-exit immediately instead of going
   // through the normal cleanup + Ink unmount path. This is intentional: the
   // user explicitly wants to kill the app, and waiting for Ink to unmount
   // can take seconds. The counter resets after the window expires so a long
   // pause between presses doesn't count as "rapid".
   const RAPID_EXIT_WINDOW_MS = 2_000;
-  const RAPID_EXIT_THRESHOLD = 3;
+  const RAPID_EXIT_THRESHOLD = 2;
   let ctrlCPressTimestamps: number[] = [];
 
   const forceExitViaRapidCtrlC = (): void => {
@@ -901,7 +901,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
     ctrlCPressTimestamps.push(now);
 
     if (ctrlCPressTimestamps.length >= RAPID_EXIT_THRESHOLD) {
-      // 3+ rapid Ctrl+C — force exit immediately
+    // 2+ rapid Ctrl+C — force exit immediately
       ctrlCPressTimestamps = [];
       forceExitViaRapidCtrlC();
       return;
@@ -935,9 +935,9 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
   // pipeline and a responsive React tree. This listener is independent of
   // both: it only OBSERVES the byte stream and force-exits after 3 rapid
   // presses, sharing the same timestamp window as the SIGINT path so mixed
-  // delivery still counts. When the ladder is healthy it exits on the 2nd
-  // press and this watcher never fires; when the tree is wedged, 3 presses
-  // within 2s still get the user out — guaranteed.
+  // delivery still counts. When the tree is healthy the App ladder also exits
+  // on the 2nd press; when the tree is wedged, this independent watcher makes
+  // those same two presses an unconditional escape hatch.
   const onRawCtrlC = (data: Buffer | string): void => {
     const hasCtrlC =
       typeof data === 'string' ? data.includes('\x03') : data.includes(0x03);
