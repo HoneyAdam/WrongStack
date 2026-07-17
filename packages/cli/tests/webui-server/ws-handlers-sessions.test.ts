@@ -107,7 +107,7 @@ describe('handleGoalGet', () => {
   it('broadcasts null when no goal.json exists', async () => {
     const { ctx, bc } = makeCtx();
     await handleGoalGet(ctx, FAKE_WS);
-    expect(lastOf(bc, 'goal.updated')?.payload).toBeNull();
+    expect(lastOf(bc, 'goal-state.updated')?.payload).toBeNull();
   });
 
   it('broadcasts the parsed goal when present', async () => {
@@ -118,7 +118,7 @@ describe('handleGoalGet', () => {
     );
     const { ctx, bc } = makeCtx();
     await handleGoalGet(ctx, FAKE_WS);
-    expect(lastOf(bc, 'goal.updated')?.payload).toEqual({ mission: 'ship' });
+    expect(lastOf(bc, 'goal-state.updated')?.payload).toEqual({ mission: 'ship' });
   });
 });
 
