@@ -2943,6 +2943,8 @@ export function App({
   // Consecutive auto-submitted turns since the last MANUAL input.
   const autoSubmitStreakRef = useRef(0);
   const autoSubmitCapWarnedRef = useRef(false);
+  // Last submitted text — blocks immediate duplicate submissions.
+  const lastSubmittedRef = useRef('');
   // Bumped on a slow poll while idle+auto with no suggestions, so the
   // auto-submit effect re-checks for suggestions that arrived out-of-band.
   const [nextStepsRecheck, setNextStepsRecheck] = useState(0);
@@ -6212,6 +6214,11 @@ export function App({
       }
       return;
     }
+
+    // Dedup: if this exact text was just submitted, skip.  Prevents
+    // \r\n double-fires, auto-submit loops, and stuck-key bursts.
+    if (trimmed === lastSubmittedRef.current) return;
+    lastSubmittedRef.current = trimmed;
 
     interruptsSyncRef.current = 0;
     dispatch({ type: 'resetInterrupts' });

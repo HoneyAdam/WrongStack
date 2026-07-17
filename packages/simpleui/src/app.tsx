@@ -24,6 +24,9 @@ import { FileDiffPanel } from './file-diff-panel.js';
 import { FileChangesButton } from './file-changes-button.js';
 import { MemoryDrawer } from './memory-drawer.js';
 import { FileExplorer } from './file-explorer.js';
+import { PromptLibrary } from './prompt-library.js';
+import { BrainPanel } from './brain-panel.js';
+import { SessionHealthPanel } from './session-health-panel.js';
 import {
   appendAgentTranscriptEntry,
   buildAgentTabs,
@@ -134,6 +137,25 @@ function messageId(prefix: string): string {
   return `${prefix}-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`;
 }
 
+/** Check if a model id matches common vision-capable model patterns. */
+function isVisionModel(modelId: string): boolean {
+  const id = modelId.toLowerCase();
+  return (
+    id.includes('vision') ||
+    id.includes('gpt-4o') ||
+    id.includes('gpt-4-turbo') ||
+    id.includes('claude-3') ||
+    id.includes('claude-3.5') ||
+    id.includes('claude-4') ||
+    id.startsWith('gemini') ||
+    id.includes('gemini-2') ||
+    id.includes('llava') ||
+    id.includes('pixtral') ||
+    id.includes('qwenvl') ||
+    id.includes('cogvlm')
+  );
+}
+
 export function App() {
   const [theme, setTheme] = useState<Theme>(initialTheme);
   const [connection, setConnection] = useState<ConnectionState>('connecting');
@@ -165,6 +187,9 @@ export function App() {
   const [fileMatches, setFileMatches] = useState<string[]>([]);
   const [filePickerIndex, setFilePickerIndex] = useState(0);
   const [fileSearching, setFileSearching] = useState(false);
+  const [attachedImages, setAttachedImages] = useState<
+    { id: string; data: string; mime: string; name: string }[]
+  >([]);
   const [running, setRunning] = useState(false);
   const [activity, setActivity] = useState('');
   const [notice, setNotice] = useState<(StatusNoticeProjection & { id: string }) | null>(null);
@@ -173,6 +198,7 @@ export function App() {
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [worklists] = useState(createWorklistStore);
   const [diffFiles, setDiffFiles] = useState<FileEditMeta[] | null>(null);
+  const [sessionStart, setSessionStart] = useState<number | null>(null);
   const socketRef = useRef<SimpleSocket | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const activeModelRef = useRef<{ provider: string; model: string } | null>(null);
@@ -210,28 +236,38 @@ export function App() {
   /** Send a message to the agent and reflect it locally. The single send
    *  path — the composer, the queue drain, and every refine decision all
    *  funnel through here. */
-  const dispatchUserMessage = useCallback((content: string) => {
+  const dispatchUserMessage = useCallback((content: string, images?: { data: string; mime: string }[]) => {
     const sessionId = sessionIdRef.current;
     if (!content || !sessionId) return;
     stickToBottomRef.current = true;
     setShowJumpToLatest(false);
-    setMessages((current) => [...current, { id: messageId('user'), role: 'user', text: content }]);
+    setMessages((current) => [
+      ...current,
+      {
+        id: messageId('user'),
+        role: 'user',
+        text: content,
+        ...(images && images.length > 0 ? { images } : {}),
+      },
+    ]);
     setRunning(true);
     setToolCalls([]);
     setActivity('Thinking');
-    socketRef.current?.send('user_message', {
+    const payload: Record<string, unknown> = {
       sessionId,
       id: messageId('prompt'),
       content,
       timestamp: Date.now(),
-    });
+    };
+    if (images && images.length > 0) payload['images'] = images;
+    socketRef.current?.send('user_message', payload);
   }, []);
 
   /** Open the refine round-trip, or send straight through when refine is off. */
   const startSend = useCallback(
-    (content: string) => {
+    (content: string, images?: { data: string; mime: string }[]) => {
       if (!prefsRef.current.enhanceEnabled) {
-        dispatchUserMessage(content);
+        dispatchUserMessage(content, images);
         return;
       }
       const active = activeModelRef.current;
@@ -466,6 +502,8 @@ export function App() {
           setToolCalls([]);
           setSelectedAgentId(LEADER_AGENT_ID);
           resetAgentNameCache();
+          setSessionStart(Date.now());
+          setAttachedImages([]);
         }
         setSessionMenuOpen(false);
         const replayUsage = payload['replayUsage'];
@@ -1008,6 +1046,7 @@ export function App() {
   );
   const currentSessionName = sessionDisplayName(currentSessionSummary, session?.id);
   const selectedModel = session ? `${session.provider}\t${session.model}` : '';
+  const visionSupported = isVisionModel(session?.model ?? '');
   const load = Math.max(0, Math.min(1, context.load));
   const latestAssistantId = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index--) {
@@ -1078,6 +1117,33 @@ export function App() {
     });
   };
 
+  const attachImages = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.multiple = true;
+    input.onchange = () => {
+      const files = input.files;
+      if (!files) return;
+      for (const file of Array.from(files)) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const data = reader.result as string;
+          setAttachedImages((prev) => [
+            ...prev,
+            { id: messageId('img'), data, mime: file.type, name: file.name },
+          ]);
+        };
+        reader.readAsDataURL(file);
+      }
+    };
+    input.click();
+  };
+
+  const removeAttachedImage = (id: string) => {
+    setAttachedImages((prev) => prev.filter((img) => img.id !== id));
+  };
+
   const createSession = () => {
     if (running || !sessionIdRef.current) return;
     socketRef.current?.send('session.new', { sessionId: sessionIdRef.current });
@@ -1108,15 +1174,19 @@ export function App() {
     if (!content || connection !== 'open' || !sessionIdRef.current || refineState) return;
 
     const plan = resolveSendPlan(mode, running);
+    const imgs = attachedImages.length > 0
+      ? attachedImages.map((i) => ({ data: i.data, mime: i.mime }))
+      : undefined;
     clearComposerDraft(sessionIdRef.current);
     draftRef.current = '';
     fileRefsRef.current = [];
     setDraft('');
     setFileRefs([]);
     setFileMention(null);
+    setAttachedImages([]);
 
     if (plan === 'send') {
-      startSend(content);
+      startSend(content, imgs);
       return;
     }
 
@@ -1337,7 +1407,7 @@ export function App() {
               <optgroup key={provider} label={providerLabels[provider] ?? provider}>
                 {entries.map((item) => (
                   <option key={`${provider}:${item.id}`} value={`${provider}\t${item.id}`}>
-                    {item.name}
+                    {item.name}{isVisionModel(item.id) ? ' 👁' : ''}
                   </option>
                 ))}
               </optgroup>
@@ -1400,8 +1470,9 @@ export function App() {
             <Settings size={15} />
           </button>
           <div className={`connection ${connection}`} title={`WebSocket: ${connection}`}>
+            <span className={`connection-ping-dot ${connection === 'open' ? 'good' : connection === 'connecting' ? 'poor' : 'bad'}`} />
             {connection === 'open' ? <Wifi size={15} /> : <WifiOff size={15} />}
-            <span>{connection === 'open' ? 'LIVE' : connection.toUpperCase()}</span>
+            <span>{connection === 'open' ? 'LIVE' : connection === 'connecting' ? '…' : 'OFF'}</span>
           </div>
         </div>
       </header>
@@ -1524,6 +1595,9 @@ export function App() {
 
       <MemoryDrawer socketRef={socketRef} />
       <FileExplorer socketRef={socketRef} />
+      <PromptLibrary onRecall={(text) => { setDraft(text); textareaRef.current?.focus(); }} />
+      <BrainPanel socketRef={socketRef} />
+      <SessionHealthPanel context={context} messages={messages} sessionStart={sessionStart} />
 
       {leaderSelected && showJumpToLatest && (
         <button type="button" className="jump-to-latest" onClick={jumpToLatest}>
@@ -1570,6 +1644,10 @@ export function App() {
               onRefineDecision={refineDecision}
               onRefineRetry={refineRetry}
               onRefineRetryFallback={refineRetryFallback}
+              attachedImages={attachedImages}
+              onAttachImages={attachImages}
+              onRemoveImage={removeAttachedImage}
+              visionSupported={visionSupported}
             />
           </footer>
         </ErrorBoundary>

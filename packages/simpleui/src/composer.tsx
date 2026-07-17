@@ -1,6 +1,7 @@
 import {
   CircleStop,
   FileText,
+  Image,
   ListPlus,
   Send,
   ShieldAlert,
@@ -44,6 +45,11 @@ interface ComposerProps {
   onRefineDecision: (decision: RefineDecision) => void;
   onRefineRetry: () => void;
   onRefineRetryFallback: (ref: string) => void;
+  // Image attachment
+  attachedImages: { id: string; data: string; mime: string; name: string }[];
+  onAttachImages: () => void;
+  onRemoveImage: (id: string) => void;
+  visionSupported: boolean;
 }
 
 function safeLine(value: unknown): string {
@@ -83,6 +89,10 @@ export function Composer({
   onRefineDecision,
   onRefineRetry,
   onRefineRetryFallback,
+  attachedImages,
+  onAttachImages,
+  onRemoveImage,
+  visionSupported,
 }: ComposerProps) {
   const empty = !draft.trim() && fileRefs.length === 0;
   const offline = connection !== 'open';
@@ -181,6 +191,23 @@ export function Composer({
             ))}
           </fieldset>
         )}
+        {attachedImages.length > 0 && (
+          <fieldset className="file-references" aria-label="Attached images">
+            {attachedImages.map((img) => (
+              <span className="file-reference" key={img.id} title={img.name}>
+                <Image size={12} aria-hidden="true" />
+                <span>{img.name}</span>
+                <button
+                  type="button"
+                  onClick={() => onRemoveImage(img.id)}
+                  aria-label={`Remove ${img.name}`}
+                >
+                  <X size={11} />
+                </button>
+              </span>
+            ))}
+          </fieldset>
+        )}
         <textarea
           ref={textareaRef}
           aria-label="Message"
@@ -243,6 +270,16 @@ export function Composer({
           }}
         />
         <div className="composer-actions">
+          <button
+            type="button"
+            className="image-attach-button"
+            title={visionSupported ? 'Attach images' : 'Current model does not support vision'}
+            aria-label="Attach images"
+            disabled={offline || !visionSupported}
+            onClick={onAttachImages}
+          >
+            <Image size={17} />
+          </button>
           {/* Stop stays reachable while a run is in flight even with a draft
               typed — aborting and sending are independent intents. */}
           {running && (

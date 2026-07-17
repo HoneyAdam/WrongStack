@@ -115,12 +115,14 @@ function fileTargetsFrom(data: UnknownRecord, input: UnknownRecord): OfficeFileT
     const target = record(value);
     const filePath = firstText(target, ['filePath', 'file_path', 'path']);
     if (!filePath) return [];
-    return [{
-      filePath,
-      operation: text(target['operation']),
-      line: firstNumber(target, ['line', 'startLine', 'start_line']),
-      endLine: firstNumber(target, ['endLine', 'end_line']),
-    }];
+    return [
+      {
+        filePath,
+        operation: text(target['operation']),
+        line: firstNumber(target, ['line', 'startLine', 'start_line']),
+        endLine: firstNumber(target, ['endLine', 'end_line']),
+      },
+    ];
   });
   if (targets.length > 0) return targets;
 
@@ -133,11 +135,13 @@ function fileTargetsFrom(data: UnknownRecord, input: UnknownRecord): OfficeFileT
     'targetFile',
   ]);
   if (!filePath) return [];
-  return [{
-    filePath,
-    line: firstNumber(input, ['line', 'start_line', 'startLine', 'offset']),
-    endLine: firstNumber(input, ['end_line', 'endLine']),
-  }];
+  return [
+    {
+      filePath,
+      line: firstNumber(input, ['line', 'start_line', 'startLine', 'offset']),
+      endLine: firstNumber(input, ['end_line', 'endLine']),
+    },
+  ];
 }
 
 function lineRange(
@@ -169,11 +173,12 @@ function describeTool(
   if (kind === 'read') {
     return {
       target: path,
-      summary: outputLines !== undefined
-        ? `${outputLines.toLocaleString()} lines read`
-        : range.label
-          ? `${range.label} queued to read`
-          : 'Reading file',
+      summary:
+        outputLines !== undefined
+          ? `${outputLines.toLocaleString()} lines read`
+          : range.label
+            ? `${range.label} queued to read`
+            : 'Reading file',
       lineLabel: range.label,
     };
   }
@@ -183,9 +188,10 @@ function describeTool(
     const writtenLines = content ? lineCount(content) : undefined;
     return {
       target: path,
-      summary: writtenLines !== undefined
-        ? `${writtenLines.toLocaleString()} lines written`
-        : 'Writing file',
+      summary:
+        writtenLines !== undefined
+          ? `${writtenLines.toLocaleString()} lines written`
+          : 'Writing file',
       lineLabel: range.label,
     };
   }
@@ -241,11 +247,13 @@ function toolNameFor(event: VizEvent, data: UnknownRecord): string | undefined {
 }
 
 function agentIdFor(event: VizEvent, data: UnknownRecord, toolName: string): string {
-  return text(data['agentId'])
-    ?? text(data['subagentId'])
-    ?? (event.kind === 'agent:tool' ? event.source : undefined)
-    ?? (event.source !== toolName && event.source !== 'filesystem' ? event.source : undefined)
-    ?? 'leader';
+  return (
+    text(data['agentId']) ??
+    text(data['subagentId']) ??
+    (event.kind === 'agent:tool' ? event.source : undefined) ??
+    (event.source !== toolName && event.source !== 'filesystem' ? event.source : undefined) ??
+    'leader'
+  );
 }
 
 function sessionIdFor(data: UnknownRecord): string | undefined {
@@ -278,7 +286,7 @@ function normalizeToolEvent(event: VizEvent): OfficeToolCall | null {
   return {
     id: rawId ? `${agentId}:${rawId}` : `${agentId}:${toolName}:${fallbackBucket}`,
     agentId,
-    agentName: text(data['agentName']) ?? text(data['name']),
+    agentName: text(data['agentName']),
     sessionId: sessionIdFor(data),
     toolName,
     kind,
@@ -321,17 +329,20 @@ export function buildAgentToolCalls(
     if (!call || !sameAgent(call.agentId, agentId)) continue;
     if (sessionId && call.sessionId && call.sessionId !== sessionId) continue;
     const previous = merged.get(call.id);
-    merged.set(call.id, previous
-      ? {
-          ...previous,
-          ...call,
-          startedAt: Math.min(previous.startedAt, call.startedAt),
-          fileTargets: call.fileTargets.length > 0 ? call.fileTargets : previous.fileTargets,
-          input: call.input ?? previous.input,
-          output: call.output ?? previous.output,
-          raw: call.raw ?? previous.raw,
-        }
-      : call);
+    merged.set(
+      call.id,
+      previous
+        ? {
+            ...previous,
+            ...call,
+            startedAt: Math.min(previous.startedAt, call.startedAt),
+            fileTargets: call.fileTargets.length > 0 ? call.fileTargets : previous.fileTargets,
+            input: call.input ?? previous.input,
+            output: call.output ?? previous.output,
+            raw: call.raw ?? previous.raw,
+          }
+        : call,
+    );
   }
 
   const calls = [...merged.values()].sort(
@@ -341,14 +352,18 @@ export function buildAgentToolCalls(
   // `subagent.event` is a deliberately compact duplicate of the richer
   // `codemap.tool_executed` envelope. Drop the compact twin when both arrive.
   return calls.filter((call, index) => {
-    if (call.input !== undefined || call.fileTargets.length > 0 || call.output !== undefined) return true;
-    return !calls.some((candidate, candidateIndex) =>
-      candidateIndex !== index
-      && candidate.toolName === call.toolName
-      && (candidate.input !== undefined || candidate.fileTargets.length > 0 || candidate.output !== undefined)
-      && Math.abs(
-        (candidate.completedAt ?? candidate.startedAt) - (call.completedAt ?? call.startedAt),
-      ) < 2500,
+    if (call.input !== undefined || call.fileTargets.length > 0 || call.output !== undefined)
+      return true;
+    return !calls.some(
+      (candidate, candidateIndex) =>
+        candidateIndex !== index &&
+        candidate.toolName === call.toolName &&
+        (candidate.input !== undefined ||
+          candidate.fileTargets.length > 0 ||
+          candidate.output !== undefined) &&
+        Math.abs(
+          (candidate.completedAt ?? candidate.startedAt) - (call.completedAt ?? call.startedAt),
+        ) < 2500,
     );
   });
 }
@@ -381,4 +396,3 @@ export function synthesizeCurrentTool(
     fileTargets: [],
   };
 }
-

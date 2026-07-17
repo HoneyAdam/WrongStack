@@ -21,6 +21,8 @@ export function MemoryDrawer({ socketRef }: MemoryDrawerProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const unsubRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -32,6 +34,14 @@ export function MemoryDrawer({ socketRef }: MemoryDrawerProps) {
     return () => document.removeEventListener('keydown', onKey);
   }, [open]);
 
+  // Cleanup pending search on unmount (prevents setState on unmounted component)
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
+      if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }
+    };
+  }, []);
+
   const search = () => {
     if (!path.trim()) return;
     setLoading(true);
@@ -39,9 +49,17 @@ export function MemoryDrawer({ socketRef }: MemoryDrawerProps) {
     const socket = socketRef.current;
     if (!socket) { setLoading(false); return; }
 
+    // Clear any previous pending timeout and unsubscribe
+    if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
+    if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }
+
     // Register a one-shot handler for the response
     const handler = (msg: { type: string; payload?: unknown }) => {
       if (msg.type !== 'memory.super.forFile') return;
+      // Unsubscribe immediately after receiving the response
+      if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }
+      if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null; }
+
       const payload = msg.payload as Record<string, unknown> | undefined;
       if (payload?.['error']) {
         setError(String(payload['error']));
@@ -54,10 +72,14 @@ export function MemoryDrawer({ socketRef }: MemoryDrawerProps) {
       setLoading(false);
     };
 
-    const unsub = socket.onMessage(handler);
+    unsubRef.current = socket.onMessage(handler);
     socket.send('memory.super.forFile', { path: path.trim(), limit: 20 });
-    // Unsubscribe after 5s max
-    setTimeout(() => { unsub(); setLoading(false); }, 5000);
+    // Unsubscribe after 5s max (safety net)
+    timeoutRef.current = setTimeout(() => {
+      if (unsubRef.current) { unsubRef.current(); unsubRef.current = null; }
+      setLoading(false);
+      timeoutRef.current = null;
+    }, 5000);
   };
 
   if (!open) {

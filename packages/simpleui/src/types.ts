@@ -6,6 +6,8 @@ export interface ChatMessage {
   text: string;
   streaming?: boolean | undefined;
   ts?: string | undefined;
+  /** Base64-encoded images attached to user messages. */
+  images?: { data: string; mime: string }[] | undefined;
 }
 
 export interface SessionInfo {

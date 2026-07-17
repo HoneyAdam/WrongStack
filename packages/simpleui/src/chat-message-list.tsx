@@ -74,6 +74,13 @@ const MessageItem = memo(function MessageItem({
         )}
       </div>
       <div className="message-body">
+        {message.images && message.images.length > 0 && (
+          <div className="message-images">
+            {message.images.map((img, i) => (
+              <img key={i} src={img.data} className="message-image" alt={`Attached ${i + 1}`} />
+            ))}
+          </div>
+        )}
         {projection.text && !message.streaming && (
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}

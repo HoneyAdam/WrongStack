@@ -20,7 +20,7 @@ import {
   Zap,
   type LucideIcon,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useAppTranslation } from '@/i18n';
 import {
   buildAgentToolCalls,
@@ -114,16 +114,14 @@ function fallbackLogCalls(
   }));
 }
 
-function mergeFallbackCalls(
-  rich: OfficeToolCall[],
-  fallback: OfficeToolCall[],
-): OfficeToolCall[] {
+function mergeFallbackCalls(rich: OfficeToolCall[], fallback: OfficeToolCall[]): OfficeToolCall[] {
   const merged = [...rich];
   for (const call of fallback) {
     const timestamp = call.completedAt ?? call.startedAt;
-    const duplicate = rich.some((candidate) =>
-      candidate.toolName === call.toolName
-      && Math.abs((candidate.completedAt ?? candidate.startedAt) - timestamp) < 2500,
+    const duplicate = rich.some(
+      (candidate) =>
+        candidate.toolName === call.toolName &&
+        Math.abs((candidate.completedAt ?? candidate.startedAt) - timestamp) < 2500,
     );
     if (!duplicate) merged.push(call);
   }
@@ -144,7 +142,10 @@ function ToolGlyph({ kind, active }: { kind: OfficeToolKind; active?: boolean })
 
 function AgentAvatar({ active, failed }: { active: boolean; failed: boolean }) {
   return (
-    <div className={cn('agent-office__avatar', active && 'is-active', failed && 'is-failed')} aria-hidden="true">
+    <div
+      className={cn('agent-office__avatar', active && 'is-active', failed && 'is-failed')}
+      aria-hidden="true"
+    >
       <span className="agent-office__avatar-chair" />
       <span className="agent-office__avatar-body" />
       <span className="agent-office__avatar-head">
@@ -192,19 +193,32 @@ function ToolParcel({
         <span className="agent-office__parcel-summary">{call.summary}</span>
       </span>
       <span className="agent-office__parcel-state" aria-hidden="true">
-        {active ? <span className="agent-office__pulse-dot" /> : call.status === 'failed' ? <X /> : <Check />}
+        {active ? (
+          <span className="agent-office__pulse-dot" />
+        ) : call.status === 'failed' ? (
+          <X />
+        ) : (
+          <Check />
+        )}
       </span>
     </button>
   );
 }
 
 function EmptyParcel({ active }: { active: boolean }) {
+  const { t } = useAppTranslation();
   return (
     <div className="agent-office__parcel agent-office__parcel--empty">
-      <span className="agent-office__tool-glyph"><Bot aria-hidden="true" /></span>
+      <span className="agent-office__tool-glyph">
+        <Bot aria-hidden="true" />
+      </span>
       <span className="agent-office__parcel-copy">
-        <strong>{active ? 'Thinking' : 'Waiting for work'}</strong>
-        <span>{active ? 'Preparing the next action…' : 'Desk is ready'}</span>
+        <strong>
+          {active ? t('activity:agentOffice.thinking') : t('activity:agentOffice.waiting')}
+        </strong>
+        <span>
+          {active ? t('activity:agentOffice.preparing') : t('activity:agentOffice.deskReady')}
+        </span>
       </span>
     </div>
   );
@@ -219,6 +233,7 @@ function AgentLane({
   now: number;
   onSelect: (selected: SelectedAction) => void;
 }) {
+  const { t } = useAppTranslation();
   const { agent, client, current, display, history } = model;
   const active = agent.status === 'active' || agent.status === 'streaming';
   const failed = agent.status === 'error';
@@ -227,21 +242,33 @@ function AgentLane({
     <article className={cn('agent-office__lane', active && 'is-active', failed && 'is-failed')}>
       <div className="agent-office__identity">
         <div className="agent-office__identity-line">
-          <span className={cn('agent-office__status-dot', active && 'is-active', failed && 'is-failed')} />
+          <span
+            className={cn('agent-office__status-dot', active && 'is-active', failed && 'is-failed')}
+          />
           <strong title={agent.name}>{agent.name}</strong>
         </div>
-        <span className="agent-office__role">{agent.serverId === 'leader' ? 'LEAD AGENT' : 'AGENT'}</span>
+        <span className="agent-office__role">
+          {agent.serverId === 'leader'
+            ? t('activity:agentOffice.leadAgent')
+            : t('activity:agentOffice.agent')}
+        </span>
         <div className="agent-office__agent-meta">
           <span>{client.branch ? `⎇ ${client.branch}` : client.type.toUpperCase()}</span>
-          <span>{agent.toolCalls.toLocaleString()} calls</span>
+          <span>{t('activity:agentOffice.callsCount', { count: agent.toolCalls })}</span>
         </div>
       </div>
 
       <div className="agent-office__scene">
         <div className="agent-office__window" aria-hidden="true">
-          <span /><span /><span />
+          <span />
+          <span />
+          <span />
         </div>
-        <div className="agent-office__plant" aria-hidden="true"><span /><i /><b /></div>
+        <div className="agent-office__plant" aria-hidden="true">
+          <span />
+          <i />
+          <b />
+        </div>
         <div className="agent-office__desk-zone" aria-hidden="true">
           <AgentAvatar active={active} failed={failed} />
           <span className="agent-office__monitor">
@@ -253,11 +280,19 @@ function AgentLane({
 
         <div className={cn('agent-office__conveyor', current && 'is-moving')}>
           <div className="agent-office__belt" aria-hidden="true">
-            <span /><span /><span /><span /><span /><span />
+            <span />
+            <span />
+            <span />
+            <span />
+            <span />
+            <span />
           </div>
           <div className="agent-office__current-action">
             {display ? (
-              <ToolParcel call={display} onSelect={() => onSelect({ call: display, agentName: agent.name })} />
+              <ToolParcel
+                call={display}
+                onSelect={() => onSelect({ call: display, agentName: agent.name })}
+              />
             ) : (
               <EmptyParcel active={active} />
             )}
@@ -267,19 +302,21 @@ function AgentLane({
 
       <div className="agent-office__history">
         <div className="agent-office__history-heading">
-          <span>RECENT</span>
+          <span>{t('activity:agentOffice.recent')}</span>
           {display && <span>{relativeTime(display.completedAt ?? display.startedAt, now)}</span>}
         </div>
         <div className="agent-office__history-list">
-          {history.length > 0 ? history.map((call) => (
-            <ToolParcel
-              key={call.id}
-              call={call}
-              compact
-              onSelect={() => onSelect({ call, agentName: agent.name })}
-            />
-          )) : (
-            <span className="agent-office__history-empty">No completed calls yet</span>
+          {history.length > 0 ? (
+            history.map((call) => (
+              <ToolParcel
+                key={call.id}
+                call={call}
+                compact
+                onSelect={() => onSelect({ call, agentName: agent.name })}
+              />
+            ))
+          ) : (
+            <span className="agent-office__history-empty">{t('activity:agentOffice.noCalls')}</span>
           )}
         </div>
       </div>
@@ -287,7 +324,7 @@ function AgentLane({
   );
 }
 
-function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="agent-office__detail-row">
       <span>{label}</span>
@@ -297,6 +334,7 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 }
 
 function ActionDetail({ selected, onClose }: { selected: SelectedAction; onClose: () => void }) {
+  const { t } = useAppTranslation();
   const { call, agentName } = selected;
   const ToolIcon = TOOL_ICONS[call.kind];
   const input = stringify(call.input);
@@ -309,64 +347,107 @@ function ActionDetail({ selected, onClose }: { selected: SelectedAction; onClose
           <ToolIcon aria-hidden="true" />
         </div>
         <div>
-          <span>TOOL CALL</span>
+          <span>{t('activity:agentOffice.toolCall')}</span>
           <h2>{call.toolName}</h2>
         </div>
-        <button type="button" onClick={onClose} aria-label="Close details"><X /></button>
+        <button type="button" onClick={onClose} aria-label="Close details">
+          <X />
+        </button>
       </div>
 
       <div className="agent-office__detail-status">
-        <span className={cn('agent-office__status-dot', call.status === 'running' && 'is-active', call.status === 'failed' && 'is-failed')} />
+        <span
+          className={cn(
+            'agent-office__status-dot',
+            call.status === 'running' && 'is-active',
+            call.status === 'failed' && 'is-failed',
+          )}
+        />
         <strong>{call.summary}</strong>
         <span>{call.status}</span>
       </div>
 
       <section className="agent-office__detail-section">
-        <h3>Execution</h3>
-        <DetailRow label="Agent" value={agentName} />
-        <DetailRow label="Started" value={new Date(call.startedAt).toLocaleTimeString()} />
-        <DetailRow label="Duration" value={formatDuration(call.durationMs)} />
-        {call.sessionId && <DetailRow label="Session" value={shortPath(call.sessionId, 28)} />}
+        <h3>{t('activity:agentOffice.execution')}</h3>
+        <DetailRow label={t('activity:agentOffice.agent')} value={agentName} />
+        <DetailRow
+          label={t('activity:agentOffice.started')}
+          value={new Date(call.startedAt).toLocaleTimeString()}
+        />
+        <DetailRow
+          label={t('activity:agentOffice.duration')}
+          value={formatDuration(call.durationMs)}
+        />
+        {call.sessionId && (
+          <DetailRow
+            label={t('activity:agentOffice.session')}
+            value={shortPath(call.sessionId, 28)}
+          />
+        )}
       </section>
 
       {(call.target || call.fileTargets.length > 0) && (
         <section className="agent-office__detail-section">
-          <h3>Target</h3>
+          <h3>{t('activity:agentOffice.target')}</h3>
           {call.target && <code className="agent-office__target-code">{call.target}</code>}
           {call.fileTargets.map((target, index) => (
             <div className="agent-office__file-target" key={`${target.filePath}:${index}`}>
               <File aria-hidden="true" />
               <span>{target.filePath}</span>
               {(target.line || target.endLine) && (
-                <strong>L{target.line ?? 1}{target.endLine ? `–${target.endLine}` : ''}</strong>
+                <strong>
+                  L{target.line ?? 1}
+                  {target.endLine ? `–${target.endLine}` : ''}
+                </strong>
               )}
             </div>
           ))}
         </section>
       )}
 
-      {(call.outputLines !== undefined || call.outputBytes !== undefined || call.outputTokens !== undefined) && (
+      {(call.outputLines !== undefined ||
+        call.outputBytes !== undefined ||
+        call.outputTokens !== undefined) && (
         <section className="agent-office__detail-section">
-          <h3>Result size</h3>
+          <h3>{t('activity:agentOffice.resultSize')}</h3>
           <div className="agent-office__metric-grid">
-            {call.outputLines !== undefined && <div><strong>{call.outputLines.toLocaleString()}</strong><span>lines</span></div>}
-            {call.outputBytes !== undefined && <div><strong>{call.outputBytes.toLocaleString()}</strong><span>bytes</span></div>}
-            {call.outputTokens !== undefined && <div><strong>≈{call.outputTokens.toLocaleString()}</strong><span>tokens</span></div>}
+            {call.outputLines !== undefined && (
+              <div>
+                <strong>{call.outputLines.toLocaleString()}</strong>
+                <span>{t('activity:agentOffice.lines')}</span>
+              </div>
+            )}
+            {call.outputBytes !== undefined && (
+              <div>
+                <strong>{call.outputBytes.toLocaleString()}</strong>
+                <span>{t('activity:agentOffice.bytes')}</span>
+              </div>
+            )}
+            {call.outputTokens !== undefined && (
+              <div>
+                <strong>≈{call.outputTokens.toLocaleString()}</strong>
+                <span>{t('activity:agentOffice.tokens')}</span>
+              </div>
+            )}
           </div>
         </section>
       )}
 
       {input && (
         <section className="agent-office__detail-section">
-          <h3>Input</h3>
-          <pre><code>{input}</code></pre>
+          <h3>{t('activity:agentOffice.input')}</h3>
+          <pre>
+            <code>{input}</code>
+          </pre>
         </section>
       )}
 
       {output && (
         <section className="agent-office__detail-section">
-          <h3>Output preview</h3>
-          <pre><code>{output}</code></pre>
+          <h3>{t('activity:agentOffice.outputPreview')}</h3>
+          <pre>
+            <code>{output}</code>
+          </pre>
         </section>
       )}
     </aside>
@@ -379,7 +460,7 @@ export function AgentOfficeView({ onOpenTopology }: AgentOfficeViewProps) {
   const aggregate = useMonitorStore((state) => state.aggregate);
   const fleetAgents = useFleetStore((state) => state.agents);
   const vizEvents = useVizStore((state) => state.events);
-  const session = useSessionStore((state) => state.session);
+  const projectNameFromSession = useSessionStore((state) => state.projectName);
   const [selected, setSelected] = useState<SelectedAction | null>(null);
 
   const clients = useMemo(
@@ -387,43 +468,52 @@ export function AgentOfficeView({ onOpenTopology }: AgentOfficeViewProps) {
     [liveSessions, fleetAgents],
   );
 
-  const models = useMemo<OfficeAgentModel[]>(() => clients.flatMap((client) =>
-    client.agents.map((agent) => {
-      const richCalls = buildAgentToolCalls(vizEvents, agent.serverId, client.sessionId);
-      const logs = fleetAgents.get(agent.serverId)?.toolLog ?? [];
-      const calls = mergeFallbackCalls(richCalls, fallbackLogCalls(agent, client, logs));
-      const isActive = agent.status === 'active' || agent.status === 'streaming';
-      let current = calls.find((call) => call.status === 'running');
-      if (!current && isActive && agent.currentTask) {
-        current = synthesizeCurrentTool(agent.serverId, agent.currentTask, client.sessionId);
-      }
-      const display = current ?? calls[0];
-      const history = calls.filter((call) => call.id !== display?.id).slice(0, 3);
-      return {
-        key: agent.officeId,
-        client,
-        agent,
-        calls,
-        current,
-        display,
-        history,
-      };
-    }),
-  ), [clients, fleetAgents, vizEvents]);
+  const models = useMemo<OfficeAgentModel[]>(
+    () =>
+      clients.flatMap((client) =>
+        client.agents.map((agent) => {
+          const richCalls = buildAgentToolCalls(vizEvents, agent.serverId, client.sessionId);
+          const logs = fleetAgents.get(agent.serverId)?.toolLog ?? [];
+          const calls = mergeFallbackCalls(richCalls, fallbackLogCalls(agent, client, logs));
+          const isActive = agent.status === 'active' || agent.status === 'streaming';
+          let current = calls.find((call) => call.status === 'running');
+          if (!current && isActive && agent.currentTask) {
+            current = synthesizeCurrentTool(agent.serverId, agent.currentTask, client.sessionId);
+          }
+          const display = current ?? calls[0];
+          const history = calls.filter((call) => call.id !== display?.id).slice(0, 3);
+          return {
+            key: agent.officeId,
+            client,
+            agent,
+            calls,
+            current,
+            display,
+            history,
+          };
+        }),
+      ),
+    [clients, fleetAgents, vizEvents],
+  );
 
-  const activeCount = models.filter(({ agent }) => agent.status === 'active' || agent.status === 'streaming').length;
-  const projectName = session?.projectName
-    ?? liveSessions.find((candidate) => candidate.projectName)?.projectName
-    ?? t('activity:office.fleetHq');
+  const activeCount = models.filter(
+    ({ agent }) => agent.status === 'active' || agent.status === 'streaming',
+  ).length;
+  const projectName =
+    projectNameFromSession ||
+    liveSessions.find((candidate) => candidate.projectName)?.projectName ||
+    t('activity:office.fleetHq');
   const now = Date.now();
 
   return (
     <div className="agent-office">
       <header className="agent-office__header">
         <div className="agent-office__title">
-          <span className="agent-office__brand-mark"><Building2 aria-hidden="true" /></span>
+          <span className="agent-office__brand-mark">
+            <Building2 aria-hidden="true" />
+          </span>
           <div>
-            <span>LIVE PROJECT OFFICE</span>
+            <span>{t('activity:agentOffice.liveProjectOffice')}</span>
             <h1>{projectName}</h1>
           </div>
         </div>
@@ -433,39 +523,68 @@ export function AgentOfficeView({ onOpenTopology }: AgentOfficeViewProps) {
         </div>
 
         <div className="agent-office__summary">
-          <div><Bot /><strong>{models.length}</strong><span>agents</span></div>
-          <div><Zap /><strong>{activeCount}</strong><span>working</span></div>
-          <div><Activity /><strong>{aggregate.toolCalls.toLocaleString()}</strong><span>tool calls</span></div>
+          <div>
+            <Bot />
+            <strong>{models.length}</strong>
+            <span>{t('activity:agentOffice.agents')}</span>
+          </div>
+          <div>
+            <Zap />
+            <strong>{activeCount}</strong>
+            <span>{t('activity:agentOffice.working')}</span>
+          </div>
+          <div>
+            <Activity />
+            <strong>{aggregate.toolCalls.toLocaleString()}</strong>
+            <span>{t('activity:agentOffice.toolCalls')}</span>
+          </div>
         </div>
 
-        <div className="agent-office__view-switch" aria-label="Office view">
-          <button type="button" aria-pressed="true"><PanelsTopLeft /> Office</button>
-          <button type="button" onClick={onOpenTopology}><Network /> Topology</button>
-        </div>
+        <fieldset className="agent-office__view-switch">
+          <legend className="sr-only">Office view</legend>
+          <button type="button" aria-pressed="true">
+            <PanelsTopLeft /> {t('activity:agentOffice.office')}
+          </button>
+          <button type="button" onClick={onOpenTopology}>
+            <Network /> {t('activity:agentOffice.topology')}
+          </button>
+        </fieldset>
       </header>
 
       <div className="agent-office__column-headings" aria-hidden="true">
-        <span>TEAM</span>
-        <span>LIVE DESK &amp; INCOMING WORK</span>
-        <span>LAST 3 ACTIONS</span>
+        <span>{t('activity:agentOffice.team')}</span>
+        <span>{t('activity:agentOffice.liveDesk')}</span>
+        <span>{t('activity:agentOffice.lastActions')}</span>
       </div>
 
       <main className="agent-office__floor">
-        {models.length > 0 ? models.map((model) => (
-          <AgentLane key={model.key} model={model} now={now} onSelect={setSelected} />
-        )) : (
+        {models.length > 0 ? (
+          models.map((model) => (
+            <AgentLane key={model.key} model={model} now={now} onSelect={setSelected} />
+          ))
+        ) : (
           <div className="agent-office__empty-state">
-            <span><Wifi aria-hidden="true" /></span>
-            <h2>The office is ready</h2>
-            <p>Agents will take a desk as soon as they join this project.</p>
+            <span>
+              <Wifi aria-hidden="true" />
+            </span>
+            <h2>{t('activity:agentOffice.readyTitle')}</h2>
+            <p>{t('activity:agentOffice.readyBody')}</p>
           </div>
         )}
       </main>
 
       <footer className="agent-office__footer">
-        <span><span className="agent-office__status-dot is-active" /> live event stream</span>
-        <span><HardDrive /> {liveSessions.length} connected session{liveSessions.length === 1 ? '' : 's'}</span>
-        <span><Clock3 /> click any action for exact input and result details</span>
+        <span>
+          <span className="agent-office__status-dot is-active" />{' '}
+          {t('activity:agentOffice.liveEvent')}
+        </span>
+        <span>
+          <HardDrive />{' '}
+          {t('activity:agentOffice.connectedSessions', { count: liveSessions.length })}
+        </span>
+        <span>
+          <Clock3 /> {t('activity:agentOffice.detailHint')}
+        </span>
       </footer>
 
       {selected && (
@@ -482,4 +601,3 @@ export function AgentOfficeView({ onOpenTopology }: AgentOfficeViewProps) {
     </div>
   );
 }
-

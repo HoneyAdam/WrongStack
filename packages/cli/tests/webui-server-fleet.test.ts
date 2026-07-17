@@ -121,6 +121,10 @@ describe('runWebUI subagent fleet bridge', () => {
       durationMs: 18,
       ok: true,
       input: { path: 'packages/core/src/index.ts', offset: 10, limit: 5 },
+      output: '10: export * from ./kernel\n11: export * from ./tools',
+      outputBytes: 2048,
+      outputTokens: 585,
+      outputLines: 5,
     });
     const toolExecuted = await waitForMessage('codemap.tool_executed');
     expect(toolExecuted.payload).toMatchObject({
@@ -129,6 +133,9 @@ describe('runWebUI subagent fleet bridge', () => {
       id: 'toolu-sub-1',
       durationMs: 18,
       ok: true,
+      outputBytes: 2048,
+      outputTokens: 585,
+      outputLines: 5,
     });
 
     // completion → status + structured error flattened to {kind,message}.

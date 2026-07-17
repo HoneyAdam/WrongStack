@@ -6,11 +6,7 @@ import {
 } from '../../src/lib/agent-office.js';
 import type { VizEvent } from '../../src/stores/viz-store.js';
 
-function event(
-  kind: VizEvent['kind'],
-  timestamp: number,
-  data: Record<string, unknown>,
-): VizEvent {
+function event(kind: VizEvent['kind'], timestamp: number, data: Record<string, unknown>): VizEvent {
   return {
     id: `viz-${timestamp}-${kind}`,
     kind,
@@ -86,13 +82,23 @@ describe('agent office tool model', () => {
   it('keeps calls scoped to the selected session', () => {
     const events = [
       event('tool:executed', 2_000, {
-        id: 'same', agentId: 'leader', sessionId: 'session-b', name: 'bash', ok: true,
+        id: 'same',
+        agentId: 'leader',
+        sessionId: 'session-b',
+        name: 'bash',
+        ok: true,
       }),
       event('tool:executed', 1_000, {
-        id: 'same', agentId: 'leader', sessionId: 'session-a', name: 'read', ok: true,
+        id: 'same',
+        agentId: 'leader',
+        sessionId: 'session-a',
+        name: 'read',
+        ok: true,
       }),
     ];
-    expect(buildAgentToolCalls(events, 'leader', 'session-a').map((call) => call.toolName)).toEqual(['read']);
+    expect(buildAgentToolCalls(events, 'leader', 'session-a').map((call) => call.toolName)).toEqual(
+      ['read'],
+    );
   });
 
   it('can synthesize a live action from a remote fleet snapshot', () => {
@@ -105,4 +111,3 @@ describe('agent office tool model', () => {
     });
   });
 });
-

@@ -859,7 +859,7 @@ export function ChatInput({
             const provider = slash === -1 ? undefined : ref.slice(0, slash);
             const model = slash === -1 ? ref : ref.slice(slash + 1);
             if (!provider || !model) return;
-            setRefinePanel({ ...refinePanel, status: 'refining', retried: true });
+            setRefinePanel({ ...refinePanel, provider, model, status: 'refining', retried: true });
             refineModel?.(refinePanel.original, { timeoutMs: 180_000, provider, model });
           }}
           onPickModel={() => setRefinePickOpen(true)}
@@ -904,7 +904,7 @@ export function ChatInput({
           setRefinePickOpen(false);
           const current = useUIStore.getState().refinePanel;
           if (!current) return;
-          setRefinePanel({ ...current, status: 'refining', retried: true });
+          setRefinePanel({ ...current, provider: candidate.provider, model: candidate.model, status: 'refining', retried: true });
           refineModel?.(current.original, {
             timeoutMs: 180_000,
             provider: candidate.provider,
