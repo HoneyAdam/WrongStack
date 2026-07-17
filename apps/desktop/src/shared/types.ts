@@ -144,7 +144,7 @@ export interface DesktopWebuiCommand {
   view?:
     | 'chat'
     | 'settings'
-    | 'autophase'
+    | 'goal'
     | 'specs'
     | 'sddboard'
     | 'sddwizard'
@@ -173,7 +173,7 @@ export interface DesktopWebuiCommand {
     | 'officemap'
     | undefined;
   overlay?: 'fleet' | 'agents-monitor' | 'processes' | 'queue' | undefined;
-  dockSection?: 'autophase' | 'goal' | 'fleet' | 'work' | 'worktrees' | 'collab' | undefined;
+  dockSection?: 'goal' | 'fleet' | 'work' | 'worktrees' | 'collab' | undefined;
   workTab?: 'todos' | 'tasks' | 'plan' | undefined;
   terminal?: boolean | 'toggle' | 'new' | undefined;
   pref?:

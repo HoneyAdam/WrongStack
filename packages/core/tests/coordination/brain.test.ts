@@ -12,7 +12,7 @@ import type { BrainDecisionRequest } from '../../src/coordination/brain.js';
 function request(overrides: Partial<BrainDecisionRequest> = {}): BrainDecisionRequest {
   return {
     id: 'decision-1',
-    source: 'autophase',
+    source: 'goal',
     question: 'Resolve the merge conflict automatically?',
     context: 'A phase completed but squash merge conflicted in x.ts.',
     risk: 'high',
@@ -62,7 +62,7 @@ describe('DefaultBrainArbiter', () => {
 
     expect(decision.type).toBe('ask_human');
     if (decision.type !== 'ask_human') return;
-    expect(decision.prompt).toContain('Brain requires human decision for autophase');
+    expect(decision.prompt).toContain('Brain requires human decision for goal');
     expect(decision.prompt).toContain('Resolve the merge conflict automatically?');
     expect(decision.options).toHaveLength(2);
   });

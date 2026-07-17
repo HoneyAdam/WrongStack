@@ -269,9 +269,9 @@ export async function createBoardsFromPhaseGraph(
     const imported = await createBoardFromTaskGraph(projectRoot, phase.taskGraph, {
       title: `${graph.title}: ${phase.name}`,
       description: phase.description,
-      tags: uniqueStrings(['autophase', graph.id, phase.id]),
-      generatedBy: `autophase:${graph.id}:${phase.id}`,
-      sourceSystem: 'autophase',
+      tags: uniqueStrings(['goal', graph.id, phase.id]),
+      generatedBy: `goal:${graph.id}:${phase.id}`,
+      sourceSystem: 'goal',
       phaseId: phase.id,
       includeCompletedTasks: options.includeCompletedTasks,
     });

@@ -70,9 +70,9 @@
 
 13. **Extracted brain routes** — `server/brain-routes.ts` with `handleBrainRoute` dispatcher. 3 message types: brain.status, brain.risk, brain.ask.
 
-14. **Extracted autophase routes** — `server/autophase-routes.ts` with `handleAutoPhaseRoute` dispatcher. All `autophase.*` prefix messages delegated to `AutoPhaseWebSocketHandler`.
+14. **Extracted goal routes** — `server/goal-routes.ts` with `handleGoalRoute` dispatcher. All `goal.*` prefix messages delegated to `GoalWebSocketHandler`.
 
-15. **Updated WS-handler parity test** — `packages/cli/tests/webui-server/ws-handler-parity.test.ts` now scans all 8 route modules (index, provider, session, project, mode, shell-git, mailbox, brain, autophase) so embedded vs standalone case-label coverage is enforced.
+15. **Updated WS-handler parity test** — `packages/cli/tests/webui-server/ws-handler-parity.test.ts` now scans all 8 route modules (index, provider, session, project, mode, shell-git, mailbox, brain, goal) so embedded vs standalone case-label coverage is enforced.
 
 ### Phase 2 — Client decomposition (DONE)
 
@@ -100,7 +100,7 @@
 
 26. **Brain routes test** — `tests/server/brain-routes.test.ts` — 3 message types, passthrough, handler dispatch.
 
-27. **Autophase routes test** — `tests/server/autophase-routes.test.ts` — prefix matching, delegation, non-autophase passthrough.
+27. **Autophase routes test** — `tests/server/goal-routes.test.ts` — prefix matching, delegation, non-goal passthrough.
 
 28. **runChatSlashCommand unit tests** — `tests/components/slash-routing.test.ts` — 40+ tests covering all slash commands, queue state, /next delegation, /f-key dispatch, case insensitivity.
 
@@ -128,7 +128,7 @@
 
 37. **Extracted files/mailbox domain** — `hooks/ws-handlers/files-mailbox-handlers.ts` — 10 handlers (files.tree/read/written, mailbox.event/messages/agents/received/agent_registered/cleared/purged) plus queryMailbox helper.
 
-38. **Extracted misc domain** — `hooks/ws-handlers/misc-handlers.ts` — 11 handlers (goal.updated, prefs.updated, autophase.state, brain.status/answer/event, working_dir.changed, model.refine_result, git.info/changes/diff).
+38. **Extracted misc domain** — `hooks/ws-handlers/misc-handlers.ts` — 11 handlers (goal.updated, prefs.updated, goal.state, brain.status/answer/event, working_dir.changed, model.refine_result, git.info/changes/diff).
 
 39. **Extracted coordinator domain** — `hooks/ws-handlers/coordinator-handlers.ts` — 13 handlers (coordinator.status/stats, budget.threshold_reached/decision, subagent.budget_extended, consensus.vote_initiated/vote_cast/vote_resolved, task.pending/started/completed/failed).
 
@@ -213,7 +213,7 @@
 
 44. **Extracted `ws-handlers.ts` files/mailbox domain** — `hooks/ws-handlers/files-mailbox-handlers.ts` — 10 handlers (files.tree/read/written, mailbox.event/messages/agents/received/agent_registered/cleared/purged) + queryMailbox helper. ws-handlers.ts 525→450.
 
-45. **Extracted `ws-handlers.ts` misc + coordinator domains** — `hooks/ws-handlers/misc-handlers.ts` (11 handlers: goal.updated, prefs.updated, autophase.state, brain.status/answer/event, working_dir.changed, model.refine_result, git.info/changes/diff) and `hooks/ws-handlers/coordinator-handlers.ts` (13 handlers: coordinator.status/stats, budget.*, consensus.*, task.*). ws-handlers.ts 450→~200.
+45. **Extracted `ws-handlers.ts` misc + coordinator domains** — `hooks/ws-handlers/misc-handlers.ts` (11 handlers: goal.updated, prefs.updated, goal.state, brain.status/answer/event, working_dir.changed, model.refine_result, git.info/changes/diff) and `hooks/ws-handlers/coordinator-handlers.ts` (13 handlers: coordinator.status/stats, budget.*, consensus.*, task.*). ws-handlers.ts 450→~200.
 
 46. **Extracted `ws-client.ts` utils** — `lib/ws-client-utils.ts` — 4 utility functions (getTokenFromWsUrl, resolveWsPort, defaultWsUrl, httpOriginForAuth) + 3 type exports (WsStatus, EventHandler, PendingConfirm). ws-client.ts 854→~800. Added unit tests for all 4 functions.
 
@@ -246,7 +246,7 @@
 | Metric | Before | After |
 |--------|--------|-------|
 | `server/index.ts` line count | ~3,643 | ~3,470 (with 8 route modules extracted) |
-| Route dispatcher modules | 0 | 8 (provider, session, project, mode, shell-git, mailbox, brain, autophase) |
+| Route dispatcher modules | 0 | 8 (provider, session, project, mode, shell-git, mailbox, brain, goal) |
 | Runtime payload validators | 0 | 25+ |
 | Dispatcher characterization tests | 0 | 8 test files, 60+ test cases |
 | `hooks/ws-handlers.ts` line count | ~1,065 | ~200 (with 6 domain modules extracted) |

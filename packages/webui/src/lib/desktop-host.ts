@@ -16,7 +16,7 @@ import { useLocalPrefs } from '@/stores/local-prefs';
 export const DESKTOP_COMMAND_VIEWS = new Set([
   'chat',
   'settings',
-  'autophase',
+  'goal',
   'specs',
   'kanban',
   'sddboard',
@@ -36,7 +36,6 @@ export const DESKTOP_COMMAND_VIEWS = new Set([
 
 /** WorkspaceDock sections the native sidebar may reveal via a desktop command. */
 export const DESKTOP_COMMAND_DOCKS = new Set([
-  'autophase',
   'goal',
   'fleet',
   'work',

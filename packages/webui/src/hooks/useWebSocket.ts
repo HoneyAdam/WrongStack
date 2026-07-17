@@ -276,31 +276,31 @@ export function useWebSocket() {
     [client],
   );
 
-  // AutoPhase
-  const toggleAutoPhaseAutonomous = useCallback(
+  // Goal
+  const toggleGoalAutonomous = useCallback(
     (autonomous: boolean) => {
-      client.send({ type: 'autophase.toggleAutonomous', payload: { autonomous } });
+      client.send({ type: 'goal.toggleAutonomous', payload: { autonomous } });
     },
     [client],
   );
-  const startAutoPhase = useCallback(
+  const startGoal = useCallback(
     (title: string, phases?: unknown[] | undefined, autonomous = true) => {
-      client.send({ type: 'autophase.start', payload: { title, phases, autonomous } });
+      client.send({ type: 'goal.start', payload: { title, phases, autonomous } });
     },
     [client],
   );
-  const pauseAutoPhase = useCallback(() => {
-    client.send({ type: 'autophase.pause', payload: {} });
+  const pauseGoal = useCallback(() => {
+    client.send({ type: 'goal.pause', payload: {} });
   }, [client]);
-  const resumeAutoPhase = useCallback(() => {
-    client.send({ type: 'autophase.resume', payload: {} });
+  const resumeGoal = useCallback(() => {
+    client.send({ type: 'goal.resume', payload: {} });
   }, [client]);
-  const stopAutoPhase = useCallback(() => {
-    client.send({ type: 'autophase.stop', payload: {} });
+  const stopGoal = useCallback(() => {
+    client.send({ type: 'goal.stop', payload: {} });
   }, [client]);
-  const selectAutoPhase = useCallback(
+  const selectGoal = useCallback(
     (phaseId: string) => {
-      client.send({ type: 'autophase.selectPhase', payload: { phaseId } });
+      client.send({ type: 'goal.selectPhase', payload: { phaseId } });
     },
     [client],
   );
@@ -348,12 +348,12 @@ export function useWebSocket() {
     updateContextMode,
     deleteContextMode,
     repairContext,
-    toggleAutoPhaseAutonomous,
-    startAutoPhase,
-    pauseAutoPhase,
-    resumeAutoPhase,
-    stopAutoPhase,
-    selectAutoPhase,
+    toggleGoalAutonomous,
+    startGoal,
+    pauseGoal,
+    resumeGoal,
+    stopGoal,
+    selectGoal,
     switchAutonomy,
     updatePrefs,
     refineModel,

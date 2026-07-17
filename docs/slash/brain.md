@@ -4,7 +4,7 @@
 
 Inspects and steers the session's **Brain** — the decision layer that sits
 between the agents and the human. Every autonomous subsystem (Director,
-AutoPhase orchestrator, Eternal engine, BrainMonitor) routes its blocking
+Goal orchestrator, Eternal engine, BrainMonitor) routes its blocking
 decisions through one shared Brain instance, bound at
 `TOKENS.BrainArbiter`.
 
@@ -94,4 +94,4 @@ without a human-escalation prompt, `ask_human` decisions surface as
 - `/autonomy` — the eternal engine consults the Brain instead of
   auto-stopping on brainstorm-DONE / failure-budget thresholds.
 - `/mailbox` — where Brain steer messages land.
-- `docs/slash/autophase.md` — phase orchestrator Brain consultations.
+- `docs/slash/goal.md` — phase orchestrator Brain consultations.

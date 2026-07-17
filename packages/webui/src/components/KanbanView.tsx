@@ -51,9 +51,9 @@ import { TaskExecutionAttempts } from './TaskExecutionAttempts';
 import { TaskIntelligencePanel } from './TaskIntelligencePanel';
 import { analyzeTaskRisk, TaskRiskPanel } from './TaskRiskPanel';
 
-/** A kanban board that mirrors a live AutoPhase/SDD run, detected from its tags. */
+/** A kanban board that mirrors a live Goal/SDD run, detected from its tags. */
 interface RunLink {
-  engine: 'sdd' | 'autophase';
+  engine: 'sdd' | 'goal';
   runId?: string | undefined;
 }
 
@@ -307,7 +307,7 @@ function SupervisorBar({
 
 function parseRunLink(board: { tags?: string[] | undefined } | null | undefined): RunLink | null {
   const tags = board?.tags ?? [];
-  const engine = tags.includes('sdd') ? 'sdd' : tags.includes('autophase') ? 'autophase' : null;
+  const engine = tags.includes('sdd') ? 'sdd' : tags.includes('goal') ? 'goal' : null;
   if (!engine) return null;
   const runId = tags.find((t) => t.startsWith('run:'))?.slice(4);
   return { engine, ...(runId ? { runId } : {}) };
@@ -384,7 +384,7 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
     ws.send({ type, payload });
   };
 
-  // Raw send for run-control messages (sdd.board.* / autophase.*) — these steer
+  // Raw send for run-control messages (sdd.board.* / goal.*) — these steer
   // the live run, which mirrors back into this board; no kanban response.
   const sendRaw = (type: string, payload: Record<string, unknown> = {}) => {
     (ws.send as (m: { type: string; payload?: unknown }) => void)({ type, payload });
@@ -867,7 +867,7 @@ function RunControlBar({
   sendRaw: (type: string, payload?: Record<string, unknown>) => void;
 }) {
   const isSdd = runLink.engine === 'sdd';
-  const pfx = isSdd ? 'sdd.board' : 'autophase';
+  const pfx = isSdd ? 'sdd.board' : 'goal';
   const btn =
     'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium hover:bg-muted';
   return (
@@ -921,9 +921,9 @@ function StartAsBar({
         <button
           type="button"
           className={btn}
-          onClick={() => sendKanban('kanban.run.start', { boardId, engine: 'autophase' })}
+          onClick={() => sendKanban('kanban.run.start', { boardId, engine: 'goal' })}
         >
-          Start as AutoPhase
+          Start as Goal
         </button>
         <button
           type="button"
@@ -957,7 +957,7 @@ function RunTaskControls({
   const submitReassign = () => {
     const n = reassignName.trim();
     if (!n) return;
-    sendRaw(isSdd ? 'sdd.board.reassign' : 'autophase.assignTask', {
+    sendRaw(isSdd ? 'sdd.board.reassign' : 'goal.assignTask', {
       taskId: runTaskId,
       agentName: n,
     });
@@ -1014,7 +1014,7 @@ function RunTaskControls({
             type="button"
             className={btn}
             onClick={() =>
-              sendRaw(isSdd ? 'sdd.board.retry' : 'autophase.retryTask', { taskId: runTaskId })
+              sendRaw(isSdd ? 'sdd.board.retry' : 'goal.retryTask', { taskId: runTaskId })
             }
           >
             <RotateCcw size={13} /> Retry
@@ -1034,7 +1034,7 @@ function RunTaskControls({
             <button
               type="button"
               className={btn}
-              onClick={() => sendRaw('autophase.runTask', { taskId: runTaskId })}
+              onClick={() => sendRaw('goal.runTask', { taskId: runTaskId })}
             >
               <Play size={13} /> Run now
             </button>

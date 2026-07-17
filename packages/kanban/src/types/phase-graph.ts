@@ -1,5 +1,5 @@
 /**
- * Phase graph types — structural subset of @wrongstack/core's autophase types.
+ * Phase graph types — structural subset of @wrongstack/core's goal types.
  * Defined locally so @wrongstack/kanban has no build dependency on core.
  */
 import type { TaskGraph } from './task-graph.js';

@@ -3,7 +3,7 @@ import { useAppTranslation } from '@/i18n';
 import type React from 'react';
 import { TaskCard, type TaskItem } from './TaskCard';
 
-// Re-exported so existing importers (`PhasePanel`, `AutoPhaseView`) keep working
+// Re-exported so existing importers (`PhasePanel`, `GoalView`) keep working
 // after the card was extracted into its own reusable component.
 export type { TaskItem } from './TaskCard';
 

@@ -236,7 +236,7 @@ describe('BrainDecisionLedger — digestFor', () => {
 
   it('excludes unrelated questions', async () => {
     const ledger = await makeLedger();
-    answered(request({ id: 'r1', source: 'autophase', question: 'Resolve merge conflicts?' }));
+    answered(request({ id: 'r1', source: 'goal', question: 'Resolve merge conflicts?' }));
     expect(ledger.digestFor(request({ id: 'r-new' }))).toBeUndefined();
     await ledger.stop();
   });

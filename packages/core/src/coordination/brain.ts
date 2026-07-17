@@ -9,7 +9,7 @@
 
 import type { EventBus } from '../kernel/events.js';
 
-export type BrainDecisionSource = 'autophase' | 'director' | 'tool' | 'user' | 'system';
+export type BrainDecisionSource = 'goal' | 'director' | 'tool' | 'user' | 'system';
 
 export type BrainRisk = 'low' | 'medium' | 'high' | 'critical';
 

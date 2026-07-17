@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useAppTranslation } from '@/i18n';
 import { useWebSocket } from '@/hooks/useWebSocket';
-import { useAutoPhaseStore } from '@/stores';
+import { useGoalRunStore } from '@/stores';
 import { cn } from '@/lib/utils';
 import { Columns3, Plus, Rows3 } from 'lucide-react';
 import { TaskCard, type TaskItem } from './TaskCard';
@@ -31,11 +31,11 @@ const PHASE_STATUS_BADGE: Record<PhaseItem['status'], string> = {
 };
 
 /**
- * BoardView — the interactive kanban over the live AutoPhase graph.
+ * BoardView — the interactive kanban over the live Goal graph.
  *
  * Two toggleable layouts:
  *   • "phase"  — one column per phase, cards are tasks; drag a card to another
- *                phase column to move it (autophase.moveTask).
+ *                phase column to move it (goal.moveTask).
  *   • "status" — Pending/In-Progress/Review/Failed/Done columns with one swimlane
  *                per phase; drag a card to another status column to change it.
  *
@@ -45,7 +45,7 @@ const PHASE_STATUS_BADGE: Record<PhaseItem['status'], string> = {
 export function BoardView(): React.ReactElement {
   const { client } = useWebSocket();
   const { t } = useAppTranslation();
-  const phases = useAutoPhaseStore((s) => s.phases);
+  const phases = useGoalRunStore((s) => s.phases);
   const [layout, setLayout] = useState<BoardLayout>('phase');
   const [dragId, setDragId] = useState<string | null>(null);
   const [hoverKey, setHoverKey] = useState<string | null>(null);
@@ -69,23 +69,23 @@ export function BoardView(): React.ReactElement {
 
   const onStatusChange = useCallback(
     (taskId: string, status: TaskItem['status']) =>
-      send({ type: 'autophase.taskStatus', payload: { taskId, status } }),
+      send({ type: 'goal.taskStatus', payload: { taskId, status } }),
     [send],
   );
   const onRetry = useCallback(
-    (taskId: string) => send({ type: 'autophase.retryTask', payload: { taskId } }),
+    (taskId: string) => send({ type: 'goal.retryTask', payload: { taskId } }),
     [send],
   );
   const onAssign = useCallback(
     (taskId: string, agentName: string) =>
-      send({ type: 'autophase.assignTask', payload: { taskId, agentName: agentName || undefined } }),
+      send({ type: 'goal.assignTask', payload: { taskId, agentName: agentName || undefined } }),
     [send],
   );
   const onAddTask = useCallback(
     (phaseId: string) => {
       void promptModal({ title: t('activity:board.newTaskTitle'), placeholder: t('activity:board.newTaskPlaceholder'), confirmLabel: t('activity:board.addTask') }).then(
         (title) => {
-          if (title) send({ type: 'autophase.addTask', payload: { phaseId, title } });
+          if (title) send({ type: 'goal.addTask', payload: { phaseId, title } });
         },
       );
     },
@@ -94,7 +94,7 @@ export function BoardView(): React.ReactElement {
 
   const dropToPhase = useCallback(
     (toPhaseId: string) => {
-      if (dragId) send({ type: 'autophase.moveTask', payload: { taskId: dragId, toPhaseId } });
+      if (dragId) send({ type: 'goal.moveTask', payload: { taskId: dragId, toPhaseId } });
       setDragId(null);
       setHoverKey(null);
     },
@@ -102,7 +102,7 @@ export function BoardView(): React.ReactElement {
   );
   const dropToStatus = useCallback(
     (status: TaskItem['status']) => {
-      if (dragId) send({ type: 'autophase.taskStatus', payload: { taskId: dragId, status } });
+      if (dragId) send({ type: 'goal.taskStatus', payload: { taskId: dragId, status } });
       setDragId(null);
       setHoverKey(null);
     },

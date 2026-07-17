@@ -5,7 +5,7 @@ import type { Provider } from '../../src/types/provider.js';
 
 const req = (over: Partial<BrainDecisionRequest> = {}): BrainDecisionRequest => ({
   id: 'r1',
-  source: 'autophase',
+  source: 'goal',
   question: 'Should we continue?',
   risk: 'low',
   fallback: 'continue',

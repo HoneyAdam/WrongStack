@@ -6,7 +6,7 @@
  * the matching `handleXxx(ctx, ws, ...)` from the shared ws-handlers groups
  * (or, for file/mcp/skills/prompts/design/shell, the handlers shared with
  * the standalone `@wrongstack/webui-server`). Prefix-based message types
- * (`autophase.*`, `specs.*`, `sdd.board.*`, `sdd.spec.*`/`sdd.run.*`,
+ * (`goal.*`, `specs.*`, `sdd.board.*`, `sdd.spec.*`/`sdd.run.*`,
  * `worktree.*`) fall through to their dedicated handler instance instead of
  * a route-table entry.
  *
@@ -23,7 +23,7 @@ import { startSddRunFromGraph } from '@wrongstack/webui-server';
 import type { KanbanRunMirror } from './kanban-run-mirror.js';
 import type { KanbanSupervisor } from './kanban-supervisor.js';
 import type {
-  AutoPhaseWebSocketHandler,
+  GoalWebSocketHandler,
   DesignContext,
   PromptsContext,
   SddBoardWebSocketHandler,
@@ -214,7 +214,7 @@ export interface MessageRouterDeps {
   sessionsCtx: SessionsContext;
   connectionCtx: ConnectionContext;
 
-  autoPhaseHandler: AutoPhaseWebSocketHandler;
+  goalHandler: GoalWebSocketHandler;
   specsHandler: SpecsWebSocketHandler;
   sddBoardHandler: SddBoardWebSocketHandler;
   sddWizardHandler: SddWizardWebSocketHandler | null;
@@ -255,7 +255,7 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
     mailboxCtx,
     sessionsCtx,
     connectionCtx,
-    autoPhaseHandler,
+    goalHandler,
     specsHandler,
     sddBoardHandler,
     sddWizardHandler,
@@ -708,7 +708,7 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
       });
     },
 
-    // ── Launch a run FROM a kanban board (phase 4). AutoPhase runs in-process
+    // ── Launch a run FROM a kanban board (phase 4). Goal runs in-process
     //    here; the mirror binds the launched run back to the SAME board so it
     //    updates live. SDD launch is deferred (needs the CLI run-start machinery)
     //    — SDD runs started via /sdd still mirror + are controllable here. ──
@@ -719,7 +719,7 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
         autonomous?: boolean;
       };
       const boardId = p.boardId;
-      const engine = p.engine === 'autophase' ? 'autophase' : p.engine === 'sdd' ? 'sdd' : undefined;
+      const engine = p.engine === 'goal' ? 'goal' : p.engine === 'sdd' ? 'sdd' : undefined;
       const projectRoot = opts.projectRoot ?? '';
       const failRun = (error: string) =>
         send(ws, { type: 'kanban.run.start', payload: { success: false, error } });
@@ -731,7 +731,7 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
         });
         if (!exported) return failRun(`Board not found: ${boardId}`);
         if (exported.graph.nodes.size === 0) return failRun('Board has no tasks to run');
-        if (engine === 'autophase') {
+        if (engine === 'goal') {
           const pg = await PhaseGraphBuilder.fromTaskGraph(exported.graph, {
             title: exported.board.title,
             description: exported.board.description ?? exported.board.title,
@@ -754,13 +754,13 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
           // The run mirrors into a FRESH live board (reusing this hand-built
           // board would duplicate tasks — its cards have no run `origin` to
           // reconcile against). This board stays as the recipe.
-          await autoPhaseHandler.handleMessage({
-            type: 'autophase.start',
+          await goalHandler.handleMessage({
+            type: 'goal.start',
             payload: { title: exported.board.title, phases, autonomous: p.autonomous ?? false },
           });
           send(ws, {
             type: 'kanban.run.start',
-            payload: { success: true, data: { engine: 'autophase', boardId } },
+            payload: { success: true, data: { engine: 'goal', boardId } },
           });
           return;
         }
@@ -1057,8 +1057,8 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
     }
     // ── Prefix-based fallback for delegated handlers ──
     const msgType = (msg as { type: string }).type;
-    if (msgType.startsWith('autophase.')) {
-      await autoPhaseHandler.handleMessage(
+    if (msgType.startsWith('goal.')) {
+      await goalHandler.handleMessage(
         msg as { type: string; payload?: Record<string, unknown> },
       );
     } else if (msgType.startsWith('specs.')) {

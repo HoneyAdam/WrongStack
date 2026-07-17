@@ -853,7 +853,7 @@ export class WorktreeManager {
       '-c',
       `user.name=${name || 'AutoPhase'}`,
       '-c',
-      `user.email=${email || 'autophase@agent.local'}`,
+      `user.email=${email || 'goal@agent.local'}`,
     ];
   }
 

@@ -6,7 +6,7 @@
  * AFTER `context` exists: the agent pipelines + collab middleware, the
  * strategy compactor + auto-compaction middleware, the tool executor +
  * agent, the tiered Brain + monitor, and the per-feature WebSocket
- * handlers (AutoPhase, specs, SDD board/wizard, worktree, terminal, collab).
+ * handlers (Goal, specs, SDD board/wizard, worktree, terminal, collab).
  *
  * All of that moves into `createAgentServices()`. The pre-context
  * registries/stores (modelsRegistry, container, toolRegistry, session,
@@ -73,7 +73,7 @@ import {
   type AnnotationsStore,
 } from '@wrongstack/core';
 import type { MCPRegistry } from '@wrongstack/mcp';
-import { AutoPhaseWebSocketHandler } from './autophase-ws-handler.js';
+import { GoalWebSocketHandler } from './goal-ws-handler.js';
 import { CollaborationWebSocketHandler } from './collaboration-ws-handler.js';
 import { setupWebUICodebaseIndexing } from './codebase-indexing.js';
 import { discoverMailboxBridgeForWebui } from './discover-mailbox-bridge.js';
@@ -150,7 +150,7 @@ export interface AgentServices {
    *  services object at shutdown — ledger toggles swap the instance. */
   brainLedger: BrainDecisionLedger | undefined;
   codebaseIndexing: { onFileWritten(filePath: string): void; dispose(): void };
-  autoPhaseHandler: AutoPhaseWebSocketHandler;
+  goalHandler: GoalWebSocketHandler;
   specsHandler: SpecsWebSocketHandler;
   sddBoardHandler: SddBoardWebSocketHandler;
   sddWizardHandler: SddWizardWebSocketHandler;
@@ -531,7 +531,7 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
   console.log('[WebUI] Brain initialized (tiered policy → LLM, monitor active)');
 
   // Per-feature WebSocket handlers.
-  const autoPhaseHandler = new AutoPhaseWebSocketHandler(
+  const goalHandler = new GoalWebSocketHandler(
     agent,
     context,
     logger,
@@ -604,7 +604,7 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
       return brainLedger;
     },
     codebaseIndexing,
-    autoPhaseHandler,
+    goalHandler,
     specsHandler,
     sddBoardHandler,
     sddWizardHandler,

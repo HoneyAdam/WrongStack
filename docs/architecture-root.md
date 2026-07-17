@@ -43,7 +43,7 @@ flowchart LR
   Events --> SimpleUI
   Events --> ACP[FleetBus / ACP subagents]
   WebUI --> CollaborationWS[collaboration-ws-handler]
-  WebUI --> AutophaseWS[autophase-ws-handler]
+  WebUI --> GoalWS[goal-ws-handler]
   WebUI --> WorktreeWS[worktree-ws-handler]
 ```
 
@@ -94,7 +94,7 @@ The workspace currently contains these package-level responsibilities. File coun
 
 | Package | Primary responsibility |
 |---|---|
-| `@wrongstack/core` | Agent runtime, DI, storage, security, multi-agent coordination, observability, autophase, worktree, replay, built-in host plugins, and bundled skill assets. |
+| `@wrongstack/core` | Agent runtime, DI, storage, security, multi-agent coordination, observability, goal, worktree, replay, built-in host plugins, and bundled skill assets. |
 | `@wrongstack/kanban` | Task-board and queue primitives consumed by core and product surfaces. |
 | `@wrongstack/cli` | CLI boot, runtime assembly, REPL, slash commands, plugin management, and surface launchers. |
 | `@wrongstack/tools` | Built-in tools and meta-tools. |
@@ -201,7 +201,7 @@ packages/core/src/
   types/           Public type contracts.
   defaults/        Backward-compatible re-export barrel for all default implementations.
   utils/           Paths, JSON, glob, diff, color, atomic write, serializers, regex guard, token estimate, json-schema validation, message invariants, newline normalization, todos format.
-  autophase/       Auto-phase system: planner, runner, orchestrator, checkpoint, phase-store, phase-graph-builder.
+  goal/       Auto-phase system: planner, runner, orchestrator, checkpoint, phase-store, phase-graph-builder.
   plugins/         Built-in core plugins: git, observability, plan, prompts, security, skills, sync, chimera.
   hq/              HQ command-center bridge layer (see HQ Bridge below).
   prompts/         Bundled prompt installer + manifest store for the prompt library.
@@ -224,7 +224,7 @@ The core area changes frequently, so this table tracks responsibilities rather t
 | `execution` | Tool execution, retry, compaction, skill loading, autonomous runner, error handler, auto-compaction middleware, eternal-autonomy, goal-preamble, autonomy-prompt-contributor, parallel-eternal-engine. |
 | `core` | Agent loop, context, conversation state, input builder, run env, streaming response, provider runner, iteration limit, continue-to-next-iteration, system prompt builder, /btw steering, modes. |
 | `observability` | Metrics (`metrics`), traces (`tracer`, `otel-tracer`), health, Prometheus renderer, OTLP traces + metrics exporters, event bridge. |
-| `autophase` | Auto-phase planner, runner, orchestrator, checkpoint, phase-store, phase-graph-builder, types. |
+| `goal` | Auto-phase planner, runner, orchestrator, checkpoint, phase-store, phase-graph-builder, types. |
 | `plugins` | Built-in core plugins: git, observability, plan, prompts, security, skills, sync, chimera. |
 | `hq` | HQ command-center bridge layer: protocol, redaction, mailbox-mapper, publisher, factory, auth-store, agent-bridge, session-bridge, fleet-bridge, brain-bridge, worktree-bridge, tool-bridge, cost-bridge, persistence, commands, alerts, transcript-mapper. |
 | `prompts` | Bundled prompt installer + manifest store for the prompt library surfaced via `DefaultSystemPromptBuilder` and the `/prompts` UI. |
@@ -432,7 +432,7 @@ The CLI boot path is split into three phases:
    | `short-circuit-flags.ts` | Handle early-exit CLI flags (`--version`, `--help`, …). |
    | `short-circuit-desktop.ts` | Detect the desktop host and short-circuit boot. |
    | `short-circuit-hq.ts` | Detect HQ command-center mode and short-circuit boot. |
-   | `tui-*` (12 modules) | TUI-specific wiring (autophase, coordinator setup, debug stream, live sessions, project picker/spawn/switch, runtime state, SDD callback, session resume, settings adapter). |
+   | `tui-*` (12 modules) | TUI-specific wiring (goal, coordinator setup, debug stream, live sessions, project picker/spawn/switch, runtime state, SDD callback, session resume, settings adapter). |
 
 3. The `wiring/` modules under `packages/cli/src/wiring/` are pure helpers consumed by `cli-main.ts` (and a few `boot/` modules) once the container is up: `session.ts`, `provider.ts`, `pipeline.ts`, `tools.ts`, `plugins.ts`, `slash-commands.ts`, `metrics.ts`, `replay.ts`, `codebase-index.ts`, `design-studio.ts`, `provider-runtime.ts`, `mailbox-bridge-bootstrap.ts`. The `design-studio` wrapper is intentionally a thin facade over the shared `installDesignStudioMiddleware` core helper, since the per-turn kit detection needs a live `Context`. The `provider-runtime.ts` module wires provider capabilities (catalog → family capabilities) plus a per-provider extension for OAuth/subscription refresh.
 
@@ -872,7 +872,7 @@ packages/core/src/coordination/
   brain.ts                       Brain arbiter (DefaultBrainArbiter, ObservableBrainArbiter, HumanEscalatingBrainArbiter).
   brain-monitor.ts               BrainMonitor: surfaces decisions to UI/HQ.
   change-manager.ts              File change manager for subagent work.
-  checkpoint-wiring.ts           Wire AutoPhase checkpoints into director state.
+  checkpoint-wiring.ts           Wire Goal checkpoints into director state.
   commit-safety.ts               Commit-safety policy for subagent-side writes.
   file-author-tracker.ts         Tracks per-file authorship across subagents.
   package-author-tracker.ts      Same for package ownership boundaries.
@@ -966,30 +966,30 @@ The CLI can promote a session into director mode if a non-director coordinator i
 
 ### Auto-Phase System
 
-The `autophase/` area (`packages/core/src/autophase/`) provides an autonomous phase-based workflow system for large projects. It splits work into named phases with dependency awareness, priority, time estimates, and parallelizability.
+The `goal/` area (`packages/core/src/goal/`) provides an autonomous phase-based workflow system for large projects. It splits work into named phases with dependency awareness, priority, time estimates, and parallelizability.
 
 Key components:
 
 | Component | Responsibility |
 |---|---|
-| `AutoPhasePlanner` | Generates a phased plan from a task description using the LLM. |
-| `AutoPhaseRunner` | Executes phases autonomously, running independent phases in parallel, respecting dependencies. |
+| `GoalPlanner` | Generates a phased plan from a task description using the LLM. |
+| `GoalRunner` | Executes phases autonomously, running independent phases in parallel, respecting dependencies. |
 | `PhaseOrchestrator` | Coordinates phase transitions, checkpoints, and event emission. |
 | `PhaseGraphBuilder` | Builds a dependency graph from phase definitions. |
 | `PhaseStore` | Persists phase state for resume after interruption. |
 | `CheckpointManager` | Saves/restores phase progress snapshots. |
 
-**Verification gate.** After a phase's tasks all succeed, the orchestrator runs an optional verify gate (`PhaseExecutionContext.verifyPhase`) inside the phase's worktree *before* marking it completed and merging back. On failure it invokes `repairPhase` (a repair subagent given the verifier output) and re-verifies, up to `maxVerifyAttempts` (default 2); if it still fails the phase is marked `failed` and its worktree is kept for review rather than merged. The CLI host (`autophase-host.ts`) wires this to the project's `typecheck`/`lint` scripts (auto-detected, or `WRONGSTACK_AUTOPHASE_VERIFY_CMD`); disable with `WRONGSTACK_AUTOPHASE_VERIFY=0`. When no `verifyPhase` is wired the gate is skipped (back-compatible).
+**Verification gate.** After a phase's tasks all succeed, the orchestrator runs an optional verify gate (`PhaseExecutionContext.verifyPhase`) inside the phase's worktree *before* marking it completed and merging back. On failure it invokes `repairPhase` (a repair subagent given the verifier output) and re-verifies, up to `maxVerifyAttempts` (default 2); if it still fails the phase is marked `failed` and its worktree is kept for review rather than merged. The CLI host (`goal-host.ts`) wires this to the project's `typecheck`/`lint` scripts (auto-detected, or `WRONGSTACK_GOAL_VERIFY_CMD`); disable with `WRONGSTACK_GOAL_VERIFY=0`. When no `verifyPhase` is wired the gate is skipped (back-compatible).
 
-Auto-phase runs emit WebSocket events via the `autophase-ws-handler` in WebUI, allowing real-time progress visualization in the browser.
+Auto-phase runs emit WebSocket events via the `goal-ws-handler` in WebUI, allowing real-time progress visualization in the browser.
 
 ### Git Worktree Manager
 
-The `worktree/` area (`packages/core/src/worktree/`) provides `WorktreeManager` — a Git worktree orchestration layer used by the AutoPhase system to create isolated parallel workspaces for concurrent agent phases. It is now a first-class kernel DI token (`TOKENS.WorktreeManager`), so hosts can resolve, decorate, or override the manager through the container like any other core service.
+The `worktree/` area (`packages/core/src/worktree/`) provides `WorktreeManager` — a Git worktree orchestration layer used by the Goal system to create isolated parallel workspaces for concurrent agent phases. It is now a first-class kernel DI token (`TOKENS.WorktreeManager`), so hosts can resolve, decorate, or override the manager through the container like any other core service.
 
 Each `WorktreeHandle` transitions through states: `allocating → active → committing → merging → merged`, with failure handling at any stage. Worktree lifecycle events are broadcast via `worktree-ws-handler` to WebUI for live status display.
 
-**Conflict resolution.** `WorktreeManager.merge()` accepts an optional `resolve` callback (`MergeOpts.resolve`). On a squash-merge conflict it hands the conflicted paths and base working tree to the resolver *before* aborting; if the resolver clears every marker (validated with `git diff --cached --check`) the merge is committed and `MergeResult.resolved` is `true`. Any failure or surviving marker falls through to the original safe path — `git reset --hard` + `needs-review`, work preserved on the branch. AutoPhase wires this through `PhaseExecutionContext.resolveConflict` to a resolver subagent (CLI host); a conflict therefore no longer silently strands a phase's work. Disable with `WRONGSTACK_AUTOPHASE_RESOLVE=0`.
+**Conflict resolution.** `WorktreeManager.merge()` accepts an optional `resolve` callback (`MergeOpts.resolve`). On a squash-merge conflict it hands the conflicted paths and base working tree to the resolver *before* aborting; if the resolver clears every marker (validated with `git diff --cached --check`) the merge is committed and `MergeResult.resolved` is `true`. Any failure or surviving marker falls through to the original safe path — `git reset --hard` + `needs-review`, work preserved on the branch. Goal wires this through `PhaseExecutionContext.resolveConflict` to a resolver subagent (CLI host); a conflict therefore no longer silently strands a phase's work. Disable with `WRONGSTACK_GOAL_RESOLVE=0`.
 
 ## HQ Bridge (Command Center)
 
@@ -1050,7 +1050,7 @@ The backend WebSocket server (`packages/webui-server/src/server/`, the `@wrongst
 | Handler | Purpose |
 |---|---|
 | `collaboration-ws-handler.ts` | Real-time collaboration events, shared cursors, fleet state. |
-| `autophase-ws-handler.ts` | Auto-phase progress updates and phase transitions. |
+| `goal-ws-handler.ts` | Auto-phase progress updates and phase transitions. |
 | `worktree-ws-handler.ts` | Git worktree creation, status, and lifecycle events. |
 
 ```mermaid
@@ -1399,14 +1399,14 @@ flowchart TD
   Events --> HQBridge[core/src/hq]
   HQBridge --> HQ
   Events --> CollabWS[collaboration-ws-handler]
-  Events --> AutophaseWS[autophase-ws-handler]
+  Events --> GoalWS[goal-ws-handler]
   Events --> Metrics[Metrics/health/traces]
   Session --> Resume[Resume/export/analyze]
-  AutoPhase[AutoPhaseRunner] -.-> Events
-  AutoPhase --> Worktree[WorktreeManager]
+  Goal[GoalRunner] -.-> Events
+  Goal --> Worktree[WorktreeManager]
   Worktree --> WorktreeWS[worktree-ws-handler]
   WorktreeWS -.-> WebUI
-  AutoPhase --> HQ
+  Goal --> HQ
   Mailbox[coordination/mailbox + global-mailbox] <-.-> HQ
 ```
 
@@ -1418,7 +1418,7 @@ flowchart TD
 instructions/
   agents/        Per-agent role instruction fragments (also surfaced as skills).
   autonomy/      Autonomy-mode prompt fragments.
-  autophase/     Auto-phase prompt fragments.
+  goal/     Auto-phase prompt fragments.
   cli/           CLI-internal instruction fragments.
   coordination/  Multi-agent / director / fleet instruction fragments.
   llm/           LLM-loop instruction fragments (provider/temperature guidance).
@@ -1597,7 +1597,7 @@ If you are new to the codebase, read in this order:
 17. `packages/cli/src/plugin-management.ts`
 18. `packages/core/src/coordination/director.ts`
 19. `packages/core/src/coordination/mailbox.ts` and `global-mailbox.ts` (inter-agent mailbox)
-20. `packages/core/src/autophase/auto-phase-runner.ts` (autonomous phase workflow)
+20. `packages/core/src/goal/auto-phase-runner.ts` (autonomous phase workflow)
 21. `packages/core/src/worktree/worktree-manager.ts` (parallel workspace isolation)
 22. `packages/core/src/hq/index.ts` (HQ command-center bridge layer)
 23. `packages/runtime/src/fleet/light-subagent-factory.ts` (WebUI-friendly subagent factory)

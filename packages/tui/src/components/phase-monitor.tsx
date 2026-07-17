@@ -92,7 +92,7 @@ export function PhaseMonitor({
       </Box>
 
       {phaseList.length === 0 ? (
-        <Text dimColor>No phases active. Use /autophase start [title] to begin.</Text>
+        <Text dimColor>No phases active. Use /goal start [title] to begin.</Text>
       ) : (
         phaseList.map((phase, i) => {
           const s = fmtPhase(phase.status);

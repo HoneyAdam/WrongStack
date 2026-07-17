@@ -8,7 +8,7 @@ import { ChevronDown, ChevronRight, FileText, LayoutList, Network, Play, X } fro
 import { Button } from './ui/button';
 import { DependencyGraph } from './DependencyGraph';
 
-/** Convert a spec's topological columns into AutoPhase phase templates. */
+/** Convert a spec's topological columns into Goal phase templates. */
 function detailToPhases(detail: SpecDetail): unknown[] {
   return detail.columns.map((col) => ({
     name: col.label,
@@ -40,16 +40,16 @@ export function SpecsView({ onClose }: { onClose: () => void }): React.ReactElem
   const setExpanded = useSpecsStore((s) => s.setExpanded);
   const [mode, setMode] = useState<'list' | 'graph'>('graph');
 
-  // Launch the spec's tasks as a live AutoPhase run (phases = topological
+  // Launch the spec's tasks as a live Goal run (phases = topological
   // columns), then jump to the Phases board to watch the agents work.
   const runSpec = useCallback(
     (spec: SpecListItem) => {
       if (!detail || detail.specId !== spec.id) return;
       client?.send?.({
-        type: 'autophase.start',
+        type: 'goal.start',
         payload: { title: spec.title, phases: detailToPhases(detail), autonomous: true },
       });
-      openMainView('autophase');
+      openMainView('goal');
     },
     [detail, client],
   );

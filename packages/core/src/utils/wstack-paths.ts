@@ -106,7 +106,7 @@ export interface WstackPaths {
   projectSddSession: string;
   /** ~/.wrongstack/projects/<hash>/plan.json — plan persistence */
   projectPlan: string;
-  /** ~/.wrongstack/projects/<hash>/autophase — AutoPhase phase-graph JSON files */
+  /** ~/.wrongstack/projects/<hash>/autophase — Goal phase-graph JSON files (dir name kept for backward compat) */
   projectAutophase: string;
   /** ~/.wrongstack/projects/<hash>/sdd-boards — live SDD board snapshots + JSONL event logs */
   projectSddBoards: string;

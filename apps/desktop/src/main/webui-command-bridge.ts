@@ -25,7 +25,7 @@ const DESKTOP_WEBUI_ACTIONS = new Set<DesktopCommandAction>([
 const DESKTOP_WEBUI_VIEWS = new Set<DesktopCommandView>([
   'chat',
   'settings',
-  'autophase',
+  'goal',
   'specs',
   'sddboard',
   'sddwizard',
@@ -63,7 +63,6 @@ const DESKTOP_WEBUI_OVERLAYS = new Set<DesktopCommandOverlay>([
 ]);
 
 const DESKTOP_WEBUI_DOCKS = new Set<DesktopCommandDockSection>([
-  'autophase',
   'goal',
   'fleet',
   'work',

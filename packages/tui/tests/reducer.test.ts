@@ -446,16 +446,16 @@ describe('TUI reducer', () => {
     const s = reducer(initial(), {
       type: 'brainStatus',
       state: 'deciding',
-      source: 'autophase',
+      source: 'goal',
       risk: 'high',
-      summary: 'autophase: conflict',
+      summary: 'goal: conflict',
     });
 
     expect(s.brain).toMatchObject({
       state: 'deciding',
-      source: 'autophase',
+      source: 'goal',
       risk: 'high',
-      summary: 'autophase: conflict',
+      summary: 'goal: conflict',
     });
     expect(typeof s.brain.updatedAt).toBe('number');
   });
@@ -465,7 +465,7 @@ describe('TUI reducer', () => {
       type: 'brainPromptSet',
       prompt: {
         requestId: 'decision-1',
-        source: 'autophase',
+        source: 'goal',
         risk: 'high',
         question: 'Resolve conflict?',
         options: [{ id: 'review', label: 'Keep for review', recommended: true }],

@@ -95,7 +95,7 @@ export function validateBrainEvaluationCase(value: unknown): BrainEvaluationCase
     if (typeof request['id'] !== 'string' || request['id'].trim().length === 0) {
       diagnostics.push('request.id must be a non-empty string');
     }
-    if (!['autophase', 'director', 'tool', 'user', 'system'].includes(String(request['source']))) {
+    if (!['goal', 'director', 'tool', 'user', 'system'].includes(String(request['source']))) {
       diagnostics.push('request.source is invalid');
     }
     if (typeof request['question'] !== 'string' || request['question'].trim().length === 0) {

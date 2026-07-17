@@ -453,7 +453,7 @@ export class PhaseOrchestrator {
     if (!this.worktrees || !handle) return;
 
     try {
-      await this.worktrees.commitAll(handle, `autophase(${phase.name}): ${phase.id}`);
+      await this.worktrees.commitAll(handle, `goal(${phase.name}): ${phase.id}`);
     } catch {
       // commit failure is non-fatal; the merge step will report a clean tree.
     }
@@ -542,8 +542,8 @@ export class PhaseOrchestrator {
     if (!this.ctx.brain) return true;
 
     const decision = await this.ctx.brain.decide({
-      id: `autophase-conflict-${phase.id}`,
-      source: 'autophase',
+      id: `goal-conflict-${phase.id}`,
+      source: 'goal',
       question: `Should AutoPhase try to resolve merge conflicts for phase "${phase.name}" automatically?`,
       context: [
         `Phase id: ${phase.id}`,
@@ -609,7 +609,7 @@ export class PhaseOrchestrator {
     const handle = this.phaseWorktrees.get(phase.id);
     if (!this.worktrees || !handle) return;
     try {
-      await this.worktrees.commitAll(handle, `autophase(${phase.name}) [failed]: ${phase.id}`);
+      await this.worktrees.commitAll(handle, `goal(${phase.name}) [failed]: ${phase.id}`);
     } catch {
       // best effort
     }

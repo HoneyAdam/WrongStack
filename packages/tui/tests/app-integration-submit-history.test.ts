@@ -71,7 +71,7 @@ describe('Issue 005 — stable interaction coverage additions', () => {
       match('agent', 'Agent'),
       match('auth', 'Agent'),
       match('autonomy', 'Agent'),
-      match('autophase', 'Agent'),
+      match('goal', 'Agent'),
       match('audit', 'Inspect'),
       match('brain', 'Inspect'),
       match('clear', 'App'),

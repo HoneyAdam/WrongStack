@@ -1,92 +1,96 @@
-# /goal — Autonomous Mission Tracker
+# `/goal` — Autonomous Phase-Based Workflow
 
 ## What it does
 
-Sets, inspects, pauses, resumes, or clears the long-running mission used by
-`/autonomy eternal`. Goals persist at
-`~/.wrongstack/projects/<hash>/goal.json` across sessions, surviving process
-restarts.
+Turns a free-text **goal** into a real, LLM-driven build. Goal:
 
-## Storage format
+1. **Plans** — a one-shot subagent decomposes the goal into a dependency-ordered
+   list of **phases**, where each phase holds **many concrete todos**
+   (`GoalPlanner`).
+2. **Builds the graph** — the plan is materialized into a `PhaseGraph` with a
+   populated `TaskGraph` per phase, persisted as per-project JSON.
+3. **Runs autonomously** — the `PhaseOrchestrator` drives the graph in the
+   background. Each todo is executed by a **fresh subagent with full tool
+   access** (read/edit/write/bash/…). In the CLI, todos run sequentially within
+   a phase to avoid concurrent writes to the same worktree. When git-worktree
+   isolation is enabled, independent/parallelizable phases can run concurrently
+   and are merged back sequentially.
 
-`goal.json`:
-```json
-{
-  "version": 1,
-  "goal": "string",
-  "setAt": "ISO timestamp",
-  "lastActivityAt": "ISO timestamp",
-  "engineState": "idle | running | stopped",
-  "goalState": "active | paused | completed | abandoned",
-  "iterations": 0,
-  "journal": [
-    {
-      "iteration": 1,
-      "task": "what the agent attempted",
-      "status": "success | failure | aborted | skipped",
-      "source": "brainstorm | todo | git | manual | resume | parallel",
-      "note": "optional note",
-      "tokens": { "input": 0, "output": 0 },
-      "costUsd": 0.00,
-      "at": "ISO timestamp"
-    }
-  ]
-}
-```
-
-### `goalState` lifecycle
-
-| Value | Meaning |
-|-------|---------|
-| `active` (default) | Goal is live; engine will run iterations against it |
-| `paused` | User ran `/goal pause`; engine exits loop gracefully after current iteration finishes. Run `/goal resume` to continue. |
-| `completed` | Engine detected `[GOAL_COMPLETE]` + verification passed; engine refuses to restart |
-| `abandoned` | User ran `/goal clear`; engine stops on next iteration check |
-
-Once `goalState` is not `active`, the engine refuses to run further iterations — this protects against accidental restarts burning API quota after work is done.
-
-### Stale goal guard
-
-`/autonomy eternal` refuses to start if the existing goal has `iterations > 0` or `engineState === 'running'`. The user must `/goal clear` first to consciously start a fresh mission.
+This is "SDD logic but different": phased, persisted task-lists like SDD, but
+driven by the autonomous orchestrator + concurrent subagents rather than
+single-thread turn injection. Live progress is shown in the TUI PhaseMonitor.
 
 ## Usage
 
-| Usage | Effect |
-|---|---|
-| `/goal` | Show current goal + recent journal (last 25 entries) |
-| `/goal show` | Same as above |
-| `/goal status` | Same as above (alias) |
-| `/goal set <text>` | Set or replace the goal |
-| `/goal new <text>` | Alias for `/goal set` |
-| `/goal clear` | Mark goal abandoned, delete goal.json, and stop eternal loop immediately |
-| `/goal journal [N]` | Show last N journal entries (default 25) |
-| `/goal log [N]` | Alias for `/goal journal` |
-| `/goal pause` | Pause loop gracefully after current iteration finishes. State becomes `paused` until `/goal resume`. |
-| `/goal resume` | Clear `paused` state and resume the loop from the next iteration. |
-| `/goal <any text without verb>` | Treated as `/goal set <text>` |
+```
+/goal                        → Show current status + progress
+/goal start <goal>           → Plan + start an autonomous phase build
+/goal start Build a CSV import wizard with validation
+/goal pause                  → Pause (in-flight todos finish; no new ones start)
+/goal resume                 → Resume a paused run
+/goal stop                   → Stop and abort in-flight todos
+/goal save                   → Persist the current phase graph
+/goal list                   → List saved goal projects
+/goal load [--resume] [title] → Load a saved project
+```
 
-## Pause / Resume
+## Architecture
 
-`/goal pause` writes `goalState: 'paused'` to goal.json. The engine finishes the current iteration then exits the loop cleanly via the existing `missionState !== 'active'` guard — no AbortController, no work lost.
+```
+┌─────────────┐     ┌───────────────┐     ┌──────────────┐
+│  PhaseStore  │────▶│GoalWebSocket  │◀───▶│  WebUI Board  │
+│  (JSON on   │     │   Handler     │     │  (GoalView)   │
+│   disk)     │◀────│               │────▶│               │
+└─────────────┘     └───────┬───────┘     └──────────────┘
+                            │
+                    ┌───────▼───────┐
+                    │PhaseOrchestrator│
+                    │                │
+                    │ ┌────────────┐ │
+                    │ │ Goal  │ │
+                    │ │  Planner   │ │
+                    │ └────────────┘ │
+                    └───────┬───────┘
+                            │ executes todos via
+                    ┌───────▼───────┐
+                    │  LLM agent    │
+                    │  (subagent    │
+                    │   per task)   │
+                    └───────────────┘
+```
 
-`/goal resume` clears `goalState: 'active'` and the loop continues from the next iteration. If there is no active `/autonomy eternal` running, the state change is persisted and the next `/autonomy eternal` call picks up where it left off.
+## Naming
 
-**Edge cases:**
-- `/goal pause` when already paused → no-op, returns "Already paused."
-- `/goal resume` when not paused → no-op, returns "Not paused."
-- `/goal pause` when no goal exists → returns "No goal set — nothing to pause."
-- `/goal pause` while an iteration is in-flight → loop exits after that iteration completes
+The feature was originally called **Goal** and used `autophase.*` WebSocket
+events. It has been renamed to **Goal** with `goal.*` event types. The core
+planner class is still `GoalPlanner` for historical reasons, but all user-
+facing surfaces (slash commands, WebUI panels, docs) use "Goal".
 
-## Journal entry format
+## Subcommands
 
-Each iteration writes a journal entry with emoji status indicator:
-- ✅ `success` (green checkmark)
-- ✗ `failure` (red cross)
-- ⊘ `aborted` (amber circle)
-- · (dim dot) for unknown status
+### `start <goal>`
+Send your goal prompt. The CLI or WebUI plans phases and starts executing them.
 
-## Code reference
+### `pause`
+Pause the current run. In-flight tasks finish; no new ones start.
 
-- `packages/cli/src/slash-commands/goal.ts`
-- `packages/core/src/storage/goal-store.ts`
-- `packages/core/src/execution/eternal-autonomy.ts`
+### `resume`
+Resume a paused run.
+
+### `stop`
+Stop the current run immediately — in-flight tasks are aborted.
+
+### `save`
+Persist the current phase graph to disk.
+
+### `list`
+List all saved goal projects with status and timestamps.
+
+### `load [--resume] [title]`
+Load a previously saved goal project. Use `--resume` to restart execution.
+
+## Related
+
+- `/plan` — Todos/tasks/plan dashboard
+- `/worktree` — Git worktree isolation for phases
+- The TUI shows live goal progress via `PhaseMonitor`
