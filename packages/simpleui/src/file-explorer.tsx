@@ -1,11 +1,11 @@
-import { ChevronDown, ChevronRight, File, Folder, FolderOpen, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { Check, File, FileEdit, Folder, FolderOpen, Save, Search, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SimpleSocket } from './lib/ws.js';
 
 interface FileNode {
   name: string;
   path: string;
-  isDirectory: boolean;
+  type: 'file' | 'directory';
   children?: FileNode[];
 }
 
@@ -17,26 +17,54 @@ function FileTreeNode({
   node,
   depth,
   onSelect,
+  selectedPath,
+  filter,
 }: {
   node: FileNode;
   depth: number;
   onSelect: (path: string) => void;
+  selectedPath: string | null;
+  filter: string;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const hasChildren = node.isDirectory && node.children && node.children.length > 0;
+  const [expanded, setExpanded] = useState(depth < 1);
+  const hasChildren = node.type === 'directory' && node.children && node.children.length > 0;
+  const isSelected = node.type === 'file' && node.path === selectedPath;
+
+  // Auto-expand to reveal matching search results
+  useEffect(() => {
+    if (filter && depth === 0) {
+      setExpanded(true);
+    }
+  }, [filter, depth]);
+
+  // Skip hidden directories in the root
+  if (depth === 0 && node.type === 'directory' && node.name.startsWith('.')) {
+    return null;
+  }
+
+  const nameMatch = filter && node.name.toLowerCase().includes(filter.toLowerCase());
+  const childMatch =
+    filter &&
+    node.children?.some(
+      (c) =>
+        c.name.toLowerCase().includes(filter.toLowerCase()) ||
+        (c.children && c.children.length > 0),
+    );
+
+  if (filter && !nameMatch && !childMatch && depth > 0) return null;
 
   return (
     <>
       <button
         type="button"
-        className="file-tree-node"
+        className={`file-tree-node${isSelected ? ' selected' : ''}`}
         style={{ paddingLeft: `${8 + depth * 16}px` }}
         onClick={() => {
-          if (node.isDirectory) setExpanded((v) => !v);
+          if (node.type === 'directory') setExpanded((v) => !v);
           else onSelect(node.path);
         }}
       >
-        {node.isDirectory ? (
+        {node.type === 'directory' ? (
           hasChildren ? (
             expanded ? <ChevronDown size={11} aria-hidden="true" /> : <ChevronRight size={11} aria-hidden="true" />
           ) : (
@@ -45,17 +73,42 @@ function FileTreeNode({
         ) : (
           <span style={{ width: 11 }} />
         )}
-        {node.isDirectory ? (
+        {node.type === 'directory' ? (
           expanded ? <FolderOpen size={12} aria-hidden="true" /> : <Folder size={12} aria-hidden="true" />
         ) : (
           <File size={12} aria-hidden="true" />
         )}
-        <span>{node.name}</span>
+        <span title={node.path}>{node.name}</span>
       </button>
       {expanded && hasChildren && node.children?.map((child) => (
-        <FileTreeNode key={child.path} node={child} depth={depth + 1} onSelect={onSelect} />
+        <FileTreeNode
+          key={child.path}
+          node={child}
+          depth={depth + 1}
+          onSelect={onSelect}
+          selectedPath={selectedPath}
+          filter={filter}
+        />
       ))}
     </>
+  );
+}
+
+// ── Inline SVG icons used inside the component tree ──────────────
+
+function ChevronDown({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
+
+function ChevronRight({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="9 18 15 12 9 6" />
+    </svg>
   );
 }
 
@@ -63,20 +116,39 @@ export function FileExplorer({ socketRef }: FileExplorerProps) {
   const [open, setOpen] = useState(false);
   const [tree, setTree] = useState<FileNode[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [fileContent, setFileContent] = useState<string | null>(null);
+  const [editedContent, setEditedContent] = useState<string | null>(null);
+  const [contentLoading, setContentLoading] = useState(false);
+  const [filter, setFilter] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
   const closeRef = useRef<HTMLButtonElement | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const editorRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
     closeRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') { setOpen(false); }
+      if (event.key === 'Escape') {
+        if (isEditing) {
+          setIsEditing(false);
+          setEditedContent(null);
+        } else {
+          setOpen(false);
+        }
+      }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [open]);
+  }, [open, isEditing]);
 
-  const loadTree = () => {
+  const loadTree = useCallback(() => {
     setLoading(true);
+    setError(null);
     const socket = socketRef.current;
     if (!socket) { setLoading(false); return; }
 
@@ -85,22 +157,100 @@ export function FileExplorer({ socketRef }: FileExplorerProps) {
       const payload = msg.payload as Record<string, unknown> | undefined;
       if (Array.isArray(payload?.['tree'])) {
         setTree(payload['tree'] as FileNode[]);
+      } else {
+        setError('Failed to load file tree.');
       }
       setLoading(false);
     };
 
     const unsub = socket.onMessage(handler);
     socket.send('files.tree', {});
-    setTimeout(() => { unsub(); if (loading) setLoading(false); }, 5000);
-  };
+    setTimeout(() => { unsub(); if (loading) setLoading(false); }, 8000);
+  }, [socketRef, loading]);
 
+  const loadFileContent = useCallback((filePath: string) => {
+    setContentLoading(true);
+    setError(null);
+    setFileContent(null);
+    setEditedContent(null);
+    setIsEditing(false);
+    setSaved(false);
+
+    const socket = socketRef.current;
+    if (!socket) { setContentLoading(false); return; }
+
+    const handler = (msg: { type: string; payload?: unknown }) => {
+      if (msg.type !== 'files.read') return;
+      const payload = msg.payload as Record<string, unknown> | undefined;
+      const returnedPath = typeof payload?.['filePath'] === 'string' ? payload['filePath'] : '';
+      // Only accept the response for the file we requested
+      if (returnedPath !== filePath) return;
+
+      if (payload?.['content'] && typeof payload['content'] === 'string') {
+        setFileContent(payload['content']);
+        setEditedContent(null);
+      } else {
+        setFileContent(null);
+        setError(payload?.['error'] ? String(payload['error']) : 'Failed to read file.');
+      }
+      setContentLoading(false);
+    };
+
+    const unsub = socket.onMessage(handler);
+    socket.send('files.read', { filePath });
+    setTimeout(() => { unsub(); if (contentLoading) setContentLoading(false); }, 8000);
+  }, [socketRef, contentLoading]);
+
+  const handleSelectFile = useCallback((path: string) => {
+    setSelectedPath(path);
+    loadFileContent(path);
+  }, [loadFileContent]);
+
+  const handleSave = useCallback(() => {
+    if (!selectedPath || editedContent == null) return;
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+
+    const socket = socketRef.current;
+    if (!socket) { setSaving(false); return; }
+
+    const handler = (msg: { type: string; payload?: unknown }) => {
+      if (msg.type !== 'files.written') return;
+      const payload = msg.payload as Record<string, unknown> | undefined;
+      const returnedPath = typeof payload?.['filePath'] === 'string' ? payload['filePath'] : '';
+      if (returnedPath !== selectedPath) return;
+
+      if (payload?.['success']) {
+        setFileContent(editedContent);
+        setEditedContent(null);
+        setIsEditing(false);
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+      } else {
+        setError(payload?.['error'] ? String(payload['error']) : 'Failed to save file.');
+      }
+      setSaving(false);
+    };
+
+    const unsub = socket.onMessage(handler);
+    socket.send('files.write', { filePath: selectedPath, content: editedContent });
+    setTimeout(() => { unsub(); if (saving) setSaving(false); }, 8000);
+  }, [selectedPath, editedContent, socketRef, saving]);
+
+  const handleTreeReload = useCallback(() => {
+    setTree(null);
+    loadTree();
+  }, [loadTree]);
+
+  // Open the panel — load tree on first open
   if (!open) {
     return (
       <button
         type="button"
         className="file-explorer-trigger"
-        aria-label="Open file explorer"
-        title="Project file tree"
+        aria-label="Open file manager"
+        title="Project file manager"
         onClick={() => { setOpen(true); if (!tree) loadTree(); }}
       >
         <Folder size={13} aria-hidden="true" />
@@ -108,38 +258,156 @@ export function FileExplorer({ socketRef }: FileExplorerProps) {
     );
   }
 
+  const content = isEditing ? (editedContent ?? fileContent ?? '') : (fileContent ?? '');
+  const fileName = selectedPath?.split(/[\\/]/).pop() ?? '';
+
   return (
     <>
       <button type="button" className="settings-overlay" tabIndex={-1} onClick={() => setOpen(false)} />
-      <aside className="file-explorer" role="dialog" aria-modal="true" aria-label="File explorer">
+      <aside className="file-explorer file-manager" role="dialog" aria-modal="true" aria-label="File manager">
         <header className="file-explorer-head">
           <span><Folder size={13} aria-hidden="true" /> FILES</span>
-          <button type="button" onClick={() => setOpen(false)} aria-label="Close" ref={closeRef}>
-            <X size={14} />
-          </button>
+          <div className="file-explorer-head-actions">
+            <button
+              type="button"
+              onClick={handleTreeReload}
+              aria-label="Reload file tree"
+              title="Reload file tree"
+              className="file-explorer-reload"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="23 4 23 10 17 10" />
+                <polyline points="1 20 1 14 7 14" />
+                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+              </svg>
+            </button>
+            <button type="button" onClick={() => setOpen(false)} aria-label="Close" ref={closeRef}>
+              <X size={14} />
+            </button>
+          </div>
         </header>
-        <div className="file-explorer-body">
-          {loading && <p className="file-explorer-empty">Loading…</p>}
-          {!loading && !tree && <p className="file-explorer-empty">Failed to load file tree.</p>}
-          {tree && tree.map((node) => (
-            <FileTreeNode
-              key={node.path}
-              node={node}
-              depth={0}
-              onSelect={(path) => {
-                // Copy path to clipboard and reference in composer
-                copyToClipboard(path);
-              }}
-            />
-          ))}
+        <div className="file-manager-search">
+          <Search size={12} aria-hidden="true" />
+          <input
+            ref={searchRef}
+            type="text"
+            placeholder="Filter files…"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            aria-label="Filter files"
+            className="file-manager-search-input"
+          />
+          {filter && (
+            <button
+              type="button"
+              className="file-manager-search-clear"
+              onClick={() => setFilter('')}
+              aria-label="Clear filter"
+            >
+              <X size={11} />
+            </button>
+          )}
+        </div>
+        <div className="file-manager-split">
+          <div className="file-explorer-body">
+            {loading && <p className="file-explorer-empty">Loading…</p>}
+            {!loading && !tree && !error && <p className="file-explorer-empty">Failed to load file tree.</p>}
+            {error && !selectedPath && <p className="file-explorer-empty file-explorer-error">{error}</p>}
+            {tree && tree.map((node) => (
+              <FileTreeNode
+                key={node.path}
+                node={node}
+                depth={0}
+                onSelect={handleSelectFile}
+                selectedPath={selectedPath}
+                filter={filter}
+              />
+            ))}
+          </div>
+          <div className="file-manager-content">
+            {selectedPath && contentLoading && (
+              <div className="file-manager-empty">Loading…</div>
+            )}
+            {selectedPath && !contentLoading && fileContent === null && !error && (
+              <div className="file-manager-empty">Failed to load file.</div>
+            )}
+            {selectedPath && error && (
+              <div className="file-manager-empty file-explorer-error">{error}</div>
+            )}
+            {selectedPath && !contentLoading && fileContent != null && (
+              <>
+                <div className="file-manager-content-head">
+                  <code title={selectedPath}>{fileName}</code>
+                  <span className="file-manager-content-path">{selectedPath}</span>
+                  <div className="file-manager-content-actions">
+                    {saved && (
+                      <span className="file-manager-saved-badge">
+                        <Check size={12} aria-hidden="true" />
+                        Saved
+                      </span>
+                    )}
+                    {!isEditing ? (
+                      <button
+                        type="button"
+                        className="file-manager-edit-btn"
+                        onClick={() => {
+                          setIsEditing(true);
+                          setEditedContent(fileContent);
+                          setTimeout(() => editorRef.current?.focus(), 50);
+                        }}
+                      >
+                        <FileEdit size={12} aria-hidden="true" />
+                        Edit
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="file-manager-cancel-btn"
+                          onClick={() => {
+                            setIsEditing(false);
+                            setEditedContent(null);
+                          }}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          className="file-manager-save-btn"
+                          onClick={handleSave}
+                          disabled={saving}
+                        >
+                          <Save size={12} aria-hidden="true" />
+                          {saving ? 'Saving…' : 'Save'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="file-manager-editor-wrap">
+                  {isEditing ? (
+                    <textarea
+                      ref={editorRef}
+                      className="file-manager-editor"
+                      value={content}
+                      onChange={(e) => setEditedContent(e.target.value)}
+                      spellCheck={false}
+                      aria-label="File editor"
+                    />
+                  ) : (
+                    <pre className="file-manager-viewer">{fileContent}</pre>
+                  )}
+                </div>
+              </>
+            )}
+            {!selectedPath && (
+              <div className="file-manager-empty">
+                Select a file to view its content
+              </div>
+            )}
+          </div>
         </div>
       </aside>
     </>
   );
-}
-
-function copyToClipboard(text: string) {
-  try {
-    navigator.clipboard.writeText(text);
-  } catch { /* best-effort */ }
 }

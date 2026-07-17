@@ -8,7 +8,7 @@
  *
  * The package's `exports["./server"]` field points here.
  */
-export { AutoPhaseWebSocketHandler } from './autophase-ws-handler.js';
+export { GoalWebSocketHandler } from './goal-ws-handler.js';
 export {
   type CompletionHandlerOptions,
   type CompletionItemKind,
@@ -192,8 +192,8 @@ export { startWebUI } from './start-webui.js';
 // Extracted server modules whose route handlers, validators, stores, and
 // helpers are consumed directly (WebUI test suites migrated from the old
 // packages/webui/src/server/* paths). Grouped by source module.
-export { handleAutoPhaseRoute } from './autophase-routes.js';
-export type { AutoPhaseRouteHandlers } from './autophase-routes.js';
+export { handleGoalRoute } from './goal-routes.js';
+export type { GoalRouteHandlers } from './goal-routes.js';
 export { bootConfig, patchConfig } from './boot.js';
 export { setupWebUICodebaseIndexing } from './codebase-indexing.js';
 export {

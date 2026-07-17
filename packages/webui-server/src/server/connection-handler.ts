@@ -17,7 +17,7 @@ import type { Context, Message, Usage } from '@wrongstack/core';
 import type { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import type { WebSocket } from 'ws';
 
-import type { AutoPhaseWebSocketHandler } from './autophase-ws-handler.js';
+import type { GoalWebSocketHandler } from './goal-ws-handler.js';
 import type { CollaborationWebSocketHandler } from './collaboration-ws-handler.js';
 import type { SddBoardWebSocketHandler } from './sdd-board-ws-handler.js';
 import type { SddWizardWebSocketHandler } from './sdd-wizard-ws-handler.js';
@@ -51,7 +51,7 @@ export interface ConnectionHandlerOptions {
   /** Pending permission confirmations — drained to 'no' on disconnect. */
   pendingConfirms: Map<string, PendingConfirm>;
   /** Per-feature WS handlers that register each new client for their feeds. */
-  autoPhaseHandler: AutoPhaseWebSocketHandler;
+  goalHandler: GoalWebSocketHandler;
   specsHandler: SpecsWebSocketHandler;
   sddBoardHandler: SddBoardWebSocketHandler;
   sddWizardHandler: SddWizardWebSocketHandler;
@@ -157,6 +157,15 @@ export function createConnectionHandler(
       .sessionStartPayload()
       .then(async (payload) => {
         const enriched: SessionStartEnriched = { ...payload };
+        // Include the current context token estimate so the client can
+        // restore its context-fill bar on reconnect/refresh, rather than
+        // staying at 0% until the next ctx.pct event.
+        if (
+          typeof opts.context.lastRequestTokens === 'number' &&
+          opts.context.lastRequestTokens > 0
+        ) {
+          enriched.lastInputTokens = opts.context.lastRequestTokens;
+        }
         try {
           const replay = await opts.loadReplay?.();
           const live = replay?.messages ?? opts.context.messages ?? [];
@@ -193,8 +202,8 @@ export function createConnectionHandler(
       });
 
     // Register this client with every per-feature WS handler so it receives
-    // the right event feeds (autophase phases, specs board, sdd board, …).
-    opts.autoPhaseHandler.addClient(ws);
+    // the right event feeds (goal phases, specs board, sdd board, …).
+    opts.goalHandler.addClient(ws);
     opts.specsHandler.addClient(ws);
     opts.sddBoardHandler.addClient(ws);
     opts.sddWizardHandler.addClient(ws);

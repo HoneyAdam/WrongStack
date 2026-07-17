@@ -29,6 +29,8 @@ export interface LiveAgent {
   name: string;
   status: string;
   currentTool?: string;
+  currentTask?: string;
+  taskId?: string;
   iterations?: number;
   toolCalls?: number;
   costUsd?: number;
@@ -37,7 +39,68 @@ export interface LiveAgent {
   ctxPct?: number;
   model?: string;
   partialText?: string;
+  recentTools?: LiveToolActivity[];
+  recentMail?: LiveMailActivity[];
+  todos?: LiveTodoItem[];
+  latestPrompt?: string;
+  latestPromptAt?: number;
+  activity?: LiveAgentActivity;
   lastActivityAt?: string;
+}
+
+export interface LiveTodoItem {
+  id: string;
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  activeForm?: string;
+}
+
+/** Compact completed tool receipt mirrored through the project session registry. */
+export interface LiveToolActivity {
+  id: string;
+  name: string;
+  startedAt: number;
+  completedAt: number;
+  durationMs: number;
+  ok: boolean;
+  input?: unknown;
+  output?: string;
+  inputLines?: number;
+  oldLines?: number;
+  newLines?: number;
+  addedLines?: number;
+  removedLines?: number;
+  outputLines?: number;
+  outputBytes?: number;
+  outputTokens?: number;
+}
+
+/** Compact mail receipt mirrored through the project session registry. */
+export interface LiveMailActivity {
+  id: string;
+  direction: 'incoming' | 'outgoing';
+  from: string;
+  to: string;
+  type: string;
+  subject: string;
+  at: number;
+}
+
+export interface LiveAgentActivity {
+  filesTouched: string[];
+  reads: number;
+  writes: number;
+  edits: number;
+  terminalCalls: number;
+  webCalls: number;
+  searches: number;
+  otherCalls: number;
+  mailReceived: number;
+  mailSent: number;
+  linesRead: number;
+  linesWritten: number;
+  linesAdded: number;
+  linesRemoved: number;
 }
 
 /** Project-wide totals summed across every live session's agents. */
@@ -62,6 +125,8 @@ export interface LiveSession {
   status?: string;
   /** UTC ISO when the session was registered — used for uptime. */
   startedAt?: string;
+  /** Last registry heartbeat proving the terminal process is still live. */
+  lastHeartbeatAt?: string;
   /** Absolute working directory of the session. */
   workingDir?: string;
   agentCount?: number;
@@ -191,8 +256,7 @@ export const useMonitorStore = create<MonitorState>()((set) => ({
   aggregate: { toolCalls: 0, costUsd: 0, tokensIn: 0, tokensOut: 0 },
   lastUpdated: Date.now(),
 
-  setClientCounts: (counts) =>
-    set({ clientCounts: counts, lastUpdated: Date.now() }),
+  setClientCounts: (counts) => set({ clientCounts: counts, lastUpdated: Date.now() }),
 
   setLiveSessions: (sessions) => {
     const normalized = normalizeLiveSessions(sessions);
@@ -211,7 +275,8 @@ export const useMonitorStore = create<MonitorState>()((set) => ({
           a.sessionId !== b.sessionId ||
           a.status !== b.status ||
           a.agentCount !== b.agentCount ||
-          a.startedAt !== b.startedAt
+          a.startedAt !== b.startedAt ||
+          a.lastHeartbeatAt !== b.lastHeartbeatAt
         ) {
           same = false;
           break;
@@ -219,7 +284,10 @@ export const useMonitorStore = create<MonitorState>()((set) => ({
         // Deep-check agents (only the fields the UI renders)
         const aa = a.agents ?? [];
         const ba = b.agents ?? [];
-        if (aa.length !== ba.length) { same = false; break; }
+        if (aa.length !== ba.length) {
+          same = false;
+          break;
+        }
         for (let j = 0; j < aa.length; j++) {
           if (
             aa[j]!.id !== ba[j]!.id ||
@@ -228,9 +296,20 @@ export const useMonitorStore = create<MonitorState>()((set) => ({
             aa[j]!.currentTool !== ba[j]!.currentTool ||
             aa[j]!.iterations !== ba[j]!.iterations ||
             aa[j]!.toolCalls !== ba[j]!.toolCalls ||
-            aa[j]!.ctxPct !== ba[j]!.ctxPct
+            aa[j]!.ctxPct !== ba[j]!.ctxPct ||
+            aa[j]!.recentTools?.[0]?.id !== ba[j]!.recentTools?.[0]?.id ||
+            aa[j]!.recentMail?.[0]?.id !== ba[j]!.recentMail?.[0]?.id ||
+            aa[j]!.activity?.reads !== ba[j]!.activity?.reads ||
+            aa[j]!.activity?.writes !== ba[j]!.activity?.writes ||
+            aa[j]!.activity?.edits !== ba[j]!.activity?.edits ||
+            aa[j]!.activity?.terminalCalls !== ba[j]!.activity?.terminalCalls ||
+            aa[j]!.activity?.mailReceived !== ba[j]!.activity?.mailReceived ||
+            aa[j]!.activity?.mailSent !== ba[j]!.activity?.mailSent ||
+            aa[j]!.activity?.linesAdded !== ba[j]!.activity?.linesAdded ||
+            aa[j]!.activity?.linesRemoved !== ba[j]!.activity?.linesRemoved
           ) {
-            same = false; break;
+            same = false;
+            break;
           }
         }
         if (!same) break;
@@ -246,18 +325,29 @@ export const useMonitorStore = create<MonitorState>()((set) => ({
 
   addMailActivity: (activity) =>
     set((state) => ({
-      mailActivity: [{ ...activity, seq: activity.seq ?? ++mailActivitySeq }, ...state.mailActivity].slice(0, 50),
+      mailActivity: [
+        { ...activity, seq: activity.seq ?? ++mailActivitySeq },
+        ...state.mailActivity,
+      ].slice(0, 50),
       lastUpdated: Date.now(),
     })),
 
   setMailStats: (total, open, unread) =>
-    set({ totalMessages: total, openMessages: open, unreadMessages: unread, lastUpdated: Date.now() }),
+    set({
+      totalMessages: total,
+      openMessages: open,
+      unreadMessages: unread,
+      lastUpdated: Date.now(),
+    }),
 
   setAgentStats: (total, active) =>
     set({ totalAgents: total, activeAgents: active, lastUpdated: Date.now() }),
 
   setCurrentSession: (stats) =>
-    set({ currentSession: { ...useMonitorStore.getState().currentSession, ...stats }, lastUpdated: Date.now() }),
+    set({
+      currentSession: { ...useMonitorStore.getState().currentSession, ...stats },
+      lastUpdated: Date.now(),
+    }),
 
   clear: () =>
     set({

@@ -22,10 +22,10 @@ const workflows = [
     '/commands/sdd',
   ],
   [
-    'AutoPhase',
+    'Goal',
     'A phase-based autonomous run with worktree-aware task execution and persisted state.',
-    '/autophase start',
-    '/commands/autophase',
+    '/goal start',
+    '/commands/goal',
   ],
   [
     'Review / fix',
@@ -182,7 +182,7 @@ export function WorkflowsPage() {
         <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[
             { href: '/sdd', label: 'SDD workflow', desc: 'Spec-driven: plan, implement, verify with review between phases.' },
-            { href: '/autophase', label: 'AutoPhase', desc: 'Fully autonomous phased work with worktree isolation and rollback.' },
+            { href: '/goal', label: 'Goal', desc: 'Fully autonomous phased work with worktree isolation and rollback.' },
             { href: '/checkpoints', label: 'Checkpoints', desc: 'File state snapshots. Rewind after risky edits.' },
             { href: '/commit-workflow', label: 'Commit workflow', desc: 'Auto-generated conventional commits from your diff.' },
           ].map(({ href, label, desc }) => (
@@ -199,12 +199,12 @@ export function WorkflowsPage() {
         <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[
             { when: 'Well-understood feature', use: 'SDD', why: 'Interactive phases, you review each step.' },
-            { when: 'Complex multi-day effort', use: 'AutoPhase', why: 'Autonomous worktrees + checkpoint rollback.' },
+            { when: 'Complex multi-day effort', use: 'Goal', why: 'Autonomous worktrees + checkpoint rollback.' },
             { when: 'Quick fix or refactor', use: 'BTW / Goals', why: 'Lightweight. No phase overhead.' },
             { when: 'Independent perspectives', use: 'Ensemble', why: 'Multiple ACP agents, compare results.' },
             { when: 'Code review / QA', use: 'Collab', why: 'BugHunter + RefactorPlanner + Critic pipeline.' },
             { when: 'Team coordination', use: 'Mailbox / HQ', why: 'Cross-session steer and fleet monitoring.' },
-            { when: 'CI/CD autonomous', use: 'AutoPhase', why: 'Zero-interaction pipeline with manifest.' },
+            { when: 'CI/CD autonomous', use: 'Goal', why: 'Zero-interaction pipeline with manifest.' },
             { when: 'Learning / exploring', use: 'Goals', why: 'Loosely structured, adapts as you go.' },
           ].map(({ when, use, why }) => (
             <div key={when} className="rounded-xl border border-line bg-card p-4">

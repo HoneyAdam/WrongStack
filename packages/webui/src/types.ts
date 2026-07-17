@@ -1203,33 +1203,33 @@ export interface WSModesList {
   };
 }
 
-/** AutoPhase live state broadcast (see server/autophase-ws-handler.ts). */
-export interface WSAutoPhaseState {
-  type: 'autophase.state';
+/** Goal live state broadcast (see server/goal-ws-handler.ts). */
+export interface WSGoalState {
+  type: 'goal.state';
   payload: Record<string, unknown>;
 }
 
-export interface WSAutoPhaseProgress {
-  type: 'autophase.progress';
+export interface WSGoalProgress {
+  type: 'goal.progress';
   payload: Record<string, unknown>;
 }
 
-export interface WSAutoPhaseLifecycle {
+export interface WSGoalLifecycle {
   type:
-    | 'autophase.paused'
-    | 'autophase.resumed'
-    | 'autophase.stopped'
-    | 'autophase.saved'
-    | 'autophase.completed'
-    | 'autophase.failed'
-    | 'autophase.error'
-    | 'autophase.cleared'
-    | 'autophase.reverted';
+    | 'goal.paused'
+    | 'goal.resumed'
+    | 'goal.stopped'
+    | 'goal.saved'
+    | 'goal.completed'
+    | 'goal.failed'
+    | 'goal.error'
+    | 'goal.cleared'
+    | 'goal.reverted';
   payload: Record<string, unknown>;
 }
 
-export interface WSAutoPhaseList {
-  type: 'autophase.list';
+export interface WSGoalList {
+  type: 'goal.list';
   payload: { graphs: unknown[] };
 }
 
@@ -1462,36 +1462,36 @@ export type WSClientMessage =
   | WSToolConfirmResult
   | { type: 'side_effects.list'; payload?: Record<string, never> }
   | {
-      type: 'autophase.start';
+      type: 'goal.start';
       payload: {
         title: string;
         phases?: unknown[] | undefined;
         autonomous?: boolean | undefined;
         /** Per-run override of git-worktree isolation. Omitted → env default
-         *  (WRONGSTACK_AUTOPHASE_WORKTREES). false → run on the current branch. */
+         *  (WRONGSTACK_GOAL_WORKTREES). false → run on the current branch. */
         worktrees?: boolean | undefined;
       };
     }
-  | { type: 'autophase.pause'; payload: Record<string, never> }
-  | { type: 'autophase.resume'; payload: Record<string, never> }
-  | { type: 'autophase.stop'; payload: Record<string, never> }
-  | { type: 'autophase.clear'; payload?: Record<string, never> }
-  | { type: 'autophase.revert'; payload?: Record<string, never> }
-  | { type: 'autophase.status'; payload?: Record<string, never> }
-  | { type: 'autophase.state'; payload?: Record<string, never> }
-  | { type: 'autophase.save'; payload?: Record<string, never> }
-  | { type: 'autophase.list'; payload?: Record<string, never> }
-  | { type: 'autophase.load'; payload: { graphId: string } }
-  | { type: 'autophase.toggleAutonomous'; payload: { autonomous?: boolean | undefined } }
-  | { type: 'autophase.selectPhase'; payload: { phaseId: string } }
-  | { type: 'autophase.taskStatus'; payload: { taskId: string; status: string } }
-  | { type: 'autophase.moveTask'; payload: { taskId: string; toPhaseId: string } }
+  | { type: 'goal.pause'; payload: Record<string, never> }
+  | { type: 'goal.resume'; payload: Record<string, never> }
+  | { type: 'goal.stop'; payload: Record<string, never> }
+  | { type: 'goal.clear'; payload?: Record<string, never> }
+  | { type: 'goal.revert'; payload?: Record<string, never> }
+  | { type: 'goal.status'; payload?: Record<string, never> }
+  | { type: 'goal.state'; payload?: Record<string, never> }
+  | { type: 'goal.save'; payload?: Record<string, never> }
+  | { type: 'goal.list'; payload?: Record<string, never> }
+  | { type: 'goal.load'; payload: { graphId: string } }
+  | { type: 'goal.toggleAutonomous'; payload: { autonomous?: boolean | undefined } }
+  | { type: 'goal.selectPhase'; payload: { phaseId: string } }
+  | { type: 'goal.taskStatus'; payload: { taskId: string; status: string } }
+  | { type: 'goal.moveTask'; payload: { taskId: string; toPhaseId: string } }
   | {
-      type: 'autophase.assignTask';
+      type: 'goal.assignTask';
       payload: { taskId: string; agentId?: string | undefined; agentName?: string | undefined };
     }
   | {
-      type: 'autophase.addTask';
+      type: 'goal.addTask';
       payload: {
         phaseId: string;
         title: string;
@@ -1500,8 +1500,8 @@ export type WSClientMessage =
         priority?: string | undefined;
       };
     }
-  | { type: 'autophase.retryTask'; payload: { taskId: string } }
-  | { type: 'autophase.runTask'; payload: { taskId: string } }
+  | { type: 'goal.retryTask'; payload: { taskId: string } }
+  | { type: 'goal.runTask'; payload: { taskId: string } }
   | { type: 'specs.list'; payload?: Record<string, never> }
   | { type: 'specs.get'; payload: { specId: string } }
   | {
@@ -1795,6 +1795,7 @@ export type WSClientMessage =
   | { type: 'git.changes' }
   | { type: 'git.diff'; payload: { path: string } }
   | { type: 'goal.get' }
+  | { type: 'goal-state.get' }
   | { type: 'autonomy.switch'; payload: { mode: string } }
   | { type: 'prefs.update'; payload: Record<string, unknown> }
   | { type: 'prefs.get' }
@@ -1847,6 +1848,10 @@ export type WSClientMessage =
         /** Refine on this provider/model instead of the session's — ephemeral, no session switch. */
         provider?: string | undefined;
         model?: string | undefined;
+        /** Previous refinement when the user asks the preview to try again better. */
+        previousRefined?: string | undefined;
+        previousEnglish?: string | undefined;
+        retryFeedback?: string | undefined;
       };
     }
   | { type: 'skills.list' }
@@ -2022,10 +2027,10 @@ export type WSServerMessage =
   | { type: 'tasks.updated'; payload: { tasks: unknown[]; error?: string | undefined } }
   | { type: 'plan.updated'; payload: { plan: unknown | null; error?: string | undefined } }
   | WSModesList
-  | WSAutoPhaseState
-  | WSAutoPhaseProgress
-  | WSAutoPhaseLifecycle
-  | WSAutoPhaseList
+  | WSGoalState
+  | WSGoalProgress
+  | WSGoalLifecycle
+  | WSGoalList
   | { type: 'specs.list'; payload: { specs: unknown[] } }
   | { type: 'specs.detail'; payload: Record<string, unknown> }
   | { type: 'sdd.board.snapshot'; payload: Record<string, unknown> | null }

@@ -12,9 +12,10 @@
  *
  * @module session-registry
  */
+
+import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { randomUUID } from 'node:crypto';
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -26,6 +27,62 @@ export type AgentLiveStatus =
   | 'waiting_user' // brain.ask_human, confirm prompt
   | 'error';
 
+/** A bounded, display-safe tool receipt shared with cross-process observers. */
+export interface AgentRecentTool {
+  id: string;
+  name: string;
+  startedAt: number;
+  completedAt: number;
+  durationMs: number;
+  ok: boolean;
+  input?: unknown | undefined;
+  output?: string | undefined;
+  inputLines?: number | undefined;
+  oldLines?: number | undefined;
+  newLines?: number | undefined;
+  addedLines?: number | undefined;
+  removedLines?: number | undefined;
+  outputLines?: number | undefined;
+  outputBytes?: number | undefined;
+  outputTokens?: number | undefined;
+}
+
+export interface AgentRecentMail {
+  id: string;
+  direction: 'incoming' | 'outgoing';
+  from: string;
+  to: string;
+  type: string;
+  subject: string;
+  at: number;
+}
+
+/** A compact todo mirrored with the leader so every Office can show its live worklist. */
+export interface AgentTodoItem {
+  id: string;
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  activeForm?: string | undefined;
+}
+
+/** Session-long aggregate used by project Office dashboards. */
+export interface AgentActivityTotals {
+  filesTouched: string[];
+  reads: number;
+  writes: number;
+  edits: number;
+  terminalCalls: number;
+  webCalls: number;
+  searches: number;
+  otherCalls: number;
+  mailReceived: number;
+  mailSent: number;
+  linesRead: number;
+  linesWritten: number;
+  linesAdded: number;
+  linesRemoved: number;
+}
+
 export interface AgentEntry {
   /** Unique agent id (ULID or UUID). */
   id: string;
@@ -36,6 +93,10 @@ export interface AgentEntry {
   status: AgentLiveStatus;
   /** Current tool name if running, undefined otherwise. */
   currentTool?: string | undefined;
+  /** Human-readable task currently assigned to this agent. */
+  currentTask?: string | undefined;
+  /** Stable coordinator task id when this is a delegated/subagent task. */
+  taskId?: string | undefined;
   /** Iteration count so far. */
   iterations: number;
   /** Tool calls so far. */
@@ -56,16 +117,26 @@ export interface AgentEntry {
    * instead of waiting for the completed turn to land in the session log.
    */
   partialText?: string | undefined;
+  /** Recent completed tools, newest first. Bounded by AgentStatusTracker. */
+  recentTools?: AgentRecentTool[] | undefined;
+  recentMail?: AgentRecentMail[] | undefined;
+  /** Session worklist. Populated on the leader entry only. */
+  todos?: AgentTodoItem[] | undefined;
+  /** Most recent operator prompt. Populated on the leader entry only. */
+  latestPrompt?: string | undefined;
+  latestPromptAt?: number | undefined;
+  /** Cumulative activity for this live session, reset when the session ends. */
+  activity?: AgentActivityTotals | undefined;
   /** UTC ISO timestamp of last activity. */
   lastActivityAt: string;
 }
 
 export type SessionLiveStatus =
-  | 'active'   // process running, agents may be idle or busy
-  | 'idle'     // process running, no agent activity
-  | 'closing'  // session_end written, process shutting down
-  | 'stale'    // process no longer alive (pruned on next read)
-  | 'lost';    // heartbeat timeout — process may still be alive but unreachable
+  | 'active' // process running, agents may be idle or busy
+  | 'idle' // process running, no agent activity
+  | 'closing' // session_end written, process shutting down
+  | 'stale' // process no longer alive (pruned on next read)
+  | 'lost'; // heartbeat timeout — process may still be alive but unreachable
 
 export interface SessionRegistryEntry {
   sessionId: string;
@@ -495,7 +566,10 @@ export class SessionRegistry {
       const ageMs = Date.now() - stat.mtimeMs;
       const ownerPid = Number.parseInt(content.trim(), 10);
       const ownerDead =
-        Number.isInteger(ownerPid) && ownerPid > 0 && ownerPid !== process.pid && !pidAlive(ownerPid);
+        Number.isInteger(ownerPid) &&
+        ownerPid > 0 &&
+        ownerPid !== process.pid &&
+        !pidAlive(ownerPid);
       if (ownerDead || ageMs > STALE_LOCK_MS) {
         /* v8 ignore start -- best-effort stale-lock removal; .catch only fires if the lock vanished */
         await fs.unlink(lockPath).catch(() => undefined);

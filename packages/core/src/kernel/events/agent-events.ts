@@ -5,7 +5,14 @@ export interface AgentEventMap {
    * Fired around a single Agent.run() call. Status trackers use these to
    * measure active-run elapsed time instead of inferring it from iterations.
    */
-  'agent.run.started': { sessionId?: string | undefined; ctx: Context; model: string; at: string };
+  'agent.run.started': {
+    sessionId?: string | undefined;
+    ctx: Context;
+    model: string;
+    at: string;
+    /** Exact text supplied for this run, used by live Office mission tracking. */
+    inputText?: string | undefined;
+  };
   'agent.run.completed': {
     sessionId?: string | undefined;
     ctx: Context;

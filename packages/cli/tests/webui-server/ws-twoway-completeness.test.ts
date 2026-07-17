@@ -75,12 +75,15 @@ function clientHandledTypes(): Set<string> {
     'tool.confirm_needed',
     'pong',
   ]);
-  for (const m of handlerMap.matchAll(/^\s*'([a-z0-9_.]+)'\s*:/gm)) types.add(m[1] as string);
-  for (const m of handlerMap.matchAll(/^\s*([a-z][a-z0-9_]*)\s*:\s*\(/gm)) {
+  // Quoted keys may be camelCase (`memory.super.candidateResolve`), so the
+  // character class must allow uppercase — otherwise a wired handler reads as
+  // missing and this guard reports a false drop.
+  for (const m of handlerMap.matchAll(/^\s*'([A-Za-z0-9_.]+)'\s*:/gm)) types.add(m[1] as string);
+  for (const m of handlerMap.matchAll(/^\s*([a-z][A-Za-z0-9_]*)\s*:\s*\(/gm)) {
     types.add(m[1] as string);
   }
-  for (const m of subHandlers.matchAll(/^\s*'([a-z0-9_.]+)'\s*:/gm)) types.add(m[1] as string);
-  for (const m of subHandlers.matchAll(/^\s*([a-z][a-z0-9_]*)\s*:\s*\(/gm)) {
+  for (const m of subHandlers.matchAll(/^\s*'([A-Za-z0-9_.]+)'\s*:/gm)) types.add(m[1] as string);
+  for (const m of subHandlers.matchAll(/^\s*([a-z][A-Za-z0-9_]*)\s*:\s*\(/gm)) {
     types.add(m[1] as string);
   }
   for (const m of all.matchAll(/\.on\??\.?\(\s*'([^']+)'/g)) types.add(m[1] as string);
@@ -102,15 +105,15 @@ const INTENTIONALLY_UNHANDLED = new Set<string>([
   // from REPL/TUI/--eternal, not a WebUI action, and has no live consumer yet.
   'eternal.iteration',
   // AutoPhase granular events — the client mirrors the full canonical state via
-  // `autophase.state` (handled), so these per-event signals are redundant.
-  'autophase.error',
-  'autophase.failed',
-  'autophase.list',
-  'autophase.paused',
-  'autophase.progress',
-  'autophase.resumed',
-  'autophase.saved',
-  'autophase.stopped',
+  // `goal.state` (handled), so these per-event signals are redundant.
+  'goal.error',
+  'goal.failed',
+  'goal.list',
+  'goal.paused',
+  'goal.progress',
+  'goal.resumed',
+  'goal.saved',
+  'goal.stopped',
   // Prompt-library fire-and-forget acks. The modal applies an optimistic update
   // when toggling a favorite / inserting a prompt and never reads the server
   // `{ success }` echo, so dropping it changes nothing the user sees.

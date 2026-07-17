@@ -26,9 +26,9 @@ import { openMainView } from '@/lib/view-navigation';
 import { cn } from '@/lib/utils';
 import { useGitInfo } from '@/hooks/useGitInfo';
 import {
-  useAutoPhaseStore,
+  useGoalRunStore,
   useFleetStore,
-  useGoalStore,
+  useGoalStateStore,
   useSessionStore,
   useUIStore,
   useWorktreeStore,
@@ -53,11 +53,11 @@ import { WorktreeOrphans } from './WorktreeOrphans';
 // ── Chip ──────────────────────────────────────────────────────────────
 
 const CHIP_TONES: Record<DockSection, { active: string; idle: string }> = {
-  autophase: {
+  goal: {
     active: 'bg-primary/12 border-primary/40 text-primary shadow-sm',
     idle: 'text-primary/80 hover:bg-primary/10',
   },
-  goal: {
+  'goal-state': {
     active: 'bg-destructive/10 border-destructive/35 text-destructive shadow-sm',
     idle: 'text-destructive/80 hover:bg-destructive/10',
   },
@@ -81,14 +81,14 @@ const CHIP_TONES: Record<DockSection, { active: string; idle: string }> = {
 
 /** Human labels for the chip customization menu. */
 const CHIP_LABELS: Record<DockSection, string> = {
-  autophase: 'AutoPhase',
   goal: 'Goal',
+  'goal-state': 'Goal State',
   fleet: 'Fleet',
   work: 'Work',
   worktrees: 'Worktrees',
   collab: 'Collab',
 };
-const CHIP_ORDER: DockSection[] = ['autophase', 'goal', 'fleet', 'work', 'worktrees', 'collab'];
+const CHIP_ORDER: DockSection[] = ['goal', 'goal-state', 'fleet', 'work', 'worktrees', 'collab'];
 
 function DockChip({
   section,
@@ -137,14 +137,14 @@ export function WorkspaceDock() {
   const dockCustomizeOpen = useUIStore((s) => s.dockCustomizeOpen);
   const setDockCustomizeOpen = useUIStore((s) => s.setDockCustomizeOpen);
 
-  const goal = useGoalStore((s) => s.goal);
+  const goalState = useGoalStateStore((s) => s.goal);
   // Narrow selectors for each field the dock reads — subscribing to the
-  // entire autoPhase store via `useAutoPhaseStore((s) => s)` re-renders the
+  // entire goalRun store via `useGoalRunStore((s) => s)` re-renders the
   // dock on every store change (including status flips the dock doesn't
   // display). Each subscription only fires when its specific slice changes.
-  const phasesLength = useAutoPhaseStore((s) => s.phases.length);
-  const overallPercent = useAutoPhaseStore((s) => s.overallPercent);
-  const activePhaseId = useAutoPhaseStore((s) => s.activePhaseId);
+  const phasesLength = useGoalRunStore((s) => s.phases.length);
+  const overallPercent = useGoalRunStore((s) => s.overallPercent);
+  const activePhaseId = useGoalRunStore((s) => s.activePhaseId);
   const worktrees = useWorktreeStore((s) => s.worktrees);
   const todos = useSessionStore((s) => s.todos);
   const fleetAgents = useFleetStore((s) => s.agents);
@@ -165,16 +165,16 @@ export function WorkspaceDock() {
   // A chip the user hid via the customization menu is always suppressed.
   const hidden = useMemo(() => new Set(hiddenChips), [hiddenChips]);
   const hasData: Record<DockSection, boolean> = {
-    autophase: phasesActive,
-    goal: goal !== null,
+    goal: phasesActive,
+    'goal-state': goalState !== null,
     fleet: fleetTotal > 0,
     work: true,
     worktrees: worktrees.length > 0,
     collab: true,
   };
   const visible: Record<DockSection, boolean> = {
-    autophase: (hasData.autophase || dockSection === 'autophase') && !hidden.has('autophase'),
     goal: (hasData.goal || dockSection === 'goal') && !hidden.has('goal'),
+    'goal-state': (hasData['goal-state'] || dockSection === 'goal-state') && !hidden.has('goal-state'),
     fleet: (hasData.fleet || dockSection === 'fleet') && !hidden.has('fleet'),
     work: (hasData.work || dockSection === 'work') && !hidden.has('work'),
     worktrees: (hasData.worktrees || dockSection === 'worktrees') && !hidden.has('worktrees'),
@@ -186,28 +186,28 @@ export function WorkspaceDock() {
     <div>
       {/* ── Chip strip ── */}
       <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border/70 bg-card/70 px-2 py-1.5 shadow-sm">
-        {visible.autophase && (
+        {visible.goal && (
           <DockChip
-            section="autophase"
+            section="goal"
             icon={<Rocket className="h-3 w-3" />}
-            label="AutoPhase"
+            label="Goal"
             value={`${overallPercent}%`}
             active={false}
             pulse={activePhaseId != null}
-            // AutoPhase opens straight into the full board view — the inline
+            // Goal opens straight into the full board view — the inline
             // panel hogged vertical space above the chat history.
-            onClick={() => openMainView('autophase')}
+            onClick={() => openMainView('goal')}
           />
         )}
-        {visible.goal && goal && (
+        {visible['goal-state'] && goalState && (
           <DockChip
-            section="goal"
+            section="goal-state"
             icon={<Target className="h-3 w-3" />}
-            label="Goal"
-            value={`${goal.progress}%`}
-            active={open === 'goal'}
-            pulse={goal.goalState === 'active'}
-            onClick={() => toggleDockSection('goal')}
+            label="Goal State"
+            value={`${goalState.progress}%`}
+            active={open === 'goal-state'}
+            pulse={goalState.goalState === 'active'}
+            onClick={() => toggleDockSection('goal-state')}
           />
         )}
         {visible.fleet && (
@@ -319,8 +319,8 @@ export function WorkspaceDock() {
   );
 }
 
-const DOCK_INSPECTOR_META: Record<Exclude<DockSection, 'autophase'>, { title: string; detail: string }> = {
-  goal: { title: 'Goal', detail: 'Active objective and progress' },
+const DOCK_INSPECTOR_META: Record<Exclude<DockSection, 'goal'>, { title: string; detail: string }> = {
+  'goal-state': { title: 'Goal State', detail: 'Active objective and progress' },
   fleet: { title: 'Fleet', detail: 'Live agent roster and activity' },
   work: { title: 'Work', detail: 'Todos, tasks, and plan' },
   worktrees: { title: 'Worktrees', detail: 'Parallel branches and lanes' },
@@ -330,13 +330,13 @@ const DOCK_INSPECTOR_META: Record<Exclude<DockSection, 'autophase'>, { title: st
 export function WorkspaceDockInspector({ sessionId }: { sessionId: string }): React.ReactElement {
   const dockSection = useUIStore((s) => s.dockSection);
   const setDockSection = useUIStore((s) => s.setDockSection);
-  const goal = useGoalStore((s) => s.goal);
+  const goalState = useGoalStateStore((s) => s.goal);
   const worktrees = useWorktreeStore((s) => s.worktrees);
   const baseBranch = useWorktreeStore((s) => s.baseBranch);
   const [worktreeView, setWorktreeView] = useState<'graph' | 'lanes'>('graph');
   const { t } = useAppTranslation();
 
-  const open = dockSection !== null && dockSection !== 'autophase';
+  const open = dockSection !== null && dockSection !== 'goal';
   const section = open ? dockSection : null;
   const meta = section ? DOCK_INSPECTOR_META[section] : null;
 
@@ -380,9 +380,9 @@ export function WorkspaceDockInspector({ sessionId }: { sessionId: string }): Re
       </header>
 
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-3 sm:p-4">
-        {section === 'goal' &&
-          (goal ? (
-            <GoalPanel goal={goal} />
+        {section === 'goal-state' &&
+          (goalState ? (
+            <GoalPanel goal={goalState} />
           ) : (
             <DockEmptyState
               title={t('activity:dock.noActiveGoal')}

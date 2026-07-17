@@ -200,7 +200,7 @@ export function CheckpointsPage() {
               <div className="mt-5 space-y-3">
                 {[
                   { label: 'Default', body: '7 days (7 × 24 × 60 × 60 × 1000 ms). Appropriate for most workflows.' },
-                  { label: 'Short-lived runs', body: 'Set to 1 hour for CI-style AutoPhase runs where checkpoints are only needed during the session.' },
+                  { label: 'Short-lived runs', body: 'Set to 1 hour for CI-style Goal runs where checkpoints are only needed during the session.' },
                   { label: 'Long-running missions', body: 'Set to 30 days for multi-week goals where you may need to roll back days later.' },
                   { label: 'Disabled', body: 'Set to Infinity to disable TTL pruning entirely. Combine with count-based pruning to cap storage.' },
                 ].map(({ label, body }) => (
@@ -286,27 +286,27 @@ export function CheckpointsPage() {
         </div>
       </section>
 
-      {/* ── AutoPhase & manual ───────────────────────────────────────────── */}
+      {/* ── Goal & manual ───────────────────────────────────────────── */}
       <section className="border-y border-line bg-surface">
         <div className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10">
           <SectionIntro
             index="06"
             eyebrow="Workflows"
             title="Automatic before risky edits. Manual when you want control."
-            description="AutoPhase creates checkpoints between phases automatically — plan → checkpoint → implement → checkpoint → test → checkpoint. You can also trigger them manually for any operation."
+            description="Goal creates checkpoints between phases automatically — plan → checkpoint → implement → checkpoint → test → checkpoint. You can also trigger them manually for any operation."
           />
           <div className="mt-12 grid gap-6 lg:grid-cols-2">
             <div className="rounded-2xl border border-line bg-card p-7">
               <Camera className="size-5 text-brand" />
               <h2 className="mt-8 text-xl font-black text-fg">Automatic checkpoints</h2>
               <p className="mt-3 text-sm leading-7 text-muted">
-                The agent creates checkpoints automatically before risky multi-file operations. SDD phases, AutoPhase worktree transitions, and batch refactors all trigger a checkpoint.
+                The agent creates checkpoints automatically before risky multi-file operations. SDD phases, Goal worktree transitions, and batch refactors all trigger a checkpoint.
               </p>
               <div className="mt-5 space-y-2">
                 {[
                   { phase: 'SDD plan → implement', desc: 'After you approve the plan, a checkpoint captures the current state before the agent writes code.' },
                   { phase: 'SDD implement → verify', desc: 'After implementation, a checkpoint captures the new code before running tests and linters.' },
-                  { phase: 'AutoPhase per phase', desc: 'Between every phase (plan/implement/test/review), a checkpoint is written. Failed phases roll back to the last one.' },
+                  { phase: 'Goal per phase', desc: 'Between every phase (plan/implement/test/review), a checkpoint is written. Failed phases roll back to the last one.' },
                   { phase: 'Batch refactors', desc: 'Before multi-file refactors, the agent snapshots affected files. If the refactor breaks, files revert to checkpoint state.' },
                 ].map(({ phase, desc }) => (
                   <div key={phase} className="rounded-lg border border-line bg-bg p-3">

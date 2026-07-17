@@ -196,6 +196,7 @@ export function handleSessionStart(msg: WSServerMessage) {
     inputCost?: number | undefined;
     outputCost?: number | undefined;
     cacheReadCost?: number | undefined;
+    lastInputTokens?: number | undefined;
     reset?: boolean | undefined;
     clearedSessionId?: string | undefined;
     needsSetup?: boolean | undefined;
@@ -308,6 +309,13 @@ export function handleSessionStart(msg: WSServerMessage) {
           (input * rates.inputCost + output * rates.outputCost + cacheRead * rates.cacheReadCost) /
           1_000_000,
       });
+    }
+    // Restore the last known context token estimate from the server so the
+    // context-fill bar shows the correct value immediately after F5/reconnect,
+    // rather than staying at 0% until the next ctx.pct event.
+    const serverLastInput = (payload as { lastInputTokens?: number }).lastInputTokens;
+    if (typeof serverLastInput === 'number' && serverLastInput > 0) {
+      useSessionStore.setState({ lastInputTokens: serverLastInput });
     }
     if (isReset && !payload.needsSetup) {
       if (!isRoutePinnedView()) {

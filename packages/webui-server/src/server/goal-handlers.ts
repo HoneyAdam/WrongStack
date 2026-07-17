@@ -12,7 +12,7 @@
 import { resolveWstackPaths } from '@wrongstack/core/utils';
 
 /**
- * Read `goal.json` for `projectRoot` and broadcast a `goal.updated` message.
+ * Read `goal.json` for `projectRoot` and broadcast a `goal-state.updated` message.
  * The path must match /goal, the autonomy engines, and TUI F9, which all
  * resolve via `resolveWstackPaths().projectGoal`
  * (`~/.wrongstack/projects/<slug>/goal.json`) — NOT the repo-local
@@ -27,8 +27,8 @@ export async function handleGoalGet(
     const { readFile } = await import('node:fs/promises');
     const raw = await readFile(goalPath, 'utf8');
     const goal = JSON.parse(raw);
-    broadcast({ type: 'goal.updated', payload: goal });
+    broadcast({ type: 'goal-state.updated', payload: goal });
   } catch {
-    broadcast({ type: 'goal.updated', payload: null });
+    broadcast({ type: 'goal-state.updated', payload: null });
   }
 }

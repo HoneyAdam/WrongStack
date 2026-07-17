@@ -16,7 +16,7 @@ owns:
 - `useSubagentEvents` (subagent event → reducer dispatch)
 - `useSessionEvents` (checkpoint + session.rewound)
 - `useBrainEvents` (brain decisions)
-- `useAutoPhaseEvents` (autophase phase + worktree + countdown)
+- `useGoalEvents` (goal phase + worktree + countdown)
 
 And `use-tui-controllers.ts` and `use-director-fleet-bridge.ts`
 round out the keyboard-adjacent state. The grep for

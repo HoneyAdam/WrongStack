@@ -216,6 +216,73 @@ export function handleMemorySuperRemember(msg: WSServerMessage) {
   }
 }
 
+export function handleMemorySuperRecover(msg: WSServerMessage) {
+  const p = msg.payload as {
+    memory?: Record<string, unknown>;
+    noop?: boolean;
+    activeId?: string;
+    error?: string | undefined;
+  };
+  const chat = useChatStore.getState();
+  if (p.error) {
+    chat.addMessage({ role: 'assistant', content: `❌ Recover failed: ${p.error}` });
+    return;
+  }
+  if (!p.memory) return;
+  const id = String(p.memory['id'] ?? '');
+  if (p.noop) {
+    // Already active, or superseded — `activeId` is the head of the chain.
+    const target = p.activeId ?? id;
+    chat.addMessage({
+      role: 'assistant',
+      content: `ℹ️ Nothing to recover — \`${target}\` is already the active version.`,
+    });
+    return;
+  }
+  chat.addMessage({ role: 'assistant', content: `✅ Memory \`${id}\` recovered.` });
+}
+
+export function handleMemorySuperCandidateResolve(msg: WSServerMessage) {
+  const p = msg.payload as {
+    candidate?: { id: string; status: string };
+    resolvedAction?: 'accept' | 'reject';
+    error?: string | undefined;
+  };
+  const chat = useChatStore.getState();
+  if (p.error) {
+    chat.addMessage({ role: 'assistant', content: `❌ Candidate resolve failed: ${p.error}` });
+    return;
+  }
+  if (!p.candidate) return;
+  const verb = p.resolvedAction === 'reject' ? 'rejected' : 'accepted';
+  chat.addMessage({
+    role: 'assistant',
+    content: `✅ Candidate \`${p.candidate.id}\` ${verb}.`,
+  });
+}
+
+export function handleMemorySuperBackfillRecoverable(msg: WSServerMessage) {
+  const p = msg.payload as {
+    examined?: number;
+    recovered?: number;
+    recoverable?: number;
+    dryRun?: boolean;
+    error?: string | undefined;
+  };
+  const chat = useChatStore.getState();
+  if (p.error) {
+    chat.addMessage({ role: 'assistant', content: `❌ Backfill failed: ${p.error}` });
+    return;
+  }
+  const summary = `examined ${p.examined ?? 0} · recoverable ${p.recoverable ?? 0} · recovered ${p.recovered ?? 0}`;
+  chat.addMessage({
+    role: 'assistant',
+    content: p.dryRun
+      ? `ℹ️ Backfill preview (dry-run) — ${summary}. Re-run with apply to write.`
+      : `✅ Backfill applied — ${summary}.`,
+  });
+}
+
 export function handleSkillsList(msg: WSServerMessage) {
   const p = msg.payload as {
     enabled: boolean;
@@ -515,6 +582,9 @@ export const WS_HANDLERS: Partial<Record<WSServerMessage['type'], (msg: WSServer
     'memory.super.get': handleMemorySuperGet,
     'memory.super.update': handleMemorySuperUpdate,
     'memory.super.remember': handleMemorySuperRemember,
+    'memory.super.recover': handleMemorySuperRecover,
+    'memory.super.candidateResolve': handleMemorySuperCandidateResolve,
+    'memory.super.backfillRecoverable': handleMemorySuperBackfillRecoverable,
     'skills.list': handleSkillsList,
     'diag.get': handleDiagGet,
     'stats.get': handleStatsGet,

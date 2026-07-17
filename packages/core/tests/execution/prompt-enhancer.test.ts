@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  buildRefinerContextSections,
   enhanceUserPrompt,
   ENHANCER_SYSTEM_PROMPT,
   gatedEnhancerReasoning,
@@ -215,6 +216,35 @@ describe('enhanceUserPrompt', () => {
     expect(content).toContain('do the same for the other file');
   });
 
+  it('embeds project/session context and retry context in the same user message', async () => {
+    const complete = vi.fn(async () => textResponse('refined'));
+    const provider = makeProvider(complete);
+    await enhanceUserPrompt({
+      provider,
+      model: 'm',
+      text: 'make it cleaner',
+      contextSections: [
+        { title: 'Relevant project memory', items: ['Use pnpm for package commands.'] },
+      ],
+      previousRefinement: {
+        refined: 'Make the implementation cleaner.',
+        english: 'Make the implementation cleaner.',
+      },
+      retryFeedback: 'Make it more specific without expanding scope.',
+    });
+    const req = complete.mock.calls[0]![0] as Request;
+    expect(req.messages).toHaveLength(1);
+    const content = req.messages[0]!.content as string;
+    expect(content).toContain('Additional project/session context');
+    expect(content).toContain('Relevant project memory:');
+    expect(content).toContain('- Use pnpm for package commands.');
+    expect(content).toContain('Retry context');
+    expect(content).toContain('Previous refined version: Make the implementation cleaner.');
+    expect(content).toContain('Retry instruction: Make it more specific without expanding scope.');
+    expect(content).toContain('Latest message to refine:');
+    expect(content).toContain('make it cleaner');
+  });
+
   it('forwards a reasoning directive when supplied', async () => {
     const complete = vi.fn(async () => textResponse('refined'));
     const provider = makeProvider(complete);
@@ -292,6 +322,62 @@ describe('enhanceUserPrompt', () => {
     controller.abort();
     expect(await p).toBeNull();
     expect(onError).not.toHaveBeenCalled();
+  });
+});
+
+describe('buildRefinerContextSections', () => {
+  it('collects relevant memory and current session state', async () => {
+    const search = vi.fn(async () => []);
+    const memoryStore = {
+      search,
+      scoreRelevant: vi.fn(async () => [
+        {
+          scope: 'project-memory',
+          text: 'Use pnpm test filters for focused package checks.',
+          ts: '2026-01-01T00:00:00.000Z',
+          type: 'convention',
+          priority: 'high',
+          tags: ['tests'],
+          score: 0.9,
+          matchReason: 'test request',
+        },
+      ]),
+    } as never;
+
+    const sections = await buildRefinerContextSections({
+      text: 'fix the prompt refining tests',
+      memoryStore,
+      context: {
+        projectRoot: '/repo',
+        workingDir: '/repo/packages/core',
+        readFiles: new Set(['/repo/packages/core/src/execution/prompt-enhancer.ts']),
+        writtenFiles: new Set(['/repo/packages/core/tests/execution/prompt-enhancer.test.ts']),
+        todos: [
+          { content: 'Wire retry context into WebUI', status: 'completed' },
+          { content: 'Add focused tests for prompt refiner context', status: 'pending' },
+        ],
+      },
+    });
+
+    expect(search).not.toHaveBeenCalled();
+    expect(sections).toEqual([
+      {
+        title: 'Relevant project memory',
+        items: [
+          '[project-memory/convention/high] Use pnpm test filters for focused package checks. tags: tests',
+        ],
+      },
+      {
+        title: 'Current session state',
+        items: [
+          'project root: /repo',
+          'working dir: /repo/packages/core',
+          'recently read file: /repo/packages/core/src/execution/prompt-enhancer.ts',
+          'recently written file: /repo/packages/core/tests/execution/prompt-enhancer.test.ts',
+          'open todo (pending): Add focused tests for prompt refiner context',
+        ],
+      },
+    ]);
   });
 });
 

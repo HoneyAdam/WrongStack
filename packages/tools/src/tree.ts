@@ -39,10 +39,10 @@ export const treeTool: Tool<TreeInput, TreeOutput> = {
   name: 'tree',
   category: 'Filesystem',
   description:
-    'Display a directory tree of the project (or a subpath). This is the recommended way to explore the high-level structure of a codebase before reading specific files.',
+    'Display a project or subpath directory tree. Use it for structural layout; use index-backed `codebase-search` first for code understanding when it is live.',
   usageHint:
-    'BEST PRACTICE FOR INITIAL EXPLORATION:\n\n' +
-    '- Call early when working with an unfamiliar project or module.\n' +
+    'DIRECTORY-LAYOUT EXPLORATION:\n\n' +
+    '- When `codebase-search` is live, use it first for symbols and concepts; use `tree` when the directory hierarchy itself matters.\n' +
     '- Tune `depth` (default 3) and use `glob`/`exclude` to focus the view.\n' +
     '- Prefer this over raw `bash find` or `glob` + manual reading when you need a quick structural overview.\n' +
     'Output is truncated for very large trees.',

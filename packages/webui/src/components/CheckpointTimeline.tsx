@@ -8,6 +8,18 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from './ui/dial
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
+/**
+ * Raw checkpoint payload sent by the server (core's CheckpointInfo).
+ * Field names differ from the display interface — mapped on receipt.
+ */
+interface ServerCheckpoint {
+  promptIndex: number;
+  promptPreview: string;
+  ts: string;
+  fileCount: number;
+}
+
+/** Prepared checkpoint for rendering — fields match the JSX access patterns. */
 interface CheckpointInfo {
   index: number;
   iteration: number;
@@ -16,8 +28,22 @@ interface CheckpointInfo {
   label: string;
   /** Message count at this point. */
   messageCount: number;
-  /** Token count at this point. */
+  /** Token count at this point (not provided by server; defaults to 0). */
   tokens: number;
+  /** File count at this point. */
+  fileCount: number;
+}
+
+function mapCheckpoint(cp: ServerCheckpoint): CheckpointInfo {
+  return {
+    index: cp.promptIndex,
+    iteration: cp.promptIndex,
+    timestamp: cp.ts ?? '',
+    label: cp.promptPreview ?? '',
+    messageCount: 0,
+    tokens: 0,
+    fileCount: cp.fileCount ?? 0,
+  };
 }
 
 // ── Component ──────────────────────────────────────────────────────────────
@@ -50,8 +76,10 @@ export function CheckpointTimeline({
 
     offRef.current =
       ws.client.on?.('session.checkpoints', (msg: unknown) => {
-        const payload = (msg as { payload?: { checkpoints?: CheckpointInfo[] } })?.payload;
-        if (payload?.checkpoints) setCheckpoints(payload.checkpoints);
+        const payload = (msg as { payload?: { checkpoints?: ServerCheckpoint[] } })?.payload;
+        if (payload?.checkpoints) {
+          setCheckpoints(payload.checkpoints.map(mapCheckpoint));
+        }
       }) ?? null;
 
     return () => {
@@ -158,7 +186,7 @@ export function CheckpointTimeline({
                           {t('activity:checkpoint.msgSuffix', { count: cp.messageCount })}
                         </span>
                         <span className="opacity-50">·</span>
-                        <span className="tabular-nums">~{cp.tokens.toLocaleString()} tok</span>
+                        <span className="tabular-nums">{cp.fileCount ?? 0} files</span>
                         <span className="opacity-50">·</span>
                         <span className="tabular-nums">iter {cp.iteration}</span>
                       </div>

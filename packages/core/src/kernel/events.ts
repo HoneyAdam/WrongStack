@@ -5,8 +5,8 @@
 
 import type { AgentEventMap } from './events/agent-events.js';
 import type { BrainEventMap } from './events/brain-events.js';
-import type { FleetEventMap } from './events/fleet-events.js';
 import type { FileEventMap } from './events/file-events.js';
+import type { FleetEventMap } from './events/fleet-events.js';
 import type { MemoryEventMap } from './events/memory-events.js';
 import type { ProviderEventMap } from './events/provider-events.js';
 import type { SddEventMap } from './events/sdd-events.js';
@@ -33,6 +33,8 @@ export interface TrackedAgentSnapshot {
   startedAt?: string | undefined;
   status: string;
   currentTool?: string | undefined;
+  currentTask?: string | undefined;
+  taskId?: string | undefined;
   iterations: number;
   toolCalls: number;
   costUsd?: number | undefined;
@@ -41,6 +43,16 @@ export interface TrackedAgentSnapshot {
   ctxPct?: number | undefined;
   model?: string | undefined;
   partialText?: string | undefined;
+  todos?:
+    | Array<{
+        id: string;
+        content: string;
+        status: 'pending' | 'in_progress' | 'completed';
+        activeForm?: string | undefined;
+      }>
+    | undefined;
+  latestPrompt?: string | undefined;
+  latestPromptAt?: number | undefined;
   lastActivityAt: string;
 }
 

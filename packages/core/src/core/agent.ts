@@ -1,12 +1,9 @@
-import { ExtensionRegistry } from '../extension/registry.js';
 import { createHash } from 'node:crypto';
+import { ExtensionRegistry } from '../extension/registry.js';
 import type { Container } from '../kernel/container.js';
 import type { EventBus } from '../kernel/events.js';
 import { RunController } from '../kernel/run-controller.js';
 import { TOKENS } from '../kernel/tokens.js';
-import { createAgentToolHandler, type AgentToolHandler } from './agent-tools.js';
-import { createAgentResponseHandler, type AgentResponseHandler } from './agent-response.js';
-import { createAgentLoopHandler, signalAbortReason, type AgentLoopHandler } from './agent-loop.js';
 import type { ProviderRegistry } from '../registry/provider-registry.js';
 import type { ToolRegistry } from '../registry/tool-registry.js';
 import type { ErrorHandler } from '../types/error-handler.js';
@@ -19,31 +16,34 @@ import type { Renderer } from '../types/renderer.js';
 import type { RetryPolicy } from '../types/retry-policy.js';
 import type { Tool } from '../types/tool.js';
 import type { ToolExecutorLike } from '../types/tool-executor.js';
+import { type AgentLoopHandler, createAgentLoopHandler, signalAbortReason } from './agent-loop.js';
+import { type AgentResponseHandler, createAgentResponseHandler } from './agent-response.js';
+import { type AgentToolHandler, createAgentToolHandler } from './agent-tools.js';
 import {
+  type AgentInit,
+  type AgentInput,
+  type AgentPipelines,
   DEFAULT_MAX_ITERATIONS,
   normalizeInput,
-  resolveLoopDetection,
   type ResolvedLoopDetectionConfig,
   type RunResult,
-  type AgentInit,
-  type AgentPipelines,
-  type AgentInput,
+  resolveLoopDetection,
 } from './agent-types.js';
 import type { Context, RunOptions } from './context.js';
 
 // Re-export types and utilities from agent-types.ts for backward compatibility
 export {
+  type AgentInit,
+  type AgentInput,
+  type AgentPipelines,
+  createDefaultPipelines,
   DEFAULT_MAX_ITERATIONS,
   normalizeInput,
-  createDefaultPipelines,
-  resolveLoopDetection,
   type ResolvedLoopDetectionConfig,
   type RunResult,
-  type AgentInit,
-  type AgentPipelines,
-  type UserInputPayload,
-  type AgentInput,
+  resolveLoopDetection,
   type ToolCallPipelinePayload,
+  type UserInputPayload,
 } from './agent-types.js';
 
 export class Agent {
@@ -183,7 +183,8 @@ export class Agent {
     // simultaneous runs.
     if (this._runInProgress) {
       throw new AgentError({
-        message: 'Agent.run() is already in progress on this instance. Concurrent runs are not supported.',
+        message:
+          'Agent.run() is already in progress on this instance. Concurrent runs are not supported.',
         code: 'AGENT_RUN_FAILED',
         context: { phase: 'concurrency-guard' },
       });
@@ -192,9 +193,10 @@ export class Agent {
     // the immediately preceding submission.  Prevents terminal \r\n
     // re-entrancy, stuck-key bursts, and client-side resubmission loops
     // from firing duplicate runs back-to-back.
-    const inputText = typeof userInput === 'string'
-      ? userInput
-      : (userInput as { prompt?: string })?.prompt ?? '';
+    const inputText =
+      typeof userInput === 'string'
+        ? userInput
+        : ((userInput as { prompt?: string })?.prompt ?? '');
     if (inputText.length > 0) {
       const hash = createHash('sha256').update(inputText).digest('hex');
       if (hash === this._lastInputHash) {
@@ -249,9 +251,15 @@ export class Agent {
         ctx: this.ctx,
         model: opts.model ?? this.ctx.model,
         at: runStartedIso,
+        inputText: text,
       });
       const autonomousContinue = opts.autonomousContinue ?? this.autonomousContinue;
-      const result = await this._loopHandler.runInner(inputPayload, opts, controller, autonomousContinue);
+      const result = await this._loopHandler.runInner(
+        inputPayload,
+        opts,
+        controller,
+        autonomousContinue,
+      );
       span?.setAttribute('agent.status', result.status);
       span?.setAttribute('agent.iterations', result.iterations);
       await this.extensions.runAfterRun(this.ctx, result);
@@ -266,9 +274,7 @@ export class Agent {
       return result;
     } catch (err) {
       const wse = err instanceof AgentError ? err : toWrongStackError(err);
-      const safeError = err instanceof Error
-        ? new Error(err.message)
-        : new Error(String(err));
+      const safeError = err instanceof Error ? new Error(err.message) : new Error(String(err));
       this.events.emit('error', {
         sessionId,
         err: safeError,

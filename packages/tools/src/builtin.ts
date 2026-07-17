@@ -53,8 +53,7 @@ import { writeTool } from './write.js';
  * These tools are useful but not critical for core development flow:
  * package management (install/audit/outdated run once per session at most),
  * meta-tools (toolSearch/toolUse/batchToolUse/toolHelp duplicate built-in
- * model capabilities), indexing (background service), scaffolding, logging,
- * and auto-documentation.
+ * model capabilities), scaffolding, logging, and auto-documentation.
  */
 export const OPTIONAL_TOOLS: Tool[] = [
   ...browserTools,
@@ -69,27 +68,30 @@ export const OPTIONAL_TOOLS: Tool[] = [
   toolUseTool,
   batchToolUseTool,
   toolHelpTool,
-  codebaseIndexTool,
-  codebaseSearchTool,
-  codebaseStatsTool,
   setWorkingDirTool,
 ];
 
 /**
  * Tier 1 (Token Saving) tool set — the absolute minimum for useful work.
- * ~10 tools covering core file ops, shell, search, and utilities.
- * Saves ~4000-6000 tokens vs full mode by omitting 48 tools.
+ * 13 tools covering core file ops, indexed project discovery, shell, search,
+ * and utilities. Codebase index lifecycle tools stay available at every tier
+ * so token saving does not force broad filesystem scans.
+ * Saves ~3500-5500 tokens vs full mode by omitting specialized tools.
  *
  * Tier 1 tools:
- *   read, write, edit    — file operations
- *   bash, grep, glob     — shell + search
- *   diff, patch, json    — utility
- *   search              — web research
+ *   read, write, edit                         — file operations
+ *   codebase-stats, codebase-search/index     — indexed project discovery
+ *   bash, grep, glob                          — shell + exact/path fallback
+ *   diff, patch, json                         — utility
+ *   search                                   — web research
  */
 export const TIER1_TOOLS: Tool[] = [
   readTool,
   writeTool,
   editTool,
+  codebaseStatsTool,
+  codebaseSearchTool,
+  codebaseIndexTool,
   bashTool,
   grepTool,
   globTool,
@@ -132,8 +134,8 @@ export const TIER2_TOOLS: Tool[] = [
 
 /**
  * Tier 3 tool set — specialized/optional tools for specific workflows.
- * Adds 12 tools: outdated, logs, document, scaffold, toolSearch, toolUse,
- * batchToolUse, toolHelp, codebaseIndex, codebaseSearch, codebaseStats, setWorkingDir.
+ * Adds 9 tools: outdated, logs, document, scaffold, toolSearch, toolUse,
+ * batchToolUse, toolHelp, setWorkingDir.
  *
  * These tools are rarely used in typical development (once-per-session,
  * debugging, or one-time generation) and can be safely omitted in any
@@ -148,9 +150,6 @@ export const TIER3_TOOLS: Tool[] = [
   toolUseTool,
   batchToolUseTool,
   toolHelpTool,
-  codebaseIndexTool,
-  codebaseSearchTool,
-  codebaseStatsTool,
   setWorkingDirTool,
 ];
 
@@ -160,6 +159,9 @@ export const builtinTools: Tool[] = [
   readTool,
   writeTool,
   editTool,
+  codebaseStatsTool,
+  codebaseSearchTool,
+  codebaseIndexTool,
   replaceTool,
   globTool,
   grepTool,
@@ -194,8 +196,5 @@ export const builtinTools: Tool[] = [
   toolUseTool,
   batchToolUseTool,
   toolHelpTool,
-  codebaseIndexTool,
-  codebaseSearchTool,
-  codebaseStatsTool,
   setWorkingDirTool,
 ];

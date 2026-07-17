@@ -1056,6 +1056,9 @@ export class WrongStackWebSocketClient {
       timeoutMs?: number | undefined;
       provider?: string | undefined;
       model?: string | undefined;
+      previousRefined?: string | undefined;
+      previousEnglish?: string | undefined;
+      retryFeedback?: string | undefined;
     },
   ) {
     this.send({
@@ -1065,6 +1068,9 @@ export class WrongStackWebSocketClient {
         ...(opts?.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
         ...(opts?.provider !== undefined ? { provider: opts.provider } : {}),
         ...(opts?.model !== undefined ? { model: opts.model } : {}),
+        ...(opts?.previousRefined !== undefined ? { previousRefined: opts.previousRefined } : {}),
+        ...(opts?.previousEnglish !== undefined ? { previousEnglish: opts.previousEnglish } : {}),
+        ...(opts?.retryFeedback !== undefined ? { retryFeedback: opts.retryFeedback } : {}),
       },
     });
   }

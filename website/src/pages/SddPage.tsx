@@ -34,20 +34,20 @@ export function SddPage() {
       </section>
 
       <section className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10 lg:py-36">
-        <SectionIntro index="03" eyebrow="SDD vs AutoPhase" title="Interactive vs. autonomous — choose your control level." description="SDD pauses between phases so you can review and steer. AutoPhase runs all phases without asking. Checkpoints enable rollback in both." />
+        <SectionIntro index="03" eyebrow="SDD vs Goal" title="Interactive vs. autonomous — choose your control level." description="SDD pauses between phases so you can review and steer. Goal runs all phases without asking. Checkpoints enable rollback in both." />
         <div className="mt-12 grid gap-6 sm:grid-cols-2">
           <div className="rounded-2xl border border-line bg-card p-7">
             <h2 className="text-xl font-black text-fg">SDD</h2>
             <ul className="mt-4 space-y-2">{['You review each phase before it runs','Works in the current working tree','Phase state persists in the session','Ideal for focused, single-concern tasks','Can skip or re-run individual phases'].map((item) => (<li key={item} className="flex items-start gap-2 text-sm leading-6 text-muted"><Check className="mt-1 size-3.5 shrink-0 text-brand" />{item}</li>))}</ul>
           </div>
           <div className="rounded-2xl border border-line bg-card p-7">
-            <h2 className="text-xl font-black text-fg">AutoPhase</h2>
+            <h2 className="text-xl font-black text-fg">Goal</h2>
             <ul className="mt-4 space-y-2">{['Runs all phases without pausing','Uses git worktrees for isolation','Checkpoints enable rollback','Best for complex, multi-day efforts','Goal tracking across sessions'].map((item) => (<li key={item} className="flex items-start gap-2 text-sm leading-6 text-muted"><Check className="mt-1 size-3.5 shrink-0 text-brand" />{item}</li>))}</ul>
           </div>
         </div>
       </section>
 
-      <PageNext label="AutoPhase" title="Let the agent drive across worktrees" body="Fully autonomous phased work with worktree isolation, checkpoints, and rollback." href="/autophase" />
+      <PageNext label="Goal" title="Let the agent drive across worktrees" body="Fully autonomous phased work with worktree isolation, checkpoints, and rollback." href="/goal" />
     </>
   );
 }

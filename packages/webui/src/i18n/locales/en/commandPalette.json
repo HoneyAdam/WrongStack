@@ -41,11 +41,11 @@
     "soundOn": "Sound on completion: ON — turn off",
     "soundOff": "Sound on completion: OFF — turn on",
     "soundHint": "Chime when a run finishes",
-    "autophaseOpen": "Open AutoPhase view",
+    "goalOpen": "Open Goal view",
     "autoOn": "Autonomous mode: ON — disable",
     "autoOff": "Autonomous mode: OFF — enable",
     "autoHint": "Toggle autonomous phase execution",
-    "autophaseStop": "Stop AutoPhase",
+    "goalStop": "Stop Goal",
     "resume": "Resume: {{title}}",
     "emptyTitle": "(empty)"
   }

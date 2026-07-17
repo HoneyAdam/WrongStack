@@ -159,7 +159,7 @@ Last updated: 2026-06-26
 ### Phase Monitor/Panel (F7)
 - **Phase list**: phase name, status, progress
 - **Task assignments**: agent → phase → task mapping
-- **AutoPhase**: autonomous phase orchestration with timeline
+- **Goal**: autonomous phase orchestration with timeline
 
 ---
 

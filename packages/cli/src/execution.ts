@@ -15,7 +15,7 @@
  * one concern and mutates shared state through `TuiRuntimeState`:
  *
  *   boot/tui-runtime-state.ts            — shared mutable context type
- *   boot/tui-autophase-wiring.ts         — AutoPhase event forwarding
+ *   boot/tui-goal-wiring.ts         — Goal event forwarding
  *   boot/tui-coordinator-setup.ts        — AutonomousCoordinator factory + lifecycle hook
  *   boot/tui-project-switch.ts           — switchProjectInPlace (re-root live process)
  *   boot/tui-project-spawn.ts            — post-runTui project-switch spawn
@@ -53,7 +53,7 @@ import { createToolVisionAdapters } from '@wrongstack/runtime/vision';
 import { runSingleShotDispatch } from './boot/dispatch-singleshot.js';
 import { runWebUIDispatch } from './boot/dispatch-webui.js';
 import { createKanbanRunMirror } from './webui-server/kanban-run-mirror.js';
-import { wireAutoPhase } from './boot/tui-autophase-wiring.js';
+import { wireGoal } from './boot/tui-goal-wiring.js';
 import { setupAutonomousCoordinator } from './boot/tui-coordinator-setup.js';
 import { registerDebugStreamCallback, restoreDebugStreamCallback } from './boot/tui-debug-stream.js';
 import { getLiveSessions, onSwitchToSession } from './boot/tui-live-sessions.js';
@@ -607,11 +607,11 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
       const banneredKeyTail =
         banneredKey && banneredKey.length >= 3 ? banneredKey.slice(-3) : undefined;
 
-      // AutoPhase event forwarding — subscribes to PhaseOrchestrator events
+      // Goal event forwarding — subscribes to PhaseOrchestrator events
       // on the main EventBus and forwards them to the TUI handler so the
       // PhaseMonitor/PhasePanel stay in sync with the running graph.
-      const autoPhaseWiring = wireAutoPhase(events);
-      const subscribeAutoPhase = autoPhaseWiring.subscribe;
+      const goalWiring = wireGoal(events);
+      const subscribeGoal = goalWiring.subscribe;
 
       // Special exit code for project switch — triggers a clean wstack restart
       // in the target project directory after the TUI unmounts.
@@ -749,7 +749,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
           onSddLifecycle,
           subscribeEternalIteration,
           subscribeEternalStage,
-          subscribeAutoPhase,
+          subscribeGoal,
           appVersion: CLI_VERSION,
           provider: config.provider,
           family: banneredFamily,

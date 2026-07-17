@@ -3,6 +3,7 @@ import type { SubagentEvent } from '@/stores';
 import { useFleetStore, useMonitorStore, useWorktreeStore } from '@/stores';
 import { useVizStore, wsToVizEvent } from '@/stores/viz-store';
 import type { WorktreeHandleView, WorktreeOrphanView, WSServerMessage } from '@/types';
+import { queryMailbox } from './files-mailbox-handlers.js';
 
 export function handleWorktreeState(msg: WSServerMessage) {
   const p = msg.payload as { worktrees: WorktreeHandleView[]; baseBranch: string };
@@ -91,6 +92,13 @@ export function handleSessionsStatusUpdate(msg: WSServerMessage) {
   // fs.watch (150ms debounce) + push-on-write cascade causes the viz graph to
   // churn constantly, making it impossible to read.
   const now = Date.now();
+  // The project mailbox is cross-process, while mailbox events are emitted by
+  // the process that performed the write. Refresh alongside the shared fleet
+  // heartbeat so this WebUI discovers other terminals' agents and mail too.
+  if (now - lastMailboxRefresh >= 5_000) {
+    lastMailboxRefresh = now;
+    queryMailbox();
+  }
   if (now - lastVizSnapshot < 1000) return;
   lastVizSnapshot = now;
 
@@ -103,6 +111,7 @@ export function handleSessionsStatusUpdate(msg: WSServerMessage) {
 
 /** Throttle gate for viz-store fleet snapshot updates. */
 let lastVizSnapshot = 0;
+let lastMailboxRefresh = 0;
 
 export const fleetHandlerMap: Partial<Record<string, (msg: WSServerMessage) => void>> = {
   'worktree.state': handleWorktreeState,

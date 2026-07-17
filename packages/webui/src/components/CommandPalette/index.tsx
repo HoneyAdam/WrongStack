@@ -35,7 +35,7 @@ import { streamCoalescer } from '@/lib/stream-coalescer';
 import { cn } from '@/lib/utils';
 import { navigateToView, openMainView, showPanel } from '@/lib/view-navigation';
 import {
-  useAutoPhaseStore,
+  useGoalRunStore,
   useChatStore,
   useConfigStore,
   useHistoryStore,
@@ -292,36 +292,36 @@ export function CommandPalette() {
           if (next) playCompletionChime();
         },
       },
-      // AutoPhase commands
+      // Goal commands
       {
-        id: 'autophase-open',
+        id: 'goal-open',
         category: 'Command',
-        label: t('commandPalette:cmd.autophaseOpen'),
+        label: t('commandPalette:cmd.goalOpen'),
         icon: Rocket,
-        keywords: ['autophase', 'autonomous', 'phases', 'rocket'],
-        run: () => openMainView('autophase'),
+        keywords: ['goal', 'autonomous', 'phases', 'rocket'],
+        run: () => openMainView('goal'),
       },
       {
-        id: 'autophase-toggle',
+        id: 'goal-toggle',
         category: 'Command',
-        label: useAutoPhaseStore.getState().autonomous
+        label: useGoalRunStore.getState().autonomous
           ? t('commandPalette:cmd.autoOn')
           : t('commandPalette:cmd.autoOff'),
-        icon: useAutoPhaseStore.getState().autonomous ? Pause : Play,
+        icon: useGoalRunStore.getState().autonomous ? Pause : Play,
         hint: t('commandPalette:cmd.autoHint'),
-        keywords: ['autonomous', 'autophase', 'auto', 'pause', 'resume'],
+        keywords: ['autonomous', 'goal', 'auto', 'pause', 'resume'],
         run: () => {
-          const next = !useAutoPhaseStore.getState().autonomous;
-          ws.toggleAutoPhaseAutonomous(next);
+          const next = !useGoalRunStore.getState().autonomous;
+          ws.toggleGoalAutonomous(next);
         },
       },
       {
-        id: 'autophase-stop',
+        id: 'goal-stop',
         category: 'Command',
-        label: t('commandPalette:cmd.autophaseStop'),
+        label: t('commandPalette:cmd.goalStop'),
         icon: Square,
-        keywords: ['autophase', 'stop', 'autonomous', 'end'],
-        run: () => ws.stopAutoPhase(),
+        keywords: ['goal', 'stop', 'autonomous', 'end'],
+        run: () => ws.stopGoal(),
       },
     ];
 

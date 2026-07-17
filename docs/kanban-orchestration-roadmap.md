@@ -270,7 +270,7 @@ Make task completion mean accepted work, not just a successful subagent return.
 
 ### Purpose
 
-Use Kanban as the runtime representation for SDD/AutoPhase-style multi-phase
+Use Kanban as the runtime representation for SDD/Goal-style multi-phase
 work.
 
 ### Work items

@@ -71,8 +71,8 @@ const AcpPage = lazy(async () => ({ default: (await import('@/pages/AcpPage')).A
 const SupervisorPage = lazy(async () => ({
   default: (await import('@/pages/SupervisorPage')).SupervisorPage,
 }));
-const AutophasePage = lazy(async () => ({
-  default: (await import('@/pages/AutophasePage')).AutophasePage,
+const GoalPage = lazy(async () => ({
+  default: (await import('@/pages/GoalPage')).GoalPage,
 }));
 const EnsemblePage = lazy(async () => ({
   default: (await import('@/pages/EnsemblePage')).EnsemblePage,
@@ -160,7 +160,7 @@ const pages = {
   '/shadow-agent': ShadowAgentPage,
   '/acp': AcpPage,
   '/supervisor': SupervisorPage,
-  '/autophase': AutophasePage,
+  '/goal': GoalPage,
   '/ensemble': EnsemblePage,
   '/hq': HqPage,
   '/telegram': TelegramPage,

@@ -94,7 +94,7 @@ export function Composer({
   onRemoveImage,
   visionSupported,
 }: ComposerProps) {
-  const empty = !draft.trim() && fileRefs.length === 0;
+  const empty = !draft.trim() && fileRefs.length === 0 && attachedImages.length === 0;
   const offline = connection !== 'open';
   // While the refine panel owns the text, the composer must not accept a
   // second submit for the same message.

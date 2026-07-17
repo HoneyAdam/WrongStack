@@ -1,16 +1,16 @@
 /**
- * KanbanRunMirror — projects live AutoPhase / SDD runs into `@wrongstack/kanban`
+ * KanbanRunMirror — projects live Goal / SDD runs into `@wrongstack/kanban`
  * boards so the kanban view becomes the unified LIVE surface for both engines.
  *
  * It is fed two ways (both in the CLI-hosted webui-server process, the only
  * place with the shared EventBus + both live handlers):
  *   - SDD: subscribe to `sdd.board.snapshot` on the shared bus.
- *   - AutoPhase: a callback tap on `AutoPhaseWebSocketHandler` (that orchestrator
+ *   - Goal: a callback tap on `GoalWebSocketHandler` (that orchestrator
  *     does NOT emit PhaseEventMap on the bus), delivering its `buildState()`.
  *
  * Each run maps to ONE kanban board. Linkage lives in board TAGS (not
  * generatedBy, which `syncBoardFromTaskGraph` overwrites):
- *   ['sdd', 'run:<runId>', 'graph:<graphId>']  or  ['autophase', 'graph:<graphId>']
+ *   ['sdd', 'run:<runId>', 'graph:<graphId>']  or  ['goal', 'graph:<graphId>']
  *
  * Reconcile per tick is a two-pass, both idempotent:
  *   1. `syncBoardFromTaskGraph` — structure + status→column + deps + origin-keyed
@@ -40,7 +40,7 @@ import {
 } from '@wrongstack/kanban';
 import type { SddBoardSnapshot, SddBoardTask } from '@wrongstack/sdd';
 
-type Engine = 'sdd' | 'autophase';
+type Engine = 'sdd' | 'goal';
 
 interface WSServerMessage {
   type: string;
@@ -54,8 +54,8 @@ export interface KanbanRunMirrorDeps {
   log?: ((msg: string) => void) | undefined;
 }
 
-/** Loose shape of the AutoPhase `buildState()` projection we consume. */
-interface AutophaseState {
+/** Loose shape of the Goal `buildState()` projection we consume. */
+interface GoalState {
   title?: string;
   goal?: string;
   phases?: Array<{
@@ -76,16 +76,16 @@ interface AutophaseState {
 }
 
 export interface KanbanRunMirror {
-  /** AutoPhase tap — the handler's `onBoardState(graphId, state)` callback. */
-  onAutophaseState(graphId: string, state: Record<string, unknown>): void;
+  /** Goal tap — the handler's `onBoardState(graphId, state)` callback. */
+  onGoalState(graphId: string, state: Record<string, unknown>): void;
   /** Bind a runId to a specific board (used by launch-from-board, phase 4). */
   bind(engine: Engine, key: string, boardId: string): void;
   /**
-   * One-shot: the NEXT AutoPhase run whose graphId we haven't seen binds to this
+   * One-shot: the NEXT Goal run whose graphId we haven't seen binds to this
    * board instead of creating a new one. Used by launch-from-board — the graphId
    * is only known after the async build, so we can't `bind()` up front.
    */
-  bindAutophaseNext(boardId: string): void;
+  bindGoalNext(boardId: string): void;
   dispose(): void;
 }
 
@@ -95,10 +95,10 @@ export function createKanbanRunMirror(deps: KanbanRunMirrorDeps): KanbanRunMirro
   const { projectRoot, events, broadcast } = deps;
   const log = deps.log ?? (() => {});
 
-  // engine:key → boardId (key = runId for sdd, graphId for autophase).
+  // engine:key → boardId (key = runId for sdd, graphId for goal).
   const boards = new Map<string, string>();
-  // One-shot board id for the next launched AutoPhase run (graphId unknown yet).
-  let pendingAutophaseBoardId: string | undefined;
+  // One-shot board id for the next launched Goal run (graphId unknown yet).
+  let pendingGoalBoardId: string | undefined;
   // engine:key → content stamp of the last projected state (skip-if-unchanged).
   const stamps = new Map<string, string>();
   const pending = new Map<string, () => Promise<void>>();
@@ -134,7 +134,7 @@ export function createKanbanRunMirror(deps: KanbanRunMirrorDeps): KanbanRunMirro
     if (existing) return existing;
     // Reclaim a board written on a previous mirror lifetime (restart-during-run):
     // scan disk for one carrying every distinguishing tag before minting a new
-    // one. Matters more now that AutoPhase fans out to one board PER PHASE — a
+    // one. Matters more now that Goal fans out to one board PER PHASE — a
     // restart would otherwise duplicate every phase board.
     if (matchTags?.length) {
       const found = (await listBoards(projectRoot)).find((b) =>
@@ -150,7 +150,7 @@ export function createKanbanRunMirror(deps: KanbanRunMirrorDeps): KanbanRunMirro
     return board.id;
   }
 
-  // Reconcile one graph (a whole SDD run, or one AutoPhase phase) into the board.
+  // Reconcile one graph (a whole SDD run, or one Goal phase) into the board.
   async function syncGraph(
     boardId: string,
     graph: SerializedTaskGraph,
@@ -224,19 +224,19 @@ export function createKanbanRunMirror(deps: KanbanRunMirrorDeps): KanbanRunMirro
     await publish(final);
   }
 
-  // ── AutoPhase ──────────────────────────────────────────────────────────
+  // ── Goal ──────────────────────────────────────────────────────────
   // Phased work spreads across ONE board PER PHASE — never a single crowded
   // board. All phase boards share a `run:<graphId>` tag (so the frontend groups
   // them under one run) and each carries its own `phase:<phaseId>` tag + a
   // "<run> — <phase>" title. Control (pause/resume/stop, per-task retry/reassign)
   // is run-level, so it works identically from any phase board.
-  async function projectAutophase(graphId: string, state: AutophaseState): Promise<void> {
-    const k = mapKey('autophase', graphId);
-    const stamp = autophaseStamp(state);
+  async function projectGoal(graphId: string, state: GoalState): Promise<void> {
+    const k = mapKey('goal', graphId);
+    const stamp = goalStamp(state);
     if (stamps.get(k) === stamp) return;
     stamps.set(k, stamp);
 
-    const runTitle = state.title || `AutoPhase ${graphId}`;
+    const runTitle = state.title || `Goal ${graphId}`;
     const phases = state.phases ?? [];
 
     for (let i = 0; i < phases.length; i++) {
@@ -244,23 +244,23 @@ export function createKanbanRunMirror(deps: KanbanRunMirrorDeps): KanbanRunMirro
       if (!phase) continue;
       const phaseKey = `${graphId}:${phase.id}`;
       const phaseName = phase.name || `Phase ${i + 1}`;
-      const tags = ['autophase', `run:${graphId}`, `graph:${graphId}`, `phase:${phase.id}`];
+      const tags = ['goal', `run:${graphId}`, `graph:${graphId}`, `phase:${phase.id}`];
       const title = `${runTitle} — ${phaseName}`;
       // A board-launched run's one-shot binding attaches to the FIRST phase.
-      if (i === 0 && !boards.has(mapKey('autophase', phaseKey)) && pendingAutophaseBoardId) {
-        boards.set(mapKey('autophase', phaseKey), pendingAutophaseBoardId);
-        pendingAutophaseBoardId = undefined;
+      if (i === 0 && !boards.has(mapKey('goal', phaseKey)) && pendingGoalBoardId) {
+        boards.set(mapKey('goal', phaseKey), pendingGoalBoardId);
+        pendingGoalBoardId = undefined;
       }
-      const boardId = await resolveBoardId('autophase', phaseKey, title, tags, [
+      const boardId = await resolveBoardId('goal', phaseKey, title, tags, [
         `graph:${graphId}`,
         `phase:${phase.id}`,
       ]);
-      const graph = buildTaskGraphFromAutophasePhase(graphId, title, phase);
-      const board = await syncGraph(boardId, graph, 'autophase', tags, phase.id);
+      const graph = buildTaskGraphFromGoalPhase(graphId, title, phase);
+      const board = await syncGraph(boardId, graph, 'goal', tags, phase.id);
 
       const live: Array<{ taskId: string; phaseId: string; assignment: DesiredAssignment }> = [];
       for (const t of phase.tasks ?? []) {
-        const a = desiredAssignmentFromAutophase(t);
+        const a = desiredAssignmentFromGoal(t);
         if (a) live.push({ taskId: t.id, phaseId: phase.id, assignment: a });
       }
       const final = await overlayAssignments(boardId, live, board);
@@ -279,15 +279,15 @@ export function createKanbanRunMirror(deps: KanbanRunMirrorDeps): KanbanRunMirro
   }
 
   return {
-    onAutophaseState(graphId, state) {
+    onGoalState(graphId, state) {
       if (!graphId) return;
-      schedule('autophase', graphId, () => projectAutophase(graphId, state as AutophaseState));
+      schedule('goal', graphId, () => projectGoal(graphId, state as GoalState));
     },
     bind(engine, key, boardId) {
       boards.set(mapKey(engine, key), boardId);
     },
-    bindAutophaseNext(boardId) {
-      pendingAutophaseBoardId = boardId;
+    bindGoalNext(boardId) {
+      pendingGoalBoardId = boardId;
     },
     dispose() {
       unsub?.();
@@ -341,13 +341,13 @@ export function buildTaskGraphFromSddSnapshot(snapshot: SddBoardSnapshot): Seria
   );
 }
 
-type AutophasePhase = NonNullable<AutophaseState['phases']>[number];
+type GoalPhase = NonNullable<GoalState['phases']>[number];
 
-/** Build a serialized TaskGraph for one AutoPhase phase (graph.id = RUN graphId; phase scoped via sync phaseId). */
-export function buildTaskGraphFromAutophasePhase(
+/** Build a serialized TaskGraph for one Goal phase (graph.id = RUN graphId; phase scoped via sync phaseId). */
+export function buildTaskGraphFromGoalPhase(
   graphId: string,
   title: string,
-  phase: AutophasePhase,
+  phase: GoalPhase,
 ): SerializedTaskGraph {
   const tasks = phase.tasks ?? [];
   const nodes: TaskNode[] = tasks.map((t, i) => ({
@@ -408,7 +408,7 @@ function desiredAssignmentFromSdd(t: SddBoardTask): DesiredAssignment | null {
   };
 }
 
-function desiredAssignmentFromAutophase(t: {
+function desiredAssignmentFromGoal(t: {
   status: TaskNode['status'];
   assignee?: string;
   startedAt?: number;
@@ -472,7 +472,7 @@ function sddStamp(s: SddBoardSnapshot): string {
     .join('|');
 }
 
-function autophaseStamp(state: AutophaseState): string {
+function goalStamp(state: GoalState): string {
   return (state.phases ?? [])
     .flatMap((p) => (p.tasks ?? []).map((t) => `${t.id}:${t.status}:${t.assignee ?? ''}`))
     .join('|');

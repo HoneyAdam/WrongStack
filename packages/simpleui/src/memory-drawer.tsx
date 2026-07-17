@@ -67,8 +67,20 @@ export function MemoryDrawer({ socketRef }: MemoryDrawerProps) {
         setLoading(false);
         return;
       }
-      const memories = Array.isArray(payload?.['memories']) ? payload['memories'] : [];
-      setResults(memories as MemoryEntry[]);
+      // Server sends three buckets (primaryMatches / symbolMatches / relatedMatches),
+      // each containing MemoryForFileMatch objects with a nested `memory` property.
+      const primary = Array.isArray(payload?.['primaryMatches'])
+        ? (payload!['primaryMatches'] as Record<string, unknown>[])
+        : [];
+      const symbol = Array.isArray(payload?.['symbolMatches'])
+        ? (payload!['symbolMatches'] as Record<string, unknown>[])
+        : [];
+      const related = Array.isArray(payload?.['relatedMatches'])
+        ? (payload!['relatedMatches'] as Record<string, unknown>[])
+        : [];
+      const matches = [...primary, ...symbol, ...related];
+      const memories = matches.map((m) => (m['memory'] as Record<string, unknown> | undefined) ?? m) as unknown as MemoryEntry[];
+      setResults(memories);
       setLoading(false);
     };
 

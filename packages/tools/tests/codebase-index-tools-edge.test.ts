@@ -19,7 +19,7 @@ const statsValue = {
   totalFiles: 2,
   byLang: { ts: 5 },
   byKind: { function: 5 },
-  lastIndexed: 1,
+  lastIndexed: 1 as number | null,
   sizeBytes: 100,
   indexPath: '/x',
   version: 1,
@@ -60,6 +60,9 @@ beforeEach(() => {
   state.circuit = { state: 'closed', cooldownRemainingMs: 0 };
   isIndexingValue = false;
   circuitSnapshot = { state: 'closed', cooldownRemainingMs: 0 };
+  statsValue.totalSymbols = 5;
+  statsValue.totalFiles = 2;
+  statsValue.lastIndexed = 1;
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -93,10 +96,9 @@ describe('codebase-stats tool gates', () => {
     state.ready = false;
     statsValue.totalSymbols = 0;
     statsValue.totalFiles = 0;
+    statsValue.lastIndexed = null;
     const out = await codebaseStatsTool.execute({}, ctx(), opts());
-    // The tool now always inspects persisted state, so a fresh launch with
-    // an empty DB reads zero counts without surfacing a status.
-    expect(out.indexStatus).toBeUndefined();
+    expect(out.indexStatus).toMatch(/No persisted index data.*codebase-index/);
     expect(out.totalSymbols).toBe(0);
   });
 
@@ -139,8 +141,17 @@ describe('codebase-stats tool gates', () => {
 describe('codebase-search tool gates', () => {
   it('reports no persisted data when not ready and DB is empty', async () => {
     state.ready = false;
+    statsValue.totalSymbols = 0;
+    statsValue.totalFiles = 0;
+    statsValue.lastIndexed = null;
     const out = await codebaseSearchTool.execute({ query: 'q' }, ctx(), opts());
     expect(out.indexStatus).toMatch(/No persisted index data/);
+  });
+
+  it('does not mistake a zero-hit persisted snapshot for a missing index', async () => {
+    state.ready = false;
+    const out = await codebaseSearchTool.execute({ query: 'q' }, ctx(), opts());
+    expect(out.indexStatus).toBeUndefined();
   });
 
   it('reports indexing-in-progress when not ready but indexing', async () => {

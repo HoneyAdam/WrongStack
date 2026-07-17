@@ -4,7 +4,7 @@
  * Phase 1a of the god-module split (issue: God-modules >1500 lines).
  * `startWebUI` in `./index.ts` previously inlined the construction of
  * 13 `*Routes` records (provider / session / project / mode / prefs /
- * shell-git / mailbox / mcp / brain / autophase / specs / sdd-board /
+ * shell-git / mailbox / mcp / brain / goal / specs / sdd-board /
  * sdd-wizard). They totalled 947 lines — the bulk of the file — and
  * were glued together by closure capture of mutable state (config,
  * projectRoot, workingDir, session, …).
@@ -47,6 +47,7 @@ import type {
   ToolRegistry,
 } from '@wrongstack/core';
 import {
+  buildRefinerContextSections,
   type EnhanceFailureKind,
   enhanceUserPrompt,
   gatedEnhancerReasoning,
@@ -63,8 +64,8 @@ type Session = Awaited<ReturnType<SessionStore['create']>>;
 import type { Config } from '@wrongstack/core/types';
 import type { MCPRegistry } from '@wrongstack/mcp';
 import { makeProviderFromConfig } from '@wrongstack/providers';
-import type { AutoPhaseRouteHandlers } from './autophase-routes.js';
-import type { AutoPhaseWebSocketHandler } from './autophase-ws-handler.js';
+import type { GoalRouteHandlers } from './goal-routes.js';
+import type { GoalWebSocketHandler } from './goal-ws-handler.js';
 import { patchConfig } from './boot.js';
 import type { BrainRouteHandlers } from './brain-routes.js';
 import type { CollaborationWebSocketHandler } from './collaboration-ws-handler.js';
@@ -244,8 +245,8 @@ export interface WebuiDeps {
   httpPort: number;
   wssPrimary: WebSocketServer;
   wssSecondary: WebSocketServer | null;
-  /** Per-feature WS handlers (autophase, specs, sdd-board, sdd-wizard, …). */
-  autoPhaseHandler: AutoPhaseWebSocketHandler;
+  /** Per-feature WS handlers (goal, specs, sdd-board, sdd-wizard, …). */
+  goalHandler: GoalWebSocketHandler;
   specsHandler: SpecsWebSocketHandler;
   sddBoardHandler: SddBoardWebSocketHandler;
   sddWizardHandler: SddWizardWebSocketHandler;
@@ -311,7 +312,7 @@ export interface AllRoutes {
   mailboxRoutes: MailboxRouteHandlers;
   mcpRoutes: McpRouteHandlers;
   brainRoutes: BrainRouteHandlers;
-  autoPhaseRoutes: AutoPhaseRouteHandlers;
+  goalRoutes: GoalRouteHandlers;
   specsRoutes: SpecsRouteHandlers;
   sddBoardRoutes: SddBoardRouteHandlers;
   sddWizardRoutes: SddWizardRouteHandlers;
@@ -515,6 +516,9 @@ export function buildRoutes(
             timeoutMs?: number;
             provider?: string;
             model?: string;
+            previousRefined?: string;
+            previousEnglish?: string;
+            retryFeedback?: string;
           };
         }
       ).payload;
@@ -572,6 +576,11 @@ export function buildRoutes(
           : baseTimeout;
       try {
         const history = recentTextTurns(deps.context.messages);
+        const contextSections = await buildRefinerContextSections({
+          text,
+          memoryStore: deps.memoryStore,
+          context: deps.context,
+        });
         // Gate a low-effort reasoning hint to the chosen model's capabilities.
         // Refinement is a shallow rewrite, so this trims wasted thinking on
         // reasoning models; resolves to undefined → no reasoning field.
@@ -588,6 +597,16 @@ export function buildRoutes(
           model,
           text,
           history,
+          contextSections,
+          ...(payload.previousRefined
+            ? {
+                previousRefinement: {
+                  refined: payload.previousRefined,
+                  english: payload.previousEnglish || payload.previousRefined,
+                },
+              }
+            : {}),
+          ...(payload.retryFeedback ? { retryFeedback: payload.retryFeedback } : {}),
           timeoutMs,
           ...(reasoning ? { reasoning } : {}),
           onError: (reason: unknown, kind?: EnhanceFailureKind) => {
@@ -1054,8 +1073,8 @@ export function buildRoutes(
     },
   };
 
-  const autoPhaseRoutes: AutoPhaseRouteHandlers = {
-    handleMessage: (msg) => deps.autoPhaseHandler.handleMessage(msg),
+  const goalRoutes: GoalRouteHandlers = {
+    handleMessage: (msg) => deps.goalHandler.handleMessage(msg),
   };
 
   const specsRoutes: SpecsRouteHandlers = {
@@ -1080,7 +1099,7 @@ export function buildRoutes(
     mailboxRoutes,
     mcpRoutes,
     brainRoutes,
-    autoPhaseRoutes,
+    goalRoutes,
     specsRoutes,
     sddBoardRoutes,
     sddWizardRoutes,

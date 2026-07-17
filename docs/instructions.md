@@ -22,7 +22,7 @@ Use Markdown for the common system prompt sections:
 - `llm/*.md` — internal helper LLM system prompts.
 - `coordination/*.md` — Director and subagent baseline prompt blocks.
 - `autonomy/*.md` — long-running autonomy loop prompt templates.
-- `autophase/*.md` — autonomous phase-planning templates.
+- `goal/*.md` — autonomous phase-planning templates.
 - `sdd/*.md` — SDD helper prompt templates.
 - `security-scanner/*.md` — security scanner LLM prompt templates.
 - `cli/*.md` — CLI helper LLM prompt templates.
@@ -108,7 +108,7 @@ Director and autonomy templates are also file-backed:
 - `coordination/subagent-baseline.md`
 - `autonomy/active-mission.md`
 - `autonomy/goal-preamble.md`
-- `autophase/phase-planner.md`
+- `goal/phase-planner.md`
 - `sdd/decompose-task.md`
 - `sdd/merge-conflict-resolver.md`
 - `security-scanner/generate-skill.md`

@@ -23,10 +23,10 @@ export const globTool: Tool<GlobInput, GlobOutput> = {
   name: 'glob',
   category: 'Filesystem',
   description:
-    'Find files matching a glob pattern. Fast way to discover relevant files before reading, grepping, or editing them.',
+    'Find files by path pattern. Use index-backed `codebase-search` first for code symbols or concepts when it is live.',
   usageHint:
-    'RECOMMENDED FOR SCOPING SEARCHES:\n\n' +
-    '- Use early to get a list of files you actually care about.\n' +
+    'PATH DISCOVERY AND SEARCH SCOPING:\n\n' +
+    '- When `codebase-search` is live, use it first for code concepts; use `glob` for filenames, path patterns, and non-indexed files.\n' +
     '- Combine with `path` and `limit`.\n' +
     '- Default ignores common build/dependency directories.\n' +
     'Much more efficient than shell `find` for most use cases inside the agent.',

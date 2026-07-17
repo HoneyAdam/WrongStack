@@ -23,7 +23,7 @@ describe('constants', () => {
   });
 
   it('DESKTOP_COMMAND_DOCKS contains dock section names', () => {
-    expect(DESKTOP_COMMAND_DOCKS.has('autophase')).toBe(true);
+    expect(DESKTOP_COMMAND_DOCKS.has('goal')).toBe(true);
     expect(DESKTOP_COMMAND_DOCKS.has('fleet')).toBe(true);
     expect(DESKTOP_COMMAND_DOCKS.size).toBe(6);
   });

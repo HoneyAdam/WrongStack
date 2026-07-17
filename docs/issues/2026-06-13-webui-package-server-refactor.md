@@ -18,7 +18,7 @@ modules live under `server/`:
 
 ```
 server/
-  autophase-ws-handler.ts          424 lines
+  goal-ws-handler.ts          424 lines
   boot.ts                           35 lines
   collaboration-ws-handler.ts     853 lines
   custom-context-modes.ts          166 lines
@@ -50,7 +50,7 @@ What's left in `index.ts` after those extractions:
 
 - the **central `handleMessage` switch** with 3,000+ lines of `case`
   arms covering ~50 distinct WebSocket message types (agent, brain,
-  session, worktree, autophase, mailbox, files, memory, goal, plan,
+  session, worktree, goal, mailbox, files, memory, goal, plan,
   tasks, todos, tools, fleet, mode, config, cost, token, checkpoint,
   …)
 - the boot/serve wiring that composes the sibling handlers
@@ -107,7 +107,7 @@ exported `handleMessage` function). The test should:
 
 - Spawn `httpServer` on port 0 with a stub `WsServerContext`.
 - For each message type (`agent.resume`, `brain.ask`, `session.list`,
-  `provider.add`, `mailbox.send`, `worktree.list`, `autophase.tick`,
+  `provider.add`, `mailbox.send`, `worktree.list`, `goal.tick`,
   `files.read`, `memory.remember`, `goal.set`, `plan.add`,
   `tasks.advance`, `todos.toggle`, `tools.list`, `fleet.status`,
   `mode.set`, `config.read`, `cost.compute`, `token.estimate`,
@@ -194,7 +194,7 @@ mechanical extraction.
 this into separate `plan.ts` / `tasks.ts` / `todos.ts` /
 `goal.ts` / `checkpoint.ts` dispatchers in a follow-up PR.)
 
-### PR 6 — `server/dispatch/{config,mode,cost,token,tools,fleet,mailbox,worktree,autophase,files,memory}.ts` (low risk)
+### PR 6 — `server/dispatch/{config,mode,cost,token,tools,fleet,mailbox,worktree,goal,files,memory}.ts` (low risk)
 
 Extract the remaining topic groups into a single
 `server/dispatch/misc.ts` module, since each is < 200 lines and
@@ -234,7 +234,7 @@ so contributors know where each message-type group lives.
     `node packages/cli/dist/index.js --webui --ws-port 0`, open
     the printed URL, click through every UI panel (agent,
     brain, session, plan, tasks, todos, goal, cost, token,
-    fleet, mailbox, worktree, autophase, files, memory), and
+    fleet, mailbox, worktree, goal, files, memory), and
     confirm each panel still functions.
 - [ ] After PR 7: `index.ts` is < 250 lines and contains only
   the `WsServerContext` type, the `WsServer` class, the
@@ -247,7 +247,7 @@ so contributors know where each message-type group lives.
 ## Out of scope
 
 - The 16 existing sibling modules under `server/`
-  (`autophase-ws-handler.ts`, `file-handlers.ts`,
+  (`goal-ws-handler.ts`, `file-handlers.ts`,
   `mailbox-handlers.ts`, `provider-handlers.ts`, …) are already
   extracted and individually tested. The dispatcher layer being
   added in this issue is a *new* layer above them, not a

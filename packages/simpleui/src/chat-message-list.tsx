@@ -3,14 +3,14 @@ import { memo, useMemo } from 'react';
 import { MarkdownHooks as ReactMarkdown } from 'react-markdown';
 import rehypePrettyCode from 'rehype-pretty-code';
 import remarkGfm from 'remark-gfm';
+import { FileEditEntry } from './file-edit-entry.js';
 import { projectAssistantMessage } from './lib/message-projection.js';
-import { buildTimeline } from './lib/timeline-model.js';
-import { ToolCallEntry } from './tool-call-entry.js';
-import type { ChatMessage, FileEditMeta, TimelineEntry, ToolCallInfo } from './types.js';
+import type { ChatMessage, FileEditMeta } from './types.js';
 
 interface ChatMessageListProps {
   messages: ChatMessage[];
-  toolCalls?: ToolCallInfo[] | undefined;
+  /** File edits to show as inline widgets in the chat timeline. */
+  fileEdits?: Array<{ edit: FileEditMeta; ts?: string | undefined }> | undefined;
   latestAssistantId: string | undefined;
   copiedMessageId: string | null;
   running: boolean;
@@ -18,7 +18,7 @@ interface ChatMessageListProps {
   emptyState: React.ReactNode;
   onCopyMessage: (id: string, text: string) => void;
   onSelectNextStep: (text: string) => void;
-  /** Open the file diff panel for a file edit tool call. */
+  /** Open the file diff panel for a single file edit. */
   onOpenDiff?: ((meta: FileEditMeta) => void) | undefined;
 }
 
@@ -135,13 +135,13 @@ const MessageItem = memo(function MessageItem({
 // ── Container ──────────────────────────────────────────────────────
 
 /**
- * Renders the unified message+tool-call timeline. Each item is a memo'd
- * sub-component so streaming updates to one message don't force a full
- * re-render of the entire conversation.
+ * Renders the chat messages + inline file-edit widgets.
+ * Tool calls (delegate, task, kanban, etc.) are NOT shown here —
+ * they live in the tool sidebar. Only file operations get inline widgets.
  */
 export function ChatMessageList({
   messages,
-  toolCalls,
+  fileEdits,
   latestAssistantId,
   copiedMessageId,
   running,
@@ -151,45 +151,58 @@ export function ChatMessageList({
   onSelectNextStep,
   onOpenDiff,
 }: ChatMessageListProps) {
-  const timeline = useMemo(
-    () => (toolCalls ? buildTimeline(messages, toolCalls) : []),
-    [messages, toolCalls],
-  );
-  const hasTimeline = toolCalls && timeline.length > 0;
+  // Interleave file edits into the timeline by timestamp
+  const timeline = useMemo(() => {
+    const entries: Array<{ kind: 'message'; ts: string; message: ChatMessage } | { kind: 'file_edit'; ts: string; edit: FileEditMeta }> = [];
+
+    for (const m of messages) {
+      entries.push({ kind: 'message', ts: m.ts ?? '0', message: m });
+    }
+
+    if (fileEdits) {
+      for (const fe of fileEdits) {
+        entries.push({ kind: 'file_edit', ts: fe.ts ?? '0', edit: fe.edit });
+      }
+    }
+
+    entries.sort((a, b) => {
+      if (a.ts < b.ts) return -1;
+      if (a.ts > b.ts) return 1;
+      return 0;
+    });
+
+    return entries;
+  }, [messages, fileEdits]);
+
+  if (timeline.length === 0) {
+    return <div className="conversation">{emptyState}</div>;
+  }
 
   return (
     <div className="conversation">
-      {messages.length === 0 && !hasTimeline
-        ? emptyState
-        : hasTimeline
-          ? timeline.map((entry) =>
-              entry.kind === 'message' && entry.message ? (
-                <MessageItem
-                  key={entry.message.id}
-                  message={entry.message}
-                  isLatestAssistant={entry.message.id === latestAssistantId}
-                  copiedMessageId={copiedMessageId}
-                  onCopyMessage={onCopyMessage}
-                  onSelectNextStep={onSelectNextStep}
-                />
-              ) : entry.kind === 'tool_call' && entry.toolCall ? (
-                <ToolCallEntry
-                  key={entry.toolCall.id}
-                  toolCall={entry.toolCall}
-                  onOpenDiff={onOpenDiff}
-                />
-              ) : null,
-            )
-          : messages.map((message) => (
-              <MessageItem
-                key={message.id}
-                message={message}
-                isLatestAssistant={message.id === latestAssistantId}
-                copiedMessageId={copiedMessageId}
-                onCopyMessage={onCopyMessage}
-                onSelectNextStep={onSelectNextStep}
-              />
-            ))}
+      {timeline.map((entry) => {
+        if (entry.kind === 'message') {
+          return (
+            <MessageItem
+              key={entry.message.id}
+              message={entry.message}
+              isLatestAssistant={entry.message.id === latestAssistantId}
+              copiedMessageId={copiedMessageId}
+              onCopyMessage={onCopyMessage}
+              onSelectNextStep={onSelectNextStep}
+            />
+          );
+        }
+        // file_edit
+        return (
+          <FileEditEntry
+            key={`fe-${entry.edit.path}-${entry.ts}`}
+            edit={entry.edit}
+            ts={entry.ts}
+            onOpenDiff={onOpenDiff ?? (() => undefined)}
+          />
+        );
+      })}
       {running && activity && (
         <div className="activity-line" role="status" aria-live="polite">
           <LoaderCircle size={14} className="spin" />

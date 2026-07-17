@@ -57,6 +57,13 @@ import {
   sessionDisplayName,
 } from './lib/session-model.js';
 import {
+  findModelContextWindow,
+  parseCatalogProviders,
+  parseSavedProviderIds,
+  planModelSwitch,
+  providersNeedingModels,
+} from './lib/model-switch.js';
+import {
   DEFAULT_PREFS,
   parsePrefs,
   type AutonomyMode,
@@ -109,6 +116,8 @@ import type {
 
 const EMPTY_CONTEXT: ContextInfo = { load: 0, tokens: 0, maxContext: 0 };
 const THEME_STORAGE_KEY = 'wrongstack.simpleui.theme';
+const REFINE_RETRY_FEEDBACK =
+  'Make another pass that is sharper and more self-contained. Use the provided project memory, current session context, and recent conversation only to resolve references and preserve project vocabulary; keep the original scope unchanged.';
 
 type Theme = 'dark' | 'light';
 
@@ -172,9 +181,13 @@ export function App() {
   const [queue, setQueue] = useState<QueuedItem[]>([]);
   const [refineState, setRefineState] = useState<RefineState | null>(null);
   const [providerLabels, setProviderLabels] = useState<Record<string, string>>({});
-  const [savedProviders, setSavedProviders] = useState<
-    { id: string; family: string; label: string; hasKey: boolean; isActive: boolean }[]
-  >([]);
+  const [pendingModelSwitch, setPendingModelSwitch] = useState<{
+    provider: string;
+    model: string;
+    modelName: string;
+    currentWindow: number;
+    nextWindow: number;
+  } | null>(null);
   const [subagents, setSubagents] = useState<SimpleSubagent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState(LEADER_AGENT_ID);
   const [agentTranscripts, setAgentTranscripts] = useState<Record<string, AgentTranscriptEntry[]>>(
@@ -202,6 +215,8 @@ export function App() {
   const socketRef = useRef<SimpleSocket | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const activeModelRef = useRef<{ provider: string; model: string } | null>(null);
+  /** Provider ids already asked for their model list — catalog + saved overlap. */
+  const requestedModelsRef = useRef<Set<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const sessionMenuRef = useRef<HTMLDivElement | null>(null);
@@ -415,6 +430,13 @@ export function App() {
     return () => clearTimeout(timer);
   }, [copiedMessageId]);
 
+  /** Ask the server for a provider's model list, at most once per provider. */
+  const requestProviderModels = useCallback((providerId: string) => {
+    if (!providerId || requestedModelsRef.current.has(providerId)) return;
+    requestedModelsRef.current.add(providerId);
+    socketRef.current?.send('provider.models', { providerId });
+  }, []);
+
   const handleServerMessage = useCallback((message: ServerMessage) => {
     const payload = message.payload ?? {};
     worklists.applyMessage(message);
@@ -524,7 +546,7 @@ export function App() {
           tokens: resetSessionState ? replayInput : current.tokens || replayInput,
           maxContext: maxContext || current.maxContext,
         }));
-        if (provider) socketRef.current?.send('provider.models', { providerId: provider });
+        if (provider) requestProviderModels(provider);
         socketRef.current?.send('sessions.list', { sessionId: id, limit: 12 });
         break;
       }
@@ -534,39 +556,33 @@ export function App() {
         }
         break;
       }
-      case 'providers.saved': {
-        const providers = Array.isArray(payload['providers']) ? payload['providers'] : [];
-        const saved: typeof savedProviders = [];
-        for (const entry of providers) {
-          if (!entry || typeof entry !== 'object') continue;
-          const id = (entry as Record<string, unknown>)['id'];
-          if (typeof id === 'string') {
-            socketRef.current?.send('provider.models', { providerId: id });
-            saved.push({
-              id,
-              family: typeof (entry as Record<string, unknown>)['family'] === 'string'
-                ? (entry as Record<string, unknown>)['family'] as string : id,
-              label: typeof (entry as Record<string, unknown>)['label'] === 'string'
-                ? (entry as Record<string, unknown>)['label'] as string : id,
-              hasKey: Boolean((entry as Record<string, unknown>)['hasKey']),
-              isActive: Boolean((entry as Record<string, unknown>)['isActive']),
-            });
-          }
-        }
-        setSavedProviders(saved);
-        break;
-      }
       case 'provider.catalog': {
-        const providers = Array.isArray(payload['providers']) ? payload['providers'] : [];
+        const entries = parseCatalogProviders(payload);
         const labels: Record<string, string> = {};
-        for (const entry of providers) {
-          if (!entry || typeof entry !== 'object') continue;
-          const item = entry as Record<string, unknown>;
-          if (typeof item['id'] === 'string') {
-            labels[item['id']] = typeof item['name'] === 'string' ? item['name'] : item['id'];
-          }
+        for (const entry of entries) {
+          labels[entry.id] = entry.label;
         }
         setProviderLabels(labels);
+        // Lazy-load models for every provider with a usable credential so the
+        // switcher offers all providers, not just the session's current one.
+        for (const id of providersNeedingModels({
+          catalog: entries,
+          currentProvider: activeModelRef.current?.provider,
+          alreadyRequested: requestedModelsRef.current,
+        })) {
+          requestProviderModels(id);
+        }
+        break;
+      }
+      case 'providers.saved': {
+        // Saved (OAuth / config-only) providers the catalog may not list.
+        for (const id of providersNeedingModels({
+          savedIds: parseSavedProviderIds(payload),
+          currentProvider: activeModelRef.current?.provider,
+          alreadyRequested: requestedModelsRef.current,
+        })) {
+          requestProviderModels(id);
+        }
         break;
       }
       case 'provider.models': {
@@ -931,7 +947,7 @@ export function App() {
     }
     // dispatchUserMessage is []-stable, so this stays identity-stable and the
     // socket effect below never reconnects on a re-render.
-  }, [dispatchUserMessage, worklists]);
+  }, [dispatchUserMessage, requestProviderModels, worklists]);
 
   useEffect(() => {
     const socket = new SimpleSocket({
@@ -1077,6 +1093,18 @@ export function App() {
     [toolCalls],
   );
 
+  /** File edits with timestamps for the chat timeline widgets.
+   *  One entry per file (deduplicated by path) with merged diffs, so
+   *  edits to the same file in separate tool calls produce a single
+   *  inline widget showing the total change. */
+  const fileEdits = useMemo(
+    () => {
+      const aggregate = aggregateFileEdits(toolCalls);
+      return aggregate.files.map((edit) => ({ edit, ts: '' }));
+    },
+    [toolCalls],
+  );
+
   const selectNextStep = (text: string) => {
     setDraft(text);
     requestAnimationFrame(() => textareaRef.current?.focus());
@@ -1156,6 +1184,60 @@ export function App() {
     setSessionMenuOpen(false);
   };
 
+  /** Dropdown pick — switches immediately, or asks first when the new model's
+   *  context window is smaller than the current one. */
+  const selectModel = (provider: string, model: string) => {
+    if (!session) return;
+    const plan = planModelSwitch({
+      models,
+      currentProvider: session.provider,
+      currentModel: session.model,
+      sessionMaxContext: session.maxContext || context.maxContext,
+      nextProvider: provider,
+      nextModel: model,
+    });
+    if (plan.kind === 'noop') return;
+    if (plan.kind === 'warn') {
+      setPendingModelSwitch({
+        provider,
+        model,
+        modelName: plan.modelName,
+        currentWindow: plan.currentWindow,
+        nextWindow: plan.nextWindow,
+      });
+      return;
+    }
+    socketRef.current?.send('model.switch', { provider, model });
+  };
+
+  const confirmModelSwitch = () => {
+    if (!pendingModelSwitch) return;
+    socketRef.current?.send('model.switch', {
+      provider: pendingModelSwitch.provider,
+      model: pendingModelSwitch.model,
+    });
+    setPendingModelSwitch(null);
+  };
+
+  // The pending smaller-context warning is stale once the session moves on
+  // (switch confirmed elsewhere, session resumed) or a run starts.
+  useEffect(() => {
+    if (!pendingModelSwitch) return;
+    if (running) setPendingModelSwitch(null);
+  }, [pendingModelSwitch, running]);
+
+  useEffect(() => {
+    if (!pendingModelSwitch) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setPendingModelSwitch(null);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [pendingModelSwitch]);
+
   const submitWith = (mode: QueueMode) => {
     // ── Slash commands ──
     if (draft.trim() === '/clear' && sessionIdRef.current) {
@@ -1233,7 +1315,16 @@ export function App() {
       errorKind: undefined,
       retried: false,
     });
-    socketRef.current?.send('model.refine', { text: state.original });
+    socketRef.current?.send('model.refine', {
+      text: state.original,
+      ...((state.status ?? 'ready') === 'ready'
+        ? {
+            previousRefined: state.refined,
+            previousEnglish: state.english,
+            retryFeedback: REFINE_RETRY_FEEDBACK,
+          }
+        : {}),
+    });
   };
 
   const refineRetryFallback = (ref: string) => {
@@ -1393,13 +1484,12 @@ export function App() {
         <div className="model-control">
           <Bot size={15} aria-hidden="true" />
           <select
-            aria-label="Model"
+            aria-label="Provider and model"
             value={selectedModel}
             disabled={!session || groupedModels.length === 0 || running}
             onChange={(event) => {
               const [provider = '', model = ''] = event.target.value.split('\t');
-              if (!provider || !model) return;
-              socketRef.current?.send('model.switch', { provider, model });
+              selectModel(provider, model);
             }}
           >
             {groupedModels.length === 0 && <option value="">Loading models…</option>}
@@ -1407,13 +1497,41 @@ export function App() {
               <optgroup key={provider} label={providerLabels[provider] ?? provider}>
                 {entries.map((item) => (
                   <option key={`${provider}:${item.id}`} value={`${provider}\t${item.id}`}>
-                    {item.name}{isVisionModel(item.id) ? ' 👁' : ''}
+                    {item.name}
+                    {item.contextWindow ? ` · ${compactTokens(item.contextWindow)}` : ''}
+                    {isVisionModel(item.id) ? ' 👁' : ''}
                   </option>
                 ))}
               </optgroup>
             ))}
           </select>
           <ChevronDown size={14} className="select-chevron" aria-hidden="true" />
+          {pendingModelSwitch && (
+            <div
+              className="model-switch-warning"
+              role="alertdialog"
+              aria-label="Smaller context window warning"
+            >
+              <p>
+                <strong>{pendingModelSwitch.modelName}</strong> has a smaller context window
+                ({compactTokens(pendingModelSwitch.nextWindow)} vs current{' '}
+                {compactTokens(pendingModelSwitch.currentWindow)}). The session may need to
+                compact sooner.
+              </p>
+              <div className="model-switch-warning-actions">
+                <button
+                  type="button"
+                  className="model-switch-confirm"
+                  onClick={confirmModelSwitch}
+                >
+                  SWITCH
+                </button>
+                <button type="button" onClick={() => setPendingModelSwitch(null)}>
+                  CANCEL
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="topbar-right">
@@ -1542,7 +1660,7 @@ export function App() {
         >
           <ChatMessageList
             messages={displayMessages}
-            toolCalls={leaderSelected ? toolCalls : undefined}
+            fileEdits={leaderSelected ? fileEdits : undefined}
             latestAssistantId={latestAssistantId}
             copiedMessageId={copiedMessageId}
             running={running}
@@ -1660,26 +1778,17 @@ export function App() {
           modes={modes}
           activeModeId={activeModeId}
           connection={connection}
-          savedProviders={savedProviders}
           onClose={() => setSettingsOpen(false)}
           onAutonomyChange={switchAutonomy}
           onModeChange={switchMode}
           onPrefChange={updatePrefs}
-          onAddKey={(providerId, label, apiKey) =>
-            socketRef.current?.send('key.add', { providerId, label, apiKey })
-          }
-          onDeleteKey={(providerId, label) =>
-            socketRef.current?.send('key.delete', { providerId, label })
-          }
-          onSetActiveKey={(providerId, label) =>
-            socketRef.current?.send('key.set_active', { providerId, label })
-          }
         />
       </ErrorBoundary>
 
       {diffFiles && (
         <FileDiffPanel
           files={diffFiles}
+          socketRef={socketRef}
           onClose={() => setDiffFiles(null)}
         />
       )}

@@ -129,7 +129,7 @@ Acts as a compatibility barrel with substantial overlap across domain-owned expo
 |----------|:-----:|------------|
 | `logWarn`/`logError` helper fallbacks (intentional) | ~14 | The helper fallback — fires only when no Logger is configured, preserving backward compatibility |
 | Injectable free-function defaults (`warn ?? console.warn`) | ~10 | Callers can pass a logger's `warn` method to override; no changes needed for callers that don't |
-| Debug-only (env-guarded by `WRONGSTACK_DEBUG`) | ~10 | Compaction instrumentation, autophase debug — only fire in development |
+| Debug-only (env-guarded by `WRONGSTACK_DEBUG`) | ~10 | Compaction instrumentation, goal debug — only fire in development |
 | Early-boot (before Logger is constructed) | ~6 | `boot.ts`, `child-env.ts`, directory utils — no structured logger exists yet |
 | Small remaining (1-2 calls each) | ~20 | Low-priority files with 1-2 calls each, mostly in non-critical paths |
 

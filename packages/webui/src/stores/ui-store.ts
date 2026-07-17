@@ -51,7 +51,7 @@ const VIEWS = [
   'settings',
   'memory',
   'context',
-  'autophase',
+  'goal',
   'specs',
   'kanban',
   'sddboard',
@@ -79,7 +79,7 @@ export function coerceView(value: unknown): View {
   return (VIEWS as readonly string[]).includes(value as string) ? (value as View) : 'chat';
 }
 
-const DOCK_SECTIONS = ['autophase', 'goal', 'fleet', 'work', 'worktrees', 'collab'] as const;
+const DOCK_SECTIONS = ['goal', 'goal-state', 'fleet', 'work', 'worktrees', 'collab'] as const;
 
 function coerceDockSection(value: unknown): DockSection | null {
   return value === null || value === undefined || !DOCK_SECTIONS.includes(value as DockSection)
@@ -93,7 +93,7 @@ export const SIDEBAR_MAX_WIDTH = 560;
 export const SIDEBAR_DEFAULT_WIDTH = 304;
 
 /** Sections of the WorkspaceDock strip above the chat transcript. */
-export type DockSection = 'autophase' | 'goal' | 'fleet' | 'work' | 'worktrees' | 'collab';
+export type DockSection = 'goal' | 'goal-state' | 'fleet' | 'work' | 'worktrees' | 'collab';
 export type WorkDashboardTab = 'todos' | 'tasks' | 'plan';
 
 interface UIState {

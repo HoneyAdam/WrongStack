@@ -12,9 +12,10 @@ export const codebaseIndexTool: Tool<CodebaseIndexInput, CodebaseIndexOutput> = 
     'Build or incrementally update the project-wide symbol index. This powers fast codebase search and understanding. ' +
     'By default it only processes files that have changed since the last indexing run.',
   usageHint:
-    'IMPORTANT FOR LARGE CODEBASES:\n\n' +
-    '- First run (or after major changes): consider `force: true` for a clean rebuild.\n' +
-    '- Normal usage: call without arguments for fast incremental updates.\n' +
+    'CREATE OR REFRESH THE SEARCH INDEX:\n\n' +
+    '- When `codebase-stats` or `codebase-search` reports no persisted index, call this without arguments, then retry the search.\n' +
+    '- Normal and first-time usage: call without arguments for an incremental build.\n' +
+    '- Use `force: true` only for a corrupt/stale index or an explicitly requested clean rebuild.\n' +
     '- Use `langs` to restrict to specific languages if you only care about certain parts of the project.\n' +
     'This tool is relatively expensive — do not call it on every turn. Use it when the index is stale or before heavy codebase-search sessions.',
   permission: 'confirm',

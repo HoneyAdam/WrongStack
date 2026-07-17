@@ -93,30 +93,17 @@ export const commandDetails: CommandDetailMap = {
       'Review the diff. Run tests to confirm the fix. If the classifier misidentified the error, re-run with a pasted error message.',
   },
 
-  '/autophase': {
-    purpose:
-      'Run an autonomous phase-based workflow — the agent plans, executes, and verifies across multiple phases without manual steering.',
-    behavior:
-      'Similar to SDD but fully autonomous. The agent breaks work into phases (plan → implement → test → review), executes each in an isolated worktree, and reports results. You set the initial goal; the agent drives the rest. Phases can be paused, resumed, or cancelled.',
-    before:
-      'Define a clear goal. Ensure worktrees are enabled and disk space is available. Consider setting `/autonomy` level first.',
-    during:
-      'Watch phase progress in the TUI status bar or via `/autophase status`. Each phase produces a summary.',
-    after:
-      'Review the final diff across all phases. Merge worktree results. Run `/autophase status` for the phase journal.',
-  },
-
   '/goal': {
     purpose:
-      'Set, show, pause, resume, journal, or clear an autonomous mission that the agent works toward across turns.',
+      'Set, show, pause, resume, journal, or clear an autonomous mission that the agent works toward across turns. The eternal / parallel engines keep the goal, its Kanban board, and the Brain council in sync through adaptive coordination — when every deliverable is complete and the Brain confirms `goal reached`, the loop stops and `goal.json` records the verdict.',
     behavior:
-      'A goal is a persistent, high-level objective the agent keeps in context. `/goal set "..."` creates one. The agent references it in planning and task selection. `/goal pause` suspends it; `/goal resume` reactivates it; `/goal journal` shows progress; `/goal clear` removes it.',
+      'A goal is a persistent, high-level objective the agent keeps in context. `/goal set "..."` creates one and seeds a matching Kanban board with one card per deliverable. While `/autonomy eternal` runs, the agent emits `[DONE: <index>]` or `[DONE: <text-prefix>]` markers in its output to mark deliverables complete; the coordinator moves each card to Done, recomputes progress deterministically (ratio of completed deliverables), and consults Brain exactly once when the checklist reaches 100%. A `goal_reached` verdict stops the loop with `goal reached` recorded; a `keep_working` verdict leaves the goal active at 100% so the next iteration can re-attempt. `/goal pause` suspends it; `/goal resume` reactivates it; `/goal journal` shows progress; `/goal clear` removes it.',
     before:
-      'Formulate a concrete, achievable mission statement. Goals work best when they are scoped to a session or a few sessions.',
+      'Formulate a concrete, achievable mission statement. Goals work best when they are scoped to a session or a few sessions. List the deliverables you expect the agent to finish — the engine uses them for both the Kanban board and the progress bar.',
     during:
-      'The goal appears in the status line and the agent references it when choosing next actions.',
+      'The goal appears in the status line and the agent references it when choosing next actions. The Kanban board auto-refreshes as the agent emits `[DONE:]` markers, and the progress bar reflects the completed-deliverable ratio. Brain is consulted exactly once per goal, at 100%, and the goal file is preserved (never deleted) so the verdict survives reloads.',
     after:
-      'Use `/goal journal` to review progress. Clear the goal when the mission is complete to free context.',
+      'Use `/goal journal` to review progress. The final state of a reached goal — including the `reachedAt` timestamp and the `goal reached` note — stays in `goal.json`; clear it with `/goal clear` only when you want to start a fresh mission.',
   },
 
   '/autonomy': {

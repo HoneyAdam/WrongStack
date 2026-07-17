@@ -30,6 +30,9 @@ import { RefinePanel } from './RefinePanel.js';
 import { toast } from './Toaster';
 import { Button } from './ui/button';
 
+const REFINE_RETRY_FEEDBACK =
+  'Make another pass that is sharper and more self-contained. Use the provided project memory, current session context, and recent conversation only to resolve references and preserve project vocabulary; keep the original scope unchanged.';
+
 export function ChatInput({
   onOpenBreakdown,
 }: {
@@ -848,11 +851,20 @@ export function ChatInput({
           provider={refinePanel.provider}
           model={refinePanel.model}
           onRetry={() => {
-            // Retry on the SAME model with an extended window (the server
-            // resolves the exact ms). Back into 'refining'; keep `retried` so
-            // a fresh timeout surfaces the panel rather than auto-looping.
+            // Failed panel: retry on the same model with more time. Ready
+            // panel: ask for a better second pass and send the previous output
+            // as retry context. Keep `retried` so a fresh timeout surfaces the
+            // panel rather than auto-looping.
+            const retryContext =
+              (refinePanel.status ?? 'ready') === 'ready'
+                ? {
+                    previousRefined: refinePanel.refined,
+                    previousEnglish: refinePanel.english,
+                    retryFeedback: REFINE_RETRY_FEEDBACK,
+                  }
+                : {};
             setRefinePanel({ ...refinePanel, status: 'refining', retried: true });
-            refineModel?.(refinePanel.original, { timeoutMs: 180_000 });
+            refineModel?.(refinePanel.original, { timeoutMs: 180_000, ...retryContext });
           }}
           onRetryFallback={(ref) => {
             const slash = ref.indexOf('/');
@@ -909,6 +921,13 @@ export function ChatInput({
             timeoutMs: 180_000,
             provider: candidate.provider,
             model: candidate.model,
+            ...((current.status ?? 'ready') === 'ready'
+              ? {
+                  previousRefined: current.refined,
+                  previousEnglish: current.english,
+                  retryFeedback: REFINE_RETRY_FEEDBACK,
+                }
+              : {}),
           });
         }}
       />

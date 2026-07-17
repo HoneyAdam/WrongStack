@@ -80,7 +80,7 @@ import { makeProviderFromConfig } from '@wrongstack/providers';
 import { createKanbanRunMirror } from './webui-server/kanban-run-mirror.js';
 import { createKanbanSupervisor } from './webui-server/kanban-supervisor.js';
 import {
-  AutoPhaseWebSocketHandler,
+  GoalWebSocketHandler,
   buildSddWizardDeps,
   buildWebUIAccessUrl,
   type CustomModeStore,
@@ -109,8 +109,8 @@ import {
   registerWebuiInstance,
   registerWebuiSignalHandlers,
 } from './webui-server/lifecycle.js';
-// ── Console logger adapter for AutoPhaseWebSocketHandler ──────────────────────
-// AutoPhaseWebSocketHandler requires a Logger. The CLI uses console.log/error
+// ── Console logger adapter for GoalWebSocketHandler ──────────────────────
+// GoalWebSocketHandler requires a Logger. The CLI uses console.log/error
 // directly, so we adapt that to the Logger interface expected by the handler.
 // PR 1 of Issue #30: extracted to `./webui-server/logger-shim.js`.
 import { consoleLogger } from './webui-server/logger-shim.js';
@@ -388,12 +388,12 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     return customModeStoreP;
   };
 
-  // AutoPhase handler — manages AutoPhase lifecycle via WS messages.
+  // Goal handler — manages Goal lifecycle via WS messages.
   // Initialized here so it can be used in the connection handler and message switch.
-  const autoPhaseStoreDir = opts.projectRoot
-    ? path.join(opts.projectRoot, '.wrongstack', 'autophase')
-    : path.join(os.tmpdir(), '.wrongstack', 'autophase');
-  // KanbanRunMirror — projects live SDD (via the shared bus) and AutoPhase (via
+  const goalStoreDir = opts.projectRoot
+    ? path.join(opts.projectRoot, '.wrongstack', 'goal')
+    : path.join(os.tmpdir(), '.wrongstack', 'goal');
+  // KanbanRunMirror — projects live SDD (via the shared bus) and Goal (via
   // the handler callback below) runs into kanban boards, so the kanban view is
   // the unified live surface. Needs a project root (kanban boards are project-scoped).
   const kanbanRunMirror = opts.projectRoot
@@ -412,15 +412,15 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
         log: (message) => consoleLogger.info(message),
       })
     : null;
-  const autoPhaseHandler = new AutoPhaseWebSocketHandler(
+  const goalHandler = new GoalWebSocketHandler(
     opts.agent,
     opts.agent.ctx as Context,
     consoleLogger,
-    autoPhaseStoreDir,
+    goalStoreDir,
     opts.events,
     opts.projectRoot,
     kanbanRunMirror
-      ? (graphId, state) => kanbanRunMirror.onAutophaseState(graphId, state)
+      ? (graphId, state) => kanbanRunMirror.onGoalState(graphId, state)
       : undefined,
   );
   const worktreeHandler = new WorktreeWebSocketHandler(opts.events, consoleLogger);
@@ -944,6 +944,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     globalConfigPath: opts.globalConfigPath,
     buildSessionStart: (overrides) => buildSessionStartPayload(overrides),
     modelsRegistry: opts.modelsRegistry,
+    memoryStore: opts.memoryStore,
     getConfig: () => opts.appConfig,
     onMaxContextResolved: opts.onModelContextResolved,
     persistPrefs,
@@ -1050,7 +1051,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     mailboxCtx,
     sessionsCtx,
     connectionCtx,
-    autoPhaseHandler,
+    goalHandler,
     specsHandler,
     sddBoardHandler,
     sddWizardHandler,
@@ -1073,6 +1074,9 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       if (globalRoot) {
         startSessionStatusPoll({
           globalRoot,
+          projectRoot:
+            opts.projectRoot ??
+            (opts.agent.ctx as { projectRoot?: string | undefined }).projectRoot,
           broadcast,
           eventUnsubscribers,
           onBroadcastReady: (fn) => {
@@ -1096,7 +1100,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
         publicWsUrl,
         clients,
         currentSessionId,
-        autoPhaseHandler,
+        goalHandler,
         specsHandler,
         sddBoardHandler,
         sddWizardHandler,

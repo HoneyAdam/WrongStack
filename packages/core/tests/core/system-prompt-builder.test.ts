@@ -38,6 +38,9 @@ describe('DefaultSystemPromptBuilder', () => {
     expect(blocks[0]?.text).toContain('Never abandon or misrepresent work');
     expect(blocks[0]?.text).toContain('Backlog → Todo → Running → Review → Done');
     expect(blocks[0]?.text).toContain('Worker completion means the card enters Review');
+    expect(blocks[0]?.text).toContain('### Codebase-first discovery');
+    expect(blocks[0]?.text).toContain('codebase-stats/codebase-search');
+    expect(blocks[0]?.text).toContain('call live `codebase-index`');
     expect(blocks[1]?.text).toContain('No tools registered');
     expect(blocks[2]?.text).toContain('2026-05-13');
     expect(blocks[2]?.text).toContain(tmp);

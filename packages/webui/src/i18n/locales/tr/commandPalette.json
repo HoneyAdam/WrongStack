@@ -41,11 +41,11 @@
     "soundOn": "Tamamlanınca ses: AÇIK — kapat",
     "soundOff": "Tamamlanınca ses: KAPALI — aç",
     "soundHint": "Çalışma bitince çan sesi",
-    "autophaseOpen": "AutoPhase görünümünü aç",
+    "goalOpen": "Goal görünümünü aç",
     "autoOn": "Otonom mod: AÇIK — devre dışı bırak",
     "autoOff": "Otonom mod: KAPALI — etkinleştir",
     "autoHint": "Otonom aşama yürütmesini aç/kapat",
-    "autophaseStop": "AutoPhase'i durdur",
+    "goalStop": "Goal'i durdur",
     "resume": "Sürdür: {{title}}",
     "emptyTitle": "(boş)"
   }

@@ -179,8 +179,8 @@ export function useDesktopBridge(options: UseDesktopBridgeOptions): void {
         ui.showDockChip(section);
         ui.setDockCustomizeOpen(false);
         handled = true;
-        if (dockSection === 'autophase') {
-          openMainView('autophase');
+        if (dockSection === 'goal') {
+          openMainView('goal');
           ui.setDockSection(null);
           return handled;
         }

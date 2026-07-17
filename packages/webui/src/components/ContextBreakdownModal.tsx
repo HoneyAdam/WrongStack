@@ -232,7 +232,7 @@ export function ContextBreakdownModal({ open, onClose }: ContextBreakdownModalPr
                       <div key={t.name} className="flex items-center justify-between text-xs py-0.5">
                         <span className="font-mono">{t.name}</span>
                         <span className="tabular-nums text-muted-foreground">
-                          {t.tokens.toLocaleString()} tok
+                          {(t.tokens ?? 0).toLocaleString()} tok
                         </span>
                       </div>
                     ))}
@@ -253,7 +253,7 @@ export function ContextBreakdownModal({ open, onClose }: ContextBreakdownModalPr
                       </span>
                       <span className="text-muted-foreground font-mono w-14">{m.role}</span>
                       <span className="tabular-nums text-muted-foreground w-14">
-                        {m.tokens.toLocaleString()} tok
+                        {(m.tokens ?? 0).toLocaleString()} tok
                       </span>
                       <span className="text-muted-foreground/70 truncate flex-1">
                         {m.preview.slice(0, 80)}

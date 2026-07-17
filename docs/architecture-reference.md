@@ -1253,8 +1253,14 @@ runOneIteration():
   bumpTodoAttempt (if failed)
   capture token/cost delta
   appendJournal(entry)
-  parseProgressFromText → updateProgress()
-  check GOAL_COMPLETE / GOAL_CLEAR markers
+  // Adaptive coordination: parse [DONE: index|prefix] markers, mirror
+  // completions into the goal Kanban, recompute progress from the
+  // checklist, and consult Brain once when every deliverable is complete
+  // (coordinator owns the reach verdict — see goal-coordination.ts).
+  if /\[done:/i.test(finalText) → coordinateGoalIteration()
+  parseProgressFromText → max(parsed, coordinated) → updateProgress()
+  check GOAL_COMPLETE / GOAL_CLEAR markers (legacy; skipped when the
+    coordinator already reached the goal in the same iteration)
   maybeCompact (every 25 iterations or 85% pressure)
   sleep(cycleGapMs) or exponential backoff
 ```

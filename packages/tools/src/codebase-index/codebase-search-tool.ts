@@ -17,7 +17,11 @@
  */
 
 import type { Tool } from '@wrongstack/core';
-import { getIndexState, searchCodebaseIndex } from './background-indexer.js';
+import {
+  codebaseIndexStats,
+  getIndexState,
+  searchCodebaseIndex,
+} from './background-indexer.js';
 import type { SearchResult } from './schema.js';
 import { codebaseIndexDirOverride } from './writer.js';
 export const codebaseSearchTool: Tool<CodebaseSearchInput, CodebaseSearchOutput> = {
@@ -26,14 +30,15 @@ export const codebaseSearchTool: Tool<CodebaseSearchInput, CodebaseSearchOutput>
   icon: 'index',
   description:
     'Search code symbols using a fast SQLite+BM25 index, with optional LSP fallback. ' +
-    'Much more powerful and structured than raw `grep` for finding code by name or concept. ' +
+    'Prefer this before broad `tree`, `glob`, or `grep` exploration when finding code by name or concept. ' +
     'Set `preferLsp: true` for live precision when the LSP plugin is active (supersedes codebase-lsp-search).',
   usageHint:
-    'PREFERRED FOR CODE UNDERSTANDING:\n\n' +
-    '- Use when you need to find where something is defined or used by name.\n' +
+    'FIRST CHOICE FOR INDEXABLE CODE UNDERSTANDING:\n\n' +
+    '- Call before broad `tree`, `glob`, or `grep` exploration when locating symbols, concepts, definitions, or candidate modules.\n' +
     '- `kind` filter is very useful (e.g. only functions or only interfaces).\n' +
     '- Combine with `file` filter to scope to a specific directory or module.\n' +
-    'This is generally better than `grep` when you are looking for symbols rather than arbitrary text patterns.',
+    '- If `indexStatus` reports no persisted data, run `codebase-index` and retry.\n' +
+    'Use `grep` afterwards for exact text, regexes, unsupported content, or concrete usage sites.',
   permission: 'auto',
   mutating: false,
   capabilities: ['fs.read'],
@@ -123,11 +128,27 @@ export const codebaseSearchTool: Tool<CodebaseSearchInput, CodebaseSearchOutput>
       },
       { signal: execOpts?.signal },
     );
+    // Process-local readiness resets on launch while the SQLite index persists.
+    // A zero-hit query on a cold process therefore cannot by itself prove the
+    // index is missing; consult persisted metadata before emitting that hint.
+    let hasPersistedIndex = state.ready || total > 0;
+    if (!hasPersistedIndex) {
+      try {
+        const stats = await codebaseIndexStats(
+          { projectRoot: ctx.projectRoot, indexDir: codebaseIndexDirOverride(ctx) },
+          { signal: execOpts?.signal },
+        );
+        hasPersistedIndex = stats.totalFiles > 0 || stats.lastIndexed !== null;
+      } catch {
+        // Search already completed successfully. Keep the conservative missing
+        // hint rather than failing the whole tool because the stats probe failed.
+      }
+    }
     return {
       results,
       total,
       query: input.query,
-      ...(state.ready || total > 0
+      ...(hasPersistedIndex
         ? {}
         : { indexStatus: 'No persisted index data found. Run codebase-index to build it.' }),
     };

@@ -1,7 +1,7 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AutoPhaseWebSocketHandler } from '@wrongstack/webui-server';
+import { GoalWebSocketHandler } from '@wrongstack/webui-server';
 
 /** Minimal fake WS that records every JSON message the handler sends. */
 function mockWs() {
@@ -23,10 +23,10 @@ function makeHandler(agentRun: () => Promise<unknown>) {
   const agent = { run: vi.fn(agentRun) } as never;
   const storeDir = path.join(os.tmpdir(), `ap-lifecycle-${Math.random().toString(36).slice(2)}`);
   // No events / projectRoot → no git worktrees (keeps the test hermetic).
-  return new AutoPhaseWebSocketHandler(agent, fakeContext, fakeLogger, storeDir);
+  return new GoalWebSocketHandler(agent, fakeContext, fakeLogger, storeDir);
 }
 
-describe('AutoPhaseWebSocketHandler lifecycle', () => {
+describe('GoalWebSocketHandler lifecycle', () => {
   afterEach(() => vi.clearAllMocks());
 
   it('stop during planning never launches the orchestrator', async () => {
@@ -45,18 +45,18 @@ describe('AutoPhaseWebSocketHandler lifecycle', () => {
 
     // Start (do NOT await — it suspends inside planPhases), then Stop, then let
     // planning resolve and the start settle.
-    const startP = h.handleMessage({ type: 'autophase.start', payload: { title: 'demo' } });
-    await h.handleMessage({ type: 'autophase.stop', payload: {} });
+    const startP = h.handleMessage({ type: 'goal.start', payload: { title: 'demo' } });
+    await h.handleMessage({ type: 'goal.stop', payload: {} });
     release(undefined);
     await startP;
 
     const types = sentTypes(ws);
-    expect(types).toContain('autophase.stopped');
+    expect(types).toContain('goal.stopped');
     // The run must NOT have started: no completion and no board state with phases.
-    expect(types).not.toContain('autophase.completed');
+    expect(types).not.toContain('goal.completed');
     const startedBoard = ws.send.mock.calls
       .map(([raw]) => JSON.parse(String(raw)) as { type: string; payload?: { phases?: unknown[] } })
-      .some((m) => m.type === 'autophase.state' && (m.payload?.phases?.length ?? 0) > 0);
+      .some((m) => m.type === 'goal.state' && (m.payload?.phases?.length ?? 0) > 0);
     expect(startedBoard).toBe(false);
   });
 
@@ -65,13 +65,13 @@ describe('AutoPhaseWebSocketHandler lifecycle', () => {
     const ws = mockWs();
     h.addClient(ws);
 
-    await h.handleMessage({ type: 'autophase.clear', payload: {} });
+    await h.handleMessage({ type: 'goal.clear', payload: {} });
 
     const types = sentTypes(ws);
-    expect(types).toContain('autophase.cleared');
+    expect(types).toContain('goal.cleared');
     const emptyState = ws.send.mock.calls
       .map(([raw]) => JSON.parse(String(raw)) as { type: string; payload?: { phases?: unknown[] } })
-      .find((m) => m.type === 'autophase.state');
+      .find((m) => m.type === 'goal.state');
     expect(emptyState?.payload?.phases).toEqual([]);
   });
 
@@ -80,11 +80,11 @@ describe('AutoPhaseWebSocketHandler lifecycle', () => {
     const ws = mockWs();
     h.addClient(ws);
 
-    await h.handleMessage({ type: 'autophase.revert', payload: {} });
+    await h.handleMessage({ type: 'goal.revert', payload: {} });
 
     const reverted = ws.send.mock.calls
       .map(([raw]) => JSON.parse(String(raw)) as { type: string; payload?: { ok?: boolean; reason?: string } })
-      .find((m) => m.type === 'autophase.reverted');
+      .find((m) => m.type === 'goal.reverted');
     expect(reverted?.payload?.ok).toBe(false);
     expect(reverted?.payload?.reason).toBeTruthy();
   });

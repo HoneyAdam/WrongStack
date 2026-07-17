@@ -69,6 +69,16 @@ export function shortModel(model: string | undefined): string | undefined {
   return parts[parts.length - 1]?.slice(0, 18);
 }
 
+/** Keep live prompt/task text from becoming topology geometry. */
+export function compactFlowLabel(value: string | undefined, maxLength = 56): string | undefined {
+  if (!value) return undefined;
+  const compact = value.replace(/\s+/g, ' ').trim();
+  if (!compact) return undefined;
+  if (compact.length <= maxLength) return compact;
+  if (maxLength <= 1) return '…';
+  return `${compact.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
 // ── Layout constants ──────────────────────────────────────────────────────────
 
 export const CENTER_X = 600;

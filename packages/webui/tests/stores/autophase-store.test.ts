@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { useAutoPhaseStore } from '../../src/stores/autophase-store';
+import { useGoalRunStore } from '../../src/stores/goal-run-store';
 
-describe('auto phase store', () => {
+describe('goal run store', () => {
   afterEach(() => {
-    useAutoPhaseStore.setState({
+    useGoalRunStore.setState({
       phases: [],
       activePhaseId: null,
       overallPercent: 0,
@@ -17,33 +17,33 @@ describe('auto phase store', () => {
   });
 
   it('setState patches each field individually', () => {
-    useAutoPhaseStore.getState().setState({ phases: [{ id: 'p1', label: 'Thinking', status: 'active' }] });
-    expect(useAutoPhaseStore.getState().phases).toHaveLength(1);
+    useGoalRunStore.getState().setState({ phases: [{ id: 'p1', label: 'Thinking', status: 'active' }] });
+    expect(useGoalRunStore.getState().phases).toHaveLength(1);
   });
 
   it('setState preserves unspecified fields', () => {
-    useAutoPhaseStore.setState({ phases: [{ id: 'p1', label: 'Thinking', status: 'active' }], autonomous: true });
-    useAutoPhaseStore.getState().setState({ title: 'My Title', status: 'running' });
+    useGoalRunStore.setState({ phases: [{ id: 'p1', label: 'Thinking', status: 'active' }], autonomous: true });
+    useGoalRunStore.getState().setState({ title: 'My Title', status: 'running' });
     // autonomous should still be true (not reset)
-    expect(useAutoPhaseStore.getState().title).toBe('My Title');
-    expect(useAutoPhaseStore.getState().autonomous).toBe(true);
-    expect(useAutoPhaseStore.getState().status).toBe('running');
+    expect(useGoalRunStore.getState().title).toBe('My Title');
+    expect(useGoalRunStore.getState().autonomous).toBe(true);
+    expect(useGoalRunStore.getState().status).toBe('running');
   });
 
   it('stores lifecycle and progress metadata', () => {
-    useAutoPhaseStore.getState().setState({
+    useGoalRunStore.getState().setState({
       status: 'running',
       lastEvent: 'progress',
       progress: { totalPhases: 4, completed: 2, failed: 0, totalTasks: 8, completedTasks: 3, failedTasks: 0 },
     });
-    const s = useAutoPhaseStore.getState();
+    const s = useGoalRunStore.getState();
     expect(s.status).toBe('running');
     expect(s.lastEvent).toBe('progress');
     expect(s.progress?.completedTasks).toBe(3);
   });
 
   it('clear resets all fields', () => {
-    useAutoPhaseStore.setState({
+    useGoalRunStore.setState({
       phases: [{ id: 'p1', label: 'Thinking', status: 'active' }],
       activePhaseId: 'p1',
       overallPercent: 50,
@@ -54,8 +54,8 @@ describe('auto phase store', () => {
       lastError: 'boom',
       progress: { totalPhases: 1, completed: 0, failed: 1, totalTasks: 2, completedTasks: 1, failedTasks: 1 },
     });
-    useAutoPhaseStore.getState().clear();
-    const s = useAutoPhaseStore.getState();
+    useGoalRunStore.getState().clear();
+    const s = useGoalRunStore.getState();
     expect(s.phases).toEqual([]);
     expect(s.activePhaseId).toBeNull();
     expect(s.overallPercent).toBe(0);

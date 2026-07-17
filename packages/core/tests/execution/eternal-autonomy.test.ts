@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Agent } from '../../src/core/agent.js';
 import { EternalAutonomyEngine } from '../../src/execution/eternal-autonomy.js';
 import { EventBus } from '../../src/kernel/events.js';
+import { createGoalKanbanBoard, findGoalKanbanBoard } from '../../src/storage/goal-kanban.js';
 import { emptyGoal, goalFilePath, loadGoal, saveGoal } from '../../src/storage/goal-store.js';
 
 interface MockAgentSetup {
@@ -426,6 +427,139 @@ describe('EternalAutonomyEngine', () => {
     expect(after).toBeNull(); // goal cleared / file removed
     expect(onEternalStopCalled).toBe(true);
     expect(engine.currentState).not.toBe('running');
+  });
+
+  it('coordinates [DONE:] markers through Kanban and Brain, then persists goal reached', async () => {
+    const goal = {
+      ...emptyGoal('Close the adaptive loop'),
+      deliverables: ['Implement parser', 'Verify the loop'],
+    };
+    const boardId = await createGoalKanbanBoard(projectRoot, goal);
+    goal.kanbanBoardId = boardId ?? undefined;
+    await saveGoal(goalPath, goal);
+
+    let onEternalStopCalled = false;
+    const decide = vi.fn(async () => ({
+      type: 'answer' as const,
+      optionId: 'goal_reached',
+      text: 'Verified.',
+    }));
+    const agent = makeMockAgent({
+      todos: [{ id: 't1', content: 'finish both deliverables', status: 'pending' }],
+      runImpl: async () => ({
+        status: 'done',
+        iterations: 1,
+        finalText: '[DONE: 1]\n[DONE: verify the]',
+      }),
+    });
+    const engine = new EternalAutonomyEngine({
+      agent,
+      projectRoot,
+      cycleGapMs: 0,
+      gitStatusReader: async () => '',
+      brain: { decide },
+      onEternalStop: () => {
+        onEternalStopCalled = true;
+      },
+      now: () => new Date('2026-07-17T12:00:00.000Z'),
+    });
+
+    expect(await engine.runOneIteration()).toBe(true);
+    expect(decide).toHaveBeenCalledTimes(1);
+    expect(onEternalStopCalled).toBe(true);
+
+    const persisted = await loadGoal(goalPath);
+    expect(persisted?.goalState).toBe('completed');
+    expect(persisted?.progress).toBe(100);
+    expect(persisted?.progressNote).toBe('goal reached');
+    expect(persisted?.reachedNote).toBe('goal reached');
+
+    const board = await findGoalKanbanBoard(projectRoot, boardId ?? '');
+    expect(board?.tasks.every((task) => task.status === 'completed')).toBe(true);
+  });
+
+  it('prefers the adaptive coordinator over legacy [PROGRESS: 100%] auto-complete', async () => {
+    // Same iteration emits both markers. The coordinator must own the reach
+    // decision; the legacy path (which calls `clearGoalManually` and removes
+    // `goal.json`) must NOT run, otherwise the file disappears before the
+    // coordinator can persist `goal reached`.
+    const goal = {
+      ...emptyGoal('Adaptive vs legacy'),
+      deliverables: ['A', 'B'],
+    };
+    const boardId = await createGoalKanbanBoard(projectRoot, goal);
+    goal.kanbanBoardId = boardId ?? undefined;
+    await saveGoal(goalPath, goal);
+
+    const decide = vi.fn(async () => ({
+      type: 'answer' as const,
+      optionId: 'keep_working',
+      text: 'Not yet.',
+    }));
+    const agent = makeMockAgent({
+      todos: [{ id: 't1', content: 'finish both', status: 'pending' }],
+      runImpl: async () => ({
+        status: 'done',
+        iterations: 1,
+        finalText: '[DONE: 1]\n[DONE: 2]\n[PROGRESS: 100%] — all done',
+      }),
+    });
+    const engine = new EternalAutonomyEngine({
+      agent,
+      projectRoot,
+      cycleGapMs: 0,
+      gitStatusReader: async () => '',
+      brain: { decide },
+      now: () => new Date('2026-07-17T12:00:00.000Z'),
+    });
+
+    await engine.runOneIteration();
+    // Brain kept working: goal stays active and the file is preserved.
+    const persisted = await loadGoal(goalPath);
+    expect(persisted).not.toBeNull();
+    expect(persisted?.goalState).toBe('active');
+    expect(persisted?.progress).toBe(100);
+    expect(persisted?.reachedNote).toBeUndefined();
+    // Brain was consulted exactly once, not twice.
+    expect(decide).toHaveBeenCalledTimes(1);
+    void boardId;
+  });
+
+  it('coordinates partial [DONE:] markers without consulting Brain', async () => {
+    // Only one of two deliverables is marked done → progress is 50%, the
+    // Brain verdict is intentionally skipped because allComplete is false.
+    const goal = {
+      ...emptyGoal('Partial completion'),
+      deliverables: ['First half', 'Second half'],
+    };
+    const boardId = await createGoalKanbanBoard(projectRoot, goal);
+    goal.kanbanBoardId = boardId ?? undefined;
+    await saveGoal(goalPath, goal);
+
+    const decide = vi.fn();
+    const agent = makeMockAgent({
+      todos: [{ id: 't1', content: 'finish first', status: 'pending' }],
+      runImpl: async () => ({
+        status: 'done',
+        iterations: 1,
+        finalText: '[DONE: 1]',
+      }),
+    });
+    const engine = new EternalAutonomyEngine({
+      agent,
+      projectRoot,
+      cycleGapMs: 0,
+      gitStatusReader: async () => '',
+      brain: { decide },
+      now: () => new Date('2026-07-17T12:00:00.000Z'),
+    });
+
+    expect(await engine.runOneIteration()).toBe(true);
+    expect(decide).not.toHaveBeenCalled();
+    const persisted = await loadGoal(goalPath);
+    expect(persisted?.progress).toBe(50);
+    expect(persisted?.goalState).toBe('active');
+    void boardId;
   });
 
   it('refuses to run further iterations once goalState is completed', async () => {

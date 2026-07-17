@@ -16,6 +16,7 @@ import {
   type GoalFile,
   type JournalEntry,
 } from '../storage/goal-store.js';
+import { coordinateGoalIteration } from '../storage/goal-coordination.js';
 import { sleep } from '../utils/sleep.js';
 import { toErrorMessage } from '../utils/error.js';
 import { formatDecisionSummary } from './autonomy-brain.js';
@@ -194,6 +195,8 @@ const BRAINSTORM_DONE = Symbol('brainstorm-done');
  * we can get without a separate verifier round-trip.
  */
 const GOAL_COMPLETE_MARKER = /^\s*\[goal[_\s-]*complete\]\s*$/im;
+/** Optional per-deliverable completion marker consumed by the coordination loop. */
+const DONE_DELIVERABLE_MARKER = /\[done:\s*[^\]]+\]/i;
 
 /**
  * Free-text marker for the `/goal clear` command equivalent — when the
@@ -524,6 +527,31 @@ export class EternalAutonomyEngine {
     emit({ phase: 'sleep', ms: cycleGapMs });
     await sleep(cycleGapMs);
 
+    // Adaptive deliverable coordination. A successful iteration can mark one
+    // or more deliverables with `[DONE: index|prefix]`. The coordinator mirrors
+    // those completions into the goal Kanban, recomputes progress from the
+    // board, and performs one Brain verification when the checklist reaches
+    // 100%. A verified reach is persisted in goal.json instead of deleting it,
+    // so TUI/WebUI can keep showing the final 100% bar and `goal reached` note.
+    let coordinatedProgress: number | undefined;
+    if (DONE_DELIVERABLE_MARKER.test(finalText)) {
+      const coordinated = await coordinateGoalIteration({
+        projectRoot: this.opts.projectRoot,
+        goalPath: this.goalPath,
+        finalText,
+        brain: this.opts.brain,
+        sessionId: this.opts.agent.ctx.session?.id,
+        events: this.opts.events,
+        now: this.opts.now,
+      });
+      coordinatedProgress = coordinated?.goal.progress;
+      if (coordinated?.reached) {
+        this.stopRequested = true;
+        this.opts.onEternalStop?.();
+        return true;
+      }
+    }
+
     // Goal-complete detection. The model emits `[GOAL_COMPLETE]` on its
     // own line in `finalText` when the overall mission is verifiably done.
     // Combined with a successful iteration this is a strong stop signal:
@@ -553,8 +581,9 @@ export class EternalAutonomyEngine {
     // Also auto-complete the goal when the agent reports 100% progress.
     const parsed = parseProgressFromText(finalText);
     if (parsed) {
-      await this.updateProgress(parsed.progress, parsed.note);
-      if (parsed.progress >= 100) {
+      const progress = Math.max(parsed.progress, coordinatedProgress ?? 0);
+      await this.updateProgress(progress, parsed.note);
+      if (parsed.progress >= 100 && coordinatedProgress === undefined) {
         // Agent claims 100% — add a final journal entry and complete.
         await this.markGoalCompleted(
           { source: action.source, task: action.task, directive: action.directive },

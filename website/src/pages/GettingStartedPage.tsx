@@ -267,7 +267,7 @@ export function GettingStartedPage() {
       <PageNext
         label="Workflows"
         title="Choose how the work should run"
-        body="Direct prompts are only the beginning. Compare goals, SDD, AutoPhase, reviews and collaboration."
+        body="Direct prompts are only the beginning. Compare goals, SDD, Goal, reviews and collaboration."
         href="/workflows"
       />
     </>

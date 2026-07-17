@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildAgentMailActivities,
   buildAgentToolCalls,
+  buildSnapshotMailActivities,
+  buildSnapshotToolCalls,
   classifyOfficeTool,
   synthesizeCurrentTool,
 } from '../../src/lib/agent-office.js';
@@ -109,5 +112,122 @@ describe('agent office tool model', () => {
       status: 'running',
       summary: 'Working online',
     });
+  });
+
+  it('turns cross-process registry receipts into completed Office calls', () => {
+    const [call] = buildSnapshotToolCalls(
+      [
+        {
+          id: 'tu-write',
+          name: 'write_file',
+          startedAt: 1_000,
+          completedAt: 1_025,
+          durationMs: 25,
+          ok: true,
+          input: { file_path: 'src/new.ts' },
+          inputLines: 18,
+        },
+      ],
+      'worker-a',
+      'session-a',
+    );
+
+    expect(call).toMatchObject({
+      id: 'worker-a:tu-write',
+      kind: 'write',
+      status: 'succeeded',
+      summary: '18 lines written',
+      target: 'src/new.ts',
+      sessionId: 'session-a',
+    });
+  });
+
+  it('routes direct, session, and project mail to the correct agent desk', () => {
+    const agent = { serverId: 'leader', mailboxId: 'leader@abc', name: 'Leader' };
+    const activities = buildAgentMailActivities(
+      [
+        {
+          id: 'direct',
+          from: 'worker@abc',
+          to: 'leader@abc',
+          type: 'result',
+          subject: 'Done',
+          body: 'Finished the task',
+          priority: 'normal',
+          timestamp: '2026-07-17T10:00:00.000Z',
+          readBy: {},
+        },
+        {
+          id: 'session',
+          from: 'critic@abc',
+          to: '@session:session-a',
+          type: 'note',
+          subject: 'Session note',
+          body: 'Heads up',
+          priority: 'normal',
+          timestamp: '2026-07-17T09:59:00.000Z',
+        },
+        {
+          id: 'broadcast',
+          from: 'coordinator',
+          to: '*',
+          type: 'broadcast',
+          subject: 'Project update',
+          body: 'All hands',
+          priority: 'high',
+          timestamp: '2026-07-17T09:58:00.000Z',
+        },
+      ],
+      agent,
+      'session-a',
+    );
+
+    expect(activities.map((mail) => mail.id)).toEqual(['direct', 'session', 'broadcast']);
+    expect(activities[0]).toMatchObject({ direction: 'incoming', unread: true });
+  });
+
+  it('turns registry mail receipts into clickable Office parcels', () => {
+    expect(
+      buildSnapshotMailActivities([
+        {
+          id: 'mail-1',
+          direction: 'outgoing',
+          from: 'worker-a',
+          to: 'leader',
+          type: 'result',
+          subject: 'Implementation done',
+          at: Date.parse('2026-07-17T10:00:00.000Z'),
+        },
+      ])[0],
+    ).toMatchObject({
+      id: 'mail-1',
+      direction: 'outgoing',
+      subject: 'Implementation done',
+      timestamp: '2026-07-17T10:00:00.000Z',
+      timestampMs: Date.parse('2026-07-17T10:00:00.000Z'),
+      unread: false,
+    });
+  });
+
+  it('shows project and session mail once on the lead desk, not every worker', () => {
+    const messages = [
+      {
+        id: 'broadcast',
+        from: 'coordinator',
+        to: '*',
+        type: 'broadcast',
+        subject: 'Project update',
+        body: 'All hands',
+        priority: 'normal',
+        timestamp: '2026-07-17T10:00:00.000Z',
+      },
+    ];
+
+    expect(
+      buildAgentMailActivities(messages, { serverId: 'leader', name: 'Leader' }, 'session-a'),
+    ).toHaveLength(1);
+    expect(
+      buildAgentMailActivities(messages, { serverId: 'worker-a', name: 'Worker' }, 'session-a'),
+    ).toHaveLength(0);
   });
 });

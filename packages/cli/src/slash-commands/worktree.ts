@@ -2,7 +2,7 @@ import type { SlashCommand } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 
 /**
- * /worktree — inspect and manage the git worktrees AutoPhase uses for per-phase
+ * /worktree — inspect and manage the git worktrees Goal uses for per-phase
  * isolation. Subcommands: list (default), merge <branch>, prune, clean.
  */
 export function buildWorktreeCommand(opts: SlashCommandContext): SlashCommand {
@@ -10,7 +10,7 @@ export function buildWorktreeCommand(opts: SlashCommandContext): SlashCommand {
     name: 'worktree',
     category: 'Config',
     aliases: ['wt'],
-    description: 'Inspect/manage git worktrees used for AutoPhase per-phase isolation.',
+    description: 'Inspect/manage git worktrees used for Goal per-phase isolation.',
     argsHint: '[list | merge <branch> | prune | clean]',
     help: [
       'Usage: /worktree [subcommand]',
@@ -21,7 +21,7 @@ export function buildWorktreeCommand(opts: SlashCommandContext): SlashCommand {
       '  clean            Remove all wstack-managed worktrees and branches.',
       '',
       'merge and clean are destructive — they prompt for confirmation. Pass',
-      '--yes (-y) to skip the prompt. AutoPhase allocates one worktree per phase',
+      '--yes (-y) to skip the prompt. Goal allocates one worktree per phase',
       'under .wrongstack/worktrees/ so parallelizable phases run isolated.',
     ].join('\n'),
 

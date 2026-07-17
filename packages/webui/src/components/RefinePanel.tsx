@@ -138,6 +138,13 @@ export function RefinePanel({
             onDecision('original');
           }
           break;
+        case 'r':
+        case 'R':
+          if (!isEditing && onRetry) {
+            e.preventDefault();
+            onRetry();
+          }
+          break;
         case 't':
         case 'T':
           if (!isEditing) {
@@ -160,7 +167,7 @@ export function RefinePanel({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isEditing, onDecision, refined, setRefinePanel, status]);
+  }, [isEditing, onDecision, onRetry, refined, setRefinePanel, status]);
 
   // Focus the edit textarea when switching to edit mode
   useEffect(() => {
@@ -469,10 +476,27 @@ export function RefinePanel({
               <span>{t('activity:refine.hintEnglish')}</span>
               <kbd className="px-1.5 py-0.5 rounded bg-muted border font-mono ml-2">o</kbd>
               <span>{t('activity:refine.hintOriginal')}</span>
+              {onRetry && (
+                <>
+                  <kbd className="px-1.5 py-0.5 rounded bg-muted border font-mono ml-2">r</kbd>
+                  <span>{t('activity:refine.hintRetry')}</span>
+                </>
+              )}
               <kbd className="px-1.5 py-0.5 rounded bg-muted border font-mono ml-2">t</kbd>
               <span>{t('activity:refine.hintEdit')}</span>
             </div>
             <div className="flex gap-2">
+              {onRetry && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onRetry}
+                  className="text-xs"
+                >
+                  <RotateCw className="h-3 w-3 mr-1" />
+                  {t('activity:refine.retryBetter')}
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="sm"

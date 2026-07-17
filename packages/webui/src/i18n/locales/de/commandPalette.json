@@ -41,11 +41,11 @@
     "soundOn": "Ton bei Fertigstellung: AN — ausschalten",
     "soundOff": "Ton bei Fertigstellung: AUS — einschalten",
     "soundHint": "Ton, wenn ein Durchlauf abgeschlossen ist",
-    "autophaseOpen": "AutoPhase-Ansicht öffnen",
+    "goalOpen": "Goal-Ansicht öffnen",
     "autoOn": "Autonomer Modus: AN — deaktivieren",
     "autoOff": "Autonomer Modus: AUS — aktivieren",
     "autoHint": "Autonome Phasenausführung umschalten",
-    "autophaseStop": "AutoPhase stoppen",
+    "goalStop": "Goal stoppen",
     "resume": "Fortsetzen: {{title}}",
     "emptyTitle": "(leer)"
   }

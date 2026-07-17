@@ -60,7 +60,7 @@ import { SddRunRegistry } from '@wrongstack/sdd';
 import { wireSessionEvents } from './session-event-wiring.js';
 import { initializeCli } from './cli-context.js';
 import { createAuthPanelHost } from './auth-menu/panel-service.js';
-import { createAutoPhaseHost } from './autophase-host.js';
+import { createGoalHost } from './goal-host.js';
 import { registerBuiltinTools } from './boot/tool-registry.js';
 import { configureSimpleUiRuntimeContext } from './boot/simpleui-full-auto.js';
 import { launchEternalFromFlag } from './cli-eternal-flag.js';
@@ -908,15 +908,15 @@ export async function main(argv: string[]): Promise<number> {
     current: null,
   };
 
-  // AutoPhase host — plans phases+todos via a subagent, then drives the
+  // Goal host — plans phases+todos via a subagent, then drives the
   // PhaseOrchestrator (one subagent per task) in the background. `getConfig`
   // reads the live `config` (it can be patched, e.g. YOLO toggles).
-  const autoPhaseHost = createAutoPhaseHost({
+  const goalHost = createGoalHost({
     multiAgentHost,
     getConfig: () => config,
     events,
     getSessionId: () => sessionRef.current?.id ?? session.id,
-    storeDir: wpaths.projectAutophase,
+    storeDir: wpaths.projectGoal,
     projectRoot,
     brain,
     log: (line) => renderer.write(`${line}\n`),
@@ -1801,16 +1801,16 @@ export async function main(argv: string[]): Promise<number> {
         };
       },
     }),
-    onAutoPhaseStart: autoPhaseHost.onAutoPhaseStart,
-    onAutoPhasePause: autoPhaseHost.onAutoPhasePause,
-    onAutoPhaseResume: autoPhaseHost.onAutoPhaseResume,
-    onAutoPhaseStop: autoPhaseHost.onAutoPhaseStop,
-    getAutoPhaseRunner: autoPhaseHost.getAutoPhaseRunner,
-    onAutoPhaseMoveTask: autoPhaseHost.onAutoPhaseMoveTask,
-    onAutoPhaseAssignTask: autoPhaseHost.onAutoPhaseAssignTask,
-    onAutoPhaseAddTask: autoPhaseHost.onAutoPhaseAddTask,
-    onAutoPhaseRetryTask: autoPhaseHost.onAutoPhaseRetryTask,
-    onWorktree: autoPhaseHost.onWorktree,
+    onGoalStart: goalHost.onGoalStart,
+    onGoalPause: goalHost.onGoalPause,
+    onGoalResume: goalHost.onGoalResume,
+    onGoalStop: goalHost.onGoalStop,
+    getGoalRunner: goalHost.getGoalRunner,
+    onGoalMoveTask: goalHost.onGoalMoveTask,
+    onGoalAssignTask: goalHost.onGoalAssignTask,
+    onGoalAddTask: goalHost.onGoalAddTask,
+    onGoalRetryTask: goalHost.onGoalRetryTask,
+    onWorktree: goalHost.onWorktree,
   });
   for (const cmd of slashCmds) slashRegistry.register(cmd);
 

@@ -28,7 +28,7 @@
 
 import type { WSClientMessage } from '@wrongstack/webui-server';
 import {
-  handleAutoPhaseRoute,
+  handleGoalRoute,
   handleBrainRoute,
   handleMailboxRoute,
   handleMcpRoute,
@@ -333,19 +333,19 @@ describe('WS message dispatcher routing (Issue #31 PR 0)', () => {
     expect(out).toBe(false);
   });
 
-  // ── AutoPhaseRouteHandlers ─────────────────────────────────────────
-  it('handleAutoPhaseRoute: claims autophase.* (prefix gate); rejects foreign', async () => {
+  // ── GoalRouteHandlers ─────────────────────────────────────────────
+  it('handleGoalRoute: claims goal.* (prefix gate); rejects foreign', async () => {
     const handleMessage = vi.fn();
-    const out = await handleAutoPhaseRoute(ws, { type: 'autophase.tick' }, {
+    const out = await handleGoalRoute(ws, { type: 'goal.tick' }, {
       handleMessage,
     } as never);
     expect(out).toBe(true);
     expect(handleMessage).toHaveBeenCalledOnce();
   });
 
-  it('handleAutoPhaseRoute: returns false for foreign message type', async () => {
+  it('handleGoalRoute: returns false for foreign message type', async () => {
     const handleMessage = vi.fn();
-    const out = await handleAutoPhaseRoute(ws, { type: FOREIGN }, {
+    const out = await handleGoalRoute(ws, { type: FOREIGN }, {
       handleMessage,
     } as never);
     expect(out).toBe(false);

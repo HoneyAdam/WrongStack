@@ -25,7 +25,7 @@ type TokenSavingTier =
 
 | Element | off | minimal | light | medium | aggressive |
 |---------|-----|---------|-------|--------|------------|
-| **Tools** | All 38 | TIER1 (10) | TIER1 (10) | TIER1+TIER2 (26) | TIER1+TIER2+TIER3 (36, minus `task`/`setWorkingDir`) |
+| **Tools** | All built-ins | TIER1 (13) | TIER1 (13) | TIER1+TIER2 (32) | TIER1+TIER2+TIER3 (39, minus `task`/`setWorkingDir`) |
 | **Tool desc length** | 80 chars | 40 chars | 50 chars | 60 chars | 70 chars |
 | **Common patterns** | ✅ | ❌ | ✅ | ✅ | ❌ |
 | **Delegation guidance** | Full | ❌ | Minimal | Minimal | Minimal |
@@ -53,14 +53,14 @@ Empirical measurements (project heuristic 3.5 chars/token, run via
 | Tier | Measured Δ vs `off` | Use Case |
 |------|---------------------|----------|
 | `off` | 0 tokens | Complex tasks, multi-file refactors |
-| `minimal` | ~2,500–2,700 tokens | Quick fixes, single-file edits |
-| `light` | ~2,300–2,400 tokens | Standard development, most tasks |
-| `medium` | ~1,400–1,500 tokens | When extra tools are needed |
-| `aggressive` | ~1,000 tokens | Many tools, trimmed prompt |
+| `minimal` | ~2,600 tokens | Quick fixes, single-file edits |
+| `light` | ~2,100 tokens | Standard development, most tasks |
+| `medium` | ~1,000 tokens | When extra tools are needed |
+| `aggressive` | ~1,100 tokens | Many tools, trimmed prompt |
 
 **Savings are not monotonic across tiers.** The five tiers optimize along
 two axes (tool count × guidance detail), so the size ordering is
-`off > aggressive > medium > light ≈ minimal`, not `off > medium > light >
+`off > medium > aggressive > light > minimal`, not `off > medium > light >
 aggressive > minimal`. Pick the tier that matches your use case rather
 than the one with the largest savings number:
 
@@ -70,20 +70,19 @@ than the one with the largest savings number:
 
 The original design intent for `aggressive` was "~4-5k tokens saved by
 removing tools as well as guidance", but that would require cutting the
-tool count from 35 to ~22 — making `aggressive` indistinguishable from a
+tool count substantially — making `aggressive` indistinguishable from a
 stricter version of `medium`. The implementation chose to keep the wider
-tool set (44 tools including meta-tools and one-off generators) and only
+tool set and only
 compact the prompt's guidance sections. Users who want maximum savings
-should pick `minimal` (2.5k saved) or `light` (2.4k saved); users who want
-many tools under a tight budget should pick `aggressive` (1k saved,
-44 tools).
+should pick `minimal` (~2.6k saved) or `light` (~2.1k saved); users who want
+many tools under a tight budget should pick `aggressive` (~1.1k saved).
 
 `aggressive` skips the same guidance sections as `minimal`/`light`
 (Common Patterns, Delegation, Mailbox, MCP). Context Management and
 Commit Hygiene remain at `aggressive` because the former is most useful
 when context is the bottleneck and the latter is a small (~200 token)
-safety net. The remaining ~1,500 tokens of prompt content vs `off` is
-the tool surface area (44 tools at `aggressive` vs 25 at `medium`).
+safety net. The wider tool surface is why `aggressive` saves roughly 1,100
+tokens rather than matching `minimal` despite its compact guidance.
 
 If a future design wants a 6th tier that combines `aggressive`'s compact
 guidance with `minimal`'s narrow tool set, the cleanest path is to add
@@ -138,12 +137,14 @@ function normalizeTokenSavingTier(val?: boolean | TokenSavingTier): TokenSavingT
 
 ## Tool Tier Definitions
 
-### TIER1 — Core Essentials (~10 tools, ~600 tokens)
+### TIER1 — Core Essentials (13 tools)
 
 Must-have tools for any meaningful work:
 
 ```
-read, write, edit, bash, grep, glob, diff, patch, json, search
+read, write, edit,
+codebase-stats, codebase-search, codebase-index,
+bash, grep, glob, diff, patch, json, search
 ```
 
 **Memory tools** (always included in minimal+ tiers):
@@ -166,14 +167,13 @@ todo, plan, task
 > counted 14; current code has 15). It is registered at `medium` and `aggressive`
 > tiers only.
 
-### TIER3 — Specialized/Optional (~12 tools, ~800 tokens)
+### TIER3 — Specialized/Optional (9 tools)
 
 Can be disabled without impacting typical development:
 
 ```
 outdated, logs, document, scaffold,
 toolSearch, toolUse, batchToolUse, toolHelp,
-codebaseIndex, codebaseSearch, codebaseStats,
 setWorkingDir
 ```
 
@@ -210,11 +210,13 @@ export function getToolsForTier(tier: TokenSavingTier, allTools: Tool[]): Tool[]
 
 | Tier | Filter | Count |
 |---|---|---|
-| `off` | allTools | 37 |
-| `minimal` | TIER1 only | 10 |
-| `light` | TIER1 only (same as `minimal`; guidance differs) | 10 |
-| `medium` | TIER1 ∪ TIER2 | 25 |
-| `aggressive` | TIER1 ∪ TIER2 (minus `task`) ∪ TIER3 (minus `setWorkingDir`) | 35 |
+| `off` | allTools | Dynamic (all registered built-ins) |
+| `minimal` | TIER1 only | 13 |
+| `light` | TIER1 only (same as `minimal`; guidance differs) | 13 |
+| `medium` | TIER1 ∪ TIER2 | 32 |
+| `aggressive` | TIER1 ∪ TIER2 (minus `task`) ∪ TIER3 (minus `setWorkingDir`) | 39 |
+
+The three codebase lifecycle tools intentionally remain in TIER1. Even the strictest token-saving tier can check for a persisted index, search it before filesystem-wide scans, and build it when missing.
 
 **Memory tools** (`remember`/`forget`/`searchMemory`/`relatedMemory`) are registered
 separately in `setupTools()` based on `config.features.memory`, NOT filtered by

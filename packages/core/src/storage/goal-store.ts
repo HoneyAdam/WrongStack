@@ -21,8 +21,8 @@ export interface JournalEntry {
   at: string;
   /** Sequential iteration counter (1-based, monotonically increasing). */
   iteration: number;
-  /** Source that produced the action ('todo' | 'git' | 'brainstorm' | 'resume' | 'manual' | 'parallel'). */
-  source: 'todo' | 'git' | 'brainstorm' | 'resume' | 'manual' | 'parallel';
+  /** Source that produced the action ('todo' | 'git' | 'brainstorm' | 'resume' | 'manual' | 'parallel' | 'deliverable'). */
+  source: 'todo' | 'git' | 'brainstorm' | 'resume' | 'manual' | 'parallel' | 'deliverable';
   /** Short one-line description of what the iteration set out to do. */
   task: string;
   /** Outcome status. */
@@ -73,10 +73,14 @@ export interface GoalFile {
   iterations: number;
   /** Engine lifecycle state — 'running' means another process owns this goal. */
   engineState: 'idle' | 'running' | 'stopped';
-  /**
-   * Mission-level lifecycle.
-   */
+  /** Mission-level lifecycle. */
   goalState?: 'active' | 'paused' | 'completed' | 'abandoned' | undefined;
+  /** Goal-linked Kanban board id. Optional for pre-Kanban goal files. */
+  kanbanBoardId?: string | undefined;
+  /** ISO timestamp recorded after Brain verifies that every deliverable is reached. */
+  reachedAt?: string | undefined;
+  /** Durable human-readable reach verdict; currently the literal `goal reached`. */
+  reachedNote?: string | undefined;
   /**
    * Per-todo attempt counter.
    */

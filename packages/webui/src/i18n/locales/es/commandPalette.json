@@ -41,11 +41,11 @@
     "soundOn": "Sonido al completar: ACTIVADO — desactivar",
     "soundOff": "Sonido al completar: DESACTIVADO — activar",
     "soundHint": "Tono cuando termina una ejecución",
-    "autophaseOpen": "Abrir vista de AutoPhase",
+    "goalOpen": "Abrir vista de Goal",
     "autoOn": "Modo autónomo: ACTIVADO — desactivar",
     "autoOff": "Modo autónomo: DESACTIVADO — activar",
     "autoHint": "Activar/desactivar la ejecución autónoma de fases",
-    "autophaseStop": "Detener AutoPhase",
+    "goalStop": "Detener Goal",
     "resume": "Reanudar: {{title}}",
     "emptyTitle": "(vacío)"
   }

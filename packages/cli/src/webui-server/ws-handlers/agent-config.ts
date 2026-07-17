@@ -1,9 +1,11 @@
 import {
   type Agent,
+  buildRefinerContextSections,
   type Config,
   type EnhanceFailureKind,
   enhanceUserPrompt,
   gatedEnhancerReasoning,
+  type MemoryStore,
   type ModelsRegistry,
   type ModeStore,
   nextEnhanceTimeout,
@@ -46,6 +48,8 @@ export interface AgentConfigContext extends WsCommon {
    * absent the refiner sends no reasoning field (unchanged behavior).
    */
   modelsRegistry?: ModelsRegistry | undefined;
+  /** Memory store used to add relevant project/user memories to the refiner context. */
+  memoryStore?: MemoryStore | undefined;
   /**
    * Live app config accessor — used by the refine handler to resolve the
    * one-key "retry with another model" fallback ref (see
@@ -242,6 +246,10 @@ export interface ModelRefinePayload {
   /** Refine on this provider/model instead of the session's (ephemeral). */
   provider?: string | undefined;
   model?: string | undefined;
+  /** Previous refinement when the user asks the preview to try again better. */
+  previousRefined?: string | undefined;
+  previousEnglish?: string | undefined;
+  retryFeedback?: string | undefined;
 }
 
 export async function handleModelRefine(
@@ -299,6 +307,11 @@ export async function handleModelRefine(
       : baseTimeout;
   try {
     const history = recentTextTurns(actx.messages);
+    const contextSections = await buildRefinerContextSections({
+      text,
+      memoryStore: ctx.memoryStore,
+      context: actx,
+    });
     // Gate a low-effort reasoning hint to the chosen model so the refiner does
     // not waste thinking on this shallow rewrite. Resolves to undefined (→ no
     // reasoning field, unchanged behavior) when the registry is absent, the
@@ -311,6 +324,16 @@ export async function handleModelRefine(
       model,
       text,
       history,
+      contextSections,
+      ...(payload.previousRefined
+        ? {
+            previousRefinement: {
+              refined: payload.previousRefined,
+              english: payload.previousEnglish || payload.previousRefined,
+            },
+          }
+        : {}),
+      ...(payload.retryFeedback ? { retryFeedback: payload.retryFeedback } : {}),
       timeoutMs,
       ...(reasoning ? { reasoning } : {}),
       onError: (reason, kind) => {

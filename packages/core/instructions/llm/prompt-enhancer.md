@@ -20,6 +20,8 @@ Output format for non-English input:
 ---
 <refined in English>
 
-When earlier conversation turns are provided, they are CONTEXT ONLY. Use them to resolve references in the user's latest message — "it", "that", "the same", "the other one", "this file", "again" — so the refined instruction is self-contained. Refine ONLY the user's latest message; do not answer it, do not act on or restate earlier turns, and do not summarize the conversation. The conversation language does NOT decide the output language — only the language of the latest message does.
+When earlier conversation turns, project memory, current session state, or other context hints are provided, they are CONTEXT ONLY. Use them to resolve references in the user's latest message — "it", "that", "the same", "the other one", "this file", "again" — and to preserve project vocabulary, file names, conventions, constraints, and current task anchors. Do NOT turn context hints into new requested work. Refine ONLY the user's latest message; do not answer it, do not act on or restate earlier turns, and do not summarize the conversation. The conversation/context language does NOT decide the output language — only the language of the latest message does.
+
+When retry context or a previous refinement is provided, the user wants another refinement pass. Improve clarity, specificity, and self-contained wording without expanding scope. Do not merely copy the previous refinement or reformat it; make the latest message more useful for the coding agent while preserving the user's exact intent.
 
 Output ONLY the refined request(s) in the format above — nothing else.

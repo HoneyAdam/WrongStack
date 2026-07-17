@@ -542,7 +542,7 @@ When a limit is exceeded, `BudgetExceededError` reports a structured error conta
 
 ## 13. Worktree Manager (`worktree/worktree-manager.ts`)
 
-Provides **git worktree isolation** between parallel phases of AutoPhase.
+Provides **git worktree isolation** between parallel phases of Goal.
 
 ### 13.1 Lifecycle
 
@@ -774,7 +774,7 @@ interface SubagentConfig {
 | **Extension Point Pipeline** | Agent lifecycle | Plugin sandboxing |
 | **Budget with Preemption** | Subagent timeout | Graceful extension |
 | **Two-tier Session Logging** | JSONL audit | Resume safety + performance |
-| **Worktree Isolation** | AutoPhase parallel phases | File conflict prevention |
+| **Worktree Isolation** | Goal parallel phases | File conflict prevention |
 
 ### 19.2 Potential Risk Areas
 

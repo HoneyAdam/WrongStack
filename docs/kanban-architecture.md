@@ -21,7 +21,7 @@ and Director-backed multi-agent dispatch through `kanban_queue`.
 7. [Assignment and Routing](#7-assignment-and-routing)
 8. [Director and Multi-Agent Flow](#8-director-and-multi-agent-flow)
 9. [Task Splitting, Merging, and Chains](#9-task-splitting-merging-and-chains)
-10. [TaskGraph, SDD, and AutoPhase Bridge](#10-taskgraph-sdd-and-autophase-bridge)
+10. [TaskGraph, SDD, and Goal Bridge](#10-taskgraph-sdd-and-goal-bridge)
 11. [User and Agent Surfaces](#11-user-and-agent-surfaces)
 12. [Status Mapping](#12-status-mapping)
 13. [Operational Recipes](#13-operational-recipes)
@@ -34,7 +34,7 @@ and Director-backed multi-agent dispatch through `kanban_queue`.
 ## 1. Purpose
 
 WrongStack Kanban is the durable project work queue shared by humans, leader
-agents, fleet subagents, SDD-style task graphs, and AutoPhase-style phase graphs.
+agents, fleet subagents, SDD-style task graphs, and Goal-style phase graphs.
 It is intentionally simple at the storage layer and rich at the orchestration
 layer:
 
@@ -44,7 +44,7 @@ layer:
   and preserve traceability when they split or merge work.
 - **Director fleets** can atomically claim dependency-ready tasks and dispatch
   them to subagents with per-task routing hints.
-- **SDD / AutoPhase** can exchange work through `TaskGraph` imports, exports,
+- **SDD / Goal** can exchange work through `TaskGraph` imports, exports,
   and syncs without losing origin metadata.
 
 The core Kanban model is provider-free. It can store provider/model/tool routing
@@ -106,7 +106,7 @@ Primary implementation files:
 - `columns`: ordered `KanbanColumn[]`
 - `tasks`: ordered `KanbanTask[]`
 - `generatedBy`: optional source marker such as `duplicate:<id>`,
-  `sdd:<graphId>`, or `autophase:<graphId>:<phaseId>`
+  `sdd:<graphId>`, or `goal:<graphId>:<phaseId>`
 - timestamps and `version`
 
 Default columns are:
@@ -406,10 +406,10 @@ dependencies still represent arbitrary DAG edges.
 
 ---
 
-## 10. TaskGraph, SDD, and AutoPhase Bridge
+## 10. TaskGraph, SDD, and Goal Bridge
 
 Kanban can interoperate with `TaskGraph`, which is the task DAG shape used by
-SDD and AutoPhase-style planning.
+SDD and Goal-style planning.
 
 ### Import
 
@@ -441,7 +441,7 @@ Example origin:
 - manual dependencies are preserved unless explicitly disabled
 - dependency cycles are rejected
 
-Manual follow-up tasks can remain on the board while SDD/AutoPhase-owned tasks
+Manual follow-up tasks can remain on the board while SDD/Goal-owned tasks
 continue syncing from the source graph.
 
 ### Export
@@ -462,7 +462,7 @@ SDD TaskGraph -> Kanban board -> human/agent edits -> TaskGraph export
 ### PhaseGraph
 
 `createBoardsFromPhaseGraph()` creates one board per phase. Each board is tagged
-with `autophase`, the phase graph id, and phase id, and task origins include the
+with `goal`, the phase graph id, and phase id, and task origins include the
 phase id.
 
 ---

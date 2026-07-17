@@ -4,7 +4,15 @@
  * cross-process session snapshot + local fleet store into the client/agent
  * model the React-Flow nodes render. No React, no JSX — unit-testable.
  */
-import type { LiveSession } from '@/stores/monitor-store';
+
+import type { MailboxAgent } from '@/stores/mailbox-store';
+import type {
+  LiveAgentActivity,
+  LiveMailActivity,
+  LiveSession,
+  LiveTodoItem,
+  LiveToolActivity,
+} from '@/stores/monitor-store';
 import type { SubagentView } from '@/stores/types';
 import { type ClientStatus, clientNodeType, mapAgentStatus, surfaceLabel } from './utils.js';
 
@@ -22,7 +30,16 @@ export interface ResolvedAgent {
   ctxPct?: number | undefined;
   model?: string | undefined;
   lastActivityAt?: string | undefined;
+  currentTool?: string | undefined;
   currentTask?: string | undefined;
+  taskId?: string | undefined;
+  recentTools?: LiveToolActivity[] | undefined;
+  recentMail?: LiveMailActivity[] | undefined;
+  activity?: LiveAgentActivity | undefined;
+  mailboxId?: string | undefined;
+  role?: string | undefined;
+  /** Execution-backed presence source; mailbox identities never reach this model alone. */
+  presenceSource: 'registry' | 'fleet';
 }
 
 /** A resolved client (one live session) with its agents. */
@@ -37,7 +54,23 @@ export interface ResolvedClient {
   branch?: string | undefined;
   workingDir?: string | undefined;
   startedAt?: string | undefined;
+  lastHeartbeatAt?: string | undefined;
+  latestPrompt?: string | undefined;
+  latestPromptAt?: number | undefined;
+  activeInstruction?: string | undefined;
+  todos?: LiveTodoItem[] | undefined;
   agents: ResolvedAgent[];
+}
+
+function sessionTail(sessionId: string): string {
+  const leaf = sessionId.split('/').filter(Boolean).pop() ?? sessionId;
+  return leaf.length > 10 ? `…${leaf.slice(-8)}` : leaf;
+}
+
+function executionSurface(clientType: string | undefined, type: ResolvedClient['type']): string {
+  if (clientType === 'cli') return 'CLI';
+  if (clientType === 'repl') return 'REPL';
+  return surfaceLabel(type);
 }
 
 /**
@@ -48,12 +81,14 @@ export interface ResolvedClient {
 export function resolveClients(
   liveSessions: LiveSession[],
   fleetAgents: Map<string, SubagentView>,
+  mailboxAgents: MailboxAgent[] = [],
 ): ResolvedClient[] {
   const rendered = new Set<string>();
   const clients: ResolvedClient[] = [];
 
   for (const s of liveSessions) {
     const type = clientNodeType(s.clientType);
+    const surface = executionSurface(s.clientType, type);
     // Office node ids must be unique across clients — two sessions can each
     // have an agent literally named "leader", which would otherwise collide on
     // `agent-leader` and render as a single node.
@@ -79,7 +114,13 @@ export function resolveClients(
         ctxPct: fleet?.ctxPct ?? a.ctxPct,
         model: fleet?.model ?? a.model,
         lastActivityAt: a.lastActivityAt,
-        currentTask: fleet?.currentTool ?? fleet?.lastTool ?? a.currentTool,
+        currentTool: fleet?.currentTool ?? a.currentTool,
+        currentTask: a.currentTask ?? fleet?.description,
+        taskId: a.taskId ?? fleet?.taskId,
+        recentTools: a.recentTools,
+        recentMail: a.recentMail,
+        activity: a.activity,
+        presenceSource: 'registry',
       });
     }
 
@@ -89,12 +130,17 @@ export function resolveClients(
         : anyRunning
           ? 'active'
           : 'idle';
+    const leader = s.agents.find((agent) => agent.id === 'leader');
 
     clients.push({
       id: clientId,
       type,
-      label: s.projectName || surfaceLabel(type),
-      sublabel: [surfaceLabel(type), s.gitBranch ? `⎇ ${s.gitBranch}` : '', s.pid ? `pid ${s.pid}` : '']
+      label: `${surface} · ${s.pid ? `PID ${s.pid}` : sessionTail(s.sessionId)}`,
+      sublabel: [
+        `session ${sessionTail(s.sessionId)}`,
+        s.gitBranch ? `⎇ ${s.gitBranch}` : '',
+        s.workingDir ? s.workingDir.split(/[\\/]/).filter(Boolean).pop() : '',
+      ]
         .filter(Boolean)
         .join(' · '),
       status,
@@ -103,8 +149,39 @@ export function resolveClients(
       branch: s.gitBranch,
       workingDir: s.workingDir,
       startedAt: s.startedAt,
+      lastHeartbeatAt: s.lastHeartbeatAt,
+      latestPrompt: leader?.latestPrompt,
+      latestPromptAt: leader?.latestPromptAt,
+      activeInstruction:
+        leader?.status === 'running' || leader?.status === 'streaming'
+          ? (leader.latestPrompt ?? leader.currentTask)
+          : undefined,
+      todos: leader?.todos,
       agents,
     });
+  }
+
+  // Mailbox presence is not execution presence: profiles, reviewers and
+  // synthetic coordinator identities can remain "online" without owning a
+  // live process. Only use the roster to decorate an agent that the live
+  // session registry already proved exists. Registry/fleet state is the sole
+  // authority for desks and offices.
+  for (const mailbox of mailboxAgents.filter((agent) => agent.online)) {
+    const host = clients.find((client) => client.sessionId === mailbox.sessionId);
+    if (!host) continue;
+
+    const normalizedName = mailbox.name.trim().toLowerCase();
+    const existing = host.agents.find(
+      (agent) =>
+        agent.serverId === mailbox.agentId || agent.name.trim().toLowerCase() === normalizedName,
+    );
+    if (existing) {
+      rendered.add(mailbox.agentId);
+      existing.mailboxId = mailbox.agentId;
+      existing.role = mailbox.role;
+      existing.currentTask = existing.currentTask ?? mailbox.currentTask;
+      existing.currentTool = existing.currentTool ?? mailbox.currentTool;
+    }
   }
 
   // Local agents the 5s snapshot hasn't caught up to yet (attached session):
@@ -113,7 +190,14 @@ export function resolveClients(
   if (leftover.length > 0) {
     let host = clients.find((c) => c.type === 'webui');
     if (!host) {
-      host = { id: 'client-self', type: 'webui', label: 'This WebUI', sublabel: 'Web UI', status: 'idle', agents: [] };
+      host = {
+        id: 'client-self',
+        type: 'webui',
+        label: 'This WebUI',
+        sublabel: 'Web UI',
+        status: 'idle',
+        agents: [],
+      };
       clients.push(host);
     }
     for (const a of leftover) {
@@ -131,7 +215,10 @@ export function resolveClients(
         tokensOut: a.tokensOut ?? 0,
         ctxPct: a.ctxPct,
         model: a.model,
-        currentTask: a.currentTool ?? a.lastTool,
+        currentTool: a.currentTool,
+        currentTask: a.description,
+        taskId: a.taskId,
+        presenceSource: 'fleet',
       });
     }
   }

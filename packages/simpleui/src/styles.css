@@ -374,6 +374,64 @@ a:focus-visible {
   pointer-events: none;
 }
 
+.model-switch-warning {
+  position: absolute;
+  top: calc(100% + 9px);
+  right: 0;
+  z-index: 40;
+  width: min(320px, calc(100vw - 24px));
+  padding: 11px 12px;
+  border: 1px solid var(--warning);
+  background: var(--surface);
+  box-shadow: 0 16px 46px var(--shadow);
+}
+
+.model-switch-warning p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.model-switch-warning p strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.model-switch-warning-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.model-switch-warning-actions button {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+.model-switch-warning-actions button:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+.model-switch-warning-actions .model-switch-confirm {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.model-switch-warning-actions .model-switch-confirm:hover {
+  background: var(--warning);
+  color: var(--bg);
+}
+
 .topbar-right {
   justify-content: flex-end;
   gap: 14px;
@@ -2167,11 +2225,21 @@ a:focus-visible {
 
 /* Floating workspace drawer */
 
+.sidebar-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 38;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: default;
+}
+
 .tool-sidebar-launcher {
   position: fixed;
   top: 68px;
   right: 14px;
-  z-index: 18;
+  z-index: 38;
   display: flex;
   align-items: stretch;
   border: 1px solid var(--line-strong);
@@ -2234,7 +2302,7 @@ a:focus-visible {
   top: 66px;
   right: 12px;
   bottom: 12px;
-  z-index: 19; /* above launcher (18) so the header is never occluded */
+  z-index: 39; /* above the launcher + overlay (38), below diff/settings (40+) */
   width: min(420px, calc(100vw - 24px));
   display: grid;
   grid-template-rows: 42px minmax(0, 1fr);
@@ -2309,8 +2377,49 @@ a:focus-visible {
   border: 1px dashed var(--line-strong);
   padding: 22px 14px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   text-align: center;
+}
+
+/* Compact meta-tool status row (todo, task, plan, delegate, …). */
+.tool-sidebar-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 8px;
+  margin-bottom: 3px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  font-size: 11px;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.tool-sidebar-meta-name {
+  color: var(--accent);
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tool-sidebar-meta-status {
+  color: var(--muted);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.tool-sidebar-meta.running {
+  border-left: 2px solid var(--warning);
+}
+
+.tool-sidebar-meta.done {
+  opacity: 0.6;
+}
+
+.tool-sidebar-meta.error {
+  border-left: 2px solid var(--danger);
 }
 
 .tool-sidebar-call {
@@ -2810,17 +2919,57 @@ a:focus-visible {
 
 /* ── Inline tool calls in the chat timeline ─────────────────────── */
 
+.tool-message {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  border-top: 1px solid var(--line);
+  padding: 18px 0 20px;
+}
+
+.tool-message .message-label {
+  color: var(--success);
+}
+
+.tool-message.running .message-label {
+  color: var(--warning);
+}
+
+.tool-message.error .message-label {
+  color: var(--danger);
+}
+
+.tool-message .message-body {
+  padding: 0;
+}
+
 .timeline-tool {
   border: 1px solid var(--line);
   margin: 6px 0;
   background: var(--surface);
 }
 
+.timeline-tool-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+}
+
+.timeline-tool-time {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--subtle);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 8px;
+  white-space: nowrap;
+}
+
 .timeline-tool-trigger {
   width: 100%;
   min-height: 34px;
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto auto auto auto;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 7px;
   border: 0;
@@ -2914,6 +3063,91 @@ a:focus-visible {
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* ── Inline file-edit widgets ──────────────────────────────────── */
+
+.file-edit-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  font-family: "IBM Plex Mono", monospace;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.file-edit-entry:hover {
+  background: var(--surface-2);
+}
+
+.file-edit-path {
+  overflow: hidden;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.file-edit-added {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--success);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex: none;
+}
+
+.file-edit-removed {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--danger);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex: none;
+}
+
+.file-edit-bytes {
+  color: var(--muted);
+  font-size: 10px;
+  white-space: nowrap;
+  flex: none;
+}
+
+.file-edit-view {
+  color: var(--accent);
+  font-size: 11px;
+  white-space: nowrap;
+  margin-left: auto;
+  flex: none;
+}
+
+.file-edit-entry:hover .file-edit-view {
+  color: var(--accent-hot);
+}
+
+.file-edit-time {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--subtle);
+  font-size: 10px;
+  white-space: nowrap;
+  flex: none;
 }
 
 /* ── File diff panel (full-screen overlay) ──────────────────────── */
@@ -3145,70 +3379,13 @@ a:focus-visible {
   color: var(--danger);
 }
 
-/* ── Auth section in settings ────────────────────────────────────── */
-
-.settings-auth-actions {
-  display: flex;
-  gap: 4px;
-}
-
-.settings-auth-btn {
-  border: 1px solid var(--line-strong);
-  padding: 2px 8px;
-  background: var(--surface);
-  color: var(--text-secondary);
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 9px;
-  cursor: pointer;
-}
-
-.settings-auth-btn:hover:not(:disabled) {
-  background: var(--surface-2);
-  color: var(--text);
-}
-
-.settings-auth-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.settings-auth-btn.danger:hover:not(:disabled) {
-  border-color: var(--danger);
-  color: var(--danger);
-}
-
-.settings-auth-add {
-  display: flex;
-  gap: 4px;
-  margin-top: 6px;
-}
-
-.settings-auth-add input {
-  min-width: 0;
-  flex: 1;
-  border: 1px solid var(--line-strong);
-  padding: 3px 6px;
-  background: var(--bg);
-  color: var(--text);
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 10px;
-}
-
-.settings-auth-add input:disabled {
-  opacity: 0.4;
-}
-
-.settings-auth-add input::placeholder {
-  color: var(--subtle);
-}
-
 /* ── Memory drawer (floating panel) ──────────────────────────────── */
 
 .memory-drawer-trigger {
   position: fixed;
   top: 142px;
   right: 14px;
-  z-index: 16;
+  z-index: 39;
   width: 34px;
   height: 30px;
   display: flex;
@@ -3227,7 +3404,7 @@ a:focus-visible {
   top: 66px;
   right: 70px;
   bottom: 12px;
-  z-index: 19;
+  z-index: 41;
   width: min(360px, calc(100vw - 100px));
   display: flex;
   flex-direction: column;
@@ -3285,7 +3462,7 @@ a:focus-visible {
 /* ── File explorer (floating panel) ──────────────────────────────── */
 
 .file-explorer-trigger {
-  position: fixed; top: 176px; right: 14px; z-index: 16;
+  position: fixed; top: 176px; right: 14px; z-index: 39;
   width: 34px; height: 30px;
   display: flex; align-items: center; justify-content: center;
   border: 1px solid var(--line-strong); background: var(--surface);
@@ -3294,7 +3471,7 @@ a:focus-visible {
 .file-explorer-trigger:hover { background: var(--surface-2); color: var(--accent); }
 
 .file-explorer {
-  position: fixed; top: 66px; right: 70px; bottom: 12px; z-index: 19;
+  position: fixed; top: 66px; right: 70px; bottom: 12px; z-index: 41;
   width: min(300px, calc(100vw - 100px));
   display: flex; flex-direction: column;
   border: 1px solid var(--line-strong); background: var(--surface);
@@ -3322,7 +3499,176 @@ a:focus-visible {
   text-align:left; white-space:nowrap;
 }
 .file-tree-node:hover { background:var(--surface-2); color:var(--text) }
+.file-tree-node.selected { background: color-mix(in srgb, var(--surface-2) 76%, var(--accent) 24%); color: var(--accent); }
 .file-tree-node span { overflow:hidden; text-overflow:ellipsis }
+
+.file-explorer-head-actions {
+  display: flex; align-items: center; gap: 4px;
+}
+
+.file-explorer-head-actions button {
+  width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+  border: 0; background: transparent; color: var(--muted); cursor: pointer;
+}
+
+.file-explorer-head-actions button:hover { background: var(--surface-2); color: var(--text); }
+
+.file-explorer-error { color: var(--danger); }
+
+/* ── Full file manager (extended file explorer) ──────────────────── */
+
+.file-manager {
+  width: min(680px, calc(100vw - 40px)) !important;
+  right: 70px !important;
+}
+
+.file-manager-search {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px; border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.file-manager-search svg {
+  flex: none; color: var(--muted);
+}
+
+.file-manager-search-input {
+  flex: 1; min-width: 0;
+  border: 0; padding: 0; background: transparent;
+  color: var(--text); font-family: "IBM Plex Mono", monospace; font-size: 10px;
+  outline: 0;
+}
+
+.file-manager-search-input::placeholder { color: var(--subtle); }
+
+.file-manager-search-clear {
+  display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border: 0; padding: 0;
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+
+.file-manager-search-clear:hover { color: var(--text); }
+
+.file-manager-split {
+  flex: 1; min-height: 0;
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+}
+
+.file-manager .file-explorer-body {
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+}
+
+.file-manager-content {
+  display: flex; flex-direction: column;
+  min-height: 0; overflow: hidden;
+}
+
+.file-manager-content-head {
+  display: flex; align-items: center;
+  gap: 8px; padding: 5px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--code-bg);
+  flex-shrink: 0;
+}
+
+.file-manager-content-head code {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px; color: var(--accent);
+  white-space: nowrap;
+}
+
+.file-manager-content-path {
+  overflow: hidden;
+  color: var(--subtle); font-family: "IBM Plex Mono", monospace;
+  font-size: 9px; text-overflow: ellipsis; white-space: nowrap;
+  flex: 1; min-width: 0;
+}
+
+.file-manager-content-actions {
+  display: flex; align-items: center; gap: 5px;
+  flex: none; margin-left: auto;
+}
+
+.file-manager-saved-badge {
+  display: inline-flex; align-items: center; gap: 3px;
+  color: var(--success); font-family: "IBM Plex Mono", monospace;
+  font-size: 9px; font-weight: 700;
+}
+
+.file-manager-edit-btn,
+.file-manager-save-btn,
+.file-manager-cancel-btn {
+  height: 24px; display: inline-flex; align-items: center; gap: 4px;
+  padding: 0 8px; border: 1px solid var(--line-strong);
+  background: transparent; color: var(--muted);
+  font-family: "IBM Plex Mono", monospace; font-size: 9px;
+  cursor: pointer; white-space: nowrap;
+}
+
+.file-manager-edit-btn:hover,
+.file-manager-save-btn:hover,
+.file-manager-cancel-btn:hover {
+  border-color: var(--muted); color: var(--text);
+}
+
+.file-manager-save-btn {
+  border-color: var(--accent); color: var(--accent);
+  font-weight: 700;
+}
+
+.file-manager-save-btn:hover {
+  background: var(--accent); color: var(--accent-ink);
+}
+
+.file-manager-save-btn:disabled {
+  border-color: var(--line); color: var(--subtle);
+  cursor: default; background: transparent;
+}
+
+.file-manager-editor-wrap {
+  flex: 1; min-height: 0;
+}
+
+.file-manager-editor {
+  width: 100%; height: 100%;
+  border: 0; padding: 10px 12px; resize: none;
+  background: var(--code-bg); color: var(--code-text);
+  font-family: "IBM Plex Mono", monospace; font-size: 11px;
+  line-height: 1.55; tab-size: 2;
+  outline: 0; overflow: auto;
+}
+
+.file-manager-viewer {
+  flex: 1; min-height: 0; margin: 0;
+  padding: 10px 12px; overflow: auto;
+  background: var(--code-bg); color: var(--code-text);
+  font-family: "IBM Plex Mono", monospace; font-size: 11px;
+  line-height: 1.55; tab-size: 2; white-space: pre;
+}
+
+.file-manager-empty {
+  display: flex; align-items: center; justify-content: center;
+  height: 100%; color: var(--muted);
+  font-family: "IBM Plex Mono", monospace; font-size: 10px;
+}
+
+/* ── Diff panel header extensions ────────────────────────────────── */
+
+.diff-view-head-path {
+  min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px;
+}
+
+.diff-view-head-path code {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--accent);
+}
+
+.diff-view-head-full {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--subtle); font-family: "IBM Plex Mono", monospace; font-size: 9px;
+}
 
 /* ── Connection quality indicator ────────────────────────────────── */
 
@@ -3340,7 +3686,7 @@ a:focus-visible {
 /* ── Prompt library (floating panel) ─────────────────────────────── */
 
 .prompt-library-trigger {
-  position: fixed; top: 210px; right: 14px; z-index: 16;
+  position: fixed; top: 210px; right: 14px; z-index: 39;
   width: 34px; height: 30px;
   display: flex; align-items: center; justify-content: center;
   border: 1px solid var(--line-strong); background: var(--surface);
@@ -3349,7 +3695,7 @@ a:focus-visible {
 .prompt-library-trigger:hover { background: var(--surface-2); color: var(--accent); }
 
 .prompt-library {
-  position: fixed; top: 66px; right: 70px; bottom: 12px; z-index: 19;
+  position: fixed; top: 66px; right: 70px; bottom: 12px; z-index: 41;
   width: min(360px, calc(100vw - 100px));
   display: flex; flex-direction: column;
   border: 1px solid var(--line-strong); background: var(--surface);
@@ -3392,7 +3738,7 @@ a:focus-visible {
 /* ── Brain panel (floating) ──────────────────────────────────────── */
 
 .brain-panel-trigger {
-  position: fixed; top: 244px; right: 14px; z-index: 16;
+  position: fixed; top: 244px; right: 14px; z-index: 39;
   width: 34px; height: 30px;
   display: flex; align-items: center; justify-content: center;
   border: 1px solid var(--line-strong); background: var(--surface);
@@ -3401,7 +3747,7 @@ a:focus-visible {
 .brain-panel-trigger:hover { background: var(--surface-2); color: var(--accent); }
 
 .brain-panel {
-  position: fixed; top: 66px; right: 70px; bottom: 12px; z-index: 19;
+  position: fixed; top: 66px; right: 70px; bottom: 12px; z-index: 41;
   width: min(360px, calc(100vw - 100px));
   display: flex; flex-direction: column;
   border: 1px solid var(--line-strong); background: var(--surface);
@@ -3443,7 +3789,7 @@ a:focus-visible {
 /* ── Session health panel ────────────────────────────────────────── */
 
 .health-panel-trigger {
-  position: fixed; top: 278px; right: 14px; z-index: 16;
+  position: fixed; top: 278px; right: 14px; z-index: 39;
   width: 34px; height: 30px;
   display: flex; align-items: center; justify-content: center;
   border: 1px solid var(--line-strong); background: var(--surface);
@@ -3457,7 +3803,7 @@ a:focus-visible {
 }
 
 .health-panel {
-  position: fixed; top: 66px; right: 70px; bottom: 12px; z-index: 19;
+  position: fixed; top: 66px; right: 70px; bottom: 12px; z-index: 41;
   width: min(320px, calc(100vw - 100px));
   display: flex; flex-direction: column;
   border: 1px solid var(--line-strong); background: var(--surface);

@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Adaptive `/goal` coordination
+- **`[DONE: index|prefix]` deliverable markers** — autonomy iterations can
+  now mark individual deliverables complete via a 1-based index or a
+  case-insensitive text prefix (e.g. `[DONE: 2]` or `[DONE: refactor auth]`).
+  Markers are idempotent and silently ignored when they don't match.
+- **`GoalKanban` ↔ `/goal` two-way sync** — when the coordinator runs,
+  every newly-completed deliverable moves its matching Kanban task into
+  the `Done` column with `status: 'completed'`. Conversely, a task already
+  marked completed in the UI rewinds the goal's `progress` and re-applies
+  the `✅` marker on the next coordinator pass.
+- **Deterministic progress bar** — `goal.progress` is now
+  `Math.round(done / total * 100)` derived from the deliverables checklist
+  (not from whatever percentage the LLM emitted). `progressNote` is set to
+  `'<done>/<total> deliverables complete'`, which the TUI's `GoalPanel`
+  already renders next to its bar.
+- **One-shot Brain consultation** — when every deliverable is complete,
+  the coordinator asks Brain once for a strict `goal_reached` vs
+  `keep_working` verdict. `goal_reached` persists
+  `goalState: 'completed'`, `engineState: 'stopped'`,
+  `progressNote: 'goal reached'`, `reachedAt`, and `reachedNote: 'goal reached'`.
+  `keep_working` (and `deny`) keep the goal active at `100%` so the next
+  iteration can re-attempt. Brain is never called when the deliverable
+  list is empty, when markers complete no deliverables, or when Brain
+  isn't wired.
+
+### Changed
+- **Coordinator is the sole owner of completion decisions.** The legacy
+  `[PROGRESS: 100%]` auto-complete path no longer unlinks `goal.json`
+  when a `[DONE:]` marker was emitted in the same iteration. The single
+  guard `if (parsed.progress >= 100 && coordinatedProgress === undefined)`
+  enforces the contract: if the new flow ran, it owns the verdict.
+- **`goal.json` is preserved on reach.** `/goal reached` now persists the
+  final state (`goalState: 'completed'`, `reachedAt`, `reachedNote`) in
+  the file instead of deleting it, so the TUI progress bar and the
+  WebUI status snapshot keep showing the 100% / "goal reached" verdict
+  across reloads and across sessions.
+
+### Added — Schema (additive, backward-compatible)
+- **`GoalFile.kanbanBoardId?: string`** — preferred lookup key for the
+  Kanban sync; falls back to the existing tag-based search if absent.
+- **`GoalFile.reachedAt?: string`** — ISO timestamp recorded when Brain
+  confirms `goal_reached`.
+- **`GoalFile.reachedNote?: string`** — currently the literal
+  `'goal reached'`; reserved for future verdict variants.
+- **`JournalEntry.source: 'deliverable'`** — new source for the
+  per-deliverable audit entry the coordinator appends.
+
+### Reference
+- Coordinator: `packages/core/src/storage/goal-coordination.ts`
+- Engine wiring: `packages/core/src/execution/eternal-autonomy.ts`
+- Storage: `packages/core/src/storage/goal-store.ts`
+- Slash reference: `docs/slash/goal.md` (new "Adaptive coordination" section)
+- Tests: `packages/core/tests/storage/goal-coordination.test.ts` (8 cases),
+  `packages/core/tests/execution/eternal-autonomy.test.ts` (full-loop case)
+
 ## [0.288.0] — 2026-07-17
 
 > The **interactive launch-menu release**. A plain `wstack` launch now opens a

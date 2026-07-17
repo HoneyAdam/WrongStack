@@ -190,7 +190,7 @@ Beyond the original PR plan, the TUI branch of `execution.ts` was
 decomposed into 11 focused modules during a 2026-06-22 session:
 
 - [x] `boot/tui-runtime-state.ts` — shared mutable context type
-- [x] `boot/tui-autophase-wiring.ts` — AutoPhase event forwarding
+- [x] `boot/tui-goal-wiring.ts` — Goal event forwarding
 - [x] `boot/tui-coordinator-setup.ts` — AutonomousCoordinator factory + lifecycle hook
 - [x] `boot/tui-project-switch.ts` — switchProjectInPlace
 - [x] `boot/tui-project-spawn.ts` — post-runTui project-switch spawn

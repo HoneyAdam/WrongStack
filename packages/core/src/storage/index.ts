@@ -182,6 +182,17 @@ export {
   type GoalFileWithKanban,
 } from './goal-kanban.js';
 export {
+  applyGoalDeliverableCompletions,
+  coordinateGoalIteration,
+  isGoalDeliverableComplete,
+  parseCompletedGoalDeliverables,
+  recomputeGoalProgress,
+  stripGoalDeliverableMarker,
+  type CompletedGoalDeliverable,
+  type CoordinateGoalIterationOptions,
+  type GoalCoordinationResult,
+} from './goal-coordination.js';
+export {
   DefaultPromptStore,
   migratePromptEntry,
   promptChecksum,

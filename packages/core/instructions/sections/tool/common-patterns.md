@@ -1,9 +1,9 @@
 ## Common patterns
 
-- **Inspect before edit:** `read`/`glob`/`grep` -> locate target -> `edit`
-- **Search then operate:** `grep`/`glob` -> identify targets -> `batch_tool_use` or iterative `edit`
+- **Inspect before edit:** live `codebase-search` -> `read` target -> `edit`; use `grep` for exact-text confirmation
+- **Search then operate:** live `codebase-stats` -> missing index? live `codebase-index` -> `codebase-search` -> identify targets -> `batch_tool_use` or iterative `edit`
 - **Verify after mutate:** `write`/`edit`/`patch` -> `read` back to confirm -> report outcome
-- **Explore project:** `glob` for structure -> `read` key files -> `grep` for patterns
+- **Explore project:** prefer live index-backed search for code concepts; use `tree`/`glob` for layout and paths, or as fallback when indexing is unavailable
 - **Batch ops:** Use `replace` with glob patterns for multi-file surgical changes
 - **Memory before tool calls:** Relevant memories are injected each turn; for an unfamiliar file use `memory_search` for extra context and include a hint in your reasoning
 - **Remember useful files:** When you discover a useful file, `remember` its role with `kind: "file_note"`, an `anchor` to that path, tags: #path

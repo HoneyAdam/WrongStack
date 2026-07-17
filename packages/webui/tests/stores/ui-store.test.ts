@@ -155,8 +155,8 @@ describe('dockSection', () => {
 
   it('toggling a different section switches instead of collapsing', () => {
     useUIStore.getState().setDockSection('work');
-    useUIStore.getState().toggleDockSection('autophase');
-    expect(useUIStore.getState().dockSection).toBe('autophase');
+    useUIStore.getState().toggleDockSection('goal');
+    expect(useUIStore.getState().dockSection).toBe('goal');
     useUIStore.getState().setDockSection(null);
   });
 });
@@ -767,8 +767,8 @@ describe('F5 resilience — currentView + dockSection persistence', () => {
         persist?: { getOptions?: () => { migrate?: (p: unknown, v: number) => unknown } };
       }
     ).persist;
-    const result = api?.getOptions?.().migrate?.({ dockSection: 'autophase' }, 5);
-    expect(result).toMatchObject({ dockSection: 'autophase' });
+    const result = api?.getOptions?.().migrate?.({ dockSection: 'goal' }, 5);
+    expect(result).toMatchObject({ dockSection: 'goal' });
   });
 
   it('merge() preserves browser F5 view state', () => {

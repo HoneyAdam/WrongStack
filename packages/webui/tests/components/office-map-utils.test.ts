@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   agentFanPos,
   clientNodeType,
+  compactFlowLabel,
   fmtAgo,
   fmtCompact,
   fmtUptime,
@@ -11,6 +12,23 @@ import {
   shortModel,
   surfaceLabel,
 } from '../../src/components/OfficeMapCanvas/utils.js';
+
+describe('compactFlowLabel', () => {
+  it('normalizes whitespace and preserves short labels', () => {
+    expect(compactFlowLabel('  Inspect\n  the compactor  ')).toBe('Inspect the compactor');
+  });
+
+  it('caps long prompt text without splitting topology width', () => {
+    const result = compactFlowLabel('Investigate the oversized tool result elision path', 24);
+    expect(result).toBe('Investigate the oversiz…');
+    expect(result).toHaveLength(24);
+  });
+
+  it('drops empty values', () => {
+    expect(compactFlowLabel(undefined)).toBeUndefined();
+    expect(compactFlowLabel('   ')).toBeUndefined();
+  });
+});
 
 describe('OfficeMapCanvas utils', () => {
   describe('fmtCompact', () => {

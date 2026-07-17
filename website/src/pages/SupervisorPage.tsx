@@ -58,7 +58,7 @@ export function SupervisorPage() {
         </div>
       </section>
 
-      <PageNext label="AutoPhase" title="Autonomous phased workflows" body="Let the agent plan, execute, and verify across worktrees — fully autonomous." href="/autophase" />
+      <PageNext label="Goal" title="Autonomous phased workflows" body="Let the agent plan, execute, and verify across worktrees — fully autonomous." href="/goal" />
     </>
   );
 }

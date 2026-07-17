@@ -24,7 +24,7 @@ const ALLOWED_SELF_IMPORTS = new Set([
   // dependency graph (kanban has no @wrongstack dependencies; core declares
   // it in package.json). Static imports are therefore not upward imports.
   // Note: @wrongstack/sdd stays ABOVE core (it depends on core) and must not
-  // appear here — core reaches it only via lazy createRequire in autophase/.
+  // appear here — core reaches it only via lazy createRequire in goal/.
   '@wrongstack/kanban',
 ]);
 

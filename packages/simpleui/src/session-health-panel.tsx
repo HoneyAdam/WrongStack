@@ -67,7 +67,7 @@ export function SessionHealthPanel({ context, messages, sessionStart }: SessionH
             <Cpu size={14} aria-hidden="true" />
             <div>
               <strong>Context</strong>
-              <span>{context.tokens.toLocaleString()} / {context.maxContext.toLocaleString()} tokens ({ctxPct}%)</span>
+              <span>{(context.tokens ?? 0).toLocaleString()} / {(context.maxContext ?? 0).toLocaleString()} tokens ({ctxPct}%)</span>
             </div>
           </div>
           <div className="health-stat">

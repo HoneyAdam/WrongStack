@@ -95,9 +95,9 @@ export interface HqClientConfig {
  * is compacted to reduce per-request token consumption.
  *
  * - 'off'        — Full prompt, all tools, complete guidance (no reduction)
- * - 'minimal'    — TIER1 tools only (~10), stripped guidance (~3-4k tokens saved)
- * - 'light'     — Core + memory tools (~14), common patterns, minimal guidance
- * - 'medium'    — Most development tools (~24), some guidance (default when `true`)
+ * - 'minimal'    — TIER1 tools (13, including codebase index lifecycle), stripped guidance
+ * - 'light'      — Same Tier 1 tool surface, common patterns, minimal guidance
+ * - 'medium'     — TIER1 + TIER2 development tools, some guidance (default when `true`)
  * - 'aggressive' — Maximum savings before tools become unusable (~4-5k tokens saved)
  */
 export type TokenSavingTier = 'off' | 'minimal' | 'light' | 'medium' | 'aggressive';

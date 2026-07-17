@@ -46,8 +46,8 @@ const AnalyticsDashboard = lazy(() =>
 const CodeMap = lazy(() =>
   import('./components/CodeMap').then((m) => ({ default: m.CodeMap })),
 );
-const AutoPhaseView = lazy(() =>
-  import('./components/AutoPhaseView').then((m) => ({ default: m.AutoPhaseView })),
+const GoalView = lazy(() =>
+  import('./components/GoalView').then((m) => ({ default: m.GoalView })),
 );
 const ChangesView = lazy(() =>
   import('./components/ChangesView').then((m) => ({ default: m.ChangesView })),
@@ -520,11 +520,11 @@ function AppInner() {
             </Suspense>
           </ErrorBoundary>
         )}
-        {currentView === 'autophase' && (
-          <ErrorBoundary level="panel" name="AutoPhase">
+        {currentView === 'goal' && (
+          <ErrorBoundary level="panel" name="Goal">
             <Suspense fallback={<PanelSuspense />}>
               <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-                <AutoPhaseView onClose={() => showPanel('chat')} />
+                <GoalView onClose={() => showPanel('chat')} />
               </div>
             </Suspense>
           </ErrorBoundary>

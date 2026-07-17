@@ -30,7 +30,7 @@ export interface SlashCommandContext {
   skillLoader?: SkillLoader | undefined;
   tokenCounter: TokenCounter;
   renderer: Renderer;
-  /** App-level EventBus — used by AutoPhaseRunner to emit phase/graph events to the TUI. */
+  /** App-level EventBus — used by GoalRunner to emit phase/graph events to the TUI. */
   events: EventBus;
   memoryStore?: MemoryStore | undefined;
   context?: Context | undefined;
@@ -428,41 +428,41 @@ export interface SlashCommandContext {
       }>)
     | undefined;
   /**
-   * Start a real, LLM-driven AutoPhase run from a free-text goal. The host
+   * Start a real, LLM-driven Goal run from a free-text goal. The host
    * plans phases (each holding many todos), persists the phase-graph as
    * per-project JSON, and drives the orchestrator — one subagent per task —
    * in the background. Returns the built graph or an error.
    */
-  onAutoPhaseStart?: (opts: {
+  onGoalStart?: (opts: {
     goal: string;
     projectContext?: string | undefined;
   }) => Promise<
     { ok: true; graph: import('@wrongstack/core').PhaseGraph } | { ok: false; error: string }
   >;
-  onAutoPhasePause?: (() => void) | undefined;
-  onAutoPhaseResume?: (() => void) | undefined;
-  onAutoPhaseStop?: (() => void) | undefined;
+  onGoalPause?: (() => void) | undefined;
+  onGoalResume?: (() => void) | undefined;
+  onGoalStop?: (() => void) | undefined;
   /**
    * Resume a persisted PhaseGraph. The host creates a new orchestrator for
    * the loaded graph and starts executing pending tasks.
    */
-  onAutoPhaseResumeFromGraph?:
+  onGoalResumeFromGraph?:
     | ((graph: import('@wrongstack/core').PhaseGraph) => Promise<void>)
     | undefined;
-  /** Live, read-only view of the running AutoPhase (null when idle). */
-  getAutoPhaseRunner?: () => {
+  /** Live, read-only view of the running Goal (null when idle). */
+  getGoalRunner?: () => {
     graph: import('@wrongstack/core').PhaseGraph;
     getProgress: () => import('@wrongstack/core').PhaseProgress | null;
     isRunning: () => boolean;
   } | null;
   /** Interactive board: move a task to another phase (returns false when idle/invalid). */
-  onAutoPhaseMoveTask?: ((taskId: string, toPhaseId: string) => boolean) | undefined;
+  onGoalMoveTask?: ((taskId: string, toPhaseId: string) => boolean) | undefined;
   /** Interactive board: (re)assign a task to an agent (clear with both omitted). */
-  onAutoPhaseAssignTask?:
+  onGoalAssignTask?:
     | ((taskId: string, agentId?: string, agentName?: string) => boolean)
     | undefined;
   /** Interactive board: add a new task to a phase, returning its id (or null when idle). */
-  onAutoPhaseAddTask?:
+  onGoalAddTask?:
     | ((
         phaseId: string,
         spec: {
@@ -474,9 +474,9 @@ export interface SlashCommandContext {
       ) => string | null)
     | undefined;
   /** Interactive board: requeue a task to pending so it (re)runs. */
-  onAutoPhaseRetryTask?: ((taskId: string) => boolean) | undefined;
+  onGoalRetryTask?: ((taskId: string) => boolean) | undefined;
   /**
-   * Manage git worktrees used for per-phase AutoPhase isolation.
+   * Manage git worktrees used for per-phase Goal isolation.
    * `list` shows current worktrees, `merge <branch>` squash-merges a branch
    * into HEAD, `prune` removes stale entries, `clean` removes all
    * wstack-managed worktrees + branches. Backs the /worktree command.
@@ -566,7 +566,7 @@ export { detectProjectFacts, renderAgentsTemplate } from './helpers.js';
 import { buildAcpCommand } from './acp.js';
 import { buildAuthCommand } from './auth.js';
 import { buildAutonomyCommand } from './autonomy.js';
-import { buildAutoPhaseCommand } from './autophase.js';
+
 import { buildBrainCommand } from './brain.js';
 import { buildBtwCommand } from './btw.js';
 import { buildClearCommand } from './clear.js';
@@ -705,7 +705,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     buildMailboxServeCommand(opts),
     buildExitCommand(opts),
     buildFixCommand(opts),
-    buildAutoPhaseCommand(opts),
+
     buildWorktreeCommand(opts),
     buildSettingsCommand(opts),
     buildHqCommand(opts),

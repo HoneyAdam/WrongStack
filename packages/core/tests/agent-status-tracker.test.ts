@@ -2,10 +2,9 @@
  * AgentStatusTracker unit tests — verify that EventBus events correctly
  * translate to SessionRegistry.updateAgents() calls with the right state.
  */
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentStatusTracker } from '../src/agent-status-tracker.js';
-import type { AgentEntry } from '../src/session-registry.js';
-import type { SessionRegistry } from '../src/session-registry.js';
+import type { AgentEntry, SessionRegistry } from '../src/session-registry.js';
 
 // ── Mocks ──────────────────────────────────────────────────────────────
 
@@ -13,17 +12,15 @@ import type { SessionRegistry } from '../src/session-registry.js';
 function mockEventBus() {
   const listeners = new Map<string, Array<(event: string, payload: unknown) => void>>();
   return {
-    onPattern: vi.fn(
-      (pattern: string, fn: (event: string, payload: unknown) => void) => {
-        const list = listeners.get(pattern) ?? [];
-        list.push(fn);
-        listeners.set(pattern, list);
-        return () => {
-          const idx = list.indexOf(fn);
-          if (idx >= 0) list.splice(idx, 1);
-        };
-      },
-    ),
+    onPattern: vi.fn((pattern: string, fn: (event: string, payload: unknown) => void) => {
+      const list = listeners.get(pattern) ?? [];
+      list.push(fn);
+      listeners.set(pattern, list);
+      return () => {
+        const idx = list.indexOf(fn);
+        if (idx >= 0) list.splice(idx, 1);
+      };
+    }),
     /** Fire an event to all matching pattern listeners. */
     emit: (event: string, payload: unknown) => {
       for (const [pattern, fns] of listeners) {
@@ -70,6 +67,59 @@ describe('AgentStatusTracker', () => {
     expect(leader?.status).toBe('running');
     expect(leader?.iterations).toBe(1);
     expect(leader?.startedAt).toBe('2026-06-24T10:00:00.000Z');
+  });
+
+  it('mirrors the leader prompt, current task, and live todo list', () => {
+    tracker.start();
+    events.emit('agent.run.started', {
+      at: '2026-07-17T12:00:00.000Z',
+      inputText: 'Build the live office mission board',
+      ctx: {
+        todos: [
+          { id: 'todo-1', content: 'Inspect session telemetry', status: 'completed' },
+          {
+            id: 'todo-2',
+            content: 'Render active tasks',
+            activeForm: 'Rendering active tasks',
+            status: 'in_progress',
+          },
+        ],
+      },
+    });
+
+    let call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
+    let leader = call?.find((agent) => agent.id === 'leader');
+    expect(leader).toMatchObject({
+      currentTask: 'Build the live office mission board',
+      latestPrompt: 'Build the live office mission board',
+      latestPromptAt: Date.parse('2026-07-17T12:00:00.000Z'),
+      todos: [
+        { id: 'todo-1', content: 'Inspect session telemetry', status: 'completed' },
+        {
+          id: 'todo-2',
+          content: 'Render active tasks',
+          activeForm: 'Rendering active tasks',
+          status: 'in_progress',
+        },
+      ],
+    });
+
+    events.emit('iteration.completed', {
+      ctx: {
+        todos: [{ id: 'todo-2', content: 'Render active tasks', status: 'completed' }],
+      },
+    });
+    call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
+    leader = call?.find((agent) => agent.id === 'leader');
+    expect(leader?.todos).toEqual([
+      { id: 'todo-2', content: 'Render active tasks', status: 'completed' },
+    ]);
+
+    events.emit('agent.run.completed', { status: 'done', ctx: { todos: leader?.todos } });
+    call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
+    leader = call?.find((agent) => agent.id === 'leader');
+    expect(leader?.currentTask).toBeUndefined();
+    expect(leader?.latestPrompt).toBe('Build the live office mission board');
   });
 
   it('captures leader model and starts a run from iteration.started', () => {
@@ -143,6 +193,39 @@ describe('AgentStatusTracker', () => {
     expect(leader?.currentTool).toBeUndefined();
   });
 
+  it('publishes completed leader tools and cumulative file/line totals', () => {
+    tracker.start();
+    events.emit('tool.started', {
+      name: 'read_file',
+      id: 'tu-read',
+      input: { file_path: 'src/app.ts', offset: 1, limit: 40 },
+    });
+    events.emit('tool.executed', {
+      name: 'read_file',
+      id: 'tu-read',
+      ok: true,
+      durationMs: 25,
+      input: { file_path: 'src/app.ts', offset: 1, limit: 40 },
+      outputLines: 40,
+      outputBytes: 1_024,
+    });
+
+    const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
+    const leader = call?.find((agent) => agent.id === 'leader');
+    expect(leader?.recentTools?.[0]).toMatchObject({
+      id: 'tu-read',
+      name: 'read_file',
+      ok: true,
+      durationMs: 25,
+      outputLines: 40,
+    });
+    expect(leader?.activity).toMatchObject({
+      filesTouched: ['src/app.ts'],
+      reads: 1,
+      linesRead: 40,
+    });
+  });
+
   it('sets leader to waiting_user on brain.ask_human', () => {
     tracker.start();
     events.emit('brain.ask_human', {});
@@ -205,19 +288,74 @@ describe('AgentStatusTracker', () => {
   it('counts subagent tool calls on subagent.tool_executed', () => {
     tracker.start();
     events.emit('subagent.spawned', { subagentId: 'sa-t', name: 'worker' });
-    events.emit('subagent.tool_executed', { subagentId: 'sa-t', name: 'bash', ok: true, durationMs: 5 });
-    events.emit('subagent.tool_executed', { subagentId: 'sa-t', name: 'read', ok: true, durationMs: 3 });
+    events.emit('subagent.tool_executed', {
+      subagentId: 'sa-t',
+      name: 'bash',
+      ok: true,
+      durationMs: 5,
+    });
+    events.emit('subagent.tool_executed', {
+      subagentId: 'sa-t',
+      name: 'read',
+      ok: true,
+      durationMs: 3,
+    });
 
     const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
     const sub = call?.find((a: AgentEntry) => a.id === 'sa-t');
     expect(sub?.toolCalls).toBe(2);
-    expect(sub?.currentTool).toBe('read');
+    expect(sub?.currentTool).toBeUndefined();
+  });
+
+  it('tracks subagent starts, writes, edits, and line deltas in the shared snapshot', () => {
+    tracker.start();
+    events.emit('subagent.spawned', { subagentId: 'sa-work', name: 'worker' });
+    events.emit('subagent.tool_started', {
+      subagentId: 'sa-work',
+      id: 'tu-write',
+      name: 'write_file',
+      input: { file_path: 'src/new.ts', content: 'one\ntwo\nthree' },
+    });
+    events.emit('subagent.tool_executed', {
+      subagentId: 'sa-work',
+      id: 'tu-write',
+      name: 'write_file',
+      ok: true,
+      durationMs: 10,
+      input: { file_path: 'src/new.ts', content: 'one\ntwo\nthree' },
+    });
+    events.emit('subagent.tool_executed', {
+      subagentId: 'sa-work',
+      id: 'tu-edit',
+      name: 'apply_patch',
+      ok: true,
+      durationMs: 8,
+      input: { file_path: 'src/new.ts', patch: '@@\n-old\n+new\n+more' },
+    });
+
+    const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
+    const sub = call?.find((agent) => agent.id === 'sa-work');
+    expect(sub?.recentTools).toHaveLength(2);
+    expect(sub?.activity).toMatchObject({
+      filesTouched: ['src/new.ts'],
+      writes: 1,
+      edits: 1,
+      linesWritten: 3,
+      linesAdded: 2,
+      linesRemoved: 1,
+    });
   });
 
   it('accumulates leader cost + tokens from token.accounted', () => {
     tracker.start();
-    events.emit('token.accounted', { usage: { input: 1000, output: 200 }, cost: { input: 0.1, output: 0.2, total: 0.3 } });
-    events.emit('token.accounted', { usage: { input: 500, output: 100 }, cost: { input: 0.05, output: 0.1, total: 0.15 } });
+    events.emit('token.accounted', {
+      usage: { input: 1000, output: 200 },
+      cost: { input: 0.1, output: 0.2, total: 0.3 },
+    });
+    events.emit('token.accounted', {
+      usage: { input: 500, output: 100 },
+      cost: { input: 0.05, output: 0.1, total: 0.15 },
+    });
 
     const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
     const leader = call?.find((a: AgentEntry) => a.id === 'leader');
@@ -288,7 +426,11 @@ describe('AgentStatusTracker', () => {
 
   it('captures subagent model + context fill', () => {
     tracker.start();
-    events.emit('subagent.spawned', { subagentId: 'sa-m', name: 'worker', model: 'anthropic/claude-opus-4-8' });
+    events.emit('subagent.spawned', {
+      subagentId: 'sa-m',
+      name: 'worker',
+      model: 'anthropic/claude-opus-4-8',
+    });
     events.emit('subagent.ctx_pct', { subagentId: 'sa-m', load: 0.42 });
 
     const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
@@ -310,7 +452,12 @@ describe('AgentStatusTracker', () => {
   it('records subagent cost from iteration_summary', () => {
     tracker.start();
     events.emit('subagent.spawned', { subagentId: 'sa-c', name: 'worker' });
-    events.emit('subagent.iteration_summary', { subagentId: 'sa-c', iteration: 10, toolCalls: 20, costUsd: 0.077 });
+    events.emit('subagent.iteration_summary', {
+      subagentId: 'sa-c',
+      iteration: 10,
+      toolCalls: 20,
+      costUsd: 0.077,
+    });
 
     const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
     const sub = call?.find((a: AgentEntry) => a.id === 'sa-c');
@@ -320,7 +467,12 @@ describe('AgentStatusTracker', () => {
   it('takes authoritative counts from subagent.iteration_summary', () => {
     tracker.start();
     events.emit('subagent.spawned', { subagentId: 'sa-i', name: 'worker' });
-    events.emit('subagent.iteration_summary', { subagentId: 'sa-i', iteration: 25, toolCalls: 47, currentTool: 'grep' });
+    events.emit('subagent.iteration_summary', {
+      subagentId: 'sa-i',
+      iteration: 25,
+      toolCalls: 47,
+      currentTool: 'grep',
+    });
 
     const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
     const sub = call?.find((a: AgentEntry) => a.id === 'sa-i');
@@ -359,10 +511,41 @@ describe('AgentStatusTracker', () => {
     expect(sub?.iterations).toBe(1);
   });
 
+  it('tracks and clears a subagent task assignment', () => {
+    tracker.start();
+    events.emit('subagent.spawned', {
+      subagentId: 'sa-task',
+      name: 'reviewer',
+      taskId: 'task-42',
+      description: 'Review the Office telemetry patch',
+    });
+
+    let call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
+    let sub = call?.find((agent) => agent.id === 'sa-task');
+    expect(sub).toMatchObject({
+      taskId: 'task-42',
+      currentTask: 'Review the Office telemetry patch',
+    });
+
+    events.emit('subagent.task_completed', {
+      subagentId: 'sa-task',
+      status: 'success',
+    });
+    call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
+    sub = call?.find((agent) => agent.id === 'sa-task');
+    expect(sub?.currentTask).toBeUndefined();
+    expect(sub?.taskId).toBeUndefined();
+  });
+
   it('sets subagent to idle on successful task_completed', () => {
     tracker.start();
     events.emit('subagent.spawned', { subagentId: 'sa-3', name: 'critic' });
-    events.emit('subagent.task_completed', { subagentId: 'sa-3', status: 'success', iterations: 4, toolCalls: 9 });
+    events.emit('subagent.task_completed', {
+      subagentId: 'sa-3',
+      status: 'success',
+      iterations: 4,
+      toolCalls: 9,
+    });
 
     const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
     const sub = call?.find((a: AgentEntry) => a.id === 'sa-3');
@@ -510,6 +693,41 @@ describe('AgentStatusTracker', () => {
     expect(leader?.toolCalls).toBe(3);
   });
 
+  it('keeps bounded mail receipts and session mail totals per agent', () => {
+    tracker.start();
+    events.emit('subagent.spawned', { subagentId: 'worker-a', name: 'worker' });
+    events.emit('mailbox.message_sent', {
+      messageId: 'mail-out',
+      from: 'worker-a',
+      to: 'leader',
+      type: 'result',
+      subject: 'Work complete',
+    });
+    events.emit('mailbox.received', {
+      messageId: 'mail-in',
+      from: 'leader',
+      to: 'worker-a',
+      type: 'note',
+      subject: 'One more thing',
+    });
+    // Duplicate delivery notifications must not inflate the session dashboard.
+    events.emit('mailbox.received', {
+      messageId: 'mail-in',
+      from: 'leader',
+      to: 'worker-a',
+      type: 'note',
+      subject: 'One more thing',
+    });
+
+    const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
+    const worker = call?.find((agent) => agent.id === 'worker-a');
+    expect(worker?.recentMail).toEqual([
+      expect.objectContaining({ id: 'mail-in', direction: 'incoming' }),
+      expect.objectContaining({ id: 'mail-out', direction: 'outgoing' }),
+    ]);
+    expect(worker?.activity).toMatchObject({ mailReceived: 1, mailSent: 1 });
+  });
+
   it('does not register updateAgents failure as a crash', () => {
     const failingRegistry = {
       updateAgents: vi.fn().mockRejectedValue(new Error('disk full')),
@@ -570,7 +788,10 @@ describe('AgentStatusTracker', () => {
   it('caps an oversized subagent partialText', () => {
     tracker.start();
     events.emit('subagent.spawned', { subagentId: 'sa-big', name: 'worker' });
-    events.emit('subagent.iteration_summary', { subagentId: 'sa-big', partialText: 'x'.repeat(2000) });
+    events.emit('subagent.iteration_summary', {
+      subagentId: 'sa-big',
+      partialText: 'x'.repeat(2000),
+    });
     const call = registry.updateAgents.mock.calls.at(-1)?.[0] as AgentEntry[];
     const sub = call?.find((a: AgentEntry) => a.id === 'sa-big');
     expect(sub?.partialText?.length).toBe(1200);
@@ -609,7 +830,9 @@ describe('AgentStatusTracker', () => {
     tracker = new AgentStatusTracker({
       events: events as never as import('@wrongstack/core').EventBus,
       registry: registry as never as SessionRegistry,
-      onUpdate: () => { updated = true; },
+      onUpdate: () => {
+        updated = true;
+      },
     });
     tracker.start();
     events.emit('agent.run.started', {});

@@ -191,8 +191,8 @@ describe('openMainView', () => {
   });
 
   it('shows chat panel when already on the requested view', () => {
-    useUIStore.setState({ currentView: 'autophase', sidebarOpen: false });
-    openMainView('autophase');
+    useUIStore.setState({ currentView: 'goal', sidebarOpen: false });
+    openMainView('goal');
     const state = useUIStore.getState();
     // Toggle: already on this view → show chat panel
     expect(state.sidebarOpen).toBe(true);

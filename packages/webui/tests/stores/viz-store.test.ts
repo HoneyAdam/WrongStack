@@ -6,6 +6,7 @@ import { useVizStore, wsToVizEvent } from '../../src/stores/viz-store';
 function resetStore() {
   useVizStore.setState({
     events: [],
+    toolEvents: [],
     nodes: new Map(),
     edges: new Map(),
     isActive: false,
@@ -69,6 +70,7 @@ describe('store initialization', () => {
   it('has empty events and maps', () => {
     const state = useVizStore.getState();
     expect(state.events).toHaveLength(0);
+    expect(state.toolEvents).toHaveLength(0);
     expect(state.nodes.size).toBe(0);
     expect(state.edges.size).toBe(0);
   });
@@ -137,6 +139,21 @@ describe('pushEvent', () => {
     useVizStore.getState().pushEvent(makeEvent({ id: 'ev-b', label: 'B' }));
     useVizStore.getState().pushEvent(makeEvent({ id: 'ev-c', label: 'C' }));
     expect(useVizStore.getState().events.map((e) => e.label)).toEqual(['C', 'B']);
+  });
+
+  it('keeps tool activity in a separate archive when general events overflow', () => {
+    useVizStore.setState({ maxEvents: 2 });
+    useVizStore.getState().pushEvent(
+      makeEvent({ id: 'tool-1', kind: 'tool:executed', label: 'read_file' }),
+    );
+    for (let index = 0; index < 5; index += 1) {
+      useVizStore.getState().pushEvent(
+        makeEvent({ id: `stream-${index}`, kind: 'provider:delta', label: `delta ${index}` }),
+      );
+    }
+
+    expect(useVizStore.getState().events.map((event) => event.id)).not.toContain('tool-1');
+    expect(useVizStore.getState().toolEvents.map((event) => event.id)).toContain('tool-1');
   });
 
   it('keeps nodes Map reference stable when pushEvent upserts produce shallow-equal nodes (Track E.7)', () => {
@@ -365,14 +382,17 @@ describe('removeEdge', () => {
 describe('clear', () => {
   beforeEach(() => resetStore());
 
-  it('resets events, nodes, edges, and counters but preserves isActive', () => {
+  it('resets events, tool archive, nodes, edges, and counters but preserves isActive', () => {
     useVizStore.getState().upsertNode({ id: 'n1', kind: 'agent', label: 'A' } as any);
     useVizStore.getState().upsertEdge({ id: 'e1', source: 'a', target: 'b', kind: 'provider:call', label: 'c' });
-    useVizStore.getState().pushEvent(makeEvent({ id: 'ev-1' }));
+    useVizStore.getState().pushEvent(
+      makeEvent({ id: 'ev-1', kind: 'tool:executed', label: 'read_file' }),
+    );
     useVizStore.setState({ isActive: true });
     useVizStore.getState().clear();
     const state = useVizStore.getState();
     expect(state.events).toHaveLength(0);
+    expect(state.toolEvents).toHaveLength(0);
     expect(state.nodes.size).toBe(0);
     expect(state.edges.size).toBe(0);
     expect(state.isActive).toBe(true); // clear() preserves isActive

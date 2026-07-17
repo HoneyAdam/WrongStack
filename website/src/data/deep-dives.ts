@@ -270,8 +270,8 @@ export const featureDeepDives: Record<string, FeatureDeepDive> = {
       },
       {
         title: 'Choose a workflow',
-        body: 'SDD connects specification, tasks and evidence; AutoPhase advances through staged work; autonomy handles longer session loops.',
-        code: 'goal → SDD | AutoPhase | autonomy',
+        body: 'SDD connects specification, tasks and evidence; Goal advances through staged work; autonomy handles longer session loops.',
+        code: 'goal → SDD | Goal | autonomy',
       },
       {
         title: 'Steer in band',
@@ -292,7 +292,7 @@ export const featureDeepDives: Record<string, FeatureDeepDive> = {
     signals: [
       { label: 'Workflow state', value: 'goals · todos · plans' },
       { label: 'Structured mode', value: 'SDD' },
-      { label: 'Phase engine', value: 'AutoPhase' },
+      { label: 'Phase engine', value: 'Goal' },
     ],
   },
   'code-intelligence': {
@@ -654,7 +654,7 @@ export const featureDeepDives: Record<string, FeatureDeepDive> = {
       },
       {
         title: 'Bridge workflow graphs',
-        body: 'TaskGraph, SDD and AutoPhase structures can create, synchronize and export boards while rejecting dependency cycles.',
+        body: 'TaskGraph, SDD and Goal structures can create, synchronize and export boards while rejecting dependency cycles.',
         code: 'graph ↔ Kanban board',
       },
     ],

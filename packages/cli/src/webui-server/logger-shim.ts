@@ -5,7 +5,7 @@
 //
 //   - The shim is a stand-in for the real `Logger` while
 //     the CLI module is consumed by other CLI modules
-//     (AutoPhaseWebSocketHandler in particular) that don't
+//     (GoalWebSocketHandler in particular) that don't
 //     import the full `@wrongstack/core` tree. Lifting it
 //     makes that "stand-in" status explicit: this file is
 //     the CLI's structured-log adapter.
@@ -31,14 +31,14 @@ import type { Logger } from '@wrongstack/core';
 /**
  * Structured-log line shape used by the CLI webui-server
  * shim. The line is one JSON object per write, with a
- * stable `event: 'webui.autophase'` discriminator so the
+ * stable `event: 'webui.goal'` discriminator so the
  * TUI/WebUI log filter can route these to a dedicated
- * autophase channel.
+ * goal channel.
  */
 const structuredLine = (level: string, message: string): string =>
   JSON.stringify({
     level,
-    event: 'webui.autophase',
+    event: 'webui.goal',
     message,
     timestamp: new Date().toISOString(),
   });

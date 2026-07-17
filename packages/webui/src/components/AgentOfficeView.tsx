@@ -3,41 +3,53 @@ import {
   Bot,
   Building2,
   Check,
+  CheckCircle2,
   Clock3,
   Code2,
   File,
   FilePenLine,
+  FolderOpen,
   FolderSearch,
   Globe2,
   HardDrive,
+  Inbox,
+  ListTodo,
+  type LucideIcon,
+  Mail,
   MemoryStick,
-  Network,
-  PanelsTopLeft,
+  MessageSquareText,
   Search,
+  Send,
   TerminalSquare,
   Wifi,
   X,
   Zap,
-  type LucideIcon,
 } from 'lucide-react';
-import { useMemo, useState, type ReactNode } from 'react';
+import { type ReactNode, useMemo, useState } from 'react';
 import { useAppTranslation } from '@/i18n';
 import {
+  buildAgentMailActivities,
   buildAgentToolCalls,
+  buildSnapshotMailActivities,
+  buildSnapshotToolCalls,
   classifyOfficeTool,
-  synthesizeCurrentTool,
+  type OfficeMailActivity,
   type OfficeToolCall,
   type OfficeToolKind,
+  synthesizeCurrentTool,
 } from '@/lib/agent-office';
 import { cn } from '@/lib/utils';
-import { useFleetStore, useMonitorStore, useSessionStore, useVizStore } from '@/stores';
+import {
+  useFleetStore,
+  useMailboxStore,
+  useMonitorStore,
+  useSessionStore,
+  useVizStore,
+} from '@/stores';
+import type { LiveTodoItem } from '@/stores/monitor-store';
 import type { ResolvedAgent, ResolvedClient } from './OfficeMapCanvas/resolve.js';
 import { resolveClients } from './OfficeMapCanvas/resolve.js';
 import './AgentOfficeView.css';
-
-interface AgentOfficeViewProps {
-  onOpenTopology: () => void;
-}
 
 interface OfficeAgentModel {
   key: string;
@@ -47,12 +59,55 @@ interface OfficeAgentModel {
   current?: OfficeToolCall | undefined;
   display?: OfficeToolCall | undefined;
   history: OfficeToolCall[];
+  mail: OfficeMailActivity[];
 }
 
-interface SelectedAction {
-  call: OfficeToolCall;
-  agentName: string;
+type SelectedAction =
+  | { kind: 'tool'; call: OfficeToolCall; agentName: string }
+  | { kind: 'mail'; mail: OfficeMailActivity; agentName: string }
+  | { kind: 'task'; task: string; taskId?: string | undefined; agentName: string }
+  | {
+      kind: 'briefing';
+      officeLabel: string;
+      prompt?: string | undefined;
+      promptAt?: number | undefined;
+      instructionActive: boolean;
+      telemetryConnected: boolean;
+      todos: LiveTodoItem[];
+    };
+
+interface ClientOfficeStats {
+  files: number;
+  reads: number;
+  writes: number;
+  edits: number;
+  linesAdded: number;
+  linesRemoved: number;
+  terminalCalls: number;
+  incomingMail: number;
+  outgoingMail: number;
 }
+
+interface ClientOfficeModel {
+  client: ResolvedClient;
+  agents: OfficeAgentModel[];
+  stats: ClientOfficeStats;
+}
+
+type AgentVisualRole = 'leader' | 'builder' | 'researcher' | 'reviewer' | 'planner' | 'operator';
+type DeskPalette = 'amber' | 'mint' | 'ocean' | 'plum' | 'rose' | 'graphite';
+
+interface DeskPersonality {
+  palette: DeskPalette;
+  layout: number;
+  clutter: number;
+  avatar: number;
+  motion: number;
+  charm: 'bot' | 'cactus' | 'duck' | 'radio';
+}
+
+const DESK_PALETTES: DeskPalette[] = ['amber', 'mint', 'ocean', 'plum', 'rose', 'graphite'];
+const DESK_CHARMS: DeskPersonality['charm'][] = ['bot', 'cactus', 'duck', 'radio'];
 
 const TOOL_ICONS: Record<OfficeToolKind, LucideIcon> = {
   read: Search,
@@ -64,6 +119,48 @@ const TOOL_ICONS: Record<OfficeToolKind, LucideIcon> = {
   memory: MemoryStick,
   other: Code2,
 };
+
+const AGENT_ROLE_ICONS: Record<AgentVisualRole, LucideIcon> = {
+  leader: Building2,
+  builder: Code2,
+  researcher: Search,
+  reviewer: Check,
+  planner: ListTodo,
+  operator: TerminalSquare,
+};
+
+function agentVisualRole(agent: ResolvedAgent): AgentVisualRole {
+  if (agent.serverId === 'leader' || agent.serverId.startsWith('leader@')) return 'leader';
+  const description = [agent.role, agent.name, agent.currentTask]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  if (/review|critic|audit|security|test|qa|verify|checker/.test(description)) return 'reviewer';
+  if (/research|analyst|explor|investig|search|hunter|recon/.test(description)) return 'researcher';
+  if (/plan|architect|design|coordinat|strateg|spec/.test(description)) return 'planner';
+  if (/build|implement|code|develop|engineer|refactor|fix|frontend|backend/.test(description)) {
+    return 'builder';
+  }
+  return 'operator';
+}
+
+/** Stable visual variety without desks changing personality on every render. */
+function deskPersonality(identity: string): DeskPersonality {
+  let hash = 2166136261;
+  for (let index = 0; index < identity.length; index += 1) {
+    hash ^= identity.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  const seed = hash >>> 0;
+  return {
+    palette: DESK_PALETTES[seed % DESK_PALETTES.length] ?? 'amber',
+    layout: Math.floor(seed / DESK_PALETTES.length) % 4,
+    clutter: Math.floor(seed / (DESK_PALETTES.length * 4)) % 3,
+    avatar: Math.floor(seed / 17) % 5,
+    motion: Math.floor(seed / 31) % 4,
+    charm: DESK_CHARMS[Math.floor(seed / 47) % DESK_CHARMS.length] ?? 'bot',
+  };
+}
 
 function shortPath(value: string | undefined, max = 46): string | undefined {
   if (!value || value.length <= max) return value;
@@ -87,6 +184,17 @@ function formatDuration(durationMs: number | undefined): string {
   return `${(durationMs / 1000).toFixed(durationMs < 10_000 ? 1 : 0)} s`;
 }
 
+function formatUptime(startedAt: string | undefined, now: number): string {
+  if (!startedAt) return '—';
+  const started = Date.parse(startedAt);
+  if (!Number.isFinite(started)) return '—';
+  const seconds = Math.max(0, Math.floor((now - started) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h`;
+  return `${Math.floor(seconds / 86_400)}d`;
+}
+
 function stringify(value: unknown): string {
   if (value === undefined) return '';
   if (typeof value === 'string') return value;
@@ -95,6 +203,44 @@ function stringify(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function clientOfficeStats(agents: OfficeAgentModel[]): ClientOfficeStats {
+  const files = new Set<string>();
+  const incomingMail = new Set<string>();
+  const outgoingMail = new Set<string>();
+  let sessionIncomingMail = 0;
+  let sessionOutgoingMail = 0;
+  const stats: ClientOfficeStats = {
+    files: 0,
+    reads: 0,
+    writes: 0,
+    edits: 0,
+    linesAdded: 0,
+    linesRemoved: 0,
+    terminalCalls: 0,
+    incomingMail: 0,
+    outgoingMail: 0,
+  };
+  for (const model of agents) {
+    const activity = model.agent.activity;
+    for (const filePath of activity?.filesTouched ?? []) files.add(filePath);
+    stats.reads += activity?.reads ?? 0;
+    stats.writes += activity?.writes ?? 0;
+    stats.edits += activity?.edits ?? 0;
+    stats.linesAdded += activity?.linesAdded ?? 0;
+    stats.linesRemoved += activity?.linesRemoved ?? 0;
+    stats.terminalCalls += activity?.terminalCalls ?? 0;
+    sessionIncomingMail += activity?.mailReceived ?? 0;
+    sessionOutgoingMail += activity?.mailSent ?? 0;
+    for (const mail of model.mail) {
+      (mail.direction === 'incoming' ? incomingMail : outgoingMail).add(mail.id);
+    }
+  }
+  stats.files = files.size;
+  stats.incomingMail = Math.max(sessionIncomingMail, incomingMail.size);
+  stats.outgoingMail = Math.max(sessionOutgoingMail, outgoingMail.size);
+  return stats;
 }
 
 function fallbackLogCalls(
@@ -114,13 +260,13 @@ function fallbackLogCalls(
   }));
 }
 
-function mergeFallbackCalls(rich: OfficeToolCall[], fallback: OfficeToolCall[]): OfficeToolCall[] {
-  const merged = [...rich];
-  for (const call of fallback) {
+function mergeCalls(...sources: OfficeToolCall[][]): OfficeToolCall[] {
+  const merged: OfficeToolCall[] = [];
+  for (const call of sources.flat()) {
     const timestamp = call.completedAt ?? call.startedAt;
-    const duplicate = rich.some(
+    const duplicate = merged.some(
       (candidate) =>
-        candidate.toolName === call.toolName &&
+        (candidate.id === call.id || candidate.toolName === call.toolName) &&
         Math.abs((candidate.completedAt ?? candidate.startedAt) - timestamp) < 2500,
     );
     if (!duplicate) merged.push(call);
@@ -128,6 +274,15 @@ function mergeFallbackCalls(rich: OfficeToolCall[], fallback: OfficeToolCall[]):
   return merged.sort(
     (left, right) => (right.completedAt ?? right.startedAt) - (left.completedAt ?? left.startedAt),
   );
+}
+
+function mergeMail(...sources: OfficeMailActivity[][]): OfficeMailActivity[] {
+  const merged = new Map<string, OfficeMailActivity>();
+  // Snapshot first, then full mailbox records so message body/read state wins.
+  for (const mail of sources.flat()) merged.set(mail.id, mail);
+  return [...merged.values()]
+    .sort((left, right) => right.timestampMs - left.timestampMs)
+    .slice(0, 12);
 }
 
 function ToolGlyph({ kind, active }: { kind: OfficeToolKind; active?: boolean }) {
@@ -140,10 +295,31 @@ function ToolGlyph({ kind, active }: { kind: OfficeToolKind; active?: boolean })
   );
 }
 
-function AgentAvatar({ active, failed }: { active: boolean; failed: boolean }) {
+function AgentAvatar({
+  active,
+  failed,
+  role,
+  variant,
+  motion,
+}: {
+  active: boolean;
+  failed: boolean;
+  role: AgentVisualRole;
+  variant: number;
+  motion: number;
+}) {
+  const RoleIcon = AGENT_ROLE_ICONS[role];
   return (
     <div
-      className={cn('agent-office__avatar', active && 'is-active', failed && 'is-failed')}
+      className={cn(
+        'agent-office__avatar',
+        `is-${role}`,
+        `is-avatar-${variant}`,
+        `is-motion-${motion}`,
+        active && 'is-active',
+        !active && !failed && 'is-idle',
+        failed && 'is-failed',
+      )}
       aria-hidden="true"
     >
       <span className="agent-office__avatar-chair" />
@@ -151,9 +327,14 @@ function AgentAvatar({ active, failed }: { active: boolean; failed: boolean }) {
       <span className="agent-office__avatar-head">
         <span className="agent-office__avatar-hair" />
         <span className="agent-office__avatar-face" />
+        <span className="agent-office__avatar-mouth" />
         <span className="agent-office__avatar-headset" />
       </span>
       <span className="agent-office__avatar-arm" />
+      <span className="agent-office__avatar-prop" />
+      <span className="agent-office__avatar-role-badge">
+        <RoleIcon />
+      </span>
     </div>
   );
 }
@@ -205,6 +386,251 @@ function ToolParcel({
   );
 }
 
+function MailParcel({
+  mail,
+  compact = false,
+  onSelect,
+}: {
+  mail: OfficeMailActivity;
+  compact?: boolean;
+  onSelect: () => void;
+}) {
+  const incoming = mail.direction === 'incoming';
+  return (
+    <button
+      type="button"
+      className={cn(
+        'agent-office__mail-parcel',
+        compact && 'is-compact',
+        incoming ? 'is-incoming' : 'is-outgoing',
+        mail.unread && 'is-unread',
+      )}
+      onClick={onSelect}
+      aria-label={`${incoming ? 'Incoming' : 'Outgoing'} mail: ${mail.subject}`}
+    >
+      <span className="agent-office__mail-icon">
+        {incoming ? <Inbox aria-hidden="true" /> : <Send aria-hidden="true" />}
+      </span>
+      <span className="agent-office__parcel-copy">
+        <strong>{incoming ? `${mail.from} →` : `→ ${mail.to}`}</strong>
+        <span className="agent-office__parcel-summary">{mail.subject}</span>
+      </span>
+      <Mail aria-hidden="true" />
+    </button>
+  );
+}
+
+function ClientOfficeHeader({ office, now }: { office: ClientOfficeModel; now: number }) {
+  const { t } = useAppTranslation();
+  const { client, agents, stats } = office;
+  const heartbeatAt = client.lastHeartbeatAt ? Date.parse(client.lastHeartbeatAt) : Number.NaN;
+  const heartbeatFresh = Number.isFinite(heartbeatAt) && now - heartbeatAt < 20_000;
+  const heartbeatDelayed = Number.isFinite(heartbeatAt) && !heartbeatFresh;
+  const registryBacked = agents.some(({ agent }) => agent.presenceSource === 'registry');
+  const presenceLabel = heartbeatFresh
+    ? 'VERIFIED'
+    : heartbeatDelayed
+      ? 'DELAYED'
+      : registryBacked
+        ? 'REGISTRY'
+        : 'LOCAL';
+  const hasToolTelemetry = agents.some(
+    ({ agent }) => agent.recentTools !== undefined || agent.activity !== undefined,
+  );
+  const hasLegacyAgent = agents.some(
+    ({ agent }) =>
+      agent.toolCalls > 0 && agent.recentTools === undefined && agent.activity === undefined,
+  );
+  return (
+    <header className="agent-office__client-header">
+      <div className="agent-office__client-title">
+        <span className="agent-office__client-icon">
+          <Building2 aria-hidden="true" />
+        </span>
+        <div className="agent-office__client-copy">
+          <strong>{client.label}</strong>
+          <span>{client.sublabel || client.sessionId}</span>
+        </div>
+        <div className="agent-office__client-presence">
+          <span className="agent-office__client-agent-count">
+            {agents.length} {t('activity:agentOffice.agents')}
+          </span>
+          <span
+            className={cn(
+              'agent-office__presence-chip',
+              !heartbeatDelayed && 'is-live',
+              heartbeatDelayed && 'is-legacy',
+            )}
+          >
+            <Wifi aria-hidden="true" /> {presenceLabel}
+          </span>
+          <span className="agent-office__presence-chip">
+            <Clock3 aria-hidden="true" /> {formatUptime(client.startedAt, now)} UP
+          </span>
+          <span
+            className={cn(
+              'agent-office__presence-chip',
+              hasLegacyAgent ? 'is-legacy' : hasToolTelemetry && 'is-telemetry',
+            )}
+          >
+            <Activity aria-hidden="true" />
+            {hasLegacyAgent ? 'RECONNECT' : hasToolTelemetry ? 'TOOLS LIVE' : 'READY'}
+          </span>
+        </div>
+      </div>
+      <fieldset className="agent-office__client-stats" aria-label="Session activity totals">
+        <span title="Unique files touched">
+          <FolderOpen /> <strong>{stats.files}</strong> FILES
+        </span>
+        <span title="File reads">
+          <Search /> <strong>{stats.reads}</strong> READ
+        </span>
+        <span title="Files written">
+          <FilePenLine /> <strong>{stats.writes}</strong> WRITE
+        </span>
+        <span title="Files edited">
+          <FilePenLine /> <strong>{stats.edits}</strong> EDIT
+        </span>
+        <span className="agent-office__client-delta" title="Lines added and removed">
+          <strong>+{stats.linesAdded}</strong> / <b>−{stats.linesRemoved}</b>
+        </span>
+        <span title="Terminal commands">
+          <TerminalSquare /> <strong>{stats.terminalCalls}</strong> TERM
+        </span>
+        <span title="Incoming and outgoing mail">
+          <Mail /> <strong>{stats.incomingMail}</strong>↓ <strong>{stats.outgoingMail}</strong>↑
+        </span>
+      </fieldset>
+    </header>
+  );
+}
+
+function OfficeBriefing({
+  office,
+  now,
+  onSelect,
+}: {
+  office: ClientOfficeModel;
+  now: number;
+  onSelect: (selected: SelectedAction) => void;
+}) {
+  const { t } = useAppTranslation();
+  const { client } = office;
+  const telemetryConnected = client.todos !== undefined;
+  const todos = client.todos ?? [];
+  const activeTodos = todos.filter((todo) => todo.status !== 'completed');
+  const completedCount = todos.length - activeTodos.length;
+  const instructionActive = Boolean(client.activeInstruction);
+  const instruction = client.activeInstruction ?? client.latestPrompt;
+  const promptIsFresh = client.latestPromptAt !== undefined && now - client.latestPromptAt < 30_000;
+  const openBriefing = () =>
+    onSelect({
+      kind: 'briefing',
+      officeLabel: client.label,
+      prompt: instruction,
+      promptAt: client.latestPromptAt,
+      instructionActive,
+      telemetryConnected,
+      todos,
+    });
+
+  return (
+    <section
+      className="agent-office__briefing"
+      aria-label={t('activity:agentOffice.officeBriefing')}
+    >
+      <button
+        type="button"
+        className={cn(
+          'agent-office__prompt-card',
+          instructionActive && 'is-active',
+          promptIsFresh && 'is-fresh',
+          !telemetryConnected && 'is-waiting',
+        )}
+        onClick={openBriefing}
+      >
+        <span className="agent-office__briefing-icon is-prompt">
+          <MessageSquareText aria-hidden="true" />
+        </span>
+        <span className="agent-office__briefing-copy">
+          <span>
+            {instructionActive
+              ? t('activity:agentOffice.activeInstruction')
+              : t('activity:agentOffice.leaderPrompt')}
+          </span>
+          <strong>
+            {instruction ??
+              (telemetryConnected
+                ? t('activity:agentOffice.noPrompt')
+                : t('activity:agentOffice.telemetryWaiting'))}
+          </strong>
+        </span>
+        {instructionActive && (
+          <span className="agent-office__instruction-live">
+            <i aria-hidden="true" /> LIVE
+          </span>
+        )}
+        {client.latestPromptAt !== undefined && (
+          <time dateTime={new Date(client.latestPromptAt).toISOString()}>
+            {relativeTime(client.latestPromptAt, now)}
+          </time>
+        )}
+      </button>
+
+      <button
+        type="button"
+        className={cn(
+          'agent-office__todo-board',
+          activeTodos.length > 0 && 'has-active',
+          !telemetryConnected && 'is-waiting',
+        )}
+        onClick={openBriefing}
+      >
+        <span className="agent-office__todo-heading">
+          <span>
+            <ListTodo aria-hidden="true" /> {t('activity:agentOffice.activeTodos')}
+          </span>
+          <strong>
+            {telemetryConnected
+              ? t('activity:agentOffice.todoProgress', {
+                  done: completedCount,
+                  total: todos.length,
+                })
+              : t('activity:agentOffice.syncWaiting')}
+          </strong>
+        </span>
+        <span className="agent-office__todo-preview">
+          {!telemetryConnected ? (
+            <span className="agent-office__todo-empty is-waiting">
+              <Activity aria-hidden="true" />
+              {t('activity:agentOffice.todoTelemetryWaiting')}
+            </span>
+          ) : activeTodos.length > 0 ? (
+            activeTodos.slice(0, 3).map((todo) => (
+              <span className={cn('agent-office__todo-line', `is-${todo.status}`)} key={todo.id}>
+                <i aria-hidden="true" />
+                <span>{todo.activeForm || todo.content}</span>
+              </span>
+            ))
+          ) : (
+            <span className="agent-office__todo-empty">
+              <CheckCircle2 aria-hidden="true" />
+              {todos.length > 0
+                ? t('activity:agentOffice.allTodosDone')
+                : t('activity:agentOffice.noActiveTodos')}
+            </span>
+          )}
+          {activeTodos.length > 3 && (
+            <span className="agent-office__todo-more">
+              {t('activity:agentOffice.moreTodos', { count: activeTodos.length - 3 })}
+            </span>
+          )}
+        </span>
+      </button>
+    </section>
+  );
+}
+
 function EmptyParcel({ active }: { active: boolean }) {
   const { t } = useAppTranslation();
   return (
@@ -234,31 +660,110 @@ function AgentLane({
   onSelect: (selected: SelectedAction) => void;
 }) {
   const { t } = useAppTranslation();
-  const { agent, client, current, display, history } = model;
+  const { agent, client, current, display, history, mail } = model;
   const active = agent.status === 'active' || agent.status === 'streaming';
   const failed = agent.status === 'error';
+  const latestMail = mail[0];
+  const visualRole = agentVisualRole(agent);
+  const desk = deskPersonality(`${client.sessionId}:${agent.serverId}:${agent.name}`);
+  const latestMailIsFresh = latestMail && now - latestMail.timestampMs < 30_000;
+  const recentWork = history.slice(0, 6);
+  const latestActivityAt =
+    recentWork[0]?.completedAt ??
+    recentWork[0]?.startedAt ??
+    display?.completedAt ??
+    display?.startedAt;
+  const activeToolClass = current ? `is-tool-${current.kind}` : undefined;
 
   return (
-    <article className={cn('agent-office__lane', active && 'is-active', failed && 'is-failed')}>
+    <article
+      className={cn(
+        'agent-office__lane',
+        `is-desk-${desk.palette}`,
+        `is-layout-${desk.layout}`,
+        `is-clutter-${desk.clutter}`,
+        active && 'is-active',
+        failed && 'is-failed',
+      )}
+    >
       <div className="agent-office__identity">
         <div className="agent-office__identity-line">
           <span
             className={cn('agent-office__status-dot', active && 'is-active', failed && 'is-failed')}
           />
           <strong title={agent.name}>{agent.name}</strong>
+          <span
+            className="agent-office__agent-verified"
+            title={
+              agent.presenceSource === 'registry'
+                ? 'Verified by live session registry'
+                : 'Verified by local fleet state'
+            }
+          >
+            <Check aria-hidden="true" />
+            {agent.presenceSource === 'registry' ? 'LIVE' : 'LOCAL'}
+          </span>
         </div>
         <span className="agent-office__role">
-          {agent.serverId === 'leader'
-            ? t('activity:agentOffice.leadAgent')
-            : t('activity:agentOffice.agent')}
+          {agent.role ??
+            (agent.serverId === 'leader' || agent.serverId.startsWith('leader@')
+              ? t('activity:agentOffice.leadAgent')
+              : t('activity:agentOffice.agent'))}
         </span>
         <div className="agent-office__agent-meta">
           <span>{client.branch ? `⎇ ${client.branch}` : client.type.toUpperCase()}</span>
           <span>{t('activity:agentOffice.callsCount', { count: agent.toolCalls })}</span>
         </div>
+        {agent.currentTask && (
+          <button
+            type="button"
+            className="agent-office__agent-task"
+            onClick={() =>
+              onSelect({
+                kind: 'task',
+                task: agent.currentTask ?? '',
+                taskId: agent.taskId,
+                agentName: agent.name,
+              })
+            }
+          >
+            <ListTodo aria-hidden="true" />
+            <span>
+              <strong>{t('activity:agentOffice.currentTask')}</strong>
+              <small>{agent.currentTask}</small>
+            </span>
+          </button>
+        )}
+        {!agent.currentTask && active && (
+          <div className="agent-office__agent-task is-missing">
+            <Activity aria-hidden="true" />
+            <span>
+              <strong>{t('activity:agentOffice.currentTask')}</strong>
+              <small>
+                {client.todos === undefined
+                  ? t('activity:agentOffice.telemetryWaiting')
+                  : t('activity:agentOffice.taskNotReported')}
+              </small>
+            </span>
+          </div>
+        )}
+        {latestMail && (
+          <button
+            type="button"
+            className={cn('agent-office__identity-mail', latestMail.unread && 'is-unread')}
+            onClick={() => onSelect({ kind: 'mail', mail: latestMail, agentName: agent.name })}
+            aria-label={`${mail.length} mail messages. Latest: ${latestMail.subject}`}
+          >
+            <Mail aria-hidden="true" />
+            <span>
+              <strong>{mail.length} MAIL</strong>
+              <small>{latestMail.subject}</small>
+            </span>
+          </button>
+        )}
       </div>
 
-      <div className="agent-office__scene">
+      <div className={cn('agent-office__scene', activeToolClass)}>
         <div className="agent-office__window" aria-hidden="true">
           <span />
           <span />
@@ -270,13 +775,47 @@ function AgentLane({
           <b />
         </div>
         <div className="agent-office__desk-zone" aria-hidden="true">
-          <AgentAvatar active={active} failed={failed} />
+          <AgentAvatar
+            active={active}
+            failed={failed}
+            role={visualRole}
+            variant={desk.avatar}
+            motion={desk.motion}
+          />
           <span className="agent-office__monitor">
             {display ? <ToolGlyph kind={display.kind} active={current !== undefined} /> : <Code2 />}
           </span>
+          <span className="agent-office__activity-fx">
+            <span />
+            <i />
+            <b />
+          </span>
           <span className="agent-office__desk" />
-          <span className="agent-office__mug" />
+          <span className="agent-office__desk-lamp" />
+          <span className="agent-office__desk-clutter">
+            <i />
+            <b />
+          </span>
+          <span className={cn('agent-office__desk-charm', `is-${desk.charm}`)}>
+            <i />
+            <b />
+          </span>
+          <span className={cn('agent-office__mug', `is-${visualRole}`)}>
+            <i aria-hidden="true" />
+            <b aria-hidden="true" />
+          </span>
         </div>
+
+        {latestMailIsFresh && (
+          <div className={cn('agent-office__mail-flyby', `is-${latestMail.direction}`)}>
+            <MailParcel
+              key={latestMail.id}
+              mail={latestMail}
+              compact
+              onSelect={() => onSelect({ kind: 'mail', mail: latestMail, agentName: agent.name })}
+            />
+          </div>
+        )}
 
         <div className={cn('agent-office__conveyor', current && 'is-moving')}>
           <div className="agent-office__belt" aria-hidden="true">
@@ -290,8 +829,9 @@ function AgentLane({
           <div className="agent-office__current-action">
             {display ? (
               <ToolParcel
+                key={display.id}
                 call={display}
-                onSelect={() => onSelect({ call: display, agentName: agent.name })}
+                onSelect={() => onSelect({ kind: 'tool', call: display, agentName: agent.name })}
               />
             ) : (
               <EmptyParcel active={active} />
@@ -303,20 +843,26 @@ function AgentLane({
       <div className="agent-office__history">
         <div className="agent-office__history-heading">
           <span>{t('activity:agentOffice.recent')}</span>
-          {display && <span>{relativeTime(display.completedAt ?? display.startedAt, now)}</span>}
+          {latestActivityAt !== undefined && <span>{relativeTime(latestActivityAt, now)}</span>}
         </div>
         <div className="agent-office__history-list">
-          {history.length > 0 ? (
-            history.map((call) => (
+          {recentWork.length > 0 ? (
+            recentWork.map((call) => (
               <ToolParcel
-                key={call.id}
+                key={`tool:${call.id}`}
                 call={call}
                 compact
-                onSelect={() => onSelect({ call, agentName: agent.name })}
+                onSelect={() => onSelect({ kind: 'tool', call, agentName: agent.name })}
               />
             ))
           ) : (
-            <span className="agent-office__history-empty">{t('activity:agentOffice.noCalls')}</span>
+            <span className="agent-office__history-empty">
+              {agent.toolCalls > 0 &&
+              agent.recentTools === undefined &&
+              agent.activity === undefined
+                ? t('activity:agentOffice.telemetryReconnect')
+                : t('activity:agentOffice.noCalls')}
+            </span>
           )}
         </div>
       </div>
@@ -333,7 +879,13 @@ function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-function ActionDetail({ selected, onClose }: { selected: SelectedAction; onClose: () => void }) {
+function ToolActionDetail({
+  selected,
+  onClose,
+}: {
+  selected: Extract<SelectedAction, { kind: 'tool' }>;
+  onClose: () => void;
+}) {
   const { t } = useAppTranslation();
   const { call, agentName } = selected;
   const ToolIcon = TOOL_ICONS[call.kind];
@@ -454,34 +1006,226 @@ function ActionDetail({ selected, onClose }: { selected: SelectedAction; onClose
   );
 }
 
-export function AgentOfficeView({ onOpenTopology }: AgentOfficeViewProps) {
+function MailActionDetail({
+  selected,
+  onClose,
+}: {
+  selected: Extract<SelectedAction, { kind: 'mail' }>;
+  onClose: () => void;
+}) {
+  const { t } = useAppTranslation();
+  const { mail, agentName } = selected;
+  return (
+    <aside className="agent-office__detail" aria-label={`${mail.subject} details`}>
+      <div className="agent-office__detail-header">
+        <div className="agent-office__detail-icon is-mail">
+          <Mail aria-hidden="true" />
+        </div>
+        <div>
+          <span>{mail.direction === 'incoming' ? 'INCOMING MAIL' : 'OUTGOING MAIL'}</span>
+          <h2>{mail.subject}</h2>
+        </div>
+        <button type="button" onClick={onClose} aria-label="Close mail details">
+          <X />
+        </button>
+      </div>
+
+      <div className="agent-office__detail-status">
+        <span className={cn('agent-office__status-dot', mail.unread && 'is-active')} />
+        <strong>
+          {mail.from} → {mail.to}
+        </strong>
+        <span>{mail.type}</span>
+      </div>
+
+      <section className="agent-office__detail-section">
+        <h3>{t('activity:mailbox.messages')}</h3>
+        <DetailRow label={t('activity:agentOffice.agent')} value={agentName} />
+        <DetailRow
+          label={t('activity:agentOffice.started')}
+          value={new Date(mail.timestampMs).toLocaleTimeString()}
+        />
+        <DetailRow label="Priority" value={mail.priority} />
+        <DetailRow label="Route" value={`${mail.from} → ${mail.to}`} />
+      </section>
+
+      <section className="agent-office__detail-section">
+        <h3>{mail.subject}</h3>
+        <div className="agent-office__mail-body">{mail.body}</div>
+      </section>
+    </aside>
+  );
+}
+
+function TaskActionDetail({
+  selected,
+  onClose,
+}: {
+  selected: Extract<SelectedAction, { kind: 'task' }>;
+  onClose: () => void;
+}) {
+  const { t } = useAppTranslation();
+  return (
+    <aside className="agent-office__detail" aria-label={`${selected.agentName} task details`}>
+      <div className="agent-office__detail-header">
+        <div className="agent-office__detail-icon is-task">
+          <ListTodo aria-hidden="true" />
+        </div>
+        <div>
+          <span>{t('activity:agentOffice.currentTask')}</span>
+          <h2>{selected.agentName}</h2>
+        </div>
+        <button type="button" onClick={onClose} aria-label="Close task details">
+          <X />
+        </button>
+      </div>
+
+      <section className="agent-office__detail-section">
+        <h3>{t('activity:agentOffice.task')}</h3>
+        {selected.taskId && <DetailRow label="ID" value={selected.taskId} />}
+        <div className="agent-office__task-body">{selected.task}</div>
+      </section>
+    </aside>
+  );
+}
+
+function OfficeBriefingDetail({
+  selected,
+  onClose,
+}: {
+  selected: Extract<SelectedAction, { kind: 'briefing' }>;
+  onClose: () => void;
+}) {
+  const { t } = useAppTranslation();
+  const activeCount = selected.todos.filter((todo) => todo.status !== 'completed').length;
+  return (
+    <aside className="agent-office__detail" aria-label={`${selected.officeLabel} briefing`}>
+      <div className="agent-office__detail-header">
+        <div className="agent-office__detail-icon is-briefing">
+          <MessageSquareText aria-hidden="true" />
+        </div>
+        <div>
+          <span>
+            {selected.instructionActive
+              ? t('activity:agentOffice.activeInstruction')
+              : t('activity:agentOffice.officeBriefing')}
+          </span>
+          <h2>{selected.officeLabel}</h2>
+        </div>
+        <button type="button" onClick={onClose} aria-label="Close office briefing">
+          <X />
+        </button>
+      </div>
+
+      <div className="agent-office__detail-status">
+        <span
+          className={cn(
+            'agent-office__status-dot',
+            (selected.instructionActive || activeCount > 0) && 'is-active',
+          )}
+        />
+        <strong>
+          {selected.telemetryConnected
+            ? t('activity:agentOffice.activeTodos')
+            : t('activity:agentOffice.telemetryWaiting')}
+        </strong>
+        <span>{selected.telemetryConnected ? activeCount : '—'}</span>
+      </div>
+
+      <section className="agent-office__detail-section">
+        <h3>
+          {selected.instructionActive
+            ? t('activity:agentOffice.activeInstruction')
+            : t('activity:agentOffice.leaderPrompt')}
+        </h3>
+        {selected.promptAt !== undefined && (
+          <DetailRow
+            label={t('activity:agentOffice.promptReceived')}
+            value={new Date(selected.promptAt).toLocaleString()}
+          />
+        )}
+        <div className="agent-office__task-body">
+          {selected.prompt ??
+            (selected.telemetryConnected
+              ? t('activity:agentOffice.noPrompt')
+              : t('activity:agentOffice.telemetryWaiting'))}
+        </div>
+      </section>
+
+      <section className="agent-office__detail-section">
+        <h3>{t('activity:agentOffice.todos')}</h3>
+        <div className="agent-office__todo-detail-list">
+          {!selected.telemetryConnected ? (
+            <span className="agent-office__history-empty">
+              {t('activity:agentOffice.todoTelemetryWaiting')}
+            </span>
+          ) : selected.todos.length > 0 ? (
+            selected.todos.map((todo) => (
+              <div className={cn('agent-office__todo-detail', `is-${todo.status}`)} key={todo.id}>
+                <span aria-hidden="true" />
+                <div>
+                  <strong>{todo.content}</strong>
+                  <small>{t(`activity:agentOffice.todoStatus.${todo.status}`)}</small>
+                </div>
+              </div>
+            ))
+          ) : (
+            <span className="agent-office__history-empty">
+              {t('activity:agentOffice.noActiveTodos')}
+            </span>
+          )}
+        </div>
+      </section>
+    </aside>
+  );
+}
+
+function ActionDetail({ selected, onClose }: { selected: SelectedAction; onClose: () => void }) {
+  if (selected.kind === 'tool') return <ToolActionDetail selected={selected} onClose={onClose} />;
+  if (selected.kind === 'mail') return <MailActionDetail selected={selected} onClose={onClose} />;
+  if (selected.kind === 'task') return <TaskActionDetail selected={selected} onClose={onClose} />;
+  return <OfficeBriefingDetail selected={selected} onClose={onClose} />;
+}
+
+export function AgentOfficeView() {
   const { t } = useAppTranslation();
   const liveSessions = useMonitorStore((state) => state.liveSessions);
   const aggregate = useMonitorStore((state) => state.aggregate);
   const fleetAgents = useFleetStore((state) => state.agents);
-  const vizEvents = useVizStore((state) => state.events);
+  const mailboxAgents = useMailboxStore((state) => state.agents);
+  const mailboxMessages = useMailboxStore((state) => state.messages);
+  const toolEvents = useVizStore((state) => state.toolEvents);
   const projectNameFromSession = useSessionStore((state) => state.projectName);
   const [selected, setSelected] = useState<SelectedAction | null>(null);
 
   const clients = useMemo(
-    () => resolveClients(liveSessions, fleetAgents),
-    [liveSessions, fleetAgents],
+    () => resolveClients(liveSessions, fleetAgents, mailboxAgents),
+    [liveSessions, fleetAgents, mailboxAgents],
   );
 
   const models = useMemo<OfficeAgentModel[]>(
     () =>
       clients.flatMap((client) =>
         client.agents.map((agent) => {
-          const richCalls = buildAgentToolCalls(vizEvents, agent.serverId, client.sessionId);
+          const richCalls = buildAgentToolCalls(toolEvents, agent.serverId, client.sessionId);
+          const snapshotCalls = buildSnapshotToolCalls(
+            agent.recentTools,
+            agent.serverId,
+            client.sessionId,
+          );
           const logs = fleetAgents.get(agent.serverId)?.toolLog ?? [];
-          const calls = mergeFallbackCalls(richCalls, fallbackLogCalls(agent, client, logs));
+          const calls = mergeCalls(richCalls, snapshotCalls, fallbackLogCalls(agent, client, logs));
           const isActive = agent.status === 'active' || agent.status === 'streaming';
           let current = calls.find((call) => call.status === 'running');
-          if (!current && isActive && agent.currentTask) {
-            current = synthesizeCurrentTool(agent.serverId, agent.currentTask, client.sessionId);
+          if (!current && isActive && agent.currentTool) {
+            current = synthesizeCurrentTool(agent.serverId, agent.currentTool, client.sessionId);
           }
           const display = current ?? calls[0];
-          const history = calls.filter((call) => call.id !== display?.id).slice(0, 3);
+          const history = calls.filter((call) => call.status !== 'running').slice(0, 6);
+          const mail = mergeMail(
+            buildSnapshotMailActivities(agent.recentMail),
+            buildAgentMailActivities(mailboxMessages, agent, client.sessionId),
+          );
           return {
             key: agent.officeId,
             client,
@@ -490,10 +1234,22 @@ export function AgentOfficeView({ onOpenTopology }: AgentOfficeViewProps) {
             current,
             display,
             history,
+            mail,
           };
         }),
       ),
-    [clients, fleetAgents, vizEvents],
+    [clients, fleetAgents, mailboxMessages, toolEvents],
+  );
+
+  const offices = useMemo<ClientOfficeModel[]>(
+    () =>
+      clients
+        .map((client) => {
+          const agents = models.filter((model) => model.client.id === client.id);
+          return { client, agents, stats: clientOfficeStats(agents) };
+        })
+        .filter((office) => office.agents.length > 0),
+    [clients, models],
   );
 
   const activeCount = models.filter(
@@ -539,28 +1295,25 @@ export function AgentOfficeView({ onOpenTopology }: AgentOfficeViewProps) {
             <span>{t('activity:agentOffice.toolCalls')}</span>
           </div>
         </div>
-
-        <fieldset className="agent-office__view-switch">
-          <legend className="sr-only">Office view</legend>
-          <button type="button" aria-pressed="true">
-            <PanelsTopLeft /> {t('activity:agentOffice.office')}
-          </button>
-          <button type="button" onClick={onOpenTopology}>
-            <Network /> {t('activity:agentOffice.topology')}
-          </button>
-        </fieldset>
       </header>
-
-      <div className="agent-office__column-headings" aria-hidden="true">
-        <span>{t('activity:agentOffice.team')}</span>
-        <span>{t('activity:agentOffice.liveDesk')}</span>
-        <span>{t('activity:agentOffice.lastActions')}</span>
-      </div>
 
       <main className="agent-office__floor">
         {models.length > 0 ? (
-          models.map((model) => (
-            <AgentLane key={model.key} model={model} now={now} onSelect={setSelected} />
+          offices.map((office) => (
+            <section className="agent-office__client-office" key={office.client.id}>
+              <ClientOfficeHeader office={office} now={now} />
+              <OfficeBriefing office={office} now={now} onSelect={setSelected} />
+              <div className="agent-office__column-headings" aria-hidden="true">
+                <span>{t('activity:agentOffice.team')}</span>
+                <span>{t('activity:agentOffice.liveDesk')}</span>
+                <span>{t('activity:agentOffice.lastActions')}</span>
+              </div>
+              <div className="agent-office__client-desks">
+                {office.agents.map((model) => (
+                  <AgentLane key={model.key} model={model} now={now} onSelect={setSelected} />
+                ))}
+              </div>
+            </section>
           ))
         ) : (
           <div className="agent-office__empty-state">

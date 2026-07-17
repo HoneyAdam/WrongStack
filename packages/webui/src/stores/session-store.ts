@@ -199,6 +199,11 @@ export const useSessionStore = create<SessionState>()(
         mode: s.mode,
         contextMode: s.contextMode,
         lastVisitedAt: s.lastVisitedAt,
+        // Persist the last known context token estimate so the context-fill
+        // bar is accurate on F5. This is a lightweight scalar (8 bytes) —
+        // it does not include the full transcript (which lives in the
+        // chat-store 'wrongstack-chat' key).
+        lastInputTokens: s.lastInputTokens,
       }),
       // Bump the schema version above and add a remap here when the
       // persisted shape changes. Returning `null` drops the persisted

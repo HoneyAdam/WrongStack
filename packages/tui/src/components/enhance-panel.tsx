@@ -4,7 +4,7 @@ import { Box, Text, useInput, useStdout } from '../ink.js';
 import { theme } from '../theme.js';
 import { glyphs } from '../ui-glyphs.js';
 
-export type EnhanceDecision = 'refined' | 'english' | 'original' | 'edit' | 'cancel';
+export type EnhanceDecision = 'refined' | 'english' | 'original' | 'edit' | 'retry' | 'cancel';
 
 export interface RefiningPanelProps {
   /** Prompt currently being rewritten. */
@@ -297,6 +297,7 @@ export function EnhancePanel({
     if (key.return) onDecision(preferredDecision);
     else if (key.escape) onDecision('cancel');
     else if (input?.toLowerCase() === 'e') onDecision('english');
+    else if (input?.toLowerCase() === 'r') onDecision('retry');
     else if (input?.toLowerCase() === 't') onDecision('edit');
   });
 
@@ -380,6 +381,7 @@ export function EnhancePanel({
               color={theme.accent}
             />
             <KeyHint keyName="E" label="English" color={theme.success} />
+            <KeyHint keyName="R" label="retry" color={theme.brand} />
             <KeyHint keyName="T" label="edit" color={theme.warn} />
             <KeyHint keyName="Esc" label="cancel" color={theme.error} />
           </Box>
@@ -394,6 +396,7 @@ export function EnhancePanel({
               <KeyHint keyName="E" label="English" color={theme.success} />
             </Box>
             <Box height={1} gap={2}>
+              <KeyHint keyName="R" label="retry" color={theme.brand} />
               <KeyHint keyName="T" label="edit" color={theme.warn} />
               <KeyHint keyName="Esc" label="cancel" color={theme.error} />
             </Box>

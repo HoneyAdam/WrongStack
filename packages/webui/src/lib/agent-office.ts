@@ -40,6 +40,26 @@ export interface OfficeToolCall {
   raw?: unknown;
 }
 
+export interface OfficeMailboxMessage {
+  id: string;
+  from: string;
+  to: string;
+  type: string;
+  subject: string;
+  body: string;
+  priority: string;
+  timestamp: string;
+  senderSessionId?: string | undefined;
+  readBy?: Record<string, string> | undefined;
+  completed?: boolean | undefined;
+}
+
+export interface OfficeMailActivity extends OfficeMailboxMessage {
+  direction: 'incoming' | 'outgoing';
+  timestampMs: number;
+  unread: boolean;
+}
+
 type UnknownRecord = Record<string, unknown>;
 
 function record(value: unknown): UnknownRecord {
@@ -163,6 +183,7 @@ function describeTool(
   kind: OfficeToolKind,
   toolName: string,
   input: UnknownRecord,
+  data: UnknownRecord,
   outputLines: number | undefined,
   target: OfficeFileTarget | undefined,
 ): { target?: string | undefined; summary: string; lineLabel?: string | undefined } {
@@ -185,7 +206,8 @@ function describeTool(
 
   if (kind === 'write') {
     const content = firstText(input, ['content', 'text', 'data']);
-    const writtenLines = content ? lineCount(content) : undefined;
+    const writtenLines =
+      firstNumber(data, ['inputLines']) ?? (content ? lineCount(content) : undefined);
     return {
       target: path,
       summary:
@@ -201,13 +223,21 @@ function describeTool(
     const delta = patch ? patchDelta(patch) : null;
     const oldText = firstText(input, ['old_string', 'oldString', 'search']);
     const newText = firstText(input, ['new_string', 'newString', 'replacement']);
-    const summary = delta
-      ? `+${delta.added} / −${delta.removed} lines`
-      : oldText !== undefined || newText !== undefined
-        ? `${oldText ? lineCount(oldText) : 0} → ${newText ? lineCount(newText) : 0} lines`
-        : range.label
-          ? `${range.label} updated`
-          : 'Updating file';
+    const addedLines = firstNumber(data, ['addedLines']);
+    const removedLines = firstNumber(data, ['removedLines']);
+    const oldLines = firstNumber(data, ['oldLines']);
+    const newLines = firstNumber(data, ['newLines']);
+    const summary =
+      delta || addedLines !== undefined || removedLines !== undefined
+        ? `+${delta?.added ?? addedLines ?? 0} / −${delta?.removed ?? removedLines ?? 0} lines`
+        : oldText !== undefined ||
+            newText !== undefined ||
+            oldLines !== undefined ||
+            newLines !== undefined
+          ? `${oldText ? lineCount(oldText) : (oldLines ?? 0)} → ${newText ? lineCount(newText) : (newLines ?? 0)} lines`
+          : range.label
+            ? `${range.label} updated`
+            : 'Updating file';
     return { target: path, summary, lineLabel: range.label };
   }
 
@@ -278,11 +308,12 @@ function normalizeToolEvent(event: VizEvent): OfficeToolCall | null {
   const fileTargets = fileTargetsFrom(data, inputRecord);
   const outputLines = finiteNumber(data['outputLines']);
   const kind = classifyOfficeTool(toolName);
-  const description = describeTool(kind, toolName, inputRecord, outputLines, fileTargets[0]);
+  const description = describeTool(kind, toolName, inputRecord, data, outputLines, fileTargets[0]);
   const rawId = text(data['id']);
   const fallbackBucket = Math.floor(event.timestamp / 2000);
   const status = toolEventStatus(event, data);
 
+  const durationMs = finiteNumber(data['durationMs']);
   return {
     id: rawId ? `${agentId}:${rawId}` : `${agentId}:${toolName}:${fallbackBucket}`,
     agentId,
@@ -291,9 +322,10 @@ function normalizeToolEvent(event: VizEvent): OfficeToolCall | null {
     toolName,
     kind,
     status,
-    startedAt: event.timestamp,
+    startedAt:
+      status === 'running' ? event.timestamp : Math.max(0, event.timestamp - (durationMs ?? 0)),
     ...(status === 'running' ? {} : { completedAt: event.timestamp }),
-    durationMs: finiteNumber(data['durationMs']),
+    durationMs,
     target: description.target,
     summary: description.summary,
     lineLabel: description.lineLabel,
@@ -307,8 +339,138 @@ function normalizeToolEvent(event: VizEvent): OfficeToolCall | null {
   };
 }
 
+interface SnapshotToolReceipt {
+  id: string;
+  name: string;
+  completedAt: number;
+  startedAt?: number | undefined;
+  durationMs?: number | undefined;
+  ok?: boolean | undefined;
+  input?: unknown | undefined;
+  output?: string | undefined;
+  inputLines?: number | undefined;
+  oldLines?: number | undefined;
+  newLines?: number | undefined;
+  addedLines?: number | undefined;
+  removedLines?: number | undefined;
+  outputLines?: number | undefined;
+  outputBytes?: number | undefined;
+  outputTokens?: number | undefined;
+}
+
+interface SnapshotMailReceipt {
+  id: string;
+  direction: 'incoming' | 'outgoing';
+  from: string;
+  to: string;
+  type: string;
+  subject: string;
+  at: number;
+}
+
+/** Convert the project registry's bounded cross-process receipts to Office calls. */
+export function buildSnapshotToolCalls(
+  receipts: SnapshotToolReceipt[] | undefined,
+  agentId: string,
+  sessionId?: string,
+): OfficeToolCall[] {
+  if (!receipts?.length) return [];
+  const events: VizEvent[] = receipts.map((receipt) => ({
+    id: `snapshot:${sessionId ?? 'session'}:${agentId}:${receipt.id}`,
+    kind: 'tool:executed',
+    timestamp: receipt.completedAt,
+    source: agentId,
+    target: receipt.name,
+    label: receipt.name,
+    data: { ...receipt, agentId, sessionId },
+    flowGroup: `agent:${agentId}`,
+  }));
+  return buildAgentToolCalls(events, agentId, sessionId);
+}
+
+/** Convert bounded registry receipts to mail parcels when the mailbox cache is behind. */
+export function buildSnapshotMailActivities(
+  receipts: SnapshotMailReceipt[] | undefined,
+): OfficeMailActivity[] {
+  if (!receipts?.length) return [];
+  return receipts
+    .map((receipt) => ({
+      id: receipt.id,
+      direction: receipt.direction,
+      from: receipt.from,
+      to: receipt.to,
+      type: receipt.type,
+      subject: receipt.subject,
+      body: '',
+      priority: 'normal',
+      timestamp: new Date(receipt.at).toISOString(),
+      timestampMs: receipt.at,
+      unread: receipt.direction === 'incoming',
+    }))
+    .sort((left, right) => right.timestampMs - left.timestampMs)
+    .slice(0, 12);
+}
+
 function sameAgent(candidate: string, wanted: string): boolean {
   return candidate.toLowerCase() === wanted.toLowerCase();
+}
+
+function normalizedEndpoint(value: string | undefined): string {
+  return value?.trim().toLowerCase() ?? '';
+}
+
+/** Resolve project mailbox messages to the desk(s) they belong to. */
+export function buildAgentMailActivities(
+  messages: OfficeMailboxMessage[],
+  agent: {
+    serverId: string;
+    name: string;
+    mailboxId?: string | undefined;
+    role?: string | undefined;
+  },
+  sessionId?: string,
+): OfficeMailActivity[] {
+  const endpoints = new Set(
+    [agent.serverId, agent.mailboxId, agent.name]
+      .map(normalizedEndpoint)
+      .filter((value) => value.length > 0),
+  );
+  const sessionRecipient = sessionId ? `@session:${normalizedEndpoint(sessionId)}` : '';
+  const normalizedRole = normalizedEndpoint(agent.role);
+  const isLead =
+    normalizedEndpoint(agent.serverId) === 'leader' ||
+    normalizedEndpoint(agent.serverId).startsWith('leader@') ||
+    normalizedRole === 'lead' ||
+    normalizedRole === 'leader';
+
+  return messages
+    .flatMap((message): OfficeMailActivity[] => {
+      const from = normalizedEndpoint(message.from);
+      const to = normalizedEndpoint(message.to);
+      const outgoing = endpoints.has(from);
+      // Project/session mail belongs to the terminal, not every individual
+      // desk. Pin it to the lead agent so one message does not masquerade as
+      // N separate deliveries across a busy office.
+      const terminalMail =
+        to === '*' || to === 'all' || (sessionRecipient.length > 0 && to === sessionRecipient);
+      const incoming = endpoints.has(to) || (isLead && terminalMail);
+      if (!incoming && !outgoing) return [];
+      const timestampMs = Date.parse(message.timestamp);
+      return [
+        {
+          ...message,
+          direction: incoming ? 'incoming' : 'outgoing',
+          timestampMs: Number.isFinite(timestampMs) ? timestampMs : 0,
+          unread:
+            incoming &&
+            !Object.keys(message.readBy ?? {}).some((key) =>
+              endpoints.has(normalizedEndpoint(key)),
+            ),
+        },
+      ];
+    })
+    .sort((left, right) => right.timestampMs - left.timestampMs)
+    .slice(0, 8);
 }
 
 /**

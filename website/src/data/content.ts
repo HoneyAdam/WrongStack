@@ -75,7 +75,7 @@ export const siteRoutes = [
   '/shadow-agent',
   '/acp',
   '/supervisor',
-  '/autophase',
+  '/goal',
   '/ensemble',
   '/hq',
   '/telegram',
@@ -145,7 +145,7 @@ export const pageMeta: Record<SiteRoute, { title: string; description: string }>
   '/workflows': {
     title: 'Workflows — WrongStack',
     description:
-      'Choose between goals, SDD, AutoPhase, BTW, collaboration, ensemble and review workflows.',
+      'Choose between goals, SDD, Goal, BTW, collaboration, ensemble and review workflows.',
   },
   '/fleet': {
     title: 'Fleet & Brain — WrongStack',
@@ -251,8 +251,8 @@ export const pageMeta: Record<SiteRoute, { title: string; description: string }>
     description:
       'Brain-gated safety layer that approves or blocks fleet actions against risk thresholds.',
   },
-  '/autophase': {
-    title: 'AutoPhase — WrongStack',
+  '/goal': {
+    title: 'Goal — WrongStack',
     description:
       'Fully autonomous phased workflows with git worktree isolation and checkpoint rollback.',
   },
@@ -376,7 +376,7 @@ export const moreNav = [
   {
     href: '/workflows',
     label: 'Workflows',
-    description: 'Goals, SDD, AutoPhase and reviews',
+    description: 'Goals, SDD, Goal and reviews',
     icon: Workflow,
     group: 'learn',
   },
@@ -388,8 +388,8 @@ export const moreNav = [
     group: 'work',
   },
   {
-    href: '/autophase',
-    label: 'AutoPhase',
+    href: '/goal',
+    label: 'Goal',
     description: 'Autonomous worktrees with checkpoint rollback',
     icon: GitBranch,
     group: 'work',
@@ -767,11 +767,11 @@ export const featureStories: Feature[] = [
     eyebrow: 'Workflow system',
     title: 'From an open-ended request to a controlled delivery loop',
     summary:
-      'Goals, todos, plans, SDD and AutoPhase give work an explicit shape while steering commands keep the operator in control of the next move.',
+      'Goals, todos, plans, SDD and Goal give work an explicit shape while steering commands keep the operator in control of the next move.',
     details: [
       'Goal and plan state remain visible across turns',
       'Spec-driven workflows connect requirements to evidence',
-      'AutoPhase advances through bounded delivery stages',
+      'Goal advances through bounded delivery stages',
       'BTW and prompt enhancement add context without losing the objective',
     ],
     icon: Workflow,
@@ -907,7 +907,7 @@ export const featureStories: Feature[] = [
       'Atomic claiming prevents two agents taking the same work',
       'Dependencies, WIP limits, chains, split and merge lineage',
       'Per-task provider, model, role and tool routing',
-      'TaskGraph, SDD and AutoPhase import, sync and export',
+      'TaskGraph, SDD and Goal import, sync and export',
     ],
     icon: PanelTop,
     accent: 'purple',
@@ -950,7 +950,7 @@ export const systemSpotlightStories = featureStories.slice(14);
 export const capabilityIndex = [
   [
     'Agent workflow',
-    'Goals, todos, plans, SDD, AutoPhase, BTW, prompt enhancement',
+    'Goals, todos, plans, SDD, Goal, BTW, prompt enhancement',
     'agent-workflow',
   ],
   [
@@ -1174,7 +1174,6 @@ const commandRows: Array<[string, string]> = [
   ['/modelcaps', 'Browse model context, capability and pricing information.'],
   ['/yolo', 'Query or toggle automatic tool approval for this session.'],
   ['/autonomy', 'Set the active autonomy level.'],
-  ['/goal', 'Set, show, pause, resume, journal or clear an autonomous mission.'],
   ['/save', 'Force the live session writer to flush to disk.'],
   ['/sessions', 'List and resume saved sessions; also available as /resume and /load.'],
   ['/prune', 'Preview or delete old session data.'],
@@ -1196,7 +1195,7 @@ const commandRows: Array<[string, string]> = [
   ['/enhance', 'Refine a prompt before it is sent to the agent.'],
   ['/ensemble', 'Fan one task to multiple ACP-capable coding agents.'],
   ['/fix', 'Classify an error and route it into a focused repair workflow.'],
-  ['/autophase', 'Run an autonomous phase-based workflow.'],
+  ['/goal', 'Run an autonomous phase-based workflow.'],
   ['/worktree', 'Inspect and manage worktrees used by autonomous phases.'],
   ['/settings', 'View or change live runtime settings.'],
   ['/telegram-setup', 'Configure a Telegram bot token and default chat.'],
@@ -1255,7 +1254,6 @@ const categories: Record<Exclude<CommandCategory, 'All'>, string[]> = {
     '/suggest',
     '/enhance',
     '/fix',
-    '/autophase',
     '/goal',
     '/autonomy',
     '/plan',

@@ -25,6 +25,8 @@ import {
   startCostTelemetryBridge,
   resolveProjectDir,
   wstackGlobalRoot,
+  detectTerminal,
+  TerminalLifecycle,
 } from '@wrongstack/core';
 import type { VisionAdapters } from '@wrongstack/runtime/vision';
 import type { SddLifecycleResult, SddRunControl } from '@wrongstack/sdd';
@@ -710,6 +712,15 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
     return 2;
   }
 
+  // Acquire and release raw mode through the lifecycle manager. This guarantees
+  // exactly one setRawMode(true) at startup and exactly one setRawMode(false)
+  // on any exit path (normal return, signal, uncaught exception, force-exit).
+  const lifecycle = new TerminalLifecycle();
+
+  // Probe terminal capabilities once — color depth, mouse protocol, title support.
+  // Locked in at startup so the profile is stable throughout the session.
+  const capability = detectTerminal({ stdin, stdout });
+
   // Silence all console / stderr / process-warning output so external
   // writes don't interleave with Ink's terminal control sequences. See
   // the block comment above `silenceTerminal` for the full rationale.
@@ -814,6 +825,10 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
       // Disabling unset modes is a no-op, so this is safe even when mouse
       // tracking was never enabled — guarantees no leaked mouse reporting.
       stdout.write(MOUSE_OFF);
+      // Release raw mode and reset SGR + cursor via the lifecycle manager.
+      // release() calls setRawMode(false) and emits the reset sequence; it is
+      // idempotent (safe to call even if raw mode was never acquired).
+      lifecycle.release();
     } catch {
       // stdout may already be closed during shutdown — ignore.
     }
@@ -852,6 +867,9 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
     }
     stdout.write(BRACKETED_PASTE_OFF);
     stdout.write(MOUSE_OFF);
+    // Release raw mode + reset SGR even on a forced exit.  The lifecycle
+    // manager is idempotent so this is safe even if cleanup() already ran.
+    lifecycle.release();
     process.exit(130);
   };
 
@@ -1178,6 +1196,10 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
         // stdout may be closed mid-teardown — ignore.
       }
     };
+    // Acquire raw mode through the lifecycle manager. This is the last setRawMode
+    // call before Ink takes over stdin, closing the Windows ConPTY readline→Ink
+    // handoff race (the manager's doubly-guarded acquire is idempotent).
+    lifecycle.acquire(stdin);
     try {
       instance = render(
         React.createElement(App, {
@@ -1266,6 +1288,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           confirmExit: opts.confirmExit,
           titleController,
           mouse: mouseEnabled,
+          capability,
           modeLabel: opts.modeLabel,
           tokenSavingMode: opts.tokenSavingMode,
           toolCount: opts.toolCount,

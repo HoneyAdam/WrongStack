@@ -208,7 +208,9 @@ describe('token-saving measurement (empirical)', () => {
     // the current number, getToolsForTier must respect the TIER1/2/3 split.
     const tier1 = allTools.filter((t) =>
       [
-        'read', 'write', 'edit', 'bash', 'grep', 'glob',
+        'read', 'write', 'edit',
+        'codebase-stats', 'codebase-search', 'codebase-index',
+        'bash', 'grep', 'glob',
         'diff', 'patch', 'json', 'search',
       ].includes(t.name),
     );

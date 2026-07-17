@@ -1,12 +1,15 @@
 import { FileText, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FileEditMeta } from './types.js';
+import type { SimpleSocket } from './lib/ws.js';
 
 interface FileDiffPanelProps {
   /** The file edits to show — when multiple, the left list lets you switch. */
   files: FileEditMeta[];
   /** Index of the initial file to display, defaults to 0. */
   initialIndex?: number | undefined;
+  /** WebSocket ref for loading file content when diff is unavailable. */
+  socketRef?: React.RefObject<SimpleSocket | null> | undefined;
   onClose: () => void;
 }
 
@@ -22,11 +25,46 @@ function diffLines(diff: string): { kind: 'add' | 'remove' | 'context'; text: st
   return lines;
 }
 
-export function FileDiffPanel({ files, initialIndex = 0, onClose }: FileDiffPanelProps) {
+export function FileDiffPanel({ files, initialIndex = 0, socketRef, onClose }: FileDiffPanelProps) {
   const [activeIndex, setActiveIndex] = useState(initialIndex);
+  const [loadedContent, setLoadedContent] = useState<string | null>(null);
+  const [contentLoading, setContentLoading] = useState(false);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const activeFile = files[activeIndex];
   const parsed = activeFile?.diff ? diffLines(activeFile.diff) : [];
+  const hasDiff = !!activeFile?.diff;
+
+  // Load file content when the active file has no diff
+  const loadContent = useCallback((filePath: string) => {
+    if (!socketRef?.current) return;
+    setContentLoading(true);
+    setLoadedContent(null);
+
+    const socket = socketRef.current;
+    const handler = (msg: { type: string; payload?: unknown }) => {
+      if (msg.type !== 'files.read') return;
+      const payload = msg.payload as Record<string, unknown> | undefined;
+      const returnedPath = typeof payload?.['filePath'] === 'string' ? payload['filePath'] : '';
+      if (returnedPath !== filePath) return;
+      if (typeof payload?.['content'] === 'string') {
+        setLoadedContent(payload['content']);
+      }
+      setContentLoading(false);
+    };
+
+    const unsub = socket.onMessage(handler);
+    socket.send('files.read', { filePath });
+    setTimeout(() => { unsub(); setContentLoading(false); }, 8000);
+  }, [socketRef]);
+
+  // Reset and load on file change
+  useEffect(() => {
+    setLoadedContent(null);
+    setContentLoading(false);
+    if (activeFile && !hasDiff && socketRef?.current) {
+      loadContent(activeFile.path);
+    }
+  }, [activeFile?.path, hasDiff, loadContent, socketRef]);
 
   useEffect(() => {
     closeRef.current?.focus();
@@ -59,7 +97,7 @@ export function FileDiffPanel({ files, initialIndex = 0, onClose }: FileDiffPane
           </button>
         </header>
         <div className="diff-body">
-          {files.length > 1 && (
+          {files.length > 0 && (
             <nav className="diff-file-list" aria-label="Changed files">
               {files.map((file, index) => (
                 <button
@@ -73,6 +111,7 @@ export function FileDiffPanel({ files, initialIndex = 0, onClose }: FileDiffPane
                   {file.replacements != null && (
                     <b className="diff-stat-green">+{file.replacements}</b>
                   )}
+                  {file.created && <span className="diff-stat-green">new</span>}
                 </button>
               ))}
             </nav>
@@ -81,8 +120,14 @@ export function FileDiffPanel({ files, initialIndex = 0, onClose }: FileDiffPane
             {activeFile ? (
               <>
                 <div className="diff-view-head">
-                  <code>{activeFile.path}</code>
+                  <div className="diff-view-head-path">
+                    <code>{activeFile.path.split(/[\\/]/).pop() ?? activeFile.path}</code>
+                    <span className="diff-view-head-full">{activeFile.path}</span>
+                  </div>
                   <span>
+                    {!hasDiff && !contentLoading && loadedContent && (
+                      <span className="diff-stat-muted">current content</span>
+                    )}
                     {activeFile.replacements != null && (
                       <b className="diff-stat-green">+{activeFile.replacements}</b>
                     )}
@@ -92,13 +137,21 @@ export function FileDiffPanel({ files, initialIndex = 0, onClose }: FileDiffPane
                     {activeFile.created && <span className="diff-stat-green">created</span>}
                   </span>
                 </div>
-                <pre className="diff-view-content">
-                  {parsed.map((line, i) => (
-                    <span key={i} className={`diff-line diff-line-${line.kind}`}>
-                      {line.text}{'\n'}
-                    </span>
-                  ))}
-                </pre>
+                {hasDiff ? (
+                  <pre className="diff-view-content">
+                    {parsed.map((line, i) => (
+                      <span key={i} className={`diff-line diff-line-${line.kind}`}>
+                        {line.text}{'\n'}
+                      </span>
+                    ))}
+                  </pre>
+                ) : contentLoading ? (
+                  <div className="diff-view-empty">Loading file content…</div>
+                ) : loadedContent != null ? (
+                  <pre className="diff-view-content">{loadedContent}</pre>
+                ) : (
+                  <div className="diff-view-empty">No diff data available for this file.</div>
+                )}
               </>
             ) : (
               <div className="diff-view-empty">Select a file to view its diff.</div>

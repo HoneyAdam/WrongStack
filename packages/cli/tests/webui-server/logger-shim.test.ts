@@ -15,7 +15,7 @@ import { describe, expect, it, vi, afterAll, beforeEach } from 'vitest';
  * What the tests pin:
  *   1. JSON shape: each level produces a single-line
  *      `JSON.stringify(...)` of `{ level, event:
- *      'webui.autophase', message, timestamp }`.
+ *      'webui.goal', message, timestamp }`.
  *   2. Level routing: `error`/`warn` go to `console.error`
  *      /`console.warn`; `info`/`debug`/`trace` go to
  *      `console.log`/`console.debug`/`console.debug`
@@ -58,7 +58,7 @@ describe('consoleLogger (PR 1 of #30)', () => {
     const arg = errorSpy.mock.calls[0][0] as string;
     const parsed = JSON.parse(arg);
     expect(parsed.level).toBe('error');
-    expect(parsed.event).toBe('webui.autophase');
+    expect(parsed.event).toBe('webui.goal');
     expect(parsed.message).toBe('something broke');
     expect(typeof parsed.timestamp).toBe('string');
   });

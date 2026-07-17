@@ -387,7 +387,7 @@ describe('SuperMemoryStore — forget legacy', () => {
     expect(after?.supersedes ?? []).not.toContain(dup.id);
 
     // Graph edges involving the deleted memory are removed.
-    const edges = await store.graph.list();
+    const edges = await store.graphFor(`mem:${dup.id}`);
     expect(edges.some((e) => e.from === `mem:${dup.id}` || e.to === `mem:${dup.id}`)).toBe(false);
   });
 });

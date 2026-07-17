@@ -141,4 +141,23 @@ describe('registerBuiltinTools (PR 6 of #29)', () => {
     });
     expect(registry.getDescriptionMode('read')).toBe('simple');
   });
+
+  it.each(['minimal', 'light', 'medium'] as const)(
+    "registers the complete codebase index lifecycle in the '%s' tier",
+    (tokenSavingMode) => {
+      const registry = new ToolRegistry();
+      registerBuiltinTools({
+        toolRegistry: registry,
+        compactor: {},
+        config: { features: { memory: false, tokenSavingMode } },
+        memoryStore: null,
+        events: makeEvents() as never,
+        wpaths: makeWpaths() as never,
+      });
+
+      expect(registry.get('codebase-stats')).toBeDefined();
+      expect(registry.get('codebase-search')).toBeDefined();
+      expect(registry.get('codebase-index')).toBeDefined();
+    },
+  );
 });

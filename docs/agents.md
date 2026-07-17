@@ -99,7 +99,7 @@ Recursion: hard depth ceiling 2 (`HARD_MAX_SPAWN_DEPTH`, config may narrow, neve
 
 ## The Brain (decision layer)
 
-One Brain per session at `TOKENS.BrainArbiter`, between agents and human. All autonomous consumers (Director, AutoPhase `phase-orchestrator.ts`, Eternal engine `eternal-autonomy.ts` / `--eternal`) route blocking decisions through it.
+One Brain per session at `TOKENS.BrainArbiter`, between agents and human. All autonomous consumers (Director, Goal `phase-orchestrator.ts`, Eternal engine `eternal-autonomy.ts` / `--eternal`) route blocking decisions through it.
 
 **Three tiers** (wired in `cli-main.ts`): 1. `DefaultBrainArbiter` — deterministic policy. 2. `createTieredBrainArbiter` + `createAutonomyBrain` (`core/execution/autonomy-brain.ts`) — LLM engine gated by a live autonomy ceiling (`/brain risk off|low|medium|high|all`, default `medium`, read per decision). 3. `HumanEscalatingBrainArbiter` + `BrainDecisionQueue` — interactive prompt (TUI `BrainDecisionPrompt`). `ObservableBrainArbiter` emits `brain.decision_*` around the chain.
 

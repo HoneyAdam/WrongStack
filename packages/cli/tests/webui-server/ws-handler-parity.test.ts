@@ -17,7 +17,7 @@ import { describe, expect, it } from 'vitest';
  * server's single `switch (msg.type)` and asserts the two sets are identical,
  * so any future handler added to one server but not the other fails CI loudly.
  *
- * `autophase.*` and `collab.*` are intentionally NOT in these switches — both
+ * `goal.*` and `collab.*` are intentionally NOT in these switches — both
  * servers route them to dedicated handlers (`AutoPhaseWebSocketHandler` /
  * `CollaborationWebSocketHandler`) via a `msg.type.startsWith(...)` check before
  * the switch, so their absence here is correct and symmetric.
@@ -42,7 +42,7 @@ const standalonePaths = [
   path.join(repoRoot, 'packages/webui-server/src/server/mailbox-routes.ts'),
   path.join(repoRoot, 'packages/webui-server/src/server/kanban-routes.ts'),
   path.join(repoRoot, 'packages/webui-server/src/server/brain-routes.ts'),
-  path.join(repoRoot, 'packages/webui-server/src/server/autophase-routes.ts'),
+  path.join(repoRoot, 'packages/webui-server/src/server/goal-routes.ts'),
   path.join(repoRoot, 'packages/webui-server/src/server/specs-routes.ts'),
   path.join(repoRoot, 'packages/webui-server/src/server/sdd-board-routes.ts'),
   path.join(repoRoot, 'packages/webui-server/src/server/sdd-wizard-routes.ts'),
@@ -84,7 +84,7 @@ function caseLabels(files: string | readonly string[]): Set<string> {
         let routeDepth = 1;
         for (const line of block.split(/\r?\n/)) {
           if (routeDepth === 1) {
-            const m = line.match(/^\s*(?:'([a-z][a-zA-Z0-9_.]*)'|([a-z][a-zA-Z0-9_.]*))\s*:/);
+            const m = line.match(/^\s*(?:'([a-z][a-zA-Z0-9_.\-]*)'|([a-z][a-zA-Z0-9_.\-]*))\s*:/);
             if (m) labels.add((m[1] ?? m[2]) as string);
           }
           for (const ch of line) {
@@ -100,7 +100,7 @@ function caseLabels(files: string | readonly string[]): Set<string> {
 
 /**
  * Message-family prefixes a server delegates wholesale via
- * `msg.type.startsWith('<family>.')` BEFORE its switch (e.g. `autophase.`).
+ * `msg.type.startsWith('<family>.')` BEFORE its switch (e.g. `goal.`).
  * Only dotted prefixes count — a stray `startsWith('session-registry.json')`
  * (a file-watch check) is not a message family and is dropped.
  */

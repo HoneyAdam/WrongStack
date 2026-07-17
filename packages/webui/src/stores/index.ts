@@ -1,6 +1,6 @@
 // ── Barrel re-exports — all stores and types ──
 
-export { useAutoPhaseStore } from './autophase-store.js';
+export { useGoalRunStore } from './goal-run-store.js';
 
 export { useChatStore } from './chat-store.js';
 export type { ConfigState } from './config-store.js';
@@ -32,7 +32,7 @@ export type { GitInfo } from './git-info-store.js';
 export { useGitInfoStore } from './git-info-store.js';
 export type { CronJobView, CronSnapshot } from './cron-store.js';
 export { useCronStore } from './cron-store.js';
-export { useGoalStore } from './goal-store.js';
+export { useGoalStateStore } from './goal-state-store.js';
 export { useHistoryStore } from './history-store.js';
 export { type KanbanResultPayload, useKanbanStore } from './kanban-store.js';
 export { useLocalPrefs } from './local-prefs.js';

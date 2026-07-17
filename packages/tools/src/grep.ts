@@ -33,10 +33,11 @@ export const grepTool: Tool<GrepInput, GrepOutput> = {
   name: 'grep',
   category: 'Search',
   description:
-    'Search across files using a regular expression. This is one of the primary code search tools. ' +
+    'Search exact file contents using a regular expression. Use index-backed `codebase-search` first for symbol or concept discovery when it is live. ' +
     'Prefers ripgrep for speed and features when available.',
   usageHint:
-    'POWERFUL CODE SEARCH TOOL:\n\n' +
+    'EXACT-TEXT AND REGEX SEARCH:\n\n' +
+    '- When `codebase-search` is live, use it first for symbols and concepts; use `grep` for exact text, regexes, unsupported content, and concrete usage sites.\n' +
     '- `pattern` is a regular expression.\n' +
     '- Use `output_mode: "content"` (default) to get matching lines with context.\n' +
     '- Use `"files_with_matches"` when you only need the list of files.\n' +

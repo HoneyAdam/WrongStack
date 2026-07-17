@@ -546,7 +546,7 @@ The TUI has an extensive picker system for interactive selection:
 - **Help Overlay (?)**: keyboard shortcuts reference
 - **Shadow Panel**: background shadow agent controls
 - **Audit Panel**: side-effect audit trail
-- **Phase Monitor**: autophase execution status
+- **Phase Monitor**: goal execution status
 - **SDD Board**: structured development board overlay
 - **Collaboration Session**: BugHunter/RefactorPlanner/Critic results
 - **Checkpoint Timeline**: session checkpoint history

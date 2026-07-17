@@ -15,12 +15,12 @@ export const codebaseStatsTool: Tool<Record<string, never>, CodebaseStatsOutput>
   category: 'Project',
   icon: 'index',
   description:
-    'Return health and statistics about the current symbol index (total symbols, files, language/kind breakdown, size, last update). Useful to decide whether to re-index.',
+    'Check whether a persisted codebase index exists and report its health and statistics (symbols, files, language/kind breakdown, size, last update).',
   usageHint:
-    'CALL BEFORE HEAVY CODEBASE-SEARCH WORK:\n\n' +
-    '- Use to see if the index is up-to-date or needs a refresh.\n' +
+    'CHECK ONCE BEFORE BROAD CODE EXPLORATION:\n\n' +
+    '- Call before broad `tree`, `glob`, or `grep` exploration to see whether index-backed search is available.\n' +
+    '- If it reports no persisted data, run `codebase-index`, then use `codebase-search`.\n' +
     '- No arguments required.\n' +
-    '- Helps avoid wasting tokens on searches against a stale index.\n' +
     'Lightweight and safe to call frequently.',
   permission: 'auto',
   mutating: false,
@@ -53,6 +53,20 @@ export const codebaseStatsTool: Tool<Record<string, never>, CodebaseStatsOutput>
     }
 
     const circuit = idxState.circuit;
+    const hasPersistedIndex = stats.totalFiles > 0 || stats.lastIndexed !== null;
+    let indexStatus: string | undefined;
+    if (circuit.state === 'open') {
+      indexStatus =
+        `${hasPersistedIndex ? 'Indexing' : 'No persisted index data found, and indexing'} is paused after repeated failures ` +
+        `(last: ${circuit.lastFailure ?? 'unknown'}); auto-retry in ` +
+        `${Math.ceil(circuit.cooldownRemainingMs / 1000)}s, or run /codebase-reindex. ` +
+        (hasPersistedIndex
+          ? 'Stats reflect the last successful build.'
+          : 'Build the index after recovery.');
+    } else if (!hasPersistedIndex) {
+      indexStatus =
+        'No persisted index data found. Run codebase-index to build it before broad code exploration.';
+    }
     return {
       totalSymbols: stats.totalSymbols,
       totalFiles: stats.totalFiles,
@@ -62,13 +76,7 @@ export const codebaseStatsTool: Tool<Record<string, never>, CodebaseStatsOutput>
       sizeBytes: stats.sizeBytes,
       indexPath: stats.indexPath,
       version: stats.version,
-      ...(circuit.state === 'open'
-        ? {
-            indexStatus:
-              `Indexing is paused after repeated failures (last: ${circuit.lastFailure ?? 'unknown'}); ` +
-              `auto-retry in ${Math.ceil(circuit.cooldownRemainingMs / 1000)}s, or run /codebase-reindex. Stats reflect the last successful build.`,
-          }
-        : {}),
+      ...(indexStatus ? { indexStatus } : {}),
     };
   },
 };

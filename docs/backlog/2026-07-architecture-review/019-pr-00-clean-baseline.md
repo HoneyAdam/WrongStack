@@ -147,7 +147,7 @@ editing.
 | PR-06 HQ package contract | `packages/webui-hq/package.json`, `packages/webui-hq/README.md`, HQ package-contract tests |
 | PR-08 scanner edge | `packages/core/package.json`, scanner/core graph assertion, lockfile window |
 | PR-09 tasking extraction | `packages/core/src/tasking/**`, SDD tracker/store compatibility exports |
-| PR-10 AutoPhase edge removal | core AutoPhase builder/orchestrator, core manifest, lockfile window |
+| PR-10 Goal edge removal | core Goal builder/orchestrator, core manifest, lockfile window |
 | PR-11 DAG enforcement | `scripts/build.mjs`, workspace graph architecture tests and architecture docs |
 
 ### Ownership rules
@@ -192,38 +192,38 @@ a clean release-verification environment after P0/P1 fixes land.
 
 ## PR-10 — Deferral and Inventory (attempted 2026-07-10)
 
-Attempted on `refactor/pr-10-core-autophase-edge` from `351744e4` baseline.
+Attempted on `refactor/pr-10-core-goal-edge` from `351744e4` baseline.
 PR-10 cannot be applied in a single independently-revertible PR from the
 current session because it requires touching the same files the live peer
 workstream owns. Inventory captured for the next session:
 
 ### Core `createRequire('@wrongstack/sdd')` call sites (2)
 
-- `packages/core/src/autophase/phase-graph-builder.ts:14-18` — used at
+- `packages/core/src/goal/phase-graph-builder.ts:14-18` — used at
   `:64-66` to materialise `DefaultTaskStore` + `TaskTracker` and call
   `tracker.createGraph`.
-- `packages/core/src/autophase/phase-orchestrator.ts:17-21` — used at
+- `packages/core/src/goal/phase-orchestrator.ts:17-21` — used at
   `:793-797` to materialise the per-phase tracker via
   `getTrackerForPhase(phase)`.
 
 ### Production consumers (3 sites, 2 packages)
 
-- `packages/core/src/autophase/auto-phase-runner.ts:96-130` — instantiates
+- `packages/core/src/goal/auto-phase-runner.ts:96-130` — instantiates
   both `PhaseGraphBuilder` and `PhaseOrchestrator` directly inside core.
-- `packages/cli/src/autophase-host.ts:516,557,715` — three sites build and
-  run AutoPhase phases (interactive/verify/conflict-resolution paths).
+- `packages/cli/src/goal-host.ts:516,557,715` — three sites build and
+  run Goal phases (interactive/verify/conflict-resolution paths).
   **Peer-owned worktree at capture time.**
-- `packages/webui-server/src/server/autophase-ws-handler.ts:268,310` — one
+- `packages/webui-server/src/server/goal-ws-handler.ts:268,310` — one
   build + one orchestrator for the HQ interactive run. **Peer-owned
   worktree at capture time.**
 
 ### Test consumers (5)
 
-- `packages/core/tests/autophase/phase-store.test.ts` (3 sites)
-- `packages/core/tests/autophase/phase-orchestrator.test.ts` (11 sites)
-- `packages/core/tests/autophase/phase-orchestrator-extra.test.ts` (2 sites)
-- `packages/core/tests/autophase/phase-graph-builder.test.ts` (3 sites)
-- `packages/core/tests/autophase/checkpoint.test.ts` (1 site)
+- `packages/core/tests/goal/phase-store.test.ts` (3 sites)
+- `packages/core/tests/goal/phase-orchestrator.test.ts` (11 sites)
+- `packages/core/tests/goal/phase-orchestrator-extra.test.ts` (2 sites)
+- `packages/core/tests/goal/phase-graph-builder.test.ts` (3 sites)
+- `packages/core/tests/goal/checkpoint.test.ts` (1 site)
 
 ### Required design
 
@@ -239,7 +239,7 @@ SDD at the type level while preserving every existing call site behaviour.
 
 ### Conflict with the PR-00 ownership window
 
-`cli/src/autophase-host.ts` and `webui-server/src/server/autophase-ws-handler.ts`
+`cli/src/goal-host.ts` and `webui-server/src/server/goal-ws-handler.ts`
 are listed in the shared main worktree as modified by active peer work
 (38 unstaged files at capture time). Touching them in the same commit as
 the core change would either absorb that peer work or fail the

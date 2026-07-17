@@ -481,6 +481,7 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
         msg.payload as { id: string; status?: TodoItem['status']; activeForm?: string },
       ),
     'goal.get': (_msg, ws) => handleGoalGet(sessionsCtx, ws),
+    'goal-state.get': (_msg, ws) => handleGoalGet(sessionsCtx, ws),
     'plan.get': (_msg, ws) => handlePlanGet(worklistCtx, ws),
     'plan.template_use': (msg, ws) =>
       handlePlanTemplateUse(
@@ -612,6 +613,9 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
               timeoutMs?: number;
               provider?: string;
               model?: string;
+              previousRefined?: string;
+              previousEnglish?: string;
+              retryFeedback?: string;
             };
           }
         ).payload,

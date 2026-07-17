@@ -41,11 +41,11 @@
     "soundOn": "Som ao concluir: LIGADO — desligar",
     "soundOff": "Som ao concluir: DESLIGADO — ligar",
     "soundHint": "Toque quando uma execução termina",
-    "autophaseOpen": "Abrir visualização AutoPhase",
+    "goalOpen": "Abrir visualização Goal",
     "autoOn": "Modo autônomo: LIGADO — desativar",
     "autoOff": "Modo autônomo: DESLIGADO — ativar",
     "autoHint": "Alternar execução autônoma das fases",
-    "autophaseStop": "Parar AutoPhase",
+    "goalStop": "Parar Goal",
     "resume": "Retomar: {{title}}",
     "emptyTitle": "(vazio)"
   }

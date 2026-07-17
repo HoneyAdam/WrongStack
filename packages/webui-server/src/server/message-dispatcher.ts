@@ -31,7 +31,7 @@ import {
   VisionUrlBlockedError,
 } from '@wrongstack/runtime/vision';
 import type { WebSocket } from 'ws';
-import { handleAutoPhaseRoute } from './autophase-routes.js';
+import { handleGoalRoute } from './goal-routes.js';
 import { handleBrainRoute } from './brain-routes.js';
 import { createToolLspCompletionSource, handleCompletionRequest } from './completion-handlers.js';
 import {
@@ -212,7 +212,7 @@ export function createMessageDispatcher(
     if (await handleMailboxRoute(ws, msg, routes.mailboxRoutes)) return;
     if (await handleMcpRoute(ws, msg, routes.mcpRoutes)) return;
     if (await handleBrainRoute(ws, msg, routes.brainRoutes)) return;
-    if (await handleAutoPhaseRoute(ws, msg, routes.autoPhaseRoutes)) return;
+    if (await handleGoalRoute(ws, msg, routes.goalRoutes)) return;
     if (await handleSpecsRoute(ws, msg, routes.specsRoutes)) return;
     if (await handleSddBoardRoute(ws, msg, routes.sddBoardRoutes)) return;
     if (await handleSddWizardRoute(ws, msg, routes.sddWizardRoutes)) return;
@@ -747,7 +747,7 @@ export function createMessageDispatcher(
         break;
       }
 
-      case 'goal.get': {
+      case 'goal-state.get': {
         await handleGoalGet(state.getProjectRoot(), (m) => broadcast(state.getClients(), m));
         break;
       }

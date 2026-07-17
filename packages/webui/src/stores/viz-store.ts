@@ -123,6 +123,12 @@ function contextPctFromLoad(load: unknown): number {
 interface VizState {
   /** Ring buffer of recent events — newest first. */
   events: VizEvent[];
+  /**
+   * Tool-only archive for slower UI surfaces such as Agent Office.
+   * Keeping it separate prevents chat/provider traffic from evicting a
+   * read/write action before a person has had time to see it.
+   */
+  toolEvents: VizEvent[];
   /** Live nodes in the flow graph. */
   nodes: Map<string, VizNode>;
   /** Active edges between nodes. */
@@ -299,6 +305,7 @@ const EDGE_COLORS: Record<string, string> = {
 
 export const useVizStore = create<VizState>()((set, _get) => ({
   events: [],
+  toolEvents: [],
   nodes: new Map(),
   edges: new Map(),
   isActive: false,
@@ -314,8 +321,21 @@ export const useVizStore = create<VizState>()((set, _get) => ({
   },
 
   pushEvent: (event) => set((state) => {
-    const events = [{ ...event, id: event.id ?? nextId(), timestamp: event.timestamp || Date.now() }, ...state.events];
+    const normalizedEvent = {
+      ...event,
+      id: event.id ?? nextId(),
+      timestamp: event.timestamp || Date.now(),
+    };
+    const events = [normalizedEvent, ...state.events];
     if (events.length > state.maxEvents) events.length = state.maxEvents;
+    const isToolEvent =
+      event.kind === 'agent:tool' ||
+      event.kind === 'tool:started' ||
+      event.kind === 'tool:progress' ||
+      event.kind === 'tool:executed';
+    const toolEvents = isToolEvent
+      ? [normalizedEvent, ...state.toolEvents].slice(0, 600)
+      : state.toolEvents;
 
     // ── Apply event to nodes/edges maps ───────────────────────────
     // Perf note (Track E.7): the throttling/coalescing policy for
@@ -407,7 +427,7 @@ export const useVizStore = create<VizState>()((set, _get) => ({
       edges.set(edgeId, mergedEdge);
     }
 
-    return { events, nodes, edges };
+    return { events, toolEvents, nodes, edges };
   }),
 
   upsertNode: (partial) => set((state) => {
@@ -453,6 +473,7 @@ export const useVizStore = create<VizState>()((set, _get) => ({
 
   clear: () => set({
     events: [],
+    toolEvents: [],
     nodes: new Map(),
     edges: new Map(),
     counters: {

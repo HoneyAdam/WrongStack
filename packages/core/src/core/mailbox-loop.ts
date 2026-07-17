@@ -279,7 +279,11 @@ export async function injectPendingMailboxMessages(
   // Emit events for all found messages
   for (const m of messages) {
     a.events.emit('mailbox.received', {
-      messageId: m.id, from: m.from, type: m.type, subject: m.subject,
+      messageId: m.id,
+      from: m.from,
+      to: m.to,
+      type: m.type,
+      subject: m.subject,
     });
   }
 

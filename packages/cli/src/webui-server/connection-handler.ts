@@ -13,7 +13,7 @@
 import type { IncomingMessage } from 'node:http';
 import type { Message, Usage } from '@wrongstack/core';
 import type {
-  AutoPhaseWebSocketHandler,
+  GoalWebSocketHandler,
   SddBoardWebSocketHandler,
   SddWizardWebSocketHandler,
   SpecsWebSocketHandler,
@@ -48,7 +48,7 @@ export interface ConnectionHandlerDeps {
   publicWsUrl: string | undefined;
   clients: Map<WebSocket, ConnectedClient>;
   currentSessionId: () => string;
-  autoPhaseHandler: AutoPhaseWebSocketHandler;
+  goalHandler: GoalWebSocketHandler;
   specsHandler: SpecsWebSocketHandler;
   sddBoardHandler: SddBoardWebSocketHandler;
   sddWizardHandler: SddWizardWebSocketHandler | null;
@@ -137,8 +137,8 @@ export function createConnectionHandler(
     const client: ConnectedClient = { ws, sessionId: deps.currentSessionId() };
     deps.clients.set(ws, client);
 
-    // Register this client with the AutoPhase handler so it receives phase events
-    deps.autoPhaseHandler.addClient(ws);
+    // Register this client with the Goal handler so it receives phase events
+    deps.goalHandler.addClient(ws);
     deps.specsHandler.addClient(ws);
     deps.sddBoardHandler.addClient(ws);
     deps.sddWizardHandler?.addClient(ws);

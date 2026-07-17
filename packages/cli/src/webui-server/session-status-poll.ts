@@ -13,10 +13,13 @@
  * PR 13 of Issue #30: extracted from `webui-server.ts`.
  */
 import { watch as fsWatch } from 'node:fs';
+import * as path from 'node:path';
 
 export interface SessionStatusPollDeps {
   /** Directory holding session-registry.json (the wstack global root). */
   globalRoot: string;
+  /** Canonical project root used before this process appears in the registry. */
+  projectRoot?: string | undefined;
   broadcast: (msg: { type: string; payload: unknown }) => void;
   /** Shared disposer list — poll interval + fs watcher land here. */
   eventUnsubscribers: Array<() => void>;
@@ -25,7 +28,7 @@ export interface SessionStatusPollDeps {
 }
 
 export function startSessionStatusPoll(deps: SessionStatusPollDeps): void {
-  const { globalRoot, broadcast, eventUnsubscribers, onBroadcastReady } = deps;
+  const { globalRoot, projectRoot, broadcast, eventUnsubscribers, onBroadcastReady } = deps;
 
   const broadcastSessions = async () => {
     try {
@@ -36,9 +39,17 @@ export function startSessionStatusPoll(deps: SessionStatusPollDeps): void {
       // Scope Fleet HQ to our own project (derive from our pid's entry —
       // survives in-place project switches). Fall back to all if not found.
       const mySlug = sessions.find((s) => s.pid === process.pid)?.projectSlug;
+      const myRoot = projectRoot ? path.resolve(projectRoot) : undefined;
       const live = sessions
-        .filter((s) => s.status !== 'stale')
-        .filter((s) => (mySlug ? s.projectSlug === mySlug : true))
+        // Only heartbeat-verified execution surfaces become offices. Closing,
+        // lost and stale registry entries are historical presence, not live
+        // terminals, and must never produce desks.
+        .filter((s) => s.status === 'active' || s.status === 'idle')
+        .filter((s) =>
+          mySlug
+            ? s.projectSlug === mySlug
+            : myRoot !== undefined && path.resolve(s.projectRoot) === myRoot,
+        )
         .map((s) => ({
           sessionId: s.sessionId,
           projectName: s.projectName,
@@ -50,12 +61,15 @@ export function startSessionStatusPoll(deps: SessionStatusPollDeps): void {
           status: s.status,
           pid: s.pid,
           startedAt: s.startedAt,
+          lastHeartbeatAt: s.lastHeartbeatAt,
           agentCount: s.agentCount,
           agents: s.agents.map((a) => ({
             id: a.id,
             name: a.name,
             status: a.status,
             currentTool: a.currentTool,
+            currentTask: a.currentTask,
+            taskId: a.taskId,
             iterations: a.iterations,
             toolCalls: a.toolCalls,
             costUsd: a.costUsd,
@@ -64,6 +78,12 @@ export function startSessionStatusPoll(deps: SessionStatusPollDeps): void {
             ctxPct: a.ctxPct,
             model: a.model,
             partialText: a.partialText,
+            recentTools: a.recentTools,
+            recentMail: a.recentMail,
+            todos: a.todos,
+            latestPrompt: a.latestPrompt,
+            latestPromptAt: a.latestPromptAt,
+            activity: a.activity,
             lastActivityAt: a.lastActivityAt,
           })),
         }));

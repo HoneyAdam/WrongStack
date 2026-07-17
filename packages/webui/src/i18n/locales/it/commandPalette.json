@@ -41,11 +41,11 @@
     "soundOn": "Suono al completamento: ATTIVO — disattiva",
     "soundOff": "Suono al completamento: SPENTO — attiva",
     "soundHint": "Suono al termine di un'esecuzione",
-    "autophaseOpen": "Apri vista AutoPhase",
+    "goalOpen": "Apri vista Goal",
     "autoOn": "Modalità autonoma: ATTIVA — disabilita",
     "autoOff": "Modalità autonoma: SPENTA — abilita",
     "autoHint": "Attiva/disattiva l'esecuzione autonoma delle fasi",
-    "autophaseStop": "Ferma AutoPhase",
+    "goalStop": "Ferma Goal",
     "resume": "Riprendi: {{title}}",
     "emptyTitle": "(vuoto)"
   }

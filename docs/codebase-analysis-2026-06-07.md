@@ -60,13 +60,13 @@ import { expectDefined } from '@wrongstack/core';
 
 ## HIGH — Code Convention Violations
 
-### H-2: Turkish comments in autophase package (8 files, 146+ matches)
+### H-2: Turkish comments in goal package (8 files, 146+ matches)
 
 **Category:** Code Convention
 **Severity:** High for internationalization consistency
-**Files:** All files in `packages/core/src/autophase/`
+**Files:** All files in `packages/core/src/goal/`
 
-The autophase package contains Turkish-language comments mixed with English. Examples from `phase-orchestrator.ts`:
+The goal package contains Turkish-language comments mixed with English. Examples from `phase-orchestrator.ts`:
 - Line 131: `// Autonomous tick loop (gerçek zamanlı monitoring için)`
 - Line 137: `/** Bekleyen tüm faz merge'lerini (dep-sıralı + global seri) bekle. */`
 - Lines 143-159: `/** Duraklat — ... */`, `/** Devam et — ... */`, `/** Tamamen durdur — ... */`
@@ -227,7 +227,7 @@ export function expectDefined<T>(value: T | null | undefined, label?: string): T
 
 | Severity | Count | Issue |
 |----------|-------|-------|
-| **HIGH** | 2 | `expectDefined` 80× duplication, Turkish comments in autophase |
+| **HIGH** | 2 | `expectDefined` 80× duplication, Turkish comments in goal |
 | **MEDIUM** | 4 | Unsafe casts in cost-tracker, wrong mutating flag, `as any` event, missing test |
 | **LOW** | 2 | Implicit re-export, poor error messages |
 
@@ -240,7 +240,7 @@ export function expectDefined<T>(value: T | null | undefined, label?: string): T
 ## Quick-Reference Fix Checklist
 
 - [ ] **H-1:** Replace all 80 local `expectDefined` definitions with `import { expectDefined } from '@wrongstack/core'`
-- [ ] **H-2:** Translate Turkish comments in `packages/core/src/autophase/` to English (8 files, 146+ matches)
+- [ ] **H-2:** Translate Turkish comments in `packages/core/src/goal/` to English (8 files, 146+ matches)
 - [ ] **M-1:** Add typed config accessor for cost-tracker plugin or use runtime type guards
 - [ ] **M-2:** Set `mutating: true` on `cost_reset` tool in cost-tracker plugin
 - [ ] **M-3:** Add `'session.close'` to EventMap or remove `as any` workaround

@@ -90,6 +90,9 @@ export function RefinePanel({ state, onDecision, onRetry, onRetryFallback }: Ref
         </div>
       )}
       <div className="refine-actions">
+        <button type="button" onClick={onRetry}>
+          Try again better
+        </button>
         <button type="button" onClick={() => onDecision('edit')}>
           Edit
         </button>

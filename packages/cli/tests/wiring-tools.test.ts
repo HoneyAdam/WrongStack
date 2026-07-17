@@ -259,13 +259,18 @@ describe('getToolsForTier', () => {
     expect(getToolsForTier('off', [])).toHaveLength(0);
   });
 
-  it("'minimal' returns only TIER1-equivalent tools (10)", () => {
-    // TIER1 = read, write, edit, bash, grep, glob, diff, patch, json, search
-    const tier1Names = ['read', 'write', 'edit', 'bash', 'grep', 'glob', 'diff', 'patch', 'json', 'search'];
+  it("'minimal' returns only TIER1-equivalent tools (13)", () => {
+    // TIER1 keeps the complete codebase-index lifecycle available so minimal
+    // mode does not force broad grep/glob exploration.
+    const tier1Names = [
+      'read', 'write', 'edit',
+      'codebase-stats', 'codebase-search', 'codebase-index',
+      'bash', 'grep', 'glob', 'diff', 'patch', 'json', 'search',
+    ];
     // 'off' returns everything so we can verify filtering
     const allTools = namedTools([...tier1Names, 'replace', 'exec', 'fetch', 'git', 'tree', 'lint']);
     const result = getToolsForTier('minimal', allTools);
-    expect(result).toHaveLength(10);
+    expect(result).toHaveLength(13);
     for (const name of tier1Names) {
       expect(result.some((t) => t.name === name)).toBe(true);
     }
@@ -273,7 +278,11 @@ describe('getToolsForTier', () => {
   });
 
   it("'light' returns same tool set as 'minimal' (guidance differs, tool set does not)", () => {
-    const tier1Names = ['read', 'write', 'edit', 'bash', 'grep', 'glob', 'diff', 'patch', 'json', 'search'];
+    const tier1Names = [
+      'read', 'write', 'edit',
+      'codebase-stats', 'codebase-search', 'codebase-index',
+      'bash', 'grep', 'glob', 'diff', 'patch', 'json', 'search',
+    ];
     const allTools = namedTools([...tier1Names, 'replace', 'exec']);
     const minimal = getToolsForTier('minimal', allTools);
     const light = getToolsForTier('light', allTools);
@@ -282,11 +291,15 @@ describe('getToolsForTier', () => {
   });
 
   it("'medium' includes TIER1 + TIER2", () => {
-    const tier1 = ['read', 'write', 'edit', 'bash', 'grep', 'glob', 'diff', 'patch', 'json', 'search'];
+    const tier1 = [
+      'read', 'write', 'edit',
+      'codebase-stats', 'codebase-search', 'codebase-index',
+      'bash', 'grep', 'glob', 'diff', 'patch', 'json', 'search',
+    ];
     const tier2 = ['replace', 'exec', 'fetch', 'git', 'tree', 'lint', 'format', 'typecheck', 'test', 'todo', 'plan', 'task', 'install', 'audit'];
     const allTools = namedTools([...tier1, ...tier2, 'outdated', 'logs']);
     const result = getToolsForTier('medium', allTools);
-    expect(result).toHaveLength(24); // 10 + 14
+    expect(result).toHaveLength(27); // 13 + 14
     for (const name of [...tier1, ...tier2]) {
       expect(result.some((t) => t.name === name)).toBe(true);
     }
@@ -312,4 +325,24 @@ describe('getToolsForTier', () => {
     expect(result.some((t) => t.name === 'exec')).toBe(true);
     expect(result.some((t) => t.name === 'outdated')).toBe(true);
   });
+
+  it.each(['off', 'minimal', 'light', 'medium', 'aggressive'] as const)(
+    "keeps codebase discovery and index creation available in the '%s' tier",
+    (tier) => {
+      const tools = namedTools([
+        'read',
+        'grep',
+        'glob',
+        'codebase-stats',
+        'codebase-search',
+        'codebase-index',
+      ]);
+      const names = getToolsForTier(tier, tools).map((tool) => tool.name);
+      expect(names).toEqual(expect.arrayContaining([
+        'codebase-stats',
+        'codebase-search',
+        'codebase-index',
+      ]));
+    },
+  );
 });

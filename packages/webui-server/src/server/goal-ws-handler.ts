@@ -3,7 +3,7 @@ import type { WebSocket } from 'ws';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import {
   assignNickname,
-  AutoPhasePlanner,
+  GoalPlanner,
   PhaseGraphBuilder,
   PhaseOrchestrator,
   PhaseStore,
@@ -450,7 +450,7 @@ export class GoalWebSocketHandler {
    *  uninterruptible). */
   private async planPhases(goal: string, signal?: AbortSignal): Promise<PhaseTemplate[]> {
     try {
-      const planner = new AutoPhasePlanner({
+      const planner = new GoalPlanner({
         goal,
         runOnce: async (prompt) => {
           const result = (await this.agent.run(prompt, {

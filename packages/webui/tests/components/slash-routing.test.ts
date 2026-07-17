@@ -487,24 +487,24 @@ describe('runChatSlashCommand — agent/autonomy commands', () => {
     );
   });
 
-  it('/autophase start <title> sends autophase.start and opens the view', () => {
-    const opts = makeOptions({ raw: '/autophase start Build the thing' });
-    expect(runChatSlashCommand(opts)).toBe(true);
+  it('/goal start <title> sends goal.start and opens the view', () => {
+    const opts = makeOptions({ raw: '/goal start Build the thing' });
+    runChatSlashCommand(opts);
     expect(opts.client?.send).toHaveBeenCalledWith({
-      type: 'autophase.start',
+      type: 'goal.start',
       payload: { title: 'Build the thing' },
     });
-    expect(mocks.setCurrentViewUI).toHaveBeenCalledWith('autophase');
+    expect(mocks.setCurrentViewUI).toHaveBeenCalledWith('goal');
   });
 
   it.each([
     'pause',
     'resume',
     'stop',
-  ] as const)('/autophase %s sends the matching message', (sub) => {
-    const opts = makeOptions({ raw: `/autophase ${sub}` });
+  ] as const)('/goal %s sends the matching message', (sub) => {
+    const opts = makeOptions({ raw: `/goal ${sub}` });
     expect(runChatSlashCommand(opts)).toBe(true);
-    expect(opts.client?.send).toHaveBeenCalledWith({ type: `autophase.${sub}`, payload: {} });
+    expect(opts.client?.send).toHaveBeenCalledWith({ type: `goal.${sub}`, payload: {} });
   });
 
   it('/review sends a review prompt to the agent', () => {

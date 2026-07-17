@@ -119,9 +119,9 @@ export function useGlobalKeyboardShortcuts(options: UseGlobalKeyboardShortcutsOp
             ui.setProcessMonitorOpen(true);
             return;
           case 9:
-            ws?.send?.({ type: 'goal.get' });
+            ws?.send?.({ type: 'goal-state.get' });
             showPanel('chat');
-            ui.setDockSection('goal');
+            ui.setDockSection('goal-state');
             return;
           case 10:
             ws?.listSessions?.(200);

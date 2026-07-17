@@ -54,6 +54,18 @@ function displayValue(value: unknown): string {
   }
 }
 
+/** Tool names that are "meta" — task/plan/orchestration tools we show as
+ *  compact status entries rather than full expandable calls. */
+const META_TOOLS = new Set([
+  'todo',
+  'task',
+  'plan',
+  'delegate',
+  'spawn_subagent',
+  'kanban',
+  'context_manager',
+]);
+
 export function ToolSidebar({
   agentId,
   agentName,
@@ -103,12 +115,16 @@ export function ToolSidebar({
   }, [open]);
 
   const viewMeta = {
-    tools: { label: 'TOOL CALLS', icon: Wrench },
+    tools: { label: 'TOOLS', icon: Wrench },
     todos: { label: 'TODOS', icon: ListChecks },
     tasks: { label: 'TASKS', icon: ClipboardList },
     plan: { label: 'PLAN', icon: MapIcon },
   } satisfies Record<SidebarView, { label: string; icon: typeof Wrench }>;
   const ActiveIcon = view ? viewMeta[view].icon : Wrench;
+
+  // Split calls: meta tools (compact) vs regular tools (expandable)
+  const metaCalls = calls.filter((c) => META_TOOLS.has(c.name) || c.status === 'running');
+  const regularCalls = calls.filter((c) => !META_TOOLS.has(c.name) && c.status !== 'running');
 
   return (
     <>
@@ -139,6 +155,16 @@ export function ToolSidebar({
         ))}
       </nav>
 
+      {/* Backdrop overlay — closes the panel when clicking outside */}
+      {open && (
+        <button
+          type="button"
+          className="sidebar-overlay"
+          aria-label="Close sidebar panel"
+          onClick={() => setView(null)}
+        />
+      )}
+
       {view && (
         <aside
           id="tool-sidebar"
@@ -160,64 +186,88 @@ export function ToolSidebar({
           <div className="tool-sidebar-list">
             {view === 'tools' ? (
               calls.length === 0 ? (
-                <div className="tool-sidebar-empty">No tool calls for this agent yet.</div>
+                <div className="tool-sidebar-empty">No tool calls yet.</div>
               ) : (
-                calls.map((call) => {
-                  const isExpanded = expanded.includes(call.id);
-                  return (
-                    <article className={`tool-sidebar-call ${call.status}`} key={call.id}>
-                      <button
-                        type="button"
-                        className="tool-sidebar-call-trigger"
-                        aria-expanded={isExpanded}
-                        onClick={() =>
-                          setExpanded((current) =>
-                            current.includes(call.id)
-                              ? current.filter((id) => id !== call.id)
-                              : [...current, call.id],
-                          )
-                        }
-                      >
-                        {isExpanded ? (
-                          <ChevronDown size={12} aria-hidden="true" />
-                        ) : (
-                          <ChevronRight size={12} aria-hidden="true" />
-                        )}
-                        <code>{call.name}</code>
-                        {call.status === 'running' ? (
-                          <LoaderCircle size={12} className="spin" aria-label="Running" />
-                        ) : call.status === 'done' ? (
-                          <Check size={12} className="tool-sidebar-ok" aria-label="Done" />
-                        ) : (
-                          <X size={12} className="tool-sidebar-error" aria-label="Error" />
-                        )}
-                        <span>
-                          {call.status === 'running'
-                            ? 'Running'
-                            : call.status === 'done'
-                              ? `Done${call.durationMs != null ? ` · ${call.durationMs}ms` : ''}`
-                              : 'Error'}
-                        </span>
-                      </button>
-                      {isExpanded && (
-                        <div className="tool-sidebar-call-detail">
-                          {call.input !== undefined && (
-                            <section>
-                              <span>INPUT</span>
-                              <pre>{displayValue(call.input)}</pre>
-                            </section>
-                          )}
-                          {call.output !== undefined && (
-                            <section>
-                              <span>OUTPUT</span>
-                              <pre>{displayValue(call.output)}</pre>
-                            </section>
-                          )}
-                        </div>
+                <>
+                  {/* Running & meta tools — compact status line */}
+                  {metaCalls.map((call) => (
+                    <div className={`tool-sidebar-meta ${call.status}`} key={call.id}>
+                      <span className="tool-sidebar-meta-name">{call.name}</span>
+                      {call.status === 'running' ? (
+                        <LoaderCircle size={11} className="spin" aria-label="Running" />
+                      ) : call.status === 'done' ? (
+                        <Check size={11} className="tool-sidebar-ok" aria-label="Done" />
+                      ) : (
+                        <X size={11} className="tool-sidebar-error" aria-label="Error" />
                       )}
-                    </article>
-                  );
-                })
+                      <span className="tool-sidebar-meta-status">
+                        {call.status === 'running'
+                          ? 'running'
+                          : call.status === 'done'
+                            ? 'done'
+                            : 'error'}
+                      </span>
+                    </div>
+                  ))}
+
+                  {/* Regular tools — expandable detail */}
+                  {regularCalls.map((call) => {
+                    const isExpanded = expanded.includes(call.id);
+                    return (
+                      <article className={`tool-sidebar-call ${call.status}`} key={call.id}>
+                        <button
+                          type="button"
+                          className="tool-sidebar-call-trigger"
+                          aria-expanded={isExpanded}
+                          onClick={() =>
+                            setExpanded((current) =>
+                              current.includes(call.id)
+                                ? current.filter((id) => id !== call.id)
+                                : [...current, call.id],
+                            )
+                          }
+                        >
+                          {isExpanded ? (
+                            <ChevronDown size={12} aria-hidden="true" />
+                          ) : (
+                            <ChevronRight size={12} aria-hidden="true" />
+                          )}
+                          <code>{call.name}</code>
+                          {call.status === 'running' ? (
+                            <LoaderCircle size={12} className="spin" aria-label="Running" />
+                          ) : call.status === 'done' ? (
+                            <Check size={12} className="tool-sidebar-ok" aria-label="Done" />
+                          ) : (
+                            <X size={12} className="tool-sidebar-error" aria-label="Error" />
+                          )}
+                          <span>
+                            {call.status === 'running'
+                              ? 'Running'
+                              : call.status === 'done'
+                                ? `Done${call.durationMs != null ? ` · ${call.durationMs}ms` : ''}`
+                                : 'Error'}
+                          </span>
+                        </button>
+                        {isExpanded && (
+                          <div className="tool-sidebar-call-detail">
+                            {call.input !== undefined && (
+                              <section>
+                                <span>INPUT</span>
+                                <pre>{displayValue(call.input)}</pre>
+                              </section>
+                            )}
+                            {call.output !== undefined && (
+                              <section>
+                                <span>OUTPUT</span>
+                                <pre>{displayValue(call.output)}</pre>
+                              </section>
+                            )}
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
+                </>
               )
             ) : (
               <Suspense fallback={<div className="tool-sidebar-empty">Loading {view}…</div>}>

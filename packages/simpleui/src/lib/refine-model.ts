@@ -1,7 +1,8 @@
 /** Refine (prompt enhance) projection.
  *
  * Wire contract, shared with the WebUI and served by the same CLI
- * webui-server: `model.refine` { text, timeoutMs?, provider?, model? }
+ * webui-server: `model.refine` { text, timeoutMs?, provider?, model?,
+ * previousRefined?, previousEnglish?, retryFeedback? }
  * answers with `model.refine_result` { refined, english, error?, errorKind?,
  * retryTimeoutMs?, fallbackRef? }.
  *

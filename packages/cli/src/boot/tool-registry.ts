@@ -52,7 +52,7 @@ import type {
 import { applyToolDescriptionModes, applyToolResultRenderModes, configureChildEnvGitIdentity, createContextManagerTool, makeFleetStatusTool, makeMailboxTool, makeMailInboxTool, makeMailSendTool, normalizeTokenSavingTier } from '@wrongstack/core';
 import { builtinToolsPack, configureDangerBypass, configureExecPolicy, forgetTool, relatedMemoryTool, rememberTool, searchMemoryTool, TIER1_TOOLS, TIER2_TOOLS, TIER3_TOOLS } from '@wrongstack/tools';
 import { createSuperMemoryTools, type SuperMemoryServiceLike } from '@wrongstack/super-memory';
-import { configureAutophasePolicy } from '../autophase-host.js';
+import { configureGoalPolicy } from '../goal-host.js';
 import type { TokenSavingTier } from '@wrongstack/core';
 import type { Tool } from '@wrongstack/core';
 
@@ -194,10 +194,10 @@ export function registerBuiltinTools(deps: RegisterBuiltinToolsDeps): void {
   // any in-project repo config before this point.
   configureExecPolicy(deps.config.tools?.exec ?? {});
   configureDangerBypass(deps.config.tools?.exec?.danger ?? {});
-  // Autonomous autophase verification honors the same trusted exec.allow opt-ins
-  // (added to autophase's narrower base), so non-JS projects (go/cargo/…) can
+  // Autonomous goal verification honors the same trusted exec.allow opt-ins
+  // (added to goal's narrower base), so non-JS projects (go/cargo/…) can
   // run their verify command without confirmation when the user allowed it.
-  configureAutophasePolicy(deps.config.tools?.exec ?? {});
+  configureGoalPolicy(deps.config.tools?.exec ?? {});
   // Commit identity for every git-touching child process. Trusted-config-only:
   // the loader strips `git` from repo-committed in-project configs.
   configureChildEnvGitIdentity(deps.config.git?.identity ?? null);

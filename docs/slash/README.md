@@ -49,7 +49,7 @@ WrongStack routes slash commands through `SlashCommandRegistry`. The command set
 | `/yolo` | — | [YOLO](yolo.md) |
 | `/mouse` | — | [mouse](mouse.md) |
 | `/autonomy` | — | [autonomy](autonomy.md) |
-| `/goal` | — | [goal](goal.md) |
+| `/goal-state` | — | [goal state](goal-state.md) |
 | `/coordinator` | — | [coordinator](coordinator.md) |
 | `/brain` | — | [Brain](brain.md) |
 | `/btw` | — | [by-the-way messages](btw.md) |
@@ -60,7 +60,7 @@ WrongStack routes slash commands through `SlashCommandRegistry`. The command set
 | `/mailbox` | `/mb` | [mailbox](mailbox.md) |
 | `/mailbox-serve` | — | [mailbox bridge](mailbox-serve.md) |
 | `/fix` | — | [fix](fix.md) |
-| `/autophase` | — | [AutoPhase](autophase.md) |
+| `/goal` | — | [goal](goal.md) |
 | `/worktree` | `/wt` | [worktrees](worktree.md) |
 | `/settings` | — | [settings](settings.md) |
 | `/hq` | — | [HQ connection](hq.md) |
@@ -126,7 +126,7 @@ REPL input "/<command> <args>"
   -> returns { message?: string, runText?: string, exit?: boolean }
 ```
 
-`runText` is a special field: when a slash command returns it, the REPL injects that text into the next agent turn. `/goal`, `/sdd`, `/autonomy`, `/fix`, `/skill-gen`, `/prompt-gen`, and `/prompt insert` use this to steer the AI conversation without the user typing the full prompt.
+`runText` is a special field: when a slash command returns it, the REPL injects that text into the next agent turn. `/goal start`, `/goal-state`, `/sdd`, `/autonomy`, `/fix`, `/skill-gen`, `/prompt-gen`, and `/prompt insert` use this to steer the AI conversation without the user typing the full prompt.
 
 ## Adding a core slash command
 

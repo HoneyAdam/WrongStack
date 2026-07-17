@@ -1,3 +1,6 @@
+import { watch as fsWatch } from 'node:fs';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import type {
   Context,
   EventBus,
@@ -6,15 +9,11 @@ import type {
   SessionEventBridge,
   WstackPaths,
 } from '@wrongstack/core';
-import type { WebSocket } from 'ws';
-import type { ConnectedClient, WSServerMessage } from './types.js';
-import type { PendingConfirm } from './pending-confirms.js';
-
-import * as fs from 'node:fs/promises';
-import { watch as fsWatch } from 'node:fs';
-import * as path from 'node:path';
 import { getBoard, getKanbanDir } from '@wrongstack/kanban';
+import type { WebSocket } from 'ws';
 import { extractCodeMapFileTargets, normalizeCodeMapFileTarget } from './codemap-telemetry.js';
+import type { PendingConfirm } from './pending-confirms.js';
+import type { ConnectedClient, WSServerMessage } from './types.js';
 
 /** Metrics for the file watcher that watches status.json files. */
 export interface FileWatcherMetrics {
@@ -1333,8 +1332,12 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
         // every project's sessions, so derive our current project from our own
         // entry (matched by pid — survives in-place project switches, unlike the
         // launch-time `wpaths.projectSlug`). Fall back to all sessions if our
-        // entry isn't found yet (first tick before registration settles).
-        const mySlug = sessions.find((s) => s.pid === process.pid)?.projectSlug;
+        // entry isn't found yet (first tick before registration settles), use
+        // the server's canonical project slug/root — never leak other projects
+        // into this Office during that startup window.
+        const ownEntry = sessions.find((s) => s.pid === process.pid);
+        const mySlug = ownEntry?.projectSlug ?? wpaths?.projectSlug;
+        const myRoot = path.resolve(context.projectRoot);
         const live = sessions
           // Only surface sessions with fresh heartbeats. 'stale' = process
           // dead, 'lost' = heartbeat timed out, 'closing' = process shut down.
@@ -1342,7 +1345,9 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
           // accumulates dead client entries that never go away until the 5 min
           // LOST_GRACE_MS or CLOSING_GRACE_MS expires.
           .filter((s) => s.status === 'active' || s.status === 'idle')
-          .filter((s) => (mySlug ? s.projectSlug === mySlug : true))
+          .filter((s) =>
+            mySlug ? s.projectSlug === mySlug : path.resolve(s.projectRoot) === myRoot,
+          )
           .map((s) => ({
             sessionId: s.sessionId,
             projectName: s.projectName,
@@ -1355,12 +1360,15 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
             status: s.status,
             pid: s.pid,
             startedAt: s.startedAt,
+            lastHeartbeatAt: s.lastHeartbeatAt,
             agentCount: s.agentCount,
             agents: (s.agents ?? []).map((a) => ({
               id: a.id,
               name: a.name,
               status: a.status,
               currentTool: a.currentTool,
+              currentTask: a.currentTask,
+              taskId: a.taskId,
               iterations: a.iterations,
               toolCalls: a.toolCalls,
               costUsd: a.costUsd,
@@ -1369,6 +1377,12 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
               ctxPct: a.ctxPct,
               model: a.model,
               partialText: a.partialText,
+              recentTools: a.recentTools,
+              recentMail: a.recentMail,
+              todos: a.todos,
+              latestPrompt: a.latestPrompt,
+              latestPromptAt: a.latestPromptAt,
+              activity: a.activity,
               lastActivityAt: a.lastActivityAt,
             })),
           }));

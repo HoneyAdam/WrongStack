@@ -36,7 +36,7 @@ The actual prompt text lives not in TypeScript but in **override-able `.md` file
 | `modes/*.md` | **20+** | `-lite` + full variant per mode (audit/debug/plan/refactor/research/review/test); `brief-system`/`teach-system` separate. |
 | `llm/*.md` (sub-task prompts) | 13 | agent-router, autonomy-brain, memory-consolidator, prompt-enhancer, two compactor-summarizers, chimera-review… |
 | `sections/tool/*.md` | 12 | **compact + full** pairs for delegation/mailbox/mcp/context-management (bound to the token-saving tier). |
-| `coordination/`, `autonomy/`, `autophase/`, `sdd/`, `security-scanner/`, `cli/` | ~13 | director-preamble, subagent-baseline, goal-preamble, phase-planner… |
+| `coordination/`, `autonomy/`, `goal/`, `sdd/`, `security-scanner/`, `cli/` | ~13 | director-preamble, subagent-baseline, goal-preamble, phase-planner… |
 
 ### I.3 Prompt-layer findings
 
@@ -54,7 +54,7 @@ This is a surface that earns the "extremely comprehensive autonomous coding assi
 - **20 packages:** kernel (core), providers, tools (~50 builtin tools, 3-tier token budget), mcp, plug-lsp, acp, cli, tui, runtime, kanban, sdd, security-scanner, super-memory, telegram, webui, webui-server, webui-hq, plugins (**63 first-party plugins**), bench. Plus `apps/{wrongstack,desktop}`.
 - **83 slash commands** + 28 subcommand handlers — assembled declaratively into a single flat `SlashCommand[]` (clean registration pattern).
 - **Surfaces:** CLI/REPL, TUI (Ink/React), WebUI (Vite/React), SimpleUI (lightweight browser chat), Desktop (Electron), HQ Command Center (port 3499, the only deliberately cross-machine server).
-- **Multi-agent orchestration:** Director (leader-with-tools), Fleet (task queue + budget + supervisor), Brain (policy→LLM→human decision gate), TaskAuctioneer (task marketplace), AutoPhase, SDD (spec-driven), CollabSession (bug-hunter→refactor-planner→critic).
+- **Multi-agent orchestration:** Director (leader-with-tools), Fleet (task queue + budget + supervisor), Brain (policy→LLM→human decision gate), TaskAuctioneer (task marketplace), Goal, SDD (spec-driven), CollabSession (bug-hunter→refactor-planner→critic).
 - **Infrastructure:** cross-surface mailbox, SessionRegistry, super-memory (graph + verification + hygiene), codebase-index (worker thread + FTS5), OAuth login engine (ChatGPT/Claude/Copilot), MCP registry, LSP bridge.
 
 ---
@@ -73,7 +73,7 @@ Priority: 🔴 High · 🟡 Medium · 🟢 Low. All line references verified dur
 | 🟡 | `storage/session-store.ts` | 1,745 | load/index cache + shard-manifest + fork-inheritance + snapshot replay mixed. | Extract `SessionIndexCache` (neighbors already partially split). |
 | 🟡 | `types/config.ts` | 1,487 | ~50 exported interfaces, flat. Merge-conflict magnet. | Split by domain: `config/{brain,fleet,tools}.ts`. |
 | 🟡 | `hq/protocol.ts` | 1,506 | Almost entirely `Hq*` type declarations. | `hq/protocol/{session,mailbox,fleet,brain}.ts`. |
-| 🟢 | `multi-agent-coordinator.ts` (1,271), `storage/config-loader.ts` (1,259), `system-prompt-builder.ts` (1,234), `execution/tool-executor.ts` (1,212), `autophase/phase-orchestrator.ts` (1,103) | — | Secondary priority. | — |
+| 🟢 | `multi-agent-coordinator.ts` (1,271), `storage/config-loader.ts` (1,259), `system-prompt-builder.ts` (1,234), `execution/tool-executor.ts` (1,212), `goal/phase-orchestrator.ts` (1,103) | — | Secondary priority. | — |
 
 ### cli (`packages/cli`)
 

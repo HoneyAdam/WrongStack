@@ -1003,7 +1003,7 @@ export class MultiAgentHost {
       }
       let subReasoningConfig = await this.resolveSubagentReasoningConfig(effProvider, effModel);
 
-      // Per-subagent cwd (defaults to the factory cwd). AutoPhase points this
+      // Per-subagent cwd (defaults to the factory cwd). Goal points this
       // at a phase's git worktree so isolated checkouts don't collide.
       const subCwd = subCfg.cwd ?? this.deps.cwd;
 
@@ -1274,7 +1274,10 @@ export class MultiAgentHost {
           durationMs: e.durationMs,
           ok: e.ok,
           input: e.input,
+          output: e.output,
           outputBytes: e.outputBytes,
+          outputTokens: e.outputTokens,
+          outputLines: e.outputLines,
         });
       });
 

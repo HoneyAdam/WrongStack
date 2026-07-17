@@ -283,12 +283,12 @@ export function CommitWorkflowPage() {
         <SectionIntro
           index="05"
           eyebrow="Integration"
-          title="Commit workflow plugs into AutoPhase and quality gates."
+          title="Commit workflow plugs into Goal and quality gates."
           description="Commit generation is not just a slash command — it integrates with the autonomous workflow engine and the quality gate pipeline."
         />
         <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {[
-            { icon: Check, title: 'AutoPhase', body: 'After the review phase, AutoPhase can auto-commit the verified worktree changes. Commit message is generated from the phase plan and diff.' },
+            { icon: Check, title: 'Goal', body: 'After the review phase, Goal can auto-commit the verified worktree changes. Commit message is generated from the phase plan and diff.' },
             { icon: Shield, title: 'Quality gate', body: 'The quality_gate verifier lane can require a clean /gitcheck before passing. Uncommitted changes after verification = gate failure.' },
             { icon: AlertTriangle, title: 'CI pre-flight', body: 'Run /gitcheck in CI scripts before deploy. Non-zero exit code means uncommitted changes — fail the pipeline.' },
             { icon: Fingerprint, title: 'Attribution', body: '/gitid ensures commits carry the right author. Set per-project or globally. Follows git\'s own precedence rules.' },

@@ -12,8 +12,12 @@
  */
 import type { EventBus } from './kernel/events.js';
 import type {
+  AgentActivityTotals,
   AgentEntry,
   AgentLiveStatus,
+  AgentRecentMail,
+  AgentRecentTool,
+  AgentTodoItem,
   SessionRegistry,
 } from './session-registry.js';
 
@@ -25,6 +29,266 @@ const AGENT_SWEEP_INTERVAL_MS = 10_000;
 const PARTIAL_TEXT_CAP = 1200;
 /** Min gap between registry flushes triggered purely by streamed text. */
 const PARTIAL_FLUSH_THROTTLE_MS = 300;
+/** Completed receipts retained per agent for cross-process Office history. */
+const RECENT_TOOL_LIMIT = 12;
+const RECENT_MAIL_LIMIT = 12;
+/** Registry snapshots must stay small even when a tool receives a large patch. */
+const TOOL_TEXT_CAP = 360;
+const TOUCHED_FILE_LIMIT = 200;
+const TASK_TEXT_CAP = 1200;
+const PROMPT_TEXT_CAP = 6000;
+const TODO_TEXT_CAP = 360;
+const TODO_LIMIT = 32;
+
+interface PendingTool {
+  name: string;
+  input?: unknown | undefined;
+  startedAt: number;
+}
+
+interface CompletedToolPayload {
+  id?: string | undefined;
+  name: string;
+  durationMs?: number | undefined;
+  ok?: boolean | undefined;
+  input?: unknown | undefined;
+  output?: string | undefined;
+  outputLines?: number | undefined;
+  outputBytes?: number | undefined;
+  outputTokens?: number | undefined;
+}
+
+function lineCount(value: string): number {
+  return value.length === 0 ? 0 : value.split(/\r?\n/).length;
+}
+
+function patchDelta(value: string): { addedLines: number; removedLines: number } {
+  let addedLines = 0;
+  let removedLines = 0;
+  const hunkStart = value.indexOf('@@');
+  if (hunkStart === -1) return { addedLines, removedLines };
+  for (const line of value.slice(hunkStart).split(/\r?\n/)) {
+    if (line.startsWith('+++') || line.startsWith('---')) continue;
+    if (line.startsWith('+')) addedLines += 1;
+    else if (line.startsWith('-')) removedLines += 1;
+  }
+  return { addedLines, removedLines };
+}
+
+function compactText(value: string): string {
+  return value.length <= TOOL_TEXT_CAP ? value : `${value.slice(0, TOOL_TEXT_CAP - 1)}…`;
+}
+
+function boundedText(value: string, cap: number): string {
+  const trimmed = value.trim();
+  return trimmed.length <= cap ? trimmed : `${trimmed.slice(0, cap - 1)}…`;
+}
+
+function compactTodos(value: unknown): AgentTodoItem[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const todos: AgentTodoItem[] = [];
+  for (const candidate of value) {
+    if (typeof candidate !== 'object' || candidate === null) continue;
+    const todo = candidate as Record<string, unknown>;
+    const id = typeof todo['id'] === 'string' ? todo['id'].trim() : '';
+    const content =
+      typeof todo['content'] === 'string' ? boundedText(todo['content'], TODO_TEXT_CAP) : '';
+    const status = todo['status'];
+    if (
+      !id ||
+      !content ||
+      (status !== 'pending' && status !== 'in_progress' && status !== 'completed')
+    ) {
+      continue;
+    }
+    const activeForm =
+      typeof todo['activeForm'] === 'string'
+        ? boundedText(todo['activeForm'], TODO_TEXT_CAP)
+        : undefined;
+    todos.push({ id, content, status, ...(activeForm ? { activeForm } : {}) });
+    if (todos.length >= TODO_LIMIT) break;
+  }
+  return todos;
+}
+
+function compactToolInput(input: unknown): {
+  input?: unknown | undefined;
+  inputLines?: number | undefined;
+  oldLines?: number | undefined;
+  newLines?: number | undefined;
+  addedLines?: number | undefined;
+  removedLines?: number | undefined;
+} {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return typeof input === 'string' ? { input: compactText(input) } : {};
+  }
+  const source = input as Record<string, unknown>;
+  const safe: Record<string, unknown> = {};
+  const safeKeys = [
+    'file_path',
+    'filePath',
+    'path',
+    'filename',
+    'target_file',
+    'targetFile',
+    'line',
+    'start_line',
+    'startLine',
+    'end_line',
+    'endLine',
+    'offset',
+    'limit',
+    'command',
+    'cmd',
+    'url',
+    'href',
+    'uri',
+    'query',
+    'pattern',
+  ];
+  for (const key of safeKeys) {
+    const value = source[key];
+    if (typeof value === 'string') safe[key] = compactText(value);
+    else if (typeof value === 'number' || typeof value === 'boolean') safe[key] = value;
+  }
+
+  const content = [source['content'], source['text'], source['data']].find(
+    (value): value is string => typeof value === 'string',
+  );
+  const oldText = [source['old_string'], source['oldString'], source['search']].find(
+    (value): value is string => typeof value === 'string',
+  );
+  const newText = [source['new_string'], source['newString'], source['replacement']].find(
+    (value): value is string => typeof value === 'string',
+  );
+  const patch = [source['patch'], source['diff']].find(
+    (value): value is string => typeof value === 'string',
+  );
+  const delta = patch ? patchDelta(patch) : undefined;
+
+  return {
+    ...(Object.keys(safe).length > 0 ? { input: safe } : {}),
+    ...(content !== undefined ? { inputLines: lineCount(content) } : {}),
+    ...(oldText !== undefined ? { oldLines: lineCount(oldText) } : {}),
+    ...(newText !== undefined ? { newLines: lineCount(newText) } : {}),
+    ...(delta && delta.addedLines > 0 ? { addedLines: delta.addedLines } : {}),
+    ...(delta && delta.removedLines > 0 ? { removedLines: delta.removedLines } : {}),
+  };
+}
+
+function completedToolReceipt(
+  payload: CompletedToolPayload,
+  pending?: PendingTool,
+): AgentRecentTool {
+  const completedAt = Date.now();
+  const durationMs = Math.max(
+    0,
+    payload.durationMs ?? completedAt - (pending?.startedAt ?? completedAt),
+  );
+  const compact = compactToolInput(payload.input ?? pending?.input);
+  return {
+    id: payload.id ?? `${payload.name}:${completedAt}`,
+    name: payload.name,
+    startedAt: pending?.startedAt ?? Math.max(0, completedAt - durationMs),
+    completedAt,
+    durationMs,
+    ok: payload.ok !== false,
+    ...compact,
+    ...(payload.output !== undefined ? { output: compactText(payload.output) } : {}),
+    ...(payload.outputLines !== undefined ? { outputLines: payload.outputLines } : {}),
+    ...(payload.outputBytes !== undefined ? { outputBytes: payload.outputBytes } : {}),
+    ...(payload.outputTokens !== undefined ? { outputTokens: payload.outputTokens } : {}),
+  };
+}
+
+function emptyActivityTotals(): AgentActivityTotals {
+  return {
+    filesTouched: [],
+    reads: 0,
+    writes: 0,
+    edits: 0,
+    terminalCalls: 0,
+    webCalls: 0,
+    searches: 0,
+    otherCalls: 0,
+    mailReceived: 0,
+    mailSent: 0,
+    linesRead: 0,
+    linesWritten: 0,
+    linesAdded: 0,
+    linesRemoved: 0,
+  };
+}
+
+function addMailTotal(
+  current: AgentActivityTotals | undefined,
+  direction: AgentRecentMail['direction'],
+): AgentActivityTotals {
+  const next = { ...(current ?? emptyActivityTotals()) };
+  if (direction === 'incoming') next.mailReceived += 1;
+  else next.mailSent += 1;
+  return next;
+}
+
+function toolActivityKind(
+  name: string,
+): 'read' | 'write' | 'edit' | 'terminal' | 'web' | 'search' | 'other' {
+  const normalized = name.toLowerCase().replace(/[.:/-]+/g, '_');
+  if (/^(read|view|open_file|read_file)|file_read/.test(normalized)) return 'read';
+  if (/^(write|create|save)|file_write/.test(normalized)) return 'write';
+  if (/edit|update|patch|replace|apply_patch/.test(normalized)) return 'edit';
+  if (/bash|shell|terminal|exec|command|powershell|cmd/.test(normalized)) return 'terminal';
+  if (/fetch|browser|browse|http|url|web/.test(normalized)) return 'web';
+  if (/search|grep|find|glob|query/.test(normalized)) return 'search';
+  return 'other';
+}
+
+function receiptFilePath(receipt: AgentRecentTool): string | undefined {
+  if (!receipt.input || typeof receipt.input !== 'object' || Array.isArray(receipt.input)) {
+    return undefined;
+  }
+  const input = receipt.input as Record<string, unknown>;
+  for (const key of ['file_path', 'filePath', 'path', 'filename', 'target_file', 'targetFile']) {
+    const value = input[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function addToolActivity(
+  current: AgentActivityTotals | undefined,
+  receipt: AgentRecentTool,
+): AgentActivityTotals {
+  const next: AgentActivityTotals = {
+    ...(current ?? emptyActivityTotals()),
+    filesTouched: [...(current?.filesTouched ?? [])],
+  };
+  const kind = toolActivityKind(receipt.name);
+  if (kind === 'read') {
+    next.reads += 1;
+    next.linesRead += receipt.outputLines ?? 0;
+  } else if (kind === 'write') {
+    next.writes += 1;
+    next.linesWritten += receipt.inputLines ?? 0;
+  } else if (kind === 'edit') {
+    next.edits += 1;
+    next.linesAdded += receipt.addedLines ?? receipt.newLines ?? 0;
+    next.linesRemoved += receipt.removedLines ?? receipt.oldLines ?? 0;
+  } else if (kind === 'terminal') next.terminalCalls += 1;
+  else if (kind === 'web') next.webCalls += 1;
+  else if (kind === 'search') next.searches += 1;
+  else next.otherCalls += 1;
+
+  const filePath = receiptFilePath(receipt);
+  if (
+    filePath &&
+    !next.filesTouched.includes(filePath) &&
+    next.filesTouched.length < TOUCHED_FILE_LIMIT
+  ) {
+    next.filesTouched.push(filePath);
+  }
+  return next;
+}
 
 function clampPct(pct: number): number {
   if (!Number.isFinite(pct)) return 0;
@@ -61,6 +325,7 @@ export class AgentStatusTracker {
   // Leader tracking
   private leaderStatus: AgentLiveStatus = 'idle';
   private leaderCurrentTool: string | undefined;
+  private leaderCurrentTask: string | undefined;
   private leaderIterations = 0;
   private leaderToolCalls = 0;
   private leaderCostUsd = 0;
@@ -70,6 +335,16 @@ export class AgentStatusTracker {
   private leaderModel: string | undefined;
   private leaderPartialText = '';
   private leaderStartedAt: string | undefined;
+  private leaderRecentTools: AgentRecentTool[] = [];
+  private leaderRecentMail: AgentRecentMail[] = [];
+  private leaderTodos: AgentTodoItem[] = [];
+  private leaderLatestPrompt: string | undefined;
+  private leaderLatestPromptAt: number | undefined;
+  private leaderActivity = emptyActivityTotals();
+  private leaderPendingTools = new Map<string, PendingTool>();
+  private subagentPendingTools = new Map<string, PendingTool>();
+  private seenIncomingMail = new Set<string>();
+  private seenOutgoingMail = new Set<string>();
 
   private unsubscribers: Array<() => void> = [];
   private readonly onUpdate: (() => void) | undefined;
@@ -92,10 +367,7 @@ export class AgentStatusTracker {
   }
 
   start(): void {
-    const on = (
-      pattern: string,
-      fn: (event: string, payload: unknown) => void,
-    ): (() => void) =>
+    const on = (pattern: string, fn: (event: string, payload: unknown) => void): (() => void) =>
       this.events.onPattern(pattern, (event, payload) => {
         if (!this.acceptsSession(payload)) return;
         fn(event, payload);
@@ -104,10 +376,19 @@ export class AgentStatusTracker {
     // Leader events
     this.unsubscribers.push(
       on('agent.run.started', (_event, payload) => {
-        const p = payload as { at?: string; model?: string; ctx?: unknown } | undefined;
+        const p = payload as
+          | { at?: string; model?: string; ctx?: unknown; inputText?: string }
+          | undefined;
         this.markLeaderStarted(p?.at);
         this.captureLeaderContext(p?.ctx);
         if (p?.model) this.leaderModel = p.model;
+        if (p?.inputText?.trim()) {
+          const prompt = boundedText(p.inputText, PROMPT_TEXT_CAP);
+          this.leaderLatestPrompt = prompt;
+          this.leaderLatestPromptAt = p.at ? Date.parse(p.at) : Date.now();
+          if (!Number.isFinite(this.leaderLatestPromptAt)) this.leaderLatestPromptAt = Date.now();
+          this.leaderCurrentTask = boundedText(p.inputText, TASK_TEXT_CAP);
+        }
         this.leaderStatus = 'running';
         this.leaderIterations++;
         this.flush();
@@ -139,6 +420,7 @@ export class AgentStatusTracker {
         this.captureLeaderContext(p?.ctx);
         this.leaderStatus = p?.status === 'failed' ? 'error' : 'idle';
         this.leaderCurrentTool = undefined;
+        this.leaderCurrentTask = undefined;
         this.leaderPartialText = '';
         if (this.leaderStatus === 'idle') this.leaderStartedAt = undefined;
         this.flush();
@@ -151,7 +433,16 @@ export class AgentStatusTracker {
         this.captureLeaderContext(p?.ctx);
         this.leaderStatus = 'error';
         this.leaderCurrentTool = undefined;
+        this.leaderCurrentTask = undefined;
         this.leaderPartialText = '';
+        this.flush();
+      }),
+    );
+
+    this.unsubscribers.push(
+      on('iteration.completed', (_event, payload) => {
+        const p = payload as { ctx?: unknown } | undefined;
+        this.captureLeaderContext(p?.ctx);
         this.flush();
       }),
     );
@@ -159,11 +450,16 @@ export class AgentStatusTracker {
     // Tool events — track current tool
     this.unsubscribers.push(
       on('tool.started', (_event, payload) => {
-        const p = payload as { name?: string } | undefined;
+        const p = payload as { id?: string; name?: string; input?: unknown } | undefined;
         if (p?.name) {
           this.markLeaderStarted();
           this.leaderCurrentTool = p.name;
           this.leaderToolCalls++;
+          this.leaderPendingTools.set(p.id ?? p.name, {
+            name: p.name,
+            input: p.input,
+            startedAt: Date.now(),
+          });
         }
         this.leaderStatus = 'running';
         this.flush();
@@ -171,7 +467,15 @@ export class AgentStatusTracker {
     );
 
     this.unsubscribers.push(
-      on('tool.executed', () => {
+      on('tool.executed', (_event, payload) => {
+        const p = payload as CompletedToolPayload;
+        if (p?.name) {
+          const key = p.id ?? p.name;
+          const receipt = completedToolReceipt(p, this.leaderPendingTools.get(key));
+          this.leaderRecentTools = [receipt, ...this.leaderRecentTools].slice(0, RECENT_TOOL_LIMIT);
+          this.leaderActivity = addToolActivity(this.leaderActivity, receipt);
+          this.leaderPendingTools.delete(key);
+        }
         this.leaderCurrentTool = undefined;
         this.flush();
       }),
@@ -184,6 +488,46 @@ export class AgentStatusTracker {
         this.leaderStatus = 'waiting_user';
         this.flush();
       }),
+    );
+
+    const recordMail = (direction: AgentRecentMail['direction'], payload: unknown): void => {
+      const p = payload as
+        | {
+            messageId?: string;
+            from?: string;
+            to?: string;
+            type?: string;
+            subject?: string;
+          }
+        | undefined;
+      if (!p?.messageId) return;
+      const seen = direction === 'incoming' ? this.seenIncomingMail : this.seenOutgoingMail;
+      if (seen.has(p.messageId)) return;
+      seen.add(p.messageId);
+      const receipt: AgentRecentMail = {
+        id: p.messageId,
+        direction,
+        from: p.from ?? '?',
+        to: p.to ?? (direction === 'incoming' ? 'leader' : '?'),
+        type: p.type ?? 'note',
+        subject: p.subject ?? 'Message',
+        at: Date.now(),
+      };
+      const directAgentId = direction === 'outgoing' ? p.from : p.to;
+      const entry = directAgentId ? this.agents.get(directAgentId) : undefined;
+      if (entry) {
+        entry.recentMail = [receipt, ...(entry.recentMail ?? [])].slice(0, RECENT_MAIL_LIMIT);
+        entry.activity = addMailTotal(entry.activity, direction);
+      } else {
+        this.leaderRecentMail = [receipt, ...this.leaderRecentMail].slice(0, RECENT_MAIL_LIMIT);
+        this.leaderActivity = addMailTotal(this.leaderActivity, direction);
+      }
+      this.flush();
+    };
+
+    this.unsubscribers.push(
+      on('mailbox.message_sent', (_event, payload) => recordMail('outgoing', payload)),
+      on('mailbox.received', (_event, payload) => recordMail('incoming', payload)),
     );
 
     // Streaming events
@@ -227,9 +571,7 @@ export class AgentStatusTracker {
       on('provider.fallback', (_e, payload) => {
         const p = payload as { to?: { providerId?: string; model?: string } } | undefined;
         if (p?.to?.model) {
-          this.leaderModel = p.to.providerId
-            ? `${p.to.providerId}/${p.to.model}`
-            : p.to.model;
+          this.leaderModel = p.to.providerId ? `${p.to.providerId}/${p.to.model}` : p.to.model;
           this.flush();
         }
       }),
@@ -268,7 +610,15 @@ export class AgentStatusTracker {
       let entry = this.agents.get(id);
       if (!entry) {
         const now = new Date().toISOString();
-        entry = { id, name: id, status: 'idle', iterations: 0, toolCalls: 0, startedAt: now, lastActivityAt: now };
+        entry = {
+          id,
+          name: id,
+          status: 'idle',
+          iterations: 0,
+          toolCalls: 0,
+          startedAt: now,
+          lastActivityAt: now,
+        };
         this.agents.set(id, entry);
       }
       entry.lastActivityAt = new Date().toISOString();
@@ -277,11 +627,21 @@ export class AgentStatusTracker {
 
     this.unsubscribers.push(
       on('subagent.spawned', (_e, payload) => {
-        const p = payload as { subagentId?: string; name?: string; model?: string } | undefined;
+        const p = payload as
+          | {
+              subagentId?: string;
+              name?: string;
+              model?: string;
+              taskId?: string;
+              description?: string;
+            }
+          | undefined;
         if (!p?.subagentId) return;
         const entry = touch(p.subagentId);
         entry.name = p.name?.trim() || entry.name;
         if (p.model) entry.model = p.model;
+        if (p.taskId) entry.taskId = p.taskId;
+        if (p.description?.trim()) entry.currentTask = boundedText(p.description, TASK_TEXT_CAP);
         /* v8 ignore next -- touch() always sets startedAt on creation */
         if (!entry.startedAt) entry.startedAt = new Date().toISOString();
         entry.status = 'running';
@@ -301,10 +661,14 @@ export class AgentStatusTracker {
 
     this.unsubscribers.push(
       on('subagent.task_started', (_e, payload) => {
-        const p = payload as { subagentId?: string } | undefined;
+        const p = payload as
+          | { subagentId?: string; taskId?: string; description?: string }
+          | undefined;
         if (!p?.subagentId) return;
         const entry = touch(p.subagentId);
         entry.status = 'running';
+        if (p.taskId) entry.taskId = p.taskId;
+        if (p.description?.trim()) entry.currentTask = boundedText(p.description, TASK_TEXT_CAP);
         /* v8 ignore next -- touch() always sets startedAt on creation */
         if (!entry.startedAt) entry.startedAt = new Date().toISOString();
         entry.iterations++;
@@ -313,14 +677,37 @@ export class AgentStatusTracker {
     );
 
     this.unsubscribers.push(
+      on('subagent.tool_started', (_e, payload) => {
+        const p = payload as
+          | { subagentId?: string; id?: string; name?: string; input?: unknown }
+          | undefined;
+        if (!p?.subagentId || !p.name) return;
+        const entry = touch(p.subagentId);
+        entry.status = 'running';
+        entry.currentTool = p.name;
+        this.subagentPendingTools.set(`${p.subagentId}:${p.id ?? p.name}`, {
+          name: p.name,
+          input: p.input,
+          startedAt: Date.now(),
+        });
+        this.flush();
+      }),
+    );
+
+    this.unsubscribers.push(
       on('subagent.tool_executed', (_e, payload) => {
-        const p = payload as { subagentId?: string; name?: string } | undefined;
-        if (!p?.subagentId) return;
+        const p = payload as (CompletedToolPayload & { subagentId?: string }) | undefined;
+        if (!p?.subagentId || !p.name) return;
         const entry = touch(p.subagentId);
         entry.status = 'running';
         /* v8 ignore next -- touch() always sets startedAt on creation */
         if (!entry.startedAt) entry.startedAt = new Date().toISOString();
-        entry.currentTool = p.name;
+        const key = `${p.subagentId}:${p.id ?? p.name}`;
+        const receipt = completedToolReceipt(p, this.subagentPendingTools.get(key));
+        entry.recentTools = [receipt, ...(entry.recentTools ?? [])].slice(0, RECENT_TOOL_LIMIT);
+        entry.activity = addToolActivity(entry.activity, receipt);
+        this.subagentPendingTools.delete(key);
+        entry.currentTool = undefined;
         entry.toolCalls++;
         this.flush();
       }),
@@ -371,6 +758,8 @@ export class AgentStatusTracker {
         if (!entry) return;
         entry.status = p.status === 'failed' || p.status === 'timeout' ? 'error' : 'idle';
         entry.currentTool = undefined;
+        entry.currentTask = undefined;
+        entry.taskId = undefined;
         entry.partialText = undefined;
         if (typeof p.iterations === 'number') entry.iterations = p.iterations;
         if (typeof p.toolCalls === 'number') entry.toolCalls = p.toolCalls;
@@ -403,7 +792,11 @@ export class AgentStatusTracker {
 
   stop(): void {
     for (const unsub of this.unsubscribers) {
-      try { unsub(); } catch { /* ignore */ }
+      try {
+        unsub();
+      } catch {
+        /* ignore */
+      }
     }
     this.unsubscribers = [];
     if (this.sweepTimer) {
@@ -439,7 +832,8 @@ export class AgentStatusTracker {
     const now = Date.now();
     let removed = false;
     for (const [id, a] of this.agents) {
-      const finished = a.status !== 'running' && a.status !== 'streaming' && a.status !== 'waiting_user';
+      const finished =
+        a.status !== 'running' && a.status !== 'streaming' && a.status !== 'waiting_user';
       const age = now - Date.parse(a.lastActivityAt);
       if (finished && Number.isFinite(age) && age > AGENT_REAP_MS) {
         this.agents.delete(id);
@@ -456,6 +850,7 @@ export class AgentStatusTracker {
       startedAt: this.leaderStartedAt,
       status: this.leaderStatus,
       currentTool: this.leaderCurrentTool,
+      currentTask: this.leaderCurrentTask,
       iterations: this.leaderIterations,
       toolCalls: this.leaderToolCalls,
       costUsd: this.leaderCostUsd,
@@ -464,6 +859,12 @@ export class AgentStatusTracker {
       ctxPct: this.leaderCtxPct,
       model: this.leaderModel,
       partialText: this.leaderPartialText || undefined,
+      recentTools: this.leaderRecentTools,
+      recentMail: this.leaderRecentMail,
+      todos: this.leaderTodos,
+      latestPrompt: this.leaderLatestPrompt,
+      latestPromptAt: this.leaderLatestPromptAt,
+      activity: this.leaderActivity,
       lastActivityAt: new Date().toISOString(),
     };
 
@@ -499,7 +900,10 @@ export class AgentStatusTracker {
       // ordering is preserved. Use the rejection callback too so a failed
       // previous flush never strands future updates.
       this.flushPromise = this.flushPromise
-        .then(() => chain, () => chain)
+        .then(
+          () => chain,
+          () => chain,
+        )
         .catch(() => undefined);
     } else {
       this.flushPromise = chain.catch(() => undefined);
@@ -535,10 +939,13 @@ export class AgentStatusTracker {
     const c = ctx as {
       model?: unknown;
       lastRequestTokens?: unknown;
+      todos?: unknown;
       meta?: Record<string, unknown> | undefined;
       provider?: { capabilities?: { maxContext?: unknown } | undefined } | undefined;
     };
     if (typeof c.model === 'string' && c.model.length > 0) this.leaderModel = c.model;
+    const todos = compactTodos(c.todos);
+    if (todos !== undefined) this.leaderTodos = todos;
 
     const metaLimit = c.meta?.['effectiveMaxContext'];
     const providerMax = c.provider?.capabilities?.maxContext;

@@ -63,7 +63,20 @@ export { ulid, isUlid } from './ulid.js';
 export * from './sleep.js';
 export * from './string.js';
 export * from './task-format.js';
-export * from './term.js';
+export {
+  detectTerminal,
+  safeEmit,
+  setTitle,
+  buildTitleSequence,
+  buildSgrSequence,
+  ESCAPE_TERMINATOR,
+  type TerminalCapability,
+  type ColorDepth,
+  type MouseProtocol,
+  type EscapeEmitResult,
+  type EscapeSequence,
+  TerminalLifecycle,
+} from './term.js';
 export * from './todos-format.js';
 export * from './tool-subject.js';
 export {

@@ -63,6 +63,15 @@ export function createSessionStartPayloadBuilder(
     } catch {
       /* best-effort; cost stays $0 */
     }
+    // The last pre-flight token estimate — drives the context-fill bar in the
+    // WebUI. Emitting it here ensures the bar is accurate on reconnect/refresh
+    // instead of staying at 0% until the next ctx.pct event.
+    const lastInputTokens =
+      typeof deps.agent.ctx.lastRequestTokens === 'number' &&
+      deps.agent.ctx.lastRequestTokens > 0
+        ? deps.agent.ctx.lastRequestTokens
+        : 0;
+
     return {
       sessionId: deps.agent.ctx.session?.id ?? deps.session.id,
       model: deps.agent.ctx.model,
@@ -82,6 +91,7 @@ export function createSessionStartPayloadBuilder(
       inputCost,
       outputCost,
       cacheReadCost,
+      lastInputTokens,
       ...overrides,
     };
   };
