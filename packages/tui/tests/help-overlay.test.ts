@@ -14,7 +14,7 @@ describe('helpSections', () => {
   it('always lists the monitor + help keys', () => {
     const keys = flat();
     // Monitor chords are listed with terminal-safe alternatives first.
-    expect(keys).toContain('F2 or /fleet');
+    expect(keys).toContain('F2 or Ctrl+F');
     expect(keys).toContain('F3 or Ctrl+G');
     expect(keys).toContain('F4 or /worktree');
     expect(keys).toContain('?');
