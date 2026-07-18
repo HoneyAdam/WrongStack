@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import * as path from 'node:path';
 import type { ReviewContextBundle, ReviewFileEntry, ResolvedChimeraConfig } from './chimera-plugin.js';
 
 // ---------------------------------------------------------------------------
@@ -55,6 +56,10 @@ async function getFileDiff(cwd: string, filePath: string): Promise<string | unde
 /**
  * List all changed files in the working tree (porcelain status).
  * Includes both tracked modifications and untracked additions.
+ *
+ * Handles rename (R) and copy (C) entries which use the format
+ * `R  old -> new` — we extract the post-`->` path. Also strips git's
+ * double-quote wrapping for paths containing spaces/unicode.
  */
 async function getAllChangedFiles(
   cwd: string,
@@ -65,7 +70,16 @@ async function getAllChangedFiles(
   for (const line of r.stdout.split('\n')) {
     if (!line.trim()) continue;
     const statusCode = line.slice(0, 2).trim();
-    const filePath = line.slice(3).trim();
+    let filePath = line.slice(3).trim();
+    // Handle rename (R) / copy (C): "old -> new"
+    if (statusCode === 'R' || statusCode === 'C') {
+      const arrowIdx = filePath.lastIndexOf(' -> ');
+      if (arrowIdx !== -1) filePath = filePath.slice(arrowIdx + 4).trim();
+    }
+    // Strip git's double-quote wrapping for paths with spaces/unicode
+    if (filePath.startsWith('"') && filePath.endsWith('"')) {
+      filePath = filePath.slice(1, -1);
+    }
     if (filePath) out.push({ path: filePath, status: statusCode });
   }
   return out;
@@ -262,7 +276,7 @@ async function findFileProvenance(
   }
 
   // Chronicle journal lives under .wrongstack/chronicle by convention
-  const journalDir = `${projectRoot}/.wrongstack/chronicle`;
+  const journalDir = path.join(projectRoot, '.wrongstack', 'chronicle');
   let engine: any;
   try {
     engine = await ChronicleQueryEngine.fromDirectory(journalDir);
