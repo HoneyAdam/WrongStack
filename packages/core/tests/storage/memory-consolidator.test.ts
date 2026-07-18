@@ -225,4 +225,55 @@ describe('SessionMemoryConsolidator operations', () => {
     // No throw = pass. No memory was touched.
     expect(store.remember).not.toHaveBeenCalled();
   });
+
+  // ── End-to-end add-only contract ─────────────────────────────────────
+  // Walks the full consolidator flow as one observable scenario: the LLM
+  // emits a mixed batch of add/edit/delete ops, and only adds are applied.
+  // Verifies that NO destructive surface (forget, deleteSuperMemory) is
+  // ever touched — regardless of what the LLM returns. This is the
+  // consolidator-side mirror of the propose→resolve deletion contract test.
+  it('end-to-end: consolidator applies only adds and never touches any deletion surface', async () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const { store: backendStore, deleteSuperMemory, listSuper } = mkStoreWithBackend();
+
+    // The LLM "helpfully" returns a full add/edit/delete batch — including
+    // an edit that matches existing memory and a delete targeting real text.
+    (backendStore as { list: ReturnType<typeof vi.fn> }).list.mockResolvedValue([
+      { scope: 'project-memory', text: 'old fact that should survive', ts: '2026-01-01T00:00:00Z' },
+      { scope: 'project-memory', text: 'another fact', ts: '2026-01-01T00:00:00Z' },
+    ] as never);
+
+    const ops = {
+      operations: [
+        { action: 'add', text: 'new convention discovered', type: 'convention', priority: 'high', tags: ['test'] },
+        { action: 'edit', query: 'old fact', text: 'this edit should be ignored', type: 'fact' },
+        { action: 'delete', query: 'another fact' },
+        { action: 'add', text: 'second new fact', type: 'decision' },
+        { action: 'delete', query: 'old fact that should survive' },
+      ],
+    };
+
+    const c = new SessionMemoryConsolidator({ memoryStore: backendStore, provider: mkProvider(JSON.stringify(ops)) });
+    c.afterRun(ctx(), result());
+
+    // Wait for the background IIFE to settle.
+    await vi.waitFor(() => {
+      expect((backendStore as { remember: ReturnType<typeof vi.fn> }).remember).toHaveBeenCalledTimes(2);
+    });
+
+    // 1. Only the two add ops reached store.remember()
+    const remember = (backendStore as { remember: ReturnType<typeof vi.fn> }).remember;
+    expect(remember).toHaveBeenCalledWith('new convention discovered', undefined, expect.objectContaining({ type: 'convention' }));
+    expect(remember).toHaveBeenCalledWith('second new fact', undefined, expect.objectContaining({ type: 'decision' }));
+
+    // 2. NO deletion surface was ever called — the core invariant
+    expect((backendStore as { forget: ReturnType<typeof vi.fn> }).forget).not.toHaveBeenCalled();
+    expect(deleteSuperMemory).not.toHaveBeenCalled();
+    expect(listSuper).not.toHaveBeenCalled();
+
+    // 3. The summary log mentions only adds — no edits, no deletions
+    expect(stderr).toHaveBeenCalledWith(expect.stringContaining('2 added'));
+    expect(stderr).not.toHaveBeenCalledWith(expect.stringContaining('deleted'));
+    expect(stderr).not.toHaveBeenCalledWith(expect.stringContaining('edited'));
+  });
 });
