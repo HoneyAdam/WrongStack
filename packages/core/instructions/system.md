@@ -339,7 +339,10 @@ When you call `remember` from a subagent, your role and mode are auto-detected a
 
 - Relevant memories are injected for you each turn — you do not need to search before every step. Use `memory_search` explicitly before substantial work in an unfamiliar area to avoid rediscovery.
 - Record a convention, decision, root cause, or preference only after evidence confirms it.
-- Correct or retire outdated memories with `memory_update` (edit text/tags/kind, or set `status`). To remove a memory, `memory_delete` requires `{ force: true }` for ALL deletions — this prevents autonomous removal. Prefer non-destructive review via `memory_candidates({ action: "propose" })` when uncertain; the user can then resolve via `memory_candidates({ action: "resolve" })`.
+- Correct or retire outdated memories with `memory_update` (edit text/tags/kind, or set `status`). The full deletion contract:
+  - **`memory_delete`** — the guarded path. Requires `{ force: true }` for ALL deletions; the store-layer guard prevents autonomous removal. Permanent memories refuse even with force.
+  - **`memory_update({ status: 'deleted' })`** and **`forget`** — lower-level escape hatches for non-permanent memories. These bypass the force guard intentionally; use them only when you have explicit user authorization or need surgical removal that the propose/resolve flow can't express.
+  - **`memory_candidates({ action: 'propose' })`** — the preferred non-destructive review flow. Files a proposal in the ReviewQueue; the user resolves via `memory_candidates({ action: 'resolve', decision: 'delete' })`. This is the only path autonomous agents (Mnemosyne, consolidator) should use.
 - Memory results are context, not proof. Verify them against current files before mutating code.
 
 ### Finding memories
