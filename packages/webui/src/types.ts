@@ -6,7 +6,6 @@ import type {
   KanbanEvent,
   KanbanTask,
 } from '@wrongstack/kanban';
-import type { CapturedInteraction } from './lib/interaction-capture.js';
 
 // Event types for WebSocket communication
 export interface WSMessage {
@@ -33,6 +32,8 @@ export interface WSSessionStart {
     replayUsage?: Usage | undefined;
     /** True when no provider+model is configured yet — show the setup screen. */
     needsSetup?: boolean | undefined;
+    /** Feature negotiation prevents a newer WebUI from sending messages to an older backend. */
+    protocolCapabilities?: string[] | undefined;
   };
 }
 
@@ -268,6 +269,62 @@ export interface WSRunResult {
       recoverable: boolean;
     };
   };
+}
+
+export interface ChronicleEventView {
+  schemaVersion: number;
+  eventId: string;
+  eventType: string;
+  occurredAt?: string | undefined;
+  observedAt: string;
+  persistedAt: string;
+  sequence: number;
+  hash: string;
+  previousHash: string;
+  outcome?: string | undefined;
+  durationNs?: string | undefined;
+  scope: Record<string, string | undefined>;
+  correlation: Record<string, string | undefined>;
+  runtime?: { providerId?: string; modelId?: string; processId?: number; parentProcessId?: number } | undefined;
+  resource?: { kind: string; id: string; path?: string; lineStart?: number; lineEnd?: number } | undefined;
+  attributes?: Record<string, unknown> | undefined;
+  tags?: Record<string, string> | undefined;
+}
+
+export interface ChronicleQuery {
+  eventId?: string;
+  eventTypes?: string[]; outcomes?: string[]; from?: string; to?: string;
+  projectId?: string; sessionId?: string; agentId?: string; taskId?: string;
+  providerId?: string; modelId?: string; traceId?: string; logicalRequestId?: string;
+  attemptId?: string; toolCallId?: string; resourceKind?: string; resourceId?: string;
+  path?: string; line?: number; text?: string; order?: 'asc' | 'desc'; limit?: number; cursor?: string;
+  tags?: Record<string, string>; attributes?: Record<string, unknown>;
+}
+export type ChronicleFacet = 'eventType' | 'outcome' | 'projectId' | 'sessionId' | 'agentId' | 'taskId' | 'providerId' | 'modelId' | 'resourceKind' | 'resourcePath' | 'toolCallId';
+export interface ChronicleFacetValue { value: string; count: number }
+export interface ChronicleQueryResult {
+  events: ChronicleEventView[]; total: number; nextCursor?: string;
+  scannedEvents: number; sourceFiles: number; invalidLines: number;
+  summary: ChronicleSummary;
+}
+export interface ChronicleSummary {
+  logicalRequests: number; modelAttempts: number; completedAttempts: number; failedAttempts: number;
+  scheduledRetries: number; fallbacks: number; providers: number; models: number;
+  inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number;
+  estimatedCostUsd: number;
+  providerAvgDurationMs: number; providerP95DurationMs: number;
+  toolCalls: number; completedTools: number; failedTools: number; toolAvgDurationMs: number;
+  processes: number; failedProcesses: number; fileEvents: number; uniqueFiles: number;
+  agentEvents: number; uniqueAgents: number; decisions: number; escalations: number;
+  failures: number; cancellations: number;
+  families: Record<ChronicleSignalFamily, number>;
+  failuresByFamily: Record<ChronicleSignalFamily, number>;
+}
+export type ChronicleSignalFamily = 'llm'|'agent'|'tool'|'file'|'memory'|'task'|'decision'|'runtime';
+export interface ChronicleGraphResult {
+  nodes: ChronicleEventView[];
+  edges: Array<{ from: string; to: string; kind: string; confidence: 'explicit' | 'correlated' | 'inferred' }>;
+  truncated: boolean;
 }
 
 export interface WSSessionStats {
@@ -530,6 +587,7 @@ export interface SuperMemoryEntry {
   scope: SuperMemoryScope;
   kind: string;
   status: SuperMemoryStatus;
+  contextPolicy?: 'eligible' | 'never' | undefined;
   text: string;
   summary?: string | undefined;
   importance: number;
@@ -1674,7 +1732,7 @@ export type WSClientMessageCore =
         contradicts?: string[] | undefined;
       };
     }
-  | { type: 'memory.super.delete'; payload: { id: string; reason?: string | undefined } }
+  | { type: 'memory.super.delete'; payload: { id: string; reason?: string | undefined; neverInject?: boolean | undefined } }
   | {
       type: 'memory.super.recover';
       payload: { id: string; reason?: string | undefined };
@@ -1749,6 +1807,9 @@ export type WSClientMessageCore =
     }
   | { type: 'diag.get'; payload?: SessionScopedPayload }
   | { type: 'stats.get'; payload?: SessionScopedPayload }
+  | { type: 'chronicle.query'; payload: { query?: ChronicleQuery | undefined } }
+  | { type: 'chronicle.facet'; payload: { field: ChronicleFacet; query?: ChronicleQuery | undefined; limit?: number | undefined } }
+  | { type: 'chronicle.graph'; payload: { seed: ChronicleQuery; hops?: number; maxNodes?: number } }
   | { type: 'session.save'; payload?: SessionScopedPayload }
   | { type: 'sessions.list'; payload: { limit: number } & SessionScopedPayload }
   | { type: 'session.delete'; payload: { id: string } }
@@ -1942,11 +2003,7 @@ export type WSClientMessageCore =
   | { type: 'plan.template_use'; payload: { template: string } }
   | { type: 'webui.shutdown' };
 
-/** Wire message sent from the webui client to the server. Carries an optional
- *  `_chronicle` field (the most recent user interaction) attached by ws-client.ts. */
-export type WSClientMessage = WSClientMessageCore & {
-  _chronicle?: CapturedInteraction | undefined;
-};
+export type WSClientMessage = WSClientMessageCore;
 
 export type WSServerMessage =
   | WSSessionStart
@@ -2011,6 +2068,10 @@ export type WSServerMessage =
   | WSSkillsExported
   | WSDiagGet
   | WSStatsGet
+  | { type: 'chronicle.query_result'; payload: ChronicleQueryResult }
+  | { type: 'chronicle.facet_result'; payload: { field: ChronicleFacet; values: ChronicleFacetValue[]; diagnostics: { sourceFiles: number; invalidLines: number } } }
+  | { type: 'chronicle.graph_result'; payload: ChronicleGraphResult }
+  | { type: 'chronicle.error'; payload: { message: string } }
   | WSSessionsList
   | WSProviderCatalog
   | WSProviderModels

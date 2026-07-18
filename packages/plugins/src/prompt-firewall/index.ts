@@ -9,25 +9,25 @@
  * outgoing request's system + message text for high-confidence
  * credential patterns and, depending on `mode`:
  *
- *  - `warn`   (default) — logs + counts + emits a `prompt-firewall:leak`
+ *  - `warn`   — logs + counts + emits a `prompt-firewall:leak`
  *    event; the request goes through unchanged
- *  - `redact` — replaces each match with `[REDACTED:<kind>]` in a CLONE
+ *  - `redact` (default) — replaces each match with `[REDACTED:<kind>]` in a CLONE
  *    of the request before sending, and also redacts secrets echoed back
  *    in the response
  *  - `block`  — throws before the request is sent (the agent's error
  *    path surfaces it), so the secret never reaches the provider
  *
  * Safety posture: opt-in — loads inert until
- * `config.extensions['prompt-firewall'].enabled = true`. `warn` is the
- * default so it can never corrupt context until you deliberately choose
- * `redact`/`block`.
+ * `config.extensions['prompt-firewall'].enabled = true`. `redact` is the
+ * default so secrets are automatically stripped; switch to `warn` only
+ * for detection-mode diagnostics without data loss.
  *
  * Config (`config.extensions['prompt-firewall']`):
  *
  * ```jsonc
  * {
  *   "enabled": false,
- *   "mode": "warn",          // "warn" | "redact" | "block"
+ *   "mode": "redact",        // "warn" | "redact" | "block"
  *   "scanResponse": true,     // redact secrets echoed back (redact mode)
  *   "allow": []               // regex source strings to exempt (false positives)
  * }
@@ -154,10 +154,10 @@ interface PromptFirewallConfig {
   allow: RegExp[];
 }
 
-function readConfig(raw: unknown): PromptFirewallConfig {
+export function readConfig(raw: unknown): PromptFirewallConfig {
   const base: PromptFirewallConfig = {
     enabled: false,
-    mode: 'warn',
+    mode: 'redact',
     scanResponse: true,
     allow: [],
   };
@@ -176,7 +176,7 @@ function readConfig(raw: unknown): PromptFirewallConfig {
     : [];
   return {
     enabled: r['enabled'] === true,
-    mode: r['mode'] === 'redact' ? 'redact' : r['mode'] === 'block' ? 'block' : 'warn',
+    mode: r['mode'] === 'warn' ? 'warn' : r['mode'] === 'block' ? 'block' : 'redact',
     scanResponse: r['scanResponse'] !== false,
     allow,
   };
@@ -216,10 +216,10 @@ const plugin: Plugin = {
   name: 'prompt-firewall',
   version: '0.1.0',
   description:
-    'Scans the provider wire for credential leaks before context reaches the LLM API (wrapProviderRunner); warn/redact/block. Opt-in; warn by default.',
+    'Scans the provider wire for credential leaks before context reaches the LLM API (wrapProviderRunner); redact/warn/block. Opt-in; redact by default.',
   apiVersion: '^0.1.10',
   capabilities: { tools: true },
-  defaultConfig: { enabled: false, mode: 'warn', scanResponse: true, allow: [] },
+  defaultConfig: { enabled: false, mode: 'redact', scanResponse: true, allow: [] },
   configSchema: {
     type: 'object',
     properties: {
@@ -232,9 +232,9 @@ const plugin: Plugin = {
       mode: {
         type: 'string',
         enum: ['warn', 'redact', 'block'],
-        default: 'warn',
+        default: 'redact',
         description:
-          'warn = detect only; redact = strip secrets from the request/response; block = refuse the request.',
+          'redact (default) = strip secrets from the request/response; warn = detect only; block = refuse the request.',
       },
       scanResponse: {
         type: 'boolean',

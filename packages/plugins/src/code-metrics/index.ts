@@ -24,10 +24,10 @@
  * @public
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { extname, isAbsolute, relative, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { isAbsolute, relative, resolve } from 'node:path';
 import type { Plugin } from '@wrongstack/core';
-import { withinProject } from '../runtime/index.js';
+import { collectSourceFiles, matchesExtension, withinProject } from '../runtime/index.js';
 
 const API_VERSION = '^0.1.10';
 
@@ -100,48 +100,6 @@ function readConfig(raw: unknown): CodeMetricsConfig {
 
 function normalizeExtensions(exts: string[]): string[] {
   return exts.map((e) => (e.startsWith('.') ? e.toLowerCase() : `.${e.toLowerCase()}`));
-}
-
-function matchesExtension(p: string, exts: string[]): boolean {
-  return exts.includes(extname(p).toLowerCase());
-}
-
-function collectSourceFiles(root: string, exts: string[]): string[] {
-  const files: string[] = [];
-  if (!existsSync(root)) return files;
-  const s = statSync(root);
-  if (s.isFile()) {
-    if (matchesExtension(root, exts)) files.push(root);
-    return files;
-  }
-  if (!s.isDirectory()) return files;
-
-  function walk(dir: string) {
-    let entries: string[];
-    try {
-      entries = readdirSync(dir);
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      if (entry === 'node_modules' || entry === 'dist' || entry === '.git' || entry === 'coverage') continue;
-      const full = resolve(dir, entry);
-      let st;
-      try {
-        st = statSync(full);
-      } catch {
-        continue;
-      }
-      if (st.isDirectory()) {
-        walk(full);
-      } else if (st.isFile() && matchesExtension(full, exts)) {
-        files.push(full);
-      }
-    }
-  }
-
-  walk(root);
-  return files;
 }
 
 function toPosix(p: string): string {
@@ -252,7 +210,7 @@ function measurePath(rawPath: string, cfg: CodeMetricsConfig): { files: FileMetr
   const root = process.cwd();
   const resolved = isAbsolute(rawPath) ? resolve(rawPath) : resolve(root, rawPath);
   const exts = normalizeExtensions(cfg.extensions);
-  const allFiles = collectSourceFiles(resolved, exts);
+  const allFiles = collectSourceFiles(resolved, { extensions: exts });
   const files = allFiles.slice(0, cfg.maxFiles);
   const metrics: FileMetrics[] = [];
   for (const p of files) {

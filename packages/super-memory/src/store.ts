@@ -65,7 +65,7 @@ const MAX_MEMORY_TEXT_CHARS = 20_000;
 const MAX_MEMORY_METADATA_ITEMS = 128;
 /** Minimum interval between persisted feedback-counter flushes (per store instance). */
 const COUNTER_FLUSH_INTERVAL_MS = 60 * 60_000;
-const ACTIVE_STATUSES: SuperMemoryStatus[] = ['active'];
+const CONTEXT_STATUSES: SuperMemoryStatus[] = ['active', 'deleted'];
 const VALID_STATUSES = new Set<SuperMemoryStatus>(['active', 'stale', 'superseded', 'contradicted', 'archived', 'deleted']);
 const VALID_SCOPES = new Set<SuperMemory['scope']>(['project', 'user', 'session', 'file', 'symbol']);
 const VALID_KINDS = new Set<SuperMemory['kind']>([
@@ -1144,7 +1144,7 @@ export class SuperMemoryStore implements MemoryStore {
   async deleteSuperMemory(
     id: string,
     reason = 'Manually deleted via API.',
-    options: { force?: boolean } = {},
+    options: { force?: boolean; neverInject?: boolean } = {},
   ): Promise<void> {
     const memory = await this.getSuperMemory(id);
     if (!memory) throw new Error(`Super Memory "${id}" not found.`);
@@ -1164,15 +1164,15 @@ export class SuperMemoryStore implements MemoryStore {
       if (!fresh) throw new Error(`Super Memory "${id}" was removed before delete completed.`);
       if (fresh.status === 'deleted') return; // Idempotent
 
-      const removedEdges = await this.cascadeDeleteUnlocked(fresh);
+      const removedEdges = await this.cascadeDeleteUnlocked(fresh, options.neverInject === true);
 
       await this.afterMutation();
       await this.audit('memory.deleted', {
         memoryId: id,
         reason,
-        details: { removedEdges, force: options.force === true },
+        details: { removedEdges, force: options.force === true, contextPolicy: options.neverInject === true ? 'never' : 'eligible' },
       });
-      this.events?.emit('memory.updated', this.eventPayload({ memoryId: id, status: 'deleted' }));
+      this.events?.emit('memory.updated', this.eventPayload({ memoryId: id, status: 'deleted', contextPolicy: options.neverInject === true ? 'never' : 'eligible' }));
     });
   }
 
@@ -1184,7 +1184,7 @@ export class SuperMemoryStore implements MemoryStore {
    * Shared by `deleteSuperMemory` and `forgetUnlocked` so both paths leave
    * the store in the same consistent state. Returns edges removed.
    */
-  private async cascadeDeleteUnlocked(memory: SuperMemory): Promise<number> {
+  private async cascadeDeleteUnlocked(memory: SuperMemory, neverInject = false): Promise<number> {
     // 1. Remove graph edges involving this memory
     const removedEdges = await this.graph.removeNodeEdges(`mem:${memory.id}`);
 
@@ -1208,7 +1208,7 @@ export class SuperMemoryStore implements MemoryStore {
     }
 
     // 3. Soft-delete the memory itself
-    await this.updateMemory(memory, { status: 'deleted' });
+    await this.updateMemory(memory, { status: 'deleted', contextPolicy: neverInject ? 'never' : 'eligible' });
     return removedEdges;
   }
 
@@ -1396,9 +1396,11 @@ export class SuperMemoryStore implements MemoryStore {
   }
 
   async retrieveForPath(opts: SuperMemoryForPathOptions): Promise<SuperMemory[]> {
-    const statuses = new Set(opts.includeStatuses ?? ACTIVE_STATUSES);
+    const automaticContext = opts.includeStatuses === undefined;
+    const statuses = new Set(opts.includeStatuses ?? CONTEXT_STATUSES);
     const all = (await this.loadMemories()).filter((memory) =>
       statuses.has(memory.status)
+      && (!automaticContext || memory.contextPolicy !== 'never')
       && (opts.includeAudienceScoped !== false || !memory.audience));
     const target = normalizeProjectPath(this.projectRoot, opts.path);
     const includeAncestors = opts.includeAncestors !== false;
@@ -1416,10 +1418,12 @@ export class SuperMemoryStore implements MemoryStore {
   }
 
   async searchSuper(query: string, opts: SuperMemorySearchOptions = {}): Promise<SuperMemory[]> {
-    const statuses = opts.includeStatuses ?? ACTIVE_STATUSES;
+    const automaticContext = opts.includeStatuses === undefined;
+    const statuses = opts.includeStatuses ?? CONTEXT_STATUSES;
     const all = await this.loadMemories();
     const scored = all
       .filter((memory) => statuses.includes(memory.status))
+      .filter((memory) => !automaticContext || memory.contextPolicy !== 'never')
       .filter((memory) => opts.includeAudienceScoped !== false || !memory.audience)
       .filter((memory) => !opts.scope || memory.scope === opts.scope)
       .filter((memory) => !opts.legacyScope || (memory.legacyScope ?? superToLegacyScope(memory.scope)) === opts.legacyScope)
@@ -1433,13 +1437,14 @@ export class SuperMemoryStore implements MemoryStore {
   async retrieveForAudience(
     context: MemoryAudienceContext,
     limit = DEFAULT_LIMIT,
-    includeStatuses: SuperMemoryStatus[] = ACTIVE_STATUSES,
+    includeStatuses: SuperMemoryStatus[] = CONTEXT_STATUSES,
   ): Promise<SuperMemory[]> {
     const normalizedContext = normalizeAudienceContext(context);
     if (!normalizedContext.role && !normalizedContext.taskType && !normalizedContext.mode) return [];
     const statuses = new Set(includeStatuses);
     return (await this.loadMemories())
       .filter((memory) => statuses.has(memory.status))
+      .filter((memory) => memory.contextPolicy !== 'never')
       .filter((memory) => memory.scope === 'project' && !!memory.audience)
       .filter((memory) => memory.audience
         ? audienceMatches(memory.audience, normalizedContext)

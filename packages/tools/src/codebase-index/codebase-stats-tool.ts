@@ -27,10 +27,10 @@ export const codebaseStatsTool: Tool<Record<string, never>, CodebaseStatsOutput>
   permission: 'auto',
   mutating: false,
   capabilities: ['fs.read'],
-  // The index host has its own 8s read watchdog. Keep the outer tool budget
+  // The index host has its own 30s read watchdog. Keep the outer tool budget
   // longer so the host can return a structured timeout instead of being
   // pre-empted by the generic tool executor.
-  timeoutMs: 12_000,
+  timeoutMs: 35_000,
   inputSchema: {
     type: 'object',
     properties: {},

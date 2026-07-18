@@ -133,7 +133,7 @@ export function MemoryDetail({
           )}
           <MemoryGraph centerMemory={memory} allMemories={allMemories} />
           <MemoryMeta memory={memory} />
-          {memory.status === 'deleted' && <DeletedMemoryNotice />}
+          {memory.status === 'deleted' && <DeletedMemoryNotice contextPolicy={memory.contextPolicy} />}
         </div>
       </div>
     </>
@@ -342,15 +342,16 @@ function MemoryMeta({ memory }: { memory: SuperMemoryEntry }) {
   );
 }
 
-function DeletedMemoryNotice() {
+function DeletedMemoryNotice({ contextPolicy }: { contextPolicy?: 'eligible' | 'never' }) {
   return (
     <div className="flex items-start gap-3 border border-border bg-muted/50 p-4 text-xs text-muted-foreground">
       <Archive className="mt-0.5 size-4 shrink-0" />
       <div>
         <p className="font-bold text-foreground">Deleted memory</p>
         <p className="mt-1 leading-5">
-          The record remains visible for audit history, but its graph edges were removed and it can
-          no longer be edited or retrieved as active context.
+          {contextPolicy === 'never'
+            ? 'This record is audit-only and carries an absolute ban: it can never enter LLM context.'
+            : 'The record is inactive and cannot be edited, but remains eligible as historical evidence when retrieval finds it relevant.'}
         </p>
       </div>
     </div>

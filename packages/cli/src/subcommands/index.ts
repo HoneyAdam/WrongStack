@@ -37,6 +37,7 @@ import { acpCmd } from './handlers/acp.js';
 import { auditCmd } from './handlers/audit.js';
 import { authCmd } from './handlers/auth.js';
 import { benchCmd } from './handlers/bench.js';
+import { chronicleCmd } from './handlers/chronicle.js';
 import { diagCmd, doctorCmd } from './handlers/diag-doctor.js';
 import { exportCmd } from './handlers/export.js';
 import { hqCmd } from './handlers/hq.js';
@@ -82,6 +83,7 @@ export const subcommands: Record<string, SubcommandHandler> = {
   modeldiag: modeldiagCmd,
   quick: quickCmd,
   bench: benchCmd,
+  chronicle: chronicleCmd,
   hq: hqCmd,
   mailbox: mailboxServeCmd,
 };

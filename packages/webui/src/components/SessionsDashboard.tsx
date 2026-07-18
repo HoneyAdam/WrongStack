@@ -252,6 +252,14 @@ function LiveSessionsDashboard() {
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Hooks must run unconditionally: call this here, before the early returns
+  // below, so hook order stays stable across loading/error/empty states
+  // (otherwise React throws #310 "rendered more hooks than previous render").
+  // `enabled` gates restore/save on the ref being attached to the list view.
+  const scrollRef = useScrollPosition<HTMLDivElement>(
+    'sessions',
+    !loading && !error && sessions.length > 0,
+  );
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -363,7 +371,7 @@ function LiveSessionsDashboard() {
   }
 
   return (
-    <div ref={useScrollPosition('sessions')} className="h-full min-h-0 overflow-y-auto overscroll-contain bg-[hsl(var(--surface-2)/0.45)] p-4 sm:p-6">
+    <div ref={scrollRef} className="h-full min-h-0 overflow-y-auto overscroll-contain bg-[hsl(var(--surface-2)/0.45)] p-4 sm:p-6">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-4">
         <header className="border border-border/70 bg-card/75 p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

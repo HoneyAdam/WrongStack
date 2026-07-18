@@ -104,7 +104,7 @@ describe('codebase-index tool gates', () => {
 
 describe('codebase-stats tool gates', () => {
   it('keeps the outer tool timeout above the index host read watchdog', () => {
-    expect(codebaseStatsTool.timeoutMs).toBeGreaterThan(8_000);
+    expect(codebaseStatsTool.timeoutMs).toBeGreaterThan(30_000);
   });
 
   it('reports "not yet built" when the persisted index has no data', async () => {
@@ -168,6 +168,10 @@ describe('codebase-stats tool gates', () => {
 });
 
 describe('codebase-search tool gates', () => {
+  it('keeps the outer tool timeout above the index host read watchdog', () => {
+    expect(codebaseSearchTool.timeoutMs).toBeGreaterThan(30_000);
+  });
+
   it('reports no persisted data when not ready and DB is empty', async () => {
     state.ready = false;
     statsValue.totalSymbols = 0;

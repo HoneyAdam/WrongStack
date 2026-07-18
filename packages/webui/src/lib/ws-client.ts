@@ -5,7 +5,6 @@ import type {
   WSServerMessage,
   WSUserMessageImage,
 } from '../types';
-import { interactionForCommand } from './interaction-capture';
 import { streamCoalescer } from './stream-coalescer';
 import {
   buildClearModelsMessage,
@@ -102,6 +101,11 @@ export class WrongStackWebSocketClient {
   private statusListeners = new Set<(s: WsStatus) => void>();
   private currentStatus: WsStatus = { state: 'connecting' };
   private suppressedChatEchoes = new Map<string, number[]>();
+  private protocolCapabilities = new Set<string>();
+
+  supportsCapability(capability: string): boolean {
+    return this.protocolCapabilities.has(capability);
+  }
 
   onStatus(fn: (s: WsStatus) => void): () => void {
     this.statusListeners.add(fn);
@@ -432,8 +436,9 @@ export class WrongStackWebSocketClient {
       // client-side persistence of the token (no sessionStorage,
       // no localStorage) — every reconnect re-derives it from
       // the URL or relies on the cookie. See ws-auth.ts.
-      const payload = msg.payload as { sessionId: string };
+      const payload = msg.payload as { sessionId: string; protocolCapabilities?: string[] };
       this.sessionId = payload.sessionId;
+      this.protocolCapabilities = new Set(payload.protocolCapabilities ?? []);
     }
 
     this.emit(msg);
@@ -461,10 +466,6 @@ export class WrongStackWebSocketClient {
   }
 
   send(message: WSClientMessage, options: WSSendOptions = {}) {
-    const wireMessage: WSClientMessage = {
-      ...message,
-      _chronicle: interactionForCommand(),
-    };
     if (options.echoToChat === false) {
       const responseType = CHAT_ECHO_RESPONSE_BY_REQUEST[message.type];
       if (responseType) {
@@ -481,7 +482,7 @@ export class WrongStackWebSocketClient {
       streamCoalescer.dropAll();
     }
     if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(wireMessage));
+      this.ws.send(JSON.stringify(message));
     } else {
       // FIFO-drop oldest when full. Keeps the queue bounded under
       // long disconnects and ensures the most recent user intent is
@@ -500,7 +501,7 @@ export class WrongStackWebSocketClient {
           );
         }
       }
-      this.messageQueue.push(wireMessage);
+      this.messageQueue.push(message);
     }
   }
 

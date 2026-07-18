@@ -25,10 +25,10 @@
  * @public
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import type { Plugin } from '@wrongstack/core';
-import { withinProject } from '../runtime/index.js';
+import { collectSourceFiles, matchesExtension, withinProject } from '../runtime/index.js';
 
 const API_VERSION = '^0.1.10';
 
@@ -119,49 +119,6 @@ function readConfig(raw: unknown): AccessibilityAuditorConfig {
 
 function normalizeExtensions(exts: string[]): string[] {
   return exts.map((e) => (e.startsWith('.') ? e.toLowerCase() : `.${e.toLowerCase()}`));
-}
-
-function matchesExtension(p: string, exts: string[]): boolean {
-  const dot = p.lastIndexOf('.');
-  if (dot === -1) return false;
-  return exts.includes(p.slice(dot).toLowerCase());
-}
-
-function collectUiFiles(root: string, exts: string[]): string[] {
-  const files: string[] = [];
-  if (!existsSync(root)) return files;
-  const s = statSync(root);
-  if (s.isFile()) {
-    if (matchesExtension(root, exts)) files.push(root);
-    return files;
-  }
-  if (!s.isDirectory()) return files;
-
-  function walk(dir: string) {
-    let entries: string[];
-    try {
-      entries = readdirSync(dir);
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      const full = resolve(dir, entry);
-      let st;
-      try {
-        st = statSync(full);
-      } catch {
-        continue;
-      }
-      if (st.isDirectory()) {
-        walk(full);
-      } else if (st.isFile() && matchesExtension(full, exts)) {
-        files.push(full);
-      }
-    }
-  }
-
-  walk(root);
-  return files;
 }
 
 // ---------------------------------------------------------------------------
@@ -306,7 +263,7 @@ function auditPath(rawPath: string, cfg: AccessibilityAuditorConfig): { path: st
   const root = process.cwd();
   const resolved = isAbsolute(rawPath) ? resolve(rawPath) : resolve(root, rawPath);
   const exts = normalizeExtensions(cfg.includeExtensions);
-  const files = collectUiFiles(resolved, exts);
+  const files = collectSourceFiles(resolved, { extensions: exts });
   const findings: A11yFinding[] = [];
   for (const file of files) {
     const fileFindings = auditFile(file, root);

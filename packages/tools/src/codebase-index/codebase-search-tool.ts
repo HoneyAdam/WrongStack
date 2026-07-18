@@ -42,7 +42,9 @@ export const codebaseSearchTool: Tool<CodebaseSearchInput, CodebaseSearchOutput>
   permission: 'auto',
   mutating: false,
   capabilities: ['fs.read'],
-  timeoutMs: 10_000,
+  // The index host has its own 30s read watchdog. Leave enough headroom for
+  // worker teardown and structured timeout reporting.
+  timeoutMs: 35_000,
   inputSchema: {
     type: 'object',
     properties: {

@@ -51,6 +51,7 @@ const coreEntries = entryMap([
   'src/execution/prompt-enhancer.ts',
   'src/execution/index.ts',
   'src/coordination/index.ts',
+  'src/chronicle/index.ts',
   'src/storage/index.ts',
   'src/security/index.ts',
   'src/models/index.ts',

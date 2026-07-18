@@ -30,8 +30,8 @@
  */
 
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { basename, isAbsolute, relative, resolve } from 'node:path';
+import { existsSync, readdirSync, statSync } from 'node:fs';
+import { basename, extname, isAbsolute, relative, resolve } from 'node:path';
 
 export {
   parseLlmJsonObject,
@@ -333,14 +333,12 @@ export function runRunnerCommand(
         windowsHide: true,
         shell: false,
       },
-      (err, stdout, stderr) => {
+      (err) => {
         if (timedOut) {
           resolvePromise({
             code: null,
-            stdout: Buffer.concat([...stdoutChunks, ...(Buffer.isBuffer(stdout) ? [stdout] : [Buffer.from(stdout as string)])])
-              .toString('utf8'),
-            stderr: Buffer.concat([...stderrChunks, ...(Buffer.isBuffer(stderr) ? [stderr] : [Buffer.from(stderr as string)])])
-              .toString('utf8'),
+            stdout: Buffer.concat(stdoutChunks).toString('utf8'),
+            stderr: Buffer.concat(stderrChunks).toString('utf8'),
             timedOut: true,
             spawnError: false,
           });
@@ -349,10 +347,8 @@ export function runRunnerCommand(
         if (spawnErrored) {
           resolvePromise({
             code: 127,
-            stdout: Buffer.concat([...stdoutChunks, ...(Buffer.isBuffer(stdout) ? [stdout] : [Buffer.from(stdout as string)])])
-              .toString('utf8'),
-            stderr: Buffer.concat([...stderrChunks, ...(Buffer.isBuffer(stderr) ? [stderr] : [Buffer.from(stderr as string)])])
-              .toString('utf8'),
+            stdout: Buffer.concat(stdoutChunks).toString('utf8'),
+            stderr: Buffer.concat(stderrChunks).toString('utf8'),
             timedOut: false,
             spawnError: true,
           });
@@ -367,18 +363,8 @@ export function runRunnerCommand(
           const code = typeof anyErr.code === 'number' ? anyErr.code : 1;
           resolvePromise({
             code,
-            stdout: Buffer.concat([
-              ...stdoutChunks,
-              ...(anyErr.stdout
-                ? [Buffer.isBuffer(anyErr.stdout) ? anyErr.stdout : Buffer.from(anyErr.stdout)]
-                : []),
-            ]).toString('utf8'),
-            stderr: Buffer.concat([
-              ...stderrChunks,
-              ...(anyErr.stderr
-                ? [Buffer.isBuffer(anyErr.stderr) ? anyErr.stderr : Buffer.from(anyErr.stderr)]
-                : []),
-            ]).toString('utf8'),
+            stdout: Buffer.concat(stdoutChunks).toString('utf8'),
+            stderr: Buffer.concat(stderrChunks).toString('utf8'),
             timedOut: false,
             spawnError: false,
           });
@@ -386,14 +372,8 @@ export function runRunnerCommand(
         }
         resolvePromise({
           code: 0,
-          stdout: Buffer.concat([
-            ...stdoutChunks,
-            ...(Buffer.isBuffer(stdout) ? [stdout] : [Buffer.from(stdout as string)]),
-          ]).toString('utf8'),
-          stderr: Buffer.concat([
-            ...stderrChunks,
-            ...(Buffer.isBuffer(stderr) ? [stderr] : [Buffer.from(stderr as string)]),
-          ]).toString('utf8'),
+          stdout: Buffer.concat(stdoutChunks).toString('utf8'),
+          stderr: Buffer.concat(stderrChunks).toString('utf8'),
           timedOut: false,
           spawnError: false,
         });
@@ -474,4 +454,77 @@ export function locateRunnerEntry(
     if (existsSync(c)) return c;
   }
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// File-collection helpers (shared across multiple plugin source-scan tools)
+// ---------------------------------------------------------------------------
+
+export interface CollectOptions {
+  /** File extensions to include (e.g. ['.ts', '.tsx', '.js']). */
+  extensions: string[];
+  /** Directory names to skip entirely. Default skips node_modules, dist, .git, coverage. */
+  excludeDirs?: string[] | undefined;
+  /** Maximum recursion depth. Unlimited when omitted. */
+  maxDepth?: number | undefined;
+}
+
+const DEFAULT_EXCLUDE_DIRS = ['node_modules', 'dist', '.git', 'coverage'];
+
+/**
+ * Recursively collect files under `root` whose extension is in
+ * `opts.extensions`. Skips directories named in `opts.excludeDirs`
+ * (defaulting to node_modules, dist, .git, coverage) and limits depth
+ * when `opts.maxDepth` is set.
+ *
+ * Shared by 6+ plugin source-scan tools that previously duplicated
+ * this implementation identically.
+ */
+export function collectSourceFiles(root: string, opts: CollectOptions): string[] {
+  const files: string[] = [];
+  if (!existsSync(root)) return files;
+  const s = statSync(root);
+  if (s.isFile()) {
+    if (matchesExtension(root, opts.extensions)) files.push(root);
+    return files;
+  }
+  if (!s.isDirectory()) return files;
+  const exclude = opts.excludeDirs ?? DEFAULT_EXCLUDE_DIRS;
+
+  function walk(dir: string, depth: number) {
+    if (opts.maxDepth !== undefined && depth > opts.maxDepth) return;
+    let entries: string[];
+    try {
+      entries = readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (exclude.includes(entry)) continue;
+      const full = resolve(dir, entry);
+      let st;
+      try {
+        st = statSync(full);
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) {
+        walk(full, depth + 1);
+      } else if (st.isFile() && matchesExtension(full, opts.extensions)) {
+        files.push(full);
+      }
+    }
+  }
+
+  walk(root, 0);
+  return files;
+}
+
+/**
+ * Check whether `p` has one of the given extensions (case-insensitive).
+ * Replaces a 6-copy helper that was duplicated identically across
+ * source-scan plugins.
+ */
+export function matchesExtension(p: string, exts: string[]): boolean {
+  return exts.includes(extname(p).toLowerCase());
 }

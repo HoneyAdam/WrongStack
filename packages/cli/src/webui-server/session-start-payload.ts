@@ -92,6 +92,7 @@ export function createSessionStartPayloadBuilder(
       outputCost,
       cacheReadCost,
       lastInputTokens,
+      protocolCapabilities: ['chronicle.query', 'chronicle.facet', 'chronicle.graph'],
       ...overrides,
     };
   };

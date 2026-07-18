@@ -59,7 +59,7 @@ interface SuperMemoryStoreLike {
   listSuper(statuses?: string[]): Promise<SuperMemoryLike[]>;
   getSuperMemory(id: string): Promise<SuperMemoryLike | null>;
   updateSuperMemory(id: string, patch: UpdateSuperMemoryInput): Promise<SuperMemoryLike>;
-  deleteSuperMemory(id: string, reason?: string): Promise<void>;
+  deleteSuperMemory(id: string, reason?: string, options?: { neverInject?: boolean }): Promise<void>;
   rememberSuper(input: {
     text: string;
     kind?: string | undefined;
@@ -328,13 +328,14 @@ export async function handleSuperMemoryDelete(
     send(ws, { type: 'memory.super.delete', payload: { success: false, message: requiresSuperMemory('memory.super.delete') } });
     return;
   }
-  const { id, reason } = (msg as { payload: { id: string; reason?: string | undefined } }).payload;
+  const { id, reason, neverInject } = (msg as { payload: { id: string; reason?: string | undefined; neverInject?: boolean | undefined } }).payload;
   if (!id) {
     send(ws, { type: 'memory.super.delete', payload: { success: false, message: 'id is required' } });
     return;
   }
   try {
-    await memoryStore.deleteSuperMemory(id, reason);
+    if (neverInject === true) await memoryStore.deleteSuperMemory(id, reason, { neverInject: true });
+    else await memoryStore.deleteSuperMemory(id, reason);
     send(ws, { type: 'memory.super.delete', payload: { success: true, message: `Deleted memory "${id}".` } });
   } catch (err) {
     send(ws, { type: 'memory.super.delete', payload: { success: false, message: errMessage(err) } });

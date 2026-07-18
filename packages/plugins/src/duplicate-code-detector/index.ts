@@ -26,10 +26,10 @@
  * @public
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { extname, isAbsolute, relative, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { isAbsolute, relative, resolve } from 'node:path';
 import type { Plugin } from '@wrongstack/core';
-import { withinProject } from '../runtime/index.js';
+import { collectSourceFiles, withinProject } from '../runtime/index.js';
 
 const API_VERSION = '^0.1.10';
 
@@ -124,48 +124,6 @@ function readConfig(raw: unknown): DuplicateCodeDetectorConfig {
 
 // withinProject() imported from ../runtime/index.js
 
-function matchesExtension(p: string, exts: string[]): boolean {
-  const ext = extname(p).toLowerCase();
-  return exts.includes(ext);
-}
-
-function collectSourceFiles(root: string, cfg: DuplicateCodeDetectorConfig): string[] {
-  const files: string[] = [];
-  if (!existsSync(root)) return files;
-  const s = statSync(root);
-  if (s.isFile()) {
-    if (matchesExtension(root, cfg.extensions)) files.push(root);
-    return files;
-  }
-  if (!s.isDirectory()) return files;
-
-  function walk(dir: string) {
-    let entries: string[];
-    try {
-      entries = readdirSync(dir);
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      const full = resolve(dir, entry);
-      let st;
-      try {
-        st = statSync(full);
-      } catch {
-        continue;
-      }
-      if (st.isDirectory()) {
-        if (!cfg.excludeDirs.includes(entry)) walk(full);
-      } else if (st.isFile() && matchesExtension(full, cfg.extensions)) {
-        files.push(full);
-      }
-    }
-  }
-
-  walk(root);
-  return files;
-}
-
 function toPosix(p: string): string {
   return p.replace(/\\/g, '/');
 }
@@ -250,7 +208,7 @@ function findDuplicates(files: Map<string, string>, minLines: number, maxFinding
 function scanPath(rawPath: string, cfg: DuplicateCodeDetectorConfig): { findings: DuplicateFinding[]; scannedFiles: number } {
   const root = process.cwd();
   const resolved = isAbsolute(rawPath) ? resolve(rawPath) : resolve(root, rawPath);
-  const filePaths = collectSourceFiles(resolved, cfg);
+  const filePaths = collectSourceFiles(resolved, { extensions: cfg.extensions, excludeDirs: cfg.excludeDirs });
   const files = new Map<string, string>();
   for (const p of filePaths) {
     try {
@@ -376,7 +334,7 @@ const plugin: Plugin = {
       const projectRoot = resolve(process.cwd());
       let otherFiles: Map<string, string>;
       try {
-        const filePaths = collectSourceFiles(projectRoot, cfg).filter((p) => p !== changedFile);
+        const filePaths = collectSourceFiles(projectRoot, { extensions: cfg.extensions, excludeDirs: cfg.excludeDirs }).filter((p) => p !== changedFile);
         otherFiles = new Map<string, string>();
         for (const p of filePaths) {
           try {

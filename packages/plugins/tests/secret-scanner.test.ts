@@ -724,3 +724,63 @@ describe('custom patterns', () => {
     expect(status2.patternCount).toBe(22);
   });
 });
+
+// ── ReDoS protection ─────────────────────────────────────────────────────
+
+describe('ReDoS protection', () => {
+  it('blocks a short input containing a credential (guard is additive, not over-blocking)', () => {
+    const api = makeApi();
+    secretScannerPlugin.setup(api as any);
+    const hook = getRegisteredHook(api);
+
+    const result = hook({
+      event: 'PreToolUse',
+      toolName: 'bash',
+      toolInput: { command: 'export OPENAI_API_KEY=' + makeOpenAiKey() },
+      cwd: '/tmp',
+    });
+    expect(result?.decision).toBe('block');
+    expect(result?.reason).toContain('openai_key');
+  });
+
+  it('passes through a very long input without blocking (length guard)', () => {
+    const api = makeApi();
+    secretScannerPlugin.setup(api as any);
+    const hook = getRegisteredHook(api);
+
+    // Build a string longer than RE_DOS_MAX_SCAN_LENGTH (100K) with a
+    // credential near the end. The scanner skips long strings, so the
+    // credential is NOT detected — but the input also does NOT hang.
+    const padding = 'a'.repeat(100_001);
+    const token = makeOpenAiKey();
+    const result = hook({
+      event: 'PreToolUse',
+      toolName: 'bash',
+      toolInput: { command: padding + token },
+      cwd: '/tmp',
+    });
+    // The command field was too long → skipped → no match → pass through.
+    expect(result).toBeUndefined();
+  });
+
+  it('still detects a credential in a short field even when another field is very long', () => {
+    const api = makeApi();
+    secretScannerPlugin.setup(api as any);
+    const hook = getRegisteredHook(api);
+
+    const token = makeGithubPat();
+    const result = hook({
+      event: 'PreToolUse',
+      toolName: 'write',
+      toolInput: {
+        path: 'config.yml',
+        content: 'a'.repeat(100_001), // long content — skipped
+        data: 'token: ' + token,      // short field — scanned
+      },
+      cwd: '/tmp',
+    });
+    // The scanner should find the GitHub PAT in the short `data` field.
+    expect(result?.decision).toBe('block');
+    expect(result?.reason).toContain('github_pat');
+  });
+});

@@ -134,7 +134,10 @@ export function createConnectionHandler(
       return;
     }
 
-    const client: ConnectedClient = { ws, sessionId: deps.currentSessionId() };
+    const client: ConnectedClient = {
+      ws,
+      sessionId: deps.currentSessionId(),
+    };
     deps.clients.set(ws, client);
 
     // Register this client with the Goal handler so it receives phase events

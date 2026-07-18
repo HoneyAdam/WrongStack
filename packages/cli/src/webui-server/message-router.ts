@@ -16,8 +16,10 @@
  *
  * PR 15 of Issue #30: extracted from `webui-server.ts`.
  */
-import type { PhaseTemplate, TodoItem } from '@wrongstack/core';
-import { PhaseGraphBuilder, resolveWstackPaths } from '@wrongstack/core';
+import type { ChronicleFacet, ChronicleQuery, PhaseTemplate, TodoItem } from '@wrongstack/core';
+import { ChronicleQueryEngine, PhaseGraphBuilder, resolveWstackPaths } from '@wrongstack/core';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { exportBoardToTaskGraph } from '@wrongstack/kanban';
 import { startSddRunFromGraph } from '@wrongstack/webui-server';
 import type { KanbanRunMirror } from './kanban-run-mirror.js';
@@ -327,6 +329,16 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
   const projectRootFor = () =>
     opts.projectRoot ?? (opts.agent.ctx as { projectRoot?: string }).projectRoot ?? '';
 
+  let chronicleCache: { loadedAt: number; engine: Promise<ChronicleQueryEngine> } | undefined;
+  const chronicleEngine = () => {
+    const now = Date.now();
+    if (chronicleCache && now - chronicleCache.loadedAt < 1_000) return chronicleCache.engine;
+    const paths = resolveWstackPaths({ projectRoot: projectRootFor(), userHome: os.homedir() });
+    const engine = ChronicleQueryEngine.fromDirectory(path.join(paths.projectDir, 'chronicle'));
+    chronicleCache = { loadedAt: now, engine };
+    return engine;
+  };
+
   /** Validate an `auth.oauth.*` message's `kind` field. */
   const oauthKindOf = (msg: unknown): 'chatgpt' | 'claude' | 'copilot' | null => {
     const kind = (msg as { payload?: { kind?: unknown } })?.payload?.kind;
@@ -630,6 +642,26 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
     // ── Diagnostics / introspection ──
     'diag.get': (_msg, ws) => handleDiagGet(introspectionCtx, ws),
     'stats.get': (_msg, ws) => handleStatsGet(introspectionCtx, ws),
+    'chronicle.query': async (msg, ws) => {
+      const payload = (msg.payload ?? {}) as { query?: ChronicleQuery };
+      const engine = await chronicleEngine();
+      send(ws, { type: 'chronicle.query_result', payload: engine.query(payload.query ?? {}) });
+    },
+    'chronicle.facet': async (msg, ws) => {
+      const payload = (msg.payload ?? {}) as { field?: ChronicleFacet; query?: ChronicleQuery; limit?: number };
+      const allowed = new Set<ChronicleFacet>(['eventType', 'outcome', 'projectId', 'sessionId', 'agentId', 'taskId', 'providerId', 'modelId', 'resourceKind', 'resourcePath', 'toolCallId']);
+      if (!payload.field || !allowed.has(payload.field)) {
+        send(ws, { type: 'chronicle.error', payload: { message: 'Invalid Chronicle facet field.' } });
+        return;
+      }
+      const engine = await chronicleEngine();
+      send(ws, { type: 'chronicle.facet_result', payload: { field: payload.field, values: engine.facet(payload.field, payload.query ?? {}, payload.limit), diagnostics: engine.diagnostics } });
+    },
+    'chronicle.graph': async (msg, ws) => {
+      const payload = (msg.payload ?? {}) as { seed?: ChronicleQuery; hops?: number; maxNodes?: number };
+      const engine = await chronicleEngine();
+      send(ws, { type: 'chronicle.graph_result', payload: engine.graph(payload.seed ?? {}, payload.hops, payload.maxNodes) });
+    },
     'side_effects.list': (_msg, ws) => {
       const sideEffects = opts.agent.ctx.sideEffects ?? [];
       send(ws, {
@@ -1094,7 +1126,10 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
         msg as { type: string; payload?: Record<string, unknown> },
       );
     } else {
-      console.debug(`[WebUI] Unhandled message type: ${msgType}`);
+      // Protocol skew is expected during WebUI hot reloads. Unknown read-only
+      // observability messages are ignored instead of flooding terminal logs;
+      // feature negotiation prevents current clients from sending them.
+      if (!msgType.startsWith('chronicle.')) console.debug(`[WebUI] Unhandled message type: ${msgType}`);
     }
   };
 }

@@ -168,7 +168,7 @@ async function retrieveTriggeredMemories(
       path: p,
       limit,
       includeAncestors: true,
-      includeStatuses: isMutationTrigger(trigger.trigger) ? ['active', 'stale'] : ['active'],
+      includeStatuses: isMutationTrigger(trigger.trigger) ? ['active', 'stale', 'deleted'] : ['active', 'deleted'],
       includeAudienceScoped: false,
     }),
   );
@@ -184,7 +184,7 @@ async function retrieveTriggeredMemories(
   }
 
   return [...byId.values()]
-    .filter((item) => item.status === 'active' || item.status === 'stale')
+    .filter((item) => (item.status === 'active' || item.status === 'stale' || item.status === 'deleted') && item.contextPolicy !== 'never')
     .sort((a, b) => scoreForInjection(b) - scoreForInjection(a));
 }
 

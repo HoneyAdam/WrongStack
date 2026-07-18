@@ -4,8 +4,6 @@ import type { WSServerMessage } from '@/types';
 import { toast } from '@/components/Toaster';
 import { getWSClient } from '@/lib/ws-client';
 import { showPanel } from '@/lib/view-navigation';
-import { trackEvent } from '@/lib/analytics';
-import { recordReferralClick, trackReferralConversion } from '@/lib/analytics';
 import {
   ArrowRight,
   Bot,
@@ -353,33 +351,10 @@ function ProviderKeyCard({
       toast.success(t('setup:screen.toasts.keySaved', { name: popular.name }));
       onKeySaved(popular.id);
 
-      // Track the key save event
-      trackEvent('provider_key_saved', 'engagement', {
-        label: popular.name,
-        metadata: {
-          providerId: popular.id,
-          providerFamily: popular.family,
-          hasReferral: !!popular.referral,
-          isNewProvider: !catalogProvider,
-        },
-      });
-
-      // Track referral conversion if user clicked referral link before saving
-      if (popular.referral) {
-        trackReferralConversion(popular.id, popular.name);
-      }
     } catch (err) {
       const detail = err instanceof Error && err.message && err.message !== 'timeout' ? err.message : null;
       toast.error(detail ?? t('setup:screen.toasts.keySaveFailed', { name: popular.name }));
 
-      // Track the failed save event
-      trackEvent('provider_key_save_failed', 'error', {
-        label: popular.name,
-        metadata: {
-          providerId: popular.id,
-          providerFamily: popular.family,
-        },
-      });
     } finally {
       setIsSaving(false);
     }
@@ -399,26 +374,9 @@ function ProviderKeyCard({
       toast.success(t('setup:screen.toasts.referralCopied'));
       setTimeout(() => setCopied(false), 2000);
 
-      // Track the referral link copy event
-      trackEvent('referral_link_copied', 'engagement', {
-        label: popular.name,
-        metadata: {
-          providerId: popular.id,
-          referralCode: popular.referral!.code,
-          referralUrl: popular.referral!.url,
-        },
-      });
     } catch {
       toast.error(t('setup:screen.toasts.referralCopyFailed'));
 
-      // Track the failed copy event
-      trackEvent('referral_link_copy_failed', 'error', {
-        label: popular.name,
-        metadata: {
-          providerId: popular.id,
-          referralCode: popular.referral!.code,
-        },
-      });
     }
   };
 
@@ -488,26 +446,6 @@ function ProviderKeyCard({
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-                  onClick={() => {
-                    trackEvent('provider_docs_link_clicked', 'engagement', {
-                      label: popular.name,
-                      metadata: {
-                        providerId: popular.id,
-                        docsUrl: popular.docsUrl,
-                        hasReferral: !!popular.referral,
-                      },
-                    });
-                    // Track referral click if this provider has a referral
-                    if (popular.referral) {
-                      recordReferralClick({
-                        providerId: popular.id,
-                        providerName: popular.name,
-                        referralCode: popular.referral!.code,
-                        clickedAt: new Date().toISOString(),
-                        docsUrl: popular.docsUrl ?? '',
-                      });
-                    }
-                  }}
                 >
                   {t('setup:screen.card.getKey')} <ExternalLink className="h-3 w-3" />
                 </a>
@@ -604,10 +542,6 @@ function ProviderKeyCard({
                           '_blank',
                           'noopener,noreferrer',
                         );
-                        trackEvent('referral_share_twitter', 'engagement', {
-                          label: popular.name,
-                          metadata: { providerId: popular.id },
-                        });
                       }}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card text-xs text-foreground hover:bg-muted transition-colors"
                       title={t('setup:screen.share.twitter')}
@@ -629,10 +563,6 @@ function ProviderKeyCard({
                           '_blank',
                           'noopener,noreferrer',
                         );
-                        trackEvent('referral_share_linkedin', 'engagement', {
-                          label: popular.name,
-                          metadata: { providerId: popular.id },
-                        });
                       }}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card text-xs text-foreground hover:bg-muted transition-colors"
                       title={t('setup:screen.share.linkedin')}
@@ -653,10 +583,6 @@ function ProviderKeyCard({
                           '_blank',
                           'noopener,noreferrer',
                         );
-                        trackEvent('referral_share_telegram', 'engagement', {
-                          label: popular.name,
-                          metadata: { providerId: popular.id },
-                        });
                       }}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card text-xs text-foreground hover:bg-muted transition-colors"
                       title={t('setup:screen.share.telegram')}
@@ -678,10 +604,6 @@ function ProviderKeyCard({
                           '_blank',
                           'noopener,noreferrer',
                         );
-                        trackEvent('referral_share_whatsapp', 'engagement', {
-                          label: popular.name,
-                          metadata: { providerId: popular.id },
-                        });
                       }}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card text-xs text-foreground hover:bg-muted transition-colors"
                       title={t('setup:screen.share.whatsapp')}
@@ -703,10 +625,6 @@ function ProviderKeyCard({
                           '_blank',
                           'noopener,noreferrer',
                         );
-                        trackEvent('referral_share_reddit', 'engagement', {
-                          label: popular.name,
-                          metadata: { providerId: popular.id },
-                        });
                       }}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card text-xs text-foreground hover:bg-muted transition-colors"
                       title={t('setup:screen.share.reddit')}
@@ -728,10 +646,6 @@ function ProviderKeyCard({
                           '_blank',
                           'noopener,noreferrer',
                         );
-                        trackEvent('referral_share_facebook', 'engagement', {
-                          label: popular.name,
-                          metadata: { providerId: popular.id },
-                        });
                       }}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card text-xs text-foreground hover:bg-muted transition-colors"
                       title={t('setup:screen.share.facebook')}
@@ -753,10 +667,6 @@ function ProviderKeyCard({
                           '_blank',
                           'noopener,noreferrer',
                         );
-                        trackEvent('referral_share_email', 'engagement', {
-                          label: popular.name,
-                          metadata: { providerId: popular.id },
-                        });
                       }}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted text-muted-foreground text-xs hover:bg-muted/80 transition-colors"
                       title={t('setup:screen.share.email')}
@@ -1003,15 +913,6 @@ export function SetupScreen() {
           setPopularProviders(local);
           setIsLoadingPopular(false);
 
-          // Track successful local load
-          trackEvent('providers_loaded', 'system', {
-            label: 'local',
-            metadata: {
-              providerCount: local.length,
-              source: localUrl,
-            },
-          });
-
           // Show toast notification on refresh (not initial load)
           if (!isInitialLoadRef.current) {
             const diff = local.length - previousProviderCount;
@@ -1034,15 +935,6 @@ export function SetupScreen() {
         if (result) {
           setPopularProviders(result);
 
-          // Track successful GitHub load
-          trackEvent('providers_loaded', 'system', {
-            label: 'github',
-            metadata: {
-              providerCount: result.length,
-              source: githubUrl,
-            },
-          });
-
           // Show toast notification on refresh (not initial load)
           if (!isInitialLoadRef.current) {
             const diff = result.length - previousProviderCount;
@@ -1060,14 +952,6 @@ export function SetupScreen() {
       })
       .catch(() => {
         /* keep defaults */
-
-        // Track failed load
-        trackEvent('providers_load_failed', 'error', {
-          metadata: {
-            localUrl,
-            githubUrl,
-          },
-        });
 
         // Show error toast on refresh (not initial load)
         if (!isInitialLoadRef.current) {
@@ -1165,12 +1049,7 @@ export function SetupScreen() {
   // Refresh popular providers from external JSON
   const handleRefreshProviders = useCallback(() => {
     setPopularRefreshNonce((n) => n + 1);
-    trackEvent('providers_refresh_clicked', 'engagement', {
-      metadata: {
-        currentProviderCount: popularProviders.length,
-      },
-    });
-  }, [popularProviders.length]);
+  }, []);
 
   // Format relative time (e.g. "2m ago", "just now")
   const formatRelativeTime = useCallback((date: Date): string => {

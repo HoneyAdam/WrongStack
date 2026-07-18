@@ -76,6 +76,10 @@
     "./tasking": {
       "types": "./dist/tasking/index.d.ts",
       "import": "./dist/tasking/index.js"
+    },
+    "./chronicle": {
+      "types": "./dist/chronicle/index.d.ts",
+      "import": "./dist/chronicle/index.js"
     }
   },
   "files": [

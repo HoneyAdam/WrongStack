@@ -56,6 +56,7 @@ import {
   createOneShotLLMTool,
   OneShotOrchestrator,
 } from '@wrongstack/core';
+import { createFallbackManageTools } from '@wrongstack/core';
 import { SddRunRegistry } from '@wrongstack/sdd';
 import { wireSessionEvents } from './session-event-wiring.js';
 import { initializeCli } from './cli-context.js';
@@ -231,6 +232,39 @@ export async function main(argv: string[]): Promise<number> {
     events,
     wpaths,
   });
+
+  // Register fallback/provider/model management tools (LLM-accessible).
+  // These tools read config from the in-memory store and persist changes
+  // to the global config file, mirroring updates back to the store.
+  const stdinInteractive = process.stdin.isTTY;
+  const fallbackManageTools = createFallbackManageTools({
+    getConfig: () => configStore.get(),
+    updateConfig: async (mutate: (cfg: Record<string, unknown>) => void) => {
+      const raw = await fs.readFile(wpaths.globalConfig, 'utf8').catch(() => '{}');
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      mutate(parsed);
+      await fs.writeFile(wpaths.globalConfig, JSON.stringify(parsed, null, 2), { mode: 0o600 });
+      configStore.update(parsed as Parameters<typeof configStore.update>[0]);
+    },
+    // Interactive key entry for REPL mode — reads a line from stdin without echo.
+    // When the TUI owns the screen, standalone input is avoided (will be plumbed
+    // through the TUI's own prompt mechanism in a follow-up).
+    ...(stdinInteractive
+      ? {
+          requestInput: async (prompt: string): Promise<string> => {
+            const { createInterface } = await import('node:readline');
+            const rl = createInterface({ input: process.stdin, output: process.stdout });
+            return new Promise<string>((resolve) => {
+              rl.question(`\n${prompt}\n> `, (answer) => {
+                rl.close();
+                resolve(answer);
+              });
+            });
+          },
+        }
+      : {}),
+  });
+  for (const tool of fallbackManageTools) toolRegistry.register(tool);
 
   // Metrics wiring — extracted to wiring/metrics.ts
   const { metricsSink, healthRegistry, metricsStatus } = (() => {
@@ -432,8 +466,9 @@ export async function main(argv: string[]): Promise<number> {
   }
 
   // SessionEventBridge + audit events (extracted to session-event-wiring.ts).
-  const { errorRing, sessionBridge } = wireSessionEvents({
+  const { errorRing, sessionBridge, disposeChronicle } = wireSessionEvents({
     evOn,
+    events,
     config: config as unknown as Record<string, unknown>,
     context: context as unknown as Record<string, unknown>,
     session,
@@ -442,6 +477,9 @@ export async function main(argv: string[]): Promise<number> {
     projectRoot,
     renderer,
     tuiOwnsScreen,
+  });
+  process.once('beforeExit', () => {
+    void disposeChronicle();
   });
 
   const stats = new SessionStats(events, tokenCounter);

@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { runWithProcessTelemetry } from '../observability/process-telemetry.js';
+import { runWithNetworkTelemetry } from '../observability/network-telemetry.js';
 import { isDeepStrictEqual } from 'node:util';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -781,10 +783,27 @@ export class ToolExecutor {
     // implement executeStream fall through to the standard execute path.
     // The async IIFE also captures a synchronous throw from execute() as
     // a rejection so the race below observes it.
-    const toolPromise: Promise<unknown> =
-      typeof tool.executeStream === 'function'
-        ? this.runStreamedTool(tool, input, ctx, combined, toolUseId)
-        : (async () => tool.execute(input, ctx, { signal: combined }))();
+    const execute = () => typeof tool.executeStream === 'function'
+      ? this.runStreamedTool(tool, input, ctx, combined, toolUseId)
+      : (async () => tool.execute(input, ctx, { signal: combined }))();
+    const telemetryToolCallId = toolUseId ?? `nested-${randomUUID()}`;
+    const toolPromise: Promise<unknown> = this.opts.events
+      ? runWithNetworkTelemetry({
+          events: this.opts.events!, sessionId: ctx.session.id,
+          ...(ctx.traceId ? { traceId: ctx.traceId } : {}), ...(ctx.agentId ? { agentId: ctx.agentId } : {}),
+          toolCallId: telemetryToolCallId, initiator: 'tool', operationName: tool.name,
+        }, () => runWithProcessTelemetry(
+          {
+            events: this.opts.events!,
+            sessionId: ctx.session.id,
+            ...(ctx.traceId ? { traceId: ctx.traceId } : {}),
+            ...(ctx.agentId ? { agentId: ctx.agentId } : {}),
+            toolCallId: telemetryToolCallId,
+            toolName: tool.name,
+          },
+          execute,
+        ))
+      : execute();
     // Side branch: when the race exits early on abort, the still-running
     // tool promise must not surface its eventual rejection as an
     // unhandled-rejection crash.

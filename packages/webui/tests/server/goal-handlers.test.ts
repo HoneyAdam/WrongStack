@@ -34,19 +34,19 @@ describe('handleGoalGet', () => {
     fsSync.writeFileSync(tmpGoal.path, JSON.stringify(goal));
     const sent: object[] = [];
     await handleGoalGet('/proj', (m) => sent.push(m));
-    expect(sent).toEqual([{ type: 'goal.updated', payload: goal }]);
+    expect(sent).toEqual([{ type: 'goal-state.updated', payload: goal }]);
   });
 
   it('broadcasts null when the goal file is missing', async () => {
     const sent: Array<{ type: string; payload: unknown }> = [];
     await handleGoalGet('/proj', (m) => sent.push(m as never));
-    expect(sent[0]).toEqual({ type: 'goal.updated', payload: null });
+    expect(sent[0]).toEqual({ type: 'goal-state.updated', payload: null });
   });
 
   it('broadcasts null when the goal file is malformed', async () => {
     fsSync.writeFileSync(tmpGoal.path, '{ not json');
     const sent: Array<{ type: string; payload: unknown }> = [];
     await handleGoalGet('/proj', (m) => sent.push(m as never));
-    expect(sent[0]).toEqual({ type: 'goal.updated', payload: null });
+    expect(sent[0]).toEqual({ type: 'goal-state.updated', payload: null });
   });
 });

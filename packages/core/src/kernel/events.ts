@@ -9,6 +9,8 @@ import type { FileEventMap } from './events/file-events.js';
 import type { FleetEventMap } from './events/fleet-events.js';
 import type { MemoryEventMap } from './events/memory-events.js';
 import type { ProviderEventMap } from './events/provider-events.js';
+import type { ProcessEventMap } from './events/process-events.js';
+import type { NetworkEventMap } from './events/network-events.js';
 import type { SddEventMap } from './events/sdd-events.js';
 import type { SessionEventMap } from './events/session-events.js';
 import type { ToolEventMap } from './events/tool-events.js';
@@ -61,6 +63,8 @@ export interface EventMap
     BrainEventMap,
     SessionEventMap,
     ProviderEventMap,
+    ProcessEventMap,
+    NetworkEventMap,
     FileEventMap,
     ToolEventMap,
     MemoryEventMap,

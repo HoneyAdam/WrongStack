@@ -46,6 +46,9 @@ const AnalyticsDashboard = lazy(() =>
 const CodeMap = lazy(() =>
   import('./components/CodeMap').then((m) => ({ default: m.CodeMap })),
 );
+const ChronicleDashboard = lazy(() =>
+  import('./components/ChronicleDashboard').then((m) => ({ default: m.ChronicleDashboard })),
+);
 const GoalView = lazy(() =>
   import('./components/GoalView').then((m) => ({ default: m.GoalView })),
 );
@@ -570,6 +573,15 @@ function AppInner() {
             <Suspense fallback={<PanelSuspense />}>
               <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
                 <SessionsDashboard />
+              </div>
+            </Suspense>
+          </ErrorBoundary>
+        )}
+        {currentView === 'chronicle' && (
+          <ErrorBoundary level="panel" name="Chronicle">
+            <Suspense fallback={<PanelSuspense />}>
+              <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+                <ChronicleDashboard />
               </div>
             </Suspense>
           </ErrorBoundary>

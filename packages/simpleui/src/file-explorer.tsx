@@ -165,7 +165,7 @@ export function FileExplorer({ socketRef }: FileExplorerProps) {
 
     const unsub = socket.onMessage(handler);
     socket.send('files.tree', {});
-    setTimeout(() => { unsub(); if (loading) setLoading(false); }, 8000);
+    setTimeout(() => { unsub(); setLoading(false); }, 8000);
   }, [socketRef, loading]);
 
   const loadFileContent = useCallback((filePath: string) => {
@@ -198,7 +198,7 @@ export function FileExplorer({ socketRef }: FileExplorerProps) {
 
     const unsub = socket.onMessage(handler);
     socket.send('files.read', { filePath });
-    setTimeout(() => { unsub(); if (contentLoading) setContentLoading(false); }, 8000);
+    setTimeout(() => { unsub(); setContentLoading(false); }, 8000);
   }, [socketRef, contentLoading]);
 
   const handleSelectFile = useCallback((path: string) => {
@@ -235,7 +235,7 @@ export function FileExplorer({ socketRef }: FileExplorerProps) {
 
     const unsub = socket.onMessage(handler);
     socket.send('files.write', { filePath: selectedPath, content: editedContent });
-    setTimeout(() => { unsub(); if (saving) setSaving(false); }, 8000);
+    setTimeout(() => { unsub(); setSaving(false); }, 8000);
   }, [selectedPath, editedContent, socketRef, saving]);
 
   const handleTreeReload = useCallback(() => {

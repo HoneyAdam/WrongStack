@@ -1,8 +1,62 @@
 import type { Context } from '../../core/context.js';
 import type { ContentBlock } from '../../types/blocks.js';
 import type { Usage } from '../../types/provider.js';
+import type { ChroniclePromptManifest } from '../../chronicle/prompt-manifest.js';
 
 export interface ProviderEventMap {
+  /** Fired before every physical provider/model attempt, including attempt zero. */
+  'provider.attempt.started': {
+    sessionId: string;
+    traceId?: string | undefined;
+    agentId?: string | undefined;
+    logicalRequestId: string;
+    attemptId: string;
+    attempt: number;
+    providerId: string;
+    model: string;
+    streaming: boolean;
+    messageCount: number;
+    toolCount: number;
+    promptManifest?: ChroniclePromptManifest | undefined;
+    startedAt: string;
+  };
+  /** Fired when one physical attempt returns a usable response. */
+  'provider.attempt.completed': {
+    sessionId: string;
+    traceId?: string | undefined;
+    agentId?: string | undefined;
+    logicalRequestId: string;
+    attemptId: string;
+    attempt: number;
+    providerId: string;
+    model: string;
+    startedAt: string;
+    endedAt: string;
+    durationMs: number;
+    stopReason: string;
+    usage: Usage;
+  };
+  /** Fired for every failed attempt, whether or not another retry follows. */
+  'provider.attempt.failed': {
+    sessionId: string;
+    traceId?: string | undefined;
+    agentId?: string | undefined;
+    logicalRequestId: string;
+    attemptId: string;
+    attempt: number;
+    providerId: string;
+    model: string;
+    startedAt: string;
+    endedAt: string;
+    durationMs: number;
+    status: number;
+    failureKind: string;
+    description: string;
+    retryable: boolean;
+    retryScheduled: boolean;
+    retryDelayMs?: number | undefined;
+    providerRequestId?: string | undefined;
+  };
   'provider.response': {
     sessionId?: string | undefined;
     ctx: Context;

@@ -124,7 +124,7 @@ function delegatedPrefixes(files: string | readonly string[]): Set<string> {
  */
 function canonicalClientTypes(): Set<string> {
   const src = fs.readFileSync(typesFile, 'utf8');
-  // The union may be split: WSClientMessage = WSClientMessageCore & { _chronicle? }
+  // The union may be exposed through a separate WSClientMessage alias.
   // Search for the union declaration that actually contains type literals.
   // Try 'WSClientMessage' first; if it's an intersection wrapper, fall back to 'WSClientMessageCore'.
   let unionName = 'WSClientMessage';

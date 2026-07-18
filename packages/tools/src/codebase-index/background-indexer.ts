@@ -63,8 +63,15 @@ import type {
 const DEFAULT_FULL_INDEX_TIMEOUT_MS = 240_000;
 /** Watchdog timeout for a single-file incremental reindex. */
 const DEFAULT_INCREMENTAL_TIMEOUT_MS = 60_000;
-/** Watchdog timeout for read operations (search / stats). */
-const DEFAULT_QUERY_TIMEOUT_MS = 8_000;
+/**
+ * Watchdog timeout for read operations (search / stats).
+ *
+ * Reads normally finish quickly, but a cold or contended SQLite index can take
+ * longer than the former 8s budget, especially on large Windows workspaces.
+ * Keep this below the outer tool timeout so callers receive the structured
+ * IndexTimeoutError when the worker is genuinely wedged.
+ */
+const DEFAULT_QUERY_TIMEOUT_MS = 30_000;
 
 // ─── Indexing lifecycle state ─────────────────────────────────────────────────
 // Process-wide counters so codebase-search / codebase-stats can gate on

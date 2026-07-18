@@ -381,11 +381,10 @@ describe('runChatSlashCommand — agent/autonomy commands', () => {
     expect(opts.client?.send).not.toHaveBeenCalled();
   });
 
-  it('/goal requests goal and opens the goal dock chip', () => {
+  it('/goal with no args opens the goal view', () => {
     const opts = makeOptions({ raw: '/goal' });
     expect(runChatSlashCommand(opts)).toBe(true);
-    expect(opts.client?.send).toHaveBeenCalledWith({ type: 'goal.get' });
-    expect(mocks.setDockSection).toHaveBeenCalledWith('goal');
+    expect(mocks.setCurrentViewUI).toHaveBeenCalledWith('goal');
   });
 
   it('/fleet opens the fleet monitor', () => {

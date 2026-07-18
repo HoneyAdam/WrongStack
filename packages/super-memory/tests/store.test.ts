@@ -297,6 +297,21 @@ describe('Super Memory tool-call middleware', () => {
       expect(active.find((m) => m.id === memoryId)).toBeUndefined();
     });
 
+    it('keeps ordinary soft-deleted memory eligible for automatic LLM retrieval', async () => {
+      await store.deleteSuperMemory(memoryId, 'No longer shown as active');
+      const matches = await store.searchSuper('pnpm monorepo');
+      expect(matches).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: memoryId, status: 'deleted', contextPolicy: 'eligible' }),
+      ]));
+    });
+
+    it('honors an explicit neverInject deletion as an absolute context ban', async () => {
+      await store.deleteSuperMemory(memoryId, 'Private; never send to a model', { neverInject: true });
+      await expect(store.searchSuper('pnpm monorepo')).resolves.toEqual([]);
+      const deleted = await store.getSuperMemory(memoryId);
+      expect(deleted).toMatchObject({ status: 'deleted', contextPolicy: 'never' });
+    });
+
     it('deleteSuperMemory is idempotent', async () => {
       await store.deleteSuperMemory(memoryId);
       // Second call should not throw

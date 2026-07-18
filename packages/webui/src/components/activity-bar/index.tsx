@@ -5,6 +5,7 @@ import {
   BrainCircuit,
   Building2,
   Clock,
+  ChartNoAxesCombined,
   Columns3,
   Command,
   FileText,
@@ -100,6 +101,7 @@ const VIEWS: ViewDef[] = [
   { id: 'goal', icon: <Rocket size={16} />, label: 'Goal' },
   { id: 'codemap', icon: <Network size={16} />, label: 'CodeMap' },
   { id: 'techstack', icon: <Boxes size={16} />, label: 'TechStack' },
+  { id: 'chronicle', icon: <ChartNoAxesCombined size={16} />, label: 'Chronicle' },
   { id: 'settings', icon: <SettingsIcon size={16} />, label: 'Settings' },
   { id: 'memory', icon: <BrainCircuit size={16} />, label: 'Memory' },
 ];

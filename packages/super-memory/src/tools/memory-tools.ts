@@ -50,7 +50,7 @@ export interface SuperMemoryServiceLike extends MemoryStore {
   rejectCandidate(candidateId: string, reason: string): Promise<boolean>;
   rememberSuper(input: RememberSuperMemoryInput): Promise<SuperMemory>;
   updateSuperMemory(id: string, patch: UpdateSuperMemoryInput): Promise<SuperMemory>;
-  deleteSuperMemory(id: string, reason?: string, options?: { force?: boolean }): Promise<void>;
+  deleteSuperMemory(id: string, reason?: string, options?: { force?: boolean; neverInject?: boolean }): Promise<void>;
   /**
    * Restore a `deleted` memory to `active`. Superseded memories return the
    * head of their version chain (no-op write). Throws if the id is unknown.
@@ -267,7 +267,7 @@ function memoryUpdateTool(memory: SuperMemoryServiceLike): Tool<{ id: string } &
   };
 }
 
-function memoryDeleteTool(memory: SuperMemoryServiceLike): Tool<{ id: string; reason?: string; force?: boolean }, { deleted: true; id: string }> {
+function memoryDeleteTool(memory: SuperMemoryServiceLike): Tool<{ id: string; reason?: string; force?: boolean; neverInject?: boolean }, { deleted: true; id: string }> {
   return {
     name: 'memory_delete',
     category: 'Session',
@@ -275,6 +275,7 @@ function memoryDeleteTool(memory: SuperMemoryServiceLike): Tool<{ id: string; re
     usageHint:
       'Exact, single-entry removal by id — safer than substring `forget`.\n' +
       '- Find the id via `memory_search`. Provide a short `reason` for the audit log.\n' +
+      '- Normal deletion keeps historical evidence eligible for relevant LLM context. Set `neverInject: true` only for an explicit privacy/safety ban.\n' +
       '- Memories marked `permanent` are refused unless `force: true` is passed; the override is recorded in the audit log.',
     permission: 'confirm',
     mutating: true,
@@ -286,13 +287,14 @@ function memoryDeleteTool(memory: SuperMemoryServiceLike): Tool<{ id: string; re
       id: { type: 'string', minLength: 1, description: 'The memory id to delete.' },
       reason: stringSchema('Reason recorded in the audit log.'),
       force: { type: 'boolean', description: 'Required to delete memories marked `permanent`. The override is audited.' },
+      neverInject: { type: 'boolean', description: 'Absolute privacy/safety ban: this memory must never enter LLM context. Normal deletion remains context-eligible historical evidence.' },
     }, ['id']),
     async execute(input, _ctx, opts) {
       opts.signal.throwIfAborted();
       // Only forward `force` when it's truthy — keeps the call signature
       // backward-compatible for callers/tests that match on positional args.
-      if (input.force === true) {
-        await memory.deleteSuperMemory(input.id, input.reason, { force: true });
+      if (input.force === true || input.neverInject === true) {
+        await memory.deleteSuperMemory(input.id, input.reason, { ...(input.force === true ? { force: true } : {}), ...(input.neverInject === true ? { neverInject: true } : {}) });
       } else {
         await memory.deleteSuperMemory(input.id, input.reason);
       }

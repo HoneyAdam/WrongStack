@@ -8,8 +8,26 @@
  * and enable focused testing.
  */
 
-import { createSessionEventBridge, recordFileAction, resolveSessionLoggingConfig } from '@wrongstack/core';
-import type { SessionEventBridge } from '@wrongstack/core';
+import {
+  ChronicleJournal,
+  DefaultSecretScrubber,
+  createChronicleContext,
+  createSessionEventBridge,
+  recordFileAction,
+  resolveChronicleRuntimeLocation,
+  resolveSessionLoggingConfig,
+  startChronicleFileObserver,
+  startChronicleHealthMonitor,
+  startNetworkTelemetryMonitor,
+  wireProviderAttemptsToChronicle,
+  wireProcessesToChronicle,
+  wireDecisionsToChronicle,
+  wireDomainEventsToChronicle,
+  wireProviderStreamsToChronicle,
+  wireRollupsToChronicle,
+  wireToolsToChronicle,
+} from '@wrongstack/core';
+import type { ChronicleFileObserver, EventBus, SessionEventBridge } from '@wrongstack/core';
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -23,11 +41,18 @@ export interface ErrorEntry {
 export interface WireSessionEventsDeps {
   // biome-ignore lint/suspicious/noExplicitAny: dynamic EventBus dispatch
   evOn: (event: string, handler: (...args: any[]) => void) => void;
+  /** Concrete bus is required for Chronicle lifecycle subscriptions. */
+  events?: EventBus | undefined;
   config: Record<string, unknown>;
   context: Record<string, unknown>;
   session: { id: string };
   sessionRef: { current?: { id: string } | undefined };
-  wpaths: { globalRoot: string; projectSlug: string };
+  wpaths: {
+    globalRoot: string;
+    projectSlug: string;
+    projectHash?: string | undefined;
+    projectDir?: string | undefined;
+  };
   projectRoot: string;
   renderer?: { writeInfo?: (msg: string) => void };
   tuiOwnsScreen?: boolean;
@@ -40,6 +65,8 @@ export interface WireSessionEventsResult {
     sessionId: string | undefined,
     event: Parameters<SessionEventBridge['append']>[0],
   ) => void;
+  chronicleJournal?: ChronicleJournal | undefined;
+  disposeChronicle: () => Promise<void>;
 }
 
 // ── Exported wiring ────────────────────────────────────────────────────────
@@ -79,6 +106,116 @@ export function wireSessionEvents(deps: WireSessionEventsDeps): WireSessionEvent
 
   // ── Error ring ──────────────────────────────────────────────────────────
   const errorRing: ErrorEntry[] = [];
+
+  // ── Chronicle durable provider-attempt journal ─────────────────────────
+  let chronicleJournal: ChronicleJournal | undefined;
+  let unsubscribeChronicle: (() => void) | undefined;
+  let chronicleFileObserver: Promise<ChronicleFileObserver> | undefined;
+  let stopChronicleHealth: (() => void) | undefined;
+  let stopNetworkTelemetry: (() => void) | undefined;
+  if (deps.events && wpaths.projectDir) {
+    const location = resolveChronicleRuntimeLocation({
+      globalRoot: wpaths.globalRoot,
+      projectId: wpaths.projectHash ?? wpaths.projectSlug,
+      projectDir: wpaths.projectDir,
+    });
+    chronicleJournal = new ChronicleJournal({ filePath: location.journalPath });
+    const chronicleContext = createChronicleContext({
+      installationId: location.installationId,
+      machineId: location.machineId,
+      projectId: location.projectId,
+      workspaceId: wpaths.projectSlug,
+      sessionId: currentSessionId(),
+    }, (context as { traceId?: string | undefined }).traceId);
+    const onChroniclePersistError = (error: unknown): void => {
+      const message = error instanceof Error ? error.message : String(error);
+      errorRing.push({
+        ts: new Date().toISOString(),
+        phase: 'chronicle.persist',
+        code: 'CHRONICLE_PERSIST_FAILED',
+        message,
+      });
+      if (errorRing.length > 5) errorRing.shift();
+    };
+    const unsubscribeProviderChronicle = wireProviderAttemptsToChronicle({
+      events: deps.events,
+      journal: chronicleJournal,
+      context: () => ({
+        ...chronicleContext,
+        scope: { ...chronicleContext.scope, sessionId: currentSessionId() },
+      }),
+      onPersistError: onChroniclePersistError,
+    });
+    const unsubscribeStreamChronicle = wireProviderStreamsToChronicle({
+      events: deps.events,
+      journal: chronicleJournal,
+      context: () => ({ ...chronicleContext, scope: { ...chronicleContext.scope, sessionId: currentSessionId() } }),
+      onPersistError: onChroniclePersistError,
+    });
+    const unsubscribeToolChronicle = wireToolsToChronicle({
+      events: deps.events,
+      journal: chronicleJournal,
+      context: () => ({
+        ...chronicleContext,
+        scope: { ...chronicleContext.scope, sessionId: currentSessionId() },
+      }),
+      scrubber: new DefaultSecretScrubber(),
+      onPersistError: onChroniclePersistError,
+    });
+    const unsubscribeProcessChronicle = wireProcessesToChronicle({
+      events: deps.events,
+      journal: chronicleJournal,
+      context: () => ({
+        ...chronicleContext,
+        scope: { ...chronicleContext.scope, sessionId: currentSessionId() },
+      }),
+      scrubber: new DefaultSecretScrubber(),
+      onPersistError: onChroniclePersistError,
+    });
+    const unsubscribeDecisionChronicle = wireDecisionsToChronicle({
+      events: deps.events,
+      journal: chronicleJournal,
+      context: () => ({ ...chronicleContext, scope: { ...chronicleContext.scope, sessionId: currentSessionId() } }),
+      onPersistError: onChroniclePersistError,
+    });
+    const unsubscribeDomainChronicle = wireDomainEventsToChronicle({
+      events: deps.events,
+      journal: chronicleJournal,
+      context: () => ({ ...chronicleContext, scope: { ...chronicleContext.scope, sessionId: currentSessionId() } }),
+      onPersistError: onChroniclePersistError,
+    });
+    const unsubscribeRollups = wireRollupsToChronicle({ events: deps.events, journal: chronicleJournal,
+      context: () => ({ ...chronicleContext, scope: { ...chronicleContext.scope, sessionId: currentSessionId() } }),
+      onPersistError: onChroniclePersistError });
+    unsubscribeChronicle = () => {
+      unsubscribeProviderChronicle();
+      unsubscribeStreamChronicle();
+      unsubscribeToolChronicle();
+      unsubscribeProcessChronicle();
+      unsubscribeDecisionChronicle();
+      unsubscribeDomainChronicle();
+      unsubscribeRollups();
+    };
+    chronicleFileObserver = startChronicleFileObserver({
+      projectRoot,
+      journal: chronicleJournal,
+      events: deps.events,
+      context: () => ({
+        ...chronicleContext,
+        scope: { ...chronicleContext.scope, sessionId: currentSessionId() },
+      }),
+      onError: onChroniclePersistError,
+    });
+    // The observer is optional on filesystems where recursive fs.watch is not
+    // available. The error is already surfaced through the Chronicle ring.
+    void chronicleFileObserver.catch(() => {});
+    stopChronicleHealth = startChronicleHealthMonitor({
+      journal: chronicleJournal,
+      context: () => ({ ...chronicleContext, scope: { ...chronicleContext.scope, sessionId: currentSessionId() } }),
+      onPersistError: onChroniclePersistError,
+    });
+    stopNetworkTelemetry = startNetworkTelemetryMonitor();
+  }
   evOn('error', (e: {
     sessionId?: string | undefined;
     phase: string;
@@ -225,5 +362,19 @@ export function wireSessionEvents(deps: WireSessionEventsDeps): WireSessionEvent
     });
   });
 
-  return { errorRing, sessionBridge, appendSessionEvent };
+  const disposeChronicle = async (): Promise<void> => {
+    stopChronicleHealth?.();
+    stopNetworkTelemetry?.();
+    unsubscribeChronicle?.();
+    if (chronicleFileObserver) {
+      try {
+        await (await chronicleFileObserver).close();
+      } catch {
+        // Start failures were already recorded by onChroniclePersistError.
+      }
+    }
+    await chronicleJournal?.flush();
+  };
+
+  return { errorRing, sessionBridge, appendSessionEvent, chronicleJournal, disposeChronicle };
 }

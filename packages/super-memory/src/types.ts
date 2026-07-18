@@ -150,6 +150,8 @@ export interface SuperMemory {
   legacyScope?: MemoryScope | undefined;
   kind: SuperMemoryKind;
   status: SuperMemoryStatus;
+  /** Orthogonal to lifecycle: only `never` is an absolute LLM-context ban. */
+  contextPolicy?: 'eligible' | 'never' | undefined;
   /**
    * Persistence class. Optional for back-compat: legacy records without this
    * field are treated as `long_lived` by the load path (see

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const promptFirewallPlugin = (await import('../src/prompt-firewall')).default;
-const { detectSecrets, redactSecrets } = await import('../src/prompt-firewall');
+const { detectSecrets, readConfig, redactSecrets } = await import('../src/prompt-firewall');
 
 interface Tool {
   name: string;
@@ -180,5 +180,38 @@ describe('prompt-firewall plugin', () => {
       'prompt-firewall: teardown complete',
       expect.any(Object),
     );
+  });
+});
+
+describe('readConfig mode resolution', () => {
+  it('defaults to redact when mode is absent (the locking assertion the user asked for)', () => {
+    expect(readConfig({ enabled: true }).mode).toBe('redact');
+  });
+
+  it('honours explicit warn, block, and redact modes', () => {
+    expect(readConfig({ enabled: true, mode: 'warn' }).mode).toBe('warn');
+    expect(readConfig({ enabled: true, mode: 'block' }).mode).toBe('block');
+    expect(readConfig({ enabled: true, mode: 'redact' }).mode).toBe('redact');
+  });
+
+  it('falls back to redact for unknown mode values (fail-closed)', () => {
+    expect(readConfig({ enabled: true, mode: 'wran' }).mode).toBe('redact');
+  });
+
+  it('falls back to redact for non-object / null / undefined config (base defaults)', () => {
+    expect(readConfig(undefined).mode).toBe('redact');
+    expect(readConfig(null).mode).toBe('redact');
+    expect(readConfig('garbage').mode).toBe('redact');
+  });
+});
+
+describe('default mode end-to-end', () => {
+  it('redacts secrets on the wire when enabled without an explicit mode', async () => {
+    const api = setup({ enabled: true });
+    const inner = vi.fn().mockResolvedValue(resp('ok'));
+    await api._wrap!(null, req(`use ${GH_TOKEN} now`), inner);
+    const sent = JSON.stringify(inner.mock.calls[0]![1]);
+    expect(sent).not.toContain(GH_TOKEN);
+    expect(sent).toContain('[REDACTED:github-token]');
   });
 });

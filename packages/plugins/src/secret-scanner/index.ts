@@ -121,6 +121,32 @@ let PATTERNS: Pattern[] = [...BASE_PATTERNS];
  */
 let COMBINED_REGEX = buildCombinedRegex(PATTERNS);
 
+// ---------------------------------------------------------------------------
+// ReDoS protection
+// ---------------------------------------------------------------------------
+
+/**
+ * Maximum input string length to scan. Strings longer than this are
+ * silently skipped rather than fed to the regex engine. Credential
+ * patterns match short tokens (20–200 chars typical), so this is a
+ * safe trade-off: we accept missing a credential in a 100KB command
+ * string in exchange for never allowing a ReDoS hang on the agent loop.
+ */
+const RE_DOS_MAX_SCAN_LENGTH = 100_000;
+
+/**
+ * Cumulative regex execution timeout in ms. If the combined regex's
+ * `while (exec(...))` loop runs longer than this, the scan throws a
+ * ReDoS error. Because the hook's policy is `failurePolicy: 'closed'`,
+ * the throw is caught by the hook runner and treated as a block.
+ *
+ * This guard catches the case where a moderate-length input triggers
+ * many pattern matches (e.g. a concatenated list of tokens), causing
+ * cumulative time to grow. A single long-running exec() call is
+ * protected by the length guard above.
+ */
+const RE_DOS_TIMEOUT_MS = 100;
+
 /**
  * Rebuild the combined regex from a pattern array. Each pattern's
  * source is wrapped in a capturing group so findMatches/redactInput
@@ -171,11 +197,25 @@ const state = {
  */
 function findMatches(text: string): string[] {
   if (!text) return [];
+  // ReDoS guard: skip scanning very long inputs. Credential patterns
+  // match short strings (20–200 chars typical); a 100KB command line
+  // containing a secret somewhere is not a realistic threat vector,
+  // and feeding it to the combined regex could cause backtracking.
+  if (text.length > RE_DOS_MAX_SCAN_LENGTH) return [];
   const found = new Set<string>();
   COMBINED_REGEX.lastIndex = 0;
   let m: RegExpExecArray | null;
+  const startTime = performance.now();
   // biome-ignore lint/suspicious/noAssignInExpressions: idiomatic RegExp.exec loop
   while ((m = COMBINED_REGEX.exec(text)) !== null) {
+    // ReDoS guard: abort if cumulative regex time exceeds the threshold.
+    // The throw propagates through buildHook's synchronously; with
+    // failurePolicy: 'closed' it is caught and treated as a block.
+    if (performance.now() - startTime > RE_DOS_TIMEOUT_MS) {
+      throw new Error(
+        `secret-scanner: ReDoS timeout — regex scan exceeded ${RE_DOS_TIMEOUT_MS}ms on ${text.length}-char input`,
+      );
+    }
     // Determine which capture group matched by scanning for the first
     // defined group beyond group 0. The combined regex has one
     // capturing group per pattern, in PATTERNS order.
@@ -200,22 +240,25 @@ function findMatches(text: string): string[] {
  * anywhere — saves the caller from scanning more fields once a hit is
  * confirmed.
  */
-function scanInput(input: unknown): string[] | null {
+function scanInput(input: unknown, depth = 0): string[] | null {
   if (input === null || input === undefined) return null;
+  // ReDoS guard: limit recursion depth to prevent stack overflow on
+  // deeply nested objects crafted to bypass the string-length check.
+  if (depth > 50) return null;
   if (typeof input === 'string') {
     const found = findMatches(input);
     return found.length > 0 ? found : null;
   }
   if (Array.isArray(input)) {
     for (const item of input) {
-      const found = scanInput(item);
+      const found = scanInput(item, depth + 1);
       if (found) return found;
     }
     return null;
   }
   if (typeof input === 'object') {
     for (const value of Object.values(input as Record<string, unknown>)) {
-      const found = scanInput(value);
+      const found = scanInput(value, depth + 1);
       if (found) return found;
     }
     return null;
@@ -229,8 +272,11 @@ function scanInput(input: unknown): string[] | null {
  * string-typed leaf redacted. Only used in `mode: 'redact'`. The walk
  * mirrors `scanInput` so the two functions stay in sync.
  */
-function redactInput(input: unknown): unknown {
+function redactInput(input: unknown, depth = 0): unknown {
   if (input === null || input === undefined) return input;
+  // ReDoS guard: mirror scanInput's depth cap so a deeply-nested
+  // crafted object doesn't cause a stack overflow.
+  if (depth > 50) return input;
   if (typeof input === 'string') {
     return input.replace(COMBINED_REGEX, (_match, ...groups: unknown[]) => {
       for (let i = 0; i < PATTERNS.length; i++) {
@@ -242,12 +288,12 @@ function redactInput(input: unknown): unknown {
     });
   }
   if (Array.isArray(input)) {
-    return input.map((item) => redactInput(item));
+    return input.map((item) => redactInput(item, depth + 1));
   }
   if (typeof input === 'object') {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
-      out[k] = redactInput(v);
+      out[k] = redactInput(v, depth + 1);
     }
     return out;
   }
