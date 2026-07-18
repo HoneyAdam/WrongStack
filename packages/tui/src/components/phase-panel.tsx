@@ -1,5 +1,6 @@
 import { Box, Text } from '../ink.js';
 import type React from 'react';
+import { rainbowColor } from './animation-style.js';
 
 const fmtElapsed = (ms: number): string => {
   const s = Math.floor(ms / 1000);
@@ -82,16 +83,30 @@ export function PhasePanel({ phases, nowTick }: PhasePanelProps): React.ReactEle
         const st = s(phase.status);
         const progress = phase.totalTasks > 0 ? `${phase.completedTasks}/${phase.totalTasks}` : '';
         const elapsed = phase.startedAt ? fmtElapsed(nowTick - phase.startedAt) : '';
+        const isRunning = st.icon === '●';
+        // Animation phase for the rainbow gradient: derive a ~4fps counter
+        // from nowTick (ms). 250ms per step matches the status bar spinner
+        // cadence so the gradient feels lively but not frantic.
+        const animPhase = Math.floor(nowTick / 250);
 
         return (
           <Box key={phaseKey} flexDirection="row" gap={1}>
             <Text color={st.color}>{st.icon}</Text>
-            <Text>{phase.name.slice(0, 14).padEnd(14)}</Text>
+            {isRunning ? (
+              // Running phase: smooth rainbow gradient on the name
+              Array.from(phase.name.slice(0, 14)).map((ch, ci) => (
+                <Text key={ci} bold color={rainbowColor(ci, animPhase)}>
+                  {ch}
+                </Text>
+              ))
+            ) : (
+              <Text>{phase.name.slice(0, 14).padEnd(14)}</Text>
+            )}
             <Text color={st.color} dimColor>
-              {st.icon === '●' ? phase.status : ''}
+              {isRunning ? phase.status : ''}
             </Text>
             {progress ? <Text dimColor> {progress}</Text> : null}
-            {elapsed && st.icon === '●' ? <Text dimColor> {elapsed}</Text> : null}
+            {elapsed && isRunning ? <Text dimColor> {elapsed}</Text> : null}
           </Box>
         );
       })}
