@@ -58,3 +58,5 @@ onlyBuiltDependencies:
   - node-pty
 minimumReleaseAgeExclude:
   - electron@43.0.0
+patchedDependencies:
+  ink@7.1.0: patches/ink@7.1.0.patch

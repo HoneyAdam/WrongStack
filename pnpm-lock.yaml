@@ -10,6 +10,9 @@ overrides:
   undici-types: ^8.4.0
   jsdom>undici: 7.28.0
 
+patchedDependencies:
+  ink@7.1.0: be2bb04dcfb074ad9515ffd391700b23905dac49e2d95947cd0166bcb7ee1c8f
+
 importers:
 
   .:
@@ -483,7 +486,7 @@ importers:
         version: link:../tools
       ink:
         specifier: ^7.1.0
-        version: 7.1.0(@types/react@19.2.17)(react@19.2.7)
+        version: 7.1.0(patch_hash=be2bb04dcfb074ad9515ffd391700b23905dac49e2d95947cd0166bcb7ee1c8f)(@types/react@19.2.17)(react@19.2.7)
       react:
         specifier: ^19.2.7
         version: 19.2.7
@@ -5666,7 +5669,7 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.2.17
 
-  ink@7.1.0(@types/react@19.2.17)(react@19.2.7):
+  ink@7.1.0(patch_hash=be2bb04dcfb074ad9515ffd391700b23905dac49e2d95947cd0166bcb7ee1c8f)(@types/react@19.2.17)(react@19.2.7):
     dependencies:
       '@alcalzone/ansi-tokenize': 0.3.0
       ansi-escapes: 7.3.0
