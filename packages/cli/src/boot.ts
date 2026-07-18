@@ -183,6 +183,22 @@ function resolveBundledPromptsDir(): string | undefined {
 }
 
 /**
+ * Determine whether the first-run YOLO disclosure notice should be printed
+ * to stderr. Exported for testing.
+ *
+ * @param lastChoices  Saved launch preferences from config (undefined = first run)
+ * @param yoloPinned   Explicit --yolo/--no-yolo flag (undefined = not provided)
+ * @param yolo         Resolved YOLO state
+ */
+export function shouldPrintYoloNotice(
+  lastChoices: unknown,
+  yoloPinned: boolean | undefined,
+  yolo: boolean,
+): boolean {
+  return !lastChoices && yoloPinned === undefined && yolo;
+}
+
+/**
  * Boot the CLI: parse args, load config, handle subcommand dispatch
  * (early exit), run interactive prompts (project check, provider picker,
  * mode/yolo). Returns a BootContext for the wiring phase, or an exit
@@ -537,6 +553,18 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
     }
     if (choices.yolo !== config.yolo) config = patchConfig(config, { yolo: choices.yolo });
     flags['autonomy'] = choices.autonomy;
+
+    // First-run YOLO disclosure: when YOLO auto-enabled on the very first
+    // interactive launch and was not explicitly pinned via --yolo or
+    // --no-yolo, print a one-time notice to stderr so the user is aware
+    // that non-denied tool calls (shell, file writes, etc.) run without
+    // confirmation.
+    if (shouldPrintYoloNotice(lastChoices, yoloPinned, choices.yolo)) {
+      writeErr(
+        `\n  ${color.yellow('YOLO is on')}: non-denied tool calls, including shell and file writes, run without confirmation.\n` +
+          `  ${color.dim('Explicit deny rules still apply. Use')} --no-yolo ${color.dim('or')} /yolo off ${color.dim('to require prompts.')}\n\n`,
+      );
+    }
 
     // Indexing question — one-time per-session decision, never persisted.
     // Large codebases can take a while to index on first launch; let the

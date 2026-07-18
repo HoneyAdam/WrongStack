@@ -14,26 +14,6 @@ export interface MessageRepairResult {
 }
 
 /**
- * Whether message content carries anything that must survive in conversation
- * state and session replay.
- *
- * Empty text blocks are common when a stream is interrupted before producing
- * output. Tool calls, images, tool results, and signed thinking blocks remain
- * meaningful even when they do not contain visible assistant text.
- */
-export function hasMeaningfulContent(content: Message['content']): boolean {
-  if (typeof content === 'string') return content.trim().length > 0;
-
-  return content.some((block) => {
-    if (block.type === 'text') return block.text.trim().length > 0;
-    if (block.type === 'thinking') {
-      return block.thinking.trim().length > 0 || Boolean(block.signature);
-    }
-    return true;
-  });
-}
-
-/**
  * Repair provider-level tool-call adjacency invariants.
  *
  * Anthropic requires every assistant `tool_use` block to have a matching
