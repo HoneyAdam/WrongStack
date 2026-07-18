@@ -19,6 +19,8 @@ import React, { act } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { KanbanPanel } from '../src/components/kanban-panel.js';
 
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
 // ── vi.mock factories ────────────────────────────────────────────────────────
 
 const mockListBoards = vi.fn();
@@ -32,10 +34,7 @@ const mockRemoveTask = vi.fn();
 const mockMoveTask = vi.fn();
 const mockUpdateTask = vi.fn();
 
-const mockDescribeKanbanBoundary = vi.fn(() => ({
-  layers: [],
-  combined: { allow: [], deny: [] },
-}));
+const mockDescribeKanbanBoundary = vi.fn((_policy?: unknown): string => 'unrestricted');
 
 vi.mock('@wrongstack/kanban', () => ({
   listBoards: (...args: unknown[]) => mockListBoards(...args),
@@ -48,7 +47,7 @@ vi.mock('@wrongstack/kanban', () => ({
   removeTask: (...args: unknown[]) => mockRemoveTask(...args),
   moveTask: (...args: unknown[]) => mockMoveTask(...args),
   updateTask: (...args: unknown[]) => mockUpdateTask(...args),
-  describeKanbanBoundary: (...args: unknown[]) => mockDescribeKanbanBoundary(...args),
+  describeKanbanBoundary: (policy?: unknown) => mockDescribeKanbanBoundary(policy),
 }));
 
 // Stub the session-kanban helper — it would otherwise touch the agent's
@@ -132,6 +131,14 @@ function populatedBoard(): KanbanBoard {
   };
 }
 
+function renderWithAct(element: React.ReactElement): ReturnType<typeof render> {
+  let result: ReturnType<typeof render>;
+  act(() => {
+    result = render(element);
+  });
+  return result!;
+}
+
 function renderPanel(props: {
   board: KanbanBoard;
   terminalWidth?: number;
@@ -142,19 +149,15 @@ function renderPanel(props: {
   mockListBoards.mockResolvedValue([summary(board.id, board.title, board.tasks.length)]);
   mockGetBoard.mockResolvedValue(board);
 
-  let result: ReturnType<typeof render>;
-  act(() => {
-    result = render(
-      React.createElement(KanbanPanel, {
-        projectRoot: '/tmp/project',
-        sessionId: 'abc123',
-        onClose: onClose ?? (() => {}),
-        terminalWidth,
-        initialBoardId,
-      }),
-    );
-  });
-  return result!;
+  return renderWithAct(
+    React.createElement(KanbanPanel, {
+      projectRoot: '/tmp/project',
+      sessionId: 'abc123',
+      onClose: onClose ?? (() => {}),
+      terminalWidth,
+      initialBoardId,
+    }),
+  );
 }
 
 // ── Audit-aware fixture & Ink-mount tests ────────────────────────────────────
@@ -250,7 +253,7 @@ describe('KanbanPanel — audit badge Ink-mount', () => {
     await settle();
     const frame = lastFrame() ?? '';
     expect(frame).not.toMatch(/cleaner issues/);
-    unmount();
+    act(() => unmount());
   });
 });
 
@@ -283,7 +286,7 @@ describe('KanbanPanel — Ink-mount regressions', () => {
     expect(frame).toContain('Review');
     // No overflow indicator when all columns fit.
     expect(frame).not.toMatch(/\+\s*\d+\s+more column/);
-    unmount();
+    act(() => unmount());
   });
 
   it('drops columns and shows the overflow indicator at narrow width', async () => {
@@ -309,7 +312,7 @@ describe('KanbanPanel — Ink-mount regressions', () => {
     // And the last column should NOT render — that's the visual
     // difference from "render everything, truncate, hide count".
     expect(frame).not.toContain('Column 6');
-    unmount();
+    act(() => unmount());
   });
 
   it('renders the populated TaskDetail fields after selecting a task', async () => {
@@ -348,7 +351,7 @@ describe('KanbanPanel — Ink-mount regressions', () => {
     expect(frame).toContain('Links (2)');
     expect(frame).toContain('📄');
     expect(frame).toContain('🔀');
-    unmount();
+    act(() => unmount());
   });
 
   it('selects the board named by initialBoardId rather than the session-tag fallback', async () => {
@@ -366,7 +369,7 @@ describe('KanbanPanel — Ink-mount regressions', () => {
       return { ...board, id, title: id };
     });
 
-    const { lastFrame, unmount } = render(
+    const { lastFrame, unmount } = renderWithAct(
       React.createElement(KanbanPanel, {
         projectRoot: '/tmp/project',
         sessionId: 'abc123',
@@ -389,7 +392,7 @@ describe('KanbanPanel — Ink-mount regressions', () => {
     // (the `> ` cursor marker). We assert the cursor marker didn't land
     // on Session.
     expect(frame).not.toMatch(/>\s*Session/);
-    unmount();
+    act(() => unmount());
   });
 
   it('routes "q" through useInput to the supplied onClose', async () => {
@@ -397,7 +400,7 @@ describe('KanbanPanel — Ink-mount regressions', () => {
     const board = populatedBoard();
     mockListBoards.mockResolvedValue([summary(board.id, board.title)]);
     mockGetBoard.mockResolvedValue(board);
-    const { stdin, unmount } = render(
+    const { stdin, unmount } = renderWithAct(
       React.createElement(KanbanPanel, {
         projectRoot: '/tmp/project',
         sessionId: null,
@@ -413,6 +416,6 @@ describe('KanbanPanel — Ink-mount regressions', () => {
       stdin.write('q');
     });
     expect(onClose).toHaveBeenCalledTimes(1);
-    unmount();
+    act(() => unmount());
   });
 });

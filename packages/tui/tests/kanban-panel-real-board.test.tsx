@@ -40,21 +40,34 @@ const ALLOWED_AUDIT_CODES = new Set([
 
 const mockListBoards = vi.fn();
 const mockGetBoard = vi.fn();
+const mockDescribeKanbanBoundary = vi.fn((_policy?: unknown): string => 'unrestricted');
 
 vi.mock('@wrongstack/kanban', () => ({
   listBoards: (...args: unknown[]) => mockListBoards(...args),
   getBoard: (...args: unknown[]) => mockGetBoard(...args),
+  describeKanbanBoundary: (policy?: unknown) => mockDescribeKanbanBoundary(policy),
 }));
 
 vi.mock('@wrongstack/tools/session-kanban', () => ({
   applySessionKanbanTaskToSource: () => Promise.resolve(),
 }));
 
-async function settle(): Promise<void> {
-  await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
-  });
+async function waitForFrame(
+  frames: readonly string[],
+  predicate: (frame: string) => boolean,
+): Promise<string> {
+  let match = [...frames].reverse().find(predicate);
+  for (let attempt = 0; match === undefined && attempt < 20; attempt += 1) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    match = [...frames].reverse().find(predicate);
+  }
+
+  if (match === undefined) {
+    throw new Error(`Expected Ink frame was not rendered. Captured frames: ${JSON.stringify(frames)}`);
+  }
+  return match;
 }
 
 describe('KanbanPanel — sanitized-fixture audit badge', () => {
@@ -79,7 +92,7 @@ describe('KanbanPanel — sanitized-fixture audit badge', () => {
     mockGetBoard.mockResolvedValue(board);
 
     let result: ReturnType<typeof render>;
-    act(() => {
+    await act(async () => {
       result = render(
         React.createElement(KanbanPanel, {
           projectRoot: '/tmp/project',
@@ -88,10 +101,11 @@ describe('KanbanPanel — sanitized-fixture audit badge', () => {
           terminalWidth: 200,
         }),
       );
+      await Promise.resolve();
+      await Promise.resolve();
     });
-    const { lastFrame, unmount } = result!;
-    await settle();
-    const frame = lastFrame() ?? '';
+    const { frames, unmount } = result!;
+    const frame = await waitForFrame(frames, (candidate) => /cleaner issues?/.test(candidate));
 
     // The fixture was sanitized from the dirtiest production board
     // (23 cleaner issues, 3 error + 20 warning). We don't pin the
@@ -127,6 +141,6 @@ describe('KanbanPanel — sanitized-fixture audit badge', () => {
     // abandoned-running-task should appear (the dominant error).
     expect(emitted.has('abandoned-running-task')).toBe(true);
 
-    unmount();
+    act(() => unmount());
   }, 30_000);
 });

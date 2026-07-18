@@ -8,6 +8,15 @@ import { Text } from '../src/ink.js';
 
 vi.mock('../src/heap-watchdog.js', () => ({
   startHeapWatchdog: () => () => {},
+  takeHeapSample: () => ({
+    ts: '2026-07-15T00:00:00.000Z',
+    rss: 0,
+    heapUsed: 0,
+    heapTotal: 0,
+    external: 0,
+    heapLimit: 0,
+    load: 0,
+  }),
 }));
 
 const stateRef = {
@@ -44,6 +53,19 @@ afterEach(() => {
 });
 
 describe('useTuiActivity foreground working time', () => {
+  /** Ink 7.1.1 writes content and trailing whitespace as separate frames;
+   *  return the last frame with non-whitespace content. */
+  function lastVisibleFrame(view: ReturnType<typeof render>): string {
+    const f = view.lastFrame() ?? '';
+    if (f.trim().length > 0) return f.trim();
+    // Fall back to scanning frames for content
+    for (let i = view.frames.length - 1; i >= 0; i--) {
+      const candidate = view.frames[i];
+      if (candidate && candidate.trim().length > 0) return candidate.trim();
+    }
+    return f;
+  }
+
   it('counts committed working spells without resets or idle gaps', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-15T00:00:00.000Z'));
@@ -57,19 +79,19 @@ describe('useTuiActivity foreground working time', () => {
       view.rerender(harness('running'));
     });
     act(() => vi.advanceTimersByTime(2_000));
-    expect(view.lastFrame()).toBe('2000');
+    expect(lastVisibleFrame(view)).toBe('2000');
 
     act(() => view.rerender(harness('streaming')));
     act(() => vi.advanceTimersByTime(1_000));
-    expect(view.lastFrame()).toBe('3000');
+    expect(lastVisibleFrame(view)).toBe('3000');
 
     act(() => view.rerender(harness('idle')));
     act(() => vi.advanceTimersByTime(1_000));
-    expect(view.lastFrame()).toBe('3000');
+    expect(lastVisibleFrame(view)).toBe('3000');
 
     act(() => view.rerender(harness('running')));
     act(() => vi.advanceTimersByTime(2_000));
-    expect(view.lastFrame()).toBe('5000');
+    expect(lastVisibleFrame(view)).toBe('5000');
 
     act(() => view.unmount());
   });
