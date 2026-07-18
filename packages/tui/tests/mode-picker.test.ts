@@ -8,9 +8,9 @@ import { createPanelOpenDispatcher } from '../src/on-panel-open.js';
 describe('ModePicker', () => {
   it('maps core modes to display options and marks the active mode', () => {
     const modes: Mode[] = [
-      { id: 'default', name: 'Default', description: 'Balanced default mode', tags: ['balanced'] },
-      { id: 'review-lite', name: 'Review Lite', description: 'Narrow review', tags: ['lite'] },
-      { id: 'code-reviewer', name: 'Review Deep', description: 'Full review', tags: ['deep'] },
+      { id: 'default', name: 'Default', description: 'Balanced default mode', tags: ['balanced'], prompt: '' },
+      { id: 'review-lite', name: 'Review Lite', description: 'Narrow review', tags: ['lite'], prompt: '' },
+      { id: 'code-reviewer', name: 'Review Deep', description: 'Full review', tags: ['deep'], prompt: '' },
     ];
 
     const options = toModeOptions(modes, 'review-lite');
