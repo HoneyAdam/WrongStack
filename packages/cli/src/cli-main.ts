@@ -1798,17 +1798,23 @@ export async function main(argv: string[]): Promise<number> {
       eternalEngine?.stop();
       parallelEngine?.stop();
     },
-    onExit: () => {
+    onExit: async () => {
       for (const teardown of teardownHandlers) teardown();
       teardownHandlers.length = 0;
-      void mcpRegistry.stopAll();
-      multiAgentHost
-        .dispose()
-        .catch((err: unknown) =>
-          logger.warn(
-            `multiAgentHost.dispose() failed: ${err instanceof Error ? err.message : String(err)}`,
-          ),
+      const [mcpResult, hostResult] = await Promise.allSettled([
+        mcpRegistry.stopAll(),
+        multiAgentHost.dispose(),
+      ]);
+      if (mcpResult.status === 'rejected') {
+        logger.warn(
+          `mcpRegistry.stopAll() failed: ${mcpResult.reason instanceof Error ? mcpResult.reason.message : String(mcpResult.reason)}`,
         );
+      }
+      if (hostResult.status === 'rejected') {
+        logger.warn(
+          `multiAgentHost.dispose() failed: ${hostResult.reason instanceof Error ? hostResult.reason.message : String(hostResult.reason)}`,
+        );
+      }
     },
     onBeforeExit: async () => {
       // Check for uncommitted changes directly

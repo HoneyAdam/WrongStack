@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { STATUSLINE_ITEMS, STATUSLINE_FIELD_COUNT, ITEM_LINE } from '../src/components/statusline-picker.js';
+import {
+  STATUSLINE_ITEMS,
+  STATUSLINE_FIELD_COUNT,
+  ITEM_LINE,
+  type StatuslineItem,
+} from '../src/components/statusline-picker.js';
 
 /**
  * Navigation order must match the visual layout order.
@@ -36,10 +41,11 @@ describe('STATUSLINE_ITEMS navigation order matches visual layout', () => {
   it('is alphabetically sorted within each line (after priority items)', () => {
     // Priority items that appear at the start of a line regardless of alpha sort.
     // Currently only line 1 has priority items (yolo, autonomy, time).
-    const PRIORITY_ITEMS = new Set(['yolo', 'autonomy', 'time']);
+    const PRIORITY_ITEMS = new Set<StatuslineItem>(['yolo', 'autonomy', 'time']);
 
-    // Group by line
-    const byLine = new Map<number, string[]>();
+    // Group by line, in the order items actually appear in STATUSLINE_ITEMS
+    // (so we exercise the same grouping the picker uses for navigation).
+    const byLine = new Map<number, StatuslineItem[]>();
     for (const item of STATUSLINE_ITEMS) {
       const line = ITEM_LINE[item];
       if (!byLine.has(line)) byLine.set(line, []);
@@ -53,6 +59,20 @@ describe('STATUSLINE_ITEMS navigation order matches visual layout', () => {
       const sorted = [...tail].sort((a, b) => a.localeCompare(b));
       expect(tail).toEqual(sorted);
     }
+  });
+
+  it('groups memory with the line-2 session-context chips', () => {
+    // The /statusline picker displays the LINE 1 / LINE 2 / LINE 3 section
+    // headers by reading `ITEM_LINE`. Memory (RAM + heap) moved from line 1
+    // (cheap runtime telemetry) to line 2 (slower session-context chips the
+    // user inspects together when something goes wrong).
+    expect(ITEM_LINE.memory).toBe(2);
+
+    const line2Items = STATUSLINE_ITEMS.filter((item) => ITEM_LINE[item] === 2);
+    expect(line2Items).toContain('memory');
+
+    const line1Items = STATUSLINE_ITEMS.filter((item) => ITEM_LINE[item] === 1);
+    expect(line1Items).not.toContain('memory');
   });
 
   it('has no duplicate items', () => {

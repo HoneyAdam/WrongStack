@@ -84,17 +84,17 @@ const lastRequest = (w: FakeWorker): Extract<HostToWorker, { type: 'request' }> 
   w.postMessage.mock.calls.map((c) => c[0] as HostToWorker).find((m) => m.type === 'request') as never;
 const respond = (w: FakeWorker, msg: WorkerToHost) => w.emit('message', msg);
 
-beforeEach(() => {
+beforeEach(async () => {
   FakeWorker.instances = [];
   FakeWorker.throwOnConstruct = false;
   FakeWorker.terminateRejects = false;
   indexServiceMock.mockClear();
   resetIndexCircuitBreaker();
   // Reset module-level worker/unavailable flags.
-  shutdownCodebaseIndexHost();
+  await shutdownCodebaseIndexHost();
 });
-afterEach(() => {
-  shutdownCodebaseIndexHost();
+afterEach(async () => {
+  await shutdownCodebaseIndexHost();
   vi.useRealTimers();
 });
 

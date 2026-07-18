@@ -44,7 +44,7 @@ export interface SlashCommandContext {
   modeStore?: ModeStore | undefined;
   /** Input reader for interactive pickers (arrow key navigation etc.). */
   inputReader?: import('@wrongstack/core').InputReader | undefined;
-  onExit?: (() => void) | undefined;
+  onExit?: (() => void | Promise<void>) | undefined;
   onBeforeExit?: () => Promise<{ abort?: boolean; message?: string | undefined } | void>;
   onClear?: (() => void) | undefined;
   /**

@@ -137,6 +137,26 @@ export class EntryHeightCache {
     this.prefix = [0];
   }
 
+  /**
+   * Drop cached rows for entries no longer present in the bounded TUI history
+   * and restore prefix ordering to match the current entry array.
+   */
+  retain(entryIds: readonly number[]): void {
+    const retained = new Set(entryIds);
+    let changed = this.ids.length !== entryIds.length;
+    for (const id of this.heights.keys()) {
+      if (!retained.has(id)) {
+        this.heights.delete(id);
+        changed = true;
+      }
+    }
+    const nextIds = entryIds.filter((id) => this.heights.has(id));
+    if (!changed) changed = nextIds.some((id, index) => id !== this.ids[index]);
+    if (!changed) return;
+    this.ids = nextIds;
+    this.rebuild();
+  }
+
   // ── Private ──
 
   /** Rebuild the prefix-sum array from current heights in insertion order. */

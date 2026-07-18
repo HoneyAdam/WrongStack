@@ -11,6 +11,8 @@ const baseState = createInitialState({
   banner: false,
   restoredEntries: [],
   enhanceEnabled: true,
+  model: 'gpt-4o',
+  cwd: '/tmp',
 });
 
 describe('escCloseAction', () => {

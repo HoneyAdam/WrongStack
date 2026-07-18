@@ -520,6 +520,7 @@ describe('kanban storage and manager', () => {
 
     const spawns: SubagentConfig[] = [];
     const assignments: TaskSpec[] = [];
+    let assignedRunTaskId = '';
     const fakeDirector = {
       spawn: async (config: SubagentConfig) => {
         spawns.push(config);
@@ -527,14 +528,15 @@ describe('kanban storage and manager', () => {
       },
       assign: async (spec: TaskSpec) => {
         assignments.push(spec);
-        return 'fleet-task-1';
+        assignedRunTaskId = spec.id;
+        return spec.id;
       },
       awaitTasks: async (taskIds: string[]): Promise<TaskResult[]> => {
-        expect(taskIds).toEqual(['fleet-task-1']);
+        expect(taskIds).toEqual([assignedRunTaskId]);
         return [
           {
             subagentId: 'sub-1',
-            taskId: 'fleet-task-1',
+            taskId: assignedRunTaskId,
             status: 'success',
             result: 'done',
             iterations: 1,
@@ -573,7 +575,7 @@ describe('kanban storage and manager', () => {
     expect(loaded?.tasks[0]?.assignment).toMatchObject({
       status: 'completed',
       subagentId: 'sub-1',
-      runTaskId: 'fleet-task-1',
+      runTaskId: assignedRunTaskId,
       lastResult: 'done',
       provider: 'openai',
       model: 'gpt-5',
@@ -627,13 +629,17 @@ describe('kanban storage and manager', () => {
       title: 'Subagent will fail',
       status: 'ready',
     });
+    let assignedRunTaskId = '';
     const fakeDirector = {
       spawn: async (_config: SubagentConfig) => 'sub-failed',
-      assign: async (_spec: TaskSpec) => 'fleet-task-failed',
+      assign: async (spec: TaskSpec) => {
+        assignedRunTaskId = spec.id;
+        return spec.id;
+      },
       awaitTasks: async (_taskIds: string[]): Promise<TaskResult[]> => [
         {
           subagentId: 'sub-failed',
-          taskId: 'fleet-task-failed',
+          taskId: assignedRunTaskId,
           status: 'failed',
           error: { kind: 'tool_failed', message: 'verification failed', retryable: false },
           iterations: 1,
@@ -657,7 +663,7 @@ describe('kanban storage and manager', () => {
       resultFailures: [
         expect.objectContaining({
           taskId: task!.task.id,
-          runTaskId: 'fleet-task-failed',
+          runTaskId: assignedRunTaskId,
           status: 'failed',
           error: 'tool_failed: verification failed',
         }),
@@ -667,7 +673,7 @@ describe('kanban storage and manager', () => {
     expect(loaded?.tasks[0]?.assignment).toMatchObject({
       status: 'failed',
       subagentId: 'sub-failed',
-      runTaskId: 'fleet-task-failed',
+      runTaskId: assignedRunTaskId,
       error: 'tool_failed: verification failed',
     });
   });

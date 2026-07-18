@@ -18,9 +18,8 @@ verification; semantic analysis is a bounded second pass over their results.
 
 WrongStack discovers this bundled skill at boot. Every prompt mode receives its
 name and trigger. Eager mode may inject this body directly; progressive mode
-loads it through the `skill` tool. The detailed subagent prompt is bundled as
-`instructions/agent-prompt.md` and should be loaded before delegating a deep
-review.
+loads it through the `skill` tool. The detailed execution prompt is bundled as
+`instructions/agent-prompt.md` and should be loaded before a deep review.
 
 ## Runtime Contract
 
@@ -63,7 +62,7 @@ hygiene could not complete verification.
 ### 2. Bounded semantic review
 
 Search for related active/stale memories and review them in bounded batches.
-For a delegated deep review, load:
+For the detailed review workflow, load:
 
 ```text
 skill({ name: "mnemosyne", resource: "instructions/agent-prompt.md" })
@@ -143,7 +142,7 @@ tools are absent, run on demand instead.
 - Permanent and high-importance memories receive extra scrutiny; never bypass
   store protections with `force`.
 - A memory that passes review is not rewritten merely to bump timestamps.
-- Every mutation or proposal includes an evidence-based reason.
+- Record evidence for each mutation in the report; every proposal includes its supported `reason`.
 - A failed batch does not invalidate successful deterministic results.
 - Never advertise commands, config keys, background services, or tools that
   are not present in the live runtime.

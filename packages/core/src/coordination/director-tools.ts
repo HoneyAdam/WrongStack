@@ -981,8 +981,7 @@ export function makeKanbanQueueTool(
           const remaining = director.getRemainingBudgetUsd();
           if (remaining !== undefined && remaining < costCeiling) {
             budgetRejectedTaskIds.add(claim.task.id);
-            const budgetError =
-              `Cost ceiling ${costCeiling} exceeds remaining budget ${remaining.toFixed(4)}`;
+            const budgetError = `Cost ceiling ${costCeiling} exceeds remaining budget ${remaining.toFixed(4)}`;
             await updateTaskAssignment(
               projectRoot,
               claim.board.id,
@@ -1005,8 +1004,9 @@ export function makeKanbanQueueTool(
         try {
           const config = buildKanbanSubagentConfig(claim.task, i, roster);
           subagentId = await director.spawn(config);
-          runTaskId = await director.assign({
-            id: randomUUID(),
+          const dispatchTaskId = randomUUID();
+          const taskSpec = {
+            id: dispatchTaskId,
             subagentId,
             description: buildKanbanFleetTaskPrompt(claim.board, claim.task, {
               // The worker must heartbeat against the lease it actually holds.
@@ -1032,13 +1032,12 @@ export function makeKanbanQueueTool(
                 projectRoot,
               },
             },
-          });
-          // Fence the dispatch-time running-state write with the claim lease
-          // id. spawn() + assign() can take long enough (or be delayed long
-          // enough in the coordinator queue) for the claim lease to expire and
-          // recover_stale to reclaim+reassign the task to a successor. Without
-          // this fence, the unconditional write below would overwrite the
-          // successor's assignment and let two workers run the same task.
+          };
+          // Fence the running-state write BEFORE handing the task to
+          // Director.assign(). The coordinator starts dispatch synchronously
+          // from assign(), so fencing afterwards leaves a window in which a
+          // reassigned task can already begin executing. Pre-generating the run
+          // id lets the board record the exact id without opening that window.
           // updateTaskAssignment checks expectedLeaseId inside the mutateBoard
           // lock (assignment.ts) and returns null on mismatch.
           const dispatched = await updateTaskAssignment(
@@ -1049,7 +1048,7 @@ export function makeKanbanQueueTool(
               ...(claim.task.assignment ?? {}),
               status: 'running',
               subagentId,
-              runTaskId,
+              runTaskId: dispatchTaskId,
               // Renew the lease from the actual dispatch moment, not from claim
               // time. The claim-time lease starts before spawn + queueing, so
               // `timeoutMs + 60_000` can expire while the worker is still
@@ -1064,11 +1063,10 @@ export function makeKanbanQueueTool(
             { expectedLeaseId: leaseSeeding.leaseId },
           );
           if (dispatched === null) {
-            // Ownership was lost during spawn/queueing: recover_stale already
-            // reclaimed and reassigned the task. Terminate the subagent we just
-            // spawned so it cannot execute the now-reassigned task in parallel
-            // with the successor, and record a conflict rather than falsely
-            // claiming the dispatch succeeded.
+            // Ownership was lost before dispatch: recover_stale already
+            // reclaimed and reassigned the task. Because assign() has not been
+            // called yet, terminating the idle spawned agent guarantees this
+            // orphan never begins executing the reassigned task.
             try {
               await director.terminate(subagentId);
             } catch (cleanupErr) {
@@ -1086,6 +1084,8 @@ export function makeKanbanQueueTool(
             });
             continue;
           }
+          await director.assign(taskSpec);
+          runTaskId = dispatchTaskId;
           dispatches.push({
             boardId: claim.board.id,
             taskId: claim.task.id,
@@ -1123,6 +1123,61 @@ export function makeKanbanQueueTool(
             { expectedLeaseId: leaseSeeding.leaseId },
           );
           errors.push({ taskId: claim.task.id, error: message });
+        }
+      }
+
+      // Extension-driven lease renewal for fire-and-forget dispatches.
+      // The awaitCompletion branch below renews leases while awaiting
+      // results, but a non-awaited dispatch returns immediately — nothing
+      // would renew the lease when the coordinator's auto-extend policy
+      // (auto-extend.ts) grants timeout extensions past the dispatch-time
+      // lease window, letting recover_stale reclaim a live task. This
+      // detached supervisor renews each dispatched lease (fenced with
+      // expectedLeaseId, so a reassigned task is never touched) until the
+      // worker reaches a terminal fleet event (subagent.completed /
+      // subagent.stopped), with a hard ceiling matching the 24h auto-extend
+      // timeout cap so a missed terminal event cannot leak the timer forever.
+      if (
+        !i.awaitCompletion &&
+        dispatches.length > 0 &&
+        typeof director.fleet?.subscribe === 'function'
+      ) {
+        const ourLeaseId = leaseSeeding.leaseId;
+        const disposers = new Map<string, () => void>();
+        const renewalStartedAt = Date.now();
+        const maxRenewalWindowMs = 24 * 60 * 60_000;
+        const stopAll = (): void => {
+          clearInterval(renewalTimer);
+          for (const dispose of disposers.values()) dispose();
+          disposers.clear();
+        };
+        const renewalTimer = setInterval(() => {
+          if (disposers.size === 0 || Date.now() - renewalStartedAt > maxRenewalWindowMs) {
+            stopAll();
+            return;
+          }
+          const refreshedExpiry = new Date(Date.now() + effectiveLeaseTtlMs).toISOString();
+          for (const dispatch of dispatches) {
+            if (!disposers.has(dispatch.runTaskId)) continue;
+            // Fire-and-forget renewal: the expectedLeaseId fence inside
+            // heartbeatTaskAssignment's mutateBoard lock makes a stale
+            // renewal a no-op; transient write errors simply retry next tick.
+            void heartbeatTaskAssignment(projectRoot, dispatch.boardId, dispatch.taskId, {
+              leaseExpiresAt: refreshedExpiry,
+              expectedLeaseId: ourLeaseId,
+            }).catch(() => {});
+          }
+        }, heartbeatIntervalMs);
+        renewalTimer.unref?.();
+        for (const dispatch of dispatches) {
+          const dispose = director.fleet.subscribe(dispatch.subagentId, (event) => {
+            if (event.type !== 'subagent.completed' && event.type !== 'subagent.stopped') return;
+            if (event.type === 'subagent.completed' && event.taskId !== dispatch.runTaskId) return;
+            disposers.get(dispatch.runTaskId)?.();
+            disposers.delete(dispatch.runTaskId);
+            if (disposers.size === 0) clearInterval(renewalTimer);
+          });
+          disposers.set(dispatch.runTaskId, dispose);
         }
       }
 
@@ -1277,9 +1332,7 @@ function buildKanbanSubagentConfig(
       ? { allowedCapabilities: input.allowedCapabilities ?? assignment?.allowedCapabilities }
       : {}),
     ...(input.worktree !== undefined ? { worktree: input.worktree } : {}),
-    ...(assignment?.costCeilingUsd !== undefined
-      ? { maxCostUsd: assignment.costCeilingUsd }
-      : {}),
+    ...(assignment?.costCeilingUsd !== undefined ? { maxCostUsd: assignment.costCeilingUsd } : {}),
   };
 }
 

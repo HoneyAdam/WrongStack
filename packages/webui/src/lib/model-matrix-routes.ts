@@ -82,6 +82,7 @@ export const MODEL_MATRIX_ROUTE_GROUPS = [
       { role: 'frontend', name: 'Frontend' },
       { role: 'backend', name: 'Backend' },
       { role: 'designer', name: 'Designer' },
+      { role: 'ios', name: 'iOS' },
     ],
   },
   {

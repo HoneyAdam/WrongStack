@@ -248,11 +248,23 @@ function terminateWorker(reason: unknown): void {
  * Tear down the index host (worker + pending debounces). Call on process
  * shutdown; safe to call when nothing is running.
  */
-export function shutdownCodebaseIndexHost(): void {
+export async function shutdownCodebaseIndexHost(): Promise<void> {
   cancelPendingReindexes();
   indexStorePool.closeAll();
-  terminateWorker(new Error('codebase-index host shut down'));
+  const w = worker;
+  worker = null;
+  failAllPending(new Error('codebase-index host shut down'));
   workerUnavailable = false; // a future call may spawn a fresh worker
+  if (w) {
+    try {
+      // On Windows SQLite files remain locked until the worker has actually
+      // exited. Exposing the termination promise lets deterministic teardown
+      // wait before removing an index directory.
+      await w.terminate();
+    } catch {
+      // Shutdown is best-effort, matching watchdog termination semantics.
+    }
+  }
 }
 
 interface CallOpts {

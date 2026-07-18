@@ -27,11 +27,19 @@ Capture the report: note `examined`, `deduplicated`, `verified`, `staled`, `revi
 If `memory_hygiene` ran with `verify: true`, the anchor verification is already done.
 Skip this unless you need to verify specific memories by ID.
 
-### 1c. Gather review candidates
-Use `memory_search` with broad query to list all active memories. Collect their IDs,
-texts, kinds, importance, confidence, freshness, tags, anchors, and lastAccessedAt.
+### 1c. Gather a bounded review sample
+`memory_search` is relevance-based, requires a query, and returns at most 100 results;
+it is not a complete-store enumeration API. Run a bounded set of explicit searches
+for the review themes in scope (for example the affected path/symbol plus
+`contradiction`, `stale`, `low confidence`, or `duplicate`). Use
+`memory_search({ query: <theme>, include_stale: true, limit: 100 })` whenever stale
+memories are in scope. Deduplicate by memory ID and collect the returned texts,
+kinds, importance, confidence, freshness, tags, anchors, and lastAccessedAt.
 
-Store this as the candidate list for Phase 2.
+Store these results as the Phase 2 sample. Record every query, result count, and the
+fact that unreturned memories were not examined. Never report the sample as all
+active memories. If complete curation is required and no paginated enumeration tool
+is registered, stop after deterministic hygiene and report that limitation.
 
 ---
 
@@ -41,7 +49,10 @@ Split the candidate list into batches of `reviewBatchSize` (default 20). For eac
 
 ### Per-batch LLM prompt
 
-Use `delegate` to spawn a subagent with this task:
+Analyze the batch in the current agent. If a registered one-shot `llm` tool is
+available, you may use it for the following structured classification prompt; do
+not spawn or delegate another agent. If `llm` is absent or fails, perform the same
+bounded analysis directly:
 
 ```
 Review these {N} memories from the project's Super Memory store:
@@ -177,11 +188,13 @@ Format the body as a readable Markdown summary (stats table + notable findings).
 3. **Never delete or archive directly.** Mnemosyne files proposals (`memory_candidates
    propose`) for destructive outcomes; the user resolves them via `memory_candidates
    resolve`. The only status mutation you may apply directly is `stale` (non-terminal).
-4. **Log every action.** Every `memory_update` or `memory_candidates` call includes a
-   descriptive reason prefixed with "Mnemosyne:".
+4. **Log every action.** Record an evidence-based explanation prefixed with
+   "Mnemosyne:" in the report for every `memory_update`. Include that explanation
+   in the supported `reason` field for every `memory_candidates` proposal.
 5. **Don't rewrite unchanged.** If a memory passes all checks, leave it untouched
    — don't call `memory_update` just to bump `updatedAt`.
-6. **Handle errors gracefully.** If a batch delegate times out, skip that batch and
-   move to the next. If `memory_hygiene` fails, proceed to Phase 2 anyway.
-7. **Respect budget.** Limit concurrent batch delegations to `maxBatches` (default 10).
+6. **Handle errors gracefully.** If a one-shot LLM analysis times out, analyze that
+   batch directly or skip it with an explicit report entry. If `memory_hygiene`
+   fails, proceed to Phase 2 anyway.
+7. **Respect budget.** Process at most `maxBatches` batches (default 10).
 
