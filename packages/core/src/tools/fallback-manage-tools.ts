@@ -574,13 +574,11 @@ const AGENT_MODEL_ASSIGN_SCHEMA: JSONSchema = {
         'Set to true to remove the matrix entry for this role (it will fall through to phase/*/leader).',
     },
   },
-  oneOf: [
-    { required: ['role', 'clear'] },
-    { required: ['role', 'model'] },
-    { required: ['role', 'profile'] },
-    { required: ['role', 'provider', 'model'] },
-    { required: ['role'] }, // show current assignment
-  ],
+  // Flattened from a top-level oneOf — Anthropic-family endpoints reject
+  // top-level combinators (omniroute 400: "input_schema does not support
+  // oneOf, allOf, or anyOf at the top level"). Combination rules are
+  // enforced in the handler instead.
+  required: ['role'],
   additionalProperties: false,
 };
 
@@ -619,6 +617,16 @@ function createAgentModelAssignTool(opts: FallbackManageToolOptions): Tool<Agent
     icon: 'settings',
     async execute(input) {
       const config = opts.getConfig();
+
+      // Reject conflicting combination rules — only one mode at a time
+      const modes = [input.clear ? 'clear' : null, input.profile ? 'profile' : null, input.model ? 'model' : null].filter(Boolean);
+      if (modes.length > 1) {
+        return {
+          status: 'error',
+          message: `Conflicting assignment modes: ${modes.join(' + ')}. ` +
+            'Use exactly one: clear=true, profile="name", or model="name" (optionally with provider).',
+        };
+      }
 
       // Special case: "list" role shows current matrix
       if (input.role === 'list') {
@@ -927,11 +935,10 @@ const PROVIDER_KEY_SET_SCHEMA: JSONSchema = {
       description: 'Whether to make this the active key. Default: true.',
     },
   },
-  oneOf: [
-    { required: ['provider', 'key'] },
-    { required: ['provider', 'envVar'] },
-    { required: ['provider'] },
-  ],
+  // Flattened from a top-level oneOf — Anthropic-family endpoints reject
+  // top-level combinators (omniroute 400). Combination rules are enforced
+  // in the handler instead.
+  required: ['provider'],
   additionalProperties: false,
 };
 
@@ -973,6 +980,15 @@ function createProviderKeySetTool(opts: FallbackManageToolOptions): Tool<Provide
       const providers = {
         ...((config.providers ?? {}) as unknown as Record<string, Record<string, unknown>>),
       };
+
+      // Reject when both key and envVar are supplied — ambiguous intent
+      if (input.key && input.envVar) {
+        return {
+          status: 'error',
+          message: 'Provide either key (direct, visible to LLM) OR envVar (reads from environment, ' +
+            'never visible to LLM), not both. Use envVar for security.',
+        };
+      }
 
       // If no key or envVar is given, request interactive input
       if (!input.key && !input.envVar) {
