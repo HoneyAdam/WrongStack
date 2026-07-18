@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   ChronicleJournal,
+  ChronicleQueryEngine,
   createChronicleContext,
   wireToolsToChronicle,
 } from '../../src/chronicle/index.js';
@@ -120,5 +121,62 @@ describe('wireToolsToChronicle', () => {
     expect(recorded).toHaveLength(1);
     expect(recorded[0]).toMatchObject({ eventType: 'tool.failed', outcome: 'failure', durationNs: '300000000' });
     expect(recorded[0]?.attributes).toMatchObject({ toolName: 'bash', category: 'timeout', retryable: true });
+  });
+
+  it('records permission provenance without persisting raw tool arguments', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'chronicle-permission-'));
+    tempDirs.push(dir);
+    const journal = new ChronicleJournal({ filePath: path.join(dir, 'permission.events.jsonl') });
+    const events = new EventBus();
+    const context = createChronicleContext(
+      { installationId: 'i', machineId: 'm', projectId: 'p' },
+      'trace',
+    );
+    const unsubscribe = wireToolsToChronicle({ events, journal, context, scrubber });
+
+    events.emit('permission.evaluated', {
+      sessionId: 'session',
+      traceId: 'trace',
+      agentId: 'leader',
+      name: 'bash',
+      id: 'tool-permission',
+      inputHash: 'a'.repeat(64),
+      policyDecision: 'auto',
+      effectiveDecision: 'confirm',
+      decisionSource: 'trust',
+      reason: 'matched SECRET rule',
+      riskTier: 'destructive',
+      yoloEnabled: false,
+      boundaryDecision: 'confirm',
+      boundaryReason: 'SECRET boundary',
+      capabilityDowngraded: true,
+    });
+
+    const recorded = await journal.readAll();
+    const query = await ChronicleQueryEngine.fromDirectory(dir);
+    const summary = (await query.query({ eventTypes: ['permission.evaluated'] })).summary;
+    unsubscribe();
+
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatchObject({
+      eventType: 'permission.evaluated',
+      outcome: 'success',
+      correlation: { traceId: 'trace', toolCallId: 'tool-permission' },
+      attributes: {
+        toolName: 'bash',
+        inputHash: 'a'.repeat(64),
+        policyDecision: 'auto',
+        effectiveDecision: 'confirm',
+        decisionSource: 'trust',
+        reason: 'matched [REDACTED] rule',
+        riskTier: 'destructive',
+        yoloEnabled: false,
+        boundaryDecision: 'confirm',
+        boundaryReason: '[REDACTED] boundary',
+        capabilityDowngraded: true,
+      },
+    });
+    expect(JSON.stringify(recorded[0])).not.toContain('SECRET');
+    expect(summary.families.decision).toBe(1);
   });
 });

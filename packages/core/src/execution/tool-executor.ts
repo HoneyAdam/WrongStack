@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { runWithProcessTelemetry } from '../observability/process-telemetry.js';
 import { runWithNetworkTelemetry } from '../observability/network-telemetry.js';
 import { isDeepStrictEqual } from 'node:util';
@@ -380,12 +380,12 @@ export class ToolExecutor {
       // silently widen into arbitrary dangerous-capability execution.
       const authoritativeAuto = decision.source === 'yolo';
 
-      if (
+      const capabilityDowngraded =
         toolDangerousCaps.length > 0 &&
         effectivePermission === 'auto' &&
         !yolo &&
-        !authoritativeAuto
-      ) {
+        !authoritativeAuto;
+      if (capabilityDowngraded) {
         // Outside yolo we force at least 'confirm' for dangerous-capability tools.
         effectivePermission = 'confirm';
       }
@@ -395,6 +395,26 @@ export class ToolExecutor {
       if (boundary.decision === 'confirm' && effectivePermission !== 'deny') {
         effectivePermission = 'confirm';
       }
+
+      this.opts.events?.emit('permission.evaluated', {
+        sessionId: ctx.session.id,
+        ...(ctx.traceId ? { traceId: ctx.traceId } : {}),
+        ...(ctx.agentId ? { agentId: ctx.agentId } : {}),
+        name: tool.name,
+        id: use.id,
+        inputHash: hashPermissionInput(use.input, this.opts.secretScrubber),
+        policyDecision: decision.permission,
+        effectiveDecision: effectivePermission,
+        decisionSource: decision.source,
+        ...(decision.reason ? { reason: decision.reason } : {}),
+        ...(decision.riskTier ?? tool.riskTier
+          ? { riskTier: decision.riskTier ?? tool.riskTier }
+          : {}),
+        yoloEnabled: yolo,
+        boundaryDecision: boundary.decision,
+        ...(boundary.reason ? { boundaryReason: boundary.reason } : {}),
+        capabilityDowngraded,
+      });
 
       if (effectivePermission === 'deny') {
         const result = this.deniedResult(use, decision.reason);
@@ -1385,6 +1405,19 @@ async function maybePersistLargeToolOutput(
   } catch {
     return content;
   }
+}
+
+function hashPermissionInput(
+  input: unknown,
+  scrubber: ToolExecutorOptions['secretScrubber'],
+): string {
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(input) ?? '';
+  } catch {
+    serialized = String(input);
+  }
+  return createHash('sha256').update(scrubber.scrub(serialized), 'utf8').digest('hex');
 }
 
 function sliceUtf8Prefix(text: string, maxBytes: number): string {
