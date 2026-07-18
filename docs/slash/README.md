@@ -111,6 +111,7 @@ First-party plugins are official registry owners, so an enabled plugin exposes b
 | Default active | `wstack-sync` | `/sync`; [sync](sync.md) |
 | Default active | `wstack-skills` | `/skill`, `/skill-gen`, `/skill-search`, `/skill-install`, `/skill-import`, `/skill-update`, `/skill-uninstall`; [skill commands](skills.md) |
 | Opt-in | `wstack-chimera` | `/chimera`; [Chimera](chimera.md) |
+| Opt-in | `wstack-auto-review` | `/auto-review`; [auto-review](auto-review.md) |
 | Opt-in | `semver-bump` | `/semver`; [semantic versioning](semver.md) |
 | Opt-in | `@wrongstack/plug-lsp` | `/lsp` (`/lsplsp`), plus `/list`, `/start`, `/stop`, `/restart`, `/diagnostics`; [LSP](lsp.md) |
 | Opt-in | `telegram` | `/telegram-health` (`/telegram`, `/tgstat`, `/tgs`), `/send`, `/chatid`; [Telegram plugin](telegram.md) |
