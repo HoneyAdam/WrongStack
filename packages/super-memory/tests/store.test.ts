@@ -297,6 +297,37 @@ describe('Super Memory tool-call middleware', () => {
       expect(active.find((m) => m.id === memoryId)).toBeUndefined();
     });
 
+    it('rejects deletion without force and keeps the memory active', async () => {
+      // Use a separate memory so the shared memoryId isn't consumed
+      const mem = await store.rememberSuper({ text: 'Guard test target', kind: 'fact' });
+      await expect(store.deleteSuperMemory(mem.id)).rejects.toThrow(/explicit authorization/);
+      const stillActive = await store.getSuperMemory(mem.id);
+      expect(stillActive!.status).toBe('active');
+    });
+
+    it('prefers non-deleted record when two entries have equal revision', async () => {
+      // Simulate the file-reordering bug: append an active record, then a
+      // deleted tombstone with the SAME revision (what direct JSONL
+      // manipulation or a race produces). The store must keep the memory
+      // active because the tombstone is a stale duplicate, not a newer state.
+      const mem = await store.rememberSuper({ text: 'Dedup test', kind: 'fact' });
+      // Directly append a same-revision deleted tombstone to the JSONL
+      const paths = (store as unknown as { paths: { memoriesLog: string } }).paths;
+      const fs = await import('node:fs');
+      fs.appendFileSync(paths.memoriesLog, JSON.stringify({
+        recordType: 'memory',
+        schemaVersion: 1,
+        op: 'delete',
+        memory: { ...mem, status: 'deleted' as const },
+      }) + '\n');
+      // Invalidate cache and reload
+      (store as unknown as { loaded: unknown }).loaded = undefined;
+      (store as unknown as { loadedLogSignature: unknown }).loadedLogSignature = undefined;
+      const reloaded = await store.getSuperMemory(mem.id);
+      // The active record should win — the same-revision tombstone is stale
+      expect(reloaded?.status).toBe('active');
+    });
+
     it('keeps ordinary soft-deleted memory eligible for automatic LLM retrieval', async () => {
       await store.deleteSuperMemory(memoryId, 'No longer shown as active', { force: true });
       const matches = await store.searchSuper('pnpm monorepo');

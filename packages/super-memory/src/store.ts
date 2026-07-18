@@ -1836,8 +1836,17 @@ export class SuperMemoryStore implements MemoryStore {
         continue;
       }
       const current = latest.get(record.memory.id);
-      if (!current || record.memory.revision >= current.revision) {
+      if (!current || record.memory.revision > current.revision) {
         latest.set(record.memory.id, record.memory);
+      } else if (record.memory.revision === current.revision) {
+        // Equal revision: last-in-file normally wins, but a `deleted`
+        // tombstone at the same revision is a stale duplicate — not a
+        // newer state. Prefer the non-deleted record so that an older
+        // active entry isn't overwritten by a same-revision tombstone
+        // left by file reordering or direct JSONL manipulation.
+        if (current.status === 'deleted' && record.memory.status !== 'deleted') {
+          latest.set(record.memory.id, record.memory);
+        }
       }
     }
     if (latest.size === 0) {
