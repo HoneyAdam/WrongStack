@@ -37,7 +37,6 @@ function streamingState(): State {
     },
     hint: '',
     brain: { state: 'idle' },
-    brainPrompt: null,
     nextId: 2,
     historyGen: 3,
     picker: { open: false, query: '', matches: [], selected: 0 },

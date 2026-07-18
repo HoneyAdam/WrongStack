@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import {
-  type KanbanAgentAssignment,
-  type KanbanBoard,
-  type KanbanRecoveryPolicy,
-  type KanbanTask,
+import type {
+  KanbanAgentAssignment,
+  KanbanBoard,
+  KanbanRecoveryPolicy,
+  KanbanTask,
 } from '../src/types.js';
 import {
   areDependenciesMet,

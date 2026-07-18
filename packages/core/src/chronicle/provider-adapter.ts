@@ -31,7 +31,7 @@ export function wireProviderAttemptsToChronicle(options: ChronicleProviderAdapte
       durationNs: millisecondsToNanoseconds(event.durationMs),
     })),
   ];
-  return () => unsubs.forEach((unsubscribe) => unsubscribe());
+  return () => unsubs.forEach((unsubscribe) => { unsubscribe(); });
 }
 
 type ProviderAttemptEvent =

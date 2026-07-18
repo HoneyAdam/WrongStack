@@ -60,7 +60,7 @@ export function wireRollupsToChronicle(options: ChronicleRollupAdapterOptions): 
   ];
   const timer = setInterval(() => { const cutoff = Date.now() - windowMs; for (const [key, value] of buckets) if (value.updatedAt <= cutoff) flush(key); }, windowMs);
   timer.unref?.();
-  return () => { clearInterval(timer); for (const key of [...buckets.keys()]) flush(key); offs.forEach((off) => off()); };
+  return () => { clearInterval(timer); for (const key of [...buckets.keys()]) flush(key); offs.forEach((off) => { off(); }); };
 }
 function text(value: unknown): string | undefined { return typeof value === 'string' ? value : undefined; }
 function safeDigest(value: unknown): string { try { return createHash('sha256').update(JSON.stringify(value)).digest('hex'); } catch { return 'unhashable'; } }

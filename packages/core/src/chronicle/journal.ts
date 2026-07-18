@@ -274,12 +274,12 @@ export class ChronicleJournal {
       const last = recorded[recorded.length - 1]!;
       this.lastSequence = last.sequence;
       this.lastHash = last.hash;
-      batch.forEach((item, i) => item.resolve(recorded[i]!));
+      batch.forEach((item, i) => { item.resolve(recorded[i]!); });
       this.counters.persistedEvents += batch.length;
       void this.maybeAutoPurge();
     } catch (error) {
       this.counters.failedEvents += batch.length;
-      batch.forEach((item) => item.reject(error));
+      batch.forEach((item) => { item.reject(error); });
     } finally { this.lastBatchDurationMs = performance.now() - started; }
   }
 }

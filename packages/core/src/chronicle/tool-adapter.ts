@@ -78,7 +78,7 @@ export function wireToolsToChronicle(options: ChronicleToolAdapterOptions): () =
       });
     }),
   ];
-  return () => unsubs.forEach((unsubscribe) => unsubscribe());
+  return () => unsubs.forEach((unsubscribe) => { unsubscribe(); });
 }
 
 type ToolCorrelationEvent = {

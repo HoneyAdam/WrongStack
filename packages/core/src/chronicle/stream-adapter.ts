@@ -56,5 +56,5 @@ export function wireProviderStreamsToChronicle(options: ChronicleStreamAdapterOp
     options.events.on('provider.attempt.completed', (event) => flush(event.sessionId, event.agentId, 'success')),
     options.events.on('provider.attempt.failed', (event) => flush(event.sessionId, event.agentId, 'failure')),
   ];
-  return () => { for (const state of [...states.values()]) flush(state.sessionId, state.agentId, 'failure'); offs.forEach((off) => off()); };
+  return () => { for (const state of [...states.values()]) flush(state.sessionId, state.agentId, 'failure'); offs.forEach((off) => { off(); }); };
 }

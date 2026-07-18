@@ -41,7 +41,7 @@ export function wireProcessesToChronicle(options: ChronicleProcessAdapterOptions
       },
     })),
   ];
-  return () => unsubs.forEach((unsubscribe) => unsubscribe());
+  return () => unsubs.forEach((unsubscribe) => { unsubscribe(); });
 }
 
 type ProcessEvent =

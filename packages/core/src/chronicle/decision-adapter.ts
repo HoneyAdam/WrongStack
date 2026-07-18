@@ -38,7 +38,7 @@ export function wireDecisionsToChronicle(options: ChronicleDecisionAdapterOption
     options.events.on('brain.human_answered', (e) => write('decision.human_answered', e.at, e.sessionId, e.id, { resolver: 'human', optionId: e.optionId, denied: e.deny ?? false, answerHash: hash(e.text) }, e.deny ? 'denied' : 'success')),
     options.events.on('brain.outcome', (e) => write('decision.outcome_observed', e.at, e.sessionId, e.requestId, { observedOutcome: e.outcome, detailHash: hash(e.detail) }, e.outcome)),
   ];
-  return () => offs.forEach((off) => off());
+  return () => offs.forEach((off) => { off(); });
 }
 
 function hash(value: string | undefined): string | undefined {
