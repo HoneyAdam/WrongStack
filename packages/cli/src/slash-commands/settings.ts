@@ -222,9 +222,14 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
         };
       }
 
+      const activeProfile = opts.configStore.get().activeProfile ?? 'default';
       const persistDeps = {
         configStore: opts.configStore,
         globalConfigPath: opts.paths.globalConfig,
+        profileConfigPath:
+          typeof opts.paths.profileConfig === 'function'
+            ? opts.paths.profileConfig(activeProfile)
+            : undefined,
         inProjectConfigPath: opts.paths.inProjectConfig,
         vault: noOpVault,
       };

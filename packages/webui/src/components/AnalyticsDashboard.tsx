@@ -20,10 +20,12 @@ import {
   Users,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { usePagination } from '@/hooks/usePagination';
 import { useScrollPosition } from '@/hooks/useScrollPosition';
 import { getWSClient } from '@/lib/ws-client';
 import { useAppTranslation } from '@/i18n';
 import { useConfigStore } from '@/stores';
+import { Pagination } from './ui/pagination';
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -291,6 +293,7 @@ export function AnalyticsDashboard() {
   // Recent events reversed for display (newest first). Memoize to avoid
   // allocating a fresh array on every render.
   const reversedEvents = useMemo(() => [...events].reverse(), [events]);
+  const eventPage = usePagination(reversedEvents, 20);
 
   if (loading) {
     return (
@@ -514,7 +517,7 @@ export function AnalyticsDashboard() {
             <p className="text-xs text-muted-foreground">{t('activity:analytics.noRecentEvents')}</p>
           ) : (
             <div className="max-h-64 space-y-1 overflow-y-auto">
-              {reversedEvents.map((evt, i) => (
+              {eventPage.pageItems.map((evt, i) => (
                 <div
                   key={`${evt.timestamp}-${i}`}
                   className="grid grid-cols-[4rem_minmax(0,7rem)_minmax(0,6rem)_minmax(0,1fr)] items-start gap-2 rounded px-2 py-1 text-xs hover:bg-muted/60"
@@ -527,6 +530,15 @@ export function AnalyticsDashboard() {
               ))}
             </div>
           )}
+          <Pagination
+            page={eventPage.page}
+            pageSize={eventPage.pageSize}
+            totalItems={eventPage.totalItems}
+            onPageChange={eventPage.setPage}
+            compact
+            itemLabel="events"
+            className="mt-3 rounded-lg border"
+          />
         </div>
       </div>
       </div>

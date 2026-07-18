@@ -121,6 +121,8 @@ export interface ToolConfirmPendingResult {
   suggestedPattern: string;
   decisionSource?: import('./permission.js').PermissionDecision['source'] | undefined;
   riskTier?: import('./tool.js').RiskTier | undefined;
+  /** Present when approval is required specifically by a Kanban scope. */
+  boundaryReason?: string | undefined;
 }
 
 export type ToolExecutorStrategy = 'parallel' | 'sequential' | 'smart';

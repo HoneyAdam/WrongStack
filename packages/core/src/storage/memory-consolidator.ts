@@ -11,6 +11,93 @@ import {
 
 // ── Types ───────────────────────────────────────────────────────────────
 
+/**
+ * Minimal interface for writing to Super Memory without importing
+ * @wrongstack/super-memory (core cannot depend on super-memory).
+ * Tools like the consolidator use this to route adds through
+ * rememberSuper rather than the legacy MemoryStore.remember(),
+ * making them visible to searchSuper/turn-middleware.
+ */
+type ConsolidatorSuperMemoryKind =
+  | 'fact'
+  | 'decision'
+  | 'convention'
+  | 'preference'
+  | 'anti_pattern'
+  | 'file_note';
+
+interface ConsolidatorSuperMemoryRecord {
+  text: string;
+  scope?: string | undefined;
+  createdAt?: string | undefined;
+  updatedAt?: string | undefined;
+}
+
+export interface ConsolidatorSuperMemory {
+  rememberSuper(input: {
+    text: string;
+    scope?: string | undefined;
+    kind?: ConsolidatorSuperMemoryKind | undefined;
+    tags?: string[] | undefined;
+    priority?: string | undefined;
+    importance?: number | undefined;
+    confidence?: number | undefined;
+    sources?: Array<{ type: string; sessionId?: string | undefined }> | undefined;
+  }): Promise<unknown>;
+  listSuper?(statuses?: Array<'active'>): Promise<unknown[]>;
+  searchSuper?(
+    query: string,
+    opts?: { limit?: number; scope?: 'project'; includeStatuses?: Array<'active'> },
+  ): Promise<unknown[]>;
+}
+
+function isSuperMemoryRecord(value: unknown): value is ConsolidatorSuperMemoryRecord {
+  return typeof value === 'object'
+    && value !== null
+    && typeof (value as { text?: unknown }).text === 'string';
+}
+
+function toPromptEntries(records: unknown[], limit: number): MemoryEntry[] {
+  return records
+    .filter(isSuperMemoryRecord)
+    .filter((record) => record.scope === 'project')
+    .slice(0, limit)
+    .map((record) => ({
+      scope: 'project-memory',
+      text: record.text,
+      ts: record.updatedAt ?? record.createdAt ?? '',
+    }));
+}
+
+function toSuperMemoryKind(type: string | undefined): ConsolidatorSuperMemoryKind {
+  switch (type) {
+    case 'decision':
+    case 'convention':
+    case 'preference':
+    case 'anti_pattern':
+      return type;
+    case 'reference':
+      return 'file_note';
+    default:
+      return 'fact';
+  }
+}
+
+function importanceFromPriority(priority: string | undefined): number {
+  switch (priority) {
+    case 'critical':
+      return 0.95;
+    case 'high':
+      return 0.8;
+    case 'medium':
+      return 0.55;
+    case 'low':
+      return 0.25;
+    default:
+      return 0.6;
+  }
+}
+
 export interface ConsolidationOp {
   /**
    * Add-only by design. The consolidator runs unattended after every
@@ -38,6 +125,14 @@ interface ConsolidationResponse {
 
 export interface MemoryConsolidatorOptions {
   memoryStore: MemoryStore;
+  /**
+   * Optional Super Memory writer. When provided, the consolidator routes
+   * adds through `rememberSuper()` and reads existing entries for dedup
+   * context via `searchSuper()` instead of the legacy `MemoryStore`.
+   * This makes consolidator-sourced memories visible to the turn-middleware
+   * (searchSuper, retrieveForPath) which only queries Super Memory.
+   */
+  superMemory?: ConsolidatorSuperMemory | undefined;
   /**
    * Provider used for the consolidation LLM call. Uses the session's
    * provider by default.
@@ -93,6 +188,7 @@ export class SessionMemoryConsolidator implements AgentExtension {
   owner = 'core';
 
   private readonly memoryStore: MemoryStore;
+  private readonly superMemory?: ConsolidatorSuperMemory | undefined;
   private readonly provider?: Provider | undefined;
   private readonly model?: string | undefined;
   private readonly minIterations: number;
@@ -101,6 +197,7 @@ export class SessionMemoryConsolidator implements AgentExtension {
 
   constructor(opts: MemoryConsolidatorOptions) {
     this.memoryStore = opts.memoryStore;
+    this.superMemory = opts.superMemory;
     this.provider = opts.provider;
     this.model = opts.model;
     this.minIterations = opts.minIterations ?? 2;
@@ -121,14 +218,29 @@ export class SessionMemoryConsolidator implements AgentExtension {
     const _finalText: string = result.finalText;
     const _iterations: number = result.iterations;
     const _model: string | undefined = this.model ?? ctx.model;
+    const _sessionId: string = ctx.session.id;
 
     // Fire-and-forget: consolidation is best-effort and should never block
     // session teardown (the LLM call can take up to 15s). The catch block
     // below prevents unhandled rejections.
     void (async () => {
       try {
-        // Load existing memory for dedup context
-        const existingEntries = await this.memoryStore.list('project-memory', this.maxExistingEntries);
+        // Load existing memory through the same backend contract used for writes.
+        // SQLite-shaped Super Memory stores intentionally do not implement the
+        // legacy MemoryStore.list() interface.
+        let existingEntries: MemoryEntry[];
+        if (this.superMemory) {
+          const records = this.superMemory.listSuper
+            ? await this.superMemory.listSuper(['active'])
+            : await this.superMemory.searchSuper?.('', {
+                limit: this.maxExistingEntries,
+                scope: 'project',
+                includeStatuses: ['active'],
+              }) ?? [];
+          existingEntries = toPromptEntries(records, this.maxExistingEntries);
+        } else {
+          existingEntries = await this.memoryStore.list('project-memory', this.maxExistingEntries);
+        }
         const prompt = buildConsolidationPrompt(
           _finalText,
           _iterations,
@@ -179,14 +291,34 @@ export class SessionMemoryConsolidator implements AgentExtension {
         let added = 0;
 
         for (const op of parsed.operations) {
-          if (op.action !== 'add') continue;
-          if (op.text?.trim()) {
-            await this.memoryStore.remember(op.text.trim(), undefined, {
-              type: op.type as MemoryEntry['type'],
-              tags: op.tags,
-              priority: op.priority as MemoryEntry['priority'],
-            });
+          try {
+            if (!op || typeof op !== 'object' || op.action !== 'add') continue;
+            if (typeof op.text !== 'string' || !op.text.trim()) continue;
+            const memoryText = op.text.trim();
+
+            if (this.superMemory) {
+              // Translate the legacy prompt enum before crossing the Super
+              // Memory boundary; reference is represented as file_note there.
+              await this.superMemory.rememberSuper({
+                text: memoryText,
+                scope: 'project',
+                kind: toSuperMemoryKind(op.type),
+                tags: op.tags,
+                importance: importanceFromPriority(op.priority),
+                sources: [{ type: 'session', sessionId: _sessionId }],
+              });
+            } else {
+              // Legacy path: write to the markdown-based MemoryStore.
+              await this.memoryStore.remember(memoryText, undefined, {
+                type: op.type as MemoryEntry['type'],
+                tags: op.tags,
+                priority: op.priority as MemoryEntry['priority'],
+              });
+            }
             added++;
+          } catch {
+            // One malformed or backend-rejected item must not discard later
+            // valid additions from the same consolidation batch.
           }
         }
 

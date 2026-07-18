@@ -482,7 +482,8 @@ export const miscHandlerMap: Partial<Record<string, (msg: WSServerMessage) => vo
   'goal.failed': handleGoalLifecycle,
   'goal.error': handleGoalLifecycle,
   'goal.list': handleGoalList,
-  'brain.status': handleBrainStatus,
+  // brain.status is NOT added to chat — the BrainSection component
+  // renders this information natively in the settings panel.
   'brain.answer': handleBrainAnswer,
   'brain.event': handleBrainEvent,
   'memory.event': handleMemoryEvent,

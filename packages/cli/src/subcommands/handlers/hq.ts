@@ -67,8 +67,14 @@ async function startServer(deps: SubcommandDeps): Promise<number> {
   const port = typeof flags['port'] === 'string' ? Number.parseInt(flags['port'], 10) : 3499;
   const strictPort = flags['strict-port'] === true;
   const open = flags['open'] === true;
-  const password = typeof flags['password'] === 'string' ? flags['password'] : undefined;
+  const password =
+    typeof flags['password'] === 'string' ? flags['password'] : process.env.WRONGSTACK_HQ_PASSWORD;
   const allowInsecureOpen = flags['insecure-open'] === true;
+
+  if (password !== undefined && password.length < 8) {
+    deps.renderer.writeError('HQ password must be at least 8 characters.\n');
+    return 1;
+  }
 
   let handle: HqServerHandle;
   try {
@@ -371,6 +377,8 @@ function printHelp(deps: SubcommandDeps): void {
   deps.renderer.write(`Flags (apply to all subcommands):\n`);
   deps.renderer.write(`  --data-dir <path>   Override HQ data directory (default ~/.wrongstack/hq).\n`);
   deps.renderer.write(`  --host <ip>         Bind host (default 0.0.0.0; use 127.0.0.1 for local-only).\n`);
+  deps.renderer.write(`  --tunnel            Publish a temporary *.trycloudflare.com URL (requires cloudflared).\n`);
+  deps.renderer.write(`  --password <value>  Set or rotate the browser login password.\n`);
   deps.renderer.write(`  --insecure-open     Allow a non-loopback bind with no token/password set.\n`);
   deps.renderer.write(`  --port <n>          Bind port (default 3499).\n`);
   deps.renderer.write(`  --strict-port       Fail if port is in use.\n`);

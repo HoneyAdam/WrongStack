@@ -21,6 +21,8 @@
  * real tool calls.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { usePagination } from '@/hooks/usePagination';
+import { Pagination } from '@/components/ui/pagination';
 import {
   AlertTriangle,
   Check,
@@ -321,9 +323,8 @@ function Section({
   cursorBoosted = false,
   ...handlers
 }: SectionProps) {
+  const memoryPage = usePagination(matches, 10);
   if (matches.length === 0) return null;
-  const visible = matches.slice(0, 50);
-  const overflow = matches.length - visible.length;
   return (
     <section className="flex flex-col gap-1.5">
       <h3 className="flex items-center gap-1.5 px-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -337,7 +338,7 @@ function Section({
         )}
       </h3>
       <div className="flex flex-col gap-1.5">
-        {visible.map((match) => (
+        {memoryPage.pageItems.map((match) => (
           <MemoryCard
             key={match.memory.id}
             match={match}
@@ -347,11 +348,14 @@ function Section({
           />
         ))}
       </div>
-      {overflow > 0 && (
-        <p className="px-1 text-[10px] text-muted-foreground">
-          +{overflow} more — refine the cursor or limit to narrow.
-        </p>
-      )}
+      <Pagination
+        page={memoryPage.page}
+        pageSize={memoryPage.pageSize}
+        totalItems={memoryPage.totalItems}
+        onPageChange={memoryPage.setPage}
+        compact
+        itemLabel="memories"
+      />
     </section>
   );
 }

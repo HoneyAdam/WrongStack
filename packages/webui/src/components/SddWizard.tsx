@@ -17,7 +17,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useProviderModels } from '@/hooks/useProviderModels';
 import { useScrollPosition } from '@/hooks/useScrollPosition';
 import { useWebSocket } from '@/hooks/useWebSocket';
-import { openMainView } from '@/lib/view-navigation';
 import { priorityStyle } from '@/lib/sdd-theme';
 import { cn } from '@/lib/utils';
 import { useAppTranslation } from '@/i18n';
@@ -45,7 +44,13 @@ const PHASE_ORDER = ['questioning', 'spec_review', 'implementation', 'task_revie
  * hands off to the live board. Works on both webui servers (the run uses the
  * CLI's director-backed fleet or the runtime light factory respectively).
  */
-export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElement {
+export function SddWizard({
+  onClose,
+  onRunStarted,
+}: {
+  onClose: () => void;
+  onRunStarted?: () => void;
+}): React.ReactElement {
   const { t } = useAppTranslation();
   const { client } = useWebSocket();
   const snapshot = useSddWizardStore((s) => s.snapshot);
@@ -89,13 +94,14 @@ export function SddWizard({ onClose }: { onClose: () => void }): React.ReactElem
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [answerCount, agentText]);
 
-  // When the run starts, jump to the live board to watch the agents work.
+  // When the run starts, hand control to the hub so it can reveal the live board
+  // without toggling the already-open main view back to chat.
   useEffect(() => {
     if (startedRunId) {
-      openMainView('sddboard');
+      onRunStarted?.();
       setStartedRunId(null);
     }
-  }, [startedRunId, setStartedRunId]);
+  }, [onRunStarted, setStartedRunId, startedRunId]);
 
   const busy = snapshot?.busy ?? false;
   const phase = snapshot?.phase ?? 'idle';

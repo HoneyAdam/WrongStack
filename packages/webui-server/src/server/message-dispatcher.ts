@@ -150,7 +150,7 @@ const chronicleCache = new Map<string, { loadedAt: number; engine: ChronicleQuer
 async function chronicleEngine(projectRoot: string): Promise<ChronicleQueryEngine> {
   const now = Date.now();
   const cached = chronicleCache.get(projectRoot);
-  if (cached && now - cached.loadedAt < 1_000) return cached.engine;
+  if (cached && now - cached.loadedAt < 60_000) return cached.engine;
   const paths = resolveWstackPaths({ projectRoot, userHome: os.homedir() });
   const engine = await ChronicleQueryEngine.fromDirectory(
     path.join(paths.projectDir, 'chronicle'),
@@ -759,7 +759,7 @@ export function createMessageDispatcher(
       case 'chronicle.query': {
         const payload = (msg.payload ?? {}) as { query?: ChronicleQuery };
         const engine = await chronicleEngine(state.getProjectRoot());
-        send(ws, { type: 'chronicle.query_result', payload: engine.query(payload.query ?? {}) });
+        send(ws, { type: 'chronicle.query_result', payload: await engine.query(payload.query ?? {}) });
         break;
       }
 
@@ -794,7 +794,7 @@ export function createMessageDispatcher(
           type: 'chronicle.facet_result',
           payload: {
             field: payload.field,
-            values: engine.facet(payload.field, payload.query ?? {}, payload.limit),
+            values: await engine.facet(payload.field, payload.query ?? {}, payload.limit),
             diagnostics: engine.diagnostics,
           },
         });
@@ -810,7 +810,7 @@ export function createMessageDispatcher(
         const engine = await chronicleEngine(state.getProjectRoot());
         send(ws, {
           type: 'chronicle.graph_result',
-          payload: engine.graph(payload.seed ?? {}, payload.hops, payload.maxNodes),
+          payload: await engine.graph(payload.seed ?? {}, payload.hops, payload.maxNodes),
         });
         break;
       }

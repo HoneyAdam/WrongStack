@@ -9,7 +9,7 @@
 // passed in, keeping this helper free of CLI/host coupling.
 
 import type { Agent } from '@wrongstack/core';
-import type { AgentFactory } from '@wrongstack/core';
+import { TOKENS, type AgentFactory, type SecretScrubber } from '@wrongstack/core';
 import type { EventBus } from '@wrongstack/core/kernel';
 import type { TaskGraph } from '@wrongstack/core/types';
 import type { TaskTracker } from '@wrongstack/core/tasking';
@@ -121,6 +121,7 @@ export function startSddRun(opts: StartSddRunOptions): SddRunHandle {
     defaultModel: opts.defaultModel,
     defaultProvider: opts.defaultProvider,
     fallbackModels: opts.fallbackModels,
+    secretScrubber: opts.agent.container?.safeResolve(TOKENS.SecretScrubber) as SecretScrubber | undefined,
   });
 
   opts.registry?.register({

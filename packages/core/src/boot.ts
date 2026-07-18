@@ -130,7 +130,14 @@ export async function bootConfig(options: BootConfigOptions = {}): Promise<BootC
   // config loads; migration is best-effort and the warning it would emit
   // (permission errors on restrictFilePermissions) is the same one the
   // main logger would surface on the next boot.
-  for (const file of [wpaths.globalConfig, wpaths.projectLocalConfig]) {
+  // Also migrate secrets in the default profile config (other profiles
+  // will be migrated on first load via ensureProfileConfig).
+  // Defensive: profileConfig may not be available in test mocks.
+  const bootstrapProfilePath =
+    typeof wpaths.profileConfig === 'function' ? wpaths.profileConfig('default') : null;
+  const secretFiles = [wpaths.globalConfig, wpaths.projectLocalConfig].filter(Boolean) as string[];
+  if (bootstrapProfilePath) secretFiles.push(bootstrapProfilePath);
+  for (const file of secretFiles) {
     try {
       const { migrated } = await migratePlaintextSecrets(file, vault, noOpLogger);
       if (migrated > 0) {

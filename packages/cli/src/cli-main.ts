@@ -1081,6 +1081,7 @@ export async function main(argv: string[]): Promise<number> {
   // always have exactly one masked consumer.
   const secretInputController = {
     readSecret: (prompt: string) => reader.readSecret(prompt),
+    readText: (prompt: string) => reader.readLine(prompt),
   };
 
   // Registry of the active multi-agent SDD board run. The webui board handler
@@ -1136,6 +1137,7 @@ export async function main(argv: string[]): Promise<number> {
     configStore,
     reader,
     readSecret: (prompt) => secretInputController.readSecret(prompt),
+    readText: (prompt) => secretInputController.readText(prompt),
     vault,
     brain,
     brainSettings,
@@ -1145,6 +1147,12 @@ export async function main(argv: string[]): Promise<number> {
     statusTracker,
     shadowController,
     confirm: async (question, defaultYes = true): Promise<boolean | null> => {
+      // Ink owns stdin while the TUI is mounted. Route slash-command
+      // confirmations into its visible modal instead of starting an invisible
+      // readline prompt behind the application.
+      if (interruptController.confirmSlash) {
+        return interruptController.confirmSlash(question, defaultYes);
+      }
       // Non-TTY / piped stdin → don't block. For destructive or surprising
       // actions (e.g. starting eternal mode against a stale goal) the safe
       // non-interactive default is `false` — auto-confirming destructive
@@ -2161,13 +2169,16 @@ export async function main(argv: string[]): Promise<number> {
         // model — reuses the same non-persisting builder as the fallback chain, so
         // the session provider/model is never mutated.
         buildEnhancerProvider: async (providerId: string, _modelId: string) => {
-          // The provider only needs to reach `providerId`'s API — the specific
-          // model is passed to `enhanceUserPrompt` directly, not baked into the
-          // Provider — so `_modelId` is accepted for interface symmetry but unused.
           try {
             return buildProviderForId(providerId);
           } catch {
-            return undefined;
+            // The specific model is passed to `enhanceUserPrompt` separately,
+            // so the provider only needs API connectivity — use the active
+            // session provider when the requested one isn't configurable
+            // (e.g. an unconfigured provider from the registry's full model
+            // list). This prevents refinement from hanging when the user picks
+            // a model whose provider doesn't have its own credentials.
+            return context.provider;
           }
         },
         // Resolve the one-key "retry with another model" offer against the LIVE

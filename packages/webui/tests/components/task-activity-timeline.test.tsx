@@ -94,6 +94,34 @@ describe('TaskActivityTimeline', () => {
     expect(screen.getAllByText('session:session-42').length).toBeGreaterThan(0);
   });
 
+  it('renders task-scoped file operations as readable execution evidence', () => {
+    const fileRead: KanbanEvent = {
+      id: 'file-read',
+      boardId: 'board-1',
+      taskId: task.id,
+      type: 'task.file.read',
+      ts: '2026-07-16T08:10:30.000Z',
+      actor: 'reviewer-1',
+      sessionId: 'session-42',
+      correlationId: 'tool-1',
+      note: 'read src/app.ts',
+      after: {
+        operation: 'read',
+        filePath: 'src/app.ts',
+        toolName: 'read',
+        durationMs: 18,
+        lines: 64,
+      },
+    };
+
+    expect(activityCategory(fileRead)).toBe('execution');
+    render(<TaskActivityTimeline task={task} events={[...events, fileRead]} />);
+
+    expect(screen.getByText('File Read')).toBeTruthy();
+    expect(screen.getByText('src/app.ts · tool:read · 18ms · 64 lines')).toBeTruthy();
+    expect(screen.getByText('trace:tool-1')).toBeTruthy();
+  });
+
   it('shows field-level changes, reasons, execution routing, attempts, and raw payloads', () => {
     const update: KanbanEvent = {
       id: 'updated',

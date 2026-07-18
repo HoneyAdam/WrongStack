@@ -41,7 +41,7 @@ function groupUpdate(updateId: number, chatId: number, userId: number): Telegram
   };
 }
 
-async function setupRig(choice: string) {
+async function setupRig(choice: string, useSurfacePrompt = false) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-tg-pairing-'));
   tempDirs.push(dir);
   const configPath = path.join(dir, 'config.json');
@@ -55,6 +55,7 @@ async function setupRig(choice: string) {
   };
   const write = vi.fn();
   const readLine = vi.fn(async () => choice);
+  const readText = vi.fn(async () => choice);
   const command = buildTelegramSetupCommand({
     configStore,
     paths: { globalConfig: configPath },
@@ -62,8 +63,9 @@ async function setupRig(choice: string) {
     vault,
     renderer: { write },
     reader: { readLine },
+    ...(useSurfacePrompt ? { readText } : {}),
   } as never);
-  return { command, configPath, vault, configStore, write, readLine };
+  return { command, configPath, vault, configStore, write, readLine, readText };
 }
 
 function mockBotApi(updates: TelegramPairingUpdate[]) {
@@ -220,6 +222,17 @@ describe('/telegram-setup safe discovery pairing', () => {
       allowedUsers: [101],
       allowedChats: [101],
     });
+  });
+
+  it('uses the surface text prompt instead of readline when the TUI bridge is available', async () => {
+    mockBotApi([privateUpdate(4, 101)]);
+    const { command, readLine, readText } = await setupRig('1', true);
+
+    const result = await command.run('');
+
+    expect(readText).toHaveBeenCalledWith('Pair candidate › ');
+    expect(readLine).not.toHaveBeenCalled();
+    expect(result?.message).toContain('Paired private chat');
   });
 
   it('cancels without changing config', async () => {

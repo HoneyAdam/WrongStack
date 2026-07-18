@@ -197,6 +197,37 @@ describe('deleteBoard', () => {
 // ── mutateBoard — error paths ─────────────────────────────────────
 
 describe('mutateBoard', () => {
+  it('does not rewrite or bump the revision for a no-op mutation', async () => {
+    const board = await makeBoard();
+    const boardPath = getKanbanPath(tmpDir, board.id);
+    const beforeRaw = await fs.readFile(boardPath, 'utf8');
+    const beforeStat = await fs.stat(boardPath);
+
+    const result = await mutateBoard(tmpDir, board.id, () => null);
+    const afterRaw = await fs.readFile(boardPath, 'utf8');
+    const afterStat = await fs.stat(boardPath);
+
+    expect(result?.result).toBeNull();
+    expect(result?.board.revision).toBe(board.revision);
+    expect(afterRaw).toBe(beforeRaw);
+    expect(afterStat.mtimeMs).toBe(beforeStat.mtimeMs);
+  });
+
+  it('still persists and bumps the revision for a real mutation', async () => {
+    const board = await makeBoard();
+
+    const result = await mutateBoard(tmpDir, board.id, (current) => {
+      current.description = 'changed';
+      return 'ok';
+    });
+    const persisted = await readBoard(tmpDir, board.id);
+
+    expect(result?.result).toBe('ok');
+    expect(result?.board.revision).toBe((board.revision ?? 0) + 1);
+    expect(persisted?.description).toBe('changed');
+    expect(persisted?.revision).toBe((board.revision ?? 0) + 1);
+  });
+
   it('returns null for unknown board ref', async () => {
     const result = await mutateBoard(tmpDir, 'nonexistent', () => 'ok');
     expect(result).toBeNull();
@@ -221,6 +252,69 @@ describe('mutateBoard', () => {
     await fs.unlink(boardPath);
     await fs.mkdir(boardPath, { recursive: true });
     await expect(mutateBoard(tmpDir, board.id, () => 'ok')).rejects.toThrow();
+  });
+
+  it('detects a stale write when the file is modified during an async no-op mutator', async () => {
+    // Regression: a no-op mutator (no change to `board`) must still validate
+    // the on-disk revision under the file lock. Otherwise a concurrent
+    // modification that lands between the initial read and the no-op return
+    // is silently masked: the caller gets a stale board snapshot and the
+    // revision-check bypass means the cross-process write goes undetected.
+    const board = await makeBoard();
+    const boardPath = getKanbanPath(tmpDir, board.id);
+    const lockPath = `${boardPath}.lock`;
+
+    // Suspend the mutator on a deferred promise so we can mutate the file
+    // from outside the lock while mutateBoard is still inside withFileLock.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const mutatorPromise = mutateBoard(tmpDir, board.id, async () => {
+      await gate;
+      // Genuine no-op: do not touch `current` at all.
+      return null;
+    });
+
+    // Wait until mutateBoard has acquired its file lock and reached the
+    // suspended mutator. Polling the lock file's existence is the most
+    // reliable way to know withFileLock has finished its `wx` open + write
+    // and is now waiting on the mutator. We bound the wait so a regression
+    // that blocks the lock doesn't hang the test suite.
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline) {
+      try {
+        await fs.stat(lockPath);
+        break;
+      } catch {
+        await new Promise<void>((resolve) => setTimeout(resolve, 5));
+      }
+    }
+    // Give the mutator one more microtask to actually be reached so the
+    // post-mutator re-read will see our concurrent write.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    // Simulate a concurrent process advancing the on-disk revision while
+    // mutateBoard's mutator is still pending. We write directly to the file
+    // path — this bypasses withFileLock's advisory lock file, which is the
+    // realistic cross-process shape (a different process wouldn't honor our
+    // .lock sentinel either).
+    const concurrent = await readBoard(tmpDir, board.id);
+    expect(concurrent).not.toBeNull();
+    const advanced: typeof concurrent = {
+      ...concurrent!,
+      description: 'written by concurrent process',
+      revision: (concurrent!.revision ?? 0) + 1,
+      updatedAt: new Date().toISOString(),
+    };
+    await fs.writeFile(boardPath, `${JSON.stringify(advanced, null, 2)}\n`, 'utf8');
+
+    // Release the mutator. It returns as a no-op (did not touch `board`),
+    // and the post-mutator revision check must now reject because the
+    // on-disk revision no longer matches what we read at the start.
+    release();
+    await expect(mutatorPromise).rejects.toThrow(/Stale write detected/);
   });
 });
 

@@ -7,7 +7,7 @@ export interface SafeParseResult<T> {
 }
 
 export function safeParse<T = unknown>(input: string, maxBytes = 5_000_000): SafeParseResult<T> {
-  if (input.length > maxBytes) {
+  if (Buffer.byteLength(input, 'utf8') > maxBytes) {
     return { ok: false, error: `Input exceeds limit (${maxBytes} bytes)` };
   }
   try {
@@ -44,7 +44,7 @@ export function safeStringify(value: unknown, pretty = false): string {
 
 /**
  * Attempt to parse JSON5-style input and return a valid JSON string.
- * Handles trailing commas, single-line comments, and unquoted keys
+ * Handles trailing commas, line/block comments, and unquoted keys
  * that are common in provider output.
  *
  * Returns the sanitized string if it parses successfully as JSON,
@@ -55,11 +55,8 @@ export function safeStringify(value: unknown, pretty = false): string {
 export function sanitizeJsonString(s: string): string | null {
   let out = s.trim();
 
-  // Stage 1: strip single-line comments (// to end of line) that appear
-  // outside of string values. This is a heuristic: comments inside strings
-  // are preserved because we only strip // when preceded by a char that
-  // strongly suggests we're not in a string (quote count modulo 2 is even).
-  out = stripSingleLineComments(out);
+  // Stage 1: strip line and block comments outside JSON string values.
+  out = stripJsonComments(out);
 
   // Stage 2: strip trailing commas before } or ]
   out = out.replace(/,(\s*[}\]])/g, '$1');
@@ -150,22 +147,54 @@ function escapeControlCharsInStrings(s: string): string {
   return out;
 }
 
-function stripSingleLineComments(s: string): string {
+function stripJsonComments(s: string): string {
   let inString = false;
+  let escaped = false;
   const chars: string[] = [];
   let i = 0;
+
   while (i < s.length) {
     const c = s.charAt(i);
-    if (c === '"' && (i === 0 || s.charAt(i - 1) !== '\\')) {
-      inString = !inString;
+
+    if (inString) {
       chars.push(c);
-    } else if (c === '/' && s.charAt(i + 1) === '/' && !inString) {
-      // skip to end of line
-      while (i < s.length && s.charAt(i) !== '\n') i++;
-    } else {
-      chars.push(c);
+      if (escaped) {
+        escaped = false;
+      } else if (c === '\\') {
+        escaped = true;
+      } else if (c === '"') {
+        inString = false;
+      }
+      i++;
+      continue;
     }
+
+    if (c === '"') {
+      inString = true;
+      chars.push(c);
+      i++;
+      continue;
+    }
+
+    if (c === '/' && s.charAt(i + 1) === '/') {
+      while (i < s.length && s.charAt(i) !== '\n') i++;
+      continue;
+    }
+
+    if (c === '/' && s.charAt(i + 1) === '*') {
+      const end = s.indexOf('*/', i + 2);
+      if (end === -1) {
+        // Preserve an unterminated opener so the final JSON.parse rejects it.
+        chars.push(s.slice(i));
+        break;
+      }
+      i = end + 2;
+      continue;
+    }
+
+    chars.push(c);
     i++;
   }
+
   return chars.join('');
 }

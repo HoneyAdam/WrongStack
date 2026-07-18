@@ -325,6 +325,7 @@ type PartialConfig = Partial<Config> & {
  */
 const IN_PROJECT_ALLOWED_KEYS: ReadonlySet<string> = new Set([
   'version',
+  'activeProfile',
   'model',
   'cwd',
   'context',
@@ -436,6 +437,7 @@ const KNOWN_DENIED_IN_PROJECT: ReadonlyArray<{ key: string; reason: string }> = 
  */
 const KNOWN_CONFIG_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set([
   'version',
+  'activeProfile',
   'provider',
   'model',
   'apiKey',
@@ -806,13 +808,18 @@ export class DefaultConfigLoader implements ConfigLoader {
     // ~/.wrongstack/config.json without persisting ephemeral overrides.
     await this.ensureGlobalDefaults();
 
-    // Layer 2, 3 & 3b: global + project-local + in-project config — read in parallel.
+    // Layer 2, 3 (profile), 4 & 4b: global bootstrap + profile + project-local +
+    // in-project config. The global bootstrap (~/.wrongstack/config.json) is now
+    // a thin file containing just version, activeProfile, and optionally a few
+    // truly machine-specific settings. The actual user settings live in the
+    // active profile's config: ~/.wrongstack/profiles/<name>/config.json.
+    //
     // inProjectConfig (<project>/.wrongstack/config.json) merges AFTER
     // projectLocalConfig so it takes priority (user-intended > auto-cached).
     //
     // When the project root *is* the user's home (e.g. launching from `~`),
     // `<projectRoot>/.wrongstack/config.json` resolves to the very same file as
-    // the trusted global config. Reading it again as the untrusted in-project
+    // the trusted global bootstrap. Reading it again as the untrusted in-project
     // layer would strip `provider`/`apiKey`/… from the user's *own* file and
     // emit a spurious `config.in_project_unsafe_fields_ignored` warning — even
     // though the trusted global layer already merged those fields. Skip the
@@ -821,15 +828,26 @@ export class DefaultConfigLoader implements ConfigLoader {
     const inProjectCollides =
       samePath(this.paths.inProjectConfig, this.paths.globalConfig) ||
       samePath(this.paths.inProjectConfig, this.paths.projectLocalConfig);
-    const [global, local, inProject] = await Promise.all([
+    const [bootstrap, local, inProject] = await Promise.all([
       this.readJson(this.paths.globalConfig),
       this.readJson(this.paths.projectLocalConfig),
       inProjectCollides
         ? Promise.resolve({} as PartialConfig)
         : this.readJson(this.paths.inProjectConfig),
     ]);
-    cfg = deepMerge(cfg, global);
+    cfg = deepMerge(cfg, bootstrap);
+
+    // Layer 2b: active profile config.
+    // Extract the active profile name from the bootstrap config (default: 'default').
+    const profileName =
+      (bootstrap as { activeProfile?: string | undefined }).activeProfile ?? 'default';
+    const profileCfg = await this.readJson(this.paths.profileConfig(profileName));
+    if (Object.keys(profileCfg).length > 0) {
+      cfg = deepMerge(cfg, profileCfg);
+    }
+
     cfg = deepMerge(cfg, local);
+
     // The in-project config is repo-committed and therefore attacker-
     // controllable. Strip credential/endpoint/code-execution fields before
     // merging so a malicious repo cannot redirect the provider endpoint
@@ -934,12 +952,11 @@ export class DefaultConfigLoader implements ConfigLoader {
     try {
       await withFileLock(fp, async () => {
         let parsed: Record<string, unknown>;
+        let fileExisted = true;
         try {
           const raw = await fs.readFile(fp, 'utf8');
           const result = safeParse<unknown>(raw);
           if (!result.ok || !isPlainRecord(result.value)) {
-            // readJson() below owns the user-visible parse warning. Do not
-            // overwrite a malformed config while trying to seed defaults.
             return;
           }
           parsed = result.value;
@@ -963,25 +980,44 @@ export class DefaultConfigLoader implements ConfigLoader {
             });
             return;
           }
+          fileExisted = false;
           parsed = {};
         }
 
-        const { value, changed } = fillMissingDefaults(
-          parsed,
-          BEHAVIOR_DEFAULTS as Record<string, unknown>,
-        );
-        if (!changed) return;
+        // Bootstrap config now only stores version + activeProfile.
+        // Full behavior defaults go into the profile config instead.
+        const bootstrap: Record<string, unknown> = {
+          version: 1,
+          activeProfile: (parsed as { activeProfile?: string | undefined }).activeProfile ?? 'default',
+        };
 
-        await atomicWrite(fp, JSON.stringify(value, null, 2), { mode: 0o600 });
-        this.events?.emit('storage.write', {
-          sessionId: '~config~',
-          store: 'config',
-          filePath: fp,
-          operation: 'ensure_defaults',
-          outcome: 'success',
-          durationMs: Date.now() - t0,
-          ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
-        });
+        let needsBootstrapWrite = false;
+        // If version is missing or wrong, write the bootstrap.
+        if ((parsed as { version?: number | undefined }).version !== 1) {
+          needsBootstrapWrite = true;
+        }
+        // If activeProfile is missing from the existing parsed config, flag it.
+        if (parsed.activeProfile === undefined) {
+          needsBootstrapWrite = true;
+        }
+
+        if (needsBootstrapWrite) {
+          await atomicWrite(fp, JSON.stringify(bootstrap, null, 2), { mode: 0o600 });
+          this.events?.emit('storage.write', {
+            sessionId: '~config~',
+            store: 'config',
+            filePath: fp,
+            operation: 'ensure_defaults',
+            outcome: 'success',
+            durationMs: Date.now() - t0,
+            ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
+          });
+        }
+
+        // Ensure the default profile exists.
+        const profileName = (bootstrap as { activeProfile?: string | undefined }).activeProfile ?? 'default';
+        const profileFp = this.paths.profileConfig(profileName);
+        await this.ensureProfileConfig(profileFp, parsed, fileExisted);
       });
     } catch (err) {
       this.events?.emit('storage.error', {
@@ -998,6 +1034,96 @@ export class DefaultConfigLoader implements ConfigLoader {
       this.logWarn('Config defaults write failed', {
         event: 'config.defaults_write_failed',
         path: fp,
+        message: toErrorMessage(err),
+      });
+    }
+  }
+
+  /**
+   * Ensure a profile config file exists at the given path.
+   * On first boot: migrate content from the old flat global config, or seed
+   * with behavior defaults. Subsequent boots: fill any missing keys from
+   * BEHAVIOR_DEFAULTS (keeping user settings intact).
+   */
+  private async ensureProfileConfig(
+    profileFp: string,
+    oldGlobalParsed: Record<string, unknown>,
+    oldFileExisted: boolean,
+  ): Promise<void> {
+    const t0 = Date.now();
+    try {
+      await withFileLock(profileFp, async () => {
+        let parsed: Record<string, unknown>;
+        let existed = true;
+        try {
+          const raw = await fs.readFile(profileFp, 'utf8');
+          const result = safeParse<unknown>(raw);
+          if (!result.ok || !isPlainRecord(result.value)) {
+            this.logWarn('Profile config parse failed — falling back to defaults', {
+              event: 'config.profile_parse_failed',
+              path: profileFp,
+            });
+            parsed = {};
+          } else {
+            parsed = result.value;
+          }
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+            this.logWarn('Profile config read failed', {
+              event: 'config.profile_read_failed',
+              path: profileFp,
+              message: toErrorMessage(err),
+            });
+            return;
+          }
+          existed = false;
+          parsed = {};
+        }
+
+        // Migration from old flat config to profile: If the old global config
+        // existed and had any setting at all (can be just `version` + one user
+        // setting like `mcpServers`), promote them into the new profile config.
+        let seed: Record<string, unknown>;
+        if (!existed && oldFileExisted && Object.keys(oldGlobalParsed).length >= 1) {
+          // Copy old global content into the profile, excluding bootstrap-only fields.
+          seed = { ...oldGlobalParsed };
+          delete seed['activeProfile'];
+          // Fill in any missing behavior defaults.
+          const filled = fillMissingDefaults(seed, BEHAVIOR_DEFAULTS as Record<string, unknown>);
+          seed = filled.value;
+        } else {
+          // Normal boot: fill missing defaults on existing (or empty) profile.
+          const filled = fillMissingDefaults(parsed, BEHAVIOR_DEFAULTS as Record<string, unknown>);
+          if (!filled.changed) return; // Nothing to write
+          seed = filled.value;
+        }
+
+        await atomicWrite(profileFp, JSON.stringify(seed, null, 2), { mode: 0o600 });
+        this.events?.emit('storage.write', {
+          sessionId: '~config~',
+          store: 'config',
+          filePath: profileFp,
+          operation: 'ensure_profile_defaults',
+          outcome: 'success',
+          durationMs: Date.now() - t0,
+          ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
+        });
+      });
+    } catch (err) {
+      this.events?.emit('storage.error', {
+        sessionId: '~config~',
+        store: 'config',
+        filePath: profileFp,
+        operation: 'ensure_profile_defaults',
+        outcome: 'failure',
+        error: storageErrorString(err),
+        recoverable: false,
+        durationMs: Date.now() - t0,
+        ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
+      });
+      this.logWarn('Profile config defaults write failed', {
+        event: 'config.profile_write_failed',
+        path: profileFp,
         message: toErrorMessage(err),
       });
     }

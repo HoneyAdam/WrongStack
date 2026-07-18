@@ -1,7 +1,12 @@
-import { readHqAuthFile, writeHqAuthFile } from '@wrongstack/core';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import {
+  HQ_AUTH_FILE_VERSION,
+  readHqAuthFile,
+  verifyHqPassword,
+  writeHqAuthFile,
+} from '@wrongstack/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import { type HqServerHandle, startHqServer } from '../src/hq-server.js';
@@ -101,10 +106,38 @@ describe('HQ server — optional browser password login', () => {
     handle = await startHqServer({ host: '127.0.0.1', port: 0, dataDir, password: 'secret123' });
     const res = await fetch(httpUrl(handle, '/api/auth/status'));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { tokenMode: boolean; passwordMode: boolean; loggedIn: boolean };
+    const body = (await res.json()) as {
+      tokenMode: boolean;
+      passwordMode: boolean;
+      loggedIn: boolean;
+    };
     expect(body.passwordMode).toBe(true);
     expect(body.tokenMode).toBe(true); // first-run still mints browser tokens
     expect(body.loggedIn).toBe(false);
+  });
+
+  it('auth/status reports only server-established public relay metadata', async () => {
+    handle = await startHqServer({
+      host: '127.0.0.1',
+      port: 0,
+      dataDir,
+      password: 'secret123',
+      secureCookies: true,
+      requireBrowserAuth: true,
+    });
+    handle.trustPublicOrigin('https://quiet-river.trycloudflare.com');
+
+    const res = await fetch(httpUrl(handle, '/api/auth/status'));
+    const body = (await res.json()) as {
+      publicRelay?: boolean;
+      publicOrigin?: string;
+      secureCookies?: boolean;
+    };
+    expect(body).toMatchObject({
+      publicRelay: true,
+      publicOrigin: 'https://quiet-river.trycloudflare.com',
+      secureCookies: true,
+    });
   });
 
   it('protected /api routes reject unauthenticated requests in password mode', async () => {
@@ -197,8 +230,127 @@ describe('HQ server — optional browser password login', () => {
     });
     expect(res.status).toBe(200);
 
-    const ws = new WebSocket(`ws://${handle.host}:${handle.port}/ws/browser?token=${encodeURIComponent(token!)}`);
+    const ws = new WebSocket(
+      `ws://${handle.host}:${handle.port}/ws/browser?token=${encodeURIComponent(token!)}`,
+    );
     await expect(waitForOpen(ws)).resolves.toBeUndefined();
     ws.close();
+  });
+
+  it('allows an authenticated browser token to enable password login', async () => {
+    handle = await startHqServer({ host: '127.0.0.1', port: 0, dataDir });
+    const token = (await readHqAuthFile(dataDir)).browserTokens?.[0]?.token;
+    expect(token).toBeTruthy();
+
+    const response = await fetch(httpUrl(handle, '/api/auth/password'), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ newPassword: 'enabled-from-web' }),
+    });
+    expect(response.status).toBe(200);
+    const auth = await readHqAuthFile(dataDir);
+    expect(await verifyHqPassword('enabled-from-web', auth.passwordHash ?? '')).toBe(true);
+  });
+
+  it('allows local open mode to bootstrap a password and signs in that browser', async () => {
+    await writeHqAuthFile(dataDir, {
+      version: HQ_AUTH_FILE_VERSION,
+      updatedAt: new Date().toISOString(),
+      browserTokens: [],
+      clientTokens: [],
+    });
+    handle = await startHqServer({ host: '127.0.0.1', port: 0, dataDir });
+
+    const response = await fetch(httpUrl(handle, '/api/auth/password'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ newPassword: 'local-bootstrap' }),
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('set-cookie')).toMatch(/hq\.session=/);
+    const auth = await readHqAuthFile(dataDir);
+    expect(await verifyHqPassword('local-bootstrap', auth.passwordHash ?? '')).toBe(true);
+  });
+
+  it('requires the current password for a password-session rotation', async () => {
+    handle = await startHqServer({ host: '127.0.0.1', port: 0, dataDir, password: 'secret123' });
+    await writeHqAuthFile(dataDir, {
+      ...(await readHqAuthFile(dataDir)),
+      browserTokens: [],
+    });
+    await handle.close();
+    handle = await startHqServer({ host: '127.0.0.1', port: 0, dataDir });
+    const { cookie } = await login(handle, 'secret123');
+
+    const rejected = await fetch(httpUrl(handle, '/api/auth/password'), {
+      method: 'POST',
+      headers: { Cookie: cookie!, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPassword: 'wrong', newPassword: 'new-secret-123' }),
+    });
+    expect(rejected.status).toBe(403);
+
+    const changed = await fetch(httpUrl(handle, '/api/auth/password'), {
+      method: 'POST',
+      headers: { Cookie: cookie!, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPassword: 'secret123', newPassword: 'new-secret-123' }),
+    });
+    expect(changed.status).toBe(200);
+    expect(changed.headers.get('set-cookie')).toMatch(/hq\.session=/);
+    const auth = await readHqAuthFile(dataDir);
+    expect(await verifyHqPassword('new-secret-123', auth.passwordHash ?? '')).toBe(true);
+    expect(await verifyHqPassword('secret123', auth.passwordHash ?? '')).toBe(false);
+  });
+
+  it('allows a browser token to remove password protection', async () => {
+    handle = await startHqServer({ host: '127.0.0.1', port: 0, dataDir, password: 'secret123' });
+    const token = (await readHqAuthFile(dataDir)).browserTokens?.[0]?.token;
+
+    const response = await fetch(httpUrl(handle, '/api/auth/password'), {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: '{}',
+    });
+    expect(response.status).toBe(200);
+    const auth = await readHqAuthFile(dataDir);
+    expect(auth.passwordHash).toBeUndefined();
+    expect(auth.cookieSecret).toBeUndefined();
+  });
+
+  it('refuses to remove the final browser credential while a public relay is active', async () => {
+    handle = await startHqServer({
+      host: '127.0.0.1',
+      port: 0,
+      dataDir,
+      password: 'secret123',
+    });
+    await writeHqAuthFile(dataDir, {
+      ...(await readHqAuthFile(dataDir)),
+      browserTokens: [],
+    });
+    await handle.close();
+    handle = await startHqServer({
+      host: '127.0.0.1',
+      port: 0,
+      dataDir,
+      requireBrowserAuth: true,
+    });
+    const { cookie } = await login(handle, 'secret123');
+
+    const response = await fetch(httpUrl(handle, '/api/auth/password'), {
+      method: 'DELETE',
+      headers: { Cookie: cookie!, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentPassword: 'secret123' }),
+    });
+
+    expect(response.status).toBe(409);
+    const body = (await response.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe('BROWSER_AUTH_REQUIRED');
+    expect((await readHqAuthFile(dataDir)).passwordHash).toMatch(/^scrypt\$/);
   });
 });

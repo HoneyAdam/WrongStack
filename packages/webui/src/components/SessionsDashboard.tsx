@@ -29,7 +29,10 @@ import { i18n, useAppTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { useConfigStore, useHistoryStore, useSessionStore } from '@/stores';
 import { SessionList } from './SidePanel/SessionList';
+import { Pagination } from './ui/pagination';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+
+const LIVE_SESSION_PAGE_SIZE = 12;
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -252,6 +255,7 @@ function LiveSessionsDashboard() {
   const [sessions, setSessions] = useState<LiveSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
   // Hooks must run unconditionally: call this here, before the early returns
   // below, so hook order stays stable across loading/error/empty states
   // (otherwise React throws #310 "rendered more hooks than previous render").
@@ -332,6 +336,15 @@ function LiveSessionsDashboard() {
 
   const activeSessions = sessions.filter((s) => s.status === 'active').length;
   const totalAgents = sessions.reduce((sum, s) => sum + s.agentCount, 0);
+  const visibleSessions = sessions.slice(
+    (page - 1) * LIVE_SESSION_PAGE_SIZE,
+    page * LIVE_SESSION_PAGE_SIZE,
+  );
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(sessions.length / LIVE_SESSION_PAGE_SIZE));
+    if (page > totalPages) setPage(totalPages);
+  }, [page, sessions.length]);
 
   if (loading) {
     return (
@@ -406,7 +419,7 @@ function LiveSessionsDashboard() {
         </header>
 
         <div className="grid gap-3">
-          {sessions.map((s) => {
+          {visibleSessions.map((s) => {
             const meta = sessionMeta(s.status);
             return (
               <article key={s.sessionId} className="border border-border/70 bg-card/75 p-3 sm:p-4">
@@ -522,6 +535,13 @@ function LiveSessionsDashboard() {
             );
           })}
         </div>
+        <Pagination
+          page={page}
+          pageSize={LIVE_SESSION_PAGE_SIZE}
+          totalItems={sessions.length}
+          onPageChange={setPage}
+          itemLabel="sessions"
+        />
       </div>
     </div>
   );

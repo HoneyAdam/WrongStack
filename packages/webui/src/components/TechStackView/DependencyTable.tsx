@@ -8,9 +8,11 @@
  */
 
 import { VList } from 'virtua';
+import { usePagination } from '@/hooks/usePagination';
 import type { TechStackDependency } from '@/stores';
 import { cn } from '@/lib/utils';
 import { Badge, installedVersion, statusMeta, versionDrift } from './shared';
+import { Pagination } from '../ui/pagination';
 
 export interface DependencyTableProps {
   dependencies: readonly TechStackDependency[];
@@ -27,6 +29,7 @@ export function DependencyTable({
   hasDependencies,
   onSelect,
 }: DependencyTableProps) {
+  const dependencyPage = usePagination(dependencies, 30);
   if (dependencies.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center p-8 text-center">
@@ -56,7 +59,7 @@ export function DependencyTable({
           it. The rows are buttons — focusable and labelled by their content. */}
       <div className="min-h-0 flex-1">
         <VList className="h-full" aria-label="Dependencies">
-          {dependencies.map((dependency) => (
+          {dependencyPage.pageItems.map((dependency) => (
             <DependencyRow
               key={dependency.id}
               dependency={dependency}
@@ -66,6 +69,13 @@ export function DependencyTable({
           ))}
         </VList>
       </div>
+      <Pagination
+        page={dependencyPage.page}
+        pageSize={dependencyPage.pageSize}
+        totalItems={dependencyPage.totalItems}
+        onPageChange={dependencyPage.setPage}
+        itemLabel="dependencies"
+      />
     </div>
   );
 }

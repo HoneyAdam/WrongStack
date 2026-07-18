@@ -17,6 +17,13 @@ describe('desktop WebUI command bridge', () => {
     expect(normalizeDesktopWebuiCommand({ terminal: 1 })).toBeNull();
   });
 
+  it('accepts the unified SDD hub view and rejects removed SDD view ids', () => {
+    expect(normalizeDesktopWebuiCommand({ view: 'sddhub' })).toEqual({ view: 'sddhub' });
+    expect(normalizeDesktopWebuiCommand({ view: 'sddboard' })).toBeNull();
+    expect(normalizeDesktopWebuiCommand({ view: 'sddwizard' })).toBeNull();
+    expect(normalizeDesktopWebuiCommand({ view: 'specs' })).toBeNull();
+  });
+
   it('accepts only supported preference commands', () => {
     expect(normalizeDesktopWebuiCommand({ pref: { key: 'yolo', toggle: true } })).toEqual({
       pref: { key: 'yolo', toggle: true },

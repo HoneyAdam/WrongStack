@@ -7,9 +7,11 @@
  */
 
 import { Sparkles } from 'lucide-react';
+import { usePagination } from '@/hooks/usePagination';
 import type { TechStackDependency, TechStackFinding } from '@/stores';
 import { cn } from '@/lib/utils';
 import { ACTION_LABELS, Badge, isInterpretation, SEVERITY_META, SEVERITY_ORDER } from './shared';
+import { Pagination } from '../ui/pagination';
 
 export interface FindingsPanelProps {
   findings: readonly TechStackFinding[];
@@ -22,6 +24,7 @@ export function FindingsPanel({
   dependenciesById,
   onSelectDependency,
 }: FindingsPanelProps) {
+  const findingPage = usePagination(findings, 20);
   if (findings.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center p-8 text-center">
@@ -34,12 +37,13 @@ export function FindingsPanel({
   }
 
   const grouped = SEVERITY_ORDER.map(
-    (severity) => [severity, findings.filter((f) => f.severity === severity)] as const,
+    (severity) => [severity, findingPage.pageItems.filter((f) => f.severity === severity)] as const,
   ).filter(([, items]) => items.length > 0);
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto p-3">
-      <div className="flex flex-col gap-4">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="min-h-0 flex-1 overflow-auto p-3">
+        <div className="flex flex-col gap-4">
         {grouped.map(([severity, items]) => (
           <section key={severity}>
             <div className="mb-1.5 flex items-center gap-2">
@@ -62,7 +66,9 @@ export function FindingsPanel({
             </div>
           </section>
         ))}
+        </div>
       </div>
+      <Pagination page={findingPage.page} pageSize={findingPage.pageSize} totalItems={findingPage.totalItems} onPageChange={findingPage.setPage} itemLabel="findings" />
     </div>
   );
 }

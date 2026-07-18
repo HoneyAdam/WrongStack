@@ -14,7 +14,7 @@
 
 import { watch } from 'node:fs';
 import type { Context, EventBus, JournalEntry, SecretScrubber } from '@wrongstack/core';
-import { getBoard, getKanbanDir } from '@wrongstack/kanban';
+import { getBoard, getKanbanDir, recordTaskFileActivity } from '@wrongstack/kanban';
 import {
   createEternalSubscription,
   extractCodeMapFileTargets,
@@ -362,6 +362,22 @@ export function createSetupEvents(deps: SetupEventsDeps): () => void {
     );
 
     eventUnsubscribers.push(
+      deps.events.on('file.event', (e) => {
+        if (e.scope !== 'task' || !e.boardId || !e.taskId) return;
+        void recordTaskFileActivity(projectRoot, e.boardId, e.taskId, e)
+          .then((recorded) => {
+            if (recorded) {
+              broadcast({
+                type: 'kanban.task.activity.changed',
+                payload: { boardId: e.boardId, taskId: e.taskId },
+              });
+            }
+          })
+          .catch(() => {});
+      }),
+    );
+
+    eventUnsubscribers.push(
       deps.events.on('tool.loop_detected', (e) => {
         broadcast({
           type: 'tool.loop_detected',
@@ -699,11 +715,13 @@ export function createSetupEvents(deps: SetupEventsDeps): () => void {
           suggestedPattern: e.suggestedPattern,
           decisionSource: e.decisionSource,
           riskTier: e.riskTier,
+          boundaryReason: e.boundaryReason,
         });
         pendingConfirms.set(id, {
           resolve: e.resolve,
           decisionSource: e.decisionSource,
           riskTier: e.riskTier,
+          boundaryReason: e.boundaryReason,
           payload,
         });
         broadcast({ type: 'tool.confirm_needed', payload });

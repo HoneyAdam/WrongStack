@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — bundled operational skills
+- **`auto-review` and `mnemosyne` now ship with `@wrongstack/core`** — their
+  project-independent instructions and Mnemosyne agent prompt resource are
+  available in every WrongStack project instead of remaining local development
+  skills. Bundled-skill discovery is sorted within each priority layer so
+  eager prompt-budget selection is deterministic across filesystems; eager and
+  progressive context paths are covered by integration tests.
+
 ### Added — Super Memory storage health
 - **Periodic JSONL compaction** — the append-only `memories.jsonl` log now
   compacts automatically after mutations when total memory records exceed 3×

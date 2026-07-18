@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const execFileSyncMock = vi.fn();
-const unlinkSyncMock = vi.fn();
+const mkdirSyncMock = vi.fn();
+const writeFileSyncMock = vi.fn();
 
 vi.mock('node:child_process', async (orig) => ({
   ...(await orig<typeof import('node:child_process')>()),
@@ -10,16 +11,16 @@ vi.mock('node:child_process', async (orig) => ({
 
 vi.mock('node:fs', async (orig) => ({
   ...(await orig<typeof import('node:fs')>()),
-  mkdirSync: vi.fn(),
-  writeFileSync: vi.fn(),
-  unlinkSync: (...a: unknown[]) => unlinkSyncMock(...a),
+  mkdirSync: (...a: unknown[]) => mkdirSyncMock(...a),
+  writeFileSync: (...a: unknown[]) => writeFileSyncMock(...a),
 }));
 
 import { extractRefs } from '../src/codebase-index/refs-extractor.js';
 
 beforeEach(() => {
   execFileSyncMock.mockReset();
-  unlinkSyncMock.mockReset();
+  mkdirSyncMock.mockReset();
+  writeFileSyncMock.mockReset();
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -43,6 +44,12 @@ describe('extractRefs go', () => {
     );
     const refs = await extractRefs({ file: 'main.go', content: '', lang: 'go' });
     expect(refs).toEqual([{ fromId: 0, toName: 'fmt.Println', callType: 'call', line: 3 }]);
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining('refs.exe'),
+      ['main.go'],
+      expect.any(Object),
+    );
   });
 
   it('returns [] when the runner emits empty output', async () => {
@@ -55,14 +62,51 @@ describe('extractRefs go', () => {
     expect(await extractRefs({ file: 'main.go', content: '', lang: 'go' })).toEqual([]);
   });
 
-  it('returns [] (and swallows unlink errors) when the runner throws', async () => {
+  it('returns [] when the runner throws', async () => {
     execFileSyncMock.mockImplementation(() => {
       throw new Error('go not installed');
     });
-    unlinkSyncMock.mockImplementation(() => {
-      throw new Error('unlink failed');
-    });
     expect(await extractRefs({ file: 'main.go', content: '', lang: 'go' })).toEqual([]);
+  });
+
+  it('caches a failed compilation while retaining the go run fallback', async () => {
+    vi.resetModules();
+    const { extractRefs: freshExtractRefs } = await import('../src/codebase-index/refs-extractor.js');
+    execFileSyncMock.mockImplementation((command: string, args: string[]) => {
+      if (command === 'go' && args[0] === 'build') throw new Error('compiler unavailable');
+      return '[]';
+    });
+
+    await freshExtractRefs({ file: 'first.go', content: '', lang: 'go' });
+    await freshExtractRefs({ file: 'second.go', content: '', lang: 'go' });
+
+    const buildCalls = execFileSyncMock.mock.calls.filter(
+      ([command, args]) => command === 'go' && (args as string[])[0] === 'build',
+    );
+    expect(buildCalls).toHaveLength(1);
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(
+      2,
+      'go',
+      ['run', expect.stringContaining('refs.go'), 'first.go'],
+      expect.any(Object),
+    );
+    expect(execFileSyncMock).toHaveBeenNthCalledWith(
+      3,
+      'go',
+      ['run', expect.stringContaining('refs.go'), 'second.go'],
+      expect.any(Object),
+    );
+  });
+
+  it('returns [] when Go helper initialization fails', async () => {
+    vi.resetModules();
+    const { extractRefs: freshExtractRefs } = await import('../src/codebase-index/refs-extractor.js');
+    mkdirSyncMock.mockImplementation(() => {
+      throw new Error('temp directory unavailable');
+    });
+
+    expect(await freshExtractRefs({ file: 'main.go', content: '', lang: 'go' })).toEqual([]);
+    expect(execFileSyncMock).not.toHaveBeenCalled();
   });
 });
 
@@ -85,5 +129,16 @@ describe('extractRefs python', () => {
       throw new Error('python missing');
     });
     expect(await extractRefs({ file: 'a.py', content: '', lang: 'py' })).toEqual([]);
+  });
+
+  it('returns [] when Python helper initialization fails', async () => {
+    vi.resetModules();
+    const { extractRefs: freshExtractRefs } = await import('../src/codebase-index/refs-extractor.js');
+    writeFileSyncMock.mockImplementation(() => {
+      throw new Error('temp script unavailable');
+    });
+
+    expect(await freshExtractRefs({ file: 'a.py', content: '', lang: 'py' })).toEqual([]);
+    expect(execFileSyncMock).not.toHaveBeenCalled();
   });
 });

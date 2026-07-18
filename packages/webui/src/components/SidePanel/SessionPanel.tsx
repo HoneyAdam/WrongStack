@@ -25,9 +25,11 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { usePagination } from '@/hooks/usePagination';
 import { useAppTranslation } from '@/i18n';
 import { playCompletionChime } from '@/lib/chime';
 import { cn } from '@/lib/utils';
+import { Pagination } from '@/components/ui/pagination';
 import { showPanel } from '@/lib/view-navigation';
 import { getWSClient } from '@/lib/ws-client';
 import { useChatStore, useConfigStore, useFleetStore, useSessionStore, useUIStore } from '@/stores';
@@ -235,6 +237,8 @@ export function SessionPanel() {
   const pinnedRows = pinnedIds
     .map((id) => messages.find((m) => m.id === id))
     .filter((m): m is NonNullable<typeof m> => !!m && m.content.length > 0);
+  const todoPage = usePagination(todos, 12, session?.id);
+  const pinnedPage = usePagination(pinnedRows, 8, session?.id);
 
   const send = (msg: Parameters<NonNullable<ReturnType<typeof getWSClient>>['send']>[0]) =>
     getWSClient(wsUrl)?.send?.(msg);
@@ -415,7 +419,7 @@ export function SessionPanel() {
                 />
               </div>
               <ul className="space-y-0.5 max-h-56 overflow-y-auto pr-1 -mx-1">
-                {todos.map((t) => {
+                {todoPage.pageItems.map((t) => {
                   const Icon =
                     t.status === 'completed'
                       ? CheckCircle2
@@ -451,6 +455,14 @@ export function SessionPanel() {
                   );
                 })}
               </ul>
+              <Pagination
+                page={todoPage.page}
+                pageSize={todoPage.pageSize}
+                totalItems={todoPage.totalItems}
+                onPageChange={todoPage.setPage}
+                compact
+                itemLabel="todos"
+              />
             </div>
           );
         })()}
@@ -472,7 +484,7 @@ export function SessionPanel() {
             }
           />
           <ul className="space-y-1 max-h-48 overflow-y-auto pr-1">
-            {pinnedRows.map((m) => {
+            {pinnedPage.pageItems.map((m) => {
               const preview = m.content.replace(/\s+/g, ' ').slice(0, 80);
               return (
                 <li key={m.id}>
@@ -497,6 +509,14 @@ export function SessionPanel() {
               );
             })}
           </ul>
+          <Pagination
+            page={pinnedPage.page}
+            pageSize={pinnedPage.pageSize}
+            totalItems={pinnedPage.totalItems}
+            onPageChange={pinnedPage.setPage}
+            compact
+            itemLabel="pinned answers"
+          />
         </div>
       )}
 

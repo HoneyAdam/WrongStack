@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { blockingCalendarRules, ruleTarget } from '@/lib/model-calendar';
 import { useProviderStatusStore } from '@/stores';
 import { useLocalPrefs } from '@/stores/local-prefs';
+import { usePagination } from '@/hooks/usePagination';
+import { Pagination } from '@/components/ui/pagination';
 
 function remaining(expiresAt: number | undefined, now: number): string {
   if (!expiresAt) return 'reset time unknown';
@@ -27,6 +29,8 @@ export function ProviderWaitingRoom() {
     () => blockingCalendarRules(calendarRules, new Date(now)),
     [calendarRules, now],
   );
+  const entryPage = usePagination(entries, 8);
+  const rulePage = usePagination(activeRules, 8);
 
   useEffect(() => {
     if (entries.length === 0 && calendarRules.length === 0) return;
@@ -54,7 +58,7 @@ export function ProviderWaitingRoom() {
       </button>
       {expanded && (
         <div className="border-t border-amber-500/15 px-3 py-2">
-          {entries.map((entry) => (
+          {entryPage.pageItems.map((entry) => (
             <div
               key={`${entry.providerId}/${entry.model}`}
               className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1.5"
@@ -76,7 +80,16 @@ export function ProviderWaitingRoom() {
               </span>
             </div>
           ))}
-          {activeRules.map((rule) => (
+          <Pagination
+            page={entryPage.page}
+            pageSize={entryPage.pageSize}
+            totalItems={entryPage.totalItems}
+            onPageChange={entryPage.setPage}
+            className="border-amber-500/15 bg-transparent"
+            compact
+            itemLabel="provider states"
+          />
+          {rulePage.pageItems.map((rule) => (
             <div key={rule.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1.5">
               <Clock3 className="h-3.5 w-3.5 text-sky-400" />
               <code className="text-foreground">{ruleTarget(rule)}</code>
@@ -87,6 +100,15 @@ export function ProviderWaitingRoom() {
               </span>
             </div>
           ))}
+          <Pagination
+            page={rulePage.page}
+            pageSize={rulePage.pageSize}
+            totalItems={rulePage.totalItems}
+            onPageChange={rulePage.setPage}
+            className="border-amber-500/15 bg-transparent"
+            compact
+            itemLabel="availability rules"
+          />
           <div className="mt-1 text-[11px] text-muted-foreground">
             WrongStack routes around active schedules and unhealthy models automatically, then
             restores recovered routes on their next eligible use.

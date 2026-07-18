@@ -76,6 +76,10 @@ export default defineConfig({
       '@wrongstack/webui-server': path.resolve(__dirname, '../../packages/webui-server/src'),
       '@wrongstack/tools/tool-icons': path.resolve(__dirname, '../../packages/tools/src/tool-icons.ts'),
       '@wrongstack/tools/next-steps': path.resolve(__dirname, '../../packages/tools/src/next-steps.ts'),
+      '@wrongstack/tools/auto-proceed-loop-guard': path.resolve(
+        __dirname,
+        '../../packages/tools/src/auto-proceed-loop-guard.ts',
+      ),
     },
   },
 });

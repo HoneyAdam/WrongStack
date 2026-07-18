@@ -80,6 +80,15 @@ export interface SlashCommandContext {
       allowedCapabilities?: readonly string[] | undefined;
       /** Legacy Shadow Agent interval in ms. Only used when name === 'shadow'. */
       shadowIntervalMs?: number | undefined;
+      /**
+       * Free-form task context propagated into the spawned `TaskSpec.context`.
+       * Used by `/kanban task dispatch` to carry `{ kanban: { boardId, taskId } }`
+       * so the tool-runtime boundary gate (`evaluateToolKanbanBoundary`) can
+       * resolve the live policy instead of failing open.
+       */
+      context?: {
+        kanban?: { boardId?: string; taskId?: string; projectRoot?: string };
+      } | undefined;
     },
   ) => Promise<string>;
   /**
@@ -103,6 +112,15 @@ export interface SlashCommandContext {
       allowedCapabilities?: readonly string[] | undefined;
       /** Legacy Shadow Agent interval in ms. Only used when name === 'shadow'. */
       shadowIntervalMs?: number | undefined;
+      /**
+       * Free-form task context propagated into the spawned `TaskSpec.context`.
+       * Used by `/kanban task dispatch` to carry `{ kanban: { boardId, taskId } }`
+       * so the tool-runtime boundary gate (`evaluateToolKanbanBoundary`) can
+       * resolve the live policy instead of failing open.
+       */
+      context?: {
+        kanban?: { boardId?: string; taskId?: string; projectRoot?: string };
+      } | undefined;
     },
   ) => Promise<string>;
   onAgents?: ((subagentId?: string) => string) | undefined;
@@ -137,6 +155,18 @@ export interface SlashCommandContext {
          * session that still has active work. Absent → treated as idle.
          */
         isRunning?: (() => boolean) | undefined;
+        /**
+         * Ask the owning interactive surface to confirm a destructive clear.
+         * The TUI installs a panel-backed implementation; plain terminals
+         * fall back to the generic `confirm` callback below.
+         */
+        confirmClear?:
+          | ((info: { leaderActive: boolean; subagentCount: number }) => Promise<boolean>)
+          | undefined;
+        /** Render a generic slash-command confirmation in the owning surface. */
+        confirmSlash?:
+          | ((question: string, defaultYes: boolean) => Promise<boolean | null>)
+          | undefined;
         /** Drop buffered output that belongs to the session being cleared. */
         resetSession?: (() => void) | undefined;
         /** Wait until the aborted leader turn can no longer mutate context. */
@@ -520,6 +550,8 @@ export interface SlashCommandContext {
   reader: import('@wrongstack/core').InputReader;
   /** Read a secret without echoing it or recording it in input history. */
   readSecret?: ((prompt: string) => Promise<string>) | undefined;
+  /** Read visible text through the owning interactive surface. */
+  readText?: ((prompt: string) => Promise<string>) | undefined;
   /** Real boot-time vault used for secret-bearing config writes. */
   vault?: import('@wrongstack/core').SecretVault | undefined;
   /**
@@ -582,6 +614,7 @@ import { buildDiagCommand, buildStatsCommand } from './diag-stats.js';
 import { buildDoctorCommand } from './doctor.js';
 import { buildEnhanceCommand } from './enhance.js';
 import { buildEnsembleCommand } from './ensemble.js';
+import { buildProfileCommand } from './profile.js';
 import { buildFKeyAliasCommands, buildFKeysCommand } from './f-keys.js';
 import { buildFallbackCommand } from './fallback.js';
 import { buildProviderStatusCommand } from './provider-status.js';
@@ -682,6 +715,7 @@ export function buildBuiltinSlashCommands(opts: SlashCommandContext): SlashComma
     ...buildFKeyAliasCommands(opts),
     buildEnhanceCommand(opts),
     buildEnsembleCommand(opts),
+    buildProfileCommand(opts),
     buildAcpCommand(opts),
     buildMemoryCommand(opts),
     buildTodosCommand(opts),

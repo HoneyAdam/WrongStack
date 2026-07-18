@@ -21,55 +21,57 @@ import type { Server as HttpServer } from 'node:http';
 import * as http from 'node:http';
 import * as path from 'node:path';
 import {
+  assessHqExposure,
+  buildTranscriptFromEvents,
+  createHqPersistence,
+  createMailboxHttpRouter,
   DEFAULT_HQ_REDACTION_POLICY,
   type EnsureHqFirstRunAuthResult,
+  ensureHqFirstRunAuthFile,
+  GlobalMailbox,
+  type HqAlert,
+  HqAlertEngine,
+  type HqAlertRuleConfig,
+  type HqCommand,
+  type HqCommandAuditEntry,
+  HqCommandAuditLog,
   type HqEventEnvelope,
   type HqFleetSnapshotPayload,
+  HqInsecureExposureError as HqInsecureExposureErrorClass,
   type HqMailboxSnapshotPayload,
   type HqMcpServerHealth,
   type HqProjectIdentity,
+  type HqQueuedCommand,
   type HqRedactionPolicy,
   type HqSessionSnapshotPayload,
   type HqTimeseriesSample,
   type HqToken,
   type HqTranscriptEntry,
-  buildTranscriptFromEvents,
-  createHqPersistence,
-  createMailboxHttpRouter,
-  GlobalMailbox,
+  hashHqPassword,
+  isLoopbackHost,
   MailboxEventEmitter,
   type MailboxHttpAccessDecision,
   MailboxHttpRateLimiter,
+  mintHqCookieSecret,
+  mutateHqAuthFile,
+  resolveHqDataDir,
   resolveProjectDir,
-  HqCommandAuditLog,
-  HqAlertEngine,
   toAlertMessage,
-  type HqAlertRuleConfig,
-  type HqAlert,
-  type HqCommand,
-  type HqCommandAuditEntry,
-  type HqQueuedCommand,
-  assessHqExposure,
-  HqInsecureExposureError as HqInsecureExposureErrorClass,
-  ensureHqFirstRunAuthFile,
+  tokenHasCapability,
   validateHqCommand,
   verifyHqPassword,
-  resolveHqDataDir,
-  tokenHasCapability,
   watchHqAuthFile,
 } from '@wrongstack/core';
+// Inlined from @wrongstack/webui-server — avoids a hard dependency on the webui package.
+import { WebSocket, WebSocketServer } from 'ws';
+import { HQ_HTML } from './hq-dashboard-html.js';
 // Pre-extracted modules under hq-server/ — local function definitions in this file
 // delegate to the extracted implementations. The const-aliases preserve backward
 // compatibility for internal callers. See hq-server/auth.ts, utils.ts, ws.ts, snapshot.ts.
 import * as HqServerAuth from './hq-server/auth.js';
+import * as HqServerSnapshot from './hq-server/snapshot.js';
 import * as HqServerUtils from './hq-server/utils.js';
 import * as HqServerWs from './hq-server/ws.js';
-import * as HqServerSnapshot from './hq-server/snapshot.js';
-
-
-// Inlined from @wrongstack/webui-server — avoids a hard dependency on the webui package.
-import { WebSocket, WebSocketServer } from 'ws';
-import { HQ_HTML } from './hq-dashboard-html.js';
 import { resolveHqDistDir, serveHqStatic } from './hq-static-serve.js';
 
 export interface HqServerOptions {
@@ -97,7 +99,7 @@ export interface HqServerOptions {
   clientCleanupIntervalMs?: number;
   /** Session-snapshot freshness timeout. Primarily exposed for deterministic integration tests. */
   sessionSnapshotTtlMs?: number;
-  /** Optional browser password login. When provided on first-run, the auth file stores a scrypt hash. */
+  /** Optional browser password login. Sets or rotates the scrypt hash in auth.json. */
   password?: string;
   /**
    * Allow a non-loopback bind while HQ is in open mode (no tokens, no
@@ -112,6 +114,12 @@ export interface HqServerOptions {
    * the browser.
    */
   secureCookies?: boolean;
+  /**
+   * Keep browser authentication enabled for the full server lifetime. Used
+   * by public relays such as --tunnel so an auth.json reload cannot silently
+   * turn an authenticated public endpoint into open mode.
+   */
+  requireBrowserAuth?: boolean;
 }
 
 export { HqInsecureExposureError } from '@wrongstack/core';
@@ -125,6 +133,8 @@ export interface HqStartupConnectionInfo {
     WRONGSTACK_HQ_TOKEN?: string;
   };
   createdAuth: boolean;
+  browserTokenMode: boolean;
+  passwordMode: boolean;
 }
 
 export type HqFirstRunSetup = HqStartupConnectionInfo;
@@ -133,6 +143,8 @@ export interface HqServerHandle {
   host: string;
   port: number;
   firstRunSetup?: HqFirstRunSetup;
+  /** Authorize an exact browser-facing HTTPS origin established by trusted server code. */
+  trustPublicOrigin(origin: string): void;
   close(): Promise<void>;
 }
 
@@ -208,8 +220,6 @@ interface ConnectedClient {
 /** Bound how many distinct sessions/subagents we keep transcripts for, so a
  * long-lived HQ doesn't accumulate rings for every session that ever connected.
  * Eviction is least-recently-active (the maps are kept in LRU order). */
-
-
 
 interface TranscriptRing {
   entries: HqTranscriptEntry[];
@@ -333,20 +343,22 @@ const HQ_SESSION_COOKIE = 'hq.session';
 /** Browser-session Max-Age (7 days) — see setHqSessionCookie Max-Age. */
 const HQ_SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
+function isLoopbackRequest(req: http.IncomingMessage): boolean {
+  const address = req.socket.remoteAddress?.replace(/^::ffff:/, '');
+  return address !== undefined && isLoopbackHost(address);
+}
+
 const serializeHqSessionCookie = HqServerAuth.serializeHqSessionCookie;
 const parseHqSessionCookie = HqServerAuth.parseHqSessionCookie;
 const parseCookieHeader = HqServerAuth.parseCookieHeader;
 const setHqSessionCookie = HqServerAuth.setHqSessionCookie;
 const clearHqSessionCookie = HqServerAuth.clearHqSessionCookie;
 
-
-
 const isTokenAuth = HqServerAuth.isTokenAuth;
 const authenticateBrowserRequest = HqServerAuth.authenticateBrowserRequest;
 const decodePathSegment = HqServerUtils.decodePathSegment;
 const displayHost = HqServerUtils.displayHost;
 /** Read the full body of an HTTP request as a UTF-8 string (capped at 1 MB). */
-
 
 const readRequestBody = HqServerUtils.readRequestBody;
 const writeInvalidBody = HqServerUtils.writeInvalidBody;
@@ -361,7 +373,11 @@ interface HqRuntimeMarker {
 const hqRuntimeMarkerPath = HqServerUtils.hqRuntimeMarkerPath;
 async function writeHqRuntimeMarker(dataDir: string, url: string): Promise<void> {
   const file = hqRuntimeMarkerPath(dataDir);
-  const payload = JSON.stringify({ url, pid: process.pid, updatedAt: new Date().toISOString() }, null, 2);
+  const payload = JSON.stringify(
+    { url, pid: process.pid, updatedAt: new Date().toISOString() },
+    null,
+    2,
+  );
   await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.writeFile(file, `${payload}\n`, { encoding: 'utf8', mode: 0o600 });
 }
@@ -466,27 +482,41 @@ async function handleApiSessions(res: http.ServerResponse): Promise<void> {
   try {
     const registry = new SessionRegistry(globalRoot);
     const sessions = await registry.list();
-    const result = sessions.filter(s => s.status !== 'stale').map((s) => ({
-      sessionId: s.sessionId,
-      projectSlug: s.projectSlug,
-      projectName: s.projectName,
-      projectRoot: s.projectRoot,
-      workingDir: s.workingDir,
-      status: s.status,
-      pid: s.pid,
-      startedAt: s.startedAt,
-      lastHeartbeatAt: s.lastHeartbeatAt,
-      agentCount: s.agentCount,
-      agents: s.agents.map((a) => ({
-        id: a.id, name: a.name, status: a.status,
-        currentTool: a.currentTool, iterations: a.iterations,
-        toolCalls: a.toolCalls, lastActivityAt: a.lastActivityAt,
-      })),
-    }));
+    const result = sessions
+      .filter((s) => s.status !== 'stale')
+      .map((s) => ({
+        sessionId: s.sessionId,
+        projectSlug: s.projectSlug,
+        projectName: s.projectName,
+        projectRoot: s.projectRoot,
+        workingDir: s.workingDir,
+        status: s.status,
+        pid: s.pid,
+        startedAt: s.startedAt,
+        lastHeartbeatAt: s.lastHeartbeatAt,
+        agentCount: s.agentCount,
+        agents: s.agents.map((a) => ({
+          id: a.id,
+          name: a.name,
+          status: a.status,
+          currentTool: a.currentTool,
+          iterations: a.iterations,
+          toolCalls: a.toolCalls,
+          lastActivityAt: a.lastActivityAt,
+        })),
+      }));
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(result));
   } catch (err) {
-    console.warn(JSON.stringify({ level: 'warn', event: 'hq.api_error', route: '/api/sessions', detail: String(err), timestamp: new Date().toISOString() }));
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        event: 'hq.api_error',
+        route: '/api/sessions',
+        detail: String(err),
+        timestamp: new Date().toISOString(),
+      }),
+    );
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: HqServerUtils.sanitizeApiError(err) }));
   }
@@ -508,7 +538,9 @@ async function handleApiSessionEvents(
   full: boolean,
   transcripts: Map<string, TranscriptRing>,
 ): Promise<void> {
-  const { SessionRegistry, resolveWstackPaths, DefaultSessionStore } = await import('@wrongstack/core');
+  const { SessionRegistry, resolveWstackPaths, DefaultSessionStore } = await import(
+    '@wrongstack/core'
+  );
   const globalRoot = path.dirname(resolveHqDataDir());
   try {
     const registry = new SessionRegistry(globalRoot);
@@ -569,7 +601,15 @@ async function handleApiSessionEvents(
       }),
     );
   } catch (err) {
-    console.warn(JSON.stringify({ level: 'warn', event: 'hq.api_error', route: '/api/sessions/:id/events', detail: String(err), timestamp: new Date().toISOString() }));
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        event: 'hq.api_error',
+        route: '/api/sessions/:id/events',
+        detail: String(err),
+        timestamp: new Date().toISOString(),
+      }),
+    );
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: HqServerUtils.sanitizeApiError(err) }));
   }
@@ -584,9 +624,27 @@ export async function startHqServer(options: HqServerOptions = {}): Promise<HqSe
   // auth.json is missing, create browser + client tokens. Existing auth.json
   // remains operator-owned, including explicit empty-token open mode.
   const firstRunAuth = await ensureHqFirstRunAuthFile(dataDir, {
-    warn: (msg: string) => console.warn(JSON.stringify({ level: 'warn', event: 'hq.auth_load_failed', message: msg, timestamp: new Date().toISOString() })),
+    warn: (msg: string) =>
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          event: 'hq.auth_load_failed',
+          message: msg,
+          timestamp: new Date().toISOString(),
+        }),
+      ),
     ...(options.password !== undefined ? { password: options.password } : {}),
   });
+
+  if (
+    options.requireBrowserAuth &&
+    (firstRunAuth.authFile.browserTokens ?? []).length === 0 &&
+    firstRunAuth.authFile.passwordHash === undefined
+  ) {
+    throw new HqInsecureExposureErrorClass(
+      'HQ public relay requires browser authentication. Set --password or create a browser token first.',
+    );
+  }
 
   // Guard the bind before listening. Both entry points (`wstack hq` and the
   // launch menu) funnel through here, so this is the one place that sees the
@@ -601,13 +659,15 @@ export async function startHqServer(options: HqServerOptions = {}): Promise<HqSe
     throw new HqInsecureExposureErrorClass(exposure.message);
   }
   if (exposure.kind === 'warn') {
-    console.warn(JSON.stringify({
-      level: 'warn',
-      event: 'hq.insecure_exposure',
-      message: exposure.message,
-      host,
-      timestamp: new Date().toISOString(),
-    }));
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        event: 'hq.insecure_exposure',
+        message: exposure.message,
+        host,
+        timestamp: new Date().toISOString(),
+      }),
+    );
   }
 
   return startHqServerWithAuth(options, host, port, dataDir, firstRunAuth);
@@ -653,7 +713,10 @@ function startHqServerWithAuth(
     browserTokens: new Set((authFile.browserTokens ?? []).map((t) => t.token)),
     clientTokens: new Set((authFile.clientTokens ?? []).map((t) => t.token)),
     browserTokenObjs: new Map(
-      (authFile.browserTokens ?? []).map((t) => [t.token, { id: t.id, ...(t.capabilities !== undefined ? { capabilities: t.capabilities } : {}) }]),
+      (authFile.browserTokens ?? []).map((t) => [
+        t.token,
+        { id: t.id, ...(t.capabilities !== undefined ? { capabilities: t.capabilities } : {}) },
+      ]),
     ),
     clientTokenObjs: new Map((authFile.clientTokens ?? []).map((token) => [token.token, token])),
     passwordHash: authFile.passwordHash,
@@ -661,24 +724,58 @@ function startHqServerWithAuth(
     alertRules: authFile.alertRules,
   };
 
+  const applyAuthFile = (next: typeof authFile): void => {
+    mutableAuth.operatorPolicy = {
+      ...DEFAULT_HQ_REDACTION_POLICY,
+      ...(next.redactionPolicy ?? {}),
+    };
+    mutableAuth.operatorPolicyOverride = next.redactionPolicy;
+    mutableAuth.browserTokens = new Set((next.browserTokens ?? []).map((t) => t.token));
+    mutableAuth.clientTokens = new Set((next.clientTokens ?? []).map((t) => t.token));
+    mutableAuth.browserTokenObjs = new Map(
+      (next.browserTokens ?? []).map((t) => [
+        t.token,
+        {
+          id: t.id,
+          ...(t.capabilities !== undefined ? { capabilities: t.capabilities } : {}),
+        },
+      ]),
+    );
+    mutableAuth.clientTokenObjs = new Map(
+      (next.clientTokens ?? []).map((token) => [token.token, token]),
+    );
+    mutableAuth.passwordHash = next.passwordHash;
+    mutableAuth.cookieSecret = next.cookieSecret;
+    mutableAuth.alertRules = next.alertRules;
+  };
+
   // Surface the resolved data directory + whether an operator override
   // is in effect. Helps the operator confirm `--data-dir` took hold.
-  console.warn(JSON.stringify({
-    level: 'info',
-    event: 'hq.startup',
-    message: 'WrongStack HQ starting',
-    dataDir,
-    host,
-    port,
-    operatorPolicyActive: authFile.redactionPolicy !== undefined,
-    browserTokenMode: mutableAuth.browserTokens.size > 0,
-    clientTokenMode: mutableAuth.clientTokens.size > 0,
-    passwordMode: mutableAuth.passwordHash !== undefined,
-    timestamp: new Date().toISOString(),
-  }));
+  console.warn(
+    JSON.stringify({
+      level: 'info',
+      event: 'hq.startup',
+      message: 'WrongStack HQ starting',
+      dataDir,
+      host,
+      port,
+      operatorPolicyActive: authFile.redactionPolicy !== undefined,
+      browserTokenMode: mutableAuth.browserTokens.size > 0,
+      clientTokenMode: mutableAuth.clientTokens.size > 0,
+      passwordMode: mutableAuth.passwordHash !== undefined,
+      timestamp: new Date().toISOString(),
+    }),
+  );
   void options;
 
   return new Promise((resolve, reject) => {
+    // Exact public origins are registered only by trusted server-side code
+    // after it establishes a reverse proxy/tunnel endpoint. Never derive this
+    // set from Host or X-Forwarded-* request headers.
+    const trustedPublicOrigins = new Set<string>();
+    // Port 0 and non-strict scanning resolve only after listen(). Origin checks
+    // must compare against the actual socket port, not the requested sentinel.
+    let listeningPort = port;
     const clients = new Map<WebSocket, ConnectedClient>();
     const browsers = new Set<WebSocket>();
     const sessions = new Map<string, { createdAt: number }>();
@@ -711,7 +808,10 @@ function startHqServerWithAuth(
     // 127.0.0.1, so repeated failures from the same machine are gated —
     // enough to blunt a brute-force without needing a full account lockout
     // or persisted state. Cleaned up alongside the session sweep below.
-    const loginAttempts = new Map<string, { count: number; blockedUntil: number; lastAttempt: number }>();
+    const loginAttempts = new Map<
+      string,
+      { count: number; blockedUntil: number; lastAttempt: number }
+    >();
     // Retain a failure counter well past its current block so the exponential
     // backoff actually escalates against an attacker pacing requests just after
     // each block expires. Entries are only pruned once idle for this window.
@@ -747,10 +847,7 @@ function startHqServerWithAuth(
     const persistence = createHqPersistence(dataDir);
     // Command audit ring + durable sink. Every record/update persists the
     // latest entry snapshot to commands.jsonl so history survives restarts.
-    const auditLog = new HqCommandAuditLog(
-      1000,
-      (entry) => persistence.commandLog.append(entry),
-    );
+    const auditLog = new HqCommandAuditLog(1000, (entry) => persistence.commandLog.append(entry));
 
     // Presence files predate HQ and may contain records from processes that
     // died days ago. Sweep every project once at startup so this upgrade
@@ -790,9 +887,7 @@ function startHqServerWithAuth(
           body: { error: { code: 'UNAUTHORIZED', message: 'unauthorized' } },
         };
       }
-      const token = isTokenAuth(auth)
-        ? mutableAuth.browserTokenObjs.get(auth.token)
-        : undefined;
+      const token = isTokenAuth(auth) ? mutableAuth.browserTokenObjs.get(auth.token) : undefined;
       const canUseMailbox =
         auth === 'cookie' ||
         !tokenMode ||
@@ -848,18 +943,33 @@ function startHqServerWithAuth(
     void persistence.timeseries.load();
     // Seed the in-memory eventLog from the persisted log so a restarted HQ
     // shows recent history in the dashboard before new events arrive.
-    persistence.eventLog.recent(MAX_EVENT_LOG).then((prior) => {
-      // Newest-first from recent(); push oldest-first into the in-memory ring.
-      for (let i = prior.length - 1; i >= 0; i--) eventLog.push(prior[i]!);
-    }).catch(() => { /* best-effort */ });
+    persistence.eventLog
+      .recent(MAX_EVENT_LOG)
+      .then((prior) => {
+        // Newest-first from recent(); push oldest-first into the in-memory ring.
+        for (let i = prior.length - 1; i >= 0; i--) eventLog.push(prior[i]!);
+      })
+      .catch(() => {
+        /* best-effort */
+      });
     // Seed alert history + command audit from their durable logs so the
     // dashboard keeps its past after an HQ restart.
-    persistence.alertLog.readAll().then((prior) => {
-      alertEngine.seed(prior as readonly HqAlert[]);
-    }).catch(() => { /* best-effort */ });
-    persistence.commandLog.readAll().then((prior) => {
-      auditLog.seed(prior as readonly HqCommandAuditEntry[]);
-    }).catch(() => { /* best-effort */ });
+    persistence.alertLog
+      .readAll()
+      .then((prior) => {
+        alertEngine.seed(prior as readonly HqAlert[]);
+      })
+      .catch(() => {
+        /* best-effort */
+      });
+    persistence.commandLog
+      .readAll()
+      .then((prior) => {
+        auditLog.seed(prior as readonly HqCommandAuditEntry[]);
+      })
+      .catch(() => {
+        /* best-effort */
+      });
 
     // Flush the timeseries store every 60s so buckets reach disk periodically
     // even under light load. Unref'd so it never keeps the process alive.
@@ -935,701 +1045,970 @@ function startHqServerWithAuth(
 
     const httpServer: HttpServer = http.createServer(async (req, res) => {
       try {
-      const url = new URL(req.url ?? '/', `http://${host}:${port}`);
-      setHqSecurityHeaders(res);
+        const url = new URL(req.url ?? '/', `http://${host}:${port}`);
+        setHqSecurityHeaders(res);
 
-      if (req.method !== 'GET' && req.method !== 'HEAD' && !hasTrustedBrowserOrigin(req, host, port)) {
-        res.writeHead(403, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'forbidden: cross-origin request' }));
-        return;
-      }
-
-      // When browser TOKEN MODE or PASSWORD MODE is active, DATA routes
-      // (/api/*) require a valid browser token OR a signed password session
-      // cookie. WS upgrades are gated separately below. The dashboard shell —
-      // index.html, /assets/*, the SPA fallback — is served publicly so an
-      // unauthenticated browser can render the token/password entry gate
-      // instead of a bare JSON 401; the shell carries no telemetry, every byte
-      // of data flows through the gated channels.
-      if (
-        url.pathname.startsWith('/api/') &&
-        url.pathname !== '/api/auth/status' &&
-        url.pathname !== '/api/login' &&
-        (mutableAuth.browserTokens.size > 0 || mutableAuth.passwordHash)
-      ) {
-        const auth = authenticateBrowserRequest(req, url, mutableAuth, sessions);
-        if (!auth) {
-          const tokenOnly = mutableAuth.browserTokens.size > 0 && !mutableAuth.passwordHash;
-          res.writeHead(401, { 'Content-Type': 'application/json' });
-          res.end(
-            JSON.stringify({
-              error: {
-                code: tokenOnly ? 'INVALID_TOKEN' : 'UNAUTHORIZED',
-                message: tokenOnly
-                  ? 'A valid ?token= or Authorization: Bearer is required for HTTP access in browser token mode.'
-                  : 'A valid browser token or password session is required.',
-              },
-            }),
-          );
-          return;
-        }
-      }
-
-      // ── HQ dashboard — serve the React app if built, else inline fallback ──
-      // The React app (packages/webui-hq) is the primary dashboard. When unbuilt
-      // (or the package is absent), fall back to the self-contained inline HTML
-      // so HQ is always functional — even offline with no build step.
-      // API + WS paths must NEVER hit the static server: its SPA fallback
-      // answers unknown routes with index.html, which would shadow every
-      // /api/* route below with a 200 text/html response.
-      const hqDistDir = resolveHqDistDir();
-      const isApiOrWsPath = url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws/');
-      if (hqDistDir !== null && !isApiOrWsPath) {
-        const served = serveHqStatic(req, res, url.pathname, hqDistDir);
-        if (served.handled) return;
-      }
-
-      if (url.pathname === '/' || url.pathname === '/index.html') {
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(HQ_HTML);
-        return;
-      }
-
-      // ── HQ API routes ──────────────────────────────────────────────
-      if (url.pathname === '/api/auth/status' && req.method === 'GET') {
-        const auth = authenticateBrowserRequest(req, url, mutableAuth, sessions);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(
-          JSON.stringify({
-            tokenMode: mutableAuth.browserTokens.size > 0,
-            passwordMode: mutableAuth.passwordHash !== undefined,
-            loggedIn: auth !== undefined,
-          }),
-        );
-        return;
-      }
-
-      if (url.pathname === '/api/login' && req.method === 'POST') {
-        if (!mutableAuth.passwordHash) {
+        // Authorize the request authority on every method, including
+        // same-origin browser GET/HEAD requests that omit Origin. This is the
+        // DNS-rebinding boundary; Origin comparison alone is only a CSRF boundary.
+        if (!hasTrustedBrowserOrigin(req, host, listeningPort, trustedPublicOrigins)) {
           res.writeHead(403, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: { code: 'PASSWORD_NOT_CONFIGURED', message: 'Password login is not enabled on this HQ server.' } }));
-          return;
-        }
-        // Rate limiting with exponential backoff per client IP. Key on the real
-        // socket peer only — HQ speaks plain HTTP directly with no trusted-proxy
-        // gate, so honouring the client-supplied `X-Forwarded-For` here would let
-        // an attacker send a fresh fabricated IP per request and never accumulate
-        // backoff (and, conversely, pre-block a legitimate user's IP).
-        const clientIp = req.socket.remoteAddress ?? 'unknown';
-        const existing = loginAttempts.get(clientIp);
-        if (existing && existing.blockedUntil > Date.now()) {
-          const retryAfter = Math.ceil((existing.blockedUntil - Date.now()) / 1000);
-          res.writeHead(429, {
-            'Content-Type': 'application/json',
-            'Retry-After': String(retryAfter),
-          });
-          res.end(JSON.stringify({ error: { code: 'RATE_LIMITED', message: `Too many failed login attempts. Retry after ${retryAfter} seconds.` } }));
-          return;
-        }
-        let body: { password?: unknown };
-        try {
-          body = JSON.parse(await readRequestBody(req)) as { password?: unknown };
-        } catch (error) {
-          writeInvalidBody(res, error);
-          return;
-        }
-        if (typeof body.password !== 'string' || body.password.length === 0) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: { code: 'BAD_REQUEST', message: 'password is required' } }));
-          return;
-        }
-        const ok = await verifyHqPassword(body.password, mutableAuth.passwordHash);
-        if (!ok || !mutableAuth.cookieSecret) {
-          // Exponential backoff: 2^count seconds, capped at 16 s.
-          const prev = loginAttempts.get(clientIp);
-          const count = (prev?.count ?? 0) + 1;
-          const backoffMs = Math.min(2 ** count * 1000, 16_000);
-          loginAttempts.set(clientIp, {
-            count,
-            blockedUntil: Date.now() + backoffMs,
-            lastAttempt: Date.now(),
-          });
-          res.writeHead(401, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: { code: 'INVALID_PASSWORD', message: 'Invalid password.' } }));
-          return;
-        }
-        // Success — reset rate limit for this IP.
-        loginAttempts.delete(clientIp);
-        const sessionId = randomUUID();
-        sessions.set(sessionId, { createdAt: Date.now() });
-        setHqSessionCookie(res, serializeHqSessionCookie(sessionId, mutableAuth.cookieSecret), options.secureCookies);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ loggedIn: true }));
-        return;
-      }
-
-      if (url.pathname === '/api/logout' && req.method === 'POST') {
-        const auth = authenticateBrowserRequest(req, url, mutableAuth, sessions);
-        if (auth === 'cookie') {
-          const cookies = parseCookieHeader(req.headers.cookie);
-          const raw = cookies[HQ_SESSION_COOKIE];
-          if (raw) {
-            const sessionId = parseHqSessionCookie(raw, mutableAuth.cookieSecret ?? '');
-            if (sessionId) sessions.delete(sessionId);
-          }
-        }
-        clearHqSessionCookie(res, options.secureCookies);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ loggedIn: false }));
-        return;
-      }
-
-      if (url.pathname === '/api/snapshot' && req.method === 'GET') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(buildSnapshot(clients)));
-        return;
-      }
-
-      // ── Project-scoped GlobalMailbox HTTP gateway ───────────────────────
-      // Mounts the same canonical router used by `wstack mailbox serve` while
-      // resolving the target project server-side. A caller can name only a
-      // registered project id/slug; raw filesystem paths are never accepted.
-      const mailboxGatewayMatch = url.pathname.match(
-        /^\/api\/projects\/([^/]+)\/mailbox(?:\/(.*))?$/,
-      );
-      if (mailboxGatewayMatch) {
-        const projectId = decodePathSegment(mailboxGatewayMatch[1]!);
-        if (projectId === null || projectId.length === 0) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(
-            JSON.stringify({
-              error: { code: 'BAD_REQUEST', message: 'invalid projectId encoding' },
-            }),
-          );
-          return;
-        }
-        const gatewayGlobalRoot = path.dirname(dataDir);
-        // Enforce the mailbox capability before project lookup so a scoped
-        // token cannot use the 403/404 distinction to enumerate projects.
-        const preliminaryAccess = authorizeMailboxGateway(req, `project:${projectId}`);
-        if (!preliminaryAccess.allowed) {
-          res.writeHead(preliminaryAccess.status ?? 401, {
-            'Content-Type': 'application/json; charset=utf-8',
-            'Cache-Control': 'no-store',
-          });
-          res.end(JSON.stringify(preliminaryAccess.body));
-          return;
-        }
-        const projectRoot = await resolveHqProjectRoot(gatewayGlobalRoot, { projectId });
-        if (!projectRoot) {
-          res.writeHead(404, { 'Content-Type': 'application/json' });
-          res.end(
-            JSON.stringify({
-              error: { code: 'NOT_FOUND', message: `Unknown project: ${projectId}` },
-            }),
-          );
-          return;
-        }
-        const suffix = mailboxGatewayMatch[2];
-        const canonicalPath = suffix ? `/mailbox/${suffix}` : '/mailbox';
-        const projectDir = resolveProjectDir(projectRoot, gatewayGlobalRoot);
-        await getMailboxGateway(projectDir).router.handle(req, res, canonicalPath);
-        return;
-      }
-
-      if (url.pathname.startsWith('/api/projects/') && req.method === 'GET') {
-        const projectId = decodePathSegment(url.pathname.slice('/api/projects/'.length));
-        if (projectId === null) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: { code: 'BAD_REQUEST', message: 'invalid projectId encoding' } }));
-          return;
-        }
-        if (!projectId) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(
-            JSON.stringify({ error: { code: 'BAD_REQUEST', message: 'projectId is required' } }),
-          );
-          return;
-        }
-        const detail = buildProjectDetail(clients, projectId);
-        if (!detail) {
-          res.writeHead(404, { 'Content-Type': 'application/json' });
-          res.end(
-            JSON.stringify({
-              error: { code: 'NOT_FOUND', message: `Unknown project: ${projectId}` },
-            }),
-          );
-          return;
-        }
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(detail));
-        return;
-      }
-
-      // ── Fleet tree (machines → projects → terminals → agents) ──────
-      // Alias of /api/snapshot — the full snapshot already carries fleets[],
-      // machines[], and the session→agent tree. Kept for backward-compat with
-      // existing dashboards/tests; prefer /api/snapshot for new consumers.
-      if (url.pathname === '/api/fleet' && req.method === 'GET') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(buildSnapshot(clients)));
-        return;
-      }
-
-      // ── Persistence-backed history + trends (Phase 2) ────────────────
-      // GET /api/events?limit=&type= — recent persisted event envelopes.
-      if (url.pathname === '/api/events' && req.method === 'GET') {
-        const rawLimit = Number.parseInt(url.searchParams.get('limit') ?? '200', 10);
-        const limit = Math.min(5000, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 200));
-        const typeFilter = url.searchParams.get('type') ?? undefined;
-        const events = await persistence.eventLog.recent(limit, typeFilter);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ events, total: events.length }));
-        return;
-      }
-
-      // GET /api/trends/cost?since= — time-bucketed cost/activity samples.
-      if (url.pathname === '/api/trends/cost' && req.method === 'GET') {
-        const rawSince = Number.parseInt(url.searchParams.get('since') ?? '0', 10);
-        const since = Number.isFinite(rawSince) ? rawSince : 0;
-        const samples: HqTimeseriesSample[] = await persistence.timeseries.read(since);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ samples }));
-        return;
-      }
-
-      // ── Control plane (Phase 3) ─────────────────────────────────────────
-      // POST /api/command — enqueue a command to a connected client. Requires
-      // a browser token with the `control.enqueue` capability (or open mode
-      // where any browser token suffices). The target client must advertise
-      // the `control.receive` capability.
-      if (url.pathname === '/api/command' && req.method === 'POST') {
-        const auth = authenticateBrowserRequest(req, url, mutableAuth, sessions);
-        const inBrowserTokenMode = mutableAuth.browserTokens.size > 0;
-        const inPasswordMode = mutableAuth.passwordHash !== undefined;
-        if ((inBrowserTokenMode || inPasswordMode) && !auth) {
-          res.writeHead(401, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'unauthorized' }));
-          return;
-        }
-        const tokenObj = isTokenAuth(auth) ? mutableAuth.browserTokenObjs.get(auth.token) : undefined;
-        // Capability check: a token must grant control.enqueue; password-session
-        // logins inherit full browser access. In open mode (no browser tokens or
-        // password configured), control is allowed.
-        const canEnqueue =
-          auth === 'cookie' ||
-          !inBrowserTokenMode ||
-          tokenObj?.capabilities === undefined ||
-          tokenObj.capabilities.includes('control.enqueue');
-        if (!canEnqueue) {
-          res.writeHead(403, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'forbidden: token lacks control.enqueue capability' }));
+          res.end(JSON.stringify({ error: 'forbidden: untrusted request origin' }));
           return;
         }
 
-        let body: { clientId?: string; type?: string; payload?: unknown };
-        try {
-          body = JSON.parse(await readRequestBody(req)) as { clientId?: string; type?: string; payload?: unknown };
-        } catch (error) {
-          writeInvalidBody(res, error);
-          return;
-        }
-        if (typeof body.clientId !== 'string' || typeof body.type !== 'string') {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'missing clientId or type' }));
-          return;
-        }
-
-        // Find the target client across all connected sockets (dedupe by clientId).
-        let target: ConnectedClient | undefined;
-        for (const c of clients.values()) {
-          if (c.clientId === body.clientId) {
-            target = c;
-            break;
-          }
-        }
-        if (target === undefined) {
-          res.writeHead(404, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'client not connected', clientId: body.clientId }));
-          return;
-        }
-        // The target must advertise control.receive.
-        if (!target.capabilities.includes('control.receive')) {
-          res.writeHead(409, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'client does not accept control commands', clientId: body.clientId }));
-          return;
-        }
-
-        const commandId = randomUUID();
-        const queued: HqQueuedCommand = {
-          commandId,
-          type: body.type,
-          createdAt: new Date().toISOString(),
-          payload: body.payload ?? {},
-          requiresAck: true,
-        };
-        // Validate the command shape before enqueuing.
-        const validated: HqCommand | null = validateHqCommand(queued);
-        if (validated === null) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'unrecognized or malformed command', type: body.type }));
-          return;
-        }
-
-        if (validated.type === 'run-command' && !tokenHasCapability(target.authToken, 'control.execute')) {
-          res.writeHead(403, { 'Content-Type': 'application/json' });
-          res.end(
-            JSON.stringify({
-              error: 'forbidden: target client token lacks control.execute capability',
-            }),
-          );
-          return;
-        }
-
-        target.commandQueue.push(queued);
-        // Bounded queue: drop oldest on overflow.
-        if (target.commandQueue.length > 200) target.commandQueue.splice(0, target.commandQueue.length - 200);
-
-        const auditEntry: HqCommandAuditEntry = {
-          commandId,
-          type: validated.type,
-          clientId: target.clientId,
-          enqueuedBy: auth === 'cookie' ? 'password-session' : tokenObj?.id ?? 'open-mode',
-          enqueuedAt: queued.createdAt,
-          status: 'queued',
-        };
-        auditLog.record(auditEntry);
-        HqServerSnapshot.broadcastCommandStatus(auditEntry, browsers);
-
-        res.writeHead(202, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ commandId, queued: true, clientId: target.clientId }));
-        return;
-      }
-
-      // ── Direct mailbox write (Phase 4 — zero-client delivery) ────────────
-      // POST /api/mailbox-send — write an HQ prompt straight into a project's
-      // GlobalMailbox, bypassing the connected-client control plane. This is
-      // the "send even when no active agent" path: the message lands in the
-      // project mailbox file so the next agent to run (or any terminal/webui)
-      // picks it up. The target project is identified by `sessionId` (or
-      // `projectId`) and resolved to a `projectRoot` SERVER-SIDE via the
-      // SessionRegistry — the browser never supplies a raw filesystem path,
-      // so this cannot be abused to write outside known projects.
-      if (url.pathname === '/api/mailbox-send' && req.method === 'POST') {
-        const auth = authenticateBrowserRequest(req, url, mutableAuth, sessions);
-        const inBrowserTokenMode = mutableAuth.browserTokens.size > 0;
-        const inPasswordMode = mutableAuth.passwordHash !== undefined;
-        if ((inBrowserTokenMode || inPasswordMode) && !auth) {
-          res.writeHead(401, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'unauthorized' }));
-          return;
-        }
-        const tokenObj = isTokenAuth(auth) ? mutableAuth.browserTokenObjs.get(auth.token) : undefined;
-        const canEnqueue =
-          auth === 'cookie' ||
-          !inBrowserTokenMode ||
-          tokenObj?.capabilities === undefined ||
-          tokenObj.capabilities.includes('control.enqueue');
-        if (!canEnqueue) {
-          res.writeHead(403, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'forbidden: token lacks control.enqueue capability' }));
-          return;
-        }
-
-        let mbody: {
-          sessionId?: string;
-          projectId?: string;
-          type?: string;
-          to?: string;
-          subject?: string;
-          body?: string;
-          priority?: string;
-        };
-        try {
-          mbody = JSON.parse(await readRequestBody(req));
-        } catch (error) {
-          writeInvalidBody(res, error);
-          return;
-        }
-        if (typeof mbody.type !== 'string' || typeof mbody.body !== 'string') {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'missing type or body' }));
-          return;
-        }
-        if (typeof mbody.sessionId !== 'string' && typeof mbody.projectId !== 'string') {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'missing sessionId or projectId' }));
-          return;
-        }
-
-        // Resolve projectRoot from the SessionRegistry — authoritative, so we
-        // never trust a browser-supplied path. Prefer sessionId; fall back to
-        // the projectId (slug or sha-derived — see resolveHqProjectRoot).
-        // Derive the global root from THIS server's dataDir (honors
-        // --data-dir / WRONGSTACK_HQ_DATA_DIR), not the default resolver, so
-        // the mailbox and registry line up with the running instance.
-        const mbGlobalRoot = path.dirname(dataDir);
-        const projectRoot = await resolveHqProjectRoot(mbGlobalRoot, {
-          sessionId: mbody.sessionId,
-          projectId: mbody.projectId,
-        });
-        if (typeof projectRoot !== 'string' || projectRoot.length === 0) {
-          res.writeHead(404, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'could not resolve target project mailbox' }));
-          return;
-        }
-
-        // Validate the mailbox message shape by reusing the command guard.
-        const to = typeof mbody.to === 'string' ? mbody.to : 'leader';
-        const subject = typeof mbody.subject === 'string' ? mbody.subject : 'HQ prompt';
-        const priority = mbody.priority === 'high' ? 'high' : mbody.priority === 'low' ? 'low' : 'normal';
-        const validated = validateHqCommand({
-          commandId: randomUUID(),
-          type: mbody.type,
-          createdAt: new Date().toISOString(),
-          payload: { to, subject, body: mbody.body, priority },
-          requiresAck: false,
-        });
-        // Only the mailbox-writing command types are valid here.
-        const mailboxType =
-          validated?.type === 'steer' || validated?.type === 'btw'
-            ? validated.type
-            : validated?.type === 'queue'
-              ? 'note'
-              : validated?.type === 'broadcast'
-                ? 'broadcast'
-                : undefined;
-        if (mailboxType === undefined) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'unrecognized or malformed mailbox message', type: mbody.type }));
-          return;
-        }
-
-        try {
-          const projectDir = resolveProjectDir(projectRoot, mbGlobalRoot);
-          const mailbox = getMailboxGateway(projectDir).mailbox;
-          const from = `hq@${hqSessionTag}`;
-          const sent = await mailbox.send({
-            from,
-            to: mailboxType === 'broadcast' ? 'all' : to,
-            type: mailboxType,
-            subject,
-            body: mbody.body,
-            priority,
-          });
-          res.writeHead(202, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ delivered: true, messageId: sent?.id, to, type: mailboxType }));
-        } catch (err) {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'mailbox write failed', detail: String(err) }));
-        }
-        return;
-      }
-
-      // ── Mailbox message actions (mark-read / acknowledge / reopen /
-      // soft-delete / restore) ───────────────────────────────────────────
-      // POST /api/mailbox/messages/:mailId/action — apply one verb to one
-      // message in a project's GlobalMailbox. The target project is resolved
-      // SERVER-SIDE from sessionId/projectId (same trust model as
-      // /api/mailbox-send). Auth mirrors /api/command: browser token +
-      // control.enqueue capability.
-      const mailboxActionMatch = url.pathname.match(/^\/api\/mailbox\/messages\/([^/]+)\/action$/);
-      if (mailboxActionMatch && req.method === 'POST') {
-        const auth = authenticateBrowserRequest(req, url, mutableAuth, sessions);
-        const inBrowserTokenMode = mutableAuth.browserTokens.size > 0;
-        const inPasswordMode = mutableAuth.passwordHash !== undefined;
-        if ((inBrowserTokenMode || inPasswordMode) && !auth) {
-          res.writeHead(401, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'unauthorized' }));
-          return;
-        }
-        const tokenObj = isTokenAuth(auth) ? mutableAuth.browserTokenObjs.get(auth.token) : undefined;
-        const canEnqueue =
-          auth === 'cookie' ||
-          !inBrowserTokenMode ||
-          tokenObj?.capabilities === undefined ||
-          tokenObj.capabilities.includes('control.enqueue');
-        if (!canEnqueue) {
-          res.writeHead(403, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'forbidden: token lacks control.enqueue capability' }));
-          return;
-        }
-
-        let abody: {
-          action?: string;
-          readerId?: string;
-          sessionId?: string;
-          projectId?: string;
-        };
-        try {
-          abody = JSON.parse(await readRequestBody(req));
-        } catch (error) {
-          writeInvalidBody(res, error);
-          return;
-        }
-        const mailId = decodePathSegment(mailboxActionMatch[1]!);
-        if (mailId === null) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'invalid mailId encoding' }));
-          return;
-        }
-        const MAILBOX_ACTIONS = ['mark-read', 'acknowledge', 'reopen', 'soft-delete', 'restore'] as const;
-        const action = MAILBOX_ACTIONS.find((a) => a === abody.action);
-        if (action === undefined) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'unrecognized action', action: abody.action }));
-          return;
-        }
-        if (typeof abody.readerId !== 'string' || abody.readerId.length === 0) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'missing readerId' }));
-          return;
-        }
-        if (typeof abody.sessionId !== 'string' && typeof abody.projectId !== 'string') {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'missing sessionId or projectId' }));
-          return;
-        }
-
-        const actGlobalRoot = path.dirname(dataDir);
-        const projectRoot = await resolveHqProjectRoot(actGlobalRoot, {
-          sessionId: abody.sessionId,
-          projectId: abody.projectId,
-        });
-        if (typeof projectRoot !== 'string' || projectRoot.length === 0) {
-          res.writeHead(404, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'could not resolve target project mailbox' }));
-          return;
-        }
-
-        try {
-          const { actionToAckInput } = await import('@wrongstack/core');
-          const projectDir = resolveProjectDir(projectRoot, actGlobalRoot);
-          const mailbox = getMailboxGateway(projectDir).mailbox;
-          const readerId = abody.readerId;
-          const message =
-            action === 'soft-delete'
-              ? await mailbox.softDelete(mailId, readerId)
-              : action === 'restore'
-                ? await mailbox.restore(mailId)
-                : await mailbox.ack(actionToAckInput(action, { action, mailId, readerId }));
-          if (message === null) {
-            res.writeHead(404, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'message not found', mailId }));
+        // When browser TOKEN MODE, PASSWORD MODE, or relay-enforced auth is active,
+        // DATA routes (/api/*) require a valid browser token OR a signed password session
+        // cookie. WS upgrades are gated separately below. The dashboard shell —
+        // index.html, /assets/*, the SPA fallback — is served publicly so an
+        // unauthenticated browser can render the token/password entry gate
+        // instead of a bare JSON 401; the shell carries no telemetry, every byte
+        // of data flows through the gated channels.
+        if (
+          url.pathname.startsWith('/api/') &&
+          url.pathname !== '/api/auth/status' &&
+          url.pathname !== '/api/login' &&
+          (options.requireBrowserAuth ||
+            mutableAuth.browserTokens.size > 0 ||
+            mutableAuth.passwordHash)
+        ) {
+          const auth = authenticateBrowserRequest(req, url, mutableAuth, sessions);
+          if (!auth) {
+            const tokenOnly = mutableAuth.browserTokens.size > 0 && !mutableAuth.passwordHash;
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                error: {
+                  code: tokenOnly ? 'INVALID_TOKEN' : 'UNAUTHORIZED',
+                  message: tokenOnly
+                    ? 'A valid ?token= or Authorization: Bearer is required for HTTP access in browser token mode.'
+                    : 'A valid browser token or password session is required.',
+                },
+              }),
+            );
             return;
           }
-          // Deliberately echo `message: null`: the full MailboxMessage
-          // carries the raw body, which would bypass the HQ redaction
-          // policy applied to every other browser-bound preview. The UI
-          // reconciles from the mailbox.event the mutation just published.
+        }
+
+        // ── HQ dashboard — serve the React app if built, else inline fallback ──
+        // The React app (packages/webui-hq) is the primary dashboard. When unbuilt
+        // (or the package is absent), fall back to the self-contained inline HTML
+        // so HQ is always functional — even offline with no build step.
+        // API + WS paths must NEVER hit the static server: its SPA fallback
+        // answers unknown routes with index.html, which would shadow every
+        // /api/* route below with a 200 text/html response.
+        const hqDistDir = resolveHqDistDir();
+        const isApiOrWsPath = url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws/');
+        if (hqDistDir !== null && !isApiOrWsPath) {
+          const served = serveHqStatic(req, res, url.pathname, hqDistDir);
+          if (served.handled) return;
+        }
+
+        if (url.pathname === '/' || url.pathname === '/index.html') {
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end(HQ_HTML);
+          return;
+        }
+
+        // ── HQ API routes ──────────────────────────────────────────────
+        if (url.pathname === '/api/auth/status' && req.method === 'GET') {
+          const auth = authenticateBrowserRequest(req, url, mutableAuth, sessions);
+          const openMode =
+            mutableAuth.browserTokens.size === 0 && mutableAuth.passwordHash === undefined;
+          const localOpenMode = openMode && !options.requireBrowserAuth && isLoopbackRequest(req);
+          const publicOrigin = trustedPublicOrigins.values().next().value;
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ action, mailId, message: null, changed: true }));
-        } catch (err) {
-          console.warn(JSON.stringify({ level: 'warn', event: 'hq.api_error', route: '/api/mailbox/messages/:id/action', detail: String(err), timestamp: new Date().toISOString() }));
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'mailbox action failed', detail: HqServerUtils.sanitizeApiError(err) }));
-        }
-        return;
-      }
-
-      // GET /api/commands?limit= — recent command audit entries.
-      if (url.pathname === '/api/commands' && req.method === 'GET') {
-        const rawLimit = Number.parseInt(url.searchParams.get('limit') ?? '200', 10);
-        const limit = Math.min(1000, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 200));
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ commands: auditLog.recent(limit) }));
-        return;
-      }
-
-      // GET /api/alerts?limit= — recent alert history + currently-active alerts.
-      if (url.pathname === '/api/alerts' && req.method === 'GET') {
-        const rawLimit = Number.parseInt(url.searchParams.get('limit') ?? '100', 10);
-        const limit = Math.min(500, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 100));
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ active: alertEngine.activeAlerts(), history: alertEngine.recentAlerts(limit) }));
-        return;
-      }
-
-      // ── WrongStack session API — full chat history per terminal ────
-      if (url.pathname === '/api/sessions' && req.method === 'GET') {
-        await handleApiSessions(res);
-        return;
-      }
-
-      const eventsMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/events$/);
-      if (eventsMatch && req.method === 'GET') {
-        const full = url.searchParams.get('full') === '1';
-        const rawLimit = Number.parseInt(url.searchParams.get('limit') ?? '200', 10);
-        const limit = Math.min(5000, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 200));
-        const sessionId = decodePathSegment(eventsMatch[1]!);
-        if (sessionId === null) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'invalid sessionId encoding' }));
+          res.end(
+            JSON.stringify({
+              tokenMode: mutableAuth.browserTokens.size > 0,
+              passwordMode: mutableAuth.passwordHash !== undefined,
+              publicRelay: options.requireBrowserAuth === true || publicOrigin !== undefined,
+              ...(publicOrigin !== undefined ? { publicOrigin } : {}),
+              secureCookies: options.secureCookies === true,
+              loggedIn: auth !== undefined || localOpenMode,
+              authKind:
+                auth === 'cookie'
+                  ? 'password'
+                  : isTokenAuth(auth)
+                    ? 'token'
+                    : localOpenMode
+                      ? 'open'
+                      : undefined,
+            }),
+          );
           return;
         }
-        await handleApiSessionEvents(res, sessionId, limit, full, transcripts);
-        return;
-      }
 
-      // ── Subagent message history, session-scoped (preferred) ──
-      // GET /api/sessions/:sid/agents/:aid/messages — the (sessionId, agentId)
-      // key keeps same-named leaders from different sessions distinct.
-      const sessionAgentMsgMatch = url.pathname.match(
-        /^\/api\/sessions\/([^/]+)\/agents\/([^/]+)\/messages$/,
-      );
-      if (sessionAgentMsgMatch && req.method === 'GET') {
-        const sid = decodePathSegment(sessionAgentMsgMatch[1]!);
-        const aid = decodePathSegment(sessionAgentMsgMatch[2]!);
-        if (sid === null || aid === null) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'invalid session or agent id encoding' }));
+        if (url.pathname === '/api/login' && req.method === 'POST') {
+          if (!mutableAuth.passwordHash) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                error: {
+                  code: 'PASSWORD_NOT_CONFIGURED',
+                  message: 'Password login is not enabled on this HQ server.',
+                },
+              }),
+            );
+            return;
+          }
+          // Rate limiting with exponential backoff per client IP. Key on the real
+          // socket peer only — HQ speaks plain HTTP directly with no trusted-proxy
+          // gate, so honouring the client-supplied `X-Forwarded-For` here would let
+          // an attacker send a fresh fabricated IP per request and never accumulate
+          // backoff (and, conversely, pre-block a legitimate user's IP).
+          const clientIp = req.socket.remoteAddress ?? 'unknown';
+          const existing = loginAttempts.get(clientIp);
+          if (existing && existing.blockedUntil > Date.now()) {
+            const retryAfter = Math.ceil((existing.blockedUntil - Date.now()) / 1000);
+            res.writeHead(429, {
+              'Content-Type': 'application/json',
+              'Retry-After': String(retryAfter),
+            });
+            res.end(
+              JSON.stringify({
+                error: {
+                  code: 'RATE_LIMITED',
+                  message: `Too many failed login attempts. Retry after ${retryAfter} seconds.`,
+                },
+              }),
+            );
+            return;
+          }
+          let body: { password?: unknown };
+          try {
+            body = JSON.parse(await readRequestBody(req)) as { password?: unknown };
+          } catch (error) {
+            writeInvalidBody(res, error);
+            return;
+          }
+          if (typeof body.password !== 'string' || body.password.length === 0) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({ error: { code: 'BAD_REQUEST', message: 'password is required' } }),
+            );
+            return;
+          }
+          const ok = await verifyHqPassword(body.password, mutableAuth.passwordHash);
+          if (!ok || !mutableAuth.cookieSecret) {
+            // Exponential backoff: 2^count seconds, capped at 16 s.
+            const prev = loginAttempts.get(clientIp);
+            const count = (prev?.count ?? 0) + 1;
+            const backoffMs = Math.min(2 ** count * 1000, 16_000);
+            loginAttempts.set(clientIp, {
+              count,
+              blockedUntil: Date.now() + backoffMs,
+              lastAttempt: Date.now(),
+            });
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({ error: { code: 'INVALID_PASSWORD', message: 'Invalid password.' } }),
+            );
+            return;
+          }
+          // Success — reset rate limit for this IP.
+          loginAttempts.delete(clientIp);
+          const sessionId = randomUUID();
+          sessions.set(sessionId, { createdAt: Date.now() });
+          setHqSessionCookie(
+            res,
+            serializeHqSessionCookie(sessionId, mutableAuth.cookieSecret),
+            options.secureCookies,
+          );
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ loggedIn: true }));
           return;
         }
-        const full = url.searchParams.get('full') === '1';
-        // Prefer the FULL on-disk transcript for local sessions (complete
-        // history, start to end); fall back to the live ring for remote or
-        // not-yet-persisted sessions. The bare-id ring covers a legacy
-        // client that published without a session id.
-        const disk = await readLocalSubagentTranscript(sid, aid);
-        const source: 'disk' | 'stream' = disk !== null ? 'disk' : 'stream';
-        const all =
-          disk !== null ? disk : agentMessages.get(agentRingKey(sid, aid)) ?? agentMessages.get(aid) ?? [];
-        const entries = full ? all : all.slice(-200);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ subagentId: aid, sessionId: sid, source, total: all.length, entries }));
-        return;
-      }
 
-      // ── Subagent message history (legacy, un-scoped) ──
-      // GET /api/agents/:aid/messages — kept for back-compat. When multiple
-      // sessions share an agent id, this merges their rings; prefer the
-      // session-scoped route above.
-      const agentMsgMatch = url.pathname.match(/^\/api\/agents\/([^/]+)\/messages$/);
-      if (agentMsgMatch && req.method === 'GET') {
-        const id = decodePathSegment(agentMsgMatch[1]!);
-        if (id === null) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'invalid agent id encoding' }));
+        if (url.pathname === '/api/logout' && req.method === 'POST') {
+          const auth = authenticateBrowserRequest(req, url, mutableAuth, sessions);
+          if (auth === 'cookie') {
+            const cookies = parseCookieHeader(req.headers.cookie);
+            const raw = cookies[HQ_SESSION_COOKIE];
+            if (raw) {
+              const sessionId = parseHqSessionCookie(raw, mutableAuth.cookieSecret ?? '');
+              if (sessionId) sessions.delete(sessionId);
+            }
+          }
+          clearHqSessionCookie(res, options.secureCookies);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ loggedIn: false }));
           return;
         }
-        const full = url.searchParams.get('full') === '1';
-        // Concatenate every ring for this bare id across sessions (best-effort
-        // for old callers), plus any exact bare-key ring.
-        const merged: HqTranscriptEntry[] = [];
-        for (const [key, ring] of agentMessages) {
-          if (key === id || key.endsWith(`::${id}`)) merged.push(...ring);
-        }
-        merged.sort((a, b) => a.ts.localeCompare(b.ts));
-        const entries = full ? merged : merged.slice(-200);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ subagentId: id, total: merged.length, entries }));
-        return;
-      }
 
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('Not found');
+        if (
+          url.pathname === '/api/auth/password' &&
+          (req.method === 'POST' || req.method === 'DELETE')
+        ) {
+          const auth = authenticateBrowserRequest(req, url, mutableAuth, sessions);
+          const localOpenBootstrap =
+            auth === undefined &&
+            req.method === 'POST' &&
+            mutableAuth.browserTokens.size === 0 &&
+            mutableAuth.passwordHash === undefined &&
+            isLoopbackRequest(req);
+          if (auth === undefined && !localOpenBootstrap) {
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                error: {
+                  code: 'AUTH_REQUIRED',
+                  message:
+                    'A browser token or password session is required to manage the password.',
+                },
+              }),
+            );
+            return;
+          }
+
+          let body: { currentPassword?: unknown; newPassword?: unknown } = {};
+          try {
+            body = JSON.parse(await readRequestBody(req)) as typeof body;
+          } catch {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({ error: { code: 'BAD_REQUEST', message: 'Invalid JSON body.' } }),
+            );
+            return;
+          }
+
+          if (auth === 'cookie' && mutableAuth.passwordHash !== undefined) {
+            const currentPassword =
+              typeof body.currentPassword === 'string' ? body.currentPassword : '';
+            if (
+              !currentPassword ||
+              !(await verifyHqPassword(currentPassword, mutableAuth.passwordHash))
+            ) {
+              res.writeHead(403, { 'Content-Type': 'application/json' });
+              res.end(
+                JSON.stringify({
+                  error: {
+                    code: 'INVALID_CURRENT_PASSWORD',
+                    message: 'Current password is invalid.',
+                  },
+                }),
+              );
+              return;
+            }
+          }
+
+          if (req.method === 'DELETE') {
+            if (options.requireBrowserAuth && mutableAuth.browserTokens.size === 0) {
+              res.writeHead(409, { 'Content-Type': 'application/json' });
+              res.end(
+                JSON.stringify({
+                  error: {
+                    code: 'BROWSER_AUTH_REQUIRED',
+                    message:
+                      'Cannot remove the only browser authentication method while a public relay is active.',
+                  },
+                }),
+              );
+              return;
+            }
+            const next = await mutateHqAuthFile(dataDir, (current) => {
+              const updated = { ...current };
+              delete updated.passwordHash;
+              delete updated.cookieSecret;
+              return updated;
+            });
+            applyAuthFile(next);
+            sessions.clear();
+            clearHqSessionCookie(res, options.secureCookies);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                passwordMode: false,
+                tokenMode: mutableAuth.browserTokens.size > 0,
+                loggedIn: auth !== 'cookie' && isTokenAuth(auth),
+              }),
+            );
+            return;
+          }
+
+          const newPassword = typeof body.newPassword === 'string' ? body.newPassword : '';
+          if (newPassword.length < 8 || newPassword.length > 1024) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                error: {
+                  code: 'INVALID_PASSWORD',
+                  message: 'New password must be between 8 and 1024 characters.',
+                },
+              }),
+            );
+            return;
+          }
+
+          const passwordHash = await hashHqPassword(newPassword);
+          const cookieSecret = mintHqCookieSecret();
+          const next = await mutateHqAuthFile(dataDir, (current) => ({
+            ...current,
+            passwordHash,
+            cookieSecret,
+          }));
+          applyAuthFile(next);
+          sessions.clear();
+
+          // Keep an authenticated password session signed in after rotating its
+          // own credential. Token-authenticated callers keep using their token.
+          if (auth === 'cookie' || localOpenBootstrap) {
+            const sessionId = randomUUID();
+            sessions.set(sessionId, { createdAt: Date.now() });
+            setHqSessionCookie(
+              res,
+              serializeHqSessionCookie(sessionId, cookieSecret),
+              options.secureCookies,
+            );
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              passwordMode: true,
+              tokenMode: mutableAuth.browserTokens.size > 0,
+              loggedIn: true,
+            }),
+          );
+          return;
+        }
+
+        if (url.pathname === '/api/snapshot' && req.method === 'GET') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(buildSnapshot(clients)));
+          return;
+        }
+
+        if (url.pathname === '/api/system/update' && req.method === 'GET') {
+          const [{ checkForUpdate }, { detectUpdatePackageName }] = await Promise.all([
+            import('./update-check.js'),
+            import('./subcommands/handlers/update.js'),
+          ]);
+          const packageName = detectUpdatePackageName();
+          const info = await checkForUpdate({ packageName });
+          res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'no-store',
+          });
+          res.end(
+            JSON.stringify({
+              ...info,
+              packageName,
+              command: 'wstack update',
+            }),
+          );
+          return;
+        }
+
+        // ── Project-scoped GlobalMailbox HTTP gateway ───────────────────────
+        // Mounts the same canonical router used by `wstack mailbox serve` while
+        // resolving the target project server-side. A caller can name only a
+        // registered project id/slug; raw filesystem paths are never accepted.
+        const mailboxGatewayMatch = url.pathname.match(
+          /^\/api\/projects\/([^/]+)\/mailbox(?:\/(.*))?$/,
+        );
+        if (mailboxGatewayMatch) {
+          const projectId = decodePathSegment(mailboxGatewayMatch[1]!);
+          if (projectId === null || projectId.length === 0) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                error: { code: 'BAD_REQUEST', message: 'invalid projectId encoding' },
+              }),
+            );
+            return;
+          }
+          const gatewayGlobalRoot = path.dirname(dataDir);
+          // Enforce the mailbox capability before project lookup so a scoped
+          // token cannot use the 403/404 distinction to enumerate projects.
+          const preliminaryAccess = authorizeMailboxGateway(req, `project:${projectId}`);
+          if (!preliminaryAccess.allowed) {
+            res.writeHead(preliminaryAccess.status ?? 401, {
+              'Content-Type': 'application/json; charset=utf-8',
+              'Cache-Control': 'no-store',
+            });
+            res.end(JSON.stringify(preliminaryAccess.body));
+            return;
+          }
+          const projectRoot = await resolveHqProjectRoot(gatewayGlobalRoot, { projectId });
+          if (!projectRoot) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                error: { code: 'NOT_FOUND', message: `Unknown project: ${projectId}` },
+              }),
+            );
+            return;
+          }
+          const suffix = mailboxGatewayMatch[2];
+          const canonicalPath = suffix ? `/mailbox/${suffix}` : '/mailbox';
+          const projectDir = resolveProjectDir(projectRoot, gatewayGlobalRoot);
+          await getMailboxGateway(projectDir).router.handle(req, res, canonicalPath);
+          return;
+        }
+
+        if (url.pathname.startsWith('/api/projects/') && req.method === 'GET') {
+          const projectId = decodePathSegment(url.pathname.slice('/api/projects/'.length));
+          if (projectId === null) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                error: { code: 'BAD_REQUEST', message: 'invalid projectId encoding' },
+              }),
+            );
+            return;
+          }
+          if (!projectId) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({ error: { code: 'BAD_REQUEST', message: 'projectId is required' } }),
+            );
+            return;
+          }
+          const detail = buildProjectDetail(clients, projectId);
+          if (!detail) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                error: { code: 'NOT_FOUND', message: `Unknown project: ${projectId}` },
+              }),
+            );
+            return;
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(detail));
+          return;
+        }
+
+        // ── Fleet tree (machines → projects → terminals → agents) ──────
+        // Alias of /api/snapshot — the full snapshot already carries fleets[],
+        // machines[], and the session→agent tree. Kept for backward-compat with
+        // existing dashboards/tests; prefer /api/snapshot for new consumers.
+        if (url.pathname === '/api/fleet' && req.method === 'GET') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(buildSnapshot(clients)));
+          return;
+        }
+
+        // ── Persistence-backed history + trends (Phase 2) ────────────────
+        // GET /api/events?limit=&type= — recent persisted event envelopes.
+        if (url.pathname === '/api/events' && req.method === 'GET') {
+          const rawLimit = Number.parseInt(url.searchParams.get('limit') ?? '200', 10);
+          const limit = Math.min(5000, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 200));
+          const typeFilter = url.searchParams.get('type') ?? undefined;
+          const events = await persistence.eventLog.recent(limit, typeFilter);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ events, total: events.length }));
+          return;
+        }
+
+        // GET /api/trends/cost?since= — time-bucketed cost/activity samples.
+        if (url.pathname === '/api/trends/cost' && req.method === 'GET') {
+          const rawSince = Number.parseInt(url.searchParams.get('since') ?? '0', 10);
+          const since = Number.isFinite(rawSince) ? rawSince : 0;
+          const samples: HqTimeseriesSample[] = await persistence.timeseries.read(since);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ samples }));
+          return;
+        }
+
+        // ── Control plane (Phase 3) ─────────────────────────────────────────
+        // POST /api/command — enqueue a command to a connected client. Requires
+        // a browser token with the `control.enqueue` capability (or open mode
+        // where any browser token suffices). The target client must advertise
+        // the `control.receive` capability.
+        if (url.pathname === '/api/command' && req.method === 'POST') {
+          const auth = authenticateBrowserRequest(req, url, mutableAuth, sessions);
+          const inBrowserTokenMode = mutableAuth.browserTokens.size > 0;
+          const inPasswordMode = mutableAuth.passwordHash !== undefined;
+          if ((inBrowserTokenMode || inPasswordMode) && !auth) {
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'unauthorized' }));
+            return;
+          }
+          const tokenObj = isTokenAuth(auth)
+            ? mutableAuth.browserTokenObjs.get(auth.token)
+            : undefined;
+          // Capability check: a token must grant control.enqueue; password-session
+          // logins inherit full browser access. In open mode (no browser tokens or
+          // password configured), control is allowed.
+          const canEnqueue =
+            auth === 'cookie' ||
+            !inBrowserTokenMode ||
+            tokenObj?.capabilities === undefined ||
+            tokenObj.capabilities.includes('control.enqueue');
+          if (!canEnqueue) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'forbidden: token lacks control.enqueue capability' }));
+            return;
+          }
+
+          let body: { clientId?: string; type?: string; payload?: unknown };
+          try {
+            body = JSON.parse(await readRequestBody(req)) as {
+              clientId?: string;
+              type?: string;
+              payload?: unknown;
+            };
+          } catch (error) {
+            writeInvalidBody(res, error);
+            return;
+          }
+          if (typeof body.clientId !== 'string' || typeof body.type !== 'string') {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'missing clientId or type' }));
+            return;
+          }
+
+          // Find the target client across all connected sockets (dedupe by clientId).
+          let target: ConnectedClient | undefined;
+          for (const c of clients.values()) {
+            if (c.clientId === body.clientId) {
+              target = c;
+              break;
+            }
+          }
+          if (target === undefined) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'client not connected', clientId: body.clientId }));
+            return;
+          }
+          // The target must advertise control.receive.
+          if (!target.capabilities.includes('control.receive')) {
+            res.writeHead(409, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                error: 'client does not accept control commands',
+                clientId: body.clientId,
+              }),
+            );
+            return;
+          }
+
+          const commandId = randomUUID();
+          const queued: HqQueuedCommand = {
+            commandId,
+            type: body.type,
+            createdAt: new Date().toISOString(),
+            payload: body.payload ?? {},
+            requiresAck: true,
+          };
+          // Validate the command shape before enqueuing.
+          const validated: HqCommand | null = validateHqCommand(queued);
+          if (validated === null) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({ error: 'unrecognized or malformed command', type: body.type }),
+            );
+            return;
+          }
+
+          if (
+            validated.type === 'run-command' &&
+            !tokenHasCapability(target.authToken, 'control.execute')
+          ) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                error: 'forbidden: target client token lacks control.execute capability',
+              }),
+            );
+            return;
+          }
+
+          target.commandQueue.push(queued);
+          // Bounded queue: drop oldest on overflow.
+          if (target.commandQueue.length > 200)
+            target.commandQueue.splice(0, target.commandQueue.length - 200);
+
+          const auditEntry: HqCommandAuditEntry = {
+            commandId,
+            type: validated.type,
+            clientId: target.clientId,
+            enqueuedBy: auth === 'cookie' ? 'password-session' : (tokenObj?.id ?? 'open-mode'),
+            enqueuedAt: queued.createdAt,
+            status: 'queued',
+          };
+          auditLog.record(auditEntry);
+          HqServerSnapshot.broadcastCommandStatus(auditEntry, browsers);
+
+          res.writeHead(202, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ commandId, queued: true, clientId: target.clientId }));
+          return;
+        }
+
+        // ── Direct mailbox write (Phase 4 — zero-client delivery) ────────────
+        // POST /api/mailbox-send — write an HQ prompt straight into a project's
+        // GlobalMailbox, bypassing the connected-client control plane. This is
+        // the "send even when no active agent" path: the message lands in the
+        // project mailbox file so the next agent to run (or any terminal/webui)
+        // picks it up. The target project is identified by `sessionId` (or
+        // `projectId`) and resolved to a `projectRoot` SERVER-SIDE via the
+        // SessionRegistry — the browser never supplies a raw filesystem path,
+        // so this cannot be abused to write outside known projects.
+        if (url.pathname === '/api/mailbox-send' && req.method === 'POST') {
+          const auth = authenticateBrowserRequest(req, url, mutableAuth, sessions);
+          const inBrowserTokenMode = mutableAuth.browserTokens.size > 0;
+          const inPasswordMode = mutableAuth.passwordHash !== undefined;
+          if ((inBrowserTokenMode || inPasswordMode) && !auth) {
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'unauthorized' }));
+            return;
+          }
+          const tokenObj = isTokenAuth(auth)
+            ? mutableAuth.browserTokenObjs.get(auth.token)
+            : undefined;
+          const canEnqueue =
+            auth === 'cookie' ||
+            !inBrowserTokenMode ||
+            tokenObj?.capabilities === undefined ||
+            tokenObj.capabilities.includes('control.enqueue');
+          if (!canEnqueue) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'forbidden: token lacks control.enqueue capability' }));
+            return;
+          }
+
+          let mbody: {
+            sessionId?: string;
+            projectId?: string;
+            type?: string;
+            to?: string;
+            subject?: string;
+            body?: string;
+            priority?: string;
+          };
+          try {
+            mbody = JSON.parse(await readRequestBody(req));
+          } catch (error) {
+            writeInvalidBody(res, error);
+            return;
+          }
+          if (typeof mbody.type !== 'string' || typeof mbody.body !== 'string') {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'missing type or body' }));
+            return;
+          }
+          if (typeof mbody.sessionId !== 'string' && typeof mbody.projectId !== 'string') {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'missing sessionId or projectId' }));
+            return;
+          }
+
+          // Resolve projectRoot from the SessionRegistry — authoritative, so we
+          // never trust a browser-supplied path. Prefer sessionId; fall back to
+          // the projectId (slug or sha-derived — see resolveHqProjectRoot).
+          // Derive the global root from THIS server's dataDir (honors
+          // --data-dir / WRONGSTACK_HQ_DATA_DIR), not the default resolver, so
+          // the mailbox and registry line up with the running instance.
+          const mbGlobalRoot = path.dirname(dataDir);
+          const projectRoot = await resolveHqProjectRoot(mbGlobalRoot, {
+            sessionId: mbody.sessionId,
+            projectId: mbody.projectId,
+          });
+          if (typeof projectRoot !== 'string' || projectRoot.length === 0) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'could not resolve target project mailbox' }));
+            return;
+          }
+
+          // Validate the mailbox message shape by reusing the command guard.
+          const to = typeof mbody.to === 'string' ? mbody.to : 'leader';
+          const subject = typeof mbody.subject === 'string' ? mbody.subject : 'HQ prompt';
+          const priority =
+            mbody.priority === 'high' ? 'high' : mbody.priority === 'low' ? 'low' : 'normal';
+          const validated = validateHqCommand({
+            commandId: randomUUID(),
+            type: mbody.type,
+            createdAt: new Date().toISOString(),
+            payload: { to, subject, body: mbody.body, priority },
+            requiresAck: false,
+          });
+          // Only the mailbox-writing command types are valid here.
+          const mailboxType =
+            validated?.type === 'steer' || validated?.type === 'btw'
+              ? validated.type
+              : validated?.type === 'queue'
+                ? 'note'
+                : validated?.type === 'broadcast'
+                  ? 'broadcast'
+                  : undefined;
+          if (mailboxType === undefined) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                error: 'unrecognized or malformed mailbox message',
+                type: mbody.type,
+              }),
+            );
+            return;
+          }
+
+          try {
+            const projectDir = resolveProjectDir(projectRoot, mbGlobalRoot);
+            const mailbox = getMailboxGateway(projectDir).mailbox;
+            const from = `hq@${hqSessionTag}`;
+            const sent = await mailbox.send({
+              from,
+              to: mailboxType === 'broadcast' ? 'all' : to,
+              type: mailboxType,
+              subject,
+              body: mbody.body,
+              priority,
+            });
+            res.writeHead(202, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({ delivered: true, messageId: sent?.id, to, type: mailboxType }),
+            );
+          } catch (err) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'mailbox write failed', detail: String(err) }));
+          }
+          return;
+        }
+
+        // ── Mailbox message actions (mark-read / acknowledge / reopen /
+        // soft-delete / restore) ───────────────────────────────────────────
+        // POST /api/mailbox/messages/:mailId/action — apply one verb to one
+        // message in a project's GlobalMailbox. The target project is resolved
+        // SERVER-SIDE from sessionId/projectId (same trust model as
+        // /api/mailbox-send). Auth mirrors /api/command: browser token +
+        // control.enqueue capability.
+        const mailboxActionMatch = url.pathname.match(
+          /^\/api\/mailbox\/messages\/([^/]+)\/action$/,
+        );
+        if (mailboxActionMatch && req.method === 'POST') {
+          const auth = authenticateBrowserRequest(req, url, mutableAuth, sessions);
+          const inBrowserTokenMode = mutableAuth.browserTokens.size > 0;
+          const inPasswordMode = mutableAuth.passwordHash !== undefined;
+          if ((inBrowserTokenMode || inPasswordMode) && !auth) {
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'unauthorized' }));
+            return;
+          }
+          const tokenObj = isTokenAuth(auth)
+            ? mutableAuth.browserTokenObjs.get(auth.token)
+            : undefined;
+          const canEnqueue =
+            auth === 'cookie' ||
+            !inBrowserTokenMode ||
+            tokenObj?.capabilities === undefined ||
+            tokenObj.capabilities.includes('control.enqueue');
+          if (!canEnqueue) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'forbidden: token lacks control.enqueue capability' }));
+            return;
+          }
+
+          let abody: {
+            action?: string;
+            readerId?: string;
+            sessionId?: string;
+            projectId?: string;
+          };
+          try {
+            abody = JSON.parse(await readRequestBody(req));
+          } catch (error) {
+            writeInvalidBody(res, error);
+            return;
+          }
+          const mailId = decodePathSegment(mailboxActionMatch[1]!);
+          if (mailId === null) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'invalid mailId encoding' }));
+            return;
+          }
+          const MAILBOX_ACTIONS = [
+            'mark-read',
+            'acknowledge',
+            'reopen',
+            'soft-delete',
+            'restore',
+          ] as const;
+          const action = MAILBOX_ACTIONS.find((a) => a === abody.action);
+          if (action === undefined) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'unrecognized action', action: abody.action }));
+            return;
+          }
+          if (typeof abody.readerId !== 'string' || abody.readerId.length === 0) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'missing readerId' }));
+            return;
+          }
+          if (typeof abody.sessionId !== 'string' && typeof abody.projectId !== 'string') {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'missing sessionId or projectId' }));
+            return;
+          }
+
+          const actGlobalRoot = path.dirname(dataDir);
+          const projectRoot = await resolveHqProjectRoot(actGlobalRoot, {
+            sessionId: abody.sessionId,
+            projectId: abody.projectId,
+          });
+          if (typeof projectRoot !== 'string' || projectRoot.length === 0) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'could not resolve target project mailbox' }));
+            return;
+          }
+
+          try {
+            const { actionToAckInput } = await import('@wrongstack/core');
+            const projectDir = resolveProjectDir(projectRoot, actGlobalRoot);
+            const mailbox = getMailboxGateway(projectDir).mailbox;
+            const readerId = abody.readerId;
+            const message =
+              action === 'soft-delete'
+                ? await mailbox.softDelete(mailId, readerId)
+                : action === 'restore'
+                  ? await mailbox.restore(mailId)
+                  : await mailbox.ack(actionToAckInput(action, { action, mailId, readerId }));
+            if (message === null) {
+              res.writeHead(404, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'message not found', mailId }));
+              return;
+            }
+            // Deliberately echo `message: null`: the full MailboxMessage
+            // carries the raw body, which would bypass the HQ redaction
+            // policy applied to every other browser-bound preview. The UI
+            // reconciles from the mailbox.event the mutation just published.
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ action, mailId, message: null, changed: true }));
+          } catch (err) {
+            console.warn(
+              JSON.stringify({
+                level: 'warn',
+                event: 'hq.api_error',
+                route: '/api/mailbox/messages/:id/action',
+                detail: String(err),
+                timestamp: new Date().toISOString(),
+              }),
+            );
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                error: 'mailbox action failed',
+                detail: HqServerUtils.sanitizeApiError(err),
+              }),
+            );
+          }
+          return;
+        }
+
+        // GET /api/commands?limit= — recent command audit entries.
+        if (url.pathname === '/api/commands' && req.method === 'GET') {
+          const rawLimit = Number.parseInt(url.searchParams.get('limit') ?? '200', 10);
+          const limit = Math.min(1000, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 200));
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ commands: auditLog.recent(limit) }));
+          return;
+        }
+
+        // GET /api/alerts?limit= — recent alert history + currently-active alerts.
+        if (url.pathname === '/api/alerts' && req.method === 'GET') {
+          const rawLimit = Number.parseInt(url.searchParams.get('limit') ?? '100', 10);
+          const limit = Math.min(500, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 100));
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({
+              active: alertEngine.activeAlerts(),
+              history: alertEngine.recentAlerts(limit),
+            }),
+          );
+          return;
+        }
+
+        // ── WrongStack session API — full chat history per terminal ────
+        if (url.pathname === '/api/sessions' && req.method === 'GET') {
+          await handleApiSessions(res);
+          return;
+        }
+
+        const eventsMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/events$/);
+        if (eventsMatch && req.method === 'GET') {
+          const full = url.searchParams.get('full') === '1';
+          const rawLimit = Number.parseInt(url.searchParams.get('limit') ?? '200', 10);
+          const limit = Math.min(5000, Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 200));
+          const sessionId = decodePathSegment(eventsMatch[1]!);
+          if (sessionId === null) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'invalid sessionId encoding' }));
+            return;
+          }
+          await handleApiSessionEvents(res, sessionId, limit, full, transcripts);
+          return;
+        }
+
+        // ── Subagent message history, session-scoped (preferred) ──
+        // GET /api/sessions/:sid/agents/:aid/messages — the (sessionId, agentId)
+        // key keeps same-named leaders from different sessions distinct.
+        const sessionAgentMsgMatch = url.pathname.match(
+          /^\/api\/sessions\/([^/]+)\/agents\/([^/]+)\/messages$/,
+        );
+        if (sessionAgentMsgMatch && req.method === 'GET') {
+          const sid = decodePathSegment(sessionAgentMsgMatch[1]!);
+          const aid = decodePathSegment(sessionAgentMsgMatch[2]!);
+          if (sid === null || aid === null) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'invalid session or agent id encoding' }));
+            return;
+          }
+          const full = url.searchParams.get('full') === '1';
+          // Prefer the FULL on-disk transcript for local sessions (complete
+          // history, start to end); fall back to the live ring for remote or
+          // not-yet-persisted sessions. The bare-id ring covers a legacy
+          // client that published without a session id.
+          const disk = await readLocalSubagentTranscript(sid, aid);
+          const source: 'disk' | 'stream' = disk !== null ? 'disk' : 'stream';
+          const all =
+            disk !== null
+              ? disk
+              : (agentMessages.get(agentRingKey(sid, aid)) ?? agentMessages.get(aid) ?? []);
+          const entries = full ? all : all.slice(-200);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(
+            JSON.stringify({ subagentId: aid, sessionId: sid, source, total: all.length, entries }),
+          );
+          return;
+        }
+
+        // ── Subagent message history (legacy, un-scoped) ──
+        // GET /api/agents/:aid/messages — kept for back-compat. When multiple
+        // sessions share an agent id, this merges their rings; prefer the
+        // session-scoped route above.
+        const agentMsgMatch = url.pathname.match(/^\/api\/agents\/([^/]+)\/messages$/);
+        if (agentMsgMatch && req.method === 'GET') {
+          const id = decodePathSegment(agentMsgMatch[1]!);
+          if (id === null) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'invalid agent id encoding' }));
+            return;
+          }
+          const full = url.searchParams.get('full') === '1';
+          // Concatenate every ring for this bare id across sessions (best-effort
+          // for old callers), plus any exact bare-key ring.
+          const merged: HqTranscriptEntry[] = [];
+          for (const [key, ring] of agentMessages) {
+            if (key === id || key.endsWith(`::${id}`)) merged.push(...ring);
+          }
+          merged.sort((a, b) => a.ts.localeCompare(b.ts));
+          const entries = full ? merged : merged.slice(-200);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ subagentId: id, total: merged.length, entries }));
+          return;
+        }
+
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('Not found');
       } catch (err) {
-        console.error(JSON.stringify({ level: 'error', event: 'hq.http_handler_error', message: String(err), timestamp: new Date().toISOString() }));
+        console.error(
+          JSON.stringify({
+            level: 'error',
+            event: 'hq.http_handler_error',
+            message: String(err),
+            timestamp: new Date().toISOString(),
+          }),
+        );
         if (!res.headersSent) {
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Internal server error' }));
@@ -1659,10 +2038,15 @@ function startHqServerWithAuth(
         return;
       }
 
-      if (!hasTrustedBrowserOrigin(req, host, port)) {
+      if (!hasTrustedBrowserOrigin(req, host, listeningPort, trustedPublicOrigins)) {
         socket.write(
           'HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n' +
-            JSON.stringify({ error: { code: 'INVALID_ORIGIN', message: 'Cross-origin WebSocket upgrade rejected.' } }),
+            JSON.stringify({
+              error: {
+                code: 'INVALID_ORIGIN',
+                message: 'Cross-origin WebSocket upgrade rejected.',
+              },
+            }),
         );
         socket.destroy();
         return;
@@ -1675,10 +2059,14 @@ function startHqServerWithAuth(
       // Browser channel also accepts a signed password session cookie so
       // password-logged-in tabs can open the WebSocket without exposing the
       // password in the URL.
-      const tokenSet = pathname === '/ws/browser' ? mutableAuth.browserTokens : mutableAuth.clientTokens;
-      const needsAuth = pathname === '/ws/browser'
-        ? tokenSet.size > 0 || mutableAuth.passwordHash !== undefined
-        : tokenSet.size > 0;
+      const tokenSet =
+        pathname === '/ws/browser' ? mutableAuth.browserTokens : mutableAuth.clientTokens;
+      const needsAuth =
+        pathname === '/ws/browser'
+          ? options.requireBrowserAuth ||
+            tokenSet.size > 0 ||
+            mutableAuth.passwordHash !== undefined
+          : tokenSet.size > 0;
       if (needsAuth) {
         const supplied = url.searchParams.get('token') ?? '';
         // Constant-time membership test — mirror the HTTP path. A bare
@@ -1747,45 +2135,43 @@ function startHqServerWithAuth(
 
     // Phase 4 — live reload of auth.json. The watcher re-reads the file on
     // change and atomically swaps the in-memory token sets + operator policy.
-    // No active connections are dropped; subsequent upgrades and broadcasts
-    // see the new state immediately.
+    // Subsequent requests see the new state immediately. Public relays also
+    // drop existing browser channels when the final credential disappears.
     const authWatcher = watchHqAuthFile(
       dataDir,
       (next) => {
-        mutableAuth.operatorPolicy = {
-          ...DEFAULT_HQ_REDACTION_POLICY,
-          ...(next.redactionPolicy ?? {}),
-        };
-        mutableAuth.operatorPolicyOverride = next.redactionPolicy;
-        mutableAuth.browserTokens = new Set((next.browserTokens ?? []).map((t) => t.token));
-        mutableAuth.clientTokens = new Set((next.clientTokens ?? []).map((t) => t.token));
-        mutableAuth.browserTokenObjs = new Map(
-          (next.browserTokens ?? []).map((t) => [t.token, { id: t.id, ...(t.capabilities !== undefined ? { capabilities: t.capabilities } : {}) }]),
+        applyAuthFile(next);
+        if (
+          options.requireBrowserAuth &&
+          mutableAuth.browserTokens.size === 0 &&
+          mutableAuth.passwordHash === undefined
+        ) {
+          sessions.clear();
+          for (const browser of browsers) browser.close(1008, 'Browser authentication removed');
+        }
+        console.warn(
+          JSON.stringify({
+            level: 'info',
+            event: 'hq.auth.reloaded',
+            message: 'HQ auth.json reloaded',
+            browserTokenCount: mutableAuth.browserTokens.size,
+            clientTokenCount: mutableAuth.clientTokens.size,
+            passwordMode: mutableAuth.passwordHash !== undefined,
+            alertRulesActive: mutableAuth.alertRules !== undefined,
+            timestamp: new Date().toISOString(),
+          }),
         );
-        mutableAuth.clientTokenObjs = new Map(
-          (next.clientTokens ?? []).map((token) => [token.token, token]),
-        );
-        mutableAuth.passwordHash = next.passwordHash;
-        mutableAuth.cookieSecret = next.cookieSecret;
-        mutableAuth.alertRules = next.alertRules;
-        console.warn(JSON.stringify({
-          level: 'info',
-          event: 'hq.auth.reloaded',
-          message: 'HQ auth.json reloaded',
-          browserTokenCount: mutableAuth.browserTokens.size,
-          clientTokenCount: mutableAuth.clientTokens.size,
-          passwordMode: mutableAuth.passwordHash !== undefined,
-          alertRulesActive: mutableAuth.alertRules !== undefined,
-          timestamp: new Date().toISOString(),
-        }));
       },
       {
-        warn: (msg) => console.warn(JSON.stringify({
-          level: 'warn',
-          event: 'hq.auth.reload_failed',
-          message: msg,
-          timestamp: new Date().toISOString(),
-        })),
+        warn: (msg) =>
+          console.warn(
+            JSON.stringify({
+              level: 'warn',
+              event: 'hq.auth.reload_failed',
+              message: msg,
+              timestamp: new Date().toISOString(),
+            }),
+          ),
       },
     );
 
@@ -1794,7 +2180,12 @@ function startHqServerWithAuth(
       httpServer.listen(nextPort, host);
     };
     const onError = (err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE' && !options.strictPort && !options.exactPort && bindAttempts < MAX_NON_STRICT_PORT_SCAN) {
+      if (
+        err.code === 'EADDRINUSE' &&
+        !options.strictPort &&
+        !options.exactPort &&
+        bindAttempts < MAX_NON_STRICT_PORT_SCAN
+      ) {
         bindAttempts += 1;
         listen(port + bindAttempts);
       } else {
@@ -1812,9 +2203,14 @@ function startHqServerWithAuth(
         httpServer.removeListener('error', onError);
         const addr = httpServer.address();
         const actualPort = typeof addr === 'object' && addr ? addr.port : port;
+        listeningPort = actualPort;
 
-        const browserToken = firstRunAuth.browserToken?.token ?? authFile.browserTokens?.find((t) => t.token.trim().length > 0)?.token;
-        const clientToken = firstRunAuth.clientToken?.token ?? authFile.clientTokens?.find((t) => t.token.trim().length > 0)?.token;
+        const browserToken =
+          firstRunAuth.browserToken?.token ??
+          authFile.browserTokens?.find((t) => t.token.trim().length > 0)?.token;
+        const clientToken =
+          firstRunAuth.clientToken?.token ??
+          authFile.clientTokens?.find((t) => t.token.trim().length > 0)?.token;
         const hqUrl = `http://${displayHost(host)}:${actualPort}`;
         await writeHqRuntimeMarker(dataDir, hqUrl).catch(() => {
           // Best-effort discovery marker; startup output remains authoritative.
@@ -1828,12 +2224,23 @@ function startHqServerWithAuth(
             ...(clientToken ? { WRONGSTACK_HQ_TOKEN: clientToken } : {}),
           },
           createdAuth: firstRunAuth.created,
+          browserTokenMode: mutableAuth.browserTokens.size > 0,
+          passwordMode: mutableAuth.passwordHash !== undefined,
         };
         let closed = false;
         const handle: HqServerHandle = {
           host,
           port: actualPort,
           firstRunSetup: startupInfo,
+          trustPublicOrigin: (origin) => {
+            const parsed = new URL(origin);
+            if (parsed.protocol !== 'https:' || parsed.origin !== origin) {
+              throw new TypeError(
+                'Trusted HQ public origin must be an exact HTTPS origin without a path.',
+              );
+            }
+            trustedPublicOrigins.add(parsed.origin.toLowerCase());
+          },
           close: () =>
             new Promise<void>((res) => {
               if (closed) {

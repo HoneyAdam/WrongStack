@@ -27,10 +27,18 @@ export interface SddBoardFeedEntry {
     | 'verification_failed'
     | 'conflict'
     | 'split'
-    | 'supervisor';
+    | 'supervisor'
+    | 'tool'
+    | 'file';
+  taskId?: string;
   taskShortId?: string;
   agentName?: string;
   text: string;
+  action?: string;
+  detail?: string;
+  filePath?: string;
+  durationMs?: number;
+  ok?: boolean;
 }
 
 export interface SddBoardSnapshotUI {
@@ -56,6 +64,8 @@ export interface SddBoardSnapshotUI {
   columns: SddBoardColumn[];
   diagnostics?: { deadlockChains?: Array<{ blocked: string; blockedBy: string[] }> };
   feed?: SddBoardFeedEntry[];
+  /** Rich task-scoped history; unlike the global ticker this is capped per task. */
+  taskEvents?: Record<string, SddBoardFeedEntry[]>;
   /** Run-level default worker model / provider / fallback chain (header display). */
   defaultModel?: string;
   defaultProvider?: string;

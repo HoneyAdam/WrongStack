@@ -22,15 +22,16 @@ export const META = {
 
 export const heroStats = [
   { value: '58', label: 'built-in tools' },
-  { value: '23', label: 'bundled skills' },
+  { value: '25', label: 'bundled skills' },
   { value: '~140', label: 'model providers' },
   { value: '73', label: 'managed plugins' },
 ] as const;
 
-/** 23 bundled skills — README / bundled catalog canonical list. */
+/** 25 bundled skills — README / bundled catalog canonical list. */
 export const skills = [
   { name: 'api-design', description: 'REST conventions, pagination, auth, and error taxonomy' },
   { name: 'audit-log', description: 'Analyze session logs and event streams' },
+  { name: 'auto-review', description: 'Continuous review configuration and operation' },
   { name: 'bug-hunter', description: 'Systematic debugging and anti-pattern detection' },
   { name: 'chimera', description: 'Post-session code quality review of changed files' },
   {
@@ -42,6 +43,7 @@ export const skills = [
     name: 'mailbox-bridge',
     description: 'Expose the shared project mailbox to external agents and scripts',
   },
+  { name: 'mnemosyne', description: 'Curate and verify persistent Super Memory knowledge' },
   { name: 'multi-agent', description: 'Coordinate parallel agent workflows' },
   { name: 'node-modern', description: 'Node.js 22+ patterns and best practices' },
   { name: 'observability', description: 'Structured logs, traces, metrics, and redaction' },

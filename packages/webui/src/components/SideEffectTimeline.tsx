@@ -9,11 +9,13 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
+import { usePagination } from '@/hooks/usePagination';
 import { useAppTranslation } from '@/i18n';
 import { Activity, RefreshCw, Terminal, Package, Globe, ChevronUp, ChevronDown, Download } from 'lucide-react';
 import { useSideEffectStore } from '@/stores';
 import type { SideEffectEntry } from '@/stores';
 import { cn } from '@/lib/utils';
+import { Pagination } from './ui/pagination';
 
 const RISK_ICONS: Record<string, typeof Terminal> = {
   shell: Terminal,
@@ -134,6 +136,7 @@ export function SideEffectTimeline() {
 
     return result;
   }, [sideEffects, riskFilter, sortKey, sortDir]);
+  const effectPage = usePagination(filtered, 20, `${riskFilter}:${sortKey}:${sortDir}`);
 
   if (sideEffects.length === 0 && !loading) {
     return (
@@ -225,7 +228,7 @@ export function SideEffectTimeline() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((se, i) => {
+            {effectPage.pageItems.map((se, i) => {
               const Icon = RISK_ICONS[se.risk] ?? Activity;
               const colorClass = RISK_COLORS[se.risk] ?? 'text-muted-foreground';
               return (
@@ -257,6 +260,13 @@ export function SideEffectTimeline() {
           </tbody>
         </table>
       </div>
+      <Pagination
+        page={effectPage.page}
+        pageSize={effectPage.pageSize}
+        totalItems={effectPage.totalItems}
+        onPageChange={effectPage.setPage}
+        itemLabel="side effects"
+      />
     </div>
   );
 }

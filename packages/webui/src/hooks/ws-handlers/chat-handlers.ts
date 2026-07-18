@@ -140,8 +140,9 @@ export function handleToolConfirmNeeded(msg: WSServerMessage) {
     suggestedPattern: string;
     decisionSource?: string | undefined;
     riskTier?: 'safe' | 'standard' | 'destructive' | undefined;
+    boundaryReason?: string | undefined;
   };
-  if (useLocalPrefs.getState().yolo === true) {
+  if (useLocalPrefs.getState().yolo === true && !payload.boundaryReason) {
     getWSClient(useConfigStore.getState().wsUrl).sendConfirm(payload.id, 'yes');
     useUIStore.getState().hideConfirm();
     return;
@@ -153,6 +154,7 @@ export function handleToolConfirmNeeded(msg: WSServerMessage) {
     suggestedPattern: payload.suggestedPattern,
     decisionSource: payload.decisionSource,
     riskTier: payload.riskTier,
+    boundaryReason: payload.boundaryReason,
   });
   try { playPermissionChime(); } catch { /* audio policy */ }
   void ensureNotificationPermission();

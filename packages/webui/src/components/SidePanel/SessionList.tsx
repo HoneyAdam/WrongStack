@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { confirmModal } from '@/components/ConfirmModal';
+import { Pagination } from '@/components/ui/pagination';
 import type { useWebSocket } from '@/hooks/useWebSocket';
 import { i18n, useAppTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
@@ -27,6 +28,9 @@ import { useUIStore } from '@/stores';
 export type HistoryFilter = 'all' | 'favorites' | 'active' | 'completed' | 'issues';
 export type HistorySort = 'recent' | 'tokens' | 'activity';
 export type HistoryListVariant = 'sidebar' | 'workspace';
+
+const SIDEBAR_PAGE_SIZE = 10;
+const WORKSPACE_PAGE_SIZE = 20;
 
 interface SessionListProps {
   historyQuery: string;
@@ -355,6 +359,7 @@ export function SessionList({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
   const [resumingId, setResumingId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
   const resumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const renameInput = useRef<HTMLInputElement | null>(null);
   const workspace = variant === 'workspace';
@@ -423,11 +428,25 @@ export function SessionList({
       }),
     [favoriteSessionIds, filter, historyEntries, historyQuery, sort],
   );
+  const pageSize = workspace ? WORKSPACE_PAGE_SIZE : SIDEBAR_PAGE_SIZE;
+  const pagedEntries = useMemo(
+    () => visibleEntries.slice((page - 1) * pageSize, page * pageSize),
+    [page, pageSize, visibleEntries],
+  );
   const groupedHistory = useMemo(
-    () => groupSessionHistory(visibleEntries, favoriteSessionIds),
-    [favoriteSessionIds, visibleEntries],
+    () => groupSessionHistory(pagedEntries, favoriteSessionIds),
+    [favoriteSessionIds, pagedEntries],
   );
   const stats = useMemo(() => getSessionHistoryStats(historyEntries), [historyEntries]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [filter, historyQuery, sort]);
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(visibleEntries.length / pageSize));
+    if (page > totalPages) setPage(totalPages);
+  }, [page, pageSize, visibleEntries.length]);
 
   const handleDeleteEmpty = useCallback(async () => {
     if (emptySessionIds.length === 0) return;
@@ -458,7 +477,10 @@ export function SessionList({
 
   return (
     <div
-      className="flex min-h-0 min-w-0 flex-1 flex-col bg-background"
+      className={cn(
+        'flex min-h-0 min-w-0 flex-1 flex-col bg-background',
+        workspace && 'h-full',
+      )}
       data-history-variant={variant}
     >
       {workspace ? <HistoryStats stats={stats} /> : null}
@@ -811,6 +833,14 @@ export function SessionList({
           </div>
         )}
       </div>
+      <Pagination
+        page={page}
+        pageSize={pageSize}
+        totalItems={visibleEntries.length}
+        onPageChange={setPage}
+        compact={!workspace}
+        itemLabel="sessions"
+      />
     </div>
   );
 }

@@ -152,6 +152,7 @@ export const readTool: Tool<ReadInput, ReadOutput> = {
     const contentHash = sha256hex(text);
     const allLines = text.split(/\r\n|\r|\n/);
     const total = allLines.length;
+
     if (input.mode === 'summary') {
       ctx.recordRead(absPath, stat.mtimeMs, 'user', contentHash);
       rememberReadRange(ctx, absPath, stat.mtimeMs, total, 1, Math.min(total, 200));

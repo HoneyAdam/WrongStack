@@ -39,6 +39,7 @@ import {
 import { indexService, searchService, statsService } from './index-service.js';
 import type { IndexResult, IndexStats } from './schema.js';
 import { detectLang } from './ts-parser.js';
+import { indexStorePool } from './writer.js';
 import type {
   HostToWorker,
   IndexOpArgs,
@@ -249,6 +250,7 @@ function terminateWorker(reason: unknown): void {
  */
 export function shutdownCodebaseIndexHost(): void {
   cancelPendingReindexes();
+  indexStorePool.closeAll();
   terminateWorker(new Error('codebase-index host shut down'));
   workerUnavailable = false; // a future call may spawn a fresh worker
 }

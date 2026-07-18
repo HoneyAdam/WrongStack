@@ -2,10 +2,12 @@ import { ChevronDown, Loader2, Power, PowerOff, Search, Wrench } from 'lucide-re
 import { type ReactElement, useCallback, useEffect, useState } from 'react';
 import { toast } from '@/components/Toaster';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { usePagination } from '@/hooks/usePagination';
 import type { WSServerMessage } from '@/types';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import { Pagination } from '../ui/pagination';
 
 export interface ToolInfo {
   name: string;
@@ -161,6 +163,7 @@ export function ToolsSection(): ReactElement {
           t.owner.toLowerCase().includes(filter.toLowerCase()),
       )
     : tools;
+  const toolPage = usePagination(filtered, 20, filter);
 
   const activeCount = tools.filter((t) => !t.disabled).length;
   const disabledCount = tools.filter((t) => t.disabled).length;
@@ -206,7 +209,7 @@ export function ToolsSection(): ReactElement {
             className="max-h-[min(58dvh,660px)] space-y-2 overflow-y-scroll p-2 pr-3 [scrollbar-gutter:stable]"
             aria-label="Tools list"
           >
-            {filtered.map((tool) => (
+            {toolPage.pageItems.map((tool) => (
               <li key={tool.name}>
                 <ToolRow
                   tool={tool}
@@ -218,6 +221,13 @@ export function ToolsSection(): ReactElement {
           </ul>
           <div className="pointer-events-none absolute inset-x-0 top-0 h-4 bg-gradient-to-b from-background/90 to-transparent" />
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-background/95 to-transparent" />
+          <Pagination
+            page={toolPage.page}
+            pageSize={toolPage.pageSize}
+            totalItems={toolPage.totalItems}
+            onPageChange={toolPage.setPage}
+            itemLabel="tools"
+          />
         </div>
       )}
     </div>

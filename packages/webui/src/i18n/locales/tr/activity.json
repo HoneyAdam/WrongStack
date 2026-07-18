@@ -11,9 +11,7 @@
     "design": "Tasarım Stüdyosu",
     "officemap": "Ofis Haritası",
     "settings": "Ayarlar",
-    "sddwizard": "Yeni SDD Projesi",
-    "specs": "Spesifikasyonlar",
-    "sddboard": "Canlı Pano",
+    "sddhub": "SDD",
     "goal": "Goal",
     "memory": "Bellek",
     "fleet": "Filo",
@@ -1146,6 +1144,7 @@
     "imageNotRetained": "Görsel önizlemesi yenilemeden sonra saklanmaz",
     "failedToSend": "⚠ Gönderilemedi",
     "autoPaused": "⚠️ _Otomatik ilerleme duraklatıldı — maksimum ardışık otomatik tur sayısına ulaşıldı. Devam etmek için bir şey yazın (otonomi açık kalır)._",
+    "autoLoopHalted": "⚠️ _Aynı istem tekrarlandığı için otomatik gönderim durduruldu. Otonomi açık kalır; döngü korumasını sıfırlamak için yeni bir istem girin._",
     "rsIterations": "Yineleme: {{n}}",
     "rsTools": "Araç çağrısı: {{n}}",
     "rsElapsed": "Geçen: {{s}}",
@@ -1270,6 +1269,11 @@
   },
   "sddTask": {
     "backTitle": "Etkinliğe dön",
+    "expandTitle": "Görev detaylarını genişlet",
+    "collapseTitle": "Görev detaylarını daralt",
+    "eventLog": "Görev olay günlüğü",
+    "newestFirst": "en yeni önce",
+    "noEvents": "Bu görev için henüz bir etkinlik kaydedilmedi.",
     "workingOn": "bu görev üzerinde çalışıyor",
     "assigned": "atanmış",
     "metaPriority": "Öncelik",
@@ -1376,6 +1380,49 @@
     "mentionFile": "Dosyayı bahset",
     "loadingEditor": "Düzenleyici yükleniyor…",
     "selectTab": "İçeriğini görmek için bir sekme seçin"
+  },
+  "fileActivity": {
+    "title": "Dosya aktivitesi",
+    "overview": "Özet",
+    "changes": "Değişiklikler",
+    "context": "Bağlam",
+    "logs": "Loglar",
+    "lines": "satır",
+    "resizeHint": "Boyutlandırmak için sürükle · sıfırlamak için çift tıkla",
+    "refresh": "Dosya kanıtlarını yenile",
+    "evidenceCount_one": "{{count}} olay",
+    "evidenceCount_other": "{{count}} olay",
+    "mutations30m": "Değişim · 30 dk",
+    "sessions": "Session'lar",
+    "actors": "Değiştirenler",
+    "linkedWork": "İş bağlantıları",
+    "workLinks": "Kanban / todo",
+    "recentActivity": "Son dosya aktiviteleri",
+    "events": "olay",
+    "noEvidence": "Henüz bu dosyayla ilişkilendirilmiş aktivite yok.",
+    "noSessions": "Henüz session eşleşmesi yok.",
+    "noActors": "Henüz değiştiren kişi/süreç eşleşmesi yok.",
+    "noWorkLinks": "Kanban, SDD veya todo bağlantısı kaydedilmemiş.",
+    "taskOrTodo": "Task / todo",
+    "loadingEvidence": "Dosya kanıtları yükleniyor…",
+    "gitToBuffer": "Git HEAD → mevcut Monaco buffer",
+    "savedToBuffer": "Son kayıt → mevcut Monaco buffer",
+    "unsaved": "kaydedilmemiş buffer",
+    "level": {
+      "quiet": "sakin",
+      "active": "aktif",
+      "churn": "yüksek churn"
+    },
+    "analysisTitle": {
+      "quiet": "Yakın zamanda değişiklik trafiği yok",
+      "active": "Bu dosya değiştiriliyor",
+      "churn": "Tekrarlayan değişiklikler algılandı"
+    },
+    "analysisBody": {
+      "quiet": "Son 30 dakikada ilişkilendirilmiş bir değişiklik kaydı yok.",
+      "active": "Son 30 dakikada {{actors}} aktör ve {{sessions}} session üzerinden {{mutations}} değişiklik yapıldı.",
+      "churn": "Yüksek churn: {{actors}} aktör ve {{sessions}} session üzerinden {{mutations}} değişiklik yapıldı. Sonraki düzenlemeden önce çakışan işleri kontrol et."
+    }
   },
   "analytics": {
     "loading": "Analitik yükleniyor…",
@@ -1757,5 +1804,10 @@
       "in_progress": "Devam ediyor",
       "completed": "Tamamlandı"
     }
+  },
+  "sddhub": {
+    "tabProject": "SDD Projesi",
+    "tabBoard": "Canlı SDD Panosu",
+    "tabSpecs": "Spesifikasyonlar"
   }
 }

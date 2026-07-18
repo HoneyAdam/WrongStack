@@ -8,8 +8,6 @@ import {
   Globe,
   Layers,
   ListPlus,
-  Monitor,
-  Moon,
   Network,
   Palette,
   Puzzle,
@@ -17,7 +15,6 @@ import {
   Send,
   Server,
   Shield,
-  Sun,
   Wrench,
   X,
   Zap,
@@ -28,7 +25,7 @@ import { toast } from '@/components/Toaster';
 import { useProviderModels } from '@/hooks/useProviderModels';
 import { useScrollPosition } from '@/hooks/useScrollPosition';
 import { useWebSocket } from '@/hooks/useWebSocket';
-import { i18n, LANGUAGES, useAppTranslation } from '@/i18n';
+import { i18n, useAppTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { showPanel } from '@/lib/view-navigation';
 import { useConfigStore, useUIStore } from '@/stores';
@@ -37,12 +34,12 @@ import type { WSServerMessage } from '@/types';
 import { AvailabilityCalendarEditor } from '../AvailabilityCalendarEditor';
 import { FallbackEditor } from '../FallbackEditor';
 import { ModelSelectDialog } from '../ModelSelectDialog';
-import { useTheme } from '../ThemeProvider';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { ScrollArea } from '../ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { BrainSection } from './BrainSection';
+import { AppearanceSettingsTab, ConnectionSettingsTab } from './BasicSettingsTabs';
 import { ChimeraSettingsPanel } from './ChimeraSettingsPanel';
 import { MCPSection } from './MCPSection';
 import { ModelSection } from './ModelSection';
@@ -83,21 +80,16 @@ export function SettingsPanel() {
     model: activeModel,
     setProvider,
     setModel,
-    setConfig,
     wsConnected,
-    wsUrl,
   } = useConfigStore(
     useShallow((s) => ({
       provider: s.provider,
       model: s.model,
       setProvider: s.setProvider,
       setModel: s.setModel,
-      setConfig: s.setConfig,
       wsConnected: s.wsConnected,
-      wsUrl: s.wsUrl,
     })),
   );
-  const { theme, setTheme } = useTheme();
   const ws = useWebSocket();
   const wsClient = ws.client;
   const { updatePrefs, switchAutonomy } = ws;
@@ -117,21 +109,6 @@ export function SettingsPanel() {
     [localPrefs, updatePrefs],
   );
 
-  // Locale switch: optimistically update the local store for an instant i18n
-  // swap, AND persist to the shared machine config via syncPref so the choice
-  // propagates to the desktop shell and other webui instances (the prefs.updated
-  // broadcast covers same-server clients; the config file watcher covers
-  // cross-process). The i18n module's useLocalPrefs.subscribe drives
-  // i18n.changeLanguage + <html lang> on the local write.
-  const setUiLocale = useCallback(
-    (code: string) => {
-      localPrefs.set({ uiLocale: code });
-      // Defensive: also swap directly in case the subscriber hasn't mounted.
-      if (i18n.language !== code) void i18n.changeLanguage(code);
-      syncPref('uiLocale', code);
-    },
-    [localPrefs, syncPref],
-  );
 
   // Catalog data (unchanged)
   const [catalogProviders, setCatalogProviders] = useState<CatalogProvider[]>([]);
@@ -504,124 +481,8 @@ export function SettingsPanel() {
                 </div>
               </TabsContent>
 
-              {/* Connection Tab */}
-              <TabsContent value="connection" className="mt-0 space-y-4">
-                <div className="space-y-3">
-                  <label
-                    htmlFor="websocket-url"
-                    className="text-sm font-medium flex items-center gap-2"
-                  >
-                    <Globe className="h-4 w-4 text-muted-foreground" />
-                    {t('settings:connection.wsUrlLabel')}
-                  </label>
-                  <Input
-                    id="websocket-url"
-                    value={wsUrl}
-                    onChange={(e) => setConfig({ wsUrl: e.target.value })}
-                    placeholder={t('settings:connection.wsUrlPlaceholder')}
-                    className="font-mono text-sm"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {t('settings:connection.wsUrlHint')}
-                  </p>
-                </div>
-
-                <div className="p-4 rounded-lg border bg-muted/50">
-                  <h4 className="text-sm font-medium mb-2">
-                    {t('settings:connection.startingHeading')}
-                  </h4>
-                  <p className="text-xs text-muted-foreground mb-3">
-                    {t('settings:connection.startingBody')}
-                  </p>
-                </div>
-              </TabsContent>
-
-              {/* Appearance Tab */}
-              <TabsContent value="appearance" className="mt-0 space-y-4">
-                <div>
-                  <h3 className="text-sm font-semibold mb-3">
-                    {t('settings:appearance.themeHeading')}
-                  </h3>
-                  <div className="grid grid-cols-3 gap-2 max-w-md">
-                    <Button
-                      variant={theme === 'light' ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setTheme('light')}
-                    >
-                      <Sun className="h-4 w-4 mr-1" />
-                      {t('settings:appearance.themeLight')}
-                    </Button>
-                    <Button
-                      variant={theme === 'dark' ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setTheme('dark')}
-                    >
-                      <Moon className="h-4 w-4 mr-1" />
-                      {t('settings:appearance.themeDark')}
-                    </Button>
-                    <Button
-                      variant={theme === 'system' ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setTheme('system')}
-                    >
-                      <Monitor className="h-4 w-4 mr-1" />
-                      {t('settings:appearance.themeSystem')}
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    {t('settings:appearance.themeSystemHint')}
-                  </p>
-                </div>
-
-                <div className="pt-2 border-t">
-                  <h3 className="text-sm font-semibold mb-3 mt-3">
-                    {t('settings:appearance.languageHeading')}
-                  </h3>
-                  <PreferenceSelect
-                    label={t('settings:appearance.languageLabel')}
-                    hint={t('settings:appearance.languageHint')}
-                    value={localPrefs.uiLocale}
-                    options={LANGUAGES.map((l) => ({ value: l.code, label: l.name }))}
-                    onChange={setUiLocale}
-                  />
-                </div>
-
-                <div className="pt-2 border-t">
-                  <h3 className="text-sm font-semibold mb-3 mt-3">
-                    {t('settings:appearance.preferencesHeading')}
-                  </h3>
-                  <PreferenceToggle
-                    label={t('settings:appearance.compactDensity')}
-                    hint={t('settings:appearance.compactDensityHint')}
-                    selector={(s) => s.compactMode}
-                    onChange={() => useUIStore.getState().toggleCompactMode()}
-                  />
-                  <PreferenceToggle
-                    label={t('settings:appearance.soundOnComplete')}
-                    hint={t('settings:appearance.soundOnCompleteHint')}
-                    selector={null}
-                    configKey="soundOnComplete"
-                  />
-                  <PreferenceToggle
-                    label={t('settings:appearance.titleAnimation')}
-                    hint={t('settings:appearance.titleAnimationHint')}
-                    value={localPrefs.titleAnimation}
-                    onChange={() => syncPref('titleAnimation', !localPrefs.titleAnimation)}
-                  />
-                  <PreferenceToggle
-                    label={t('settings:appearance.showThinkingLabel')}
-                    hint={t('settings:appearance.showThinkingHint')}
-                    value={localPrefs.showThinkingLogs}
-                    onChange={() => syncPref('showThinkingLogs', !localPrefs.showThinkingLogs)}
-                  />
-                  <PreferenceToggle
-                    label={t('settings:appearance.groupToolCallsLabel')}
-                    hint={t('settings:appearance.groupToolCallsHint')}
-                    value={localPrefs.groupToolCalls}
-                    onChange={() => syncPref('groupToolCalls', !localPrefs.groupToolCalls)}
-                  />
-                </div>
-              </TabsContent>
+              <ConnectionSettingsTab />
+              <AppearanceSettingsTab />
 
               {/* Agent Tab */}
               <TabsContent value="agent" className="mt-0 space-y-4">

@@ -12,6 +12,7 @@
  * on the nodes (the run mutates them through the tracker), so the projector
  * mostly re-derives the snapshot and only tracks run-level status/wave/deadlock.
  */
+import { DefaultSecretScrubber, type SecretScrubber } from '@wrongstack/core';
 import type { EventBus, EventMap } from '@wrongstack/core/kernel';
 import type { TaskGraph } from '@wrongstack/core/types';
 import type { TaskTracker } from '@wrongstack/core/tasking';
@@ -23,6 +24,31 @@ import {
   type SddDeadlockChain,
 } from './board-types.js';
 import type { SddBoardStore } from './sdd-board-store.js';
+
+function summarizeToolInput(input: unknown, scrubber: SecretScrubber): string | undefined {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined;
+  const record = input as Record<string, unknown>;
+
+  // Paths are useful task telemetry and have a narrow meaning. Commands,
+  // queries, and patterns are arbitrary user-controlled text: even after the
+  // credential scrubber runs they can contain short passwords or other values
+  // that do not match a known secret shape, so never copy them into durable
+  // board state.
+  for (const key of ['filePath', 'path'] as const) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) {
+      const compact = scrubber.scrub(value).replace(/\s+/g, ' ').trim();
+      return compact.length > 240 ? `${compact.slice(0, 239)}…` : compact;
+    }
+  }
+  if (typeof record['command'] === 'string' || typeof record['cmd'] === 'string') {
+    return '[command omitted]';
+  }
+  if (typeof record['query'] === 'string' || typeof record['pattern'] === 'string') {
+    return '[query omitted]';
+  }
+  return undefined;
+}
 
 export interface SddBoardProjectorOptions {
   runId: string;
@@ -44,6 +70,8 @@ export interface SddBoardProjectorOptions {
   throttleMs?: number | undefined;
   /** Clock injection for tests; defaults to Date.now. */
   now?: (() => number) | undefined;
+  /** Scrubber used before worker telemetry becomes durable or user-visible. */
+  secretScrubber?: SecretScrubber | undefined;
 }
 
 export class SddBoardProjector {
@@ -51,6 +79,7 @@ export class SddBoardProjector {
   private readonly now: () => number;
   private readonly throttleMs: number;
   private readonly shortId: Map<string, string>;
+  private readonly scrubber: SecretScrubber;
 
   private status: SddBoardStatus = 'idle';
   private wave = 0;
@@ -59,6 +88,9 @@ export class SddBoardProjector {
   /** Live activity feed, most recent first (capped). */
   private feed: SddBoardFeedEntry[] = [];
   private static readonly FEED_CAP = 60;
+  /** Rich history is retained independently so a busy board cannot erase a task's log. */
+  private taskEvents = new Map<string, SddBoardFeedEntry[]>();
+  private static readonly TASK_EVENT_CAP = 250;
   private finished = false;
   private runDeadlocked = false;
   private runStopped = false;
@@ -78,6 +110,7 @@ export class SddBoardProjector {
     this.now = opts.now ?? Date.now;
     this.throttleMs = opts.throttleMs ?? 250;
     this.shortId = shortIdMap(opts.graph);
+    this.scrubber = opts.secretScrubber ?? new DefaultSecretScrubber();
     this.startedAt = this.now();
 
     // Source of truth: any task mutation redraws the board.
@@ -116,6 +149,7 @@ export class SddBoardProjector {
       this.pushFeed({
         ts: this.now(),
         kind: 'started',
+        taskId: e.taskId,
         taskShortId: sid,
         agentName: e.agentName,
         text: `${e.agentName || 'a worker'} picked up ${sid ?? 'a task'}${this.titleOf(e.taskId)}`,
@@ -128,6 +162,7 @@ export class SddBoardProjector {
       this.pushFeed({
         ts: this.now(),
         kind: 'completed',
+        taskId: e.taskId,
         taskShortId: sid,
         agentName: agent,
         text: `${sid ?? 'task'}${this.titleOf(e.taskId)} completed${agent ? ` by ${agent}` : ''} · ${(e.durationMs / 1000).toFixed(1)}s`,
@@ -139,6 +174,7 @@ export class SddBoardProjector {
       this.pushFeed({
         ts: this.now(),
         kind: 'failed',
+        taskId: e.taskId,
         taskShortId: sid,
         agentName: this.assigneeOf(e.taskId),
         text: `${sid ?? 'task'}${this.titleOf(e.taskId)} failed — ${e.error}`,
@@ -150,6 +186,7 @@ export class SddBoardProjector {
       this.pushFeed({
         ts: this.now(),
         kind: 'retrying',
+        taskId: e.taskId,
         taskShortId: sid,
         text: `${sid ?? 'task'}${this.titleOf(e.taskId)} retrying (${e.attempt}/${e.maxRetries})`,
       });
@@ -163,6 +200,7 @@ export class SddBoardProjector {
       this.pushFeed({
         ts: this.now(),
         kind: 'verification_failed',
+        taskId: e.taskId,
         taskShortId: sid,
         agentName: this.assigneeOf(e.taskId),
         text: `${sid ?? 'task'}${this.titleOf(e.taskId)} failed verification — ${e.reason}`,
@@ -175,6 +213,7 @@ export class SddBoardProjector {
       this.pushFeed({
         ts: this.now(),
         kind: 'conflict',
+        taskId: e.taskId,
         taskShortId: sid,
         agentName: this.assigneeOf(e.taskId),
         text: `${sid ?? 'task'}${this.titleOf(e.taskId)} merge conflict — ${files} file(s)${files ? `: ${e.conflictFiles.slice(0, 3).join(', ')}${files > 3 ? '…' : ''}` : ''}`,
@@ -189,6 +228,7 @@ export class SddBoardProjector {
       this.pushFeed({
         ts: this.now(),
         kind: 'completed',
+        taskId: e.taskId,
         taskShortId: sid,
         text: `${sid ?? 'task'}${this.titleOf(e.taskId)} merged → ${this.runBaseBranch ?? this.o.baseBranch ?? 'base'} (${e.sha.slice(0, 8)})`,
       });
@@ -199,6 +239,7 @@ export class SddBoardProjector {
       this.pushFeed({
         ts: this.now(),
         kind: 'split',
+        taskId: e.taskId,
         taskShortId: sid,
         text: `${sid ?? 'task'}${this.titleOf(e.taskId)} split into ${e.subtaskIds.length} sub-task(s)`,
       });
@@ -209,8 +250,78 @@ export class SddBoardProjector {
       this.pushFeed({
         ts: this.now(),
         kind: 'supervisor',
+        taskId: e.taskId,
         taskShortId: sid,
         text: `supervisor → ${e.action} for ${sid ?? 'task'}${this.titleOf(e.taskId)}${e.rationale ? ` (${e.rationale})` : ''}`,
+      });
+      this.markDirty();
+    });
+
+    // Task-scoped worker telemetry → a readable audit log in the task drawer.
+    // Require both run correlation and graph membership before accepting it.
+    this.onTask('subagent.tool_executed', (e, taskId) => {
+      const sid = this.shortId.get(taskId);
+      const detail = summarizeToolInput(e.input, this.scrubber);
+      const agentName = e.agentName ? this.scrubber.scrub(e.agentName) : undefined;
+      const action = this.scrubber.scrub(e.name);
+      this.pushFeed({
+        ts: this.now(),
+        kind: 'tool',
+        taskId,
+        taskShortId: sid,
+        agentName,
+        action,
+        detail,
+        durationMs: e.durationMs,
+        ok: e.ok,
+        text: `${agentName ?? 'worker'} ran ${action}${detail ? ` · ${detail}` : ''}`,
+      });
+      void this.o.store?.appendEvent(this.o.runId, {
+        ts: this.now(),
+        type: 'subagent.tool_executed',
+        payload: {
+          runId: this.o.runId,
+          taskId,
+          subagentId: e.subagentId,
+          agentName,
+          name: action,
+          durationMs: e.durationMs,
+          ok: e.ok,
+          detail,
+        },
+      });
+      this.markDirty();
+    });
+    this.onTask('file.event', (e, taskId) => {
+      if (e.scope !== 'task') return;
+      const sid = this.shortId.get(taskId);
+      const agentName = this.scrubber.scrub(e.agentName);
+      const filePath = this.scrubber.scrub(e.filePath);
+      this.pushFeed({
+        ts: Date.parse(e.timestamp) || this.now(),
+        kind: 'file',
+        taskId,
+        taskShortId: sid,
+        agentName,
+        action: e.operation,
+        filePath,
+        durationMs: e.durationMs,
+        ok: true,
+        text: `${e.operation} ${filePath}`,
+      });
+      void this.o.store?.appendEvent(this.o.runId, {
+        ts: this.now(),
+        type: 'file.event',
+        payload: {
+          runId: this.o.runId,
+          taskId,
+          agentName,
+          operation: e.operation,
+          filePath,
+          toolName: this.scrubber.scrub(e.toolName),
+          durationMs: e.durationMs,
+          timestamp: e.timestamp,
+        },
       });
       this.markDirty();
     });
@@ -219,6 +330,14 @@ export class SddBoardProjector {
   private pushFeed(entry: SddBoardFeedEntry): void {
     this.feed.unshift(entry);
     if (this.feed.length > SddBoardProjector.FEED_CAP) this.feed.length = SddBoardProjector.FEED_CAP;
+    if (entry.taskId) {
+      const taskFeed = this.taskEvents.get(entry.taskId) ?? [];
+      taskFeed.unshift(entry);
+      if (taskFeed.length > SddBoardProjector.TASK_EVENT_CAP) {
+        taskFeed.length = SddBoardProjector.TASK_EVENT_CAP;
+      }
+      this.taskEvents.set(entry.taskId, taskFeed);
+    }
   }
 
   /** ` (title…)` suffix for a feed line, or '' when the node/title is missing. */
@@ -265,6 +384,22 @@ export class SddBoardProjector {
     this.unsubs.push(off);
   }
 
+  /** Subscribe to task-correlated telemetry and ignore events outside this graph. */
+  private onTask<K extends keyof EventMap>(
+    event: K,
+    handler: (e: EventMap[K], taskId: string) => void,
+  ): void {
+    const wrapped = (e: EventMap[K]) => {
+      const correlated = e as { taskId?: string; runId?: string };
+      const taskId = correlated.taskId;
+      if (!taskId || !this.o.graph.nodes.has(taskId)) return;
+      if (correlated.runId !== this.o.runId) return;
+      handler(e, taskId);
+    };
+    const off = this.o.events.on(event, wrapped as (p: EventMap[K]) => void);
+    this.unsubs.push(off);
+  }
+
   private resolveStatus(completed: number, total: number): SddBoardStatus {
     if (!this.finished) return this.status;
     if (this.runDeadlocked) return 'deadlocked';
@@ -296,6 +431,9 @@ export class SddBoardProjector {
     );
     snap.status = this.resolveStatus(snap.progress.completed, snap.progress.total);
     snap.feed = this.feed.slice(0, SddBoardProjector.FEED_CAP);
+    snap.taskEvents = Object.fromEntries(
+      [...this.taskEvents].map(([taskId, entries]) => [taskId, entries.slice()]),
+    );
     return snap;
   }
 

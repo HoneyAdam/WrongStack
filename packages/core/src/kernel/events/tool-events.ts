@@ -71,6 +71,7 @@ export interface ToolEventMap {
     suggestedPattern: string;
     decisionSource?: PermissionDecision['source'] | undefined;
     riskTier?: RiskTier | undefined;
+    boundaryReason?: string | undefined;
     resolve: (decision: 'yes' | 'no' | 'always' | 'deny') => void;
   };
   /**

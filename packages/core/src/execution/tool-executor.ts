@@ -9,6 +9,7 @@ import {
   getDangerousCapabilities,
   hasDangerousCapabilityForSubagents,
 } from '../security/capabilities.js';
+import { evaluateToolKanbanBoundary } from '../security/kanban-boundary.js';
 import type { ToolResultBlock, ToolUseBlock } from '../types/blocks.js';
 import type { Tool, ToolProgressEvent, ToolErrorCategory } from '../types/tool.js';
 import { ToolErrorCategory as ToolErrorCategoryEnum } from '../types/tool.js';
@@ -334,6 +335,21 @@ export class ToolExecutor {
         }
       }
 
+      // Kanban boundaries are an execution-time ceiling, not prompt advice.
+      // Resolve the live board/task on every call so edits made in WebUI/TUI
+      // take effect during an already-running agent assignment.
+      const boundary = await evaluateToolKanbanBoundary(tool, use.input, ctx);
+      if (boundary.decision === 'block') {
+        const result = {
+          type: 'tool_result' as const,
+          tool_use_id: use.id,
+          content: `Tool "${tool.name}" blocked by Kanban boundary. ${boundary.reason ?? ''}`.trim(),
+          is_error: true,
+        };
+        budget = this.budgetForString(result.content, budget);
+        return { result, tool, durationMs: Date.now() - start };
+      }
+
       const decision = await this.opts.permissionPolicy.evaluate(tool, use.input, ctx);
 
       // Post-permission dangerous capability enforcement (B-side guarantee).
@@ -374,6 +390,12 @@ export class ToolExecutor {
         effectivePermission = 'confirm';
       }
 
+      // Explicit YOLO/trust rules never waive a Kanban scope. A confirm-mode
+      // violation needs a fresh human approval for this concrete call.
+      if (boundary.decision === 'confirm' && effectivePermission !== 'deny') {
+        effectivePermission = 'confirm';
+      }
+
       if (effectivePermission === 'deny') {
         const result = this.deniedResult(use, decision.reason);
         budget = this.budgetForString(result.content, budget);
@@ -381,6 +403,10 @@ export class ToolExecutor {
       }
 
       if (effectivePermission === 'confirm') {
+        const suggestedPattern =
+          boundary.decision === 'confirm'
+            ? `kanban-boundary:${boundary.path ?? tool.name}`
+            : subjectForToolInput(tool.name, use.input, tool.subjectKey) ?? tool.name;
         if (this.opts.confirmAwaiter) {
           // Race the interactive prompt against the run's abort signal so an
           // interrupt never leaves the executor blocked on a confirmation
@@ -396,7 +422,7 @@ export class ToolExecutor {
                 return;
               }
               signal.addEventListener('abort', onAbort, { once: true });
-              awaiter(tool, use.input, use.id, tool.name).then(
+              awaiter(tool, use.input, use.id, suggestedPattern).then(
                 (c) => {
                   signal.removeEventListener('abort', onAbort);
                   resolve(c);
@@ -423,8 +449,6 @@ export class ToolExecutor {
           }
           // fall through to execute
         } else {
-          const suggestedPattern =
-            subjectForToolInput(tool.name, use.input, tool.subjectKey) ?? tool.name;
           const pending: ToolConfirmPendingResult = {
             type: 'tool_confirm_pending',
             toolUseId: use.id,
@@ -433,6 +457,9 @@ export class ToolExecutor {
             suggestedPattern,
             decisionSource: decision.source,
             riskTier: decision.riskTier ?? tool.riskTier,
+            ...(boundary.decision === 'confirm' && boundary.reason
+              ? { boundaryReason: boundary.reason }
+              : {}),
           };
           return { result: pending, tool, durationMs: Date.now() - start };
         }
@@ -457,6 +484,29 @@ export class ToolExecutor {
         'tool.has_dangerous_capabilities': toolCapsForAudit.length > 0,
       });
       try {
+        // Snapshot the target before a write executes so its eventual file event
+        // can distinguish a new file from an overwrite. This is deliberately
+        // best-effort: observability must never prevent the tool from running.
+        const inputPath =
+          use.input && typeof use.input === 'object'
+            ? (use.input as Record<string, unknown>).path
+            : undefined;
+        const caps = tool.capabilities ?? [];
+        const hasFileCapability = caps.includes('fs.read') || caps.includes('fs.write');
+        const absPath =
+          hasFileCapability && typeof inputPath === 'string'
+            ? path.isAbsolute(inputPath)
+              ? inputPath
+              : path.resolve(ctx.projectRoot, inputPath)
+            : undefined;
+        let writeTargetExisted: boolean | undefined;
+        if (tool.name === 'write' && caps.includes('fs.write') && absPath) {
+          writeTargetExisted = await fs.stat(absPath).then(
+            (stat) => stat.isFile(),
+            (error: NodeJS.ErrnoException) => (error.code === 'ENOENT' ? false : undefined),
+          );
+        }
+
         // Split produce (async, concurrency-safe) from settle (synchronous,
         // budget-mutating). The long tool run + serialize + scrub + spill
         // happens here and touches no shared budget. The cap is then applied
@@ -506,6 +556,55 @@ export class ToolExecutor {
         span?.setAttribute('tool.is_error', !!result.is_error);
         span?.setAttribute('tool.output_bytes', outputChars);
         this.logToolSuccess(ctx, use, tool.name, Date.now() - start, outputChars);
+
+        // Auto-emit file event for tools with fs.read or fs.write capabilities.
+        // This central integration captures ALL file operations without requiring
+        // per-tool wiring — the tool executor is the single dispatch point.
+        if (!result.is_error && typeof inputPath === 'string' && absPath) {
+          const operation =
+            tool.name === 'read'
+              ? 'read'
+              : caps.includes('fs.write') && tool.name === 'write'
+                ? writeTargetExisted === false
+                  ? 'create'
+                  : 'update'
+                : caps.includes('fs.write')
+                  ? 'update'
+                  : 'read';
+          const ts = new Date().toISOString();
+          ctx.recordFileEvent?.({
+            operation,
+            filePath: inputPath,
+            absPath,
+            toolName: tool.name,
+            toolUseId: use.id,
+            durationMs: Date.now() - start,
+          });
+          // Also emit EventBus event for live observability subscribers
+          // (the `file.event` channel). The same data shape is persisted
+          // to session JSONL via ctx.recordFileEvent() above.
+          this.opts.events?.emit('file.event', {
+            operation,
+            filePath: inputPath,
+            absPath,
+            sessionId: ctx.session.id,
+            agentId: ctx.agentId,
+            agentName: ctx.agentName,
+            provider:
+              typeof ctx.provider === 'object'
+                ? (ctx.provider as { id: string }).id
+                : String(ctx.provider),
+            model: ctx.model,
+            toolName: tool.name,
+            toolUseId: use.id,
+            scope: ctx.currentKanbanTaskId ? 'task' : 'session',
+            taskId: ctx.currentKanbanTaskId,
+            boardId: ctx.currentKanbanBoardId,
+            timestamp: ts,
+            durationMs: Date.now() - start,
+          });
+        }
+
         return { result, tool, durationMs: Date.now() - start };
       } catch (err) {
         // Preserve structured errors on the throw path. A WrongStackError

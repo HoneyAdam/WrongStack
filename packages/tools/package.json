@@ -48,6 +48,10 @@
       "types": "./dist/next-steps.d.ts",
       "import": "./dist/next-steps.js"
     },
+    "./auto-proceed-loop-guard": {
+      "types": "./dist/auto-proceed-loop-guard.d.ts",
+      "import": "./dist/auto-proceed-loop-guard.js"
+    },
     "./read": {
       "types": "./dist/read.d.ts",
       "import": "./dist/read.js"
@@ -243,10 +247,10 @@
     "@wrongstack/core": "workspace:*",
     "@wrongstack/kanban": "workspace:*",
     "turndown": "^7.2.4",
-    "undici": "^8.5.0"
+    "undici": "^8.7.0"
   },
   "devDependencies": {
-    "@types/node": "^26.0.1",
+    "@types/node": "^26.1.1",
     "typescript": "^7.0.2"
   },
   "publishConfig": {

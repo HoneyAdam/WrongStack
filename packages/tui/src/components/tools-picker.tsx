@@ -25,6 +25,15 @@ export interface ToolsPickerProps {
  */
 const CHROME_ROWS = 15;
 
+/**
+ * Hard ceiling on how many tool rows are rendered at once. Smaller terminals
+ * already see fewer rows via `max(6, termRows - CHROME_ROWS)`; on tall
+ * terminals this cap prevents the picker from monopolising the viewport.
+ * Overflowing rows remain reachable via ↑/↓ (the window re-centres on the
+ * selection) with `↑ N more` / `↓ N more` indicators.
+ */
+const MAX_PICKER_ITEMS = 15;
+
 function toolActionLabel(enabled: boolean): string {
   return enabled ? 'Enter makes this tool passive' : 'Enter re-enables this tool';
 }
@@ -147,7 +156,7 @@ export function ToolsPicker({
   const termColumns = stdout?.columns ?? 100;
   const columnWidths = columnWidthsFor(termColumns);
 
-  const maxVisible = Math.max(6, termRows - CHROME_ROWS);
+  const maxVisible = Math.min(MAX_PICKER_ITEMS, Math.max(6, termRows - CHROME_ROWS));
   const total = items.length;
 
   let visibleItems: ToolPickerItem[];
@@ -176,19 +185,18 @@ export function ToolsPicker({
   const passiveCount = total - enabledCount;
   const selectedItem = visibleItems[visibleSelected];
 
-  // Window only when NOT filtered (in filter mode, no windowing — just slice)
+  // Apply the visible-window cap regardless of filter state. The original
+  // implementation skipped windowing when a filter was active, which let a
+  // single matching prefix paint the entire catalogue on tall terminals.
+  // Filtering still keeps the focused row in view because windowRows()
+  // re-centres on `visibleSelected`.
   let displayRows: Row[];
   let hiddenAbove = 0;
   let hiddenBelow = 0;
-
-  if (filterActive) {
-    displayRows = rows;
-  } else {
-    const win = windowRows(rows, visibleSelected, maxVisible);
-    displayRows = win.rows;
-    hiddenAbove = win.start;
-    hiddenBelow = rows.length - win.end;
-  }
+  const win = windowRows(rows, visibleSelected, maxVisible);
+  displayRows = win.rows;
+  hiddenAbove = win.start;
+  hiddenBelow = rows.length - win.end;
 
   const hasFilter = filterActive;
 
@@ -212,7 +220,7 @@ export function ToolsPicker({
           <Text dimColor>No tools match "{filter}".</Text>
         ) : (
           <>
-            {hiddenAbove > 0 && !hasFilter ? (
+            {hiddenAbove > 0 ? (
               <Text dimColor>{`  ↑ ${hiddenAbove} more`}</Text>
             ) : null}
             {displayRows.map(({ item, index }) => {
@@ -239,7 +247,7 @@ export function ToolsPicker({
                 </Text>
               );
             })}
-            {hiddenBelow > 0 && !hasFilter ? (
+            {hiddenBelow > 0 ? (
               <Text dimColor>{`  ↓ ${hiddenBelow} more`}</Text>
             ) : null}
           </>

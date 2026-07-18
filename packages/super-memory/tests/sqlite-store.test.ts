@@ -69,6 +69,25 @@ describe('SqliteSuperMemoryStore', () => {
 
     });
 
+    it('rejects credential-shaped input before persistence', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      const credential = `api_key=${'a'.repeat(24)}`;
+
+      await expect(store.rememberSuper({ text: credential })).rejects.toThrow(/secret or credential/i);
+      expect((await store.getStats()).total).toBe(0);
+    });
+
+    it('scans nested metadata for credential-shaped input', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      const credential = `token=${'b'.repeat(24)}`;
+
+      await expect(store.rememberSuper({
+        text: 'Harmless text',
+        anchors: [{ type: 'command', command: `echo ${credential}` }],
+      })).rejects.toThrow(/secret or credential/i);
+      expect((await store.getStats()).total).toBe(0);
+    });
+
     it('stores anchors, tags, audience, and sources', async () => {
       const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
       await store.initialize();
@@ -157,6 +176,38 @@ describe('SqliteSuperMemoryStore', () => {
       const results = await store.searchSuper('Limitable', { limit: 2 });
       expect(results.length).toBeLessThanOrEqual(2);
 
+    });
+
+    it('filters scope before applying an empty-query limit', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      for (let i = 0; i < 3; i++) {
+        await store.rememberSuper({
+          text: `High-ranked user memory ${i}`,
+          scope: 'user',
+          importance: 1,
+        });
+      }
+      await store.rememberSuper({
+        text: 'Project dedup context',
+        scope: 'project',
+        importance: 0.1,
+      });
+
+      const results = await store.searchSuper('', { scope: 'project', limit: 1 });
+
+      expect(results).toHaveLength(1);
+      expect(results[0]).toMatchObject({ text: 'Project dedup context', scope: 'project' });
+    });
+
+    it('applies scope filtering to text queries', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.rememberSuper({ text: 'Shared lookup term in user memory', scope: 'user' });
+      await store.rememberSuper({ text: 'Shared lookup term in project memory', scope: 'project' });
+
+      const results = await store.searchSuper('Shared lookup term', { scope: 'project', limit: 10 });
+
+      expect(results).toHaveLength(1);
+      expect(results[0]?.scope).toBe('project');
     });
   });
 
@@ -541,6 +592,128 @@ describe('SqliteSuperMemoryStore', () => {
       );
       expect(pending).toHaveLength(1);
       expect([a.id, b.id]).toContain(pending[0]?.id);
+    });
+  });
+
+  describe('resolveCandidate', () => {
+    it('rejects unknown candidate ids with undefined', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.rememberSuper({ text: 'test memory', scope: 'project' });
+      const result = await store.resolveCandidate('nonexistent', 'delete');
+      expect(result).toBeUndefined();
+    });
+
+    it('resolves delete by soft-deleting the target memory', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      const memory = await store.rememberSuper({ text: 'delete-target', scope: 'project' });
+      const candidate = await store.createCandidate({
+        text: 'review: delete this',
+        kind: 'fact',
+        scope: 'project',
+        targetMemoryId: memory.id,
+        reviewReason: 'noise',
+      });
+      const result = await store.resolveCandidate(candidate.id, 'delete', 'confirmed');
+      expect(result).toBeDefined();
+      expect(result!.applied).toBe(true);
+      expect(result!.decision).toBe('delete');
+      expect(result!.candidateId).toBe(candidate.id);
+      // Target should be soft-deleted (status='deleted', not hard-removed).
+      // Verify via searchSuper since getSuperMemory is not public on this store.
+      const found = await store.searchSuper('delete-target', { includeStatuses: ['active', 'deleted'] });
+      expect(found.length).toBe(1);
+      expect(found[0]!.status).toBe('deleted');
+    });
+
+    it('resolves archive by setting target status to archived', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      const memory = await store.rememberSuper({ text: 'archive-target', scope: 'project' });
+      const candidate = await store.createCandidate({
+        text: 'review: archive this',
+        kind: 'fact',
+        scope: 'project',
+        targetMemoryId: memory.id,
+        reviewReason: 'stale',
+      });
+      const result = await store.resolveCandidate(candidate.id, 'archive', 'aging');
+      expect(result).toBeDefined();
+      expect(result!.applied).toBe(true);
+      expect(result!.decision).toBe('archive');
+      const found = await store.searchSuper('archive-target', { includeStatuses: ['active', 'deleted', 'archived'] });
+      expect(found.length).toBe(1);
+      expect(found[0]!.status).toBe('archived');
+    });
+
+    it('resolves keep by dismissing the proposal without mutating target', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      const memory = await store.rememberSuper({ text: 'keep-target', scope: 'project' });
+      const candidate = await store.createCandidate({
+        text: 'review: keep this',
+        kind: 'fact',
+        scope: 'project',
+        targetMemoryId: memory.id,
+        reviewReason: 'reviewed',
+      });
+      const result = await store.resolveCandidate(candidate.id, 'keep', 'still valid');
+      expect(result).toBeDefined();
+      expect(result!.applied).toBe(true);
+      expect(result!.decision).toBe('keep');
+      const found = await store.searchSuper('keep-target', { includeStatuses: ['active'] });
+      expect(found.length).toBe(1);
+      expect(found[0]!.status).toBe('active'); // Unchanged
+    });
+
+    it('returns alreadyResolved=true for a second call on the same candidate', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      const memory = await store.rememberSuper({ text: 'double-resolve', scope: 'project' });
+      const candidate = await store.createCandidate({
+        text: 'review: resolve once',
+        kind: 'fact',
+        scope: 'project',
+        targetMemoryId: memory.id,
+      });
+      const first = await store.resolveCandidate(candidate.id, 'delete');
+      expect(first!.applied).toBe(true);
+      const second = await store.resolveCandidate(candidate.id, 'keep');
+      expect(second!.alreadyResolved).toBe(true);
+      expect(second!.applied).toBe(false);
+    });
+  });
+
+  describe('consolidateSession', () => {
+    it('creates candidates for new facts and auto-accepts above threshold', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      const result = await store.consolidateSession({
+        sessionId: 'test-session',
+        facts: [
+          { text: 'The project uses TypeScript 5.5', confidence: 0.9, importance: 0.8 },
+          { text: 'The project uses pnpm workspaces', confidence: 0.85, importance: 0.75 },
+        ],
+        autoAcceptThreshold: 0.7,
+      });
+      expect(result.candidates).toBe(2);
+      expect(result.accepted).toBe(2); // Both above 0.7 threshold
+      expect(result.rejected).toBe(0);
+      expect(result.duplicate).toBe(0);
+      // Accepted candidates should have created memories
+      const memories = await store.searchSuper('pnpm', { limit: 10 });
+      expect(memories.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('skips duplicates when same text already exists', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.rememberSuper({ text: 'Existing memory text', scope: 'project' });
+      const result = await store.consolidateSession({
+        sessionId: 'test-session',
+        facts: [
+          { text: 'Existing memory text', confidence: 0.9, importance: 0.8 },
+          { text: 'Brand new fact', confidence: 0.9, importance: 0.8 },
+        ],
+        autoAcceptThreshold: 0.5,
+      });
+      expect(result.duplicate).toBe(1);
+      expect(result.candidates).toBe(1);
+      expect(result.accepted).toBe(1);
     });
   });
 });

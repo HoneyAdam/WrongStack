@@ -16,6 +16,7 @@ import type {
   UpdateKanbanBoardInput,
   UpdateKanbanColumnInput,
 } from '../types.js';
+import { normalizeKanbanBoundaryPolicy } from '../boundary.js';
 import {
   applyCompletedAtForStatus,
   cloneTaskForBoard,
@@ -48,6 +49,7 @@ export async function createBoard(
     ...(input.generatedBy !== undefined ? { generatedBy: input.generatedBy } : {}),
     ...(input.supervisor !== undefined ? { supervisor: input.supervisor } : {}),
     ...(input.lifecycle !== undefined ? { lifecycle: input.lifecycle } : {}),
+    ...(input.boundary !== undefined ? { boundary: input.boundary } : {}),
   });
 
   const policyIssues = validateManagedLifecyclePolicy(board);
@@ -113,6 +115,10 @@ export async function updateBoard(
         columns: { ...input.lifecycle.columns },
       };
     }
+    if (input.boundary !== undefined) {
+      if (input.boundary === null) delete board.boundary;
+      else board.boundary = normalizeKanbanBoundaryPolicy(input.boundary);
+    }
     const policyIssues = validateManagedLifecyclePolicy(board);
     if (policyIssues.length) throw new Error(policyIssues[0]!.message);
     normalizeAllColumnTaskOrders(board);
@@ -143,6 +149,7 @@ export async function duplicateBoard(
     ...(source.lifecycle !== undefined
       ? { lifecycle: { ...source.lifecycle, columns: { ...source.lifecycle.columns } } }
       : {}),
+    ...(source.boundary !== undefined ? { boundary: { ...source.boundary } } : {}),
   });
 
   if (input.includeTasks !== false) {

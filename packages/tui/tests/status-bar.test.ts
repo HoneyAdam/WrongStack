@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   fmtElapsed,
+  fmtMemory,
   hasTokenDisplay,
   renderMeter,
   renderProgress,
@@ -98,6 +99,14 @@ describe('fmtElapsed', () => {
   it('pads seconds and minutes with leading zeros under an hour', () => {
     expect(fmtElapsed(3_000)).toBe('00:03');
     expect(fmtElapsed(63_000)).toBe('01:03');
+  });
+});
+
+describe('fmtMemory', () => {
+  it('uses compact binary units for process memory chips', () => {
+    expect(fmtMemory(512 * 1024)).toBe('512K');
+    expect(fmtMemory(768 * 1024 * 1024)).toBe('768M');
+    expect(fmtMemory(1.5 * 1024 * 1024 * 1024)).toBe('1.5G');
   });
 });
 

@@ -482,6 +482,13 @@ export interface SuperMemoryStoreOptions {
   traceId?: string | undefined;
   events?: EventBus | undefined;
   now?: (() => Date) | undefined;
+  /**
+   * Minimum interval between persisted feedback-counter flushes
+   * (injection/use counters). Must be finite and non-negative; `0` flushes
+   * every update. Default: 3600000 (1 hour). Lower values reduce staleness
+   * but increase disk writes on every store instance.
+   */
+  counterFlushIntervalMs?: number | undefined;
 }
 
 export interface RememberSuperMemoryInput {

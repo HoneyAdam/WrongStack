@@ -1749,6 +1749,16 @@ export class MultiAgentHost {
       name?: string | undefined;
       allowedCapabilities?: readonly string[] | undefined;
       shadowIntervalMs?: number | undefined;
+      /**
+       * Free-form task context propagated into the spawned `TaskSpec.context`.
+       * Used by `/kanban task dispatch` (and the WebUI relay) to carry
+       * `{ kanban: { boardId, taskId } }` so the tool-runtime boundary gate
+       * (`evaluateToolKanbanBoundary`) can resolve the live policy instead
+       * of failing open.
+       */
+      context?: {
+        kanban?: { boardId?: string; taskId?: string; projectRoot?: string };
+      } | undefined;
     },
   ): Promise<{ subagentId: string; taskId: string }> {
     // Director Mode is permanently on — no guard needed.
@@ -1782,6 +1792,7 @@ export class MultiAgentHost {
       internalTask: isShadowSpawn,
       stopShadowAfterTask: isShadowSpawn,
       shadowIntervalMs: opts?.shadowIntervalMs,
+      taskContext: opts?.context,
     });
     // Track the pending task via FleetManager so status() can show descriptions
     // without host-side state duplication.
@@ -1815,6 +1826,16 @@ export class MultiAgentHost {
       tools?: string[] | undefined;
       name?: string | undefined;
       allowedCapabilities?: readonly string[] | undefined;
+      /**
+       * Free-form task context propagated into the spawned `TaskSpec.context`.
+       * Used by `/kanban task dispatch` (and the WebUI relay) to carry
+       * `{ kanban: { boardId, taskId } }` so the tool-runtime boundary gate
+       * (`evaluateToolKanbanBoundary`) can resolve the live policy instead
+       * of failing open.
+       */
+      context?: {
+        kanban?: { boardId?: string; taskId?: string; projectRoot?: string };
+      } | undefined;
     },
   ): Promise<TaskResult> {
     const { taskId } = await this.spawn(description, opts);
@@ -1854,6 +1875,9 @@ export class MultiAgentHost {
       internalTask?: boolean;
       stopShadowAfterTask?: boolean;
       shadowIntervalMs?: number | undefined;
+      taskContext?: {
+        kanban?: { boardId?: string; taskId?: string; projectRoot?: string };
+      } | undefined;
     },
   ): Promise<{ subagentId: string; taskId: string }> {
     const taskId = randomUUID();
@@ -1865,7 +1889,12 @@ export class MultiAgentHost {
         context: { phase: 'spawnAndAssign' },
       });
     const subagentId = await this.director.spawn(subagentConfig);
-    const task = { id: taskId, description, subagentId };
+    const task = {
+      id: taskId,
+      description,
+      subagentId,
+      ...(opts?.taskContext ? { context: opts.taskContext as Record<string, unknown> } : {}),
+    };
     if (opts?.internalTask) {
       this.markShadowTask(taskId);
       if (opts.stopShadowAfterTask) this.shadowStopAfterTaskIds.add(taskId);

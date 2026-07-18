@@ -47,7 +47,15 @@ import {
 import { theme } from './theme.js';
 import { fmtTok } from './utils.js';
 import { CLI_VERSION } from './version.js';
-import { getSuggestions, setAutoSuggestions } from './slash-commands/suggestion-store.js';
+import {
+  getSuggestions,
+  setAutoSuggestions,
+  setSuggestions,
+} from './slash-commands/suggestion-store.js';
+import {
+  type AutoProceedLoopGuard,
+  createAutoProceedLoopGuard,
+} from '@wrongstack/tools/auto-proceed-loop-guard';
 
 /**
  * Extract canonical "<nextsteps>" suggestions from the agent's final output.
@@ -283,6 +291,11 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
   // autoProceedDelayMs is 0). Manual input resets the counter.
   let autoIterCount = 0;
   let autoCapWarned = false;
+  // Repetition guard: when the same prompt is fed 2 times in a row, the
+  // model is in a self-feeding loop. Manual input resets this too; the
+  // 50-iteration cap above remains the runaway safety net for genuinely
+  // novel prompts.
+  const autoProceedLoopGuard = createAutoProceedLoopGuard();
   let exiting = false;
   const onSigint = () => {
     interrupts++;
@@ -626,19 +639,29 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
               const ctrl = new AbortController();
               activeCtrl = ctrl;
               try {
-                autoIterCount++;
-                // For YOLO+auto, apply the autonomy_next prompt template
+                // For YOLO+auto, apply the autonomy_next prompt template.
                 const isYolo = opts.getYolo?.() ?? false;
                 const autoSuggestions = opts.getAutoSuggestions?.() ?? [];
                 const useAutoSuggestions = isYolo && autoSuggestions.length > 0;
                 const promptToFeed = useAutoSuggestions && opts.autonomyNextPrompt
                   ? opts.autonomyNextPrompt.replace('{{suggestion}}', top)
                   : top;
-                await runAutoProceed(opts, promptToFeed, delay, ctrl);
+                const submitted = await runAutoProceed(
+                  opts,
+                  promptToFeed,
+                  delay,
+                  ctrl,
+                  autoProceedLoopGuard,
+                );
+                if (submitted) {
+                  autoIterCount++;
+                  continue;
+                }
               } finally {
                 activeCtrl = undefined;
               }
-              continue;
+              // Countdown cancellation, autonomy changes, and repetition
+              // halts all return control to manual input.
             }
           }
         }
@@ -659,6 +682,7 @@ export async function runRepl(opts: ReplOptions): Promise<number> {
       // Manual input re-arms auto-proceed.
       autoIterCount = 0;
       autoCapWarned = false;
+      autoProceedLoopGuard.reset();
 
       // Plain `q` quits immediately without needing a slash.
       if (trimmed === 'q') {
@@ -1286,7 +1310,8 @@ async function runAutoProceed(
   suggestion: string,
   delayMs: number,
   ctrl: AbortController,
-): Promise<void> {
+  loopGuard: AutoProceedLoopGuard,
+): Promise<boolean> {
   const truncated = suggestion.length > 80 ? `${suggestion.slice(0, 77)}…` : suggestion;
   console.log(
     JSON.stringify({
@@ -1310,7 +1335,7 @@ async function runAutoProceed(
           suggestion: truncated,
         }),
       );
-      return;
+      return false;
     }
     if ((opts.getAutonomy?.() ?? 'off') !== 'auto') {
       console.log(
@@ -1321,8 +1346,25 @@ async function runAutoProceed(
           reason: 'autonomy_not_auto',
         }),
       );
-      return;
+      return false;
     }
+
+    // Record at the authoritative submission boundary: cancelled countdowns
+    // and autonomy changes above never count as feeds because no prompt left
+    // the client. A repeated prompt halts before `agent.run()`.
+    const repetition = loopGuard.record(suggestion);
+    if (repetition.shouldHalt) {
+      setSuggestions([]);
+      setAutoSuggestions([]);
+      opts.renderer.writeWarning(
+        `Auto-proceed halted: the same prompt was fed ${repetition.runLength} times in a row. ` +
+          `Autonomy mode is still on, but no automatic next step will run until you provide input. ` +
+          `Type anything to continue (resets the guard). ` +
+          `Last seen prompt: "${suggestion.length > 100 ? `${suggestion.slice(0, 97)}…` : suggestion}"`,
+      );
+      return false;
+    }
+
     // ── Feed the suggestion as if it were runText ──────────────────
     const runBlocks = [{ type: 'text' as const, text: suggestion }];
     const runResult = await opts.agent.run(runBlocks, { signal: ctrl.signal });
@@ -1350,6 +1392,7 @@ async function runAutoProceed(
       const parsed = parseSuggestionsFromOutput(runResult.finalText, opts.agent.ctx.todos);
       opts.onSuggestionsParsed(parsed);
     }
+    return true;
   } finally {
     // activeCtrl cleanup is handled by the caller
   }

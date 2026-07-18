@@ -18,6 +18,8 @@ import {
   ChevronDown,
   Columns3,
   Copy,
+  Maximize2,
+  Minimize2,
   MoveRight,
   Pause,
   Play,
@@ -45,11 +47,13 @@ import { getWSClient } from '@/lib/ws-client';
 import { useConfigStore, useFleetStore, useKanbanStore, useSessionStore } from '@/stores';
 import { ChipMultiSelect, type ChipOption } from './ChipMultiSelect';
 import { KanbanCleanerAlert } from './KanbanCleanerAlert';
+import { KanbanBoundaryEditor } from './KanbanBoundaryEditor';
 import { ModelPicker } from './ModelPicker';
 import { TaskActivityTimeline } from './TaskActivityTimeline';
 import { TaskExecutionAttempts } from './TaskExecutionAttempts';
 import { TaskIntelligencePanel } from './TaskIntelligencePanel';
 import { analyzeTaskRisk, TaskRiskPanel } from './TaskRiskPanel';
+import { Pagination } from './ui/pagination';
 
 /** A kanban board that mirrors a live Goal/SDD run, detected from its tags. */
 interface RunLink {
@@ -58,6 +62,7 @@ interface RunLink {
 }
 
 export const TASK_ACTIVITY_LOAD_LIMIT = 5_000;
+const BOARD_PAGE_SIZE = 12;
 
 function relativeLastSeen(lastSeenAt: string): string {
   const elapsed = Math.max(0, Date.now() - Date.parse(lastSeenAt));
@@ -83,6 +88,7 @@ function BoardPresence({ presence = [] }: { presence?: KanbanBoardPresence[] | u
           title={`Session ${entry.sessionId} · last seen ${entry.lastSeenAt}`}
         >
           <span
+            role="img"
             aria-label={entry.active ? 'active' : 'inactive'}
             className={cn(
               'h-2 w-2 shrink-0 rounded-full',
@@ -319,6 +325,9 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
   const fleetAgents = useFleetStore((s) => s.agents);
   const {
     boards,
+    boardTotal,
+    activeBoardTotal,
+    orphanedBoardTotal,
     activeBoardId,
     activeBoard,
     loading,
@@ -329,6 +338,8 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
     setActiveBoardId,
   } = useKanbanStore();
   const [newBoardTitle, setNewBoardTitle] = useState('');
+  const [boardPage, setBoardPage] = useState(1);
+  const [registrySessionIds, setRegistrySessionIds] = useState<string[]>([]);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const boardScrollRef = useRef<HTMLDivElement>(null);
   useHorizontalScroll(boardScrollRef);
@@ -355,6 +366,22 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
     }
     return identities;
   }, [fleetAgents]);
+  const activeSessionIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (sessionId) ids.add(sessionId);
+    for (const id of registrySessionIds) ids.add(id);
+    for (const agent of fleetAgents.values()) {
+      if (agent.status === 'running' && agent.sessionId) ids.add(agent.sessionId);
+    }
+    return [...ids];
+  }, [fleetAgents, registrySessionIds, sessionId]);
+  const isBoardActive = (board: (typeof boards)[number]) =>
+    board.presence?.some((entry) => entry.active) === true ||
+    board.tags?.some(
+      (tag) => tag.startsWith('session:') && activeSessionIds.includes(tag.slice(8)),
+    ) === true;
+  const activeBoards = boards.filter(isBoardActive);
+  const orphanedBoards = boards.filter((board) => !isBoardActive(board));
   const boardAudit = useMemo(
     () =>
       activeBoard
@@ -392,7 +419,12 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
 
   const runLink = useMemo(() => parseRunLink(activeBoard), [activeBoard]);
 
-  const refreshBoards = () => sendKanban('kanban.list');
+  const refreshBoards = (page = boardPage) =>
+    sendKanban('kanban.list', {
+      page,
+      pageSize: BOARD_PAGE_SIZE,
+      activeSessionIds,
+    });
   const refreshBoard = (boardId = activeBoardId) => {
     if (boardId) sendKanban('kanban.get', { boardId });
   };
@@ -400,6 +432,44 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
   useEffect(() => {
     refreshBoards();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // The cross-process registry is the authoritative source for other open
+  // terminals. Fleet telemetry and board presence remain fallbacks for clients
+  // that do not expose the HTTP registry.
+  useEffect(() => {
+    let cancelled = false;
+    const refreshRegistry = async () => {
+      try {
+        const response = await fetch('/api/sessions');
+        if (!response.ok) return;
+        const data = (await response.json()) as unknown;
+        if (!Array.isArray(data) || cancelled) return;
+        const ids = data
+          .filter(
+            (entry): entry is { sessionId: string; status?: string } =>
+              Boolean(entry) &&
+              typeof entry === 'object' &&
+              typeof (entry as { sessionId?: unknown }).sessionId === 'string' &&
+              (entry as { status?: unknown }).status !== 'lost',
+          )
+          .map((entry) => entry.sessionId)
+          .sort();
+        setRegistrySessionIds((current) =>
+          current.length === ids.length && current.every((id, index) => id === ids[index])
+            ? current
+            : ids,
+        );
+      } catch {
+        // Standalone/static WebUI builds may not expose /api/sessions.
+      }
+    };
+    void refreshRegistry();
+    const interval = window.setInterval(refreshRegistry, 8_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
@@ -453,10 +523,19 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
   // less aggressively since push covers the active board.
   useEffect(() => {
     const interval = setInterval(() => {
-      ws.send({ type: 'kanban.list' });
+      ws.send({
+        type: 'kanban.list',
+        payload: { page: boardPage, pageSize: BOARD_PAGE_SIZE, activeSessionIds },
+      });
     }, 8000);
     return () => clearInterval(interval);
-  }, [ws]);
+  }, [activeSessionIds, boardPage, ws]);
+
+  const changeBoardPage = (page: number) => {
+    setBoardPage(page);
+    setActiveBoardId(null);
+    refreshBoards(page);
+  };
 
   useEffect(() => {
     setTaskActivityPresence(undefined);
@@ -497,6 +576,22 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
     });
     return off;
   }, [activeBoardId, selectedTaskId, selectedTask?.updatedAt, taskActivityRefresh, ws]);
+
+  // File reads/writes are appended without mutating the card itself. Refresh
+  // the open ledger when the server announces new task-scoped telemetry.
+  useEffect(() => {
+    if (!activeBoardId || !selectedTaskId) return;
+    const onMessage = ws.on.bind(ws) as (
+      type: string,
+      listener: (message: { payload: unknown }) => void,
+    ) => () => void;
+    return onMessage('kanban.task.activity.changed', (message) => {
+      const payload = message.payload as { boardId?: string; taskId?: string };
+      if (payload.boardId === activeBoardId && payload.taskId === selectedTaskId) {
+        setTaskActivityRefresh((value) => value + 1);
+      }
+    });
+  }, [activeBoardId, selectedTaskId, ws]);
 
   const createBoard = () => {
     const title = newBoardTitle.trim();
@@ -590,12 +685,14 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
           <Columns3 size={17} className="text-primary" />
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-semibold">Kanban</div>
-            <div className="truncate text-[11px] text-muted-foreground">{boards.length} boards</div>
+            <div className="truncate text-[11px] text-muted-foreground">
+              {boardTotal} boards · {activeBoardTotal} active · {orphanedBoardTotal} orphaned
+            </div>
           </div>
           <button
             type="button"
             title="Refresh"
-            onClick={refreshBoards}
+            onClick={() => refreshBoards()}
             className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
           >
             <RefreshCw size={15} className={loading ? 'animate-spin' : undefined} />
@@ -623,7 +720,12 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
-          {boards.map((board) => (
+          {activeBoards.length > 0 && (
+            <div className="mb-1 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-success">
+              Active session · {activeBoardTotal}
+            </div>
+          )}
+          {activeBoards.map((board) => (
             <button
               key={board.id}
               type="button"
@@ -640,12 +742,53 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
             >
               <div className="truncate text-sm font-medium">{board.title}</div>
               <div className="mt-0.5 flex items-center justify-between text-[11px]">
-                <span>{board.taskCount} tasks</span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                  {board.taskCount} tasks
+                </span>
+                <span>{board.completedTaskCount} done</span>
+              </div>
+            </button>
+          ))}
+          {orphanedBoards.length > 0 && (
+            <div className="mb-1 mt-2 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              No active session · {orphanedBoardTotal}
+            </div>
+          )}
+          {orphanedBoards.map((board) => (
+            <button
+              key={board.id}
+              type="button"
+              onClick={() => {
+                setActiveBoardId(board.id);
+                sendKanban('kanban.get', { boardId: board.id });
+              }}
+              className={cn(
+                'mb-1 w-full rounded-md px-2 py-2 text-left transition-colors',
+                activeBoardId === board.id
+                  ? 'bg-primary/10 text-foreground'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+              )}
+            >
+              <div className="truncate text-sm font-medium">{board.title}</div>
+              <div className="mt-0.5 flex items-center justify-between text-[11px]">
+                <span className="inline-flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/45" />
+                  {board.taskCount} tasks
+                </span>
                 <span>{board.completedTaskCount} done</span>
               </div>
             </button>
           ))}
         </div>
+        <Pagination
+          page={boardPage}
+          pageSize={BOARD_PAGE_SIZE}
+          totalItems={boardTotal}
+          onPageChange={changeBoardPage}
+          compact
+          itemLabel="boards"
+        />
       </aside>
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -717,6 +860,18 @@ export function KanbanView({ onClose }: { onClose?: (() => void) | undefined }) 
         </header>
 
         {activeBoard && <BoardPresence presence={activeBoard.presence} />}
+        {activeBoard && (
+          <div className="shrink-0 border-b px-3 py-2 sm:px-4">
+            <KanbanBoundaryEditor
+              title="Board boundary"
+              value={activeBoard.boundary}
+              onSave={(boundary) => {
+                sendKanban('kanban.update', { boardId: activeBoard.id, boundary });
+                window.setTimeout(() => refreshBoard(activeBoard.id), 150);
+              }}
+            />
+          </div>
+        )}
         {activeBoard && runLink && <RunControlBar runLink={runLink} sendRaw={sendRaw} />}
         {activeBoard && !runLink && activeBoard.tasks.length > 0 && (
           <StartAsBar boardId={activeBoard.id} sendKanban={sendKanban} />
@@ -1358,6 +1513,7 @@ function TaskInspector({
   // (React error 310) when task toggles between null and non-null.
   const inspectorScrollRef = useScrollPosition<HTMLDivElement>('kanban-task-inspector', Boolean(task));
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [dueDate, setDueDate] = useState('');
@@ -1587,25 +1743,65 @@ function TaskInspector({
   return (
     <aside
       aria-label="Task inspector"
-      className="flex max-h-[42dvh] w-full shrink-0 flex-col border-t bg-card/40 md:max-h-none md:w-[420px] md:border-l md:border-t-0 xl:w-[480px]"
+      data-expanded={expanded ? 'true' : 'false'}
+      className={cn(
+        'flex max-h-[42dvh] w-full shrink-0 flex-col border-t bg-card/40 transition-[width] duration-200 ease-out md:max-h-none md:border-l md:border-t-0',
+        expanded
+          ? 'fixed inset-0 z-50 h-dvh max-h-none w-screen border-0 bg-card transition-none md:w-screen md:border-0'
+          : 'md:w-[420px] xl:w-[480px]',
+      )}
     >
-      <div className="flex h-12 items-center gap-2 border-b px-3">
+      <div className={cn('flex h-12 items-center gap-2 border-b px-3', expanded && 'px-5')}>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold">Task</div>
           <div className="truncate text-[11px] text-muted-foreground">{task.id.slice(0, 8)}</div>
         </div>
         <button
           type="button"
+          title={expanded ? 'Collapse task details' : 'Expand task details'}
+          aria-label={expanded ? 'Collapse task details' : 'Expand task details'}
+          aria-pressed={expanded}
+          onClick={() => setExpanded((value) => !value)}
+          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          {expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+        </button>
+        <button
+          type="button"
           title="Close"
-          onClick={onClose}
+          onClick={() => {
+            setExpanded(false);
+            onClose();
+          }}
           className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           <X size={16} />
         </button>
       </div>
       {task ? (
-        <div ref={inspectorScrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
+        <div
+          ref={inspectorScrollRef}
+          className={cn(
+            'min-h-0 flex-1 overflow-y-auto overscroll-contain p-3',
+            expanded && 'px-5 py-4 xl:px-7',
+          )}
+        >
           <div className="space-y-3 rounded-md border bg-background p-2.5">
+            <KanbanBoundaryEditor
+              title="Task boundary"
+              value={task.boundary}
+              inherited={board?.boundary}
+              onSave={(boundary) => {
+                if (!board) return;
+                sendKanban('kanban.task.update', {
+                  boardId: board.id,
+                  taskId: task.id,
+                  boundary,
+                  activityNote: 'Task boundary edited in WebUI.',
+                });
+                window.setTimeout(() => refreshBoard(board.id), 150);
+              }}
+            />
             <Field label="Title" value={title} onChange={setTitle} />
             <label className="block">
               <span className="mb-1 block text-[11px] font-medium text-muted-foreground">

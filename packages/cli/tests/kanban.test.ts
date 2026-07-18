@@ -1005,6 +1005,40 @@ describe('kanban storage and manager', () => {
 });
 
 describe('kanban websocket handler', () => {
+  it('paginates board lists and prioritizes boards owned by live sessions', async () => {
+    const { ctx, sent } = wsRig();
+    for (let index = 0; index < 7; index++) {
+      await createBoard(tmpDir, {
+        title: index === 0 ? 'Live board' : `Orphan board ${index}`,
+        ...(index === 0 ? { tags: ['session:live-session'] } : {}),
+      });
+    }
+
+    await handleKanbanMessage(ctx, FAKE_WS, {
+      type: 'kanban.list',
+      payload: { page: 1, pageSize: 3, activeSessionIds: ['live-session'] },
+    });
+
+    const result = lastPayload<{
+      success: true;
+      data: {
+        items: KanbanBoard[];
+        total: number;
+        activeTotal: number;
+        orphanedTotal: number;
+        totalPages: number;
+      };
+    }>(sent, 'kanban.list');
+    expect(result.data.items).toHaveLength(3);
+    expect(result.data.items[0]?.title).toBe('Live board');
+    expect(result.data).toMatchObject({
+      total: 7,
+      activeTotal: 1,
+      orphanedTotal: 6,
+      totalPages: 3,
+    });
+  });
+
   it('creates a board and adds a task through websocket messages', async () => {
     const { ctx, sent } = wsRig();
 
@@ -1309,6 +1343,48 @@ describe('kanban websocket handler', () => {
       status: 'completed',
       lastResult: 'agent finished',
     });
+  });
+
+  it('propagates the kanban identity into TaskSpec.context so the runtime boundary gate can resolve the policy', async () => {
+    const dispatched: Array<{ description: string; opts: Record<string, unknown> | undefined }> =
+      [];
+    let onDone:
+      | ((result: {
+          status: 'completed' | 'failed';
+          result?: string | undefined;
+          error?: string | undefined;
+        }) => void | Promise<void>)
+      | undefined;
+    const { ctx } = wsRig();
+    ctx.dispatchTask = async (description, opts) => {
+      dispatched.push({ description, opts: opts as Record<string, unknown> | undefined });
+      onDone = opts?.onDone;
+      return 'Spawned subagent kanban-ctx-1 for task task-ctx-1.';
+    };
+
+    const board = await createBoard(tmpDir, { title: 'Context dispatch board' });
+    const task = await addTask(tmpDir, board.id, { title: 'Carry kanban identity' });
+
+    await handleKanbanMessage(ctx, FAKE_WS, {
+      type: 'kanban.task.dispatch',
+      payload: {
+        boardId: board.id,
+        taskId: task!.task.id.slice(0, 8),
+        agentId: 'ctx-runner',
+      },
+    });
+
+    expect(dispatched).toHaveLength(1);
+    const opts = dispatched[0]?.opts as
+      | {
+          context?: { kanban?: { boardId?: string; taskId?: string } } | undefined;
+        }
+      | undefined;
+    expect(opts?.context?.kanban?.boardId).toBe(board.id);
+    expect(opts?.context?.kanban?.taskId).toBe(task!.task.id);
+
+    // Drain the assignment update so the test exits cleanly.
+    await onDone?.({ status: 'completed', result: 'agent finished' });
   });
 
   it('extracts the exact resolved primary and fallback chain from dispatch summaries', () => {

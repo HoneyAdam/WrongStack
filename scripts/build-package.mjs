@@ -115,6 +115,7 @@ const toolEntries = entryMap([
   'src/tool-summary.ts',
   'src/tool-diff.ts',
   'src/next-steps.ts',
+  'src/auto-proceed-loop-guard.ts',
   'src/e2e.ts',
   'src/codebase-index/index.ts',
   'src/codebase-index/worker.ts',

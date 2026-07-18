@@ -1,10 +1,12 @@
 import { ArrowDownAZ, ArrowUpAZ, ListOrdered, Trash2, X } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
+import { usePagination } from '@/hooks/usePagination';
 import { cn } from '@/lib/utils';
 import { useAppTranslation } from '@/i18n';
 import { useChatStore } from '@/stores';
 import type { QueuedItem, QueueMode } from '@/stores/chat-store';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from './ui/dialog';
+import { Pagination } from './ui/pagination';
 
 type SortDir = 'oldest' | 'newest';
 
@@ -70,6 +72,7 @@ export function QueuePanel({
     );
     return indexed;
   }, [queue, sortDir]);
+  const queuePage = usePagination(sortedQueue, 15, sortDir);
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
@@ -141,7 +144,7 @@ export function QueuePanel({
             </div>
           ) : (
             <ul className="divide-y divide-border/60" data-testid="queue-list">
-              {sortedQueue.map(({ item, sourceIdx }, idx) => {
+              {queuePage.pageItems.map(({ item, sourceIdx }, idx) => {
                 // sourceIdx was threaded through the sort so removal
                 // targets the correct entry in the underlying store.
                 const meta = MODE_META[item.mode];
@@ -153,7 +156,7 @@ export function QueuePanel({
                   >
                     <div className="flex items-start gap-3 min-w-0 flex-1">
                       <span className="mt-1 text-[10px] font-mono text-muted-foreground shrink-0 w-5 text-right tabular-nums">
-                        {idx + 1}.
+                        {(queuePage.page - 1) * queuePage.pageSize + idx + 1}.
                       </span>
                       <span
                         className={cn(
@@ -184,6 +187,14 @@ export function QueuePanel({
             </ul>
           )}
         </div>
+        <Pagination
+          page={queuePage.page}
+          pageSize={queuePage.pageSize}
+          totalItems={queuePage.totalItems}
+          onPageChange={queuePage.setPage}
+          compact
+          itemLabel="queued messages"
+        />
 
         {/* Footer hint */}
         {queue.length > 0 && (

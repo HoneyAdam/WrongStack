@@ -1464,6 +1464,13 @@ export interface Config {
   /** When true, show lightweight LLM-predicted next steps after each turn (/next). */
   nextPrediction?: boolean | undefined;
   cwd?: string | undefined;
+  /**
+   * Active profile name. When set, config is loaded from
+   * ~/.wrongstack/profiles/<name>/config.json instead of the flat
+   * ~/.wrongstack/config.json. Default: 'default'.
+   * Set via /settings active-profile <name>.
+   */
+  activeProfile?: string | undefined;
   /** Autonomy mode configuration (auto-proceed delay, etc.). */
   autonomy?: AutonomyConfig | undefined;
   /** Show rotating launch hints on startup. Default: true. Set to false to suppress. */

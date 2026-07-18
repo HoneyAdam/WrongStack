@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { cosineSimilarity } from '../src/embeddings/provider.js';
+import { HashingEmbeddingProvider } from '../src/embeddings/hashing.js';
 import { InjectionTracker } from '../src/middleware/injection-tracker.js';
 import { SuperMemoryGraph } from '../src/graph/graph.js';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -344,4 +345,127 @@ describe('store-helpers validation edges', () => {
   });
 });
 
+// ── HashingEmbeddingProvider ──────────────────────────────────────────────
 
+describe('HashingEmbeddingProvider', () => {
+  it('produces deterministic vectors', async () => {
+    const provider = new HashingEmbeddingProvider({ dimensions: 64 });
+    const vectors = await provider.embed(['hello world', 'hello world']);
+    const v1 = vectors[0]!;
+    const v2 = vectors[1]!;
+    expect(v1.length).toBe(64);
+    expect(v2.length).toBe(64);
+    // Deterministic: same text → same vector
+    for (let i = 0; i < 64; i++) {
+      expect(v1[i]).toBe(v2[i]);
+    }
+  });
+
+  it('produces different vectors for different texts', async () => {
+    const provider = new HashingEmbeddingProvider({ dimensions: 256 });
+    const vectors = await provider.embed([
+      'typescript project structure with interfaces and generics',
+      'python data pipeline with pandas and numpy',
+    ]);
+    const v1 = vectors[0]!;
+    const v2 = vectors[1]!;
+    // Cosine similarity should be well below 1.0 for unrelated texts
+    const sim = cosineSimilarity(v1, v2);
+    expect(sim).toBeLessThan(0.85); // Not too similar
+    expect(sim).toBeGreaterThan(0);  // Not completely orthogonal either
+  });
+
+  it('returns zero vector for empty text', async () => {
+    const provider = new HashingEmbeddingProvider({ dimensions: 32 });
+    const vectors = await provider.embed(['']);
+    const v = vectors[0]!;
+    for (let i = 0; i < 32; i++) {
+      expect(v[i]).toBe(0);
+    }
+  });
+
+  it('handles batch of varying sizes', async () => {
+    const provider = new HashingEmbeddingProvider({ dimensions: 64 });
+    const texts = ['a', 'b c', 'd e f', 'g h i j'];
+    const vectors = await provider.embed(texts);
+    expect(vectors).toHaveLength(4);
+    for (const v of vectors) {
+      expect(v.length).toBe(64);
+    }
+  });
+
+  it('L2-normalized vector has unit length', async () => {
+    const provider = new HashingEmbeddingProvider({ dimensions: 256 });
+    const vectors = await provider.embed(['the quick brown fox jumps over the lazy dog']);
+    const v = vectors[0]!;
+    let sumSq = 0;
+    for (let i = 0; i < 256; i++) {
+      sumSq += (v[i] ?? 0) * (v[i] ?? 0);
+    }
+    expect(Math.abs(Math.sqrt(sumSq) - 1)).toBeLessThan(0.001);
+  });
+
+  it('similar texts have higher cosine similarity than unrelated texts', async () => {
+    const provider = new HashingEmbeddingProvider({ dimensions: 256 });
+    const vectors = await provider.embed([
+      'react component with hooks and state management',
+      'react functional component using hooks',
+      'docker container deployment pipeline ci cd',
+    ]);
+    const vSimilar1 = vectors[0]!;
+    const vSimilar2 = vectors[1]!;
+    const vDiff = vectors[2]!;
+    const simSimilar = cosineSimilarity(vSimilar1, vSimilar2);
+    const simDiff = cosineSimilarity(vSimilar1, vDiff);
+    expect(simSimilar).toBeGreaterThan(simDiff);
+  });
+
+  it('projected dimensions respect the configured size', async () => {
+    const provider = new HashingEmbeddingProvider({ dimensions: 512 });
+    const vectors = await provider.embed(['test']);
+    const v = vectors[0]!;
+    expect(v.length).toBe(512);
+  });
+
+  it('accepts the maximum bounded dimension', () => {
+    const provider = new HashingEmbeddingProvider({ dimensions: 65_536 });
+    expect(provider.dimensions).toBe(65_536);
+  });
+
+  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 65_537])(
+    'rejects invalid dimensions: %s',
+    (dimensions) => {
+      expect(() => new HashingEmbeddingProvider({ dimensions })).toThrow(
+        'dimensions must be an integer from 1 to 65536',
+      );
+    },
+  );
+
+  it('projects a canonical FNV-1a hash to the expected dimension', async () => {
+    const provider = new HashingEmbeddingProvider({ dimensions: 256 });
+    const [vector] = await provider.embed(['foobar']);
+    expect(vector).toBeDefined();
+    expect(vector!.findIndex((value) => value !== 0)).toBe(0xbf9cf968 % 256);
+  });
+
+  it('distributes representative tokens across every low-byte bucket', async () => {
+    const provider = new HashingEmbeddingProvider({ dimensions: 256 });
+    const texts = Array.from({ length: 4_096 }, (_, index) => `token_${index}`);
+    const vectors = await provider.embed(texts);
+    const occupied = new Set(vectors.map((vector) => vector.findIndex((value) => value !== 0)));
+    expect(occupied.size).toBe(256);
+  });
+
+  it('produces a nonzero vector for non-Latin text', async () => {
+    const provider = new HashingEmbeddingProvider({ dimensions: 64 });
+    const [vector] = await provider.embed(['你好世界']);
+    expect(vector).toBeDefined();
+    expect(vector!.some((value) => value !== 0)).toBe(true);
+  });
+
+  it('has the expected id format', () => {
+    const provider = new HashingEmbeddingProvider({ dimensions: 128 });
+    expect(provider.id).toBe('hashing-v1-128');
+    expect(provider.dimensions).toBe(128);
+  });
+});

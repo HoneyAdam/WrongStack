@@ -525,6 +525,7 @@ export type State = {
     resolve: (decision: 'yes' | 'no' | 'always' | 'deny') => void;
     /** True when the call was classified destructive. */
     destructive: boolean;
+    boundaryReason?: string | undefined;
   }[];
   /**
    * Active warning for the `!<command>` shell shortcut. It resolves before
@@ -596,6 +597,18 @@ export type State = {
     leaderActive: boolean;
     subagentCount: number;
     value: string;
+    resolve: (decision: boolean) => void;
+  } | null;
+  /**
+   * Pending `/exit` confirmation. Mirrors the `/clear` invariant: while a
+   * leader run or any subagent is in flight, `/exit` must not terminate the
+   * TUI silently. The panel asks for an Enter/Esc acknowledgement so the
+   * user can decide to abort the in-flight work first. When nothing is
+   * running, `/exit` resolves true without ever opening this panel.
+   */
+  exitConfirm: {
+    leaderActive: boolean;
+    subagentCount: number;
     resolve: (decision: boolean) => void;
   } | null;
   /** Generic slash-command confirmation rendered inside the TUI. */
@@ -1232,6 +1245,8 @@ export type Action =
   | { type: 'clearConfirmOpen'; info: NonNullable<State['clearConfirm']> }
   | { type: 'clearConfirmSetValue'; value: string }
   | { type: 'clearConfirmClose' }
+  | { type: 'exitConfirmOpen'; info: NonNullable<State['exitConfirm']> }
+  | { type: 'exitConfirmClose' }
   | { type: 'slashConfirmOpen'; info: NonNullable<State['slashConfirm']> }
   | { type: 'slashConfirmClose' }
   /**

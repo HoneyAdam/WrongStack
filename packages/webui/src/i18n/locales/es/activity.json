@@ -11,9 +11,7 @@
     "design": "Estudio de diseño",
     "officemap": "Mapa de oficinas",
     "settings": "Ajustes",
-    "sddwizard": "Nuevo proyecto SDD",
-    "specs": "Especificaciones",
-    "sddboard": "Tablero en vivo",
+    "sddhub": "SDD",
     "goal": "Goal",
     "memory": "Memoria",
     "fleet": "Flota",
@@ -1146,6 +1144,7 @@
     "imageNotRetained": "La vista previa de la imagen no se conserva tras recargar",
     "failedToSend": "⚠ Error al enviar",
     "autoPaused": "⚠️ _Avance automático en pausa — alcanzado el máximo de turnos automáticos consecutivos. Escribe algo para continuar (la autonomía permanece activa)._",
+    "autoLoopHalted": "⚠️ _Envío automático detenido porque se repitió el mismo mensaje. La autonomía sigue activa; escribe un mensaje nuevo para reiniciar la protección contra bucles._",
     "rsIterations": "Iteraciones: {{n}}",
     "rsTools": "Llamadas: {{n}}",
     "rsElapsed": "Transcurrido: {{s}}",
@@ -1270,6 +1269,11 @@
   },
   "sddTask": {
     "backTitle": "Volver a la actividad",
+    "expandTitle": "Ampliar detalles de la tarea",
+    "collapseTitle": "Contraer detalles de la tarea",
+    "eventLog": "Registro de eventos de la tarea",
+    "newestFirst": "más reciente primero",
+    "noEvents": "Aún no se ha registrado actividad para esta tarea.",
     "workingOn": "trabajando en esta tarea",
     "assigned": "asignado",
     "metaPriority": "Prioridad",
@@ -1376,6 +1380,45 @@
     "mentionFile": "Mencionar archivo",
     "loadingEditor": "Cargando editor…",
     "selectTab": "Selecciona una pestaña para ver su contenido"
+  },
+  "fileActivity": {
+    "title": "Actividad del archivo",
+    "overview": "Resumen",
+    "changes": "Cambios",
+    "context": "Contexto",
+    "logs": "Registros",
+    "lines": "líneas",
+    "resizeHint": "Arrastra para redimensionar · doble clic para restablecer",
+    "refresh": "Actualizar evidencia del archivo",
+    "evidenceCount_one": "{{count}} evento",
+    "evidenceCount_other": "{{count}} eventos",
+    "mutations30m": "Ediciones · 30 min",
+    "sessions": "Sesiones",
+    "actors": "Actores",
+    "linkedWork": "Trabajo vinculado",
+    "workLinks": "Kanban / tarea",
+    "recentActivity": "Actividad reciente del archivo",
+    "events": "eventos",
+    "noEvidence": "Aún no hay actividad atribuida a este archivo.",
+    "noSessions": "Aún no hay atribución de sesión.",
+    "noActors": "Aún no hay atribución de actor.",
+    "noWorkLinks": "No hay vínculo Kanban, SDD o tarea registrado.",
+    "taskOrTodo": "Task / tarea",
+    "loadingEvidence": "Cargando evidencia del archivo…",
+    "gitToBuffer": "Git HEAD → búfer actual de Monaco",
+    "savedToBuffer": "Última versión guardada → búfer actual de Monaco",
+    "unsaved": "búfer sin guardar",
+    "level": { "quiet": "estable", "active": "activo", "churn": "alta rotación" },
+    "analysisTitle": {
+      "quiet": "Sin rotación reciente",
+      "active": "Este archivo está cambiando",
+      "churn": "Cambios repetidos detectados"
+    },
+    "analysisBody": {
+      "quiet": "No se registraron cambios atribuidos en los últimos 30 minutos.",
+      "active": "{{mutations}} cambios de {{actors}} actores en {{sessions}} sesiones durante los últimos 30 minutos.",
+      "churn": "Alta rotación: {{mutations}} cambios de {{actors}} actores en {{sessions}} sesiones. Revisa el trabajo solapado antes de la siguiente edición."
+    }
   },
   "analytics": {
     "loading": "Cargando analíticas…",
@@ -1757,5 +1800,10 @@
       "in_progress": "En curso",
       "completed": "Completada"
     }
+  },
+  "sddhub": {
+    "tabProject": "Proyecto SDD",
+    "tabBoard": "Tablero SDD en vivo",
+    "tabSpecs": "Especificaciones"
   }
 }

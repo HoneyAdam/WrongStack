@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mutateBoard, readBoard } from '../storage.js';
 import type {
   KanbanBoard,
+  KanbanBoundaryPolicy,
   KanbanEvent,
   KanbanSearchInput,
   KanbanSearchResult,
@@ -10,14 +11,13 @@ import type {
   SetKanbanTaskChainInput,
   SplitKanbanTaskInput,
 } from '../types.js';
-import { searchKanban } from './serialization.js';
 import {
   addDependencyToTask,
   cloneChecks,
-  createKanbanEvent,
-  emitKanbanEvent,
   cloneGoalMetrics,
+  createKanbanEvent,
   createTaskObject,
+  emitKanbanEvent,
   existingColumnId,
   findTask,
   highestPriority,
@@ -34,6 +34,7 @@ import {
   tasksInChain,
   uniqueStrings,
 } from './_internal.js';
+import { searchKanban } from './serialization.js';
 
 export async function addDependency(
   projectRoot: string,
@@ -105,6 +106,9 @@ export async function splitTask(
         ...(input.inheritGoalMetrics === true && parent.goalMetrics !== undefined
           ? { goalMetrics: cloneGoalMetrics(parent.goalMetrics) }
           : {}),
+        // A split must never drop the parent's execution ceiling. Unlike
+        // descriptive metadata, boundaries are always inherited.
+        ...(parent.boundary !== undefined ? { boundary: parent.boundary } : {}),
       });
       children.push(child);
       board.tasks.push(child);
@@ -152,6 +156,7 @@ export async function mergeTasks(
     const dependencies = uniqueStrings(
       sourceTasks.flatMap((task) => task.dependsOn ?? []).filter((depId) => !sourceIds.has(depId)),
     );
+    const mergedBoundary = mergeTaskBoundaries(sourceTasks);
     const merged = createTaskObject(board, {
       title: input.title,
       description: input.description ?? mergedTaskDescription(sourceTasks),
@@ -170,6 +175,7 @@ export async function mergeTasks(
         : {}),
       successCriteria: sourceTasks.flatMap((task) => cloneChecks(task.successCriteria ?? [])),
       goalMetrics: sourceTasks.flatMap((task) => cloneGoalMetrics(task.goalMetrics ?? [])),
+      ...(mergedBoundary !== undefined ? { boundary: mergedBoundary } : {}),
     });
     merged.mergedFromTaskIds = [...sourceIds];
     board.tasks.push(merged);
@@ -193,6 +199,65 @@ export async function mergeTasks(
   });
   if (updated?.result && event) await emitKanbanEvent(projectRoot, event);
   return updated?.result ? { board: updated.board, ...updated.result } : null;
+}
+
+function mergeTaskBoundaries(tasks: readonly KanbanTask[]): KanbanBoundaryPolicy | undefined {
+  const policies = tasks
+    .map((task) => task.boundary)
+    .filter((policy): policy is KanbanBoundaryPolicy => policy?.enabled === true);
+  if (policies.length === 0) return undefined;
+  const first = policies[0]!;
+  if (policies.every((policy) => policiesEqual(policy, first))) {
+    return first;
+  }
+  return {
+    enabled: true,
+    enforcement: 'block',
+    shellAccess: 'block',
+    allow: [
+      {
+        kind: 'file',
+        access: 'read_write',
+        path: '.wrongstack/boundary-review-required',
+        note: 'Merged tasks had incompatible boundaries; explicitly define the merged task scope.',
+      },
+    ],
+    deny: policies.flatMap((policy) => policy.deny ?? []),
+  };
+}
+
+/**
+ * Structural equality for boundary policies. Compares scalar fields directly
+ * and sorts `allow`/`deny` entries by a canonical key so two semantically
+ * equivalent policies whose selector arrays are in different orders are
+ * treated as the same policy. Required because `JSON.stringify` compares
+ * object-key order, which made equivalent-but-reordered policies look
+ * incompatible and downgraded merges to the conservative sentinel.
+ */
+function policiesEqual(a: KanbanBoundaryPolicy, b: KanbanBoundaryPolicy): boolean {
+  if (a === b) return true;
+  if (a.enabled !== b.enabled) return false;
+  if (a.enforcement !== b.enforcement) return false;
+  if (a.shellAccess !== b.shellAccess) return false;
+  if (!selectorsEqual(a.allow, b.allow)) return false;
+  const aDeny = a.deny ?? [];
+  const bDeny = b.deny ?? [];
+  return selectorsEqual(aDeny, bDeny);
+}
+
+function selectorsEqual(
+  a: readonly { kind: string; path: string; access: string; note?: string | undefined }[],
+  b: readonly { kind: string; path: string; access: string; note?: string | undefined }[],
+): boolean {
+  if (a.length !== b.length) return false;
+  const key = (s: { kind: string; path: string; access: string; note?: string | undefined }) =>
+    `${s.kind}\u0000${s.path}\u0000${s.access}\u0000${s.note ?? ''}`;
+  const aSorted = [...a].sort((x, y) => (key(x) < key(y) ? -1 : key(x) > key(y) ? 1 : 0));
+  const bSorted = [...b].sort((x, y) => (key(x) < key(y) ? -1 : key(x) > key(y) ? 1 : 0));
+  for (let i = 0; i < aSorted.length; i++) {
+    if (key(aSorted[i]!) !== key(bSorted[i]!)) return false;
+  }
+  return true;
 }
 
 export async function setTaskChain(

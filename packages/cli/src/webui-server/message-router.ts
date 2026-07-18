@@ -332,7 +332,7 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
   let chronicleCache: { loadedAt: number; engine: Promise<ChronicleQueryEngine> } | undefined;
   const chronicleEngine = () => {
     const now = Date.now();
-    if (chronicleCache && now - chronicleCache.loadedAt < 1_000) return chronicleCache.engine;
+    if (chronicleCache && now - chronicleCache.loadedAt < 60_000) return chronicleCache.engine;
     const paths = resolveWstackPaths({ projectRoot: projectRootFor(), userHome: os.homedir() });
     const engine = ChronicleQueryEngine.fromDirectory(path.join(paths.projectDir, 'chronicle'));
     chronicleCache = { loadedAt: now, engine };
@@ -645,7 +645,7 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
     'chronicle.query': async (msg, ws) => {
       const payload = (msg.payload ?? {}) as { query?: ChronicleQuery };
       const engine = await chronicleEngine();
-      send(ws, { type: 'chronicle.query_result', payload: engine.query(payload.query ?? {}) });
+      send(ws, { type: 'chronicle.query_result', payload: await engine.query(payload.query ?? {}) });
     },
     'chronicle.facet': async (msg, ws) => {
       const payload = (msg.payload ?? {}) as { field?: ChronicleFacet; query?: ChronicleQuery; limit?: number };
@@ -655,12 +655,12 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
         return;
       }
       const engine = await chronicleEngine();
-      send(ws, { type: 'chronicle.facet_result', payload: { field: payload.field, values: engine.facet(payload.field, payload.query ?? {}, payload.limit), diagnostics: engine.diagnostics } });
+      send(ws, { type: 'chronicle.facet_result', payload: { field: payload.field, values: await engine.facet(payload.field, payload.query ?? {}, payload.limit), diagnostics: engine.diagnostics } });
     },
     'chronicle.graph': async (msg, ws) => {
       const payload = (msg.payload ?? {}) as { seed?: ChronicleQuery; hops?: number; maxNodes?: number };
       const engine = await chronicleEngine();
-      send(ws, { type: 'chronicle.graph_result', payload: engine.graph(payload.seed ?? {}, payload.hops, payload.maxNodes) });
+      send(ws, { type: 'chronicle.graph_result', payload: await engine.graph(payload.seed ?? {}, payload.hops, payload.maxNodes) });
     },
     'side_effects.list': (_msg, ws) => {
       const sideEffects = opts.agent.ctx.sideEffects ?? [];

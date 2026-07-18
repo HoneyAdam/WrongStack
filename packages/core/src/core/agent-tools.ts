@@ -80,6 +80,7 @@ export function createAgentToolHandler(a: AgentInternals): AgentToolHandler {
     suggestedPattern: string;
     decisionSource?: import('../types/permission.js').PermissionDecision['source'] | undefined;
     riskTier?: import('../types/tool.js').RiskTier | undefined;
+    boundaryReason?: string | undefined;
   }): Promise<'yes' | 'no' | 'always' | 'deny' | 'abort'> {
     // Headless deadlock guard (P1 #4, before-release.md): if no UI layer has
     // subscribed to `tool.confirm_needed`, emitting the event leaves the
@@ -125,6 +126,7 @@ export function createAgentToolHandler(a: AgentInternals): AgentToolHandler {
         suggestedPattern: info.suggestedPattern,
         decisionSource: info.decisionSource,
         riskTier: info.riskTier,
+        boundaryReason: info.boundaryReason,
         resolve: (choice) => {
           signal.removeEventListener('abort', onAbort);
           resolve(choice);
@@ -195,6 +197,7 @@ export function createAgentToolHandler(a: AgentInternals): AgentToolHandler {
           suggestedPattern: result.suggestedPattern,
           decisionSource: result.decisionSource,
           riskTier: result.riskTier,
+          boundaryReason: result.boundaryReason,
         });
 
         // Persist trust/deny rules

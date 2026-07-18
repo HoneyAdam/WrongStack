@@ -22,9 +22,11 @@ import { useAppTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
 import type { FleetTimelineEvent, SubagentView } from '@/stores';
 import { useFleetStore, useSideEffectStore, useUIStore } from '@/stores';
+import { usePagination } from '@/hooks/usePagination';
 import { AgentCard } from './AgentsMonitor';
 import { FleetAgentRow } from './FleetMonitor';
 import { SideEffectTimeline } from './SideEffectTimeline';
+import { Pagination } from './ui/pagination';
 import {
   Sheet,
   SheetClose,
@@ -329,6 +331,7 @@ function FleetTabContent({
   onSelectAgent: (agent: SubagentView) => void;
 }) {
   const { t } = useAppTranslation();
+  const fleetPage = usePagination(fleetList, 15);
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       {/* Summary strip */}
@@ -358,7 +361,7 @@ function FleetTabContent({
         </div>
       ) : (
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-1.5">
-          {fleetList.map((agent) => (
+          {fleetPage.pageItems.map((agent) => (
             <FleetAgentRow
               key={agent.id}
               agent={agent}
@@ -369,6 +372,14 @@ function FleetTabContent({
           ))}
         </div>
       )}
+      <Pagination
+        page={fleetPage.page}
+        pageSize={fleetPage.pageSize}
+        totalItems={fleetPage.totalItems}
+        onPageChange={fleetPage.setPage}
+        compact
+        itemLabel="agents"
+      />
 
       {/* Event timeline footer */}
       {eventTimeline.length > 0 && (
@@ -396,6 +407,7 @@ function AgentsTabContent({
   onSelectAgent: (id: string) => void;
 }) {
   const { t } = useAppTranslation();
+  const selectorPage = usePagination(fleetList, 8);
   if (fleetList.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
@@ -423,7 +435,7 @@ function AgentsTabContent({
       {/* Agent selector strip */}
       <div className="border-t px-2 py-1.5 shrink-0">
         <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
-          {fleetList.map((agent, i) => (
+          {selectorPage.pageItems.map((agent, i) => (
             <button
               key={agent.id}
               type="button"
@@ -454,6 +466,14 @@ function AgentsTabContent({
             </button>
           ))}
         </div>
+        <Pagination
+          page={selectorPage.page}
+          pageSize={selectorPage.pageSize}
+          totalItems={selectorPage.totalItems}
+          onPageChange={selectorPage.setPage}
+          compact
+          itemLabel="agents"
+        />
       </div>
     </div>
   );

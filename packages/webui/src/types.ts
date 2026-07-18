@@ -455,6 +455,7 @@ export interface WSToolConfirmNeeded {
     suggestedPattern: string;
     decisionSource?: string | undefined;
     riskTier?: 'safe' | 'standard' | 'destructive' | undefined;
+    boundaryReason?: string | undefined;
   };
 }
 

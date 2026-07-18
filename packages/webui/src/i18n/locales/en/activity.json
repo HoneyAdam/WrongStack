@@ -11,9 +11,7 @@
     "design": "Design Studio",
     "officemap": "Office Map",
     "settings": "Settings",
-    "sddwizard": "New SDD Project",
-    "specs": "Specs",
-    "sddboard": "Live Board",
+    "sddhub": "SDD",
     "goal": "Goal",
     "memory": "Memory",
     "fleet": "Fleet",
@@ -1146,6 +1144,7 @@
     "imageNotRetained": "Image preview not kept after refresh",
     "failedToSend": "⚠ Failed to send",
     "autoPaused": "⚠️ _Auto-proceed paused — maximum consecutive automatic turns reached. Type anything to continue (autonomy stays on)._",
+    "autoLoopHalted": "⚠️ _Auto-submit halted because the same prompt repeated. Autonomy remains on; enter a new prompt to reset the loop guard._",
     "rsIterations": "Iterations: {{n}}",
     "rsTools": "Tool calls: {{n}}",
     "rsElapsed": "Elapsed: {{s}}",
@@ -1270,6 +1269,11 @@
   },
   "sddTask": {
     "backTitle": "Back to activity",
+    "expandTitle": "Expand task details",
+    "collapseTitle": "Collapse task details",
+    "eventLog": "Task event log",
+    "newestFirst": "newest first",
+    "noEvents": "No task activity has been recorded yet.",
     "workingOn": "working on this task",
     "assigned": "assigned",
     "metaPriority": "Priority",
@@ -1376,6 +1380,49 @@
     "mentionFile": "Mention file",
     "loadingEditor": "Loading editor…",
     "selectTab": "Select a tab to view its content"
+  },
+  "fileActivity": {
+    "title": "File activity",
+    "overview": "Overview",
+    "changes": "Changes",
+    "context": "Context",
+    "logs": "Logs",
+    "lines": "lines",
+    "resizeHint": "Drag to resize · double-click to reset",
+    "refresh": "Refresh file evidence",
+    "evidenceCount_one": "{{count}} event",
+    "evidenceCount_other": "{{count}} events",
+    "mutations30m": "Edits · 30m",
+    "sessions": "Sessions",
+    "actors": "Actors",
+    "linkedWork": "Work links",
+    "workLinks": "Kanban / todo",
+    "recentActivity": "Recent file activity",
+    "events": "events",
+    "noEvidence": "No activity has been attributed to this file yet.",
+    "noSessions": "No session attribution yet.",
+    "noActors": "No actor attribution yet.",
+    "noWorkLinks": "No Kanban, SDD or todo link recorded.",
+    "taskOrTodo": "Task / todo",
+    "loadingEvidence": "Loading file evidence…",
+    "gitToBuffer": "Git HEAD → current Monaco buffer",
+    "savedToBuffer": "Last saved version → current Monaco buffer",
+    "unsaved": "unsaved buffer",
+    "level": {
+      "quiet": "quiet",
+      "active": "active",
+      "churn": "high churn"
+    },
+    "analysisTitle": {
+      "quiet": "No recent edit churn",
+      "active": "This file is being changed",
+      "churn": "Repeated edits detected"
+    },
+    "analysisBody": {
+      "quiet": "No attributed mutations were recorded in the last 30 minutes.",
+      "active": "{{mutations}} mutations across {{actors}} actors and {{sessions}} sessions in the last 30 minutes.",
+      "churn": "High churn: {{mutations}} mutations across {{actors}} actors and {{sessions}} sessions. Check overlapping work before the next edit."
+    }
   },
   "analytics": {
     "loading": "Loading analytics…",
@@ -1757,5 +1804,10 @@
       "in_progress": "In progress",
       "completed": "Completed"
     }
+  },
+  "sddhub": {
+    "tabProject": "SDD Project",
+    "tabBoard": "Live SDD Board",
+    "tabSpecs": "Specifications"
   }
 }

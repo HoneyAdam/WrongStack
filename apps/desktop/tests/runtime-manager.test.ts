@@ -5,12 +5,15 @@
  * path normalization, and utility functions. Full integration tests require
  * actual child process spawning.
  */
-import { describe, expect, it } from 'vitest';
-import { normalizeProjectManifest } from '../src/main/runtime-manager.js';
+
+import type { ChildProcess } from 'node:child_process';
+import { EventEmitter } from 'node:events';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { normalizeProjectManifest, waitForChildExit } from '../src/main/runtime-manager.js';
 import type {
-  DesktopRuntimeRecord,
-  DesktopRuntimeKind,
   DesktopConversationStatus,
+  DesktopRuntimeKind,
+  DesktopRuntimeRecord,
 } from '../src/shared/types.js';
 
 // ============================================================================
@@ -33,6 +36,41 @@ interface DesktopStateFile {
 // Runtime constants (matching actual implementation)
 const HTTP_PORT_START = 34560;
 const WS_PORT_START = 34660;
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+function mockChild(): ChildProcess {
+  const child = new EventEmitter() as ChildProcess;
+  child.exitCode = null;
+  child.signalCode = null;
+  child.killed = false;
+  return child;
+}
+
+describe('waitForChildExit', () => {
+  it('resolves when the child emits exit', async () => {
+    vi.useFakeTimers();
+    const child = mockChild();
+    const waiting = waitForChildExit(child, 5000);
+
+    child.emit('exit', 0, null);
+
+    await expect(waiting).resolves.toBe(true);
+  });
+
+  it('does not mistake ChildProcess.killed for process exit', async () => {
+    vi.useFakeTimers();
+    const child = mockChild();
+    const waiting = waitForChildExit(child, 5000);
+    child.killed = true;
+
+    await vi.advanceTimersByTimeAsync(5000);
+
+    await expect(waiting).resolves.toBe(false);
+  });
+});
 
 // ============================================================================
 // Port Allocation Logic Tests
@@ -290,9 +328,15 @@ describe('normalizeProjectManifest', () => {
   });
 
   it('should support legacy array and recent-style manifest shapes', () => {
-    expect(normalizeProjectManifest([{ root: '/work/array-project' }])[0].name).toBe('array-project');
-    expect(normalizeProjectManifest({ recentProjects: [{ root: '/work/recent-project' }] })[0].name).toBe('recent-project');
-    expect(normalizeProjectManifest({ recents: [{ root: '/work/recents-project' }] })[0].name).toBe('recents-project');
+    expect(normalizeProjectManifest([{ root: '/work/array-project' }])[0].name).toBe(
+      'array-project',
+    );
+    expect(
+      normalizeProjectManifest({ recentProjects: [{ root: '/work/recent-project' }] })[0].name,
+    ).toBe('recent-project');
+    expect(normalizeProjectManifest({ recents: [{ root: '/work/recents-project' }] })[0].name).toBe(
+      'recents-project',
+    );
   });
 
   it('should skip invalid entries and dedupe roots', () => {
@@ -593,10 +637,7 @@ describe('Timeout configuration', () => {
 // ============================================================================
 
 describe('Runtime lifecycle', () => {
-  function createRuntime(
-    id: string,
-    status: DesktopConversationStatus,
-  ): DesktopRuntimeRecord {
+  function createRuntime(id: string, status: DesktopConversationStatus): DesktopRuntimeRecord {
     return {
       id,
       name: `Runtime ${id}`,
@@ -659,10 +700,7 @@ describe('Runtime lifecycle', () => {
 
 describe('Port conflict resolution', () => {
   function usedPorts(runtimes: Map<string, DesktopRuntimeRecord>): Set<number> {
-    return new Set(
-      Array.from(runtimes.values())
-        .flatMap((r) => [r.httpPort, r.wsPort])
-    );
+    return new Set(Array.from(runtimes.values()).flatMap((r) => [r.httpPort, r.wsPort]));
   }
 
   it('should collect used ports', () => {

@@ -35,9 +35,9 @@ const KEBAB = /^[a-z][a-z0-9-]*$/;
 const TOOL_ID = /^[a-z][a-z0-9_-]*$/;
 
 describe('agent catalog integrity', () => {
-  it('has 50 catalog definitions and AGENT_CATALOG keys match 1:1', () => {
-    expect(ALL_AGENT_DEFINITIONS.length).toBe(50);
-    expect(Object.keys(AGENT_CATALOG).length).toBe(50);
+  it('has 51 catalog definitions and AGENT_CATALOG keys match 1:1', () => {
+    expect(ALL_AGENT_DEFINITIONS.length).toBe(51);
+    expect(Object.keys(AGENT_CATALOG).length).toBe(51);
     for (const def of ALL_AGENT_DEFINITIONS) {
       expect(AGENT_CATALOG[def.config.role as string]).toBe(def);
     }
@@ -78,7 +78,7 @@ describe('agent catalog integrity', () => {
     }
   });
 
-  it('groups every catalog agent into exactly one phase and the groups sum to 50', () => {
+  it('groups every catalog agent into exactly one phase and the groups sum to 51', () => {
     let total = 0;
     const seen = new Set<string>();
     for (const phase of PHASES) {
@@ -91,8 +91,8 @@ describe('agent catalog integrity', () => {
       }
       total += group.length;
     }
-    expect(total).toBe(50);
-    expect(seen.size).toBe(50);
+    expect(total).toBe(51);
+    expect(seen.size).toBe(51);
   });
 
   it('getAgentDefinition resolves known roles and rejects unknown ones', () => {
@@ -103,7 +103,7 @@ describe('agent catalog integrity', () => {
 
 describe('fleet roster derivation', () => {
   it('FLEET_ROSTER is the catalog plus the standalone shadow-agent role', () => {
-    expect(Object.keys(FLEET_ROSTER).length).toBe(51);
+    expect(Object.keys(FLEET_ROSTER).length).toBe(52);
     // Legacy four are preserved alongside the catalog.
     for (const legacy of ['audit-log', 'bug-hunter', 'refactor-planner', 'security-scanner']) {
       expect(FLEET_ROSTER[legacy]).toBeDefined();
@@ -162,10 +162,10 @@ describe('catalog spawnability (real Director + spawn tool)', () => {
       spawnedIds.push(result.subagentId!);
     }
 
-    // All 51 produced distinct subagent ids (instantiateRosterConfig must not
+    // All 52 produced distinct subagent ids (instantiateRosterConfig must not
     // reuse the template id) and the director registered each one.
-    expect(new Set(spawnedIds).size).toBe(51);
-    expect(director.status().subagents.length).toBe(51);
+    expect(new Set(spawnedIds).size).toBe(52);
+    expect(director.status().subagents.length).toBe(52);
   });
 
   it('reports a clean error for an unknown role instead of throwing', async () => {

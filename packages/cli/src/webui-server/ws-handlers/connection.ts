@@ -41,6 +41,7 @@ export interface PendingConfirm {
   resolve: (decision: ConfirmDecision) => void;
   decisionSource?: string | undefined;
   riskTier?: 'safe' | 'standard' | 'destructive' | undefined;
+  boundaryReason?: string | undefined;
   /** The exact `tool.confirm_needed` broadcast payload, kept so the prompt
    *  can be replayed to clients that connect while the confirm is pending
    *  (e.g. a browser refresh mid-prompt). */
@@ -55,6 +56,7 @@ export function resolveYoloEligiblePendingConfirms(
   pendingConfirms: Map<string, PendingConfirm>,
 ): void {
   for (const [id, confirm] of pendingConfirms) {
+    if (confirm.boundaryReason) continue;
     pendingConfirms.delete(id);
     confirm.resolve('yes');
   }

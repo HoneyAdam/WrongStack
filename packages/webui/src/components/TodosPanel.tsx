@@ -2,6 +2,8 @@ import { getWSClient } from '@/lib/ws-client';
 import { cn } from '@/lib/utils';
 import { useAppTranslation } from '@/i18n';
 import { useSessionStore } from '@/stores';
+import { usePagination } from '@/hooks/usePagination';
+import { Pagination } from '@/components/ui/pagination';
 import { CheckCircle2, Circle, Clock, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -57,10 +59,12 @@ export function TodosPanel(): React.ReactElement | null {
   const sorted = [...todos].sort(
     (a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9),
   );
+  const todoPage = usePagination(sorted, 15);
+  const totalCompleted = sorted.filter((todo) => todo.status === 'completed').length;
 
-  const inProgress = sorted.filter((t) => t.status === 'in_progress');
-  const pending = sorted.filter((t) => t.status === 'pending');
-  const completed = sorted.filter((t) => t.status === 'completed');
+  const inProgress = todoPage.pageItems.filter((todo) => todo.status === 'in_progress');
+  const pending = todoPage.pageItems.filter((todo) => todo.status === 'pending');
+  const completed = todoPage.pageItems.filter((todo) => todo.status === 'completed');
   const hasCompleted = completed.length > 0;
   const completedCollapsed = collapsedSections.has('completed');
 
@@ -149,7 +153,7 @@ export function TodosPanel(): React.ReactElement | null {
           {t('activity:work.todos')}
         </h2>
         <span className="tabular text-[10px] text-muted-foreground ml-auto">
-          {completed.length}/{todos.length}
+          {totalCompleted}/{todos.length}
         </span>
       </div>
 
@@ -182,6 +186,14 @@ export function TodosPanel(): React.ReactElement | null {
           {!completedCollapsed && completed.map(renderItem)}
         </div>
       )}
+      <Pagination
+        page={todoPage.page}
+        pageSize={todoPage.pageSize}
+        totalItems={todoPage.totalItems}
+        onPageChange={todoPage.setPage}
+        compact
+        itemLabel="todos"
+      />
     </div>
   );
 }

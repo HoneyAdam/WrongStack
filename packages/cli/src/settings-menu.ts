@@ -197,7 +197,13 @@ async function showDefaults(deps: SettingsMenuDeps): Promise<void> {
  *  (the TUI, headless runs, the arg-driven `/settings` slash command). */
 export interface PersistSettingDeps {
   configStore: ConfigStore;
+  /** Path to the global bootstrap config (~/.wrongstack/config.json). */
   globalConfigPath: string;
+  /** Path to the active profile config (~/.wrongstack/profiles/<name>/config.json).
+   *  Used when configScope is 'global' or when no explicit scope is set.
+   *  When provided, settings are persisted to the profile instead of the
+   *  flat global config. */
+  profileConfigPath?: string | undefined;
   /** Per-project config path (<project>/.wrongstack/config.json).
    *  Used when configScope === 'project'. Lives inside the project
    *  root so it can be gitignored or team-shared. */
@@ -213,7 +219,44 @@ function resolvePersistPath(deps: PersistSettingDeps): string {
   if (scope === 'project' && deps.inProjectConfigPath) {
     return deps.inProjectConfigPath;
   }
+  // Default (global scope): write to the active profile config when available.
+  if (deps.profileConfigPath) {
+    return deps.profileConfigPath;
+  }
   return deps.globalConfigPath;
+}
+
+/**
+ * Re-resolve the target path after a mutator may have changed configScope.
+ * Handles the three-way routing: project config, profile config, or bootstrap.
+ */
+function resolveActualTarget(
+  deps: PersistSettingDeps,
+  decrypted: Record<string, unknown>,
+  fallbackPath: string,
+): string {
+  const newScope = decrypted.configScope as string | undefined;
+  if (newScope === 'project' && deps.inProjectConfigPath) {
+    return deps.inProjectConfigPath;
+  }
+  if (newScope === 'global' && deps.profileConfigPath) {
+    return deps.profileConfigPath;
+  }
+  if (newScope === 'global') {
+    return deps.globalConfigPath;
+  }
+  return fallbackPath;
+}
+
+/**
+ * Returns true when the target path is the profile or global bootstrap config
+ * (i.e. trusted user config), so secrets are NOT stripped before writing.
+ * Returns false for project-scoped paths where credentials must be filtered.
+ */
+function isProfileOrGlobalTarget(actualTarget: string, deps: PersistSettingDeps): boolean {
+  if (actualTarget === deps.globalConfigPath) return true;
+  if (deps.profileConfigPath && actualTarget === deps.profileConfigPath) return true;
+  return false;
 }
 
 async function ensureProjectDir(filePath: string): Promise<void> {
@@ -343,13 +386,7 @@ export async function persistAutonomySetting(
   decrypted.autonomy = autonomy;
 
   // Re-resolve path — the mutator might have changed configScope.
-  const newScope = decrypted.configScope as string | undefined;
-  const actualTarget =
-    newScope === 'project' && deps.inProjectConfigPath
-      ? deps.inProjectConfigPath
-      : newScope === 'global'
-        ? deps.globalConfigPath
-        : targetPath;
+  const actualTarget = resolveActualTarget(deps, decrypted as Record<string, unknown>, targetPath);
   if (actualTarget !== targetPath) {
     await ensureProjectDir(actualTarget);
   }
@@ -357,7 +394,7 @@ export async function persistAutonomySetting(
   // When writing to the project-local config, strip credentials so
   // apiKey / providers / sync never leak into a per-project file.
   const toWrite =
-    actualTarget === deps.globalConfigPath ? decrypted : filterSafeForProject(decrypted);
+    isProfileOrGlobalTarget(actualTarget, deps) ? decrypted : filterSafeForProject(decrypted);
 
   const encrypted = encryptConfigSecrets(toWrite, deps.vault);
   await atomicWrite(actualTarget, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
@@ -418,13 +455,7 @@ export async function persistConfigSetting(
   // If the mutator changed configScope, re-resolve the target path.
   // Without this, a scope change from 'project' → 'global' would write
   // to the old project path instead of the new global one.
-  const newScope = decrypted.configScope as string | undefined;
-  const actualTarget =
-    newScope === 'project' && deps.inProjectConfigPath
-      ? deps.inProjectConfigPath
-      : newScope === 'global'
-        ? deps.globalConfigPath
-        : targetPath;
+  const actualTarget = resolveActualTarget(deps, decrypted, targetPath);
 
   // Ensure the directory exists if we're writing to a new path
   if (actualTarget !== targetPath) {
@@ -434,7 +465,7 @@ export async function persistConfigSetting(
   // When writing to the project-local config, strip credentials so
   // apiKey / providers / sync never leak into a per-project file.
   const toWrite =
-    actualTarget === deps.globalConfigPath ? decrypted : filterSafeForProject(decrypted);
+    isProfileOrGlobalTarget(actualTarget, deps) ? decrypted : filterSafeForProject(decrypted);
 
   const encrypted = encryptConfigSecrets(toWrite, deps.vault);
   await atomicWrite(actualTarget, JSON.stringify(encrypted, null, 2), { mode: 0o600 });

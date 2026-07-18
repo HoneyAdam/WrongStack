@@ -29,6 +29,23 @@ function frameOf(props: Partial<StatusBarProps>): string {
  * combinations. These tests pin the corrected behavior.
  */
 describe('StatusBar chip separators', () => {
+  it('renders the current process RSS and V8 heap usage', () => {
+    const frame = frameOf({
+      processMemory: {
+        ts: '2026-07-18T00:00:00.000Z',
+        rss: 1.5 * 1024 ** 3,
+        heapUsed: 768 * 1024 ** 2,
+        heapTotal: 1024 ** 3,
+        external: 0,
+        heapLimit: 4 * 1024 ** 3,
+        load: 0.1875,
+      },
+    });
+
+    expect(frame).toContain('RAM 1.5G');
+    expect(frame).toContain('heap 768M');
+  });
+
   it('places live provider/model after project/workdir and before context', () => {
     const frame = frameOf({
       provider: 'openai',

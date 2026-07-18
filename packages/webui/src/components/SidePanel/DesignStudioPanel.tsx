@@ -10,9 +10,11 @@
 import { Check, LayoutGrid, Loader2, Palette } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { usePagination } from '@/hooks/usePagination';
 import { cn } from '@/lib/utils';
 import { useAppTranslation } from '@/i18n';
 import { showPanel } from '@/lib/view-navigation';
+import { Pagination } from '@/components/ui/pagination';
 
 interface KitSummary {
   id: string;
@@ -89,6 +91,7 @@ export function DesignStudioPanel({ className }: { className?: string }) {
   );
 
   const sortedKits = useMemo(() => [...kits].sort((a, b) => a.name.localeCompare(b.name)), [kits]);
+  const kitPage = usePagination(sortedKits, 10, stack);
 
   return (
     <div className={cn('flex h-full min-h-0 min-w-0 flex-col', className)}>
@@ -128,7 +131,7 @@ export function DesignStudioPanel({ className }: { className?: string }) {
         {!loading && sortedKits.length === 0 && (
           <p className="text-sm text-muted-foreground p-3">{t('activity:designStudio.notFound')}</p>
         )}
-        {sortedKits.map((kit) => {
+        {kitPage.pageItems.map((kit) => {
           const isActive = activeKit === kit.id;
           return (
             <div
@@ -193,6 +196,14 @@ export function DesignStudioPanel({ className }: { className?: string }) {
           );
         })}
       </div>
+      <Pagination
+        page={kitPage.page}
+        pageSize={kitPage.pageSize}
+        totalItems={kitPage.totalItems}
+        onPageChange={kitPage.setPage}
+        compact
+        itemLabel="design kits"
+      />
     </div>
   );
 }

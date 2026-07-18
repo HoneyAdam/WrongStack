@@ -8,9 +8,9 @@ import { STATUSLINE_ITEMS, STATUSLINE_FIELD_COUNT, ITEM_LINE } from '../src/comp
  * by index, so the array order must match the visual top-to-bottom order.
  */
 describe('STATUSLINE_ITEMS navigation order matches visual layout', () => {
-  it('has exactly 36 fields', () => {
-    expect(STATUSLINE_ITEMS.length).toBe(36);
-    expect(STATUSLINE_FIELD_COUNT).toBe(36);
+  it('has exactly 37 fields', () => {
+    expect(STATUSLINE_ITEMS.length).toBe(37);
+    expect(STATUSLINE_FIELD_COUNT).toBe(37);
   });
 
   it('follows line 1 → line 2 → line 3 order with no line 4 items', () => {
@@ -65,7 +65,7 @@ describe('STATUSLINE_ITEMS navigation order matches visual layout', () => {
       'auto_proceed', 'autonomy', 'brain', 'breaker', 'cache',
       'context', 'cost', 'debug_stream', 'elapsed', 'enhance',
       'eternal_stage', 'fleet', 'fleet_agents', 'git', 'goal',
-      'hint', 'index', 'mailbox', 'mode', 'model',
+      'hint', 'index', 'mailbox', 'memory', 'mode', 'model',
       'next_steps', 'plan', 'processes', 'project', 'queue',
       'sessions', 'state', 'tasks', 'time', 'token_saving',
       'tokens', 'todos', 'tools', 'version', 'working_dir',

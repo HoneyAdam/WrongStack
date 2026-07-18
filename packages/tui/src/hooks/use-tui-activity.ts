@@ -1,7 +1,7 @@
 import { type Agent, loadGoal, resolveWstackPaths } from '@wrongstack/core';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Action, State } from '../app-reducer.js';
-import { startHeapWatchdog } from '../heap-watchdog.js';
+import { type HeapSample, startHeapWatchdog, takeHeapSample } from '../heap-watchdog.js';
 import { isRandomTuiThinkingWord, pickRandomTuiThinkingWord } from '../thinking-word.js';
 
 export interface UseTuiActivityOptions {
@@ -125,6 +125,9 @@ export function useTuiActivity({
   }, [fleet, fleetWorkingBase]);
 
   // Attribute long-session heap growth before V8 reaches its hard limit.
+  // Reuse the existing 10s shell clock so diagnostics do not add another
+  // timer or idle render loop just to refresh the status-line chip.
+  const processMemory = useMemo<HeapSample>(() => takeHeapSample(), [nowTick]);
   useEffect(() => {
     const approxChars = (value: unknown): number => {
       try {
@@ -200,6 +203,7 @@ export function useTuiActivity({
     setNowTick,
     workingTimeMs,
     fleetWorkingTimeMs,
+    processMemory,
     enhanceDots,
     refreshGoalSummary,
   };

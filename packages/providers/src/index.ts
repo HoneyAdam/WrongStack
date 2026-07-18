@@ -265,14 +265,23 @@ export async function buildProviderFactoriesFromRegistry(
   factories.push({
     type: 'openai-compatible',
     family: 'openai-compatible',
-    create: (cfg) =>
-      new OpenAICompatibleProvider({
+    create: (cfg) => {
+      const baseUrl = cfg.baseUrl;
+      if (!baseUrl || !baseUrl.trim()) {
+        throw new ConfigError({
+          message:
+            'OpenAI-compatible provider requires a base URL. Specify the endpoint (e.g. "https://api.example.com/v1").',
+          code: 'CONFIG_INVALID',
+        });
+      }
+      return new OpenAICompatibleProvider({
         id: 'openai-compatible',
         apiKey: requireKey(cfg),
-        baseUrl: cfg.baseUrl ?? '',
+        baseUrl,
         headers: cfg.headers,
         quirks: validateQuirks('openai-compatible', cfg.quirks),
-      }),
+      });
+    },
   });
 
   if (unsupported.length > 0 && opts.log) {
@@ -387,10 +396,19 @@ function makeProvider(p: ResolvedProvider, cfg: ProviderConfig): Provider {
         }).create(cfg);
       }
       const preset = COMPATIBLE_PRESETS[p.id];
+      const resolvedBaseUrl = baseUrl ?? preset?.defaultBaseUrl;
+      if (!resolvedBaseUrl || !resolvedBaseUrl.trim()) {
+        throw new ConfigError({
+          message:
+            `Provider "${p.id}" (openai-compatible) requires a base URL. ` +
+            'Set it in config or register a preset with a defaultBaseUrl.',
+          code: 'CONFIG_INVALID',
+        });
+      }
       return new OpenAICompatibleProvider({
         id: p.id,
         apiKey: expectDefined(apiKey),
-        baseUrl: baseUrl ?? preset?.defaultBaseUrl ?? '',
+        baseUrl: resolvedBaseUrl,
         headers: cfg.headers,
         // Preset quirks are the floor; explicit user quirks win on conflict.
         quirks: { ...preset?.quirks, ...validateQuirks(p.id, cfg.quirks) },

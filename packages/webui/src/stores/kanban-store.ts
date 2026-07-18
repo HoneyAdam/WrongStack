@@ -16,6 +16,9 @@ export interface KanbanResultPayload {
 
 interface KanbanState {
   boards: KanbanBoardSummary[];
+  boardTotal: number;
+  activeBoardTotal: number;
+  orphanedBoardTotal: number;
   activeBoardId: string | null;
   activeBoard: KanbanBoard | null;
   loading: boolean;
@@ -31,6 +34,9 @@ interface KanbanState {
 
 export const useKanbanStore = create<KanbanState>()((set, get) => ({
   boards: [],
+  boardTotal: 0,
+  activeBoardTotal: 0,
+  orphanedBoardTotal: 0,
   activeBoardId: null,
   activeBoard: null,
   loading: false,
@@ -60,8 +66,19 @@ export const useKanbanStore = create<KanbanState>()((set, get) => ({
       return;
     }
     if (type === 'kanban.list') {
+      const paged = isBoardPage(data) ? data : null;
+      const boards = paged
+        ? paged.items
+        : Array.isArray(data)
+          ? (data as KanbanBoardSummary[])
+          : [];
       set({
-        boards: Array.isArray(data) ? (data as KanbanBoardSummary[]) : [],
+        boards,
+        boardTotal: paged?.total ?? boards.length,
+        activeBoardTotal:
+          paged?.activeTotal ?? boards.filter((board) => isActiveSummary(board)).length,
+        orphanedBoardTotal:
+          paged?.orphanedTotal ?? boards.filter((board) => !isActiveSummary(board)).length,
         loading: false,
         error: null,
       });
@@ -246,6 +263,26 @@ function isBoardEnvelope(value: unknown): value is { board: KanbanBoard } {
   );
 }
 
+interface KanbanBoardPage {
+  items: KanbanBoardSummary[];
+  total: number;
+  activeTotal?: number | undefined;
+  orphanedTotal?: number | undefined;
+}
+
+function isBoardPage(value: unknown): value is KanbanBoardPage {
+  return (
+    Boolean(value) &&
+    typeof value === 'object' &&
+    Array.isArray((value as KanbanBoardPage).items) &&
+    typeof (value as KanbanBoardPage).total === 'number'
+  );
+}
+
+function isActiveSummary(board: KanbanBoardSummary): boolean {
+  return board.presence?.some((entry) => entry.active) === true;
+}
+
 function isColumn(value: unknown): value is KanbanColumn {
   return (
     Boolean(value) && typeof value === 'object' && typeof (value as KanbanColumn).id === 'string'
@@ -258,6 +295,7 @@ function summarize(board: KanbanBoard): KanbanBoardSummary {
     title: board.title,
     description: board.description,
     tags: board.tags,
+    presence: board.presence,
     createdAt: board.createdAt,
     updatedAt: board.updatedAt,
     columnCount: board.columns.length,

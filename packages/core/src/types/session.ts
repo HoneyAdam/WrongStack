@@ -280,6 +280,34 @@ export type SessionEvent =
       input: Record<string, unknown>;
       outcome?: string | undefined;
       risk: 'fs.write' | 'shell' | 'package' | 'network' | 'config';
+    }
+  | {
+      /**
+       * Structured record for every file operation performed during the
+       * session (create, read, update, delete, rename). Includes session,
+       * provider/model, agent, tool, scope, and optional kanban task context.
+       * Appended by `Context.recordFileEvent()` — fire-and-forget, never
+       * blocks tool execution.
+       */
+      type: 'file_event';
+      ts: string;
+      operation: 'create' | 'read' | 'update' | 'delete' | 'rename';
+      filePath: string;
+      absPath: string;
+      sessionId: string;
+      agentId: string;
+      agentName: string;
+      provider: string;
+      model: string;
+      toolName: string;
+      toolUseId: string;
+      scope: 'project' | 'session' | 'task';
+      taskId?: string | undefined;
+      boardId?: string | undefined;
+      durationMs?: number | undefined;
+      fileSize?: number | undefined;
+      lines?: number | undefined;
+      bytes?: number | undefined;
     };
 
 export type FileSnapshot = {

@@ -1,0 +1,403 @@
+{
+  "id": "fixture-audit-dirty",
+  "title": "Sprint 4 audit fixture (sanitized)",
+  "columns": [
+    {
+      "id": "todo",
+      "title": "Todo",
+      "order": 0,
+      "wipLimit": 0,
+      "color": "#2563eb"
+    },
+    {
+      "id": "in-progress",
+      "title": "Running",
+      "order": 1,
+      "wipLimit": 1,
+      "color": "#d97706"
+    },
+    {
+      "id": "review",
+      "title": "Preview",
+      "order": 2,
+      "wipLimit": 0,
+      "color": "#7c3aed"
+    },
+    {
+      "id": "done",
+      "title": "Done",
+      "order": 3,
+      "wipLimit": 0,
+      "color": "#16a34a"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t-1",
+      "title": "Create FileEventRecord type + barrel export",
+      "columnId": "done",
+      "order": 0,
+      "priority": "medium",
+      "type": "chore",
+      "status": "completed",
+      "createdAt": "2026-07-18T12:14:14.354Z",
+      "updatedAt": "1970-01-01T00:00:00.000Z",
+      "description": "Creating FileEventRecord type",
+      "origin": {
+        "system": "session-todo",
+        "graphId": "todo:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4",
+        "taskId": "1",
+        "specId": "todo:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4"
+      },
+      "completedAt": "2026-07-18T12:17:17.346Z"
+    },
+    {
+      "id": "t-2",
+      "title": "Add file_event to SessionEvent union <sanitized>.ts",
+      "columnId": "done",
+      "order": 1,
+      "priority": "medium",
+      "type": "chore",
+      "status": "completed",
+      "createdAt": "2026-07-18T12:14:14.354Z",
+      "updatedAt": "1970-01-01T00:00:00.001Z",
+      "description": "Adding file_event to SessionEvent",
+      "origin": {
+        "system": "session-todo",
+        "graphId": "todo:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4",
+        "taskId": "2",
+        "specId": "todo:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4"
+      },
+      "completedAt": "2026-07-18T12:17:17.346Z"
+    },
+    {
+      "id": "t-3",
+      "title": "Extend file.event <sanitized> with <sanitized>",
+      "columnId": "done",
+      "order": 2,
+      "priority": "medium",
+      "type": "chore",
+      "status": "completed",
+      "createdAt": "2026-07-18T12:14:14.354Z",
+      "updatedAt": "1970-01-01T00:00:00.002Z",
+      "description": "Extending file.event payload",
+      "origin": {
+        "system": "session-todo",
+        "graphId": "todo:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4",
+        "taskId": "3",
+        "specId": "todo:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4"
+      },
+      "completedAt": "2026-07-18T12:17:17.346Z"
+    },
+    {
+      "id": "t-4",
+      "title": "Add recordFileEvent + kanban <sanitized> to Context",
+      "columnId": "done",
+      "order": 3,
+      "priority": "medium",
+      "type": "chore",
+      "status": "completed",
+      "createdAt": "2026-07-18T12:14:14.354Z",
+      "updatedAt": "1970-01-01T00:00:00.003Z",
+      "description": "Adding recordFileEvent to Context",
+      "origin": {
+        "system": "session-todo",
+        "graphId": "todo:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4",
+        "taskId": "4",
+        "specId": "todo:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4"
+      },
+      "completedAt": "2026-07-18T12:17:17.346Z"
+    },
+    {
+      "id": "t-5",
+      "title": "Wire read.ts to emit file events",
+      "columnId": "done",
+      "order": 4,
+      "priority": "medium",
+      "type": "chore",
+      "status": "completed",
+      "createdAt": "2026-07-18T12:14:14.354Z",
+      "updatedAt": "1970-01-01T00:00:00.004Z",
+      "description": "Wiring read.ts",
+      "origin": {
+        "system": "session-todo",
+        "graphId": "todo:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4",
+        "taskId": "5",
+        "specId": "todo:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4"
+      },
+      "completedAt": "2026-07-18T12:17:17.346Z"
+    },
+    {
+      "id": "t-6",
+      "title": "Wire write.ts to emit file events",
+      "columnId": "done",
+      "order": 5,
+      "priority": "medium",
+      "type": "chore",
+      "status": "completed",
+      "createdAt": "2026-07-18T12:14:14.354Z",
+      "updatedAt": "1970-01-01T00:00:00.005Z",
+      "description": "Wiring write.ts",
+      "origin": {
+        "system": "session-todo",
+        "graphId": "todo:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4",
+        "taskId": "6",
+        "specId": "todo:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4"
+      },
+      "completedAt": "2026-07-18T12:17:17.346Z"
+    },
+    {
+      "id": "t-7",
+      "title": "Wire edit.ts to emit file events",
+      "columnId": "done",
+      "order": 6,
+      "priority": "medium",
+      "type": "chore",
+      "status": "completed",
+      "createdAt": "2026-07-18T12:14:14.354Z",
+      "updatedAt": "1970-01-01T00:00:00.006Z",
+      "description": "Wiring edit.ts",
+      "origin": {
+        "system": "session-todo",
+        "graphId": "todo:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4",
+        "taskId": "7",
+        "specId": "todo:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4"
+      },
+      "completedAt": "2026-07-18T12:17:17.346Z"
+    },
+    {
+      "id": "t-8",
+      "title": "<sanitized>.ts <sanitized> file events for <sanitized>",
+      "columnId": "done",
+      "order": 7,
+      "priority": "medium",
+      "type": "chore",
+      "status": "completed",
+      "createdAt": "2026-07-18T12:14:14.354Z",
+      "updatedAt": "1970-01-01T00:00:00.007Z",
+      "description": "Wiring tool-executor.ts",
+      "origin": {
+        "system": "session-todo",
+        "graphId": "todo:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4",
+        "taskId": "8",
+        "specId": "todo:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4"
+      },
+      "completedAt": "2026-07-18T12:17:17.346Z"
+    },
+    {
+      "id": "t-9",
+      "title": "Export and <sanitized>",
+      "columnId": "done",
+      "order": 8,
+      "priority": "medium",
+      "type": "chore",
+      "status": "completed",
+      "createdAt": "2026-07-18T12:14:14.354Z",
+      "updatedAt": "1970-01-01T00:00:00.008Z",
+      "description": "Verifying typecheck",
+      "origin": {
+        "system": "session-todo",
+        "graphId": "todo:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4",
+        "taskId": "9",
+        "specId": "todo:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4"
+      },
+      "completedAt": "2026-07-18T12:17:43.596Z"
+    },
+    {
+      "id": "t-10",
+      "title": "Consolidator → SuperMemory: Fix SessionMemoryConsolidator to write <sanitized>Super",
+      "columnId": "in-progress",
+      "order": 0,
+      "priority": "high",
+      "type": "refactor",
+      "status": "in_progress",
+      "createdAt": "2026-07-18T12:44:37.191Z",
+      "updatedAt": "1970-01-01T00:00:00.000Z",
+      "description": "Change memory-consolidator.ts to accept SuperMemoryServiceLike instead of MemoryStore, call rememberSuper() with proper kind/scope/tags so consolidator-sourced memories appear in searchSuper/turn-middleware. Update CLI wiring to pass the SuperMemory store.",
+      "origin": {
+        "system": "session-task",
+        "graphId": "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4",
+        "taskId": "1",
+        "specId": "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4"
+      }
+    },
+    {
+      "id": "t-11",
+      "title": "<sanitized>Session: Implement actual logic",
+      "columnId": "in-progress",
+      "order": 1,
+      "priority": "high",
+      "type": "feature",
+      "status": "in_progress",
+      "createdAt": "2026-07-18T12:44:37.191Z",
+      "updatedAt": "1970-01-01T00:00:00.001Z",
+      "description": "SqliteSuperMemoryStore.consolidateSession() is a no-op stub. Implement real consolidation (dedup + accept) mirroring JSONL store.",
+      "origin": {
+        "system": "session-task",
+        "graphId": "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4",
+        "taskId": "2",
+        "specId": "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4"
+      }
+    },
+    {
+      "id": "t-12",
+      "title": "<sanitized>Candidate tests: <sanitized>",
+      "columnId": "in-progress",
+      "order": 2,
+      "priority": "high",
+      "type": "test",
+      "status": "in_progress",
+      "createdAt": "2026-07-18T12:44:37.191Z",
+      "updatedAt": "1970-01-01T00:00:00.002Z",
+      "description": "sqlite-store.test.ts has 0 resolveCandidate tests. Port relevant tests from store-extra.test.ts.",
+      "origin": {
+        "system": "session-task",
+        "graphId": "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4",
+        "taskId": "3",
+        "specId": "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4"
+      }
+    },
+    {
+      "id": "t-13",
+      "title": "EmbeddingProvider: <sanitized>",
+      "columnId": "done",
+      "order": 13,
+      "priority": "medium",
+      "type": "feature",
+      "status": "completed",
+      "createdAt": "2026-07-18T12:44:37.191Z",
+      "updatedAt": "1970-01-01T00:00:00.003Z",
+      "description": "Implement HashingEmbeddingProvider (simple 128-dim hash vectorizer). Wire into a hybrid retrieval path. Add tests. No external API needed.",
+      "origin": {
+        "system": "session-task",
+        "graphId": "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4",
+        "taskId": "3b",
+        "specId": "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4"
+      },
+      "completedAt": "2026-07-18T13:04:37.905Z"
+    },
+    {
+      "id": "t-14",
+      "title": "<sanitized> collision guard",
+      "columnId": "done",
+      "order": 11,
+      "priority": "medium",
+      "type": "bugfix",
+      "status": "completed",
+      "createdAt": "2026-07-18T12:44:37.191Z",
+      "updatedAt": "1970-01-01T00:00:00.004Z",
+      "description": "In CLI wiring/super-memory.ts, detect when turn-middleware and static injectMemory are both active. Log a warning. Optionally auto-disable injectMemory when middleware is on.",
+      "origin": {
+        "system": "session-task",
+        "graphId": "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4",
+        "taskId": "4",
+        "specId": "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4"
+      },
+      "completedAt": "2026-07-18T13:01:12.217Z"
+    },
+    {
+      "id": "t-15",
+      "title": "<sanitized> guard",
+      "columnId": "todo",
+      "order": 0,
+      "priority": "medium",
+      "type": "bugfix",
+      "status": "pending",
+      "createdAt": "2026-07-18T12:44:37.191Z",
+      "updatedAt": "1970-01-01T00:00:00.005Z",
+      "description": "Add an in-progress flag to prevent multiple concurrent consolidation runs. Use AbortSignal for better timeout handling.",
+      "origin": {
+        "system": "session-task",
+        "graphId": "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4",
+        "taskId": "5",
+        "specId": "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4"
+      }
+    },
+    {
+      "id": "t-16",
+      "title": "Graph <sanitized> + memory-cleanup",
+      "columnId": "done",
+      "order": 10,
+      "priority": "low",
+      "type": "refactor",
+      "status": "completed",
+      "createdAt": "2026-07-18T12:44:37.191Z",
+      "updatedAt": "1970-01-01T00:00:00.006Z",
+      "description": "Mark GraphMemoryBackend deprecated. Add comment referencing SuperMemoryGraph as replacement. Verify nothing outside legacy paths depends on it.",
+      "origin": {
+        "system": "session-task",
+        "graphId": "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4",
+        "taskId": "6",
+        "specId": "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4"
+      },
+      "completedAt": "2026-07-18T13:01:10.168Z"
+    },
+    {
+      "id": "t-17",
+      "title": "Counter <sanitized> <sanitized>",
+      "columnId": "done",
+      "order": 12,
+      "priority": "low",
+      "type": "feature",
+      "status": "completed",
+      "createdAt": "2026-07-18T12:44:37.191Z",
+      "updatedAt": "1970-01-01T00:00:00.007Z",
+      "description": "Extract COUNTER_FLUSH_INTERVAL_MS from store.ts constant into SuperMemoryStoreOptions. Update CLI wiring config types.",
+      "origin": {
+        "system": "session-task",
+        "graphId": "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4",
+        "taskId": "7",
+        "specId": "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4"
+      },
+      "completedAt": "2026-07-18T13:04:35.954Z"
+    },
+    {
+      "id": "t-18",
+      "title": "Chronicle <sanitized> review",
+      "columnId": "done",
+      "order": 9,
+      "priority": "low",
+      "type": "bugfix",
+      "status": "completed",
+      "createdAt": "2026-07-18T12:44:37.191Z",
+      "updatedAt": "1970-01-01T00:00:00.008Z",
+      "description": "Review domain-adapter.ts CODING_SIGNAL and SPECIALIZED patterns. Ensure all memory.* event types are covered. Add missing patterns.",
+      "origin": {
+        "system": "session-task",
+        "graphId": "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4",
+        "taskId": "8",
+        "specId": "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4"
+      },
+      "completedAt": "2026-07-18T13:01:08.384Z"
+    },
+    {
+      "id": "t-19",
+      "title": "<sanitized>: <sanitized>",
+      "columnId": "todo",
+      "order": 1,
+      "priority": "low",
+      "type": "feature",
+      "status": "pending",
+      "createdAt": "2026-07-18T12:44:37.191Z",
+      "updatedAt": "1970-01-01T00:00:00.009Z",
+      "description": "Add an optional \"autoEvict\" mode to hygiene that actually archives/deletes expired memories (beyond just creating review candidates). Config-gated.",
+      "origin": {
+        "system": "session-task",
+        "graphId": "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4",
+        "taskId": "9",
+        "specId": "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4"
+      }
+    }
+  ],
+  "createdAt": "2026-07-18T12:14:14.310Z",
+  "updatedAt": "2026-07-18T13:04:38.020Z",
+  "version": 1,
+  "revision": 1022,
+  "description": "Live session work: todos, tasks, and plan items.",
+  "tags": [
+    "session",
+    "session-work",
+    "session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4"
+  ],
+  "generatedBy": "session-task:session:2026-07-18/sess_01KXTHWMJTHVFS431P53F623V4"
+}

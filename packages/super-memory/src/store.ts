@@ -66,8 +66,11 @@ import {
 const DEFAULT_LIMIT = 20;
 const MAX_MEMORY_TEXT_CHARS = 20_000;
 const MAX_MEMORY_METADATA_ITEMS = 128;
-/** Minimum interval between persisted feedback-counter flushes (per store instance). */
-const COUNTER_FLUSH_INTERVAL_MS = 60 * 60_000;
+/**
+ * Default minimum interval between persisted feedback-counter flushes (1 hour).
+ * Override via `SuperMemoryStoreOptions.counterFlushIntervalMs`.
+ */
+const DEFAULT_COUNTER_FLUSH_INTERVAL_MS = 60 * 60_000;
 const CONTEXT_STATUSES: SuperMemoryStatus[] = ['active', 'deleted'];
 const VALID_STATUSES = new Set<SuperMemoryStatus>(['active', 'stale', 'superseded', 'contradicted', 'archived', 'deleted']);
 const VALID_SCOPES = new Set<SuperMemory['scope']>(['project', 'user', 'session', 'file', 'symbol']);
@@ -108,6 +111,7 @@ export class SuperMemoryStore implements MemoryStore {
    */
   private readonly pendingCounters = new Map<string, { injections: number; uses: number }>();
   private lastCounterFlushAtMs = 0;
+  private readonly counterFlushIntervalMs: number;
 
   constructor(opts: SuperMemoryStoreOptions) {
     this.projectRoot = path.resolve(opts.projectRoot);
@@ -116,6 +120,11 @@ export class SuperMemoryStore implements MemoryStore {
     this.events = opts.events;
     this.now = opts.now ?? (() => new Date());
     this.graph = new SuperMemoryGraph(this.paths.edgesLog, this.now);
+    const counterFlushIntervalMs = opts.counterFlushIntervalMs ?? DEFAULT_COUNTER_FLUSH_INTERVAL_MS;
+    if (!Number.isFinite(counterFlushIntervalMs) || counterFlushIntervalMs < 0) {
+      throw new RangeError('counterFlushIntervalMs must be a finite, non-negative number.');
+    }
+    this.counterFlushIntervalMs = counterFlushIntervalMs;
   }
 
   async initialize(): Promise<void> {
@@ -350,7 +359,7 @@ export class SuperMemoryStore implements MemoryStore {
   private async flushCountersIfDue(): Promise<void> {
     if (this.pendingCounters.size === 0) return;
     const nowMs = this.now().getTime();
-    if (this.lastCounterFlushAtMs !== 0 && nowMs - this.lastCounterFlushAtMs < COUNTER_FLUSH_INTERVAL_MS) return;
+    if (this.lastCounterFlushAtMs !== 0 && nowMs - this.lastCounterFlushAtMs < this.counterFlushIntervalMs) return;
     await this.flushCounters();
   }
 

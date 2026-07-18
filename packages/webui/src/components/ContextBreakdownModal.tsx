@@ -5,6 +5,8 @@ import { AlertTriangle, FileText, MessageSquare, RefreshCw, Wrench, X } from 'lu
 import { useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useAppTranslation, i18n } from '@/i18n';
+import { usePagination } from '@/hooks/usePagination';
+import { Pagination } from '@/components/ui/pagination';
 
 /** Debug payload from context.debug WS response. */
 interface ContextDebugPayload {
@@ -35,6 +37,8 @@ export function ContextBreakdownModal({ open, onClose }: ContextBreakdownModalPr
   const [data, setData] = useState<ContextDebugPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const toolPage = usePagination(data?.tools.breakdown ?? [], 12, open);
+  const messagePage = usePagination(data?.messages.breakdown ?? [], 20, open);
 
   // Fetch debug data when modal opens
   useEffect(() => {
@@ -228,7 +232,7 @@ export function ContextBreakdownModal({ open, onClose }: ContextBreakdownModalPr
                     {t('activity:context.toolBreakdown')}
                   </span>
                   <div className="mt-1 space-y-0.5">
-                    {data.tools.breakdown.map((t) => (
+                    {toolPage.pageItems.map((t) => (
                       <div key={t.name} className="flex items-center justify-between text-xs py-0.5">
                         <span className="font-mono">{t.name}</span>
                         <span className="tabular-nums text-muted-foreground">
@@ -237,6 +241,14 @@ export function ContextBreakdownModal({ open, onClose }: ContextBreakdownModalPr
                       </div>
                     ))}
                   </div>
+                  <Pagination
+                    page={toolPage.page}
+                    pageSize={toolPage.pageSize}
+                    totalItems={toolPage.totalItems}
+                    onPageChange={toolPage.setPage}
+                    compact
+                    itemLabel="tools"
+                  />
                 </div>
               )}
 
@@ -246,7 +258,7 @@ export function ContextBreakdownModal({ open, onClose }: ContextBreakdownModalPr
                   {t('activity:context.messagesSummary', { count: data.messages.count, total: fmtTok(data.messages.total) })}
                 </span>
                 <div className="mt-1 space-y-0.5 max-h-40 overflow-y-auto">
-                  {data.messages.breakdown.slice(0, 20).map((m) => (
+                  {messagePage.pageItems.map((m) => (
                     <div key={m.index} className="flex items-center gap-2 text-xs py-0.5">
                       <span className="text-muted-foreground font-mono w-6 text-right">
                         {m.index}
@@ -261,6 +273,14 @@ export function ContextBreakdownModal({ open, onClose }: ContextBreakdownModalPr
                     </div>
                   ))}
                 </div>
+                <Pagination
+                  page={messagePage.page}
+                  pageSize={messagePage.pageSize}
+                  totalItems={messagePage.totalItems}
+                  onPageChange={messagePage.setPage}
+                  compact
+                  itemLabel="messages"
+                />
               </div>
             </>
           ) : null}

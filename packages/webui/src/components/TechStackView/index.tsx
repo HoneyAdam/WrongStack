@@ -24,6 +24,8 @@ import {
   useTechStackStore,
 } from '@/stores';
 import { Button } from '@/components/ui/button';
+import { Pagination } from '@/components/ui/pagination';
+import { usePagination } from '@/hooks/usePagination';
 import { cn } from '@/lib/utils';
 import { DependencyDetail } from './DependencyDetail';
 import { DependencyTable } from './DependencyTable';
@@ -471,6 +473,7 @@ function WorkspaceList({ snapshot }: { snapshot: TechStackSnapshot }) {
     }
     return map;
   }, [snapshot]);
+  const workspacePage = usePagination(snapshot.workspaces, 12);
 
   if (snapshot.workspaces.length === 0) {
     return (
@@ -483,7 +486,7 @@ function WorkspaceList({ snapshot }: { snapshot: TechStackSnapshot }) {
   return (
     <div className="min-h-0 flex-1 overflow-auto p-3">
       <div className="flex flex-col gap-1.5">
-        {snapshot.workspaces.map((workspace) => {
+        {workspacePage.pageItems.map((workspace) => {
           const coverage = COVERAGE_META[workspace.coverage];
           return (
             <div key={workspace.id} className="border border-border/70 bg-card/40 p-2.5">
@@ -523,6 +526,14 @@ function WorkspaceList({ snapshot }: { snapshot: TechStackSnapshot }) {
           );
         })}
       </div>
+      <Pagination
+        page={workspacePage.page}
+        pageSize={workspacePage.pageSize}
+        totalItems={workspacePage.totalItems}
+        onPageChange={workspacePage.setPage}
+        className="mt-3"
+        itemLabel="workspaces"
+      />
     </div>
   );
 }

@@ -226,6 +226,8 @@ export {
   handleApiAnalyticsSummary,
 } from './http-server/analytics-handler.js';
 export { isPidAlive } from './instance-registry.js';
+export { paginateKanbanBoards } from './kanban-routes.js';
+export type { KanbanBoardPage } from './kanban-routes.js';
 export { createShutdown, registerShutdownHandlers } from './lifecycle.js';
 export { handleMailboxMessages } from './mailbox-handlers.js';
 export { handleMailboxRoute } from './mailbox-routes.js';

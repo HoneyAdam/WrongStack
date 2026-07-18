@@ -19,6 +19,14 @@ export interface SessionInterruptController {
    * `/clear` to confirm before wiping a session that still has active work.
    */
   isRunning?: (() => boolean) | undefined;
+  /** TUI-owned `/clear` confirmation panel bridge. */
+  confirmClear?:
+    | ((info: { leaderActive: boolean; subagentCount: number }) => Promise<boolean>)
+    | undefined;
+  /** TUI-owned generic slash-command confirmation panel bridge. */
+  confirmSlash?:
+    | ((question: string, defaultYes: boolean) => Promise<boolean | null>)
+    | undefined;
   resetSession?: (() => void) | undefined;
   waitForIdle?: (() => Promise<void>) | undefined;
 }
@@ -69,6 +77,50 @@ export function useSessionInterruptController({
 }: UseSessionInterruptControllerOptions): void {
   useEffect(() => {
     if (!interruptController) return;
+
+    let pendingClearResolve: ((decision: boolean) => void) | null = null;
+    let pendingSlashResolve: ((decision: boolean | null) => void) | null = null;
+
+    const confirmClear = (info: {
+      leaderActive: boolean;
+      subagentCount: number;
+    }): Promise<boolean> =>
+      new Promise<boolean>((resolve) => {
+        // There can only be one destructive clear prompt at a time. If a
+        // second request somehow arrives, safely cancel the older waiter.
+        pendingClearResolve?.(false);
+        pendingClearResolve = resolve;
+        dispatch({
+          type: 'clearConfirmOpen',
+          info: {
+            ...info,
+            value: '',
+            resolve: (decision) => {
+              if (pendingClearResolve !== resolve) return;
+              pendingClearResolve = null;
+              resolve(decision);
+            },
+          },
+        });
+      });
+
+    const confirmSlash = (question: string, defaultYes: boolean): Promise<boolean | null> =>
+      new Promise<boolean | null>((resolve) => {
+        pendingSlashResolve?.(null);
+        pendingSlashResolve = resolve;
+        dispatch({
+          type: 'slashConfirmOpen',
+          info: {
+            question,
+            defaultYes,
+            resolve: (decision) => {
+              if (pendingSlashResolve !== resolve) return;
+              pendingSlashResolve = null;
+              resolve(decision);
+            },
+          },
+        });
+      });
 
     // Shared predicate: is any producer (leader run, autonomy loop, or SDD
     // run) still able to mutate the current session? `abortLeader` uses this
@@ -137,12 +189,24 @@ export function useSessionInterruptController({
 
     interruptController.abortLeader = abortLeader;
     interruptController.isRunning = isRunning;
+    interruptController.confirmClear = confirmClear;
+    interruptController.confirmSlash = confirmSlash;
     interruptController.resetSession = resetSession;
     interruptController.waitForIdle = () => activeRunSettledRef.current;
     return () => {
+      pendingClearResolve?.(false);
+      pendingClearResolve = null;
+      pendingSlashResolve?.(null);
+      pendingSlashResolve = null;
       if (interruptController.abortLeader !== abortLeader) return;
       interruptController.abortLeader = () => false;
       interruptController.isRunning = () => false;
+      if (interruptController.confirmClear === confirmClear) {
+        delete interruptController.confirmClear;
+      }
+      if (interruptController.confirmSlash === confirmSlash) {
+        delete interruptController.confirmSlash;
+      }
       interruptController.resetSession = () => {};
       interruptController.waitForIdle = async () => {};
     };

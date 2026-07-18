@@ -10,6 +10,7 @@ export type FKeyPanelAction =
   | 'toggleTodosMonitor'
   | 'toggleQueuePanel'
   | 'toggleProcessList'
+  | 'toggleKanbanPanel'
   | 'toggleGoalPanel'
   | 'toggleSessionsPanel'
   | 'toggleCoordinatorMonitor'
@@ -121,11 +122,10 @@ export const F_KEY_PANEL_ENTRIES: readonly FKeyPanelEntry[] = [
   },
   {
     key: 12,
-    label: 'Status line picker',
-    action: 'statuslineOpen',
-    helpKeys: 'F12 or /sl',
-    helpDescription: 'status line picker (F12 may be host/devtools)',
-    hostAction: 'openStatuslinePicker',
+    label: 'Kanban board panel',
+    action: 'toggleKanbanPanel',
+    helpKeys: 'F12 or Ctrl+J',
+    helpDescription: 'kanban board panel (also /kanban)',
   },
 ];
 
@@ -138,6 +138,7 @@ type FKeyDispatchAction = Extract<
   | { type: 'toggleTodosMonitor' }
   | { type: 'toggleQueuePanel' }
   | { type: 'toggleProcessList' }
+  | { type: 'toggleKanbanPanel' }
   | { type: 'toggleGoalPanel' }
   | { type: 'toggleSessionsPanel' }
   | { type: 'toggleCoordinatorMonitor' }
@@ -152,6 +153,7 @@ const PAYLOAD_FREE_ACTIONS = new Set<FKeyPanelAction>([
   'toggleTodosMonitor',
   'toggleQueuePanel',
   'toggleProcessList',
+  'toggleKanbanPanel',
   'toggleGoalPanel',
   'toggleSessionsPanel',
   'toggleCoordinatorMonitor',

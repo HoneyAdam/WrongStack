@@ -84,6 +84,12 @@ export interface AgentRunnerOptions {
    * live — without it, FleetBus stays empty.
    */
   fleetBus?: FleetBus | undefined;
+  /**
+   * Optional parent bus for task-correlated worker telemetry. The worker keeps
+   * its own EventBus for isolation; this explicit bridge forwards only the
+   * tool/file channels needed by host observability surfaces.
+   */
+  hostEvents?: EventBus | undefined;
 }
 
 /**
@@ -109,11 +115,52 @@ export function makeAgentSubagentRunner(opts: AgentRunnerOptions): SubagentRunne
     const taskStartedAt = Date.now();
     const factoryResult = await opts.factory(ctx.config, task);
     const { agent, events } = factoryResult;
+    const taskContext = task.context ?? {};
+    const hasExplicitTelemetryTask = typeof taskContext['telemetryTaskId'] === 'string';
+    const telemetryTaskId = hasExplicitTelemetryTask
+      ? (taskContext['telemetryTaskId'] as string)
+      : task.id;
+    const telemetryRunId =
+      typeof taskContext['telemetryRunId'] === 'string'
+        ? taskContext['telemetryRunId']
+        : undefined;
+    const telemetryBoardId =
+      typeof taskContext['telemetryBoardId'] === 'string'
+        ? taskContext['telemetryBoardId']
+        : undefined;
     // Tool calls such as fleet_emit need authoritative caller/task attribution.
     // The Agent and Context are task-scoped, so this cannot leak into a later
     // assignment even when the coordinator reuses the same logical subagent.
-    const agentContext = (agent as Agent & { ctx?: { meta?: Record<string, unknown> } }).ctx;
-    if (agentContext?.meta) agentContext.meta['subagentTaskId'] = task.id;
+    const agentContext = (
+      agent as Agent & {
+        ctx?: {
+          meta?: Record<string, unknown>;
+          setCurrentKanbanTask?: (taskId: string | undefined, boardId?: string) => void;
+        };
+      }
+    ).ctx;
+    if (agentContext?.meta) {
+      agentContext.meta['subagentTaskId'] = task.id;
+      const kanbanContext = taskContext['kanban'];
+      if (kanbanContext && typeof kanbanContext === 'object') {
+        agentContext.meta['kanban'] = kanbanContext;
+      }
+      if (hasExplicitTelemetryTask) {
+        agentContext.meta['telemetryTaskId'] = telemetryTaskId;
+        if (telemetryRunId) agentContext.meta['telemetryRunId'] = telemetryRunId;
+      }
+    }
+    if (hasExplicitTelemetryTask) {
+      agentContext?.setCurrentKanbanTask?.(telemetryTaskId, telemetryBoardId);
+    } else {
+      const kanbanContext = taskContext['kanban'];
+      if (kanbanContext && typeof kanbanContext === 'object') {
+        const kanban = kanbanContext as Record<string, unknown>;
+        const boardId = typeof kanban['boardId'] === 'string' ? kanban['boardId'] : undefined;
+        const taskId = typeof kanban['taskId'] === 'string' ? kanban['taskId'] : undefined;
+        if (taskId) agentContext?.setCurrentKanbanTask?.(taskId, boardId);
+      }
+    }
 
     // Attach subagent EventBus to FleetBus so the TUI fleet panel (and any
     // other FleetBus subscriber) can observe this subagent live. Detach on
@@ -182,6 +229,27 @@ export function makeAgentSubagentRunner(opts: AgentRunnerOptions): SubagentRunne
     const unsub: Array<() => void> = [];
     unsub.push(
       events.on('tool.executed', (e) => {
+        if (hasExplicitTelemetryTask) {
+          opts.hostEvents?.emit('subagent.tool_executed', {
+            sessionId: e.sessionId,
+            subagentId: ctx.subagentId,
+            agentSessionId: e.sessionId,
+            agentName: e.agentName ?? ctx.config.name,
+            taskId: telemetryTaskId,
+            runId: telemetryRunId,
+            traceId: e.traceId,
+            id: e.id,
+            name: e.name,
+            durationMs: e.durationMs,
+            ok: e.ok,
+            // Raw tool inputs may contain credentials or sensitive arguments.
+            // Task telemetry crosses from the isolated worker bus to the shared
+            // host bus, so expose only execution metadata at this boundary.
+            outputBytes: e.outputBytes,
+            outputTokens: e.outputTokens,
+            outputLines: e.outputLines,
+          });
+        }
         // Count tool calls on the PAIRED 'tool.executed' event rather
         // than 'tool.started'. A tool can fire start then crash before
         // emitting executed (process killed, signal aborted mid-exec);
@@ -201,6 +269,19 @@ export function makeAgentSubagentRunner(opts: AgentRunnerOptions): SubagentRunne
         } else if (e.ok === true) {
           lastToolFailed = null;
         }
+      }),
+      events.on('file.event', (e) => {
+        if (!hasExplicitTelemetryTask) return;
+        // The fallback factory can reuse the host EventBus. Do not recursively
+        // re-bridge the already-correlated copy on that shared-bus path.
+        if (e.runId === telemetryRunId && e.taskId === telemetryTaskId) return;
+        opts.hostEvents?.emit('file.event', {
+          ...e,
+          scope: 'task',
+          taskId: telemetryTaskId,
+          boardId: telemetryBoardId,
+          runId: telemetryRunId,
+        });
       }),
       events.on('provider.response', (e) => {
         try {

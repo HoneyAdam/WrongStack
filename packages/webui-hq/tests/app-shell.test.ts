@@ -58,10 +58,14 @@ afterEach(() => {
 });
 
 describe('HQ operator shell', () => {
-  it('defines one unique shortcut and id for every view', () => {
-    expect(HQ_VIEW_DEFINITIONS).toHaveLength(10);
-    expect(new Set(HQ_VIEW_DEFINITIONS.map((view) => view.id)).size).toBe(10);
-    expect(new Set(HQ_VIEW_DEFINITIONS.map((view) => view.shortcut)).size).toBe(10);
+  it('defines unique ids and non-conflicting numeric shortcuts', () => {
+    expect(HQ_VIEW_DEFINITIONS).toHaveLength(11);
+    expect(new Set(HQ_VIEW_DEFINITIONS.map((view) => view.id)).size).toBe(11);
+    const shortcuts = HQ_VIEW_DEFINITIONS.flatMap((view) =>
+      view.shortcut === undefined ? [] : [view.shortcut],
+    );
+    expect(shortcuts).toHaveLength(10);
+    expect(new Set(shortcuts).size).toBe(shortcuts.length);
     expect(HQ_VIEW_DEFINITIONS.map((view) => view.group)).toEqual(
       expect.arrayContaining(['Operations', 'Intelligence', 'System']),
     );
@@ -90,7 +94,51 @@ describe('HQ operator shell', () => {
     expect(container.querySelector('[data-testid="hq-workbench"]')).not.toBeNull();
     expect(container.querySelector('.hq-activity-rail')).toBeNull();
     expect(container.querySelector('.hq-secondary-nav')).not.toBeNull();
-    expect(container.querySelectorAll('.hq-nav-item')).toHaveLength(10);
+    expect(container.querySelector<HTMLImageElement>('.hq-secondary-brand img')?.src).toContain(
+      '/wrongstack.svg',
+    );
+    expect(container.querySelectorAll('.hq-nav-item')).toHaveLength(11);
     expect(container.textContent).toContain('WrongStack HQ');
+  });
+
+  it('shows an actionable warning when a newer npm package exists', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: string | URL | Request) => {
+        const url = String(input);
+        const body = url.includes('/api/system/update')
+          ? {
+              current: '1.2.3',
+              latest: '1.3.0',
+              outdated: true,
+              checkFailed: false,
+              packageName: 'wrongstack',
+              command: 'wstack update',
+            }
+          : url.includes('/api/auth/status')
+            ? { tokenMode: true, passwordMode: true, loggedIn: true }
+            : emptySnapshot();
+        return Promise.resolve(
+          new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }),
+    );
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(createElement(HqApp));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector('.hq-update-notice')).not.toBeNull();
+    expect(container.textContent).toContain('v1.2.3 → v1.3.0');
+    expect(container.textContent).toContain('wstack update');
+    expect(container.querySelector('[aria-label="Log out of HQ"]')).not.toBeNull();
   });
 });

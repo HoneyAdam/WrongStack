@@ -1,5 +1,7 @@
 import type { KanbanBoard, KanbanEvent, KanbanTask } from '@wrongstack/kanban';
 import { AlertTriangle, CheckCircle2, ChevronDown, Database, ShieldAlert } from 'lucide-react';
+import { usePagination } from '@/hooks/usePagination';
+import { Pagination } from './ui/pagination';
 
 export type TaskRiskSeverity = 'critical' | 'warning' | 'info';
 
@@ -348,6 +350,7 @@ export function TaskRiskPanel({
   events: KanbanEvent[];
 }) {
   const assessment = analyzeTaskRisk(board, task, events);
+  const findingPage = usePagination(assessment.findings, 8, task.id);
   return (
     <details open className="mt-3 rounded-md border border-border/70 bg-muted/10">
       <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 [&::-webkit-details-marker]:hidden">
@@ -387,7 +390,7 @@ export function TaskRiskPanel({
           </div>
         ) : (
           <div className="space-y-1.5">
-            {assessment.findings.map((finding) => (
+            {findingPage.pageItems.map((finding) => (
               <section
                 key={finding.id}
                 className={`rounded border px-2.5 py-2 ${tone(finding.severity)}`}
@@ -409,6 +412,14 @@ export function TaskRiskPanel({
                 </p>
               </section>
             ))}
+            <Pagination
+              page={findingPage.page}
+              pageSize={findingPage.pageSize}
+              totalItems={findingPage.totalItems}
+              onPageChange={findingPage.setPage}
+              compact
+              itemLabel="risk findings"
+            />
           </div>
         )}
       </div>

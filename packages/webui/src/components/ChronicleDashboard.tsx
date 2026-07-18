@@ -3,9 +3,11 @@ import {
   GitBranch, RefreshCw, RotateCcw, Search, ShieldCheck, TerminalSquare, TriangleAlert, X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { usePagination } from '@/hooks/usePagination';
 import { getWSClient } from '@/lib/ws-client';
 import { cn } from '@/lib/utils';
 import type { ChronicleEventView, ChronicleFacetValue, ChronicleGraphResult, ChronicleQuery, ChronicleSummary, WSServerMessage } from '@/types';
+import { Pagination } from './ui/pagination';
 
 const facetFields = ['eventType', 'providerId', 'modelId', 'outcome', 'resourceKind'] as const;
 type Signal = 'all' | 'llm' | 'agents' | 'tools' | 'files' | 'failures';
@@ -48,6 +50,7 @@ export function ChronicleDashboard() {
   }, [client, run]);
 
   const visible = useMemo(() => events.filter((event) => matchesSignal(event, signal)), [events, signal]);
+  const eventPage = usePagination(visible, 25, signal);
   const health = useMemo(() => events.find((event) => event.eventType === 'runtime.health.sampled')?.attributes as Health | undefined, [events]);
   const apply = () => run({ limit: 300, order: 'desc', ...(draft.text ? { text: draft.text } : {}), ...(draft.path ? { path: draft.path } : {}), ...(draft.providerId ? { providerId: draft.providerId } : {}), ...(draft.modelId ? { modelId: draft.modelId } : {}), ...(draft.sessionId ? { sessionId: draft.sessionId } : {}) });
   const clear = () => { setDraft({ text: '', path: '', providerId: '', modelId: '', sessionId: '' }); setSignal('all'); run({ limit: 300, order: 'desc' }); };
@@ -97,8 +100,9 @@ export function ChronicleDashboard() {
 
       <div className="grid grid-cols-[92px_minmax(190px,1.25fr)_110px_minmax(180px,1fr)_minmax(140px,.8fr)_24px] gap-3 border-b border-border/60 bg-muted/20 px-4 py-1.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground"><span>Time</span><span>Signal</span><span>Outcome</span><span>Model / agent</span><span>Resource</span><span/></div>
       <div className="min-h-0 flex-1 overflow-auto">
-        {error ? <Empty text={error}/> : !loading && visible.length === 0 ? <Empty text="No coding evidence matches these filters."/> : <div className="divide-y divide-border/40">{visible.map((event) => <EventRow key={event.eventId} event={event} active={selected?.eventId === event.eventId} onClick={() => open(event)}/>)}</div>}
+        {error ? <Empty text={error}/> : !loading && visible.length === 0 ? <Empty text="No coding evidence matches these filters."/> : <div className="divide-y divide-border/40">{eventPage.pageItems.map((event) => <EventRow key={event.eventId} event={event} active={selected?.eventId === event.eventId} onClick={() => open(event)}/>)}</div>}
       </div>
+      <Pagination page={eventPage.page} pageSize={eventPage.pageSize} totalItems={eventPage.totalItems} onPageChange={eventPage.setPage} itemLabel="events" />
     </main>
     {selected && <aside className="w-[440px] max-w-[48vw] shrink-0 overflow-auto border-l border-border bg-card/60 shadow-[-12px_0_32px_hsl(var(--background)/.35)]">
       <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card/95 px-4 py-3 backdrop-blur"><div><div className="text-xs font-semibold">Evidence & lineage</div><div className="mt-0.5 font-mono text-[9px] text-muted-foreground">#{selected.sequence} · {selected.eventId}</div></div><button onClick={() => setSelected(null)} className="rounded p-1 hover:bg-muted"><X className="h-4 w-4"/></button></div>

@@ -53,11 +53,18 @@ describe('bootConfig', () => {
     expect(result.vault).toBeDefined();
   });
 
-  it('creates ~/.wrongstack/config.json with default settings on first boot', async () => {
+  it('creates profiles/default/config.json with default settings on first boot', async () => {
     const projectDir = await mkTempDir('wstack-boot-default-config-');
     const result = await bootConfig({ cwd: projectDir });
-    const raw = await fs.readFile(result.paths.wpaths.globalConfig, 'utf8');
-    const written = JSON.parse(raw);
+
+    // Bootstrap config is now thin (version + activeProfile)
+    const bootstrap = JSON.parse(await fs.readFile(result.paths.wpaths.globalConfig, 'utf8'));
+    expect(bootstrap.version).toBe(1);
+    expect(bootstrap.activeProfile).toBe('default');
+
+    // Full default settings live in the profile config
+    const profileCfgPath = result.paths.wpaths.profileConfig('default');
+    const written = JSON.parse(await fs.readFile(profileCfgPath, 'utf8'));
     expect(written.configScope).toBe('global');
     expect(written.maxConcurrent).toBe(4);
     expect(written.autonomy.defaultMode).toBe('auto');

@@ -172,6 +172,37 @@ describe('buildClearCommand — confirm before clearing an active session', () =
     expect(res?.message ?? '').toContain('Session cleared');
   });
 
+  it('uses the TUI clear panel bridge and reports active leader/subagent counts', async () => {
+    const confirm = vi.fn().mockResolvedValue(false);
+    const confirmClear = vi.fn().mockResolvedValue(true);
+    const interruptController = {
+      abortLeader: vi.fn(() => true),
+      isRunning: vi.fn(() => true),
+      confirmClear,
+      resetSession: vi.fn(),
+      waitForIdle: vi.fn().mockResolvedValue(undefined),
+    };
+    const opts = baseOpts({
+      interruptController,
+      confirm,
+      onFleetStatus: () => ({
+        subagents: [
+          { id: 'one', status: 'running' },
+          { id: 'two', status: 'idle' },
+          { id: 'done', status: 'stopped' },
+        ],
+      }),
+    });
+    const cmd = buildClearCommand(opts as never);
+
+    const res = await cmd.run('', fakeCtx());
+
+    expect(confirmClear).toHaveBeenCalledWith({ leaderActive: true, subagentCount: 2 });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(interruptController.resetSession).toHaveBeenCalledTimes(1);
+    expect(res?.metadata?.cleared).toBe(true);
+  });
+
   it('does NOT prompt when nothing is running (isRunning false)', async () => {
     const confirm = vi.fn().mockResolvedValue(false);
     const interruptController = {

@@ -32,15 +32,20 @@ export function buildClearCommand(opts: SlashCommandContext): SlashCommand {
       // silently kill running subagents. Match the set `onFleetKill` reaps
       // (running | idle) so the confirm fires whenever there's fleet work to lose.
       const leaderActive = opts.interruptController?.isRunning?.() ?? false;
-      const fleetActive = (opts.onFleetStatus?.()?.subagents ?? []).some(
+      const fleetSubagents = opts.onFleetStatus?.()?.subagents ?? [];
+      const subagentCount = fleetSubagents.filter(
         (sa) => sa.status === 'running' || sa.status === 'idle',
-      );
+      ).length;
+      const fleetActive = subagentCount > 0;
       const operationActive = leaderActive || fleetActive;
-      if (operationActive && opts.confirm) {
-        const proceed = await opts.confirm(
-          'An operation is still running. Clear anyway? This will stop it and reset the session.',
-          false,
-        );
+      const surfaceConfirm = opts.interruptController?.confirmClear;
+      if (operationActive && (surfaceConfirm || opts.confirm)) {
+        const proceed = surfaceConfirm
+          ? await surfaceConfirm({ leaderActive, subagentCount })
+          : await opts.confirm?.(
+              'An operation is still running. Clear anyway? This will stop it and reset the session.',
+              false,
+            );
         if (proceed !== true) {
           const cancelledMsg = 'Clear cancelled — the running operation was left untouched.';
           opts.renderer.writeInfo(cancelledMsg);

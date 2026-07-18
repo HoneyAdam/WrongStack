@@ -37,6 +37,7 @@ describe('F_KEY_PANEL_ENTRIES structural integrity', () => {
       'toggleTodosMonitor',
       'toggleQueuePanel',
       'toggleProcessList',
+      'toggleKanbanPanel',
       'toggleGoalPanel',
       'toggleSessionsPanel',
       'toggleCoordinatorMonitor',
@@ -67,18 +68,9 @@ describe('actionForFKeyPanel', () => {
     expect(actionForFKeyPanel(entry(11))).toEqual({ type: 'toggleCoordinatorMonitor' });
   });
 
-  it('adds hidden statusline items when opening F12', () => {
+  it('returns payload-free toggleKanbanPanel for F12 (no statusline items)', () => {
     expect(actionForFKeyPanel(entry(12), ['todos', 'cost'])).toEqual({
-      type: 'statuslineOpen',
-      hiddenItems: ['todos', 'cost'],
+      type: 'toggleKanbanPanel',
     });
-  });
-
-  it('copies hidden statusline items instead of reusing the caller array', () => {
-    const hidden: StatuslineItem[] = ['todos'];
-    const action = actionForFKeyPanel(entry(12), hidden);
-    hidden.push('cost');
-
-    expect(action).toEqual({ type: 'statuslineOpen', hiddenItems: ['todos'] });
   });
 });

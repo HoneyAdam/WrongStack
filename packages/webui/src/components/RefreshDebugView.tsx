@@ -12,6 +12,8 @@ import { useAppTranslation } from '@/i18n';
 import { useChatStore } from '@/stores/chat-store';
 import { useSessionStore } from '@/stores/session-store';
 import { useUIStore } from '@/stores/ui-store';
+import { usePagination } from '@/hooks/usePagination';
+import { Pagination } from '@/components/ui/pagination';
 
 /**
  * Refresh resilience verifier — the user-visible surface for the F5
@@ -65,6 +67,7 @@ export function RefreshDebugView() {
    *  doesn't pollute localStorage — it exists only for the duration
    *  the page is open and is wiped by the next refresh. */
   const [probeLog, setProbeLog] = useState<Array<{ ts: number; note: string; ok: boolean }>>([]);
+  const probePage = usePagination(probeLog, 20);
 
   const localStorageSize = useMemo(() => {
     if (typeof window === 'undefined') return 0;
@@ -237,7 +240,7 @@ export function RefreshDebugView() {
             </p>
           ) : (
             <ul className="space-y-1 text-xs font-mono">
-              {probeLog.map((p, i) => (
+              {probePage.pageItems.map((p, i) => (
                 <li key={`${p.ts}-${i}`} className="flex items-center gap-2">
                   {p.ok ? (
                     <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
@@ -252,6 +255,13 @@ export function RefreshDebugView() {
               ))}
             </ul>
           )}
+          <Pagination
+            page={probePage.page}
+            pageSize={probePage.pageSize}
+            totalItems={probePage.totalItems}
+            onPageChange={probePage.setPage}
+            itemLabel="probes"
+          />
         </section>
       </div>
     </div>

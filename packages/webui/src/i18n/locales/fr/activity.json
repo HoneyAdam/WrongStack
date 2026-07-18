@@ -11,9 +11,7 @@
     "design": "Design Studio",
     "officemap": "Plan du bureau",
     "settings": "Paramètres",
-    "sddwizard": "Nouveau projet SDD",
-    "specs": "Spécifications",
-    "sddboard": "Tableau en direct",
+    "sddhub": "SDD",
     "goal": "Goal",
     "memory": "Mémoire",
     "fleet": "Flotte",
@@ -1146,6 +1144,7 @@
     "imageNotRetained": "L'aperçu de l'image n'est pas conservé après actualisation",
     "failedToSend": "⚠ Échec de l'envoi",
     "autoPaused": "⚠️ _Avance auto en pause — nombre maximum de tours automatiques consécutifs atteint. Saisissez quelque chose pour continuer (l'autonomie reste activée)._",
+    "autoLoopHalted": "⚠️ _Envoi automatique arrêté car la même invite s'est répétée. L'autonomie reste active ; saisissez une nouvelle invite pour réinitialiser la protection contre les boucles._",
     "rsIterations": "Itérations : {{n}}",
     "rsTools": "Appels d'outils : {{n}}",
     "rsElapsed": "Écoulé : {{s}}",
@@ -1270,6 +1269,11 @@
   },
   "sddTask": {
     "backTitle": "Retour à l'activité",
+    "expandTitle": "Agrandir les détails de la tâche",
+    "collapseTitle": "Réduire les détails de la tâche",
+    "eventLog": "Journal des événements de la tâche",
+    "newestFirst": "plus récents d'abord",
+    "noEvents": "Aucune activité n'a encore été enregistrée pour cette tâche.",
     "workingOn": "travaille sur cette tâche",
     "assigned": "assigné",
     "metaPriority": "Priorité",
@@ -1376,6 +1380,45 @@
     "mentionFile": "Mentionner le fichier",
     "loadingEditor": "Chargement de l'éditeur…",
     "selectTab": "Sélectionnez un onglet pour voir son contenu"
+  },
+  "fileActivity": {
+    "title": "Activité du fichier",
+    "overview": "Aperçu",
+    "changes": "Modifications",
+    "context": "Contexte",
+    "logs": "Journaux",
+    "lines": "lignes",
+    "resizeHint": "Faites glisser pour redimensionner · double-cliquez pour réinitialiser",
+    "refresh": "Actualiser les preuves du fichier",
+    "evidenceCount_one": "{{count}} événement",
+    "evidenceCount_other": "{{count}} événements",
+    "mutations30m": "Modifications · 30 min",
+    "sessions": "Sessions",
+    "actors": "Acteurs",
+    "linkedWork": "Travail lié",
+    "workLinks": "Kanban / tâche",
+    "recentActivity": "Activité récente du fichier",
+    "events": "événements",
+    "noEvidence": "Aucune activité n'est encore attribuée à ce fichier.",
+    "noSessions": "Aucune attribution de session.",
+    "noActors": "Aucune attribution d'acteur.",
+    "noWorkLinks": "Aucun lien Kanban, SDD ou tâche enregistré.",
+    "taskOrTodo": "Task / tâche",
+    "loadingEvidence": "Chargement des preuves du fichier…",
+    "gitToBuffer": "Git HEAD → tampon Monaco actuel",
+    "savedToBuffer": "Dernière version enregistrée → tampon Monaco actuel",
+    "unsaved": "tampon non enregistré",
+    "level": { "quiet": "stable", "active": "actif", "churn": "forte rotation" },
+    "analysisTitle": {
+      "quiet": "Aucune rotation récente",
+      "active": "Ce fichier est en cours de modification",
+      "churn": "Modifications répétées détectées"
+    },
+    "analysisBody": {
+      "quiet": "Aucune modification attribuée n'a été enregistrée au cours des 30 dernières minutes.",
+      "active": "{{mutations}} modifications par {{actors}} acteurs dans {{sessions}} sessions au cours des 30 dernières minutes.",
+      "churn": "Forte rotation : {{mutations}} modifications par {{actors}} acteurs dans {{sessions}} sessions. Vérifiez les travaux qui se chevauchent avant la prochaine modification."
+    }
   },
   "analytics": {
     "loading": "Chargement des analytics…",
@@ -1757,5 +1800,10 @@
       "in_progress": "En cours",
       "completed": "Terminée"
     }
+  },
+  "sddhub": {
+    "tabProject": "Projet SDD",
+    "tabBoard": "Tableau SDD en direct",
+    "tabSpecs": "Spécifications"
   }
 }

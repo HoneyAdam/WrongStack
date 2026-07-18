@@ -3,6 +3,7 @@ import { expectDefined } from '@wrongstack/core';
 import type React from 'react';
 import { isValidElement, useEffect, useMemo, useRef, useState } from 'react';
 import type { GitInfo } from '../git-info.js';
+import type { HeapSample } from '../heap-watchdog.js';
 import { useTokenCounterRefresh } from '../hooks/use-token-counter-refresh.js';
 import { Box, Text, useStdout } from '../ink.js';
 import { displayWidth } from '../terminal-width.js';
@@ -421,6 +422,8 @@ export interface StatusBarProps {
   autonomy?: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel' | undefined;
   /** Number of tracked bash/exec processes from the process registry. */
   processCount?: number | undefined;
+  /** Current RSS/heap sample for this CLI process. */
+  processMemory?: HeapSample | undefined;
   /** Items to hide from the status bar. Canonical set: {@link StatuslineItem}. */
   hiddenItems?: StatuslineItem[] | undefined;
   /** Statusline density. Detailed is the default to preserve the full multi-line display. */
@@ -554,6 +557,7 @@ export function StatusBar({
   projectName,
   workingDir,
   processCount,
+  processMemory,
   context,
   contextStrategy,
   hiddenItems,
@@ -762,6 +766,22 @@ export function StatusBar({
       {model}
     </Text>
   ) : null;
+  const memoryColor = processMemory
+    ? processMemory.load >= 0.85
+      ? theme.error
+      : processMemory.load >= 0.6
+        ? theme.warn
+        : theme.success
+    : theme.textSecondary;
+  const memoryStatusChip =
+    processMemory && showChip('memory') ? (
+      <Text color={isNoColor ? undefined : memoryColor}>
+        RAM {fmtMemory(processMemory.rss)}
+        {isComfortable ? (
+          <Text dimColor={!isNoColor}> · heap {fmtMemory(processMemory.heapUsed)}</Text>
+        ) : null}
+      </Text>
+    ) : null;
 
   const primaryChips: React.ReactElement[] = [
     // Combined context bar: meter · tokens · cost
@@ -833,6 +853,7 @@ export function StatusBar({
         {glyphs.process} {processCount} process{processCount === 1 ? '' : 'es'}
       </Text>
     ) : null,
+    memoryStatusChip,
     hint && showChip('hint') ? <Text dimColor={!isNoColor}>{hint}</Text> : null,
     indexState?.indexing && showChip('index') ? (
       <Text color={isNoColor ? undefined : theme.warn}>
@@ -970,6 +991,9 @@ export function StatusBar({
     // Fleet working time
     fleetWorkingTime != null && fleetWorkingTime > 0 && showChip('elapsed') ? (
       <Text dimColor={!isNoColor}>{fmtElapsed(fleetWorkingTime)}</Text>
+    ) : null,
+    processMemory && showChip('memory') ? (
+      <Text color={chipColor(memoryColor, isNoColor)}>RAM {fmtMemory(processMemory.rss)}</Text>
     ) : null,
     // Work summary (compact)
     ...(minimalWorkParts.length > 0
@@ -1486,6 +1510,13 @@ function fmtTok(n: number): string {
   if (n < 1000) return String(n);
   if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
   return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
+export function fmtMemory(bytes: number): string {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1).replace(/\.0$/, '')}G`;
+  if (bytes >= 1024 ** 2) return `${Math.round(bytes / 1024 ** 2)}M`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)}K`;
+  return `${Math.round(bytes)}B`;
 }
 
 export function fmtElapsed(ms: number): string {

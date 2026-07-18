@@ -64,8 +64,7 @@ function extToLang(ext: string): SymbolLang | null {
   }
 }
 
-function getSignature(node: ts.Declaration, sourceFile: ts.SourceFile): string {
-  const printer = ts.createPrinter({});
+function getSignature(printer: ts.Printer, node: ts.Declaration, sourceFile: ts.SourceFile): string {
   const raw = printer.printNode(ts.EmitHint.Unspecified, node, sourceFile);
   return raw.replace(/\s+/g, ' ').slice(0, 500);
 }
@@ -100,41 +99,26 @@ function getJsDoc(node: ts.Node, sourceFile: ts.SourceFile): string {
   return '';
 }
 
-function hasFunctionLikeAncestor(node: ts.Node): boolean {
-  let current: ts.Node | undefined = node.parent;
-  while (current) {
-    if (ts.isFunctionLike(current)) return true;
-    current = current.parent;
-  }
-  return false;
-}
-
-/** Build the scope path from a node up to the root (for class-method scope). */
-function buildScope(node: ts.Node): string {
-  const parts: string[] = [];
-  let current: ts.Node | undefined = node.parent;
-  while (current) {
-    if (
-      ts.isClassDeclaration(current) ||
-      ts.isInterfaceDeclaration(current) ||
-      ts.isEnumDeclaration(current) ||
-      ts.isTypeAliasDeclaration(current)
-    ) {
-      parts.unshift(current.name?.text ?? 'Anon');
-    } else if (
-      ts.isMethodDeclaration(current) ||
-      ts.isGetAccessor(current) ||
-      ts.isSetAccessor(current) ||
-      ts.isPropertyDeclaration(current) ||
-      ts.isFunctionDeclaration(current)
-    ) {
-      if (current.name && ts.isIdentifier(current.name)) {
-        parts.unshift(current.name.text);
-      }
+/** Push the current node's scope contribution onto `parts` (for the O(1) recursive scope tracker). */
+function pushScopeName(node: ts.Node, parts: string[]): void {
+  if (
+    ts.isClassDeclaration(node) ||
+    ts.isInterfaceDeclaration(node) ||
+    ts.isEnumDeclaration(node) ||
+    ts.isTypeAliasDeclaration(node)
+  ) {
+    parts.push(node.name?.text ?? 'Anon');
+  } else if (
+    ts.isMethodDeclaration(node) ||
+    ts.isGetAccessor(node) ||
+    ts.isSetAccessor(node) ||
+    ts.isPropertyDeclaration(node) ||
+    ts.isFunctionDeclaration(node)
+  ) {
+    if (node.name && ts.isIdentifier(node.name)) {
+      parts.push(node.name.text);
     }
-    current = current.parent;
   }
-  return parts.join('.');
 }
 
 export interface ParseOptions {
@@ -163,65 +147,63 @@ export function parseSymbols(opts: ParseOptions): FileSymbols {
   }
 
   const symbols: IndexSymbol[] = [];
+  const refs: Ref[] = [];
+  // Create the printer once per file instead of per-symbol. ts.createPrinter is
+  // not free — it allocates internal emitter state — and we call getSignature
+  // for every navigable declaration (often 100-300 per file).
+  const printer = ts.createPrinter({});
 
-  function visit(node: ts.Node): void {
+  function visit(node: ts.Node, funcDepth: number, scopeParts: string[]): void {
+    // ── Symbol extraction ──────────────────────────────────────────────
     const kind = kindOf(node);
 
     if (kind) {
       // Keep the index focused on navigable declarations. Function-local
       // variables and parameters account for most rows in large TypeScript
       // projects and otherwise swamp exact declaration searches.
+      // funcDepth is a cheap O(1) counter threaded through the recursion
+      // instead of walking up the parent chain per symbol.
       if (
         (kind === 'const' || kind === 'let' || kind === 'var' || kind === 'parameter') &&
-        hasFunctionLikeAncestor(node)
+        funcDepth > 0
       ) {
-        ts.forEachChild(node, visit);
-        return;
+        // Fall through to ref extraction — function-local variables can still
+        // appear in type references and calls.
+      } else {
+        const nameNode = (node as { name?: ts.Identifier | undefined }).name;
+        if (!nameNode || !ts.isIdentifier(nameNode)) {
+          // Anonymous declaration (e.g. `export default class { ... }`) — no
+          // name identifier, so there's nothing to index. Skip children too
+          // to avoid indexing members of anonymous containers. Ref extraction
+          // for the node itself is also skipped, but anonymous declarations
+          // never match ref checks anyway.
+          return;
+        }
+        const name = nameNode.text;
+        const pos = nameNode.getStart(sourceFile);
+        const { line, character } = sourceFile.getLineAndCharacterOfPosition(pos);
+        const scope = scopeParts.join('.');
+        const signature = getSignature(printer, node as ts.Declaration, sourceFile);
+        const docComment = getJsDoc(node, sourceFile);
+        const text = [name, signature, docComment].filter(Boolean).join(' | ');
+
+        symbols.push({
+          id: 0,
+          lang,
+          kind,
+          name,
+          file,
+          line: line + 1,
+          col: character,
+          signature,
+          docComment,
+          scope,
+          text,
+        });
       }
-
-      const nameNode = (node as { name?: ts.Identifier | undefined }).name;
-      if (!nameNode || !ts.isIdentifier(nameNode)) return;
-      const name = nameNode.text;
-      const pos = nameNode.getStart(sourceFile);
-      const { line, character } = sourceFile.getLineAndCharacterOfPosition(pos);
-      const scope = buildScope(node);
-      const signature = getSignature(node as ts.Declaration, sourceFile);
-      const docComment = getJsDoc(node, sourceFile);
-      const text = [name, signature, docComment].filter(Boolean).join(' | ');
-
-      symbols.push({
-        id: 0,
-        lang,
-        kind,
-        name,
-        file,
-        line: line + 1,
-        col: character,
-        signature,
-        docComment,
-        scope,
-        text,
-      });
     }
 
-    ts.forEachChild(node, visit);
-  }
-
-  visit(sourceFile);
-
-  // Second pass: collect cross-references (call/type/inherit refs)
-  const refs = extractRefs(sourceFile);
-
-  return { file, lang, symbols, refs, mtimeMs: Date.now() };
-}
-
-// ─── Reference extraction ──────────────────────────────────────────────────────
-
-/** Collect call/type/inherit references from a source file. */
-function extractRefs(sourceFile: ts.SourceFile): Ref[] {
-  const refs: Ref[] = [];
-
-  function visit(node: ts.Node): void {
+    // ── Reference extraction (inlined from extractRefs) ────────────────
     const pos = node.getStart(sourceFile);
     const { line } = sourceFile.getLineAndCharacterOfPosition(pos);
     const lineNum = line + 1;
@@ -248,12 +230,20 @@ function extractRefs(sourceFile: ts.SourceFile): Ref[] {
       if (moduleName) refs.push({ fromId: 0, toName: moduleName, callType: 'import', line: lineNum });
     }
 
-    ts.forEachChild(node, visit);
+    // Push scope name before recursing, pop after (O(1) instead of O(depth) parent walk)
+    const scopeIdx = scopeParts.length;
+    pushScopeName(node, scopeParts);
+    const childFuncDepth = ts.isFunctionLike(node) ? funcDepth + 1 : funcDepth;
+    ts.forEachChild(node, (child) => visit(child, childFuncDepth, scopeParts));
+    scopeParts.length = scopeIdx;
   }
 
-  visit(sourceFile);
-  return deduplicateRefs(refs);
+  visit(sourceFile, 0, []);
+
+  return { file, lang, symbols, refs: deduplicateRefs(refs), mtimeMs: Date.now() };
 }
+
+// ─── Reference extraction helpers ──────────────────────────────────────────────
 
 /** Extract the name string from a type name node (simple or qualified). */
 function getTypeName(name: ts.EntityName): string {

@@ -27,8 +27,18 @@ export interface WstackPaths {
    * without rewriting callers.
    */
   configDir: string;
-  /** ~/.wrongstack/config.json */
+  /** ~/.wrongstack/config.json — bootstrap config (activeProfile + version). */
   globalConfig: string;
+  /**
+   * ~/.wrongstack/profiles — directory containing per-profile configs.
+   * Each profile has its own subdirectory with a config.json.
+   */
+  profilesDir: string;
+  /**
+   * Resolve the config path for a named profile.
+   * Returns ~/.wrongstack/profiles/<name>/config.json.
+   */
+  profileConfig: (name: string) => string;
   /** ~/.wrongstack/.key — 32 random bytes, mode 0600, AES-GCM key for the secret vault. */
   secretsKey: string;
   /** ~/.wrongstack/memory.md — user-global memory. */
@@ -229,6 +239,12 @@ export function resolveWstackPaths(opts: WstackPathOptions): WstackPaths {
     homeDir,
     configDir: globalRoot,
     globalConfig: path.join(globalRoot, 'config.json'),
+    profilesDir: path.join(globalRoot, 'profiles'),
+    profileConfig: (name: string) => {
+      // Prevent path traversal: only allow a single safe path segment.
+      const safe = name.replace(/[/\\:]/g, '_').replace(/\.\./g, '_');
+      return path.join(globalRoot, 'profiles', safe || 'default', 'config.json');
+    },
     secretsKey: path.join(globalRoot, '.key'),
     globalMemory: path.join(globalRoot, 'memory.md'),
     globalSkills: path.join(globalRoot, 'skills'),

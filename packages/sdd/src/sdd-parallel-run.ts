@@ -799,7 +799,10 @@ export class SddParallelRun {
     // using the delegate tool (or any other disabledTools in their config)
     const baseFactory = this.opts.subagentFactory ?? this.defaultFactory();
     const filteredFactory = withDisabledToolFiltering(baseFactory);
-    const runner = makeAgentSubagentRunner({ factory: filteredFactory });
+    const runner = makeAgentSubagentRunner({
+      factory: filteredFactory,
+      hostEvents: this.events,
+    } as Parameters<typeof makeAgentSubagentRunner>[0] & { hostEvents?: EventBus });
     this.coordinator.setRunner?.(runner);
   }
 
@@ -932,6 +935,11 @@ export class SddParallelRun {
       ].join('\n'),
       subagentId,
       ...(this.timeoutMs ? { timeoutMs: this.timeoutMs } : {}),
+      context: {
+        telemetryTaskId: taskId,
+        telemetryRunId: this.runId,
+        telemetryBoardId: this.opts.graph.id,
+      },
     });
 
     let result: TaskResult;

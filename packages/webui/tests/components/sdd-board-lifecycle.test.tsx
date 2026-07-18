@@ -8,10 +8,26 @@ vi.mock('@/hooks/useWebSocket', () => ({
 }));
 vi.mock('@/hooks/useProviderModels', () => ({ useProviderModels: () => [] }));
 // Stub the heavy presentational children so the test stays focused on controls.
-vi.mock('@/components/SddFlowGraph', () => ({ SddFlowGraph: () => null }));
+vi.mock('@/components/SddFlowGraph', () => ({
+  SddFlowGraph: ({ onTaskClick }: { onTaskClick: (id: string) => void }) => (
+    <button type="button" onClick={() => onTaskClick('task-1')}>Open task</button>
+  ),
+}));
 vi.mock('@/components/SddKanbanView', () => ({ SddKanbanView: () => null }));
 vi.mock('@/components/SddActivityFeed', () => ({ SddActivityFeed: () => null }));
-vi.mock('@/components/SddTaskDrawer', () => ({ SddTaskDrawer: () => null }));
+vi.mock('@/components/SddTaskDrawer', () => ({
+  SddTaskDrawer: ({
+    expanded,
+    onToggleExpanded,
+  }: {
+    expanded: boolean;
+    onToggleExpanded: () => void;
+  }) => (
+    <button type="button" onClick={onToggleExpanded}>
+      {expanded ? 'Collapse task detail' : 'Expand task detail'}
+    </button>
+  ),
+}));
 
 import { SddBoardView } from '../../src/components/SddBoardView.js';
 import { useSddBoardStore, type SddBoardSnapshotUI } from '../../src/stores/sdd-board-store.js';
@@ -51,6 +67,36 @@ afterEach(() => {
 });
 
 describe('SddBoardView — lifecycle controls', () => {
+  it('expands the selected task panel into the wide reading layout', () => {
+    act(() => {
+      useSddBoardStore.setState({
+        snapshot: snapshot({
+          tasks: [
+            {
+              id: 'task-1',
+              shortId: 't01',
+              title: 'Build the thing',
+              description: 'Long task details',
+              priority: 'high',
+              type: 'feature',
+              status: 'pending',
+              displayStatus: 'pending',
+              deps: [],
+            },
+          ],
+        }),
+      });
+    });
+    render(<SddBoardView onClose={() => {}} />);
+
+    fireEvent.click(screen.getByText('Open task'));
+    const panel = screen.getByTestId('sdd-task-panel');
+    expect(panel.getAttribute('data-expanded')).toBe('false');
+    fireEvent.click(screen.getByText('Expand task detail'));
+    expect(panel.getAttribute('data-expanded')).toBe('true');
+    expect(panel.className).toContain('w-[min(72rem,72vw)]');
+  });
+
   it('Clean worktrees sends sdd.board.cleanup_worktrees when the run is stopped', () => {
     act(() => {
       useSddBoardStore.setState({ snapshot: snapshot() });

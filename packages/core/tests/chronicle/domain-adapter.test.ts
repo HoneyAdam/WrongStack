@@ -26,4 +26,44 @@ describe('domain lifecycle bridge', () => {
     expect(recorded[2]).toMatchObject({ resource: { kind: 'artifact', id: 'worktreeId:wt-1' }, outcome: 'success' });
     expect(JSON.stringify(recorded)).not.toContain('private reason');
   });
+
+  it('truncates recentMail and recentTools arrays to 5 entries', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'chronicle-trunc-')); dirs.push(dir);
+    const journal = new ChronicleJournal({ filePath: path.join(dir, 'events.jsonl') });
+    const events = new EventBus();
+    const context = createChronicleContext({ installationId: 'i', machineId: 'm' }, 'trace');
+    const off = wireDomainEventsToChronicle({ events, journal, context });
+    // Emit a session.agents_updated with a large recentMail array
+    const mail = Array.from({ length: 20 }, (_, i) => ({
+      id: `msg-${i}`, direction: 'incoming', from: 'agent-x', to: '*',
+      type: 'status', subject: `event #${i}`, at: Date.now(),
+    }));
+    events.emit('session.agents_updated', {
+      sessionId: 's',
+      agents: [{
+        id: 'leader', name: 'leader',
+        recentMail: mail,
+        recentTools: Array.from({ length: 10 }, (_, i) => ({ name: `tool-${i}`, durationMs: i * 100 })),
+      }],
+    });
+    const recorded = await journal.readAll(); off();
+    const attrs = recorded[0]!.attributes as Record<string, unknown>;
+    const agents = (attrs['agents'] as Array<Record<string, unknown>>) ?? [];
+    expect(agents).toHaveLength(1);
+    const leader = agents[0]!;
+    // recentMail truncated to 5
+    const recentMail = leader['recentMail'] as { items: unknown[]; total: number; truncated: true };
+    expect(recentMail.items).toHaveLength(5);
+    expect(recentMail.total).toBe(20);
+    expect(recentMail.truncated).toBe(true);
+    expect((recentMail.items[0] as Record<string, unknown>).subject).toBe('event #0');
+    // recentTools truncated to 5
+    const recentTools = leader['recentTools'] as { items: unknown[]; total: number; truncated: true };
+    expect(recentTools.items).toHaveLength(5);
+    expect(recentTools.total).toBe(10);
+    expect(recentTools.truncated).toBe(true);
+    // General arrays still allow 20 items (agents, etc.)
+    expect(agents).toHaveLength(1); // only 1 agent in fixture
+    off();
+  });
 });

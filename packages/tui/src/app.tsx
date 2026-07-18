@@ -1,22 +1,17 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type {
-  ContentBlock,
-  Director,
-  Message,
-  TokenSavingTier,
-} from '@wrongstack/core';
+import type { ContentBlock, Director, Message, TokenSavingTier } from '@wrongstack/core';
 import {
+  applyRewindToConversation,
   applyTokenOverrides,
   buildGoalPreamble,
+  buildRefinerContextSections,
   clearActiveKit,
   clearPersistedActiveKit,
-  applyRewindToConversation,
+  DEFAULT_REFINER_RETRY_FEEDBACK,
   DefaultSessionRewinder,
   detectContinueIntent,
   type EnhanceFailureKind,
-  DEFAULT_REFINER_RETRY_FEEDBACK,
-  buildRefinerContextSections,
   enhanceUserPrompt,
   expectDefined,
   formatTodosList,
@@ -44,6 +39,7 @@ import {
 import { toErrorMessage } from '@wrongstack/core/utils';
 import { routeImagesForModel } from '@wrongstack/runtime/vision';
 import { getIndexState, getProcessRegistry, onIndexStateChange } from '@wrongstack/tools';
+import { createAutoProceedLoopGuard } from '@wrongstack/tools/auto-proceed-loop-guard';
 import React, {
   useCallback,
   useEffect,
@@ -67,6 +63,14 @@ import { AUTONOMY_OPTIONS, AutonomyPicker } from './components/autonomy-picker.j
 import { BrainDecisionPrompt } from './components/brain-decision-prompt.js';
 import { BrainPanel } from './components/brain-panel.js';
 import { CheckpointTimeline } from './components/checkpoint-timeline.js';
+import {
+  clearConfirmationKeyResult,
+  ClearConfirmPanel,
+} from './components/clear-confirm-panel.js';
+import {
+  exitConfirmationDecision,
+  ExitConfirmPanel,
+} from './components/exit-confirm-panel.js';
 import { composerStatusFromState } from './components/composer-status-chip.js';
 import { type ConfirmDecision, ConfirmPrompt } from './components/confirm-prompt.js';
 import { ContextPanel } from './components/context-panel.js';
@@ -116,6 +120,10 @@ import { SddBoardOverlay } from './components/sdd-board-overlay.js';
 import { type SendMode, SendModePicker } from './components/send-mode-picker.js';
 import { SessionsPanel } from './components/sessions-panel.js';
 import {
+  slashConfirmationDecision,
+  SlashConfirmPanel,
+} from './components/slash-confirm-panel.js';
+import {
   type ContextMode,
   formatAllSettingsSummary,
   getSettingsFieldValue,
@@ -151,8 +159,8 @@ import { WorktreeMonitor } from './components/worktree-monitor.js';
 import { WorktreePanel } from './components/worktree-panel.js';
 import { createContextMemoryStatsGetter, createContextSlashCommand } from './context-slash.js';
 import { createCronJobsGetter, createCronSlashCommand } from './cron-slash.js';
-import { actionForFKeyPanel, fKeyEntryFor } from './f-key-panels.js';
 import { escCloseAction } from './esc-close-panels.js';
+import { actionForFKeyPanel, fKeyEntryFor } from './f-key-panels.js';
 import { type GitInfo, readGitInfo } from './git-info.js';
 import { hitRegion, statusBarLineRow } from './hit-test.js';
 import { useAuthPanel } from './hooks/use-auth-panel.js';
@@ -161,6 +169,7 @@ import { useBrainPanel } from './hooks/use-brain-panel.js';
 import { useDirectorFleetBridge } from './hooks/use-director-fleet-bridge.js';
 import { useFileSearch } from './hooks/use-file-search.js';
 import { useInputHistoryPersistence } from './hooks/use-input-history-persistence.js';
+import { useLiveTodos } from './hooks/use-live-todos.js';
 import { useModePicker } from './hooks/use-mode-picker.js';
 import { useModelPickRequest } from './hooks/use-model-pick.js';
 import { usePasteHandling } from './hooks/use-paste-handling.js';
@@ -171,11 +180,11 @@ import { useSessionInterruptController } from './hooks/use-session-interrupt-con
 import { useStatuslineHiddenSync } from './hooks/use-statusline-hidden-sync.js';
 import { useStatuslineState } from './hooks/use-statusline-state.js';
 import { useStreamChipExpiration } from './hooks/use-stream-chip-expiration.js';
-import { useLiveTodos } from './hooks/use-live-todos.js';
 import { useTuiActivity } from './hooks/use-tui-activity.js';
 import { useTuiControllers } from './hooks/use-tui-controllers.js';
 import { useTuiEventBridge } from './hooks/use-tui-event-bridge.js';
 import { useWorkingDirChip } from './hooks/use-working-dir-chip.js';
+import { useExitCommand } from './hooks/use-exit-command.js';
 import { Box, type DOMElement, measureElement, useApp, useStdout } from './ink.js';
 import {
   deleteTokenBackward,
@@ -184,6 +193,7 @@ import {
   layoutInputRows,
   tokenLengthForward,
 } from './input-tokens.js';
+import { createKanbanSlashCommand } from './kanban-slash.js';
 import { createKillSlashCommand } from './kill-slash.js';
 import { createMemorySlashCommand } from './memory-slash.js';
 import { MOUSE_CLICK_ON, MOUSE_OFF } from './mouse.js';
@@ -234,12 +244,11 @@ export {
   previousInputWordStart,
 } from './input-editing.js';
 
-import { contentBlocksText } from './rehydrate-history.js';
-
 // The host<->TUI props contract lives in app-props.ts (app.tsx is line-capped
 // by the hotspot guardrail). Re-exported here so consumers importing AppProps
 // from '@wrongstack/tui' / '../src/app.js' keep working.
 import type { AppProps } from './app-props.js';
+import { contentBlocksText } from './rehydrate-history.js';
 
 export type { AppProps } from './app-props.js';
 
@@ -529,6 +538,7 @@ export function App({
       cwd: agent.ctx.cwd,
       family,
       keyTail,
+      sessionId: agent.ctx.session.id,
       autonomyAgents,
       restoredEntries,
       restoredCheckpoints,
@@ -537,6 +547,23 @@ export function App({
       initialFleetChat: fleetStreamController?.mode,
     }),
   );
+  // Board id captured by `/kanban use <boardId>` or the Goal → Kanban
+  // bridge. The KanbanPanel reads it as `initialBoardId` so the panel
+  // opens on the requested board rather than the session-tag fallback.
+  // Reset to null once the panel has consumed it on mount.
+  const [focusedBoardId, setFocusedBoardId] = useState<string | null>(null);
+  // Stable ref-shaped bridge so the slash command can call it through
+  // `deps.onBoardFocus.current(boardId)` regardless of how many times
+  // the registration effect re-runs.
+  const boardFocusRef = useRef<{ current: (boardId: string) => boolean } | null>(null);
+  if (!boardFocusRef.current) {
+    boardFocusRef.current = {
+      current: (boardId: string) => {
+        setFocusedBoardId(boardId);
+        return true;
+      },
+    };
+  }
 
   useInputHistoryPersistence({
     projectRoot,
@@ -758,6 +785,7 @@ export function App({
     nowTick,
     workingTimeMs,
     fleetWorkingTimeMs,
+    processMemory,
     enhanceDots,
     refreshGoalSummary,
   } = useTuiActivity({
@@ -819,12 +847,16 @@ export function App({
 
   useEffect(() => {
     if (!secretInputController) return;
-    const previous = secretInputController.readSecret;
+    const previousSecret = secretInputController.readSecret;
+    const previousText = secretInputController.readText;
     secretInputController.readSecret = authPanelController.readSecret;
+    secretInputController.readText = authPanelController.readText;
     return () => {
-      secretInputController.readSecret = previous;
+      secretInputController.readSecret = previousSecret;
+      if (previousText) secretInputController.readText = previousText;
+      else delete secretInputController.readText;
     };
-  }, [secretInputController, authPanelController.readSecret]);
+  }, [secretInputController, authPanelController.readSecret, authPanelController.readText]);
 
   const statuslineHiddenForPicker = useCallback((): StatuslineItem[] => {
     const hookHidden = hiddenItemsRef.current;
@@ -1550,10 +1582,14 @@ export function App({
       state.enhance != null ||
       state.refineFailure != null ||
       state.continueConfirm != null ||
+      state.clearConfirm != null ||
+      state.slashConfirm != null ||
       state.coordinator.monitorOpen ||
       state.escConfirm != null ||
       state.sendModePicker != null ||
-      state.confirmQueue.length > 0;
+      state.confirmQueue.length > 0 ||
+      state.shellCommandWarning != null ||
+      state.brainPrompt != null;
     const overlayClosed = prevAnyOverlayOpen.current && !anyOpenNow;
     const newEntryCommitted = state.entries.length > prevEntriesCount.current;
     const curToolStreamLen = state.toolStream?.text.length ?? 0;
@@ -1575,10 +1611,14 @@ export function App({
     state.enhance,
     state.refineFailure,
     state.continueConfirm,
+    state.clearConfirm,
+    state.slashConfirm,
     state.coordinator.monitorOpen,
     state.escConfirm,
     state.sendModePicker,
     state.confirmQueue.length,
+    state.shellCommandWarning,
+    state.brainPrompt,
     state.entries.length,
     state.toolStream?.text,
     eraseLiveRegion,
@@ -1852,6 +1892,31 @@ export function App({
         onPanelOpen,
       }),
     );
+    // `/kanban` — open the project kanban panel, create a board, add a task,
+    // or list boards. Mirrors the WebUI `kanban` text surface so users get
+    // the same operations in either client. The panel-open bridge is shared
+    // with `/context`; without it the command would have to fall back to
+    // text-only and lose the "open panel" affordance.
+    slashRegistry.register(
+      createKanbanSlashCommand({
+        projectRoot: agent.ctx.projectRoot,
+        sessionId: agent.ctx.session?.id ?? null,
+        onPanelOpen,
+        // Goal → Kanban bridge & `/kanban use <boardId>` both arrive here.
+        // We capture a `focusedBoardId` and pass it down as `initialBoardId`
+        // so the panel lands on the requested board rather than defaulting
+        // to the session-tag fallback.
+        onBoardFocus: boardFocusRef.current
+          ? boardFocusRef.current
+          : {
+              current: (boardId: string) => {
+                setFocusedBoardId(boardId);
+                return true;
+              },
+            },
+        terminalWidth: stdout.columns ?? 80,
+      }),
+    );
     return () => {
       slashRegistry.unregister('kill');
       slashRegistry.unregister('ps');
@@ -1860,11 +1925,13 @@ export function App({
         slashRegistry.unregister('memory');
       }
       slashRegistry.unregister('context');
+      slashRegistry.unregister('kanban');
     };
   }, [
     slashRegistry,
     memoryStore,
     agent.ctx.cwd,
+    agent.ctx.projectRoot,
     agent.ctx.provider,
     agent.ctx.model,
     getModeLabel,
@@ -2313,6 +2380,11 @@ export function App({
   // Consecutive auto-submitted turns since the last MANUAL input.
   const autoSubmitStreakRef = useRef(0);
   const autoSubmitCapWarnedRef = useRef(false);
+  // Repetition guard: catches the specific loop where the model emits the
+  // same `<nextsteps>` block on every reply and the TUI auto-submit re-feeds
+  // it back. The streak cap above is the generic runaway net; this guard
+  // catches the targeted case the user reported. Reset on every manual input.
+  const autoSubmitLoopGuardRef = useRef(createAutoProceedLoopGuard());
   // Bumped on a slow poll while idle+auto with no suggestions, so the
   // auto-submit effect re-checks for suggestions that arrived out-of-band.
   const [nextStepsRecheck, setNextStepsRecheck] = useState(0);
@@ -2323,6 +2395,7 @@ export function App({
   useEffect(() => {
     autoSubmitStreakRef.current = 0;
     autoSubmitCapWarnedRef.current = false;
+    autoSubmitLoopGuardRef.current.reset();
   }, [autonomyLive]);
   useEffect(() => {
     const liveAutonomy = getAutonomy?.() ?? autonomyLive;
@@ -2341,7 +2414,14 @@ export function App({
       state.enhance != null ||
       state.enhanceBusy ||
       state.refineFailure != null ||
-      state.continueConfirm != null
+      state.continueConfirm != null ||
+      state.clearConfirm != null ||
+      state.slashConfirm != null ||
+      state.escConfirm != null ||
+      state.sendModePicker != null ||
+      state.confirmQueue.length > 0 ||
+      state.shellCommandWarning != null ||
+      state.brainPrompt != null
     ) {
       return;
     }
@@ -2436,30 +2516,64 @@ export function App({
         const suggestion = nextStepsAutoSubmitSuggestionRef.current;
         nextStepsAutoSubmitSuggestionRef.current = null;
         if (suggestion) {
-          autoSubmitStreakRef.current += 1;
-          // Trigger submit — input field is cleared after submission completes
-          // (see clearDraft in finally block below). Do not pre-populate the
-          // input with the suggestion text.
-          void (async () => {
-            const trimmed = suggestion.trim();
-            if (!trimmed) {
-              clearDraft();
-              return;
-            }
-            // Build blocks for the suggestion
-            const blocks: ContentBlock[] = [{ type: 'text', text: trimmed }];
-            dispatch({ type: 'addEntry', entry: { kind: 'user', text: trimmed } });
-            // Via ref: `runBlocks` is declared ~2000 lines below — naming it
-            // in this effect's deps array evaluates it at render time and
-            // throws a TDZ ReferenceError. The ref is only dereferenced when
-            // the countdown fires, long after mount.
-            try {
-              await runBlocksRef.current(blocks);
-            } finally {
-              // Always clear the input field after submit, even on error.
-              clearDraft();
-            }
-          })();
+          // ── Loop guard ──────────────────────────────────────────────────
+          // The streak cap above is a generic runaway net. This guard
+          // catches the specific loop the user reported: the model emits
+          // the same `<nextsteps>` block on every reply and auto-submit
+          // re-feeds it. When the guard halts, drop the visible suggestion
+          // store so the next iteration cannot re-feed the same content,
+          // write a history entry asking the user what's happening, and
+          // stop the auto-submit countdown. Autonomy stays on; the user
+          // can resume with a fresh prompt.
+          //
+          // (We clear only the visible `setSuggestions` store here; the
+          // auto-suggestion store is repopulated by `onAutoSuggestionsParsed`
+          // from the next model output, so a stale auto="true" item cannot
+          // survive into the next turn.)
+          const repetition = autoSubmitLoopGuardRef.current.record(suggestion);
+          if (repetition.shouldHalt) {
+            setSuggestions?.([]);
+            const truncatedForMessage =
+              suggestion.length > 100 ? `${suggestion.slice(0, 97)}…` : suggestion;
+            dispatch({
+              type: 'addEntry',
+              entry: {
+                kind: 'warn',
+                text:
+                  `⚠️ Auto-submit halted: the same prompt was fed ${repetition.runLength} times in a row. ` +
+                  `Autonomy mode is still on, but no automatic next step will run until you provide input. ` +
+                  `Type anything to continue (resets the guard). ` +
+                  `Last seen prompt: "${truncatedForMessage}"`,
+              },
+            });
+            // Already cleared the countdown / label state above; the next
+            // effect re-entry will not re-arm because suggestions is empty.
+          } else {
+            autoSubmitStreakRef.current += 1;
+            // Trigger submit — input field is cleared after submission completes
+            // (see clearDraft in finally block below). Do not pre-populate the
+            // input with the suggestion text.
+            void (async () => {
+              const trimmed = suggestion.trim();
+              if (!trimmed) {
+                clearDraft();
+                return;
+              }
+              // Build blocks for the suggestion
+              const blocks: ContentBlock[] = [{ type: 'text', text: trimmed }];
+              dispatch({ type: 'addEntry', entry: { kind: 'user', text: trimmed } });
+              // Via ref: `runBlocks` is declared ~2000 lines below — naming it
+              // in this effect's deps array evaluates it at render time and
+              // throws a TDZ ReferenceError. The ref is only dereferenced when
+              // the countdown fires, long after mount.
+              try {
+                await runBlocksRef.current(blocks);
+              } finally {
+                // Always clear the input field after submit, even on error.
+                clearDraft();
+              }
+            })();
+          }
         }
       } else {
         setNextStepsAutoSubmitCountdown(remaining);
@@ -2477,7 +2591,15 @@ export function App({
     autonomyLive,
     state.enhance,
     state.enhanceBusy,
+    state.refineFailure,
     state.continueConfirm,
+    state.clearConfirm,
+    state.slashConfirm,
+    state.escConfirm,
+    state.sendModePicker,
+    state.confirmQueue.length,
+    state.shellCommandWarning,
+    state.brainPrompt,
     nextStepsRecheck,
     getAutonomy,
     getSettings,
@@ -3279,6 +3401,7 @@ export function App({
           suggestedPattern: e.suggestedPattern,
           resolve: e.resolve,
           destructive: e.riskTier === 'destructive' || e.decisionSource === 'yolo_destructive',
+          boundaryReason: e.boundaryReason,
         },
       });
     });
@@ -3479,6 +3602,10 @@ export function App({
   // submit() function knows to load the original text back instead of sending
   // it. Reset after handling.
   const enhanceCancelledRef = useRef(false);
+  // Captures the submitted text before clearDraft() so RefiningPanel can show
+  // the preview despite state.buffer being empty. Only set inside the refine
+  // block in submit(), never read/written by anything else.
+  const enhanceOriginalRef = useRef('');
 
   // ── Paste handling ──────────────────────────────────────────────────
   const {
@@ -3570,20 +3697,40 @@ export function App({
   });
 
   useSessionInterruptController({
-    interruptController, dispatch, stateRef,
-    activeCtrlRef, activeRunSettledRef,
+    interruptController,
+    dispatch,
+    stateRef,
+    activeCtrlRef,
+    activeRunSettledRef,
     sessionGenerationRef,
     streamingTextRef,
     streamSegmentsRef,
     pendingDeltaRef,
     assistantCommittedThisRunRef,
     flushTimerRef,
-    eternalLoopRunningRef, parallelLoopRunningRef,
+    eternalLoopRunningRef,
+    parallelLoopRunningRef,
     clearPendingConfirms,
     getEternalEngine,
     getParallelEngine,
     getSddRun,
     switchAutonomy,
+  });
+
+  // `/exit` confirmation bridge. Mirrors the `/clear` invariant: while a
+  // leader run or any subagent is still active, `/exit` must not
+  // terminate the TUI silently. The hook registers the slash command,
+  // opens an `exitConfirm` panel when needed, then uses the shared interrupt
+  // lifecycle to abort the leader/background drivers and await leader-idle plus
+  // fleet teardown (capped at 1500 ms) before Ink is allowed to unmount.
+  useExitCommand({
+    slashRegistry,
+    dispatch,
+    exitConfirm: state.exitConfirm,
+    stateRef,
+    sessionGenerationRef,
+    interruptController,
+    getDirector: liveDirector,
   });
 
   // Track double-Esc for input buffer clearing.
@@ -4139,6 +4286,50 @@ export function App({
     // is not reliable when multiple useInput hooks are active.
     if (state.confirmQueue.length > 0) return;
     if (state.shellCommandWarning) return;
+    // BrainDecisionPrompt owns A/B/C, numeric choices, D and Esc. Prevent the
+    // same answer key from also being inserted into the chat composer.
+    if (state.brainPrompt) return;
+    // `/clear` confirmation owns the keyboard. Route every editable key into
+    // reducer state so characters remain visible inside the YES field instead
+    // of leaking into (or disappearing behind) the chat composer.
+    if (state.clearConfirm) {
+      const info = state.clearConfirm;
+      const result = clearConfirmationKeyResult(info.value, input, key);
+      if (result.decision === false) {
+        dispatch({ type: 'clearConfirmClose' });
+        info.resolve(false);
+      } else if (result.decision === true) {
+        dispatch({ type: 'clearConfirmClose' });
+        info.resolve(true);
+      } else if (result.value !== info.value) {
+        dispatch({ type: 'clearConfirmSetValue', value: result.value });
+      }
+      return;
+    }
+    // `/exit` confirmation owns the keyboard. Enter confirms the teardown,
+    // Esc cancels. All other input is swallowed so a stray key cannot be
+    // interpreted as an affirmative choice (matching the `/clear`
+    // invariant: never tear down in-flight work silently).
+    if (state.exitConfirm) {
+      const info = state.exitConfirm;
+      const decision = exitConfirmationDecision(input, key);
+      if (decision !== null) {
+        dispatch({ type: 'exitConfirmClose' });
+        info.resolve(decision);
+      }
+      return;
+    }
+    // Generic slash-command confirmation uses the same parent input router as
+    // the composer, so no hidden readline consumer can steal keystrokes.
+    if (state.slashConfirm) {
+      const info = state.slashConfirm;
+      const decision = slashConfirmationDecision(input, key, info.defaultYes);
+      if (decision !== null) {
+        dispatch({ type: 'slashConfirmClose' });
+        info.resolve(decision === 'cancel' ? null : decision);
+      }
+      return;
+    }
     // While the refiner call is in flight, Esc cancels it and returns the user
     // to the input (nothing sent).
     if (state.enhanceBusy) {
@@ -4415,6 +4606,15 @@ export function App({
       dispatch({ type: 'toggleSddBoardMonitor' });
       return;
     }
+    // Ctrl+J → toggle the project kanban panel (not in the F-key table —
+    // no F-key alias, chord-only). Mirrors Ctrl+B / SDD board pattern
+    // because adding a 13th F-key slot would require expanding the picker
+    // invariant `fn >= 1 && fn <= 12`. The slash command `/kanban` is the
+    // canonical discovery path; Ctrl+J is a power-user chord.
+    if (key.ctrl && input === 'j') {
+      dispatch({ type: 'toggleKanbanPanel' });
+      return;
+    }
     // F-key / Ctrl-alias dispatch — table-driven via fKeyEntryFor.
     // Entries with hostAction (F1, F10, F12) need host-side work; the
     // rest dispatch directly via actionForFKeyPanel.
@@ -4425,9 +4625,7 @@ export function App({
       (key.fn === 10 && key.escape && state.sessionsPanelOpen
         ? fKeyEntryFor(10, undefined, '')
         : null) ??
-      (input === '\x1b' && state.coordinator.monitorOpen
-        ? fKeyEntryFor(11, undefined, '')
-        : null);
+      (input === '\x1b' && state.coordinator.monitorOpen ? fKeyEntryFor(11, undefined, '') : null);
     if (fKeyMatched) {
       const entry = fKeyMatched;
       switch (entry.hostAction) {
@@ -5520,6 +5718,7 @@ export function App({
     // cap counts AUTOMATIC turns between user inputs only.
     autoSubmitStreakRef.current = 0;
     autoSubmitCapWarnedRef.current = false;
+    autoSubmitLoopGuardRef.current.reset();
     // Submitting anything snaps the managed viewport back to the newest output
     // (no-op when already pinned or outside mouse mode).
     dispatch({ type: 'scrollToBottom' });
@@ -5850,6 +6049,19 @@ export function App({
       // enhanceAbortRef.current.abort()), after which we send the original.
       const ac = new AbortController();
       const baseTimeoutMs = 90_000;
+
+      // Capture the original text BEFORE clearDraft so the RefiningPanel
+      // preview still shows the user's message despite state.buffer emptying.
+      enhanceOriginalRef.current = trimmed;
+      // Clear the draft BEFORE the first async op so the input disappears
+      // immediately (not after buildRefinerContextSections completes, which
+      // can take 2-3s). The text was captured in `trimmed` above so it's safe.
+      // `enhanceBusy` is dispatched inside runAttempt() below — we do NOT
+      // dispatch it here because there are cancel/edit return paths before
+      // runAttempt runs that would never clear it, causing a soft-lock.
+      clearDraft();
+      enhanceAbortRef.current = ac;
+
       const contextSections = await buildRefinerContextSections({
         text: cleanText,
         memoryStore,
@@ -5897,9 +6109,7 @@ export function App({
             // file") resolve against context instead of being refined blind.
             history: recentTextTurns(agent.ctx.messages),
             contextSections,
-            ...(hints.previousRefinement
-              ? { previousRefinement: hints.previousRefinement }
-              : {}),
+            ...(hints.previousRefinement ? { previousRefinement: hints.previousRefinement } : {}),
             ...(hints.retryFeedback ? { retryFeedback: hints.retryFeedback } : {}),
             ...(reasoning ? { reasoning } : {}),
           })) as { refined: string; english: string } | null;
@@ -5951,7 +6161,7 @@ export function App({
 
       let sendOriginal = false;
       let editLoad = false;
-      reviewLoop: while (true) {
+      while (true) {
         // Recovery loop: while the refine keeps failing (and the user hasn't
         // aborted with Esc), ask how to recover — retry with more time, retry on
         // the fallback/another model (ephemerally, no session switch), send the
@@ -6062,7 +6272,7 @@ export function App({
         if (sendOriginal || result === null) {
           // Send as-is (declined recovery).
           effectiveText = trimmed;
-          break reviewLoop;
+          break;
         } else if (!normalizedEqual(result.refined, cleanText)) {
           // Re-attach chips stripped before refinement so file/image references
           // survive the rewrite. Chips are appended at the end.
@@ -6096,7 +6306,7 @@ export function App({
                 retryFeedback: DEFAULT_REFINER_RETRY_FEEDBACK,
               },
             );
-            continue reviewLoop;
+            continue;
           }
           if (decision === 'cancel') {
             // Esc — load the original message back into the input so the user
@@ -6115,9 +6325,9 @@ export function App({
           } else {
             effectiveText = decision === 'refined' ? refinedWithChips : trimmed;
           }
-          break reviewLoop;
+          break;
         }
-        break reviewLoop;
+        break;
       }
     }
 
@@ -6404,6 +6614,13 @@ export function App({
     enhanceActive ||
     state.refineFailure != null ||
     state.continueConfirm != null ||
+    state.clearConfirm != null ||
+    state.slashConfirm != null ||
+    state.confirmQueue.length > 0 ||
+    state.shellCommandWarning != null ||
+    state.brainPrompt != null ||
+    state.escConfirm != null ||
+    state.sendModePicker != null ||
     state.helpOpen ||
     state.projectPicker.open ||
     state.monitorOpen ||
@@ -6455,7 +6672,11 @@ export function App({
             autonomyMode={autonomyLive}
             multiDiffSummaryThreshold={state.settingsPicker.multiDiffSummaryThreshold}
             todos={liveTodos}
-            showModelReasoning={state.settingsPicker.open ? state.settingsPicker.showModelReasoning : (liveSettings?.showModelReasoning ?? true)}
+            showModelReasoning={
+              state.settingsPicker.open
+                ? state.settingsPicker.showModelReasoning
+                : (liveSettings?.showModelReasoning ?? true)
+            }
           />
         ) : (
           <History
@@ -6471,7 +6692,11 @@ export function App({
             autonomyMode={autonomyLive}
             multiDiffSummaryThreshold={state.settingsPicker.multiDiffSummaryThreshold}
             todos={liveTodos}
-            showModelReasoning={state.settingsPicker.open ? state.settingsPicker.showModelReasoning : (liveSettings?.showModelReasoning ?? true)}
+            showModelReasoning={
+              state.settingsPicker.open
+                ? state.settingsPicker.showModelReasoning
+                : (liveSettings?.showModelReasoning ?? true)
+            }
           />
         )}
         <Box flexDirection="column" flexShrink={0} ref={bottomRegionRef}>
@@ -6779,9 +7004,29 @@ export function App({
                   onDecision={onDecision}
                   onEnableYolo={onEnableYolo}
                   destructive={head.destructive}
+                  boundaryReason={head.boundaryReason}
                 />
               );
             })()}
+          {state.clearConfirm
+            ? <ClearConfirmPanel
+                leaderActive={state.clearConfirm.leaderActive}
+                subagentCount={state.clearConfirm.subagentCount}
+                value={state.clearConfirm.value}
+              />
+            : null}
+          {state.exitConfirm
+            ? <ExitConfirmPanel
+                leaderActive={state.exitConfirm.leaderActive}
+                subagentCount={state.exitConfirm.subagentCount}
+              />
+            : null}
+          {state.slashConfirm ? (
+            <SlashConfirmPanel
+              question={state.slashConfirm.question}
+              defaultYes={state.slashConfirm.defaultYes}
+            />
+          ) : null}
           {state.escConfirm ? (
             <Box flexDirection="column" marginY={1} flexShrink={0}>
               <EscConfirmPrompt
@@ -6847,7 +7092,7 @@ export function App({
             : null}
           {state.enhanceBusy && !state.enhance ? (
             <RefiningPanel
-              original={state.buffer}
+              original={enhanceOriginalRef.current}
               elapsedMs={enhanceStartedAt === null ? 0 : Math.max(0, Date.now() - enhanceStartedAt)}
               pulseFrame={enhanceDots}
               providerId={(agent.ctx.provider as { id?: string } | undefined)?.id}
@@ -6955,6 +7200,7 @@ export function App({
               workingDir={workingDirChip}
               subagentCount={visibleSubagentCount}
               processCount={getProcessRegistry().activeCount}
+              processMemory={processMemory}
               // The composer top rail owns the working/idle indicator, so only
               // suppress the duplicate `state` chip. Keep `model` governed by
               // the user's statusline settings so the live provider/model route
@@ -7055,6 +7301,7 @@ export function App({
                 sessionId={agent.ctx.session?.id ?? null}
                 sessionContext={agent.ctx}
                 onClose={() => dispatch({ type: 'toggleKanbanPanel' })}
+                initialBoardId={focusedBoardId ?? undefined}
               />
             ) : state.queuePanelOpen ? (
               <QueuePanel items={state.queue} />

@@ -1849,6 +1849,10 @@ export function reducer(state: State, action: Action): State {
         : state;
     case 'clearConfirmClose':
       return { ...state, clearConfirm: null };
+    case 'exitConfirmOpen':
+      return { ...state, exitConfirm: action.info };
+    case 'exitConfirmClose':
+      return { ...state, exitConfirm: null };
     case 'slashConfirmOpen':
       return { ...state, ...closePanels(state), slashConfirm: action.info };
     case 'slashConfirmClose':

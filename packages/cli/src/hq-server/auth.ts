@@ -6,6 +6,7 @@
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type * as http from 'node:http';
+import { isIP } from 'node:net';
 
 // ── Cookie / session constants ─────────────────────────────────────────────
 
@@ -70,36 +71,102 @@ export function setHqSecurityHeaders(res: http.ServerResponse): void {
 
 // ── CORS / origin guard ────────────────────────────────────────────────────
 
+function hasTrustedRequestAuthority(
+  req: http.IncomingMessage,
+  boundHost: string | undefined,
+  boundPort: number | undefined,
+  trustedPublicOrigins: ReadonlySet<string>,
+): boolean {
+  const rawHost = req.headers.host?.trim();
+  if (!rawHost) return false;
+
+  try {
+    const requestUrl = new URL(`http://${rawHost}`);
+    // Reject anything other than a bare authority (for example, userinfo, a
+    // path, query, or fragment). Do not compare normalized `.host` with the
+    // raw value: URL parsing intentionally removes explicit default ports.
+    if (
+      requestUrl.username ||
+      requestUrl.password ||
+      requestUrl.pathname !== '/' ||
+      requestUrl.search ||
+      requestUrl.hash
+    ) {
+      return false;
+    }
+
+    for (const origin of trustedPublicOrigins) {
+      const trusted = new URL(origin);
+      const normalizedRequest = new URL(`${trusted.protocol}//${rawHost}`);
+      if (trusted.host.toLowerCase() === normalizedRequest.host.toLowerCase()) return true;
+    }
+
+    const hostname = requestUrl.hostname.toLowerCase().replace(/^\[(.*)\]$/, '$1');
+    const requestPort = requestUrl.port || '80';
+    // Port 0 asks the OS to assign an ephemeral port; the handler receives the
+    // actual port only in Host, so treat 0 like an unspecified expected port.
+    const portMatches =
+      boundPort === undefined || boundPort === 0 || requestPort === String(boundPort);
+    const isLoopback = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+    if (isLoopback) return portMatches;
+
+    // Literal LAN addresses are safe from hostname rebinding. They are trusted
+    // only for a wildcard bind (or when they equal an explicit IP bind).
+    if (isIP(hostname) !== 0) {
+      const normalizedBoundHost = boundHost?.toLowerCase().replace(/^\[(.*)\]$/, '$1');
+      const permitsIpHost =
+        normalizedBoundHost === undefined ||
+        normalizedBoundHost === '0.0.0.0' ||
+        normalizedBoundHost === '::' ||
+        normalizedBoundHost === hostname;
+      return permitsIpHost && portMatches;
+    }
+
+    // An explicitly configured named bind is an operator-owned trust decision.
+    // Arbitrary request-selected hostnames are never authorized.
+    return boundHost?.toLowerCase() === hostname && portMatches;
+  } catch {
+    return false;
+  }
+}
+
 export function hasTrustedBrowserOrigin(
   req: http.IncomingMessage,
-  _boundHost?: string,
+  boundHost?: string,
   boundPort?: number,
+  trustedPublicOrigins: ReadonlySet<string> = new Set(),
 ): boolean {
+  // Host authorization is required even when browsers omit Origin (notably on
+  // same-origin GET/HEAD). Otherwise DNS rebinding can still read open-mode HQ
+  // telemetry through an attacker-selected authority.
+  if (!hasTrustedRequestAuthority(req, boundHost, boundPort, trustedPublicOrigins)) return false;
+
   const origin = req.headers.origin;
-  // Note: we do NOT accept origin === 'null' here (sandboxed iframes produce
-  // 'null' and would bypass the port check). The `file:` check below handles
-  // file:// origins, which some browsers report as 'null'.
+  // Non-browser clients commonly omit Origin, but their Host authority still
+  // has to identify the configured HQ endpoint.
   if (origin === undefined) return true;
   try {
     const parsed = new URL(origin);
-    // Loopback and local origins are trusted only when the port matches the
-    // bound port. A malicious app on localhost:8888 must not be able to reuse
-    // a password cookie set for HQ on localhost:34827.
-    if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1') {
-      if (boundPort !== undefined) {
-        return parsed.port === String(boundPort);
-      }
-      // No bound port provided (legacy callers) — accept any port.
-      return true;
-    }
     // File:// origins (the HQ dashboard served from a local file for
-    // air-gapped use) are also trusted.
+    // air-gapped use) are also trusted. The request Host was checked above.
     if (parsed.protocol === 'file:') return true;
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+
+    const rawRequestHost = req.headers.host?.trim();
+    if (!rawRequestHost) return false;
+    const requestHost = new URL(`${parsed.protocol}//${rawRequestHost}`).host.toLowerCase();
+    if (parsed.host.toLowerCase() !== requestHost) return false;
+
+    // Public hostnames must match the exact registered scheme as well as the
+    // authority. Local/LAN requests are served over HTTP directly.
+    const registeredPublicOrigin = [...trustedPublicOrigins].some(
+      (trustedOrigin) => new URL(trustedOrigin).host.toLowerCase() === requestHost,
+    );
+    return !registeredPublicOrigin || trustedPublicOrigins.has(parsed.origin.toLowerCase());
   } catch {
     // Unparseable origin → reject.
     return false;
   }
-  return false;
 }
 
 // ── Session cookie helpers ──────────────────────────────────────────────────
@@ -148,7 +215,11 @@ export function parseCookieHeader(cookieHeader: string | undefined): Record<stri
   return out;
 }
 
-export function setHqSessionCookie(res: http.ServerResponse, value: string, secure?: boolean): void {
+export function setHqSessionCookie(
+  res: http.ServerResponse,
+  value: string,
+  secure?: boolean,
+): void {
   const parts = [
     `${HQ_SESSION_COOKIE}=${encodeURIComponent(value)}`,
     'Path=/',
@@ -161,9 +232,7 @@ export function setHqSessionCookie(res: http.ServerResponse, value: string, secu
 }
 
 export function clearHqSessionCookie(res: http.ServerResponse, secure?: boolean): void {
-  const parts = [
-    `${HQ_SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`,
-  ];
+  const parts = [`${HQ_SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`];
   if (secure) parts.push('Secure');
   res.setHeader('Set-Cookie', parts.join('; '));
 }
@@ -237,7 +306,11 @@ export function authenticateBrowserRequest(
     const matchedToken = timingSafeTokenMatch(mutableAuth.browserTokens, token);
     if (matchedToken) {
       const obj = mutableAuth.browserTokenObjs.get(matchedToken);
-      const ctx: HqBrowserAuthContext = { kind: 'token', token: matchedToken, id: obj?.id ?? 'unknown' };
+      const ctx: HqBrowserAuthContext = {
+        kind: 'token',
+        token: matchedToken,
+        id: obj?.id ?? 'unknown',
+      };
       if (obj?.capabilities !== undefined) ctx.capabilities = obj.capabilities;
       return ctx;
     }

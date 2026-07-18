@@ -52,10 +52,8 @@ const VIEWS = [
   'memory',
   'context',
   'goal',
-  'specs',
   'kanban',
-  'sddboard',
-  'sddwizard',
+  'sddhub',
   'files',
   'changes',
   'sessions',
@@ -111,6 +109,7 @@ interface UIState {
     suggestedPattern: string;
     decisionSource?: string | undefined;
     riskTier?: 'safe' | 'standard' | 'destructive' | undefined;
+    boundaryReason?: string | undefined;
   } | null;
   paletteOpen: boolean;
   shortcutsOpen: boolean;

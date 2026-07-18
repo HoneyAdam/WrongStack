@@ -1,22 +1,29 @@
 import {
+  Activity,
   ArrowLeft,
   Check,
   Clock,
+  FileText,
   GitBranch,
+  Maximize2,
+  Minimize2,
   RotateCcw,
   Split,
   Square,
+  Terminal,
   Trash2,
   UserCog,
   X,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { ModelCandidate } from '@/hooks/useProviderModels';
+import { usePagination } from '@/hooks/usePagination';
 import { agentInitials, fmtDuration, priorityStyle, statusStyle } from '@/lib/sdd-theme';
 import { cn } from '@/lib/utils';
 import { useAppTranslation } from '@/i18n';
 import type { BoardTaskItem, SddBoardFeedEntry } from '@/stores';
 import { ModelPicker } from './ModelPicker';
+import { Pagination } from './ui/pagination';
 
 /**
  * SddTaskDrawer — the per-task "show": full detail of a clicked task. Status,
@@ -28,9 +35,11 @@ export function SddTaskDrawer({
   allTasks,
   feed,
   now,
+  expanded,
   modelCandidates,
   defaultModel,
   onClose,
+  onToggleExpanded,
   onRetry,
   onReassign,
   onSetModel,
@@ -44,9 +53,11 @@ export function SddTaskDrawer({
   allTasks: BoardTaskItem[];
   feed: SddBoardFeedEntry[];
   now: number;
+  expanded?: boolean;
   modelCandidates: ModelCandidate[];
   defaultModel?: string | undefined;
   onClose: () => void;
+  onToggleExpanded?: () => void;
   onRetry: (id: string) => void;
   onReassign: (id: string, agentName: string) => void;
   onSetModel: (id: string, model: string | undefined, provider?: string | undefined) => void;
@@ -109,8 +120,8 @@ export function SddTaskDrawer({
     [allTasks, task.shortId],
   );
   const taskEvents = useMemo(
-    () => feed.filter((e) => e.taskShortId === task.shortId),
-    [feed, task.shortId],
+    () => feed.filter((e) => e.taskId === task.id || e.taskShortId === task.shortId),
+    [feed, task.id, task.shortId],
   );
 
   const elapsed =
@@ -123,7 +134,7 @@ export function SddTaskDrawer({
   return (
     <div className="sdd-rise flex h-full min-h-0 min-w-0 flex-col">
       {/* header */}
-      <div className="flex items-center gap-2 border-b border-border/70 bg-card/70 px-3 py-2">
+      <div className={cn('flex items-center gap-2 border-b border-border/70 bg-card/70 px-3 py-2', expanded && 'px-5 py-3')}>
         <button
           type="button"
           onClick={onClose}
@@ -133,6 +144,26 @@ export function SddTaskDrawer({
           <ArrowLeft className="h-4 w-4" />
         </button>
         <span className="font-mono text-xs text-muted-foreground">{task.shortId}</span>
+        {onToggleExpanded && (
+          <button
+            type="button"
+            onClick={onToggleExpanded}
+            className="ml-1 inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            title={
+              expanded
+                ? t('activity:sddTask.collapseTitle')
+                : t('activity:sddTask.expandTitle')
+            }
+            aria-label={
+              expanded
+                ? t('activity:sddTask.collapseTitle')
+                : t('activity:sddTask.expandTitle')
+            }
+            aria-pressed={expanded}
+          >
+            {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          </button>
+        )}
         <span
           className={cn(
             'ml-auto flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]',
@@ -145,8 +176,17 @@ export function SddTaskDrawer({
         </span>
       </div>
 
-      <div className="min-h-0 min-w-0 flex-1 space-y-3 overflow-auto overscroll-contain p-3">
-        <h3 className="text-sm font-semibold leading-snug text-foreground">{task.title}</h3>
+      <div
+        className={cn(
+          'min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain',
+          expanded
+            ? 'grid grid-cols-2 content-start gap-4 p-5'
+            : 'space-y-3 p-3',
+        )}
+      >
+        <h3 className={cn('text-sm font-semibold leading-snug text-foreground', expanded && 'col-span-2 text-lg')}>
+          {task.title}
+        </h3>
 
         {/* worker */}
         {task.agentName && (
@@ -318,7 +358,7 @@ export function SddTaskDrawer({
 
         {/* description */}
         {task.description && (
-          <div>
+          <div className={cn(expanded && 'col-span-2')}>
             <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
               {t('activity:sddTask.description')}
             </div>
@@ -328,36 +368,7 @@ export function SddTaskDrawer({
           </div>
         )}
 
-        {/* per-task timeline (its own slice of the activity feed) */}
-        {taskEvents.length > 0 && (
-          <div>
-            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              {t('activity:sddTask.timeline')}
-            </div>
-            <div className="space-y-1 border-l border-border pl-2.5">
-              {taskEvents.map((e, i) => (
-                <div
-                  key={`${e.ts}-${i}`}
-                  className="relative text-[11px] leading-snug text-foreground"
-                >
-                  <span
-                    className={cn(
-                      'absolute -left-[14px] top-1 h-1.5 w-1.5 rounded-full',
-                      e.kind === 'completed'
-                        ? 'bg-success'
-                        : e.kind === 'failed'
-                          ? 'bg-destructive'
-                          : e.kind === 'retrying'
-                            ? 'bg-warning'
-                            : 'bg-primary',
-                    )}
-                  />
-                  {e.text}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        <TaskEventLog events={taskEvents} expanded={expanded} />
 
         {/* dependency chain */}
         {task.deps.length > 0 && (
@@ -379,7 +390,7 @@ export function SddTaskDrawer({
       </div>
 
       {/* actions — inline, no native alert/confirm/prompt */}
-      <div className="border-t border-border p-2">
+      <div className={cn('border-t border-border p-2', expanded && 'px-5 py-3')}>
         {reassigning ? (
           <div className="sdd-rise flex items-center gap-1.5">
             <input
@@ -517,6 +528,113 @@ export function SddTaskDrawer({
         )}
       </div>
     </div>
+  );
+}
+
+function TaskEventLog({
+  events,
+  expanded,
+}: {
+  events: SddBoardFeedEntry[];
+  expanded?: boolean;
+}) {
+  const { t } = useAppTranslation();
+  const eventPage = usePagination(events, expanded ? 20 : 10, expanded);
+  return (
+    <section className={cn('rounded-lg border border-border/70 bg-background/45', expanded && 'col-span-2')}>
+      <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2.5">
+        <Activity className="h-4 w-4 text-primary" />
+        <h4 className="text-xs font-semibold text-foreground">
+          {t('activity:sddTask.eventLog')}
+        </h4>
+        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+          {events.length}
+        </span>
+        <span className="ml-auto text-[10px] text-muted-foreground">
+          {t('activity:sddTask.newestFirst')}
+        </span>
+      </div>
+
+      {events.length === 0 ? (
+        <p className="px-3 py-5 text-center text-[11px] text-muted-foreground">
+          {t('activity:sddTask.noEvents')}
+        </p>
+      ) : (
+        <div className={cn('divide-y divide-border/45 overflow-auto', expanded ? 'max-h-[32rem]' : 'max-h-72')}>
+          {eventPage.pageItems.map((event, index) => {
+            const isFile = event.kind === 'file';
+            const isTool = event.kind === 'tool';
+            const failed = event.ok === false || event.kind === 'failed' || event.kind === 'verification_failed';
+            const Icon = isFile ? FileText : isTool ? Terminal : Activity;
+            return (
+              <div
+                key={`${event.ts}-${event.kind}-${index}`}
+                className={cn(
+                  'grid grid-cols-[4.75rem_1rem_minmax(0,1fr)] gap-2 px-3 py-2.5 text-[11px]',
+                  failed && 'bg-destructive/[0.035]',
+                )}
+              >
+                <time
+                  dateTime={new Date(event.ts).toISOString()}
+                  className="font-mono text-[10px] text-muted-foreground"
+                  title={new Date(event.ts).toLocaleString()}
+                >
+                  {new Date(event.ts).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                  })}
+                </time>
+                <Icon
+                  className={cn(
+                    'mt-0.5 h-3.5 w-3.5',
+                    failed ? 'text-destructive' : isFile ? 'text-info' : isTool ? 'text-warning' : 'text-primary',
+                  )}
+                />
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {event.action && (
+                      <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] font-medium text-foreground">
+                        {event.action}
+                      </span>
+                    )}
+                    {event.agentName && (
+                      <span className="text-[10px] text-muted-foreground">{event.agentName}</span>
+                    )}
+                    {event.durationMs !== undefined && (
+                      <span className="text-[10px] text-muted-foreground">
+                        {event.durationMs < 1000
+                          ? `${Math.round(event.durationMs)}ms`
+                          : `${(event.durationMs / 1000).toFixed(1)}s`}
+                      </span>
+                    )}
+                  </div>
+                  {event.filePath ? (
+                    <code className="mt-1 block break-all font-mono text-[10px] leading-relaxed text-foreground">
+                      {event.filePath}
+                    </code>
+                  ) : event.detail ? (
+                    <code className="mt-1 block break-words font-mono text-[10px] leading-relaxed text-muted-foreground">
+                      {event.detail}
+                    </code>
+                  ) : (
+                    <p className="mt-1 break-words leading-relaxed text-foreground">{event.text}</p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <Pagination
+        page={eventPage.page}
+        pageSize={eventPage.pageSize}
+        totalItems={eventPage.totalItems}
+        onPageChange={eventPage.setPage}
+        compact
+        itemLabel="task events"
+      />
+    </section>
   );
 }
 

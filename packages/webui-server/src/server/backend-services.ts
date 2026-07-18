@@ -27,6 +27,7 @@ import type {
   CollaborationBus,
   Compactor,
   Context,
+  ConsolidatorSuperMemory,
   MemoryStore,
   DefaultModeStore,
   EventBus,
@@ -397,7 +398,13 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
     toolExecutor,
   });
   if (config.features.memory && config.features.memoryConsolidation !== false) {
-    agent.extensions.register(new SessionMemoryConsolidator({ memoryStore }));
+    const consSuperMemory = typeof (memoryStore as unknown as Record<string, unknown>)['rememberSuper'] === 'function'
+      ? (memoryStore as unknown as ConsolidatorSuperMemory)
+      : undefined;
+    agent.extensions.register(new SessionMemoryConsolidator({
+      memoryStore,
+      ...(consSuperMemory ? { superMemory: consSuperMemory } : {}),
+    }));
   }
   console.log('[WebUI] Agent initialized');
 

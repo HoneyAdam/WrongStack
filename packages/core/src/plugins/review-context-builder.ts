@@ -312,7 +312,7 @@ async function findFileProvenance(
   const provenance: NonNullable<ReviewContextBundle['fileProvenance']> = [];
   for (const filePath of filePaths) {
     try {
-      const result = engine.query({ path: filePath, limit: 1, order: 'desc' });
+      const result = await engine.query({ path: filePath, limit: 1, order: 'desc' });
       const evt: any = result.events[0];
       if (!evt) continue;
       const scope = evt.scope ?? {};

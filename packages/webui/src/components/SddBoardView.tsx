@@ -17,6 +17,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useProviderModels } from '@/hooks/useProviderModels';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { usePagination } from '@/hooks/usePagination';
 import { agentInitials, fmtDuration, SDD_AGENT_COLORS, SDD_RUN_STATUS } from '@/lib/sdd-theme';
 import { cn } from '@/lib/utils';
 import { i18n, useAppTranslation } from '@/i18n';
@@ -27,6 +28,7 @@ import { type FlowTask, SddFlowGraph } from './SddFlowGraph';
 import { SddKanbanView } from './SddKanbanView';
 import { SddTaskDrawer } from './SddTaskDrawer';
 import { Button } from './ui/button';
+import { Pagination } from './ui/pagination';
 
 /** Circular progress ring. */
 function ProgressRing({ pct }: { pct: number }): React.ReactElement {
@@ -78,6 +80,7 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
   const setLifecycleResult = useSddBoardStore((s) => s.setLifecycleResult);
   const [now, setNow] = useState(() => Date.now());
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [taskDetailExpanded, setTaskDetailExpanded] = useState(false);
   const [viewMode, setViewMode] = useState<'graph' | 'kanban'>('graph');
   const [destroyOpen, setDestroyOpen] = useState(false);
 
@@ -177,6 +180,10 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
 
   // Click a task → open its detail drawer (not an instant retry).
   const onTaskClick = useCallback((taskId: string) => setSelectedTaskId(taskId), []);
+  const closeTaskDetail = useCallback(() => {
+    setSelectedTaskId(null);
+    setTaskDetailExpanded(false);
+  }, []);
   const onRetry = useCallback(
     (taskId: string) => send({ type: 'sdd.board.retry', payload: { taskId } }),
     [send],
@@ -210,6 +217,7 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
     (taskId: string) => {
       send({ type: 'sdd.board.delete_task', payload: { taskId } });
       setSelectedTaskId(null); // the task is gone — drop the drawer selection
+      setTaskDetailExpanded(false);
     },
     [send],
   );
@@ -217,6 +225,7 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
     (taskId: string, subtasks: Array<{ title: string; description: string }>) => {
       send({ type: 'sdd.board.split_task', payload: { taskId, subtasks } });
       setSelectedTaskId(null); // parent becomes a container — close the drawer
+      setTaskDetailExpanded(false);
     },
     [send],
   );
@@ -231,6 +240,7 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
 
   const p = snapshot?.progress;
   const chains = snapshot?.diagnostics?.deadlockChains ?? [];
+  const chainPage = usePagination(chains, 5);
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-background">
@@ -464,11 +474,20 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <div>
             <div className="font-semibold">{t('activity:sddBoard.deadlock')}</div>
-            {chains.map((c) => (
+            {chainPage.pageItems.map((c) => (
               <div key={c.blocked} className="font-mono">
                 {c.blocked} ← {c.blockedBy.join(', ')}
               </div>
             ))}
+            <Pagination
+              page={chainPage.page}
+              pageSize={chainPage.pageSize}
+              totalItems={chainPage.totalItems}
+              onPageChange={chainPage.setPage}
+              className="mt-1 border-destructive/20 bg-transparent"
+              compact
+              itemLabel="deadlock chains"
+            />
           </div>
         </div>
       )}
@@ -506,17 +525,26 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
 
         {/* Side panel: task detail when one is selected, else the live activity feed. */}
         {snapshot && (
-          <aside className="w-80 shrink-0 border-l border-border bg-card">
+          <aside
+            data-testid="sdd-task-panel"
+            data-expanded={taskDetailExpanded && selectedTask ? 'true' : 'false'}
+            className={cn(
+              'shrink-0 border-l border-border bg-card transition-[width] duration-200 ease-out',
+              taskDetailExpanded && selectedTask ? 'w-[min(72rem,72vw)]' : 'w-80',
+            )}
+          >
             {selectedTask ? (
               <SddTaskDrawer
                 key={selectedTask.id}
                 task={selectedTask}
                 allTasks={snapshot.tasks}
-                feed={snapshot.feed ?? []}
+                feed={snapshot.taskEvents?.[selectedTask.id] ?? snapshot.feed ?? []}
                 now={now}
+                expanded={taskDetailExpanded}
                 modelCandidates={modelCandidates}
                 defaultModel={snapshot.defaultModel}
-                onClose={() => setSelectedTaskId(null)}
+                onClose={closeTaskDetail}
+                onToggleExpanded={() => setTaskDetailExpanded((value) => !value)}
                 onRetry={onRetry}
                 onReassign={onReassign}
                 onSetModel={onSetModel}

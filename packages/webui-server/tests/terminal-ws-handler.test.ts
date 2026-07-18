@@ -45,6 +45,7 @@ const { spawned, spawnMock } = vi.hoisted(() => {
 });
 
 import { TerminalWebSocketHandler } from '@wrongstack/webui-server';
+import { resolveTerminalShell } from '../src/server/terminal-ws-handler.js';
 
 // ── Fake WebSocket ───────────────────────────────────────────────────────────
 function makeWs() {
@@ -278,5 +279,21 @@ describe('TerminalWebSocketHandler', () => {
       },
     });
     expect(ws.sent).toContainEqual({ type: 'terminal.exit', payload: { id: 't1', exitCode: -1 } });
+  });
+});
+
+describe('resolveTerminalShell', () => {
+  it('uses the configured POSIX shell', () => {
+    expect(resolveTerminalShell('linux', { SHELL: '/usr/bin/fish' })).toBe('/usr/bin/fish');
+  });
+
+  it('falls back to the portable POSIX shell', () => {
+    expect(resolveTerminalShell('linux', {})).toBe('/bin/sh');
+  });
+
+  it('uses COMSPEC on Windows', () => {
+    expect(resolveTerminalShell('win32', { COMSPEC: 'C:\\Windows\\cmd.exe' })).toBe(
+      'C:\\Windows\\cmd.exe',
+    );
   });
 });

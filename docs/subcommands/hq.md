@@ -35,6 +35,8 @@ the control plane (browser → client `steer` / `btw` / `queue` / `abort` /
 | `wstack --hq --port 4000` | Override the default port |
 | `wstack --hq --strict-port` | Fail (exit non-zero) if the requested port is busy instead of auto-advancing |
 | `wstack --hq --open` | Auto-open the dashboard in the user's default browser after the server starts |
+| `wstack --hq --password <value>` | Set or rotate the password-backed browser login |
+| `wstack --hq --tunnel --password <value>` | Bind HQ to loopback and publish a temporary `*.trycloudflare.com` HTTPS URL |
 | `wstack hq` | Equivalent to `wstack --hq` (subcommand form) |
 | `wstack hq serve` | Same as `wstack hq` (explicit form) |
 | `wstack hq token create [label]` | Mint a browser token (enters TOKEN MODE), write to `<dataDir>/auth.json` |
@@ -95,6 +97,8 @@ All flags are parsed by the unified `parseArgs()` in
 | `--strict-port` | `--strict-port` | boolean | `false` | Fail if the requested port is in use; otherwise scan forward for a free port (bounded) |
 | `--open` | `--open` | boolean | `false` | Open the dashboard URL in the default browser after the server prints its listening URL. Implementation: dynamic `import('@wrongstack/webui/server')` of `openBrowser()`. Errors are best-effort and silently swallowed |
 | `--data-dir` | `--data-dir <path>` or `--data-dir=<path>` | string | `~/.wrongstack/hq` | HQ data directory: where `auth.json` (and in later phases, the persistent event log + snapshot cache) live. Relative paths resolve against `process.cwd()`. The env var `WRONGSTACK_HQ_DATA_DIR` provides the same override without a CLI flag; the flag wins when both are set. The default honors `WRONGSTACK_HOME`, so pointing that at a sandbox also relocates HQ state |
+| `--password` | `--password <value>` or `--password=<value>` | string | `WRONGSTACK_HQ_PASSWORD` / unset | Enable password login or rotate an existing password (minimum 8 characters). Stored only as a scrypt hash; rotation invalidates existing password sessions. Prefer the environment variable on shared machines so the secret is not present in the process command line |
+| `--tunnel` | `--tunnel` | boolean | `false` | Start `cloudflared tunnel --url <loopback HQ URL>`, print the temporary HTTPS URL, and stop the tunnel with HQ. Requires `cloudflared` in `PATH`; refuses open mode/non-loopback binds. If live reload removes the final browser credential, data APIs remain authenticated and existing browser sessions/channels are revoked until authentication is restored |
 | `--client` | `--client` or `-c` | boolean | `false` | Token subcommand scope selector. When passed to `wstack hq token create/list/revoke`, operates on **client tokens** (validated on `/ws/client`) instead of the default **browser tokens** (validated on `/ws/browser`). Phase 4 |
 | `--capabilities` | `--capabilities <csv>` | string | scope default | Token grants. Browser tokens allow `control.enqueue`; client tokens allow `telemetry.publish` and optionally `control.execute`. New browser/client defaults are `control.enqueue` / `telemetry.publish` respectively |
 
@@ -103,7 +107,7 @@ All flags are parsed by the unified `parseArgs()` in
 - `--key value` (next arg does not start with `-`) → `flags[name] = "value"` (parsed by the positional-value branch)
 - `--key` alone → `flags[name] = true` (parser falls through to boolean)
 
-`--hq`, `--open`, `--strict-port`, and `--client` are listed in
+`--hq`, `--open`, `--tunnel`, `--strict-port`, and `--client` are listed in
 `BOOLEAN_FLAGS`, so they never consume the positional token label that follows.
 `--host`, `--port`, and `--capabilities` accept values.
 
@@ -140,6 +144,10 @@ Consequences:
 |---|---|---|---|
 | `/` | GET | `text/html` | The HQ panel: the built `@wrongstack/webui-hq` React app when its dist resolves, else the self-contained inline fallback. Static assets under `/assets/` (token-exempt). API/WS paths are never routed through the static server |
 | `/api/snapshot` | GET | `application/json` (`HqSnapshot`) | Same shape the browser receives on `/ws/browser` connect (see `HqSnapshot` schema in `protocol.ts`) |
+| `/api/auth/status` | GET | `application/json` | Public auth-mode metadata used to render the credential gate; contains no credentials or telemetry |
+| `/api/login` / `/api/logout` | POST | `application/json` | Password session lifecycle. Login is throttled and sets a signed HttpOnly cookie; logout invalidates it |
+| `/api/auth/password` | POST / DELETE | `application/json` | Create/change/remove the HQ browser password from the Security view. Password sessions must provide the current password; an authenticated browser token can recover/reset it. Local loopback open mode may bootstrap its first password. Public relay mode refuses removal of the final browser auth method |
+| `/api/system/update` | GET | `application/json` | Cached npm self-update status used by the HQ warning banner. The UI polls every six hours; registry access remains capped by the existing 24-hour update cache |
 | `/api/projects/:id` | GET | `application/json` (`ProjectDetail`) | Drilldown endpoint used by the project drawer |
 | `/api/fleet` | GET | `application/json` (`HqSnapshot`) | Alias of the live snapshot (fleet rollup) |
 | `/api/events` | GET | `application/json` `{events, total}` | Persisted event envelopes from `<dataDir>/events.jsonl`, newest first. `?limit=` (≤5000), `?type=` filter. The panel backfills Brain / Worktrees / Mailbox from here |
@@ -734,6 +742,7 @@ when configured. The resolution logic lives in
 | `WRONGSTACK_HQ_URL` | string | _(unset)_ | HQ endpoint. Accepts `http://host:port`, `https://host:port`, `ws://host:port[/path]`, or `wss://host:port[/path]`. The publisher normalizes the scheme (`http`→`ws`, `https`→`wss`) and appends `/ws/client` if the path is `/` or empty. When unset, the client falls back to same-machine **auto-discovery** (see below) |
 | `WRONGSTACK_HQ_ENABLED` | `0` / `1` | `1` (auto-discovery) | `0` disables publishing entirely — including auto-discovery. Any other non-empty value forces enabled even when config says otherwise |
 | `WRONGSTACK_HQ_TOKEN` | string | _(unset)_ | Optional client enrollment token. When set, the publisher appends it as a `?token=…` query parameter on the `/ws/client` upgrade. Required by Phase 2+ when the server runs in remote/auth mode |
+| `WRONGSTACK_HQ_PASSWORD` | string | _(unset)_ | Server-side browser password used when `--password` is omitted. Sets or rotates the scrypt hash at startup; minimum 8 characters |
 | `WRONGSTACK_HQ_RAW_CONTENT` | `0` / `1` | `1` | Publish raw prompt / output / file / log content. Defaults to **on** for every HQ target unless explicitly disabled. Set `0` to force raw-content redaction. Maps to `HqRedactionPolicy.rawContent` |
 | `WRONGSTACK_HQ_PROJECT_ALIAS` | string | basename of project root | Human-readable project name shown in HQ. Overrides the default `basename(projectRoot)` fallback (`"unknown"` if both are missing) |
 
@@ -814,11 +823,11 @@ simultaneously.
 > client (`/ws/client`) WebSocket channels, with **live reload** of the
 > token lists from `auth.json`, same-origin checks for browser writes and
 > WebSocket upgrades, security response headers, scoped token capabilities,
-> strict protocol validation, and server-side redaction. It still does **not**
-> implement browser password auth, TLS termination, or per-client rate limiting.
-> For unattended / multi-tenant deployments, use
-> TOKEN MODE + a TLS-terminating reverse proxy. The plan for password auth
-> and stricter browser controls lives in
+> strict protocol validation, password login with throttling, and server-side
+> redaction. HQ itself does **not** terminate TLS and Quick Tunnel is intended
+> only for temporary development/demo sharing. For unattended deployments, use
+> token/password mode plus a production TLS-terminating, identity-aware proxy.
+> The plan for stricter browser controls lives in
 > [Access Control and Security](../plans/hq-command-center-2026-06.md#access-control-and-security).
 > The consolidated threat model, defaults, and roadmap are tracked
 > in [SECURITY.md](../../SECURITY.md). Treat anything below as
@@ -867,7 +876,18 @@ scheme automatically:
 | `https://hq.example.com` | proxied HTTPS → HTTP on the HQ loopback port |
 | `wss://hq.example.com/ws/client` | proxied TLS WebSocket → plain WS on the HQ loopback port |
 
-Cloudflare Tunnel (from the plan, Phase 2+):
+For a temporary development/demo tunnel, HQ can manage `cloudflared` itself:
+
+```bash
+wstack --hq --tunnel --password "use-a-strong-password" --open
+```
+
+The origin binds to `127.0.0.1`; HQ prints a random HTTPS
+`*.trycloudflare.com` URL and shuts the tunnel down with the HQ process.
+Quick Tunnels are temporary, change URL on restart, and are not a production
+deployment mechanism. HQ refuses to publish an explicit open-mode auth file.
+
+The equivalent manual flow remains available:
 
 ```bash
 wstack --hq --host 127.0.0.1 --port 3499   # loopback only
@@ -875,8 +895,8 @@ cloudflared tunnel --url http://localhost:3499
 ```
 
 Keep HQ on `127.0.0.1` and let `cloudflared` be the only thing that can
-reach it. Even with Cloudflare Access in front, the plan recommends keeping
-a separate client enrollment token on `/ws/client` once Phase 2 lands.
+reach it. Keep the browser password/token and the separate client enrollment
+token enabled even when another access layer sits in front of HQ.
 
 ### VPS / public internet
 
@@ -888,7 +908,12 @@ the prerequisites (HTTPS reverse proxy, strong password, client enrollment
 tokens, explicit retention/data directory, no raw content publishing) —
 all of which require Phase 2 auth work that has not shipped yet.
 
-### What Phase 2 adds (in progress)
+### Authentication and persistence status
+
+The dashboard's **System → Security** view shows the active browser auth
+methods and supports enabling, changing, or removing the password plus logging
+out the current browser. CLI `--password` / `WRONGSTACK_HQ_PASSWORD` remain
+available for headless recovery.
 
 Phase 2 is landing in slices. What is already shipped:
 
@@ -936,11 +961,6 @@ Also shipped since:
 
 What is still coming (Phase 7 remainder):
 
-- **Browser password auth** — password login for non-loopback browsers,
-  HTTP-only session cookie, `scrypt`/`argon2` password hash. Token mode
-  (shipped) covers the immediate case of "let a teammate open the dashboard
-  without exposing it publicly"; password auth covers multi-tenant /
-  unattended deployments.
 - **Token hash-at-rest** — SHA-256 in `auth.json`; raw token returned once
   on mint.
 - **Per-client rate limiting** on the HTTP routes (mirror `WEBUI_RATE_LIMIT`).
@@ -1063,10 +1083,10 @@ previous valid state; a future valid write re-triggers the reload.
 > network filesystems events may not fire; the operator must restart the
 > server to pick up changes in that case.
 
-Until browser password auth lands, the supported deployment is: loopback on
-the developer's own machine, optional LAN exposure on a trusted network,
-with any TLS / tunnel handled by an external proxy that does not forward
-unauthenticated traffic from the public internet. The authoritative
+The supported posture is: loopback for a developer machine, optional LAN
+exposure on a trusted network, or `--tunnel` for short-lived demos with
+password/token protection. Production exposure needs a durable, trusted TLS
+proxy that does not forward unauthenticated traffic. The authoritative
 source for the HQ security posture is [SECURITY.md](../../SECURITY.md)
 (sections *HQ command center (Phase 1)* and *HQ Phase 2 auth roadmap*) —
 this subcommand doc reproduces the highlights but defers to SECURITY.md

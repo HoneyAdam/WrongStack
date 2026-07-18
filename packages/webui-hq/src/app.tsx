@@ -10,9 +10,11 @@ import {
   BrainCircuit,
   ChartNoAxesCombined,
   CircleDollarSign,
+  Copy,
   GitBranch,
   Inbox,
   LayoutDashboard,
+  LogOut,
   type LucideIcon,
   MessageSquareText,
   Moon,
@@ -22,8 +24,10 @@ import {
   RadioTower,
   RotateCcw,
   Server,
+  Settings2,
   ShieldCheck,
   Sun,
+  TriangleAlert,
   Users,
   Wifi,
   WifiOff,
@@ -39,7 +43,7 @@ import {
   useState,
 } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { resolveHqToken } from './lib/auth.js';
+import { authorizedFetch, clearHqToken, resolveHqToken } from './lib/auth.js';
 import { fetchJson, useHqStore, type ViewId } from './store.js';
 import { setHqAppearancePrefs, useHqLocalPrefs } from './stores/hq-local-prefs.js';
 import { TokenGate } from './views/token-gate.js';
@@ -55,8 +59,25 @@ export interface HqViewDefinition {
   description: string;
   group: HqViewGroup;
   icon: LucideIcon;
-  shortcut: number;
+  shortcut?: number | undefined;
 }
+
+interface HqUpdateStatus {
+  current: string;
+  latest: string;
+  outdated: boolean;
+  checkFailed: boolean;
+  packageName: 'wrongstack' | '@wrongstack/cli';
+  command: string;
+}
+
+interface HqAuthStatus {
+  tokenMode: boolean;
+  passwordMode: boolean;
+  loggedIn: boolean;
+}
+
+const UPDATE_POLL_MS = 6 * 60 * 60 * 1000;
 
 export const HQ_VIEW_DEFINITIONS: readonly HqViewDefinition[] = [
   {
@@ -149,6 +170,14 @@ export const HQ_VIEW_DEFINITIONS: readonly HqViewDefinition[] = [
     icon: RadioTower,
     shortcut: 0,
   },
+  {
+    id: 'settings',
+    label: 'Security',
+    eyebrow: 'Access control',
+    description: 'Manage the HQ browser password, authentication and active credentials.',
+    group: 'System',
+    icon: Settings2,
+  },
 ];
 
 const GROUPS: readonly HqViewGroup[] = ['Operations', 'Intelligence', 'System'];
@@ -179,6 +208,9 @@ const VIEW_COMPONENTS: Record<ViewId, LazyExoticComponent<ComponentType>> = {
   ),
   control: lazy(() =>
     import('./views/control.js').then((module) => ({ default: module.ControlView })),
+  ),
+  settings: lazy(() =>
+    import('./views/settings.js').then((module) => ({ default: module.SettingsView })),
   ),
 };
 
@@ -245,6 +277,9 @@ export function HqApp(): React.ReactElement {
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window === 'undefined' || window.innerWidth >= 1180,
   );
+  const [updateStatus, setUpdateStatus] = useState<HqUpdateStatus | null>(null);
+  const [authStatus, setAuthStatus] = useState<HqAuthStatus | null>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
   const { theme } = useHqLocalPrefs().appearance;
 
   useEffect(() => {
@@ -265,6 +300,39 @@ export function HqApp(): React.ReactElement {
       });
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchJson<HqAuthStatus>('/api/auth/status')
+      .then((status) => {
+        if (!cancelled) setAuthStatus(status);
+      })
+      .catch(() => {
+        // Snapshot/WS auth handling remains authoritative.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadUpdateStatus = (): void => {
+      fetchJson<HqUpdateStatus>('/api/system/update')
+        .then((status) => {
+          if (!cancelled) setUpdateStatus(status);
+        })
+        .catch(() => {
+          // Update checks are advisory and must never block the command center.
+        });
+    };
+    loadUpdateStatus();
+    const timer = window.setInterval(loadUpdateStatus, UPDATE_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
     };
   }, []);
 
@@ -308,6 +376,16 @@ export function HqApp(): React.ReactElement {
     if (window.innerWidth < 900) setSidebarOpen(false);
   };
 
+  const logout = async (): Promise<void> => {
+    setLoggingOut(true);
+    try {
+      await authorizedFetch('/api/logout', { method: 'POST' });
+    } finally {
+      clearHqToken();
+      window.location.reload();
+    }
+  };
+
   return (
     <div className="hq-app" data-theme={theme} data-testid="hq-workbench">
       <button
@@ -320,9 +398,12 @@ export function HqApp(): React.ReactElement {
 
       <aside className="hq-secondary-nav" data-open={sidebarOpen} aria-label="HQ navigation">
         <div className="hq-secondary-header">
-          <div>
-            <span className="hq-secondary-eyebrow">Command center</span>
-            <strong>WrongStack HQ</strong>
+          <div className="hq-secondary-brand">
+            <img src="/wrongstack.svg" alt="" aria-hidden="true" draggable={false} />
+            <div className="hq-secondary-copy">
+              <span className="hq-secondary-eyebrow">Command center</span>
+              <strong>WrongStack HQ</strong>
+            </div>
           </div>
           <button
             type="button"
@@ -359,7 +440,9 @@ export function HqApp(): React.ReactElement {
                     >
                       <Icon size={15} />
                       <span>{definition.label}</span>
-                      <kbd>Alt+{definition.shortcut}</kbd>
+                      {definition.shortcut !== undefined ? (
+                        <kbd>Alt+{definition.shortcut}</kbd>
+                      ) : null}
                       {badge > 0 ? <span className="hq-nav-badge">{badge}</span> : null}
                     </button>
                   );
@@ -383,7 +466,7 @@ export function HqApp(): React.ReactElement {
         </div>
       </aside>
 
-      <section className="hq-workbench">
+      <section className="hq-workbench" data-update-available={updateStatus?.outdated === true}>
         <header className="hq-header">
           <button
             type="button"
@@ -428,7 +511,21 @@ export function HqApp(): React.ReactElement {
           >
             {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
           </button>
+          {authStatus?.tokenMode || authStatus?.passwordMode ? (
+            <button
+              type="button"
+              className="hq-icon-button"
+              aria-label="Log out of HQ"
+              title="Log out and clear this tab's HQ credentials"
+              disabled={loggingOut}
+              onClick={() => void logout()}
+            >
+              <LogOut size={16} />
+            </button>
+          ) : null}
         </header>
+
+        {updateStatus?.outdated ? <UpdateNotice status={updateStatus} /> : null}
 
         <main className="hq-main" id="hq-main" tabIndex={-1}>
           <HqViewBoundary view={activeView}>
@@ -439,6 +536,36 @@ export function HqApp(): React.ReactElement {
         </main>
       </section>
     </div>
+  );
+}
+
+function UpdateNotice({ status }: { status: HqUpdateStatus }): React.ReactElement {
+  const [copied, setCopied] = useState(false);
+  const copyCommand = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(status.command);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1_500);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <aside className="hq-update-notice" role="status" aria-live="polite">
+      <TriangleAlert size={16} aria-hidden="true" />
+      <div>
+        <strong>WrongStack update available</strong>
+        <span>
+          v{status.current} → v{status.latest}. Run <code>{status.command}</code> in your terminal,
+          then restart HQ.
+        </span>
+      </div>
+      <button type="button" onClick={() => void copyCommand()} title="Copy update command">
+        <Copy size={13} aria-hidden="true" />
+        {copied ? 'Copied' : 'Copy command'}
+      </button>
+    </aside>
   );
 }
 

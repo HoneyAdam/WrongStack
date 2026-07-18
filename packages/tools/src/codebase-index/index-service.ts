@@ -15,7 +15,7 @@ import type { Context } from '@wrongstack/core';
 import { runIndexer } from './indexer.js';
 import type { CodeMapGraph, IndexResult, IndexStats, SymbolKind, SymbolLang } from './schema.js';
 import type { IndexOpArgs, SearchOpArgs, SearchOpResult, StatsOpArgs } from './worker-protocol.js';
-import { IndexStore } from './writer.js';
+import { indexStorePool } from './writer.js';
 
 /** A run with no live agent Context — `runIndexer` only reads `opts`. */
 function stubCtx(projectRoot: string): Context {
@@ -53,7 +53,7 @@ export async function indexService(
 
 /** Ranked symbol search (FTS5 inside SQLite; BM25 fallback without FTS5). */
 export function searchService(args: SearchOpArgs): SearchOpResult {
-  const store = new IndexStore(args.projectRoot, { indexDir: args.indexDir });
+  const store = indexStorePool.acquire(args.projectRoot, { indexDir: args.indexDir });
   try {
     return store.searchRanked(
       args.query,
@@ -66,17 +66,17 @@ export function searchService(args: SearchOpArgs): SearchOpResult {
       args.limit,
     );
   } finally {
-    store.close();
+    indexStorePool.release(store);
   }
 }
 
 /** Index health and statistics. */
 export function statsService(args: StatsOpArgs): IndexStats {
-  const store = new IndexStore(args.projectRoot, { indexDir: args.indexDir });
+  const store = indexStorePool.acquire(args.projectRoot, { indexDir: args.indexDir });
   try {
     return store.getStats();
   } finally {
-    store.close();
+    indexStorePool.release(store);
   }
 }
 
@@ -84,30 +84,30 @@ export function statsService(args: StatsOpArgs): IndexStats {
 
 /** Package-level dependency graph. */
 export function packageGraphService(args: StatsOpArgs): CodeMapGraph {
-  const store = new IndexStore(args.projectRoot, { indexDir: args.indexDir });
+  const store = indexStorePool.acquire(args.projectRoot, { indexDir: args.indexDir });
   try {
     return store.getPackageGraph();
   } finally {
-    store.close();
+    indexStorePool.release(store);
   }
 }
 
 /** File-level dependency graph for a single package. */
 export function fileGraphService(args: StatsOpArgs & { packageFilter: string }): CodeMapGraph {
-  const store = new IndexStore(args.projectRoot, { indexDir: args.indexDir });
+  const store = indexStorePool.acquire(args.projectRoot, { indexDir: args.indexDir });
   try {
     return store.getFileGraph(args.packageFilter);
   } finally {
-    store.close();
+    indexStorePool.release(store);
   }
 }
 
 /** Symbol-level dependency graph for a single file. */
 export function symbolGraphService(args: StatsOpArgs & { fileFilter: string }): CodeMapGraph {
-  const store = new IndexStore(args.projectRoot, { indexDir: args.indexDir });
+  const store = indexStorePool.acquire(args.projectRoot, { indexDir: args.indexDir });
   try {
     return store.getSymbolGraph(args.fileFilter);
   } finally {
-    store.close();
+    indexStorePool.release(store);
   }
 }

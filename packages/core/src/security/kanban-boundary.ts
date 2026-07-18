@@ -1,0 +1,223 @@
+import { realpath } from 'node:fs/promises';
+import * as path from 'node:path';
+import {
+  evaluateKanbanBoundaryOpaque,
+  evaluateKanbanBoundaryPath,
+  type KanbanBoundaryEvaluation,
+  readBoard,
+  resolveKanbanBoundaryLayers,
+} from '@wrongstack/kanban';
+import type { Context } from '../core/context.js';
+import type { Tool } from '../types/tool.js';
+
+export interface ToolKanbanBoundaryEvaluation extends KanbanBoundaryEvaluation {
+  boardId?: string | undefined;
+  taskId?: string | undefined;
+}
+
+const PATH_KEYS = new Set([
+  'path',
+  'paths',
+  'file',
+  'files',
+  'directory',
+  'dir',
+  'cwd',
+  'root',
+  'baseDir',
+  'out',
+  'outputPath',
+  'sourcePath',
+  'targetPath',
+  'destinationPath',
+  'fromPath',
+  'toPath',
+  'worktreePath',
+]);
+
+const TOOL_PATH_KEYS: Readonly<Record<string, readonly string[]>> = {
+  // `target` is an identifier in tools such as plan/task/document, but a
+  // filesystem target in language_info. Keep ambiguous names tool-specific.
+  language_info: ['target'],
+};
+
+/** Resolve the live board/task policy and gate one tool invocation. */
+export async function evaluateToolKanbanBoundary(
+  tool: Tool,
+  input: Record<string, unknown>,
+  ctx: Context,
+): Promise<ToolKanbanBoundaryEvaluation> {
+  const identity = resolveKanbanIdentity(ctx);
+  if (!identity.boardId) return { decision: 'allow' };
+  const board = await readBoard(identity.policyRoot ?? ctx.projectRoot, identity.boardId);
+  if (!board) return { decision: 'allow' };
+  const task = identity.taskId
+    ? board.tasks.find((candidate) => candidate.id === identity.taskId)
+    : undefined;
+  const layers = resolveKanbanBoundaryLayers(board, task);
+  if (layers.length === 0) return { decision: 'allow' };
+
+  const caps = tool.capabilities ?? [];
+  const access =
+    caps.includes('fs.write') || caps.includes('fs.write.outside-project')
+      ? 'write'
+      : caps.includes('fs.read')
+        ? 'read'
+        : undefined;
+  const shellLike = caps.some((capability) => capability.startsWith('shell.'));
+  const candidates = access ? await extractCandidatePaths(tool.name, input, ctx) : [];
+
+  let evaluation: KanbanBoundaryEvaluation;
+  if (shellLike || (access && candidates.length === 0)) {
+    evaluation = evaluateKanbanBoundaryOpaque(layers, tool.name);
+  } else if (access) {
+    const results = candidates.map((candidate) =>
+      evaluateKanbanBoundaryPath(layers, candidate, access),
+    );
+    evaluation = results.find((result) => result.decision === 'block') ??
+      results.find((result) => result.decision === 'confirm') ?? { decision: 'allow' };
+  } else {
+    evaluation = { decision: 'allow' };
+  }
+  return {
+    ...evaluation,
+    boardId: board.id,
+    ...(task ? { taskId: task.id } : {}),
+  };
+}
+
+function resolveKanbanIdentity(ctx: Context): {
+  boardId?: string;
+  taskId?: string;
+  policyRoot?: string;
+} {
+  const metaKanban = ctx.meta['kanban'];
+  const record =
+    metaKanban && typeof metaKanban === 'object'
+      ? (metaKanban as Record<string, unknown>)
+      : undefined;
+  const boardId =
+    ctx.currentKanbanBoardId ??
+    (typeof record?.['boardId'] === 'string' ? record['boardId'] : undefined);
+  const taskId =
+    ctx.currentKanbanTaskId ??
+    (typeof record?.['taskId'] === 'string' ? record['taskId'] : undefined);
+  const policyRoot =
+    typeof record?.['projectRoot'] === 'string' ? record['projectRoot'] : undefined;
+  return {
+    ...(boardId ? { boardId } : {}),
+    ...(taskId ? { taskId } : {}),
+    ...(policyRoot ? { policyRoot } : {}),
+  };
+}
+
+async function extractCandidatePaths(
+  toolName: string,
+  input: Record<string, unknown>,
+  ctx: Context,
+): Promise<string[]> {
+  if (toolName === 'patch' && typeof input['patch'] === 'string') {
+    const directoryInput = stringValue(input['directory']) ?? ctx.workingDir;
+    const directory = path.isAbsolute(directoryInput)
+      ? directoryInput
+      : path.resolve(ctx.workingDir, directoryInput);
+    const strip = Math.max(1, numericValue(input['strip']) ?? 1);
+    const targets = extractPatchTargets(input['patch'], strip).map((target) =>
+      relativeToProject(path.resolve(directory, target), ctx.projectRoot),
+    );
+    return Promise.all(targets.map((target) => canonicalizeCandidatePath(target, ctx)));
+  }
+
+  const values: string[] = [];
+  const pathKeys = new Set(PATH_KEYS);
+  for (const key of TOOL_PATH_KEYS[toolName] ?? []) pathKeys.add(key);
+  collectPathValues(input, values, pathKeys);
+  if (toolName === 'scaffold' && typeof input['name'] === 'string') {
+    const cwd = stringValue(input['cwd']) ?? ctx.workingDir;
+    values.push(path.join(cwd, input['name']));
+  }
+  const candidates = [
+    ...new Set(values.flatMap(splitPathList).map((value) => resolveInputPath(value, ctx))),
+  ];
+  return Promise.all(candidates.map((candidate) => canonicalizeCandidatePath(candidate, ctx)));
+}
+
+async function canonicalizeCandidatePath(candidate: string, ctx: Context): Promise<string> {
+  if (path.isAbsolute(candidate)) return candidate;
+  const absolute = path.resolve(ctx.projectRoot, candidate);
+  const canonicalRoot = await realpath(ctx.projectRoot).catch(() => ctx.projectRoot);
+  let probe = absolute;
+  const missingSegments: string[] = [];
+  while (true) {
+    try {
+      const canonical = path.join(await realpath(probe), ...missingSegments);
+      return relativeToProject(canonical, canonicalRoot);
+    } catch (cause) {
+      const code = (cause as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') return absolute;
+      const parent = path.dirname(probe);
+      if (parent === probe) return absolute;
+      missingSegments.unshift(path.basename(probe));
+      probe = parent;
+    }
+  }
+}
+
+function collectPathValues(
+  value: unknown,
+  output: string[],
+  pathKeys: ReadonlySet<string>,
+  key?: string,
+): void {
+  if (typeof value === 'string') {
+    if (key && pathKeys.has(key)) output.push(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectPathValues(item, output, pathKeys, key);
+    return;
+  }
+  if (!value || typeof value !== 'object') return;
+  for (const [childKey, child] of Object.entries(value as Record<string, unknown>)) {
+    collectPathValues(child, output, pathKeys, childKey);
+  }
+}
+
+function splitPathList(value: string): string[] {
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function resolveInputPath(value: string, ctx: Context): string {
+  const absolute = path.isAbsolute(value) ? value : path.resolve(ctx.workingDir, value);
+  return relativeToProject(absolute, ctx.projectRoot);
+}
+
+function relativeToProject(absolute: string, projectRoot: string): string {
+  const relative = path.relative(projectRoot, absolute).replace(/\\/g, '/');
+  return relative.startsWith('../') || path.isAbsolute(relative) ? absolute : relative || '.';
+}
+
+function extractPatchTargets(patchText: string, strip: number): string[] {
+  const targets: string[] = [];
+  for (const match of patchText.matchAll(/^\+\+\+\s+([^\t\r\n]+)/gm)) {
+    const raw = match[1]?.trim();
+    if (!raw || raw === '/dev/null') continue;
+    const parts = raw
+      .replace(/\\/g, '/')
+      .split('/')
+      .filter((part) => part && part !== '.');
+    if (parts.length > strip) targets.push(parts.slice(strip).join('/'));
+  }
+  return targets;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function numericValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}

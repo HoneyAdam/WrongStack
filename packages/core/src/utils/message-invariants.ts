@@ -1,6 +1,6 @@
-import { expectDefined } from './expect-defined.js';
 import type { ContentBlock, ToolResultBlock, ToolUseBlock } from '../types/blocks.js';
 import type { Message } from '../types/messages.js';
+import { expectDefined } from './expect-defined.js';
 export interface MessageRepairReport {
   changed: boolean;
   removedToolUses: string[];
@@ -11,6 +11,26 @@ export interface MessageRepairReport {
 export interface MessageRepairResult {
   messages: Message[];
   report: MessageRepairReport;
+}
+
+/**
+ * Whether message content carries anything that must survive in conversation
+ * state and session replay.
+ *
+ * Empty text blocks are common when a stream is interrupted before producing
+ * output. Tool calls, images, tool results, and signed thinking blocks remain
+ * meaningful even when they do not contain visible assistant text.
+ */
+export function hasMeaningfulContent(content: Message['content']): boolean {
+  if (typeof content === 'string') return content.trim().length > 0;
+
+  return content.some((block) => {
+    if (block.type === 'text') return block.text.trim().length > 0;
+    if (block.type === 'thinking') {
+      return block.thinking.trim().length > 0 || Boolean(block.signature);
+    }
+    return true;
+  });
 }
 
 /**
@@ -111,10 +131,7 @@ function contentBlocks(msg: Message | undefined): ContentBlock[] {
   return msg && Array.isArray(msg.content) ? msg.content : [];
 }
 
-function mapContent(
-  msg: Message,
-  fn: (blocks: ContentBlock[]) => ContentBlock[],
-): Message | null {
+function mapContent(msg: Message, fn: (blocks: ContentBlock[]) => ContentBlock[]): Message | null {
   if (!Array.isArray(msg.content)) return msg;
   const next = fn(msg.content);
   if (next.length === msg.content.length && next.every((b, idx) => b === msg.content[idx])) {
@@ -124,6 +141,5 @@ function mapContent(
 }
 
 function isEmptyMessage(msg: Message): boolean {
-  if (typeof msg.content === 'string') return msg.content.trim().length === 0;
-  return msg.content.length === 0;
+  return !hasMeaningfulContent(msg.content);
 }

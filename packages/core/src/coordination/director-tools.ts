@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import {
   claimReadyTask,
+  describeKanbanBoundary,
   heartbeatTaskAssignment,
   listReadyTasks,
-  releaseTaskClaim,
   updateTaskAssignment,
   type KanbanBoard,
   type KanbanTask,
@@ -972,31 +972,31 @@ export function makeKanbanQueueTool(
         let subagentId: string | undefined;
         let runTaskId: string | undefined;
 
-        // Sprint 3: cost-ceiling budget check before spawning.
-        // Release the claim so the task remains eligible for retry once budget
-        // frees up via completed tasks or replenishment. The release targets
-        // `blocked` (not `pending`/`ready`) so the task is excluded from
-        // isTaskReadyForWork for the remainder of this dispatch pass. Without
-        // this, claimReadyTask — which deterministically returns the highest-
-        // priority ready task — would hand back the SAME task on the next
-        // loop iteration (it was just released to pending), burning every
-        // dispatch slot on an unaffordable task and starving affordable ready
-        // work. Releasing to blocked lets lower-priority affordable tasks get
-        // claimed in the same pass; the task can be re-readied later by a
-        // reconcile pass or an explicit update when budget recovers.
+        // Sprint 3: cost-ceiling budget check before spawning. A rejected
+        // dispatch is a terminal assignment failure for this queue attempt;
+        // preserve the assignment and its diagnostic so callers can inspect
+        // why no worker was started.
         const costCeiling = claim.task.assignment?.costCeilingUsd;
         if (costCeiling !== undefined) {
           const remaining = director.getRemainingBudgetUsd();
           if (remaining !== undefined && remaining < costCeiling) {
             budgetRejectedTaskIds.add(claim.task.id);
-            await releaseTaskClaim(projectRoot, claim.board.id, claim.task.id, {
-              status: 'blocked',
-              reason: `Cost ceiling ${costCeiling} exceeds remaining budget ${remaining.toFixed(4)}. Task blocked for this dispatch pass; retry when budget recovers.`,
-              clearAssignee: true,
-            });
+            const budgetError =
+              `Cost ceiling ${costCeiling} exceeds remaining budget ${remaining.toFixed(4)}`;
+            await updateTaskAssignment(
+              projectRoot,
+              claim.board.id,
+              claim.task.id,
+              {
+                ...(claim.task.assignment ?? {}),
+                status: 'failed',
+                error: budgetError,
+              },
+              { expectedLeaseId: leaseSeeding.leaseId },
+            );
             errors.push({
               taskId: claim.task.id,
-              error: `Cost ceiling ${costCeiling} exceeds remaining budget ${remaining.toFixed(4)}`,
+              error: budgetError,
             });
             continue;
           }
@@ -1029,6 +1029,7 @@ export function makeKanbanQueueTool(
                 boardId: claim.board.id,
                 taskId: claim.task.id,
                 origin: claim.task.origin,
+                projectRoot,
               },
             },
           });
@@ -1353,6 +1354,16 @@ function buildKanbanFleetTaskPrompt(
         .filter(Boolean)
         .join('\n')
     : '';
+  const boundaries = [
+    board.boundary?.enabled ? `board: ${describeKanbanBoundary(board.boundary)}` : '',
+    task.boundary?.enabled ? `task: ${describeKanbanBoundary(task.boundary)}` : '',
+    ...(board.boundary?.allow ?? []).map(
+      (selector) => `board allow ${selector.access} ${selector.kind}:${selector.path}`,
+    ),
+    ...(task.boundary?.allow ?? []).map(
+      (selector) => `task allow ${selector.access} ${selector.kind}:${selector.path}`,
+    ),
+  ].filter(Boolean);
   return [
     'You are processing a claimed WrongStack Kanban task.',
     '',
@@ -1368,6 +1379,9 @@ function buildKanbanFleetTaskPrompt(
     checks ? `Success criteria:\n${checks}` : '',
     metrics ? `Goal metrics:\n${metrics}` : '',
     task.labels?.length ? `Labels: ${task.labels.join(', ')}` : '',
+    boundaries.length
+      ? `BOUNDARY CONTRACT (enforced by the tool runtime; do not attempt to bypass):\n${boundaries.map((line) => `- ${line}`).join('\n')}`
+      : '',
     'Lease contract (Sprint 1):',
     `- leaseId: ${lease.leaseId}`,
     `- claimedAt: ${task.assignment?.claimedAt ?? '<unknown>'}`,

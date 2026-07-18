@@ -58,6 +58,8 @@ export interface AuthPanelController {
   onAuthCtrlC: () => void;
   /** Open the existing masked modal for a slash-command secret prompt. */
   readSecret: (label: string) => Promise<string>;
+  /** Open the same modal with visible text for slash-command selections. */
+  readText: (label: string) => Promise<string>;
 }
 
 function abortError(): Error {
@@ -323,8 +325,8 @@ export function useAuthPanel(opts: UseAuthPanelOptions): AuthPanelController {
     pending?.reject(abortError());
   }, [dispatch]);
 
-  const readSecret = useCallback(
-    (label: string) =>
+  const readPrompt = useCallback(
+    (label: string, masked: boolean) =>
       new Promise<string>((resolve, reject) => {
         const pending = promptRef.current;
         if (pending) {
@@ -334,10 +336,12 @@ export function useAuthPanel(opts: UseAuthPanelOptions): AuthPanelController {
         standaloneSecretRef.current = true;
         promptRef.current = { resolve, reject };
         dispatch({ type: 'authOpen', view: 'list', presets: [] });
-        dispatch({ type: 'authPromptStart', label, masked: true });
+        dispatch({ type: 'authPromptStart', label, masked });
       }),
     [dispatch],
   );
+  const readSecret = useCallback((label: string) => readPrompt(label, true), [readPrompt]);
+  const readText = useCallback((label: string) => readPrompt(label, false), [readPrompt]);
 
   const onAuthConfirm = useCallback(
     (yes: boolean) => {
@@ -395,5 +399,6 @@ export function useAuthPanel(opts: UseAuthPanelOptions): AuthPanelController {
     onAuthFlowCancel,
     onAuthCtrlC,
     readSecret,
+    readText,
   };
 }

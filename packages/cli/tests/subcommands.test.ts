@@ -138,6 +138,28 @@ describe('subcommands', () => {
     expect(text).toContain('auth');
   });
 
+  it('chronicle prune discovers old daily journals in dry-run mode', async () => {
+    const rig = withRig();
+    const projectRoot = path.join(tmp, 'project');
+    const paths = resolveWstackPaths({ projectRoot, userHome: tmp });
+    const oldJournal = path.join(paths.projectDir, 'chronicle', '2026-07-01.events.jsonl');
+    await fs.mkdir(path.dirname(oldJournal), { recursive: true });
+    await fs.writeFile(oldJournal, '{}\n', 'utf8');
+    const oldTime = new Date(Date.now() - 60 * 86400000);
+    await fs.utimes(oldJournal, oldTime, oldTime);
+
+    const code = await subcommands['chronicle']!(
+      ['prune', '--days', '30', '--dry-run'],
+      mkDeps({ renderer: rig.renderer, projectRoot, userHome: tmp }),
+    );
+
+    expect(code).toBe(0);
+    expect(stripAnsi(rig.out.buf)).toContain('Dry-run: would delete 1 files');
+    expect(stripAnsi(rig.out.buf)).toContain(oldJournal);
+    expect(rig.err.buf).toBe('');
+    await expect(fs.readFile(oldJournal, 'utf8')).resolves.toBe('{}\n');
+  });
+
   it('init is a deprecated stub that points to `wstack auth`', async () => {
     const rig = withRig();
     const code = await subcommands['init']!([], mkDeps({ renderer: rig.renderer }));

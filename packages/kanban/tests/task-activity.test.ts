@@ -9,8 +9,10 @@ import {
   addTask,
   assignTask,
   createBoard,
+  getTask,
   listTaskActivity,
   recordTaskActivity,
+  recordTaskFileActivity,
   updateCheckOnTask,
   updateGoalMetricOnTask,
   updateTask,
@@ -234,5 +236,47 @@ describe('task activity', () => {
         details: 'Primary remains openai/gpt-5.4; Anthropic is the first fallback.',
       },
     });
+  });
+
+  it('records task-scoped file reads and writes without mutating the card', async () => {
+    const root = await projectRoot();
+    const board = await createBoard(root, { title: 'File audit' });
+    const added = await addTask(root, board.id, { title: 'Trace implementation files' });
+    const updatedAt = added!.task.updatedAt;
+
+    const recorded = await recordTaskFileActivity(root, board.id, added!.task.id, {
+      operation: 'update',
+      filePath: 'src/app.ts',
+      sessionId: 'session-files',
+      agentId: 'agent-files',
+      agentName: 'Ada',
+      provider: 'openai',
+      model: 'gpt-5',
+      toolName: 'apply_patch',
+      toolUseId: 'tool-files-1',
+      durationMs: 25,
+      lines: 12,
+    });
+
+    expect(recorded).toBe(true);
+    const activity = await listTaskActivity(root, board.id, added!.task.id);
+    expect(activity[0]).toMatchObject({
+      type: 'task.file.update',
+      actor: 'Ada',
+      sessionId: 'session-files',
+      correlationId: 'tool-files-1',
+      note: 'update src/app.ts',
+      after: {
+        operation: 'update',
+        filePath: 'src/app.ts',
+        toolName: 'apply_patch',
+        provider: 'openai',
+        model: 'gpt-5',
+        durationMs: 25,
+        lines: 12,
+      },
+    });
+    const current = await getTask(root, board.id, added!.task.id);
+    expect(current?.updatedAt).toBe(updatedAt);
   });
 });

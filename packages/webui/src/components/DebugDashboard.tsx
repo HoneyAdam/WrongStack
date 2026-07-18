@@ -16,9 +16,12 @@ interface FileWatcherMetrics {
 }
 
 interface SystemMetrics {
+  pid: number;
   memoryUsage: NodeJS.MemoryUsage;
+  heapLimit: number;
   uptime: number;
   cpuUsage: NodeJS.CpuUsage;
+  timestamp: number;
 }
 
 interface DebugData {
@@ -95,27 +98,18 @@ export function DebugDashboard() {
 
   const fetchMetrics = useCallback(async () => {
     try {
-      // Fetch file watcher metrics
-      const watcherRes = await fetch('/debug/watcher-metrics');
+      const [watcherRes, systemRes] = await Promise.all([
+        fetch('/debug/watcher-metrics'),
+        fetch('/debug/system', { cache: 'no-store' }),
+      ]);
       let watcherData: FileWatcherMetrics | null = null;
       const watcherContentType = watcherRes.headers.get('content-type') ?? '';
       if (watcherRes.ok && watcherContentType.includes('application/json')) {
         watcherData = await watcherRes.json();
       }
 
-      // Fetch system metrics from a different endpoint or calculate from browser
-      // Since we don't have a /debug/system endpoint, we'll use browser APIs
-      const systemData: SystemMetrics = {
-        memoryUsage: {
-          heapUsed: performance.memory?.usedJSHeapSize ?? 0,
-          heapTotal: performance.memory?.totalJSHeapSize ?? 0,
-          external: 0,
-          rss: 0,
-          arrayBuffers: 0,
-        },
-        uptime: performance.timeOrigin ? (performance.now() / 1000) : 0,
-        cpuUsage: { user: 0, system: 0 },
-      };
+      if (!systemRes.ok) throw new Error(`System metrics request failed (${systemRes.status})`);
+      const systemData = (await systemRes.json()) as SystemMetrics;
 
       setData({
         fileWatcher: watcherData,
@@ -274,13 +268,20 @@ export function DebugDashboard() {
           </div>
         </section>
 
-        {/* Browser Performance Section */}
+        {/* WebUI server process section */}
         <section>
           <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
             <Gauge className="h-4 w-4 text-primary" />
-            {t('activity:debug.browserPerf')}
+            WebUI Server Process
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <MetricCard
+              title="Process RAM (RSS)"
+              value={formatBytes(data.system?.memoryUsage?.rss ?? 0)}
+              subtitle={data.system ? `PID ${data.system.pid}` : undefined}
+              icon={Server}
+              color="text-primary"
+            />
             <MetricCard
               title={t('activity:debug.heapUsed')}
               value={formatBytes(data.system?.memoryUsage?.heapUsed ?? 0)}
@@ -296,9 +297,16 @@ export function DebugDashboard() {
               color="text-success"
             />
             <MetricCard
-              title={t('activity:debug.pageUptime')}
+              title="V8 Heap Limit"
+              value={formatBytes(data.system?.heapLimit ?? 0)}
+              subtitle="Configured old-space ceiling"
+              icon={Gauge}
+              color="text-warning"
+            />
+            <MetricCard
+              title="Server Uptime"
               value={formatUptime(data.system?.uptime ?? 0)}
-              subtitle={t('activity:debug.sinceLoad')}
+              subtitle="Since process start"
               icon={Clock}
               color="text-primary"
             />
@@ -316,8 +324,10 @@ export function DebugDashboard() {
               {JSON.stringify(
                 {
                   fileWatcher: data.fileWatcher,
-                  browserMemory: data.system?.memoryUsage,
-                  pageUptime: data.system?.uptime,
+                  serverPid: data.system?.pid,
+                  serverMemory: data.system?.memoryUsage,
+                  serverHeapLimit: data.system?.heapLimit,
+                  serverUptime: data.system?.uptime,
                 },
                 null,
                 2,

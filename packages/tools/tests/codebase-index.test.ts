@@ -23,7 +23,7 @@ import {
   lspKindToInternalKind,
 } from '../src/codebase-index/lsp-kind.js';
 import { detectLang, parseSymbols } from '../src/codebase-index/ts-parser.js';
-import { IndexStore } from '../src/codebase-index/writer.js';
+import { IndexStore, indexStorePool } from '../src/codebase-index/writer.js';
 import { runIndexer } from '../src/codebase-index/indexer.js';
 import { SCHEMA_VERSION } from '../src/codebase-index/schema.js';
 
@@ -616,6 +616,7 @@ describe('codebase-index tool', () => {
   });
 
   afterEach(async () => {
+    indexStorePool.evict(tmpDir, path.join(tmpDir, '.codebase-index'));
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
@@ -732,6 +733,7 @@ describe('codebase-stats tool', () => {
   });
 
   afterEach(async () => {
+    indexStorePool.evict(tmpDir, path.join(tmpDir, '.codebase-index'));
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
@@ -763,6 +765,7 @@ describe('codebase-search tool', () => {
   });
 
   afterEach(async () => {
+    indexStorePool.evict(tmpDir, path.join(tmpDir, '.codebase-index'));
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 

@@ -945,8 +945,8 @@ export function App() {
     <div className="app-shell">
       <header className="topbar">
         <div className="project-block">
-          <div className="brand-mark" aria-hidden="true">
-            W
+          <div className="brand-mark">
+            <img src="/wrongstack.svg" alt="WrongStack" draggable={false} />
           </div>
           <div className="project-icon">
             <FolderCode size={17} />

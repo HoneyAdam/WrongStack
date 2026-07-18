@@ -189,7 +189,9 @@ export function buildTelegramSetupCommand(opts: SlashCommandContext): SlashComma
 
         let choiceInput: string;
         try {
-          choiceInput = await opts.reader.readLine('Pair candidate › ');
+          choiceInput = opts.readText
+            ? await opts.readText('Pair candidate › ')
+            : await opts.reader.readLine('Pair candidate › ');
         } catch {
           return { message: color.dim('Telegram setup cancelled. No configuration was changed.') };
         }

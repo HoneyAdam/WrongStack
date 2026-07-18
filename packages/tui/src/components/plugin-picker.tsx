@@ -30,6 +30,15 @@ export interface PluginPickerProps {
  */
 const CHROME_ROWS = 17;
 
+/**
+ * Hard ceiling on how many plugin rows are rendered at once. Smaller terminals
+ * already see fewer rows via `max(4, rows - CHROME_ROWS)`; on tall terminals
+ * this cap prevents the picker from monopolising the viewport. Overflowing
+ * rows remain reachable via ↑/↓ (the window re-centres on the selection) with
+ * `↑ N more` / `↓ N more` indicators.
+ */
+const MAX_PICKER_ITEMS = 15;
+
 export function PluginPicker({
   items,
   selected,
@@ -42,7 +51,7 @@ export function PluginPicker({
   // Height-aware scrolling window centred on the selection — small terminals
   // get a short window with ↑/↓ overflow indicators instead of an overflowing
   // (and Ink-clipped) full list.
-  const maxVisible = Math.max(4, rows - CHROME_ROWS);
+  const maxVisible = Math.min(MAX_PICKER_ITEMS, Math.max(4, rows - CHROME_ROWS));
   const total = items.length;
   const windowStart =
     total <= maxVisible

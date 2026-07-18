@@ -12,6 +12,7 @@ import {
   createBoard,
   createBoardFromTaskGraph,
   duplicateBoard,
+  describeKanbanBoundary,
   exportBoardAsMarkdown,
   exportBoardToTaskGraph,
   findBlockedTasks,
@@ -955,6 +956,10 @@ async function handleTaskSubcommand(
         ...(assignment.allowedCapabilities
           ? { allowedCapabilities: assignment.allowedCapabilities }
           : {}),
+        // Carry the kanban identity into the spawned TaskSpec.context so the
+        // tool-runtime boundary gate (`evaluateToolKanbanBoundary`) can resolve
+        // the live board/task policy instead of failing open.
+        context: { kanban: { boardId, taskId, projectRoot } },
       });
       const subagentId = extractSpawnedSubagentId(summary);
       await updateTaskAssignment(projectRoot, boardId, taskId, {
@@ -1209,6 +1214,19 @@ function buildKanbanAgentPrompt(
       ? `fallbackModels: ${assignment.fallbackModels.join(', ')}`
       : '',
   ].filter(Boolean);
+  const boundaries = [
+    board.boundary?.enabled ? `board: ${describeKanbanBoundary(board.boundary)}` : '',
+    task.boundary?.enabled ? `task: ${describeKanbanBoundary(task.boundary)}` : '',
+    // Emit selector lines only when the layer is enabled — a stored-but-
+    // disabled layer is ignored by the runtime resolver, so advertising it as
+    // an enforced contract would mislead the worker.
+    ...(board.boundary?.enabled ? (board.boundary.allow ?? []).map(
+      (selector) => `board allow ${selector.access} ${selector.kind}:${selector.path}`,
+    ) : []),
+    ...(task.boundary?.enabled ? (task.boundary.allow ?? []).map(
+      (selector) => `task allow ${selector.access} ${selector.kind}:${selector.path}`,
+    ) : []),
+  ].filter(Boolean);
   return [
     `You are processing a WrongStack kanban task.`,
     '',
@@ -1223,6 +1241,9 @@ function buildKanbanAgentPrompt(
     checks ? `Success criteria:\n${checks}` : '',
     metrics ? `Goal metrics:\n${metrics}` : '',
     task.labels?.length ? `Labels: ${task.labels.join(', ')}` : '',
+    boundaries.length
+      ? `BOUNDARY CONTRACT (enforced by the tool runtime; do not attempt to bypass):\n${boundaries.map((line) => `- ${line}`).join('\n')}`
+      : '',
     '',
     'Work the task end-to-end. Use the kanban tool, not direct file edits, to update this task.',
     `When you start or finish, call kanban with action "mark_assignment", boardId "${board.id}", taskId "${task.id}", and assignmentStatus "running", "completed", or "failed". Include lastResult or error when you finish.`,

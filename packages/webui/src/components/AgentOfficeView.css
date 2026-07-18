@@ -70,7 +70,7 @@
 .agent-office__detail-header > div > span {
   display: block;
   color: hsl(var(--muted-foreground));
-  font: 500 9px / 1.2 var(--font-mono);
+  font: 500 11px / 1.2 var(--font-mono);
   letter-spacing: 0.13em;
 }
 
@@ -92,7 +92,7 @@
   border-radius: 999px;
   color: hsl(var(--success));
   background: hsl(var(--success) / 0.08);
-  font: 500 9px / 1 var(--font-mono);
+  font: 500 11px / 1 var(--font-mono);
   letter-spacing: 0.1em;
 }
 
@@ -135,7 +135,7 @@
 .agent-office__summary span {
   grid-column: 1 / -1;
   color: hsl(var(--muted-foreground));
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .agent-office__column-headings,
@@ -153,7 +153,7 @@
   border-bottom: 1px solid var(--office-line);
   color: hsl(var(--muted-foreground));
   background: hsl(var(--background) / 0.84);
-  font: 500 8px / 1 var(--font-mono);
+  font: 500 10px / 1 var(--font-mono);
   letter-spacing: 0.14em;
 }
 
@@ -213,7 +213,7 @@
   overflow: hidden;
   max-width: 310px;
   color: hsl(var(--muted-foreground));
-  font: 400 8px / 1.2 var(--font-mono);
+  font: 400 10px / 1.2 var(--font-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -240,7 +240,7 @@
   border-radius: 999px;
   color: hsl(var(--primary));
   background: hsl(var(--primary) / 0.09);
-  font: 500 8px / 1 var(--font-mono);
+  font: 500 10px / 1 var(--font-mono);
 }
 
 .agent-office__client-presence {
@@ -262,7 +262,7 @@
   border-radius: 999px;
   color: hsl(var(--muted-foreground));
   background: hsl(var(--background) / 0.5);
-  font: 500 7px / 1 var(--font-mono);
+  font: 500 9px / 1 var(--font-mono);
   letter-spacing: 0.04em;
 }
 
@@ -294,7 +294,7 @@
   border-radius: 999px;
   color: hsl(var(--success));
   background: hsl(var(--success) / 0.08);
-  font: 500 6px / 1 var(--font-mono);
+  font: 500 8px / 1 var(--font-mono);
   letter-spacing: 0.04em;
 }
 
@@ -324,7 +324,7 @@
   border-radius: 6px;
   color: hsl(var(--muted-foreground));
   background: hsl(var(--background) / 0.58);
-  font: 400 7px / 1 var(--font-mono);
+  font: 400 9px / 1 var(--font-mono);
   letter-spacing: 0.05em;
 }
 
@@ -335,7 +335,7 @@
 
 .agent-office__client-stats strong {
   color: hsl(var(--foreground));
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .agent-office__client-delta strong {
@@ -443,7 +443,7 @@
 .agent-office__briefing-copy > span,
 .agent-office__todo-heading > span {
   color: hsl(var(--muted-foreground));
-  font: 500 7px / 1 var(--font-mono);
+  font: 500 9px / 1 var(--font-mono);
   letter-spacing: 0.11em;
   text-transform: uppercase;
 }
@@ -451,7 +451,7 @@
 .agent-office__briefing-copy strong {
   display: -webkit-box;
   overflow: hidden;
-  font: 500 10px / 1.35 var(--font-display);
+  font: 500 12px / 1.35 var(--font-display);
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
@@ -460,7 +460,7 @@
   flex: 0 0 auto;
   align-self: flex-start;
   color: hsl(var(--muted-foreground));
-  font: 400 7px / 1 var(--font-mono);
+  font: 400 9px / 1 var(--font-mono);
 }
 
 .agent-office__instruction-live {
@@ -472,7 +472,7 @@
   border-radius: 999px;
   color: hsl(var(--success));
   background: hsl(var(--success) / 0.09);
-  font: 500 7px / 1 var(--font-mono);
+  font: 500 9px / 1 var(--font-mono);
   letter-spacing: 0.08em;
 }
 
@@ -537,7 +537,7 @@
 .agent-office__todo-heading strong,
 .agent-office__todo-more {
   color: hsl(var(--muted-foreground));
-  font: 500 7px / 1 var(--font-mono);
+  font: 500 9px / 1 var(--font-mono);
 }
 
 .agent-office__todo-preview {
@@ -552,7 +552,7 @@
   min-width: 0;
   align-items: center;
   gap: 6px;
-  font: 400 8px / 1.2 var(--font-mono);
+  font: 400 10px / 1.2 var(--font-mono);
 }
 
 .agent-office__todo-line i {
@@ -581,7 +581,7 @@
   align-items: center;
   gap: 6px;
   color: hsl(var(--muted-foreground));
-  font: 400 8px / 1.2 var(--font-mono);
+  font: 400 10px / 1.2 var(--font-mono);
 }
 
 .agent-office__todo-empty svg {
@@ -746,7 +746,7 @@
 .agent-office__role {
   margin: 6px 0 16px 15px;
   color: hsl(var(--primary));
-  font: 500 8px / 1 var(--font-mono);
+  font: 500 10px / 1 var(--font-mono);
   letter-spacing: 0.12em;
 }
 
@@ -763,7 +763,7 @@
   border-radius: 5px;
   color: hsl(var(--muted-foreground));
   background: hsl(var(--muted) / 0.75);
-  font: 400 8px / 1.2 var(--font-mono);
+  font: 400 10px / 1.2 var(--font-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -819,13 +819,13 @@
 
 .agent-office__agent-task strong {
   color: hsl(var(--primary));
-  font: 500 6px / 1 var(--font-mono);
+  font: 500 8px / 1 var(--font-mono);
   letter-spacing: 0.09em;
 }
 
 .agent-office__agent-task small {
   overflow: hidden;
-  font: 400 8px / 1.2 var(--font-mono);
+  font: 400 10px / 1.2 var(--font-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -870,14 +870,14 @@
 }
 
 .agent-office__identity-mail strong {
-  font: 500 7px / 1 var(--font-mono);
+  font: 500 9px / 1 var(--font-mono);
   letter-spacing: 0.08em;
 }
 
 .agent-office__identity-mail small {
   overflow: hidden;
   max-width: 100%;
-  font: 400 8px / 1.15 var(--font-mono);
+  font: 400 10px / 1.15 var(--font-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2305,7 +2305,7 @@ button.agent-office__parcel:hover {
 }
 .agent-office__parcel.is-compact .agent-office__parcel-summary {
   color: hsl(var(--muted-foreground));
-  font-size: 9px;
+  font-size: 11px;
 }
 .agent-office__line-chip {
   flex: 0 0 auto;
@@ -2313,7 +2313,7 @@ button.agent-office__parcel:hover {
   border-radius: 4px;
   color: hsl(var(--info));
   background: hsl(var(--info) / 0.09);
-  font: 500 8px / 1 var(--font-mono);
+  font: 500 10px / 1 var(--font-mono);
 }
 .agent-office__parcel-state {
   display: grid;
@@ -2348,7 +2348,7 @@ button.agent-office__parcel:hover {
   justify-content: space-between;
   margin-bottom: 7px;
   color: hsl(var(--muted-foreground));
-  font: 500 8px / 1 var(--font-mono);
+  font: 500 10px / 1 var(--font-mono);
   letter-spacing: 0.1em;
 }
 .agent-office__history-heading span:last-child {
@@ -2544,7 +2544,7 @@ button.agent-office__parcel:hover {
   border-radius: 4px;
   color: hsl(var(--muted-foreground));
   background: hsl(var(--muted));
-  font: 500 8px / 1 var(--font-mono);
+  font: 500 10px / 1 var(--font-mono);
   text-transform: uppercase;
 }
 
@@ -2555,7 +2555,7 @@ button.agent-office__parcel:hover {
 .agent-office__detail-section h3 {
   margin: 0 0 9px;
   color: hsl(var(--muted-foreground));
-  font: 500 9px / 1 var(--font-mono);
+  font: 500 11px / 1 var(--font-mono);
   letter-spacing: 0.11em;
   text-transform: uppercase;
 }
@@ -2610,7 +2610,7 @@ button.agent-office__parcel:hover {
 }
 .agent-office__file-target strong {
   color: hsl(var(--info));
-  font: 500 8px / 1 var(--font-mono);
+  font: 500 10px / 1 var(--font-mono);
 }
 .agent-office__metric-grid {
   display: grid;
@@ -2633,7 +2633,7 @@ button.agent-office__parcel:hover {
 .agent-office__metric-grid span {
   margin-top: 3px;
   color: hsl(var(--muted-foreground));
-  font-size: 8px;
+  font-size: 10px;
 }
 .agent-office__detail-section pre {
   max-height: 260px;
@@ -2722,7 +2722,7 @@ button.agent-office__parcel:hover {
 
 .agent-office__todo-detail small {
   color: hsl(var(--muted-foreground));
-  font: 400 7px / 1 var(--font-mono);
+  font: 400 9px / 1 var(--font-mono);
   text-transform: uppercase;
 }
 

@@ -22,6 +22,40 @@ export type KanbanTaskStatus =
   | 'failed'
   | 'archived';
 
+/** How a Kanban scope violation is handled at execution time. */
+export type KanbanBoundaryEnforcement = 'confirm' | 'block';
+
+/** Policy for tools whose filesystem effects cannot be proven from structured paths. */
+export type KanbanBoundaryShellAccess = 'allow' | 'confirm' | 'block';
+
+/** Human-readable selector kind. All selector paths are project-root relative. */
+export type KanbanBoundarySelectorKind = 'file' | 'directory' | 'package' | 'glob';
+
+export type KanbanBoundaryAccess = 'read' | 'write' | 'read_write';
+
+/** A file, directory, workspace package, or glob admitted/denied by a boundary policy. */
+export interface KanbanBoundarySelector {
+  kind: KanbanBoundarySelectorKind;
+  /** Project-root-relative path. `package` is a semantic directory selector. */
+  path: string;
+  access: KanbanBoundaryAccess;
+  note?: string | undefined;
+}
+
+/**
+ * Board/task filesystem boundary. Board and task policies are both evaluated;
+ * a task can narrow its board's scope but cannot silently widen it.
+ */
+export interface KanbanBoundaryPolicy {
+  enabled: boolean;
+  enforcement: KanbanBoundaryEnforcement;
+  /** Shell and opaque filesystem tools need an explicit policy. */
+  shellAccess: KanbanBoundaryShellAccess;
+  /** Empty allow means "no allowlist" so deny-only policies remain useful. */
+  allow: KanbanBoundarySelector[];
+  deny?: KanbanBoundarySelector[] | undefined;
+}
+
 export type KanbanCheckType = 'manual' | 'auto' | 'agent' | 'test' | 'review';
 
 export type KanbanCheckStatus = 'pending' | 'passed' | 'failed' | 'skipped';
@@ -241,6 +275,23 @@ export interface KanbanEventContext {
   expectedLeaseId?: string | undefined;
 }
 
+/** Task-scoped file telemetry folded into the durable Kanban activity ledger. */
+export interface KanbanTaskFileActivityInput {
+  operation: 'create' | 'read' | 'update' | 'delete' | 'rename';
+  filePath: string;
+  sessionId: string;
+  agentId: string;
+  agentName: string;
+  provider: string;
+  model: string;
+  toolName: string;
+  toolUseId: string;
+  durationMs?: number | undefined;
+  fileSize?: number | undefined;
+  lines?: number | undefined;
+  bytes?: number | undefined;
+}
+
 export interface KanbanGoalMetric {
   id: string;
   name: string;
@@ -345,6 +396,8 @@ export interface KanbanTask {
   links?: KanbanLink[] | undefined;
   notes?: KanbanNote[] | undefined;
   lifecycle?: KanbanTaskLifecycle | undefined;
+  /** Additional task-level boundary; always evaluated together with the board boundary. */
+  boundary?: KanbanBoundaryPolicy | undefined;
 }
 
 export interface KanbanColumn {
@@ -386,6 +439,8 @@ export interface KanbanBoard {
   supervisor?: KanbanSupervisorConfig | undefined;
   /** Opt-in strict Kanban Agent lifecycle policy. */
   lifecycle?: KanbanBoardLifecyclePolicy | undefined;
+  /** Project-resource ceiling applied to every task agent on this board. */
+  boundary?: KanbanBoundaryPolicy | undefined;
   /** Sessions and agents that recently read or mutated this board. */
   presence?: KanbanBoardPresence[] | undefined;
   version: number;
@@ -438,6 +493,7 @@ export interface CreateKanbanBoardInput {
   generatedBy?: string | undefined;
   supervisor?: KanbanSupervisorConfig | undefined;
   lifecycle?: KanbanBoardLifecyclePolicy | undefined;
+  boundary?: KanbanBoundaryPolicy | undefined;
 }
 
 export interface UpdateKanbanBoardInput {
@@ -448,6 +504,7 @@ export interface UpdateKanbanBoardInput {
   completedAt?: string | null | undefined;
   supervisor?: KanbanSupervisorConfig | null | undefined;
   lifecycle?: KanbanBoardLifecyclePolicy | null | undefined;
+  boundary?: KanbanBoundaryPolicy | null | undefined;
 }
 
 export interface DuplicateKanbanBoardInput {
@@ -508,6 +565,7 @@ export interface CreateKanbanTaskInput {
   links?: KanbanLink[] | undefined;
   notes?: KanbanNote[] | undefined;
   lifecycle?: KanbanTaskLifecycle | undefined;
+  boundary?: KanbanBoundaryPolicy | undefined;
 }
 
 export interface UpdateKanbanTaskInput {
@@ -538,6 +596,7 @@ export interface UpdateKanbanTaskInput {
   goalMetrics?: KanbanGoalMetric[] | undefined;
   links?: KanbanLink[] | undefined;
   lifecycle?: KanbanTaskLifecycle | null | undefined;
+  boundary?: KanbanBoundaryPolicy | null | undefined;
 }
 
 export interface KanbanTaskTransitionInput {

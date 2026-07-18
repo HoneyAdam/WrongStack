@@ -23,6 +23,7 @@
   --color-running: hsl(var(--running));
   --color-primary: hsl(var(--primary));
   --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-brand-orange: hsl(var(--brand-orange));
   --color-secondary: hsl(var(--secondary));
   --color-secondary-foreground: hsl(var(--secondary-foreground));
   --color-destructive: hsl(var(--destructive));
@@ -59,6 +60,7 @@
 
     --primary: 344.8 74.6% 47.8%;
     --primary-foreground: 0 0% 100%;
+    --brand-orange: 32.1 94.6% 43.7%;
     --secondary: 43.6 26.8% 92%;
     --secondary-foreground: 60 7% 8.4%;
     --muted: 43.6 26.8% 92%;
@@ -100,6 +102,7 @@
 
     --primary: 345.9 99% 58.8%;
     --primary-foreground: 60 5.9% 6.7%;
+    --brand-orange: 37.5 98.4% 50%;
     --secondary: 75 6.1% 12.9%;
     --secondary-foreground: 45 37.5% 93.7%;
     --muted: 75 5% 15.7%;
@@ -179,11 +182,26 @@
     /* biome-ignore lint/suspicious/noDuplicateProperties: 100vh above is the fallback for browsers without dvh support */
     height: 100dvh;
     max-height: 100dvh;
-    background: linear-gradient(
-      180deg,
-      hsl(var(--background)) 0%,
-      hsl(var(--surface-2) / 0.74) 100%
-    );
+    background:
+      linear-gradient(
+          90deg,
+          hsl(var(--primary)) 0 18%,
+          hsl(var(--brand-orange)) 18% 23%,
+          transparent 23%
+        )
+        top / 100% 2px no-repeat,
+      linear-gradient(
+        180deg,
+        hsl(var(--background)) 0%,
+        hsl(var(--surface-2) / 0.74) 100%
+      );
+  }
+
+  .ws-brand-logo {
+    display: block;
+    object-fit: cover;
+    image-rendering: pixelated;
+    user-select: none;
   }
 
   .ws-desktop-shell .ws-shortcut-hints {

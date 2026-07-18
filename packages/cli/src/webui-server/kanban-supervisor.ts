@@ -18,6 +18,14 @@ interface DispatchOptions {
   fallbackModels?: string[] | undefined;
   skills?: string[] | undefined;
   name?: string | undefined;
+  /**
+   * Free-form task context propagated into the spawned `TaskSpec.context`.
+   * The supervisor forwards kanban identity from the board/task snapshot so
+   * the tool-runtime boundary gate can resolve the live policy.
+   */
+  context?: {
+    kanban?: { boardId?: string; taskId?: string; projectRoot?: string };
+  } | undefined;
   onDone?:
     | ((result: {
         status: 'completed' | 'failed';
@@ -163,6 +171,11 @@ export function createKanbanSupervisor(deps: KanbanSupervisorDeps): KanbanSuperv
         ...dispatchRoute(routing),
         ...(config.skills?.length ? { skills: config.skills } : {}),
         name: `kanban-supervisor-${board.id.slice(0, 6)}`,
+        // Carry the board identity into the spawned TaskSpec.context so the
+        // tool-runtime boundary gate (`evaluateToolKanbanBoundary`) can resolve
+        // the live board policy instead of failing open. Whole-board agentic
+        // runs have no taskId, so only boardId is propagated.
+        context: { kanban: { boardId: board.id, projectRoot: deps.projectRoot } },
         onDone: async (result) => {
           agentRunning.delete(board.id);
           const current = snapshots.get(board.id) ?? snapshot;

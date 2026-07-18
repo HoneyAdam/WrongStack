@@ -133,6 +133,135 @@ describe('SddBoardProjector', () => {
     proj.dispose();
   });
 
+  it('keeps task-scoped tool and file telemetry in a structured event log', () => {
+    const g = graph();
+    const tracker = makeTracker(g);
+    const events = new EventBus();
+    const proj = new SddBoardProjector({ runId: 'audit', graph: g, tracker, events, store });
+
+    events.emit('subagent.tool_executed', {
+      subagentId: 'worker-1',
+      taskId: 'a',
+      runId: 'audit',
+      agentName: 'Ada',
+      name: 'shell_command',
+      input: { command: 'pnpm test' },
+      durationMs: 1200,
+      ok: true,
+    });
+    events.emit('file.event', {
+      operation: 'update',
+      filePath: 'src/app.ts',
+      absPath: '/project/src/app.ts',
+      sessionId: 'session-1',
+      agentId: 'worker-1',
+      agentName: 'Ada',
+      provider: 'openai',
+      model: 'gpt-5',
+      toolName: 'apply_patch',
+      toolUseId: 'tool-1',
+      scope: 'task',
+      taskId: 'a',
+      boardId: 'g1',
+      runId: 'audit',
+      timestamp: '2026-07-18T10:30:00.000Z',
+    });
+
+    const taskEvents = proj.snapshot().taskEvents?.['a'] ?? [];
+    expect(taskEvents).toHaveLength(2);
+    expect(taskEvents[0]).toMatchObject({
+      kind: 'file',
+      action: 'update',
+      filePath: 'src/app.ts',
+    });
+    expect(taskEvents[1]).toMatchObject({
+      kind: 'tool',
+      action: 'shell_command',
+      detail: '[command omitted]',
+      durationMs: 1200,
+      ok: true,
+    });
+
+    // A different graph's task must never leak into this board's audit trail.
+    events.emit('subagent.tool_executed', {
+      subagentId: 'worker-2',
+      taskId: 'outside',
+      runId: 'audit',
+      name: 'read',
+      durationMs: 1,
+      ok: true,
+    });
+    expect(proj.snapshot().taskEvents?.['outside']).toBeUndefined();
+
+    proj.dispose();
+  });
+
+  it('redacts and allowlists tool telemetry before snapshot and JSONL persistence', async () => {
+    const isolatedDir = mkdtempSync(join(tmpdir(), 'sdd-proj-redact-'));
+    const isolatedStore = new SddBoardStore({ baseDir: isolatedDir });
+    const g = graph();
+    const tracker = makeTracker(g);
+    const events = new EventBus();
+    const proj = new SddBoardProjector({
+      runId: 'redact',
+      graph: g,
+      tracker,
+      events,
+      store: isolatedStore,
+    });
+    const secret = 'MY_API_KEY=abcdef1234567890abcdef1234567890';
+    const shortSecret = 'pwd=short-secret';
+
+    events.emit('subagent.tool_executed', {
+      subagentId: 'worker-1',
+      taskId: 'a',
+      runId: 'redact',
+      agentName: 'Ada',
+      name: 'bash',
+      input: { command: `echo ${secret} ${shortSecret}`, password: 'must-not-persist' },
+      output: `also-secret:${secret}`,
+      durationMs: 10,
+      ok: true,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const serializedSnapshot = JSON.stringify(proj.snapshot());
+    const eventLog = await import('node:fs/promises').then((fs) =>
+      fs.readFile(isolatedStore.eventsPath('redact'), 'utf8'),
+    );
+    expect(serializedSnapshot).not.toContain(secret);
+    expect(serializedSnapshot).not.toContain(shortSecret);
+    expect(serializedSnapshot).toContain('[command omitted]');
+    expect(eventLog).not.toContain(secret);
+    expect(eventLog).not.toContain(shortSecret);
+    expect(eventLog).not.toContain('must-not-persist');
+    expect(eventLog).not.toContain('"input"');
+    expect(eventLog).not.toContain('"output"');
+    expect(eventLog).toContain('[command omitted]');
+
+    proj.dispose();
+    await import('node:fs/promises').then((fs) => fs.rm(isolatedDir, { recursive: true, force: true }));
+  });
+
+  it('rejects task telemetry correlated to a different run', () => {
+    const g = graph();
+    const tracker = makeTracker(g);
+    const events = new EventBus();
+    const proj = new SddBoardProjector({ runId: 'mine', graph: g, tracker, events, store });
+
+    events.emit('subagent.tool_executed', {
+      subagentId: 'worker-1',
+      taskId: 'a',
+      runId: 'other',
+      name: 'read',
+      durationMs: 1,
+      ok: true,
+    });
+
+    expect(proj.snapshot().taskEvents?.['a']).toBeUndefined();
+    proj.dispose();
+  });
+
   it('narrates the robustness events (verification / conflict / split / supervisor)', () => {
     const g = graph();
     const tracker = makeTracker(g);

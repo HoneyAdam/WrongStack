@@ -2,6 +2,8 @@ import type { KanbanEvent, KanbanTask } from '@wrongstack/kanban';
 import { Activity, Check, Copy, Download, RefreshCw, Search, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { usePagination } from '@/hooks/usePagination';
+import { Pagination } from './ui/pagination';
 
 interface TaskActivityTimelineProps {
   task: KanbanTask;
@@ -56,6 +58,9 @@ function text(value: unknown): string | undefined {
 }
 
 export function activityCategory(event: KanbanEvent): Exclude<TaskActivityFilter, 'all'> {
+  if (event.type.startsWith('task.file.')) {
+    return event.type === 'task.file.read' ? 'execution' : 'changes';
+  }
   if (event.type.startsWith('task.activity.')) {
     if (text(record(event.after)['outcome']) === 'failed') return 'failures';
     return event.type === 'task.activity.attempt' ? 'execution' : 'notes';
@@ -89,6 +94,10 @@ export function eventFieldChanges(event: KanbanEvent): TaskFieldChange[] {
 }
 
 function eventTitle(event: KanbanEvent): string {
+  if (event.type.startsWith('task.file.')) {
+    const operation = event.type.slice('task.file.'.length);
+    return `File ${operation}`.replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
   if (event.type.startsWith('task.activity.')) {
     const kind = event.type.slice('task.activity.'.length);
     return `Recorded ${kind}`.replace(/\b\w/g, (letter) => letter.toUpperCase());
@@ -149,6 +158,20 @@ function eventTitle(event: KanbanEvent): string {
 function eventDescription(event: KanbanEvent): string | undefined {
   const before = record(event.before);
   const after = record(event.after);
+  if (event.type.startsWith('task.file.')) {
+    const filePath = text(after['filePath']);
+    const toolName = text(after['toolName']);
+    const durationMs = typeof after['durationMs'] === 'number' ? after['durationMs'] : undefined;
+    const lines = typeof after['lines'] === 'number' ? after['lines'] : undefined;
+    return [
+      filePath,
+      toolName ? `tool:${toolName}` : undefined,
+      durationMs !== undefined ? `${durationMs}ms` : undefined,
+      lines !== undefined ? `${lines} lines` : undefined,
+    ]
+      .filter(Boolean)
+      .join(' · ') || undefined;
+  }
   if (event.type.startsWith('task.activity.')) {
     return (
       [text(after['outcome']), text(after['details'])].filter(Boolean).join(' · ') || undefined
@@ -392,7 +415,6 @@ export function TaskActivityTimeline({
   const [filter, setFilter] = useState<TaskActivityFilter>('all');
   const [query, setQuery] = useState('');
   const [copied, setCopied] = useState(false);
-  const [displayLimit, setDisplayLimit] = useState(100);
   const activity = useMemo(
     () => buildTaskActivity(task, events, sessionId),
     [task, events, sessionId],
@@ -429,7 +451,8 @@ export function TaskActivityTimeline({
         .includes(needle);
     });
   }, [activity, filter, query]);
-  const displayed = visible.slice(0, displayLimit);
+  const activityPage = usePagination(visible, 50, `${filter}:${query}`);
+  const displayed = activityPage.pageItems;
   const actors = [...new Set(activity.map((event) => event.actor).filter(Boolean))].length;
   const sessions = [
     ...new Set(activity.map((event) => event.sessionId ?? sessionId).filter(Boolean)),
@@ -627,7 +650,8 @@ export function TaskActivityTimeline({
                   )}
                   {changes.length > 0 &&
                     event.type !== 'task.assigned' &&
-                    event.type !== 'task.assignment.snapshot' && (
+                    event.type !== 'task.assignment.snapshot' &&
+                    !event.type.startsWith('task.file.') && (
                       <div className="mt-1.5 space-y-1 rounded border border-border/60 bg-background/50 p-1.5">
                         {changes.map((change) => (
                           <div
@@ -695,15 +719,14 @@ export function TaskActivityTimeline({
               );
             })}
           </ol>
-          {displayed.length < visible.length && (
-            <button
-              type="button"
-              onClick={() => setDisplayLimit((value) => value + 100)}
-              className="mt-3 h-8 w-full rounded-md border text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-              Show 100 more ({visible.length - displayed.length} remaining)
-            </button>
-          )}
+          <Pagination
+            page={activityPage.page}
+            pageSize={activityPage.pageSize}
+            totalItems={activityPage.totalItems}
+            onPageChange={activityPage.setPage}
+            className="mt-3"
+            itemLabel="activity events"
+          />
         </>
       )}
     </section>

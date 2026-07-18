@@ -21,12 +21,7 @@
  * @module mailbox-loop
  */
 
-import type { Mailbox, MailboxMessage } from '../coordination/mailbox-types.js';
-import {
-  ACTIONABLE_BACKGROUND_TYPES,
-  MAILBOX_TYPE_PROPERTIES,
-  type MailboxMessageType,
-} from '../coordination/mailbox-types.js';
+import type { Mailbox, MailboxMessage, MailboxMessageType } from '../coordination/mailbox-types.js';
 import { toErrorMessage } from '../utils/error.js';
 
 export interface MailboxLoopOptions {
@@ -154,7 +149,7 @@ const TYPE_LABEL: Partial<Record<MailboxMessage['type'], string>> = {
   result: '✅ RESULT',
   review: '🔍 REVIEW',
   status: '📨 STATUS',
-  note: '📝 NOTE',
+  note: '📨 NOTE',
   broadcast: '📢 BROADCAST',
   control: '⚙ CONTROL',
 };
@@ -166,7 +161,7 @@ const TYPE_LABEL: Partial<Record<MailboxMessage['type'], string>> = {
  */
 const TYPE_GUIDANCE: Record<MailboxMessageType, string> = {
   steer: 'After your current operation reaches a stopping point, adjust your approach per the instruction above.',
-  ask: 'This agent is waiting for your answer. Reply directly or use `mail_send` to respond.',
+  ask: 'This agent is waiting for your answer. Reply directly or use mailbox action=send to respond.',
   assign: 'This is a task assignment. Act on it when your current operation allows.',
   result: 'A subagent has completed its work. Factor this result into your next decision.',
   btw: 'FYI only — absorb the information and stay on your current task; no reply needed.',
@@ -176,6 +171,24 @@ const TYPE_GUIDANCE: Record<MailboxMessageType, string> = {
   broadcast: 'Broadcast message. Read for context; no reply needed.',
   control: '', // control never reaches this rendering path — see injectPendingMailboxMessages
 };
+
+// Keep receive-side dispatch policy in the core layer. Importing the
+// coordination layer's runtime policy table here creates a core ↔ coordination
+// dependency cycle; the message union remains a type-only contract.
+const ACTION_FOOTER_TYPES = new Set<MailboxMessageType>([
+  'ask',
+  'assign',
+  'result',
+  'review',
+]);
+const BACKGROUND_DELIVERY_TYPES = new Set<MailboxMessageType>([
+  'steer',
+  'ask',
+  'assign',
+  'result',
+  'review',
+]);
+const OUT_OF_BAND_TYPES = new Set<MailboxMessageType>(['control']);
 
 export function buildMailboxBtwAwarenessBlock(messages: MailboxMessage[]): { type: 'text'; text: string } {
   if (messages.length === 0) throw new Error('buildMailboxBtwAwarenessBlock called with empty messages');
@@ -209,13 +222,9 @@ export function buildMailboxBlock(messages: MailboxMessage[]): { type: 'text'; t
   parts.push('[MAILBOX] New message(s) from other agents:');
   parts.push('');
 
-  // Use the canonical type properties table to detect messages requiring action.
-  // `requiresAction` types are those that need a substantive response or
-  // action from the recipient — distinct from `expectsReply` (e.g. review
-  // expects no reply but still requires action).
-  const hasActionable = messages.some(
-    (m) => MAILBOX_TYPE_PROPERTIES[m.type]?.requiresAction ?? false,
-  );
+  // Steers alter the current approach inline, but do not require a separate
+  // mailbox acknowledgement footer. Ask/assign/result/review messages do.
+  const hasActionable = messages.some((m) => ACTION_FOOTER_TYPES.has(m.type));
 
   // Steer messages always come first — they are mid-task behavior changes
   // and the model must see them before any other action items, otherwise
@@ -299,13 +308,11 @@ export async function injectPendingMailboxMessages(
   // out-of-band messages (e.g. `control`) are out-of-band signals handled
   // by the runtime, NOT conversation content — keep them out of the folded
   // block so they never pollute the transcript. The canonical
-  // MAILBOX_TYPE_PROPERTIES.outOfBand flag drives this decision so any
-  // newly-added out-of-band type is automatically excluded.
-  const outOfBand = messages.filter((m) => MAILBOX_TYPE_PROPERTIES[m.type]?.outOfBand ?? false);
-  const content = messages.filter((m) => !(MAILBOX_TYPE_PROPERTIES[m.type]?.outOfBand ?? false));
+  const outOfBand = messages.filter((m) => OUT_OF_BAND_TYPES.has(m.type));
+  const content = messages.filter((m) => !OUT_OF_BAND_TYPES.has(m.type));
   const deliveredContent =
     deliveryMode === 'background'
-      ? content.filter((message) => ACTIONABLE_BACKGROUND_TYPES.has(message.type))
+      ? content.filter((message) => BACKGROUND_DELIVERY_TYPES.has(message.type))
       : content;
 
   if (deliveredContent.length > 0) {

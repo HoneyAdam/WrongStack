@@ -1,6 +1,8 @@
 import type { KanbanEvent, KanbanTask } from '@wrongstack/kanban';
 import { Bot, ChevronDown, History, Route, Timer } from 'lucide-react';
 import { buildTaskActivity } from './TaskActivityTimeline';
+import { usePagination } from '@/hooks/usePagination';
+import { Pagination } from './ui/pagination';
 
 export interface TaskExecutionAttempt {
   attempt: number;
@@ -174,6 +176,7 @@ export function TaskExecutionAttempts({
   sessionId?: string | undefined;
 }) {
   const attempts = buildTaskExecutionAttempts(task, events, sessionId);
+  const attemptPage = usePagination(attempts, 8, task.id);
   if (!attempts.length) return null;
   return (
     <details open className="mt-3 rounded-md border border-border/70 bg-muted/15">
@@ -189,7 +192,7 @@ export function TaskExecutionAttempts({
         <ChevronDown className="ml-auto size-3.5 text-muted-foreground" />
       </summary>
       <div className="space-y-2 border-t border-border/60 p-2.5">
-        {attempts.map((attempt) => (
+        {attemptPage.pageItems.map((attempt) => (
           <section key={attempt.attempt} className="rounded-md border bg-background/70 p-2.5">
             <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
               <strong className="text-xs">Attempt #{attempt.attempt}</strong>
@@ -241,6 +244,14 @@ export function TaskExecutionAttempts({
             )}
           </section>
         ))}
+        <Pagination
+          page={attemptPage.page}
+          pageSize={attemptPage.pageSize}
+          totalItems={attemptPage.totalItems}
+          onPageChange={attemptPage.setPage}
+          compact
+          itemLabel="execution attempts"
+        />
       </div>
     </details>
   );

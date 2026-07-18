@@ -44,7 +44,7 @@ export function notifyIfHidden(title: string, body?: string | undefined, tag?: s
   try {
     const n = new Notification(title, {
       body,
-      icon: '/favicon.ico',
+      icon: '/wrongstack.svg',
       // Tag-collapse: if multiple notifications stack while the tab is
       // hidden, only the latest with the same tag shows up so we don't
       // litter the OS notification center. Permission alerts use a

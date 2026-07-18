@@ -220,6 +220,8 @@ export interface AgentEventMap {
     agentSessionId?: string | undefined;
     agentName?: string | undefined;
     taskId?: string | undefined;
+    /** Owning orchestration run, when the task belongs to one. */
+    runId?: string | undefined;
     traceId?: string | undefined;
     /** Original provider tool_use id; pairs with subagent.tool_started.id. */
     id?: string | undefined;

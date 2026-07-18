@@ -44,7 +44,7 @@ describe('helpSections', () => {
     const f5 = F_KEY_ENTRIES.find((entry) => entry.key === 5);
     const f12 = F_KEY_ENTRIES.find((entry) => entry.key === 12);
     expect(f5).toMatchObject({ label: 'Plan panel', action: 'togglePlanPanel' });
-    expect(f12).toMatchObject({ label: 'Status line picker', action: 'statuslineOpen' });
+    expect(f12).toMatchObject({ label: 'Kanban board panel', action: 'toggleKanbanPanel' });
 
     const monitorEntries = helpSections().find((section) => section.title === 'Monitors')?.entries ?? [];
     expect(monitorEntries).toContainEqual({
@@ -52,8 +52,8 @@ describe('helpSections', () => {
       desc: 'plan panel (F5 may be host refresh/run)',
     });
     expect(monitorEntries).toContainEqual({
-      keys: 'F12 or /sl',
-      desc: 'status line picker (F12 may be host/devtools)',
+      keys: 'F12 or Ctrl+J',
+      desc: 'kanban board panel (also /kanban)',
     });
   });
 

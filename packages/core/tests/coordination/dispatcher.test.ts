@@ -9,9 +9,9 @@ import {
 } from '../../src/coordination/index.js';
 
 describe('catalog', () => {
-  it('has 50 catalog agents, all with role/prompt/keywords', () => {
+  it('has 51 catalog agents, all with role/prompt/keywords', () => {
     const roles = Object.keys(AGENT_CATALOG);
-    expect(roles.length).toBe(50);
+    expect(roles.length).toBe(51);
     for (const def of Object.values(AGENT_CATALOG)) {
       expect(def.config.role).toBeTruthy();
       expect((def.config.prompt ?? '').length).toBeGreaterThan(50);
@@ -84,6 +84,19 @@ describe('scoreAgents', () => {
 
   it('returns empty for a task with no signal', () => {
     expect(scoreAgents('zzzzz qqqqq wwwww')).toEqual([]);
+  });
+
+  it('routes an iOS / SwiftUI / SwiftData task to the iOS assistant', () => {
+    const ranked = scoreAgents(
+      'add a SwiftUI screen with a SwiftData model and wire it up for ios',
+    );
+    expect(ranked[0]?.role).toBe('ios');
+    expect(ranked[0]?.score ?? 0).toBeGreaterThan(0);
+    // No other agent should be able to strictly outscore us on a task whose
+    // every signal word is iOS-specific (swiftui, swiftdata, ios).
+    for (const candidate of ranked.slice(1)) {
+      expect(candidate.score).toBeLessThanOrEqual(ranked[0]!.score);
+    }
   });
 });
 

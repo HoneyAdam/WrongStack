@@ -79,9 +79,13 @@ export const MessageBubble = memo(function MessageBubble({
   const localPrefs = useLocalPrefs();
   const { autonomy, yolo, showThinkingLogs } = localPrefs;
 
-  const { canAutoSubmit, recordAutoSubmit, capWarned } = useAutoSubmitStreak();
-  const autoProceedMaxIterations = localPrefs.autoProceedMaxIterations;
-  const canAutoSubmitNow = autoProceedMaxIterations <= 0 || canAutoSubmit();
+  /** When model reasoning is turned off and the message has only a
+   *  thinking log (no visible content), suppress the empty "No content"
+   *  placeholder and the timestamp — there's nothing to show. */
+  const hideEmptyReasoning = !showThinkingLogs && !!message.thinkingLog && !message.content && !message.streaming;
+
+  const { canAutoSubmit, recordAutoSubmit, recordPrompt, capWarned } = useAutoSubmitStreak();
+  const canAutoSubmitNow = canAutoSubmit();
 
   /** Auto-submit callback for YOLO+auto mode countdown completion */
   const handleAutoSubmit = (text: string) => {
@@ -96,12 +100,22 @@ export const MessageBubble = memo(function MessageBubble({
       }
       return;
     }
-    recordAutoSubmit();
     const client = getWSClient(wsUrl);
     if (!client.isConnected) {
       toast.error(t('common:status.notConnectedRetry'));
       return;
     }
+    // Record at the final automatic-submission boundary. All MessageBubble
+    // instances share one session guard through useAutoSubmitStreak().
+    if (!recordPrompt(text)) {
+      addMessage({
+        role: 'assistant',
+        content: t('activity:message.autoLoopHalted'),
+      });
+      fillInput('');
+      return;
+    }
+    recordAutoSubmit();
     addMessage({ role: 'user', content: text });
     setLoading(true);
     client.sendMessage(text);
@@ -386,6 +400,10 @@ export const MessageBubble = memo(function MessageBubble({
               </div>
             );
           })() : (() => {
+            // When model reasoning is off and the message only has a
+            // thinking log with no visible content, hide the entire block.
+            if (hideEmptyReasoning) return null;
+
             // For assistant output, the canonical <nextsteps> block was
             // already stripped from message.content at finalization time
             // (chat-store.finalizeMessage), so renderedContent is simply
@@ -442,9 +460,13 @@ export const MessageBubble = memo(function MessageBubble({
         )}
 
         <div className={cn('flex max-w-full flex-wrap items-center gap-2 px-1', isUser ? 'flex-row-reverse' : 'flex-row')}>
-          <span className="text-xs text-muted-foreground/70">{new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-          {/* ── Separator ── */}
-          <span className="w-px h-3 bg-border/60 shrink-0" aria-hidden />
+          {!hideEmptyReasoning && (
+            <>
+              <span className="text-xs text-muted-foreground/70">{new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              {/* ── Separator ── */}
+              <span className="w-px h-3 bg-border/60 shrink-0" aria-hidden />
+            </>
+          )}
           {message.runSummary && (
             <span className="text-[10px] text-muted-foreground/75 font-mono tabular-nums"
               title={[t('activity:message.rsIterations', { n: message.runSummary.iterations }), t('activity:message.rsTools', { n: message.runSummary.tools }), t('activity:message.rsElapsed', { s: `${(message.runSummary.durationMs / 1000).toFixed(2)}s` }), message.runSummary.costDelta > 0 ? t('activity:message.rsCost', { c: message.runSummary.costDelta.toFixed(4) }) : ''].filter(Boolean).join('  ·  ')}>

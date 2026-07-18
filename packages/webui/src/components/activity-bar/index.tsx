@@ -94,10 +94,8 @@ const PANELS: PanelDef[] = [
 ];
 
 const VIEWS: ViewDef[] = [
-  { id: 'sddwizard', icon: <Wand2 size={16} />, label: 'New SDD Project' },
-  { id: 'specs', icon: <FileText size={16} />, label: 'Specs' },
+  { id: 'sddhub', icon: <Wand2 size={16} />, label: 'SDD' },
   { id: 'kanban', icon: <Columns3 size={16} />, label: 'Kanban' },
-  { id: 'sddboard', icon: <ActivityIconSvg size={16} />, label: 'Live Board' },
   { id: 'goal', icon: <Rocket size={16} />, label: 'Goal' },
   { id: 'codemap', icon: <Network size={16} />, label: 'CodeMap' },
   { id: 'techstack', icon: <Boxes size={16} />, label: 'TechStack' },
@@ -256,14 +254,16 @@ export function ActivityBar({ desktopShell = false }: { desktopShell?: boolean |
               : t('activity:brand.returnToChatDefault')
           }
           className={cn(
-            'relative rounded-md bg-primary flex items-center justify-center shadow-[0_0_0_1px_hsl(var(--primary)/0.4),0_2px_8px_-2px_hsl(var(--primary)/0.5)] hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.6),0_3px_12px_-2px_hsl(var(--primary)/0.6)] transition-shadow',
-            'ring-1 ring-primary/30',
+            'relative flex items-center justify-center overflow-hidden border border-border/70 bg-[#121210] shadow-[0_2px_8px_-2px_hsl(var(--shadow-color)/0.5)] transition-shadow hover:shadow-[0_3px_12px_-2px_hsl(var(--primary)/0.5)]',
             desktopShell ? 'w-7 h-7' : 'w-8 h-8',
           )}
         >
-          <Zap
-            className={cn('text-primary-foreground', desktopShell ? 'h-3.5 w-3.5' : 'h-4 w-4')}
-            strokeWidth={2.4}
+          <img
+            src="/wrongstack.svg"
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+            className="ws-brand-logo h-full w-full"
           />
         </button>
         {/* Project name — truncated to fit the narrow icon rail. */}

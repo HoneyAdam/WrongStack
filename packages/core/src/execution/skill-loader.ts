@@ -133,7 +133,12 @@ export class DefaultSkillLoader implements SkillLoader {
     const seen = new Set<string>();
     for (const { dir, source, originTool } of this.dirs) {
       try {
-        const entries = await fs.readdir(dir, { withFileTypes: true });
+        // Node does not guarantee filesystem enumeration order. Sort each
+        // discovery layer so eager-budget selection and prompt output are
+        // deterministic across ext4/APFS/NTFS and packaged installations.
+        const entries = (await fs.readdir(dir, { withFileTypes: true })).sort((a, b) =>
+          a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+        );
         for (const e of entries) {
           if (!(await entryIsDirectory(dir, e))) continue;
           const skillFile = path.join(dir, e.name, 'SKILL.md');

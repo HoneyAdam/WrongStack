@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Pagination } from './ui/pagination';
+
+const PROMPT_PAGE_SIZE = 18;
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { i18n, useAppTranslation } from '@/i18n';
 import { useUIStore } from '@/stores';
@@ -89,6 +92,7 @@ export function PromptLibraryModal() {
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [recentOnly, setRecentOnly] = useState(false);
   const [recentSlugs, setRecentSlugs] = useState<string[]>([]);
+  const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<PromptMeta | null>(null);
   const [content, setContent] = useState('');
   const [varValues, setVarValues] = useState<Record<string, string>>({});
@@ -174,6 +178,19 @@ export function PromptLibraryModal() {
       return matchesQuery(p);
     });
   }, [prompts, query, activeCat, favoritesOnly, recentOnly, recentSlugs]);
+  const pagedPrompts = filtered.slice(
+    (page - 1) * PROMPT_PAGE_SIZE,
+    page * PROMPT_PAGE_SIZE,
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [activeCat, favoritesOnly, query, recentOnly]);
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(filtered.length / PROMPT_PAGE_SIZE));
+    if (page > totalPages) setPage(totalPages);
+  }, [filtered.length, page]);
 
   const missing = useMemo(
     () =>
@@ -336,7 +353,7 @@ export function PromptLibraryModal() {
             </div>
           </div>
           <div className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain">
-            {filtered.map((p) => (
+            {pagedPrompts.map((p) => (
               <button type="button"
                 key={p.slug}
                 onClick={() => setSelected(p)}
@@ -354,6 +371,14 @@ export function PromptLibraryModal() {
               <div className="p-4 text-sm text-muted-foreground">{t('activity:promptLib.noMatch')}</div>
             )}
           </div>
+          <Pagination
+            page={page}
+            pageSize={PROMPT_PAGE_SIZE}
+            totalItems={filtered.length}
+            onPageChange={setPage}
+            compact
+            itemLabel="prompts"
+          />
         </div>
 
         {/* Right: preview + variables + insert, OR the authoring form */}

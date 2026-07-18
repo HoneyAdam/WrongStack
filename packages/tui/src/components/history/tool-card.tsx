@@ -71,7 +71,7 @@ export function ToolCard({
           >
             {children}
           </Box>
-          <Text color={railColor}>{`╰${'─'.repeat(Math.max(2, termWidth - 5))}`}</Text>
+          <Text color={railColor}>{`╰${'─'.repeat(Math.max(2, termWidth - 1))}`}</Text>
         </>
       ) : null}
     </Box>

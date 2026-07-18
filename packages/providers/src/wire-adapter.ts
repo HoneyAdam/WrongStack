@@ -114,6 +114,14 @@ export abstract class WireAdapter implements Provider {
         code: 'CONFIG_INVALID',
       });
     }
+    if (!baseUrl || !baseUrl.trim()) {
+      throw new ConfigError({
+        message:
+          `${this.constructor.name}: baseUrl required — specify the provider endpoint ` +
+          '(e.g. "https://api.openai.com/v1" or "https://generativelanguage.googleapis.com/v1beta").',
+        code: 'CONFIG_INVALID',
+      });
+    }
     this.debugStream = streamOpts.debugStream ?? false;
     this.streamHangTimeoutMs = streamOpts.streamHangTimeoutMs ?? DEFAULT_STREAM_HANG_TIMEOUT_MS;
   }

@@ -68,10 +68,15 @@ export function buildEnhanceCommand(opts: SlashCommandContext): SlashCommand {
       // Persist to config.autonomy.enhance so it survives restarts.
       if (opts.configStore && opts.paths) {
         try {
+          const activeProfile = opts.configStore.get().activeProfile ?? 'default';
           await persistAutonomySetting(
             {
               configStore: opts.configStore,
               globalConfigPath: opts.paths.globalConfig,
+              profileConfigPath:
+                typeof opts.paths.profileConfig === 'function'
+                  ? opts.paths.profileConfig(activeProfile)
+                  : undefined,
               vault: noOpVault,
             },
             (autonomy) => {

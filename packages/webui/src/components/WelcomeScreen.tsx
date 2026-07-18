@@ -5,7 +5,7 @@ import { getWSClient } from '@/lib/ws-client';
 import { openMainView } from '@/lib/view-navigation';
 import { useConfigStore, useSessionStore } from '@/stores';
 import type { WSServerMessage } from '@/types';
-import { ArrowRight, KeyRound, Zap } from 'lucide-react';
+import { ArrowRight, KeyRound } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -43,9 +43,12 @@ export function WelcomeScreen() {
 
         <div className="relative flex flex-col gap-3">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-primary to-primary/80 flex shrink-0 items-center justify-center shadow-sm shadow-primary/30">
-              <Zap className="h-7 w-7 text-primary-foreground" />
-            </div>
+            <img
+              src="/wrongstack.svg"
+              alt="WrongStack"
+              draggable={false}
+              className="ws-brand-logo h-16 w-16 shrink-0 border border-border/70 shadow-sm shadow-primary/20 sm:h-20 sm:w-20"
+            />
             <div className="min-w-0">
               <h2 className="text-xl font-semibold tracking-tight">
                 {projectName
@@ -57,7 +60,7 @@ export function WelcomeScreen() {
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap gap-x-4 gap-y-1 pl-[60px]">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 pl-[76px] sm:pl-[92px]">
             {provider && model && (
               <p className="truncate text-xs text-muted-foreground/80 font-mono">
                 {provider} / {model}

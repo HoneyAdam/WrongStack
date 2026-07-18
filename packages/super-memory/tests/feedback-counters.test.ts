@@ -34,6 +34,28 @@ function makeStore(): SuperMemoryStore {
 }
 
 describe('SuperMemoryStore feedback counters (JSONL)', () => {
+  it.each([-1, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects an invalid counter flush interval: %s',
+    (counterFlushIntervalMs) => {
+      expect(() => new SuperMemoryStore({ projectRoot: tempDir, counterFlushIntervalMs }))
+        .toThrow('counterFlushIntervalMs must be a finite, non-negative number.');
+    },
+  );
+
+  it('accepts zero to disable counter batching', async () => {
+    const store = new SuperMemoryStore({
+      projectRoot: tempDir,
+      now: () => current,
+      counterFlushIntervalMs: 0,
+    });
+    const memory = await store.rememberSuper({ text: 'Use pnpm for all package operations.' });
+
+    await store.recordInjection([memory.id], 'turn_context');
+    await store.recordInjection([memory.id], 'tool:read');
+
+    expect((await store.getSuperMemory(memory.id))?.injectionCount).toBe(2);
+  });
+
   it('persists the first injection immediately and preserves updatedAt', async () => {
     const store = makeStore();
     const memory = await store.rememberSuper({ text: 'Use pnpm for all package operations.' });

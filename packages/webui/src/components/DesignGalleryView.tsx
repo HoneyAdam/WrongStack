@@ -11,12 +11,14 @@
 
 import { Check, Download, Palette, Search, ShieldCheck, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { usePagination } from '@/hooks/usePagination';
 import { useAppTranslation, i18n } from '@/i18n';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useScrollPosition } from '@/hooks/useScrollPosition';
 import { colorToHex } from '@/lib/color';
 import { cn } from '@/lib/utils';
 import { showPanel } from '@/lib/view-navigation';
+import { Pagination } from './ui/pagination';
 
 type Tokens = Record<string, string>;
 type ThemeName = 'light' | 'dark';
@@ -281,6 +283,7 @@ export function DesignGalleryView({ className }: { className?: string }) {
       : kits;
     return [...list].sort((a, b) => a.name.localeCompare(b.name));
   }, [kits, q]);
+  const kitPage = usePagination(filtered, 12, q);
 
   return (
     <div className={cn('flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[hsl(var(--surface-2)/0.45)]', className)}>
@@ -345,7 +348,7 @@ export function DesignGalleryView({ className }: { className?: string }) {
           </div>
         ) : (
         <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(min(100%,20rem),1fr))]">
-          {filtered.map((kit) => {
+          {kitPage.pageItems.map((kit) => {
             const isActive = activeKit === kit.id;
             const ov = isActive ? overrides : {};
             return (
@@ -417,6 +420,13 @@ export function DesignGalleryView({ className }: { className?: string }) {
         </div>
         )}
       </div>
+      <Pagination
+        page={kitPage.page}
+        pageSize={kitPage.pageSize}
+        totalItems={kitPage.totalItems}
+        onPageChange={kitPage.setPage}
+        itemLabel="design kits"
+      />
     </div>
   );
 }

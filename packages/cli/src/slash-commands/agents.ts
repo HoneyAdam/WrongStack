@@ -105,10 +105,15 @@ export function buildAgentsCommand(opts: SlashCommandContext): SlashCommand {
           // legacy boolean readers). Best-effort: config paths can be absent
           // in embedded surfaces.
           if (opts.configStore && opts.paths) {
+            const activeProfile = opts.configStore.get().activeProfile ?? 'default';
             await persistAutonomySetting(
               {
                 configStore: opts.configStore,
                 globalConfigPath: opts.paths.globalConfig,
+                profileConfigPath:
+                  typeof opts.paths.profileConfig === 'function'
+                    ? opts.paths.profileConfig(activeProfile)
+                    : undefined,
                 inProjectConfigPath: opts.paths.inProjectConfig,
                 vault: noOpVault,
               },

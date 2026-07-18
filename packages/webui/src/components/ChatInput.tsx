@@ -121,6 +121,13 @@ export function ChatInput({
    *  Reset to -1 whenever the user types something that's NOT a history
    *  navigation. */
   const [historyIdx, setHistoryIdx] = useState(-1);
+  /** Sticky buffer for the live draft the user was composing when they
+   *  first pressed ↑ to enter history mode. Terminal-style prompt recall
+   *  (readline, fish, zsh) saves whatever the user had typed and restores
+   *  it verbatim when ↓ walks back past index 0. Without this slot the
+   *  draft is overwritten on the way in and discarded on the way out, so
+   *  a single ↑↓ cycle silently deletes unsent work. */
+  const stickyDraftRef = useRef<string | null>(null);
   /** Open `@`-mention picker state. We track the starting position of the
    *  `@` in the textarea so on pick we can replace the partial token
    *  (`@compa`) with the chosen path. Null = closed. */
@@ -426,12 +433,17 @@ export function ChatInput({
         pushPrompt(content);
         setInput('');
         setHistoryIdx(-1);
+        // Submitted content is now in promptHistory; the original draft
+        // (if any) is no longer the "next thing to send", so drop the
+        // sticky buffer to avoid restoring stale text on a later ↓.
+        stickyDraftRef.current = null;
         _clearTextarea();
         return;
       }
 
       setInput('');
       setHistoryIdx(-1);
+      stickyDraftRef.current = null;
       _clearTextarea();
       pushPrompt(content);
       _clearTextarea(); // ensure textarea is cleared even if batching delays state
@@ -629,6 +641,13 @@ export function ChatInput({
           const beforeCursor = ta.value.slice(0, ta.selectionStart);
           if (historyIdx >= 0 || beforeCursor.indexOf('\n') === -1) {
             e.preventDefault();
+            // Entering history from the live input: snapshot whatever the
+            // user had typed so we can restore it when ↓ walks back past
+            // index 0. Only do this on the first ↑ (historyIdx === -1); if
+            // we're already browsing history the original draft is already
+            // pinned in the ref and we must not overwrite it with the
+            // current history entry.
+            if (historyIdx === -1) stickyDraftRef.current = ta.value;
             const next = Math.min(promptHistory.length - 1, historyIdx + 1);
             setHistoryIdx(next);
             const text = promptHistory[next] ?? '';
@@ -648,8 +667,23 @@ export function ChatInput({
           e.preventDefault();
           const next = historyIdx - 1;
           if (next < 0) {
+            // Walked past the oldest entry: restore the live draft the
+            // user was composing before ↑ stole the input. The ref may be
+            // null on the very first ↓ of a session (e.g. ↑ was triggered
+            // programmatically without a draft); fall back to '' in that
+            // edge case so we don't surface `undefined` as a string.
+            const restored = stickyDraftRef.current ?? '';
+            stickyDraftRef.current = null;
             setHistoryIdx(-1);
-            setInput('');
+            setInput(restored);
+            requestAnimationFrame(() => {
+              const el = textareaRef.current;
+              if (el) {
+                el.style.height = 'auto';
+                el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+                el.setSelectionRange(restored.length, restored.length);
+              }
+            });
           } else {
             setHistoryIdx(next);
             const text = promptHistory[next] ?? '';
@@ -1084,7 +1118,13 @@ export function ChatInput({
               adjustTextareaHeight();
               // Manual typing drops us out of history mode so the next
               // Enter sends the user's edits, not a stale history entry.
-              if (historyIdx >= 0) setHistoryIdx(-1);
+              // The user's new keystrokes have also replaced the original
+              // draft, so the sticky buffer (which would otherwise be
+              // restored by a later ↓) is no longer meaningful — clear it.
+              if (historyIdx >= 0) {
+                setHistoryIdx(-1);
+                stickyDraftRef.current = null;
+              }
               // Detect / refresh @-mention based on cursor position.
               const cur = e.target.selectionStart ?? v.length;
               setAtMention(detectAtMention(v, cur));

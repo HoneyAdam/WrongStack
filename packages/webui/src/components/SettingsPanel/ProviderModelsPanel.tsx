@@ -12,11 +12,13 @@
 import { Check, ListChecks, Loader2, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAppTranslation } from '@/i18n';
+import { usePagination } from '@/hooks/usePagination';
 import { cn } from '@/lib/utils';
 import type { WrongStackWebSocketClient } from '../../lib/ws-client';
 import type { WSServerMessage } from '../../types';
 import { toast } from '../Toaster';
 import { Button } from '../ui/button';
+import { Pagination } from '../ui/pagination';
 import { ClearAllowlistDialog } from './ClearAllowlistDialog';
 import {
   type RefreshState,
@@ -195,6 +197,7 @@ export function ProviderModelsPanel({
     () => selectModelList(state, savedModels),
     [state, savedModels],
   );
+  const modelPage = usePagination(modelList, 12, providerId);
   const formatted = useMemo(() => formatProbeResult(state), [state]);
   const offerClear = useMemo(
     () => shouldOfferClear(savedModels),
@@ -275,7 +278,7 @@ export function ProviderModelsPanel({
             )}
             data-provider-models-list={providerId}
           >
-            {modelList.map((id) => {
+            {modelPage.pageItems.map((id) => {
               const selected = id === pickedId;
               return (
                 <li key={id} className="max-w-full">
@@ -309,6 +312,15 @@ export function ProviderModelsPanel({
           {hasDenseModelList && (
             <div className="pointer-events-none absolute inset-x-0 bottom-0 h-9 rounded-b-md bg-gradient-to-t from-background via-background/90 to-transparent" />
           )}
+          <Pagination
+            page={modelPage.page}
+            pageSize={modelPage.pageSize}
+            totalItems={modelPage.totalItems}
+            onPageChange={modelPage.setPage}
+            className="mt-2"
+            compact
+            itemLabel="models"
+          />
         </div>
       )}
 

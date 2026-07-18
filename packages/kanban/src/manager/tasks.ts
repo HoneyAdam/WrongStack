@@ -13,6 +13,7 @@ import type {
   KanbanLink,
   KanbanNote,
   KanbanTask,
+  KanbanTaskFileActivityInput,
   RecordKanbanTaskActivityInput,
   UpdateKanbanGoalMetricInput,
   UpdateKanbanTaskInput,
@@ -343,6 +344,41 @@ export async function recordTaskActivity(
   });
   if (updated?.result && event) await emitKanbanEvent(projectRoot, event);
   return updated?.result ? updated.board : null;
+}
+
+/**
+ * Append a tool-initiated file operation to a task's durable activity stream.
+ * This intentionally does not mutate the card: reads should not make a task
+ * look edited or churn the board JSON while an agent is exploring the codebase.
+ */
+export async function recordTaskFileActivity(
+  projectRoot: string,
+  boardId: string,
+  taskId: string,
+  input: KanbanTaskFileActivityInput,
+): Promise<boolean> {
+  const board = await readBoard(projectRoot, boardId);
+  const task = board ? findTask(board, taskId) : undefined;
+  if (!board || !task) return false;
+  const event = createKanbanEvent(board.id, task, `task.file.${input.operation}`, {
+    actor: input.agentName || input.agentId,
+    sessionId: input.sessionId,
+    correlationId: input.toolUseId,
+    note: `${input.operation} ${input.filePath}`,
+    after: {
+      operation: input.operation,
+      filePath: input.filePath,
+      toolName: input.toolName,
+      provider: input.provider,
+      model: input.model,
+      ...(input.durationMs !== undefined ? { durationMs: input.durationMs } : {}),
+      ...(input.fileSize !== undefined ? { fileSize: input.fileSize } : {}),
+      ...(input.lines !== undefined ? { lines: input.lines } : {}),
+      ...(input.bytes !== undefined ? { bytes: input.bytes } : {}),
+    },
+  });
+  await emitKanbanEvent(projectRoot, event);
+  return true;
 }
 
 export async function addGoalMetricToTask(

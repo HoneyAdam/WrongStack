@@ -162,7 +162,10 @@ export interface UiDeps {
   renderer: TerminalRenderer;
   reader: ReadlineInputReader;
   /** Mutable bridge replaced by the TUI while Ink owns stdin. */
-  secretInputController: { readSecret(prompt: string): Promise<string> };
+  secretInputController: {
+    readSecret(prompt: string): Promise<string>;
+    readText(prompt: string): Promise<string>;
+  };
   stats: SessionStats;
   effectiveMaxContext: number;
   getEffectiveMaxContext?: (() => number | undefined) | undefined;

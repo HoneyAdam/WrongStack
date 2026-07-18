@@ -1,5 +1,7 @@
+import { createAutoProceedLoopGuard } from '@wrongstack/tools/auto-proceed-loop-guard';
 import { useCallback, useEffect, useRef } from 'react';
 import { useLocalPrefs } from './local-prefs.js';
+import { useSessionStore } from './session-store.js';
 
 /**
  * Auto-submit streak tracking for YOLO+auto mode.
@@ -33,7 +35,12 @@ interface UseAutoSubmitStreak {
    * Returns true if submitted, false if capped (caller should show warning).
    */
   recordAutoSubmit: () => boolean;
-  /** Reset the streak to 0 — call on every manual user submit */
+  /**
+   * Record an automatic prompt immediately before sending it.
+   * Returns false when the prompt repeats and the caller must halt.
+   */
+  recordPrompt: (prompt: string) => boolean;
+  /** Reset the streak and repetition history on every manual user submit. */
   reset: () => void;
   /** Reset the cap-warning flag — call when autonomy mode changes */
   resetCapWarned: () => void;
@@ -43,23 +50,41 @@ interface UseAutoSubmitStreak {
 // This is NOT a React state — it's a mutable counter shared by all hook instances.
 let _streak = 0;
 let _capWarned = false;
+let _loopHalted = false;
+const _loopGuard = createAutoProceedLoopGuard();
 
 /** Module-level streak — reset when the page hard-reloads (acceptable tradeoff) */
 export function useAutoSubmitStreak(): UseAutoSubmitStreak {
   const autoProceedMaxIterations = useLocalPrefs((s) => s.autoProceedMaxIterations);
   const autonomy = useLocalPrefs((s) => s.autonomy);
+  const sessionId = useSessionStore((s) => s.session?.id ?? null);
 
   // Use refs for the mutable values that don't need to trigger re-renders
   const streakRef = useRef(_streak);
   const capWarnedRef = useRef(_capWarned);
-  // Track the previous autonomy value to detect switches
+  // Track session/mode switches so shared module state never crosses a
+  // backend session boundary.
   const prevAutonomyRef = useRef(autonomy);
+  const prevSessionIdRef = useRef(sessionId);
 
   // Sync from module level on first render
   useEffect(() => {
     streakRef.current = _streak;
     capWarnedRef.current = _capWarned;
   });
+
+  // A new backend session starts a fresh automatic-submission history.
+  useEffect(() => {
+    if (prevSessionIdRef.current !== sessionId) {
+      _streak = 0;
+      streakRef.current = 0;
+      _capWarned = false;
+      capWarnedRef.current = false;
+      _loopHalted = false;
+      _loopGuard.reset();
+      prevSessionIdRef.current = sessionId;
+    }
+  }, [sessionId]);
 
   // When autonomy switches TO 'auto' from something else, reset the cap warning
   // so the user gets a fresh cap window. The streak itself is preserved since
@@ -73,6 +98,7 @@ export function useAutoSubmitStreak(): UseAutoSubmitStreak {
   }, [autonomy]);
 
   const canAutoSubmit = useCallback((): boolean => {
+    if (_loopHalted) return false;
     if (autoProceedMaxIterations <= 0) return true; // 0 = unlimited
     return streakRef.current < autoProceedMaxIterations;
   }, [autoProceedMaxIterations]);
@@ -92,11 +118,20 @@ export function useAutoSubmitStreak(): UseAutoSubmitStreak {
     return true;
   }, [autoProceedMaxIterations]);
 
+  const recordPrompt = useCallback((prompt: string): boolean => {
+    if (_loopHalted) return false;
+    const signal = _loopGuard.record(prompt);
+    if (signal.shouldHalt) _loopHalted = true;
+    return !signal.shouldHalt;
+  }, []);
+
   const reset = useCallback(() => {
     _streak = 0;
     streakRef.current = 0;
     _capWarned = false;
     capWarnedRef.current = false;
+    _loopHalted = false;
+    _loopGuard.reset();
   }, []);
 
   const resetCapWarned = useCallback(() => {
@@ -109,6 +144,7 @@ export function useAutoSubmitStreak(): UseAutoSubmitStreak {
     capWarned: capWarnedRef.current,
     canAutoSubmit,
     recordAutoSubmit,
+    recordPrompt,
     reset,
     resetCapWarned,
   };

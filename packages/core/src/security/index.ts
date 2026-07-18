@@ -31,3 +31,7 @@ export {
   hasCapability,
   getDangerousCapabilities,
 } from './capabilities.js';
+export {
+  evaluateToolKanbanBoundary,
+  type ToolKanbanBoundaryEvaluation,
+} from './kanban-boundary.js';

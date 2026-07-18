@@ -12,7 +12,7 @@ describe('adjacent F-key surfaces', () => {
     const frame = view.lastFrame() ?? '';
     expect(frame).toContain('FUNCTION KEYS');
     expect(frame).toContain('F12');
-    expect(frame).toContain('Status line picker');
+    expect(frame).toContain('Kanban board panel');
     expect(frame).toContain('12 surfaces');
     view.unmount();
   });

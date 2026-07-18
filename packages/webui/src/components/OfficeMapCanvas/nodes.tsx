@@ -113,7 +113,7 @@ export function NodeHandles() {
 export function ClientMeta({ data }: { data: OfficeNodeData }) {
   const { t } = useAppTranslation();
   return (
-    <div className="mt-2 flex items-center justify-between border-t border-border/60 pt-1.5 text-[8px] text-muted-foreground">
+    <div className="mt-2 flex items-center justify-between border-t border-border/60 pt-1.5 text-[10px] text-muted-foreground">
       <span>
         <span className="font-mono text-foreground">{data.agentCount ?? 0}</span>{' '}
         {t('activity:office.agentsSuffix')}
@@ -293,7 +293,7 @@ export function CoordinatorNode({ data }: { data: OfficeNodeData }) {
   return (
     <div className="relative min-w-[200px] rounded-xl border-2 border-border/70 bg-card/90 p-4 shadow-lg backdrop-blur-sm transition-all">
       <NodeHandles />
-      <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-primary px-2 py-0.5 text-[9px] font-bold text-primary-foreground">
+      <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-primary px-2 py-0.5 text-[11px] font-bold text-primary-foreground">
         {t('activity:office.coordinator')}
       </div>
 
@@ -376,7 +376,7 @@ export function AgentNode({ data }: { data: OfficeNodeData }) {
             {data.label}
           </div>
           {data.model && (
-            <div className="truncate text-[8px] text-muted-foreground">
+            <div className="truncate text-[10px] text-muted-foreground">
               {shortModel(data.model)}
             </div>
           )}
@@ -385,7 +385,7 @@ export function AgentNode({ data }: { data: OfficeNodeData }) {
       </div>
 
       {data.currentTask && (
-        <div className="mb-1.5 flex min-w-0 items-center gap-1 overflow-hidden text-[9px] text-primary">
+        <div className="mb-1.5 flex min-w-0 items-center gap-1 overflow-hidden text-[11px] text-primary">
           <span
             className={cn(
               'h-1.5 w-1.5 shrink-0 rounded-full bg-primary',
@@ -398,7 +398,7 @@ export function AgentNode({ data }: { data: OfficeNodeData }) {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[9px] mb-1.5">
+      <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[11px] mb-1.5">
         <div className="flex justify-between">
           <span className="text-muted-foreground">iter</span>
           <span className="font-mono text-foreground">{data.iteration || 0}</span>
@@ -421,7 +421,7 @@ export function AgentNode({ data }: { data: OfficeNodeData }) {
 
       {ctxPct > 0 && (
         <div className="mb-1">
-          <div className="mb-0.5 flex justify-between text-[8px] text-muted-foreground">
+          <div className="mb-0.5 flex justify-between text-[10px] text-muted-foreground">
             <span>ctx</span>
             <span
               className={cn(
@@ -451,7 +451,7 @@ export function AgentNode({ data }: { data: OfficeNodeData }) {
       {data.lastActivityAt && (
         <div
           className={cn(
-            'flex items-center gap-1 text-[8px]',
+            'flex items-center gap-1 text-[10px]',
             isActive ? 'text-muted-foreground/70' : 'text-muted-foreground',
           )}
         >
@@ -483,7 +483,7 @@ export function DeskNode({ data }: { data: OfficeNodeData }) {
         </div>
         <StatusLED status={data.status} small activity={data.vizActivity ?? 0} />
       </div>
-      <div className="text-[9px] text-muted-foreground">{t('activity:office.availableDesk')}</div>
+      <div className="text-[11px] text-muted-foreground">{t('activity:office.availableDesk')}</div>
     </div>
   );
 }
@@ -546,7 +546,7 @@ export function MailboxNode({ data }: { data: OfficeNodeData }) {
       </div>
 
       {data.sublabel && (
-        <div className="mt-2 truncate border-t border-border/60 pt-1.5 text-[9px] text-muted-foreground">
+        <div className="mt-2 truncate border-t border-border/60 pt-1.5 text-[11px] text-muted-foreground">
           ✉ {data.sublabel}
         </div>
       )}

@@ -203,17 +203,17 @@ function FleetFlow({ topology }: { topology: FleetTopology }): React.ReactElemen
           setChatTarget(target);
         }}
       >
-        <Background color="rgba(245, 242, 233, 0.12)" gap={22} />
+        <Background color="var(--flow-grid)" gap={22} />
         <MiniMap
           pannable
           zoomable
           className="hq-flow-minimap"
           nodeColor={(node) => {
             const kind = (node.data as FleetTopologyNode | undefined)?.kind;
-            if (kind === 'machine') return '#fe2e5f';
-            if (kind === 'project') return '#fd9f02';
-            if (kind === 'terminal') return '#f5f2e9';
-            return '#22c77a';
+            if (kind === 'machine') return 'var(--primary)';
+            if (kind === 'project') return 'var(--amber)';
+            if (kind === 'terminal') return 'var(--text)';
+            return 'var(--green)';
           }}
         />
         <Controls className="hq-flow-controls" />

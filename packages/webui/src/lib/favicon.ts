@@ -1,21 +1,19 @@
 /**
  * Dynamic favicon helper. We don't ship a `.ico` file — the icon is built at
- * runtime as an inline SVG data URL so it can be re-rendered with or without
- * a status badge.
+ * runtime from the WrongStack block mark so it can be re-rendered with or
+ * without a status badge.
  *
- *   setFaviconStatus('idle')      → plain "W" mark
- *   setFaviconStatus('running')   → "W" + amber pulse dot (running indicator)
- *   setFaviconStatus('ready')     → "W" + green dot (run finished, tab hidden)
- *   setFaviconStatus('error')     → "W" + red dot (run failed, tab hidden)
- *   setFaviconStatus('attention') → "W" + yellow dot (approval needed, tab hidden)
+ *   setFaviconStatus('idle')      → plain WrongStack mark
+ *   setFaviconStatus('running')   → mark + amber pulse dot (running indicator)
+ *   setFaviconStatus('ready')     → mark + green dot (run finished, tab hidden)
+ *   setFaviconStatus('error')     → mark + red dot (run failed, tab hidden)
+ *   setFaviconStatus('attention') → mark + yellow dot (approval needed, tab hidden)
  *
  * The status auto-resets to 'idle' on the next visibilitychange where the
  * tab becomes visible — so the badge only persists while the user is away.
  */
 
 export type FaviconStatus = 'idle' | 'running' | 'ready' | 'error' | 'attention';
-
-const BASE_BG = '#4f46e5'; // indigo-600, matches the topbar Zap mark.
 
 function buildSvg(status: FaviconStatus): string {
   const badge = (() => {
@@ -30,8 +28,9 @@ function buildSvg(status: FaviconStatus): string {
     return '';
   })();
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-    <rect x="2" y="2" width="60" height="60" rx="14" fill="${BASE_BG}" />
-    <text x="32" y="44" text-anchor="middle" font-family="-apple-system,Segoe UI,Roboto,sans-serif" font-size="38" font-weight="700" fill="#fff">W</text>
+    <rect width="64" height="64" fill="#121210" />
+    <path fill="#FD9F02" d="M5 27h10v10H5zM27 27h10v10H27zM38 27h10v10H38zM49 27h10v10H49z" />
+    <path fill="#FE2E5F" d="M16 32h10v10H16z" />
     ${badge}
   </svg>`;
 }

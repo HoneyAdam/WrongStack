@@ -73,6 +73,8 @@ export interface CreateInitialStateOptions {
   cwd: string;
   family?: string | undefined;
   keyTail?: string | undefined;
+  /** Current session id (e.g. "sess_01KXV6…"). Static for the session lifetime. */
+  sessionId?: string | undefined;
   /** Background autonomy agents to display in the banner. */
   autonomyAgents?: ReadonlyArray<AutonomyAgentStatus> | undefined;
   restoredEntries: State['entries'];
@@ -93,6 +95,7 @@ export function createInitialState(options: CreateInitialStateOptions): State {
     cwd,
     family,
     keyTail,
+    sessionId,
     autonomyAgents,
     restoredEntries,
     restoredCheckpoints,
@@ -116,6 +119,7 @@ export function createInitialState(options: CreateInitialStateOptions): State {
               cwd,
               family,
               keyTail,
+              sessionId,
               autonomyAgents,
             },
           ]
@@ -250,6 +254,9 @@ export function createInitialState(options: CreateInitialStateOptions): State {
     enhanceBusy: false,
     refineFailure: null,
     continueConfirm: null,
+    clearConfirm: null,
+    exitConfirm: null,
+    slashConfirm: null,
     escConfirm: null,
     sendModePicker: null,
     contextChipVersion: 0,

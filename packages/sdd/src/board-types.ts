@@ -85,13 +85,23 @@ export interface SddBoardFeedEntry {
     | 'verification_failed'
     | 'conflict'
     | 'split'
-    | 'supervisor';
+    | 'supervisor'
+    | 'tool'
+    | 'file';
+  /** Full task id for durable per-task history; older snapshots may only carry shortId. */
+  taskId?: string | undefined;
   /** Short id of the task this entry concerns, when applicable. */
   taskShortId?: string | undefined;
   /** Worker involved, when applicable. */
   agentName?: string | undefined;
   /** Human-readable one-line summary. */
   text: string;
+  /** Structured event-log fields used by richer board surfaces. */
+  action?: string | undefined;
+  detail?: string | undefined;
+  filePath?: string | undefined;
+  durationMs?: number | undefined;
+  ok?: boolean | undefined;
 }
 
 export interface SddBoardSnapshot {
@@ -110,6 +120,8 @@ export interface SddBoardSnapshot {
   diagnostics?: { deadlockChains?: SddDeadlockChain[] } | undefined;
   /** Live activity feed — most recent first (capped). */
   feed?: SddBoardFeedEntry[] | undefined;
+  /** Per-task event history — most recent first and capped independently per task. */
+  taskEvents?: Record<string, SddBoardFeedEntry[]> | undefined;
   /** Run-level default worker model (task overrides take precedence). */
   defaultModel?: string | undefined;
   /** Run-level default worker provider. */

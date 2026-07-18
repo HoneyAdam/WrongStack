@@ -9,6 +9,7 @@ import {
   type KanbanBoardSummary,
   type KanbanEvent,
 } from './types.js';
+import { normalizeKanbanBoundaryPolicy } from './boundary.js';
 import { atomicWrite, withFileLock } from './utils/atomic-write.js';
 
 const KANBANS_DIR = 'kanbans';
@@ -233,11 +234,22 @@ export async function mutateBoard<T>(
       throw err;
     }
     const readRevision = board.revision ?? 0;
+    // Many high-frequency callers (notably the Kanban supervisor) use a
+    // mutator that returns `null` when there is nothing to repair. Previously
+    // even those no-op passes bumped the revision and rewrote the whole board.
+    // Besides needless disk churn, each write wakes every directory watcher
+    // and can create a self-sustaining render/lock workload in long-lived CLI
+    // processes. Compare the canonical board payload so only real mutations
+    // reach the filesystem; the mutator's result is still returned unchanged.
+    const beforeMutation = JSON.stringify(board);
     const result = await mutator(board);
-    // Stale-write detection: re-read the on-disk revision under the same file lock
-    // to catch cross-process modifications since our initial read. If the revision
-    // changed, another agent or process mutated the board while we were computing,
-    // and our mutation is based on stale state.
+    const afterMutation = JSON.stringify(board);
+    // Stale-write detection: re-read the on-disk revision under the same file
+    // lock to catch cross-process modifications since our initial read. If the
+    // revision changed, another agent or process mutated the board while we
+    // were computing, and our mutation is based on stale state. This check
+    // runs for both no-op and mutating paths so a silent no-op cannot mask a
+    // concurrent write that happened during the mutator's async execution.
     const currentRaw = await fs.readFile(filePath, 'utf8');
     const currentBoard = JSON.parse(currentRaw) as KanbanBoard;
     const currentRevision = currentBoard.revision ?? 0;
@@ -247,6 +259,12 @@ export async function mutateBoard<T>(
           `does not match read revision ${readRevision}. The board was modified ` +
           'by another process since it was loaded. Rerun the operation.',
       );
+    }
+    if (afterMutation === beforeMutation) {
+      // Genuine no-op: revision is still current but the mutator produced no
+      // change. Skip the revision bump and the write entirely — every write
+      // wakes directory watchers and creates churn for long-lived processes.
+      return { board, result };
     }
     board.revision = (board.revision ?? 0) + 1;
     await writeBoardUnlocked(filePath, normalizeBoard(board));
@@ -302,6 +320,7 @@ export interface CreateBoardObjectOptions {
   generatedBy?: string | undefined;
   supervisor?: KanbanBoard['supervisor'] | undefined;
   lifecycle?: KanbanBoard['lifecycle'] | undefined;
+  boundary?: KanbanBoard['boundary'] | undefined;
 }
 
 export function createBoardObject(opts: CreateBoardObjectOptions): KanbanBoard {
@@ -323,6 +342,9 @@ export function createBoardObject(opts: CreateBoardObjectOptions): KanbanBoard {
     ...(opts.supervisor !== undefined ? { supervisor: { ...opts.supervisor } } : {}),
     ...(opts.lifecycle !== undefined
       ? { lifecycle: { ...opts.lifecycle, columns: { ...opts.lifecycle.columns } } }
+      : {}),
+    ...(opts.boundary !== undefined
+      ? { boundary: normalizeKanbanBoundaryPolicy(opts.boundary) }
       : {}),
   };
 }

@@ -21,6 +21,8 @@ import { useAppTranslation } from '@/i18n';
 import { ContextBar } from '@/components/ContextBar';
 import { AgentTranscript } from '@/components/AgentTranscript';
 import { SparklineChart } from '@/components/ui/sparkline';
+import { Pagination } from '@/components/ui/pagination';
+import { usePagination } from '@/hooks/usePagination';
 import { cn } from '@/lib/utils';
 import type { SubagentView } from '@/stores';
 import { EMPTY_AGENT_TRANSCRIPT, useFleetStore } from '@/stores';
@@ -294,6 +296,7 @@ export function AgentsMonitor({ onClose }: AgentsMonitorProps) {
     });
     return arr;
   }, [fleetAgents, leaderId]);
+  const selectorPage = usePagination(fleetList, 8);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -397,14 +400,16 @@ export function AgentsMonitor({ onClose }: AgentsMonitorProps) {
         {fleetList.length > 0 && (
           <div className="border-t bg-card/80 backdrop-blur shrink-0">
             <div className="px-4 py-2 flex items-center gap-2 overflow-x-auto">
-              {fleetList.map((agent, i) => (
+              {selectorPage.pageItems.map((agent, i) => {
+                const globalIndex = (selectorPage.page - 1) * selectorPage.pageSize + i;
+                return (
                 <button
                   key={agent.id}
                   type="button"
-                  onClick={() => setSelectedIdx(i)}
+                  onClick={() => setSelectedIdx(globalIndex)}
                   className={cn(
                     'shrink-0 flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] transition-colors',
-                    i === selectedIdx
+                    globalIndex === selectedIdx
                       ? 'bg-primary/15 text-primary ring-1 ring-primary/40'
                       : 'hover:bg-accent text-muted-foreground',
                   )}
@@ -422,8 +427,20 @@ export function AgentsMonitor({ onClose }: AgentsMonitorProps) {
                     <Crown className="h-2.5 w-2.5 text-warning shrink-0" />
                   )}
                 </button>
-              ))}
+                );
+              })}
             </div>
+            <Pagination
+              page={selectorPage.page}
+              pageSize={selectorPage.pageSize}
+              totalItems={selectorPage.totalItems}
+              onPageChange={(page) => {
+                selectorPage.setPage(page);
+                setSelectedIdx((page - 1) * selectorPage.pageSize);
+              }}
+              compact
+              itemLabel="agents"
+            />
             <div className="px-4 py-1.5 border-t text-[10px] text-muted-foreground flex items-center gap-4">
               <span>{t('activity:agentsMonitor.hintPage')}</span>
               <span>{t('activity:agentsMonitor.hintNavigate')}</span>

@@ -1,8 +1,8 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import * as fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import * as fs from 'node:fs/promises';
 import * as http from 'node:http';
 import { createRequire } from 'node:module';
 import * as net from 'node:net';
@@ -303,9 +303,7 @@ export class DesktopRuntimeManager extends EventEmitter {
         if (runtime.status === 'error') return;
         runtime.status = 'stopped';
         runtime.error =
-          code === 0
-            ? undefined
-            : `Exited with ${signal ?? `code ${code ?? 'unknown'}`}`;
+          code === 0 ? undefined : `Exited with ${signal ?? `code ${code ?? 'unknown'}`}`;
         runtime.child = null;
         if (this.activeRuntimeId === runtime.id) {
           this.activeRuntimeId = firstRunningRuntimeId(this.runtimes);
@@ -489,10 +487,9 @@ export class DesktopRuntimeManager extends EventEmitter {
     const openProjects = openProjectSessions.map((session) => session.root);
     const activeRuntime = this.activeRuntimeId ? this.runtimes.get(this.activeRuntimeId) : null;
     const lastActiveProjectRoot = this.lastActiveProjectRoot;
-    const fallbackSession =
-      lastActiveProjectRoot
-        ? openProjectSessions.find((session) => samePath(session.root, lastActiveProjectRoot))
-        : undefined;
+    const fallbackSession = lastActiveProjectRoot
+      ? openProjectSessions.find((session) => samePath(session.root, lastActiveProjectRoot))
+      : undefined;
     const activeSession =
       activeRuntime?.kind === 'project'
         ? runtimeToSessionState(activeRuntime)
@@ -532,36 +529,54 @@ export class DesktopRuntimeManager extends EventEmitter {
   }
 }
 
+function hasChildExited(child: ChildProcess): boolean {
+  return child.exitCode !== null || child.signalCode !== null;
+}
+
+/** Wait for actual process exit; ChildProcess.killed only means a signal was sent. */
+export function waitForChildExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+  if (hasChildExited(child)) return Promise.resolve(true);
+
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (exited: boolean): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.off('exit', onExit);
+      resolve(exited);
+    };
+    const onExit = (): void => finish(true);
+    const timer = setTimeout(() => finish(hasChildExited(child)), timeoutMs);
+    timer.unref?.();
+    child.once('exit', onExit);
+
+    // Close the race between the initial state check and listener registration.
+    if (hasChildExited(child)) finish(true);
+  });
+}
+
 async function terminateProcessTree(child: ChildProcess | null): Promise<void> {
-  if (!child || child.killed || !child.pid) return;
+  if (!child?.pid || hasChildExited(child)) return;
   if (process.platform !== 'win32') {
     // macOS / Linux: send SIGTERM first, then SIGKILL after a grace
     // period. Electron child processes spawned with ELECTRON_RUN_AS_NODE
     // may ignore the initial signal during busy I/O.
+    const pid = child.pid;
+    const exited = waitForChildExit(child, 5000);
     child.kill('SIGTERM');
-    const deadline = Date.now() + 5000;
-    await new Promise<void>((resolve) => {
-      const check = (): void => {
-        if (child.killed || !child.pid) {
-          resolve();
-          return;
-        }
-        if (Date.now() >= deadline) {
-          // Grace period expired — force kill the process tree.
-          // On macOS, the child still own its own sub-processes so we
-          // kill the process group (-pid) to catch grandchildren too.
-          try {
-            process.kill(-child.pid, 'SIGKILL');
-          } catch {
-            child.kill('SIGKILL');
-          }
-          resolve();
-          return;
-        }
-        setTimeout(check, 100);
-      };
-      check();
-    });
+    if (await exited) return;
+
+    // Grace period expired — force kill the process tree. Do not use
+    // child.killed here: it becomes true as soon as SIGTERM is sent.
+    if (!hasChildExited(child)) {
+      try {
+        process.kill(-pid, 'SIGKILL');
+      } catch {
+        child.kill('SIGKILL');
+      }
+      await waitForChildExit(child, 1000);
+    }
     return;
   }
 
@@ -616,7 +631,11 @@ function runtimeToSessionState(runtime: RuntimeInternal): DesktopProjectSessionS
   };
 }
 
-function appendRuntimeLog(runtime: RuntimeInternal, stream: 'stdout' | 'stderr', text: string): void {
+function appendRuntimeLog(
+  runtime: RuntimeInternal,
+  stream: 'stdout' | 'stderr',
+  text: string,
+): void {
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.trimEnd();
     if (!line) continue;
@@ -720,9 +739,7 @@ function nextRuntimeName(
   if (kind !== 'project') return baseName;
   const liveSameRoot = Array.from(runtimes.values()).filter(
     (runtime) =>
-      runtime.kind === 'project' &&
-      samePath(runtime.root, root) &&
-      runtime.status !== 'stopped',
+      runtime.kind === 'project' && samePath(runtime.root, root) && runtime.status !== 'stopped',
   ).length;
   return liveSameRoot === 0 ? baseName : `${baseName} #${liveSameRoot + 1}`;
 }
@@ -863,9 +880,10 @@ function normalizeProjectEntry(value: unknown): DesktopProjectEntry | null {
   const candidate = value as Partial<DesktopProjectEntry>;
   if (typeof candidate.root !== 'string' || !candidate.root.trim()) return null;
   const root = path.resolve(candidate.root);
-  const name = typeof candidate.name === 'string' && candidate.name.trim()
-    ? candidate.name.trim()
-    : path.basename(root) || root;
+  const name =
+    typeof candidate.name === 'string' && candidate.name.trim()
+      ? candidate.name.trim()
+      : path.basename(root) || root;
   const entry: DesktopProjectEntry = {
     name,
     root,
@@ -886,7 +904,9 @@ function normalizeProjectEntry(value: unknown): DesktopProjectEntry | null {
   return entry;
 }
 
-async function touchGlobalProjectManifest(entry: DesktopProjectEntry): Promise<DesktopProjectEntry[]> {
+async function touchGlobalProjectManifest(
+  entry: DesktopProjectEntry,
+): Promise<DesktopProjectEntry[]> {
   const manifestFile = path.join(wstackGlobalRoot(), 'projects.json');
   const projects = await readGlobalProjectManifest();
   const existing = projects.find((p) => samePath(p.root, entry.root));
@@ -899,10 +919,14 @@ async function touchGlobalProjectManifest(entry: DesktopProjectEntry): Promise<D
     projects.push({ ...entry, createdAt: entry.lastSeen });
   }
   const sorted = projects
-    .sort((a, b) => (b.lastSeen ?? b.createdAt ?? '').localeCompare(a.lastSeen ?? a.createdAt ?? ''))
+    .sort((a, b) =>
+      (b.lastSeen ?? b.createdAt ?? '').localeCompare(a.lastSeen ?? a.createdAt ?? ''),
+    )
     .slice(0, 80);
   await fs.mkdir(path.dirname(manifestFile), { recursive: true });
-  await atomicWrite(manifestFile, `${JSON.stringify({ projects: sorted }, null, 2)}\n`, { mode: 0o600 });
+  await atomicWrite(manifestFile, `${JSON.stringify({ projects: sorted }, null, 2)}\n`, {
+    mode: 0o600,
+  });
   return sorted;
 }
 

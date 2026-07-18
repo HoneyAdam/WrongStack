@@ -31,10 +31,10 @@ describe('fKeyEntryFor', () => {
     expect(entry?.action).toBe('togglePlanPanel');
   });
 
-  it('matches F12 → statusline picker', () => {
+  it('matches F12 → kanban panel', () => {
     const entry = fKeyEntryFor(12, false, '');
     expect(entry?.key).toBe(12);
-    expect(entry?.action).toBe('statuslineOpen');
+    expect(entry?.action).toBe('toggleKanbanPanel');
   });
 
   // ── Ctrl chord alias matching ─────────────────────────────
@@ -83,9 +83,9 @@ describe('fKeyEntryFor', () => {
     expect(entry?.hostAction).toBe('loadLiveSessions');
   });
 
-  it('F12 entry has hostAction openStatuslinePicker', () => {
+  it('F12 entry has no hostAction (pure reducer dispatch)', () => {
     const entry = fKeyEntryFor(12, false, '');
-    expect(entry?.hostAction).toBe('openStatuslinePicker');
+    expect(entry?.hostAction).toBeUndefined();
   });
 
   it('entries without hostAction have undefined', () => {
@@ -114,9 +114,9 @@ describe('actionForFKeyPanel (integration with fKeyEntryFor)', () => {
     expect(actionForFKeyPanel(entry!)).toEqual({ type: 'toggleMonitor' });
   });
 
-  it('returns statuslineOpen action for F12', () => {
+  it('returns toggleKanbanPanel action for F12', () => {
     const entry = fKeyEntryFor(12, false, '');
-    expect(actionForFKeyPanel(entry!)).toEqual({ type: 'statuslineOpen', hiddenItems: [] });
+    expect(actionForFKeyPanel(entry!)).toEqual({ type: 'toggleKanbanPanel' });
   });
 });
 

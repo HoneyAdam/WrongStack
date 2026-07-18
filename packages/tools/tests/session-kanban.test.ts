@@ -9,7 +9,14 @@ import {
   saveTasks,
   type TodoItem,
 } from '@wrongstack/core';
-import { addTask, createBoard, getBoard, listBoards, moveTask } from '@wrongstack/kanban';
+import {
+  addTask,
+  createBoard,
+  getBoard,
+  getKanbanPath,
+  listBoards,
+  moveTask,
+} from '@wrongstack/kanban';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   applySessionKanbanBoardToTodos,
@@ -18,6 +25,7 @@ import {
   cleanupEmptySessionKanbanBoards,
   cleanupSessionKanbanBoardIfEmpty,
   ensureSessionKanbanBoard,
+  mirrorSessionTodosToKanban,
   projectSessionPlanToKanban,
   projectSessionTasksToKanban,
   projectSessionTodosToKanban,
@@ -89,6 +97,38 @@ describe('unified session kanban', () => {
     const card = board?.tasks.find((task) => task.origin?.taskId === 'todo-final');
     expect(card?.status).toBe('completed');
     expect(card?.columnId).toBe('done');
+  });
+
+  it('coalesces a burst of observational todo mirrors to the latest pending state', async () => {
+    const board = await ensureSessionKanbanBoard(dir, 'burst-session');
+    const boardPath = getKanbanPath(dir, board!.id);
+    const lockPath = path.join(path.dirname(boardPath), `.${path.basename(boardPath)}.lock`);
+    const lock = await fs.open(lockPath, 'wx');
+    await lock.writeFile(`${process.pid}:${Date.now()}`);
+
+    for (let index = 0; index < 250; index++) {
+      mirrorSessionTodosToKanban(
+        dir,
+        [{ id: 'burst', content: `state-${index}`, status: 'pending' }],
+        'burst-session',
+      );
+    }
+
+    await lock.close();
+    await fs.unlink(lockPath);
+
+    let current = await getBoard(dir, board!.id);
+    const deadline = Date.now() + 5_000;
+    while (
+      current?.tasks.find((task) => task.origin?.taskId === 'burst')?.title !== 'state-249' &&
+      Date.now() < deadline
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      current = await getBoard(dir, board!.id);
+    }
+
+    expect(current?.tasks.find((task) => task.origin?.taskId === 'burst')?.title).toBe('state-249');
+    expect(current?.revision).toBeLessThanOrEqual((board?.revision ?? 0) + 2);
   });
 
   it('cleans only inactive, empty, system-owned session boards', async () => {

@@ -1,6 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import type { Message } from '../../src/types/messages.js';
-import { repairToolUseAdjacency } from '../../src/utils/message-invariants.js';
+import {
+  hasMeaningfulContent,
+  repairToolUseAdjacency,
+} from '../../src/utils/message-invariants.js';
+
+describe('hasMeaningfulContent', () => {
+  it('rejects empty strings and empty text blocks', () => {
+    expect(hasMeaningfulContent('  \n')).toBe(false);
+    expect(hasMeaningfulContent([])).toBe(false);
+    expect(hasMeaningfulContent([{ type: 'text', text: '   ' }])).toBe(false);
+  });
+
+  it('keeps protocol content and signed thinking blocks', () => {
+    expect(hasMeaningfulContent([{ type: 'tool_use', id: 'u1', name: 'read', input: {} }])).toBe(
+      true,
+    );
+    expect(hasMeaningfulContent([{ type: 'thinking', thinking: '', signature: 'signed' }])).toBe(
+      true,
+    );
+  });
+});
 
 describe('repairToolUseAdjacency', () => {
   it('leaves valid tool_use/tool_result pairs untouched', () => {
@@ -66,5 +86,18 @@ describe('repairToolUseAdjacency', () => {
       { role: 'system', content: '[summary]' },
       { role: 'user', content: 'continue' },
     ]);
+  });
+
+  it('removes assistant messages containing only empty text blocks', () => {
+    const messages: Message[] = [
+      { role: 'user', content: 'hello' },
+      { role: 'assistant', content: [{ type: 'text', text: '' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'answer' }] },
+    ];
+
+    const repaired = repairToolUseAdjacency(messages);
+
+    expect(repaired.report.removedMessages).toBe(1);
+    expect(repaired.messages).toEqual([messages[0], messages[2]]);
   });
 });

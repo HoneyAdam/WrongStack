@@ -36,6 +36,17 @@ export interface GraphMemoryBackendOptions extends FileMemoryBackendOptions {
 }
 
 /**
+ * @deprecated Migrate to `SuperMemoryStore` from the Super Memory package,
+ * which provides the same `MemoryBackend` operations (remember, forget, search,
+ * consolidate, list, clear) plus graph support via its integrated
+ * `SuperMemoryGraph` implementation.
+ * This legacy backend stores entries as markdown bullets in a flat file with a
+ * separate graph.json; SuperMemoryStore stores structured records in JSONL (or
+ * SQLite) with a dedicated edges.jsonl supporting 12 relation types (supersedes,
+ * contradicts, about_file, etc.) and mutation-locked append.
+ * Migration is NOT drop-in — migrate to SuperMemoryStore and use its
+ * integrated graph features instead.
+ *
  * Graph-based memory backend that tracks relationships between entries.
  * Builds on top of FileMemoryBackend — entries are still persisted as
  * markdown bullets, but the graph layer adds:

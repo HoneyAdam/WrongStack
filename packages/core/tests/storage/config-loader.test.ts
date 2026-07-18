@@ -52,11 +52,12 @@ describe('DefaultConfigLoader', () => {
 
   function loader(opts?: { events?: EventBus; traceId?: string }) {
     const paths = resolveWstackPaths({ projectRoot, userHome });
-    return { loader: new DefaultConfigLoader({ paths, ...opts }), paths };
+    const profileCfgPath = paths.profileConfig('default');
+    return { loader: new DefaultConfigLoader({ paths, ...opts }), paths, profileCfgPath };
   }
 
   it('returns behavior defaults with no files (no hardcoded provider/model)', async () => {
-    const { loader: l, paths } = loader();
+    const { loader: l, paths, profileCfgPath } = loader();
     const cfg = await l.load();
     expect(cfg.provider).toBeUndefined();
     expect(cfg.model).toBeUndefined();
@@ -66,7 +67,13 @@ describe('DefaultConfigLoader', () => {
     expect(cfg.features.mcp).toBe(true);
     expect(cfg.mcpServers).toEqual({});
 
-    const written = JSON.parse(await fs.readFile(paths.globalConfig, 'utf8'));
+    // Bootstrap config only stores version + activeProfile
+    const bootstrap = JSON.parse(await fs.readFile(paths.globalConfig, 'utf8'));
+    expect(bootstrap.version).toBe(1);
+    expect(bootstrap.activeProfile).toBe('default');
+
+    // Full behavior defaults are now persisted to the profile config
+    const written = JSON.parse(await fs.readFile(profileCfgPath, 'utf8'));
     expect(written.provider).toBeUndefined();
     expect(written.model).toBeUndefined();
     expect(written.version).toBe(1);
@@ -84,7 +91,7 @@ describe('DefaultConfigLoader', () => {
   });
 
   it('fills missing global defaults without overwriting user settings', async () => {
-    const { loader: l, paths } = loader();
+    const { loader: l, paths, profileCfgPath } = loader();
     await fs.mkdir(path.dirname(paths.globalConfig), { recursive: true });
     await fs.writeFile(
       paths.globalConfig,
@@ -106,7 +113,8 @@ describe('DefaultConfigLoader', () => {
     expect(cfg.modelRuntime?.parameters?.user).toBe('kept');
     expect(cfg.modelRuntime?.reasoning?.effort).toBeUndefined();
 
-    const written = JSON.parse(await fs.readFile(paths.globalConfig, 'utf8'));
+    // User settings are migrated to the profile config
+    const written = JSON.parse(await fs.readFile(profileCfgPath, 'utf8'));
     expect(written.provider).toBe('anthropic');
     expect(written.model).toBe('anthropic-test-model');
     expect(written.maxConcurrent).toBe(12);
@@ -120,13 +128,14 @@ describe('DefaultConfigLoader', () => {
     process.env['WRONGSTACK_PROVIDER'] = 'openai';
     process.env['WRONGSTACK_API_KEY'] = 'sk-env';
     try {
-      const { loader: l, paths } = loader();
+      const { loader: l, paths, profileCfgPath } = loader();
       const cfg = await l.load({ cliFlags: { model: 'gpt-5' } });
       expect(cfg.provider).toBe('openai');
       expect(cfg.model).toBe('gpt-5');
       expect(cfg.apiKey).toBe('sk-env');
 
-      const written = JSON.parse(await fs.readFile(paths.globalConfig, 'utf8'));
+      // Env overrides must not be persisted to the profile config
+      const written = JSON.parse(await fs.readFile(profileCfgPath, 'utf8'));
       expect(written.provider).toBeUndefined();
       expect(written.model).toBeUndefined();
       expect(written.apiKey).toBeUndefined();
@@ -164,9 +173,10 @@ describe('DefaultConfigLoader', () => {
   });
 
   it('memoizes file reads across repeated load() calls until mtime changes', async () => {
-    const { loader: l, paths } = loader();
-    await fs.mkdir(path.dirname(paths.globalConfig), { recursive: true });
-    await fs.writeFile(paths.globalConfig, JSON.stringify({ provider: 'anthropic', model: 'claude-opus-4-7' }));
+    const { loader: l, paths, profileCfgPath } = loader();
+    // Write the initial config to the profile config (user settings)
+    await fs.mkdir(path.dirname(profileCfgPath), { recursive: true });
+    await fs.writeFile(profileCfgPath, JSON.stringify({ provider: 'anthropic', model: 'claude-opus-4-7' }));
 
     const readSpy = vi.spyOn(fs, 'readFile');
     const statSpy = vi.spyOn(fs, 'stat');
@@ -176,15 +186,16 @@ describe('DefaultConfigLoader', () => {
     expect(first.provider).toBe('anthropic');
     expect(second.provider).toBe('anthropic');
 
-    const globalReads = readSpy.mock.calls.filter(([file]) => String(file) === paths.globalConfig);
-    expect(globalReads.length).toBe(3); // two during the first load (ensure defaults + readJson) and one during the mtime-changing write cycle
+    const profileReads = readSpy.mock.calls.filter(([file]) => String(file) === profileCfgPath);
+    expect(profileReads.length).toBe(3);
 
     await new Promise((resolve) => setTimeout(resolve, 5));
-    await fs.writeFile(paths.globalConfig, JSON.stringify({ provider: 'openai', model: 'gpt-5' }));
+    // Update the profile config to simulate a config change
+    await fs.writeFile(profileCfgPath, JSON.stringify({ provider: 'openai', model: 'gpt-5' }));
     const third = await l.load();
     expect(third.provider).toBe('openai');
 
-    expect(statSpy.mock.calls.some(([file]) => String(file) === paths.globalConfig)).toBe(true);
+    expect(statSpy.mock.calls.some(([file]) => String(file) === profileCfgPath)).toBe(true);
   });
 
   it('project-local config overrides user-global', async () => {

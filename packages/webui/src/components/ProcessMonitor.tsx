@@ -5,6 +5,9 @@ import { useConfigStore } from '@/stores';
 import { Shield, Square, Terminal } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from './ui/dialog';
+import { Pagination } from './ui/pagination';
+
+const PROCESS_PAGE_SIZE = 12;
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -32,6 +35,7 @@ export function ProcessMonitor({
 }: ProcessMonitorProps): React.ReactElement | null {
   const { t } = useAppTranslation();
   const [processes, setProcesses] = useState<TrackedProcess[]>([]);
+  const [page, setPage] = useState(1);
   const ws = useWebSocket();
   // Reactive connection state: `ws.client` is a stable singleton, so without
   // this dep the effect would never re-run after a reconnect and a dialog
@@ -74,6 +78,16 @@ export function ProcessMonitor({
   }, [ws.client]);
 
   const running = processes.filter((p) => p.status === 'running');
+  const visibleProcesses = processes.slice(
+    (page - 1) * PROCESS_PAGE_SIZE,
+    page * PROCESS_PAGE_SIZE,
+  );
+
+  useEffect(() => {
+    if (!open) setPage(1);
+    const totalPages = Math.max(1, Math.ceil(processes.length / PROCESS_PAGE_SIZE));
+    if (page > totalPages) setPage(totalPages);
+  }, [open, page, processes.length]);
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
@@ -122,7 +136,7 @@ export function ProcessMonitor({
             </div>
           ) : (
             <div className="divide-y">
-              {processes.map((proc) => {
+              {visibleProcesses.map((proc) => {
                 const elapsed =
                   proc.status === 'running'
                     ? Math.floor((Date.now() - proc.startedAt) / 1000)
@@ -200,6 +214,14 @@ export function ProcessMonitor({
             </div>
           )}
         </div>
+        <Pagination
+          page={page}
+          pageSize={PROCESS_PAGE_SIZE}
+          totalItems={processes.length}
+          onPageChange={setPage}
+          compact
+          itemLabel="processes"
+        />
       </DialogContent>
     </Dialog>
   );

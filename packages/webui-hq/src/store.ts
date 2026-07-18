@@ -26,7 +26,8 @@ export type ViewId =
   | 'worktree'
   | 'trends'
   | 'alerts'
-  | 'control';
+  | 'control'
+  | 'settings';
 
 interface HqState {
   snapshot: HqSnapshot | null;

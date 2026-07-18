@@ -210,6 +210,30 @@ describe('HQ auth-store — ensureHqFirstRunAuthFile', () => {
       expect(result.authFile.clientTokens).toEqual([]);
     });
   });
+
+  it('adds or rotates a password for an existing auth.json', async () => {
+    await withTempDir(async (dir) => {
+      await writeHqAuthFile(dir, {
+        version: HQ_AUTH_FILE_VERSION,
+        updatedAt: '2026-06-21T00:00:00.000Z',
+        browserTokens: [],
+        clientTokens: [],
+      });
+
+      const added = await ensureHqFirstRunAuthFile(dir, { password: 'first-password' });
+      expect(added.created).toBe(false);
+      expect(await verifyHqPassword('first-password', added.authFile.passwordHash ?? '')).toBe(true);
+      const firstSecret = added.authFile.cookieSecret;
+
+      const unchanged = await ensureHqFirstRunAuthFile(dir, { password: 'first-password' });
+      expect(unchanged.authFile.cookieSecret).toBe(firstSecret);
+
+      const rotated = await ensureHqFirstRunAuthFile(dir, { password: 'second-password' });
+      expect(await verifyHqPassword('second-password', rotated.authFile.passwordHash ?? '')).toBe(true);
+      expect(await verifyHqPassword('first-password', rotated.authFile.passwordHash ?? '')).toBe(false);
+      expect(rotated.authFile.cookieSecret).not.toBe(firstSecret);
+    });
+  });
 });
 
 describe('HQ auth-store — mutateHqAuthFile', () => {

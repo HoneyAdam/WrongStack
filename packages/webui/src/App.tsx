@@ -1,4 +1,4 @@
-import { Bot, Command, Cpu, Search, Settings, Sparkles, Zap } from 'lucide-react';
+import { Bot, Command, Cpu, Search, Settings, Sparkles } from 'lucide-react';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useDesktopBridge } from '@/hooks/useDesktopBridge';
@@ -91,11 +91,8 @@ const QueuePanel = lazy(() =>
 const RefreshDebugView = lazy(() =>
   import('./components/RefreshDebugView').then((m) => ({ default: m.RefreshDebugView })),
 );
-const SddBoardView = lazy(() =>
-  import('./components/SddBoardView').then((m) => ({ default: m.SddBoardView })),
-);
-const SddWizard = lazy(() =>
-  import('./components/SddWizard').then((m) => ({ default: m.SddWizard })),
+const SddHub = lazy(() =>
+  import('./components/SddHub').then((m) => ({ default: m.SddHub })),
 );
 const SessionsDashboard = lazy(() =>
   import('./components/SessionsDashboard').then((m) => ({ default: m.SessionsDashboard })),
@@ -123,6 +120,50 @@ function viewLabel(view: string): string {
     .join(' ');
 }
 
+interface ServerProcessMetrics {
+  pid: number;
+  memoryUsage: {
+    rss: number;
+    heapUsed: number;
+    heapTotal: number;
+  };
+  heapLimit: number;
+}
+
+function formatCompactBytes(bytes: number): string {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+  if (bytes >= 1024 ** 2) return `${Math.round(bytes / 1024 ** 2)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${Math.round(bytes)} B`;
+}
+
+function useServerProcessMetrics(): ServerProcessMetrics | null {
+  const [metrics, setMetrics] = useState<ServerProcessMetrics | null>(null);
+
+  useEffect(() => {
+    let disposed = false;
+    const refresh = async () => {
+      try {
+        const response = await fetch('/debug/system', { cache: 'no-store' });
+        if (!response.ok) return;
+        const next = (await response.json()) as ServerProcessMetrics;
+        if (!disposed && Number.isFinite(next.memoryUsage?.rss)) setMetrics(next);
+      } catch {
+        // Keep the rest of the workbench usable if diagnostics are unavailable.
+      }
+    };
+
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 5_000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  return metrics;
+}
+
 function WorkbenchTopbar({
   currentView,
   projectName,
@@ -144,13 +185,12 @@ function WorkbenchTopbar({
   onModel: () => void;
   onSettings: () => void;
 }) {
+  const serverProcess = useServerProcessMetrics();
+  const heapLoad = serverProcess ? serverProcess.memoryUsage.heapUsed / serverProcess.heapLimit : 0;
   return (
     <div className="hidden shrink-0 border-b border-border/70 bg-card/85 px-3 py-2 shadow-sm backdrop-blur-xl md:block">
       <div className="flex min-w-0 items-center gap-3">
         <div className="flex min-w-0 flex-1 items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm shadow-primary/20">
-            <Zap className="h-4 w-4" />
-          </div>
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
               <span className="truncate text-sm font-semibold">{projectName || 'WrongStack'}</span>
@@ -176,6 +216,21 @@ function WorkbenchTopbar({
                   </span>
                 ) : null}
               </span>
+              {serverProcess ? (
+                <span
+                  className={cn(
+                    'rounded-md border border-border/70 bg-muted/50 px-1.5 py-0.5 text-[11px] font-medium tabular-nums',
+                    heapLoad >= 0.85
+                      ? 'text-destructive'
+                      : heapLoad >= 0.6
+                        ? 'text-warning'
+                        : 'text-success',
+                  )}
+                  title={`WebUI server PID ${serverProcess.pid} · heap ${formatCompactBytes(serverProcess.memoryUsage.heapUsed)} / ${formatCompactBytes(serverProcess.heapLimit)}`}
+                >
+                  RAM {formatCompactBytes(serverProcess.memoryUsage.rss)}
+                </span>
+              ) : null}
             </div>
             <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
               {sessionLabel || 'No named session'}
@@ -532,11 +587,11 @@ function AppInner() {
             </Suspense>
           </ErrorBoundary>
         )}
-        {currentView === 'specs' && (
-          <ErrorBoundary level="panel" name="Specs">
+        {currentView === 'sddhub' && (
+          <ErrorBoundary level="panel" name="SDD Hub">
             <Suspense fallback={<PanelSuspense />}>
               <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-                <SpecsView onClose={() => showPanel('chat')} />
+                <SddHub />
               </div>
             </Suspense>
           </ErrorBoundary>
@@ -546,24 +601,6 @@ function AppInner() {
             <Suspense fallback={<PanelSuspense />}>
               <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
                 <KanbanView onClose={() => showPanel('chat')} />
-              </div>
-            </Suspense>
-          </ErrorBoundary>
-        )}
-        {currentView === 'sddboard' && (
-          <ErrorBoundary level="panel" name="SDD Board">
-            <Suspense fallback={<PanelSuspense />}>
-              <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-                <SddBoardView onClose={() => showPanel('chat')} />
-              </div>
-            </Suspense>
-          </ErrorBoundary>
-        )}
-        {currentView === 'sddwizard' && (
-          <ErrorBoundary level="panel" name="SDD Wizard">
-            <Suspense fallback={<PanelSuspense />}>
-              <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-                <SddWizard onClose={() => showPanel('chat')} />
               </div>
             </Suspense>
           </ErrorBoundary>

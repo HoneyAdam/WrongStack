@@ -28,6 +28,7 @@
 import * as fs from 'node:fs/promises';
 import * as http from 'node:http';
 import * as path from 'node:path';
+import * as v8 from 'node:v8';
 import {
   handleApiFleetBroadcast,
   handleApiSessionAgents,
@@ -700,6 +701,27 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
           res.writeHead(503, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'File watcher metrics not available' }));
         }
+        return;
+      }
+
+      // Current WebUI server process memory. This intentionally reports the
+      // Node process behind the page (not the browser tab's JavaScript heap),
+      // so operators can spot long-running RSS/heap growth from the UI.
+      if (url.pathname === '/debug/system' && req.method === 'GET') {
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-store',
+        });
+        res.end(
+          JSON.stringify({
+            pid: process.pid,
+            memoryUsage: process.memoryUsage(),
+            heapLimit: v8.getHeapStatistics().heap_size_limit,
+            uptime: process.uptime(),
+            cpuUsage: process.cpuUsage(),
+            timestamp: Date.now(),
+          }),
+        );
         return;
       }
 

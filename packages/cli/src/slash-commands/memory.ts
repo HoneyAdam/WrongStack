@@ -127,7 +127,9 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
           try {
             const existing = await store.getSuperMemory(id);
             if (!existing) return { message: `No memory with id \`${id}\`.` };
-            await store.deleteSuperMemory(id, reason);
+            // `/memory delete` is an explicit user command, so it satisfies
+            // Super Memory's destructive-operation authorization contract.
+            await store.deleteSuperMemory(id, reason, { force: true });
             return { message: `Deleted \`${id}\`.` };
           } catch (err) {
             return { message: `Could not delete: ${toErrorMessage(err)}` };
@@ -594,7 +596,11 @@ type CliSuperMemoryService = SuperMemoryServiceLike & {
   readAudit(limit?: number): Promise<SuperMemoryAuditRecord[]>;
   rememberSuper(input: import('@wrongstack/super-memory').RememberSuperMemoryInput): Promise<SuperMemory>;
   updateSuperMemory(id: string, patch: UpdateSuperMemoryInput): Promise<SuperMemory>;
-  deleteSuperMemory(id: string, reason?: string): Promise<void>;
+  deleteSuperMemory(
+    id: string,
+    reason?: string,
+    options?: { force?: boolean; neverInject?: boolean },
+  ): Promise<void>;
   compactLog(): Promise<{ beforeRecords: number; afterRecords: number; uniqueIds: number }>;
   getLogStats(): Promise<{ rawRecords: number; uniqueIds: number; duplicateRatio: number; fileSizeBytes: number }>;
   getSuperMemory(id: string): Promise<SuperMemory | null>;
@@ -1251,7 +1257,9 @@ async function runCompact(opts: SlashCommandContext): Promise<{ message: string 
             // delete any extra targets folded into the rewrite.
             const [first, ...rest] = op.targets;
             if (first) await superStore.updateSuperMemory(first, { text: op.newText });
-            for (const t of rest) await superStore.deleteSuperMemory(t, 'compact: rewrite');
+            for (const t of rest) {
+              await superStore.deleteSuperMemory(t, 'compact: rewrite', { force: true });
+            }
           } else {
             for (const target of op.targets) await store.forget(target);
             await store.remember(op.newText);
@@ -1268,7 +1276,9 @@ async function runCompact(opts: SlashCommandContext): Promise<{ message: string 
             // Keep the first memory (update its text), delete the rest.
             const [keeper, ...rest] = op.targets;
             if (keeper) await superStore.updateSuperMemory(keeper, { text: op.newText });
-            for (const t of rest) await superStore.deleteSuperMemory(t, 'compact: merged');
+            for (const t of rest) {
+              await superStore.deleteSuperMemory(t, 'compact: merged', { force: true });
+            }
           } else {
             for (const target of op.targets) await store.forget(target);
             await store.remember(op.newText);
@@ -1278,7 +1288,9 @@ async function runCompact(opts: SlashCommandContext): Promise<{ message: string 
         }
         case 'delete': {
           if (superStore) {
-            for (const target of op.targets) await superStore.deleteSuperMemory(target, 'compact: obsolete');
+            for (const target of op.targets) {
+              await superStore.deleteSuperMemory(target, 'compact: obsolete', { force: true });
+            }
           } else {
             for (const target of op.targets) await store.forget(target);
           }

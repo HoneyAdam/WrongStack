@@ -20,15 +20,17 @@ import {
   RefreshCw,
   Share2,
   Sparkles,
-  Zap,
   Shield,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useFieldKeyboardNav } from '@/hooks/useFieldKeyboardNav';
+import { usePagination } from '@/hooks/usePagination';
 import { useShallow } from 'zustand/react/shallow';
 import QRCode from 'qrcode';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { ScrollArea } from './ui/scroll-area';
+import { Pagination } from './ui/pagination';
 import {
   Dialog,
   DialogContent,
@@ -719,6 +721,7 @@ function CustomProviderSection({ onKeySaved }: { onKeySaved: (providerId: string
   const [baseUrl, setBaseUrl] = useState('');
   const [key, setKey] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const { setFieldRef, handleKeyDown } = useFieldKeyboardNav();
 
   const handleSave = async () => {
     if (!providerId.trim()) return;
@@ -813,6 +816,8 @@ function CustomProviderSection({ onKeySaved }: { onKeySaved: (providerId: string
                 value={providerId}
                 onChange={(e) => setProviderId(e.target.value)}
                 className="text-sm"
+                ref={setFieldRef(0)}
+                onKeyDown={(e) => handleKeyDown(e, 0)}
               />
             </div>
             <div>
@@ -823,6 +828,8 @@ function CustomProviderSection({ onKeySaved }: { onKeySaved: (providerId: string
                 value={family}
                 onChange={(e) => setFamily(e.target.value)}
                 className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                ref={setFieldRef(1)}
+                onKeyDown={(e) => handleKeyDown(e, 1)}
               >
                 <option value="openai-compatible">{t('setup:screen.custom.familyOpenAiCompatible')}</option>
                 <option value="openai">OpenAI</option>
@@ -840,6 +847,8 @@ function CustomProviderSection({ onKeySaved }: { onKeySaved: (providerId: string
               value={baseUrl}
               onChange={(e) => setBaseUrl(e.target.value)}
               className="text-sm font-mono"
+              ref={setFieldRef(2)}
+              onKeyDown={(e) => handleKeyDown(e, 2)}
             />
           </div>
           <div>
@@ -852,9 +861,17 @@ function CustomProviderSection({ onKeySaved }: { onKeySaved: (providerId: string
               value={key}
               onChange={(e) => setKey(e.target.value)}
               className="text-sm font-mono"
+              ref={setFieldRef(3)}
+              onKeyDown={(e) => handleKeyDown(e, 3)}
             />
           </div>
-          <Button onClick={handleSave} disabled={!providerId.trim() || isSaving} size="sm">
+          <Button
+            onClick={handleSave}
+            disabled={!providerId.trim() || isSaving}
+            size="sm"
+            ref={setFieldRef(4)}
+            onKeyDown={(e) => handleKeyDown(e, 4, handleSave)}
+          >
             {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
             {t('setup:screen.custom.add')}
           </Button>
@@ -1140,15 +1157,21 @@ export function SetupScreen() {
   const additionalCatalog = catalogProviders
     .filter((p) => !popularIds.has(p.id))
     .sort((a, b) => a.id.localeCompare(b.id));
+  const catalogPage = usePagination(additionalCatalog, 10, step);
+  const savedProviderPage = usePagination(savedProviders, 9, step);
+  const modelPage = usePagination(currentModels, 12, selectedProvider);
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       {/* Header */}
       <header className="flex shrink-0 flex-col gap-3 border-b bg-card px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary via-primary to-primary/60">
-            <Zap className="h-5 w-5 text-primary-foreground" />
-          </div>
+          <img
+            src="/wrongstack.svg"
+            alt="WrongStack"
+            draggable={false}
+            className="ws-brand-logo h-10 w-10 shrink-0 border border-border/70 shadow-sm"
+          />
           <div className="min-w-0">
             <h1 className="truncate text-lg font-semibold">{t('setup:screen.header.title')}</h1>
             <p className="text-xs text-muted-foreground sm:truncate">
@@ -1270,7 +1293,7 @@ export function SetupScreen() {
                       {t('setup:screen.providers.more')}
                     </h2>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {additionalCatalog.map((p) => (
+                      {catalogPage.pageItems.map((p) => (
                         <ProviderKeyCard
                           key={p.id}
                           popular={{
@@ -1289,6 +1312,13 @@ export function SetupScreen() {
                         />
                       ))}
                     </div>
+                    <Pagination
+                      page={catalogPage.page}
+                      pageSize={catalogPage.pageSize}
+                      totalItems={catalogPage.totalItems}
+                      onPageChange={catalogPage.setPage}
+                      itemLabel="providers"
+                    />
                   </div>
                 )}
 
@@ -1355,7 +1385,7 @@ export function SetupScreen() {
                 {t('setup:screen.start.chooseProvider')}
               </h2>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {savedProviders.map((p) => (
+                {savedProviderPage.pageItems.map((p) => (
                   <button
                     key={p.id}
                     type="button"
@@ -1377,6 +1407,13 @@ export function SetupScreen() {
                   </button>
                 ))}
               </div>
+              <Pagination
+                page={savedProviderPage.page}
+                pageSize={savedProviderPage.pageSize}
+                totalItems={savedProviderPage.totalItems}
+                onPageChange={savedProviderPage.setPage}
+                itemLabel="saved providers"
+              />
             </div>
 
             {/* Model list */}
@@ -1395,7 +1432,7 @@ export function SetupScreen() {
                   </div>
                 ) : currentModels.length > 0 ? (
                   <div className="grid grid-cols-1 gap-2">
-                    {currentModels.map((m) => {
+                    {modelPage.pageItems.map((m) => {
                       const ctx = m.contextWindow
                         ? `${(m.contextWindow / 1_000_000).toFixed(0)}M ctx`
                         : null;
@@ -1446,6 +1483,13 @@ export function SetupScreen() {
                     {t('setup:screen.errors.noModels')}
                   </p>
                 )}
+                <Pagination
+                  page={modelPage.page}
+                  pageSize={modelPage.pageSize}
+                  totalItems={modelPage.totalItems}
+                  onPageChange={modelPage.setPage}
+                  itemLabel="models"
+                />
               </div>
             )}
 

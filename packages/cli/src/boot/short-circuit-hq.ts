@@ -11,8 +11,9 @@
 import * as fs from 'node:fs/promises';
 import * as net from 'node:net';
 import * as path from 'node:path';
-import { color, resolveHqDataDir, HQ_CLI_DEFAULT_HOST } from '@wrongstack/core';
+import { color, HQ_CLI_DEFAULT_HOST, isLoopbackHost, resolveHqDataDir } from '@wrongstack/core';
 import { DEFAULT_PORT } from '../hq-server.js';
+import type { HqQuickTunnelHandle } from '../hq-tunnel.js';
 
 interface HqRuntimeMarker {
   url?: string;
@@ -80,8 +81,21 @@ export async function handleHqShortCircuit(
   if (flags['hq'] !== true) return null;
 
   const { startHqServer } = await import('../hq-server.js');
+  const tunnelRequested = flags['tunnel'] === true;
   // The CLI opts into the wide bind explicitly; the library default stays loopback.
-  const host = typeof flags['host'] === 'string' ? flags['host'] : HQ_CLI_DEFAULT_HOST;
+  // Quick Tunnel is outbound-only, so keep its origin private by default.
+  const host =
+    typeof flags['host'] === 'string'
+      ? flags['host']
+      : tunnelRequested
+        ? '127.0.0.1'
+        : HQ_CLI_DEFAULT_HOST;
+  if (tunnelRequested && !isLoopbackHost(host)) {
+    process.stderr.write(
+      `${color.red('✗')} --tunnel requires a loopback origin. Remove --host or use --host 127.0.0.1.\n`,
+    );
+    return 1;
+  }
 
   // Port: use --port flag if explicitly given; otherwise use the documented
   // default without prompting so `wstack --hq` and `wstack hq` are direct
@@ -98,12 +112,16 @@ export async function handleHqShortCircuit(
   } else port = DEFAULT_PORT;
 
   const dataDir = typeof flags['data-dir'] === 'string' ? flags['data-dir'] : undefined;
-  const password = typeof flags['password'] === 'string' ? flags['password'] : undefined;
+  const password =
+    typeof flags['password'] === 'string' ? flags['password'] : process.env.WRONGSTACK_HQ_PASSWORD;
+  if (password !== undefined && password.length < 8) {
+    process.stderr.write(`${color.red('✗')} HQ password must be at least 8 characters.\n`);
+    return 1;
+  }
   // User explicitly chose a port if they either passed --port OR accepted
   // a non-default value from the interactive prompt.
   const userProvidedPort =
-    (typeof flags['port'] === 'string' && flags['port'].trim() !== '') ||
-    port !== DEFAULT_PORT;
+    (typeof flags['port'] === 'string' && flags['port'].trim() !== '') || port !== DEFAULT_PORT;
 
   // Resolve data dir the same way startHqServer does so we can check for a
   // running HQ instance before attempting to start a new one.
@@ -134,22 +152,68 @@ export async function handleHqShortCircuit(
       strictPort: flags['strict-port'] === true,
       exactPort: userProvidedPort,
       allowInsecureOpen: flags['insecure-open'] === true,
+      secureCookies: tunnelRequested,
+      requireBrowserAuth: tunnelRequested,
       ...(dataDir !== undefined ? { dataDir } : {}),
       ...(password !== undefined ? { password } : {}),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (err instanceof Error && 'code' in err && err.code === 'EADDRINUSE') {
-      process.stderr.write(`${color.red('✗')} Port ${port} is already in use. Please choose a different port.\n`);
+      process.stderr.write(
+        `${color.red('✗')} Port ${port} is already in use. Please choose a different port.\n`,
+      );
     } else {
       process.stderr.write(`${color.red('✗')} Failed to start HQ server: ${msg}\n`);
     }
     return 1;
   }
+
+  let tunnel: HqQuickTunnelHandle | undefined;
+  let browserUrl = handle.firstRunSetup?.browserUrl ?? `http://${handle.host}:${handle.port}`;
+  if (tunnelRequested) {
+    if (
+      handle.firstRunSetup !== undefined &&
+      !handle.firstRunSetup.browserTokenMode &&
+      !handle.firstRunSetup.passwordMode
+    ) {
+      await handle.close();
+      process.stderr.write(
+        `${color.red('✗')} Refusing to publish HQ in open mode. Set --password or create a browser token first.\n`,
+      );
+      return 1;
+    }
+    try {
+      const { buildPublicHqUrl, startHqQuickTunnel } = await import('../hq-tunnel.js');
+      const originHost = handle.host === '::1' ? '[::1]' : handle.host;
+      tunnel = await startHqQuickTunnel(`http://${originHost}:${handle.port}`, {
+        onUnexpectedExit: (message) => process.stderr.write(`${color.yellow('!')} ${message}\n`),
+      });
+      // cloudflared discovered this URL from its own process output, so it is a
+      // server-established origin rather than a client-selected Host header.
+      handle.trustPublicOrigin(new URL(tunnel.url).origin);
+      browserUrl = buildPublicHqUrl(
+        tunnel.url,
+        handle.firstRunSetup?.browserUrl,
+        handle.firstRunSetup?.passwordMode !== true,
+      );
+      process.stdout.write(`\n${color.green('Cloudflare Quick Tunnel ready:')} ${browserUrl}\n`);
+      process.stdout.write(
+        `${color.dim('Temporary development URL; DNS may need a few seconds, it changes on restart and ends when HQ stops.')}\n`,
+      );
+    } catch (err) {
+      await handle.close();
+      process.stderr.write(
+        `${color.red('✗')} Failed to start Cloudflare Quick Tunnel: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+      return 1;
+    }
+  }
+
   if (flags['open'] === true) {
     try {
       const { openBrowser } = await import('@wrongstack/webui-server');
-      openBrowser(handle.firstRunSetup?.browserUrl ?? `http://${handle.host}:${handle.port}`);
+      openBrowser(browserUrl);
     } catch {
       // best-effort
     }
@@ -157,14 +221,19 @@ export async function handleHqShortCircuit(
   // Keep the process alive until SIGINT/SIGTERM
   await new Promise<void>((resolve) => {
     const shutdown = async () => {
-      try {
-        await handle.close();
-      } catch (err) {
+      const results = await Promise.allSettled([
+        ...(tunnel ? [tunnel.close()] : []),
+        handle.close(),
+      ]);
+      const failure = results.find(
+        (result): result is PromiseRejectedResult => result.status === 'rejected',
+      );
+      if (failure) {
         console.error(
           JSON.stringify({
             level: 'error',
             event: 'hq.server_close_failed',
-            message: String(err),
+            message: String(failure.reason),
             timestamp: new Date().toISOString(),
           }),
         );

@@ -920,9 +920,11 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
         '## Skills in scope for this session',
         this.skillCache,
         '',
-        this.isCompact
-          ? 'Compact skill instructions are injected in the Active Skills block below (Overview + Rules only).'
-          : 'Full skill instructions are injected in the Active Skills block below.',
+        this.opts.skillMode === 'progressive'
+          ? 'Skill names and triggers are injected below; load full instructions deterministically with the `skill` tool before relying on one.'
+          : this.isCompact
+            ? 'Compact skill instructions are injected in the Active Skills block below (Overview + Rules only).'
+            : 'Skill bodies are injected below up to the eager budget; overflow remains listed by name and trigger for deterministic loading with the `skill` tool.',
       );
     }
     const text = lines.join('\n');

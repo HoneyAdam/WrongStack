@@ -14,6 +14,8 @@ import {
 import { type ReactNode, useEffect, useState } from 'react';
 import type { GoalState } from '@/lib/goal';
 import { getWSClient } from '@/lib/ws-client';
+import { usePagination } from '@/hooks/usePagination';
+import { Pagination } from '@/components/ui/pagination';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -80,6 +82,10 @@ export function GoalPanel({ goal, className }: GoalPanelProps): React.ReactEleme
       setCollapsed(true);
     }
   }, [goal]);
+  const deliverables = goal?.deliverables ?? [];
+  const journal = [...(goal?.journal ?? [])].reverse();
+  const deliverablePage = usePagination(deliverables, 8, goal?.goal);
+  const journalPage = usePagination(journal, 8, goal?.goal);
 
   // Hide the panel when there's no goal, or when the goal is terminal
   // (completed / failed) — it's served its purpose and shouldn't linger.
@@ -90,7 +96,6 @@ export function GoalPanel({ goal, className }: GoalPanelProps): React.ReactEleme
   const completedDeliverables =
     goal.deliverables?.filter((d) => d.status === 'done').length ?? 0;
   const totalDeliverables = goal.deliverables?.length ?? 0;
-  const recentJournal = goal.journal?.slice(-5).reverse() ?? [];
   const trendIcon = goal.progressTrend ? TREND_ICON[goal.progressTrend] : null;
 
   return (
@@ -188,7 +193,7 @@ export function GoalPanel({ goal, className }: GoalPanelProps): React.ReactEleme
                 </span>
               </div>
               <ul className="space-y-0.5">
-                {goal.deliverables?.map((d) => (
+                {deliverablePage.pageItems.map((d) => (
                   <li key={d.id} className="flex items-start gap-1.5 text-[11px]">
                     {d.status === 'done' ? (
                       <CheckCircle2 className="h-3 w-3 text-success mt-0.5 shrink-0" />
@@ -208,17 +213,25 @@ export function GoalPanel({ goal, className }: GoalPanelProps): React.ReactEleme
                   </li>
                 ))}
               </ul>
+              <Pagination
+                page={deliverablePage.page}
+                pageSize={deliverablePage.pageSize}
+                totalItems={deliverablePage.totalItems}
+                onPageChange={deliverablePage.setPage}
+                compact
+                itemLabel="deliverables"
+              />
             </div>
           )}
 
           {/* Recent journal */}
-          {recentJournal.length > 0 && (
+          {journal.length > 0 && (
             <div className="space-y-1">
               <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
                 {t('activity:goal.recentActivity')}
               </p>
               <div className="space-y-1">
-                {recentJournal.map((entry, i) => (
+                {journalPage.pageItems.map((entry, i) => (
                   <div
                     key={`${entry.iteration}-${i}`}
                     className="flex items-start gap-1.5 text-[10px] text-muted-foreground"
@@ -232,6 +245,14 @@ export function GoalPanel({ goal, className }: GoalPanelProps): React.ReactEleme
                   </div>
                 ))}
               </div>
+              <Pagination
+                page={journalPage.page}
+                pageSize={journalPage.pageSize}
+                totalItems={journalPage.totalItems}
+                onPageChange={journalPage.setPage}
+                compact
+                itemLabel="journal entries"
+              />
             </div>
           )}
         </div>

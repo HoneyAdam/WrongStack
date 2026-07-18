@@ -32,6 +32,7 @@ export {
 } from './retrieval/format.js';
 export { SuperMemoryGraph } from './graph/graph.js';
 export { verifyMemoryAnchors } from './anchors/verify.js';
+export { HashingEmbeddingProvider, type HashingEmbeddingProviderOptions } from './embeddings/hashing.js';
 export {
   createSuperMemoryTools,
   type SuperMemoryServiceLike,

@@ -20,6 +20,9 @@ import type { WrongStackWebSocketClient } from '@/lib/ws-client';
 import type { WSServerMessage } from '@/types';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import { useFieldKeyboardNav } from '@/hooks/useFieldKeyboardNav';
+import { usePagination } from '@/hooks/usePagination';
+import { Pagination } from '../ui/pagination';
 import { LOCAL_PRESET_FAMILY, LOCAL_SERVER_PRESETS } from './local-presets';
 import { OAuthLoginSection } from './OAuthLoginSection';
 import { ProviderModelsPanel } from './ProviderModelsPanel';
@@ -133,6 +136,9 @@ export function ProviderSection({
   const [newProviderBaseUrl, setNewProviderBaseUrl] = useState('');
   const [newProviderApiKey, setNewProviderApiKey] = useState('');
 
+  const addProviderNav = useFieldKeyboardNav();
+  const addKeyNav = useFieldKeyboardNav();
+
   const handleAddKey = useCallback(
     (providerId: string) => {
       if (!newKeyLabel.trim() || !newKeyValue.trim()) return;
@@ -243,8 +249,10 @@ export function ProviderSection({
         );
       })
     : catalogProviders;
+  const catalogPage = usePagination(filteredCatalog, 12, catalogQuery);
+  const savedPage = usePagination(savedProviders, 8, providerTab);
 
-  const catalogByFamily = filteredCatalog.reduce(
+  const catalogByFamily = catalogPage.pageItems.reduce(
     (acc, p) => {
       if (!acc[p.family]) acc[p.family] = [];
       acc[p.family]?.push(p);
@@ -454,6 +462,13 @@ export function ProviderSection({
               );
             })
           )}
+          <Pagination
+            page={catalogPage.page}
+            pageSize={catalogPage.pageSize}
+            totalItems={catalogPage.totalItems}
+            onPageChange={catalogPage.setPage}
+            itemLabel="providers"
+          />
         </div>
       )}
 
@@ -525,11 +540,15 @@ export function ProviderSection({
                 placeholder={t('settings:provider.providerIdPlaceholder')}
                 value={newProviderId}
                 onChange={(e) => setNewProviderId(e.target.value)}
+                ref={addProviderNav.setFieldRef(0)}
+                onKeyDown={(e) => addProviderNav.handleKeyDown(e, 0)}
               />
               <select
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 value={newProviderFamily}
                 onChange={(e) => setNewProviderFamily(e.target.value)}
+                ref={addProviderNav.setFieldRef(1)}
+                onKeyDown={(e) => addProviderNav.handleKeyDown(e, 1)}
               >
                 <option value="anthropic">Anthropic</option>
                 <option value="openai">OpenAI</option>
@@ -540,18 +559,34 @@ export function ProviderSection({
                 placeholder="Base URL (optional, e.g. http://localhost:11434/v1)"
                 value={newProviderBaseUrl}
                 onChange={(e) => setNewProviderBaseUrl(e.target.value)}
+                ref={addProviderNav.setFieldRef(2)}
+                onKeyDown={(e) => addProviderNav.handleKeyDown(e, 2)}
               />
               <Input
                 type="password"
                 placeholder={t('settings:provider.apiKeyOptionalPlaceholder')}
                 value={newProviderApiKey}
                 onChange={(e) => setNewProviderApiKey(e.target.value)}
+                ref={addProviderNav.setFieldRef(3)}
+                onKeyDown={(e) => addProviderNav.handleKeyDown(e, 3)}
               />
               <div className="flex gap-2">
-                <Button size="sm" onClick={handleAddProvider} disabled={!newProviderId.trim()}>
+                <Button
+                  size="sm"
+                  onClick={handleAddProvider}
+                  disabled={!newProviderId.trim()}
+                  ref={addProviderNav.setFieldRef(4)}
+                  onKeyDown={(e) => addProviderNav.handleKeyDown(e, 4, handleAddProvider)}
+                >
                   {t('common:action.add')}
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => setShowAddProviderForm(false)}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setShowAddProviderForm(false)}
+                  ref={addProviderNav.setFieldRef(5)}
+                  onKeyDown={(e) => addProviderNav.handleKeyDown(e, 5)}
+                >
                   {t('common:action.cancel')}
                 </Button>
               </div>
@@ -569,7 +604,7 @@ export function ProviderSection({
               <p className="text-sm">{t('settings:provider.noSavedHint')}</p>
             </div>
           ) : (
-            savedProviders.map((sp) => (
+            savedPage.pageItems.map((sp) => (
               <div
                 key={sp.id}
                 className="rounded-lg border border-border/80 bg-card/70 p-4 shadow-sm shadow-black/[0.02]"
@@ -719,6 +754,8 @@ export function ProviderSection({
                           placeholder={t('settings:provider.keyLabelPlaceholder')}
                           value={newKeyLabel}
                           onChange={(e) => setNewKeyLabel(e.target.value)}
+                          ref={addKeyNav.setFieldRef(0)}
+                          onKeyDown={(e) => addKeyNav.handleKeyDown(e, 0)}
                         />
                         <div className="flex gap-2">
                           <Input
@@ -726,6 +763,8 @@ export function ProviderSection({
                             placeholder={t('settings:provider.apiKeyPlaceholder')}
                             value={newKeyValue}
                             onChange={(e) => setNewKeyValue(e.target.value)}
+                            ref={addKeyNav.setFieldRef(1)}
+                            onKeyDown={(e) => addKeyNav.handleKeyDown(e, 1)}
                           />
                           <Button
                             size="icon"
@@ -744,6 +783,8 @@ export function ProviderSection({
                             size="sm"
                             onClick={() => handleAddKey(sp.id)}
                             disabled={!newKeyLabel.trim() || !newKeyValue.trim()}
+                            ref={addKeyNav.setFieldRef(2)}
+                            onKeyDown={(e) => addKeyNav.handleKeyDown(e, 2, () => handleAddKey(sp.id))}
                           >
                             {t('settings:provider.saveKey')}
                           </Button>
@@ -755,6 +796,8 @@ export function ProviderSection({
                               setNewKeyLabel('');
                               setNewKeyValue('');
                             }}
+                            ref={addKeyNav.setFieldRef(3)}
+                            onKeyDown={(e) => addKeyNav.handleKeyDown(e, 3)}
                           >
                             {t('common:action.cancel')}
                           </Button>
@@ -766,6 +809,13 @@ export function ProviderSection({
               </div>
             ))
           )}
+          <Pagination
+            page={savedPage.page}
+            pageSize={savedPage.pageSize}
+            totalItems={savedPage.totalItems}
+            onPageChange={savedPage.setPage}
+            itemLabel="saved providers"
+          />
         </div>
       )}
     </div>

@@ -131,7 +131,6 @@ export function startHeapWatchdog(opts: HeapWatchdogOptions = {}): () => void {
     }
 
     const s = takeHeapSample();
-
     // Threshold callbacks — critical first so a single giant jump surfaces
     // the stronger message, not both.
     if (s.load >= criticalAt && criticalArmed) {

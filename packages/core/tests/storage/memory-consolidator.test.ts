@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SessionMemoryConsolidator } from '../../src/storage/memory-consolidator.js';
+import {
+  SessionMemoryConsolidator,
+  type ConsolidatorSuperMemory,
+} from '../../src/storage/memory-consolidator.js';
 import type { Context } from '../../src/core/context.js';
 import type { RunResult } from '../../src/core/agent-types.js';
 import type { MemoryStore } from '../../src/types/memory.js';
@@ -33,12 +36,21 @@ const mkStoreWithBackend = () => {
   return { store: store as never as MemoryStore & Record<string, ReturnType<typeof vi.fn>>, deleteSuperMemory, listSuper };
 };
 
+const mkSuperMemory = () => ({
+  rememberSuper: vi.fn(async () => ({})),
+  searchSuper: vi.fn(async () => [] as unknown[]),
+}) satisfies ConsolidatorSuperMemory;
+
 const mkProvider = (text: string): Provider =>
   ({
     complete: vi.fn(async () => ({ content: [{ type: 'text', text }], stopReason: 'end_turn' })),
   }) as never as Provider;
 
-const ctx = (provider?: Provider): Context => ({ provider, model: 'haiku' }) as never as Context;
+const ctx = (provider?: Provider): Context => ({
+  provider,
+  model: 'haiku',
+  session: { id: '2026-07-18/sess_consolidator' },
+}) as never as Context;
 
 const result = (over: Partial<RunResult> = {}): RunResult =>
   ({ status: 'done', finalText: 'a meaningful session summary text', iterations: 5, ...over }) as RunResult;
@@ -102,6 +114,120 @@ describe('SessionMemoryConsolidator operations', () => {
     expect(store.remember).toHaveBeenCalledWith('new fact', undefined, expect.objectContaining({ type: 'fact' }));
     expect(store.remember).toHaveBeenCalledWith('another fact', undefined, expect.objectContaining({ type: 'convention' }));
     expect(stderr).toHaveBeenCalledWith(expect.stringContaining('2 added'));
+  });
+
+  it('uses Super Memory search for dedup context when the legacy store has no list method', async () => {
+    const superMemory = mkSuperMemory();
+    superMemory.searchSuper.mockResolvedValue([
+      { text: 'existing super fact', scope: 'project', createdAt: '2026-01-01T00:00:00Z' },
+      { text: 'private user preference', scope: 'user', createdAt: '2026-01-02T00:00:00Z' },
+    ]);
+    const sqliteShapedStore = {} as MemoryStore;
+    const provider = mkProvider('{"operations":[{"action":"add","text":"new super fact"}]}');
+    const c = new SessionMemoryConsolidator({
+      memoryStore: sqliteShapedStore,
+      superMemory,
+      provider,
+    });
+
+    c.afterRun(ctx(), result());
+
+    await vi.waitFor(() => {
+      expect(superMemory.rememberSuper).toHaveBeenCalledTimes(1);
+    });
+    expect(superMemory.searchSuper).toHaveBeenCalledWith('', {
+      limit: 15,
+      scope: 'project',
+      includeStatuses: ['active'],
+    });
+    const complete = provider.complete as ReturnType<typeof vi.fn>;
+    const prompt = complete.mock.calls[0]?.[0].system[0].text as string;
+    expect(prompt).toContain('existing super fact');
+    expect(prompt).not.toContain('private user preference');
+  });
+
+  it('filters non-project records returned by Super Memory list', async () => {
+    const superMemory = {
+      rememberSuper: vi.fn(async () => ({})),
+      listSuper: vi.fn(async () => [
+        { text: 'project convention', scope: 'project', updatedAt: '2026-01-02T00:00:00Z' },
+        { text: 'private user preference', scope: 'user', updatedAt: '2026-01-03T00:00:00Z' },
+      ]),
+    } satisfies ConsolidatorSuperMemory;
+    const provider = mkProvider('{"operations":[{"action":"add","text":"new super fact"}]}');
+    const c = new SessionMemoryConsolidator({
+      memoryStore: {} as MemoryStore,
+      superMemory,
+      provider,
+    });
+
+    c.afterRun(ctx(), result());
+
+    await vi.waitFor(() => {
+      expect(superMemory.rememberSuper).toHaveBeenCalledTimes(1);
+    });
+    expect(superMemory.listSuper).toHaveBeenCalledWith(['active']);
+    const complete = provider.complete as ReturnType<typeof vi.fn>;
+    const prompt = complete.mock.calls[0]?.[0].system[0].text as string;
+    expect(prompt).toContain('project convention');
+    expect(prompt).not.toContain('private user preference');
+  });
+
+  it('maps legacy kinds and priorities, then continues after a rejected Super Memory write', async () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const superMemory = mkSuperMemory();
+    superMemory.rememberSuper
+      .mockRejectedValueOnce(new Error('rejected item'))
+      .mockResolvedValueOnce({});
+    const ops = {
+      operations: [
+        { action: 'add', text: 'reference that fails', type: 'reference', priority: 'critical' },
+        { action: 'add', text: 'valid decision', type: 'decision', priority: 'high' },
+      ],
+    };
+    const c = new SessionMemoryConsolidator({
+      memoryStore: {} as MemoryStore,
+      superMemory,
+      provider: mkProvider(JSON.stringify(ops)),
+    });
+
+    c.afterRun(ctx(), result());
+
+    await vi.waitFor(() => {
+      expect(superMemory.rememberSuper).toHaveBeenCalledTimes(2);
+    });
+    expect(superMemory.rememberSuper).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      kind: 'file_note',
+      importance: 0.95,
+    }));
+    expect(superMemory.rememberSuper).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      kind: 'decision',
+      importance: 0.8,
+      sources: [{ type: 'session', sessionId: '2026-07-18/sess_consolidator' }],
+    }));
+    expect(stderr).toHaveBeenCalledWith(expect.stringContaining('1 added'));
+  });
+
+  it('continues after a malformed operation and preserves session provenance', async () => {
+    const superMemory = mkSuperMemory();
+    const provider = mkProvider(JSON.stringify({
+      operations: [null, { action: 'add', text: 'valid session-derived fact' }],
+    }));
+    const c = new SessionMemoryConsolidator({
+      memoryStore: {} as MemoryStore,
+      superMemory,
+      provider,
+    });
+
+    c.afterRun(ctx(), result());
+
+    await vi.waitFor(() => {
+      expect(superMemory.rememberSuper).toHaveBeenCalledTimes(1);
+    });
+    expect(superMemory.rememberSuper).toHaveBeenCalledWith(expect.objectContaining({
+      text: 'valid session-derived fact',
+      sources: [{ type: 'session', sessionId: '2026-07-18/sess_consolidator' }],
+    }));
   });
 
   it('ignores edit/delete ops entirely — add-only contract (regression: mass deletion)', async () => {

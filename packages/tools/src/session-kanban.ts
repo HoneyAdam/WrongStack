@@ -44,12 +44,28 @@ export const SESSION_KANBAN_COLUMNS: KanbanColumn[] = [
 
 const boardQueue = new Map<string, Promise<void>>();
 const boardEnsures = new Map<string, Promise<KanbanBoard>>();
+type PendingMirror = {
+  projectRoot: string;
+  sessionId: string;
+  graph: SerializedTaskGraph;
+  sourceSystem: 'session-todo' | 'session-task' | 'session-plan';
+};
+const pendingMirrors = new Map<string, PendingMirror>();
+const activeMirrors = new Set<string>();
 const bindings = new WeakMap<Context, () => void>();
 const suppressedTodoMirrors = new WeakSet<Context>();
 const activeSessionBoards = new Map<string, number>();
 
 function boardKey(projectRoot: string, sessionId: string): string {
   return `${projectRoot}\0${sessionId}`;
+}
+
+function mirrorKey(
+  projectRoot: string,
+  sessionId: string,
+  sourceSystem: PendingMirror['sourceSystem'],
+): string {
+  return `${boardKey(projectRoot, sessionId)}\0${sourceSystem}`;
 }
 
 function sessionTag(sessionId: string): string {
@@ -246,6 +262,59 @@ async function projectGraph(
   });
 }
 
+/**
+ * Queue an observational mirror without retaining every intermediate state.
+ * Todo/task/plan streams are independent, but within each stream only the
+ * newest pending graph matters. This bounds a stalled file lock to one active
+ * and one pending projection instead of an arbitrarily long Promise chain.
+ */
+function queueLatestMirror(
+  projectRoot: string | undefined,
+  sessionId: string,
+  graph: SerializedTaskGraph,
+  sourceSystem: PendingMirror['sourceSystem'],
+): void {
+  if (!projectRoot || !sessionId || process.env[MIRROR_DISABLED_ENV] === '0') return;
+  const key = mirrorKey(projectRoot, sessionId, sourceSystem);
+  pendingMirrors.set(key, { projectRoot, sessionId, graph, sourceSystem });
+  if (activeMirrors.has(key)) return;
+  activeMirrors.add(key);
+  void (async () => {
+    try {
+      for (;;) {
+        const pending = pendingMirrors.get(key);
+        if (!pending) break;
+        pendingMirrors.delete(key);
+        try {
+          await projectGraph(
+            pending.projectRoot,
+            pending.sessionId,
+            pending.graph,
+            pending.sourceSystem,
+          );
+        } catch {
+          // Mirrors are observational. A newer pending snapshot, if present,
+          // still gets a chance after a transient lock or filesystem failure.
+        }
+      }
+    } finally {
+      activeMirrors.delete(key);
+      // A mirror can arrive between the last Map read and deleting the active
+      // marker. Re-arm once so that snapshot cannot be stranded.
+      const pending = pendingMirrors.get(key);
+      if (pending) {
+        pendingMirrors.delete(key);
+        queueLatestMirror(
+          pending.projectRoot,
+          pending.sessionId,
+          pending.graph,
+          pending.sourceSystem,
+        );
+      }
+    }
+  })();
+}
+
 export function todoListToSerializedGraph(
   todos: readonly TodoItem[],
   sessionId: string,
@@ -439,7 +508,12 @@ export function mirrorSessionTodosToKanban(
   todos: readonly TodoItem[],
   sessionId: string,
 ): void {
-  fireAndForget(projectSessionTodosToKanban(projectRoot, todos, sessionId));
+  queueLatestMirror(
+    projectRoot,
+    sessionId,
+    todoListToSerializedGraph(todos, sessionId),
+    'session-todo',
+  );
 }
 
 export function mirrorSessionTasksToKanban(
@@ -447,7 +521,12 @@ export function mirrorSessionTasksToKanban(
   tasks: readonly TaskItem[],
   sessionId: string,
 ): void {
-  fireAndForget(projectSessionTasksToKanban(projectRoot, tasks, sessionId));
+  queueLatestMirror(
+    projectRoot,
+    sessionId,
+    taskFileToSerializedGraph(tasks, sessionId),
+    'session-task',
+  );
 }
 
 export function mirrorSessionPlanToKanban(
@@ -455,7 +534,12 @@ export function mirrorSessionPlanToKanban(
   items: readonly PlanItem[],
   sessionId: string,
 ): void {
-  fireAndForget(projectSessionPlanToKanban(projectRoot, items, sessionId));
+  queueLatestMirror(
+    projectRoot,
+    sessionId,
+    planFileToSerializedGraph(items, sessionId),
+    'session-plan',
+  );
 }
 
 /**

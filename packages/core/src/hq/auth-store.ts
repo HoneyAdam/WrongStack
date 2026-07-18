@@ -271,7 +271,25 @@ export async function ensureHqFirstRunAuthFile(
   const file = hqAuthFilePath(dataDir);
   try {
     await fs.access(file);
-    return { authFile: await readHqAuthFile(dataDir, opts), created: false };
+    const existing = await readHqAuthFile(dataDir, opts);
+    if (opts.password) {
+      const passwordUnchanged =
+        existing.passwordHash !== undefined &&
+        (await verifyHqPassword(opts.password, existing.passwordHash));
+      if (!passwordUnchanged) {
+        const authFile: HqAuthFile = {
+          ...existing,
+          passwordHash: await hashHqPassword(opts.password),
+          // Rotating the cookie secret invalidates sessions created with the
+          // previous password. This matters when --password is used to
+          // recover or deliberately change an existing HQ installation.
+          cookieSecret: mintHqCookieSecret(),
+        };
+        await writeHqAuthFile(dataDir, authFile);
+        return { authFile: await readHqAuthFile(dataDir, opts), created: false };
+      }
+    }
+    return { authFile: existing, created: false };
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
       opts.warn?.(`HQ auth file access failed at ${file}: ${(err as Error).message}`);

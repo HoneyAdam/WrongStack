@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { normalizeKanbanBoundaryPolicy } from '../boundary.js';
 import { appendKanbanEvent, listBoardSummaries, mutateBoard } from '../storage.js';
 import type { TaskEdge, TaskGraph, TaskNode, TaskStatus, TaskType } from '../types/task-graph.js';
 import {
@@ -10,6 +11,7 @@ import {
   type KanbanAgentAssignment,
   type KanbanAgentRunStatus,
   type KanbanBoard,
+  type KanbanBoundaryPolicy,
   type KanbanCheck,
   type KanbanColumn,
   type KanbanEvent,
@@ -172,6 +174,9 @@ export function createTaskObject(board: KanbanBoard, input: CreateKanbanTaskInpu
     ...(input.goalMetrics !== undefined ? { goalMetrics: input.goalMetrics } : {}),
     ...(input.links !== undefined ? { links: input.links } : {}),
     ...(input.notes !== undefined ? { notes: input.notes } : {}),
+    ...(input.boundary !== undefined
+      ? { boundary: normalizeKanbanBoundaryPolicy(input.boundary) }
+      : {}),
     // Sprint 3: mirror policy fields from assignment to durable task level.
     ...(input.retryPolicy === undefined && input.assignment?.retryPolicy !== undefined
       ? { retryPolicy: input.assignment.retryPolicy }
@@ -263,6 +268,9 @@ export function cloneTaskForBoard(
             })),
           },
         }
+      : {}),
+    ...(source.boundary !== undefined
+      ? { boundary: normalizeKanbanBoundaryPolicy(source.boundary) }
       : {}),
   };
   if (source.completedAt !== undefined && task.status === 'completed') {
@@ -381,6 +389,10 @@ export function applyTaskPatch(
         })),
       };
     }
+  }
+  if (input.boundary !== undefined) {
+    if (input.boundary === null) delete task.boundary;
+    else task.boundary = normalizeKanbanBoundaryPolicy(input.boundary);
   }
   if (shouldReorder) {
     if (previousColumnId !== task.columnId) normalizeColumnTaskOrders(board, previousColumnId);
@@ -881,6 +893,14 @@ export function taskInputFromGraphNode(
   node: TaskNode,
   options: CreateKanbanBoardFromTaskGraphOptions,
 ): CreateKanbanTaskInput {
+  const kanbanMetadata =
+    node.metadata?.['kanban'] && typeof node.metadata['kanban'] === 'object'
+      ? (node.metadata['kanban'] as Record<string, unknown>)
+      : undefined;
+  const boundary =
+    kanbanMetadata?.['boundary'] && typeof kanbanMetadata['boundary'] === 'object'
+      ? (kanbanMetadata['boundary'] as KanbanBoundaryPolicy)
+      : undefined;
   return {
     title: node.title,
     description: node.description,
@@ -896,6 +916,7 @@ export function taskInputFromGraphNode(
     ...(node.tags !== undefined ? { labels: node.tags } : {}),
     ...(node.parentId !== undefined ? { parentTaskId: node.parentId } : {}),
     ...(node.children !== undefined ? { childTaskIds: node.children } : {}),
+    ...(boundary !== undefined ? { boundary } : {}),
     origin: {
       system: options.sourceSystem ?? 'task-graph',
       graphId: graph.id,
@@ -1012,6 +1033,7 @@ export function buildTaskGraphMetadata(
   if (task.links !== undefined) kanban.links = task.links.map((link) => ({ ...link }));
   if (task.notes !== undefined) kanban.notes = task.notes.map((note) => ({ ...note }));
   if (task.origin !== undefined) kanban.origin = { ...task.origin };
+  if (task.boundary !== undefined) kanban.boundary = normalizeKanbanBoundaryPolicy(task.boundary);
   return { kanban };
 }
 

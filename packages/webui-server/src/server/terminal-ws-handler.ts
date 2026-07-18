@@ -1,8 +1,8 @@
 import { spawn as spawnChild } from 'node:child_process';
 import { createRequire } from 'node:module';
-import type { WebSocket } from 'ws';
 import type { Logger } from '@wrongstack/core';
 import { toErrorMessage } from '@wrongstack/core/utils';
+import type { WebSocket } from 'ws';
 import type { WSServerMessage } from './types.js';
 
 /** Loose inbound shape — matches the server's internal WSClientMessage. */
@@ -39,6 +39,13 @@ const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 const requireFromHere = createRequire(import.meta.url);
 let cachedNodePty: NodePtyApi | null | undefined;
+
+export function resolveTerminalShell(
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return platform === 'win32' ? env.COMSPEC || 'cmd.exe' : env.SHELL || '/bin/sh';
+}
 
 /**
  * TerminalWebSocketHandler — backs the WebUI's integrated terminal panel.
@@ -115,10 +122,7 @@ export class TerminalWebSocketHandler {
       return;
     }
 
-    const shell =
-      process.platform === 'win32'
-        ? process.env.COMSPEC || 'cmd.exe'
-        : process.env.SHELL || '/bin/bash';
+    const shell = resolveTerminalShell();
 
     const nodePty = this.loadNodePty();
     if (!nodePty) {

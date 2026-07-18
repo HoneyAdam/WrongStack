@@ -5,6 +5,7 @@
 
 import { FileText, Plus, Download, Loader2, RefreshCw, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Pagination } from '@/components/ui/pagination';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
 import { i18n, useAppTranslation } from '@/i18n';
@@ -31,6 +32,7 @@ interface SkillInfo {
 
 type ScopeFilter = 'all' | 'project' | 'user' | 'bundled' | 'foreign';
 type ScopeBucket = 'project' | 'user' | 'bundled' | 'foreign';
+const SKILL_PAGE_SIZE = 16;
 
 /** Localized label for a scope bucket. Reuses skillDetail scope labels + skillsList.scopeForeign. */
 function scopeLabelFor(t: (k: string, opts?: Record<string, unknown>) => string, scope: ScopeBucket): string {
@@ -80,6 +82,7 @@ export function SkillsList({ className }: { className?: string }) {
   const [loading, setLoading] = useState(false);
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
 
   // Always-accessible ref to current skillsState
   const skillsStateRef = useRef(skillsState);
@@ -364,6 +367,11 @@ export function SkillsList({ className }: { className?: string }) {
     return result;
   }, [skills, scopeFilter, searchQuery]);
 
+  const pagedSkills = useMemo(
+    () => filteredSkills.slice((page - 1) * SKILL_PAGE_SIZE, page * SKILL_PAGE_SIZE),
+    [filteredSkills, page],
+  );
+
   const groupedSkills = useMemo(() => {
     const groups: Record<string, SkillInfo[]> = {
       project: [],
@@ -371,11 +379,20 @@ export function SkillsList({ className }: { className?: string }) {
       foreign: [],
       bundled: [],
     };
-    for (const skill of filteredSkills) {
+    for (const skill of pagedSkills) {
       groups[bucketForSource(skill.source)].push(skill);
     }
     return groups;
-  }, [filteredSkills]);
+  }, [pagedSkills]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [scopeFilter, searchQuery]);
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(filteredSkills.length / SKILL_PAGE_SIZE));
+    if (page > totalPages) setPage(totalPages);
+  }, [filteredSkills.length, page]);
 
   const selectedSkillName = skillsState.selectedSkill?.name;
 
@@ -529,6 +546,14 @@ export function SkillsList({ className }: { className?: string }) {
           </div>
         )}
       </div>
+      <Pagination
+        page={page}
+        pageSize={SKILL_PAGE_SIZE}
+        totalItems={filteredSkills.length}
+        onPageChange={setPage}
+        compact
+        itemLabel="skills"
+      />
 
       {/* ── Install skill modal ── */}
       <Dialog open={installModalOpen} onOpenChange={setInstallModalOpen}>

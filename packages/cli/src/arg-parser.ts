@@ -44,6 +44,7 @@ export const BOOLEAN_FLAGS = new Set([
   'token-saving-mode',
   'hq',
   'hq-allow-exec',
+  'tunnel',
   // Opt-in to a non-loopback HQ bind with no token/password configured.
   'insecure-open',
   'strict-port',

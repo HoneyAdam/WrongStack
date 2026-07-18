@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { parseArgs, parseAuthFlags, parseSpawnFlags, BOOLEAN_FLAGS } from '../src/arg-parser.js';
+import { BOOLEAN_FLAGS, parseArgs, parseAuthFlags, parseSpawnFlags } from '../src/arg-parser.js';
 
 describe('parseArgs', () => {
+  it('keeps --tunnel boolean without consuming a following password flag', () => {
+    expect(parseArgs(['--hq', '--tunnel', '--password', 'secret'])).toEqual({
+      flags: { hq: true, tunnel: true, password: 'secret' },
+      positional: [],
+    });
+  });
   it('returns empty result for empty argv', () => {
     expect(parseArgs([])).toEqual({ flags: {}, positional: [] });
   });

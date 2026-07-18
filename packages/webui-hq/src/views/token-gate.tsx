@@ -37,8 +37,14 @@ export function TokenGate({ hadToken }: { hadToken: boolean }): React.ReactEleme
 
   const showToken = status?.tokenMode ?? true;
   const showPassword = status?.passwordMode ?? false;
-  const defaultTab = showPassword && !showToken ? 'password' : 'token';
-  const [tab, setTab] = useState<'token' | 'password'>(defaultTab);
+  const [tab, setTab] = useState<'token' | 'password'>('token');
+
+  useEffect(() => {
+    if (!status) return;
+    // When both methods exist, prefer the human-friendly password flow.
+    // Tokens remain available for operators and automation through the tab.
+    setTab(status.passwordMode ? 'password' : 'token');
+  }, [status]);
 
   if (statusError) {
     return (
@@ -113,6 +119,7 @@ function TokenForm({ hadToken }: { hadToken: boolean }): React.ReactElement {
         className="hq-token-input"
         type="password"
         placeholder="browser token"
+        autoComplete="off"
         value={value}
         onChange={(ev) => setValue(ev.target.value)}
         onKeyDown={(ev) => {
@@ -185,6 +192,7 @@ function PasswordForm(): React.ReactElement {
         className="hq-token-input"
         type="password"
         placeholder="password"
+        autoComplete="current-password"
         value={value}
         onChange={(ev) => setValue(ev.target.value)}
         onKeyDown={(ev) => {
@@ -200,8 +208,7 @@ function PasswordForm(): React.ReactElement {
         {busy ? 'Logging in…' : 'Log in'}
       </button>
       <p className="hq-token-hint">
-        Set or change the password with <code>wstack --hq --password &lt;secret&gt;</code> on first
-        run.
+        Set or change the password with <code>wstack --hq --password &lt;secret&gt;</code>.
       </p>
     </>
   );

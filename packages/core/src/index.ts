@@ -657,6 +657,10 @@ export {
   type TrustPolicyValidationResult,
   validateTrustPolicy,
 } from './security/permission-policy-schema.js';
+export {
+  evaluateToolKanbanBoundary,
+  type ToolKanbanBoundaryEvaluation,
+} from './security/kanban-boundary.js';
 export { DefaultSecretScrubber } from './security/secret-scrubber.js';
 export {
   getSessionRegistry,
@@ -761,6 +765,7 @@ export type {
   WireFamily,
 } from './types/models-registry.js';
 export type { ProviderRunner, RunProviderOptions } from './types/provider-runner.js';
+export type { FileEventRecord } from './types/file-event-record.js';
 export type { SecretScrubber } from './types/secret-scrubber.js';
 export type { RotatableSecretVault, SecretVault } from './types/secret-vault.js';
 export {

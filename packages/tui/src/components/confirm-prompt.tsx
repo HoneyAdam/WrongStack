@@ -16,6 +16,7 @@ export interface ConfirmPromptProps {
   onEnableYolo: () => void;
   /** Whether this call was classified destructive. */
   destructive?: boolean;
+  boundaryReason?: string | undefined;
 }
 
 /** Ink color for each button's bracketed key. */
@@ -148,6 +149,7 @@ export function ConfirmPrompt({
   onDecision,
   onEnableYolo,
   destructive,
+  boundaryReason,
 }: ConfirmPromptProps): React.ReactElement {
   // Terminal bell on mount — alerts the user that action is required,
   // especially important when the agent has been running autonomously
@@ -161,7 +163,7 @@ export function ConfirmPrompt({
     if (!input || input === '\r' || input === '\n') return;
     // Capital 'Y' (Shift+y) enables YOLO mode — distinct from lowercase '[y]es'.
     // Checked before toLowerCase() so the two can never collide.
-    if (input === 'Y') {
+    if (input === 'Y' && !boundaryReason) {
       onEnableYolo();
       return;
     }
@@ -199,6 +201,7 @@ export function ConfirmPrompt({
         </Text>
       </Box>
       {inputSummary ? <Text dimColor>{inputSummary}</Text> : null}
+      {boundaryReason ? <Text color="yellow">KANBAN BOUNDARY: {boundaryReason}</Text> : null}
       {showDiff && diff ? (
         <Box flexDirection="column" marginY={1}>
           {renderDiff(diff, diffPath)}
@@ -217,13 +220,19 @@ export function ConfirmPrompt({
           ))}
         </Text>
       </Box>
-      <Box marginTop={1}>
-        <Text dimColor>
-          {' '}
-          Tip: press <Text bold color="yellow">Y</Text> to enable YOLO mode
-          {destructive ? ' (skips this and future approvals)' : ' (skips future approvals)'}.
-        </Text>
-      </Box>
+      {!boundaryReason ? (
+        <Box marginTop={1}>
+          <Text dimColor>
+            {' '}
+            Tip: press{' '}
+            <Text bold color="yellow">
+              Y
+            </Text>{' '}
+            to enable YOLO mode
+            {destructive ? ' (skips this and future approvals)' : ' (skips future approvals)'}.
+          </Text>
+        </Box>
+      ) : null}
     </Box>
   );
 }

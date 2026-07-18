@@ -63,6 +63,19 @@ describe('LruCache — minimal LRU eviction (P3 #17)', () => {
     expect(cache.get('c')).toBe(3);
   });
 
+  it('refreshes recency for keys whose stored value is undefined', () => {
+    const cache = new LruCache<string, number | undefined>(2);
+    cache.set('undefined-value', undefined);
+    cache.set('older-number', 1);
+
+    expect(cache.get('undefined-value')).toBeUndefined();
+    expect(cache.has('undefined-value')).toBe(true);
+
+    cache.set('new-number', 2);
+    expect(cache.has('undefined-value')).toBe(true);
+    expect(cache.has('older-number')).toBe(false);
+  });
+
   it('clear() empties the cache', () => {
     const cache = new LruCache<string, number>(10);
     cache.set('a', 1);

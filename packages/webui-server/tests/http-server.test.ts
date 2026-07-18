@@ -154,6 +154,27 @@ describe('injectWsConfig', () => {
 });
 
 describe('createHttpServer', () => {
+  it('reports the current WebUI server process memory', async () => {
+    const res = await fetch(`${baseUrl}/debug/system`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('application/json');
+    expect(res.headers.get('cache-control')).toBe('no-store');
+
+    const body = (await res.json()) as {
+      pid: number;
+      memoryUsage: { rss: number; heapUsed: number };
+      heapLimit: number;
+      uptime: number;
+      timestamp: number;
+    };
+    expect(body.pid).toBe(process.pid);
+    expect(body.memoryUsage.rss).toBeGreaterThan(0);
+    expect(body.memoryUsage.heapUsed).toBeGreaterThan(0);
+    expect(body.heapLimit).toBeGreaterThan(body.memoryUsage.heapUsed);
+    expect(body.uptime).toBeGreaterThanOrEqual(0);
+    expect(body.timestamp).toBeGreaterThan(0);
+  });
+
   it('serves index.html for / with the live WS port stamped in', async () => {
     const res = await fetch(`${baseUrl}/`);
     expect(res.status).toBe(200);

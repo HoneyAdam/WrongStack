@@ -9,7 +9,7 @@ import type {
   SessionEventBridge,
   WstackPaths,
 } from '@wrongstack/core';
-import { getBoard, getKanbanDir } from '@wrongstack/kanban';
+import { getBoard, getKanbanDir, recordTaskFileActivity } from '@wrongstack/kanban';
 import type { WebSocket } from 'ws';
 import { extractCodeMapFileTargets, normalizeCodeMapFileTarget } from './codemap-telemetry.js';
 import type { PendingConfirm } from './pending-confirms.js';
@@ -428,6 +428,20 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
     broadcast(clients, { type: 'codemap.file_event', payload: e });
   });
 
+  on('file.event', (e) => {
+    if (e.scope !== 'task' || !e.boardId || !e.taskId) return;
+    void recordTaskFileActivity(context.projectRoot, e.boardId, e.taskId, e)
+      .then((recorded) => {
+        if (recorded) {
+          broadcast(clients, {
+            type: 'kanban.task.activity.changed',
+            payload: { boardId: e.boardId, taskId: e.taskId },
+          });
+        }
+      })
+      .catch(() => {});
+  });
+
   on('tool.loop_detected', (e) => {
     broadcast(clients, {
       type: 'tool.loop_detected',
@@ -563,11 +577,13 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
       suggestedPattern: e.suggestedPattern,
       decisionSource: e.decisionSource,
       riskTier: e.riskTier,
+      boundaryReason: e.boundaryReason,
     });
     pendingConfirms.set(id, {
       resolve: e.resolve,
       decisionSource: e.decisionSource,
       riskTier: e.riskTier,
+      boundaryReason: e.boundaryReason,
       payload,
     });
     broadcast(clients, { type: 'tool.confirm_needed', payload });

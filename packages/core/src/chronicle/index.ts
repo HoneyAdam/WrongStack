@@ -9,7 +9,7 @@ export {
   type ChronicleFileObserver,
   type ChronicleFileObserverOptions,
 } from './file-observer.js';
-export { ChronicleJournal, GENESIS_HASH, type ChronicleJournalOptions, type ChronicleJournalStats } from './journal.js';
+export { ChronicleJournal, GENESIS_HASH, type ChronicleJournalOptions, type ChronicleJournalStats, type ChroniclePurgeOptions, type ChroniclePurgeResult } from './journal.js';
 export {
   wireProviderAttemptsToChronicle,
   type ChronicleProviderAdapterOptions,

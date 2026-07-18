@@ -1,6 +1,8 @@
 import type { WorktreeHandleView } from '@/types';
 import { cn } from '@/lib/utils';
 import { useAppTranslation } from '@/i18n';
+import { usePagination } from '@/hooks/usePagination';
+import { Pagination } from '@/components/ui/pagination';
 
 const STATUS_META: Record<string, { icon: string; labelKey: string; tint: string; dot: string }> = {
   allocating:    { icon: '○', labelKey: 'statusAllocating', tint: 'border-muted-foreground/40', dot: 'bg-muted-foreground' },
@@ -31,8 +33,9 @@ export function WorktreeLanes({
   baseBranch: string;
 }): React.ReactElement | null {
   const { t } = useAppTranslation();
-  if (worktrees.length === 0) return null;
   const sorted = [...worktrees].sort((a, b) => a.allocatedAt - b.allocatedAt);
+  const worktreePage = usePagination(sorted, 12);
+  if (worktrees.length === 0) return null;
 
   return (
     <div className="rounded-lg border bg-card/50 backdrop-blur-sm px-3 py-3">
@@ -44,7 +47,7 @@ export function WorktreeLanes({
       </div>
 
       <div className="flex flex-col gap-1.5">
-        {sorted.map((w) => {
+        {worktreePage.pageItems.map((w) => {
           const m = meta(w.status);
           const conflict = w.status === 'needs-review';
           const magnitude = Math.min(100, w.insertions + w.deletions);
@@ -94,6 +97,15 @@ export function WorktreeLanes({
           );
         })}
       </div>
+      <Pagination
+        page={worktreePage.page}
+        pageSize={worktreePage.pageSize}
+        totalItems={worktreePage.totalItems}
+        onPageChange={worktreePage.setPage}
+        className="-mx-3 -mb-3 mt-3"
+        compact
+        itemLabel="worktrees"
+      />
     </div>
   );
 }

@@ -15,10 +15,16 @@ import type { EventBus } from '../kernel/events.js';
 import type { Context } from '../core/context.js';
 import type { Tool } from '../types/tool.js';
 import { ToolCapabilities } from '../security/capabilities.js';
+import { toErrorMessage } from '../utils/error.js';
 import { wstackGlobalRoot } from '../utils/wstack-paths.js';
 import { GlobalMailbox, resolveProjectDir } from './global-mailbox.js';
 import { resolveSendTypeSafe } from './mailbox-message-codec.js';
-import type { Mailbox, MailboxMessage, MailboxMessageType } from './mailbox-types.js';
+import {
+  normalizeRecipient,
+  type Mailbox,
+  type MailboxMessage,
+  type MailboxMessageType,
+} from './mailbox-types.js';
 
 export type MailboxResolver = (ctx: Context) => Mailbox;
 
@@ -130,7 +136,7 @@ export function makeMailboxTool(opts: MailboxToolOptions = {}): Tool {
           description: 'Which mailbox operation to perform.',
         },
         to: { type: 'string', description: "Recipient agent id, base alias, '@session' for the sender's session, or '*' / 'all' for project broadcast." },
-        type: { type: 'string', enum: ['note', 'ask', 'assign', 'steer', 'btw', 'broadcast', 'status', 'result', 'review', 'control'], description: 'Message intent. Actionable: ask (blocking question), assign (task delegation, must have specific to), steer (mid-course direction), review (passive ask). Informational: note (general FYI), btw (low-priority aside), result (completion notice), status (system update). Routing: broadcast (multi-recipient). Reserved: control (runtime only, agents cannot send). Default when omitted: broadcast for "*" or "@session", otherwise note.' },
+        type: { type: 'string', enum: ['note', 'ask', 'assign', 'steer', 'btw', 'broadcast', 'status', 'result', 'review', 'control'], description: 'Required message intent. Actionable: ask (blocking question), assign (task delegation, must have specific to), steer (mid-course direction), review (passive ask). Informational: note (general FYI), btw (low-priority aside), result (completion notice), status (system update). Routing: broadcast (multi-recipient). Reserved: control (runtime only, agents cannot send).' },
         subject: { type: 'string', description: 'Short subject line.' },
         body: { type: 'string', description: 'Full message content.' },
         priority: { type: 'string', enum: ['low', 'normal', 'high'] },
@@ -268,6 +274,7 @@ async function executeSend(
   const body = i.body as string | undefined;
 
   if (!to) return { ok: false, error: '"to" is required.' };
+  if (!tp) return { ok: false, error: '"type" is required.' };
   if (!subject) return { ok: false, error: '"subject" is required.' };
   // Empty string is a legitimate body (e.g. subject-only status pings) —
   // only reject when the field is genuinely absent.
@@ -275,12 +282,18 @@ async function executeSend(
 
   // Resolve and validate the (type, to) pair using the canonical helper.
   // This enforces: control is reserved, assign/steer to "*" is rejected.
-  const typeResult = resolveSendTypeSafe(tp as MailboxMessageType | undefined, to);
+  let normalizedTo: string;
+  try {
+    normalizedTo = normalizeRecipient(to, sessionId);
+  } catch (err) {
+    return { ok: false, error: `"to" is invalid: ${toErrorMessage(err)}` };
+  }
+  const typeResult = resolveSendTypeSafe(tp as MailboxMessageType, normalizedTo);
   if (!typeResult.ok) return { ok: false, error: `"type" is invalid: ${typeResult.error}` };
 
   const msg = await mb.send({
     from: agentId,
-    to, type: typeResult.type, subject, body,
+    to: normalizedTo, type: typeResult.type, subject, body,
     priority: (i.priority as 'low' | 'normal' | 'high') ?? 'normal',
     replyTo: i.replyTo as string | undefined,
     senderSessionId: sessionId,

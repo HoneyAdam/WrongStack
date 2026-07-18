@@ -12,6 +12,7 @@ import { expectDefined } from '@wrongstack/core';
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { availableParallelism } from 'node:os';
 import type { Dirent, Stats } from 'node:fs';
 import type { Context } from '@wrongstack/core';
 import { compileGlob } from '@wrongstack/core';
@@ -26,7 +27,16 @@ import { parseSymbols as parseYaml } from './yaml-parser.js';
 import { loadGitignoreMatcher, type IgnoreMatcher } from './gitignore.js';
 /** Yield the event loop every N files so the main thread stays responsive. */
 const YIELD_EVERY_N = 50;
-const PARALLEL_BATCH = 20;
+/**
+ * Number of files to process in parallel during the stat+read+parse phase.
+ * Auto-tuned to available CPU cores — each parse is CPU-bound (TypeScript
+ * compiler, AST walking), so more cores benefit from a wider batch. The * 4
+ * multiplier accounts for the I/O wait between stat/read/parse for each file;
+ * on NVMe + many cores the full batch may complete before the event loop
+ * yields. Capped at 40 to avoid overwhelming the GC on high-core-count
+ * machines (128+ thread EPYC/Ryzen).
+ */
+const PARALLEL_BATCH = Math.min(availableParallelism() * 4, 40);
 
 function yieldEventLoop(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
@@ -305,6 +315,7 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
 
   // Process files in batches for parallel I/O and parsing.
   // SQLite writes remain sequential (they're synchronous and CPU-bound).
+  let filesSinceLastYield = 0;
   for (let batchStart = 0; batchStart < files.length; batchStart += PARALLEL_BATCH) {
     const batchEnd = Math.min(batchStart + PARALLEL_BATCH, files.length);
     const batchFiles = files.slice(batchStart, batchEnd);
@@ -314,9 +325,15 @@ async function runIndexerWithStore(store: IndexStore, opts: IndexerOptions): Pro
 
     // Yield the event loop periodically so the main thread stays responsive
     // (TUI rendering, input handling, etc.) during large index builds.
+    // Uses a running counter instead of batchStart % YIELD_EVERY_N which
+    // only works when the batch size divides YIELD_EVERY_N evenly — with
+    // dynamic batch sizes (os.availableParallelism * 4) that invariant no
+    // longer holds and the yield would fire far less often than intended.
     // Also check for cancellation — the tool executor's timeout or a
     // session abort propagates through `signal`.
-    if (batchStart > 0 && batchStart % YIELD_EVERY_N === 0) {
+    filesSinceLastYield += batchFiles.length;
+    if (filesSinceLastYield >= YIELD_EVERY_N) {
+      filesSinceLastYield = 0;
       await yieldEventLoop();
       throwIfAborted(signal);
     }

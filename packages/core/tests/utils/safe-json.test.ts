@@ -21,6 +21,12 @@ describe('safe-json', () => {
     const r = safeParse('x'.repeat(100), 10);
     expect(r.ok).toBe(false);
   });
+  it('safeParse measures the limit in UTF-8 bytes', () => {
+    const input = JSON.stringify('€€€€');
+    expect(input.length).toBeLessThanOrEqual(10);
+    expect(Buffer.byteLength(input, 'utf8')).toBeGreaterThan(10);
+    expect(safeParse(input, 10).ok).toBe(false);
+  });
   it('safeStringify handles circular refs', () => {
     const obj: Record<string, unknown> = { a: 1 };
     obj.self = obj;
@@ -38,6 +44,27 @@ describe('safe-json', () => {
   it('sanitizeJsonString strips trailing commas', () => {
     expect(sanitizeJsonString('{"a":1,}')).toBe('{"a":1}');
     expect(sanitizeJsonString('[1,2,3,]')).toBe('[1,2,3]');
+  });
+  it('sanitizeJsonString strips block comments without skipping adjacent punctuation', () => {
+    const fixed = sanitizeJsonString('{"a":1/* first */,"b":2,/* second */}');
+    expect(JSON.parse(fixed!)).toEqual({ a: 1, b: 2 });
+  });
+  it('sanitizeJsonString preserves comment markers inside strings', () => {
+    const raw = '{"url":"https://example.test/a/*b*/","note":"not // a comment"}';
+    expect(JSON.parse(sanitizeJsonString(raw)!)).toEqual({
+      url: 'https://example.test/a/*b*/',
+      note: 'not // a comment',
+    });
+  });
+  it('sanitizeJsonString handles escaped quotes before comments', () => {
+    const raw = String.raw`{"text":"quoted: \\\" // still text",/* comment */"ok":true}`;
+    expect(JSON.parse(sanitizeJsonString(raw)!)).toEqual({
+      text: 'quoted: \\" // still text',
+      ok: true,
+    });
+  });
+  it('sanitizeJsonString rejects unterminated block comments', () => {
+    expect(sanitizeJsonString('{"a":1/* unfinished')).toBe(null);
   });
   it('sanitizeJsonString returns null for unrecoverable input', () => {
     expect(sanitizeJsonString('{not json at all}')).toBe(null);

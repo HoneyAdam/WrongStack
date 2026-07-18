@@ -356,6 +356,7 @@ export class SqliteSuperMemoryStore {
     validateRememberInput(input);
     const normalizedText = normalizeText(input.text);
     if (!normalizedText) throw new Error('Super Memory text must not be empty.');
+    this.rejectIfUnsafeInput(input);
     await this.initialize();
 
     const scope = input.scope ?? 'project';
@@ -529,6 +530,9 @@ export class SqliteSuperMemoryStore {
     await this.initialize();
     const limit = opts?.limit ?? 20;
     const statusFilter = opts?.includeStatuses ?? ['active'];
+    const scopeFilter = opts?.scope;
+    const scopeClause = scopeFilter ? ' AND scope = ?' : '';
+    const scopeParams = scopeFilter ? [scopeFilter] : [];
 
     // Empty query → direct table scan (bypasses FTS5 which is slower for list-all)
     const trimmedQuery = query.trim();
@@ -537,11 +541,11 @@ export class SqliteSuperMemoryStore {
       const rows = this.db
         .prepare(
           `SELECT data FROM memories
-           WHERE status IN (${placeholders})
+           WHERE status IN (${placeholders})${scopeClause}
            ORDER BY importance DESC, updated_at DESC
            LIMIT ?`,
         )
-        .all(...statusFilter, limit) as Array<{ data: string }>;
+        .all(...statusFilter, ...scopeParams, limit) as Array<{ data: string }>;
       return rows.map((r) => this.rowToMemory(r));
     }
 
@@ -553,12 +557,12 @@ export class SqliteSuperMemoryStore {
         .prepare(
           `SELECT m.data FROM memories m
            JOIN memories_fts f ON m.rowid = f.rowid
-           WHERE m.status IN (${placeholders})
+           WHERE m.status IN (${placeholders})${scopeFilter ? ' AND m.scope = ?' : ''}
            AND memories_fts MATCH ?
            ORDER BY bm25(memories_fts) DESC, m.importance DESC
            LIMIT ?`,
         )
-        .all(...statusFilter, ftsQuery, limit) as Array<{ data: string }>;
+        .all(...statusFilter, ...scopeParams, ftsQuery, limit) as Array<{ data: string }>;
       return rows.map((r) => this.rowToMemory(r));
     } catch {
       // FTS5 unavailable — LIKE fallback
@@ -570,12 +574,12 @@ export class SqliteSuperMemoryStore {
     const rows = this.db
       .prepare(
         `SELECT data FROM memories
-         WHERE status IN (${placeholders})
+         WHERE status IN (${placeholders})${scopeClause}
          AND LOWER(json_extract(data, '$.text')) LIKE ? ESCAPE '\\'
          ORDER BY importance DESC
          LIMIT ?`,
       )
-      .all(...statusFilter, likePattern, limit) as Array<{ data: string }>;
+      .all(...statusFilter, ...scopeParams, likePattern, limit) as Array<{ data: string }>;
     return rows.map((r) => this.rowToMemory(r));
   }
 
@@ -777,9 +781,8 @@ export class SqliteSuperMemoryStore {
 
   /**
    * Reject input that looks like a secret or credential. Mirrors
-   * `SuperMemoryStore.rejectIfUnsafeInput` so candidate proposals filed through
-   * the SQLite store are subject to the same unsafe-content guard before they
-   * reach the ReviewQueue.
+   * `SuperMemoryStore.rejectIfUnsafeInput` so every SQLite persistence path,
+   * including direct memories and review candidates, shares the same guard.
    */
   private rejectIfUnsafeInput(input: Omit<RememberSuperMemoryInput, 'legacyScope' | 'priority' | 'type'>): void {
     for (const value of collectStringValues(input)) {
@@ -1267,10 +1270,53 @@ export class SqliteSuperMemoryStore {
   }
 
   async consolidateSession(input: SessionConsolidationInput): Promise<SessionConsolidationResult> {
-    let accepted = 0;
-    let rejected = 0;
-    void input;
-    return { accepted, rejected, candidates: 0, duplicate: 0 };
+    await this.initialize();
+    const result: SessionConsolidationResult = { candidates: 0, accepted: 0, rejected: 0, duplicate: 0 };
+    // Build dedup set from existing active/stale project memories
+    const existing = new Set<string>();
+    const memories = this.db.prepare(
+      "SELECT data FROM memories WHERE json_extract(data, '$.status') IN ('active', 'stale') AND json_extract(data, '$.scope') = 'project'",
+    ).all() as Array<{ data: string }>;
+    for (const row of memories) {
+      const memory = JSON.parse(row.data) as SuperMemory;
+      existing.add(canonicalMemoryText(memory.text));
+    }
+    // Also dedup against pending candidates
+    for (const candidate of await this.listCandidates()) {
+      if (candidate.scope === 'project') existing.add(canonicalMemoryText(candidate.text));
+    }
+    const threshold = clamp01(input.autoAcceptThreshold ?? 0.85);
+    for (const fact of input.facts) {
+      const text = normalizeText(fact.text);
+      const key = canonicalMemoryText(text);
+      if (!text || existing.has(key)) {
+        result.duplicate++;
+        continue;
+      }
+      let candidate: MemoryCandidate;
+      try {
+        candidate = await this.createCandidate({
+          text,
+          kind: fact.kind,
+          confidence: fact.confidence,
+          importance: fact.importance,
+          tags: fact.tags,
+          anchors: fact.anchors,
+          sources: [{ type: 'session', sessionId: input.sessionId }],
+        });
+      } catch {
+        result.rejected++;
+        continue;
+      }
+      result.candidates++;
+      existing.add(key);
+      const policyScore = candidate.confidence * 0.55 + candidate.importance * 0.45;
+      if (policyScore >= threshold) {
+        await this.acceptCandidate(candidate.id);
+        result.accepted++;
+      }
+    }
+    return result;
   }
 
   close(): void {
@@ -1283,4 +1329,15 @@ export class SqliteSuperMemoryStore {
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.min(1, Math.max(0, value));
+}
+
+/**
+ * Canonical text key for deduplication. Mirrors SuperMemoryStore's
+ * internal helper so both stores produce identical dedup keys.
+ */
+function canonicalMemoryText(text: string): string {
+  return normalizeText(text)
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[.!?,;:]+$/g, '');
 }

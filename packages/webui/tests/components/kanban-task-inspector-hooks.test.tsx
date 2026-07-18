@@ -58,7 +58,18 @@ vi.mock('@/lib/kanban-cleaner', () => ({
 }));
 
 vi.mock('@/lib/ws-client', () => ({
-  getWSClient: () => ({ on: vi.fn(() => vi.fn), send: vi.fn() }),
+  getWSClient: () => ({
+    handlers: new Map<string, (message: unknown) => void>(),
+    on(
+      this: { handlers: Map<string, (message: unknown) => void> },
+      type: string,
+      handler: (message: unknown) => void,
+    ) {
+      this.handlers.set(type, handler);
+      return () => this.handlers.delete(type);
+    },
+    send: vi.fn(),
+  }),
 }));
 
 vi.mock('@/i18n', () => ({
@@ -133,6 +144,19 @@ describe('KanbanView — TaskInspector hook-order regression (React error 310)',
     expect(screen.getByLabelText('Task activity outcome')).toBeTruthy();
     expect(screen.getByLabelText('Task activity details')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Record task decision or outcome' })).toBeTruthy();
+
+    const inspector = screen.getByRole('complementary', { name: 'Task inspector' });
+    expect(inspector.getAttribute('data-expanded')).toBe('false');
+    fireEvent.click(screen.getByRole('button', { name: 'Expand task details' }));
+    expect(inspector.getAttribute('data-expanded')).toBe('true');
+    expect(inspector.className).toContain('fixed');
+    expect(inspector.className).toContain('inset-0');
+    expect(inspector.className).toContain('h-dvh');
+    expect(inspector.className).toContain('w-screen');
+    expect(inspector.className).toContain('bg-card');
+    expect(inspector.className).not.toContain('bg-card/40');
+    expect(inspector.className).toContain('transition-none');
+    expect(screen.getByRole('button', { name: 'Collapse task details' })).toBeTruthy();
 
     fireEvent.click(screen.getByTitle('Close'));
     expect(screen.queryByRole('complementary', { name: 'Task inspector' })).toBeNull();

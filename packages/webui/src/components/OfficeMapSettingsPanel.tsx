@@ -102,7 +102,7 @@ export function OfficeMapSettingsPanel() {
     <div className="flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-y-auto overscroll-contain p-3">
       {/* Live stats summary */}
       <div>
-        <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
           {t('activity:officeMap.liveHeading')}
         </div>
         <div className="space-y-1.5 text-xs">
@@ -136,7 +136,7 @@ export function OfficeMapSettingsPanel() {
               <span className="flex items-center gap-1.5 text-muted-foreground">
                 <Zap className="h-3.5 w-3.5" /> {t('activity:officeMap.mode')}
               </span>
-              <span className="font-mono uppercase text-[10px]">{currentSession.mode}</span>
+              <span className="font-mono uppercase text-xs">{currentSession.mode}</span>
             </div>
           )}
           <div className="flex items-center justify-between">
@@ -150,7 +150,7 @@ export function OfficeMapSettingsPanel() {
 
       {/* Display toggles */}
       <div>
-        <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
           {t('activity:officeMap.displayHeading')}
         </div>
         <div className="space-y-0.5">
@@ -164,7 +164,7 @@ export function OfficeMapSettingsPanel() {
 
       {/* Background style */}
       <div>
-        <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 px-2">
+        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 px-2">
           {t('activity:officeMap.backgroundHeading')}
         </div>
         <div className="flex flex-wrap gap-1 px-2">
@@ -174,7 +174,7 @@ export function OfficeMapSettingsPanel() {
               type="button"
               onClick={() => setBackground(b.value)}
               className={cn(
-                'px-2 py-1 text-[10px] rounded transition-colors',
+                'px-2 py-1 text-xs rounded transition-colors',
                 background === b.value
                   ? 'bg-primary text-primary-foreground'
                   : 'bg-muted text-muted-foreground hover:bg-accent',

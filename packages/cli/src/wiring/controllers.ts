@@ -49,6 +49,14 @@ export function createFleetStreamController(initialMode: FleetChatVerbosity = 'o
 
 export interface InterruptController {
   abortLeader: () => boolean;
+  /** Installed by the TUI to render `/clear` confirmation inside Ink. */
+  confirmClear?:
+    | ((info: { leaderActive: boolean; subagentCount: number }) => Promise<boolean>)
+    | undefined;
+  /** Installed by the TUI for all non-clear slash-command confirmations. */
+  confirmSlash?:
+    | ((question: string, defaultYes: boolean) => Promise<boolean | null>)
+    | undefined;
   /** Invalidate output buffers before a destructive session reset. */
   resetSession: () => void;
   /** Resolve after the currently aborted leader turn has fully unwound. */

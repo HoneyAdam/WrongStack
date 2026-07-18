@@ -135,12 +135,13 @@ export function ConfirmDialog() {
   // auto-approves the current confirm; the broadcast prefs.updated then hides
   // this dialog. The auto-yolo effect below is the client-side backstop.
   const enableYolo = () => {
+    if (confirmInfo?.boundaryReason) return;
     setLocalPrefs({ yolo: true });
     updatePrefs({ yolo: true });
   };
 
   useEffect(() => {
-    if (!showConfirmDialog || !confirmInfo || !yolo) return;
+    if (!showConfirmDialog || !confirmInfo || !yolo || confirmInfo.boundaryReason) return;
     handleConfirm('yes');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -202,7 +203,8 @@ export function ConfirmDialog() {
             {t('confirm.title', { tool: confirmInfo.toolName })}
           </DialogTitle>
           <DialogDescription>
-            {isEdit ? t('confirm.descriptionEdit') : t('confirm.descriptionTool')}
+            {confirmInfo.boundaryReason ??
+              (isEdit ? t('confirm.descriptionEdit') : t('confirm.descriptionTool'))}
           </DialogDescription>
         </DialogHeader>
 
@@ -239,7 +241,7 @@ export function ConfirmDialog() {
             </div>
           )}
 
-          {!yolo && (
+          {!yolo && !confirmInfo.boundaryReason && (
             <div className="flex items-start gap-2 p-3 rounded-lg bg-primary/5 border border-primary/20">
               <Zap className="h-4 w-4 text-primary mt-0.5 shrink-0" />
               <div className="text-sm min-w-0 flex-1">

@@ -3,6 +3,8 @@ import { cn } from '@/lib/utils';
 import { useAppTranslation } from '@/i18n';
 import { CheckCircle2, Circle, Clock, Pause, XCircle, RotateCcw } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { usePagination } from '@/hooks/usePagination';
+import { Pagination } from '@/components/ui/pagination';
 
 interface TaskItem {
   id: string;
@@ -86,14 +88,18 @@ export function TasksPanel(): React.ReactElement | null {
   );
 
   const statusOrder: TaskItem['status'][] = ['in_progress', 'blocked', 'review', 'pending', 'failed', 'completed'];
+  const sortedTasks = [...tasks].sort(
+    (a, b) => statusOrder.indexOf(a.status) - statusOrder.indexOf(b.status),
+  );
+  const taskPage = usePagination(sortedTasks, 15);
   const grouped = new Map<TaskItem['status'], TaskItem[]>();
-  for (const t of tasks) {
+  for (const t of taskPage.pageItems) {
     const list = grouped.get(t.status) ?? [];
     list.push(t);
     grouped.set(t.status, list);
   }
 
-  const completed = grouped.get('completed')?.length ?? 0;
+  const completed = tasks.filter((task) => task.status === 'completed').length;
   if (tasks.length === 0) return null;
 
   return (
@@ -184,6 +190,14 @@ export function TasksPanel(): React.ReactElement | null {
           </div>
         );
       })}
+      <Pagination
+        page={taskPage.page}
+        pageSize={taskPage.pageSize}
+        totalItems={taskPage.totalItems}
+        onPageChange={taskPage.setPage}
+        compact
+        itemLabel="tasks"
+      />
     </div>
   );
 }

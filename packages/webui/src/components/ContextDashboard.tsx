@@ -11,6 +11,8 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { usePagination } from '@/hooks/usePagination';
+import { Pagination } from '@/components/ui/pagination';
 import { useShallow } from 'zustand/react/shallow';
 import {
   AlertTriangle,
@@ -355,12 +357,13 @@ function CompactionSection({ pct, maxTokens }: { pct: number; maxTokens: number 
 
 function AgentFootprintSection({ agents }: { agents: SubagentView[] }) {
   const agentsWithCtx = agents.filter((a) => a.ctxPct != null && a.ctxPct > 0);
+  const agentPage = usePagination(agentsWithCtx, 8);
   if (agentsWithCtx.length === 0) return null;
 
   return (
     <SectionCard title="Per-Agent Footprint" icon={Users}>
       <div className="space-y-2">
-        {agentsWithCtx.slice(0, 8).map((agent) => {
+        {agentPage.pageItems.map((agent) => {
           const zone = zoneFor(agent.ctxPct);
           const label = agent.name || agent.id;
           const isLeader = agent.id === '__leader__';
@@ -384,6 +387,14 @@ function AgentFootprintSection({ agents }: { agents: SubagentView[] }) {
             </div>
           );
         })}
+        <Pagination
+          page={agentPage.page}
+          pageSize={agentPage.pageSize}
+          totalItems={agentPage.totalItems}
+          onPageChange={agentPage.setPage}
+          compact
+          itemLabel="agents"
+        />
       </div>
     </SectionCard>
   );

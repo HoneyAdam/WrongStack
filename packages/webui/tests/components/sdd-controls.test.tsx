@@ -190,4 +190,49 @@ describe('SddTaskDrawer controls', () => {
     fireEvent.click(screen.getByText('Claude Opus 4.8'));
     expect(onSetModel).toHaveBeenCalledWith('task-1', 'claude-opus-4-8', 'anthropic');
   });
+
+  it('offers an expand control and renders structured task events', () => {
+    const onToggleExpanded = vi.fn();
+    render(
+      <SddTaskDrawer
+        {...baseProps}
+        task={makeTask()}
+        expanded
+        feed={[
+          {
+            ts: Date.now(),
+            kind: 'file',
+            taskId: 'task-1',
+            taskShortId: 't01',
+            agentName: 'Ada',
+            action: 'update',
+            filePath: 'src/app.ts',
+            text: 'update src/app.ts',
+          },
+          {
+            ts: Date.now() - 10,
+            kind: 'tool',
+            taskId: 'task-1',
+            taskShortId: 't01',
+            action: 'shell_command',
+            detail: 'pnpm test',
+            durationMs: 1200,
+            ok: true,
+            text: 'ran shell_command',
+          },
+        ]}
+        onToggleExpanded={onToggleExpanded}
+        onSetModel={noop}
+        onCancel={noop}
+        onDelete={noop}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('Collapse task details'));
+    expect(onToggleExpanded).toHaveBeenCalledOnce();
+    expect(screen.getByText('Task event log')).toBeTruthy();
+    expect(screen.getByText('src/app.ts')).toBeTruthy();
+    expect(screen.getByText('pnpm test')).toBeTruthy();
+    expect(screen.getByText('1.2s')).toBeTruthy();
+  });
 });

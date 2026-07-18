@@ -526,10 +526,9 @@ describe('runRepl', () => {
       expect(allTexts.some((t) => t.includes('Risky migration'))).toBe(true);
     });
 
-    it('auto mode stops after the consecutive auto-proceed cap', async () => {
-      // The agent suggests next steps on EVERY turn — without the cap this
-      // self-feeding loop never returns to the reader (it has spun real
-      // sessions at full speed and flooded stdout until OOM).
+    it('auto mode halts repeated prompts before the consecutive cap', async () => {
+      // The model emits the same next step after every turn. The repetition
+      // guard must stop this targeted loop before the generic cap is reached.
       const run = vi.fn(
         async (): Promise<RunResult> => ({
           status: 'done',
@@ -560,14 +559,15 @@ describe('runRepl', () => {
         getSuggestions: () => suggestions,
       });
 
-      // 1 manual turn + 1 post-turn autonomy "continue" run + at most 25
-      // auto-proceed turns (the configured cap), then control returns to the
-      // reader ('/exit' ends the loop). Unbounded would be ∞ / EOF-throw.
-      expect(run.mock.calls.length).toBe(27);
+      // 1 manual turn + the existing post-turn autonomy continuation +
+      // 1 successful automatic feed. The second identical automatic attempt
+      // is rejected before agent.run().
+      expect(run.mock.calls.length).toBe(3);
       const warns = (renderer.writeWarning as ReturnType<typeof vi.fn>).mock.calls.map((c) =>
         String(c[0] ?? ''),
       );
-      expect(warns.some((w) => w.includes('Auto-proceed paused'))).toBe(true);
+      expect(warns.some((w) => w.includes('Auto-proceed halted'))).toBe(true);
+      expect(warns.some((w) => w.includes('Auto-proceed paused'))).toBe(false);
     });
 
     it('auto mode with no validator proceeds directly', async () => {

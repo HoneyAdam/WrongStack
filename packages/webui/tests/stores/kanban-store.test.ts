@@ -96,6 +96,47 @@ describe('kanban-store', () => {
     expect(state.activeBoard?.id).toBe(second.id);
   });
 
+  it('accepts paginated board results and exposes active/orphan totals', () => {
+    useKanbanStore.getState().handleResult('kanban.list', {
+      success: true,
+      data: {
+        items: [
+          {
+            id: 'active-board',
+            title: 'Active board',
+            createdAt: now,
+            updatedAt: now,
+            columnCount: 1,
+            taskCount: 2,
+            completedTaskCount: 0,
+            presence: [
+              {
+                id: 'presence-1',
+                sessionId: 'session-1',
+                agentId: 'leader',
+                lastSeenAt: now,
+                expiresAt: now,
+                active: true,
+              },
+            ],
+          },
+        ],
+        total: 25,
+        page: 1,
+        pageSize: 12,
+        totalPages: 3,
+        activeTotal: 4,
+        orphanedTotal: 21,
+      },
+    });
+
+    const state = useKanbanStore.getState();
+    expect(state.boards).toHaveLength(1);
+    expect(state.boardTotal).toBe(25);
+    expect(state.activeBoardTotal).toBe(4);
+    expect(state.orphanedBoardTotal).toBe(21);
+  });
+
   it('applies task removal payloads with full board data', () => {
     const active = board('b1', [task('t1', 'Remove me')]);
     const afterRemoval = board('b1', []);

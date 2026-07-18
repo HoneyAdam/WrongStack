@@ -19,7 +19,11 @@ describe('constants', () => {
     expect(DESKTOP_COMMAND_VIEWS.has('chat')).toBe(true);
     expect(DESKTOP_COMMAND_VIEWS.has('settings')).toBe(true);
     expect(DESKTOP_COMMAND_VIEWS.has('analytics')).toBe(true);
-    expect(DESKTOP_COMMAND_VIEWS.size).toBe(18);
+    expect(DESKTOP_COMMAND_VIEWS.has('sddhub')).toBe(true);
+    expect(DESKTOP_COMMAND_VIEWS.has('sddboard')).toBe(false);
+    expect(DESKTOP_COMMAND_VIEWS.has('sddwizard')).toBe(false);
+    expect(DESKTOP_COMMAND_VIEWS.has('specs')).toBe(false);
+    expect(DESKTOP_COMMAND_VIEWS.size).toBe(16);
   });
 
   it('DESKTOP_COMMAND_DOCKS contains dock section names', () => {

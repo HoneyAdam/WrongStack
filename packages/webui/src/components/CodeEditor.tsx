@@ -26,6 +26,7 @@ import type { WSCompletionResult } from '@/types';
 import { useTheme } from './ThemeProvider';
 // Side-effect import: defines Monaco themes on module load
 import './monaco-theme';
+import { FileActivityDrawer } from './FileActivityDrawer';
 import { getMonacoTheme } from './monaco-theme';
 
 // Configure Monaco to use the local package (not CDN)
@@ -484,6 +485,7 @@ export function CodeEditor() {
           </div>
         )}
       </div>
+      {activeFile && <FileActivityDrawer file={activeFile} />}
     </div>
   );
 }

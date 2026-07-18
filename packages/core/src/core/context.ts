@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import type { TextBlock } from '../types/blocks.js';
 import type { ContextEvidenceState } from '../types/context-evidence.js';
+import type { FileEventRecord } from '../types/file-event-record.js';
 import type { Message } from '../types/messages.js';
 import type { Provider, Usage } from '../types/provider.js';
 import type { SessionEvent, SessionWriter } from '../types/session.js';
@@ -127,6 +128,13 @@ export class Context implements RunEnv {
    * `clearFileTracking()` alongside read/written-file tracking.
    */
   sideEffects: import('../types/side-effect.js').SideEffect[] = [];
+  /**
+   * Tracked file events for the current session. Populated by
+   * `recordFileEvent()` — used for in-memory audit and real-time
+   * subscription (EventBus `file.event`). Also persisted to session
+   * JSONL as `file_event` events for durable storage.
+   */
+  fileEvents: FileEventRecord[] = [];
   contextEvidence: ContextEvidenceState = createContextEvidenceState();
   systemPrompt: TextBlock[];
   provider: Provider;
@@ -151,6 +159,16 @@ export class Context implements RunEnv {
   agentId: string;
   /** Human-readable agent name. */
   agentName: string;
+  /**
+   * Current kanban task ID, set by the agent/coordinator when working
+   * on a specific kanban task. Tools use this via `recordFileEvent()`
+   * to associate file operations with the active task.
+   */
+  currentKanbanTaskId: string | undefined = undefined;
+  /**
+   * Current kanban board ID, paired with `currentKanbanTaskId`.
+   */
+  currentKanbanBoardId: string | undefined = undefined;
   /**
    * Session-level trace ID for correlating storage events with agent
    * iterations. Stored here and also propagated to `session.traceId`
@@ -393,6 +411,7 @@ export class Context implements RunEnv {
     this.fileMtimes.clear();
     this.fileHashes.clear();
     this.sideEffects = [];
+    this.fileEvents = [];
   }
 
   /**
@@ -417,6 +436,96 @@ export class Context implements RunEnv {
         input: sideEffect.input,
         outcome: sideEffect.outcome,
         risk: sideEffect.risk,
+      })
+      .catch(() => {
+        /* best-effort — never block tool execution */
+      });
+  }
+
+  /**
+   * Set the current kanban task context for subsequent file operations.
+   * Tools call this (or the agent loop sets it) so that `recordFileEvent()`
+   * can associate operations with the active kanban task.
+   *
+   * Pass `undefined` for both to clear the task association.
+   */
+  setCurrentKanbanTask(taskId: string | undefined, boardId?: string | undefined): void {
+    this.currentKanbanTaskId = taskId;
+    this.currentKanbanBoardId = boardId;
+  }
+
+  /**
+   * Record a comprehensive file event for the audit trail.
+   * Persists the event as a `file_event` session JSONL event.
+   * Consumers that need `file.event` EventBus events should subscribe
+   * at the executor level (see `ToolExecutor`'s auto-emission).
+   *
+   * The `scope` field is auto-derived from `currentKanbanTaskId`:
+   * - When a kanban task is set, scope = `'task'` and `taskId`/`boardId`
+   *   are populated from `currentKanbanTaskId`/`currentKanbanBoardId`.
+   * - Otherwise scope = `'session'`.
+   *
+   * Fire-and-forget: errors are swallowed so recording never blocks
+   * tool execution.
+   */
+  recordFileEvent(input: {
+    operation: 'create' | 'read' | 'update' | 'delete' | 'rename';
+    filePath: string;
+    absPath: string;
+    toolName: string;
+    toolUseId: string;
+    durationMs?: number | undefined;
+    fileSize?: number | undefined;
+    lines?: number | undefined;
+    bytes?: number | undefined;
+  }): void {
+    const scope = this.currentKanbanTaskId ? 'task' : 'session';
+    const ts = new Date().toISOString();
+    const record: FileEventRecord = {
+      operation: input.operation,
+      filePath: input.filePath,
+      absPath: input.absPath,
+      sessionId: this.session.id,
+      agentId: this.agentId,
+      agentName: this.agentName,
+      provider: typeof this.provider === 'object' ? (this.provider as { id: string }).id : String(this.provider),
+      model: this.model,
+      toolName: input.toolName,
+      toolUseId: input.toolUseId,
+      scope,
+      taskId: this.currentKanbanTaskId,
+      boardId: this.currentKanbanBoardId,
+      timestamp: ts,
+      durationMs: input.durationMs,
+      fileSize: input.fileSize,
+      lines: input.lines,
+      bytes: input.bytes,
+    };
+
+    this.fileEvents.push(record);
+
+    // Persist to session JSONL (fire-and-forget)
+    this.session
+      .append({
+        type: 'file_event',
+        ts,
+        operation: input.operation,
+        filePath: input.filePath,
+        absPath: input.absPath,
+        sessionId: this.session.id,
+        agentId: this.agentId,
+        agentName: this.agentName,
+        provider: record.provider,
+        model: record.model,
+        toolName: input.toolName,
+        toolUseId: input.toolUseId,
+        scope,
+        taskId: this.currentKanbanTaskId,
+        boardId: this.currentKanbanBoardId,
+        durationMs: input.durationMs,
+        fileSize: input.fileSize,
+        lines: input.lines,
+        bytes: input.bytes,
       })
       .catch(() => {
         /* best-effort — never block tool execution */

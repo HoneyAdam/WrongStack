@@ -19,6 +19,8 @@ function makeStubAgent(opts: {
   fail?: boolean;
   streamedText?: string;
   structuredReport?: Record<string, unknown>;
+  emitFileEvent?: boolean;
+  toolInput?: unknown;
 }): { agent: Agent; events: EventBus } {
   const events = new EventBus();
   const ctx = { meta: {} as Record<string, unknown> } as any;
@@ -44,7 +46,29 @@ function makeStubAgent(opts: {
           // Pair with executed — the runner's budget hook now counts
           // tool calls on the executed event (D2/M5), so the stub must
           // emit both halves of the lifecycle to model a real tool.
-          events.emit('tool.executed', { name: 'stub', id: `t${i}-${t}`, durationMs: 0, ok: true });
+          events.emit('tool.executed', {
+            name: 'stub',
+            id: `t${i}-${t}`,
+            durationMs: 0,
+            ok: true,
+            input: opts.toolInput,
+          });
+        }
+        if (opts.emitFileEvent) {
+          events.emit('file.event', {
+            operation: 'update',
+            filePath: 'src/task.ts',
+            absPath: '/project/src/task.ts',
+            sessionId: 'worker-session',
+            agentId: 'a1',
+            agentName: 'A1',
+            provider: 'test',
+            model: 'test-model',
+            toolName: 'edit',
+            toolUseId: 'file-1',
+            scope: 'session',
+            timestamp: '2026-07-18T12:00:00.000Z',
+          });
         }
         events.emit('provider.response', { ctx, usage, stopReason: 'end_turn' });
         events.emit('iteration.completed', { ctx, index: i });
@@ -117,6 +141,58 @@ describe('makeAgentSubagentRunner', () => {
     expect(result.iterations).toBe(2);
     expect(result.toolCalls).toBe(2); // 1 per iteration
     expect(factory).toHaveBeenCalledOnce();
+  });
+
+  it('bridges task-correlated tool telemetry and stamps file-event context', async () => {
+    const hostEvents = new EventBus();
+    const bridged: Array<{ taskId?: string; runId?: string; name: string; input?: unknown }> = [];
+    const bridgedFiles: Array<{ taskId?: string; boardId?: string; runId?: string; scope: string }> = [];
+    hostEvents.on('subagent.tool_executed', (event) => bridged.push(event));
+    hostEvents.on('file.event', (event) => bridgedFiles.push(event));
+    const setCurrentKanbanTask = vi.fn();
+    const factory = vi.fn(async () => {
+      const built = makeStubAgent({
+        iterations: 1,
+        finalText: 'done',
+        emitFileEvent: true,
+        toolInput: { command: 'echo pwd=short-secret' },
+      });
+      (built.agent as Agent & { ctx: Record<string, unknown> }).ctx['setCurrentKanbanTask'] = setCurrentKanbanTask;
+      return built;
+    });
+    const runner = makeAgentSubagentRunner({ factory, hostEvents });
+    const coord = new DefaultMultiAgentCoordinator(makeConfig(), { runner });
+
+    await coord.spawn({ id: 'a1', name: 'A1' });
+    const completion = waitForCompletion(coord);
+    await coord.assign({
+      id: 'correlation-id',
+      description: 'task body',
+      context: {
+        telemetryTaskId: 'graph-task',
+        telemetryRunId: 'sdd-run',
+        telemetryBoardId: 'graph-1',
+      },
+    });
+    await completion;
+
+    expect(setCurrentKanbanTask).toHaveBeenCalledWith('graph-task', 'graph-1');
+    expect(bridged).toEqual([
+      expect.objectContaining({
+        taskId: 'graph-task',
+        runId: 'sdd-run',
+        name: 'stub',
+      }),
+    ]);
+    expect(bridged[0]).not.toHaveProperty('input');
+    expect(bridgedFiles).toEqual([
+      expect.objectContaining({
+        taskId: 'graph-task',
+        boardId: 'graph-1',
+        runId: 'sdd-run',
+        scope: 'task',
+      }),
+    ]);
   });
 
   it('enforces tool-call budget via event hook', async () => {

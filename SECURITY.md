@@ -185,7 +185,8 @@ they are defense in depth, not a sandbox.
 ### HQ command center
 
 `wstack --hq` starts a project-independent HTTP/WebSocket command center on
-port `3499` by default. It binds `127.0.0.1` unless `--host` changes the bind,
+port `3499` by default. CLI entry points bind `0.0.0.0`; the embeddable server
+default and `--tunnel` origin bind `127.0.0.1`, unless `--host` changes the bind,
 accepts telemetry, persists event/snapshot/time-series data, and exposes a
 control plane. Treat the entire HQ data directory and endpoint as sensitive.
 Implementation: [`packages/cli/src/hq-server.ts`](packages/cli/src/hq-server.ts),
@@ -200,24 +201,29 @@ server redaction, and persistent event/snapshot/time-series stores. First run
 creates least-privilege browser (`control.enqueue`) and client
 (`telemetry.publish`) tokens.
 
+Authenticated operators can manage the browser password in HQ under
+**System → Security**. Password-session changes require the current password;
+browser-token sessions provide the recovery/reset path. Local loopback open
+mode may bootstrap its first password, while a public relay refuses removal or
+reload of the last browser authentication method.
+
 These controls have important boundaries:
 
-- A missing `auth.json` and an existing file with empty token arrays are
-  explicit **OPEN MODE**. Corrupt, unreadable, or unsupported-version files now
+- A missing `auth.json` bootstraps least-privilege browser and client tokens.
+  An existing file with empty token arrays and no password is explicit
+  **OPEN MODE**. Corrupt, unreadable, or unsupported-version files
   fail closed during startup; live-reload failures preserve the last-known-good
   auth state. Treat auth-load failures as operator-visible security faults and
   repair the file rather than replacing it with an empty document.
-- Origin validation is now strict scheme/host/port matching: requests with
-  no `Origin`, `Origin: null`, or `file:` origins, plus `localhost` /
-  `127.0.0.1` / `::1` on **any** port, are still accepted (the browser endpoints
-  intentionally allow the loopback range), but a different port or scheme on the
-  loopback range is rejected.
-- Password login has no attempt throttling. The cookie carries a client-side
-  `Max-Age`, but the server-side session map does not expire entries by
-  `createdAt`; a copied signed cookie remains accepted while that server
-  process retains the session unless logout removes it.
-- HQ itself speaks plain HTTP/WS. Put TLS and any stronger authentication or
-  rate limiting in a trusted reverse proxy before non-loopback exposure.
+- Origin validation accepts non-browser clients without `Origin`, exact
+  same-host HTTP(S) browser traffic (including trusted TLS tunnels), matching
+  loopback origins on the bound port, and `file:`. Other origins, including
+  `Origin: null`, are rejected.
+- Password login uses per-client exponential backoff, and signed sessions are
+  swept after the same seven-day lifetime advertised by the HttpOnly cookie.
+- HQ itself speaks plain HTTP/WS. `--tunnel` can manage a temporary
+  TryCloudflare HTTPS URL for development; use a durable trusted reverse proxy
+  with stronger authentication and rate limiting for production exposure.
 - Tokens are stored in plaintext inside `auth.json` (atomic write, `0o600` on
   POSIX). Browser and client lists prevent cross-channel replay, but a stolen
   token grants its declared capabilities.
@@ -328,7 +334,7 @@ The two rules that keep things safe:
 
 The earlier phased HQ plan is retained in
 [`docs/plans/hq-command-center-2026-06.md`](docs/plans/hq-command-center-2026-06.md)
-as design history. Current source has browser/client tokens, password bootstrap
+as design history. Current source has browser/client tokens, password set/rotation
 via `wstack --hq --password <value>`, live auth reload, capability scopes, and
 persistent event/snapshot/time-series storage. Token lifecycle commands are:
 
@@ -339,10 +345,10 @@ wstack hq token list [--client]
 wstack hq token revoke [--client] <id-prefix>
 ```
 
-There is no `wstack hq auth set-password` or `auth reset` subcommand. Password
-bootstrap is applied when creating a previously missing `auth.json`; manage an
-existing password-auth file with deliberate operator procedures and restart as
-needed. The security limitations and supported deployment posture are described
+There is no separate `wstack hq auth set-password` or `auth reset` subcommand.
+Starting HQ with `--password <value>` adds or rotates the stored scrypt hash;
+rotation also invalidates existing password sessions. The security limitations
+and supported deployment posture are described
 in [HQ command center](#hq-command-center), above.
 
 ## See also

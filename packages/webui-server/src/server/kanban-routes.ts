@@ -23,6 +23,7 @@ import {
   getTask,
   getTaskChain,
   type KanbanBoard,
+  type KanbanBoardSummary,
   type KanbanColumn,
   type KanbanEventContext,
   type KanbanLifecycleStage,
@@ -64,6 +65,48 @@ export interface KanbanRouteContext {
   projectRoot: string;
   context?: Context | undefined;
   broadcast?: ((msg: object) => void) | undefined;
+}
+
+export interface KanbanBoardPage {
+  items: KanbanBoardSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  activeTotal: number;
+  orphanedTotal: number;
+}
+
+export function paginateKanbanBoards(
+  boards: KanbanBoardSummary[],
+  input: { page: number; pageSize: number; activeSessionIds?: readonly string[] | undefined },
+): KanbanBoardPage {
+  const pageSize = Math.min(100, Math.max(1, Math.floor(input.pageSize)));
+  const activeSessionIds = new Set(input.activeSessionIds ?? []);
+  const isActive = (board: KanbanBoardSummary) =>
+    board.presence?.some((entry) => entry.active) === true ||
+    board.tags?.some(
+      (tag) => tag.startsWith('session:') && activeSessionIds.has(tag.slice(8)),
+    ) === true;
+  const sorted = [...boards].sort((left, right) => {
+    const activityOrder = Number(isActive(right)) - Number(isActive(left));
+    return activityOrder || right.updatedAt.localeCompare(left.updatedAt);
+  });
+  const activeTotal = sorted.filter(isActive).length;
+  const total = sorted.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const requestedPage = Number.isFinite(input.page) ? Math.floor(input.page) : 1;
+  const page = Math.min(totalPages, Math.max(1, requestedPage));
+  const start = (page - 1) * pageSize;
+  return {
+    items: sorted.slice(start, start + pageSize),
+    total,
+    page,
+    pageSize,
+    totalPages,
+    activeTotal,
+    orphanedTotal: total - activeTotal,
+  };
 }
 
 async function syncSessionSource(
@@ -138,9 +181,30 @@ export async function handleKanbanRoute(
 
   try {
     switch (type) {
-      case 'kanban.list':
-        ok(ws, type, await listBoards(ctx.projectRoot));
+      case 'kanban.list': {
+        const boards = await listBoards(ctx.projectRoot);
+        const requestedPage = Number(payload?.page);
+        const requestedPageSize = Number(payload?.pageSize);
+        if (!Number.isFinite(requestedPage) || !Number.isFinite(requestedPageSize)) {
+          // Keep the legacy array response for older clients.
+          ok(ws, type, boards);
+          return true;
+        }
+        const activeSessionIds =
+          Array.isArray(payload?.activeSessionIds)
+            ? payload.activeSessionIds.filter((id): id is string => typeof id === 'string')
+            : [];
+        ok(
+          ws,
+          type,
+          paginateKanbanBoards(boards, {
+            page: requestedPage,
+            pageSize: requestedPageSize,
+            activeSessionIds,
+          }),
+        );
         return true;
+      }
       case 'kanban.get': {
         const boardId = payload?.boardId as string | undefined;
         if (!boardId) {
@@ -221,6 +285,9 @@ export async function handleKanbanRoute(
             ...(has(payload, 'lifecycle')
               ? { lifecycle: payload?.lifecycle as NonNullable<KanbanBoard['lifecycle']> }
               : {}),
+            ...(has(payload, 'boundary')
+              ? { boundary: payload?.boundary as NonNullable<KanbanBoard['boundary']> }
+              : {}),
           }),
         );
         return true;
@@ -246,6 +313,11 @@ export async function handleKanbanRoute(
             ? {
                 supervisor:
                   (payload?.supervisor as KanbanBoard['supervisor'] | null | undefined) ?? null,
+              }
+            : {}),
+          ...(has(payload, 'boundary')
+            ? {
+                boundary: (payload?.boundary as KanbanBoard['boundary'] | null | undefined) ?? null,
               }
             : {}),
         });
@@ -426,6 +498,9 @@ export async function handleKanbanRoute(
             ...(payload?.priority ? { priority: payload.priority as KanbanTaskPriority } : {}),
             ...(payload?.assignedAgent ? { assignedAgent: payload.assignedAgent as string } : {}),
             ...(payload?.labels ? { labels: payload.labels as string[] } : {}),
+            ...(has(payload, 'boundary')
+              ? { boundary: payload?.boundary as NonNullable<KanbanTask['boundary']> }
+              : {}),
           },
           activityContext(ctx, 'webui', payload?.activityNote as string | undefined),
         );
@@ -553,6 +628,12 @@ export async function handleKanbanRoute(
                     payload?.costCeilingUsd === null || payload?.costCeilingUsd === ''
                       ? null
                       : Number(payload?.costCeilingUsd),
+                }
+              : {}),
+            ...(has(payload, 'boundary')
+              ? {
+                  boundary:
+                    (payload?.boundary as KanbanTask['boundary'] | null | undefined) ?? null,
                 }
               : {}),
           },

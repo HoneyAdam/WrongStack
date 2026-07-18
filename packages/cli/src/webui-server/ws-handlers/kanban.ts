@@ -74,6 +74,7 @@ import {
   KANBAN_AGENT_STAGES,
 } from '@wrongstack/kanban';
 import { applySessionKanbanTaskToSource } from '@wrongstack/tools/session-kanban';
+import { paginateKanbanBoards } from '@wrongstack/webui-server';
 import type { WebSocket } from 'ws';
 import type { WsCommon } from './index.js';
 
@@ -92,6 +93,15 @@ export interface KanbanContext extends WsCommon {
       tools?: string[] | undefined;
       name?: string | undefined;
       allowedCapabilities?: readonly string[] | undefined;
+      /**
+       * Free-form task context propagated into the spawned `TaskSpec.context`.
+       * The relay always supplies `{ kanban: { boardId, taskId } }` so the
+       * tool-runtime boundary gate can resolve the live policy instead of
+       * failing open.
+       */
+      context?: {
+        kanban?: { boardId?: string; taskId?: string; projectRoot?: string };
+      } | undefined;
       onDone?:
         | ((result: {
             status: 'completed' | 'failed';
@@ -210,7 +220,25 @@ export async function handleKanbanMessage(
       // ── Board list ──
       case 'kanban.list': {
         const boards = await listBoards(projectRoot);
-        ok(ctx, ws, 'kanban.list', boards);
+        const requestedPage = Number(payload?.page);
+        const requestedPageSize = Number(payload?.pageSize);
+        if (!Number.isFinite(requestedPage) || !Number.isFinite(requestedPageSize)) {
+          ok(ctx, ws, 'kanban.list', boards);
+          return;
+        }
+        const activeSessionIds = Array.isArray(payload?.activeSessionIds)
+          ? payload.activeSessionIds.filter((id): id is string => typeof id === 'string')
+          : [];
+        ok(
+          ctx,
+          ws,
+          'kanban.list',
+          paginateKanbanBoards(boards, {
+            page: requestedPage,
+            pageSize: requestedPageSize,
+            activeSessionIds,
+          }),
+        );
         return;
       }
 
@@ -245,6 +273,9 @@ export async function handleKanbanMessage(
           ...(payload?.supervisor
             ? { supervisor: payload.supervisor as NonNullable<KanbanBoard['supervisor']> }
             : {}),
+          ...(has(payload, 'boundary')
+            ? { boundary: payload?.boundary as NonNullable<KanbanBoard['boundary']> }
+            : {}),
         });
         ok(ctx, ws, 'kanban.create', board);
         return;
@@ -266,6 +297,11 @@ export async function handleKanbanMessage(
             ? {
                 supervisor:
                   (payload?.supervisor as KanbanBoard['supervisor'] | null | undefined) ?? null,
+              }
+            : {}),
+          ...(has(payload, 'boundary')
+            ? {
+                boundary: (payload?.boundary as KanbanBoard['boundary'] | null | undefined) ?? null,
               }
             : {}),
         });
@@ -622,6 +658,12 @@ export async function handleKanbanMessage(
                     payload?.costCeilingUsd === null || payload?.costCeilingUsd === ''
                       ? null
                       : Number(payload?.costCeilingUsd),
+                }
+              : {}),
+            ...(has(payload, 'boundary')
+              ? {
+                  boundary:
+                    (payload?.boundary as KanbanTask['boundary'] | null | undefined) ?? null,
                 }
               : {}),
           },
@@ -1123,6 +1165,12 @@ export async function handleKanbanMessage(
             ...(assignment.allowedCapabilities
               ? { allowedCapabilities: assignment.allowedCapabilities }
               : {}),
+            // Carry the kanban identity into the spawned TaskSpec.context so the
+            // tool-runtime boundary gate (`evaluateToolKanbanBoundary`) can
+            // resolve the live board/task policy instead of failing open.
+            context: {
+              kanban: { boardId: bId, taskId: task.id, projectRoot: ctx.projectRoot },
+            },
             onDone: async (result) => {
               await updateTaskAssignment(
                 projectRoot,

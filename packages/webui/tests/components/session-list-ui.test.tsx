@@ -59,6 +59,19 @@ describe('SessionList workspace', () => {
     expect(screen.getByRole('button', { name: 'Resume' })).toBeDefined();
   });
 
+  it('constrains the workspace height so the session list owns vertical scrolling', () => {
+    renderWorkspace();
+    const workspace = document.querySelector<HTMLElement>(
+      '[data-history-variant="workspace"]',
+    );
+    expect(workspace?.classList.contains('h-full')).toBe(true);
+    expect(
+      Array.from(workspace?.querySelectorAll<HTMLElement>('div') ?? []).some((element) =>
+        element.classList.contains('overflow-y-auto'),
+      ),
+    ).toBe(true);
+  });
+
   it('keeps rename editing outside the resume button and persists on Enter', () => {
     const props = renderWorkspace();
     fireEvent.click(screen.getByTitle('Rename'));
@@ -75,5 +88,18 @@ describe('SessionList workspace', () => {
     expect(useUIStore.getState().favoriteSessionIds).toEqual(['session-1']);
     fireEvent.click(screen.getByRole('button', { name: 'Resume' }));
     expect(props.resumeSession).toHaveBeenCalledWith('session-1');
+  });
+
+  it('paginates long workspace histories', () => {
+    renderWorkspace({
+      historyEntries: Array.from({ length: 21 }, (_, index) =>
+        entry({ id: `session-${index + 1}`, title: `Session ${index + 1}` }),
+      ),
+    });
+    expect(screen.getByText('1–20 of 21 sessions')).toBeDefined();
+    expect(document.querySelectorAll('[data-session-id]')).toHaveLength(20);
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(screen.getByText('21–21 of 21 sessions')).toBeDefined();
+    expect(document.querySelectorAll('[data-session-id]')).toHaveLength(1);
   });
 });

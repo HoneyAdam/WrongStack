@@ -24,6 +24,8 @@ import {
 import { useEffect, useState } from 'react';
 import { confirmModal } from './ConfirmModal';
 import { classifyMailboxRecipient } from '@/stores/mailbox-store';
+import { usePagination } from '@/hooks/usePagination';
+import { Pagination } from '@/components/ui/pagination';
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
@@ -95,6 +97,9 @@ export function MailboxPanel({ className }: { className?: string }) {
 
   const unreadCount = messages.filter((m) => !m.completed).length;
   const onlineCount = agents.filter((a) => a.online).length;
+  const messagePage = usePagination(messages, 8);
+  const onlineAgents = agents.filter((agent) => agent.online);
+  const agentPage = usePagination(onlineAgents, 5);
 
   async function handleDeleteAll() {
     if (messages.length === 0) return;
@@ -223,7 +228,7 @@ export function MailboxPanel({ className }: { className?: string }) {
                   </span>
                 </div>
               )}
-              {messages.slice(0, 8).map((m) => {
+              {messagePage.pageItems.map((m) => {
                 const Icon = TYPE_ICONS[m.type] ?? MessageSquare;
                 const isRead = m.readByCount > 0;
                 const isSelected = selectedMailMessage?.id === m.id;
@@ -279,6 +284,14 @@ export function MailboxPanel({ className }: { className?: string }) {
                   </button>
                 );
               })}
+              <Pagination
+                page={messagePage.page}
+                pageSize={messagePage.pageSize}
+                totalItems={messagePage.totalItems}
+                onPageChange={messagePage.setPage}
+                compact
+                itemLabel="messages"
+              />
             </div>
           ) : (
             <div className="text-xs text-muted-foreground py-2 text-center">
@@ -293,7 +306,7 @@ export function MailboxPanel({ className }: { className?: string }) {
               <div className="text-[10px] font-semibold text-muted-foreground mb-1 flex items-center gap-1">
                 <Users className="h-3 w-3" /> {t('activity:nav.agents')}
               </div>
-              {agents.filter((a) => a.online).slice(0, 5).map((a) => (
+              {agentPage.pageItems.map((a) => (
                 <div key={a.agentId} className="flex items-center gap-1.5 text-[10px] text-muted-foreground py-0.5">
                   <span className={cn('h-1.5 w-1.5 rounded-full', a.online ? 'bg-success' : 'bg-muted-foreground/30')} />
                   <span className="font-medium text-foreground/80">{a.name}</span>
@@ -303,6 +316,14 @@ export function MailboxPanel({ className }: { className?: string }) {
                   <span className="ml-auto opacity-50">{fmtTime(a.lastSeenAt)}</span>
                 </div>
               ))}
+              <Pagination
+                page={agentPage.page}
+                pageSize={agentPage.pageSize}
+                totalItems={agentPage.totalItems}
+                onPageChange={agentPage.setPage}
+                compact
+                itemLabel="online agents"
+              />
               {agents.filter((a) => !a.online).length > 0 && (
                 <div className="text-[10px] text-muted-foreground/70 mt-0.5">
                   {t('activity:mailbox.offlineCount', { count: agents.filter((a) => !a.online).length })}

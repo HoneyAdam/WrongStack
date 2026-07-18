@@ -18,6 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { usePagination } from '@/hooks/usePagination';
 import {
   KIND_LABELS,
   MEMORY_KINDS,
@@ -25,6 +26,7 @@ import {
   splitList,
 } from '@/components/MemoryManager/shared';
 import { Button } from '@/components/ui/button';
+import { Pagination } from '@/components/ui/pagination';
 import {
   Dialog,
   DialogContent,
@@ -248,6 +250,7 @@ export function AudienceMemoryPanel() {
     () => scoped.filter((memory) => includesQuery(memory, normalizedQuery)),
     [normalizedQuery, scoped],
   );
+  const memoryPage = usePagination(filtered, 16, normalizedQuery);
   const roles = useMemo(() => uniqueAudienceValues(scoped, 'roles'), [scoped]);
   const taskTypes = useMemo(() => uniqueAudienceValues(scoped, 'taskTypes'), [scoped]);
   const modes = useMemo(() => uniqueAudienceValues(scoped, 'modes'), [scoped]);
@@ -498,7 +501,7 @@ export function AudienceMemoryPanel() {
               </div>
             ) : (
               <ul className="space-y-2">
-                {filtered.map((memory) => (
+                {memoryPage.pageItems.map((memory) => (
                   <AudienceMemoryCard
                     key={memory.id}
                     memory={memory}
@@ -510,6 +513,14 @@ export function AudienceMemoryPanel() {
               </ul>
             )}
           </div>
+          <Pagination
+            page={memoryPage.page}
+            pageSize={memoryPage.pageSize}
+            totalItems={memoryPage.totalItems}
+            onPageChange={memoryPage.setPage}
+            compact
+            itemLabel="memories"
+          />
         </div>
       </section>
 

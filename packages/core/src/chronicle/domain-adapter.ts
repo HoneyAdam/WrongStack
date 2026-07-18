@@ -31,6 +31,13 @@ const CODING_SIGNAL = [
 ];
 const SENSITIVE_KEY = /(content|text|prompt|question|rationale|reason|detail|summary|description|context|input|output|error|message|secret|token|password|key)$/i;
 const PRESERVE_STRING_KEY = /(^|_)(id|status|state|kind|type|source|model|provider|phase|risk|fallback|path|name|role|sha|branch|mode)$/i;
+/** Known metadata arrays that carry unbounded accumulated state (mail, tool
+ *  history, commands). Chronicle only needs the most recent entries. */
+const TRUNCATED_ARRAYS = new Set(['recentMail', 'recentTools', 'recentCommands']);
+const TRUNCATED_ARRAY_MAX = 5;
+/** General array cap — enough for agent lists, file lists etc. without
+ *  allowing unbounded growth through any array-shaped event field. */
+const DEFAULT_ARRAY_MAX = 20;
 
 /** Allowlisted coding-signal bridge for domains not owned by a richer adapter. */
 export function wireDomainEventsToChronicle(options: ChronicleDomainAdapterOptions): () => void {
@@ -113,8 +120,9 @@ function sanitize(value: unknown, key = '', depth = 0, seen = new WeakSet<object
   if (depth >= 5) return { hash: digest(safeString(value)), depthLimited: true };
   seen.add(value);
   if (Array.isArray(value)) {
-    const items = value.slice(0, 100).map((item) => sanitize(item, key, depth + 1, seen));
-    return value.length > 100 ? { items, total: value.length, truncated: true } : items;
+    const cap = TRUNCATED_ARRAYS.has(key) ? TRUNCATED_ARRAY_MAX : DEFAULT_ARRAY_MAX;
+    const items = value.slice(0, cap).map((item) => sanitize(item, key, depth + 1, seen));
+    return value.length > cap ? { items, total: value.length, truncated: true } : items;
   }
   const output: Record<string, unknown> = {};
   const entries = Object.entries(value as Record<string, unknown>);

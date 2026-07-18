@@ -80,6 +80,15 @@ describe('SddParallelRun.executeWave', () => {
     expect(wave.failCount).toBe(0);
     expect(coord.spawn).toHaveBeenCalledTimes(2);
     expect(coord.assign).toHaveBeenCalledTimes(2);
+    expect(coord.assign).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: {
+          telemetryTaskId: t1.id,
+          telemetryRunId: run.runId,
+          telemetryBoardId: (run as never as { opts: { graph: TaskGraph } }).opts.graph.id,
+        },
+      }),
+    );
     expect(tracker.getAllNodes({ status: ['completed'] })).toHaveLength(2);
   });
 

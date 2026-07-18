@@ -4,6 +4,7 @@ export * from './tool.js';
 export * from './tool-executor.js';
 export * from './tool-markers.js';
 export * from './side-effect.js';
+export * from './file-event-record.js';
 export * from './provider.js';
 export { StreamHangError } from './provider.js';
 export * from './provider-runner.js';

@@ -127,6 +127,11 @@ const INTENTIONALLY_UNHANDLED = new Set<string>([
   // Redundant design-state echo. The gallery mirrors activeKit/stack/overrides
   // from the `design.list` payload (handled) and never issues `design.state`.
   'design.state',
+  // Task-activity stream for the open-ledger panel enhancement. The handler is
+  // registered via `ws.on.bind(ws)` in KanbanView.tsx, which the static
+  // `.on('...')` regex cannot detect; non-critical — dropped messages merely
+  // delay a telemetry refresh in the task detail drawer.
+  'kanban.task.activity.changed',
 ]);
 
 describe('WebUI two-way WS completeness (server→client)', () => {

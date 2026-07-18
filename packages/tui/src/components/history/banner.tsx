@@ -311,6 +311,15 @@ export function Banner({
             compact={compact}
           />
         ) : null}
+        {entry.sessionId ? (
+          <InfoRow
+            icon="◈"
+            label="session"
+            value={entry.sessionId}
+            contentWidth={contentWidth}
+            compact={compact}
+          />
+        ) : null}
         <InfoRow
           icon="⌁"
           label={compact ? 'cwd' : 'workspace'}

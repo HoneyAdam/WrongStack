@@ -112,7 +112,9 @@ Control which foreign tools are scanned with `skills.foreignSources` (default: a
 
 ## Progressive disclosure & the `skill` tool
 
-By default (`mode: 'eager'`) every discovered skill body is injected into the system prompt. Set `skills.mode: 'progressive'` to follow the agentskills.io three-tier model instead: the prompt carries only each skill's name + trigger, and the agent calls the **`skill`** tool to load a skill's full body on demand.
+By default (`mode: 'eager'`) discovered skill bodies are injected into the system prompt up to the configured budget. Set `skills.mode: 'progressive'` to follow the agentskills.io three-tier model instead: the prompt carries only each skill's name + trigger, and the agent calls the **`skill`** tool to load a skill's full body on demand.
+
+Discovery and context ordering are deterministic: layers are traversed by priority and entries inside each layer are sorted by skill name. The environment block always receives every discovered name and trigger. In eager mode, bodies are added in that same stable order until `eagerMaxChars`; overflow remains in the manifest. In progressive mode, the manifest is the context contract and the `skill` tool is the deterministic body/resource loading path.
 
 The `skill` tool also handles **bundled resources** (tier 3) — scripts, references, assets, any subdirectory:
 
@@ -145,17 +147,19 @@ Foreign skills are usable as-is, but to **own, edit, or commit** one, import it 
 
 ## Bundled skills
 
-WrongStack ships with 23 bundled skills:
+WrongStack ships with 25 bundled skills:
 
 | Skill | Description |
 |---|---|
 | `api-design` | REST API design, error codes, pagination, auth patterns |
 | `audit-log` | Session log parsing, anomaly detection, cost and tool usage analysis |
+| `auto-review` | Configure and operate the built-in continuous code-review plugin |
 | `bug-hunter` | Systematic bug and code smell detection, severity ranking |
 | `chimera` | Post-session code quality review of changed files |
 | `docker-deploy` | Docker containerization, multi-stage builds, image scanning |
 | `git-flow` | Commit message style, branch hygiene, safe history operations |
 | `mailbox-bridge` | Loopback HTTP bridge that exposes the project's shared WrongStack mailbox so external agents (Claude Code, Aider, scripts) can read, send, and acknowledge messages |
+| `mnemosyne` | Deterministic and LLM-supported curation of Super Memory entries |
 | `multi-agent` | Leader/worker roles, task delegation, result aggregation, fleet management |
 | `node-modern` | Node.js ≥ 22 idioms: ESM-only, native fetch, AbortSignal patterns |
 | `observability` | Structured logging, traces, metrics, redaction, instrumentation |
@@ -387,4 +391,3 @@ parts:
 The bundled `skill-creator` skill (loaded into the prompt) is the wizard's
 brain — it holds the authoring rules and workflow. Always run
 `/skill-gen validate <name>` after writing a new skill to confirm it loads.
-
