@@ -162,16 +162,19 @@ export const ScrollableHistory = memo(function ScrollableHistory({
     const cache = heightCacheRef.current;
     cache.retain(entries.map((entry) => entry.id));
 
-    // Record per-entry height estimates from the visible content. When
-    // windowing is active, only visible entries are measured; non-visible
-    // entries retain their last-known estimate. When total height is
-    // available from the cache, use it for onMeasure (accurate for all
-    // entries). Otherwise fall back to the raw measured height.
+    // Record per-entry height estimates — only for entries NOT YET tracked
+    // in the cache. Once an entry has an estimate, it keeps it, so the
+    // cache total only grows when new entries arrive and never fluctuates
+    // from re-estimation of existing entries. Fluctuating totals caused the
+    // parent's setMeasuredLines to miscompute the "grew" delta and push the
+    // scroll offset unpredictably (#277).
     if (entries.length > 0 && height > 0) {
       const visibleCount = Math.min(entries.length, Math.max(1, Math.round(height / 3)));
       const estimatedPerEntry = Math.max(1, Math.round(height / visibleCount));
       for (const entry of entries) {
-        cache.record(entry.id, estimatedPerEntry);
+        if (cache.getHeight(entry.id) === undefined) {
+          cache.record(entry.id, estimatedPerEntry);
+        }
       }
     }
     // Read after recording. Reporting the pre-update total schedules a second
