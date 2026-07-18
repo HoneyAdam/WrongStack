@@ -14,6 +14,8 @@ function baseState() {
     banner: false,
     restoredEntries: [],
     enhanceEnabled: true,
+    model: 'gpt-4o',
+    cwd: '/tmp',
   });
 }
 

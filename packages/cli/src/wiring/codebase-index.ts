@@ -164,6 +164,6 @@ export async function setupCodebaseIndexing(deps: CodebaseIndexingDeps): Promise
     cancelPendingReindexes();
     // Stops the index worker thread too (it is unref'd, but an explicit stop
     // keeps teardown deterministic).
-    shutdownCodebaseIndexHost();
+    void shutdownCodebaseIndexHost();
   };
 }

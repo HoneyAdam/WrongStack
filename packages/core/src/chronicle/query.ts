@@ -517,7 +517,7 @@ function scopeKey(event: ChronicleEvent): string {
 }
 
 function signalFamily(event: ChronicleEvent): ChronicleSignalFamily {
-  if (event.eventType.startsWith('decision.') || event.eventType.startsWith('brain.')) return 'decision';
+  if (/^(?:decision|brain|permission)\./.test(event.eventType)) return 'decision';
   if (event.resource?.kind === 'file' || event.resource?.kind === 'symbol' || /^(?:file|worktree)\./.test(event.eventType)) return 'file';
   if (/^(?:provider|token|context|ctx|compaction)\./.test(event.eventType)) return 'llm';
   if (/^(?:agent|subagent|delegate|fleet|concurrency)\./.test(event.eventType)) return 'agent';

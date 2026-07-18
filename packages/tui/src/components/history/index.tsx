@@ -1,6 +1,6 @@
 import { Box, Static, useStdout } from '../../ink.js';
 import type React from 'react';
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AssistantTail } from './assistant.js';
 import { Entry } from './entry.js';
 import { MAX_STREAM_DISPLAY_CHARS, tailForDisplay } from './utils.js';
@@ -88,6 +88,42 @@ export const History = memo(function History({ entries, generation, streamingTex
   const termWidth = termSize.columns;
   const tail = streamingText ? tailForDisplay(streamingText, MAX_STREAM_DISPLAY_CHARS) : '';
 
+  const staticKey = `${generation ?? 0}-w${termWidth}-mr${showModelReasoning}`;
+  const bannerGeneration = generation ?? 0;
+  const { bannerEntry, transcriptEntries } = useMemo(() => {
+    const firstBanner = entries.find((entry) => entry.kind === 'banner');
+    return {
+      bannerEntry: firstBanner,
+      // A malformed/restored transcript must never be able to stamp multiple
+      // banners into terminal scrollback.
+      transcriptEntries: entries.filter((entry) => entry.kind !== 'banner'),
+    };
+  }, [entries]);
+
+  // Width is intentionally part of Static's key: committed transcript entries
+  // must be replayed at the new wrapping width after a resize. The banner is the
+  // exception. Once emitted for a history generation it already lives in native
+  // scrollback, so replaying it on every key change produces a stack of banners.
+  // Freeze the include/exclude decision for the lifetime of each Static key so
+  // its item indexes remain append-only between remounts.
+  const emittedBannerGenerationRef = useRef<number | null>(null);
+  const staticPlanRef = useRef({ key: '', includeBanner: false });
+  if (staticPlanRef.current.key !== staticKey) {
+    staticPlanRef.current = {
+      key: staticKey,
+      includeBanner: emittedBannerGenerationRef.current !== bannerGeneration,
+    };
+  }
+  const includeBanner = staticPlanRef.current.includeBanner;
+  const staticEntries =
+    includeBanner && bannerEntry ? [bannerEntry, ...transcriptEntries] : transcriptEntries;
+
+  useLayoutEffect(() => {
+    if (includeBanner && bannerEntry) {
+      emittedBannerGenerationRef.current = bannerGeneration;
+    }
+  }, [bannerEntry, bannerGeneration, includeBanner]);
+
   // NOTE: the live tool-stream box (◆ <tool> ⏱ … + last N output lines) is
   // deliberately NOT rendered in inline mode. In a full terminal the live
   // region sits at the bottom edge, so every tool.progress re-render scrolls
@@ -102,7 +138,7 @@ export const History = memo(function History({ entries, generation, streamingTex
 
   return (
     <>
-      <Static key={`${generation ?? 0}-w${termWidth}-mr${showModelReasoning}`} items={entries}>
+      <Static key={staticKey} items={staticEntries}>
         {(entry) => (
           <Box key={entry.id} marginBottom={entry.kind === 'turn-summary' ? 1 : 0}>
             <Entry entry={entry} termWidth={termWidth} setSuggestions={setSuggestions} autonomyMode={autonomyMode} multiDiffSummaryThreshold={multiDiffSummaryThreshold} todos={todos} showModelReasoning={showModelReasoning} />

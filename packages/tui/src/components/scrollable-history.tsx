@@ -160,13 +160,13 @@ export const ScrollableHistory = memo(function ScrollableHistory({
     if (!node) return;
     const { height } = measureElement(node);
     const cache = heightCacheRef.current;
+    cache.retain(entries.map((entry) => entry.id));
 
     // Record per-entry height estimates from the visible content. When
     // windowing is active, only visible entries are measured; non-visible
     // entries retain their last-known estimate. When total height is
     // available from the cache, use it for onMeasure (accurate for all
     // entries). Otherwise fall back to the raw measured height.
-    const cacheTotal = cache.totalHeight();
     if (entries.length > 0 && height > 0) {
       const visibleCount = Math.min(entries.length, Math.max(1, Math.round(height / 3)));
       const estimatedPerEntry = Math.max(1, Math.round(height / visibleCount));
@@ -174,6 +174,10 @@ export const ScrollableHistory = memo(function ScrollableHistory({
         cache.record(entry.id, estimatedPerEntry);
       }
     }
+    // Read after recording. Reporting the pre-update total schedules a second
+    // layout dispatch with the cache's previous value and can make the parent
+    // and virtual window chase one another across commits.
+    const cacheTotal = cache.totalHeight();
     const reportedHeight = cacheTotal > 0 ? cacheTotal : height;
     if (reportedHeight !== lastReported.current) {
       lastReported.current = reportedHeight;
@@ -199,13 +203,13 @@ export const ScrollableHistory = memo(function ScrollableHistory({
 
   // Slice for rendering — either the virtual window or all entries when
   // the cache hasn't been populated yet (first render).
-  const shownEntries = win && win.windowed
+  const shownEntries = win?.windowed
     ? entries.slice(win.startIdx, win.endIdx)
     : entries;
 
   // Previously-hidden count — only relevant when windowing is active and
   // some entries were omitted from the rendered slice.
-  const hiddenCount = win && win.windowed
+  const hiddenCount = win?.windowed
     ? Math.max(0, entries.length - (win.endIdx - win.startIdx))
     : 0;
 
@@ -225,7 +229,7 @@ export const ScrollableHistory = memo(function ScrollableHistory({
         >
           {/* Spacer above visible entries — represents entries scrolled off
               the top of the viewport. Present only during virtual windowing. */}
-          {win && win.windowed && win.spacerAbove > 0 ? (
+          {win?.windowed && win.spacerAbove > 0 ? (
             <Box height={win.spacerAbove} flexShrink={0} />
           ) : null}
 
@@ -249,7 +253,7 @@ export const ScrollableHistory = memo(function ScrollableHistory({
           {/* Spacer below visible entries — represents entries below the
               viewport (streaming tails sit below this spacer so they are
               always pinned to the bottom of the viewport). */}
-          {win && win.windowed && win.spacerBelow > 0 ? (
+          {win?.windowed && win.spacerBelow > 0 ? (
             <Box height={win.spacerBelow} flexShrink={0} />
           ) : null}
 

@@ -83,8 +83,8 @@ describe('Kanban recovery E2E (file-backed dispatch + recover_stale + retry)', (
         if (spawnedSubagents.length === 1) firstDispatch.subagentId = id;
         return id;
       },
-      assign: async (_spec: TaskSpec) => {
-        const id = `fleet-task-${taskIdsReturned.length + 1}`;
+      assign: async (spec: TaskSpec) => {
+        const id = spec.id;
         taskIdsReturned.push(id);
         if (taskIdsReturned.length === 1) firstDispatch.runTaskId = id;
         return id;

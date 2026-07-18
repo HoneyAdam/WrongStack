@@ -129,13 +129,15 @@ const ITEM_DESCRIPTIONS: Record<StatuslineItem, string> = {
 /**
  * Which TUI status bar line each chip appears on. Used to group chips
  * visually in the picker. MUST mirror the actual render lines in
- * `status-bar.tsx`: line 1 = workspace + runtime chips, line 2 = session context,
- * line 3 = active work + connectivity. Exported so the navigation-order
- * test guards against drift instead of duplicating it.
+ * `status-bar.tsx`: line 1 = workspace + runtime chips (mode/project/workdir
+ * state + cheap provider/model/context telemetry), line 2 = session context
+ * (memory pressure, git, mode label, goals, countdowns, tools), line 3 =
+ * active work + connectivity. Exported so the navigation-order test guards
+ * against drift instead of duplicating it.
  */
 export const ITEM_LINE: Record<StatuslineItem, number> = {
-  // Line 1 — workspace + runtime: secondary mode indicators, project/workdir,
-  // provider/model, context, and remaining runtime essentials
+  // Line 1 — workspace + runtime: mode indicators, project/workdir,
+  // provider/model, context window, and other low-cost runtime chips
   autonomy: 1,
   breaker: 1,
   cache: 1,
@@ -144,7 +146,6 @@ export const ITEM_LINE: Record<StatuslineItem, number> = {
   elapsed: 1,
   hint: 1,
   index: 1,
-  memory: 1,
   model: 1,
   processes: 1,
   queue: 1,
@@ -154,13 +155,17 @@ export const ITEM_LINE: Record<StatuslineItem, number> = {
   version: 1,
   working_dir: 1,
   yolo: 1,
-  // Line 2 — session context: git, mode, goals, countdowns, tools
+  // Line 2 — session context: memory pressure (RAM/heap), git, mode label,
+  // goals, countdowns, tools. RAM/heap sampling is slower than the line 1
+  // runtime counters and is more useful grouped alongside session-context
+  // chips that the user inspects together when something goes wrong.
   auto_proceed: 2,
   eternal_stage: 2,
   git: 2,
   goal: 2,
+  memory: 2,
   mode: 2,
-  project: 1,
+  project: 1, // kept on line 1 by render parity — see comment near project
   sessions: 2,
   token_saving: 2,
   tools: 2,
@@ -202,7 +207,6 @@ export const STATUSLINE_ITEMS: StatuslineItem[] = [
   'elapsed',
   'hint',
   'index',
-  'memory',
   'model',
   'processes',
   'project',
@@ -218,6 +222,7 @@ export const STATUSLINE_ITEMS: StatuslineItem[] = [
   'eternal_stage',
   'git',
   'goal',
+  'memory',
   'mode',
   'sessions',
   'token_saving',

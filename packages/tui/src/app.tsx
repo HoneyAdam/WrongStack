@@ -799,12 +799,13 @@ export function App({
     dispatch,
   });
 
-  // Stable onMeasure for ScrollableHistory — must not be an inline function
-  // or it breaks React.memo on every parent render, causing freeze/lag.
-  const onMeasureRef = useRef<(totalLines: number) => void>((totalLines) =>
-    dispatch({ type: 'setMeasuredLines', totalLines }),
-  );
-  onMeasureRef.current = (totalLines) => dispatch({ type: 'setMeasuredLines', totalLines });
+  // Keep the measurement callback referentially stable. ScrollableHistory
+  // calls it from a layout effect; changing its identity on every render makes
+  // that effect dispatch again during the same commit chain and can hit
+  // React's maximum-update-depth guard when a large layout oscillates.
+  const onMeasure = useCallback((totalLines: number) => {
+    dispatch({ type: 'setMeasuredLines', totalLines });
+  }, []);
 
   // Live director accessor. The static `director` prop is captured at boot
   // and stays null when the fleet host builds its director LAZILY (first
@@ -881,6 +882,9 @@ export function App({
   // mid-session (swap History ↔ ScrollableHistory, flip SGR tracking) without a
   // restart. Seeded from the prop (--mouse / WRONGSTACK_MOUSE / saved setting).
   const [mouseMode, setMouseMode] = useState(mouse);
+  useEffect(() => {
+    if (mouseMode) dispatch({ type: 'compactHistory' });
+  }, [mouseMode, state.entries]);
 
   // Mouse tracking ownership. We enable SGR mouse reporting while a selectable
   // overlay is open (so the wheel scrolls the picker selection — see the wheel
@@ -6667,7 +6671,7 @@ export function App({
             scrollOffset={state.scrollOffset}
             viewportRows={state.viewportRows}
             totalLines={state.totalLines}
-            onMeasure={onMeasureRef.current}
+            onMeasure={onMeasure}
             setSuggestions={setSuggestions}
             autonomyMode={autonomyLive}
             multiDiffSummaryThreshold={state.settingsPicker.multiDiffSummaryThreshold}

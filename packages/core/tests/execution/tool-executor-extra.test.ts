@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { classifyToolError } from '../../src/execution/tool-executor.js';
 import { ToolErrorCategory } from '../../src/types/tool.js';
@@ -186,6 +187,7 @@ describe('classifyToolError', () => {
 // ---------------------------------------------------------------------------
 import type { Context } from '../../src/core/context.js';
 import { ToolExecutor, classifyToolError as _cte } from '../../src/execution/tool-executor.js';
+import { EventBus, type EventMap } from '../../src/kernel/events.js';
 import type { ToolResultBlock, ToolUseBlock } from '../../src/types/blocks.js';
 import type { PermissionDecision } from '../../src/types/permission.js';
 import type { Tool } from '../../src/types/tool.js';
@@ -450,6 +452,101 @@ describe('ToolExecutor — additional coverage', () => {
     });
   });
 
+  describe('permission decision events', () => {
+    it('records the effective capability downgrade without exposing raw input', async () => {
+      const events = new EventBus();
+      const decisions: EventMap['permission.evaluated'][] = [];
+      events.on('permission.evaluated', (event) => decisions.push(event));
+      const input = { command: 'echo SECRET' };
+      const permissionPolicy = {
+        evaluate: vi.fn().mockResolvedValue({
+          permission: 'auto',
+          source: 'trust',
+          reason: 'matched allow pattern',
+          riskTier: 'destructive',
+        }),
+        getYolo: () => false,
+      };
+      const confirmAwaiter = vi.fn().mockResolvedValue('yes');
+      const tool = makeTool({
+        name: 'bash',
+        riskTier: 'destructive',
+        capabilities: ['shell.arbitrary'],
+      });
+      const executor = makeExecutor([tool], {
+        events,
+        permissionPolicy: permissionPolicy as never,
+        confirmAwaiter,
+        secretScrubber: {
+          scrub: (value: string) => value.replaceAll('SECRET', '[REDACTED]'),
+        } as never,
+      });
+
+      await executor.executeBatch([makeUse('bash', input)], makeCtx(), 'sequential');
+
+      const expectedHash = createHash('sha256')
+        .update(JSON.stringify({ command: 'echo [REDACTED]' }), 'utf8')
+        .digest('hex');
+      expect(decisions).toEqual([
+        expect.objectContaining({
+          sessionId: 'test-session',
+          name: 'bash',
+          id: 'id_bash',
+          inputHash: expectedHash,
+          policyDecision: 'auto',
+          effectiveDecision: 'confirm',
+          decisionSource: 'trust',
+          reason: 'matched allow pattern',
+          riskTier: 'destructive',
+          yoloEnabled: false,
+          boundaryDecision: 'allow',
+          capabilityDowngraded: true,
+        }),
+      ]);
+      expect(JSON.stringify(decisions[0])).not.toContain('SECRET');
+      expect(confirmAwaiter).toHaveBeenCalledOnce();
+      expect(tool.execute).toHaveBeenCalledOnce();
+    });
+
+    it('preserves authoritative YOLO auto-approval for dangerous capabilities', async () => {
+      const events = new EventBus();
+      const decisions: EventMap['permission.evaluated'][] = [];
+      events.on('permission.evaluated', (event) => decisions.push(event));
+      const permissionPolicy = {
+        evaluate: vi.fn().mockResolvedValue({
+          permission: 'auto',
+          source: 'yolo',
+          riskTier: 'destructive',
+        }),
+        getYolo: () => true,
+      };
+      const tool = makeTool({
+        name: 'bash',
+        riskTier: 'destructive',
+        capabilities: ['shell.arbitrary'],
+      });
+      const executor = makeExecutor([tool], {
+        events,
+        permissionPolicy: permissionPolicy as never,
+      });
+
+      await executor.executeBatch(
+        [makeUse('bash', { command: 'printf safe' })],
+        makeCtx(),
+        'sequential',
+      );
+
+      expect(decisions[0]).toMatchObject({
+        policyDecision: 'auto',
+        effectiveDecision: 'auto',
+        decisionSource: 'yolo',
+        yoloEnabled: true,
+        capabilityDowngraded: false,
+      });
+      expect(tool.execute).toHaveBeenCalledOnce();
+    });
+  });
+
   describe('abort signal handling', () => {
     it('returns abort result when signal aborts during confirmation', async () => {
       policy.evaluate.mockResolvedValue({ permission: 'confirm', source: 'trust' });
@@ -539,21 +636,32 @@ describe('ToolExecutor — additional coverage', () => {
   });
 
   describe('deny with different sources', () => {
-    it('returns denied result with reason from policy', async () => {
+    it('returns denied result and records the effective decision', async () => {
       policy.evaluate.mockResolvedValue({
         permission: 'deny',
         reason: 'custom policy rule',
         source: 'deny',
       });
       const tool = makeTool({ name: 'bash' });
-      const executor = makeExecutor([tool]);
+      const events = new EventBus();
+      const decisions: EventMap['permission.evaluated'][] = [];
+      events.on('permission.evaluated', (event) => decisions.push(event));
+      const executor = makeExecutor([tool], { events });
       const result = await executor.executeBatch(
-        [makeUse('bash')],
+        [makeUse('bash', { command: 'blocked' })],
         makeCtx(),
         'sequential',
       );
+
       const content = (result.outputs[0]!.result as ToolResultBlock).content as string;
       expect(content).toContain('custom policy rule');
+      expect(decisions[0]).toMatchObject({
+        policyDecision: 'deny',
+        effectiveDecision: 'deny',
+        decisionSource: 'deny',
+        reason: 'custom policy rule',
+      });
+      expect(tool.execute).not.toHaveBeenCalled();
     });
   });
 });

@@ -972,6 +972,7 @@ export type Settings = {
 
 export type Action =
   | { type: 'addEntry'; entry: DraftEntry }
+  | { type: 'compactHistory' }
   | { type: 'setBuffer'; buffer: string; cursor: number }
   | { type: 'clearInput' }
   | { type: 'clearHistory'; model?: string | undefined; provider?: string | undefined }

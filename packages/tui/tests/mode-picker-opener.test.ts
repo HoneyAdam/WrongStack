@@ -5,8 +5,8 @@ import { buildModePickerOptions } from '../src/hooks/use-mode-picker.js';
 describe('buildModePickerOptions', () => {
   it('maps modes and marks the active one', () => {
     const modes: Mode[] = [
-      { id: 'default', name: 'Default', description: 'Balanced default mode' },
-      { id: 'review', name: 'Review', description: 'Review-oriented mode' },
+      { id: 'default', name: 'Default', description: 'Balanced default mode', prompt: '' },
+      { id: 'review', name: 'Review', description: 'Review-oriented mode', prompt: '' },
     ];
 
     const options = buildModePickerOptions({ modes, activeId: 'review' });
@@ -30,8 +30,8 @@ describe('buildModePickerOptions', () => {
 
   it('handles a null activeId by leaving all modes inactive', () => {
     const modes: Mode[] = [
-      { id: 'default', name: 'Default', description: 'Balanced default mode' },
-      { id: 'review', name: 'Review', description: 'Review-oriented mode' },
+      { id: 'default', name: 'Default', description: 'Balanced default mode', prompt: '' },
+      { id: 'review', name: 'Review', description: 'Review-oriented mode', prompt: '' },
     ];
 
     const options = buildModePickerOptions({ modes, activeId: null });

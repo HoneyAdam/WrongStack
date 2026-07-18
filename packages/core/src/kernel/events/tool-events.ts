@@ -58,6 +58,30 @@ export interface ToolEventMap {
     event: ToolProgressEvent;
   };
   /**
+   * Fired once the permission policy and executor-level safety ceilings have
+   * produced the effective authorization decision for a valid tool call.
+   * Raw tool input is deliberately excluded; inputHash is computed after
+   * secret scrubbing so Chronicle can correlate decisions without storing
+   * credentials or command arguments.
+   */
+  'permission.evaluated': {
+    sessionId?: string | undefined;
+    traceId?: string | undefined;
+    agentId?: string | undefined;
+    name: string;
+    id: string;
+    inputHash: string;
+    policyDecision: PermissionDecision['permission'];
+    effectiveDecision: PermissionDecision['permission'];
+    decisionSource: PermissionDecision['source'];
+    reason?: string | undefined;
+    riskTier?: RiskTier | undefined;
+    yoloEnabled: boolean;
+    boundaryDecision?: 'allow' | 'confirm' | 'block' | undefined;
+    boundaryReason?: string | undefined;
+    capabilityDowngraded: boolean;
+  };
+  /**
    * Fired when a tool call needs confirmation
    * is registered on the executor. The TUI renders a confirmation dialog
    * from this event. Resolution is driven by calling the resolve function

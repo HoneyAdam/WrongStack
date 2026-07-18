@@ -5,6 +5,7 @@ import { addTask, createBoard } from '@wrongstack/kanban';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Context } from '../../src/core/context.js';
 import { ToolExecutor } from '../../src/execution/tool-executor.js';
+import { EventBus, type EventMap } from '../../src/kernel/events.js';
 import { evaluateToolKanbanBoundary } from '../../src/security/kanban-boundary.js';
 import type { Tool } from '../../src/types/tool.js';
 
@@ -200,5 +201,86 @@ describe('tool Kanban boundary integration', () => {
       'blocked by Kanban boundary',
     );
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('records a boundary-forced confirmation as the effective decision', async () => {
+    const projectRoot = await mkdtemp(join(tmpdir(), 'wstack-boundary-confirm-'));
+    roots.push(projectRoot);
+    const board = await createBoard(projectRoot, {
+      title: 'Confirm shell',
+      boundary: {
+        enabled: true,
+        enforcement: 'block',
+        shellAccess: 'confirm',
+        allow: [{ kind: 'directory', path: 'src', access: 'write' }],
+      },
+    });
+    const task = (await addTask(projectRoot, board.id, { title: 'Scoped shell' }))!.task;
+    const execute = vi.fn(async () => ({ ok: true }));
+    const tool = {
+      name: 'bash',
+      permission: 'auto',
+      mutating: true,
+      riskTier: 'destructive',
+      capabilities: ['shell.arbitrary'],
+      inputSchema: {
+        type: 'object',
+        properties: { command: { type: 'string' } },
+        required: ['command'],
+      },
+      execute,
+    } as Tool;
+    const events = new EventBus();
+    const decisions: EventMap['permission.evaluated'][] = [];
+    events.on('permission.evaluated', (event) => decisions.push(event));
+    const confirmAwaiter = vi.fn().mockResolvedValue('yes');
+    const executor = new ToolExecutor(
+      { get: (name) => (name === tool.name ? tool : undefined), list: () => [tool] },
+      {
+        permissionPolicy: {
+          evaluate: async () => ({ permission: 'auto', source: 'yolo' }),
+        },
+        secretScrubber: { scrub: (value: string) => value },
+        events,
+        confirmAwaiter,
+      } as never,
+    );
+    const ctx = {
+      projectRoot,
+      workingDir: projectRoot,
+      currentKanbanBoardId: board.id,
+      currentKanbanTaskId: task.id,
+      meta: {},
+      signal: new AbortController().signal,
+      session: { id: 'boundary-confirm-test' },
+      agentId: 'worker',
+      agentName: 'Worker',
+      provider: { id: 'test' },
+      model: 'test-model',
+    } as Context;
+
+    await executor.executeBatch(
+      [
+        {
+          type: 'tool_use',
+          id: 'shell-confirm',
+          name: 'bash',
+          input: { command: 'pnpm test' },
+        },
+      ],
+      ctx,
+      'sequential',
+    );
+
+    expect(decisions[0]).toMatchObject({
+      policyDecision: 'auto',
+      effectiveDecision: 'confirm',
+      decisionSource: 'yolo',
+      boundaryDecision: 'confirm',
+      capabilityDowngraded: false,
+    });
+    expect(decisions[0]?.boundaryReason).toBeTruthy();
+    expect(confirmAwaiter).toHaveBeenCalledOnce();
+    expect(execute).toHaveBeenCalledOnce();
   });
 });

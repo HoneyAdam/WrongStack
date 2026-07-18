@@ -27,6 +27,7 @@ describe('createExitSlashCommand', () => {
     const { opts } = makeOpts();
     const cmd = createExitSlashCommand(opts);
     expect(cmd.name).toBe('exit');
+    expect(cmd.aliases).toEqual(['quit', 'q']);
     expect(cmd.description).toContain('Exit the TUI');
     expect(cmd.description).toContain('confirmation');
   });
@@ -50,17 +51,34 @@ describe('createExitSlashCommand', () => {
   });
 
   // (b) active path — confirm true
-  it('returns { exit: true, message } when leader is active and the user confirms', async () => {
+  it('awaits the host exit lifecycle before returning its exit result', async () => {
     const { opts, confirmExit } = makeOpts({
       leaderActive: true,
       subagentCount: 2,
       confirmResult: true,
     });
-    const cmd = createExitSlashCommand(opts);
-    const res = await cmd.run('');
+    let releaseLifecycle!: () => void;
+    const lifecycleGate = new Promise<void>((resolve) => {
+      releaseLifecycle = resolve;
+    });
+    const ctx = {} as never;
+    const runExitLifecycle = vi.fn(async () => {
+      await lifecycleGate;
+      return { exit: true, message: 'host cleanup complete' };
+    });
+    const cmd = createExitSlashCommand({ ...opts, runExitLifecycle });
+    let settled = false;
+    const pending = cmd.run('', ctx).then((result) => {
+      settled = true;
+      return result;
+    });
+    await Promise.resolve();
     expect(confirmExit).toHaveBeenCalledTimes(1);
     expect(confirmExit).toHaveBeenCalledWith({ leaderActive: true, subagentCount: 2 });
-    expect(res).toEqual({ exit: true, message: 'Exiting…' });
+    expect(runExitLifecycle).toHaveBeenCalledWith('', ctx);
+    expect(settled).toBe(false);
+    releaseLifecycle();
+    await expect(pending).resolves.toEqual({ exit: true, message: 'host cleanup complete' });
   });
 
   it('returns { exit: true, message } when only subagents are running and the user confirms', async () => {
@@ -76,15 +94,17 @@ describe('createExitSlashCommand', () => {
   });
 
   // (b) active path — confirm false
-  it('returns the cancel message when the user declines and does not exit', async () => {
+  it('returns the cancel message without invoking the host lifecycle', async () => {
     const { opts, confirmExit } = makeOpts({
       leaderActive: true,
       subagentCount: 1,
       confirmResult: false,
     });
-    const cmd = createExitSlashCommand(opts);
+    const runExitLifecycle = vi.fn(async () => ({ exit: true }));
+    const cmd = createExitSlashCommand({ ...opts, runExitLifecycle });
     const res = await cmd.run('');
     expect(confirmExit).toHaveBeenCalledTimes(1);
+    expect(runExitLifecycle).not.toHaveBeenCalled();
     expect(res).toEqual({ message: 'Exit cancelled.' });
     expect(res && (res as { exit?: boolean }).exit).toBeUndefined();
   });
@@ -125,15 +145,17 @@ describe('createExitSlashCommand', () => {
   // (d) --help / -h — help flags must remain non-destructive even while
   // work is active. Asking for help never silently confirms an exit the
   // user did not intend.
-  it('returns USAGE for --help without consulting confirmExit', async () => {
+  it('returns USAGE for --help without consulting confirmation or host lifecycle', async () => {
     const { opts, confirmExit } = makeOpts({
       leaderActive: true,
       subagentCount: 1,
       confirmResult: true,
     });
-    const cmd = createExitSlashCommand(opts);
+    const runExitLifecycle = vi.fn(async () => ({ exit: true }));
+    const cmd = createExitSlashCommand({ ...opts, runExitLifecycle });
     const res = await cmd.run('--help');
     expect(confirmExit).not.toHaveBeenCalled();
+    expect(runExitLifecycle).not.toHaveBeenCalled();
     expect(res?.message).toContain('Usage:');
     expect(res && (res as { exit?: boolean }).exit).toBeUndefined();
   });

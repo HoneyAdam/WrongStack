@@ -376,7 +376,7 @@ export function FileExplorer() {
 
   // Expanded directories — the single source of truth for the whole tree
   // (rows are virtualized, so per-row state is impossible). Seeded once per
-  // cwd with all dirs collapsed; tree REFRESHES for the same cwd (file
+  // cwd with root-level dirs open; tree REFRESHES for the same cwd (file
   // watcher) keep the user's expansion untouched.
   const [expandedDirs, setExpandedDirs] = useState<ReadonlySet<string>>(new Set());
   const seededForCwd = useRef<string | null>(null);
@@ -384,8 +384,9 @@ export function FileExplorer() {
     if (seededForCwd.current === (cwd ?? '')) return;
     if (tree.length === 0) return; // wait until the tree for this cwd arrives
     seededForCwd.current = cwd ?? '';
-    // Start collapsed — the user expands directories as needed.
-    setExpandedDirs(new Set());
+    setExpandedDirs(
+      new Set(tree.filter((node) => node.type === 'directory').map((node) => node.path)),
+    );
   }, [cwd, tree]);
 
   const toggleDir = useCallback((path: string) => {

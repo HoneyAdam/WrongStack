@@ -11,29 +11,46 @@ import { Text } from '../src/ink.js';
 
 interface RegisteredCmd {
   name: string;
+  aliases?: string[] | undefined;
   description?: string;
   run: (args: string, ctx: unknown) => Promise<{ exit?: boolean; message?: string }>;
 }
 
-function makeRegistry(): SlashCommandRegistry & {
+function makeRegistry(hostExitCommand?: SlashCommand): SlashCommandRegistry & {
   registered: RegisteredCmd[];
   unregisterCalls: string[];
 } {
   const registered: RegisteredCmd[] = [];
   const unregisterCalls: string[] = [];
+  const commands = new Map<string, SlashCommand>();
+  if (hostExitCommand) {
+    commands.set(hostExitCommand.name, hostExitCommand);
+    for (const alias of hostExitCommand.aliases ?? []) commands.set(alias, hostExitCommand);
+  }
   const registry = {
     registered,
     unregisterCalls,
     register(cmd: SlashCommand, _owner?: string, _opts?: { official?: boolean }): void {
       registered.push({
         name: cmd.name,
+        aliases: cmd.aliases,
         description: cmd.description,
         run: cmd.run as RegisteredCmd['run'],
       });
+      commands.set(cmd.name, cmd);
+      for (const alias of cmd.aliases ?? []) commands.set(alias, cmd);
     },
     unregister(name: string): boolean {
       unregisterCalls.push(name);
+      const command = commands.get(name);
+      if (!command) return false;
+      for (const [key, candidate] of commands) {
+        if (candidate === command) commands.delete(key);
+      }
       return true;
+    },
+    get(name: string): SlashCommand | undefined {
+      return commands.get(name);
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as unknown as SlashCommandRegistry & { registered: RegisteredCmd[]; unregisterCalls: string[] };
@@ -144,6 +161,9 @@ describe('useExitCommand', () => {
     );
     expect(registry.registered).toHaveLength(1);
     expect(registry.registered[0]?.name).toBe('exit');
+    expect(registry.registered[0]?.aliases).toEqual(['quit', 'q']);
+    expect(registry.get('quit')).toBe(registry.get('exit'));
+    expect(registry.get('q')).toBe(registry.get('exit'));
     expect(registry.registered[0]?.description).toContain('Exit the TUI');
     act(() => view.unmount());
     expect(registry.unregisterCalls).toContain('exit');
@@ -151,8 +171,14 @@ describe('useExitCommand', () => {
 
   // (a) idle + 0 subagents — the slash command resolves immediately without
   // dispatching an `exitConfirmOpen`.
-  it('idle fleet: /exit resolves { exit: true } without dispatching exitConfirmOpen', async () => {
-    const registry = makeRegistry();
+  it('idle fleet: /exit awaits the captured host lifecycle without opening confirmation', async () => {
+    const hostRun = vi.fn(async () => ({ exit: true, message: 'host cleanup complete' }));
+    const registry = makeRegistry({
+      name: 'exit',
+      aliases: ['quit', 'q'],
+      description: 'Host exit',
+      run: hostRun,
+    });
     const { refs } = buildHarness();
     const view = render(
       React.createElement(
@@ -167,39 +193,58 @@ describe('useExitCommand', () => {
     );
     const cmd = registry.registered[0];
     expect(cmd).toBeDefined();
-    const res = await cmd?.run('', {});
-    expect(res).toEqual({ exit: true, message: 'Exiting…' });
+    const ctx = {};
+    const res = await cmd?.run('', ctx);
+    expect(res).toEqual({ exit: true, message: 'host cleanup complete' });
+    expect(hostRun).toHaveBeenCalledWith('', ctx);
     expect(refs.dispatch).not.toHaveBeenCalled();
     act(() => view.unmount());
   });
 
-  it('background driver active while reducer is idle still requires confirmation', async () => {
-    const registry = makeRegistry();
-    const { refs } = buildHarness();
-    refs.interruptController.isRunning = vi.fn(() => true);
-    const view = render(
-      React.createElement(ExitHarness, { registry, refs, exitConfirm: null }),
-    );
+  it.each([
+    {
+      alias: 'quit',
+      leaderActive: true,
+      fleet: {},
+      expected: { leaderActive: true, subagentCount: 0 },
+    },
+    {
+      alias: 'q',
+      leaderActive: false,
+      fleet: { f1: { id: 'f1', name: 'coder', status: 'running' } },
+      expected: { leaderActive: false, subagentCount: 1 },
+    },
+  ])(
+    '/$alias resolves to the guarded command for active leader/subagent work',
+    async ({ alias, leaderActive, fleet, expected }) => {
+      const registry = makeRegistry();
+      const { refs } = buildHarness();
+      refs.interruptController.isRunning = vi.fn(() => leaderActive);
+      refs.stateRef.current = { ...refs.stateRef.current, fleet } as unknown as State;
+      const view = render(
+        React.createElement(ExitHarness, { registry, refs, exitConfirm: null }),
+      );
 
-    const cmd = defined(registry.registered[0]);
-    const pending = cmd.run('', {});
-    await act(async () => {
-      await Promise.resolve();
-    });
-    const openAction = refs.dispatch.mock.calls.find(
-      (c) => (c[0] as Action).type === 'exitConfirmOpen',
-    );
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const info = (defined(openAction)[0] as any).info as {
-      leaderActive: boolean;
-      subagentCount: number;
-      resolve: (decision: boolean) => void;
-    };
-    expect(info).toMatchObject({ leaderActive: true, subagentCount: 0 });
-    info.resolve(false);
-    await expect(pending).resolves.toEqual({ message: 'Exit cancelled.' });
-    act(() => view.unmount());
-  });
+      const cmd = defined(registry.get(alias));
+      const pending = cmd.run('', undefined);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      const openAction = refs.dispatch.mock.calls.find(
+        (c) => (c[0] as Action).type === 'exitConfirmOpen',
+      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const info = (defined(openAction)[0] as any).info as {
+        leaderActive: boolean;
+        subagentCount: number;
+        resolve: (decision: boolean) => void;
+      };
+      expect(info).toMatchObject(expected);
+      info.resolve(false);
+      await expect(pending).resolves.toEqual({ message: 'Exit cancelled.' });
+      act(() => view.unmount());
+    },
+  );
 
   // (b) leader active — `confirmExit` opens the panel. resolve(true) must
   // complete the bounded teardown before the slash command may return exit.

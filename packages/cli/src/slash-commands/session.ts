@@ -327,11 +327,11 @@ export function buildExitCommand(opts: SlashCommandContext): SlashCommand {
         const result = await opts.onBeforeExit();
         if (result?.abort) {
           // warn but allow exit anyway
-          opts.onExit?.();
+          await opts.onExit?.();
           return { message: result.message ?? '', exit: true };
         }
       }
-      opts.onExit?.();
+      await opts.onExit?.();
       return { exit: true };
     },
   };

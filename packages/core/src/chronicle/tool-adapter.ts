@@ -28,6 +28,27 @@ export function wireToolsToChronicle(options: ChronicleToolAdapterOptions): () =
         },
       });
     }),
+    options.events.on('permission.evaluated', (event) => {
+      persist(options, event, {
+        eventType: 'permission.evaluated',
+        outcome: event.effectiveDecision === 'deny' ? 'denied' : 'success',
+        attributes: {
+          toolName: event.name,
+          inputHash: event.inputHash,
+          policyDecision: event.policyDecision,
+          effectiveDecision: event.effectiveDecision,
+          decisionSource: event.decisionSource,
+          reason: event.reason ? options.scrubber.scrub(event.reason) : undefined,
+          riskTier: event.riskTier,
+          yoloEnabled: event.yoloEnabled,
+          boundaryDecision: event.boundaryDecision,
+          boundaryReason: event.boundaryReason
+            ? options.scrubber.scrub(event.boundaryReason)
+            : undefined,
+          capabilityDowngraded: event.capabilityDowngraded,
+        },
+      });
+    }),
     options.events.on('tool.executed', (event) => {
       const output = options.scrubber.scrub(event.output ?? '');
       persist(options, event, {

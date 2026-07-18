@@ -49,6 +49,7 @@ Enable it in your config:
       "enabled": true,
       "provider": "deepseek",
       "model": "deepseek-chat",
+      "fallbackProfile": "reliable",
       "debounceMs": 5000,
       "maxFilesPerBatch": 15,
       "cascadeOn": "high",
@@ -72,7 +73,7 @@ Enable it in your config:
 | `enabled` | boolean | false | Master switch |
 | `provider` | string | session provider | LLM provider for review agents |
 | `model` | string | session model | LLM model for review agents |
-| `fallbackModels` | string[] | [] | Fallback model chain |
+| `fallbackProfile` | string | effective fallback profile | Named profile from `fallbackProfiles`; its first valid entry supplies the primary provider/model when those are omitted |
 | `debounceMs` | number | 5000 | Min gap between review triggers |
 | `maxFilesPerBatch` | number | 15 | Files per review call |
 | `maxConcurrentReviews` | number | 2 | Parallel review subagent cap |
@@ -89,9 +90,10 @@ Enable it in your config:
 
 ## What is reviewed
 
-- **Only git-tracked files** that changed since the last review trigger
-- **Debounced** — rapid edits within `debounceMs` are batched into one review
-- **Capped** at `maxFilesPerBatch` files per call
+- **Only git-tracked files** with staged or unstaged changes; untracked (`??`) files are never read or reviewed
+- **Content-aware** — later edits to an already-modified file trigger again when its content fingerprint changes
+- **Debounced without loss** — rapid edits are retained in a pending queue, with the latest content reviewed on the next eligible iteration
+- **Capped** at `maxFilesPerBatch` files per call; overflow stays pending
 - **Skipped** — `.wrongstack/` files
 - **Deleted files** are silently omitted
 
