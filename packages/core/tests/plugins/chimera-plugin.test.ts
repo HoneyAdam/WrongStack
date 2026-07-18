@@ -44,8 +44,8 @@ afterEach(async () => {
 
 describe('resolveChimeraConfig', () => {
   it('applies defaults and honors overrides', () => {
-    expect(resolveChimeraConfig({}, 'p', 'm')).toEqual({ enabled: true, provider: 'p', model: 'm', maxFiles: 15, autoFix: 'off' });
-    expect(resolveChimeraConfig({ enabled: false, provider: 'x', model: 'y', maxFiles: 3 }, 'p', 'm')).toEqual({ enabled: false, provider: 'x', model: 'y', maxFiles: 3, autoFix: 'off' });
+    expect(resolveChimeraConfig({}, 'p', 'm')).toEqual({ enabled: true, provider: 'p', model: 'm', maxFiles: 15, autoFix: 'off', cascadeOn: 'off', maxCascadeDepth: 2 });
+    expect(resolveChimeraConfig({ enabled: false, provider: 'x', model: 'y', maxFiles: 3 }, 'p', 'm')).toEqual({ enabled: false, provider: 'x', model: 'y', maxFiles: 3, autoFix: 'off', cascadeOn: 'off', maxCascadeDepth: 2 });
   });
 
   it('silently ignores the deprecated maxTokens override', () => {
@@ -53,7 +53,14 @@ describe('resolveChimeraConfig', () => {
     // `unknown` and dropped — output cap is now driven by the provider's
     // capabilities.maxOutput, not by chimera config.
     const cfg = resolveChimeraConfig({ maxTokens: 4096 }, 'p', 'm');
-    expect(cfg).toEqual({ enabled: true, provider: 'p', model: 'm', maxFiles: 15, autoFix: 'off' });
+    expect(cfg).toEqual({ enabled: true, provider: 'p', model: 'm', maxFiles: 15, autoFix: 'off', cascadeOn: 'off', maxCascadeDepth: 2 });
+  });
+
+  it('honors cascadeOn and maxCascadeDepth overrides', () => {
+    expect(resolveChimeraConfig({ cascadeOn: 'high', maxCascadeDepth: 5 }, 'p', 'm')).toEqual({
+      enabled: true, provider: 'p', model: 'm', maxFiles: 15, autoFix: 'off', cascadeOn: 'high', maxCascadeDepth: 5,
+    });
+    expect(resolveChimeraConfig({ cascadeOn: 'critical' }, 'p', 'm').cascadeOn).toBe('critical');
   });
 });
 

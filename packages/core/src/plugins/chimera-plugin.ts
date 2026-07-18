@@ -24,6 +24,19 @@ interface ChimeraConfig {
    */
   autoFix?: 'off' | 'ask' | 'auto' | undefined;
   /**
+   * Cascade severity threshold for follow-up agents. When the post-session
+   * review finds findings at or above this level, security-scanner and/or
+   * bug-hunter agents are spawned to investigate and fix. Mirrors the
+   * auto-review plugin's cascadeOn. Default: "off" (no cascade).
+   */
+  cascadeOn?: 'off' | 'critical' | 'high' | undefined;
+  /**
+   * Maximum cascade fix→re-review cycles before the self-correcting loop
+   * stops. Default: 2. 0 disables re-review (fix agents run once, no
+   * re-check). Mirrors the auto-review plugin's maxCascadeDepth.
+   */
+  maxCascadeDepth?: number | undefined;
+  /**
    * @deprecated Removed. The subagent's `Request.maxTokens` now defaults to
    * the provider's `capabilities.maxOutput`, so Chimera reports can run up
    * to the selected model's native ceiling. Kept on the config interface as an `unknown` sink
@@ -38,9 +51,13 @@ export interface ResolvedChimeraConfig {
   model: string;
   maxFiles: number;
   autoFix: 'off' | 'ask' | 'auto';
+  cascadeOn: 'off' | 'critical' | 'high';
+  maxCascadeDepth: number;
 }
 
 const DEFAULT_MAX_FILES = 15;
+const DEFAULT_CASCADE_ON = 'off' as const;
+const DEFAULT_MAX_CASCADE_DEPTH = 2;
 
 export function resolveChimeraConfig(
   cfg: ChimeraConfig,
@@ -53,6 +70,8 @@ export function resolveChimeraConfig(
     model: cfg.model ?? sessionModel,
     maxFiles: cfg.maxFiles ?? DEFAULT_MAX_FILES,
     autoFix: cfg.autoFix ?? 'off',
+    cascadeOn: cfg.cascadeOn ?? DEFAULT_CASCADE_ON,
+    maxCascadeDepth: cfg.maxCascadeDepth ?? DEFAULT_MAX_CASCADE_DEPTH,
   };
 }
 
@@ -309,6 +328,8 @@ function buildChimeraCommand(
       '  extensions.wstack-chimera.model      model id',
       '  extensions.wstack-chimera.maxFiles   max files (default 15)',
       '  extensions.wstack-chimera.autoFix    off | ask | auto (default off)',
+      '  extensions.wstack-chimera.cascadeOn  off | critical | high (default off)',
+      '  extensions.wstack-chimera.maxCascadeDepth  max fix+re-review cycles (default 2)',
       '',
       'Output cap: the subagent runs up to the provider\'s model-native',
       'output ceiling (Anthropic 64K, OpenAI 16K, Gemini 8K). No manual cap.',
@@ -347,6 +368,8 @@ function buildChimeraCommand(
           `  Model:      ${cfg.model}`,
           `  Max files:  ${cfg.maxFiles}`,
           `  Auto-fix:   ${cfg.autoFix}`,
+          `  Cascade:    ${cfg.cascadeOn === 'off' ? 'disabled' : `on ${cfg.cascadeOn}+ → spawns security-scanner/bug-hunter`}`,
+          `  Max depth:  ${cfg.maxCascadeDepth} re-review cycle(s)`,
           `  Max output: model-native (no cap)`,
           '',
           cfg.enabled
@@ -450,6 +473,8 @@ export function createChimeraPlugin(): Plugin {
           cwd,
           config: cfg,
           files: filesWithContent,
+          cascadeOn: cfg.cascadeOn,
+          maxCascadeDepth: cfg.maxCascadeDepth,
         });
 
         // Emit custom event — execution.ts picks this up and spawns the subagent
