@@ -9,14 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — Super Memory storage health
 - **Periodic JSONL compaction** — the append-only `memories.jsonl` log now
-  compacts automatically after mutations when duplicate records exceed 3× the
-  unique ID count (minimum 500 records). The rewrite is atomic (temp-file +
+  compacts automatically after mutations when total memory records exceed 3×
+  the unique ID count (minimum 500 records). The rewrite is atomic (temp-file +
   rename) and preserves non-memory records. Uses the same revision-based dedup
-  logic as `loadMemories`.
-- **`/memory compact-log` slash command** — manual on-demand log compaction,
-  complementing the automatic threshold-gated path. Unlike `/memory compact`
-  (LLM-based content deduplication), this is a mechanical operation that
-  rewrites the JSONL keeping only the latest record per memory ID.
+  logic as `loadMemories`. JSONL backend only; SQLite compacts automatically
+  via UPSERT.
+- **`/memory compact-log` slash command** (JSONL backend only) — manual
+  on-demand log compaction, complementing the automatic threshold-gated path.
+  Unlike `/memory compact` (LLM-based content deduplication), this is a
+  mechanical operation that rewrites the JSONL keeping only the latest record
+  per memory ID. The SQLite backend returns a capability message instead.
 - **`resolveCandidate` review pipeline** — new store method that applies
   user-authorized review decisions (delete/archive/keep) to candidate targets.
   Permanent memories refuse deletion even via the resolver. The resolver is
@@ -24,14 +26,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   internally as the review decision.
 - **`compactLog()` public API** — the compaction logic is now exposed as a
   public method returning before/after statistics, enabling programmatic and
-  CLI invocation.
+  CLI invocation. JSONL backend only.
+- **`getLogStats()` public API** — read-only log health metrics (raw records,
+  unique IDs, duplicate ratio, file size) surfaced in `/memory stats` with
+  a compaction hint when the duplicate ratio exceeds 3×.
 
 ### Changed — Super Memory deletion protection
 - **`memory_delete` requires `force: true` for ALL deletions** — previously
   only `persistence: 'permanent'` memories were guarded. Now every deletion
-  requires explicit authorization via the `force` flag, preventing autonomous
-  agents from removing memories without review. The tool schema, store guard,
-  and system prompt all reflect this contract.
+  via the `memory_delete` tool and `deleteSuperMemory` store method requires
+  explicit authorization via the `force` flag. The tool schema, store guard,
+  and system prompt all reflect this contract. Note: `memory_update({ status:
+  'deleted' })` and `forget` remain available as lower-level escape hatches
+  for non-permanent memories; the guard specifically closes the autonomous
+  agent paths (Mnemosyne, consolidator, unguarded tool calls).
 - **SessionMemoryConsolidator is strictly add-only** — the consolidator (runs
   unattended after every session) can no longer issue `edit` or `delete` ops.
   LLM-emitted non-`add` operations are silently ignored. This closes the
@@ -53,10 +61,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   used last-in-file-wins on equal revisions, allowing a same-revision tombstone
   appended after an active record to overwrite it. Changed to strict
   `revision > current.revision` with status-preference on ties.
-- **Super Memory mass-deletion root cause** — closed all three autonomous
-  deletion paths: (1) Mnemosyne Phase 3 direct deletions, (2) consolidator
-  LLM-issued edit/delete ops, (3) unguarded direct tool calls. All paths now
-  require either explicit `force: true` or a resolved review candidate.
+- **Super Memory mass-deletion root cause** — closed the three autonomous
+  deletion paths identified in the postmortem: (1) Mnemosyne Phase 3 direct
+  deletions (now propose-only), (2) consolidator LLM-issued edit/delete ops
+  (now add-only), (3) unguarded `memory_delete` tool calls (now require
+  `force: true`). The `memory_update({ status: 'deleted' })` and `forget`
+  paths remain available as explicit escape hatches for non-permanent memories.
 
 ## [0.289.0] — 2026-07-18
 
