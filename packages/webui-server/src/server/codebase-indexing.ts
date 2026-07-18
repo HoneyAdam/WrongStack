@@ -146,7 +146,7 @@ export function setupWebUICodebaseIndexing(deps: WebUICodebaseIndexingDeps): Web
       }
       if (idx) {
         cancelPendingReindexes();
-        shutdownCodebaseIndexHost();
+        void shutdownCodebaseIndexHost();
       }
     },
   };

@@ -114,6 +114,11 @@ export interface ReviewContextBundle {
   /** Changed files with their contents and diffs */
   files: ReviewFileEntry[];
   /**
+   * Auto-review-specific fallback chain, already resolved to provider/model refs.
+   * Absent for ordinary Chimera and manual review triggers.
+   */
+  reviewFallbackModels?: string[] | undefined;
+  /**
    * Cascade severity threshold from the auto-review plugin config.
    * When the review subagent finds findings at or above this level, a
    * follow-up agent (security-scanner, bug-hunter) is spawned to

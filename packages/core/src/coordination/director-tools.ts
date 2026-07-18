@@ -1137,7 +1137,11 @@ export function makeKanbanQueueTool(
       // worker reaches a terminal fleet event (subagent.completed /
       // subagent.stopped), with a hard ceiling matching the 24h auto-extend
       // timeout cap so a missed terminal event cannot leak the timer forever.
-      if (!i.awaitCompletion && dispatches.length > 0) {
+      if (
+        !i.awaitCompletion &&
+        dispatches.length > 0 &&
+        typeof director.fleet?.subscribe === 'function'
+      ) {
         const ourLeaseId = leaseSeeding.leaseId;
         const disposers = new Map<string, () => void>();
         const renewalStartedAt = Date.now();

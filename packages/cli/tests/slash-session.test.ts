@@ -258,6 +258,25 @@ describe('buildExitCommand', () => {
     expect(onExit).toHaveBeenCalled();
   });
 
+  it('awaits asynchronous onExit cleanup before returning exit', async () => {
+    let releaseCleanup!: () => void;
+    const cleanupGate = new Promise<void>((resolve) => {
+      releaseCleanup = resolve;
+    });
+    const onExit = vi.fn(() => cleanupGate);
+    const cmd = buildExitCommand({ onExit } as never);
+    let settled = false;
+    const pending = cmd.run('', fakeCtx()).then((result) => {
+      settled = true;
+      return result;
+    });
+    await Promise.resolve();
+    expect(onExit).toHaveBeenCalledTimes(1);
+    expect(settled).toBe(false);
+    releaseCleanup();
+    await expect(pending).resolves.toEqual({ exit: true });
+  });
+
   it('returns exit even when no onExit registered', async () => {
     const cmd = buildExitCommand({} as never);
     const res = await cmd.run('', fakeCtx());

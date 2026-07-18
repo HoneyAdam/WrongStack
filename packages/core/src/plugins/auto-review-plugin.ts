@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import type { Plugin } from '../types/plugin.js';
@@ -78,9 +79,11 @@ export function resolveAutoReviewConfig(
     : mgr.resolveEffective({ fallbackAuto: true });
   const resolvedProvider = cfg.provider ?? (chain.length > 0 ? chain[0]!.providerId : sessionConfig.provider);
   const resolvedModel = cfg.model ?? (chain.length > 0 ? chain[0]!.model : sessionConfig.model);
-  const fallbackModels = chain.length > 1
-    ? chain.slice(1).map((e) => `${e.providerId}/${e.model}`)
-    : [];
+  const fallbackModels = chain
+    .filter((entry) =>
+      entry.providerId !== resolvedProvider || entry.model !== resolvedModel,
+    )
+    .map((entry) => `${entry.providerId}/${entry.model}`);
 
   return {
     enabled: cfg.enabled === true,
@@ -265,7 +268,7 @@ interface ChangedFile {
 }
 
 async function getChangedFiles(cwd: string): Promise<ChangedFile[]> {
-  const r = await runGit(['status', '--porcelain'], cwd);
+  const r = await runGit(['status', '--porcelain', '--untracked-files=no'], cwd);
   if (r.code !== 0) return [];
   const files: ChangedFile[] = [];
   for (const line of r.stdout.split('\n')) {
@@ -277,15 +280,35 @@ async function getChangedFiles(cwd: string): Promise<ChangedFile[]> {
     const filePath = (x === 'R' || x === 'C')
       ? rawPath.split(' -> ').pop()?.trim() ?? rawPath
       : rawPath;
-    if (x === '?' && y === '?') {
-      files.push({ path: filePath, status: 'added' });
-    } else if (x === 'A' || y === 'A') {
+    if (x === 'A' || y === 'A') {
       files.push({ path: filePath, status: 'added' });
     } else if (x === 'M' || y === 'M' || x === 'R' || x === 'C') {
       files.push({ path: filePath, status: 'modified' });
     }
   }
   return files;
+}
+
+interface ChangedFileSnapshot extends ChangedFile {
+  content: string;
+  fingerprint: string;
+}
+
+async function snapshotChangedFiles(cwd: string): Promise<ChangedFileSnapshot[]> {
+  const snapshots: ChangedFileSnapshot[] = [];
+  for (const file of await getChangedFiles(cwd)) {
+    try {
+      const content = await fsp.readFile(path.join(cwd, file.path), 'utf8');
+      snapshots.push({
+        ...file,
+        content,
+        fingerprint: createHash('sha256').update(content).digest('hex'),
+      });
+    } catch {
+      // File deleted, unreadable, or not a regular UTF-8 file — skip it.
+    }
+  }
+  return snapshots;
 }
 
 // ---------------------------------------------------------------------------
@@ -325,7 +348,7 @@ function buildAutoReviewCommand(getConfig: () => ResolvedAutoReviewConfig, getIn
       '  enabled              true | false',
       '  provider             provider id for review agents',
       '  model                model id for review agents',
-      '  fallbackModels       [model1, model2] fallback chain',
+      '  fallbackProfile      named profile from config.fallbackProfiles',
       '  debounceMs           debounce window (default 5000)',
       '  maxFilesPerBatch     max files per review (default 15)',
       '  maxConcurrentReviews max parallel reviews (default 2)',
@@ -413,21 +436,24 @@ export function createAutoReviewPlugin(): Plugin {
         `[auto-review] loaded — provider=${resolved.provider} model=${resolved.model} debounce=${resolved.debounceMs}ms cascade=${resolved.cascadeOn}`,
       );
 
-      // ── State: track known files across iterations ───────────────
-      let knownFiles = new Map<string, 'added' | 'modified'>();
-      let lastDetectionTs = 0;
+      // ── State: track reviewed content and changes awaiting review ─
+      const knownFingerprints = new Map<string, string>();
+      const pendingFiles = new Map<string, ChangedFileSnapshot>();
+      let lastReviewTs = 0;
       let reviewCounter = 0;
 
-      // Seed known files on session start so first edit always triggers
+      // Seed current snapshots on session start; only later content changes trigger.
       api.onEvent('agent.run.started', async () => {
         try {
           const cwd = api.config.cwd ?? process.cwd();
           if (!(await isGitRepo(cwd))) return;
-          const allChanged = await getChangedFiles(cwd);
-          for (const f of allChanged) {
-            if (!f.path.startsWith('.wrongstack/')) knownFiles.set(f.path, f.status);
+          const snapshots = await snapshotChangedFiles(cwd);
+          for (const file of snapshots) {
+            if (!file.path.startsWith('.wrongstack/')) {
+              knownFingerprints.set(file.path, file.fingerprint);
+            }
           }
-          api.log.info(`[auto-review] seeded ${knownFiles.size} known file(s)`);
+          api.log.info(`[auto-review] seeded ${knownFingerprints.size} known file snapshot(s)`);
         } catch { /* best-effort */ }
       });
 
@@ -442,10 +468,6 @@ export function createAutoReviewPlugin(): Plugin {
         try {
           const cfg = resolved;
           if (!cfg.enabled) return;
-          if (inFlight.length >= cfg.maxConcurrentReviews) {
-            api.log.info(`[auto-review] at max concurrent (${cfg.maxConcurrentReviews}), skipping`);
-            return;
-          }
 
           const cwd = api.config.cwd ?? process.cwd();
           if (!(await isGitRepo(cwd))) return;
@@ -454,55 +476,52 @@ export function createAutoReviewPlugin(): Plugin {
           // iteration.completed payload carries { ctx: Context } which has todos.
           const ctxTodos = payload?.ctx?.todos;
 
-          const allChanged = await getChangedFiles(cwd);
+          const snapshots = await snapshotChangedFiles(cwd);
           const now = Date.now();
 
-          // Skip .wrongstack/ files
-          const changed = allChanged.filter((f) => !f.path.startsWith('.wrongstack/'));
-
-          // Find new files not in knownFiles
-          const newFiles: ChangedFile[] = [];
-          for (const f of changed) {
-            const known = knownFiles.get(f.path);
-            if (!known || known !== f.status) {
-              newFiles.push(f);
+          // Queue the latest content snapshot for every tracked file whose content
+          // differs from the last emitted snapshot. Pending entries survive both
+          // debounce and concurrency limits and are replaced by newer edits.
+          const observedPaths = new Set<string>();
+          for (const file of snapshots) {
+            if (file.path.startsWith('.wrongstack/')) continue;
+            observedPaths.add(file.path);
+            if (knownFingerprints.get(file.path) !== file.fingerprint) {
+              pendingFiles.set(file.path, file);
+            } else {
+              // The file reverted to the last reviewed content while queued.
+              pendingFiles.delete(file.path);
+            }
+          }
+          for (const pendingPath of pendingFiles.keys()) {
+            if (!observedPaths.has(pendingPath)) {
+              // The path was reverted clean, deleted, or became unreadable.
+              pendingFiles.delete(pendingPath);
             }
           }
 
-          // Advance knownFiles for ALL detected changes (even debounced)
-          // so the same change doesn't re-trigger git status on every iteration.
-          for (const f of changed) {
-            knownFiles.set(f.path, f.status);
-          }
+          if (pendingFiles.size === 0) return;
 
-          if (newFiles.length === 0) return;
-
-          // Debounce: don't fire more often than debounceMs
-          if (now - lastDetectionTs < cfg.debounceMs) {
-            api.log.info(`[auto-review] debounce (${now - lastDetectionTs}ms < ${cfg.debounceMs}ms), deferring`);
+          if (inFlight.length >= cfg.maxConcurrentReviews) {
+            api.log.info(`[auto-review] at max concurrent (${cfg.maxConcurrentReviews}), retaining ${pendingFiles.size} pending file(s)`);
             return;
           }
 
-          // Batch: limit to maxFilesPerBatch
-          const toReview = newFiles.slice(0, cfg.maxFilesPerBatch);
-          if (toReview.length === 0) return;
-
-          lastDetectionTs = now;
-
-          // Read file contents
-          const filesWithContent: ChimeraReviewNeededPayload['files'] = [];
-          for (const f of toReview) {
-            const absPath = path.join(cwd, f.path);
-            try {
-              await fsp.access(absPath, fsp.constants.R_OK);
-              const content = await fsp.readFile(absPath, 'utf8');
-              filesWithContent.push({ path: f.path, status: f.status, content });
-            } catch {
-              // File deleted or not readable — skip
-            }
+          // Debounce: retain queued files until the next eligible iteration.
+          if (now - lastReviewTs < cfg.debounceMs) {
+            api.log.info(`[auto-review] debounce (${now - lastReviewTs}ms < ${cfg.debounceMs}ms), retaining ${pendingFiles.size} pending file(s)`);
+            return;
           }
 
-          if (filesWithContent.length === 0) return;
+          // Batch: drain only the emitted entries; overflow remains pending.
+          const toReview = [...pendingFiles.values()].slice(0, cfg.maxFilesPerBatch);
+          if (toReview.length === 0) return;
+
+          const filesWithContent: ChimeraReviewNeededPayload['files'] = toReview.map((file) => ({
+            path: file.path,
+            status: file.status,
+            content: file.content,
+          }));
 
           reviewCounter++;
 
@@ -531,12 +550,26 @@ export function createAutoReviewPlugin(): Plugin {
             cascadeOn: cfg.cascadeOn,
             maxCascadeDepth: cfg.maxCascadeDepth,
           });
+          bundle.reviewFallbackModels = [...cfg.fallbackModels];
+          const trackedChangedPaths = new Set(
+            snapshots
+              .filter((file) => !file.path.startsWith('.wrongstack/'))
+              .map((file) => file.path),
+          );
+          bundle.allChangedFiles = bundle.allChangedFiles?.filter((file) =>
+            trackedChangedPaths.has(file.path),
+          );
 
           api.log.info(
             `[auto-review] #${reviewCounter} emitting review_needed (${filesWithContent.length} files, provider=${cfg.provider} model=${cfg.model})`,
           );
 
           api.emitCustom('chimera.review_needed', bundle);
+          lastReviewTs = now;
+          for (const file of toReview) {
+            knownFingerprints.set(file.path, file.fingerprint);
+            pendingFiles.delete(file.path);
+          }
           // requires the Director (--director flag). Without it, reviews are
           // silently skipped. If reviews don't appear, check that the session
           // runs with --director or enable Director in your config.
@@ -622,6 +655,11 @@ export function createAutoReviewPlugin(): Plugin {
             cascadeOn: cfg.cascadeOn,
             maxCascadeDepth: cfg.maxCascadeDepth,
           });
+          bundle.reviewFallbackModels = [...cfg.fallbackModels];
+          const trackedChangedPaths = new Set(existing.map((file) => file.path));
+          bundle.allChangedFiles = bundle.allChangedFiles?.filter((file) =>
+            trackedChangedPaths.has(file.path),
+          );
 
           api.emitCustom('chimera.review_needed', bundle);
 

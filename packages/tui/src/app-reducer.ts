@@ -41,6 +41,7 @@ import {
 } from './components/settings-picker.js';
 import { type ChipMeta, STATUSLINE_FIELD_COUNT } from './components/statusline-picker.js';
 import type { WorktreeRow } from './components/worktree-panel.js';
+import { retainTuiHistory } from './history-retention.js';
 import { reduceFleetState } from './reducers/fleet.js';
 
 import {
@@ -107,6 +108,10 @@ export function reducer(state: State, action: Action): State {
         e.kind === 'tool' && e.input !== undefined ? { ...e, input: pruneToolInput(e.input) } : e;
       const appended = [...state.entries, { ...stored, id: state.nextId } as HistoryEntry];
       return { ...state, entries: appended, nextId: state.nextId + 1 };
+    }
+    case 'compactHistory': {
+      const entries = retainTuiHistory(state.entries);
+      return entries === state.entries ? state : { ...state, entries };
     }
     case 'setBuffer':
       return { ...state, buffer: action.buffer, cursor: action.cursor };
@@ -2229,18 +2234,22 @@ export function reducer(state: State, action: Action): State {
         };
       }
       // Pinned, or content shrank (e.g. /clear): re-clamp and keep following.
+      const nextOffset = Math.min(state.scrollOffset, maxOffset);
+      if (newTotal === oldTotal && nextOffset === state.scrollOffset) return state;
       return {
         ...state,
         totalLines: newTotal,
-        scrollOffset: Math.min(state.scrollOffset, maxOffset),
+        scrollOffset: nextOffset,
       };
     }
     case 'setViewportRows': {
       const maxOffset = Math.max(0, state.totalLines - action.rows);
+      const nextOffset = Math.min(state.scrollOffset, maxOffset);
+      if (action.rows === state.viewportRows && nextOffset === state.scrollOffset) return state;
       return {
         ...state,
         viewportRows: action.rows,
-        scrollOffset: Math.min(state.scrollOffset, maxOffset),
+        scrollOffset: nextOffset,
       };
     }
     case 'fleetBatch':

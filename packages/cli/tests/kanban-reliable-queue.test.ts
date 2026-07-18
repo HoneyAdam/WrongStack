@@ -464,6 +464,7 @@ describe('Kanban reliable queue semantics (Sprint 1 focused package)', () => {
 
     const spawns: SubagentConfig[] = [];
     const assignments: TaskSpec[] = [];
+    let assignedRunTaskId = '';
     const fakeDirector = {
       spawn: async (config: SubagentConfig) => {
         spawns.push(config);
@@ -471,12 +472,13 @@ describe('Kanban reliable queue semantics (Sprint 1 focused package)', () => {
       },
       assign: async (spec: TaskSpec) => {
         assignments.push(spec);
-        return 'fleet-task-lease-1';
+        assignedRunTaskId = spec.id;
+        return spec.id;
       },
       awaitTasks: async (): Promise<TaskResult[]> => [
         {
           subagentId: 'sub-lease-1',
-          taskId: 'fleet-task-lease-1',
+          taskId: assignedRunTaskId,
           status: 'success',
           result: 'lease wired',
           iterations: 1,
@@ -511,7 +513,7 @@ describe('Kanban reliable queue semantics (Sprint 1 focused package)', () => {
     expect(loaded?.tasks[0]?.assignment).toMatchObject({
       status: 'completed',
       subagentId: 'sub-lease-1',
-      runTaskId: 'fleet-task-lease-1',
+      runTaskId: assignedRunTaskId,
       lastResult: 'lease wired',
     });
     expect(loaded?.tasks[0]?.assignment?.leaseId).toBeTruthy();

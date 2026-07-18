@@ -4,6 +4,7 @@ import { AUTH_PANEL_INITIAL } from './components/auth-panel-model.js';
 import { replaySessionMessages } from './components/history/replay.js';
 import type { ContextMode, StatuslineMode } from './components/settings-picker.js';
 import { rehydrateHistory } from './rehydrate-history.js';
+import { retainTuiHistory } from './history-retention.js';
 import type { State } from './app-state.js';
 
 export type RestoredToolCall = {
@@ -28,13 +29,13 @@ export function buildRestoredEntries(
   // system messages itself (→ info), so pass the full list including the
   // resume file-validation / interrupted-tool notices injected by the store.
   if (restoredEvents && restoredEvents.length > 0) {
-    return replaySessionMessages(messages, restoredEvents, 1);
+    return retainTuiHistory(replaySessionMessages(messages, restoredEvents, 1));
   }
   // Legacy fallback (no events — older callers / unit tests): meta-only tool
   // chips with system messages filtered out.
   const visible = messages.filter((m) => m.role !== 'system');
   if (visible.length === 0) return [];
-  return rehydrateHistory(visible, 1, restoredToolCalls);
+  return retainTuiHistory(rehydrateHistory(visible, 1, restoredToolCalls));
 }
 
 /**
@@ -103,7 +104,9 @@ export function createInitialState(options: CreateInitialStateOptions): State {
     initialAgentsMonitorOpen,
     initialFleetChat,
   } = options;
-  const initialNextId = 1 + restoredEntries.length;
+  // Retention preserves the original ids of the recent tail, so array length
+  // is no longer a safe id source after older entries have been omitted.
+  const initialNextId = restoredEntries.reduce((next, entry) => Math.max(next, entry.id + 1), 1);
   const fleetChat: FleetChatVerbosity = initialFleetChat ?? 'off';
 
   return {

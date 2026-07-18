@@ -17,6 +17,12 @@ export interface CreateExitSlashCommandOptions {
    * to `{ exit: true }` without opening the modal.
    */
   confirmExit: (info: { leaderActive: boolean; subagentCount: number }) => Promise<boolean>;
+  /**
+   * Original host-owned `/exit` handler. It owns pre-exit checks and process
+   * teardown (MCP, fleet host, plugin handlers); the TUI only adds its active
+   * work confirmation in front of that lifecycle.
+   */
+  runExitLifecycle?: SlashCommand['run'] | undefined;
 }
 
 const DESCRIPTION =
@@ -38,8 +44,9 @@ const USAGE = 'Usage:\n  /exit — terminate the TUI (asks for confirmation whil
 export function createExitSlashCommand(opts: CreateExitSlashCommandOptions): SlashCommand {
   return {
     name: 'exit',
+    aliases: ['quit', 'q'],
     description: DESCRIPTION,
-    async run(args) {
+    async run(args, ctx) {
       const trimmed = args.trim();
       // Help flags and any other non-empty argument short-circuit to USAGE
       // without consulting the runtime state. This is intentional: `/exit
@@ -55,7 +62,8 @@ export function createExitSlashCommand(opts: CreateExitSlashCommandOptions): Sla
       if (!confirmed) {
         return { message: 'Exit cancelled.' };
       }
-      return { exit: true, message: 'Exiting…' };
+      const lifecycleResult = await opts.runExitLifecycle?.(args, ctx);
+      return lifecycleResult ?? { exit: true, message: 'Exiting…' };
     },
   };
 }

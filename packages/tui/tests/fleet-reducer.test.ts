@@ -5,8 +5,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import type { FleetEntry, State } from '../src/app-state.js';
 import { reduceFleetState } from '../src/reducers/fleet.js';
-import type { State } from '../src/app-state.js';
 
 function stubState(over: Partial<State> = {}): State {
   return {
@@ -100,7 +100,7 @@ function stubState(over: Partial<State> = {}): State {
     contextChipVersion: 0,
     fleet: {},
     leader: {
-      iterations: 0, toolCalls: 0, recentTools: [], recentMessages: [],
+      iterations: 0, toolCalls: 0, recentTools: [],
       currentTool: undefined, startedAt: Date.now(),
       lastEventAt: Date.now(), iterating: false,
     },
@@ -159,14 +159,21 @@ describe('reduceFleetState', () => {
 
   it('fleetSeed: populates fleet entries with defaults', () => {
     const state = stubState();
+    const legacyEntry = {
+      id: 'a1', name: 'agent1', provider: 'anthropic', model: 'claude', status: 'idle',
+      streamingText: '', iterations: 0, toolCalls: 0, cost: 0,
+      startedAt: 0, lastEventAt: 0,
+    } satisfies Omit<FleetEntry, 'recentTools' | 'recentMessages'>;
     const result = reduceFleetState(state, {
       type: 'fleetSeed',
-      entries: [makeEntry('a1', { name: 'agent1', provider: 'anthropic', model: 'claude' }) as never],
+      // Persisted entries can predate these arrays; the reducer owns their migration defaults.
+      entries: [legacyEntry as FleetEntry],
       cost: 0,
     });
-    expect(result).not.toBeNull();
-    expect((result!).fleet['a1']).toBeDefined();
-    expect((result!).fleet['a1'].recentTools).toEqual([]);
+    const seeded = result?.fleet['a1'];
+    expect(seeded).toBeDefined();
+    expect(seeded?.recentTools).toEqual([]);
+    expect(seeded?.recentMessages).toEqual([]);
   });
 
   // ── fleetSpawn ─────────────────────────────────────────────────────────

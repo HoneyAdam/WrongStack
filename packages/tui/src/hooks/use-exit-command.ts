@@ -14,6 +14,7 @@ import type { SessionInterruptController } from './use-session-interrupt-control
 interface SlashRegistryLike {
   register(cmd: SlashCommand, owner?: string, opts?: { official?: boolean }): void;
   unregister(name: string): void;
+  get?(name: string): SlashCommand | undefined;
 }
 
 export interface UseExitCommandOptions {
@@ -60,6 +61,16 @@ export function useExitCommand({
   interruptController,
   getDirector,
 }: UseExitCommandOptions): void {
+  // Capture the host command before this hook replaces it. Keep the reference
+  // across effect cleanup/re-registration (including React StrictMode) so the
+  // TUI wrapper never loses the host-owned exit lifecycle.
+  const hostExitCommandRef = useRef<SlashCommand | undefined>(undefined);
+  const hostExitCapturedRef = useRef(false);
+  if (!hostExitCapturedRef.current) {
+    hostExitCommandRef.current = slashRegistry.get?.('exit');
+    hostExitCapturedRef.current = true;
+  }
+
   // One waiter at a time so a second `/exit` while the first is open
   // cannot strand the previous promise.
   const pendingResolveRef = useRef<((decision: boolean) => void) | null>(null);
@@ -135,10 +146,12 @@ export function useExitCommand({
       countRunningSubagents: () =>
         Object.values(stateRef.current.fleet).filter((e) => e.status === 'running').length,
       confirmExit,
+      runExitLifecycle: hostExitCommandRef.current?.run.bind(hostExitCommandRef.current),
     });
     slashRegistry.register(cmd, 'use-exit-command', { official: true });
     return () => {
       slashRegistry.unregister('exit');
+      if (hostExitCommandRef.current) slashRegistry.register(hostExitCommandRef.current);
     };
   }, [slashRegistry, stateRef, interruptController, confirmExit]);
 

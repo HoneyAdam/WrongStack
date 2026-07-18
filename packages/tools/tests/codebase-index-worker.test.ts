@@ -41,14 +41,14 @@ interface DistIndexApi {
     projectRoot: string;
     indexDir?: string;
   }): Promise<{ totalSymbols: number }>;
-  shutdownCodebaseIndexHost(): void;
+  shutdownCodebaseIndexHost(): Promise<void>;
 }
 
 describe.skipIf(!distReady)('index host (worker mode, built dist)', () => {
   let api: DistIndexApi | undefined;
 
-  afterAll(() => {
-    api?.shutdownCodebaseIndexHost();
+  afterAll(async () => {
+    await api?.shutdownCodebaseIndexHost();
   });
 
   it('indexes and searches a project entirely through the worker', async () => {
@@ -86,6 +86,7 @@ describe.skipIf(!distReady)('index host (worker mode, built dist)', () => {
       const stats = await api.codebaseIndexStats({ projectRoot: tmpDir, indexDir });
       expect(stats.totalSymbols).toBeGreaterThanOrEqual(1);
     } finally {
+      await api.shutdownCodebaseIndexHost();
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
   }, 90_000);
