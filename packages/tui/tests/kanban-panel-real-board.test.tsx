@@ -78,14 +78,18 @@ describe('KanbanPanel — sanitized-fixture audit badge', () => {
     mockListBoards.mockResolvedValue([summary]);
     mockGetBoard.mockResolvedValue(board);
 
-    const { lastFrame, unmount } = render(
-      React.createElement(KanbanPanel, {
-        projectRoot: '/tmp/project',
-        sessionId: 'sess-audit-fixture',
-        onClose: () => {},
-        terminalWidth: 200,
-      }),
-    );
+    let result: ReturnType<typeof render>;
+    act(() => {
+      result = render(
+        React.createElement(KanbanPanel, {
+          projectRoot: '/tmp/project',
+          sessionId: 'sess-audit-fixture',
+          onClose: () => {},
+          terminalWidth: 200,
+        }),
+      );
+    });
+    const { lastFrame, unmount } = result!;
     await settle();
     const frame = lastFrame() ?? '';
 

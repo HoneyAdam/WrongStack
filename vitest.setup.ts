@@ -28,3 +28,12 @@ if (!process.env['WRONGSTACK_HOME']) {
 // Ink testing-library uses React act() for rendering; enable it globally
 // so Ink components render correctly under vitest.
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+// Ink 7 checks stdout.isTTY during rendering; ensure it's set for tests
+// that use ink-testing-library's mocked stdout.
+if (!process.stdout.isTTY) {
+  Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+}
+if (!process.stderr.isTTY) {
+  Object.defineProperty(process.stderr, 'isTTY', { value: true, configurable: true });
+}

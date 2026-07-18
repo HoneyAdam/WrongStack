@@ -142,15 +142,19 @@ function renderPanel(props: {
   mockListBoards.mockResolvedValue([summary(board.id, board.title, board.tasks.length)]);
   mockGetBoard.mockResolvedValue(board);
 
-  return render(
-    React.createElement(KanbanPanel, {
-      projectRoot: '/tmp/project',
-      sessionId: 'abc123',
-      onClose: onClose ?? (() => {}),
-      terminalWidth,
-      initialBoardId,
-    }),
-  );
+  let result: ReturnType<typeof render>;
+  act(() => {
+    result = render(
+      React.createElement(KanbanPanel, {
+        projectRoot: '/tmp/project',
+        sessionId: 'abc123',
+        onClose: onClose ?? (() => {}),
+        terminalWidth,
+        initialBoardId,
+      }),
+    );
+  });
+  return result!;
 }
 
 // ── Audit-aware fixture & Ink-mount tests ────────────────────────────────────
