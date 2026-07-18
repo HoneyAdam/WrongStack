@@ -211,10 +211,10 @@ export function ComposerStatusChip({
   const [spinnerIdx, setSpinnerIdx] = useState(0);
   useEffect(() => {
     if (!animating) return;
-    const t = setInterval(
-      () => setSpinnerIdx((n) => (n + 1) % BREATHE_FRAMES.length),
-      SPINNER_INTERVAL_MS,
-    );
+    // Keep `spinnerIdx` unbounded — it drives the rainbow temporal phase
+    // (rainbowHue's 20-tick cycle) and other gradient styles. Modulo is
+    // applied only when selecting the spinner glyph below.
+    const t = setInterval(() => setSpinnerIdx((n) => n + 1), SPINNER_INTERVAL_MS);
     return () => clearInterval(t);
   }, [animating]);
 
