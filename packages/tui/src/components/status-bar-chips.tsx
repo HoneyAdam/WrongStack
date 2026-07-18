@@ -14,8 +14,8 @@ import {
   type AnimationStyle,
   BREATHE_FRAMES,
   DOTS_FRAMES,
-  HUE_WHEEL,
   pulseColor,
+  rainbowColor,
   stripTrailingDots,
   styleForCycleTick,
   waveColor,
@@ -162,10 +162,15 @@ export function ThinkingChip({
 }): React.ReactElement {
   const live: AnimationStyle = style === 'cycle' ? styleForCycleTick(cycleTick) : style;
   if (live === 'rainbow') {
+    // Smooth HSL sinusoidal hue sweep — replaces the old discrete 12-stop
+    // HUE_WHEEL lookup that snapped between fixed colors. Each glyph's hue
+    // is computed from its position + the animation phase, producing a
+    // gradient band that glides smoothly across the text.
+    const chars = Array.from(text);
     return (
       <Text bold>
-        {Array.from(text).map((ch, i) => (
-          <Text key={i} color={HUE_WHEEL[(i + phase) % HUE_WHEEL.length] ?? '#ffffff'}>
+        {chars.map((ch, i) => (
+          <Text key={i} color={rainbowColor(i, phase)}>
             {ch}
           </Text>
         ))}

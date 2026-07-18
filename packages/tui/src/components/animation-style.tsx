@@ -145,6 +145,120 @@ export function pulseColor(phase: number): string {
   return mixHex(DIM, ACCENT, k);
 }
 
+// ─── Smooth rainbow helpers ───────────────────────────────────────────────
+//
+// The original `rainbow` style used a discrete 12-stop lookup table — each
+// glyph snapped to one of `HUE_WHEEL`'s fixed colors, producing a visible
+// stepping at every phase tick. The refined version computes each glyph's
+// hue as a sinusoidal function of (position, phase), then converts HSL→RGB
+// on the fly. The result is a smooth gradient band that glides across the
+// text without snapping, and the bright spot travels rather than every
+// glyph cycling in lockstep.
+//
+// All three helpers are pure (no I/O, no globals) so they can be unit tested
+// in isolation.
+
+/** Base hue around which the rainbow oscillates (degrees, 0-360). 0 = red. */
+const RAINBOW_BASE_HUE = 0;
+/**
+ * Amplitude of the hue sweep in degrees. 180 means the hue sweeps a full
+ * half-turn (red→green→blue→red), giving the full visible spectrum without
+ * wrapping through purple back to red twice (which looks muddy).
+ */
+const RAINBOW_HUE_AMPLITUDE = 180;
+/**
+ * Spatial wavelength: how many glyphs span one full hue cycle. Smaller =
+ * tighter bands (more rainbow stripes in the same text). The text length
+ * also modulates this so short labels don't look denser than long ones.
+ */
+const RAINBOW_SPATIAL_PERIOD = 6;
+/**
+ * Temporal speed: hue degrees shifted per phase tick. At the status bar's
+ * ~250ms tick, 15°/tick means one full spectrum cycle takes ~6 seconds —
+ * lively but not frantic.
+ */
+const RAINBOW_HUE_PER_TICK = 15;
+
+/**
+ * Compute the hue (in degrees, 0-360) for glyph `charIndex` at animation
+ * `phase`.
+ *
+ * The hue follows a sinusoidal curve: `base + amp * sin(2π * f)`, where
+ * `f` combines spatial position and temporal phase into a single phase
+ * argument. This produces a smooth traveling wave — the bright band glides
+ * across the text, and adjacent glyphs always differ by a small hue delta
+ * (never a snap).
+ *
+ * Pure for testing.
+ */
+export function rainbowHue(
+  charIndex: number,
+  phase: number,
+): number {
+  const period = Math.max(2, RAINBOW_SPATIAL_PERIOD);
+  const spatialPhase = charIndex / period;
+  const temporalPhase = RAINBOW_HUE_PER_TICK * phase / 360;
+  const wave = Math.sin((spatialPhase + temporalPhase) * Math.PI * 2);
+  // Normalize [-1,1] → [0,1] so the hue sweeps the full amplitude.
+  const t = (wave + 1) / 2;
+  let hue = RAINBOW_BASE_HUE + RAINBOW_HUE_AMPLITUDE * t;
+  // Wrap into [0, 360)
+  hue = ((hue % 360) + 360) % 360;
+  return hue;
+}
+
+/**
+ * Convert HSL (degrees, 0-1, 0-1) to a `#rrggbb` hex string.
+ * Algorithm: standard HSL→RGB conversion with the 0/120/240 sector trick.
+ *
+ * Pure for testing.
+ */
+export function hslToHex(h: number, s: number, l: number): string {
+  const hh = ((h % 360) + 360) % 360;
+  const ss = Math.max(0, Math.min(1, s));
+  const ll = Math.max(0, Math.min(1, l));
+  const c = (1 - Math.abs(2 * ll - 1)) * ss;
+  const x = c * (1 - Math.abs(((hh / 60) % 2) - 1));
+  const m = ll - c / 2;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (hh < 60) { r = c; g = x; b = 0; }
+  else if (hh < 120) { r = x; g = c; b = 0; }
+  else if (hh < 180) { r = 0; g = c; b = x; }
+  else if (hh < 240) { r = 0; g = x; b = c; }
+  else if (hh < 300) { r = x; g = 0; b = c; }
+  else { r = c; g = 0; b = x; }
+  const toHex2 = (n: number) =>
+    Math.round((n + m) * 255).toString(16).padStart(2, '0');
+  return `#${toHex2(r)}${toHex2(g)}${toHex2(b)}`;
+}
+
+/**
+ * Saturation and lightness for the refined rainbow. Kept slightly
+ * desaturated (0.7) and on the brighter side (0.65) so the gradient
+ * reads as soft pastel — consistent with the Catppuccin Mocha palette
+ * — rather than neon primary colors.
+ */
+const RAINBOW_SATURATION = 0.7;
+const RAINBOW_LIGHTNESS = 0.65;
+
+/**
+ * Pick a smooth-rainbow color for glyph `charIndex` at animation `phase`
+ * for a text of length `textLen`. This is the refined replacement for the
+ * old `HUE_WHEEL[(i + phase) % 12]` lookup — it computes hue via
+ * {@link rainbowHue} and converts to hex via {@link hslToHex}.
+ *
+ * Pure for testing.
+ */
+export function rainbowColor(
+  charIndex: number,
+  phase: number,
+): string {
+  const hue = rainbowHue(charIndex, phase);
+  return hslToHex(hue, RAINBOW_SATURATION, RAINBOW_LIGHTNESS);
+}
+
 /** Strip trailing `.`, `…`, etc. so the `dots` style doesn't double up on
  *  the user-supplied label. */
 export function stripTrailingDots(text: string): string {
