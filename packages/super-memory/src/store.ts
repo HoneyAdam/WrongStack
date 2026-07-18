@@ -1893,6 +1893,28 @@ export class SuperMemoryStore implements MemoryStore {
     return this.runMutation(async () => this.doCompactLog());
   }
 
+  /**
+   * Read-only log health metrics for stats display. Returns raw record count,
+   * unique memory ID count, duplicate ratio, and file size in bytes.
+   * Does NOT trigger compaction or acquire the mutation lock.
+   */
+  async getLogStats(): Promise<{ rawRecords: number; uniqueIds: number; duplicateRatio: number; fileSizeBytes: number }> {
+    const snapshot = await readJsonlSnapshot<SuperMemoryRecord>(this.paths.memoriesLog);
+    const memoryRecords = snapshot.values.filter(isMemoryRecord);
+    const uniqueIds = new Set(memoryRecords.map((r) => r.memory.id));
+    let fileSizeBytes = 0;
+    try {
+      const stat = await (await import('node:fs/promises')).stat(this.paths.memoriesLog);
+      fileSizeBytes = stat.size;
+    } catch { /* missing file = 0 */ }
+    return {
+      rawRecords: memoryRecords.length,
+      uniqueIds: uniqueIds.size,
+      duplicateRatio: uniqueIds.size > 0 ? memoryRecords.length / uniqueIds.size : 1,
+      fileSizeBytes,
+    };
+  }
+
   /** Minimum record count before automatic compaction is considered. */
   protected compactionMinRecords = 500;
   /** Compact when raw records / unique IDs exceeds this ratio. */

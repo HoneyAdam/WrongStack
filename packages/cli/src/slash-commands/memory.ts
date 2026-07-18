@@ -253,6 +253,9 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         }
         case 'compact-log': {
           if (!isSuperMemoryStore(store)) return requiresSuperMemory('compact-log');
+          if (typeof store.compactLog !== 'function') {
+            return { message: '🧹 Log compaction is only available on the JSONL backend. The SQLite backend compacts automatically via UPSERT.' };
+          }
           try {
             const result = await store.compactLog();
             if (result.beforeRecords === result.afterRecords) {
@@ -283,7 +286,23 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
               for (const r of m.audience.modes ?? []) roles.add(r);
             }
             const roleList = [...roles].sort().join(', ');
-            return { message: formatSuperStats(stats, scopedCount, roleList) };
+            const statsLines = formatSuperStats(stats, scopedCount, roleList).split('\n');
+            // Append log health if available (JSONL backend only)
+            if (typeof store.getLogStats === 'function') {
+              try {
+                const logStats = await store.getLogStats();
+                const kbSize = (logStats.fileSizeBytes / 1024).toFixed(1);
+                const ratio = logStats.duplicateRatio.toFixed(1);
+                const healthIcon = logStats.duplicateRatio > 3 ? '⚠️' : logStats.duplicateRatio > 1.5 ? 'ℹ️' : '✅';
+                const compactHint = logStats.duplicateRatio > 3
+                  ? ` — run \`/memory compact-log\` to reclaim space`
+                  : '';
+                statsLines.push(`${healthIcon} Log health: ${logStats.rawRecords} records / ${logStats.uniqueIds} unique (${ratio}× ratio, ${kbSize} KB)${compactHint}`);
+              } catch {
+                // Best-effort — log stats are informational
+              }
+            }
+            return { message: statsLines.join('\n') };
           }
           return runStats(opts);
         }
@@ -577,6 +596,7 @@ type CliSuperMemoryService = SuperMemoryServiceLike & {
   updateSuperMemory(id: string, patch: UpdateSuperMemoryInput): Promise<SuperMemory>;
   deleteSuperMemory(id: string, reason?: string): Promise<void>;
   compactLog(): Promise<{ beforeRecords: number; afterRecords: number; uniqueIds: number }>;
+  getLogStats(): Promise<{ rawRecords: number; uniqueIds: number; duplicateRatio: number; fileSizeBytes: number }>;
   getSuperMemory(id: string): Promise<SuperMemory | null>;
   retrieveForAudience(context: { role?: string; taskType?: string; mode?: string }, limit?: number): Promise<SuperMemory[]>;
 };
