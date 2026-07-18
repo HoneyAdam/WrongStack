@@ -100,7 +100,7 @@ function stubState(over: Partial<State> = {}): State {
     contextChipVersion: 0,
     fleet: {},
     leader: {
-      iterations: 0, toolCalls: 0, recentTools: [],
+      iterations: 0, toolCalls: 0, recentTools: [], recentMessages: [],
       currentTool: undefined, startedAt: Date.now(),
       lastEventAt: Date.now(), iterating: false,
     },
@@ -141,23 +141,27 @@ function stubState(over: Partial<State> = {}): State {
   };
 }
 
-const _notFleet = (): null => null;
+function makeEntry(id = 'a1', over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id, name: 'w1', provider: 'o', model: 'm', status: 'idle',
+    streamingText: '', iterations: 0, toolCalls: 0,
+    recentTools: [], recentMessages: [], cost: 0,
+    startedAt: 0, lastEventAt: 0, transcriptPath: undefined,
+    ...over,
+  };
+}
 
 describe('reduceFleetState', () => {
-  // ── Default / passthrough ──────────────────────────────────────────────
   it('returns null for non-fleet/leader actions', () => {
     const state = stubState();
     expect(reduceFleetState(state, { type: 'unknown' } as never)).toBeNull();
   });
 
-  // ── fleetSeed ──────────────────────────────────────────────────────────
   it('fleetSeed: populates fleet entries with defaults', () => {
     const state = stubState();
     const result = reduceFleetState(state, {
       type: 'fleetSeed',
-      entries: [
-        { id: 'a1', name: 'agent1', provider: 'anthropic', model: 'claude', status: 'idle', iterations: 0, toolCalls: 0, cost: 0, startedAt: 0, lastEventAt: 0, transcriptPath: undefined },
-      ],
+      entries: [makeEntry('a1', { name: 'agent1', provider: 'anthropic', model: 'claude' }) as never],
       cost: 0,
     });
     expect(result).not.toBeNull();
@@ -182,14 +186,14 @@ describe('reduceFleetState', () => {
   });
 
   it('fleetSpawn: does NOT update existing entry with placeholder name (same name)', () => {
-    const state = stubState({ fleet: { a1: { id: 'a1', name: 'worker-1', provider: 'openai', model: 'gpt4', status: 'idle', streamingText: '', iterations: 0, toolCalls: 0, recentTools: [], recentMessages: [], cost: 0, startedAt: 0, lastEventAt: 0, transcriptPath: undefined } } });
+    const state = stubState({ fleet: { a1: makeEntry('a1', { name: 'worker-1', provider: 'openai', model: 'gpt4' }) as never } });
     const result = reduceFleetState(state, { type: 'fleetSpawn', id: 'a1', name: 'worker-1', provider: 'openai', model: 'gpt4', transcriptPath: undefined });
     // Name didn't change, no update needed → returns state unchanged.
     expect(result).toBe(state);
   });
 
   it('fleetSpawn: upgrades placeholder name to real name', () => {
-    const state = stubState({ fleet: { a1: { id: 'a1', name: 'slot-0', provider: 'openai', model: 'gpt4', status: 'idle', streamingText: '', iterations: 0, toolCalls: 0, recentTools: [], recentMessages: [], cost: 0, startedAt: 0, lastEventAt: 0, transcriptPath: undefined } } });
+    const state = stubState({ fleet: { a1: makeEntry('a1', { name: 'slot-0', provider: 'openai', model: 'gpt4' }) as never } });
     const result = reduceFleetState(state, { type: 'fleetSpawn', id: 'a1', name: 'worker-42', provider: 'openai', model: 'gpt4', transcriptPath: undefined });
     expect(result).not.toBeNull();
     expect((result!).fleet['a1'].name).toBe('worker-42');
@@ -197,7 +201,7 @@ describe('reduceFleetState', () => {
 
   // ── fleetToolStart / fleetToolEnd ──────────────────────────────────────
   it('fleetToolStart: sets currentTool on existing entry', () => {
-    const state = stubState({ fleet: { a1: { id: 'a1', name: 'w1', provider: 'o', model: 'm', status: 'idle', streamingText: '', iterations: 0, toolCalls: 0, recentTools: [], recentMessages: [], cost: 0, startedAt: 0, lastEventAt: 0, transcriptPath: undefined } } });
+    const state = stubState({ fleet: { a1: makeEntry('a1', { status: 'idle' }) as never } });
     const result = reduceFleetState(state, { type: 'fleetToolStart', id: 'a1', name: 'read_file' });
     expect((result!).fleet['a1'].currentTool?.name).toBe('read_file');
   });
@@ -208,14 +212,14 @@ describe('reduceFleetState', () => {
   });
 
   it('fleetToolEnd: clears currentTool', () => {
-    const state = stubState({ fleet: { a1: { id: 'a1', name: 'w1', provider: 'o', model: 'm', status: 'running', streamingText: '', iterations: 0, toolCalls: 0, currentTool: { name: 'read', startedAt: 100 }, recentTools: [], recentMessages: [], cost: 0, startedAt: 0, lastEventAt: 0, transcriptPath: undefined } } });
+    const state = stubState({ fleet: { a1: makeEntry('a1', { status: 'running', currentTool: { name: 'read', startedAt: 100 } }) as never } });
     const result = reduceFleetState(state, { type: 'fleetToolEnd', id: 'a1' });
     expect((result!).fleet['a1'].currentTool).toBeUndefined();
   });
 
   // ── fleetStart ─────────────────────────────────────────────────────────
   it('fleetStart: transitions to running status', () => {
-    const state = stubState({ fleet: { a1: { id: 'a1', name: 'w1', provider: 'o', model: 'm', status: 'idle', streamingText: 'old', iterations: 0, toolCalls: 0, recentTools: [], recentMessages: [], cost: 0, startedAt: 0, lastEventAt: 0, transcriptPath: undefined } } });
+    const state = stubState({ fleet: { a1: makeEntry('a1', { streamingText: 'old' }) as never } });
     const result = reduceFleetState(state, { type: 'fleetStart', id: 'a1' });
     expect((result!).fleet['a1'].status).toBe('running');
     expect((result!).fleet['a1'].streamingText).toBe('');
@@ -228,20 +232,20 @@ describe('reduceFleetState', () => {
 
   // ── fleetDelta ─────────────────────────────────────────────────────────
   it('fleetDelta: appends streaming text (capped at 500 chars)', () => {
-    const state = stubState({ fleet: { a1: { id: 'a1', name: 'w1', provider: 'o', model: 'm', status: 'running', streamingText: 'x'.repeat(498), iterations: 0, toolCalls: 0, recentTools: [], recentMessages: [], cost: 0, startedAt: 0, lastEventAt: 0, transcriptPath: undefined } } });
+    const state = stubState({ fleet: { a1: makeEntry('a1', { status: 'running', streamingText: 'x'.repeat(498) }) as never } });
     const result = reduceFleetState(state, { type: 'fleetDelta', id: 'a1', text: 'yz' });
     expect((result!).fleet['a1'].streamingText.length).toBeLessThanOrEqual(500);
   });
 
   // ── fleetMessage ──────────────────────────────────────────────────────
   it('fleetMessage: drops empty text', () => {
-    const state = stubState({ fleet: { a1: { id: 'a1', name: 'w1', provider: 'o', model: 'm', status: 'running', streamingText: '', iterations: 0, toolCalls: 0, recentTools: [], recentMessages: [], cost: 0, startedAt: 0, lastEventAt: 0, transcriptPath: undefined } } });
+    const state = stubState({ fleet: { a1: makeEntry('a1', { status: 'running', currentTool: { name: 'read', startedAt: 100 } }) as never } });
     expect(reduceFleetState(state, { type: 'fleetMessage', id: 'a1', text: '' })).toBe(state);
   });
 
   // ── fleetTool (action.name undefined) ─────────────────────────────────
   it('fleetTool: handles undefined name (skips push to recentTools)', () => {
-    const state = stubState({ fleet: { a1: { id: 'a1', name: 'w1', provider: 'o', model: 'm', status: 'running', streamingText: '', iterations: 0, toolCalls: 0, recentTools: [{ name: 'prev', ok: true, durationMs: 10, outputBytes: 0, outputLines: 0, at: 0 }], recentMessages: [], cost: 0, startedAt: 0, lastEventAt: 0, transcriptPath: undefined } } });
+    const state = stubState({ fleet: { a1: makeEntry('a1', { status: 'running', recentTools: [{ name: 'prev', ok: true, durationMs: 10, outputBytes: 0, outputLines: 0, at: 0 }] }) as never } });
     const result = reduceFleetState(state, { type: 'fleetTool', id: 'a1', name: undefined as never, ok: true, durationMs: 5, outputBytes: 0, outputLines: 0 });
     expect((result!).fleet['a1'].toolCalls).toBe(1);
     // When name is undefined, slice(-2) of existing recentTools.
@@ -250,7 +254,7 @@ describe('reduceFleetState', () => {
 
   // ── fleetUsage ────────────────────────────────────────────────────────
   it('fleetUsage: updates lastEventAt for known agent', () => {
-    const state = stubState({ fleet: { a1: { id: 'a1', name: 'w1', provider: 'o', model: 'm', status: 'idle', streamingText: '', iterations: 0, toolCalls: 0, recentTools: [], recentMessages: [], cost: 0, startedAt: 0, lastEventAt: 0, transcriptPath: undefined } } });
+    const state = stubState({ fleet: { a1: makeEntry('a1', { status: 'idle' }) as never } });
     const result = reduceFleetState(state, { type: 'fleetUsage', id: 'a1', input: 10, output: 20, cost: 1, tokensIn: 100, tokensOut: 200 });
     expect((result!).fleet['a1'].lastEventAt).toBeGreaterThan(0);
   });
@@ -271,14 +275,14 @@ describe('reduceFleetState', () => {
   });
 
   it('fleetDone: preserves failureReason', () => {
-    const state = stubState({ fleet: { a1: { id: 'a1', name: 'w1', provider: 'o', model: 'm', status: 'running', streamingText: '', iterations: 0, toolCalls: 0, recentTools: [], recentMessages: [], cost: 0, startedAt: 0, lastEventAt: 0, transcriptPath: undefined } } });
+    const state = stubState({ fleet: { a1: makeEntry('a1', { status: 'running', currentTool: { name: 'read', startedAt: 100 } }) as never } });
     const result = reduceFleetState(state, { type: 'fleetDone', id: 'a1', status: 'error', iterations: 2, toolCalls: 1, failureReason: 'timeout' });
     expect((result!).fleet['a1'].failureReason).toBe('timeout');
   });
 
   // ── fleetRemove ───────────────────────────────────────────────────────
   it('fleetRemove: removes the entry', () => {
-    const state = stubState({ fleet: { a1: { id: 'a1', name: 'w1', provider: 'o', model: 'm', status: 'idle', streamingText: '', iterations: 0, toolCalls: 0, recentTools: [], recentMessages: [], cost: 0, startedAt: 0, lastEventAt: 0, transcriptPath: undefined } } });
+    const state = stubState({ fleet: { a1: makeEntry('a1', { status: 'idle' }) as never } });
     const result = reduceFleetState(state, { type: 'fleetRemove', id: 'a1' });
     expect((result!).fleet['a1']).toBeUndefined();
   });
@@ -290,21 +294,21 @@ describe('reduceFleetState', () => {
 
   // ── fleetBudgetWarning ────────────────────────────────────────────────
   it('fleetBudgetWarning: sets budget warning', () => {
-    const state = stubState({ fleet: { a1: { id: 'a1', name: 'w1', provider: 'o', model: 'm', status: 'running', streamingText: '', iterations: 0, toolCalls: 0, recentTools: [], recentMessages: [], cost: 0, startedAt: 0, lastEventAt: 0, transcriptPath: undefined } } });
+    const state = stubState({ fleet: { a1: makeEntry('a1', { status: 'running', currentTool: { name: 'read', startedAt: 100 } }) as never } });
     const result = reduceFleetState(state, { type: 'fleetBudgetWarning', id: 'a1', kind: 'time', used: 80, limit: 100 });
     expect((result!).fleet['a1'].budgetWarning?.kind).toBe('time');
   });
 
   // ── fleetBudgetExtended ───────────────────────────────────────────────
   it('fleetBudgetExtended: sets extensions count', () => {
-    const state = stubState({ fleet: { a1: { id: 'a1', name: 'w1', provider: 'o', model: 'm', status: 'running', streamingText: '', iterations: 0, toolCalls: 0, recentTools: [], recentMessages: [], cost: 0, startedAt: 0, lastEventAt: 0, transcriptPath: undefined } } });
+    const state = stubState({ fleet: { a1: makeEntry('a1', { status: 'running', currentTool: { name: 'read', startedAt: 100 } }) as never } });
     const result = reduceFleetState(state, { type: 'fleetBudgetExtended', id: 'a1', totalExtensions: 3 });
     expect((result!).fleet['a1'].extensions).toBe(3);
   });
 
   // ── fleetCtxPct ──────────────────────────────────────────────────────
   it('fleetCtxPct: clamps and sets context load', () => {
-    const state = stubState({ fleet: { a1: { id: 'a1', name: 'w1', provider: 'o', model: 'm', status: 'running', streamingText: '', iterations: 0, toolCalls: 0, recentTools: [], recentMessages: [], cost: 0, startedAt: 0, lastEventAt: 0, transcriptPath: undefined } } });
+    const state = stubState({ fleet: { a1: makeEntry('a1', { status: 'running', currentTool: { name: 'read', startedAt: 100 } }) as never } });
     const result = reduceFleetState(state, { type: 'fleetCtxPct', id: 'a1', load: -0.5, tokens: 100, maxContext: 200, ctxCost: 0.5 });
     expect((result!).fleet['a1'].ctxPct).toBe(0);
   });
@@ -312,7 +316,7 @@ describe('reduceFleetState', () => {
   // ── fleetCost ─────────────────────────────────────────────────────────
   it('fleetCost: updates fleet cost and tokens for specific agent', () => {
     const state = stubState({
-      fleet: { a1: { id: 'a1', name: 'w1', provider: 'o', model: 'm', status: 'idle', streamingText: '', iterations: 0, toolCalls: 0, recentTools: [], recentMessages: [], cost: 0, startedAt: 0, lastEventAt: 0, transcriptPath: undefined } },
+      fleet: { a1: makeEntry('a1', { status: 'idle' }) as never },
       fleetCost: 0,
       fleetTokens: { input: 0, output: 0 },
     });
@@ -326,8 +330,8 @@ describe('reduceFleetState', () => {
   it('fleetCost: updates perAgent costs', () => {
     const state = stubState({
       fleet: {
-        a1: { id: 'a1', name: 'w1', provider: 'o', model: 'm', status: 'idle', streamingText: '', iterations: 0, toolCalls: 0, recentTools: [], recentMessages: [], cost: 0, startedAt: 0, lastEventAt: 0, transcriptPath: undefined },
-        a2: { id: 'a2', name: 'w2', provider: 'o', model: 'm', status: 'idle', streamingText: '', iterations: 0, toolCalls: 0, recentTools: [], recentMessages: [], cost: 0, startedAt: 0, lastEventAt: 0, transcriptPath: undefined },
+        a1: makeEntry('a1', { status: 'idle' }) as never,
+        a2: makeEntry('a2', { status: 'idle' }) as never,
       },
     });
     const result = reduceFleetState(state, { type: 'fleetCost', cost: 100, perAgent: { a1: { cost: 40 }, a2: { cost: 60 } } });
