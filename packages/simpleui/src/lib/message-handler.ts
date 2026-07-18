@@ -1,0 +1,688 @@
+/**
+ * WebSocket message handler for SimpleUI.
+ *
+ * Extracted from app.tsx into a testable factory function.
+ * The factory returns a stable handler reference so the
+ * SimpleSocket effect never reconnects on a re-render.
+ *
+ * Usage in app.tsx:
+ *   const handleServerMessage = useMemo(
+ *     () => createMessageHandler({ ... }),
+ *     [dispatchUserMessage, requestProviderModels, worklists],
+ *   );
+ */
+
+import type {
+  AgentMode,
+  AgentTranscriptEntry,
+  ChatMessage,
+  ContextInfo,
+  FileEditMeta,
+  ModelDescriptor,
+  PendingConfirm,
+  SessionInfo,
+  SimpleSessionSummary,
+  SimpleSubagent,
+  ToolCallInfo,
+} from '../types.js';
+import type { ServerMessage } from '../types.js';
+import type { WorklistStore } from './worklist-store.js';
+import type { RefineState, RefineResultPayload } from './refine-model.js';
+import type { StatusNoticeProjection } from './status-notice.js';
+import type { SimplePrefs } from './prefs-model.js';
+import type { FileMention } from './file-mention.js';
+import type { QueuedItem } from './queue-model.js';
+
+import {
+  LEADER_AGENT_ID,
+  appendAgentTranscriptEntry,
+  mergeSubagentSnapshot,
+  parseAgentSessionReplays,
+  projectAgentTimelineEntry,
+  projectCompletedAgentText,
+  stampAgentUpdates,
+} from './agent-model.js';
+import { contentToText, replayToMessages, updateSubagents } from './chat-model.js';
+import { parsePrefs } from './prefs-model.js';
+import { projectRefineResult } from './refine-model.js';
+import { projectStatusNotice } from './status-notice.js';
+import { parseSessionSummaries } from './session-model.js';
+import {
+  parseCatalogProviders,
+  parseSavedProviderIds,
+  providersNeedingModels,
+} from './model-switch.js';
+import { dequeueItem } from './queue-model.js';
+
+// ── Helpers ─────────────────────────────────────────────────────────
+
+function finiteNumber(value: unknown, fallback = 0): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function messageId(prefix: string): string {
+  return `${prefix}-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`;
+}
+
+// ── Dependency types ────────────────────────────────────────────────
+
+export interface MessageHandlerDeps {
+  // Refs — used for reading current state without re-render dependencies
+  prefsRef: { current: SimplePrefs };
+  draftRef: { current: string };
+  fileRefsRef: { current: string[] };
+  queueRef: { current: QueuedItem[] };
+  sessionIdRef: { current: string | null };
+  messagesRef: { current: ChatMessage[] };
+  activeModelRef: { current: { provider: string; model: string } | null };
+  runningRef: { current: boolean };
+  refineStateRef: { current: RefineState | null };
+  requestedModelsRef: { current: Set<string> };
+  socketRef: { current: { send: (type: string, payload?: Record<string, unknown>) => void } | null };
+  stickToBottomRef: { current: boolean };
+
+  // State setters
+  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+  setRunning: React.Dispatch<React.SetStateAction<boolean>>;
+  setActivity: React.Dispatch<React.SetStateAction<string>>;
+  setToolCalls: React.Dispatch<React.SetStateAction<ToolCallInfo[]>>;
+  setSubagents: React.Dispatch<React.SetStateAction<SimpleSubagent[]>>;
+  setAgentTranscripts: React.Dispatch<React.SetStateAction<Record<string, AgentTranscriptEntry[]>>>;
+  setSession: React.Dispatch<React.SetStateAction<SessionInfo | null>>;
+  setSessionMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  setSessions: React.Dispatch<React.SetStateAction<SimpleSessionSummary[]>>;
+  setContext: React.Dispatch<React.SetStateAction<ContextInfo>>;
+  setModels: React.Dispatch<React.SetStateAction<Record<string, ModelDescriptor[]>>>;
+  setModes: React.Dispatch<React.SetStateAction<AgentMode[]>>;
+  setActiveModeId: React.Dispatch<React.SetStateAction<string>>;
+  setPrefs: React.Dispatch<React.SetStateAction<SimplePrefs>>;
+  setDraft: React.Dispatch<React.SetStateAction<string>>;
+  setFileRefs: React.Dispatch<React.SetStateAction<string[]>>;
+  setFileMention: React.Dispatch<React.SetStateAction<FileMention | null>>;
+  setNotice: React.Dispatch<React.SetStateAction<(StatusNoticeProjection & { id: string }) | null>>;
+  setQueue: React.Dispatch<React.SetStateAction<QueuedItem[]>>;
+  setRefineState: React.Dispatch<React.SetStateAction<RefineState | null>>;
+  setPendingConfirm: React.Dispatch<React.SetStateAction<PendingConfirm | null>>;
+  setSelectedAgentId: React.Dispatch<React.SetStateAction<string>>;
+  setSessionStart: React.Dispatch<React.SetStateAction<number | null>>;
+  setShowJumpToLatest: React.Dispatch<React.SetStateAction<boolean>>;
+  setFileMatches: React.Dispatch<React.SetStateAction<string[]>>;
+  setFilePickerIndex: React.Dispatch<React.SetStateAction<number>>;
+  setFileSearching: React.Dispatch<React.SetStateAction<boolean>>;
+  setAttachedImages: React.Dispatch<React.SetStateAction<Array<{ id: string; data: string; mime: string; name: string }>>>;
+  setCopiedMessageId: React.Dispatch<React.SetStateAction<string | null>>;
+  setProviderLabels: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  setDiffFiles: React.Dispatch<React.SetStateAction<FileEditMeta[] | null>>;
+  resetAgentNameCache: () => void;
+  /** Called when a run completes and the user has chime enabled. */
+  onChime?: (() => void) | undefined;
+
+  // Stable callbacks provided by app.tsx
+  dispatchUserMessage: (content: string, images?: { data: string; mime: string }[]) => void;
+  requestProviderModels: (providerId: string) => void;
+  writeComposerDraft: (sessionId: string, draft: { text: string; fileRefs: string[] }) => void;
+  clearComposerDraft: (sessionId: string) => void;
+  readComposerDraft: (sessionId: string) => { text: string; fileRefs: string[] };
+
+  // External store
+  worklists: WorklistStore;
+}
+
+// ── Factory ─────────────────────────────────────────────────────────
+
+export type ServerMessageHandler = (message: ServerMessage) => void;
+
+export function createMessageHandler(deps: MessageHandlerDeps): ServerMessageHandler {
+  const {
+    prefsRef,
+    draftRef,
+    fileRefsRef,
+    queueRef,
+    sessionIdRef,
+    messagesRef,
+    activeModelRef,
+    runningRef,
+    refineStateRef,
+    socketRef,
+    requestedModelsRef,
+    setMessages,
+    setRunning,
+    setActivity,
+    setToolCalls,
+    setSubagents,
+    setAgentTranscripts,
+    setSession,
+    setSessionMenuOpen,
+    setSessions,
+    setContext,
+    setModels,
+    setModes,
+    setActiveModeId,
+    setPrefs,
+    setDraft,
+    setFileRefs,
+    setFileMention,
+    setNotice,
+    setQueue,
+    setRefineState,
+    setPendingConfirm,
+    setSelectedAgentId,
+    setSessionStart,
+    setShowJumpToLatest,
+    setFileMatches,
+    setFilePickerIndex,
+    setFileSearching,
+    setAttachedImages,
+    setCopiedMessageId,
+    setProviderLabels,
+    setDiffFiles,
+    resetAgentNameCache,
+    onChime,
+    dispatchUserMessage,
+    requestProviderModels,
+    writeComposerDraft,
+    clearComposerDraft,
+    readComposerDraft,
+    worklists,
+    stickToBottomRef,
+  } = deps;
+
+  return function handleServerMessage(message: ServerMessage): void {
+    const payload = message.payload ?? {};
+    worklists.applyMessage(message);
+    const projectedNotice = projectStatusNotice(message);
+    if (projectedNotice) {
+      setNotice({ ...projectedNotice, id: messageId('notice') });
+    }
+    switch (message.type) {
+      case 'session.start': {
+        const id = typeof payload['sessionId'] === 'string' ? payload['sessionId'] : '';
+        const provider = typeof payload['provider'] === 'string' ? payload['provider'] : '';
+        const model = typeof payload['model'] === 'string' ? payload['model'] : '';
+        const maxContext = finiteNumber(payload['maxContext']);
+        const previousId = sessionIdRef.current;
+        const switchedSession = Boolean(previousId && id && previousId !== id);
+        const resetSessionState = switchedSession || payload['reset'] === true;
+        if (switchedSession && previousId) {
+          writeComposerDraft(previousId, {
+            text: draftRef.current,
+            fileRefs: fileRefsRef.current,
+          });
+        }
+        if (!previousId || resetSessionState) {
+          stickToBottomRef.current = true;
+          setShowJumpToLatest(false);
+        }
+        sessionIdRef.current = id || null;
+        if (!previousId || resetSessionState) worklists.reset(id || null);
+        activeModelRef.current = provider && model ? { provider, model } : null;
+        setSession({
+          id,
+          provider,
+          model,
+          projectName:
+            typeof payload['projectName'] === 'string' ? payload['projectName'] : 'Project',
+          cwd: typeof payload['cwd'] === 'string' ? payload['cwd'] : '',
+          maxContext,
+        });
+        setModels((current) => ({
+          ...current,
+          [provider]: current[provider]?.some((item) => item.id === model)
+            ? current[provider]
+            : [{ id: model, name: model }, ...(current[provider] ?? [])].filter((item) => item.id),
+        }));
+        if (Array.isArray(payload['replayMessages'])) {
+          setMessages(replayToMessages(payload['replayMessages']));
+        } else if (resetSessionState) {
+          setMessages([]);
+        }
+        if (!previousId || resetSessionState) {
+          const agentSessions = parseAgentSessionReplays(payload['agentSessions']);
+          setSubagents(
+            agentSessions.map(({ subagentId, agentName, status, task }) => ({
+              id: subagentId,
+              name: agentName,
+              status,
+              task,
+            })),
+          );
+          setAgentTranscripts(
+            Object.fromEntries(
+              agentSessions.map(({ subagentId, transcript }) => [subagentId, transcript]),
+            ),
+          );
+        }
+        if (!previousId || switchedSession) {
+          const savedDraft = readComposerDraft(id);
+          draftRef.current = savedDraft.text;
+          fileRefsRef.current = savedDraft.fileRefs;
+          setDraft(savedDraft.text);
+          setFileRefs(savedDraft.fileRefs);
+          setFileMention(null);
+        } else if (payload['reset'] === true) {
+          clearComposerDraft(id);
+          draftRef.current = '';
+          fileRefsRef.current = [];
+          setDraft('');
+          setFileRefs([]);
+          setFileMention(null);
+        }
+        if (resetSessionState) {
+          setPendingConfirm(null);
+          setRunning(false);
+          setActivity('');
+          setToolCalls([]);
+          setSelectedAgentId(LEADER_AGENT_ID);
+          resetAgentNameCache();
+          setSessionStart(Date.now());
+          setAttachedImages([]);
+        }
+        setSessionMenuOpen(false);
+        const replayUsage = payload['replayUsage'];
+        const replayInput =
+          replayUsage && typeof replayUsage === 'object'
+            ? finiteNumber((replayUsage as Record<string, unknown>)['input'])
+            : 0;
+        setContext((current) => ({
+          load: resetSessionState
+            ? maxContext > 0
+              ? replayInput / maxContext
+              : 0
+            : current.maxContext > 0
+              ? current.load
+              : maxContext > 0
+                ? replayInput / maxContext
+                : 0,
+          tokens: resetSessionState ? replayInput : current.tokens || replayInput,
+          maxContext: maxContext || current.maxContext,
+        }));
+        if (provider) requestProviderModels(provider);
+        socketRef.current?.send('sessions.list', { sessionId: id, limit: 12 });
+        break;
+      }
+      case 'sessions.list': {
+        if (typeof payload['error'] !== 'string') {
+          setSessions(parseSessionSummaries(payload['sessions']));
+        }
+        break;
+      }
+      case 'provider.catalog': {
+        const entries = parseCatalogProviders(payload);
+        const labels: Record<string, string> = {};
+        for (const entry of entries) {
+          labels[entry.id] = entry.label;
+        }
+        setProviderLabels(labels);
+        for (const id of providersNeedingModels({
+          catalog: entries,
+          currentProvider: activeModelRef.current?.provider,
+          alreadyRequested: requestedModelsRef.current,
+        })) {
+          requestProviderModels(id);
+        }
+        break;
+      }
+      case 'providers.saved': {
+        for (const id of providersNeedingModels({
+          savedIds: parseSavedProviderIds(payload),
+          currentProvider: activeModelRef.current?.provider,
+          alreadyRequested: requestedModelsRef.current,
+        })) {
+          requestProviderModels(id);
+        }
+        break;
+      }
+      case 'provider.models': {
+        const provider = typeof payload['provider'] === 'string' ? payload['provider'] : '';
+        const list = Array.isArray(payload['models'])
+          ? payload['models'].flatMap((entry) => {
+              if (!entry || typeof entry !== 'object') return [];
+              const item = entry as Record<string, unknown>;
+              if (typeof item['id'] !== 'string') return [];
+              return [
+                {
+                  id: item['id'],
+                  name: typeof item['name'] === 'string' ? item['name'] : item['id'],
+                  contextWindow: finiteNumber(item['contextWindow']) || undefined,
+                } satisfies ModelDescriptor,
+              ];
+            })
+          : [];
+        if (provider) {
+          const active = activeModelRef.current;
+          const nextList =
+            active?.provider === provider && !list.some((item) => item.id === active.model)
+              ? [{ id: active.model, name: active.model }, ...list]
+              : list;
+          setModels((current) => ({ ...current, [provider]: nextList }));
+        }
+        break;
+      }
+      case 'files.list': {
+        const files = Array.isArray(payload['files'])
+          ? payload['files'].filter((file): file is string => typeof file === 'string')
+          : [];
+        setFileMatches(files);
+        setFilePickerIndex(0);
+        setFileSearching(false);
+        break;
+      }
+      case 'provider.thinking_delta': {
+        const text = typeof payload['text'] === 'string' ? payload['text'] : '';
+        if (!text) break;
+        setRunning(true);
+        setActivity('Thinking');
+        setMessages((current) => {
+          const last = current.at(-1);
+          if (last?.role === 'thinking' && last.streaming) {
+            return current.map((item, index) =>
+              index === current.length - 1 ? { ...item, text: item.text + text } : item,
+            );
+          }
+          return [
+            ...current.map((item) =>
+              item.streaming && item.role === 'thinking' ? { ...item, streaming: false } : item,
+            ),
+            { id: messageId('thinking'), role: 'thinking', text, streaming: true },
+          ];
+        });
+        break;
+      }
+      case 'provider.text_delta': {
+        const text = typeof payload['text'] === 'string' ? payload['text'] : '';
+        if (!text) break;
+        setRunning(true);
+        setActivity('Responding');
+        setMessages((current) => {
+          const normalized = current.map((item) =>
+            item.streaming && item.role === 'thinking' ? { ...item, streaming: false } : item,
+          );
+          const last = normalized.at(-1);
+          if (last?.role === 'assistant' && last.streaming) {
+            return normalized.map((item, index) =>
+              index === normalized.length - 1 ? { ...item, text: item.text + text } : item,
+            );
+          }
+          return [
+            ...normalized,
+            { id: messageId('assistant'), role: 'assistant', text, streaming: true },
+          ];
+        });
+        break;
+      }
+      case 'provider.response': {
+        const responseText = contentToText(payload['content']).trim();
+        setMessages((current) => {
+          const last = current.at(-1);
+          if (last?.role === 'assistant' && last.streaming) {
+            return current.map((item, index) =>
+              index === current.length - 1 ? { ...item, streaming: false } : item,
+            );
+          }
+          return responseText
+            ? [...current, { id: messageId('assistant'), role: 'assistant', text: responseText }]
+            : current;
+        });
+        setActivity('Working');
+        break;
+      }
+      case 'provider.retry':
+        setRunning(true);
+        setActivity(
+          `Retrying ${typeof payload['providerId'] === 'string' ? payload['providerId'] : 'provider'}`,
+        );
+        break;
+      case 'provider.fallback': {
+        const target =
+          payload['to'] && typeof payload['to'] === 'object'
+            ? (payload['to'] as Record<string, unknown>)
+            : undefined;
+        const fallbackModel = typeof target?.['model'] === 'string' ? target['model'] : '';
+        setRunning(true);
+        setActivity(fallbackModel ? `Fallback · ${fallbackModel}` : 'Switching fallback model');
+        break;
+      }
+      case 'context.compacted':
+        setActivity('Context compacted');
+        break;
+      case 'tool.loop_detected':
+        setActivity('Stopping repeated tool loop');
+        break;
+      case 'iteration.started':
+        setRunning(true);
+        setActivity('Thinking');
+        break;
+      case 'tool.started': {
+        const name = typeof payload['name'] === 'string' ? payload['name'] : 'tool';
+        const id = typeof payload['id'] === 'string' ? payload['id'] : `${name}-${Date.now()}`;
+        setRunning(true);
+        setActivity(`Running ${name}`);
+        setToolCalls((current) => [
+          ...current,
+          { id, name, input: payload['input'], status: 'running', ts: new Date().toISOString() },
+        ]);
+        break;
+      }
+      case 'tool.progress': {
+        const event = payload['event'];
+        const text =
+          event && typeof event === 'object'
+            ? (event as Record<string, unknown>)['text']
+            : undefined;
+        if (typeof text === 'string' && text.trim())
+          setActivity(text.trim().split('\n')[0] ?? 'Working');
+        break;
+      }
+      case 'tool.executed': {
+        const execId = typeof payload['id'] === 'string' ? payload['id'] : '';
+        const execName = typeof payload['name'] === 'string' ? payload['name'] : '';
+        setActivity('Thinking');
+        if (execId || execName) {
+          setToolCalls((current) =>
+            current.map((tc) => {
+              if (
+                (execId && tc.id === execId) ||
+                (!execId && tc.name === execName && tc.status === 'running')
+              ) {
+                return {
+                  ...tc,
+                  status: payload['ok'] === false ? 'error' : 'done',
+                  output: typeof payload['output'] === 'string' ? payload['output'] : undefined,
+                  durationMs:
+                    typeof payload['durationMs'] === 'number' ? payload['durationMs'] : undefined,
+                  ok: payload['ok'] !== false,
+                };
+              }
+              return tc;
+            }),
+          );
+        }
+        break;
+      }
+      case 'run.result': {
+        setRunning(false);
+        setActivity('');
+        if (prefsRef.current.chime) onChime?.();
+        setMessages((current) =>
+          current.map((item) => (item.streaming ? { ...item, streaming: false } : item)),
+        );
+        const { item, rest } = dequeueItem(queueRef.current);
+        if (item) {
+          queueRef.current = rest;
+          setQueue(rest);
+          dispatchUserMessage(item.text);
+        }
+        break;
+      }
+      case 'prefs.updated':
+        setPrefs((current) => parsePrefs(payload, current));
+        break;
+      case 'modes.list': {
+        const list = Array.isArray(payload['modes'])
+          ? payload['modes'].flatMap((entry) => {
+              if (!entry || typeof entry !== 'object') return [];
+              const item = entry as Record<string, unknown>;
+              if (typeof item['id'] !== 'string') return [];
+              return [
+                {
+                  id: item['id'],
+                  name: typeof item['name'] === 'string' ? item['name'] : item['id'],
+                  description:
+                    typeof item['description'] === 'string' ? item['description'] : undefined,
+                } satisfies AgentMode,
+              ];
+            })
+          : [];
+        setModes(list);
+        if (typeof payload['activeId'] === 'string') setActiveModeId(payload['activeId']);
+        break;
+      }
+      case 'model.refine_result': {
+        const current = refineStateRef.current;
+        if (!current) break;
+        const action = projectRefineResult(payload as RefineResultPayload, current);
+        if (action.kind === 'retry') {
+          setRefineState(action.state);
+          socketRef.current?.send('model.refine', {
+            text: action.state.original,
+            timeoutMs: action.timeoutMs,
+          });
+          break;
+        }
+        if (action.kind === 'send') {
+          setRefineState(null);
+          dispatchUserMessage(action.text);
+          break;
+        }
+        setRefineState(action.state);
+        break;
+      }
+      case 'error': {
+        const text = typeof payload['message'] === 'string' ? payload['message'] : 'Run failed';
+        setRunning(false);
+        setActivity('');
+        setMessages((current) => [...current, { id: messageId('error'), role: 'system', text }]);
+        const { item, rest } = dequeueItem(queueRef.current);
+        if (item) {
+          queueRef.current = rest;
+          setQueue(rest);
+          dispatchUserMessage(item.text);
+        }
+        break;
+      }
+      case 'ctx.pct': {
+        const rawLoad = finiteNumber(payload['load']);
+        setContext({
+          load: rawLoad > 1 ? rawLoad / 100 : rawLoad,
+          tokens: finiteNumber(payload['tokens']),
+          maxContext: finiteNumber(payload['maxContext']),
+        });
+        break;
+      }
+      case 'ctx.max_context': {
+        const maxContext = finiteNumber(payload['maxContext']);
+        setContext((current) => ({ ...current, maxContext }));
+        setSession((current) => (current ? { ...current, maxContext } : current));
+        break;
+      }
+      case 'tool.confirm_needed':
+        if (typeof payload['id'] === 'string') {
+          setPendingConfirm({
+            id: payload['id'],
+            toolName: typeof payload['toolName'] === 'string' ? payload['toolName'] : 'tool',
+            input: payload['input'],
+            riskTier: typeof payload['riskTier'] === 'string' ? payload['riskTier'] : undefined,
+          });
+        }
+        break;
+      case 'coordinator.stats': {
+        const statuses = Array.isArray(payload['subagentStatuses'])
+          ? payload['subagentStatuses']
+          : [];
+        const snapshot = statuses.flatMap((entry) => {
+          if (!entry || typeof entry !== 'object') return [];
+          const item = entry as Record<string, unknown>;
+          const id = typeof item['id'] === 'string' ? item['id'] : '';
+          if (!id || id === LEADER_AGENT_ID) return [];
+          return [
+            {
+              id,
+              name: typeof item['name'] === 'string' ? item['name'] : id,
+              status: typeof item['status'] === 'string' ? item['status'] : 'idle',
+              task: typeof item['currentTask'] === 'string' ? item['currentTask'] : undefined,
+            } satisfies SimpleSubagent,
+          ];
+        });
+        setSubagents((current) =>
+          stampAgentUpdates(current, mergeSubagentSnapshot(current, snapshot)),
+        );
+        break;
+      }
+      case 'subagent.event': {
+        const id = typeof payload['subagentId'] === 'string' ? payload['subagentId'] : '';
+        setSubagents((current) =>
+          stampAgentUpdates(
+            current,
+            payload['kind'] === 'removed'
+              ? current.map((agent) =>
+                  agent.id === id ? { ...agent, status: 'stopped', task: undefined } : agent,
+                )
+              : updateSubagents(current, payload),
+          ),
+        );
+        if (payload['kind'] === 'task_completed' && id) {
+          const entry = projectCompletedAgentText(
+            payload,
+            messageId(`agent-${id}`),
+            typeof payload['name'] === 'string' ? payload['name'] : id,
+          );
+          if (entry) {
+            setAgentTranscripts((current) => ({
+              ...current,
+              [id]: appendAgentTranscriptEntry(current[id] ?? [], entry),
+            }));
+          }
+        }
+        break;
+      }
+      case 'agent.timeline.message': {
+        const entry = projectAgentTimelineEntry(payload, messageId('agent-event'));
+        if (!entry) break;
+        setSubagents((current) => {
+          if (current.some((agent) => agent.id === entry.subagentId)) return current;
+          return [
+            ...current,
+            {
+              id: entry.subagentId,
+              name: entry.agentName,
+              status: 'running',
+            },
+          ];
+        });
+        setAgentTranscripts((current) => ({
+          ...current,
+          [entry.subagentId]: appendAgentTranscriptEntry(current[entry.subagentId] ?? [], entry),
+        }));
+        break;
+      }
+      case 'agent.status_changed': {
+        const id = typeof payload['subagentId'] === 'string' ? payload['subagentId'] : '';
+        if (!id || id === LEADER_AGENT_ID) break;
+        const agentName = typeof payload['agentName'] === 'string' ? payload['agentName'] : id;
+        setSubagents((current) => {
+          const exists = current.some((agent) => agent.id === id);
+          const patch = {
+            id,
+            name: agentName,
+            status: typeof payload['status'] === 'string' ? payload['status'] : 'idle',
+            task: typeof payload['task'] === 'string' ? payload['task'] : undefined,
+          } satisfies SimpleSubagent;
+          return exists
+            ? current.map((agent) => (agent.id === id ? { ...agent, ...patch } : agent))
+            : [...current, patch];
+        });
+        break;
+      }
+    }
+  };
+}
