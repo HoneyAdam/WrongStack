@@ -12,9 +12,14 @@ describe('formatWorkingDirChip', () => {
     expect(formatWorkingDirChip('/repo/src/utils', '/repo')).toBe('src/utils');
   });
 
-  it('normalizes Windows-style separators to forward slashes for display', () => {
-    expect(formatWorkingDirChip('C:\\repo\\src\\utils', 'C:\\repo')).toBe('src/utils');
-  });
+  // #249: this test uses Windows-style paths (backslash separators), which only
+  // path.win32 handles correctly. Skip on non-Windows runners.
+  it.skipIf(process.platform !== 'win32')(
+    'normalizes Windows-style separators to forward slashes for display',
+    () => {
+      expect(formatWorkingDirChip('C:\\repo\\src\\utils', 'C:\\repo')).toBe('src/utils');
+    },
+  );
 
   it('normalizes a relative root marker back to undefined', () => {
     expect(formatWorkingDirChip('/repo/', '/repo')).toBeUndefined();

@@ -536,6 +536,11 @@ describe('exec command policy (configurable allowlist)', () => {
     //   - a pre-execution error return (allowlist miss) → level 'safe'
     //   - a destructive command (rm -rf in a sandbox) → level 'destructive'
     //   - a normal command (git status in a sandbox) → level 'safe'
+    //
+    // #249: reset the circuit breaker here as well (not just in beforeEach)
+    // because parallel test files (e.g. bash.test.ts) can trip the shared
+    // singleton between the beforeEach reset and this test's assertions.
+    getProcessRegistry().forceBreakerReset();
     const r1 = await execTool.execute({ command: 'not-in-allowlist' }, makeCtx2(), makeOpts2());
     expect(r1.danger.level).toBe('safe');
 

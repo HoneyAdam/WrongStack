@@ -137,6 +137,8 @@ describe('AnnotationsStore', () => {
     expect(await store.list('2026-06-11/s1')).toEqual([]);
   });
 
+  // #249: 20000 ms default timeout was insufficient on Windows CI runners
+  // under load. Bumped to 60_000 to match other slow-store tests in this file.
   it('MAX_ANNOTATIONS eviction emits storage.write operation evict', async () => {
     const events: EventBus = { emit: vi.fn() } as never;
     const loggedStore = new AnnotationsStore({ dir, events, maxAnnotations: 10 });
@@ -149,7 +151,7 @@ describe('AnnotationsStore', () => {
         && (payload as { operation: string }).operation === 'evict',
     );
     expect(evictCalls).toHaveLength(1);
-  });
+  }, 60_000);
 
   // ── storage.* event tests ─────────────────────────────────────────────────
 

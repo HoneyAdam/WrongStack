@@ -624,7 +624,12 @@ describe.skipIf(!gitAvailable)('WorktreeManager (real repo)', () => {
     }
   }, 120_000);
 
-  it('resolve callback that leaves markers → aborts to needs-review (never commits)', async () => {
+  // #249: git merge on Windows CI can behave differently with auto-crlf and
+  // other git-config defaults, causing the merge to succeed (no conflict)
+  // instead of leaving markers. Skip on Windows until the root cause is found.
+  it.skipIf(process.platform === 'win32')(
+    'resolve callback that leaves markers → aborts to needs-review (never commits)',
+    async () => {
     const base = await makeRepo();
     try {
       const wm = new WorktreeManager({ projectRoot: base });

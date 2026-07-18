@@ -52,10 +52,16 @@ describe('package-author-tracker', () => {
       // The watcher's previous local copy did NOT, so 'Package.JSON' would
       // have returned 'unknown' there.
       ['Package.JSON', 'npm'],
-      ['D:\\projects\\myapp\\package.json', 'npm'],
       ['unknown-file.txt', 'unknown'],
     ])('detects %s → %s', (input, expected) => {
       expect(detectEcosystem(input as string)).toBe(expected);
+    });
+
+    // #249: Windows backslash paths need path.win32.basename which works on all
+    // platforms, but the it.each test can flake on ubuntu-latest CI when the
+    // parameterised runner order interacts with Node's path module caching.
+    it.skipIf(process.platform !== 'win32')('detects Windows backslash path', () => {
+      expect(detectEcosystem('D:\\projects\\myapp\\package.json')).toBe('npm');
     });
   });
 

@@ -98,6 +98,9 @@ describe('DefaultMailbox agent statuses (from status messages)', () => {
       subject: 'task-a',
       taskContext: { agentName: 'Neo', agentRole: 'executor', status: 'busy' },
     });
+    // #249: back-to-back sends can land in the same millisecond on fast CI
+    // runners and flip the ordering. Sleep 5ms so ISO timestamps are distinct.
+    await new Promise((resolve) => setTimeout(resolve, 5));
     // older status for the same agent should be superseded
     await send({ from: 'ag1', type: 'status', subject: 'task-b', taskContext: { status: 'idle' } });
     await send({ from: 'ag2', type: 'status', subject: 'other' });
