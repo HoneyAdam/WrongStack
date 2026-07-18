@@ -1,9 +1,9 @@
-import { cn } from '@/lib/utils';
-import { useAppTranslation } from '@/i18n';
 import { Check, Copy, FileCode2 } from 'lucide-react';
 import type React from 'react';
-import { useCallback, useMemo, useState } from 'react';
+import { isValidElement, useCallback, useMemo, useState } from 'react';
 import rehypeHighlight from 'rehype-highlight';
+import { useAppTranslation } from '@/i18n';
+import { cn } from '@/lib/utils';
 
 export { copyToClipboard };
 
@@ -62,6 +62,20 @@ export function formatToolDuration(ms: number): string {
 /** Rehype plugins for react-markdown — syntax highlighting via highlight.js. */
 export const rehypePlugins = [rehypeHighlight];
 
+/**
+ * Recover the source text from a react-markdown code node. Syntax-highlighting
+ * rehype plugins replace parts of `children` with nested React elements, so
+ * String(children) would leak values such as "[object Object]" to the clipboard.
+ */
+function codeNodeText(node: React.ReactNode): string {
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(codeNodeText).join('');
+  if (isValidElement<{ children?: React.ReactNode }>(node)) {
+    return codeNodeText(node.props.children);
+  }
+  return '';
+}
+
 /** A copy button that shows a checkmark for 1.5s after successful copy.
  *  Used inside code block headers for better UX feedback. */
 function CodeCopyButton({ text }: { text: string }) {
@@ -91,7 +105,6 @@ function CodeCopyButton({ text }: { text: string }) {
   );
 }
 
-
 export const markdownComponents = {
   // NOTE: <nextsteps> is parsed and rendered in MessageBubble/index.tsx
   // (post-render, via parseNextSteps + NextStepsBar). We do NOT register a
@@ -116,10 +129,16 @@ export const markdownComponents = {
     children?: React.ReactNode | undefined;
   }) {
     const match = /language-(\w+)/.exec(className ?? '');
-    const codeText = String(children ?? '').replace(/\n$/, '');
+    const codeText = codeNodeText(children).replace(/\n$/, '');
     if (inline || !match) {
       return (
-        <code className={cn('rounded border border-border/60 px-1.5 py-0.5 text-[0.85em] font-mono', className)} {...props}>
+        <code
+          className={cn(
+            'rounded border border-border/60 px-1.5 py-0.5 text-[0.85em] font-mono',
+            className,
+          )}
+          {...props}
+        >
           {children}
         </code>
       );
