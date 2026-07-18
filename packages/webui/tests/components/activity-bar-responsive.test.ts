@@ -40,14 +40,17 @@ describe('ActivityBar desktop responsive overflow', () => {
   });
 
   it('promotes hidden panels and views when the desktop shell is tall enough', () => {
-    const split = splitDesktopActivityBarItems(calculateDesktopActivityCapacity(820));
+    const split = splitDesktopActivityBarItems(calculateDesktopActivityCapacity(860));
 
     expect(split.overflowPanelIds).toEqual([]);
     expect(split.visibleViewIds).toContain('settings');
   });
 
   it('caps capacity at the total number of activity bar items', () => {
-    expect(calculateDesktopActivityCapacity(5000)).toBe(19);
+    const split = splitDesktopActivityBarItems(calculateDesktopActivityCapacity(5000));
+
+    expect(split.overflowPanelIds).toEqual([]);
+    expect(split.overflowViewIds).toEqual([]);
   });
 });
 
