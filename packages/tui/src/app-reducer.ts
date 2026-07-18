@@ -126,7 +126,13 @@ export function reducer(state: State, action: Action): State {
       // the TUI starts fresh after /clear.
       const banner = state.entries.find((e) => e.kind === 'banner');
       const refreshedBanner =
-        banner && action.model !== undefined ? { ...banner, model: action.model } : banner;
+        banner && (action.model !== undefined || action.provider !== undefined)
+          ? {
+              ...banner,
+              ...(action.model !== undefined ? { model: action.model } : {}),
+              ...(action.provider !== undefined ? { provider: action.provider } : {}),
+            }
+          : banner;
       return {
         ...state,
         entries: refreshedBanner ? [refreshedBanner] : [],
@@ -140,6 +146,9 @@ export function reducer(state: State, action: Action): State {
         steeringPending: false,
         steerSnapshot: null,
         confirmQueue: [],
+        clearConfirm: null,
+        slashConfirm: null,
+        brainPrompt: null,
         debugStreamStats: null,
         scrollOffset: 0,
         pendingNewLines: 0,
@@ -1832,6 +1841,18 @@ export function reducer(state: State, action: Action): State {
       return { ...state, continueConfirm: action.info };
     case 'continueConfirmClose':
       return { ...state, continueConfirm: null };
+    case 'clearConfirmOpen':
+      return { ...state, clearConfirm: action.info };
+    case 'clearConfirmSetValue':
+      return state.clearConfirm
+        ? { ...state, clearConfirm: { ...state.clearConfirm, value: action.value } }
+        : state;
+    case 'clearConfirmClose':
+      return { ...state, clearConfirm: null };
+    case 'slashConfirmOpen':
+      return { ...state, ...closePanels(state), slashConfirm: action.info };
+    case 'slashConfirmClose':
+      return { ...state, slashConfirm: null };
     case 'escConfirmOpen':
       return { ...state, escConfirm: { snapshot: action.snapshot } };
     case 'escConfirmClose':

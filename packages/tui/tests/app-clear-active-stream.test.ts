@@ -19,7 +19,7 @@ import type { State } from '../src/app-state.js';
 function streamingState(): State {
   return {
     entries: [
-      { kind: 'banner', id: 0, model: 'initial-model' } as never,
+      { kind: 'banner', id: 0, model: 'initial-model', provider: 'old-provider' } as never,
       { kind: 'user', id: 1, text: 'do work' } as never,
     ],
     buffer: '',
@@ -54,6 +54,23 @@ function streamingState(): State {
         destructive: false,
       },
     ],
+    clearConfirm: {
+      leaderActive: true,
+      subagentCount: 2,
+      value: 'Y',
+      resolve: () => {},
+    },
+    slashConfirm: {
+      question: 'Continue?',
+      defaultYes: false,
+      resolve: () => {},
+    },
+    brainPrompt: {
+      requestId: 'brain-1',
+      source: 'test',
+      risk: 'high',
+      question: 'Choose a direction',
+    },
     debugStreamStats: {
       chunkCount: 3,
       lastChunkSize: 12,
@@ -66,12 +83,21 @@ function streamingState(): State {
 
 describe('/clear during an active TUI stream', () => {
   it('discards all in-flight stream/tool/queue state and refreshes the preserved banner model', () => {
-    const out = reducer(streamingState(), { type: 'clearHistory', model: 'current-model' });
+    const out = reducer(streamingState(), {
+      type: 'clearHistory',
+      model: 'current-model',
+      provider: 'live-provider',
+    });
 
     // Transcript resets to the banner only — no user/assistant carryover — and
-    // the remounted banner follows the same live model that the statusline uses.
+    // the remounted banner follows the same live model/provider that the
+    // statusline uses (regression: provider used to stay stale after /model).
     expect(out.entries).toHaveLength(1);
-    expect(out.entries[0]).toMatchObject({ kind: 'banner', model: 'current-model' });
+    expect(out.entries[0]).toMatchObject({
+      kind: 'banner',
+      model: 'current-model',
+      provider: 'live-provider',
+    });
     expect(out.historyGen).toBe(4);
 
     // No live stream can repopulate the fresh session.
@@ -86,6 +112,9 @@ describe('/clear during an active TUI stream', () => {
     expect(out.steerSnapshot).toBeNull();
     expect(out.queue).toEqual([]);
     expect(out.confirmQueue).toEqual([]);
+    expect(out.clearConfirm).toBeNull();
+    expect(out.slashConfirm).toBeNull();
+    expect(out.brainPrompt).toBeNull();
     expect(out.debugStreamStats).toBeNull();
   });
 });

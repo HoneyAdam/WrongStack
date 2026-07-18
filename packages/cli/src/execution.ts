@@ -1358,13 +1358,13 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
           onClearHistory: (
             dispatch: (
               action:
-                | { type: 'clearHistory'; model?: string | undefined }
+                | { type: 'clearHistory'; model?: string | undefined; provider?: string | undefined }
                 | { type: 'resetContextChip' }
                 | { type: 'streamReset' }
                 | { type: 'toolStreamClear' },
             ) => void,
           ) => {
-            dispatch({ type: 'clearHistory', model: context.model });
+            dispatch({ type: 'clearHistory', model: context.model, provider: context.provider.id });
             dispatch({ type: 'resetContextChip' });
             dispatch({ type: 'streamReset' });
             dispatch({ type: 'toolStreamClear' });

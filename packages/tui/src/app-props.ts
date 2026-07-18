@@ -39,7 +39,12 @@ export interface AppProps {
   agent: Agent;
   slashRegistry: SlashCommandRegistry;
   /** Host-owned mutable bridge for slash commands that need masked input. */
-  secretInputController?: { readSecret(prompt: string): Promise<string> } | undefined;
+  secretInputController?:
+    | {
+        readSecret(prompt: string): Promise<string>;
+        readText?(prompt: string): Promise<string>;
+      }
+    | undefined;
   attachments: AttachmentStore;
   events: EventBus;
   tokenCounter?: TokenCounter | undefined;
@@ -392,7 +397,7 @@ export interface AppProps {
   onClearHistory?:
     | ((
         dispatch: React.Dispatch<
-          | { type: 'clearHistory'; model?: string | undefined }
+          | { type: 'clearHistory'; model?: string | undefined; provider?: string | undefined }
           | { type: 'resetContextChip' }
           | { type: 'streamReset' }
           | { type: 'toolStreamClear' }

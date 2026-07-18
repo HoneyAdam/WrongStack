@@ -6,7 +6,7 @@ import { useBrainEvents } from './use-brain-events.js';
 import { useSubagentEvents } from './use-subagent-events.js';
 
 type ClearHistoryDispatch = React.Dispatch<
-  | { type: 'clearHistory'; model?: string | undefined }
+  | { type: 'clearHistory'; model?: string | undefined; provider?: string | undefined }
   | { type: 'resetContextChip' }
   | { type: 'streamReset' }
   | { type: 'toolStreamClear' }

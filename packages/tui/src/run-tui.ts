@@ -51,7 +51,12 @@ export interface RunTuiOptions {
   agent: Agent;
   slashRegistry: SlashCommandRegistry;
   /** Host-owned mutable bridge for slash commands that need masked input. */
-  secretInputController?: { readSecret(prompt: string): Promise<string> } | undefined;
+  secretInputController?:
+    | {
+        readSecret(prompt: string): Promise<string>;
+        readText?(prompt: string): Promise<string>;
+      }
+    | undefined;
   attachments: AttachmentStore;
   events: EventBus;
   tokenCounter?: TokenCounter | undefined;
@@ -218,7 +223,7 @@ export interface RunTuiOptions {
   onClearHistory?:
     | ((
         dispatch: React.Dispatch<
-          | { type: 'clearHistory'; model?: string | undefined }
+          | { type: 'clearHistory'; model?: string | undefined; provider?: string | undefined }
           | { type: 'resetContextChip' }
           | { type: 'streamReset' }
           | { type: 'toolStreamClear' }
@@ -280,6 +285,12 @@ export interface RunTuiOptions {
     | {
         abortLeader: () => boolean;
         isRunning?: (() => boolean) | undefined;
+        confirmClear?:
+          | ((info: { leaderActive: boolean; subagentCount: number }) => Promise<boolean>)
+          | undefined;
+        confirmSlash?:
+          | ((question: string, defaultYes: boolean) => Promise<boolean | null>)
+          | undefined;
         resetSession?: (() => void) | undefined;
         waitForIdle?: (() => Promise<void>) | undefined;
       }

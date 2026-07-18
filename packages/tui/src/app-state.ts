@@ -589,6 +589,22 @@ export type State = {
     resolve: (decision: 'proceed' | 'edit' | 'cancel') => void;
   } | null;
   /**
+   * Pending destructive `/clear` confirmation. Unlike ordinary yes/no
+   * prompts this requires the user to type the full uppercase word `YES`.
+   */
+  clearConfirm: {
+    leaderActive: boolean;
+    subagentCount: number;
+    value: string;
+    resolve: (decision: boolean) => void;
+  } | null;
+  /** Generic slash-command confirmation rendered inside the TUI. */
+  slashConfirm: {
+    question: string;
+    defaultYes: boolean;
+    resolve: (decision: boolean | null) => void;
+  } | null;
+  /**
    * Pending ESC-interrupt confirmation. Null when none is pending.
    * When `confirmExit` is enabled and Esc is pressed mid-iteration, the
    * snapshot is captured and `escConfirm` opens instead of immediately
@@ -945,7 +961,7 @@ export type Action =
   | { type: 'addEntry'; entry: DraftEntry }
   | { type: 'setBuffer'; buffer: string; cursor: number }
   | { type: 'clearInput' }
-  | { type: 'clearHistory'; model?: string | undefined }
+  | { type: 'clearHistory'; model?: string | undefined; provider?: string | undefined }
   | { type: 'streamDelta'; delta: string }
   | { type: 'streamReset' }
   | { type: 'status'; status: State['status'] }
@@ -1213,6 +1229,11 @@ export type Action =
   | { type: 'refineFailureClose' }
   | { type: 'continueConfirmOpen'; info: NonNullable<State['continueConfirm']> }
   | { type: 'continueConfirmClose' }
+  | { type: 'clearConfirmOpen'; info: NonNullable<State['clearConfirm']> }
+  | { type: 'clearConfirmSetValue'; value: string }
+  | { type: 'clearConfirmClose' }
+  | { type: 'slashConfirmOpen'; info: NonNullable<State['slashConfirm']> }
+  | { type: 'slashConfirmClose' }
   /**
    * Open the ESC-interrupt confirmation dialog with a context snapshot.
    * Fired when Esc is pressed mid-iteration and `confirmExit` is enabled.
