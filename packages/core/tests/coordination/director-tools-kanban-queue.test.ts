@@ -97,6 +97,18 @@ beforeEach(() => {
   };
 });
 afterEach(() => {
+  // Tear down any detached renewal supervisors started by successful
+  // fire-and-forget dispatches: emitting a terminal event to every
+  // registered fleet handler disposes the subscription and clears the
+  // renewal interval, so no timer survives into later tests. unref() only
+  // stops the timer from keeping Node alive — it does NOT stop it firing
+  // while a later test runs.
+  for (const [subagentId, handlers] of fleetHandlers) {
+    for (const handler of [...handlers]) {
+      handler({ type: 'subagent.stopped', subagentId });
+    }
+  }
+  fleetHandlers.clear();
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
