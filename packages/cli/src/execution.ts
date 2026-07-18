@@ -297,6 +297,48 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
           lines.push('');
         }
 
+        // Section 3b: Active todos (task intent)
+        if (p.activeTodos && p.activeTodos.length > 0) {
+          lines.push('---');
+          lines.push('');
+          lines.push(`**Active task items (${p.activeTodos.length}):**`);
+          for (const t of p.activeTodos) {
+            lines.push(`  [${t.status}] ${t.content}`);
+          }
+          lines.push('');
+        }
+
+        // Section 3c: Kanban card (acceptance criteria)
+        if (p.kanbanCard) {
+          lines.push('---');
+          lines.push('');
+          lines.push(`**Kanban card: ${p.kanbanCard.title}**`);
+          if (p.kanbanCard.description) {
+            lines.push(`  ${p.kanbanCard.description.slice(0, 500)}`);
+          }
+          if (p.kanbanCard.successCriteria && p.kanbanCard.successCriteria.length > 0) {
+            lines.push('  **Success criteria:**');
+            for (const sc of p.kanbanCard.successCriteria) lines.push(`    - ${sc}`);
+          }
+          lines.push('');
+        }
+
+        // Section 3d: File provenance (who changed what)
+        if (p.fileProvenance && p.fileProvenance.length > 0) {
+          lines.push('---');
+          lines.push('');
+          lines.push('**File provenance (Chronicle):**');
+          for (const fp of p.fileProvenance) {
+            const parts: string[] = [];
+            if (fp.agentId) parts.push(`agent: ${fp.agentId}`);
+            if (fp.taskId) parts.push(`task: ${fp.taskId}`);
+            if (fp.eventType) parts.push(fp.eventType);
+            if (fp.observedAt) parts.push(fp.observedAt);
+            lines.push(`  ${fp.path} — ${parts.join(', ')}`);
+          }
+          lines.push('');
+        }
+
         // Section 4: Instructions
         lines.push('---');
         lines.push('');

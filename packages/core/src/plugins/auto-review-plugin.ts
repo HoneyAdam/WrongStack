@@ -281,7 +281,7 @@ export function createAutoReviewPlugin(): Plugin {
       ));
 
       // ── iteration.completed → detect new changes → emit review ──
-      api.onEvent('iteration.completed', async () => {
+      api.onEvent('iteration.completed', async (payload) => {
         try {
           const cfg = resolved;
           if (!cfg.enabled) return;
@@ -292,6 +292,10 @@ export function createAutoReviewPlugin(): Plugin {
 
           const cwd = api.config.cwd ?? process.cwd();
           if (!(await isGitRepo(cwd))) return;
+
+          // Extract todos from ctx for P1 enrichment.
+          // iteration.completed payload carries { ctx: Context } which has todos.
+          const ctxTodos = payload?.ctx?.todos;
 
           const allChanged = await getChangedFiles(cwd);
           const now = Date.now();
@@ -364,6 +368,7 @@ export function createAutoReviewPlugin(): Plugin {
               autoFix: 'off',
             },
             files: filesWithContent,
+            activeTodos: ctxTodos,
           });
 
           api.log.info(
@@ -371,8 +376,6 @@ export function createAutoReviewPlugin(): Plugin {
           );
 
           api.emitCustom('chimera.review_needed', bundle);
-
-          // Note: chimera.review_needed is consumed by CLI execution.ts which
           // requires the Director (--director flag). Without it, reviews are
           // silently skipped. If reviews don't appear, check that the session
           // runs with --director or enable Director in your config.

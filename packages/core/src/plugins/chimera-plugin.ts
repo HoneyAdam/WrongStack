@@ -110,6 +110,43 @@ export interface ReviewContextBundle {
    * what's still uncommitted working-tree changes.
    */
   recentCommits?: string[] | undefined;
+
+  // ── Task & intent context (P1) ──
+  /**
+   * Active todo items from the session Context at review-trigger time.
+   * Lets the reviewer understand what task motivated the file changes
+   * so it can judge correctness against intent, not just code shape.
+   */
+  activeTodos?: Array<{ id: string; content: string; status: string }> | undefined;
+
+  /**
+   * The active kanban card, if the session uses a kanban board.
+   * Provides title, description, and success criteria so the
+   * reviewer can verify the change satisfies the stated requirements.
+   */
+  kanbanCard?:
+    | {
+        id: string;
+        title: string;
+        description?: string | undefined;
+        successCriteria?: string[] | undefined;
+      }
+    | undefined;
+
+  /**
+   * File provenance from the Chronicle journal: which agent/session/task
+   * last touched each file and when. Helps the reviewer attribute
+   * changes and understand the broader edit chain.
+   */
+  fileProvenance?:
+    | Array<{
+        path: string;
+        agentId?: string | undefined;
+        taskId?: string | undefined;
+        eventType?: string | undefined;
+        observedAt?: string | undefined;
+      }>
+    | undefined;
 }
 
 /** Legacy alias — the payload type is the bundle type. */

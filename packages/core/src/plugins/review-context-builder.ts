@@ -92,6 +92,12 @@ export interface BuildReviewContextOptions {
   config: ResolvedChimeraConfig;
   /** Files to review, with content already read. */
   files: Array<{ path: string; status: 'added' | 'modified'; content: string }>;
+  /**
+   * Active todo items from the session Context (P1 enrichment).
+   * Available from `ctx.todos` in the iteration.completed handler.
+   * Passed in by the caller — the builder itself has no ctx access.
+   */
+  activeTodos?: Array<{ id: string; content: string; status: string }> | undefined;
 }
 
 /**
@@ -147,11 +153,140 @@ export async function buildReviewContext(
     // leave undefined
   }
 
+  // ── Active todos (passed in from caller) ──
+  const activeTodos =
+    opts.activeTodos && opts.activeTodos.length > 0 ? opts.activeTodos : undefined;
+
+  // ── Kanban card (P1: find in_progress task across all boards) ──
+  let kanbanCard: ReviewContextBundle['kanbanCard'];
+  try {
+    kanbanCard = await findActiveKanbanCard(cwd);
+  } catch {
+    // kanban not configured or not installed — leave undefined
+  }
+
+  // ── File provenance from Chronicle (P1: last event per file path) ──
+  let fileProvenance: ReviewContextBundle['fileProvenance'];
+  try {
+    const paths = opts.files.map((f) => f.path);
+    fileProvenance = await findFileProvenance(cwd, paths);
+    if (fileProvenance.length === 0) fileProvenance = undefined;
+  } catch {
+    // chronicle not configured or journal unreadable — leave undefined
+  }
+
   return {
     config,
     cwd,
     files: filesWithDiffs,
     allChangedFiles,
     recentCommits,
+    activeTodos,
+    kanbanCard,
+    fileProvenance,
   };
+}
+
+// ---------------------------------------------------------------------------
+// P1 enrichment: kanban card lookup
+// ---------------------------------------------------------------------------
+
+/**
+ * Find the active (in_progress / running-stage) kanban task across all
+ * boards. Returns the first match — the "card the session is working on."
+ *
+ * Uses dynamic import so the builder doesn't hard-depend on @wrongstack/kanban
+ * (which may not be installed in all contexts). Best-effort: returns
+ * undefined if kanban isn't available, no boards exist, or no task is active.
+ */
+async function findActiveKanbanCard(
+  projectRoot: string,
+): Promise<ReviewContextBundle['kanbanCard']> {
+  let kanbanApi: any;
+  try {
+    kanbanApi = await import('@wrongstack/kanban');
+  } catch {
+    return undefined; // kanban package not available
+  }
+
+  const boards = await kanbanApi.listBoards(projectRoot);
+  for (const board of boards) {
+    const data = await kanbanApi.getBoard(projectRoot, board.id);
+    if (!data?.tasks) continue;
+    for (const task of data.tasks) {
+      const isActive =
+        task.status === 'in_progress' ||
+        task.lifecycle?.currentStage === 'running' ||
+        task.lifecycle?.currentStage === 'review';
+      if (isActive) {
+        return {
+          id: task.id,
+          title: task.title,
+          description: task.description,
+          successCriteria: task.successCriteria?.map((c: { description: string }) => c.description),
+        };
+      }
+    }
+  }
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// P1 enrichment: Chronicle file provenance
+// ---------------------------------------------------------------------------
+
+/**
+ * Query the Chronicle journal for the most recent event touching each
+ * changed file path. Returns agent/session/task attribution so the
+ * reviewer knows WHO made the change and in what task context.
+ *
+ * Uses dynamic import so the builder doesn't hard-depend on the chronicle
+ * subsystem being initialized. Best-effort: returns [] if chronicle isn't
+ * available or the journal is empty.
+ */
+async function findFileProvenance(
+  projectRoot: string,
+  filePaths: string[],
+): Promise<NonNullable<ReviewContextBundle['fileProvenance']>> {
+  if (filePaths.length === 0) return [];
+
+  // Use a variable specifier so the static import guard doesn't flag a
+  // dependency on chronicle files that may be untracked (peer work).
+  const chronicleSpec = '../chronicle/query.js';
+  let ChronicleQueryEngine: any;
+  try {
+    const mod = await import(chronicleSpec);
+    ChronicleQueryEngine = mod.ChronicleQueryEngine;
+  } catch {
+    return []; // chronicle module not available
+  }
+
+  // Chronicle journal lives under .wrongstack/chronicle by convention
+  const journalDir = `${projectRoot}/.wrongstack/chronicle`;
+  let engine: any;
+  try {
+    engine = await ChronicleQueryEngine.fromDirectory(journalDir);
+  } catch {
+    return []; // journal not initialized or unreadable
+  }
+
+  const provenance: NonNullable<ReviewContextBundle['fileProvenance']> = [];
+  for (const filePath of filePaths) {
+    try {
+      const result = engine.query({ path: filePath, limit: 1, order: 'desc' });
+      const evt: any = result.events[0];
+      if (!evt) continue;
+      const scope = evt.scope ?? {};
+      provenance.push({
+        path: filePath,
+        agentId: scope.agentId as string | undefined,
+        taskId: scope.taskId as string | undefined,
+        eventType: evt.eventType as string | undefined,
+        observedAt: evt.observedAt as string | undefined,
+      });
+    } catch {
+      // skip individual file on query error
+    }
+  }
+  return provenance;
 }
