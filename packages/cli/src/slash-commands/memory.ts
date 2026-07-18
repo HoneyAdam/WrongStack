@@ -27,7 +27,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
     name: 'memory',
     category: 'Inspect',
     description:
-      'Inspect or edit persistent memory: /memory [show|search|file|path|for-file|graph|remember|update|delete|forget|hygiene|verify|candidates|audit|import-legacy|clear|compact|stats|audience]',
+      'Inspect or edit persistent memory: /memory [show|search|file|path|for-file|graph|remember|update|delete|forget|hygiene|verify|candidates|audit|import-legacy|clear|compact|compact-log|stats|audience]',
     async run(args) {
       const store = opts.memoryStore;
       if (!store) return { message: 'No memory store configured.' };
@@ -250,6 +250,23 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         }
         case 'compact': {
           return runCompact(opts);
+        }
+        case 'compact-log': {
+          if (!isSuperMemoryStore(store)) return requiresSuperMemory('compact-log');
+          try {
+            const result = await store.compactLog();
+            if (result.beforeRecords === result.afterRecords) {
+              return { message: `🧹 Log already compact — ${result.uniqueIds} records, 0 duplicates removed.` };
+            }
+            const saved = result.beforeRecords - result.afterRecords;
+            return {
+              message:
+                `🧹 Log compacted: ${result.beforeRecords} → ${result.afterRecords} records (${saved} duplicates removed, ${result.uniqueIds} unique IDs).\n` +
+                `File size reduced. Audit-logged as \`memory.log_compacted\`.`,
+            };
+          } catch (err) {
+            return { message: `Compaction failed: ${toErrorMessage(err)}` };
+          }
         }
         case 'stats': {
           if (isSuperMemoryStore(store)) {
@@ -559,6 +576,7 @@ type CliSuperMemoryService = SuperMemoryServiceLike & {
   rememberSuper(input: import('@wrongstack/super-memory').RememberSuperMemoryInput): Promise<SuperMemory>;
   updateSuperMemory(id: string, patch: UpdateSuperMemoryInput): Promise<SuperMemory>;
   deleteSuperMemory(id: string, reason?: string): Promise<void>;
+  compactLog(): Promise<{ beforeRecords: number; afterRecords: number; uniqueIds: number }>;
   getSuperMemory(id: string): Promise<SuperMemory | null>;
   retrieveForAudience(context: { role?: string; taskType?: string; mode?: string }, limit?: number): Promise<SuperMemory[]>;
 };

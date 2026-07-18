@@ -1883,23 +1883,28 @@ export class SuperMemoryStore implements MemoryStore {
     await this.maybeCompactLog();
   }
 
-  /** Minimum record count before compaction is considered. */
+  /**
+   * Public compaction entry point for manual invocation (e.g. `/memory compact`).
+   * Unconditionally rewrites the log keeping only the latest record per ID.
+   * Returns before/after statistics. Safe to call even when the log is small
+   * or already compacted (no-op if no duplicates found).
+   */
+  async compactLog(): Promise<{ beforeRecords: number; afterRecords: number; uniqueIds: number }> {
+    return this.runMutation(async () => this.doCompactLog());
+  }
+
+  /** Minimum record count before automatic compaction is considered. */
   protected compactionMinRecords = 500;
   /** Compact when raw records / unique IDs exceeds this ratio. */
   protected compactionDuplicateRatio = 3;
 
   /**
-   * Rewrite the JSONL log keeping only the latest record per memory ID.
-   * Threshold-gated to avoid write amplification: compacts only when the
-   * raw record count exceeds the duplicate ratio × unique ID count AND
-   * the file has at least compactionMinRecords records. The rewrite is
-   * atomic (temp-file + rename) and runs inside the mutation lock, so no
-   * concurrent writers can interleave. Non-memory records are preserved.
+   * Internal threshold-gated compaction, called after every mutation.
+   * Only fires when duplicate ratio is high enough to justify the rewrite.
    */
   private async maybeCompactLog(): Promise<void> {
     const snapshot = await readJsonlSnapshot<SuperMemoryRecord>(this.paths.memoriesLog);
-    const allRecords = snapshot.values;
-    const memoryRecords = allRecords.filter(isMemoryRecord);
+    const memoryRecords = snapshot.values.filter(isMemoryRecord);
     const uniqueIds = new Set(memoryRecords.map((r) => r.memory.id));
 
     if (
@@ -1909,9 +1914,20 @@ export class SuperMemoryStore implements MemoryStore {
     ) {
       return;
     }
+    await this.doCompactLog();
+  }
 
-    // Deduplicate using the same logic as loadMemories: strict revision
-    // ascending, with non-deleted preferred on equal revisions.
+  /**
+   * Core compaction logic: deduplicate the JSONL log keeping only the latest
+   * record per memory ID. Uses the same revision + status-preference logic
+   * as loadMemories. Atomic temp-file + rename. Non-memory records preserved.
+   */
+  private async doCompactLog(): Promise<{ beforeRecords: number; afterRecords: number; uniqueIds: number }> {
+    const snapshot = await readJsonlSnapshot<SuperMemoryRecord>(this.paths.memoriesLog);
+    const allRecords = snapshot.values;
+    const memoryRecords = allRecords.filter(isMemoryRecord);
+    const uniqueIds = new Set(memoryRecords.map((r) => r.memory.id));
+
     const latest = new Map<string, SuperMemoryRecord>();
     for (const rec of memoryRecords) {
       const current = latest.get(rec.memory.id);
@@ -1924,13 +1940,11 @@ export class SuperMemoryStore implements MemoryStore {
       }
     }
 
-    // Preserve any non-memory records (future-proofing for mixed logs).
     const nonMemoryRecords = allRecords.filter((r) => !isMemoryRecord(r));
     const compacted = [...nonMemoryRecords, ...latest.values()];
     const lines = compacted.map((rec) => JSON.stringify(rec)).join('\n') + '\n';
     await atomicWrite(this.paths.memoriesLog, lines);
 
-    // Invalidate cache so the next read picks up the compacted file.
     this.loaded = undefined;
     this.loadedLogSignature = undefined;
 
@@ -1942,6 +1956,8 @@ export class SuperMemoryStore implements MemoryStore {
         nonMemoryRecords: nonMemoryRecords.length,
       },
     });
+
+    return { beforeRecords: memoryRecords.length, afterRecords: latest.size, uniqueIds: uniqueIds.size };
   }
 
   private async writeSnapshot(memories: SuperMemory[]): Promise<string> {
