@@ -36,12 +36,15 @@ iteration.completed
   → emit chimera.review_complete
   → plugin parses severity from report
   → if cascadeOn threshold crossed → emit chimera.cascade_needed
-  → Director spawns follow-up agents (security-scanner, bug-hunter)
+  → Director spawns fix agents (security-scanner, bug-hunter)
+  → agents APPLY FIXES (edit tool + typecheck/lint)
+  → if cascadeDepth < maxCascadeDepth → re-read files, re-emit review_needed
+  → ... repeats until clean OR depth limit reached
 ```
 
-## Cascade (follow-up agents)
+## Cascade (self-correcting follow-up agents)
 
-When `cascadeOn` is set to `"high"` or `"critical"`, a review report containing findings at or above that severity automatically triggers follow-up investigation agents:
+When `cascadeOn` is set to `"high"` or `"critical"`, a review report containing findings at or above that severity automatically triggers follow-up agents that **investigate and apply fixes** (not just report):
 
 | `cascadeOn` | Fires when | Agents spawned |
 |-------------|-----------|----------------|
@@ -51,7 +54,27 @@ When `cascadeOn` is set to `"high"` or `"critical"`, a review report containing 
 
 The plugin's `parseReviewSeverity()` extracts Critical/High/Medium counts from the report (matching `### Critical (N)` headers), then `shouldCascade()` gates on the threshold. `decideCascadeAgents()` scans the Critical and High sections for 20 security keywords (injection, xss, secret, shell, deserialization, innerhtml, path traversal, etc.) to decide whether the `security-scanner` agent should join `bug-hunter`.
 
-Follow-up agents receive the review report (capped at 12K chars) and the changed file list, then investigate and confirm or refute each finding. Results are appended to the session transcript.
+Follow-up agents receive the review report (capped at 12K chars) and the changed file list. They read the flagged files, confirm or refute each finding, **apply fixes using the edit tool**, and run typecheck/lint to verify. Results are appended to the session transcript.
+
+### Closed self-correcting loop
+
+After fix agents finish, the system re-reads the (now modified) files and re-emits `chimera.review_needed` to trigger a fresh review of the post-fix state. If that review still finds High+ findings, the cycle repeats. The loop is bounded by `maxCascadeDepth`:
+
+```
+fix agents apply fixes → re-read files → re-review (depth N+1)
+  → if still High+ and depth < maxCascadeDepth → cascade again
+  → if clean → loop ends naturally
+  → if depth >= maxCascadeDepth → stop with "manual review recommended" message
+```
+
+| `maxCascadeDepth` | Behavior |
+|-------------------|----------|
+| `0` | Fix agents run once, no re-review (open-loop) |
+| `1` | Fix agents run, one re-review to verify |
+| `2` (default) | Up to 2 re-review cycles |
+| `N` | Up to N re-review cycles |
+
+When the depth limit is reached, a session message informs the user the loop stopped intentionally — not because fixes converged.
 
 ## Configuration
 
@@ -67,6 +90,7 @@ Configuration is read from `extensions["wstack-auto-review"]`:
 | `maxFilesPerBatch` | number | 15 | Max files per review call |
 | `maxConcurrentReviews` | number | 2 | Parallel review subagent cap |
 | `cascadeOn` | "off" \| "critical" \| "high" | "off" | Follow-up agent threshold — spawns security-scanner/bug-hunter when findings cross this severity |
+| `maxCascadeDepth` | number | 2 | Max fix→re-review cycles (0 disables re-review; the self-correcting loop stops at this depth) |
 
 Example config:
 
@@ -79,7 +103,8 @@ Example config:
       "model": "deepseek-chat",
       "debounceMs": 5000,
       "maxFilesPerBatch": 15,
-      "cascadeOn": "high"
+      "cascadeOn": "high",
+      "maxCascadeDepth": 2
     }
   }
 }
