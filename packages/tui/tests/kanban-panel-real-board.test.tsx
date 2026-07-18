@@ -65,7 +65,9 @@ async function waitForFrame(
   }
 
   if (match === undefined) {
-    throw new Error(`Expected Ink frame was not rendered. Captured frames: ${JSON.stringify(frames)}`);
+    throw new Error(
+      `Expected Ink frame was not rendered. Captured frames: ${JSON.stringify(frames)}`,
+    );
   }
   return match;
 }
