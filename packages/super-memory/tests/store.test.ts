@@ -286,7 +286,7 @@ describe('Super Memory tool-call middleware', () => {
     });
 
     it('deleteSuperMemory soft-deletes by ID', async () => {
-      await store.deleteSuperMemory(memoryId);
+      await store.deleteSuperMemory(memoryId, 'test', { force: true });
 
       const deleted = await store.getSuperMemory(memoryId);
       expect(deleted).not.toBeNull();
@@ -298,7 +298,7 @@ describe('Super Memory tool-call middleware', () => {
     });
 
     it('keeps ordinary soft-deleted memory eligible for automatic LLM retrieval', async () => {
-      await store.deleteSuperMemory(memoryId, 'No longer shown as active');
+      await store.deleteSuperMemory(memoryId, 'No longer shown as active', { force: true });
       const matches = await store.searchSuper('pnpm monorepo');
       expect(matches).toEqual(expect.arrayContaining([
         expect.objectContaining({ id: memoryId, status: 'deleted', contextPolicy: 'eligible' }),
@@ -306,14 +306,14 @@ describe('Super Memory tool-call middleware', () => {
     });
 
     it('honors an explicit neverInject deletion as an absolute context ban', async () => {
-      await store.deleteSuperMemory(memoryId, 'Private; never send to a model', { neverInject: true });
+      await store.deleteSuperMemory(memoryId, 'Private; never send to a model', { force: true, neverInject: true });
       await expect(store.searchSuper('pnpm monorepo')).resolves.toEqual([]);
       const deleted = await store.getSuperMemory(memoryId);
       expect(deleted).toMatchObject({ status: 'deleted', contextPolicy: 'never' });
     });
 
     it('deleteSuperMemory is idempotent', async () => {
-      await store.deleteSuperMemory(memoryId);
+      await store.deleteSuperMemory(memoryId, 'test', { force: true });
       // Second call should not throw
       await expect(store.deleteSuperMemory(memoryId)).resolves.toBeUndefined();
     });
@@ -332,7 +332,7 @@ describe('Super Memory tool-call middleware', () => {
       // Make mem2 supersede the original
       await store.updateSuperMemory(mem2.id, { supersedes: [memoryId] });
       // Now delete the superseded memory
-      await store.deleteSuperMemory(memoryId);
+      await store.deleteSuperMemory(memoryId, 'test', { force: true });
 
       // mem2 should no longer reference the deleted memory
       const refreshed = await store.getSuperMemory(mem2.id);
@@ -347,7 +347,7 @@ describe('Super Memory tool-call middleware', () => {
       // Make mem2 contradict the original
       await store.updateSuperMemory(mem2.id, { contradicts: [memoryId] });
       // Now delete the contradicted memory
-      await store.deleteSuperMemory(memoryId);
+      await store.deleteSuperMemory(memoryId, 'test', { force: true });
 
       const refreshed = await store.getSuperMemory(mem2.id);
       expect(refreshed!.contradicts).not.toContain(memoryId);
@@ -366,7 +366,7 @@ describe('Super Memory tool-call middleware', () => {
       expect(original!.supersededBy).toBe(mem2.id);
 
       // Delete the superseding memory
-      await store.deleteSuperMemory(mem2.id);
+      await store.deleteSuperMemory(mem2.id, 'test', { force: true });
 
       // Original should no longer reference the deleted memory
       const refreshed = await store.getSuperMemory(memoryId);
@@ -385,7 +385,7 @@ describe('Super Memory tool-call middleware', () => {
       expect(beforeEdges.length).toBeGreaterThan(0);
 
       // Delete
-      await store.deleteSuperMemory(memWithAnchors.id);
+      await store.deleteSuperMemory(memWithAnchors.id, 'test', { force: true });
       // Verify edges are gone
       const afterEdges = await store.graphFor(memWithAnchors.id);
       expect(afterEdges.length).toBe(0);
@@ -403,7 +403,7 @@ describe('Super Memory tool-call middleware', () => {
       await store.updateSuperMemory(memC.id, { supersedes: [memA.id] });
 
       // Delete mA
-      await store.deleteSuperMemory(memA.id);
+      await store.deleteSuperMemory(memA.id, 'test', { force: true });
 
       // Both mB and mC should have the reference removed
       const refB = await store.getSuperMemory(memB.id);
@@ -420,7 +420,7 @@ describe('Super Memory tool-call middleware', () => {
       await store.updateSuperMemory(memB.id, { contradicts: [memA.id] });
       await store.updateSuperMemory(memC.id, { contradicts: [memA.id] });
 
-      await store.deleteSuperMemory(memA.id);
+      await store.deleteSuperMemory(memA.id, 'test', { force: true });
 
       const refB = await store.getSuperMemory(memB.id);
       const refC = await store.getSuperMemory(memC.id);
@@ -439,7 +439,7 @@ describe('Super Memory tool-call middleware', () => {
       expect(afterB!.supersededBy).toBe(memB.id);
 
       // Now delete memB
-      await store.deleteSuperMemory(memB.id);
+      await store.deleteSuperMemory(memB.id, 'test', { force: true });
 
       // mA should no longer reference memB
       const afterDeleteB = await store.getSuperMemory(memA.id);
@@ -460,7 +460,7 @@ describe('Super Memory tool-call middleware', () => {
       expect((await store.getSuperMemory(memB.id))!.supersededBy).toBe(memC.id);
 
       // Delete middle of chain (memB)
-      await store.deleteSuperMemory(memB.id);
+      await store.deleteSuperMemory(memB.id, 'test', { force: true });
 
       // C should no longer reference B
       const afterC = await store.getSuperMemory(memC.id);
@@ -478,7 +478,7 @@ describe('Super Memory tool-call middleware', () => {
       const memA = await store.rememberSuper({ text: 'Delete target', kind: 'fact', tags: ['a'] });
       const memB = await store.rememberSuper({ text: 'Unrelated fact', kind: 'fact', tags: ['b'] });
 
-      await store.deleteSuperMemory(memA.id);
+      await store.deleteSuperMemory(memA.id, 'test', { force: true });
 
       // memB should be untouched
       const refB = await store.getSuperMemory(memB.id);
@@ -500,7 +500,7 @@ describe('Super Memory tool-call middleware', () => {
       });
 
       // Delete memB
-      await store.deleteSuperMemory(memB.id);
+      await store.deleteSuperMemory(memB.id, 'test', { force: true });
 
       // memA should have both references cleaned
       const afterA = await store.getSuperMemory(memA.id);
@@ -523,7 +523,7 @@ describe('Super Memory tool-call middleware', () => {
       expect(beforeEdges.length).toBeGreaterThanOrEqual(3);
 
       // Delete
-      await store.deleteSuperMemory(mem.id);
+      await store.deleteSuperMemory(mem.id, 'test', { force: true });
 
       // All edges should be gone
       const afterEdges = await store.graphFor(mem.id);

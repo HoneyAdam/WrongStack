@@ -2,7 +2,10 @@ import type { MemoryScope, MemoryStore, Tool } from '@wrongstack/core';
 import type {
   MemoryAnchor,
   MemoryAudienceSelector,
+  CandidateDecision,
+  CreateCandidateInput,
   MemoryCandidate,
+  MemoryCandidateResolution,
   MemoryGraphEdge,
   MemoryVerificationResult,
   RememberSuperMemoryInput,
@@ -46,6 +49,8 @@ export interface SuperMemoryServiceLike extends MemoryStore {
   verify(memoryId?: string, signal?: AbortSignal): Promise<MemoryVerificationResult[]>;
   hygiene(options?: SuperMemoryHygieneOptions, signal?: AbortSignal): Promise<SuperMemoryHygieneReport>;
   listCandidates(includeResolved?: boolean): Promise<MemoryCandidate[]>;
+  createCandidate(input: CreateCandidateInput): Promise<MemoryCandidate>;
+  resolveCandidate(candidateId: string, decision: CandidateDecision, reason?: string): Promise<MemoryCandidateResolution | undefined>;
   acceptCandidate(candidateId: string): Promise<SuperMemory | undefined>;
   rejectCandidate(candidateId: string, reason: string): Promise<boolean>;
   rememberSuper(input: RememberSuperMemoryInput): Promise<SuperMemory>;
@@ -271,12 +276,13 @@ function memoryDeleteTool(memory: SuperMemoryServiceLike): Tool<{ id: string; re
   return {
     name: 'memory_delete',
     category: 'Session',
-    description: 'Delete one Super Memory entry by id (soft-delete with graph/relationship cascade cleanup).',
+    description: 'Delete one Super Memory entry by id (soft-delete with graph/relationship cascade cleanup). Requires force: true — all deletions are audited and need explicit authorization.',
     usageHint:
       'Exact, single-entry removal by id — safer than substring `forget`.\n' +
       '- Find the id via `memory_search`. Provide a short `reason` for the audit log.\n' +
+      '- **`force: true` is required for ALL deletions** — this prevents autonomous agents from removing memories without explicit authorization. The override is recorded in the audit log.\n' +
       '- Normal deletion keeps historical evidence eligible for relevant LLM context. Set `neverInject: true` only for an explicit privacy/safety ban.\n' +
-      '- Memories marked `permanent` are refused unless `force: true` is passed; the override is recorded in the audit log.',
+      '- For non-destructive review, use `memory_candidates({ action: "propose" })` instead — the user can then resolve via `memory_candidates({ action: "resolve" })`.',
     permission: 'confirm',
     mutating: true,
     riskTier: 'standard',
@@ -286,18 +292,19 @@ function memoryDeleteTool(memory: SuperMemoryServiceLike): Tool<{ id: string; re
     inputSchema: objectSchema({
       id: { type: 'string', minLength: 1, description: 'The memory id to delete.' },
       reason: stringSchema('Reason recorded in the audit log.'),
-      force: { type: 'boolean', description: 'Required to delete memories marked `permanent`. The override is audited.' },
+      force: { type: 'boolean', description: 'Required for ALL deletions — authorizes the removal and is recorded in the audit log.' },
       neverInject: { type: 'boolean', description: 'Absolute privacy/safety ban: this memory must never enter LLM context. Normal deletion remains context-eligible historical evidence.' },
-    }, ['id']),
+    }, ['id', 'force']),
+    validate(input) {
+      if (!input.id) return ['id is required'];
+      if (input.force !== true) {
+        return ['force: true is required to delete any memory. This prevents accidental or autonomous deletions. Pass force: true to authorize; the override is audit-logged. For non-destructive review, use memory_candidates({ action: "propose" }) instead.'];
+      }
+      return [];
+    },
     async execute(input, _ctx, opts) {
       opts.signal.throwIfAborted();
-      // Only forward `force` when it's truthy — keeps the call signature
-      // backward-compatible for callers/tests that match on positional args.
-      if (input.force === true || input.neverInject === true) {
-        await memory.deleteSuperMemory(input.id, input.reason, { ...(input.force === true ? { force: true } : {}), ...(input.neverInject === true ? { neverInject: true } : {}) });
-      } else {
-        await memory.deleteSuperMemory(input.id, input.reason);
-      }
+      await memory.deleteSuperMemory(input.id, input.reason, { force: true, ...(input.neverInject === true ? { neverInject: true } : {}) });
       return { deleted: true, id: input.id };
     },
   };
@@ -611,20 +618,38 @@ function memoryHygieneTool(memory: SuperMemoryServiceLike): Tool<SuperMemoryHygi
 }
 
 function memoryCandidatesTool(memory: SuperMemoryServiceLike): Tool<{
-  action?: 'list' | 'accept' | 'reject';
+  action?: 'list' | 'accept' | 'reject' | 'propose' | 'resolve';
   candidate_id?: string;
   reason?: string;
   include_resolved?: boolean;
-}, MemoryCandidate[] | SuperMemory | { rejected: boolean } | undefined> {
+  text?: string;
+  kind?: SuperMemoryKind;
+  scope?: SuperMemoryScope;
+  tags?: string[];
+  importance?: number;
+  confidence?: number;
+  suggested_action?: 'delete' | 'archive' | 'investigate';
+  memory_id?: string;
+  decision?: CandidateDecision;
+}, MemoryCandidate[] | MemoryCandidate | MemoryCandidateResolution | SuperMemory | { rejected: boolean } | undefined> {
   return {
     name: 'memory_candidates',
     category: 'Session',
-    description: 'List, accept, or reject memory candidates produced by session consolidation.',
+    description: 'List, accept, reject, propose, or resolve memory candidates. Proposing files a non-destructive review suggestion into the ReviewQueue; resolving applies the review decision (delete/archive/keep) to the proposal\'s TARGET memory — the preferred decision path over raw memory_delete calls.',
     inputSchema: objectSchema({
-      action: { type: 'string', enum: ['list', 'accept', 'reject'] },
-      candidate_id: stringSchema('Required for accept or reject.'),
-      reason: stringSchema('Reason for rejection.'),
+      action: { type: 'string', enum: ['list', 'accept', 'reject', 'propose', 'resolve'] },
+      candidate_id: stringSchema('Required for accept, reject, or resolve.'),
+      reason: stringSchema('Reason for rejection, the review reason for propose, or the resolution note for resolve.'),
       include_resolved: { type: 'boolean' },
+      text: stringSchema('Candidate text (required for propose).'),
+      kind: enumSchema(KIND_VALUES, 'Memory kind for propose.'),
+      scope: enumSchema(SCOPE_VALUES, 'Scope for propose.'),
+      tags: stringArraySchema('Extra tags for propose.'),
+      importance: numberSchema(0, 1),
+      confidence: numberSchema(0, 1),
+      suggested_action: { type: 'string', enum: ['delete', 'archive', 'investigate'], description: 'Review action suggested for propose.' },
+      memory_id: stringSchema('Id of the memory this proposal targets (propose).'),
+      decision: { type: 'string', enum: ['delete', 'archive', 'keep'], description: 'Review decision to apply to the target memory (required for resolve).' },
     }),
     permission: 'confirm',
     mutating: true,
@@ -635,12 +660,42 @@ function memoryCandidatesTool(memory: SuperMemoryServiceLike): Tool<{
       if ((input.action === 'accept' || input.action === 'reject') && !input.candidate_id) {
         return ['candidate_id is required for accept or reject'];
       }
+      if (input.action === 'resolve') {
+        if (!input.candidate_id) return ['candidate_id is required for resolve'];
+        if (!input.decision) return ['decision is required for resolve (delete|archive|keep)'];
+      }
+      if (input.action === 'propose' && !input.text?.trim()) {
+        return ['text is required for propose'];
+      }
       return [];
     },
     async execute(input, _ctx, opts) {
       opts.signal.throwIfAborted();
       if (input.action === 'accept') return memory.acceptCandidate(input.candidate_id!);
       if (input.action === 'reject') return { rejected: await memory.rejectCandidate(input.candidate_id!, input.reason ?? 'Rejected by user or agent.') };
+      if (input.action === 'resolve') {
+        return memory.resolveCandidate(input.candidate_id!, input.decision!, input.reason);
+      }
+      if (input.action === 'propose') {
+        // Review metadata rides on tags — the same convention hygiene uses,
+        // so the ReviewQueue renders agent proposals like hygiene proposals.
+        const tags = [
+          ...(input.tags ?? []),
+          ...(input.reason ? [`review:${input.reason}`] : []),
+          ...(input.suggested_action ? [`suggested:${input.suggested_action}`] : []),
+          ...(input.memory_id ? [`source:${input.memory_id}`] : []),
+        ];
+        return memory.createCandidate({
+          text: input.text!,
+          ...(input.kind ? { kind: input.kind } : {}),
+          ...(input.scope ? { scope: input.scope } : {}),
+          tags,
+          ...(input.importance !== undefined ? { importance: input.importance } : {}),
+          ...(input.confidence !== undefined ? { confidence: input.confidence } : {}),
+          ...(input.memory_id ? { targetMemoryId: input.memory_id } : {}),
+          ...(input.reason ? { reviewReason: input.reason } : {}),
+        });
+      }
       return memory.listCandidates(input.include_resolved ?? false);
     },
   };

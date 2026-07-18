@@ -436,4 +436,111 @@ describe('SqliteSuperMemoryStore', () => {
       expect(() => store.close()).not.toThrow();
     });
   });
+
+  describe('createCandidate', () => {
+    it('creates a pending candidate', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      const candidate = await store.createCandidate({
+        text: 'Proposed convention',
+        kind: 'convention',
+        scope: 'project',
+      });
+      expect(candidate.status).toBe('pending');
+      expect(candidate.text).toBe('Proposed convention');
+      const listed = await store.listCandidates();
+      expect(listed).toHaveLength(1);
+      expect(listed[0]?.id).toBe(candidate.id);
+    });
+
+    it('rejects a candidate whose text looks like a secret (High security fix)', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      // Construct a PEM private-key marker from parts so no literal credential
+      // is committed. looksLikeSecret matches the `-----BEGIN ... PRIVATE KEY-----`
+      // signature, and the marker is a structural format token (not a secret
+      // value), so it is safe to assemble at runtime in a test fixture.
+      const pemHeader = ['-----BEGIN', 'OPENSSH', 'PRIVATE', 'KEY-----'].join(' ');
+      await expect(
+        store.createCandidate({
+          text: `Leaked key material: ${pemHeader}`,
+          kind: 'fact',
+        }),
+      ).rejects.toThrow(/secret or credential/i);
+      // Nothing should have been persisted.
+      expect(await store.listCandidates()).toHaveLength(0);
+    });
+
+    it('rejects a candidate whose anchor embeds a credential (guard scans all fields)', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      // The guard must scan anchor fields too, not just top-level text.
+      const pemHeader = ['-----BEGIN', 'EC', 'PRIVATE', 'KEY-----'].join(' ');
+      await expect(
+        store.createCandidate({
+          text: 'Harmless text',
+          kind: 'fact',
+          anchors: [
+            { type: 'command', command: `cat id_ecdsa: ${pemHeader}` },
+          ],
+        }),
+      ).rejects.toThrow(/secret or credential/i);
+      expect(await store.listCandidates()).toHaveLength(0);
+    });
+
+    it('deduplicates only against pending candidates, not resolved ones (Medium lifecycle fix)', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      const first = await store.createCandidate({
+        text: 'Reusable fact',
+        kind: 'fact',
+        scope: 'project',
+      });
+      // Resubmitting while pending returns the same candidate (dedup).
+      const dup = await store.createCandidate({
+        text: 'Reusable fact',
+        kind: 'fact',
+        scope: 'project',
+      });
+      expect(dup.id).toBe(first.id);
+      expect(await store.listCandidates()).toHaveLength(1);
+
+      // Resolve the candidate (rejected), then resubmit — a NEW pending
+      // candidate must be allowed, since resolved proposals should not
+      // permanently block re-submission.
+      await store.rejectCandidate(first.id, 'no longer relevant');
+      const resubmitted = await store.createCandidate({
+        text: 'Reusable fact',
+        kind: 'fact',
+        scope: 'project',
+      });
+      expect(resubmitted.id).not.toBe(first.id);
+      expect(resubmitted.status).toBe('pending');
+    });
+
+    it('serializes concurrent proposals for the same text under runMutation (Medium race fix)', async () => {
+      // Two stores sharing the same backing db issue identical proposals
+      // concurrently. Without runMutation serialization both could observe
+      // no duplicate and insert distinct candidates. After the fix, the
+      // mutation chain + file lock must collapse them to a single candidate.
+      const storeA = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      const storeB = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await storeA.initialize();
+      await storeB.initialize();
+
+      const [a, b] = await Promise.all([
+        storeA.createCandidate({ text: 'Concurrent proposal', kind: 'fact', scope: 'project' }),
+        storeB.createCandidate({ text: 'Concurrent proposal', kind: 'fact', scope: 'project' }),
+      ]);
+      // Either the two calls returned the same candidate (one inserted, one
+      // observed it via dedup), or one of them is the stored pending row and
+      // the other equals it. The invariant: exactly ONE pending candidate for
+      // that text exists in the store.
+      const pending = (await storeA.listCandidates()).filter(
+        (c) => c.status === 'pending' && c.text === 'Concurrent proposal',
+      );
+      expect(pending).toHaveLength(1);
+      expect([a.id, b.id]).toContain(pending[0]?.id);
+    });
+  });
 });

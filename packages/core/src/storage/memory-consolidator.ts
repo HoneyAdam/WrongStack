@@ -12,11 +12,17 @@ import {
 // ── Types ───────────────────────────────────────────────────────────────
 
 export interface ConsolidationOp {
-  action: 'add' | 'edit' | 'delete';
-  /** For add: the fact to remember. For edit: the new text replacing the old. */
+  /**
+   * Add-only by design. The consolidator runs unattended after every
+   * successful session, so LLM-issued delete/edit ops used to give an
+   * unsupervised model a substring-matched deletion path over the whole
+   * memory store (see the 2026-07 mass-deletion postmortem). Removals and
+   * corrections belong to explicit review flows (memory_delete /
+   * memory_update / ReviewQueue), never to this hook.
+   */
+  action: 'add';
+  /** The fact to remember. */
   text?: string | undefined;
-  /** For edit/delete: the query to match existing entries. */
-  query?: string | undefined;
   /** Memory type for categorization. */
   type?: string | undefined;
   /** Tags for grouping. */
@@ -78,78 +84,6 @@ function buildConsolidationPrompt(
     summary: finalText.slice(0, 3000),
     existingEntries: existingBlock,
   });
-}
-
-// ── Super Memory backend (optional safe-delete path) ───────────────────
-//
-// The consolidator holds a `MemoryStore`, but the safe delete path
-// (`deleteSuperMemory`) lives on the Super Memory store only. When the
-// backend is a Super Memory store, we route LLM-issued delete/edit ops
-// through `deleteSuperMemory(id, reason)` so that:
-//   1. `persistence:'permanent'` memories are protected (throws without
-//      `force:true` — we catch and skip),
-//   2. graph edges and cross-memory references are cascaded cleanly,
-//   3. the LLM's query is audit-logged as the deletion reason.
-// When the backend is not a Super Memory store, we fall back to the legacy
-// `forget(query)` path.
-
-interface SuperMemoryDeletionBackend {
-  deleteSuperMemory(id: string, reason?: string, options?: { force?: boolean }): Promise<void>;
-  listSuper(statuses?: string[]): Promise<Array<{
-    id: string;
-    text: string;
-    scope: string;
-    legacyScope?: string | undefined;
-    status: string;
-    tags?: string[];
-    anchors?: Array<{ path?: string | undefined }>;
-  }>>;
-}
-
-function resolveDeletionBackend(store: MemoryStore): SuperMemoryDeletionBackend | undefined {
-  const backend = store.getBackend?.();
-  if (!backend || typeof backend !== 'object') return undefined;
-  const candidate = backend as Record<string, unknown>;
-  if (typeof candidate.deleteSuperMemory !== 'function') return undefined;
-  if (typeof candidate.listSuper !== 'function') return undefined;
-  return candidate as unknown as SuperMemoryDeletionBackend;
-}
-
-/**
- * Resolve a substring `query` to concrete memory IDs and delete each via
- * the safe `deleteSuperMemory` path. Matches the store's own
- * `matchesForget` logic (text / id / tag / anchor-path). Permanent
- * memories throw inside `deleteSuperMemory` — we catch and skip them so
- * a broad LLM query can never silently remove a protected entry.
- * Returns the number of memories actually deleted.
- */
-async function deleteByQueryViaBackend(
-  backend: SuperMemoryDeletionBackend,
-  query: string,
-  reason: string,
-): Promise<number> {
-  const memories = await backend.listSuper(['active', 'stale']);
-  const needle = query.toLowerCase();
-  const matches = memories.filter((m) => {
-    const legacyScope = m.legacyScope ?? m.scope;
-    if (legacyScope !== 'project' && legacyScope !== 'project-memory') return false;
-    return (
-      m.id === query
-      || m.text.toLowerCase().includes(needle)
-      || (m.tags?.some((t) => t.toLowerCase() === needle) ?? false)
-      || (m.anchors?.some((a) => a.path?.toLowerCase().includes(needle)) ?? false)
-    );
-  });
-  let deleted = 0;
-  for (const m of matches) {
-    try {
-      await backend.deleteSuperMemory(m.id, reason);
-      deleted++;
-    } catch {
-      // Permanent memories throw without force:true — skip them.
-    }
-  }
-  return deleted;
 }
 
 // ── Consolidator ────────────────────────────────────────────────────────
@@ -241,64 +175,24 @@ export class SessionMemoryConsolidator implements AgentExtension {
         const parsed: ConsolidationResponse = JSON.parse(jsonMatch[0]);
         if (!Array.isArray(parsed.operations) || parsed.operations.length === 0) return;
 
-        // Apply operations
+        // Apply operations (add-only: anything else the model emits is ignored)
         let added = 0;
-        let edited = 0;
-        let deleted = 0;
 
         for (const op of parsed.operations) {
-          switch (op.action) {
-            case 'add': {
-              if (op.text?.trim()) {
-                await this.memoryStore.remember(op.text.trim(), undefined, {
-                  type: op.type as MemoryEntry['type'],
-                  tags: op.tags,
-                  priority: op.priority as MemoryEntry['priority'],
-                });
-                added++;
-              }
-              break;
-            }
-            case 'edit': {
-              if (op.query && op.text?.trim()) {
-                const reason = `memory-consolidator edit: "${op.query}"`;
-                const backend = resolveDeletionBackend(this.memoryStore);
-                if (backend) {
-                  await deleteByQueryViaBackend(backend, op.query, reason);
-                } else {
-                  await this.memoryStore.forget(op.query);
-                }
-                await this.memoryStore.remember(op.text.trim(), undefined, {
-                  type: op.type as MemoryEntry['type'],
-                  tags: op.tags,
-                  priority: op.priority as MemoryEntry['priority'],
-                });
-                edited++;
-              }
-              break;
-            }
-            case 'delete': {
-              if (op.query) {
-                const reason = `memory-consolidator delete: "${op.query}"`;
-                const backend = resolveDeletionBackend(this.memoryStore);
-                if (backend) {
-                  deleted += await deleteByQueryViaBackend(backend, op.query, reason);
-                } else {
-                  deleted += await this.memoryStore.forget(op.query);
-                }
-              }
-              break;
-            }
+          if (op.action !== 'add') continue;
+          if (op.text?.trim()) {
+            await this.memoryStore.remember(op.text.trim(), undefined, {
+              type: op.type as MemoryEntry['type'],
+              tags: op.tags,
+              priority: op.priority as MemoryEntry['priority'],
+            });
+            added++;
           }
         }
 
-        if (added > 0 || edited > 0 || deleted > 0) {
-          const parts: string[] = [];
-          if (added) parts.push(`${added} added`);
-          if (edited) parts.push(`${edited} edited`);
-          if (deleted) parts.push(`${deleted} deleted`);
+        if (added > 0) {
           // Log to stderr so it surfaces in the terminal
-          process.stderr.write(`[memory] Session consolidation: ${parts.join(', ')}\n`);
+          process.stderr.write(`[memory] Session consolidation: ${added} added\n`);
         }
       } catch {
         // Silent — memory consolidation is best-effort, never blocks session cleanup

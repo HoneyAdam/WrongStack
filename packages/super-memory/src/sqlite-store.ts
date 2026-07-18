@@ -22,10 +22,13 @@ import { ensureDir } from '@wrongstack/core/utils';
 import { readJsonl } from './jsonl.js';
 import { normalizeTextKey } from './middleware/turn-memory.js';
 import type {
+  CandidateDecision,
+  CreateCandidateInput,
   LegacyImportResult,
   MemoryAnchor,
   MemoryAudienceContext,
   MemoryCandidate,
+  MemoryCandidateResolution,
   MemoryGraphEdge,
   MemoryGraphRelation,
   RememberSuperMemoryInput,
@@ -45,6 +48,8 @@ import type {
 import { SUPER_MEMORY_SCHEMA_VERSION } from './types.js';
 import { resolveSuperMemoryPaths } from './paths.js';
 import {
+  collectStringValues,
+  looksLikeSecret,
   normalizeAnchors,
   normalizeAudience,
   normalizeSources,
@@ -770,6 +775,20 @@ export class SqliteSuperMemoryStore {
       .run(event, this.nowIso(), this.traceId ?? null, data ? JSON.stringify(data) : null);
   }
 
+  /**
+   * Reject input that looks like a secret or credential. Mirrors
+   * `SuperMemoryStore.rejectIfUnsafeInput` so candidate proposals filed through
+   * the SQLite store are subject to the same unsafe-content guard before they
+   * reach the ReviewQueue.
+   */
+  private rejectIfUnsafeInput(input: Omit<RememberSuperMemoryInput, 'legacyScope' | 'priority' | 'type'>): void {
+    for (const value of collectStringValues(input)) {
+      if (looksLikeSecret(value)) {
+        throw new Error('Super Memory refused to store text that looks like a secret or credential.');
+      }
+    }
+  }
+
   // ─── Hygiene ────────────────────────────────────────────────────────
 
   async hygiene(opts?: SuperMemoryHygieneOptions): Promise<SuperMemoryHygieneReport> {
@@ -862,12 +881,16 @@ export class SqliteSuperMemoryStore {
     const unusedMs = (opts?.archiveUnusedAfterDays ?? 30) * 86_400_000;
     const unusedMinInjections = Math.max(1, Math.floor(opts?.unusedMinInjections ?? 10));
 
-    // Load existing pending candidates so we can de-dup within this run
+    // Load existing pending candidates so we can de-dup within this run.
+    // Uses `targetMemoryId` (the proposal-linkage field), NOT `memoryId`
+    // (which is the resolution-result field and is undefined for pending
+    // hygiene-created candidates — the rename from memoryId→targetMemoryId
+    // moved the link, so this reader had to move with it).
     const existingCandidates = await this.listCandidates();
     const existingPendingKeys = new Set(
       existingCandidates
         .filter((c) => c.status === 'pending')
-        .map((c) => c.memoryId ?? ''),
+        .map((c) => c.targetMemoryId ?? ''),
     );
     const candidateEmittedFor = new Set<string>();
 
@@ -915,7 +938,7 @@ export class SqliteSuperMemoryStore {
         await this.addCandidate({
           id: ulid(),
           schemaVersion: 1,
-          memoryId: m.id,
+          targetMemoryId: m.id,
           text: m.text,
           kind: 'memory_review',
           status: 'pending',
@@ -966,12 +989,261 @@ export class SqliteSuperMemoryStore {
       .run(candidate.id, JSON.stringify(candidate), candidate.status, candidate.createdAt, candidate.updatedAt);
   }
 
-  async listCandidates(): Promise<MemoryCandidate[]> {
+  /**
+   * Public proposal channel — mirrors `SuperMemoryStore.createCandidate`.
+   * Lets agents (e.g. the Mnemosyne custodian) file review proposals into
+   * the ReviewQueue instead of applying destructive changes directly.
+   */
+  async createCandidate(
+    input: CreateCandidateInput,
+  ): Promise<MemoryCandidate> {
+    validateRememberInput(input);
+    // Reject secrets/credentials before any store operation. Mirrors
+    // SuperMemoryStore.rejectIfUnsafeInput so candidate proposals filed
+    // through the SQLite store are subject to the same unsafe-content guard
+    // before they reach the ReviewQueue.
+    this.rejectIfUnsafeInput(input);
     await this.initialize();
-    const rows = this.db
-      .prepare('SELECT data FROM candidates ORDER BY created_at DESC')
-      .all() as Array<{ data: string }>;
+    const text = normalizeText(input.text);
+    if (!text) throw new Error('Super Memory candidate text must not be empty.');
+    const scope = input.scope ?? 'project';
+    const key = normalizeTextKey(text);
+    // Check+insert under runMutation to prevent race conditions.
+    // Dedup is scoped to `pending` candidates only so accepted/rejected
+    // proposals don't permanently block re-submission.
+    // Uses synchronous SQL directly so runMutation's () => T contract is satisfied.
+    return this.runMutation(() => {
+      const rows = this.db
+        .prepare("SELECT data FROM candidates WHERE status = 'pending' ORDER BY created_at DESC")
+        .all() as Array<{ data: string }>;
+      const existing = rows.map((r) => JSON.parse(r.data) as MemoryCandidate);
+      const duplicate = existing.find(
+        (candidate) => candidate.scope === scope && normalizeTextKey(candidate.text) === key,
+      );
+      if (duplicate) return duplicate;
+      const now = this.nowIso();
+      const audience = normalizeAudience(input.audience);
+      const candidate: MemoryCandidate = {
+        schemaVersion: SUPER_MEMORY_SCHEMA_VERSION,
+        id: `candidate_${ulid()}`,
+        status: 'pending',
+        text,
+        kind: input.kind ?? 'fact',
+        scope,
+        confidence: clamp01(input.confidence ?? 0.6),
+        importance: clamp01(input.importance ?? 0.6),
+        tags: normalizeTags(input.tags),
+        anchors: normalizeAnchors(this.projectRoot, input.anchors ?? []),
+        ...(audience ? { audience } : {}),
+        sources: normalizeSources(input.sources ?? [{ type: 'session' }]),
+        createdAt: now,
+        updatedAt: now,
+        ...(input.targetMemoryId ? { targetMemoryId: input.targetMemoryId } : {}),
+        ...(input.reviewReason ? { reviewReason: input.reviewReason } : {}),
+      };
+      this.db
+        .prepare(
+          'INSERT OR REPLACE INTO candidates (id, data, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+        )
+        .run(candidate.id, JSON.stringify(candidate), candidate.status, candidate.createdAt, candidate.updatedAt);
+      this.audit('memory.candidate_created', { details: { candidateId: candidate.id } });
+      return candidate;
+    });
+  }
+
+  async listCandidates(includeResolved = false): Promise<MemoryCandidate[]> {
+    await this.initialize();
+    // Mirror SuperMemoryStore.listCandidates: default to pending-only so the
+    // ReviewQueue listing (and dedup lookups) exclude accepted/rejected rows.
+    // `includeResolved = true` returns the full history for audit/diagnostics.
+    const sql = includeResolved
+      ? 'SELECT data FROM candidates ORDER BY updated_at DESC'
+      : "SELECT data FROM candidates WHERE status = 'pending' ORDER BY updated_at DESC";
+    const rows = this.db.prepare(sql).all() as Array<{ data: string }>;
     return rows.map((r) => JSON.parse(r.data) as MemoryCandidate);
+  }
+
+  /**
+   * Accept a pending candidate by persisting its text as a memory and marking
+   * the candidate `accepted`. Mirrors `SuperMemoryStore.acceptCandidate`.
+   *
+   * `rememberSuper` acquires the same `store-mutation` file lock as
+   * `runMutation`, so the memory creation must happen OUTSIDE the candidate
+   * status mutation to avoid a re-entrant deadlock. The candidate is read
+   * under the lock, the memory is created, then the status update re-acquires
+   * the lock — the same shape as the canonical store, which uses a separate
+   * candidates lock file.
+   */
+  async acceptCandidate(candidateId: string): Promise<SuperMemory | undefined> {
+    await this.initialize();
+    // Read candidate snapshot under the lock, restricted to `pending` so an
+    // already-accepted/rejected candidate cannot be re-resolved (one-way
+    // lifecycle transition). Mirrors SuperMemoryStore's pending-only find.
+    const snapshot = this.runMutation(() => {
+      const row = this.db
+        .prepare("SELECT data FROM candidates WHERE id = ? AND status = 'pending'")
+        .get(candidateId) as { data: string } | undefined;
+      if (!row) return undefined;
+      return JSON.parse(row.data) as MemoryCandidate;
+    });
+    const candidate = await snapshot;
+    if (!candidate) return undefined;
+    // Create the memory outside the candidate lock to avoid re-entrant
+    // lock acquisition on the same file lock.
+    const memory = await this.rememberSuper({
+      text: candidate.text,
+      kind: candidate.kind,
+      scope: candidate.scope,
+      confidence: candidate.confidence,
+      importance: candidate.importance,
+      tags: candidate.tags,
+      anchors: candidate.anchors,
+      audience: candidate.audience,
+      sources: candidate.sources,
+    });
+    // Mark the candidate accepted under the lock. The `status = 'pending'`
+    // condition makes the transition atomic and idempotent: a candidate
+    // resolved by a concurrent caller (or already resolved) is left
+    // untouched, so the one-way lifecycle cannot be overwritten or applied
+    // twice. The memory is still returned because it was legitimately
+    // created; only the redundant candidate re-write is skipped.
+    await this.runMutation(() => {
+      const row = this.db
+        .prepare("SELECT data FROM candidates WHERE id = ? AND status = 'pending'")
+        .get(candidateId) as { data: string } | undefined;
+      if (!row) return;
+      const current = JSON.parse(row.data) as MemoryCandidate;
+      const updated: MemoryCandidate = {
+        ...current,
+        status: 'accepted',
+        memoryId: memory.id,
+        updatedAt: this.nowIso(),
+      };
+      this.db
+        .prepare(
+          'INSERT OR REPLACE INTO candidates (id, data, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+        )
+        .run(updated.id, JSON.stringify(updated), updated.status, updated.createdAt, updated.updatedAt);
+      this.audit('memory.candidate_accepted', { memoryId: memory.id, details: { candidateId } });
+    });
+    return memory;
+  }
+
+  /**
+   * Reject a pending candidate, recording the reason. Mirrors
+   * `SuperMemoryStore.rejectCandidate`. Runs under the mutation lock so the
+   * status transition is atomic with the audit log.
+   */
+  async rejectCandidate(candidateId: string, reason: string): Promise<boolean> {
+    await this.initialize();
+    return this.runMutation(() => {
+      // Restrict to `pending` so a resolved candidate cannot be re-resolved
+      // (one-way lifecycle). Mirrors SuperMemoryStore's pending-only find.
+      const row = this.db
+        .prepare("SELECT data FROM candidates WHERE id = ? AND status = 'pending'")
+        .get(candidateId) as { data: string } | undefined;
+      if (!row) return false;
+      const candidate = JSON.parse(row.data) as MemoryCandidate;
+      const updated: MemoryCandidate = {
+        ...candidate,
+        status: 'rejected',
+        reason: normalizeText(reason),
+        updatedAt: this.nowIso(),
+      };
+      this.db
+        .prepare(
+          'INSERT OR REPLACE INTO candidates (id, data, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+        )
+        .run(updated.id, JSON.stringify(updated), updated.status, updated.createdAt, updated.updatedAt);
+      this.audit('memory.candidate_rejected', { reason, details: { candidateId } });
+      return true;
+    });
+  }
+
+  /**
+   * The redesign contract's decision path (`memory_candidate_resolve`).
+   * Applies the review decision to the candidate's TARGET memory and marks
+   * the candidate resolved. Mirrors `SuperMemoryStore.resolveCandidate`:
+   * `delete` soft-deletes via `updateSuper(status:'deleted')` (audit-preserving
+   * — never the hard `deleteSuper` row removal); `archive` sets
+   * `status:'archived'`; `keep` leaves the memory untouched and dismisses the
+   * proposal. Permanent targets are never deleted (`applied: false`).
+   * Memory mutations happen OUTSIDE the candidate mutation lock (both use the
+   * same store-mutation lock — see acceptCandidate's note).
+   */
+  async resolveCandidate(
+    candidateId: string,
+    decision: CandidateDecision,
+    reason?: string,
+  ): Promise<MemoryCandidateResolution | undefined> {
+    await this.initialize();
+    const snapshot = await this.runMutation(() => {
+      const row = this.db
+        .prepare("SELECT data FROM candidates WHERE id = ? AND status = 'pending'")
+        .get(candidateId) as { data: string } | undefined;
+      return row ? (JSON.parse(row.data) as MemoryCandidate) : undefined;
+    });
+    if (!snapshot) {
+      // Unknown id → undefined; already-resolved → alreadyResolved marker.
+      const any = await this.runMutation(() => {
+        const row = this.db.prepare('SELECT data FROM candidates WHERE id = ?').get(candidateId) as
+          | { data: string }
+          | undefined;
+        return row ? (JSON.parse(row.data) as MemoryCandidate) : undefined;
+      });
+      if (!any) return undefined;
+      return { candidateId, decision, applied: false, alreadyResolved: true };
+    }
+    const targetId = snapshot.targetMemoryId
+      ?? snapshot.tags.find((tag) => tag.startsWith('source:'))?.slice('source:'.length);
+    const resolutionNote = reason ?? (decision === 'keep' ? 'Reviewed: keep' : `Reviewed: ${decision}`);
+    // Atomic claim: only the caller that flips pending → terminal state owns
+    // this resolution. Interleaved decisions see `alreadyResolved` instead of
+    // double-applying memory mutations.
+    const claimed = await this.runMutation(() => {
+      const updated: MemoryCandidate = {
+        ...snapshot,
+        status: decision === 'keep' ? 'rejected' : 'accepted',
+        reason: normalizeText(resolutionNote),
+        updatedAt: this.nowIso(),
+      };
+      const result = this.db
+        .prepare("UPDATE candidates SET data = ?, status = ?, updated_at = ? WHERE id = ? AND status = 'pending'")
+        .run(JSON.stringify(updated), updated.status, updated.updatedAt, candidateId);
+      return result.changes > 0;
+    });
+    if (!claimed) {
+      return { candidateId, decision, applied: false, alreadyResolved: true };
+    }
+    let applied = false;
+    if (decision !== 'keep' && targetId) {
+      const target = await this.runMutation(() => {
+        const row = this.db.prepare('SELECT data FROM memories WHERE id = ?').get(targetId) as
+          | { data: string }
+          | undefined;
+        return row ? (JSON.parse(row.data) as SuperMemory) : undefined;
+      });
+      // Permanent memories refuse deletion (matches SuperMemoryStore.resolveCandidate
+      // and deleteSuperMemory's force guard). Explicit archival is still permitted —
+      // permanence protects against destructive removal, not lifecycle archival.
+      const isPermanent = target && (target.persistence ?? 'long_lived') === 'permanent';
+      if (target && (decision === 'archive' || !isPermanent)) {
+        try {
+          await this.updateSuper(targetId, { status: decision === 'delete' ? 'deleted' : 'archived' });
+          applied = true;
+        } catch {
+          applied = false; // Target vanished between read and write.
+        }
+      }
+    } else if (decision === 'keep') {
+      applied = true; // Nothing to mutate — the memory is kept as-is.
+    }
+    this.audit('memory.candidate_resolved', {
+      ...(targetId ? { memoryId: targetId } : {}),
+      reason: resolutionNote,
+      details: { candidateId, decision, applied },
+    });
+    return { candidateId, decision, ...(targetId ? { targetMemoryId: targetId } : {}), applied };
   }
 
   // ─── Legacy compat ──────────────────────────────────────────────────
@@ -1006,4 +1278,9 @@ export class SqliteSuperMemoryStore {
       this.db.close();
     }
   }
+}
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(1, Math.max(0, value));
 }

@@ -17,7 +17,7 @@ import {
   normalizeSlashes,
   resolveSuperMemoryPaths,
 } from './paths.js';
-import { tokenize } from './store-helpers.js';
+import { collectStringValues, looksLikeSecret, tokenize } from './store-helpers.js';
 import {
   SUPER_MEMORY_SCHEMA_VERSION,
   legacyToSuperScope,
@@ -26,6 +26,7 @@ import {
   toLegacyEntry,
   DEFAULT_PERSISTENCE,
   VALID_PERSISTENCE,
+  type CreateCandidateInput,
   type FindMemoriesForFileOptions,
   type FindMemoriesForFileResponse,
   type MemoryForFileMatch,
@@ -38,7 +39,9 @@ import {
   type SuperMemoryBackfillOptions,
   type SuperMemoryBackfillReport,
   type LegacyImportResult,
+  type CandidateDecision,
   type MemoryCandidate,
+  type MemoryCandidateResolution,
   type MemoryGraphEdge,
   type MemoryGraphRelation,
   type MemoryVerificationResult,
@@ -1149,12 +1152,25 @@ export class SuperMemoryStore implements MemoryStore {
     const memory = await this.getSuperMemory(id);
     if (!memory) throw new Error(`Super Memory "${id}" not found.`);
     if (memory.status === 'deleted') return; // Idempotent
-    // Permanent memories require explicit override. The audit log records the
-    // force flag so the user/LLM's intent is always traceable.
-    if ((memory.persistence ?? DEFAULT_PERSISTENCE) === 'permanent' && !options.force) {
+    const persistence = memory.persistence ?? DEFAULT_PERSISTENCE;
+    // ALL deletions require explicit force. This is the store-layer guard
+    // that prevents autonomous agents (consolidator, Mnemosyne, direct
+    // tool calls) from removing memories without explicit authorization.
+    // The resolver (resolveCandidate) passes force internally as the
+    // authorized review-decision path; human/LLM callers pass force via
+    // the memory_delete tool's schema.
+    if (!options.force) {
+      if (persistence === 'permanent') {
+        throw new Error(
+          `Super Memory "${id}" is marked 'permanent' and cannot be deleted. ` +
+          `Pass { force: true } to override; the override will be recorded in the audit log.`
+        );
+      }
       throw new Error(
-        `Super Memory "${id}" is marked 'permanent' and cannot be deleted. ` +
-        `Pass { force: true } to override; the override will be recorded in the audit log.`
+        `Super Memory "${id}" cannot be deleted without explicit authorization. ` +
+        `Pass { force: true } to the memory_delete tool, or resolve a review candidate ` +
+        `via memory_candidates({ action: 'resolve', decision: 'delete' }). ` +
+        `The force flag is recorded in the audit log.`
       );
     }
 
@@ -1254,7 +1270,7 @@ export class SuperMemoryStore implements MemoryStore {
   }
 
   async createCandidate(
-    input: Omit<RememberSuperMemoryInput, 'legacyScope' | 'priority' | 'type'>,
+    input: CreateCandidateInput,
   ): Promise<MemoryCandidate> {
     validateRememberInput(input);
     this.rejectIfUnsafeInput(input);
@@ -1263,7 +1279,7 @@ export class SuperMemoryStore implements MemoryStore {
   }
 
   private async createCandidateUnlocked(
-    input: Omit<RememberSuperMemoryInput, 'legacyScope' | 'priority' | 'type'>,
+    input: CreateCandidateInput,
   ): Promise<MemoryCandidate> {
     const text = normalizeText(input.text);
     if (!text) throw new Error('Super Memory candidate text must not be empty.');
@@ -1287,6 +1303,8 @@ export class SuperMemoryStore implements MemoryStore {
       sources: normalizeSources(input.sources ?? [{ type: 'session' }]),
       createdAt: now,
       updatedAt: now,
+      ...(input.targetMemoryId ? { targetMemoryId: input.targetMemoryId } : {}),
+      ...(input.reviewReason ? { reviewReason: input.reviewReason } : {}),
     };
     await appendJsonl(this.paths.candidatesLog, candidate);
     await this.audit('memory.candidate_created', { details: { candidateId: candidate.id } });
@@ -1348,6 +1366,83 @@ export class SuperMemoryStore implements MemoryStore {
       await this.audit('memory.candidate_rejected', { reason, details: { candidateId } });
       this.events?.emit('memory.candidate_rejected', this.eventPayload({ candidateId, reason }));
       return true;
+    }, { timeoutMs: 60_000, staleMs: 30 * 60_000 });
+  }
+
+  /**
+   * The redesign contract's decision path (`memory_candidate_resolve`).
+   * Applies the review decision to the candidate's TARGET memory and marks
+   * the candidate resolved — unlike `acceptCandidate`, which persists the
+   * candidate text as a new memory and is the wrong semantics for review
+   * proposals. `delete`/`archive` mark the candidate `accepted` (proposal
+   * endorsed); `keep` marks it `rejected` (proposal dismissed, memory kept).
+   * Permanent targets refuse deletion via `deleteSuperMemory`'s force guard
+   * and are recorded as `applied: false`.
+   */
+  async resolveCandidate(
+    candidateId: string,
+    decision: CandidateDecision,
+    reason?: string,
+  ): Promise<MemoryCandidateResolution | undefined> {
+    return withFileLock(`${this.paths.candidatesLog}.mutation`, async () => {
+      const candidate = (await this.listCandidates(true)).find((item) => item.id === candidateId);
+      if (!candidate) return undefined;
+      if (candidate.status !== 'pending') {
+        return { candidateId, decision, applied: false, alreadyResolved: true };
+      }
+      const targetId = candidate.targetMemoryId
+        ?? candidate.tags.find((tag) => tag.startsWith('source:'))?.slice('source:'.length);
+      let applied = false;
+      if (decision !== 'keep' && targetId) {
+        // Permanent memories refuse deletion even via the resolver — the
+        // force flag authorizes the *decision*, but permanence is an
+        // absolute invariant. Archival is still permitted.
+        const target = await this.getSuperMemory(targetId);
+        const isPermanent = target && (target.persistence ?? DEFAULT_PERSISTENCE) === 'permanent';
+        try {
+          if (decision === 'delete') {
+            if (isPermanent) {
+              applied = false; // Permanent — refuse deletion
+            } else {
+              await this.deleteSuperMemory(
+                targetId,
+                reason ?? `Review resolve (${candidate.reviewReason ?? 'candidate review'})`,
+                { force: true }, // Authorized: this call IS the review decision
+              );
+              applied = true;
+            }
+          } else {
+            await this.updateSuperMemory(targetId, { status: 'archived' });
+            applied = true;
+          }
+        } catch {
+          // Permanent target (force guard) or missing memory — the review
+          // outcome is recorded on the candidate; the memory stays untouched.
+          applied = false;
+        }
+      } else if (decision === 'keep') {
+        applied = true; // Nothing to mutate — the memory is kept as-is.
+      }
+      const resolutionNote = reason ?? (decision === 'keep' ? 'Reviewed: keep' : `Reviewed: ${decision}`);
+      await appendJsonl(this.paths.candidatesLog, {
+        ...candidate,
+        status: decision === 'keep' ? 'rejected' : 'accepted',
+        reason: normalizeText(resolutionNote),
+        updatedAt: this.nowIso(),
+      } satisfies MemoryCandidate);
+      await this.audit('memory.candidate_resolved', {
+        ...(targetId ? { memoryId: targetId } : {}),
+        reason: resolutionNote,
+        details: { candidateId, decision, applied },
+      });
+      const resolution = {
+        candidateId,
+        decision,
+        ...(targetId ? { targetMemoryId: targetId } : {}),
+        applied,
+      };
+      this.events?.emit('memory.candidate_resolved', this.eventPayload(resolution));
+      return resolution;
     }, { timeoutMs: 60_000, staleMs: 30 * 60_000 });
   }
 
@@ -2345,25 +2440,6 @@ function pushIndex(index: Record<string, string[]>, key: string, id: string): vo
   const values = index[normalized] ?? [];
   if (!values.includes(id)) values.push(id);
   index[normalized] = values;
-}
-
-function looksLikeSecret(text: string): boolean {
-  return [
-    /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
-    /\b(api[_-]?key|secret|token|password)\b\s*[:=]\s*['"]?[A-Za-z0-9_\-./+=]{16,}/i,
-    /\b[A-Za-z0-9_]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\b/,
-    /\b(?:sk-(?:proj-|svcacct-)?|gh[pousr]_|github_pat_|xox[baprs]-)[A-Za-z0-9_-]{16,}\b/i,
-    /\bAKIA[0-9A-Z]{16}\b/,
-  ].some((pattern) => pattern.test(text));
-}
-
-function collectStringValues(value: unknown, out: string[] = []): string[] {
-  if (typeof value === 'string') out.push(value);
-  else if (Array.isArray(value)) for (const item of value) collectStringValues(item, out);
-  else if (value && typeof value === 'object') {
-    for (const item of Object.values(value as Record<string, unknown>)) collectStringValues(item, out);
-  }
-  return out;
 }
 
 function labelOf(scope: MemoryScope): string {

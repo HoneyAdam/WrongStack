@@ -59,6 +59,12 @@ function createMockService(): SuperMemoryServiceLike {
     async listCandidates() {
       return [];
     },
+    async createCandidate(input: { text: string }) {
+      return { id: 'candidate_new', status: 'pending', text: input.text } as never;
+    },
+    async resolveCandidate(candidateId: string, decision: string) {
+      return { candidateId, decision, applied: true } as never;
+    },
     async acceptCandidate() {
       return undefined;
     },
@@ -419,6 +425,68 @@ describe('memory_candidates tool', () => {
     expect(errors).toContain('candidate_id is required for accept or reject');
   });
 
+  it('proposes a candidate with review metadata encoded on tags', async () => {
+    const createCandidate = vi.fn().mockResolvedValue({ id: 'candidate_new', status: 'pending' });
+    const service = createMockService();
+    service.createCandidate = createCandidate;
+
+    const tools = createSuperMemoryTools(service);
+    const tool = tools[6]!;
+    await tool.execute(
+      {
+        action: 'propose',
+        text: 'Outdated convention about callbacks',
+        kind: 'convention',
+        reason: 'noise',
+        suggested_action: 'delete',
+        memory_id: 'mem_old',
+      },
+      {} as never,
+      { signal: new AbortController().signal } as never,
+    );
+
+    expect(createCandidate).toHaveBeenCalledWith({
+      text: 'Outdated convention about callbacks',
+      kind: 'convention',
+      tags: ['review:noise', 'suggested:delete', 'source:mem_old'],
+      targetMemoryId: 'mem_old',
+      reviewReason: 'noise',
+    });
+  });
+
+  it('requires text for propose', async () => {
+    const tools = createSuperMemoryTools(createMockService());
+    const tool = tools[6]!;
+    const errors = tool.validate?.({ action: 'propose' }) ?? [];
+    expect(errors).toContain('text is required for propose');
+  });
+
+  it('resolves a candidate by applying the decision to the target memory', async () => {
+    const resolveCandidate = vi.fn().mockResolvedValue({ candidateId: 'cand_1', decision: 'delete', applied: true });
+    const service = createMockService();
+    service.resolveCandidate = resolveCandidate;
+
+    const tools = createSuperMemoryTools(service);
+    const tool = tools[6]!;
+    const result = await tool.execute(
+      { action: 'resolve', candidate_id: 'cand_1', decision: 'delete', reason: 'noise' },
+      {} as never,
+      { signal: new AbortController().signal } as never,
+    );
+
+    expect(resolveCandidate).toHaveBeenCalledWith('cand_1', 'delete', 'noise');
+    expect(result).toEqual({ candidateId: 'cand_1', decision: 'delete', applied: true });
+  });
+
+  it('requires candidate_id and decision for resolve', async () => {
+    const tools = createSuperMemoryTools(createMockService());
+    const tool = tools[6]!;
+    expect(tool.validate?.({ action: 'resolve' }) ?? []).toContain('candidate_id is required for resolve');
+    expect(tool.validate?.({ action: 'resolve', candidate_id: 'cand_1' }) ?? []).toContain(
+      'decision is required for resolve (delete|archive|keep)',
+    );
+  });
+
   it('validation passes for accept with candidate_id', async () => {
     const tools = createSuperMemoryTools(createMockService());
     const tool = tools[6]!;
@@ -608,7 +676,7 @@ describe('memory_update tool', () => {
 });
 
 describe('memory_delete tool', () => {
-  it('soft-deletes by id with a reason', async () => {
+  it('soft-deletes by id with force authorization', async () => {
     const deleteSuperMemory = vi.fn().mockResolvedValue(undefined);
     const service = createMockService();
     service.deleteSuperMemory = deleteSuperMemory;
@@ -616,14 +684,18 @@ describe('memory_delete tool', () => {
     const tool = createSuperMemoryTools(service)[10]!;
     expect(tool.name).toBe('memory_delete');
     const result = await tool.execute(
-      { id: 'mem_1', reason: 'obsolete' } as never,
+      { id: 'mem_1', reason: 'obsolete', force: true } as never,
       {} as never,
       { signal: new AbortController().signal } as never,
     );
 
-    // When `force` is omitted, the tool forwards only the two required
-    // positional args so the mock's positional matcher stays unambiguous.
-    expect(deleteSuperMemory).toHaveBeenCalledWith('mem_1', 'obsolete');
+    expect(deleteSuperMemory).toHaveBeenCalledWith('mem_1', 'obsolete', { force: true });
     expect(result).toEqual({ deleted: true, id: 'mem_1' });
+  });
+
+  it('rejects deletion without force', async () => {
+    const tool = createSuperMemoryTools(createMockService())[10]!;
+    const errors = tool.validate?.({ id: 'mem_1', reason: 'test' } as never) ?? [];
+    expect(errors).toContain('force: true is required to delete any memory. This prevents accidental or autonomous deletions. Pass force: true to authorize; the override is audit-logged. For non-destructive review, use memory_candidates({ action: "propose" }) instead.');
   });
 });

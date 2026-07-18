@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { EventBus } from '@wrongstack/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SuperMemoryStore } from '../src/store.js';
 
@@ -148,6 +149,140 @@ describe('SuperMemoryStore — candidates', () => {
     const candidates = await store.listCandidates();
     await store.acceptCandidate(candidates[0]!.id);
     await expect(store.rejectCandidate(candidates[0]!.id, 'Too late')).resolves.toBe(false);
+  });
+});
+
+describe('SuperMemoryStore — proposal resolution (propose → resolve → target)', () => {
+  // Regression for the action-contract bug: approving a review proposal via
+  // acceptCandidate persisted the proposal text as a new memory instead of
+  // applying the decision to the target. resolveCandidate is the dedicated
+  // decision path — it must mutate the TARGET and must NOT create an ordinary
+  // memory from the proposal text.
+  it('emits the resolution contract after applying a decision', async () => {
+    const events = new EventBus();
+    const eventStore = new SuperMemoryStore({ projectRoot: tmpDir, events });
+    const emitted: unknown[] = [];
+    events.on('memory.candidate_resolved', (payload) => emitted.push(payload));
+    const target = await eventStore.rememberSuper({ text: 'Event-visible review target.', kind: 'fact' });
+    const candidate = await eventStore.createCandidate({
+      text: target.text,
+      kind: target.kind,
+      scope: 'project',
+      targetMemoryId: target.id,
+      reviewReason: 'confidence_low',
+    });
+
+    await eventStore.resolveCandidate(candidate.id, 'keep', 'Reviewed: keep');
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toMatchObject({
+      candidateId: candidate.id,
+      decision: 'keep',
+      applied: true,
+      targetMemoryId: target.id,
+    });
+  });
+
+  it('delete decision soft-deletes the target memory without creating an ordinary memory', async () => {
+    const target = await store.rememberSuper({ text: 'Outdated convention about callbacks.', kind: 'convention' });
+    const candidate = await store.createCandidate({
+      text: target.text,
+      kind: target.kind,
+      scope: 'project',
+      targetMemoryId: target.id,
+      reviewReason: 'noise',
+    });
+
+    const resolution = await store.resolveCandidate(candidate.id, 'delete', 'Approved: noise');
+
+    expect(resolution).toEqual({
+      candidateId: candidate.id,
+      decision: 'delete',
+      targetMemoryId: target.id,
+      applied: true,
+    });
+    // Target was soft-deleted.
+    const after = await store.getSuperMemory(target.id);
+    expect(after?.status).toBe('deleted');
+    // No ordinary memory was created from the proposal text — the candidate
+    // is marked accepted, not persisted as a memory. Verified through the
+    // public listSuper() API (private loadMemories() is not part of the
+    // test surface and breaks the package test-project typecheck).
+    const all = await store.listSuper();
+    const duplicate = all.find((m) => m.id !== target.id && m.text === target.text);
+    expect(duplicate).toBeUndefined();
+    // Candidate moved out of pending.
+    const pending = await store.listCandidates();
+    expect(pending.find((c) => c.id === candidate.id)).toBeUndefined();
+  });
+
+  it('permanent target refuses delete but allows archive', async () => {
+    // Permanent targets must survive a `delete` decision (force guard in
+    // deleteSuperMemory) while still accepting an explicit `archive`.
+    const deleteTarget = await store.rememberSuper({
+      text: 'Permanent delete-resistant memory.',
+      persistence: 'permanent',
+    });
+    const deleteCandidate = await store.createCandidate({
+      text: deleteTarget.text,
+      kind: deleteTarget.kind,
+      scope: 'project',
+      targetMemoryId: deleteTarget.id,
+      reviewReason: 'noise',
+    });
+
+    const deleteResolution = await store.resolveCandidate(deleteCandidate.id, 'delete', 'Approved: delete');
+    expect(deleteResolution?.applied).toBe(false);
+    const afterDelete = await store.getSuperMemory(deleteTarget.id);
+    expect(afterDelete?.status).toBe('active');
+
+    const archiveTarget = await store.rememberSuper({
+      text: 'Permanent but archivable memory.',
+      persistence: 'permanent',
+    });
+    const archiveCandidate = await store.createCandidate({
+      text: archiveTarget.text,
+      kind: archiveTarget.kind,
+      scope: 'project',
+      targetMemoryId: archiveTarget.id,
+      reviewReason: 'freshness_low',
+    });
+
+    const archiveResolution = await store.resolveCandidate(archiveCandidate.id, 'archive', 'Approved: archive');
+    expect(archiveResolution?.applied).toBe(true);
+    const afterArchive = await store.getSuperMemory(archiveTarget.id);
+    expect(afterArchive?.status).toBe('archived');
+  });
+
+  it('keep decision leaves the target untouched and dismisses the proposal', async () => {
+    const target = await store.rememberSuper({ text: 'Still relevant fact.', kind: 'fact' });
+    const candidate = await store.createCandidate({
+      text: target.text,
+      kind: target.kind,
+      scope: 'project',
+      targetMemoryId: target.id,
+      reviewReason: 'confidence_low',
+    });
+
+    const resolution = await store.resolveCandidate(candidate.id, 'keep', 'Reviewed: keep');
+    expect(resolution?.applied).toBe(true);
+    const after = await store.getSuperMemory(target.id);
+    expect(after?.status).toBe('active');
+  });
+
+  it('resolving an already-resolved candidate is a no-op', async () => {
+    const target = await store.rememberSuper({ text: 'Double resolve target.', kind: 'fact' });
+    const candidate = await store.createCandidate({
+      text: target.text,
+      kind: target.kind,
+      scope: 'project',
+      targetMemoryId: target.id,
+      reviewReason: 'noise',
+    });
+    await store.resolveCandidate(candidate.id, 'delete');
+    const second = await store.resolveCandidate(candidate.id, 'keep');
+    expect(second?.applied).toBe(false);
+    expect(second?.alreadyResolved).toBe(true);
   });
 });
 

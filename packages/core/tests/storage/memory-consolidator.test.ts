@@ -17,41 +17,20 @@ const mkStore = () =>
   };
 
 /**
- * A mock store whose `getBackend()` returns a Super Memory-shaped backend
- * with `deleteSuperMemory` + `listSuper`. `permanentIds` are entries that
- * `deleteSuperMemory` refuses to remove (matching the real store's
- * `persistence:'permanent'` + force guard).
+ * Store mock that also exposes a Super Memory–shaped backend via `getBackend()`.
+ * Used to prove the consolidator never routes deletions through the Super
+ * Memory deletion API either — not just the legacy `forget()` path.
  */
-const mkSuperStore = (memories: Array<{ id: string; text: string; scope?: string; status?: string }>, permanentIds: Set<string> = new Set()) => {
-  const deleteSuperMemory = vi.fn(async (id: string, _reason?: string) => {
-    if (permanentIds.has(id)) {
-      throw new Error(`Super Memory "${id}" is marked 'permanent' and cannot be deleted.`);
-    }
-    const idx = memories.findIndex((m) => m.id === id);
-    if (idx >= 0) memories.splice(idx, 1);
-  });
-  const listSuper = vi.fn(async () =>
-    memories.map((m) => ({
-      ...m,
-      scope: m.scope ?? 'project',
-      legacyScope: 'project-memory',
-      status: m.status ?? 'active',
-      tags: [],
-      anchors: [],
-    })),
-  );
+const mkStoreWithBackend = () => {
+  const deleteSuperMemory = vi.fn(async () => {});
+  const listSuper = vi.fn(async () => [] as never[]);
   const store = {
     list: vi.fn(async () => [] as never[]),
     remember: vi.fn(async () => {}),
-    forget: vi.fn(async () => 0),
-    getBackend: () => ({ deleteSuperMemory, listSuper }),
-  } as never as MemoryStore & {
-    list: ReturnType<typeof vi.fn>;
-    remember: ReturnType<typeof vi.fn>;
-    forget: ReturnType<typeof vi.fn>;
-    getBackend: () => { deleteSuperMemory: typeof deleteSuperMemory; listSuper: typeof listSuper };
+    forget: vi.fn(async () => 1),
+    getBackend: vi.fn(() => ({ deleteSuperMemory, listSuper })),
   };
-  return { store, deleteSuperMemory, listSuper };
+  return { store: store as never as MemoryStore & Record<string, ReturnType<typeof vi.fn>>, deleteSuperMemory, listSuper };
 };
 
 const mkProvider = (text: string): Provider =>
@@ -103,7 +82,7 @@ describe('SessionMemoryConsolidator early returns', () => {
 });
 
 describe('SessionMemoryConsolidator operations', () => {
-  it('applies add/edit/delete operations and logs a summary', async () => {
+  it('applies add operations and logs a summary', async () => {
     const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     store.list.mockResolvedValue([
       { scope: 'project-memory', text: 'old fact', ts: '2026-01-01T00:00:00Z' },
@@ -111,18 +90,76 @@ describe('SessionMemoryConsolidator operations', () => {
     const ops = {
       operations: [
         { action: 'add', text: 'new fact', type: 'fact', priority: 'high', tags: ['x'] },
-        { action: 'edit', query: 'old', text: 'updated fact', type: 'fact' },
-        { action: 'delete', query: 'gone' },
+        { action: 'add', text: 'another fact', type: 'convention' },
       ],
     };
     const c = new SessionMemoryConsolidator({ memoryStore: store, provider: mkProvider(JSON.stringify(ops)) });
     c.afterRun(ctx(), result());
     // Consolidation is fire-and-forget — wait for the background IIFE to settle.
     await vi.waitFor(() => {
-      expect(store.remember).toHaveBeenCalledTimes(2); // add + edit
+      expect(store.remember).toHaveBeenCalledTimes(2);
     });
-    expect(store.forget).toHaveBeenCalledTimes(2); // edit + delete
-    expect(stderr).toHaveBeenCalledWith(expect.stringContaining('consolidation'));
+    expect(store.remember).toHaveBeenCalledWith('new fact', undefined, expect.objectContaining({ type: 'fact' }));
+    expect(store.remember).toHaveBeenCalledWith('another fact', undefined, expect.objectContaining({ type: 'convention' }));
+    expect(stderr).toHaveBeenCalledWith(expect.stringContaining('2 added'));
+  });
+
+  it('ignores edit/delete ops entirely — add-only contract (regression: mass deletion)', async () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    // Even a well-formed delete/edit batch must never reach forget() or any
+    // other mutation path — the consolidator no longer has deletion authority.
+    const ops = {
+      operations: [
+        { action: 'delete', query: 'gone' },
+        { action: 'edit', query: 'old', text: 'updated fact', type: 'fact' },
+      ],
+    };
+    const c = new SessionMemoryConsolidator({ memoryStore: store, provider: mkProvider(JSON.stringify(ops)) });
+    c.afterRun(ctx(), result());
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(store.forget).not.toHaveBeenCalled();
+    expect(store.remember).not.toHaveBeenCalled();
+    expect(stderr).not.toHaveBeenCalled();
+  });
+
+  it('never routes deletions through the Super Memory backend either (regression: mass deletion)', async () => {
+    // A future reintroduction of destructive routing could bypass forget()
+    // by calling getBackend().deleteSuperMemory() — this test locks that path
+    // out too, so the add-only contract holds regardless of which deletion
+    // surface a regression tries to use.
+    const { store: backendStore, deleteSuperMemory, listSuper } = mkStoreWithBackend();
+    const ops = {
+      operations: [
+        { action: 'delete', query: 'gone' },
+        { action: 'edit', query: 'old', text: 'updated fact' },
+        { action: 'add', text: 'safe fact' },
+      ],
+    };
+    const c = new SessionMemoryConsolidator({ memoryStore: backendStore, provider: mkProvider(JSON.stringify(ops)) });
+    c.afterRun(ctx(), result());
+    await vi.waitFor(() => {
+      expect((backendStore as { remember: ReturnType<typeof vi.fn> }).remember).toHaveBeenCalledTimes(1);
+    });
+    expect(deleteSuperMemory).not.toHaveBeenCalled();
+    expect(listSuper).not.toHaveBeenCalled();
+    expect((backendStore as { forget: ReturnType<typeof vi.fn> }).forget).not.toHaveBeenCalled();
+  });
+
+  it('applies only the add ops from a mixed batch', async () => {
+    const ops = {
+      operations: [
+        { action: 'add', text: 'kept fact', type: 'fact' },
+        { action: 'delete', query: 'gone' },
+        { action: 'edit', query: 'old', text: 'updated fact' },
+      ],
+    };
+    const c = new SessionMemoryConsolidator({ memoryStore: store, provider: mkProvider(JSON.stringify(ops)) });
+    c.afterRun(ctx(), result());
+    await vi.waitFor(() => {
+      expect(store.remember).toHaveBeenCalledTimes(1);
+    });
+    expect(store.remember).toHaveBeenCalledWith('kept fact', undefined, expect.any(Object));
+    expect(store.forget).not.toHaveBeenCalled();
   });
 
   it('wraps JSON in surrounding prose and still extracts it', async () => {
@@ -134,13 +171,12 @@ describe('SessionMemoryConsolidator operations', () => {
     });
   });
 
-  it('ignores operations with missing fields without logging', async () => {
+  it('ignores add operations with missing text without logging', async () => {
     const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     const ops = {
       operations: [
         { action: 'add' }, // no text
-        { action: 'edit', query: 'q' }, // no text
-        { action: 'delete' }, // no query
+        { action: 'add', text: '   ' }, // blank text
       ],
     };
     const c = new SessionMemoryConsolidator({ memoryStore: store, provider: mkProvider(JSON.stringify(ops)) });
@@ -188,76 +224,5 @@ describe('SessionMemoryConsolidator operations', () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
     // No throw = pass. No memory was touched.
     expect(store.remember).not.toHaveBeenCalled();
-  });
-});
-
-describe('SessionMemoryConsolidator Super Memory backend routing', () => {
-  it('routes delete ops through deleteSuperMemory by id with the LLM reason', async () => {
-    const memories = [
-      { id: 'mem_aaa', text: 'old convention about pnpm' },
-      { id: 'mem_bbb', text: 'unrelated fact' },
-    ];
-    const { store: superStore, deleteSuperMemory, listSuper } = mkSuperStore(memories);
-    const ops = { operations: [{ action: 'delete', query: 'pnpm' }] };
-    const c = new SessionMemoryConsolidator({ memoryStore: superStore, provider: mkProvider(JSON.stringify(ops)) });
-    c.afterRun(ctx(), result());
-
-    await vi.waitFor(() => {
-      expect(listSuper).toHaveBeenCalled();
-    });
-    // Only mem_aaa matched "pnpm" — deleteSuperMemory should be called once.
-    await vi.waitFor(() => {
-      expect(deleteSuperMemory).toHaveBeenCalledTimes(1);
-    });
-    expect(deleteSuperMemory).toHaveBeenCalledWith('mem_aaa', expect.stringContaining('memory-consolidator delete'));
-    // forget() must NOT be used when the backend is a Super Memory store.
-    expect(superStore.forget).not.toHaveBeenCalled();
-    // mem_bbb survives.
-    expect(deleteSuperMemory).not.toHaveBeenCalledWith('mem_bbb', expect.anything());
-  });
-
-  it('skips permanent memories instead of crashing when deleteSuperMemory throws', async () => {
-    const memories = [
-      { id: 'mem_perm', text: 'permanent fact about pnpm' },
-      { id: 'mem_norm', text: 'normal fact about pnpm' },
-    ];
-    const permanentIds = new Set(['mem_perm']);
-    const { store: superStore, deleteSuperMemory } = mkSuperStore(memories, permanentIds);
-    const ops = { operations: [{ action: 'delete', query: 'pnpm' }] };
-    const c = new SessionMemoryConsolidator({ memoryStore: superStore, provider: mkProvider(JSON.stringify(ops)) });
-    c.afterRun(ctx(), result());
-
-    await vi.waitFor(() => {
-      expect(deleteSuperMemory).toHaveBeenCalledTimes(2);
-    });
-    // The normal one was deleted; the permanent one threw and was skipped.
-    expect(deleteSuperMemory).toHaveBeenCalledWith('mem_norm', expect.anything());
-    expect(deleteSuperMemory).toHaveBeenCalledWith('mem_perm', expect.anything());
-  });
-
-  it('falls back to forget() when no Super Memory backend is present', async () => {
-    const ops = { operations: [{ action: 'delete', query: 'gone' }] };
-    const c = new SessionMemoryConsolidator({ memoryStore: store, provider: mkProvider(JSON.stringify(ops)) });
-    c.afterRun(ctx(), result());
-    await vi.waitFor(() => {
-      expect(store.forget).toHaveBeenCalledWith('gone');
-    });
-  });
-
-  it('routes edit ops through deleteSuperMemory then remember', async () => {
-    const memories = [{ id: 'mem_old', text: 'old pnpm fact' }];
-    const { store: superStore, deleteSuperMemory } = mkSuperStore(memories);
-    const ops = { operations: [{ action: 'edit', query: 'pnpm', text: 'new pnpm v9 fact' }] };
-    const c = new SessionMemoryConsolidator({ memoryStore: superStore, provider: mkProvider(JSON.stringify(ops)) });
-    c.afterRun(ctx(), result());
-
-    await vi.waitFor(() => {
-      expect(deleteSuperMemory).toHaveBeenCalledTimes(1);
-    });
-    expect(deleteSuperMemory).toHaveBeenCalledWith('mem_old', expect.stringContaining('memory-consolidator edit'));
-    await vi.waitFor(() => {
-      expect(superStore.remember).toHaveBeenCalledWith('new pnpm v9 fact', undefined, expect.any(Object));
-    });
-    expect(superStore.forget).not.toHaveBeenCalled();
   });
 });

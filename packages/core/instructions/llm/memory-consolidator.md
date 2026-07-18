@@ -5,8 +5,8 @@ Session summary ({{iterations}} iterations):
 
 Return a JSON object with an "operations" array. Each operation must have an "action" field:
 - "add": create a new memory entry. Include "text", and optionally "type", "tags", "priority".
-- "edit": replace an existing entry. Include "query" (to match) and "text" (replacement).
-- "delete": remove an entry. Include "query" (to match).
+
+This consolidator is strictly add-only. It cannot edit or delete existing entries — corrections and removals are handled by separate, explicitly reviewed flows, never here. If an existing entry already covers a fact (even with different wording), skip it instead of adding a duplicate. "edit" or "delete" operations will be ignored.
 
 Memory types:
 - "fact": Objective truth about the project (e.g. "uses pnpm workspaces")
@@ -25,7 +25,7 @@ Priority levels:
 Rules:
 - Only persist facts likely useful across multiple future sessions.
 - Do NOT persist task progress, temporary state, or one-off observations.
-- Prefer "add" over "edit" unless the existing entry is clearly outdated.
+- Do NOT add a fact that an existing entry already covers.
 - Assign a type and priority to every "add" operation.
 - Use 1-3 hashtag tags for each entry (e.g. #typescript #build).
 - Be concise — each memory entry should be one clear sentence.
@@ -39,14 +39,6 @@ Return ONLY valid JSON, no markdown, no explanation:
       "type": "convention",
       "priority": "high",
       "tags": ["pnpm", "typescript", "build"]
-    },
-    {
-      "action": "edit",
-      "query": "pnpm",
-      "text": "Project uses pnpm v9+ with ESM-only modules",
-      "type": "fact",
-      "priority": "medium"
-    },
-    { "action": "delete", "query": "outdated convention" }
+    }
   ]
 }

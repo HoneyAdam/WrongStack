@@ -47,6 +47,20 @@ declare module '@wrongstack/core' {
       sessionId?: string | undefined;
       traceId?: string | undefined;
     };
+    /**
+     * Emitted after a review candidate is resolved via `resolveCandidate`
+     * (`memory_candidates` `resolve` action). `decision` is the review
+     * decision applied; `applied` is false when the target was permanent
+     * or missing.
+     */
+    'memory.candidate_resolved': {
+      candidateId: string;
+      decision: CandidateDecision;
+      applied: boolean;
+      targetMemoryId?: string | undefined;
+      sessionId?: string | undefined;
+      traceId?: string | undefined;
+    };
   }
 }
 
@@ -375,6 +389,10 @@ export interface MemoryCandidate {
   updatedAt: string;
   memoryId?: string | undefined;
   reason?: string | undefined;
+  /** First-class linkage to the memory this proposal reviews (proposal metadata — never overwritten by resolution). */
+  targetMemoryId?: string | undefined;
+  /** Why the review was proposed (proposal metadata — never overwritten by resolution). */
+  reviewReason?: string | undefined;
 }
 
 export interface SessionConsolidationInput {
@@ -488,6 +506,35 @@ export interface RememberSuperMemoryInput {
   sources?: MemorySourceRef[] | undefined;
   supersedes?: string[] | undefined;
   contradicts?: string[] | undefined;
+}
+
+/**
+ * Input for `createCandidate` (review proposals). Carries the optional
+ * first-class target linkage (`targetMemoryId`) and review reason
+ * (`reviewReason`) so proposal consumers (ReviewQueue, resolvers) can attach
+ * the candidate to the memory it reviews without parsing tags. Distinct from
+ * `memoryId`/`reason` on `MemoryCandidate`, which record resolution results
+ * (accepted memory id / rejection reason) and must not be overwritten.
+ */
+export type CreateCandidateInput = Omit<RememberSuperMemoryInput, 'legacyScope' | 'priority' | 'type'> & {
+  /** Id of the memory this proposal reviews (e.g. a suggested delete/archive target). */
+  targetMemoryId?: string | undefined;
+  /** Review reason (e.g. 'noise', 'contradiction', 'expires_at_passed'). */
+  reviewReason?: string | undefined;
+};
+
+/** Outcome of resolving a review candidate (the redesign contract's decision path). */
+export type CandidateDecision = 'delete' | 'archive' | 'keep';
+
+export interface MemoryCandidateResolution {
+  candidateId: string;
+  decision: CandidateDecision;
+  /** The memory the decision applied to, when the candidate carried target linkage. */
+  targetMemoryId?: string | undefined;
+  /** Whether the memory was actually mutated (false for permanent/missing targets). */
+  applied: boolean;
+  /** True when the candidate was already resolved — the call was a no-op. */
+  alreadyResolved?: boolean | undefined;
 }
 
 export interface UpdateSuperMemoryInput {

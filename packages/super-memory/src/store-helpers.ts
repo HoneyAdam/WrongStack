@@ -29,8 +29,7 @@ const VALID_ANCHOR_TYPES = new Set<MemoryAnchor['type']>([
 
 const AUDIENCE_KEYS = ['roles', 'taskTypes', 'modes'] as const;
 
-export function normalizeText(text: string): string {
-  return text.replace(/\s+/g, ' ').trim();
+export function normalizeText(text: string): string {  return text.replace(/\s+/g, ' ').trim();
 }
 
 /**
@@ -176,4 +175,35 @@ function dedupeByKey<T>(values: T[], keyOf: (value: T) => string): T[] {
 
 function normalizeSelectorValue(value: string): string {
   return value.normalize('NFKC').trim().toLowerCase();
+}
+
+// ─── Secret-detection guard (shared by JSONL and SQLite stores) ─────
+
+/**
+ * Check whether `text` looks like a secret or credential.
+ * Used by both SuperMemoryStore and SqliteSuperMemoryStore to reject
+ * unsafe candidate proposals before they reach the ReviewQueue.
+ */
+export function looksLikeSecret(text: string): boolean {
+  return [
+    /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+    /\b(api[_-]?key|secret|token|password)\b\s*[:=]\s*['"]?[A-Za-z0-9_\-./+=]{16,}/i,
+    /\b[A-Za-z0-9_]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\b/,
+    /\b(?:sk-(?:proj-|svcacct-)?|gh[pousr]_|github_pat_|xox[baprs]-)[A-Za-z0-9_-]{16,}\b/i,
+    /\bAKIA[0-9A-Z]{16}\b/,
+  ].some((pattern) => pattern.test(text));
+}
+
+/**
+ * Recursively collect every string value from a nested object/array.
+ * Walks arrays and object values so every user-supplied field (text,
+ * tags, anchors, sources, etc.) can be checked for unsafe content.
+ */
+export function collectStringValues(value: unknown, out: string[] = []): string[] {
+  if (typeof value === 'string') out.push(value);
+  else if (Array.isArray(value)) for (const item of value) collectStringValues(item, out);
+  else if (value && typeof value === 'object') {
+    for (const item of Object.values(value as Record<string, unknown>)) collectStringValues(item, out);
+  }
+  return out;
 }
