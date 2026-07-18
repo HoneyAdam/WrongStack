@@ -328,6 +328,56 @@ describe('Super Memory tool-call middleware', () => {
       expect(reloaded?.status).toBe('active');
     });
 
+    it('compacts the JSONL log when duplicate records exceed threshold', async () => {
+      // Lower thresholds so duplicates always compact
+      (store as unknown as { compactionMinRecords: number }).compactionMinRecords = 2;
+      (store as unknown as { compactionDuplicateRatio: number }).compactionDuplicateRatio = 1;
+
+      // Create 3 memories, then update each twice (3 records each = 9 total, > 3×2)
+      const ids: string[] = [];
+      for (let i = 0; i < 3; i++) {
+        const mem = await store.rememberSuper({ text: `Compaction test ${i}`, kind: 'fact' });
+        ids.push(mem.id);
+        await store.updateSuperMemory(mem.id, { text: `Updated ${i}` });
+        await store.updateSuperMemory(mem.id, { text: `Updated again ${i}` });
+      }
+      // The last update triggers afterMutation → maybeCompactLog
+
+      // Read the raw file — after compaction, record count should equal unique ID count
+      const fs = await import('node:fs');
+      const paths = (store as unknown as { paths: { memoriesLog: string } }).paths;
+      const rawLines = fs.readFileSync(paths.memoriesLog, 'utf8').split('\n').filter((l: string) => l.trim());
+      const records = rawLines.map((l: string) => JSON.parse(l));
+      const memoryRecords = records.filter((r: { recordType?: string }) => r.recordType === 'memory');
+      const uniqueIds = new Set(memoryRecords.map((r: { memory: { id: string } }) => r.memory.id));
+
+      // After compaction: one record per unique ID (no duplicates)
+      expect(memoryRecords.length).toBe(uniqueIds.size);
+      // Should include our 3 test memories + the seed
+      expect(uniqueIds.size).toBeGreaterThanOrEqual(4);
+
+      // All test memories should still be readable with the latest text
+      for (let i = 0; i < 3; i++) {
+        const mem = await store.getSuperMemory(ids[i]);
+        expect(mem?.text).toBe(`Updated again ${i}`);
+        expect(mem?.status).toBe('active');
+      }
+    });
+
+    it('does not compact below the minimum record threshold', async () => {
+      // Set a high minimum so a small store won't compact
+      (store as unknown as { compactionMinRecords: number }).compactionMinRecords = 1000;
+      (store as unknown as { compactionDuplicateRatio: number }).compactionDuplicateRatio = 2;
+
+      await store.rememberSuper({ text: 'Small store test', kind: 'fact' });
+
+      const fs = await import('node:fs');
+      const paths = (store as unknown as { paths: { memoriesLog: string } }).paths;
+      const rawLines = fs.readFileSync(paths.memoriesLog, 'utf8').split('\n').filter((l: string) => l.trim());
+      // Should still have the original seed + this record (no compaction)
+      expect(rawLines.length).toBeGreaterThanOrEqual(2);
+    });
+
     it('keeps ordinary soft-deleted memory eligible for automatic LLM retrieval', async () => {
       await store.deleteSuperMemory(memoryId, 'No longer shown as active', { force: true });
       const matches = await store.searchSuper('pnpm monorepo');
