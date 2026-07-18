@@ -19,8 +19,48 @@ export interface PermissionDecision {
   riskTier?: 'safe' | 'standard' | 'destructive' | undefined;
 }
 
+/**
+ * A single evaluation step in the permission explainer trace.
+ * Each step records a rule that was checked, whether it matched,
+ * and what the effective decision would be if that rule wins.
+ */
+export interface PermissionTraceStep {
+  /** Label identifying the rule, e.g. "session soft deny", "trust deny", "yolo". */
+  rule: string;
+  /** Whether this rule's condition matched the tool+input pair. */
+  matched: boolean;
+  /** The permission decision if this rule were the winner. */
+  decision: 'auto' | 'deny' | 'confirm';
+  /** The source label associated with this step. */
+  source: string;
+  /** Human-readable explanation of the outcome. */
+  detail: string;
+}
+
+/**
+ * Structured trace of a permission evaluation for debugging and CLI
+ * explainer output. Contains every step that was checked and the
+ * winning decision.
+ */
+export interface PermissionTrace {
+  toolName: string;
+  subject: string | null | undefined;
+  /** The ordered list of rules checked, in evaluation priority order. */
+  steps: PermissionTraceStep[];
+  /** Index into `steps` of the winning rule. */
+  winnerIndex: number;
+  /** The final effective permission decision. */
+  decision: PermissionDecision;
+}
+
 export interface PermissionPolicy {
   evaluate(tool: Tool, input: unknown, ctx: Context): Promise<PermissionDecision>;
+  /**
+   * Side-effect-free permission evaluation trace. Returns the same
+   * logical result as `evaluate()` without prompting the user,
+   * writing to trust files, or mutating session state.
+   */
+  explain?(tool: Tool, input: unknown, ctx: Context): Promise<PermissionTrace>;
   trust(rule: { tool: string; pattern: string }): Promise<void>;
   /**
    * Persist a permanent deny rule (mirrors trust). Written to trust.json.

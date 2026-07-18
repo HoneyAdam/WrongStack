@@ -539,6 +539,154 @@ describe('DefaultPermissionPolicy', () => {
       expect(d.source).toBe('trust');
     });
   });
+
+describe('DefaultPermissionPolicy explain()', () => {
+  it('returns a trace with steps for a confirm tool', async () => {
+    const p = new DefaultPermissionPolicy({ trustFile });
+    const trace = await p.explain(tool('edit'), { path: 'src/a.ts' }, {} as Context);
+    expect(trace.toolName).toBe('edit');
+    expect(trace.steps.length).toBeGreaterThanOrEqual(5);
+    const last = trace.steps[trace.winnerIndex];
+    expect(last.rule).toBe('mutating default confirm');
+    expect(last.decision).toBe('confirm');
+    expect(trace.decision.permission).toBe('confirm');
+    expect(trace.decision.source).toBe('default');
+  });
+
+  it('returns yolo as winner when YOLO is active', async () => {
+    const p = new DefaultPermissionPolicy({ trustFile, yolo: true });
+    const trace = await p.explain(
+      tool('bash', 'confirm', 'destructive', true, ['shell.arbitrary']),
+      { command: 'rm -rf /' },
+      { projectRoot: process.cwd() } as Context,
+    );
+    const yoloStep = trace.steps.find(s => s.rule === 'yolo');
+    expect(yoloStep).toBeDefined();
+    expect(yoloStep!.matched).toBe(true);
+    expect(trace.steps[trace.winnerIndex].rule).toBe('yolo');
+    expect(trace.decision.permission).toBe('auto');
+    expect(trace.decision.source).toBe('yolo');
+  });
+
+  it('returns trust deny as winner when deny pattern matches', async () => {
+    await fs.writeFile(
+      trustFile,
+      JSON.stringify({ edit: { deny: ['**/.env*'] } }),
+    );
+    const p = new DefaultPermissionPolicy({ trustFile });
+    const trace = await p.explain(tool('edit'), { path: '.env' }, {} as Context);
+    const denyStep = trace.steps.find(s => s.rule === 'trust deny');
+    expect(denyStep).toBeDefined();
+    expect(denyStep!.matched).toBe(true);
+    expect(trace.decision.permission).toBe('deny');
+    expect(trace.decision.source).toBe('deny');
+  });
+
+  it('returns trust allow as winner when allow pattern matches', async () => {
+    await fs.writeFile(
+      trustFile,
+      JSON.stringify({ edit: { allow: ['src/**'] } }),
+    );
+    const p = new DefaultPermissionPolicy({ trustFile });
+    const trace = await p.explain(tool('edit'), { path: 'src/a.ts' }, {} as Context);
+    const allowStep = trace.steps.find(s => s.rule === 'trust allow');
+    expect(allowStep).toBeDefined();
+    expect(allowStep!.matched).toBe(true);
+    expect(trace.decision.permission).toBe('auto');
+    expect(trace.decision.source).toBe('trust');
+  });
+
+  it('returns trust auto as winner when auto flag is set', async () => {
+    await fs.writeFile(
+      trustFile,
+      JSON.stringify({ edit: { auto: true } }),
+    );
+    const p = new DefaultPermissionPolicy({ trustFile });
+    const trace = await p.explain(tool('edit'), { path: 'ignored.ts' }, {} as Context);
+    const autoStep = trace.steps.find(s => s.rule === 'trust auto');
+    expect(autoStep).toBeDefined();
+    expect(autoStep!.matched).toBe(true);
+    expect(trace.decision.permission).toBe('auto');
+    expect(trace.decision.source).toBe('trust');
+  });
+
+  it('returns sensitive read as winner for sensitive files outside YOLO', async () => {
+    const p = new DefaultPermissionPolicy({ trustFile });
+    const trace = await p.explain(
+      tool('read', 'auto', 'safe', false, ['fs.read']),
+      { path: '.env' },
+      { projectRoot: process.cwd() } as Context,
+    );
+    const sensStep = trace.steps.find(s => s.rule === 'sensitive read');
+    expect(sensStep).toBeDefined();
+    expect(sensStep!.matched).toBe(true);
+    expect(trace.decision.permission).toBe('confirm');
+    expect(trace.decision.reason).toContain('sensitive file read');
+  });
+
+  it('returns safe default auto for non-mutating auto tools', async () => {
+    const p = new DefaultPermissionPolicy({ trustFile });
+    const trace = await p.explain(
+      tool('read', 'auto', 'safe', false, ['fs.read']),
+      { path: 'src/a.ts' },
+      {} as Context,
+    );
+    const safeStep = trace.steps.find(s => s.rule === 'safe default auto');
+    expect(safeStep).toBeDefined();
+    expect(safeStep!.matched).toBe(true);
+    expect(trace.decision.permission).toBe('auto');
+    expect(trace.decision.source).toBe('default');
+  });
+
+  it('returns mutating default confirm for mutating auto tools', async () => {
+    const p = new DefaultPermissionPolicy({ trustFile });
+    const trace = await p.explain(
+      tool('search', 'auto', 'standard', true),
+      {},
+      {} as Context,
+    );
+    const confirmStep = trace.steps.find(s => s.rule === 'mutating default confirm');
+    expect(confirmStep).toBeDefined();
+    expect(confirmStep!.matched).toBe(true);
+    expect(trace.decision.permission).toBe('confirm');
+    expect(trace.decision.source).toBe('default');
+  });
+
+  it('does not mutate sessionDenied, sessionAllowed, or evalCache', async () => {
+    const p = new DefaultPermissionPolicy({ trustFile });
+    const trace1 = await p.explain(tool('edit'), { path: 'src/a.ts' }, {} as Context);
+    const trace2 = await p.explain(tool('edit'), { path: 'src/a.ts' }, {} as Context);
+    expect(trace1.winnerIndex).toBe(trace2.winnerIndex);
+    expect(trace1.decision.permission).toBe(trace2.decision.permission);
+    let trustExists = true;
+    try {
+      await fs.access(trustFile);
+    } catch {
+      trustExists = false;
+    }
+    expect(trustExists).toBe(false);
+  });
+
+  it('does not invoke promptDelegate', async () => {
+    const delegate = vi.fn(async () => 'always' as const);
+    const p = new DefaultPermissionPolicy({
+      trustFile,
+      promptDelegate: delegate,
+    });
+    const trace = await p.explain(tool('edit'), { path: 'src/a.ts' }, {} as Context);
+    expect(delegate).not.toHaveBeenCalled();
+    expect(trace.decision.permission).toBe('confirm');
+  });
+
+  it('handles malformed trust policy gracefully', async () => {
+    await fs.writeFile(trustFile, 'not valid json');
+    const p = new DefaultPermissionPolicy({ trustFile });
+    const trace = await p.explain(tool('edit'), { path: 'src/a.ts' }, {} as Context);
+    expect(trace.decision.permission).toBe('deny');
+    expect(trace.decision.source).toBe('deny');
+    expect(trace.steps[0].rule).toBe('policy invalid');
+  });
+});
 });
 
 describe('AutoApprovePermissionPolicy', () => {
