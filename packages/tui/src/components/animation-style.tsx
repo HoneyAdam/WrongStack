@@ -161,23 +161,23 @@ export function pulseColor(phase: number): string {
 /** Base hue around which the rainbow oscillates (degrees, 0-360). 0 = red. */
 const RAINBOW_BASE_HUE = 0;
 /**
- * Amplitude of the hue sweep in degrees. 180 means the hue sweeps a full
- * half-turn (red→green→blue→red), giving the full visible spectrum without
- * wrapping through purple back to red twice (which looks muddy).
+ * Amplitude of the hue sweep in degrees. 360 sweeps the full visible
+ * spectrum so every hue (red, green, blue, purple, magenta) appears at
+ * some point in the cycle — the gradient is genuinely full-spectrum.
  */
-const RAINBOW_HUE_AMPLITUDE = 180;
+const RAINBOW_HUE_AMPLITUDE = 360;
 /**
  * Spatial wavelength: how many glyphs span one full hue cycle. Smaller =
  * tighter bands (more rainbow stripes in the same text). The text length
  * also modulates this so short labels don't look denser than long ones.
  */
-const RAINBOW_SPATIAL_PERIOD = 6;
+const RAINBOW_SPATIAL_PERIOD = 8;
 /**
  * Temporal speed: hue degrees shifted per phase tick. At the status bar's
- * ~250ms tick, 15°/tick means one full spectrum cycle takes ~6 seconds —
+ * ~250ms tick, 18°/tick means one full spectrum cycle takes ~5 seconds —
  * lively but not frantic.
  */
-const RAINBOW_HUE_PER_TICK = 15;
+const RAINBOW_HUE_PER_TICK = 18;
 
 /**
  * Compute the hue (in degrees, 0-360) for glyph `charIndex` at animation

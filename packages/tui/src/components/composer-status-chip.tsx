@@ -24,8 +24,8 @@ import {
   BREATHE_FRAMES,
   CYCLE_TICK_INTERVAL_MS,
   DOTS_FRAMES,
-  HUE_WHEEL,
   pulseColor,
+  rainbowColor,
   styleForCycleTick,
   waveColor,
 } from './animation-style.js';
@@ -173,7 +173,7 @@ function renderWorking(
   const colorFor =
     style === 'wave'
       ? (i: number) => waveColor(i, phase, chars.length)
-      : (i: number) => HUE_WHEEL[(i + phase) % HUE_WHEEL.length] ?? '#ffffff';
+      : (i: number) => rainbowColor(i, phase);
   return {
     node: (
       <Text bold>

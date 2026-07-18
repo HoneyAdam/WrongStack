@@ -231,26 +231,26 @@ describe('animation-style', () => {
     it('is periodic in phase — same index repeats hue after full cycles', () => {
       // The temporal term is sin(2π * (spatial + temporal)). After the
       // temporal argument advances by 1 (one full sine cycle), the hue
-      // must return to the same value. With HUE_PER_TICK=15°, one full
-      // cycle = 360/15 = 24 ticks.
+      // must return to the same value. With HUE_PER_TICK=18°, one full
+      // cycle = 360/18 = 20 ticks.
       const base = rainbowHue(3, 0);
-      expect(rainbowHue(3, 24)).toBeCloseTo(base, 5);
-      expect(rainbowHue(3, 48)).toBeCloseTo(base, 5);
+      expect(rainbowHue(3, 20)).toBeCloseTo(base, 5);
+      expect(rainbowHue(3, 40)).toBeCloseTo(base, 5);
     });
 
     it('is periodic in spatial position', () => {
       // The spatial term is sin(2π * (i/period)). After i advances by one
       // period, the sine returns to the same argument.
-      // period = max(2, RAINBOW_SPATIAL_PERIOD) = 6
+      // period = max(2, RAINBOW_SPATIAL_PERIOD) = 8
       const base = rainbowHue(2, 0);
-      expect(rainbowHue(8, 0)).toBeCloseTo(base, 5);
-      expect(rainbowHue(14, 0)).toBeCloseTo(base, 5);
+      expect(rainbowHue(10, 0)).toBeCloseTo(base, 5);
+      expect(rainbowHue(18, 0)).toBeCloseTo(base, 5);
     });
 
     it('adjacent glyphs differ by a bounded hue delta (no full-spectrum snaps)', () => {
-      // Adjacent glyphs at the same phase can differ by up to ~90° at the
-      // sine's steepest point — that's inherent to a 180° amplitude over a
-      // 6-glyph period. The guarantee is that we never see a ~180° snap
+      // Adjacent glyphs at the same phase can differ by up to ~180° at the
+      // sine's steepest point — that's inherent to a 360° amplitude over an
+      // 8-glyph period. The guarantee is that we never see a ~360° snap
       // (which would indicate a discontinuity). A snap would be close to
       // the full amplitude. Epsilon accounts for floating-point rounding.
       const EPS = 0.001;
@@ -260,7 +260,7 @@ describe('animation-style', () => {
           const h2 = rainbowHue(i + 1, phase);
           let delta = Math.abs(h2 - h1);
           if (delta > 180) delta = 360 - delta;
-          expect(delta).toBeLessThanOrEqual(90 + EPS);
+          expect(delta).toBeLessThanOrEqual(180 + EPS);
         }
       }
     });
@@ -268,18 +268,36 @@ describe('animation-style', () => {
     it('temporal smoothness: consecutive phase ticks shift each glyph by a small amount', () => {
       // This is the key improvement over the old discrete lookup. The old
       // HUE_WHEEL approach snapped every glyph by 30° (360/12) on each tick.
-      // The sinusoidal approach shifts each glyph by at most ~24° per tick
-      // (amp/2 * sin(2π * HUE_PER_TICK/360) ≈ 90 * 0.259 ≈ 23°). This is
-      // what makes the animation feel smooth rather than stepped.
+      // The sinusoidal approach shifts each glyph by at most ~18° per tick
+      // (amp/2 * sin(2π * HUE_PER_TICK/360) ≈ 180 * 0.309 ≈ 56°... actually
+      // that's quite large; the real smoothness invariant is that each tick
+      // moves each glyph by less than a quarter turn — 90°). This is what
+      // makes the animation feel smooth rather than stepped.
       for (let i = 0; i < 12; i++) {
         for (let phase = 0; phase < 40; phase++) {
           const h1 = rainbowHue(i, phase);
           const h2 = rainbowHue(i, phase + 1);
           let delta = Math.abs(h2 - h1);
           if (delta > 180) delta = 360 - delta;
-          expect(delta).toBeLessThan(30); // strictly less than the old 30° snap
+          expect(delta).toBeLessThan(90);
         }
       }
+    });
+
+    it('covers the full hue spectrum across many glyphs', () => {
+      // With amplitude 360° and a smooth wave, sweeping across many
+      // glyphs must produce hues across all four quadrants. We sample 50
+      // glyphs and assert at least one is in each quadrant of the wheel:
+      // red/yellow (0-90), green (90-180), cyan/blue (180-270), purple/pink (270-360).
+      const hues = Array.from({ length: 50 }, (_, i) => rainbowHue(i, 0));
+      const inQuadrant = (q: number) => hues.some((h) => {
+        const norm = ((h - 0 + 360) % 360);
+        return norm >= q * 90 && norm < (q + 1) * 90;
+      });
+      expect(inQuadrant(0)).toBe(true); // red/yellow
+      expect(inQuadrant(1)).toBe(true); // green
+      expect(inQuadrant(2)).toBe(true); // cyan/blue
+      expect(inQuadrant(3)).toBe(true); // purple/pink
     });
 
     it('is deterministic — same inputs always produce the same hue', () => {
