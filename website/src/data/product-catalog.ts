@@ -492,6 +492,14 @@ export const rosterPhases = [
         tools: 9,
         budget: 'medium',
       },
+      {
+        role: 'ios',
+        name: 'iOS',
+        summary:
+          'Apple-platform app development in Swift: SwiftUI, UIKit, SwiftData, concurrency, accessibility, and App Store submission.',
+        tools: 17,
+        budget: 'heavy',
+      },
     ],
   },
   {
