@@ -103,7 +103,7 @@ Typed pub/sub. Every meaningful runtime moment fires an event:
 `iteration.started`, `iteration.completed`, `provider.text_delta`,
 `provider.response`, `provider.retry`, `provider.error`,
 `tool.started`, `tool.progress`, `tool.executed`, `tool.confirm_needed`,
-`compaction.fired`, `compaction.failed`, `mcp.server.connected`,
+`permission.evaluated`, `compaction.fired`, `compaction.failed`, `mcp.server.connected`,
 `mcp.server.reconnected`, `mcp.server.disconnected`, and ~30 more.
 See [`events.ts`](../packages/core/src/kernel/events.ts).
 
