@@ -5,6 +5,7 @@ import React from 'react';
 import type { FleetEntry } from '../src/app-reducer.js';
 import {
   FleetPanel,
+  activityText,
   buildSwarmGrid,
   buildTodoPreviewRows,
   selectSwarmEntries,
@@ -134,6 +135,88 @@ describe('FleetPanel todo preview', () => {
     const rows = buildTodoPreviewRows(todos, 30, 5);
     expect(rows).toHaveLength(6);
     expect(rows.at(-1)).toMatchObject({ id: '__todo_overflow', text: '2 more missions' });
+  });
+});
+
+describe('FleetPanel activityText', () => {
+  const now = 10_000;
+
+  it('returns empty for a running subagent with no tool calls', () => {
+    expect(
+      activityText(
+        entry({
+          id: 'idle-runner',
+          status: 'running',
+          startedAt: 5_000,
+          streamingText: 'thinking about the problem',
+          recentTools: [],
+          recentMessages: [{ text: 'hello', at: now - 1000 }],
+        }),
+        now,
+      ),
+    ).toBe('');
+  });
+
+  it('ignores streaming text to prevent flicker', () => {
+    // A subagent actively streaming text should NOT show it — the old
+    // behavior rendered `› <streaming>` which flickered as deltas arrived.
+    expect(
+      activityText(
+        entry({
+          id: 'streaming-runner',
+          status: 'running',
+          startedAt: 5_000,
+          streamingText: 'partial response text streaming in',
+          recentTools: [],
+        }),
+        now,
+      ),
+    ).toBe('');
+  });
+
+  it('ignores recent messages to prevent flicker', () => {
+    expect(
+      activityText(
+        entry({
+          id: 'msg-runner',
+          status: 'running',
+          startedAt: 5_000,
+          recentMessages: [{ text: 'a message snippet', at: now - 500 }],
+          recentTools: [],
+        }),
+        now,
+      ),
+    ).toBe('');
+  });
+
+  it('shows the active tool when one is running', () => {
+    const text = activityText(
+      entry({
+        id: 'busy-runner',
+        status: 'running',
+        startedAt: 5_000,
+        currentTool: { name: 'read', startedAt: 8_000 },
+      }),
+      now,
+    );
+    expect(text).toContain('read');
+    expect(text.length).toBeGreaterThan(0);
+  });
+
+  it('shows the most recent completed tool', () => {
+    expect(
+      activityText(
+        entry({
+          id: 'post-tool-runner',
+          status: 'running',
+          startedAt: 5_000,
+          recentTools: [{ name: 'grep', ok: true, at: 7_000, durationMs: 200 }],
+          recentMessages: [{ text: 'should not appear', at: now - 100 }],
+          streamingText: 'should not appear either',
+        }),
+        now,
+      ),
+    ).toBe('✓ grep');
   });
 });
 

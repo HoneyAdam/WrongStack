@@ -124,7 +124,7 @@ function displayName(
   return normalizeInlineText(name) || entry.id.slice(0, 8);
 }
 
-function activityText(entry: FleetEntry, now: number): string {
+export function activityText(entry: FleetEntry, now: number): string {
   if (entry.budgetWarning && entry.status === 'running') {
     const warning = entry.budgetWarning;
     return `extending ${warning.kind} ${warning.used}/${warning.limit}`;
