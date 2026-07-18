@@ -32,6 +32,11 @@ const mockRemoveTask = vi.fn();
 const mockMoveTask = vi.fn();
 const mockUpdateTask = vi.fn();
 
+const mockDescribeKanbanBoundary = vi.fn(() => ({
+  layers: [],
+  combined: { allow: [], deny: [] },
+}));
+
 vi.mock('@wrongstack/kanban', () => ({
   listBoards: (...args: unknown[]) => mockListBoards(...args),
   getBoard: (...args: unknown[]) => mockGetBoard(...args),
@@ -43,6 +48,7 @@ vi.mock('@wrongstack/kanban', () => ({
   removeTask: (...args: unknown[]) => mockRemoveTask(...args),
   moveTask: (...args: unknown[]) => mockMoveTask(...args),
   updateTask: (...args: unknown[]) => mockUpdateTask(...args),
+  describeKanbanBoundary: (...args: unknown[]) => mockDescribeKanbanBoundary(...args),
 }));
 
 // Stub the session-kanban helper — it would otherwise touch the agent's

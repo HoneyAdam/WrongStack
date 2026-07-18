@@ -24,3 +24,7 @@ import * as path from 'node:path';
 if (!process.env['WRONGSTACK_HOME']) {
   process.env['WRONGSTACK_HOME'] = path.join(os.tmpdir(), `wstack-vitest-${process.pid}`);
 }
+
+// Ink testing-library uses React act() for rendering; enable it globally
+// so Ink components render correctly under vitest.
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
