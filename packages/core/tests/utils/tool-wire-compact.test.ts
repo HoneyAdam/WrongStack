@@ -4,6 +4,7 @@ import {
   compactSchemaDescriptions,
   compactToolDefinitionForWire,
   findSemanticBoundary,
+  normalizeTopLevelToolSchema,
 } from '../../src/utils/tool-wire-compact.js';
 
 describe('compactDescription', () => {
@@ -270,5 +271,166 @@ describe('compactToolDefinitionForWire', () => {
   it('falls back to an empty object schema for invalid schema values', () => {
     expect(compactSchemaDescriptions(undefined)).toEqual({ type: 'object', properties: {} });
     expect(compactSchemaDescriptions('bad')).toEqual({ type: 'object', properties: {} });
+  });
+});
+
+describe('normalizeTopLevelToolSchema', () => {
+  it('returns the schema unchanged when there are no top-level combinators', () => {
+    const schema = {
+      type: 'object',
+      properties: { name: { type: 'string' } },
+    };
+    expect(normalizeTopLevelToolSchema(schema)).toBe(schema);
+  });
+
+  it('flattens top-level anyOf by merging branch properties and removing the combinator', () => {
+    const schema = {
+      anyOf: [
+        { type: 'object', properties: { a: { type: 'string' } } },
+        { type: 'object', properties: { b: { type: 'number' } } },
+      ],
+    };
+    const result = normalizeTopLevelToolSchema(schema);
+    expect(result).not.toBe(schema);
+    expect(result).not.toHaveProperty('anyOf');
+    expect(result).toHaveProperty('type', 'object');
+    expect(result.properties).toEqual({
+      a: { type: 'string' },
+      b: { type: 'number' },
+    });
+  });
+
+  it('flattens top-level oneOf by merging branch properties', () => {
+    const schema = {
+      oneOf: [
+        {
+          properties: { x: { type: 'string' }, shared: { type: 'string' } },
+          required: ['x', 'shared'],
+        },
+        {
+          properties: { y: { type: 'boolean' }, shared: { type: 'string' } },
+          required: ['y', 'shared'],
+        },
+      ],
+    };
+    const result = normalizeTopLevelToolSchema(schema);
+    expect(result).not.toHaveProperty('oneOf');
+    expect(result.properties).toHaveProperty('x');
+    expect(result.properties).toHaveProperty('y');
+    expect(result.properties).toHaveProperty('shared');
+    // shared is in both required arrays → intersection = ['shared']
+    expect(result.required).toEqual(['shared']);
+  });
+
+  it('flattens top-level allOf by merging all branch properties and unioning required', () => {
+    const schema = {
+      allOf: [
+        { properties: { a: { type: 'string' } }, required: ['a'] },
+        { properties: { b: { type: 'number' } }, required: ['b'] },
+      ],
+    };
+    const result = normalizeTopLevelToolSchema(schema);
+    expect(result).not.toHaveProperty('allOf');
+    expect(result.properties).toEqual({
+      a: { type: 'string' },
+      b: { type: 'number' },
+    });
+    expect(result.required).toEqual(expect.arrayContaining(['a', 'b']));
+  });
+
+  it('preserves pre-existing properties and merges with combinator branches', () => {
+    const schema = {
+      type: 'object',
+      properties: { existing: { type: 'string' } },
+      anyOf: [{ properties: { branchProp: { type: 'number' } } }],
+    };
+    const result = normalizeTopLevelToolSchema(schema);
+    expect(result.properties).toHaveProperty('existing');
+    expect(result.properties).toHaveProperty('branchProp');
+  });
+
+  it('handles nested anyOf inside a property — leaves them intact', () => {
+    const schema = {
+      type: 'object',
+      properties: {
+        deep: {
+          anyOf: [{ type: 'string' }, { type: 'number' }],
+        },
+      },
+    };
+    // No top-level combinators, so returns same reference
+    const result = normalizeTopLevelToolSchema(schema);
+    expect(result).toBe(schema);
+    expect(result.properties.deep).toEqual({ anyOf: [{ type: 'string' }, { type: 'number' }] });
+  });
+
+  it('handles schema with a non-array combinator value (e.g. null) — unchanged', () => {
+    const schema = { type: 'object', anyOf: null };
+    const result = normalizeTopLevelToolSchema(schema);
+    expect(result).toBe(schema);
+  });
+
+  it('handles empty branches array — removes combinator, produces flat object', () => {
+    const schema = { anyOf: [] };
+    const result = normalizeTopLevelToolSchema(schema);
+    expect(result).not.toHaveProperty('anyOf');
+    expect(result).toHaveProperty('type', 'object');
+    expect(result.properties).toEqual({});
+  });
+
+  it('handles branches without properties gracefully — missing properties not added', () => {
+    const schema = { anyOf: [{ type: 'string' }, { type: 'number' }] };
+    const result = normalizeTopLevelToolSchema(schema);
+    expect(result).not.toHaveProperty('anyOf');
+    expect(result.properties).toEqual({});
+  });
+
+  it('drops required from output when no fields are required after flattening', () => {
+    const schema = { anyOf: [{ properties: { a: { type: 'string' } } }] };
+    const result = normalizeTopLevelToolSchema(schema);
+    expect(result).not.toHaveProperty('required');
+  });
+
+  it('filters out non-string items from required arrays', () => {
+    const schema = {
+      allOf: [{ properties: { a: { type: 'string' } }, required: ['a', 42 as never] }],
+    };
+    const result = normalizeTopLevelToolSchema(schema);
+    expect(result.required).toEqual(['a']);
+  });
+
+  it('uses common required fields for anyOf/oneOf branches', () => {
+    const schema = {
+      anyOf: [
+        {
+          properties: { a: { type: 'string' }, common: { type: 'number' } },
+          required: ['a', 'common'],
+        },
+        {
+          properties: { b: { type: 'boolean' }, common: { type: 'number' } },
+          required: ['b', 'common'],
+        },
+      ],
+    };
+    const result = normalizeTopLevelToolSchema(schema);
+    // common is in both required arrays → intersection
+    expect(result.required).toEqual(['common']);
+  });
+
+  it('produces a compatibly-merged schema usable as Anthropic tool input_schema', () => {
+    const raw = {
+      anyOf: [
+        { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+        { type: 'object', properties: { pattern: { type: 'string' } }, required: ['pattern'] },
+      ],
+    };
+    const result = normalizeTopLevelToolSchema(raw);
+    expect(result.type).toBe('object');
+    // For anyOf with disjoint required sets, intersection is empty
+    expect(result).not.toHaveProperty('required');
+    expect(result.properties).toHaveProperty('path');
+    expect(result.properties).toHaveProperty('pattern');
+    // The resulting schema must be a valid JSON Schema object for Anthropic
+    expect(Object.keys(result)).toEqual(expect.arrayContaining(['type', 'properties']));
   });
 });
