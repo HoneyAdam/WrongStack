@@ -228,6 +228,44 @@ describe('tool-format conversions', () => {
     expect(out[0]?.function.description).toBe('edit');
   });
 
+  it('flattens top-level schema combinators rejected by OmniRoute', () => {
+    const t: Tool = {
+      name: 'dynamic_tool',
+      description: 'dynamic tool',
+      inputSchema: {
+        oneOf: [
+          {
+            type: 'object',
+            properties: { path: { type: 'string' } },
+            required: ['path'],
+          },
+          {
+            type: 'object',
+            properties: { query: { type: 'string' } },
+            required: ['query'],
+          },
+        ],
+      },
+      permission: 'auto',
+      mutating: false,
+      async execute() {
+        return '';
+      },
+    };
+
+    const openai = toolsToOpenAI([t])[0]?.function.parameters;
+    const anthropic = toolsToAnthropic([t])[0]?.input_schema;
+    for (const schema of [openai, anthropic]) {
+      expect(schema).toMatchObject({
+        type: 'object',
+        properties: { path: { type: 'string' }, query: { type: 'string' } },
+      });
+      expect(schema).not.toHaveProperty('oneOf');
+      // Alternative-specific requirements cannot both be required on the wire.
+      expect(schema).not.toHaveProperty('required');
+    }
+  });
+
   it('toolsToOpenAI falls back to empty schema when none provided', () => {
     const t: Tool = {
       name: 'noop',

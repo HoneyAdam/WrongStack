@@ -11,8 +11,9 @@
  *
  * Pure config → meta projection. No behaviour change.
  */
-import type { Config } from '@wrongstack/core/types';
+
 import { FallbackProfileManager } from '@wrongstack/core';
+import type { Config } from '@wrongstack/core/types';
 
 /**
  * Seed `context.meta` from the loaded config. Mirrors the CLI's
@@ -24,10 +25,7 @@ import { FallbackProfileManager } from '@wrongstack/core';
  * dependency on the higher `Context` class — anything with a writable
  * `meta: Record<string, unknown>` works.
  */
-export function seedContextMeta(
-  config: Config,
-  context: { meta: Record<string, unknown> },
-): void {
+export function seedContextMeta(config: Config, context: { meta: Record<string, unknown> }): void {
   const meta = context.meta;
   const autonomyCfg = (config.autonomy ?? {}) as Record<string, unknown>;
   const rawMode = autonomyCfg['defaultMode'];
@@ -46,6 +44,7 @@ export function seedContextMeta(
   meta['fallbackProfiles'] = config.fallbackProfiles ?? {};
   meta['favoriteModels'] = config.favoriteModels ?? [];
   meta['favoriteModelsOnly'] = config.favoriteModelsOnly === true;
+  meta['modelAvailabilitySchedule'] = config.modelAvailabilitySchedule ?? [];
   meta['modelMatrix'] = config.modelMatrix ?? {};
   meta['fallbackAuto'] = config.fallbackAuto !== false;
   // Display language — only seeded when the shared config pins one, so an
@@ -98,7 +97,11 @@ export function seedContextMeta(
     const featuresAllow = config.features?.allowOutsideProjectRoot;
     const toolsRestrict = config.tools?.restrictToProjectRoot;
     const allow =
-      featuresAllow !== undefined ? featuresAllow : toolsRestrict !== undefined ? !toolsRestrict : true;
+      featuresAllow !== undefined
+        ? featuresAllow
+        : toolsRestrict !== undefined
+          ? !toolsRestrict
+          : true;
     meta['fsAccess'] = allow ? 'unrestricted' : 'project';
   }
   meta['debugStream'] = config.debugStream === true;
@@ -117,8 +120,7 @@ export function seedContextMeta(
   const tgExt = (config.extensions as Record<string, Record<string, unknown>> | undefined)?.[
     'telegram'
   ];
-  meta['tgConfigured'] =
-    typeof tgExt?.['botToken'] === 'string' && tgExt['botToken'].length > 0;
+  meta['tgConfigured'] = typeof tgExt?.['botToken'] === 'string' && tgExt['botToken'].length > 0;
   meta['tgSessionEnd'] = tgExt?.['notifyOnSessionEnd'] === true;
   meta['tgDelegate'] = tgExt?.['notifyOnDelegate'] !== false; // default true
   const tgMs = tgExt?.['longToolThresholdMs'];
@@ -145,9 +147,9 @@ export function seedContextMeta(
   // Auto-review (mid-session continuous) — seed from extensions['wstack-auto-review'].
   // Defaults match ResolvedAutoReviewConfig in auto-review-plugin.ts:42
   // (enabled=false; provider/model resolve via fallbackProfile/effective chain).
-  const autoReviewExt = (config.extensions as Record<string, Record<string, unknown>> | undefined)?.[
-    'wstack-auto-review'
-  ];
+  const autoReviewExt = (
+    config.extensions as Record<string, Record<string, unknown>> | undefined
+  )?.['wstack-auto-review'];
   meta['autoReviewEnabled'] = autoReviewExt?.['enabled'] === true; // default false (strict opt-in)
   meta['autoReviewProvider'] = (autoReviewExt?.['provider'] as string) ?? '';
   meta['autoReviewModel'] = (autoReviewExt?.['model'] as string) ?? '';
@@ -156,7 +158,8 @@ export function seedContextMeta(
     ? (autoReviewExt?.['fallbackModels'] as string[])
     : [];
   meta['autoReviewDebounceMs'] =
-    typeof autoReviewExt?.['debounceMs'] === 'number' && (autoReviewExt['debounceMs'] as number) >= 0
+    typeof autoReviewExt?.['debounceMs'] === 'number' &&
+    (autoReviewExt['debounceMs'] as number) >= 0
       ? (autoReviewExt['debounceMs'] as number)
       : 5000;
   meta['autoReviewMaxFilesPerBatch'] =
@@ -170,8 +173,7 @@ export function seedContextMeta(
       ? (autoReviewExt['maxConcurrentReviews'] as number)
       : 2;
   const cascade = autoReviewExt?.['cascadeOn'];
-  meta['autoReviewCascadeOn'] =
-    cascade === 'critical' || cascade === 'high' ? cascade : 'off';
+  meta['autoReviewCascadeOn'] = cascade === 'critical' || cascade === 'high' ? cascade : 'off';
 
   // Resolve the effective fallback chain for auto-review via the same
   // FallbackProfileManager the plugin uses (auto-review-plugin.ts:62-69), so
@@ -190,8 +192,6 @@ export function seedContextMeta(
     } catch {
       resolvedChain = [];
     }
-    meta['autoReviewFallbackModels'] = resolvedChain.map(
-      (e) => `${e.providerId}/${e.model}`,
-    );
+    meta['autoReviewFallbackModels'] = resolvedChain.map((e) => `${e.providerId}/${e.model}`);
   }
 }

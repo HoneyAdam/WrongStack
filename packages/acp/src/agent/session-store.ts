@@ -11,7 +11,7 @@ import * as path from 'node:path';
 import type { SessionState } from './protocol-handler.js';
 
 /** A persisted conversation turn (user/agent message chunk) for replay. */
-export interface PersistedHistoryUpdate {
+interface PersistedHistoryUpdate {
   sessionUpdate: string;
   content: unknown;
 }

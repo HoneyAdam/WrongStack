@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import {
   claimReadyTask,
+  heartbeatTaskAssignment,
   listReadyTasks,
+  releaseTaskClaim,
   updateTaskAssignment,
   type KanbanBoard,
   type KanbanTask,
@@ -869,7 +871,31 @@ export function makeKanbanQueueTool(
       const projectRoot = ctx.projectRoot;
       if (!projectRoot) return { error: 'kanban_queue requires ctx.projectRoot.' };
       const maxTasks = Math.max(1, Math.min(20, Math.floor(i.maxTasks ?? 1)));
-      const leaseTtlMs = Math.max(1000, Math.floor(i.leaseTtlMs ?? 5 * 60 * 1000));
+      const baseLeaseTtlMs = Math.max(1000, Math.floor(i.leaseTtlMs ?? 5 * 60 * 1000));
+      // When awaitCompletion is true, the lease must survive until the task timeout
+      // (plus a 1-minute buffer) so the supervisor never reclaims a task whose
+      // worker is still running and being awaited.
+      const leaseTtlMs =
+        i.awaitCompletion === true && i.timeoutMs !== undefined
+          ? Math.max(baseLeaseTtlMs, i.timeoutMs + 60_000)
+          : baseLeaseTtlMs;
+      // Heartbeat at half the lease TTL so renewal always lands before expiry.
+      // The 5s minimum heartbeat interval can exceed the schema-supported lease
+      // TTL range (1000–4999 ms), which would let such a lease expire before
+      // its first renewal. effectiveLeaseTtlMs raises the actual lease window
+      // to at least 2x the heartbeat interval so the first heartbeat is always
+      // in-flight before expiry. This single effective TTL governs the initial
+      // lease seeding, the dispatch-time stamp, and every heartbeat refresh so
+      // all three agree.
+      // Use the caller's explicit heartbeat interval when provided, otherwise
+      // derive a safe interval from the lease TTL (at most half so the first
+      // renewal always lands before expiry). Clamp to at least 5 seconds to
+      // avoid busy-looping the heartbeat timer.
+      const heartbeatIntervalMs = Math.max(
+        5_000,
+        i.heartbeatIntervalMs ?? Math.floor(leaseTtlMs / 2),
+      );
+      const effectiveLeaseTtlMs = Math.max(leaseTtlMs, heartbeatIntervalMs * 2);
       const claimedAt = nowIso();
       const leaseSeeding: {
         leaseId: string;
@@ -880,7 +906,7 @@ export function makeKanbanQueueTool(
         leaseId: randomUUID(),
         claimedAt,
         heartbeatAt: claimedAt,
-        leaseExpiresAt: new Date(Date.now() + leaseTtlMs).toISOString(),
+        leaseExpiresAt: new Date(Date.now() + effectiveLeaseTtlMs).toISOString(),
       };
       const candidateTaskIds =
         i.taskId !== undefined
@@ -911,10 +937,18 @@ export function makeKanbanQueueTool(
         status: TaskResult['status'];
         error: string;
       }> = [];
+      // Budget-rejected task IDs for this dispatch pass. When the cost gate
+      // releases an unaffordable task back to pending, the exclusion set
+      // prevents re-claiming the same task on every iteration and starving
+      // affordable ready work. Cleared when this dispatch_ready call returns.
+      const budgetRejectedTaskIds = new Set<string>();
 
       for (let index = 0; index < maxTasks; index++) {
         const candidateTaskId = candidateTaskIds?.[index];
         if (candidateTaskIds && !candidateTaskId) break;
+        // Skip tasks that were budget-rejected earlier in this dispatch pass
+        // so they cannot starve affordable ready work in the same pass.
+        if (candidateTaskId && budgetRejectedTaskIds.has(candidateTaskId)) continue;
         const claim = await claimReadyTask(projectRoot, {
           ...(i.boardId !== undefined ? { boardId: i.boardId } : {}),
           ...(candidateTaskId !== undefined ? { taskId: candidateTaskId } : {}),
@@ -939,14 +973,26 @@ export function makeKanbanQueueTool(
         let runTaskId: string | undefined;
 
         // Sprint 3: cost-ceiling budget check before spawning.
+        // Release the claim so the task remains eligible for retry once budget
+        // frees up via completed tasks or replenishment. The release targets
+        // `blocked` (not `pending`/`ready`) so the task is excluded from
+        // isTaskReadyForWork for the remainder of this dispatch pass. Without
+        // this, claimReadyTask — which deterministically returns the highest-
+        // priority ready task — would hand back the SAME task on the next
+        // loop iteration (it was just released to pending), burning every
+        // dispatch slot on an unaffordable task and starving affordable ready
+        // work. Releasing to blocked lets lower-priority affordable tasks get
+        // claimed in the same pass; the task can be re-readied later by a
+        // reconcile pass or an explicit update when budget recovers.
         const costCeiling = claim.task.assignment?.costCeilingUsd;
         if (costCeiling !== undefined) {
           const remaining = director.getRemainingBudgetUsd();
           if (remaining !== undefined && remaining < costCeiling) {
-            await updateTaskAssignment(projectRoot, claim.board.id, claim.task.id, {
-              status: 'failed',
-              error: `Cost ceiling ${costCeiling} exceeds remaining budget ${remaining.toFixed(4)}`,
-              lastResult: 'Skipped by kanban_queue cost gate (Sprint 3)',
+            budgetRejectedTaskIds.add(claim.task.id);
+            await releaseTaskClaim(projectRoot, claim.board.id, claim.task.id, {
+              status: 'blocked',
+              reason: `Cost ceiling ${costCeiling} exceeds remaining budget ${remaining.toFixed(4)}. Task blocked for this dispatch pass; retry when budget recovers.`,
+              clearAssignee: true,
             });
             errors.push({
               taskId: claim.task.id,
@@ -963,8 +1009,15 @@ export function makeKanbanQueueTool(
             id: randomUUID(),
             subagentId,
             description: buildKanbanFleetTaskPrompt(claim.board, claim.task, {
-              heartbeatIntervalMs: i.heartbeatIntervalMs ?? 60_000,
-              leaseTtlMs,
+              // The worker must heartbeat against the lease it actually holds.
+              // effectiveLeaseTtlMs is the real lease window (raised from the
+              // requested TTL when needed so the first heartbeat always lands
+              // before expiry), and the computed heartbeatIntervalMs is always
+              // strictly shorter than that window. Passing the raw requested
+              // values here would give the worker a 60s cadence against a
+              // 10s lease, letting the lease expire before its first renewal.
+              heartbeatIntervalMs,
+              leaseTtlMs: effectiveLeaseTtlMs,
               leaseId: leaseSeeding.leaseId,
               leaseExpiresAt: leaseSeeding.leaseExpiresAt,
             }),
@@ -979,12 +1032,59 @@ export function makeKanbanQueueTool(
               },
             },
           });
-          await updateTaskAssignment(projectRoot, claim.board.id, claim.task.id, {
-            ...(claim.task.assignment ?? {}),
-            status: 'running',
-            subagentId,
-            runTaskId,
-          });
+          // Fence the dispatch-time running-state write with the claim lease
+          // id. spawn() + assign() can take long enough (or be delayed long
+          // enough in the coordinator queue) for the claim lease to expire and
+          // recover_stale to reclaim+reassign the task to a successor. Without
+          // this fence, the unconditional write below would overwrite the
+          // successor's assignment and let two workers run the same task.
+          // updateTaskAssignment checks expectedLeaseId inside the mutateBoard
+          // lock (assignment.ts) and returns null on mismatch.
+          const dispatched = await updateTaskAssignment(
+            projectRoot,
+            claim.board.id,
+            claim.task.id,
+            {
+              ...(claim.task.assignment ?? {}),
+              status: 'running',
+              subagentId,
+              runTaskId,
+              // Renew the lease from the actual dispatch moment, not from claim
+              // time. The claim-time lease starts before spawn + queueing, so
+              // `timeoutMs + 60_000` can expire while the worker is still
+              // queued or running, letting recover_stale reclaim and duplicate
+              // the assignment (see auto-extend.ts: timeout extensions can push
+              // execution well past the original timeoutMs). Both heartbeatAt
+              // and leaseExpiresAt are stamped from now so the worker has a
+              // full lease window from the moment it was actually dispatched.
+              heartbeatAt: new Date().toISOString(),
+              leaseExpiresAt: new Date(Date.now() + effectiveLeaseTtlMs).toISOString(),
+            },
+            { expectedLeaseId: leaseSeeding.leaseId },
+          );
+          if (dispatched === null) {
+            // Ownership was lost during spawn/queueing: recover_stale already
+            // reclaimed and reassigned the task. Terminate the subagent we just
+            // spawned so it cannot execute the now-reassigned task in parallel
+            // with the successor, and record a conflict rather than falsely
+            // claiming the dispatch succeeded.
+            try {
+              await director.terminate(subagentId);
+            } catch (cleanupErr) {
+              // Best-effort: the successor owns the assignment now; a failure
+              // to terminate our orphan is surfaced but must not block.
+              errors.push({
+                taskId: claim.task.id,
+                error: `Lease lost during dispatch; orphan subagent ${subagentId} termination failed: ${toErrorMessage(cleanupErr)}`,
+              });
+              continue;
+            }
+            errors.push({
+              taskId: claim.task.id,
+              error: `Lease lost during dispatch (reassigned by recovery); subagent ${subagentId} terminated.`,
+            });
+            continue;
+          }
           dispatches.push({
             boardId: claim.board.id,
             taskId: claim.task.id,
@@ -1003,31 +1103,92 @@ export function makeKanbanQueueTool(
               message = `${message}; cleanup failed for spawned subagent ${subagentId}: ${toErrorMessage(cleanupErr)}`;
             }
           }
-          await updateTaskAssignment(projectRoot, claim.board.id, claim.task.id, {
-            ...(claim.task.assignment ?? {}),
-            status: 'failed',
-            ...(subagentId !== undefined ? { subagentId } : {}),
-            ...(runTaskId !== undefined ? { runTaskId } : {}),
-            error: message,
-          });
+          // Fence the failure write too: if the claim lease expired during
+          // spawn/assign and recover_stale reassigned the task, a stale
+          // failure write here must not overwrite the successor's assignment.
+          // When ownership was lost the write is a no-op (returns null); we
+          // still surface the dispatch error to the caller below.
+          await updateTaskAssignment(
+            projectRoot,
+            claim.board.id,
+            claim.task.id,
+            {
+              ...(claim.task.assignment ?? {}),
+              status: 'failed',
+              ...(subagentId !== undefined ? { subagentId } : {}),
+              ...(runTaskId !== undefined ? { runTaskId } : {}),
+              error: message,
+            },
+            { expectedLeaseId: leaseSeeding.leaseId },
+          );
           errors.push({ taskId: claim.task.id, error: message });
         }
       }
 
       let results: TaskResult[] | undefined;
       if (i.awaitCompletion && dispatches.length > 0) {
-        results = await director.awaitTasks(dispatches.map((dispatch) => dispatch.runTaskId));
+        // The dispatch-time lease covers the original timeoutMs, but the
+        // coordinator's auto-extend policy (auto-extend.ts) can grant timeout
+        // extensions while the worker makes progress — up to a 24h ceiling.
+        // Without supervisor-side renewal, the lease can expire while the
+        // awaited worker is still legitimately running, letting recover_stale
+        // reclaim and duplicate the assignment. heartbeatIntervalMs and
+        // effectiveLeaseTtlMs were computed above (before lease seeding) so
+        // the initial lease, dispatch stamp, and every refresh agree.
+        const ourLeaseId = leaseSeeding.leaseId;
+        const runTaskIds = new Set(dispatches.map((dispatch) => dispatch.runTaskId));
+        const heartbeatTimer = setInterval(async () => {
+          const refreshedExpiry = new Date(Date.now() + effectiveLeaseTtlMs).toISOString();
+          for (const dispatch of dispatches) {
+            // Only heartbeat tasks still in flight; resolved ones are
+            // finalized below after awaitTasks settles.
+            if (!runTaskIds.has(dispatch.runTaskId)) continue;
+            try {
+              // Atomic ownership fence: expectedLeaseId is checked inside
+              // heartbeatTaskAssignment's mutateBoard lock, so if the
+              // supervisor recovered and reassigned the task (changing its
+              // leaseId), the heartbeat is a no-op rather than a TOCTOU gap
+              // that could renew the successor's lease.
+              await heartbeatTaskAssignment(projectRoot, dispatch.boardId, dispatch.taskId, {
+                leaseExpiresAt: refreshedExpiry,
+                expectedLeaseId: ourLeaseId,
+              });
+            } catch {
+              // Heartbeat failure is non-fatal: the next tick retries, and
+              // the final status write is the source of truth. We must not
+              // tear down the awaited dispatch over a transient write error.
+            }
+          }
+        }, heartbeatIntervalMs);
+
+        try {
+          results = await director.awaitTasks(dispatches.map((dispatch) => dispatch.runTaskId));
+        } finally {
+          clearInterval(heartbeatTimer);
+        }
         for (const result of results) {
           const dispatch = dispatches.find((candidate) => candidate.runTaskId === result.taskId);
           if (!dispatch) continue;
-          await updateTaskAssignment(projectRoot, dispatch.boardId, dispatch.taskId, {
-            status: result.status === 'success' ? 'completed' : 'failed',
-            subagentId: result.subagentId,
-            runTaskId: result.taskId,
-            ...(result.status === 'success'
-              ? { lastResult: resultToText(result) }
-              : { error: resultErrorText(result) }),
-          });
+          runTaskIds.delete(dispatch.runTaskId);
+          // Atomic ownership fence: expectedLeaseId is checked inside
+          // updateTaskAssignment's mutateBoard lock, so if the supervisor
+          // recovered and reassigned the task while we were awaiting results,
+          // the terminal write is a no-op rather than a TOCTOU gap that could
+          // overwrite the successor's state with stale data.
+          await updateTaskAssignment(
+            projectRoot,
+            dispatch.boardId,
+            dispatch.taskId,
+            {
+              status: result.status === 'success' ? 'completed' : 'failed',
+              subagentId: result.subagentId,
+              runTaskId: result.taskId,
+              ...(result.status === 'success'
+                ? { lastResult: resultToText(result) }
+                : { error: resultErrorText(result) }),
+            },
+            { expectedLeaseId: ourLeaseId },
+          );
           if (result.status !== 'success') {
             resultFailures.push({
               taskId: dispatch.taskId,
@@ -1222,10 +1383,21 @@ function buildKanbanFleetTaskPrompt(
     'Work this task end-to-end. Treat the board as a live plan, not a frozen assignment snapshot.',
     `Before material work and whenever evidence changes the plan, call kanban with action "get_board" and boardId "${board.id}" to reassess current tasks, dependencies, priorities, and peer changes.`,
     'You may use kanban add_task, update_task, split_task, merge_tasks, move_task, delete_task, or dependency actions when reassessment shows the plan should change. Preserve traceability and do not keep obsolete work merely because it existed at dispatch time.',
+    '',
+    'FIELD MAINTENANCE — keep every task detail current:',
+    '- Call "update_task" to refresh description, priority, type, labels, or estimatedHours as the work evolves.',
+    '- Call "add_note" with author and content to record progress, decisions, or roadblock context.',
+    '- Call "add_check" / "update_check" with description and status (pending/passed/failed) to track acceptance criteria.',
+    '- Call "add_goal_metric" / "update_goal_metric" with name and current/target to report measurable progress.',
+    '- Call "add_link" with url and type (issue/pr/doc/commit/design/file/url/other) to attach evidence.',
+    '- Call "update_task" to set actualHours when you have a final time estimate.',
+    'Do not leave stale or placeholder field values — the kanban board is the shared source of truth for every stakeholder.',
+    '',
+    'LEASE & LIFECYCLE:',
     'Every successful board mutation updates shared pending work and notifies the owning session. Re-read the board after mutations and adapt to changes made by other agents; never assume your initial todo list remains authoritative.',
-    `When you start, call kanban with action "mark_assignment", boardId "${board.id}", taskId "${task.id}", and assignmentStatus "running". Include subagentId and runTaskId when you have them.`,
-    `To stay alive in the queue, call kanban with action "heartbeat_assignment", boardId "${board.id}", taskId "${task.id}", and heartbeatAt set to the current time. Cadence must be <= heartbeatIntervalMs and well before leaseExpiresAt.`,
-    `When you finish, call kanban with action "mark_assignment", boardId "${board.id}", taskId "${task.id}", and assignmentStatus "completed" or "failed". Include lastResult or error.`,
+    `When you start, call kanban with action "mark_assignment", boardId "${board.id}", taskId "${task.id}", assignmentStatus "running", and expectedLeaseId "${lease.leaseId}". Include subagentId and runTaskId when you have them. The expectedLeaseId fence makes the write a safe no-op if recover_stale already reassigned the task because your lease expired.`,
+    `To stay alive in the queue, call kanban with action "heartbeat_assignment", boardId "${board.id}", taskId "${task.id}", heartbeatAt set to the current time, and expectedLeaseId "${lease.leaseId}". Cadence must be <= heartbeatIntervalMs and well before leaseExpiresAt. The expectedLeaseId fence makes the heartbeat a safe no-op if the lease was reassigned, so a stale worker cannot renew a successor's lease.`,
+    `When you finish, call kanban with action "mark_assignment", boardId "${board.id}", taskId "${task.id}", assignmentStatus "completed" or "failed", and expectedLeaseId "${lease.leaseId}". Include lastResult or error. Populate every relevant detail field before the terminal mark_assignment so the card's final state is complete.`,
     `If you cannot finish in time, call kanban with action "heartbeat_assignment" to extend the lease, or with action "release_task" to release so another worker can claim. Do NOT silently abandon the assignment.`,
     'On failure the host may call kanban with action "recover_stale" (mode: retry/release/fail); respect its decisions and do not duplicate work in parallel.',
     'When finished, report what changed, what you verified, and any remaining blockers.',

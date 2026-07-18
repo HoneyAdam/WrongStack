@@ -13,7 +13,7 @@ export type EvOn = (
   handler: (...args: any) => void,
 ) => void;
 
-export interface WireEventWiringDeps {
+interface WireEventWiringDeps {
   evOn: EvOn;
   events: EventBus;
   renderer: EventWiringRenderer;

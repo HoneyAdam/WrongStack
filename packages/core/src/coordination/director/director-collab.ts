@@ -25,7 +25,7 @@ interface CollabAgentStopper {
   stop(subagentId: string): Promise<void>;
 }
 
-export interface DirectorCollabControllerDeps {
+interface DirectorCollabControllerDeps {
   /** The owning Director, passed to each CollabSession. */
   director: Director;
   fleet: FleetBus;

@@ -11,15 +11,22 @@
  * Moved here from `@wrongstack/cli` (it only ever depended on core types) so the
  * runtime light factory can wire fallbacks for SDD worker subagents.
  */
+
+import type { ProviderModelStatusTracker } from '../coordination/provider-status-tracker.js';
 import type { AgentExtension } from '../extension/extension-points.js';
 import type { EventBus } from '../kernel/events.js';
 import { isTextBlock, isToolUseBlock } from '../types/blocks.js';
 import type { Config } from '../types/config.js';
 import type { Logger } from '../types/logger.js';
-import { isFallbackWorthy, type Provider, ProviderError, type Response } from '../types/provider.js';
-import { FallbackProfileManager } from './fallback-profile-manager.js';
+import {
+  isFallbackWorthy,
+  type Provider,
+  ProviderError,
+  type Response,
+} from '../types/provider.js';
 import type { FallbackChain, FallbackChainEntry } from './fallback-profile-manager.js';
-import type { ProviderModelStatusTracker } from '../coordination/provider-status-tracker.js';
+import { FallbackProfileManager } from './fallback-profile-manager.js';
+import { evaluateModelCalendar, logicalCalendarTarget } from './model-availability-calendar.js';
 
 export interface FallbackModelDeps {
   /** Returns the live config (re-read each turn so `/model` switches are honored). */
@@ -131,7 +138,11 @@ function isUsableModelResponse(response: Response): boolean | undefined {
   );
 }
 
-function ensureUsableModelResponse(response: Response, providerId: string, model: string): Response {
+function ensureUsableModelResponse(
+  response: Response,
+  providerId: string,
+  model: string,
+): Response {
   const usable = isUsableModelResponse(response);
   // undefined content means the caller didn't provide a content field (e.g. test mocks) — let it through
   if (usable !== false) return response;
@@ -155,10 +166,12 @@ export function smartDefaultFallbackChain(config: Config): string[] {
  */
 export function effectiveFallbackChain(config: Config): string[] {
   const mgr = new FallbackProfileManager(config);
-  return mgr.resolveEffective({
-    fallbackModels: config.fallbackModels,
-    fallbackAuto: config.fallbackAuto,
-  }).map((e) => `${e.providerId}/${e.model}`);
+  return mgr
+    .resolveEffective({
+      fallbackModels: config.fallbackModels,
+      fallbackAuto: config.fallbackAuto,
+    })
+    .map((e) => `${e.providerId}/${e.model}`);
 }
 
 const DEFAULT_PRIMARY_COOLDOWN_MS = 60_000;
@@ -235,7 +248,9 @@ function contextWindowWarning(
   currentProvider: Provider,
   nextProvider: Provider,
   currentTokens: unknown,
-): { fromMaxContext: number; toMaxContext: number; currentTokens?: number | undefined } | undefined {
+):
+  | { fromMaxContext: number; toMaxContext: number; currentTokens?: number | undefined }
+  | undefined {
   const fromMaxContext = maxContextOf(currentProvider);
   const toMaxContext = maxContextOf(nextProvider);
   if (fromMaxContext <= 0 || toMaxContext <= 0 || toMaxContext >= fromMaxContext) return undefined;
@@ -271,7 +286,8 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
 
   const now = () => deps.now?.() ?? Date.now();
   const cooldownBase = () => Math.max(0, deps.primaryCooldownMs ?? DEFAULT_PRIMARY_COOLDOWN_MS);
-  const cooldownMax = () => Math.max(cooldownBase(), deps.primaryCooldownMaxMs ?? DEFAULT_PRIMARY_COOLDOWN_MAX_MS);
+  const cooldownMax = () =>
+    Math.max(cooldownBase(), deps.primaryCooldownMaxMs ?? DEFAULT_PRIMARY_COOLDOWN_MAX_MS);
   const primaryInCooldown = (cfg: Config) =>
     sameTarget(blockedPrimary, primaryTarget(cfg)) && now() < primaryBlockedUntil;
 
@@ -302,6 +318,11 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
       if (!dirty) return;
       const cfg = deps.getConfig();
       if (primaryInCooldown(cfg)) return;
+      if (
+        !evaluateModelCalendar(cfg.modelAvailabilitySchedule, cfg.provider, cfg.model).allowed ||
+        (deps.statusTracker && !deps.statusTracker.isAvailable(cfg.provider, cfg.model))
+      )
+        return;
       try {
         ctx.provider = await deps.buildProvider(cfg.provider, cfg.model);
         ctx.model = cfg.model;
@@ -325,31 +346,44 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
     wrapProviderRunner: async (ctx, request, inner) => {
       // ── Before calling, check if the current provider/model is blocked ──
       const tracker = deps.statusTracker;
-      if (tracker && !tracker.isAvailable(ctx.provider.id, ctx.model)) {
+      const calendar = evaluateModelCalendar(
+        deps.getConfig().modelAvailabilitySchedule,
+        ctx.provider.id,
+        ctx.model,
+      );
+      const trackerBlocked = tracker ? !tracker.isAvailable(ctx.provider.id, ctx.model) : false;
+      if (trackerBlocked || !calendar.allowed) {
         deps.logger?.warn(
           `provider-status: "${ctx.provider.id}/${ctx.model}" is blocked — trying fallback chain`,
         );
         // Emit active_blocked so the UI can surface a prominent warning
-        const status = tracker.getStatus(ctx.provider.id, ctx.model);
+        const status = tracker?.getStatus(ctx.provider.id, ctx.model);
+        const logical =
+          tracker?.logicalIdentity(ctx.provider.id, ctx.model) ??
+          logicalCalendarTarget(ctx.provider.id, ctx.model);
         deps.events.emit('provider.active_blocked', {
-          providerId: ctx.provider.id,
-          model: ctx.model,
+          providerId: logical.providerId,
+          model: logical.model,
           state: 'blocked',
           fallbackProviderId: '',
           fallbackModel: '',
-          lastError: status?.lastErrorMessage ?? 'Rate limit or repeated failures',
+          lastError:
+            calendar.rule?.label ??
+            (calendar.rule ? 'Blocked by model availability calendar' : undefined) ??
+            status?.lastErrorMessage ??
+            'Rate limit or repeated failures',
           sessionId: ctx.session?.id,
           timestamp: Date.now(),
         });
         // Skipping the blocked primary — simulate a fallback-worthy error
         const skipErr = new ProviderError(
-          `Skipping blocked "${ctx.provider.id}/${ctx.model}" — try fallback`,
+          `Skipping unavailable "${ctx.provider.id}/${ctx.model}" — try fallback`,
           429,
           true,
           ctx.provider.id,
           { kind: 'rate_limit' },
         );
-        return runFallbackChain(ctx, request, inner, skipErr);
+        return runFallbackChain(ctx, request, inner, skipErr, true);
       }
 
       try {
@@ -378,13 +412,14 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
         request_: typeof request,
         inner_: typeof inner,
         firstErr_: unknown,
+        alreadyTracked = false,
       ): Promise<Response> {
         let lastErr: unknown = firstErr_;
         const cfg = deps.getConfig();
         const current = { providerId: ctx_.provider.id, model: ctx_.model };
 
         // Record the failure in the tracker (real ProviderError, not our synthetic skip)
-        if (firstErr_ instanceof ProviderError && tracker) {
+        if (!alreadyTracked && firstErr_ instanceof ProviderError && tracker) {
           tracker.recordFailure(
             ctx_.provider.id,
             ctx_.model,
@@ -410,11 +445,21 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
           ? chain.filter((e) => tracker.isAvailable(e.providerId, e.model))
           : chain;
 
-        if (shouldFallback(firstErr_) !== null && ctx_.provider.id === cfg.provider && ctx_.model === cfg.model) {
+        if (
+          !alreadyTracked &&
+          shouldFallback(firstErr_) !== null &&
+          ctx_.provider.id === cfg.provider &&
+          ctx_.model === cfg.model
+        ) {
           markPrimaryFailure(cfg);
         }
 
         for (const entry of usableChain) {
+          if (
+            !evaluateModelCalendar(cfg.modelAvailabilitySchedule, entry.providerId, entry.model)
+              .allowed
+          )
+            continue;
           const status = shouldFallback(lastErr);
           if (status === null) break; // not a fallback-worthy error
 
@@ -430,6 +475,7 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
           }
 
           const from = { providerId: ctx_.provider.id, model: ctx_.model };
+          const logicalFrom = tracker?.logicalIdentity(from.providerId, from.model) ?? from;
 
           let nextProvider: Provider;
           try {
@@ -453,19 +499,27 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
 
           deps.events.emit('provider.fallback', {
             sessionId: ctx_.session?.id,
-            from,
-            to: { providerId: nextProvider.id, model: targetModel },
+            from: logicalFrom,
+            to: tracker?.logicalIdentity(nextProvider.id, targetModel) ?? {
+              providerId: nextProvider.id,
+              model: targetModel,
+            },
             status,
             providerSwitched,
             ...(warning ? { contextWindowWarning: warning } : {}),
           });
 
           try {
-            return ensureUsableModelResponse(
+            const response = ensureUsableModelResponse(
               await inner_(ctx_, request_),
               ctx_.provider.id,
               ctx_.model,
             );
+            tracker?.recordSuccess(nextProvider.id, targetModel, {
+              sessionId: ctx_.session?.id,
+              agentId: ctx_.agentId,
+            });
+            return response;
           } catch (err) {
             // Record fallback failure too
             if (err instanceof ProviderError && tracker) {

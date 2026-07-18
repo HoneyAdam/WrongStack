@@ -1,6 +1,6 @@
 import type { EventBus } from '../kernel/events.js';
 
-export interface RequestLimitExtensionOptions {
+interface RequestLimitExtensionOptions {
   events: EventBus;
   sessionId?: string | undefined;
   currentIterations: number;

@@ -83,7 +83,7 @@ export class ObservableBrainArbiter implements BrainArbiter {
   }
 }
 
-export interface BrainDecisionQueueOptions {
+interface BrainDecisionQueueOptions {
   /** Safety fallback if the human never answers. Default: no timeout. */
   timeoutMs?: number | undefined;
   /**

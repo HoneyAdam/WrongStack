@@ -165,7 +165,7 @@ const KNOWN_SUBCOMMANDS = new Set<string>([
   'resume',
 ]);
 
-export interface RunLaunchMenuDeps {
+interface RunLaunchMenuDeps {
   argv: string[];
   flags: Record<string, string | boolean>;
   positional: string[];

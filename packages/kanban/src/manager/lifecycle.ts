@@ -326,7 +326,7 @@ function validateReviewEvidence(
   input: KanbanTaskTransitionInput,
   issues: KanbanLifecycleValidationIssue[],
 ): void {
-  if (!hasText(task.assignment?.lastResult) || !input.attachment) {
+  if (!hasText(task.assignment?.lastResult) || !hasAttachmentUrl(input.attachment)) {
     issues.push({
       code: 'review-evidence-missing',
       message: 'Review requires a persisted implementation result and evidence attachment.',
@@ -347,12 +347,21 @@ function validateDoneEvidence(
       message: 'Done requires every acceptance criterion to be explicitly passed.',
     });
   }
-  if (!input.attachment || !hasText(input.action)) {
+  if (!hasAttachmentUrl(input.attachment) || !hasText(input.action)) {
     issues.push({
       code: 'review-evidence-missing',
       message: 'Done requires reviewer action text and a persisted review attachment.',
     });
   }
+}
+
+/**
+ * An evidence attachment must carry a nonblank URL to satisfy the Review/Done
+ * guards. Rejects `undefined`, empty string, and whitespace-only URLs so a
+ * merely present attachment object cannot satisfy the lifecycle guard.
+ */
+function hasAttachmentUrl(attachment: KanbanTaskTransitionInput['attachment']): boolean {
+  return Boolean(attachment && hasText(attachment.url));
 }
 
 function requireDetail(

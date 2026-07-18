@@ -36,20 +36,6 @@ export interface PendingWebuiCommandAck {
 // Application State
 // ============================================================================
 
-export interface ApplicationState {
-  mainWindow: import('electron').BaseWindow | null;
-  shellView: import('electron').WebContentsView | null;
-  activeWebuiRuntimeId: string | null;
-  webuiStatus: DesktopWebuiStatusSnapshot;
-  webuiCommandSequence: number;
-  shellSidebarCollapsed: boolean;
-  quittingAfterCleanup: boolean;
-}
-
-export interface WindowState {
-  saveTimer: ReturnType<typeof setTimeout> | null;
-}
-
 // ============================================================================
 // Store Interfaces (for dependency injection)
 // ============================================================================
@@ -92,7 +78,7 @@ export interface IAgentBridge {
   on(event: 'changed', listener: (conversation: import('../../shared/types.js').DesktopConversationSnapshot) => void): this;
 }
 
-export interface IConfigIo {
+interface IConfigIo {
   readUiLocale(): Promise<string | undefined>;
   writeUiLocale(code: string): Promise<void>;
   readonly desktopConfigPaths: {
@@ -101,7 +87,7 @@ export interface IConfigIo {
   };
 }
 
-export interface II18n {
+interface II18n {
   getMainLocale(): string;
   setMainLocale(locale: string): void;
   tMain(key: string): string;
@@ -145,18 +131,6 @@ export interface IpcHandlerContext {
   settlePendingWebuiCommandAck(requestId: string, handled: boolean): void;
   setEntryWebuiStatus(entry: DesktopWebuiRuntimeView, next: DesktopWebuiStatusSnapshot): void;
   schedulePendingWebuiFlush(entry: DesktopWebuiRuntimeView): void;
-}
-
-// ============================================================================
-// Layout Context
-// ============================================================================
-
-export interface LayoutContext {
-  getMainWindow(): import('electron').BaseWindow | null;
-  getShellView(): import('electron').WebContentsView | null;
-  getRuntimeManager(): IRuntimeManager;
-  getShellSidebarCollapsed(): boolean;
-  getWebuiViews(): Map<string, DesktopWebuiRuntimeView>;
 }
 
 // ============================================================================

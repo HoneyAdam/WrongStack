@@ -109,7 +109,7 @@ export interface TaskResultNotification {
   durationMs: number;
 }
 
-export interface DirectorOptions {
+interface DirectorOptions {
   config: MultiAgentConfig;
   runner?: SubagentRunner | undefined;
   /** Optional Brain arbiter above the director for policy/decision escalation. */

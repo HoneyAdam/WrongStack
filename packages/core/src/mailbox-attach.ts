@@ -21,6 +21,7 @@ import {
 } from './coordination/mailbox-constants.js';
 import { mailboxSessionTag, resolveMailboxIdentity } from './coordination/mailbox-tool.js';
 import type { Mailbox, MailboxMessage } from './coordination/mailbox-types.js';
+import { MAILBOX_TYPE_PROPERTIES } from './coordination/mailbox-types.js';
 import type { FleetConfig } from './types/config.js';
 import type { AgentInternals } from './core/agent-internals.js';
 import { buildMailboxBtwAwarenessBlock, createMailboxChecker } from './core/mailbox-loop.js';
@@ -148,7 +149,11 @@ function attachMailboxCheckerInner(
   const checkMailbox = createMailboxChecker(mailboxCheckerOptions);
   const checkMailboxAwareness = createMailboxChecker({
     ...mailboxCheckerOptions,
-    include: (m) => m.type !== 'control',
+    // Exclude out-of-band types (control) from awareness polling.
+    // Uses the canonical MAILBOX_TYPE_PROPERTIES outOfBand flag instead
+    // of a hardcoded type string, so a newly-added out-of-band type is
+    // automatically excluded.
+    include: (m) => !MAILBOX_TYPE_PROPERTIES[m.type]?.outOfBand,
     ack: false,
   });
 

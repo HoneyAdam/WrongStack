@@ -8,7 +8,7 @@ import type { ZodSchema, ZodError } from 'zod';
  * Result type for validation operations.
  * Success contains the validated data, Failure contains the error.
  */
-export type ValidationResult<T> =
+type ValidationResult<T> =
   | { success: true; data: T }
   | { success: false; error: string };
 
@@ -105,22 +105,4 @@ export function createValidationLogger(prefix: string) {
       loggedErrors.clear();
     },
   };
-}
-
-/**
- * Validate multiple values at once.
- * Returns a map of field names to results.
- */
-export function validateMany<T extends Record<string, unknown>>(
-  schema: ZodSchema<T>,
-  data: Partial<Record<keyof T, unknown>>,
-): Record<keyof T, ValidationResult<T[keyof T]>> {
-  const result: Partial<Record<keyof T, ValidationResult<unknown>>> = {};
-  for (const [key, value] of Object.entries(data)) {
-    const fieldSchema = (schema as unknown as { shape: Record<string, ZodSchema> }).shape[key];
-    if (fieldSchema) {
-      result[key as keyof T] = validate(fieldSchema, value);
-    }
-  }
-  return result as Record<keyof T, ValidationResult<T[keyof T]>>;
 }

@@ -69,7 +69,7 @@ function initial(over: Partial<State> = {}): State {
     fleet: {},
     fleetCost: 0,
     fleetTokens: { input: 0, output: 0 },
-    fleetChat: 'compact',
+    fleetChat: 'off',
     monitorOpen: false,
     agentsMonitorOpen: false,
     helpOpen: false,

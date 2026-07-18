@@ -640,6 +640,8 @@ Every built-in command is tagged with a category (`Run` · `Session` · `Inspect
 | `/model` | _(TUI)_ Two-step provider → model picker. In the plain REPL, relaunch with `--provider` / `--model` |
 | `/setmodel <key> <provider/model>` | Set per-role or per-phase model in the model matrix (e.g. `/setmodel security-scanner openai/gpt-4o`). Also supports `resolve <role>` and `doctor` for matrix diagnostics |
 | `/fallback` | View or edit the rate-limit fallback chain. On a `429`/`529`/`5xx` after retries, the agent rotates to the next model in the chain instead of failing; each hop prints `↻ switched to <provider/model>` |
+| `/provider-status [waiting\|blocked\|degraded\|healthy]` | Inspect the live provider/model health tracker and limit-reset waiting room. Exhausted-credit models are skipped across fallback consumers until their reset/cooldown expires. |
+| `/provider-status retry <provider> <model>` | Release one waiting entry for a half-open probe on its next real use. OmniRoute's transport prefix is hidden, so `omniroute/cc/claude-opus-4.8` is addressed as `cc claude-opus-4.8`. |
 | `/auth [login\|status <provider>\|open\|help]` | In-session credential manager. In TUI, opens the interactive key/OAuth panel (`/auth login` jumps to OAuth); in REPL, shows a non-blocking provider/key dashboard and points to `wstack auth` for edits |
 | `/hq [status\|set <url> [token]\|token <token>\|on\|off\|clear]` | Configure this client’s HQ telemetry connection. Local `wstack --hq` is auto-discovered through `~/.wrongstack/hq/runtime.json`; remote HQs use URL + client token |
 | `/image` or `/paste-image` | Attach clipboard PNG. TUI also `Alt+V` |

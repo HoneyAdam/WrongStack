@@ -1,9 +1,3 @@
-import { useAppTranslation } from '@/i18n';
-import { cn } from '@/lib/utils';
-import { getWSClient } from '@/lib/ws-client';
-import { useChatStore, useHistoryStore, useSessionStore, useUIStore } from '@/stores';
-import { useLocalPrefs } from '@/stores/local-prefs';
-import { useConfigStore } from '@/stores';
 import {
   Activity,
   ArrowDown,
@@ -17,24 +11,36 @@ import {
   Terminal,
   Zap,
 } from 'lucide-react';
-import { lazy, memo, useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react';
-import { useShallow } from 'zustand/react/shallow';
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { VList, type VListHandle } from 'virtua';
+import { useShallow } from 'zustand/react/shallow';
+import { useAppTranslation } from '@/i18n';
+import { cn } from '@/lib/utils';
+import { getWSClient } from '@/lib/ws-client';
+import {
+  useChatStore,
+  useConfigStore,
+  useHistoryStore,
+  useSessionStore,
+  useUIStore,
+} from '@/stores';
+import { useLocalPrefs } from '@/stores/local-prefs';
 import { AutonomyPicker } from '../AutonomyPicker';
 import { ChatInput } from '../ChatInput';
 import { CheckpointTimeline } from '../CheckpointTimeline';
-import { ContextModePicker } from '../ContextModePicker';
 import { ContextFillBar } from '../ContextBar';
 import { ContextBreakdownModal } from '../ContextBreakdownModal';
+import { ContextModePicker } from '../ContextModePicker';
 import { CostChip } from '../CostChip';
 import { MessageBubble } from '../MessageBubble';
 import { ModePicker } from '../ModePicker';
+import { ProviderWaitingRoom } from '../ProviderWaitingRoom';
 import { SearchOverlay } from '../SearchOverlay';
 import { ToolGroup } from '../ToolGroup';
-import { WelcomeScreen } from '../WelcomeScreen';
 import { Button } from '../ui/button';
-import { type ChatRow, buildChatRows, fmtTok } from './utils.js';
+import { WelcomeScreen } from '../WelcomeScreen';
 import { ThinkingBubble } from './ThinkingBubble.js';
+import { buildChatRows, type ChatRow, fmtTok } from './utils.js';
 
 /**
  * Compact inline toggle switch used in the display-toggles bar. Renders a
@@ -129,25 +135,25 @@ const ChatRowView = memo(function ChatRowView({
       <div className={cn('chat-turn', compactMode ? 'space-y-1' : 'space-y-1.5')}>
         {row.items.flatMap((it) => {
           if (it.kind === 'msg') {
-            return [(
+            return [
               <MessageBubble
                 key={it.key}
                 message={it.message}
                 isFirst={it.isFirst}
                 isContinuation={it.isContinuation}
-              />
-            )];
+              />,
+            ];
           }
           if (groupToolCalls) {
             const defaultOpen = row.isLastTurn && it.isLastGroup && isLoading && it.hasRunningTool;
-            return [(
+            return [
               <ToolGroup
                 key={it.key}
                 tools={it.tools}
                 defaultOpen={defaultOpen}
                 isContinuation={it.isContinuation}
-              />
-            )];
+              />,
+            ];
           }
           // Grouping off — render each tool as its own message bubble
           return it.tools.map((tool) => (
@@ -204,10 +210,15 @@ export function ChatView() {
     const onClick = (e: MouseEvent) => {
       if (!switcherRef.current?.contains(e.target as Node)) setSwitcherOpen(false);
     };
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSwitcherOpen(false); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSwitcherOpen(false);
+    };
     document.addEventListener('mousedown', onClick);
     document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onClick); document.removeEventListener('keydown', onKey); };
+    return () => {
+      document.removeEventListener('mousedown', onClick);
+      document.removeEventListener('keydown', onKey);
+    };
   }, [switcherOpen]);
 
   const { provider, model } = useConfigStore(
@@ -246,11 +257,14 @@ export function ChatView() {
   const showThinkingLogs = useLocalPrefs((s) => s.showThinkingLogs);
   const groupToolCallsPref = useLocalPrefs((s) => s.groupToolCalls);
 
-  const handleAutonomyChange = useCallback((mode: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel') => {
-    useLocalPrefs.getState().set({ autonomy: mode });
-    const ws = getWSClient();
-    ws?.send?.({ type: 'autonomy.switch', payload: { mode } });
-  }, []);
+  const handleAutonomyChange = useCallback(
+    (mode: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel') => {
+      useLocalPrefs.getState().set({ autonomy: mode });
+      const ws = getWSClient();
+      ws?.send?.({ type: 'autonomy.switch', payload: { mode } });
+    },
+    [],
+  );
 
   // Overlay toggles — triggered by header buttons
   const [processOpen, setProcessOpen] = useState(false);
@@ -298,14 +312,11 @@ export function ChatView() {
     setScrolledDeep(h.scrollOffset > h.viewportSize && h.scrollSize > h.viewportSize * 2.5);
   }, []);
 
-  const handleHistorySelect = useCallback(
-    (sessionId: string) => {
-      const ws = getWSClient();
-      ws?.resumeSession?.(sessionId);
-      setSwitcherOpen(false);
-    },
-    [],
-  );
+  const handleHistorySelect = useCallback((sessionId: string) => {
+    const ws = getWSClient();
+    ws?.resumeSession?.(sessionId);
+    setSwitcherOpen(false);
+  }, []);
 
   // Follow new content while pinned; otherwise accumulate the unread count.
   useEffect(() => {
@@ -364,23 +375,34 @@ export function ChatView() {
     const runningTools = messages.filter((m) => m.role === 'tool' && m.toolResult === undefined);
     let label = 'Thinking…';
     if (runningTools.length > 0) {
-      const names = Array.from(new Set(runningTools.map((t) => t.toolName).filter(Boolean) as string[]));
+      const names = Array.from(
+        new Set(runningTools.map((t) => t.toolName).filter(Boolean) as string[]),
+      );
       const preview = names.slice(0, 2).join(', ');
       const more = names.length > 2 ? ` +${names.length - 2}` : '';
-      label = runningTools.length === 1 ? `Running ${preview || 'tool'}…` : `Running ${runningTools.length} tools (${preview}${more})…`;
+      label =
+        runningTools.length === 1
+          ? `Running ${preview || 'tool'}…`
+          : `Running ${runningTools.length} tools (${preview}${more})…`;
     } else if (last?.role === 'assistant' && last.content) {
       label = 'Writing reply…';
     } else if (last?.role === 'tool' && last.toolResult !== undefined) {
       label = 'Thinking about the next step…';
     }
     const elapsedSec = runStartedAt ? Math.max(0, Math.floor((nowTick - runStartedAt) / 1000)) : 0;
-    const elapsed = elapsedSec < 60 ? `${elapsedSec}s` : `${Math.floor(elapsedSec / 60)}m ${elapsedSec % 60}s`;
+    const elapsed =
+      elapsedSec < 60 ? `${elapsedSec}s` : `${Math.floor(elapsedSec / 60)}m ${elapsedSec % 60}s`;
     let speedLabel = '';
-    const streamingBubble = last?.role === 'assistant' && last.streaming && last.content ? last : null;
+    const streamingBubble =
+      last?.role === 'assistant' && last.streaming && last.content ? last : null;
     if (streamingBubble) {
       const anchor = streamAnchor.current;
       if (!anchor || anchor.id !== streamingBubble.id) {
-        streamAnchor.current = { id: streamingBubble.id, at: Date.now(), len: streamingBubble.content.length };
+        streamAnchor.current = {
+          id: streamingBubble.id,
+          at: Date.now(),
+          len: streamingBubble.content.length,
+        };
       } else {
         const dt = Math.max(1, nowTick - anchor.at);
         const dl = Math.max(0, streamingBubble.content.length - anchor.len);
@@ -477,28 +499,44 @@ export function ChatView() {
               <span>{agentState}</span>
             </span>
             {/* Session title — click to rename, shows nickname if set */}
-            {sessionId && (
-              renamingTitle ? (
+            {sessionId &&
+              (renamingTitle ? (
                 <input
                   value={titleDraft}
                   onChange={(e) => setTitleDraft(e.target.value)}
-                  onBlur={() => { if (titleDraft.trim()) setSessionNickname(sessionId, titleDraft); setRenamingTitle(false); }}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (titleDraft.trim()) setSessionNickname(sessionId, titleDraft); setRenamingTitle(false); } else if (e.key === 'Escape') { e.preventDefault(); setRenamingTitle(false); } }}
+                  onBlur={() => {
+                    if (titleDraft.trim()) setSessionNickname(sessionId, titleDraft);
+                    setRenamingTitle(false);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      if (titleDraft.trim()) setSessionNickname(sessionId, titleDraft);
+                      setRenamingTitle(false);
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      setRenamingTitle(false);
+                    }
+                  }}
                   placeholder={t('chat:sessionNamePlaceholder')}
                   className="h-6 px-1.5 text-[11px] bg-background border border-primary/40 rounded-md focus:outline-none focus:ring-1 focus:ring-ring shrink-0 w-36"
                 />
               ) : (
                 <button
                   type="button"
-                  onClick={() => { setTitleDraft(nickname || sessionTitle || ''); setRenamingTitle(true); }}
+                  onClick={() => {
+                    setTitleDraft(nickname || sessionTitle || '');
+                    setRenamingTitle(true);
+                  }}
                   className="flex items-center gap-1 text-[11px] font-medium text-foreground/80 hover:text-foreground truncate max-w-[12rem] shrink-0 px-1 -mx-1 rounded-md hover:bg-muted/50 transition-colors"
                   title={t('chat:header.renameTitle')}
                 >
                   <Pencil className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
-                  <span className="truncate">{nickname || sessionTitle || t('chat:header.untitled')}</span>
+                  <span className="truncate">
+                    {nickname || sessionTitle || t('chat:header.untitled')}
+                  </span>
                 </button>
-              )
-            )}
+              ))}
           </div>
           {/* Interactive chips (model picker, mode/ctx, autonomy, session
               switcher, iter). No overflow-hidden so their absolutely
@@ -530,7 +568,9 @@ export function ChatView() {
                         )}
                       >
                         <div className="font-medium truncate">{e.title || t('chat:empty')}</div>
-                        <div className="text-[10px] text-muted-foreground font-mono truncate">{e.provider}/{e.model} · {e.tokenTotal.toLocaleString()} tok</div>
+                        <div className="text-[10px] text-muted-foreground font-mono truncate">
+                          {e.provider}/{e.model} · {e.tokenTotal.toLocaleString()} tok
+                        </div>
                       </button>
                     ))}
                   </div>
@@ -545,7 +585,9 @@ export function ChatView() {
             >
               <Cpu className="h-3 w-3 text-muted-foreground group-hover:text-foreground shrink-0" />
               <span className="font-mono truncate max-w-[9rem] xl:max-w-[16rem]">
-                <span className="text-muted-foreground">{provider || t('chat:header.noProvider')}</span>
+                <span className="text-muted-foreground">
+                  {provider || t('chat:header.noProvider')}
+                </span>
                 <span className="text-muted-foreground/65 mx-0.5">/</span>
                 <span className="font-medium">{model || t('chat:header.noModel')}</span>
               </span>
@@ -561,7 +603,11 @@ export function ChatView() {
                 type="button"
                 className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-medium bg-primary/10 text-primary shrink-0 hover:bg-primary/20 transition-colors cursor-pointer"
                 title={t('chat:header.iterationTitle')}
-                onClick={() => document.getElementById('chat-activity')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                onClick={() =>
+                  document
+                    .getElementById('chat-activity')
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                }
               >
                 <Activity className="h-3 w-3 animate-pulse" />
                 iter {iteration.index}
@@ -725,43 +771,46 @@ export function ChatView() {
             <div
               key="__live"
               id="chat-activity"
-              className={cn('mx-auto max-w-6xl w-full px-3 sm:px-5 lg:px-6', compactMode ? 'pb-3' : 'pb-8')}
+              className={cn(
+                'mx-auto max-w-6xl w-full px-3 sm:px-5 lg:px-6',
+                compactMode ? 'pb-3' : 'pb-8',
+              )}
             >
               <ThinkingBubble />
 
               {/* Running status bubble */}
               {isLoading && (
-                  <div className="flex gap-3 animate-message">
-                    <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-accent text-accent-foreground ring-2 ring-offset-2 ring-offset-background ring-accent/20">
-                      <Bot className="h-4 w-4" />
-                    </div>
-                    <div className="flex flex-col gap-1.5">
-                      <div className="rounded-lg px-4 py-3 bg-card border border-border/70 text-foreground shadow-sm">
-                        <div className="flex items-center gap-3 text-sm">
-                          <span className="flex gap-1">
-                            <span className="h-1.5 w-1.5 rounded-full bg-primary/70 animate-bounce [animation-delay:-0.3s]" />
-                            <span className="h-1.5 w-1.5 rounded-full bg-primary/70 animate-bounce [animation-delay:-0.15s]" />
-                            <span className="h-1.5 w-1.5 rounded-full bg-primary/70 animate-bounce" />
-                          </span>
-                          <span className="text-foreground/90">{runningStatus.label}</span>
+                <div className="flex gap-3 animate-message">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-accent text-accent-foreground ring-2 ring-offset-2 ring-offset-background ring-accent/20">
+                    <Bot className="h-4 w-4" />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <div className="rounded-lg px-4 py-3 bg-card border border-border/70 text-foreground shadow-sm">
+                      <div className="flex items-center gap-3 text-sm">
+                        <span className="flex gap-1">
+                          <span className="h-1.5 w-1.5 rounded-full bg-primary/70 animate-bounce [animation-delay:-0.3s]" />
+                          <span className="h-1.5 w-1.5 rounded-full bg-primary/70 animate-bounce [animation-delay:-0.15s]" />
+                          <span className="h-1.5 w-1.5 rounded-full bg-primary/70 animate-bounce" />
+                        </span>
+                        <span className="text-foreground/90">{runningStatus.label}</span>
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                          {runningStatus.elapsed}
+                        </span>
+                        {iteration && (
                           <span className="text-xs text-muted-foreground tabular-nums">
-                            {runningStatus.elapsed}
+                            · iter {iteration.index}
+                            {iteration.max > 0 ? `/${iteration.max}` : ''}
                           </span>
-                          {iteration && (
-                            <span className="text-xs text-muted-foreground tabular-nums">
-                              · iter {iteration.index}
-                              {iteration.max > 0 ? `/${iteration.max}` : ''}
-                            </span>
-                          )}
-                          {runningStatus.speedLabel && (
-                            <span className="text-xs text-muted-foreground/80 tabular-nums">
-                              · {runningStatus.speedLabel}
-                            </span>
-                          )}
-                        </div>
+                        )}
+                        {runningStatus.speedLabel && (
+                          <span className="text-xs text-muted-foreground/80 tabular-nums">
+                            · {runningStatus.speedLabel}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
+                </div>
               )}
             </div>
           </VList>
@@ -770,6 +819,7 @@ export function ChatView() {
 
       {/* Input */}
       <div className="shrink-0 bg-[hsl(var(--surface-2)/0.45)] px-2 pb-2 pt-2 sm:px-3 lg:px-4 lg:pb-3">
+        <ProviderWaitingRoom />
         {/* Display toggles — replaces the old keyboard-shortcut hints row,
             giving the user quick control over thinking-log visibility and
             tool-call grouping without diving into Settings. */}
@@ -779,7 +829,9 @@ export function ChatView() {
             label="🧠 Model Reasoning"
             value={showThinkingLogs}
             onChange={() => {
-              useLocalPrefs.getState().set({ showThinkingLogs: !useLocalPrefs.getState().showThinkingLogs });
+              useLocalPrefs
+                .getState()
+                .set({ showThinkingLogs: !useLocalPrefs.getState().showThinkingLogs });
             }}
           />
           <span className="opacity-40">|</span>
@@ -788,10 +840,16 @@ export function ChatView() {
             label="🔧 Group Tools"
             value={groupToolCallsPref}
             onChange={() => {
-              useLocalPrefs.getState().set({ groupToolCalls: !useLocalPrefs.getState().groupToolCalls });
+              useLocalPrefs
+                .getState()
+                .set({ groupToolCalls: !useLocalPrefs.getState().groupToolCalls });
             }}
           />
-          <span className="opacity-30 ml-auto text-[10px]">press <kbd className="font-mono text-[10px] border rounded px-1 py-0.5 bg-muted/40">?</kbd> for shortcuts</span>
+          <span className="opacity-30 ml-auto text-[10px]">
+            press{' '}
+            <kbd className="font-mono text-[10px] border rounded px-1 py-0.5 bg-muted/40">?</kbd>{' '}
+            for shortcuts
+          </span>
         </div>
         <div className="ws-chat-input-wrap p-0">
           <div className="max-w-6xl mx-auto">

@@ -15,8 +15,6 @@ export const runtimeIdSchema = z.string().regex(RUNTIME_ID_PATTERN, 'Invalid run
 
 export const pathSchema = z.string().min(1).max(10000);
 
-export const nonEmptyStringSchema = z.string().min(1);
-
 export const booleanSchema = z.boolean();
 
 export const numberSchema = z.number().int().finite();
@@ -167,21 +165,3 @@ export const webuiCommandAckSchema = z.object({
 export const setLocaleSchema = z.object({
   locale: z.string().min(2).max(10),
 });
-
-// ============================================================================
-// Result Types
-// ============================================================================
-
-export type ValidatedOpenProject = z.infer<typeof openProjectSchema>;
-export type ValidatedRegisterProject = z.infer<typeof registerProjectSchema>;
-export type ValidatedUnregisterProject = z.infer<typeof unregisterProjectSchema>;
-export type ValidatedOpenProjectSession = z.infer<typeof openProjectSessionSchema>;
-export type ValidatedActivateRuntime = z.infer<typeof activateRuntimeSchema>;
-export type ValidatedCloseRuntime = z.infer<typeof closeRuntimeSchema>;
-export type ValidatedSendMessage = z.infer<typeof sendMessageSchema>;
-export type ValidatedAbortRuntime = z.infer<typeof abortRuntimeSchema>;
-export type ValidatedNavigateWebui = z.infer<typeof navigateWebuiSchema>;
-export type ValidatedGetConversation = z.infer<typeof getConversationSchema>;
-export type ValidatedWebuiPrefsChanged = z.infer<typeof webuiPrefsChangedSchema>;
-export type ValidatedWebuiCommandAck = z.infer<typeof webuiCommandAckSchema>;
-export type ValidatedSetLocale = z.infer<typeof setLocaleSchema>;

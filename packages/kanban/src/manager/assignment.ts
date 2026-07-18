@@ -158,6 +158,16 @@ export async function updateTaskAssignment(
   const updated = await mutateBoard(projectRoot, boardId, (board) => {
     const task = findTask(board, taskId);
     if (!task) return null;
+    // Fencing: if expectedLeaseId is set, only apply the patch when we still
+    // own the lease. Checked inside the board mutation lock so a recovered-
+    // and-reassigned task whose leaseId changed cannot be overwritten by a
+    // stale owner's terminal write between the check and the mutation.
+    if (
+      eventContext.expectedLeaseId !== undefined &&
+      task.assignment?.leaseId !== eventContext.expectedLeaseId
+    ) {
+      return null;
+    }
     const previousColumnId = task.columnId;
     const beforeAssignment = task.assignment ? { ...task.assignment } : undefined;
     const nextAssignment: KanbanAgentAssignment = {
@@ -249,6 +259,16 @@ export async function heartbeatTaskAssignment(
   const updated = await mutateBoard(projectRoot, boardId, (board) => {
     const task = findTask(board, taskId);
     if (!task?.assignment) return null;
+    // Fencing: if expectedLeaseId is set, only renew when we still own the
+    // lease. This check runs inside the board mutation lock so it's atomic —
+    // a recovered-and-reassigned task whose leaseId changed cannot be renewed
+    // by a stale owner between the check and the write.
+    if (
+      input.expectedLeaseId !== undefined &&
+      task.assignment.leaseId !== input.expectedLeaseId
+    ) {
+      return null;
+    }
     const beforeAssignment = { ...task.assignment };
     const now = nowIso();
     task.assignment.heartbeatAt = input.heartbeatAt ?? now;

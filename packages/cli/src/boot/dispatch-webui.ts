@@ -35,6 +35,7 @@ import type { AutonomyMode } from '../slash-commands/autonomy.js';
 export interface WebUIDispatchContext {
   agent: Agent;
   events: EventBus;
+  statusTracker?: import('@wrongstack/core/coordination').ProviderModelStatusTracker | undefined;
   session: SessionWriter;
   config: Config;
   flags: Record<string, string | boolean>;
@@ -76,12 +77,14 @@ export interface WebUIDispatchContext {
     write: (sessionId: string) => Promise<void>;
   };
   /** Read-only worker transcript snapshot used for browser refresh replay. */
-  agentTranscripts?: {
-    getAllSessions(): import('@wrongstack/core/coordination').AgentVirtualSession[];
-    loadSessionsFromDisk(): Promise<
-      import('@wrongstack/core/coordination').AgentVirtualSession[]
-    >;
-  } | undefined;
+  agentTranscripts?:
+    | {
+        getAllSessions(): import('@wrongstack/core/coordination').AgentVirtualSession[];
+        loadSessionsFromDisk(): Promise<
+          import('@wrongstack/core/coordination').AgentVirtualSession[]
+        >;
+      }
+    | undefined;
   /** Per-task agent factory for the SDD wizard's multi-agent run. */
   sddSubagentFactory?: import('@wrongstack/core').AgentFactory | undefined;
   onKanbanDispatch?:
@@ -117,6 +120,7 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
   const {
     agent,
     events,
+    statusTracker,
     session,
     config,
     flags,
@@ -245,6 +249,7 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
   const webuiPromise = runWebUI({
     agent,
     events,
+    statusTracker,
     session,
     surface: isSimpleUi ? 'simpleui' : 'webui',
     host: webuiHost,

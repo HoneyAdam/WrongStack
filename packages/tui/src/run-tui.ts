@@ -309,6 +309,8 @@ export interface RunTuiOptions {
     | undefined;
   /** Resolve the one-key "retry with another model" fallback ref on a refine failure. */
   getEnhanceFallbackRef?: (() => string | undefined) | undefined;
+  /** Resolve the dedicated refiner target for the initial refinement attempt. */
+  getConfiguredRefinerRef?: (() => string | undefined) | undefined;
   /**
    * Controller for status bar hidden items. App installs a dispatch-backed
    * setter on mount so the /statusline slash command can update the TUI's
@@ -1251,6 +1253,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           getEnhancerReasoning: opts.getEnhancerReasoning,
           buildEnhancerProvider: opts.buildEnhancerProvider,
           getEnhanceFallbackRef: opts.getEnhanceFallbackRef,
+          getConfiguredRefinerRef: opts.getConfiguredRefinerRef,
           midRunSendPicker: opts.getSettings?.().midRunSendPicker ?? true,
           statuslineHiddenItems: opts.statuslineHiddenItems,
           setStatuslineHiddenItems: opts.setStatuslineHiddenItems,

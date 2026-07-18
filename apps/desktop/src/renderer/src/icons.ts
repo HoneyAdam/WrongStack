@@ -3,7 +3,7 @@
  * Each icon is a Lucide-style SVG path string (24×24 viewBox).
  */
 
-export const ICON_NAMES = [
+const ICON_NAMES = [
   'agents',
   'branch',
   'chart',

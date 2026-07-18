@@ -67,6 +67,10 @@ export function ChatInput({
   const { sendMessage, sendAbort, client, refineModel, updatePrefs } = ws;
   const { t } = useAppTranslation();
   const enhanceEnabled = useLocalPrefs((s) => s.enhanceEnabled);
+  const refinerProvider = useLocalPrefs((s) => s.refinerProvider);
+  const refinerModel = useLocalPrefs((s) => s.refinerModel);
+  const refinerFallbackProfile = useLocalPrefs((s) => s.refinerFallbackProfile);
+  const fallbackProfiles = useLocalPrefs((s) => s.fallbackProfiles);
   const refinePanel = useUIStore((s) => s.refinePanel);
   const configProvider = useConfigStore((s) => s.provider);
   const configModel = useConfigStore((s) => s.model);
@@ -476,6 +480,16 @@ export function ChatInput({
           // Refine only rewrites text — with images attached, send directly
           // so the attachments can't be dropped by the refine round-trip.
           if (enhanceEnabled && refineModel && images.length === 0) {
+            const profileRef = refinerFallbackProfile
+              ? fallbackProfiles[refinerFallbackProfile]?.[0]
+              : undefined;
+            const slash = profileRef?.indexOf('/') ?? -1;
+            const displayedProvider = profileRef
+              ? slash > 0 ? profileRef.slice(0, slash) : configProvider
+              : refinerProvider || configProvider;
+            const displayedModel = profileRef
+              ? slash > 0 ? profileRef.slice(slash + 1) : profileRef
+              : refinerModel || configModel;
             setRefinePanel({
               original: combined,
               refined: combined, // Will be replaced when backend responds
@@ -484,8 +498,8 @@ export function ChatInput({
               resolve: (_decision) => {
                 // This is called when the refine panel is decided
               },
-              provider: configProvider,
-              model: configModel,
+              provider: displayedProvider,
+              model: displayedModel,
             });
             refineModel(combined);
           } else {

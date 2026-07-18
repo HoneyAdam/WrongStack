@@ -45,7 +45,7 @@ import { makePromptDelegate } from '../permission-prompt.js';
 import { resolveBundledSkillsDir } from '../cli-bundled-skills.js';
 import { resolveBundledPromptsDir } from '../cli-bundled-prompts.js';
 
-export interface WireContainerDeps {
+interface WireContainerDeps {
   config: Config;
   wpaths: WstackPaths;
   cwd: string;

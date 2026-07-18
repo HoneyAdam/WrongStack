@@ -9,10 +9,24 @@
  *
  * Uses the project-level GlobalMailbox for cross-session communication.
  *
+ * ## Type-based dispatch
+ *
+ * The dispatch logic in this file is the **receive-side** of the type
+ * semantics contract (the send-side lives in `mailbox-message-codec.ts`).
+ *
+ * Every type must have explicit handling. The contract is enforced by
+ * `MAILBOX_TYPE_PROPERTIES` in mailbox-types.ts: adding a new type to the
+ * `MailboxMessageType` union requires a corresponding entry.
+ *
  * @module mailbox-loop
  */
 
 import type { Mailbox, MailboxMessage } from '../coordination/mailbox-types.js';
+import {
+  ACTIONABLE_BACKGROUND_TYPES,
+  MAILBOX_TYPE_PROPERTIES,
+  type MailboxMessageType,
+} from '../coordination/mailbox-types.js';
 import { toErrorMessage } from '../utils/error.js';
 
 export interface MailboxLoopOptions {
@@ -139,6 +153,28 @@ const TYPE_LABEL: Partial<Record<MailboxMessage['type'], string>> = {
   assign: '📋 ASSIGN',
   result: '✅ RESULT',
   review: '🔍 REVIEW',
+  status: '📨 STATUS',
+  note: '📝 NOTE',
+  broadcast: '📢 BROADCAST',
+  control: '⚙ CONTROL',
+};
+
+/**
+ * Lookup table: maps each MailboxMessageType to the guidance text appended
+ * after the message body in `buildMailboxBlock()`. Every type gets explicit
+ * guidance — no fallthrough to an empty string.
+ */
+const TYPE_GUIDANCE: Record<MailboxMessageType, string> = {
+  steer: 'After your current operation reaches a stopping point, adjust your approach per the instruction above.',
+  ask: 'This agent is waiting for your answer. Reply directly or use `mail_send` to respond.',
+  assign: 'This is a task assignment. Act on it when your current operation allows.',
+  result: 'A subagent has completed its work. Factor this result into your next decision.',
+  btw: 'FYI only — absorb the information and stay on your current task; no reply needed.',
+  status: 'Peer status update — use it to avoid duplicate or conflicting work; no reply needed.',
+  review: 'This is a review request. Inspect the referenced code/doc/PR when convenient; an immediate reply is not required.',
+  note: 'Read for context; no reply needed.',
+  broadcast: 'Broadcast message. Read for context; no reply needed.',
+  control: '', // control never reaches this rendering path — see injectPendingMailboxMessages
 };
 
 export function buildMailboxBtwAwarenessBlock(messages: MailboxMessage[]): { type: 'text'; text: string } {
@@ -173,12 +209,12 @@ export function buildMailboxBlock(messages: MailboxMessage[]): { type: 'text'; t
   parts.push('[MAILBOX] New message(s) from other agents:');
   parts.push('');
 
+  // Use the canonical type properties table to detect messages requiring action.
+  // `requiresAction` types are those that need a substantive response or
+  // action from the recipient — distinct from `expectsReply` (e.g. review
+  // expects no reply but still requires action).
   const hasActionable = messages.some(
-    (m) =>
-      m.type === 'ask' ||
-      m.type === 'assign' ||
-      m.type === 'result' ||
-      m.type === 'review',
+    (m) => MAILBOX_TYPE_PROPERTIES[m.type]?.requiresAction ?? false,
   );
 
   // Steer messages always come first — they are mid-task behavior changes
@@ -201,32 +237,11 @@ export function buildMailboxBlock(messages: MailboxMessage[]): { type: 'text'; t
     parts.push('');
     parts.push(m.body);
     parts.push('');
-    if (m.type === 'steer') {
-      parts.push('After your current operation reaches a stopping point, adjust your approach per the instruction above.');
-      parts.push('');
-    }
-    if (m.type === 'ask') {
-      parts.push('↳ This agent is waiting for your answer. Reply directly or use mailbox action=send to respond.');
-      parts.push('');
-    }
-    if (m.type === 'assign') {
-      parts.push('↳ This is a task assignment. Act on it when your current operation allows.');
-      parts.push('');
-    }
-    if (m.type === 'result') {
-      parts.push('↳ A subagent has completed its work. Factor this result into your next decision.');
-      parts.push('');
-    }
-    if (m.type === 'btw') {
-      parts.push('↳ FYI only — absorb the information and stay on your current task; no reply needed.');
-      parts.push('');
-    }
-    if (m.type === 'status') {
-      parts.push('↳ Peer status update — use it to avoid duplicate or conflicting work; no reply needed.');
-      parts.push('');
-    }
-    if (m.type === 'review') {
-      parts.push('↳ This is a review request. Inspect the referenced code/doc/PR when convenient; an immediate reply is not required.');
+    // Every type gets explicit guidance via the TYPE_GUIDANCE lookup.
+    // control messages never reach this path (filtered upstream).
+    const guidance = TYPE_GUIDANCE[m.type];
+    if (guidance) {
+      parts.push(`${guidance}`);
       parts.push('');
     }
   }
@@ -246,7 +261,7 @@ export function buildMailboxBlock(messages: MailboxMessage[]): { type: 'text'; t
 // of runtime coordination/ imports (architecture Rule 3).
 
 /** Result of an inject pass — signals an out-of-band control request. */
-export interface MailboxInjectResult {
+interface MailboxInjectResult {
   /** A fresh `control:interrupt` message asked this agent to stop. */
   interrupt: boolean;
   /** Operator-supplied reason for the interrupt, if any. */
@@ -254,14 +269,6 @@ export interface MailboxInjectResult {
 }
 
 export type MailboxDeliveryMode = 'inline' | 'background';
-
-const ACTIONABLE_BACKGROUND_TYPES = new Set<MailboxMessage['type']>([
-  'steer',
-  'ask',
-  'assign',
-  'result',
-  'review',
-]);
 
 export async function injectPendingMailboxMessages(
   checkMailbox: () => Promise<MailboxMessage[]>,
@@ -289,13 +296,13 @@ export async function injectPendingMailboxMessages(
 
   if (messages.length === 0) return { interrupt: false };
 
-  // `control` messages are out-of-band signals (e.g. an operator interrupt
-  // from Fleet HQ), NOT conversation content — keep them out of the folded
-  // block so they never pollute the transcript. Everything else (results,
-  // asks, assigns, notes, steer/btw) is injected inline so the leader sees
-  // and acts on it even mid-task.
-  const control = messages.filter((m) => m.type === 'control');
-  const content = messages.filter((m) => m.type !== 'control');
+  // out-of-band messages (e.g. `control`) are out-of-band signals handled
+  // by the runtime, NOT conversation content — keep them out of the folded
+  // block so they never pollute the transcript. The canonical
+  // MAILBOX_TYPE_PROPERTIES.outOfBand flag drives this decision so any
+  // newly-added out-of-band type is automatically excluded.
+  const outOfBand = messages.filter((m) => MAILBOX_TYPE_PROPERTIES[m.type]?.outOfBand ?? false);
+  const content = messages.filter((m) => !(MAILBOX_TYPE_PROPERTIES[m.type]?.outOfBand ?? false));
   const deliveredContent =
     deliveryMode === 'background'
       ? content.filter((message) => ACTIONABLE_BACKGROUND_TYPES.has(message.type))
@@ -311,7 +318,7 @@ export async function injectPendingMailboxMessages(
 
   // An interrupt control message (subject/body naming a stop) asks the loop to
   // halt cooperatively at the next iteration boundary.
-  const interruptMsg = control.find(
+  const interruptMsg = outOfBand.find(
     (m) => /\b(interrupt|stop|halt|abort|cancel)\b/i.test(`${m.subject} ${m.body}`),
   );
   return interruptMsg

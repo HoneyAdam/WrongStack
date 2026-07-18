@@ -201,15 +201,15 @@ export type CollabBudgetOverrides = Partial<Record<string, CollabBudgetConfig>>;
 // Event payload types (what gets put on the FleetBus)
 // ---------------------------------------------------------------------------
 
-export interface BugFoundPayload {
+interface BugFoundPayload {
   finding: BugFinding;
 }
 
-export interface RefactorPlanPayload {
+interface RefactorPlanPayload {
   plan: RefactorPlan;
 }
 
-export interface CriticEvaluationPayload {
+interface CriticEvaluationPayload {
   evaluation: CriticEvaluation;
 }
 

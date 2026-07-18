@@ -76,7 +76,7 @@ export type BudgetNegotiationMode = 'auto' | 'sync';
 
 export type BudgetSessionIdSource = string | (() => string | undefined);
 
-export interface SubagentBudgetOptions {
+interface SubagentBudgetOptions {
   sessionId?: BudgetSessionIdSource | undefined;
 }
 

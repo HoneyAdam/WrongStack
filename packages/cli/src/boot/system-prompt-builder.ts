@@ -79,11 +79,11 @@ export interface SystemPromptBuilderPaths {
  * Local `path.join`-shaped helper. We don't import `node:path`
  * directly so the unit test doesn't have to mock node modules.
  */
-export interface PathJoiner {
+interface PathJoiner {
   join(a: string, b: string): string;
 }
 
-export interface BindSystemPromptBuilderDeps {
+interface BindSystemPromptBuilderDeps {
   /**
    * The `container` from main(). The helper only calls
    * `container.bind(token, factory)`. To keep the helper

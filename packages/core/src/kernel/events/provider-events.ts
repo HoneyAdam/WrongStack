@@ -1,7 +1,7 @@
+import type { ChroniclePromptManifest } from '../../chronicle/prompt-manifest.js';
 import type { Context } from '../../core/context.js';
 import type { ContentBlock } from '../../types/blocks.js';
 import type { Usage } from '../../types/provider.js';
-import type { ChroniclePromptManifest } from '../../chronicle/prompt-manifest.js';
 
 export interface ProviderEventMap {
   /** Fired before every physical provider/model attempt, including attempt zero. */
@@ -149,6 +149,7 @@ export interface ProviderEventMap {
     newState: 'healthy' | 'degraded' | 'blocked';
     reason: string;
     timestamp: number;
+    stateExpiresAt?: number | undefined;
   };
   /**
    * Fired when the agent's actively selected (primary, not fallback)

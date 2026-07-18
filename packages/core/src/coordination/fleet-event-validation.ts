@@ -6,7 +6,7 @@ const ROLE_BY_EVENT = {
   'critic.evaluation': 'critic',
 } as const;
 
-export type KnownFleetEventType = keyof typeof ROLE_BY_EVENT;
+type KnownFleetEventType = keyof typeof ROLE_BY_EVENT;
 
 export function validateFleetEventEmission(
   type: string,

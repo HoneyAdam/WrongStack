@@ -81,7 +81,7 @@ export type ResolvedModeResult =
       message: string;
     };
 
-export interface ResolveModeDeps {
+interface ResolveModeDeps {
   config: Config;
   modelsRegistry: ModelsRegistry;
   logger: Logger;

@@ -56,7 +56,7 @@ import { configureGoalPolicy } from '../goal-host.js';
 import type { TokenSavingTier } from '@wrongstack/core';
 import type { Tool } from '@wrongstack/core';
 
-export interface RegisterBuiltinToolsDeps {
+interface RegisterBuiltinToolsDeps {
   toolRegistry: ToolRegistry;
   compactor: unknown;
   config: {

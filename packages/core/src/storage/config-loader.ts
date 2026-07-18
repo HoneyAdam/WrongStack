@@ -347,6 +347,7 @@ const IN_PROJECT_ALLOWED_KEYS: ReadonlySet<string> = new Set([
   'fallbackProfiles',
   'favoriteModels',
   'favoriteModelsOnly',
+  'modelAvailabilitySchedule',
   'fallbackAuto',
   'models',
   'modelMatrix',
@@ -415,7 +416,7 @@ const KNOWN_DENIED_IN_PROJECT: ReadonlyArray<{ key: string; reason: string }> = 
   {
     key: 'git',
     reason:
-      'Carries git.identity (GIT_AUTHOR_*/GIT_COMMITTER_* injection): a repo-committed config could spoof the author identity written into the victim\'s commit history (impersonation).',
+      "Carries git.identity (GIT_AUTHOR_*/GIT_COMMITTER_* injection): a repo-committed config could spoof the author identity written into the victim's commit history (impersonation).",
   },
 ];
 
@@ -451,6 +452,7 @@ const KNOWN_CONFIG_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set([
   'fallbackProfiles',
   'favoriteModels',
   'favoriteModelsOnly',
+  'modelAvailabilitySchedule',
   'fallbackAuto',
   'hooks',
   'plugins',
@@ -649,7 +651,11 @@ export function stripUnsafeInProjectFields(
   const outSuperMemory = (out as Record<string, unknown>)['superMemory'];
   if (outSuperMemory && typeof outSuperMemory === 'object') {
     const storage = (outSuperMemory as Record<string, unknown>)['storage'];
-    if (storage && typeof storage === 'object' && 'directory' in (storage as Record<string, unknown>)) {
+    if (
+      storage &&
+      typeof storage === 'object' &&
+      'directory' in (storage as Record<string, unknown>)
+    ) {
       const clonedStorage = { ...(storage as Record<string, unknown>) };
       delete clonedStorage['directory'];
       (out as Record<string, unknown>)['superMemory'] = {
@@ -787,7 +793,11 @@ export class DefaultConfigLoader implements ConfigLoader {
   }
 
   async load(
-    opts: { cliFlags?: Partial<Config> | undefined; cwd?: string | undefined; skipIdentityValidation?: boolean } = {},
+    opts: {
+      cliFlags?: Partial<Config> | undefined;
+      cwd?: string | undefined;
+      skipIdentityValidation?: boolean;
+    } = {},
   ): Promise<Config> {
     let cfg: PartialConfig = { ...BEHAVIOR_DEFAULTS } as PartialConfig;
 
@@ -854,10 +864,11 @@ export class DefaultConfigLoader implements ConfigLoader {
         }
       } catch (err) {
         // Best-effort: skip failing sources so one bad source doesn't block boot.
-        this.logWarn(
-          'Config source load failed',
-          { event: 'config.source_load_failed', source: src.name, message: toErrorMessage(err) },
-        );
+        this.logWarn('Config source load failed', {
+          event: 'config.source_load_failed',
+          source: src.name,
+          message: toErrorMessage(err),
+        });
       }
     }
 
@@ -945,10 +956,11 @@ export class DefaultConfigLoader implements ConfigLoader {
               durationMs: Date.now() - t0,
               ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
             });
-            this.logWarn(
-              'Config defaults read failed',
-              { event: 'config.defaults_read_failed', path: fp, message: toErrorMessage(err) },
-            );
+            this.logWarn('Config defaults read failed', {
+              event: 'config.defaults_read_failed',
+              path: fp,
+              message: toErrorMessage(err),
+            });
             return;
           }
           parsed = {};
@@ -983,10 +995,11 @@ export class DefaultConfigLoader implements ConfigLoader {
         durationMs: Date.now() - t0,
         ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
       });
-      this.logWarn(
-        'Config defaults write failed',
-        { event: 'config.defaults_write_failed', path: fp, message: toErrorMessage(err) },
-      );
+      this.logWarn('Config defaults write failed', {
+        event: 'config.defaults_write_failed',
+        path: fp,
+        message: toErrorMessage(err),
+      });
     }
   }
 
@@ -1095,10 +1108,10 @@ export class DefaultConfigLoader implements ConfigLoader {
         error: storageErrorString(err),
         ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
       });
-      this.logWarn(
-        'Config sync load failed',
-        { event: 'config.sync_load_failed', message: toErrorMessage(err) },
-      );
+      this.logWarn('Config sync load failed', {
+        event: 'config.sync_load_failed',
+        message: toErrorMessage(err),
+      });
       return null;
     }
   }
@@ -1128,10 +1141,11 @@ export class DefaultConfigLoader implements ConfigLoader {
         error: storageErrorString(err),
         ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
       });
-      this.logWarn(
-        'Config read failed (stat)',
-        { event: 'config.read_failed', path: file, message: toErrorMessage(err) },
-      );
+      this.logWarn('Config read failed (stat)', {
+        event: 'config.read_failed',
+        path: file,
+        message: toErrorMessage(err),
+      });
       return {};
     }
 
@@ -1150,10 +1164,11 @@ export class DefaultConfigLoader implements ConfigLoader {
           error: storageErrorString(err),
           ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
         });
-        this.logWarn(
-          'Config read failed (read)',
-          { event: 'config.read_failed', path: file, message: toErrorMessage(err) },
-        );
+        this.logWarn('Config read failed (read)', {
+          event: 'config.read_failed',
+          path: file,
+          message: toErrorMessage(err),
+        });
       }
       this.jsonCache.set(file, { mtimeMs: null, value: {} });
       return {};
@@ -1170,10 +1185,10 @@ export class DefaultConfigLoader implements ConfigLoader {
         error: 'parse error or empty file',
         ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
       });
-      this.logWarn(
-        'Config parse failed — falling back to defaults',
-        { event: 'config.parse_failed', path: file },
-      );
+      this.logWarn('Config parse failed — falling back to defaults', {
+        event: 'config.parse_failed',
+        path: file,
+      });
       return {};
     }
     this.jsonCache.set(file, { mtimeMs, value: structuredClone(parsed.value) });

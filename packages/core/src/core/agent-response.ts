@@ -16,7 +16,7 @@ import type { AgentInternals } from './agent-internals.js';
 import type { Context, RunOptions } from './context.js';
 import { type ContinueDirective, parseContinueDirective } from './continue-to-next-iteration.js';
 
-export interface ProcessResponseResult {
+interface ProcessResponseResult {
   finalText: string;
   aborted: boolean;
   done: boolean;

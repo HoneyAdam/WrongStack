@@ -1,9 +1,9 @@
+import { truncate } from '../utils/string.js';
 import type { ContentBlock, TextBlock } from './blocks.js';
 import type { ErrorCode } from './errors.js';
-import { WrongStackError, ERROR_CODES } from './errors.js';
+import { ERROR_CODES, WrongStackError } from './errors.js';
 import type { Message } from './messages.js';
 import type { Tool } from './tool.js';
-import { truncate } from '../utils/string.js';
 
 /**
  * Token usage for a single provider call, normalized across providers.
@@ -297,6 +297,7 @@ export interface ProviderErrorBody {
  */
 export type ProviderErrorKind =
   | 'rate_limit' // 429 / rate_limit_error — back off (honour Retry-After), then failover
+  | 'quota_exhausted' // credits/plan depleted — do not retry same route; fail over immediately
   | 'overloaded' // 529 / overloaded_error — retry with backoff, then failover
   | 'server' // other 5xx — retry same provider
   | 'timeout' // 408 request timeout
@@ -318,6 +319,8 @@ const CONTEXT_OVERFLOW_RE =
 
 /** Content-policy refusals surfaced as HTTP errors (Azure/OpenAI `content_filter`, etc.). */
 const CONTENT_FILTER_RE = /content.(filter|policy|moderation)|safety (system|filter)/i;
+const QUOTA_EXHAUSTED_RE =
+  /(?:insufficient|exhausted|depleted|exceeded|no|not enough)[-_\s]*(?:quota|credit|balance)|(?:quota|credit|balance)[-_\s]*(?:exhausted|depleted|exceeded|insufficient)|billing[_\s-]*(?:hard[_\s-]*)?limit|payment required|spending limit|plan limit/i;
 
 /**
  * Classify a provider HTTP failure into the canonical taxonomy from its
@@ -331,9 +334,11 @@ export function classifyProviderError(
   message?: string,
 ): ProviderErrorKind {
   const type = body?.type;
+  const text = [message, body?.message, type, body?.raw].filter(Boolean).join('\n');
   if (status === 0) return 'network';
   if (status === 408) return 'timeout';
   if (status === 599) return 'stream_hang';
+  if (status === 402 || QUOTA_EXHAUSTED_RE.test(text)) return 'quota_exhausted';
   if (type === 'rate_limit_error' || status === 429) return 'rate_limit';
   if (type === 'overloaded_error' || status === 529) return 'overloaded';
   if (status >= 500) return 'server';
@@ -345,7 +350,6 @@ export function classifyProviderError(
   ) {
     return 'auth';
   }
-  const text = [message, body?.message, type, body?.raw].filter(Boolean).join('\n');
   if (type === 'content_filter' || CONTENT_FILTER_RE.test(text)) return 'content_filter';
   if (status === 413 || (status >= 400 && CONTEXT_OVERFLOW_RE.test(text))) {
     return 'context_overflow';
@@ -371,6 +375,7 @@ export function isRetryableKind(kind: ProviderErrorKind): boolean {
 
 const RETRYABLE_BY_KIND: Record<ProviderErrorKind, boolean> = {
   rate_limit: true,
+  quota_exhausted: false,
   overloaded: true,
   server: true,
   timeout: true,
@@ -405,6 +410,7 @@ export function isFallbackWorthy(kind: ProviderErrorKind): boolean {
 
 const FALLBACK_WORTHY_BY_KIND: Record<ProviderErrorKind, boolean> = {
   rate_limit: true,
+  quota_exhausted: true,
   overloaded: true,
   server: true,
   timeout: true,
@@ -554,6 +560,7 @@ const KIND_TO_CODE: Record<ProviderErrorKind, ErrorCode> = {
   network: ERROR_CODES.PROVIDER_NETWORK_ERROR,
   timeout: ERROR_CODES.PROVIDER_NETWORK_ERROR,
   rate_limit: ERROR_CODES.PROVIDER_RATE_LIMITED,
+  quota_exhausted: ERROR_CODES.PROVIDER_RATE_LIMITED,
   auth: ERROR_CODES.PROVIDER_AUTH_FAILED,
   overloaded: ERROR_CODES.PROVIDER_OVERLOADED,
   context_overflow: ERROR_CODES.PROVIDER_CONTEXT_OVERFLOW,

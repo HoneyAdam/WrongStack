@@ -18,7 +18,7 @@
 
 import type { MailboxAgentStatus } from '../coordination/mailbox-types.js';
 
-export interface FleetPulseOptions {
+interface FleetPulseOptions {
   /** This agent's own mailbox id — excluded from the digest. */
   selfId: string;
   /** Max peers listed (rest summarized as "+N more"). Default 15. */

@@ -54,16 +54,6 @@ export interface IntelligentCompactorOptions {
 /**
  * An importance label for a message or message range.
  */
-export type Importance = 'critical' | 'high' | 'medium' | 'low';
-
-/**
- * Result of importance analysis.
- */
-export interface ImportanceAnalysis {
-  messages: Array<{ index: number; importance: Importance; reason: string }>;
-  criticalRanges: Array<{ from: number; to: number; summary: string }>;
-}
-
 /**
  * IntelligentCompactor uses an LLM to:
  *  - Analyze message importance and preserve critical context

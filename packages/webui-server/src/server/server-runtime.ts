@@ -30,7 +30,7 @@ import { toErrorMessage } from '@wrongstack/core/utils';
 
 // ── Port resolution ─────────────────────────────────────────────────────
 
-export interface ResolvedPorts {
+interface ResolvedPorts {
   wsHost: string;
   wsPort: number;
   httpPort: number;
@@ -87,7 +87,7 @@ export async function resolvePorts(opts: {
 
 // ── Session start payload ───────────────────────────────────────────────
 
-export interface SessionStartPayloadGetters {
+interface SessionStartPayloadGetters {
   getConfig(): Config;
   getSessionId(): string;
   getProjectRoot(): string;
@@ -177,7 +177,7 @@ export function createSessionStartPayload(g: SessionStartPayloadGetters): () => 
 
 // ── WebSocket servers ───────────────────────────────────────────────────
 
-export interface WsServerResult {
+interface WsServerResult {
   wssPrimary: WebSocketServer;
   wssSecondary: WebSocketServer | null;
   wsToken: string;
@@ -252,11 +252,6 @@ export function createWsServers(
 
 // ── Event arming + WS error handlers ────────────────────────────────────
 
-export interface EventArmingResult {
-  disposeEvents: () => void;
-  fleetBroadcast: () => Promise<void>;
-}
-
 /**
  * Wire setupEvents (the once-only event→WS-broadcast bridge) behind a
  * listening-callback guard, and attach WS server error handlers. Returns
@@ -315,7 +310,7 @@ export function armEvents(
  * while also allowing embedded callers (e.g. the desktop app) to pass an exact
  * path so they don't depend on module-resolution layout.
  */
-export function resolveWebuiDistDir(fromUrl: string, explicitDistDir?: string | undefined): string {
+function resolveWebuiDistDir(fromUrl: string, explicitDistDir?: string | undefined): string {
   if (explicitDistDir) return path.resolve(explicitDistDir);
   try {
     const requireFromHere = createRequire(fromUrl);
@@ -378,7 +373,7 @@ export function startHttpServer(opts: {
   return httpServer;
 }
 
-export interface ShutdownDeps {
+interface ShutdownDeps {
   flushSession: () => Promise<void>;
   clients: () => IterableIterator<WebSocket>;
   servers: Array<import('node:http').Server | WebSocketServer>;

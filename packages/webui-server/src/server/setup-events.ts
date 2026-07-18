@@ -671,6 +671,7 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
         newState: e.newState,
         reason: e.reason,
         timestamp: e.timestamp,
+        stateExpiresAt: e.stateExpiresAt,
       }),
     });
   });

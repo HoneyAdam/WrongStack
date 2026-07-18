@@ -26,51 +26,55 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import {
-  type AutonomyStage,
   AgentError,
+  type AuditLevel,
+  type AutonomyStage,
   allServers,
   attachDepWatcherBridge,
   type Config,
   color,
-  type AuditLevel,
+  createCouncilTool,
+  createFallbackManageTools,
+  createOneShotLLMTool,
   EternalAutonomyEngine,
   expectDefined,
   FLEET_ROSTER,
-  gatedEnhancerReasoning,
   GlobalMailbox,
+  gatedEnhancerReasoning,
+  getToolDescriptionMode,
   isStdinTTY,
-  resolveEnhanceFallbackRef,
+  type LogLevel,
   loadDirectorState,
   mailboxSessionTag,
+  OneShotOrchestrator,
   ParallelEternalEngine,
   ProviderModelStatusTracker,
+  resolveConfiguredRefinerRef,
+  resolveEnhanceFallbackRef,
   resolveFleetChatVerbosity,
-  type LogLevel,
   type SystemPromptBuilder,
   TOKENS,
   ToolRegistry,
   writeErr,
   writeOut,
-  getToolDescriptionMode,
-  createCouncilTool,
-  createOneShotLLMTool,
-  OneShotOrchestrator,
 } from '@wrongstack/core';
-import { createFallbackManageTools } from '@wrongstack/core';
+import { atomicWrite, withFileLock } from '@wrongstack/core/utils';
 import { SddRunRegistry } from '@wrongstack/sdd';
-import { wireSessionEvents } from './session-event-wiring.js';
-import { initializeCli } from './cli-context.js';
 import { createAuthPanelHost } from './auth-menu/panel-service.js';
-import { createGoalHost } from './goal-host.js';
-import { registerBuiltinTools } from './boot/tool-registry.js';
+import { wireEventWiring } from './boot/event-wiring.js';
 import { configureSimpleUiRuntimeContext } from './boot/simpleui-full-auto.js';
+import { resolveModeAndCapabilities } from './boot/system-prompt.js';
+import { bindSystemPromptBuilder } from './boot/system-prompt-builder.js';
+import { registerBuiltinTools } from './boot/tool-registry.js';
+import { initializeCli } from './cli-context.js';
 import { launchEternalFromFlag } from './cli-eternal-flag.js';
 import { promptRecovery } from './cli-recovery-prompt.js';
-import { bindSystemPromptBuilder } from './boot/system-prompt-builder.js';
 import { refreshRuntimeModelCatalog } from './context-limit.js';
 import { execute } from './execution.js';
+import { createGoalHost } from './goal-host.js';
 import { PLUGIN_AUDIT_ENTRIES, runPluginManagementCommand } from './plugin-management.js';
 import { buildPickableProviders } from './provider-helpers.js';
+import { wireSessionEvents } from './session-event-wiring.js';
 import { SessionStats } from './session-stats.js';
 import { deriveFsAccessPair } from './settings-menu.js';
 import { createGracefulShutdown } from './shutdown-cleanup.js';
@@ -81,17 +85,16 @@ import { buildBuiltinSlashCommands } from './slash-commands/index.js';
 import { parseMcpArgs, runMcpManagementCommand } from './slash-commands/mcp-utils.js';
 import {
   DEFAULTS,
-  STATUSLINE_CONFIG_KEYS,
   ensureStatuslineConfig,
-  saveStatuslineConfig,
+  STATUSLINE_CONFIG_KEYS,
   type StatuslineConfigKey,
+  saveStatuslineConfig,
 } from './slash-commands/statusline.js';
 import { getSuggestions, setSuggestions } from './slash-commands/suggestion-store.js';
 import { fmtTaskResultLine, patchConfig } from './utils.js';
 import { CLI_VERSION } from './version.js';
+import { setupBrainAndOrchestration } from './wiring/brain-and-orchestration.js';
 import { setupCodebaseIndexing } from './wiring/codebase-index.js';
-import { createSddHandlers } from './wiring/sdd-handlers.js';
-import { toExecuteDeps } from './wiring/to-execute-deps.js';
 import {
   createAgentsMonitorController,
   createEnhanceController,
@@ -99,22 +102,21 @@ import {
   createInterruptController,
   createStatuslineConfigDeps,
 } from './wiring/controllers.js';
-import { setupSuperMemory } from './wiring/super-memory.js';
 import { setupDepWatcherConsumers } from './wiring/dep-watcher.js';
-import { setupHqTelemetry } from './wiring/hq-telemetry.js';
 import { setupDirectorAndAutonomy } from './wiring/director-setup.js';
+import { setupHqTelemetry } from './wiring/hq-telemetry.js';
 import { setupLifecycleAndPlugins } from './wiring/lifecycle-plugins.js';
-import { setupBrainAndOrchestration } from './wiring/brain-and-orchestration.js';
-import { setupProviderRuntime } from './wiring/provider-runtime-setup.js';
 import { setupMetrics } from './wiring/metrics.js';
 import { setupPipelines } from './wiring/pipeline.js';
 import {
   buildProviderForId as buildProviderForIdRuntime,
   resolveProviderCfg as resolveProviderCfgRuntime,
 } from './wiring/provider-runtime.js';
+import { setupProviderRuntime } from './wiring/provider-runtime-setup.js';
+import { createSddHandlers } from './wiring/sdd-handlers.js';
 import { setupSession } from './wiring/session.js';
-import { resolveModeAndCapabilities } from './boot/system-prompt.js';
-import { wireEventWiring } from './boot/event-wiring.js';
+import { setupSuperMemory } from './wiring/super-memory.js';
+import { toExecuteDeps } from './wiring/to-execute-deps.js';
 
 export { CLI_VERSION };
 
@@ -594,13 +596,115 @@ export async function main(argv: string[]): Promise<number> {
   // immediately so fallback chains filter blocked models even before the
   // first agent run.
   const statusTracker = new ProviderModelStatusTracker({ events });
+  const providerStatusFile = path.join(wpaths.globalRoot, 'provider-status.json');
+  try {
+    const savedStatus = JSON.parse(await fs.readFile(providerStatusFile, 'utf8')) as unknown;
+    const restored = statusTracker.restoreSnapshot(savedStatus);
+    if (restored > 0) logger.info(`Restored ${restored} provider waiting-room entries`);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      logger.warn(
+        `Could not restore provider waiting room: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
   fallbackProfileManager.setStatusTracker(statusTracker);
-  const {
-    buildProviderForId,
-    switchProviderAndModel,
-  } = setupProviderRuntime({
+  // Keep the waiting-room state fresh even while the session is idle. This
+  // only releases expired entries; the next real request is the half-open
+  // probe, so status polling never consumes provider tokens by itself.
+  let providerStatusSyncRunning = false;
+  const providerStatusSweep = setInterval(() => {
+    statusTracker.sweepExpired();
+    if (providerStatusSyncRunning) return;
+    providerStatusSyncRunning = true;
+    void fs
+      .readFile(providerStatusFile, 'utf8')
+      .then((raw) => statusTracker.restoreSnapshot(JSON.parse(raw) as unknown))
+      .catch((err: unknown) => {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+          logger.warn(
+            `Could not sync provider waiting room: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      })
+      .finally(() => {
+        providerStatusSyncRunning = false;
+      });
+  }, 30_000);
+  providerStatusSweep.unref();
+  let providerStatusSaveTimer: ReturnType<typeof setTimeout> | undefined;
+  const pendingProviderStatusChanges = new Map<
+    string,
+    { providerId: string; model: string; state: 'healthy' | 'degraded' | 'blocked' }
+  >();
+  const persistProviderStatusChanges = async () => {
+    const changes = [...pendingProviderStatusChanges.values()];
+    pendingProviderStatusChanges.clear();
+    if (changes.length === 0) return;
+    try {
+      await withFileLock(providerStatusFile, async () => {
+        let statuses: unknown[] = [];
+        try {
+          const current = JSON.parse(await fs.readFile(providerStatusFile, 'utf8')) as {
+            statuses?: unknown;
+          };
+          if (Array.isArray(current.statuses)) statuses = current.statuses;
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+        }
+        for (const change of changes) {
+          statuses = statuses.filter((raw) => {
+            if (!raw || typeof raw !== 'object') return false;
+            const item = raw as Record<string, unknown>;
+            return item['providerId'] !== change.providerId || item['model'] !== change.model;
+          });
+          if (change.state !== 'healthy') {
+            const current = statusTracker.getStatus(change.providerId, change.model);
+            if (current && current.state !== 'healthy') statuses.push(current);
+          }
+        }
+        await atomicWrite(
+          providerStatusFile,
+          JSON.stringify({ version: 1, updatedAt: Date.now(), statuses }, null, 2),
+          { mode: 0o600 },
+        );
+      });
+    } catch (err) {
+      for (const change of changes) {
+        const key = `${change.providerId}\x00${change.model}`;
+        if (!pendingProviderStatusChanges.has(key)) pendingProviderStatusChanges.set(key, change);
+      }
+      throw err;
+    }
+  };
+  const offProviderStatusPersistence = events.on('provider.status_changed', (event) => {
+    pendingProviderStatusChanges.set(`${event.providerId}\x00${event.model}`, {
+      providerId: event.providerId,
+      model: event.model,
+      state: event.newState,
+    });
+    if (providerStatusSaveTimer) clearTimeout(providerStatusSaveTimer);
+    providerStatusSaveTimer = setTimeout(() => {
+      providerStatusSaveTimer = undefined;
+      void persistProviderStatusChanges().catch((err: unknown) =>
+        logger.warn(
+          `Could not persist provider waiting room: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
+    }, 100);
+    providerStatusSaveTimer.unref();
+  });
+  teardownHandlers.push(() => {
+    clearInterval(providerStatusSweep);
+    if (providerStatusSaveTimer) clearTimeout(providerStatusSaveTimer);
+    offProviderStatusPersistence();
+    void persistProviderStatusChanges().catch(() => undefined);
+  });
+  const { buildProviderForId, switchProviderAndModel } = setupProviderRuntime({
     config,
-    onConfigUpdate: (newConfig) => { config = newConfig; },
+    onConfigUpdate: (newConfig) => {
+      config = newConfig;
+    },
     configStore,
     fallbackProfileManager,
     providerRegistry,
@@ -745,46 +849,40 @@ export async function main(argv: string[]): Promise<number> {
   // Extracted to wiring/brain-and-orchestration.ts. NOTE: setupHqTelemetry()
   // is called between brain chain and brain monitor — the extracted function
   // handles both halves around that call.
-  const {
-    brain,
-    brainLog,
-    brainSettings,
-    brainRuntime,
-    multiAgentHost,
-    shadowController,
-  } = setupBrainAndOrchestration({
-    events,
-    config,
-    vault,
-    container,
-    provider,
-    session,
-    context,
-    toolRegistry,
-    providerRegistry,
-    configStore,
-    modelsRegistry,
-    promptBuilder,
-    tokenCounter,
-    projectRoot,
-    cwd,
-    wpaths,
-    teardownHandlers,
-    mailboxSessionTag,
-    brainMailbox,
-    agentMonitor,
-    manifestPath,
-    sharedScratchpadPath,
-    subagentSessionsRoot,
-    stateCheckpointPath,
-    fleetRootForPromotion,
-    maxConcurrent,
-    effectiveMaxContextRef,
-    mcpRegistry,
-    sessResult,
-    modeId,
-    statusTracker,
-  });
+  const { brain, brainLog, brainSettings, brainRuntime, multiAgentHost, shadowController } =
+    setupBrainAndOrchestration({
+      events,
+      config,
+      vault,
+      container,
+      provider,
+      session,
+      context,
+      toolRegistry,
+      providerRegistry,
+      configStore,
+      modelsRegistry,
+      promptBuilder,
+      tokenCounter,
+      projectRoot,
+      cwd,
+      wpaths,
+      teardownHandlers,
+      mailboxSessionTag,
+      brainMailbox,
+      agentMonitor,
+      manifestPath,
+      sharedScratchpadPath,
+      subagentSessionsRoot,
+      stateCheckpointPath,
+      fleetRootForPromotion,
+      maxConcurrent,
+      effectiveMaxContextRef,
+      mcpRegistry,
+      sessResult,
+      modeId,
+      statusTracker,
+    });
 
   // HQ command dispatch + telemetry bridges (WebSocket, session/fleet/brain/
   // worktree/tool/cost telemetry, agent-monitor forwarding) — extracted to
@@ -870,7 +968,9 @@ export async function main(argv: string[]): Promise<number> {
         try {
           await director.remove(sa.id);
           killed++;
-        } catch { /* best-effort */ }
+        } catch {
+          /* best-effort */
+        }
       }
     }
     return killed;
@@ -1655,7 +1755,8 @@ export async function main(argv: string[]): Promise<number> {
             agent,
             projectRoot,
             compactor: container.resolve(TOKENS.Compactor) as import('@wrongstack/core').Compactor,
-            maxContextTokens: effectiveMaxContextRef.current > 0 ? effectiveMaxContextRef.current : undefined,
+            maxContextTokens:
+              effectiveMaxContextRef.current > 0 ? effectiveMaxContextRef.current : undefined,
             onIteration: broadcastEternalIteration,
             onStage: broadcastAutonomyStage,
             // Real per-role factory: each dispatched slot runs as a fresh,
@@ -1673,7 +1774,8 @@ export async function main(argv: string[]): Promise<number> {
             agent,
             projectRoot,
             compactor: container.resolve(TOKENS.Compactor) as import('@wrongstack/core').Compactor,
-            maxContextTokens: effectiveMaxContextRef.current > 0 ? effectiveMaxContextRef.current : undefined,
+            maxContextTokens:
+              effectiveMaxContextRef.current > 0 ? effectiveMaxContextRef.current : undefined,
             onIteration: broadcastEternalIteration,
             onStage: broadcastAutonomyStage,
             brain,
@@ -1976,389 +2078,469 @@ export async function main(argv: string[]): Promise<number> {
 
   // Dispatch to execution phase — single-shot, TUI, REPL, or WebUI.
   const savedProviderCfg = config.providers?.[config.provider];
-  return execute(toExecuteDeps({
-  core: {
-    agent,
-    events,
-    slashRegistry,
-    tokenCounter,
-    config,
-    configStore,
-    recoveryLock,
-    wpaths,
-    projectRoot,
-    flags,
-    positional,
-  },
-  session: {
-    attachments,
-    mailbox: brainMailbox,
-    session,
-    mcpRegistry,
-    queueStore,
-    context,
-    detachTodosCheckpoint,
-    sessionStore,
-    memoryStore,
-    modeStore,
-    restoredMessages: sessResult.restoredMessages,
-    restoredToolCalls: sessResult.restoredToolCalls,
-    restoredEvents: sessResult.restoredEvents,
-    needsSetup,
-  },
-  provider: {
-    sddSubagentFactory: multiAgentHost.makeSubagentFactory(config),
-    modelsRegistry,
-    savedProviderCfg: savedProviderCfg as import('@wrongstack/core').ProviderConfig | undefined,
-    resolvedProvider: resolvedProvider ?? undefined,
-    getPickableProviders: async () => {
-      await refreshRuntimeModelCatalog({
+  return execute(
+    toExecuteDeps({
+      core: {
+        agent,
+        events,
+        slashRegistry,
+        tokenCounter,
+        config,
+        configStore,
+        recoveryLock,
+        wpaths,
+        projectRoot,
+        flags,
+        positional,
+      },
+      session: {
+        attachments,
+        mailbox: brainMailbox,
+        session,
+        mcpRegistry,
+        queueStore,
+        context,
+        detachTodosCheckpoint,
+        sessionStore,
+        memoryStore,
+        modeStore,
+        restoredMessages: sessResult.restoredMessages,
+        restoredToolCalls: sessResult.restoredToolCalls,
+        restoredEvents: sessResult.restoredEvents,
+        needsSetup,
+      },
+      provider: {
+        statusTracker,
+        sddSubagentFactory: multiAgentHost.makeSubagentFactory(config),
         modelsRegistry,
-        logger,
-        reason: 'model-picker',
-      });
-      return buildPickableProviders(modelsRegistry, config);
-    },
-    switchProviderAndModel,
-    onModelContextResolved: (providerId, modelId, maxContext) => {
-      applyMaxContext(providerId, modelId, maxContext);
-    },
-  },
-  ui: {
-    renderer,
-    reader,
-    secretInputController,
-    effectiveMaxContext: effectiveMaxContextRef.current,
-    getEffectiveMaxContext: () => effectiveMaxContextRef.current,
-    stats,
-    skillLoader: config.features.skills ? skillLoader : undefined,
-    promptLoader: config.features.prompts === false ? undefined : promptLoader,
-    modeId,
-  },
-  fleet: {
-    director: director ?? null,
-    getDirector: () => director,
-    coordinatorController,
-    fleetRoster: FLEET_ROSTER as Record<string, { name: string }>,
-    fleetStreamController,
-    agentTranscripts: agentMonitor,
-    authHost: createAuthPanelHost({
-      vault,
-      modelsRegistry,
-      globalConfigPath: wpaths.globalConfig,
-    }),
-    onPanelOpen,
-  },
-  controllers: {
-    interruptController,
-    enhanceController,
-    getEnhancerReasoning: () => gatedEnhancerReasoning(activeReasoningConfig),
-    // Build an ephemeral provider for retrying a failed refinement on another
-    // model — reuses the same non-persisting builder as the fallback chain, so
-    // the session provider/model is never mutated.
-    buildEnhancerProvider: async (providerId: string, _modelId: string) => {
-      // The provider only needs to reach `providerId`'s API — the specific
-      // model is passed to `enhanceUserPrompt` directly, not baked into the
-      // Provider — so `_modelId` is accepted for interface symmetry but unused.
-      try {
-        return buildProviderForId(providerId);
-      } catch {
-        return undefined;
-      }
-    },
-    // Resolve the one-key "retry with another model" offer against the LIVE
-    // provider/model so the active model is never offered as its own fallback.
-    getEnhanceFallbackRef: () =>
-      resolveEnhanceFallbackRef({
-        ...configRef.current,
-        provider: context.provider.id,
-        model: context.model,
-      }),
-    statuslineHiddenItems,
-    setStatuslineHiddenItems,
-    saveStatuslineHiddenItems,
-    getYolo: setYoloMode,
-    onYolo: setYoloMode,
-    getAutonomy: () => autonomyMode,
-    onAutonomy: (setTo?) => {
-      if (setTo !== undefined) {
-        autonomyMode = setTo;
-        return setTo;
-      }
-      return autonomyMode;
-    },
-    getNextPredict: () => nextPredictEnabled,
-    applyLiveSettings: (s) => {
-      // Apply `/settings` changes to the RUNNING session. Persistence already
-      // happened in saveSettings; this only flips live runtime state via the
-      // same setters the dedicated slash commands use. Best-effort — a failed
-      // live-apply must not surface as a settings-save error.
-      //
-      // Intentionally NOT applied live:
-      //  - `mode` (default autonomy) → only sets the default for next sessions.
-      //  - boot-only features (MCP/plugins/memory/skills/modelsRegistry/
-      //    tokenSaving/indexOnStart) and `contextStrategy` → need a restart;
-      //    the TUI shows a "next session" hint for those instead.
-      try {
-        if (s.yolo !== undefined) {
-          container.resolve(TOKENS.PermissionPolicy).setYolo?.(s.yolo);
-          config = patchConfig(config, { yolo: s.yolo });
-        }
-        if (s.nextPrediction !== undefined) {
-          nextPredictEnabled = s.nextPrediction;
-          config = patchConfig(config, { nextPrediction: s.nextPrediction });
-        }
-        if (s.enhanceEnabled !== undefined) {
-          enhanceController?.setEnabled(s.enhanceEnabled);
-        }
-        if (s.maxIterations !== undefined) {
-          // Takes effect on the next agent.run (the loop reads this per run).
-          agent.maxIterations = s.maxIterations;
-        }
-        if (s.logLevel !== undefined) {
-          // Mutates the root logger; new child loggers pick this up. The agent's
-          // existing child logger keeps its boot level — acceptable trade-off.
-          container.resolve(TOKENS.Logger).level = s.logLevel as LogLevel;
-        }
-        if (s.auditLevel !== undefined) {
-          sessionBridge.setAuditLevel(s.auditLevel as AuditLevel);
-        }
-        if (s.contextAutoCompact !== undefined) {
-          autoCompactor?.setEnabled(s.contextAutoCompact);
-        }
-        if (s.maxConcurrent !== undefined && s.maxConcurrent > 0) {
-          multiAgentHost.setMaxConcurrent(s.maxConcurrent);
-          events.emit('concurrency.changed', {
-            sessionId: sessionRef.current?.id ?? session.id,
-            n: s.maxConcurrent,
+        savedProviderCfg: savedProviderCfg as import('@wrongstack/core').ProviderConfig | undefined,
+        resolvedProvider: resolvedProvider ?? undefined,
+        getPickableProviders: async () => {
+          await refreshRuntimeModelCatalog({
+            modelsRegistry,
+            logger,
+            reason: 'model-picker',
           });
-          config = patchConfig(config, { maxConcurrent: s.maxConcurrent });
-        }
-        if (s.restrictFsToRoot !== undefined || s.allowOutsideProjectRoot !== undefined) {
-          // Single source of truth for the inverse pair — see
-          // deriveFsAccessPair in settings-menu.ts for the precedence
-          // rules. Without this, the picker and the /settings slash
-          // command would each maintain their own copy of the math
-          // and could disagree on contradictory inputs.
-          const fsAccess = deriveFsAccessPair(s);
-          if (fsAccess) {
-            // Toggle the live filesystem-access scope on the leader
-            // context so file tools immediately honor the new boundary.
-            // Subagents spawned afterwards read the patched config below.
-            context.allowOutsideProjectRoot = fsAccess.allowOutsideProjectRoot;
-            // Dual-write both config keys in sync (inverses): the new
-            // canonical features.allowOutsideProjectRoot plus the legacy
-            // tools.restrictToProjectRoot, so older readers don't break.
-            config = patchConfig(config, {
-              features: {
-                ...config.features,
-                allowOutsideProjectRoot: fsAccess.allowOutsideProjectRoot,
-              },
-              tools: {
-                ...config.tools,
-                restrictToProjectRoot: fsAccess.restrictToProjectRoot,
-              },
-            });
+          return buildPickableProviders(modelsRegistry, config);
+        },
+        switchProviderAndModel,
+        onModelContextResolved: (providerId, modelId, maxContext) => {
+          applyMaxContext(providerId, modelId, maxContext);
+        },
+      },
+      ui: {
+        renderer,
+        reader,
+        secretInputController,
+        effectiveMaxContext: effectiveMaxContextRef.current,
+        getEffectiveMaxContext: () => effectiveMaxContextRef.current,
+        stats,
+        skillLoader: config.features.skills ? skillLoader : undefined,
+        promptLoader: config.features.prompts === false ? undefined : promptLoader,
+        modeId,
+      },
+      fleet: {
+        director: director ?? null,
+        getDirector: () => director,
+        coordinatorController,
+        fleetRoster: FLEET_ROSTER as Record<string, { name: string }>,
+        fleetStreamController,
+        agentTranscripts: agentMonitor,
+        authHost: createAuthPanelHost({
+          vault,
+          modelsRegistry,
+          globalConfigPath: wpaths.globalConfig,
+        }),
+        onPanelOpen,
+      },
+      controllers: {
+        interruptController,
+        enhanceController,
+        getEnhancerReasoning: () => gatedEnhancerReasoning(activeReasoningConfig),
+        // Build an ephemeral provider for retrying a failed refinement on another
+        // model — reuses the same non-persisting builder as the fallback chain, so
+        // the session provider/model is never mutated.
+        buildEnhancerProvider: async (providerId: string, _modelId: string) => {
+          // The provider only needs to reach `providerId`'s API — the specific
+          // model is passed to `enhanceUserPrompt` directly, not baked into the
+          // Provider — so `_modelId` is accepted for interface symmetry but unused.
+          try {
+            return buildProviderForId(providerId);
+          } catch {
+            return undefined;
           }
-        }
-      } catch {
-        // Live-apply is best-effort; the persisted config is the source of truth.
-      }
-    },
-    onCountdownTick: (remaining) => {
-      events.emit('countdown.tick', { sessionId: sessionRef.current?.id ?? session.id, remaining });
-      return false;
-    },
-  },
-  picker: {
-    getPluginItems: getPluginPickerItems,
-    onPluginToggle: togglePluginFromPicker,
-    getMcpServers: () => {
-      const servers = (config.mcpServers ?? {}) as Record<string, { name: string; transport: string; enabled?: boolean; description?: string; lazy?: boolean }>;
-      const liveStatus = mcpRegistry.list();
-      const liveMap = new Map(liveStatus.map((s) => [s.name, s]));
-      return Object.entries(servers).map(([name, cfg]) => {
-        const live = liveMap.get(name);
-        return {
-          name,
-          enabled: cfg.enabled !== false,
-          status: live ? live.state : 'stopped',
-          transport: cfg.transport ?? 'stdio',
-          description: cfg.description,
-          toolCount: live?.toolCount ?? 0,
-          lazy: cfg.lazy,
-        };
-      });
-    },
-    onMcpToggle: async (name: string) => {
-      const { enableMcp, disableMcp, listMcp } = await import('@wrongstack/mcp');
-      const deps = { configPath: wpaths.globalConfig, registry: mcpRegistry, presets: allServers() };
-      // Read fresh state from the live config file (enableMcp/disableMcp
-      // wrote to it), then determine toggle direction from the registry.
-      const live = mcpRegistry.list().find((s) => s.name === name);
-      const isCurrentlyEnabled = live !== undefined && live.state !== 'idle';
-      const result = isCurrentlyEnabled
-        ? await disableMcp(name, deps)
-        : await enableMcp(name, deps);
-      const items = await listMcp(deps);
-      return {
-        items: items.map((s) => ({ name: s.name, enabled: s.enabled, status: s.status, transport: s.transport, description: s.description, toolCount: s.tools.length, lazy: s.lazy })),
-        message: result.ok ? (result.server ? `${result.server.status === 'connected' ? '●' : '○'} ${name}` : result.message) : undefined,
-        error: result.ok ? undefined : result.message,
-      };
-    },
-    onMcpRestart: async (name: string) => {
-      const { listMcp } = await import('@wrongstack/mcp');
-      const deps = { configPath: wpaths.globalConfig, registry: mcpRegistry, presets: allServers() };
-      try {
-        await mcpRegistry.restart(name);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        const items = await listMcp(deps);
-        return { items: items.map((s) => ({ name: s.name, enabled: s.enabled, status: s.status, transport: s.transport, description: s.description, toolCount: s.tools.length, lazy: s.lazy })), message: undefined, error: message };
-      }
-      const items = await listMcp(deps);
-      return { items: items.map((s) => ({ name: s.name, enabled: s.enabled, status: s.status, transport: s.transport, description: s.description, toolCount: s.tools.length, lazy: s.lazy })), message: `Restarted "${name}".`, error: undefined };
-    },
-    getToolsItems: getToolPickerItems,
-    onToolToggle: async (name: string) => {
-      const disabled = new Set(config.tools?.disabledTools ?? []);
-      const isCurrentlyDisabled = toolRegistry.isDisabled(name);
-      if (isCurrentlyDisabled) {
-        toolRegistry.enable(name);
-        disabled.delete(name);
-      } else {
-        toolRegistry.disable(name);
-        disabled.add(name);
-      }
-      const nextTools = { ...(config.tools ?? {}), disabledTools: Array.from(disabled) };
-      config = patchConfig(config, { tools: nextTools });
-      configStore.update({ tools: nextTools });
-      return {
-        items: getToolPickerItems(),
-        message: isCurrentlyDisabled ? `Enabled "${name}".` : `Disabled "${name}".`,
-        error: undefined,
-      };
-    },
-    getBrainData: () => {
-      const ceiling = (brainSettings?.maxAutoRisk ?? 'medium') as 'off' | 'low' | 'medium' | 'high' | 'all';
-      const log = brainLog.slice(-20).map((entry: { kind: string; question: string; outcome: string; at: number }) => ({
-        kind: entry.kind,
-        question: entry.question,
-        outcome: entry.outcome,
-        age: typeof entry.at === 'number' ? (() => { const s = Math.max(0, Math.round((Date.now() - entry.at) / 1000)); if (s < 60) return `${s}s`; if (s < 3600) return `${Math.round(s / 60)}m`; return `${Math.round(s / 3600)}h`; })() : '',
-      }));
-      return { riskLevel: ceiling, log };
-    },
-    onBrainRiskLevel: (level: 'off' | 'low' | 'medium' | 'high' | 'all') => {
-      if (!brainSettings) return 'Brain settings not available.';
-      brainSettings.maxAutoRisk = level as import('@wrongstack/core').BrainAutoRisk;
-      return undefined;
-    },
-    brain,
-    brainSettings,
-    brainRuntime,
-    getBrainLog: () => brainLog,
-  },
-  lifecycles: {
-    onSuggestionsParsed: (suggestions) => {
-      // Always update — null means "no suggestions found", which must
-      // clear the list so the auto-proceed loop doesn't get stuck
-      // re-feeding stale suggestions.
-      currentSuggestions = suggestions ?? [];
-      setSuggestions(suggestions ?? []);
-    },
-    getSuggestions: () => {
-      // Read from shared store first for cross-surface consistency
-      const shared = getSuggestions();
-      return shared.length > 0 ? shared : currentSuggestions;
-    },
-    autoProceedDelayMs:
-      ((config.autonomy as Record<string, unknown> | undefined)?.autoProceedDelayMs as number) ??
-      45_000,
-    autoProceedMaxIterations:
-      ((config.autonomy as Record<string, unknown> | undefined)
-        ?.autoProceedMaxIterations as number) ?? 50,
-    onValidateAutoProceed: async (suggestion, lastOutput) => {
-      try {
-        const resp = await context.provider.complete(
-          {
+        },
+        // Resolve the one-key "retry with another model" offer against the LIVE
+        // provider/model so the active model is never offered as its own fallback.
+        getEnhanceFallbackRef: () =>
+          resolveEnhanceFallbackRef({
+            ...configRef.current,
+            provider: context.provider.id,
             model: context.model,
-            system: [
+          }),
+        getConfiguredRefinerRef: () =>
+          resolveConfiguredRefinerRef({
+            ...configRef.current,
+            provider: context.provider.id,
+            model: context.model,
+          }),
+        statuslineHiddenItems,
+        setStatuslineHiddenItems,
+        saveStatuslineHiddenItems,
+        getYolo: setYoloMode,
+        onYolo: setYoloMode,
+        getAutonomy: () => autonomyMode,
+        onAutonomy: (setTo?) => {
+          if (setTo !== undefined) {
+            autonomyMode = setTo;
+            return setTo;
+          }
+          return autonomyMode;
+        },
+        getNextPredict: () => nextPredictEnabled,
+        applyLiveSettings: (s) => {
+          // Apply `/settings` changes to the RUNNING session. Persistence already
+          // happened in saveSettings; this only flips live runtime state via the
+          // same setters the dedicated slash commands use. Best-effort — a failed
+          // live-apply must not surface as a settings-save error.
+          //
+          // Intentionally NOT applied live:
+          //  - `mode` (default autonomy) → only sets the default for next sessions.
+          //  - boot-only features (MCP/plugins/memory/skills/modelsRegistry/
+          //    tokenSaving/indexOnStart) and `contextStrategy` → need a restart;
+          //    the TUI shows a "next session" hint for those instead.
+          try {
+            if (s.yolo !== undefined) {
+              container.resolve(TOKENS.PermissionPolicy).setYolo?.(s.yolo);
+              config = patchConfig(config, { yolo: s.yolo });
+            }
+            if (s.nextPrediction !== undefined) {
+              nextPredictEnabled = s.nextPrediction;
+              config = patchConfig(config, { nextPrediction: s.nextPrediction });
+            }
+            if (s.enhanceEnabled !== undefined) {
+              enhanceController?.setEnabled(s.enhanceEnabled);
+            }
+            if (s.maxIterations !== undefined) {
+              // Takes effect on the next agent.run (the loop reads this per run).
+              agent.maxIterations = s.maxIterations;
+            }
+            if (s.logLevel !== undefined) {
+              // Mutates the root logger; new child loggers pick this up. The agent's
+              // existing child logger keeps its boot level — acceptable trade-off.
+              container.resolve(TOKENS.Logger).level = s.logLevel as LogLevel;
+            }
+            if (s.auditLevel !== undefined) {
+              sessionBridge.setAuditLevel(s.auditLevel as AuditLevel);
+            }
+            if (s.contextAutoCompact !== undefined) {
+              autoCompactor?.setEnabled(s.contextAutoCompact);
+            }
+            if (s.maxConcurrent !== undefined && s.maxConcurrent > 0) {
+              multiAgentHost.setMaxConcurrent(s.maxConcurrent);
+              events.emit('concurrency.changed', {
+                sessionId: sessionRef.current?.id ?? session.id,
+                n: s.maxConcurrent,
+              });
+              config = patchConfig(config, { maxConcurrent: s.maxConcurrent });
+            }
+            if (s.restrictFsToRoot !== undefined || s.allowOutsideProjectRoot !== undefined) {
+              // Single source of truth for the inverse pair — see
+              // deriveFsAccessPair in settings-menu.ts for the precedence
+              // rules. Without this, the picker and the /settings slash
+              // command would each maintain their own copy of the math
+              // and could disagree on contradictory inputs.
+              const fsAccess = deriveFsAccessPair(s);
+              if (fsAccess) {
+                // Toggle the live filesystem-access scope on the leader
+                // context so file tools immediately honor the new boundary.
+                // Subagents spawned afterwards read the patched config below.
+                context.allowOutsideProjectRoot = fsAccess.allowOutsideProjectRoot;
+                // Dual-write both config keys in sync (inverses): the new
+                // canonical features.allowOutsideProjectRoot plus the legacy
+                // tools.restrictToProjectRoot, so older readers don't break.
+                config = patchConfig(config, {
+                  features: {
+                    ...config.features,
+                    allowOutsideProjectRoot: fsAccess.allowOutsideProjectRoot,
+                  },
+                  tools: {
+                    ...config.tools,
+                    restrictToProjectRoot: fsAccess.restrictToProjectRoot,
+                  },
+                });
+              }
+            }
+          } catch {
+            // Live-apply is best-effort; the persisted config is the source of truth.
+          }
+        },
+        onCountdownTick: (remaining) => {
+          events.emit('countdown.tick', {
+            sessionId: sessionRef.current?.id ?? session.id,
+            remaining,
+          });
+          return false;
+        },
+      },
+      picker: {
+        getPluginItems: getPluginPickerItems,
+        onPluginToggle: togglePluginFromPicker,
+        getMcpServers: () => {
+          const servers = (config.mcpServers ?? {}) as Record<
+            string,
+            {
+              name: string;
+              transport: string;
+              enabled?: boolean;
+              description?: string;
+              lazy?: boolean;
+            }
+          >;
+          const liveStatus = mcpRegistry.list();
+          const liveMap = new Map(liveStatus.map((s) => [s.name, s]));
+          return Object.entries(servers).map(([name, cfg]) => {
+            const live = liveMap.get(name);
+            return {
+              name,
+              enabled: cfg.enabled !== false,
+              status: live ? live.state : 'stopped',
+              transport: cfg.transport ?? 'stdio',
+              description: cfg.description,
+              toolCount: live?.toolCount ?? 0,
+              lazy: cfg.lazy,
+            };
+          });
+        },
+        onMcpToggle: async (name: string) => {
+          const { enableMcp, disableMcp, listMcp } = await import('@wrongstack/mcp');
+          const deps = {
+            configPath: wpaths.globalConfig,
+            registry: mcpRegistry,
+            presets: allServers(),
+          };
+          // Read fresh state from the live config file (enableMcp/disableMcp
+          // wrote to it), then determine toggle direction from the registry.
+          const live = mcpRegistry.list().find((s) => s.name === name);
+          const isCurrentlyEnabled = live !== undefined && live.state !== 'idle';
+          const result = isCurrentlyEnabled
+            ? await disableMcp(name, deps)
+            : await enableMcp(name, deps);
+          const items = await listMcp(deps);
+          return {
+            items: items.map((s) => ({
+              name: s.name,
+              enabled: s.enabled,
+              status: s.status,
+              transport: s.transport,
+              description: s.description,
+              toolCount: s.tools.length,
+              lazy: s.lazy,
+            })),
+            message: result.ok
+              ? result.server
+                ? `${result.server.status === 'connected' ? '●' : '○'} ${name}`
+                : result.message
+              : undefined,
+            error: result.ok ? undefined : result.message,
+          };
+        },
+        onMcpRestart: async (name: string) => {
+          const { listMcp } = await import('@wrongstack/mcp');
+          const deps = {
+            configPath: wpaths.globalConfig,
+            registry: mcpRegistry,
+            presets: allServers(),
+          };
+          try {
+            await mcpRegistry.restart(name);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            const items = await listMcp(deps);
+            return {
+              items: items.map((s) => ({
+                name: s.name,
+                enabled: s.enabled,
+                status: s.status,
+                transport: s.transport,
+                description: s.description,
+                toolCount: s.tools.length,
+                lazy: s.lazy,
+              })),
+              message: undefined,
+              error: message,
+            };
+          }
+          const items = await listMcp(deps);
+          return {
+            items: items.map((s) => ({
+              name: s.name,
+              enabled: s.enabled,
+              status: s.status,
+              transport: s.transport,
+              description: s.description,
+              toolCount: s.tools.length,
+              lazy: s.lazy,
+            })),
+            message: `Restarted "${name}".`,
+            error: undefined,
+          };
+        },
+        getToolsItems: getToolPickerItems,
+        onToolToggle: async (name: string) => {
+          const disabled = new Set(config.tools?.disabledTools ?? []);
+          const isCurrentlyDisabled = toolRegistry.isDisabled(name);
+          if (isCurrentlyDisabled) {
+            toolRegistry.enable(name);
+            disabled.delete(name);
+          } else {
+            toolRegistry.disable(name);
+            disabled.add(name);
+          }
+          const nextTools = { ...(config.tools ?? {}), disabledTools: Array.from(disabled) };
+          config = patchConfig(config, { tools: nextTools });
+          configStore.update({ tools: nextTools });
+          return {
+            items: getToolPickerItems(),
+            message: isCurrentlyDisabled ? `Enabled "${name}".` : `Disabled "${name}".`,
+            error: undefined,
+          };
+        },
+        getBrainData: () => {
+          const ceiling = (brainSettings?.maxAutoRisk ?? 'medium') as
+            | 'off'
+            | 'low'
+            | 'medium'
+            | 'high'
+            | 'all';
+          const log = brainLog
+            .slice(-20)
+            .map((entry: { kind: string; question: string; outcome: string; at: number }) => ({
+              kind: entry.kind,
+              question: entry.question,
+              outcome: entry.outcome,
+              age:
+                typeof entry.at === 'number'
+                  ? (() => {
+                      const s = Math.max(0, Math.round((Date.now() - entry.at) / 1000));
+                      if (s < 60) return `${s}s`;
+                      if (s < 3600) return `${Math.round(s / 60)}m`;
+                      return `${Math.round(s / 3600)}h`;
+                    })()
+                  : '',
+            }));
+          return { riskLevel: ceiling, log };
+        },
+        onBrainRiskLevel: (level: 'off' | 'low' | 'medium' | 'high' | 'all') => {
+          if (!brainSettings) return 'Brain settings not available.';
+          brainSettings.maxAutoRisk = level as import('@wrongstack/core').BrainAutoRisk;
+          return undefined;
+        },
+        brain,
+        brainSettings,
+        brainRuntime,
+        getBrainLog: () => brainLog,
+      },
+      lifecycles: {
+        onSuggestionsParsed: (suggestions) => {
+          // Always update — null means "no suggestions found", which must
+          // clear the list so the auto-proceed loop doesn't get stuck
+          // re-feeding stale suggestions.
+          currentSuggestions = suggestions ?? [];
+          setSuggestions(suggestions ?? []);
+        },
+        getSuggestions: () => {
+          // Read from shared store first for cross-surface consistency
+          const shared = getSuggestions();
+          return shared.length > 0 ? shared : currentSuggestions;
+        },
+        autoProceedDelayMs:
+          ((config.autonomy as Record<string, unknown> | undefined)
+            ?.autoProceedDelayMs as number) ?? 45_000,
+        autoProceedMaxIterations:
+          ((config.autonomy as Record<string, unknown> | undefined)
+            ?.autoProceedMaxIterations as number) ?? 50,
+        onValidateAutoProceed: async (suggestion, lastOutput) => {
+          try {
+            const resp = await context.provider.complete(
               {
-                type: 'text',
-                text: 'You are a safety validator for an autonomous coding agent. Your ONLY job is to decide whether the agent should auto-proceed with a suggested next step, or whether a human should review first. Reply with exactly one word: YES or NO.',
-              },
-            ],
-            messages: [
-              {
-                role: 'user',
-                content: [
+                model: context.model,
+                system: [
                   {
                     type: 'text',
-                    text: `The autonomous agent just completed a turn and generated this top-ranked next-step suggestion:\n\n"${suggestion}"\n\n${lastOutput ? `Recent agent output:\n${lastOutput.slice(0, 500)}\n\n` : ''}Should the agent auto-proceed with this suggestion, or should a human review first?\n\nReply YES to auto-proceed, NO to wait for human input.`,
+                    text: 'You are a safety validator for an autonomous coding agent. Your ONLY job is to decide whether the agent should auto-proceed with a suggested next step, or whether a human should review first. Reply with exactly one word: YES or NO.',
                   },
                 ],
+                messages: [
+                  {
+                    role: 'user',
+                    content: [
+                      {
+                        type: 'text',
+                        text: `The autonomous agent just completed a turn and generated this top-ranked next-step suggestion:\n\n"${suggestion}"\n\n${lastOutput ? `Recent agent output:\n${lastOutput.slice(0, 500)}\n\n` : ''}Should the agent auto-proceed with this suggestion, or should a human review first?\n\nReply YES to auto-proceed, NO to wait for human input.`,
+                      },
+                    ],
+                  },
+                ],
+                maxTokens: 5,
+                temperature: 0,
               },
-            ],
-            maxTokens: 5,
-            temperature: 0,
-          },
-          { signal: AbortSignal.timeout(10_000) },
-        );
-        const text = resp.content
-          .filter((b) => b.type === 'text')
-          .map((b) => ('text' in b ? b.text : ''))
-          .join('')
-          .trim()
-          .toUpperCase();
-        return text.startsWith('YES');
-      } catch {
-        // On any error (network, provider, timeout), err on the side
-        // of safety — do NOT auto-proceed.
-        return false;
-      }
-    },
-    getEternalEngine: () => eternalEngine,
-    getParallelEngine: () => parallelEngine,
-    getSddRun: () => sddRunRegistry.getActive(),
-    onSddLifecycle: async (op, lcOpts) => {
-      const active = sddRunRegistry.getActive();
-      if (op === 'destroy') active?.stop();
-      else if (active?.isRunning()) {
-        return { op, ok: false, reason: 'Stop the run first (Ctrl+C), then retry.' };
-      }
-      const sddApi = await import('@wrongstack/sdd');
-      return sddApi.applySddLifecycle(op, {
-        projectRoot,
-        revertMerged: lcOpts?.revertMerged === true,
-        paths: {
-          projectSpecs: wpaths.projectSpecs,
-          projectTaskGraphs: wpaths.projectTaskGraphs,
-          projectSddSession: wpaths.projectSddSession,
-          projectSddBoards: wpaths.projectSddBoards,
+              { signal: AbortSignal.timeout(10_000) },
+            );
+            const text = resp.content
+              .filter((b) => b.type === 'text')
+              .map((b) => ('text' in b ? b.text : ''))
+              .join('')
+              .trim()
+              .toUpperCase();
+            return text.startsWith('YES');
+          } catch {
+            // On any error (network, provider, timeout), err on the side
+            // of safety — do NOT auto-proceed.
+            return false;
+          }
         },
-      });
-    },
-    subscribeEternalIteration: (fn) => {
-      eternalListeners.add(fn);
-      return () => eternalListeners.delete(fn);
-    },
-    subscribeEternalStage: (fn) => {
-      stageListeners.add(fn);
-      return () => stageListeners.delete(fn);
-    },
-    onDestroy: () => {
-      void runSuperMemorySessionHygiene().catch((err) => {
-        logger.warn('super-memory session hygiene failed', { error: String(err) });
-      });
-      teardownHandlers.forEach((fn) => {
-        fn();
-      });
-      stats.destroy(events);
-    },
-  },
-}));
+        getEternalEngine: () => eternalEngine,
+        getParallelEngine: () => parallelEngine,
+        getSddRun: () => sddRunRegistry.getActive(),
+        onSddLifecycle: async (op, lcOpts) => {
+          const active = sddRunRegistry.getActive();
+          if (op === 'destroy') active?.stop();
+          else if (active?.isRunning()) {
+            return { op, ok: false, reason: 'Stop the run first (Ctrl+C), then retry.' };
+          }
+          const sddApi = await import('@wrongstack/sdd');
+          return sddApi.applySddLifecycle(op, {
+            projectRoot,
+            revertMerged: lcOpts?.revertMerged === true,
+            paths: {
+              projectSpecs: wpaths.projectSpecs,
+              projectTaskGraphs: wpaths.projectTaskGraphs,
+              projectSddSession: wpaths.projectSddSession,
+              projectSddBoards: wpaths.projectSddBoards,
+            },
+          });
+        },
+        subscribeEternalIteration: (fn) => {
+          eternalListeners.add(fn);
+          return () => eternalListeners.delete(fn);
+        },
+        subscribeEternalStage: (fn) => {
+          stageListeners.add(fn);
+          return () => stageListeners.delete(fn);
+        },
+        onDestroy: () => {
+          void runSuperMemorySessionHygiene().catch((err) => {
+            logger.warn('super-memory session hygiene failed', { error: String(err) });
+          });
+          teardownHandlers.forEach((fn) => {
+            fn();
+          });
+          stats.destroy(events);
+        },
+      },
+    }),
+  );
 }
 
 /**

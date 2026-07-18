@@ -15,7 +15,7 @@ import {
   exportBoardAsMarkdown,
   exportBoardToTaskGraph,
   findBlockedTasks,
-  generateBoardFromDescription,
+  createBoardFromText,
   getBoard,
   getKanbanOrchestrationSnapshot,
   getTask,
@@ -485,7 +485,7 @@ export function buildKanbanCommand(opts: SlashCommandContext): SlashCommand {
       // ── generate ───────────────────────────────────────────────────
       if (cmd === 'generate') {
         if (!restJoined) return { message: color.red('Usage: /kanban generate <description>') };
-        const genInput = generateBoardFromDescription({ description: restJoined });
+        const genInput = createBoardFromText({ description: restJoined });
         const board = await createBoard(projectRoot, genInput);
         const tasks = parseLinesIntoTasks(restJoined, board.columns[0]?.id ?? 'backlog');
         for (const taskInput of tasks) {

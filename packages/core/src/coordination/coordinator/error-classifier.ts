@@ -1,8 +1,8 @@
+import { AgentError } from '../../types/errors.js';
 import type { SubagentError, SubagentErrorKind } from '../../types/multi-agent.js';
 import { ProviderError } from '../../types/provider.js';
-import { AgentError } from '../../types/errors.js';
-import { BudgetExceededError } from '../subagent-budget.js';
 import { toErrorMessage } from '../../utils/error.js';
+import { BudgetExceededError } from '../subagent-budget.js';
 
 /**
  * Map any raw exception thrown out of a subagent's runner into a
@@ -26,9 +26,8 @@ export function classifySubagentError(
     return classifySubagentError(err.cause, hints);
   }
 
-  const cause = err instanceof Error
-    ? { name: err.name, message: err.message, stack: err.stack }
-    : undefined;
+  const cause =
+    err instanceof Error ? { name: err.name, message: err.message, stack: err.stack } : undefined;
 
   if (err instanceof ProviderError) {
     const baseMessage = err.describe();
@@ -92,6 +91,7 @@ function providerErrorToSubagentError(
   // kind refuses to compile until it is mapped here.
   switch (err.kind) {
     case 'rate_limit':
+    case 'quota_exhausted':
       return {
         kind: 'provider_rate_limit',
         message,

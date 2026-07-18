@@ -1,6 +1,6 @@
-import { detectLocale } from '@/i18n/languages';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { detectLocale } from '@/i18n/languages';
 
 /**
  * Local preference store — persisted in localStorage.
@@ -51,6 +51,8 @@ export interface LocalPrefs {
   >;
   /** Auto-derive a fallback chain from keyed providers when the list is empty. */
   fallbackAuto: boolean;
+  /** Recurring provider/model blackout windows for autonomous routing. */
+  modelAvailabilitySchedule: import('@wrongstack/core').ModelBlackoutRule[];
 
   // --- Feature flags ---
   featureMcp: boolean;
@@ -198,6 +200,7 @@ const DEFAULTS: Omit<LocalPrefs, 'set' | 'reset'> = {
   favoriteModelsOnly: false,
   modelMatrix: {},
   fallbackAuto: true,
+  modelAvailabilitySchedule: [],
   featureMcp: true,
   featurePlugins: true,
   featureMemory: true,
@@ -313,11 +316,16 @@ export const useLocalPrefs = create<LocalPrefs>()(
         if (typeof p.autoProceedMaxIterations !== 'number') {
           p.autoProceedMaxIterations = 50;
         }
-        if (!p.fallbackProfiles || typeof p.fallbackProfiles !== 'object' || Array.isArray(p.fallbackProfiles)) {
+        if (
+          !p.fallbackProfiles ||
+          typeof p.fallbackProfiles !== 'object' ||
+          Array.isArray(p.fallbackProfiles)
+        ) {
           p.fallbackProfiles = {};
         }
         if (!Array.isArray(p.favoriteModels)) p.favoriteModels = [];
         if (typeof p.favoriteModelsOnly !== 'boolean') p.favoriteModelsOnly = false;
+        if (!Array.isArray(p.modelAvailabilitySchedule)) p.modelAvailabilitySchedule = [];
         if (!p.modelMatrix || typeof p.modelMatrix !== 'object' || Array.isArray(p.modelMatrix)) {
           p.modelMatrix = {};
         }

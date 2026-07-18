@@ -65,7 +65,11 @@ function renderSettingsTopMenu(
   renderer: TerminalRenderer,
   config: {
     autonomy?:
-      | { autoProceedDelayMs?: number | undefined; defaultMode?: string | undefined; autonomyNextPrompt?: string | undefined }
+      | {
+          autoProceedDelayMs?: number | undefined;
+          defaultMode?: string | undefined;
+          autonomyNextPrompt?: string | undefined;
+        }
       | undefined;
   },
 ): void {
@@ -153,21 +157,13 @@ async function editAutonomyNextPrompt(deps: SettingsMenuDeps): Promise<void> {
   );
   const autonomy = deps.configStore.get().autonomy as Record<string, unknown> | undefined;
   const current = (autonomy?.autonomyNextPrompt as string | undefined) ?? 'auto {{suggestion}}';
-  deps.renderer.write(
-    color.dim(`  Current: ${current}\n`),
-  );
+  deps.renderer.write(color.dim(`  Current: ${current}\n`));
   deps.renderer.write(
     color.dim(`  Template uses {{suggestion}} placeholder for the next step text.\n`),
   );
-  deps.renderer.write(
-    color.dim(`  Examples:\n`),
-  );
-  deps.renderer.write(
-    color.dim(`    auto {{suggestion}}         (default - prepends "auto")\n`),
-  );
-  deps.renderer.write(
-    color.dim(`    proceed with: {{suggestion}}  (prepends "proceed with:")\n`),
-  );
+  deps.renderer.write(color.dim(`  Examples:\n`));
+  deps.renderer.write(color.dim(`    auto {{suggestion}}         (default - prepends "auto")\n`));
+  deps.renderer.write(color.dim(`    proceed with: {{suggestion}}  (prepends "proceed with:")\n`));
 
   const raw = (await deps.reader.readLine(`  ${color.amber('?')} Prompt template: `)).trim();
   if (!raw || raw === 'q') return;
@@ -250,6 +246,7 @@ const PROJECT_SAFE_FIELDS = new Set([
   'fallbackProfiles',
   'favoriteModels',
   'favoriteModelsOnly',
+  'modelAvailabilitySchedule',
   'fallbackAuto',
   'models',
   'modelMatrix',
@@ -540,9 +537,7 @@ function mutateAutonomyConfig(
 export function deriveFsAccessPair(input: {
   allowOutsideProjectRoot?: boolean | undefined;
   restrictFsToRoot?: boolean | undefined;
-}):
-  | { allowOutsideProjectRoot: boolean; restrictToProjectRoot: boolean }
-  | undefined {
+}): { allowOutsideProjectRoot: boolean; restrictToProjectRoot: boolean } | undefined {
   if (input.allowOutsideProjectRoot !== undefined) {
     const allow = input.allowOutsideProjectRoot;
     return { allowOutsideProjectRoot: allow, restrictToProjectRoot: !allow };

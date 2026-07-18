@@ -15,10 +15,11 @@
  * two take explicit args. No behaviour change — the mutation ladder,
  * the FEATURE_MAP, and the touch-flags are preserved verbatim.
  */
-import { atomicWrite, FORBIDDEN_PROTO_KEYS } from '@wrongstack/core/utils';
-import { decryptConfigSecrets, encryptConfigSecrets } from '@wrongstack/core/security';
-import type { SecretVault } from '@wrongstack/core';
+
 import * as fs from 'node:fs/promises';
+import type { SecretVault } from '@wrongstack/core';
+import { decryptConfigSecrets, encryptConfigSecrets } from '@wrongstack/core/security';
+import { atomicWrite, FORBIDDEN_PROTO_KEYS } from '@wrongstack/core/utils';
 
 /** Pref keys exposed to the settings panel via prefs.get / prefs.updated. */
 export const PREF_KEYS = [
@@ -65,6 +66,7 @@ export const PREF_KEYS = [
   'fallbackProfiles',
   'favoriteModels',
   'favoriteModelsOnly',
+  'modelAvailabilitySchedule',
   'modelMatrix',
   'fallbackAuto',
   // Refiner + TUI visual prefs (parity with the CLI's embedded server —
@@ -173,7 +175,9 @@ export async function updateGlobalConfig(
   try {
     await next;
   } catch (err) {
-    logger.warn(`${errorLabel}: failed to persist to config: ${err instanceof Error ? err.message : String(err)}`);
+    logger.warn(
+      `${errorLabel}: failed to persist to config: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -189,360 +193,369 @@ export async function persistPrefsToConfig(
   holder: ConfigWriteLockHolder,
   payload: Record<string, unknown>,
 ): Promise<void> {
-  return updateGlobalConfig(deps, holder, (decrypted) => {
-    const autonomyCfg = (decrypted.autonomy as Record<string, unknown>) ?? {};
-    let autonomyTouched = false;
-    const setAutonomy = (key: string, val: unknown): void => {
-      autonomyCfg[key] = val;
-      autonomyTouched = true;
-    };
-    if (
-      typeof payload['autonomy'] === 'string' &&
-      ['off', 'suggest', 'auto'].includes(payload['autonomy'])
-    ) {
-      setAutonomy('defaultMode', payload['autonomy']);
-    }
-    if (typeof payload['autonomyDelayMs'] === 'number')
-      setAutonomy('autoProceedDelayMs', payload['autonomyDelayMs']);
-    if (typeof payload['autoProceedMaxIterations'] === 'number')
-      setAutonomy('autoProceedMaxIterations', payload['autoProceedMaxIterations']);
-    if (typeof payload['yolo'] === 'boolean') {
-      setAutonomy('yolo', payload['yolo']);
-      decrypted.yolo = payload['yolo'];
-    }
-    if (typeof payload['chime'] === 'boolean') setAutonomy('chime', payload['chime']);
-    if (typeof payload['confirmExit'] === 'boolean')
-      setAutonomy('confirmExit', payload['confirmExit']);
-    if (typeof payload['streamFleet'] === 'boolean')
-      setAutonomy('streamFleet', payload['streamFleet']);
-    if (typeof payload['enhanceEnabled'] === 'boolean')
-      setAutonomy('enhance', payload['enhanceEnabled']);
-    if (typeof payload['enhanceDelayMs'] === 'number')
-      setAutonomy('enhanceDelayMs', payload['enhanceDelayMs']);
-    if (typeof payload['enhanceLanguage'] === 'string')
-      setAutonomy('enhanceLanguage', payload['enhanceLanguage']);
-    if (typeof payload['refinerProvider'] === 'string')
-      setAutonomy('refinerProvider', payload['refinerProvider']);
-    if (typeof payload['refinerModel'] === 'string')
-      setAutonomy('refinerModel', payload['refinerModel']);
-    if (typeof payload['refinerFallbackProfile'] === 'string')
-      setAutonomy('refinerFallbackProfile', payload['refinerFallbackProfile']);
-    if (typeof payload['thinkingWord'] === 'string')
-      setAutonomy('thinkingWord', payload['thinkingWord']);
-    if (typeof payload['statuslineMode'] === 'string')
-      setAutonomy('statuslineMode', payload['statuslineMode']);
-    if (typeof payload['animationStyle'] === 'string')
-      setAutonomy('animationStyle', payload['animationStyle']);
-    if (typeof payload['showModelReasoning'] === 'boolean')
-      setAutonomy('showModelReasoning', payload['showModelReasoning']);
-    if (autonomyTouched) decrypted.autonomy = autonomyCfg;
-
-    if (typeof payload['nextPrediction'] === 'boolean')
-      decrypted.nextPrediction = payload['nextPrediction'];
-
-    // Display language — top-level Config.uiLocale (shared across surfaces).
-    if (typeof payload['uiLocale'] === 'string') decrypted.uiLocale = payload['uiLocale'];
-
-    // Global fallback model chain (top-level config). Read live by the leader's
-    // fallback extension each turn (effectiveFallbackChain), so it takes effect
-    // without a restart.
-    if (Array.isArray(payload['fallbackModels']))
-      decrypted.fallbackModels = payload['fallbackModels'];
-    if (
-      payload['fallbackProfiles'] &&
-      typeof payload['fallbackProfiles'] === 'object' &&
-      !Array.isArray(payload['fallbackProfiles'])
-    ) {
-      decrypted.fallbackProfiles = payload['fallbackProfiles'] as Record<string, string[]>;
-    }
-    if (Array.isArray(payload['favoriteModels']))
-      decrypted.favoriteModels = payload['favoriteModels'];
-    if (typeof payload['favoriteModelsOnly'] === 'boolean')
-      decrypted.favoriteModelsOnly = payload['favoriteModelsOnly'];
-    if (
-      payload['modelMatrix'] &&
-      typeof payload['modelMatrix'] === 'object' &&
-      !Array.isArray(payload['modelMatrix'])
-    ) {
-      decrypted.modelMatrix = payload['modelMatrix'] as typeof decrypted.modelMatrix;
-    }
-    if (typeof payload['fallbackAuto'] === 'boolean')
-      decrypted.fallbackAuto = payload['fallbackAuto'];
-
-    const FEATURE_MAP: Record<string, string> = {
-      featureMcp: 'mcp',
-      featurePlugins: 'plugins',
-      featureMemory: 'memory',
-      featureSkills: 'skills',
-      featureModelsRegistry: 'modelsRegistry',
-    };
-    for (const [prefKey, cfgKey] of Object.entries(FEATURE_MAP)) {
-      if (typeof payload[prefKey] === 'boolean') {
-        const feats = (decrypted.features as Record<string, unknown>) ?? {};
-        feats[cfgKey] = payload[prefKey];
-        decrypted.features = feats;
-      }
-    }
-
-    if (
-      typeof payload['contextAutoCompact'] === 'boolean' ||
-      typeof payload['contextStrategy'] === 'string' ||
-      typeof payload['contextMode'] === 'string'
-    ) {
-      const ctxCfg = (decrypted.context as Record<string, unknown>) ?? {};
-      if (typeof payload['contextAutoCompact'] === 'boolean')
-        ctxCfg.autoCompact = payload['contextAutoCompact'];
-      if (typeof payload['contextStrategy'] === 'string')
-        ctxCfg.strategy = payload['contextStrategy'];
-      if (typeof payload['contextMode'] === 'string') ctxCfg.mode = payload['contextMode'];
-      decrypted.context = ctxCfg;
-    }
-    if (typeof payload['tokenSavingTier'] === 'string') {
-      const featsCfg = (decrypted.features as Record<string, unknown>) ?? {};
-      featsCfg.tokenSavingMode = payload['tokenSavingTier'];
-      decrypted.features = featsCfg;
-    }
-    if (typeof payload['maxConcurrent'] === 'number') {
-      decrypted.maxConcurrent = payload['maxConcurrent'];
-    }
-    if (typeof payload['titleAnimation'] === 'boolean') {
-      const autoCfg = (decrypted.autonomy as Record<string, unknown>) ?? {};
-      autoCfg.terminalTitleAnimation = payload['titleAnimation'];
-      decrypted.autonomy = autoCfg;
-    }
-    if (typeof payload['logLevel'] === 'string') {
-      const logCfg = (decrypted.log as Record<string, unknown>) ?? {};
-      logCfg.level = payload['logLevel'];
-      decrypted.log = logCfg;
-    }
-    if (typeof payload['auditLevel'] === 'string') {
-      const sessionCfg = (decrypted.session as Record<string, unknown>) ?? {};
-      sessionCfg.auditLevel = payload['auditLevel'];
-      decrypted.session = sessionCfg;
-    }
-    if (typeof payload['indexOnStart'] === 'boolean') {
-      const indexingCfg = (decrypted.indexing as Record<string, unknown>) ?? {};
-      indexingCfg.onSessionStart = payload['indexOnStart'];
-      decrypted.indexing = indexingCfg;
-    }
-    if (typeof payload['maxIterations'] === 'number') {
-      const toolsCfg = (decrypted.tools as Record<string, unknown>) ?? {};
-      toolsCfg.maxIterations = payload['maxIterations'];
-      decrypted.tools = toolsCfg;
-    }
-
-    const hqTouched =
-      typeof payload['hqEnabled'] === 'boolean' ||
-      typeof payload['hqUrl'] === 'string' ||
-      typeof payload['hqToken'] === 'string' ||
-      typeof payload['hqRawContent'] === 'boolean';
-    if (hqTouched) {
-      const hqCfg = (decrypted.hq as Record<string, unknown>) ?? {};
-      if (typeof payload['hqEnabled'] === 'boolean') hqCfg.enabled = payload['hqEnabled'];
-      if (typeof payload['hqUrl'] === 'string') hqCfg.url = payload['hqUrl'];
-      if (typeof payload['hqToken'] === 'string') hqCfg.token = payload['hqToken'];
-      if (typeof payload['hqRawContent'] === 'boolean')
-        hqCfg.rawContent = payload['hqRawContent'];
-      decrypted.hq = hqCfg;
-    }
-
-    const tgTouched =
-      typeof payload['tgSessionEnd'] === 'boolean' ||
-      typeof payload['tgDelegate'] === 'boolean' ||
-      typeof payload['tgLongToolMs'] === 'number';
-    if (tgTouched) {
-      const ext = (decrypted.extensions as Record<string, Record<string, unknown>>) ?? {};
-      const tg = ext['telegram'] ?? {};
-      if (typeof payload['tgSessionEnd'] === 'boolean') {
-        tg['notifyOnSessionEnd'] = payload['tgSessionEnd'];
-      }
-      if (typeof payload['tgDelegate'] === 'boolean') {
-        tg['notifyOnDelegate'] = payload['tgDelegate'];
-      }
-      if (typeof payload['tgLongToolMs'] === 'number') {
-        tg['longToolThresholdMs'] = payload['tgLongToolMs'];
-      }
-      ext['telegram'] = tg;
-      decrypted.extensions = ext;
-    }
-
-    // Reasoning / cache runtime controls → Config.modelRuntime
-    const modelRuntimeTouched =
-      typeof payload['reasoningMode'] === 'string' ||
-      typeof payload['reasoningEffort'] === 'string' ||
-      typeof payload['reasoningPreserve'] === 'boolean' ||
-      typeof payload['cacheTtl'] === 'string';
-    if (modelRuntimeTouched) {
-      const mr = (decrypted.modelRuntime as Record<string, unknown>) ?? {};
-      const reasoning = (mr.reasoning as Record<string, unknown>) ?? {};
-      if (typeof payload['reasoningMode'] === 'string') reasoning.mode = payload['reasoningMode'];
-      if (typeof payload['reasoningEffort'] === 'string')
-        reasoning.effort = payload['reasoningEffort'];
-      if (typeof payload['reasoningPreserve'] === 'boolean')
-        reasoning.preserve = payload['reasoningPreserve'];
-      mr.reasoning = reasoning;
-      if (typeof payload['cacheTtl'] === 'string' && payload['cacheTtl'] !== 'default') {
-        mr.cache = { ttl: payload['cacheTtl'] };
-      } else if (payload['cacheTtl'] === 'default') {
-        delete mr.cache;
-      }
-      decrypted.modelRuntime = mr;
-    }
-
-    // Process circuit breaker → Config.circuitBreaker
-    if (
-      typeof payload['breakerEnabled'] === 'boolean' ||
-      typeof payload['breakerAutoKillResetMs'] === 'number'
-    ) {
-      const cb = (decrypted.circuitBreaker as Record<string, unknown>) ?? {};
-      if (typeof payload['breakerEnabled'] === 'boolean') cb.enabled = payload['breakerEnabled'];
-      if (typeof payload['breakerAutoKillResetMs'] === 'number')
-        cb.autoKillResetMs = payload['breakerAutoKillResetMs'];
-      decrypted.circuitBreaker = cb;
-    }
-
-    // Filesystem access scope — dual-write the inverse pair, same as the
-    // CLI's deriveFsAccessPair (tools.restrictToProjectRoot is legacy,
-    // features.allowOutsideProjectRoot is canonical; they must stay inverses).
-    if (payload['fsAccess'] === 'unrestricted' || payload['fsAccess'] === 'project') {
-      const restrict = payload['fsAccess'] === 'project';
-      const toolsCfg = (decrypted.tools as Record<string, unknown>) ?? {};
-      toolsCfg.restrictToProjectRoot = restrict;
-      decrypted.tools = toolsCfg;
-      const featsCfg = (decrypted.features as Record<string, unknown>) ?? {};
-      featsCfg.allowOutsideProjectRoot = !restrict;
-      decrypted.features = featsCfg;
-    }
-
-    // Raw SSE debug dump → top-level Config.debugStream
-    if (typeof payload['debugStream'] === 'boolean')
-      decrypted.debugStream = payload['debugStream'];
-
-    // Note: `autoReviewFallbackModels` is intentionally NOT a persisted
-    // user-configurable input. It's a *resolved output* computed by the
-    // auto-review plugin via FallbackProfileManager (auto-review-plugin.ts:67-69).
-    // It's exposed on LocalPrefs for read-only display in the panel; the
-    // panel writes the source inputs (`autoReviewFallbackProfile`,
-    // `autoReviewProvider`, `autoReviewModel`) and the server seeds the
-    // resolved chain from config on next boot.
-
-    // Per-plugin enable/disable → extensions.<name>.enabled. Parity with the
-    // embedded server (prefs-seeding.ts) so a browser toggling plugins against
-    // the standalone server persists instead of erroring.
-    if (typeof payload['pluginsEnabled'] === 'object' && payload['pluginsEnabled'] !== null) {
-      const ext = (decrypted.extensions as Record<string, Record<string, unknown>>) ?? {};
-      for (const [pluginName, enabled] of Object.entries(
-        payload['pluginsEnabled'] as Record<string, boolean>,
-      )) {
-        // Plugin names are the only attacker-controlled KEYS in this whole
-        // ladder (every other ext[...] site is a hardcoded literal). Without
-        // this guard, `{"pluginsEnabled":{"__proto__":true}}` makes
-        // `ext['__proto__']` read back Object.prototype, and the next line
-        // writes `Object.prototype.enabled = true` — every object in the
-        // process then inherits `.enabled`, silently defeating the
-        // `?? true`-style plugin gates. JSON.parse yields `__proto__` as an
-        // own enumerable key, so Object.entries hands it to us.
-        if (FORBIDDEN_PROTO_KEYS.has(pluginName)) continue;
-        const pExt = ext[pluginName] ?? {};
-        pExt['enabled'] = enabled;
-        ext[pluginName] = pExt;
-      }
-      decrypted.extensions = ext;
-    }
-
-    // Chimera (post-session review) → extensions['wstack-chimera']
-    // Matches the ResolvedChimeraConfig shape from chimera-plugin.ts:34.
-    const chimeraTouched =
-      typeof payload['chimeraEnabled'] === 'boolean' ||
-      typeof payload['chimeraProvider'] === 'string' ||
-      typeof payload['chimeraModel'] === 'string' ||
-      typeof payload['chimeraMaxFiles'] === 'number' ||
-      typeof payload['chimeraAutoFix'] === 'string';
-    if (chimeraTouched) {
-      const ext = (decrypted.extensions as Record<string, Record<string, unknown>>) ?? {};
-      const chimera = ext['wstack-chimera'] ?? {};
-      if (typeof payload['chimeraEnabled'] === 'boolean')
-        chimera['enabled'] = payload['chimeraEnabled'];
-      if (typeof payload['chimeraProvider'] === 'string')
-        chimera['provider'] = payload['chimeraProvider'];
-      if (typeof payload['chimeraModel'] === 'string')
-        chimera['model'] = payload['chimeraModel'];
-      if (typeof payload['chimeraMaxFiles'] === 'number' && payload['chimeraMaxFiles'] >= 1) {
-        chimera['maxFiles'] = payload['chimeraMaxFiles'];
-      }
-      if (typeof payload['chimeraAutoFix'] === 'string') {
-        if (
-          payload['chimeraAutoFix'] === 'off' ||
-          payload['chimeraAutoFix'] === 'ask' ||
-          payload['chimeraAutoFix'] === 'auto'
-        ) {
-          chimera['autoFix'] = payload['chimeraAutoFix'];
-        }
-      }
-      ext['wstack-chimera'] = chimera;
-      decrypted.extensions = ext;
-    }
-
-    // Auto-review (mid-session continuous) → extensions['wstack-auto-review']
-    // Matches the ResolvedAutoReviewConfig shape from auto-review-plugin.ts:42.
-    const autoReviewTouched =
-      typeof payload['autoReviewEnabled'] === 'boolean' ||
-      typeof payload['autoReviewProvider'] === 'string' ||
-      typeof payload['autoReviewModel'] === 'string' ||
-      typeof payload['autoReviewFallbackProfile'] === 'string' ||
-      Array.isArray(payload['autoReviewFallbackModels']) ||
-      typeof payload['autoReviewDebounceMs'] === 'number' ||
-      typeof payload['autoReviewMaxFilesPerBatch'] === 'number' ||
-      typeof payload['autoReviewMaxConcurrentReviews'] === 'number' ||
-      typeof payload['autoReviewCascadeOn'] === 'string';
-    if (autoReviewTouched) {
-      const ext = (decrypted.extensions as Record<string, Record<string, unknown>>) ?? {};
-      const ar = ext['wstack-auto-review'] ?? {};
-      if (typeof payload['autoReviewEnabled'] === 'boolean')
-        ar['enabled'] = payload['autoReviewEnabled'];
-      if (typeof payload['autoReviewProvider'] === 'string')
-        ar['provider'] = payload['autoReviewProvider'];
-      if (typeof payload['autoReviewModel'] === 'string')
-        ar['model'] = payload['autoReviewModel'];
-      if (typeof payload['autoReviewFallbackProfile'] === 'string') {
-        // Empty string = clear the named profile (plugin falls back to
-        // resolveEffective({ fallbackAuto: true })).
-        if (payload['autoReviewFallbackProfile'] === '') {
-          delete ar['fallbackProfile'];
-        } else {
-          ar['fallbackProfile'] = payload['autoReviewFallbackProfile'];
-        }
-      }
-      // Note: `autoReviewFallbackModels` is not a config input — it's
-      // derived from `fallbackProfile` + `config.fallbackModels` by the
-      // plugin's resolver. Ignore incoming writes to avoid silently
-      // persisting a value that the plugin discards on every load.
-      if (typeof payload['autoReviewDebounceMs'] === 'number' && payload['autoReviewDebounceMs'] >= 0) {
-        ar['debounceMs'] = payload['autoReviewDebounceMs'];
-      }
+  return updateGlobalConfig(
+    deps,
+    holder,
+    (decrypted) => {
+      const autonomyCfg = (decrypted.autonomy as Record<string, unknown>) ?? {};
+      let autonomyTouched = false;
+      const setAutonomy = (key: string, val: unknown): void => {
+        autonomyCfg[key] = val;
+        autonomyTouched = true;
+      };
       if (
-        typeof payload['autoReviewMaxFilesPerBatch'] === 'number' &&
-        payload['autoReviewMaxFilesPerBatch'] >= 1
+        typeof payload['autonomy'] === 'string' &&
+        ['off', 'suggest', 'auto'].includes(payload['autonomy'])
       ) {
-        ar['maxFilesPerBatch'] = payload['autoReviewMaxFilesPerBatch'];
+        setAutonomy('defaultMode', payload['autonomy']);
       }
+      if (typeof payload['autonomyDelayMs'] === 'number')
+        setAutonomy('autoProceedDelayMs', payload['autonomyDelayMs']);
+      if (typeof payload['autoProceedMaxIterations'] === 'number')
+        setAutonomy('autoProceedMaxIterations', payload['autoProceedMaxIterations']);
+      if (typeof payload['yolo'] === 'boolean') {
+        setAutonomy('yolo', payload['yolo']);
+        decrypted.yolo = payload['yolo'];
+      }
+      if (typeof payload['chime'] === 'boolean') setAutonomy('chime', payload['chime']);
+      if (typeof payload['confirmExit'] === 'boolean')
+        setAutonomy('confirmExit', payload['confirmExit']);
+      if (typeof payload['streamFleet'] === 'boolean')
+        setAutonomy('streamFleet', payload['streamFleet']);
+      if (typeof payload['enhanceEnabled'] === 'boolean')
+        setAutonomy('enhance', payload['enhanceEnabled']);
+      if (typeof payload['enhanceDelayMs'] === 'number')
+        setAutonomy('enhanceDelayMs', payload['enhanceDelayMs']);
+      if (typeof payload['enhanceLanguage'] === 'string')
+        setAutonomy('enhanceLanguage', payload['enhanceLanguage']);
+      if (typeof payload['refinerProvider'] === 'string')
+        setAutonomy('refinerProvider', payload['refinerProvider']);
+      if (typeof payload['refinerModel'] === 'string')
+        setAutonomy('refinerModel', payload['refinerModel']);
+      if (typeof payload['refinerFallbackProfile'] === 'string')
+        setAutonomy('refinerFallbackProfile', payload['refinerFallbackProfile']);
+      if (typeof payload['thinkingWord'] === 'string')
+        setAutonomy('thinkingWord', payload['thinkingWord']);
+      if (typeof payload['statuslineMode'] === 'string')
+        setAutonomy('statuslineMode', payload['statuslineMode']);
+      if (typeof payload['animationStyle'] === 'string')
+        setAutonomy('animationStyle', payload['animationStyle']);
+      if (typeof payload['showModelReasoning'] === 'boolean')
+        setAutonomy('showModelReasoning', payload['showModelReasoning']);
+      if (autonomyTouched) decrypted.autonomy = autonomyCfg;
+
+      if (typeof payload['nextPrediction'] === 'boolean')
+        decrypted.nextPrediction = payload['nextPrediction'];
+
+      // Display language — top-level Config.uiLocale (shared across surfaces).
+      if (typeof payload['uiLocale'] === 'string') decrypted.uiLocale = payload['uiLocale'];
+
+      // Global fallback model chain (top-level config). Read live by the leader's
+      // fallback extension each turn (effectiveFallbackChain), so it takes effect
+      // without a restart.
+      if (Array.isArray(payload['fallbackModels']))
+        decrypted.fallbackModels = payload['fallbackModels'];
       if (
-        typeof payload['autoReviewMaxConcurrentReviews'] === 'number' &&
-        payload['autoReviewMaxConcurrentReviews'] >= 1
+        payload['fallbackProfiles'] &&
+        typeof payload['fallbackProfiles'] === 'object' &&
+        !Array.isArray(payload['fallbackProfiles'])
       ) {
-        ar['maxConcurrentReviews'] = payload['autoReviewMaxConcurrentReviews'];
+        decrypted.fallbackProfiles = payload['fallbackProfiles'] as Record<string, string[]>;
       }
-      if (typeof payload['autoReviewCascadeOn'] === 'string') {
-        if (
-          payload['autoReviewCascadeOn'] === 'off' ||
-          payload['autoReviewCascadeOn'] === 'critical' ||
-          payload['autoReviewCascadeOn'] === 'high'
-        ) {
-          ar['cascadeOn'] = payload['autoReviewCascadeOn'];
+      if (Array.isArray(payload['favoriteModels']))
+        decrypted.favoriteModels = payload['favoriteModels'];
+      if (typeof payload['favoriteModelsOnly'] === 'boolean')
+        decrypted.favoriteModelsOnly = payload['favoriteModelsOnly'];
+      if (Array.isArray(payload['modelAvailabilitySchedule']))
+        decrypted.modelAvailabilitySchedule = payload['modelAvailabilitySchedule'];
+      if (
+        payload['modelMatrix'] &&
+        typeof payload['modelMatrix'] === 'object' &&
+        !Array.isArray(payload['modelMatrix'])
+      ) {
+        decrypted.modelMatrix = payload['modelMatrix'] as typeof decrypted.modelMatrix;
+      }
+      if (typeof payload['fallbackAuto'] === 'boolean')
+        decrypted.fallbackAuto = payload['fallbackAuto'];
+
+      const FEATURE_MAP: Record<string, string> = {
+        featureMcp: 'mcp',
+        featurePlugins: 'plugins',
+        featureMemory: 'memory',
+        featureSkills: 'skills',
+        featureModelsRegistry: 'modelsRegistry',
+      };
+      for (const [prefKey, cfgKey] of Object.entries(FEATURE_MAP)) {
+        if (typeof payload[prefKey] === 'boolean') {
+          const feats = (decrypted.features as Record<string, unknown>) ?? {};
+          feats[cfgKey] = payload[prefKey];
+          decrypted.features = feats;
         }
       }
-      ext['wstack-auto-review'] = ar;
-      decrypted.extensions = ext;
-    }
-  }, 'prefs');
+
+      if (
+        typeof payload['contextAutoCompact'] === 'boolean' ||
+        typeof payload['contextStrategy'] === 'string' ||
+        typeof payload['contextMode'] === 'string'
+      ) {
+        const ctxCfg = (decrypted.context as Record<string, unknown>) ?? {};
+        if (typeof payload['contextAutoCompact'] === 'boolean')
+          ctxCfg.autoCompact = payload['contextAutoCompact'];
+        if (typeof payload['contextStrategy'] === 'string')
+          ctxCfg.strategy = payload['contextStrategy'];
+        if (typeof payload['contextMode'] === 'string') ctxCfg.mode = payload['contextMode'];
+        decrypted.context = ctxCfg;
+      }
+      if (typeof payload['tokenSavingTier'] === 'string') {
+        const featsCfg = (decrypted.features as Record<string, unknown>) ?? {};
+        featsCfg.tokenSavingMode = payload['tokenSavingTier'];
+        decrypted.features = featsCfg;
+      }
+      if (typeof payload['maxConcurrent'] === 'number') {
+        decrypted.maxConcurrent = payload['maxConcurrent'];
+      }
+      if (typeof payload['titleAnimation'] === 'boolean') {
+        const autoCfg = (decrypted.autonomy as Record<string, unknown>) ?? {};
+        autoCfg.terminalTitleAnimation = payload['titleAnimation'];
+        decrypted.autonomy = autoCfg;
+      }
+      if (typeof payload['logLevel'] === 'string') {
+        const logCfg = (decrypted.log as Record<string, unknown>) ?? {};
+        logCfg.level = payload['logLevel'];
+        decrypted.log = logCfg;
+      }
+      if (typeof payload['auditLevel'] === 'string') {
+        const sessionCfg = (decrypted.session as Record<string, unknown>) ?? {};
+        sessionCfg.auditLevel = payload['auditLevel'];
+        decrypted.session = sessionCfg;
+      }
+      if (typeof payload['indexOnStart'] === 'boolean') {
+        const indexingCfg = (decrypted.indexing as Record<string, unknown>) ?? {};
+        indexingCfg.onSessionStart = payload['indexOnStart'];
+        decrypted.indexing = indexingCfg;
+      }
+      if (typeof payload['maxIterations'] === 'number') {
+        const toolsCfg = (decrypted.tools as Record<string, unknown>) ?? {};
+        toolsCfg.maxIterations = payload['maxIterations'];
+        decrypted.tools = toolsCfg;
+      }
+
+      const hqTouched =
+        typeof payload['hqEnabled'] === 'boolean' ||
+        typeof payload['hqUrl'] === 'string' ||
+        typeof payload['hqToken'] === 'string' ||
+        typeof payload['hqRawContent'] === 'boolean';
+      if (hqTouched) {
+        const hqCfg = (decrypted.hq as Record<string, unknown>) ?? {};
+        if (typeof payload['hqEnabled'] === 'boolean') hqCfg.enabled = payload['hqEnabled'];
+        if (typeof payload['hqUrl'] === 'string') hqCfg.url = payload['hqUrl'];
+        if (typeof payload['hqToken'] === 'string') hqCfg.token = payload['hqToken'];
+        if (typeof payload['hqRawContent'] === 'boolean')
+          hqCfg.rawContent = payload['hqRawContent'];
+        decrypted.hq = hqCfg;
+      }
+
+      const tgTouched =
+        typeof payload['tgSessionEnd'] === 'boolean' ||
+        typeof payload['tgDelegate'] === 'boolean' ||
+        typeof payload['tgLongToolMs'] === 'number';
+      if (tgTouched) {
+        const ext = (decrypted.extensions as Record<string, Record<string, unknown>>) ?? {};
+        const tg = ext['telegram'] ?? {};
+        if (typeof payload['tgSessionEnd'] === 'boolean') {
+          tg['notifyOnSessionEnd'] = payload['tgSessionEnd'];
+        }
+        if (typeof payload['tgDelegate'] === 'boolean') {
+          tg['notifyOnDelegate'] = payload['tgDelegate'];
+        }
+        if (typeof payload['tgLongToolMs'] === 'number') {
+          tg['longToolThresholdMs'] = payload['tgLongToolMs'];
+        }
+        ext['telegram'] = tg;
+        decrypted.extensions = ext;
+      }
+
+      // Reasoning / cache runtime controls → Config.modelRuntime
+      const modelRuntimeTouched =
+        typeof payload['reasoningMode'] === 'string' ||
+        typeof payload['reasoningEffort'] === 'string' ||
+        typeof payload['reasoningPreserve'] === 'boolean' ||
+        typeof payload['cacheTtl'] === 'string';
+      if (modelRuntimeTouched) {
+        const mr = (decrypted.modelRuntime as Record<string, unknown>) ?? {};
+        const reasoning = (mr.reasoning as Record<string, unknown>) ?? {};
+        if (typeof payload['reasoningMode'] === 'string') reasoning.mode = payload['reasoningMode'];
+        if (typeof payload['reasoningEffort'] === 'string')
+          reasoning.effort = payload['reasoningEffort'];
+        if (typeof payload['reasoningPreserve'] === 'boolean')
+          reasoning.preserve = payload['reasoningPreserve'];
+        mr.reasoning = reasoning;
+        if (typeof payload['cacheTtl'] === 'string' && payload['cacheTtl'] !== 'default') {
+          mr.cache = { ttl: payload['cacheTtl'] };
+        } else if (payload['cacheTtl'] === 'default') {
+          delete mr.cache;
+        }
+        decrypted.modelRuntime = mr;
+      }
+
+      // Process circuit breaker → Config.circuitBreaker
+      if (
+        typeof payload['breakerEnabled'] === 'boolean' ||
+        typeof payload['breakerAutoKillResetMs'] === 'number'
+      ) {
+        const cb = (decrypted.circuitBreaker as Record<string, unknown>) ?? {};
+        if (typeof payload['breakerEnabled'] === 'boolean') cb.enabled = payload['breakerEnabled'];
+        if (typeof payload['breakerAutoKillResetMs'] === 'number')
+          cb.autoKillResetMs = payload['breakerAutoKillResetMs'];
+        decrypted.circuitBreaker = cb;
+      }
+
+      // Filesystem access scope — dual-write the inverse pair, same as the
+      // CLI's deriveFsAccessPair (tools.restrictToProjectRoot is legacy,
+      // features.allowOutsideProjectRoot is canonical; they must stay inverses).
+      if (payload['fsAccess'] === 'unrestricted' || payload['fsAccess'] === 'project') {
+        const restrict = payload['fsAccess'] === 'project';
+        const toolsCfg = (decrypted.tools as Record<string, unknown>) ?? {};
+        toolsCfg.restrictToProjectRoot = restrict;
+        decrypted.tools = toolsCfg;
+        const featsCfg = (decrypted.features as Record<string, unknown>) ?? {};
+        featsCfg.allowOutsideProjectRoot = !restrict;
+        decrypted.features = featsCfg;
+      }
+
+      // Raw SSE debug dump → top-level Config.debugStream
+      if (typeof payload['debugStream'] === 'boolean')
+        decrypted.debugStream = payload['debugStream'];
+
+      // Note: `autoReviewFallbackModels` is intentionally NOT a persisted
+      // user-configurable input. It's a *resolved output* computed by the
+      // auto-review plugin via FallbackProfileManager (auto-review-plugin.ts:67-69).
+      // It's exposed on LocalPrefs for read-only display in the panel; the
+      // panel writes the source inputs (`autoReviewFallbackProfile`,
+      // `autoReviewProvider`, `autoReviewModel`) and the server seeds the
+      // resolved chain from config on next boot.
+
+      // Per-plugin enable/disable → extensions.<name>.enabled. Parity with the
+      // embedded server (prefs-seeding.ts) so a browser toggling plugins against
+      // the standalone server persists instead of erroring.
+      if (typeof payload['pluginsEnabled'] === 'object' && payload['pluginsEnabled'] !== null) {
+        const ext = (decrypted.extensions as Record<string, Record<string, unknown>>) ?? {};
+        for (const [pluginName, enabled] of Object.entries(
+          payload['pluginsEnabled'] as Record<string, boolean>,
+        )) {
+          // Plugin names are the only attacker-controlled KEYS in this whole
+          // ladder (every other ext[...] site is a hardcoded literal). Without
+          // this guard, `{"pluginsEnabled":{"__proto__":true}}` makes
+          // `ext['__proto__']` read back Object.prototype, and the next line
+          // writes `Object.prototype.enabled = true` — every object in the
+          // process then inherits `.enabled`, silently defeating the
+          // `?? true`-style plugin gates. JSON.parse yields `__proto__` as an
+          // own enumerable key, so Object.entries hands it to us.
+          if (FORBIDDEN_PROTO_KEYS.has(pluginName)) continue;
+          const pExt = ext[pluginName] ?? {};
+          pExt['enabled'] = enabled;
+          ext[pluginName] = pExt;
+        }
+        decrypted.extensions = ext;
+      }
+
+      // Chimera (post-session review) → extensions['wstack-chimera']
+      // Matches the ResolvedChimeraConfig shape from chimera-plugin.ts:34.
+      const chimeraTouched =
+        typeof payload['chimeraEnabled'] === 'boolean' ||
+        typeof payload['chimeraProvider'] === 'string' ||
+        typeof payload['chimeraModel'] === 'string' ||
+        typeof payload['chimeraMaxFiles'] === 'number' ||
+        typeof payload['chimeraAutoFix'] === 'string';
+      if (chimeraTouched) {
+        const ext = (decrypted.extensions as Record<string, Record<string, unknown>>) ?? {};
+        const chimera = ext['wstack-chimera'] ?? {};
+        if (typeof payload['chimeraEnabled'] === 'boolean')
+          chimera['enabled'] = payload['chimeraEnabled'];
+        if (typeof payload['chimeraProvider'] === 'string')
+          chimera['provider'] = payload['chimeraProvider'];
+        if (typeof payload['chimeraModel'] === 'string') chimera['model'] = payload['chimeraModel'];
+        if (typeof payload['chimeraMaxFiles'] === 'number' && payload['chimeraMaxFiles'] >= 1) {
+          chimera['maxFiles'] = payload['chimeraMaxFiles'];
+        }
+        if (typeof payload['chimeraAutoFix'] === 'string') {
+          if (
+            payload['chimeraAutoFix'] === 'off' ||
+            payload['chimeraAutoFix'] === 'ask' ||
+            payload['chimeraAutoFix'] === 'auto'
+          ) {
+            chimera['autoFix'] = payload['chimeraAutoFix'];
+          }
+        }
+        ext['wstack-chimera'] = chimera;
+        decrypted.extensions = ext;
+      }
+
+      // Auto-review (mid-session continuous) → extensions['wstack-auto-review']
+      // Matches the ResolvedAutoReviewConfig shape from auto-review-plugin.ts:42.
+      const autoReviewTouched =
+        typeof payload['autoReviewEnabled'] === 'boolean' ||
+        typeof payload['autoReviewProvider'] === 'string' ||
+        typeof payload['autoReviewModel'] === 'string' ||
+        typeof payload['autoReviewFallbackProfile'] === 'string' ||
+        Array.isArray(payload['autoReviewFallbackModels']) ||
+        typeof payload['autoReviewDebounceMs'] === 'number' ||
+        typeof payload['autoReviewMaxFilesPerBatch'] === 'number' ||
+        typeof payload['autoReviewMaxConcurrentReviews'] === 'number' ||
+        typeof payload['autoReviewCascadeOn'] === 'string';
+      if (autoReviewTouched) {
+        const ext = (decrypted.extensions as Record<string, Record<string, unknown>>) ?? {};
+        const ar = ext['wstack-auto-review'] ?? {};
+        if (typeof payload['autoReviewEnabled'] === 'boolean')
+          ar['enabled'] = payload['autoReviewEnabled'];
+        if (typeof payload['autoReviewProvider'] === 'string')
+          ar['provider'] = payload['autoReviewProvider'];
+        if (typeof payload['autoReviewModel'] === 'string')
+          ar['model'] = payload['autoReviewModel'];
+        if (typeof payload['autoReviewFallbackProfile'] === 'string') {
+          // Empty string = clear the named profile (plugin falls back to
+          // resolveEffective({ fallbackAuto: true })).
+          if (payload['autoReviewFallbackProfile'] === '') {
+            delete ar['fallbackProfile'];
+          } else {
+            ar['fallbackProfile'] = payload['autoReviewFallbackProfile'];
+          }
+        }
+        // Note: `autoReviewFallbackModels` is not a config input — it's
+        // derived from `fallbackProfile` + `config.fallbackModels` by the
+        // plugin's resolver. Ignore incoming writes to avoid silently
+        // persisting a value that the plugin discards on every load.
+        if (
+          typeof payload['autoReviewDebounceMs'] === 'number' &&
+          payload['autoReviewDebounceMs'] >= 0
+        ) {
+          ar['debounceMs'] = payload['autoReviewDebounceMs'];
+        }
+        if (
+          typeof payload['autoReviewMaxFilesPerBatch'] === 'number' &&
+          payload['autoReviewMaxFilesPerBatch'] >= 1
+        ) {
+          ar['maxFilesPerBatch'] = payload['autoReviewMaxFilesPerBatch'];
+        }
+        if (
+          typeof payload['autoReviewMaxConcurrentReviews'] === 'number' &&
+          payload['autoReviewMaxConcurrentReviews'] >= 1
+        ) {
+          ar['maxConcurrentReviews'] = payload['autoReviewMaxConcurrentReviews'];
+        }
+        if (typeof payload['autoReviewCascadeOn'] === 'string') {
+          if (
+            payload['autoReviewCascadeOn'] === 'off' ||
+            payload['autoReviewCascadeOn'] === 'critical' ||
+            payload['autoReviewCascadeOn'] === 'high'
+          ) {
+            ar['cascadeOn'] = payload['autoReviewCascadeOn'];
+          }
+        }
+        ext['wstack-auto-review'] = ar;
+        decrypted.extensions = ext;
+      }
+    },
+    'prefs',
+  );
 }

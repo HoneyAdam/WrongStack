@@ -348,6 +348,7 @@ export function handleModelRefineResult(msg: WSServerMessage) {
     errorKind?: 'timeout' | 'empty' | 'provider_error' | undefined;
     retryTimeoutMs?: number | undefined;
     fallbackRef?: string | undefined;
+    refinedWith?: { provider: string; model: string } | undefined;
   };
   const refinePanel = useUIStore.getState().refinePanel;
   if (!refinePanel) return;
@@ -388,6 +389,9 @@ export function handleModelRefineResult(msg: WSServerMessage) {
     status: 'ready',
     refined: p.refined,
     english: p.english,
+    ...(p.refinedWith
+      ? { provider: p.refinedWith.provider, model: p.refinedWith.model }
+      : {}),
     // Clear any stale failure state from a prior retry round.
     error: undefined,
     errorKind: undefined,

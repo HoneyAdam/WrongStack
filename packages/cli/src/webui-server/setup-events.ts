@@ -11,7 +11,10 @@
  *
  * PR 12 of Issue #30: extracted from `webui-server.ts`.
  */
+
+import { watch } from 'node:fs';
 import type { Context, EventBus, JournalEntry, SecretScrubber } from '@wrongstack/core';
+import { getBoard, getKanbanDir } from '@wrongstack/kanban';
 import {
   createEternalSubscription,
   extractCodeMapFileTargets,
@@ -19,9 +22,6 @@ import {
 } from '@wrongstack/webui-server';
 import type { StreamCoalescer } from './stream-coalescer.js';
 import type { PendingConfirm } from './ws-handlers/index.js';
-
-import { watch } from 'node:fs';
-import { getBoard, getKanbanDir } from '@wrongstack/kanban';
 
 export interface SetupEventsDeps {
   events: EventBus;
@@ -510,6 +510,35 @@ export function createSetupEvents(deps: SetupEventsDeps): () => void {
             status: e.status,
             description: e.description,
             retryable: e.retryable,
+          }),
+        });
+      }),
+      deps.events.on('provider.status_changed', (e) => {
+        broadcast({
+          type: 'provider.status_changed',
+          payload: sessionPayload({
+            providerId: e.providerId,
+            model: e.model,
+            oldState: e.oldState,
+            newState: e.newState,
+            reason: e.reason,
+            timestamp: e.timestamp,
+            stateExpiresAt: e.stateExpiresAt,
+          }),
+        });
+      }),
+      deps.events.on('provider.active_blocked', (e) => {
+        broadcast({
+          type: 'provider.active_blocked',
+          payload: sessionPayload({
+            sessionId: e.sessionId,
+            providerId: e.providerId,
+            model: e.model,
+            state: e.state,
+            fallbackProviderId: e.fallbackProviderId,
+            fallbackModel: e.fallbackModel,
+            lastError: e.lastError,
+            timestamp: e.timestamp,
           }),
         });
       }),

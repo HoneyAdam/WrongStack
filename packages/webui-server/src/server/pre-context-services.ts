@@ -100,7 +100,7 @@ import {
 const GITHUB_PROVIDERS_OVERLAY_URL =
   'https://raw.githubusercontent.com/WrongStack/WrongStack/main/packages/cli/data/providers.json';
 
-export interface PreContextServicesInput {
+interface PreContextServicesInput {
   config: Config;
   wpaths: WstackPaths;
   logger: Logger;
@@ -114,7 +114,7 @@ export interface PreContextServicesInput {
   touchProject: (root: string, workDir?: string) => Promise<void>;
 }
 
-export interface PreContextServices {
+interface PreContextServices {
   modelsRegistry: ModelsRegistry;
   container: Container;
   configStore: ConfigStore;

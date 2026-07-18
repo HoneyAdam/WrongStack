@@ -41,7 +41,6 @@
 
 import type { EventBus } from '../kernel/events.js';
 import type { ProviderErrorKind } from '../types/provider.js';
-import type { ProviderEventMap } from '../kernel/events/provider-events.js';
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -94,8 +93,6 @@ export interface ProviderModelStatus {
   readonly recentErrors: readonly ErrorHistoryEntry[];
 }
 
-export type ProviderStatusEvent = ProviderEventMap['provider.status_changed'];
-
 export interface ProviderStatusTrackerConfig {
   /**
    * Consecutive failures before entering `degraded`. Default: 2.
@@ -121,6 +118,13 @@ export interface ProviderStatusTrackerConfig {
    */
   blockDurationMs?: number;
   /**
+   * Cooldown for an explicit exhausted-credit/quota response when the
+   * provider does not publish a reset hint. These failures enter the waiting
+   * room immediately instead of consuming the ordinary rate-limit threshold.
+   * Default: 900_000 (15 min).
+   */
+  quotaBlockDurationMs?: number;
+  /**
    * Consecutive successes needed to leave `degraded` or `blocked` and return
    * to `healthy` (if the timeout hasn't already cleared it). Default: 3.
    */
@@ -140,6 +144,7 @@ const DEFAULTS = {
   blockAfterRateLimitHits: 3,
   blockAfterFailures: 5,
   blockDurationMs: 300_000,
+  quotaBlockDurationMs: 900_000,
   recoverAfterSuccesses: 3,
   maxErrorHistory: 50,
 } satisfies Required<ProviderStatusTrackerConfig>;
@@ -185,6 +190,11 @@ export class ProviderModelStatusTracker {
 
   // ── Public API ──────────────────────────────────────────────────────────
 
+  /** Resolve the logical health/display identity without changing wire routing. */
+  logicalIdentity(providerId: string, model: string): { providerId: string; model: string } {
+    return statusIdentity(providerId, model);
+  }
+
   /**
    * Record a successful provider call. Resets consecutive failure counters
    * and may transition out of degraded/blocked.
@@ -194,6 +204,7 @@ export class ProviderModelStatusTracker {
     model: string,
     _meta?: { sessionId?: string | undefined; agentId?: string | undefined },
   ): void {
+    ({ providerId, model } = statusIdentity(providerId, model));
     const key = pairKey(providerId, model);
     const s = this.getOrCreate(key, providerId, model);
 
@@ -229,9 +240,11 @@ export class ProviderModelStatusTracker {
       retryAfterMs?: number | undefined;
     },
   ): ProviderModelState {
+    ({ providerId, model } = statusIdentity(providerId, model));
     const key = pairKey(providerId, model);
     const s = this.getOrCreate(key, providerId, model);
     const now = Date.now();
+    const previousExpiry = s.stateExpiresAt;
 
     s.consecutiveFailures += 1;
     s.totalFailures += 1;
@@ -247,6 +260,7 @@ export class ProviderModelStatusTracker {
     // Per-kind counters
     switch (kind) {
       case 'rate_limit':
+      case 'quota_exhausted':
         s.rateLimitHits += 1;
         break;
       case 'overloaded':
@@ -280,7 +294,18 @@ export class ProviderModelStatusTracker {
     let newState: ProviderModelState = s.state;
     let reason = '';
 
-    if (s.state === 'healthy') {
+    // A depleted account/plan is not a transient burst-rate signal. Waiting
+    // for two more doomed requests wastes time and can fan the same failure
+    // out through subagents, so quarantine this model on the first response.
+    const quotaExhausted = kind === 'quota_exhausted' || isQuotaExhausted(kind, status, message);
+
+    if (quotaExhausted) {
+      newState = 'blocked';
+      reason = 'quota_exhausted';
+      s.stateExpiresAt = now + this.cfg.quotaBlockDurationMs;
+    }
+
+    if (!quotaExhausted && s.state === 'healthy') {
       // healthy → degraded (consecutive failures >= threshold)
       if (s.consecutiveFailures >= this.cfg.degradedAfterFailures) {
         newState = 'degraded';
@@ -289,7 +314,7 @@ export class ProviderModelStatusTracker {
       }
     }
 
-    if (s.state === 'degraded' || s.state === 'healthy') {
+    if (!quotaExhausted && (s.state === 'degraded' || s.state === 'healthy')) {
       // → blocked (rate-limit threshold or consecutive failures threshold)
       if (s.rateLimitHits >= this.cfg.blockAfterRateLimitHits) {
         newState = 'blocked';
@@ -304,7 +329,7 @@ export class ProviderModelStatusTracker {
 
     // If the provider sent a Retry-After hint, extend the blocked time
     if (newState !== 'healthy' && meta?.retryAfterMs && meta.retryAfterMs > 0) {
-      const hintExpiry = now + Math.min(meta.retryAfterMs, 60_000);
+      const hintExpiry = now + meta.retryAfterMs;
       if (s.stateExpiresAt === null || hintExpiry > s.stateExpiresAt) {
         s.stateExpiresAt = hintExpiry;
       }
@@ -314,6 +339,8 @@ export class ProviderModelStatusTracker {
       const oldState = s.state;
       s.state = newState;
       this.emitStatusChanged(providerId, model, oldState, newState, reason);
+    } else if (s.state !== 'healthy' && s.stateExpiresAt !== previousExpiry) {
+      this.emitStatusChanged(providerId, model, s.state, s.state, 'cooldown_extended');
     }
 
     return newState;
@@ -326,6 +353,7 @@ export class ProviderModelStatusTracker {
    * kind is `auth` (no point retrying ever).
    */
   isAvailable(providerId: string, model: string): boolean {
+    ({ providerId, model } = statusIdentity(providerId, model));
     const key = pairKey(providerId, model);
     const s = this.map.get(key);
     if (!s) return true; // never seen → healthy
@@ -336,13 +364,7 @@ export class ProviderModelStatusTracker {
       s.state = 'healthy';
       s.stateExpiresAt = null;
       s.consecutiveFailures = Math.max(0, s.consecutiveFailures - 1); // reduce but don't fully reset
-      this.emitStatusChanged(
-        providerId,
-        model,
-        oldState,
-        'healthy',
-        'cooldown_expired',
-      );
+      this.emitStatusChanged(providerId, model, oldState, 'healthy', 'cooldown_expired');
       return true;
     }
 
@@ -351,13 +373,7 @@ export class ProviderModelStatusTracker {
       const oldState = s.state;
       s.state = 'healthy';
       s.stateExpiresAt = null;
-      this.emitStatusChanged(
-        providerId,
-        model,
-        oldState,
-        'healthy',
-        'degraded_timeout_expired',
-      );
+      this.emitStatusChanged(providerId, model, oldState, 'healthy', 'degraded_timeout_expired');
       return true;
     }
 
@@ -371,6 +387,7 @@ export class ProviderModelStatusTracker {
    * than skipped permanently.
    */
   isRateLimited(providerId: string, model: string): boolean {
+    ({ providerId, model } = statusIdentity(providerId, model));
     const key = pairKey(providerId, model);
     const s = this.map.get(key);
     if (!s) return false;
@@ -383,6 +400,7 @@ export class ProviderModelStatusTracker {
    * if no failures have been recorded.
    */
   getStatus(providerId: string, model: string): ProviderModelStatus | undefined {
+    ({ providerId, model } = statusIdentity(providerId, model));
     const key = pairKey(providerId, model);
     const s = this.map.get(key);
     if (!s) return undefined;
@@ -406,6 +424,47 @@ export class ProviderModelStatusTracker {
       out.push(this.freezeStatus(key, s));
     }
     return out;
+  }
+
+  /**
+   * Move every expired waiting-room entry back to healthy. Runtime routing
+   * already performs this check lazily; this explicit sweep lets a UI/status
+   * timer refresh the room even while no model calls are being made.
+   *
+   * @returns Number of entries released by this sweep.
+   */
+  sweepExpired(): number {
+    let released = 0;
+    for (const [key, s] of this.map) {
+      if (s.state === 'healthy' || s.stateExpiresAt === null || Date.now() < s.stateExpiresAt)
+        continue;
+      const [providerId, model] = unpairKey(key);
+      const previous = s.state;
+      s.state = 'healthy';
+      s.stateExpiresAt = null;
+      s.consecutiveFailures = 0;
+      s.consecutiveSuccesses = 0;
+      this.emitStatusChanged(providerId, model, previous, 'healthy', 'waiting_room_expired');
+      released += 1;
+    }
+    return released;
+  }
+
+  /**
+   * Release one entry for an immediate half-open probe on its next real use.
+   * History and totals are retained so operators do not lose diagnostics.
+   */
+  retryNow(providerId: string, model: string): boolean {
+    ({ providerId, model } = statusIdentity(providerId, model));
+    const s = this.map.get(pairKey(providerId, model));
+    if (!s || s.state === 'healthy') return false;
+    const previous = s.state;
+    s.state = 'healthy';
+    s.stateExpiresAt = null;
+    s.consecutiveFailures = 0;
+    s.consecutiveSuccesses = 0;
+    this.emitStatusChanged(providerId, model, previous, 'healthy', 'manual_half_open');
+    return true;
   }
 
   /**
@@ -436,6 +495,7 @@ export class ProviderModelStatusTracker {
    * where we don't want to mutate state during a quick peek.
    */
   isBlocked(providerId: string, model: string): boolean {
+    ({ providerId, model } = statusIdentity(providerId, model));
     const key = pairKey(providerId, model);
     const s = this.map.get(key);
     if (!s) return false;
@@ -453,6 +513,7 @@ export class ProviderModelStatusTracker {
    */
   clear(providerId?: string, model?: string): void {
     if (providerId && model) {
+      ({ providerId, model } = statusIdentity(providerId, model));
       const key = pairKey(providerId, model);
       const old = this.map.get(key);
       if (old && old.state !== 'healthy') {
@@ -495,6 +556,36 @@ export class ProviderModelStatusTracker {
       totalRateLimits: all.reduce((sum, s) => sum + s.rateLimitHits, 0),
       statuses: all,
     };
+  }
+
+  /** Restore non-expired waiting-room entries from a previous process. */
+  restoreSnapshot(value: unknown): number {
+    if (!value || typeof value !== 'object') return 0;
+    const statuses = (value as { statuses?: unknown }).statuses;
+    if (!Array.isArray(statuses)) return 0;
+    let restored = 0;
+    const now = Date.now();
+    for (const raw of statuses) {
+      if (!raw || typeof raw !== 'object') continue;
+      const item = raw as Record<string, unknown>;
+      if (typeof item['providerId'] !== 'string' || typeof item['model'] !== 'string') continue;
+      if (item['state'] !== 'blocked' && item['state'] !== 'degraded') continue;
+      if (typeof item['stateExpiresAt'] !== 'number' || item['stateExpiresAt'] <= now) continue;
+      const { providerId, model } = statusIdentity(item['providerId'], item['model']);
+      const s = this.getOrCreate(pairKey(providerId, model), providerId, model);
+      s.state = item['state'];
+      s.stateExpiresAt = item['stateExpiresAt'];
+      s.consecutiveFailures = safeCount(item['consecutiveFailures']);
+      s.totalFailures = safeCount(item['totalFailures']);
+      s.rateLimitHits = safeCount(item['rateLimitHits']);
+      s.lastFailureAt = safeTimestamp(item['lastFailureAt']);
+      s.lastErrorStatus = safeNullableNumber(item['lastErrorStatus']);
+      s.lastErrorMessage =
+        typeof item['lastErrorMessage'] === 'string' ? item['lastErrorMessage'] : null;
+      s.lastErrorKind = isProviderErrorKind(item['lastErrorKind']) ? item['lastErrorKind'] : null;
+      restored += 1;
+    }
+    return restored;
   }
 
   // ── Private helpers ─────────────────────────────────────────────────────
@@ -575,6 +666,7 @@ export class ProviderModelStatusTracker {
         newState,
         reason,
         timestamp: Date.now(),
+        stateExpiresAt: this.map.get(pairKey(providerId, model))?.stateExpiresAt ?? undefined,
       });
     } catch {
       // Swallow — event bus errors must not crash the tracker
@@ -598,6 +690,27 @@ export interface ProviderStatusSnapshot {
 
 const KEY_SEP = '\x00';
 
+/**
+ * OmniRoute is a transport gateway, not the logical provider identity. Its
+ * discovered model ids are `<provider>/<model>`; strip the gateway prefix for
+ * health tracking while callers continue using OmniRoute for the wire call.
+ */
+function statusIdentity(
+  providerId: string,
+  model: string,
+): {
+  providerId: string;
+  model: string;
+} {
+  if (providerId !== 'omniroute') return { providerId, model };
+  const slash = model.indexOf('/');
+  if (slash <= 0 || slash === model.length - 1) return { providerId, model };
+  return {
+    providerId: model.slice(0, slash),
+    model: model.slice(slash + 1),
+  };
+}
+
 function pairKey(providerId: string, model: string): string {
   return `${providerId}${KEY_SEP}${model}`;
 }
@@ -606,4 +719,51 @@ function unpairKey(key: string): [string, string] {
   const idx = key.indexOf(KEY_SEP);
   if (idx === -1) return [key, ''];
   return [key.slice(0, idx), key.slice(idx + 1)];
+}
+
+const QUOTA_EXHAUSTED_RE =
+  /(?:insufficient|exhausted|depleted|exceeded|no|not enough)[-_\s]*(?:quota|credit|balance)|(?:quota|credit|balance)[-_\s]*(?:exhausted|depleted|exceeded|insufficient)|billing[_\s-]*(?:hard[_\s-]*)?limit|payment required|spending limit|plan limit/i;
+
+/** Distinguish an exhausted account/plan from an ordinary per-minute 429. */
+function isQuotaExhausted(kind: ProviderErrorKind, status: number, message: string): boolean {
+  if (status === 402) return true;
+  if (
+    kind !== 'rate_limit' &&
+    kind !== 'quota_exhausted' &&
+    kind !== 'invalid_request' &&
+    kind !== 'auth'
+  )
+    return false;
+  return QUOTA_EXHAUSTED_RE.test(message);
+}
+
+function safeCount(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
+}
+
+function safeTimestamp(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function safeNullableNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+const PROVIDER_ERROR_KINDS = new Set<ProviderErrorKind>([
+  'rate_limit',
+  'quota_exhausted',
+  'overloaded',
+  'server',
+  'timeout',
+  'network',
+  'stream_hang',
+  'auth',
+  'context_overflow',
+  'content_filter',
+  'invalid_request',
+  'unknown',
+]);
+
+function isProviderErrorKind(value: unknown): value is ProviderErrorKind {
+  return typeof value === 'string' && PROVIDER_ERROR_KINDS.has(value as ProviderErrorKind);
 }

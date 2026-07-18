@@ -1,10 +1,10 @@
 import type { Context } from '../core/context.js';
+import type { Compactor } from '../types/compactor.js';
+import type { Config } from '../types/config.js';
 import type { ErrorHandler, RecoveryDecision } from '../types/error-handler.js';
+import type { ModelsRegistry } from '../types/models-registry.js';
 import { isRetryableKind, ProviderError, type ProviderErrorKind } from '../types/provider.js';
 import { NETWORK_ERR_RE } from './regex-patterns.js';
-import type { Compactor } from '../types/compactor.js';
-import type { ModelsRegistry } from '../types/models-registry.js';
-import type { Config } from '../types/config.js';
 
 /**
  * Tiered error recovery strategies.
@@ -65,12 +65,19 @@ export function buildRecoveryStrategies(opts?: {
         // strategy directly without a context.
         if (ctx?.signal) {
           await new Promise<void>((resolve) => {
-            if (ctx.signal.aborted) { resolve(); return; }
-            const timer = setTimeout(resolve, delay);
-            ctx.signal.addEventListener('abort', () => {
-              clearTimeout(timer);
+            if (ctx.signal.aborted) {
               resolve();
-            }, { once: true });
+              return;
+            }
+            const timer = setTimeout(resolve, delay);
+            ctx.signal.addEventListener(
+              'abort',
+              () => {
+                clearTimeout(timer);
+                resolve();
+              },
+              { once: true },
+            );
           });
         } else {
           await new Promise((r) => setTimeout(r, delay));
@@ -205,6 +212,7 @@ const HANDLER_KIND_BY_PROVIDER_KIND: Record<
   Exclude<HandlerKind, 'abort' | 'unknown'>
 > = {
   rate_limit: 'rate_limit',
+  quota_exhausted: 'rate_limit',
   overloaded: 'overloaded',
   server: 'server',
   stream_hang: 'server',

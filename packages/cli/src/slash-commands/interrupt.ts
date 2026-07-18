@@ -12,7 +12,7 @@ import type { SlashCommandContext } from './index.js';
  * while a run is in flight, so there `/interrupt` is mostly useful at the prompt
  * (Ctrl+C remains the mid-run path — it now also stops the fleet).
  */
-export interface InterruptAllResult {
+interface InterruptAllResult {
   aborted: boolean;
   killed: number;
 }

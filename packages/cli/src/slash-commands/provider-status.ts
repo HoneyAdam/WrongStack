@@ -10,27 +10,29 @@
  * Usage:
  *   /provider-status           Show all tracked statuses
  *   /provider-status blocked   Show only blocked entries
+ *   /provider-status waiting   Alias for blocked entries
  *   /provider-status degraded  Show only degraded entries
  *   /provider-status healthy   Show only healthy entries
  *   /provider-status clear     Reset all tracking
  *   /provider-status clear <provider> <model>  Reset one pair
+ *   /provider-status retry <provider> <model>  Release one pair for a half-open probe
  */
 
 import type { SlashCommand } from '@wrongstack/core';
-import type { ProviderModelStatusTracker } from '@wrongstack/core/coordination';
 import { color } from '@wrongstack/core';
+import type { ProviderModelStatusTracker } from '@wrongstack/core/coordination';
 
-export function buildProviderStatusCommand(
-  tracker: ProviderModelStatusTracker,
-): SlashCommand {
+export function buildProviderStatusCommand(tracker: ProviderModelStatusTracker): SlashCommand {
   const help = [
     'Usage:',
     '  /provider-status                  Show all tracked provider/model statuses',
     '  /provider-status blocked           Show only blocked entries',
+    '  /provider-status waiting           Show the limit-reset waiting room',
     '  /provider-status degraded          Show only degraded entries',
     '  /provider-status healthy           Show only healthy entries',
     '  /provider-status clear             Reset all tracking data',
     '  /provider-status clear <p> <m>     Reset one provider/model pair',
+    '  /provider-status retry <p> <m>     Release one pair for its next-use probe',
     '',
     'Each entry shows the state, failure counts, and last error details.',
   ].join('\n');
@@ -57,14 +59,20 @@ export function buildProviderStatusCommand(
 
   function stateColor(state: 'healthy' | 'degraded' | 'blocked'): string {
     switch (state) {
-      case 'healthy': return color.green('healthy');
-      case 'degraded': return color.amber('degraded');
-      case 'blocked': return color.red('blocked');
+      case 'healthy':
+        return color.green('healthy');
+      case 'degraded':
+        return color.amber('degraded');
+      case 'blocked':
+        return color.red('blocked');
     }
   }
 
-  function renderStatuses(): string {
+  function renderStatuses(only?: 'healthy' | 'degraded' | 'blocked'): string {
     const snapshot = tracker.getSnapshot();
+    const statuses = only
+      ? snapshot.statuses.filter((status) => status.state === only)
+      : snapshot.statuses;
     const lines = [
       `${color.bold('WrongStack')} ${color.dim('— Provider/Model Status')}`,
       '',
@@ -73,12 +81,12 @@ export function buildProviderStatusCommand(
       '',
     ];
 
-    if (snapshot.statuses.length === 0) {
+    if (statuses.length === 0) {
       lines.push(`  ${color.dim('No tracked providers — no failures recorded yet.')}`);
       return lines.join('\n');
     }
 
-    for (const s of snapshot.statuses) {
+    for (const s of statuses) {
       const state = stateColor(s.state);
       const title = `${color.cyan(`${s.providerId}/${s.model}`)} ${state}`;
       lines.push(`  ${title}`);
@@ -86,13 +94,14 @@ export function buildProviderStatusCommand(
       if (s.totalFailures > 0 || s.totalSuccesses > 0) {
         const failures = `${color.red(String(s.totalFailures))} failures`;
         const successes = `${color.green(String(s.totalSuccesses))} successes`;
-        const rateLimits = s.rateLimitHits > 0
-          ? ` · ${color.amber(`${s.rateLimitHits} rate-limited`)}`
-          : '';
+        const rateLimits =
+          s.rateLimitHits > 0 ? ` · ${color.amber(`${s.rateLimitHits} rate-limited`)}` : '';
         lines.push(`    ${color.dim('totals:')} ${failures} · ${successes}${rateLimits}`);
 
         if (s.consecutiveFailures > 0) {
-          lines.push(`    ${color.dim('consecutive failures:')} ${color.red(String(s.consecutiveFailures))}`);
+          lines.push(
+            `    ${color.dim('consecutive failures:')} ${color.red(String(s.consecutiveFailures))}`,
+          );
         }
 
         if (s.lastFailureAt !== null) {
@@ -102,7 +111,9 @@ export function buildProviderStatusCommand(
           const agentInfo = s.lastAgentId
             ? ` agent: ${color.dim(s.lastAgentId.slice(0, 16))}…`
             : '';
-          lines.push(`    ${color.dim('last error:')} ${formatDuration(s.lastFailureAt)}${sessionInfo}${agentInfo}`);
+          lines.push(
+            `    ${color.dim('last error:')} ${formatDuration(s.lastFailureAt)}${sessionInfo}${agentInfo}`,
+          );
           if (s.lastErrorMessage) {
             lines.push(`      ${color.red(s.lastErrorMessage.slice(0, 200))}`);
           }
@@ -122,8 +133,9 @@ export function buildProviderStatusCommand(
   return {
     name: 'provider-status',
     category: 'Inspect',
-    description: 'View the live health status of all providers/models (healthy, degraded, blocked).',
-    argsHint: '[blocked | degraded | healthy | clear]',
+    description:
+      'View the live health status of all providers/models (healthy, degraded, blocked).',
+    argsHint: '[waiting | blocked | degraded | healthy | retry | clear]',
     help,
     async run(args) {
       const parts = args.trim().split(/\s+/).filter(Boolean);
@@ -131,12 +143,12 @@ export function buildProviderStatusCommand(
 
       if (sub === 'help' || sub === '--help') return { message: this.help ?? '' };
 
-      if (sub === 'blocked') {
+      if (sub === 'blocked' || sub === 'waiting') {
         const blocked = tracker.getBlocked();
         if (blocked.length === 0) {
           return { message: `${color.green('No blocked providers/models.')}` };
         }
-        return { message: renderStatuses() };
+        return { message: renderStatuses('blocked') };
       }
 
       if (sub === 'degraded') {
@@ -144,15 +156,32 @@ export function buildProviderStatusCommand(
         if (degraded.length === 0) {
           return { message: `${color.green('No degraded providers/models.')}` };
         }
-        return { message: renderStatuses() };
+        return { message: renderStatuses('degraded') };
       }
 
       if (sub === 'healthy') {
         const all = tracker.getAllStatuses().filter((s) => s.state === 'healthy');
         if (all.length === 0) {
-          return { message: `${color.dim('No healthy tracked providers — no failures recorded yet.')}` };
+          return {
+            message: `${color.dim('No healthy tracked providers — no failures recorded yet.')}`,
+          };
         }
-        return { message: renderStatuses() };
+        return { message: renderStatuses('healthy') };
+      }
+
+      if (sub === 'retry') {
+        const provider = parts[1];
+        const model = parts[2];
+        if (!provider || !model) {
+          return { message: `${color.red('Usage:')} /provider-status retry <provider> <model>` };
+        }
+        const released = tracker.retryNow(provider, model);
+        if (!released) {
+          return { message: `${color.dim(`${provider}/${model} is not currently waiting.`)}` };
+        }
+        return {
+          message: `${color.green('✓')} Released ${color.cyan(`${provider}/${model}`)} for a half-open probe on its next use.`,
+        };
       }
 
       if (sub === 'clear') {
@@ -160,14 +189,18 @@ export function buildProviderStatusCommand(
         const model = parts[2];
         if (provider && model) {
           tracker.clear(provider, model);
-          return { message: `${color.green('✓')} Cleared tracking for ${color.cyan(`${provider}/${model}`)}.` };
+          return {
+            message: `${color.green('✓')} Cleared tracking for ${color.cyan(`${provider}/${model}`)}.`,
+          };
         }
         tracker.clear();
         return { message: `${color.green('✓')} Cleared all provider/model tracking data.` };
       }
 
       if (sub && sub !== '') {
-        return { message: `${color.red('Unknown subcommand')} "${sub}". Try ${color.dim('/provider-status')}, ${color.dim('/provider-status blocked')}, or ${color.dim('/provider-status help')}.` };
+        return {
+          message: `${color.red('Unknown subcommand')} "${sub}". Try ${color.dim('/provider-status')}, ${color.dim('/provider-status blocked')}, or ${color.dim('/provider-status help')}.`,
+        };
       }
 
       return { message: renderStatuses() };

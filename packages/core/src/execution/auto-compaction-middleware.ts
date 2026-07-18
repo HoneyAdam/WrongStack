@@ -33,9 +33,9 @@ function truncateDigest(digest: string): string {
   return `${digest.slice(0, MAX_DIGEST_LOG_CHARS)}… [+${digest.length - MAX_DIGEST_LOG_CHARS} chars; full turns in session log]`;
 }
 
-export type CompactionFailureMode = 'throw' | 'throw_on_hard' | 'continue';
+type CompactionFailureMode = 'throw' | 'throw_on_hard' | 'continue';
 
-export interface AutoCompactionOptions {
+interface AutoCompactionOptions {
   aggressiveOn?: ContextWindowAggressiveOn | undefined;
   events?: EventBus | undefined;
   failureMode?: CompactionFailureMode | undefined;

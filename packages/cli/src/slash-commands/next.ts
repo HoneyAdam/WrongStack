@@ -1,7 +1,7 @@
 import type { SlashCommand } from '@wrongstack/core';
 import { color } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
-import { clearSuggestions, getSuggestions } from './suggestion-store.js';
+import { clearSuggestions, getSuggestions, removeSuggestions } from './suggestion-store.js';
 
 /**
  * `/next` — toggle next-task prediction AND select stored suggestions.
@@ -163,6 +163,10 @@ function handleSelection(
   const selected = indices
     .map((i) => suggestions[i - 1])
     .filter((s): s is string => s !== undefined);
+
+  // Remove selected items from the store so they cannot be re-selected.
+  // Indices are 1-based user numbers; convert to 0-based for the store.
+  removeSuggestions(indices.map((i) => i - 1));
 
   if (selected.length === 1) {
     const text = selected[0] ?? '';

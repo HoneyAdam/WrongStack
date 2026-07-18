@@ -104,7 +104,7 @@ export function hasTrustedBrowserOrigin(
 
 // ── Session cookie helpers ──────────────────────────────────────────────────
 
-export function signHqSession(sessionId: string, secret: string): string {
+function signHqSession(sessionId: string, secret: string): string {
   return createHmac('sha256', secret).update(sessionId).digest('hex');
 }
 
@@ -176,7 +176,7 @@ export function isTokenAuth(auth: HqBrowserAuthResult): auth is HqBrowserAuthCon
 
 // ── Request auth ───────────────────────────────────────────────────────────
 
-export function extractBrowserToken(req: http.IncomingMessage, url: URL): string | undefined {
+function extractBrowserToken(req: http.IncomingMessage, url: URL): string | undefined {
   const queryToken = url.searchParams.get('token');
   if (queryToken) {
     // Tokens in URL query strings can leak through browser history, server

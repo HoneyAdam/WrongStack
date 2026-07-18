@@ -57,6 +57,7 @@ export interface ProviderConfigSnapshot {
   favoriteModelsOnly?: boolean;
   modelMatrix?: Record<string, unknown>;
   fallbackAuto?: boolean;
+  modelAvailabilitySchedule?: import('../core/model-availability-calendar.js').ModelBlackoutRule[];
 }
 
 export interface WatchProviderConfigOptions {
@@ -70,8 +71,12 @@ export interface WatchProviderConfigOptions {
  * Read and decrypt the credential slice of a config file. Returns `undefined`
  * when the file is missing or unparseable (the `warn` callback carries the
  * detail); never throws for routine I/O.
+ *
+ * Exported so multi-layer watchers (e.g. `provider-runtime-setup.ts`) can
+ * re-read every active config layer when any layer changes, then merge them
+ * with correct precedence before applying.
  */
-async function readProviderSnapshot(
+export async function readProviderSnapshot(
   configPath: string,
   vault: SecretVault,
   warn?: (msg: string) => void,
@@ -104,6 +109,7 @@ async function readProviderSnapshot(
     favoriteModelsOnly?: boolean;
     modelMatrix?: Record<string, unknown>;
     fallbackAuto?: boolean;
+    modelAvailabilitySchedule?: import('../core/model-availability-calendar.js').ModelBlackoutRule[];
   };
   const snapshot: ProviderConfigSnapshot = {
     providers: decrypted.providers ?? {},
@@ -115,9 +121,12 @@ async function readProviderSnapshot(
   if (Array.isArray(decrypted.fallbackModels)) snapshot.fallbackModels = decrypted.fallbackModels;
   if (decrypted.fallbackProfiles) snapshot.fallbackProfiles = decrypted.fallbackProfiles;
   if (Array.isArray(decrypted.favoriteModels)) snapshot.favoriteModels = decrypted.favoriteModels;
-  if (typeof decrypted.favoriteModelsOnly === 'boolean') snapshot.favoriteModelsOnly = decrypted.favoriteModelsOnly;
+  if (typeof decrypted.favoriteModelsOnly === 'boolean')
+    snapshot.favoriteModelsOnly = decrypted.favoriteModelsOnly;
   if (decrypted.modelMatrix) snapshot.modelMatrix = decrypted.modelMatrix;
   if (typeof decrypted.fallbackAuto === 'boolean') snapshot.fallbackAuto = decrypted.fallbackAuto;
+  if (Array.isArray(decrypted.modelAvailabilitySchedule))
+    snapshot.modelAvailabilitySchedule = decrypted.modelAvailabilitySchedule;
   return snapshot;
 }
 
@@ -134,6 +143,7 @@ function serializeSnapshot(s: ProviderConfigSnapshot): string {
     favoriteModelsOnly: s.favoriteModelsOnly ?? null,
     modelMatrix: s.modelMatrix ?? null,
     fallbackAuto: s.fallbackAuto ?? null,
+    modelAvailabilitySchedule: s.modelAvailabilitySchedule ?? null,
   });
 }
 

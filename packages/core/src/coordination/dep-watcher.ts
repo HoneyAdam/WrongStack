@@ -91,7 +91,7 @@ export interface DependencyWatcherConfig {
   dispose: () => void;
 }
 
-export interface DependencyWatcherOptions {
+interface DependencyWatcherOptions {
   /** Absolute path to the project root. */
   projectRoot: string;
   /** The mailbox instance where messages will be posted. */

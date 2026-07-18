@@ -80,7 +80,7 @@ export interface CreateInitialStateOptions {
   restoredCheckpoints?: State['checkpoints'] | undefined;
   enhanceEnabled: boolean;
   initialAgentsMonitorOpen?: boolean | undefined;
-  /** Boot-time fleet-chat verbosity (from persisted config). Default 'compact'. */
+  /** Boot-time fleet-chat verbosity (from persisted config). Default 'off'. */
   initialFleetChat?: FleetChatVerbosity | undefined;
 }
 
@@ -101,7 +101,7 @@ export function createInitialState(options: CreateInitialStateOptions): State {
     initialFleetChat,
   } = options;
   const initialNextId = 1 + restoredEntries.length;
-  const fleetChat: FleetChatVerbosity = initialFleetChat ?? 'compact';
+  const fleetChat: FleetChatVerbosity = initialFleetChat ?? 'off';
 
   return {
     entries: [

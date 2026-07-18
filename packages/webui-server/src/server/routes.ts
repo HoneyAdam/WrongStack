@@ -53,6 +53,7 @@ import {
   gatedEnhancerReasoning,
   nextEnhanceTimeout,
   recentTextTurns,
+  resolveConfiguredRefinerRef,
   resolveEnhanceFallbackRef,
   resolveProviderModelList,
 } from '@wrongstack/core';
@@ -64,13 +65,13 @@ type Session = Awaited<ReturnType<SessionStore['create']>>;
 import type { Config } from '@wrongstack/core/types';
 import type { MCPRegistry } from '@wrongstack/mcp';
 import { makeProviderFromConfig } from '@wrongstack/providers';
-import type { GoalRouteHandlers } from './goal-routes.js';
-import type { GoalWebSocketHandler } from './goal-ws-handler.js';
 import { patchConfig } from './boot.js';
 import type { BrainRouteHandlers } from './brain-routes.js';
 import type { CollaborationWebSocketHandler } from './collaboration-ws-handler.js';
 import type { CustomModeStore } from './custom-context-modes.js';
 import { handleGitChanges, handleGitDiff, handleGitInfo } from './git-handlers.js';
+import type { GoalRouteHandlers } from './goal-routes.js';
+import type { GoalWebSocketHandler } from './goal-ws-handler.js';
 import {
   handleMailboxAgents,
   handleMailboxClear,
@@ -539,8 +540,8 @@ export function buildRoutes(
         model: cfg.model ?? '',
       });
 
-      // Refine on the picked provider/model (ephemeral, no session switch) when
-      // supplied; otherwise use the live session provider/model.
+      // Explicit client choice wins. Otherwise use the configured dedicated
+      // refiner target, with the live session as the final fallback.
       let provider = deps.context.provider;
       let providerId = cfg.provider ?? '';
       let model = deps.context.model;
@@ -566,6 +567,29 @@ export function buildRoutes(
             },
           });
           return;
+        }
+      } else {
+        const configuredRef = resolveConfiguredRefinerRef({
+          ...cfg,
+          provider: providerId,
+          model,
+        });
+        if (configuredRef) {
+          const slash = configuredRef.indexOf('/');
+          const configuredProvider = slash > 0 ? configuredRef.slice(0, slash) : providerId;
+          const configuredModel = slash > 0 ? configuredRef.slice(slash + 1) : configuredRef;
+          try {
+            const providerCfg: ProviderConfig = cfg.providers?.[configuredProvider] ?? {
+              type: configuredProvider,
+            };
+            provider = deps.providerRegistry.has(configuredProvider)
+              ? deps.providerRegistry.create({ ...providerCfg, type: configuredProvider } as never)
+              : makeProviderFromConfig(configuredProvider, providerCfg);
+            providerId = configuredProvider;
+            model = configuredModel;
+          } catch {
+            // Best effort: retain the live session target when unavailable.
+          }
         }
       }
 
@@ -789,6 +813,10 @@ export function buildRoutes(
         cfg.favoriteModels = payload['favoriteModels'] as string[];
       if (typeof payload['favoriteModelsOnly'] === 'boolean')
         cfg.favoriteModelsOnly = payload['favoriteModelsOnly'];
+      if (Array.isArray(payload['modelAvailabilitySchedule']))
+        cfg.modelAvailabilitySchedule = payload[
+          'modelAvailabilitySchedule'
+        ] as import('@wrongstack/core').ModelBlackoutRule[];
       if (
         payload['modelMatrix'] &&
         typeof payload['modelMatrix'] === 'object' &&
@@ -801,14 +829,28 @@ export function buildRoutes(
       // Push routing changes into ConfigStore so running workers and the
       // fallback extension pick them up without a restart.
       const routingPatch: Record<string, unknown> = {};
-      if (Array.isArray(payload['fallbackModels'])) routingPatch.fallbackModels = payload['fallbackModels'];
-      if (payload['fallbackProfiles'] && typeof payload['fallbackProfiles'] === 'object' && !Array.isArray(payload['fallbackProfiles']))
+      if (Array.isArray(payload['fallbackModels']))
+        routingPatch.fallbackModels = payload['fallbackModels'];
+      if (
+        payload['fallbackProfiles'] &&
+        typeof payload['fallbackProfiles'] === 'object' &&
+        !Array.isArray(payload['fallbackProfiles'])
+      )
         routingPatch.fallbackProfiles = payload['fallbackProfiles'];
-      if (Array.isArray(payload['favoriteModels'])) routingPatch.favoriteModels = payload['favoriteModels'];
-      if (typeof payload['favoriteModelsOnly'] === 'boolean') routingPatch.favoriteModelsOnly = payload['favoriteModelsOnly'];
-      if (payload['modelMatrix'] && typeof payload['modelMatrix'] === 'object' && !Array.isArray(payload['modelMatrix']))
+      if (Array.isArray(payload['favoriteModels']))
+        routingPatch.favoriteModels = payload['favoriteModels'];
+      if (typeof payload['favoriteModelsOnly'] === 'boolean')
+        routingPatch.favoriteModelsOnly = payload['favoriteModelsOnly'];
+      if (Array.isArray(payload['modelAvailabilitySchedule']))
+        routingPatch.modelAvailabilitySchedule = payload['modelAvailabilitySchedule'];
+      if (
+        payload['modelMatrix'] &&
+        typeof payload['modelMatrix'] === 'object' &&
+        !Array.isArray(payload['modelMatrix'])
+      )
         routingPatch.modelMatrix = payload['modelMatrix'];
-      if (typeof payload['fallbackAuto'] === 'boolean') routingPatch.fallbackAuto = payload['fallbackAuto'];
+      if (typeof payload['fallbackAuto'] === 'boolean')
+        routingPatch.fallbackAuto = payload['fallbackAuto'];
       if (Object.keys(routingPatch).length > 0)
         deps.configStore.update(routingPatch as Parameters<typeof deps.configStore.update>[0]);
 

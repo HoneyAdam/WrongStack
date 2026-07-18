@@ -49,9 +49,11 @@ export function compactToolDefinitionForWire(
       tool.description ?? '',
       opts.descriptionMaxChars ?? TOOL_DESCRIPTION_MAX_CHARS,
     ),
-    inputSchema: compactSchemaDescriptions(
-      tool.inputSchema,
-      opts.schemaDescriptionMaxChars ?? SCHEMA_DESCRIPTION_MAX_CHARS,
+    inputSchema: normalizeTopLevelToolSchema(
+      compactSchemaDescriptions(
+        tool.inputSchema,
+        opts.schemaDescriptionMaxChars ?? SCHEMA_DESCRIPTION_MAX_CHARS,
+      ),
     ),
   };
 
@@ -59,6 +61,65 @@ export function compactToolDefinitionForWire(
     compactCache.set(tool, compact);
   }
   return compact;
+}
+
+/**
+ * Tool inputs are always JSON objects, but dynamically supplied MCP/plugin
+ * schemas sometimes express that object as a top-level oneOf/anyOf/allOf.
+ * Anthropic-family endpoints reject those combinators at the input_schema
+ * root (including when reached through an OpenAI-compatible gateway such as
+ * OmniRoute). Keep nested combinators intact and flatten only the root.
+ * Runtime validation still uses the tool's original schema.
+ */
+export function normalizeTopLevelToolSchema(
+  schema: Record<string, unknown>,
+): Record<string, unknown> {
+  const combinators = (['oneOf', 'anyOf', 'allOf'] as const)
+    .map((keyword) => ({ keyword, branches: schema[keyword] }))
+    .filter((entry): entry is { keyword: 'oneOf' | 'anyOf' | 'allOf'; branches: unknown[] } =>
+      Array.isArray(entry.branches),
+    );
+  if (combinators.length === 0) return schema;
+
+  const out: Record<string, unknown> = { ...schema, type: 'object' };
+  delete out['oneOf'];
+  delete out['anyOf'];
+  delete out['allOf'];
+
+  const properties: Record<string, unknown> = isRecord(schema['properties'])
+    ? { ...schema['properties'] }
+    : {};
+  let required = stringSet(schema['required']);
+
+  for (const { keyword, branches } of combinators) {
+    const objectBranches = branches.filter(isRecord);
+    for (const branch of objectBranches) {
+      if (isRecord(branch['properties'])) Object.assign(properties, branch['properties']);
+    }
+
+    const branchRequired = objectBranches.map((branch) => stringSet(branch['required']));
+    if (keyword === 'allOf') {
+      for (const fields of branchRequired) for (const field of fields) required.add(field);
+    } else if (branchRequired.length > 0) {
+      const common = new Set(
+        [...branchRequired[0]!].filter((field) =>
+          branchRequired.slice(1).every((fields) => fields.has(field)),
+        ),
+      );
+      required = new Set([...required, ...common]);
+    }
+  }
+
+  out['properties'] = properties;
+  if (required.size > 0) out['required'] = [...required];
+  else delete out['required'];
+  return out;
+}
+
+function stringSet(value: unknown): Set<string> {
+  return new Set(
+    Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [],
+  );
 }
 
 export function compactSchemaDescriptions(

@@ -231,6 +231,67 @@ describe('mailbox HTTP router', () => {
     expect(response.json()).toMatchObject({ id: 'sent-1', subject: 'mounted' });
   });
 
+  it.each(['all', ' ALL ', ' * '])(
+    'canonicalizes project broadcast recipient %j before forwarding',
+    async (to) => {
+      const stub = makeMailbox();
+      const response = await handle({
+        mailbox: stub.mailbox,
+        request: makeRequest({
+          method: 'POST',
+          url: '/mailbox/send',
+          body: {
+            from: 'external-bot',
+            to,
+            type: 'broadcast',
+            subject: 'broadcast',
+            body: 'hello',
+          },
+        }),
+      });
+
+      expect(response.status).toBe(201);
+      expect(stub.send).toHaveBeenCalledWith(expect.objectContaining({ to: '*' }));
+    },
+  );
+
+  it.each([
+    ['assign', 'all'],
+    ['assign', ' ALL '],
+    ['assign', ' * '],
+    ['assign', '@session:session-1'],
+    ['steer', 'all'],
+    ['steer', '@session:session-1'],
+  ] as const)(
+    'rejects %s sent to multi-recipient target %j',
+    async (type, to) => {
+      const stub = makeMailbox();
+      const response = await handle({
+        mailbox: stub.mailbox,
+        request: makeRequest({
+          method: 'POST',
+          url: '/mailbox/send',
+          body: {
+            from: 'external-bot',
+            to,
+            type,
+            subject: 'action',
+            body: 'do this',
+          },
+        }),
+      });
+
+      expect(response.status).toBe(400);
+      expect(response.json()).toMatchObject({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: expect.stringContaining('requires a specific recipient'),
+        },
+      });
+      expect(stub.send).not.toHaveBeenCalled();
+    },
+  );
+
   it.each([
     {
       name: 'reserved sender identity',

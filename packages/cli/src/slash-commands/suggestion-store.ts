@@ -40,6 +40,19 @@ export function getAutoSuggestions(): string[] {
   return sharedAutoSuggestions;
 }
 
+/**
+ * Remove suggestions at the given 0-based indices.
+ * Called by /next selection so selected prompts cannot be re-selected.
+ * Also clears auto-suggestions since an explicit user selection should
+ * override any auto-submit queue.
+ */
+export function removeSuggestions(indices: number[]): void {
+  if (indices.length === 0) return;
+  const set = new Set(indices);
+  sharedSuggestions = sharedSuggestions.filter((_, i) => !set.has(i));
+  sharedAutoSuggestions = [];
+}
+
 /** Clear suggestions (called by /next clear). */
 export function clearSuggestions(): void {
   sharedSuggestions = [];

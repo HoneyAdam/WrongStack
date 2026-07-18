@@ -21,7 +21,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
     '  /settings                     Show current settings',
     '  /settings delay <seconds>     Auto-proceed delay in auto mode (0 disables)',
     '  /settings mode <off|suggest|auto>   Default autonomy mode at startup',
-    '  /settings stream-fleet off|compact|full   Fleet-chat verbosity (on = full)',
+    '  /settings stream-fleet off|full   Fleet-chat verbosity (on = full)',
     '  /settings chime on|off          Ring terminal bell when a run completes',
     '  /settings confirm-exit on|off   Ask for confirmation before interrupt/exit',
     '  /settings hints on|off        Show or suppress rotating launch hints',
@@ -135,7 +135,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
       '',
       `  auto-proceed delay:          ${color.cyan(formatDelay(delay))}   ${color.dim('change: /settings delay <seconds>')}`,
       `  default autonomy mode:       ${color.cyan(mode)}   ${color.dim('change: /settings mode off|suggest|auto')}`,
-      `  fleet chat:                 ${color.cyan(resolveFleetChatVerbosity(au as { fleetChatVerbosity?: FleetChatVerbosity; streamFleet?: boolean } | undefined))}   ${color.dim('change: /settings stream-fleet off|compact|full')}`,
+      `  fleet chat:                 ${color.cyan(resolveFleetChatVerbosity(au as { fleetChatVerbosity?: FleetChatVerbosity; streamFleet?: boolean } | undefined))}   ${color.dim('change: /settings stream-fleet off|full')}`,
       `  completion chime:           ${au?.chime === true ? color.cyan('on') : color.dim('off')}   ${color.dim('change: /settings chime on|off')}`,
       `  confirm before exit:        ${au?.confirmExit !== false ? color.cyan('on') : color.dim('off')}   ${color.dim('change: /settings confirm-exit on|off')}`,
       `  launch hints:               ${hints ? color.cyan('on') : color.dim('off')}   ${color.dim('change: /settings hints on|off')}`,
@@ -823,9 +823,9 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
           // Legacy boolean tokens keep working: on → full, off → off.
           const mode: FleetChatVerbosity | undefined =
             raw === 'on' ? 'full'
-            : raw === 'off' || raw === 'compact' || raw === 'full' ? (raw as FleetChatVerbosity)
+            : raw === 'off' || raw === 'full' ? (raw as FleetChatVerbosity)
             : undefined;
-          if (!mode) return { message: `${color.amber('Usage:')} /settings stream-fleet off|compact|full (on = full)` };
+          if (!mode) return { message: `${color.amber('Usage:')} /settings stream-fleet off|full (on = full)` };
           await persistAutonomySetting(persistDeps, (autonomy) => {
             (autonomy as Record<string, unknown>).fleetChatVerbosity = mode;
             // Mirror for legacy boolean readers (webui prefs).
@@ -834,7 +834,6 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
           opts.fleetStreamController?.setMode(mode);
           const desc =
             mode === 'full' ? 'every subagent tool call and message in chat'
-            : mode === 'compact' ? 'spawn / per-turn summary / completion lines only'
             : 'subagent chat lines hidden (F2/F3 stay live)';
           return { message: `${color.green('✓')} fleet chat → ${color.cyan(mode)}   ${color.dim(desc)}` };
         }

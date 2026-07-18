@@ -11,6 +11,7 @@ import {
   nextEnhanceTimeout,
   type Provider,
   recentTextTurns,
+  resolveConfiguredRefinerRef,
   resolveEnhanceFallbackRef,
   ToolValidationError,
 } from '@wrongstack/core';
@@ -275,8 +276,9 @@ export async function handleModelRefine(
       ? resolveEnhanceFallbackRef({ ...cfg, provider: liveProviderId, model: actx.model })
       : undefined;
 
-  // When the client picked another provider/model, refine ephemerally on it;
-  // otherwise use the live session provider/model.
+  // Explicit client choice wins. Otherwise use the configured dedicated
+  // refiner target, falling back to the live session only when it is absent or
+  // cannot be constructed.
   let provider = actx.provider;
   let providerId = liveProviderId;
   let model = actx.model;
@@ -297,6 +299,24 @@ export async function handleModelRefine(
         },
       });
       return;
+    }
+  } else if (cfg) {
+    const configuredRef = resolveConfiguredRefinerRef({
+      ...cfg,
+      provider: liveProviderId,
+      model: actx.model,
+    });
+    if (configuredRef) {
+      const slash = configuredRef.indexOf('/');
+      const configuredProvider = slash > 0 ? configuredRef.slice(0, slash) : liveProviderId;
+      const configuredModel = slash > 0 ? configuredRef.slice(slash + 1) : configuredRef;
+      try {
+        provider = await buildEphemeralProvider(ctx, configuredProvider);
+        providerId = configuredProvider;
+        model = configuredModel;
+      } catch {
+        // Best effort: an unavailable dedicated refiner must not block sending.
+      }
     }
   }
 

@@ -19,7 +19,7 @@
  * summary is in context.
  */
 
-export interface AnswerEntry {
+interface AnswerEntry {
   key: string;
   value: unknown;
   size: number;

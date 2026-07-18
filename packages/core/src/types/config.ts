@@ -120,14 +120,14 @@ export function normalizeTokenSavingTier(val?: TokenSavingTier | boolean): Token
  * Verbosity of fleet/subagent activity streamed into the main TUI chat.
  * See {@link AutonomyConfig.fleetChatVerbosity}.
  */
-export type FleetChatVerbosity = 'off' | 'compact' | 'full';
+export type FleetChatVerbosity = 'off' | 'full';
 
-export const FLEET_CHAT_VERBOSITY_VALUES: readonly FleetChatVerbosity[] = ['off', 'compact', 'full'];
+export const FLEET_CHAT_VERBOSITY_VALUES: readonly FleetChatVerbosity[] = ['off', 'full'];
 
 /**
  * Resolve the effective fleet-chat verbosity from autonomy config.
  * An explicit `fleetChatVerbosity` wins; otherwise the legacy `streamFleet`
- * boolean is honored (`false` → 'off'); absence of both means 'compact'.
+ * boolean is honored (`false` → 'off'); absence of both means 'off'.
  * `fleetChatVerbosity` must never be given a merge-time default — the
  * absence of the field is what lets legacy `streamFleet: false` configs
  * keep their intent.
@@ -140,7 +140,7 @@ export function resolveFleetChatVerbosity(
     return explicit;
   }
   if (autonomy?.streamFleet === false) return 'off';
-  return 'compact';
+  return 'off';
 }
 
 export const DEFAULT_TUI_THINKING_WORD = 'thinking';
@@ -709,67 +709,89 @@ export interface SuperMemoryConfig {
    * context injection and session-end hygiene are turned off.
    */
   enabled?: boolean | undefined;
-  storage?: {
-    /** Store memory inside the project under a gitignored directory. Default: true. */
-    projectLocal?: boolean | undefined;
-    /** Project-relative directory. Default: ".wrongstack/memories". */
-    directory?: string | undefined;
-    /** Storage engine: 'jsonl' (default, append-only JSONL) or 'sqlite' (indexed + FTS5 search, auto-migrates from JSONL). */
-    engine?: 'jsonl' | 'sqlite' | undefined;
-  } | undefined;
-  inject?: {
-    /** Add relevant memory to ordinary turn-level context. Default: true. */
-    turnContext?: boolean | undefined;
-    /** Add relevant memory to read/tree/grep/bash/edit tool results. Default: true. */
-    toolResults?: boolean | undefined;
-    /** Maximum hints appended to a single tool result. Default: 4. */
-    maxHintsPerTool?: number | undefined;
-    /** Maximum characters appended to a single tool result. Default: 1200. */
-    maxCharsPerTool?: number | undefined;
-    /** Maximum memories appended to ordinary turn context. Default: 8. */
-    maxTurnMemories?: number | undefined;
-    /** Maximum characters appended to ordinary turn context. Default: 2400. */
-    maxCharsPerTurn?: number | undefined;
-    /** Minimum retrieval score for ordinary hints. Default: 0.65. */
-    minScore?: number | undefined;
-    /** Cooldown before the same memory can be injected again. Default: 30 minutes. */
-    repeatCooldownMs?: number | undefined;
-    triggers?: Partial<Record<
-      'read' | 'tree' | 'grep' | 'glob' | 'codebase_search' | 'bash' | 'write' | 'edit' | 'patch',
-      boolean
-    >> | undefined;
-  } | undefined;
-  retrieval?: {
-    /**
-     * Weight given to the metadata score floor (0–1) in the relevance-blended
-     * scoring formula: `metadataScore * (metadataWeight + relevance * (1 - metadataWeight))`.
-     * At 0.0, relevance fully gates injection. At 1.0, metadata alone decides.
-     * Default: 0.3 — validated against 148 real query-memory pairs.
-     */
-    metadataWeight?: number | undefined;
-  } | undefined;
-  hygiene?: {
-    /** Run hygiene after successful sessions. Default: true. */
-    autoAfterSession?: boolean | undefined;
-    /** Re-check anchored memories when files are edited. Default: true. */
-    autoOnFileChange?: boolean | undefined;
-    /** Archive stale/low-value memories after this many days. Default: 90. */
-    retentionDays?: number | undefined;
-    /** Archive low-confidence memories after this many days. Default: 30. */
-    archiveLowConfidenceAfterDays?: number | undefined;
-    /**
-     * Archive active memories that were injected at least `unusedMinInjections`
-     * times but never referenced by the assistant, this many days after their
-     * last content update. Default: 30.
-     */
-    archiveUnusedAfterDays?: number | undefined;
-    /** Minimum injection count before a never-used memory is archived. Default: 10. */
-    unusedMinInjections?: number | undefined;
-  } | undefined;
-  embeddings?: {
-    /** Optional future semantic layer. Disabled by default and never required. */
-    enabled?: boolean | undefined;
-  } | undefined;
+  storage?:
+    | {
+        /** Store memory inside the project under a gitignored directory. Default: true. */
+        projectLocal?: boolean | undefined;
+        /** Project-relative directory. Default: ".wrongstack/memories". */
+        directory?: string | undefined;
+        /** Storage engine: 'jsonl' (default, append-only JSONL) or 'sqlite' (indexed + FTS5 search, auto-migrates from JSONL). */
+        engine?: 'jsonl' | 'sqlite' | undefined;
+      }
+    | undefined;
+  inject?:
+    | {
+        /** Add relevant memory to ordinary turn-level context. Default: true. */
+        turnContext?: boolean | undefined;
+        /** Add relevant memory to read/tree/grep/bash/edit tool results. Default: true. */
+        toolResults?: boolean | undefined;
+        /** Maximum hints appended to a single tool result. Default: 4. */
+        maxHintsPerTool?: number | undefined;
+        /** Maximum characters appended to a single tool result. Default: 1200. */
+        maxCharsPerTool?: number | undefined;
+        /** Maximum memories appended to ordinary turn context. Default: 8. */
+        maxTurnMemories?: number | undefined;
+        /** Maximum characters appended to ordinary turn context. Default: 2400. */
+        maxCharsPerTurn?: number | undefined;
+        /** Minimum retrieval score for ordinary hints. Default: 0.65. */
+        minScore?: number | undefined;
+        /** Cooldown before the same memory can be injected again. Default: 30 minutes. */
+        repeatCooldownMs?: number | undefined;
+        triggers?:
+          | Partial<
+              Record<
+                | 'read'
+                | 'tree'
+                | 'grep'
+                | 'glob'
+                | 'codebase_search'
+                | 'bash'
+                | 'write'
+                | 'edit'
+                | 'patch',
+                boolean
+              >
+            >
+          | undefined;
+      }
+    | undefined;
+  retrieval?:
+    | {
+        /**
+         * Weight given to the metadata score floor (0–1) in the relevance-blended
+         * scoring formula: `metadataScore * (metadataWeight + relevance * (1 - metadataWeight))`.
+         * At 0.0, relevance fully gates injection. At 1.0, metadata alone decides.
+         * Default: 0.3 — validated against 148 real query-memory pairs.
+         */
+        metadataWeight?: number | undefined;
+      }
+    | undefined;
+  hygiene?:
+    | {
+        /** Run hygiene after successful sessions. Default: true. */
+        autoAfterSession?: boolean | undefined;
+        /** Re-check anchored memories when files are edited. Default: true. */
+        autoOnFileChange?: boolean | undefined;
+        /** Archive stale/low-value memories after this many days. Default: 90. */
+        retentionDays?: number | undefined;
+        /** Archive low-confidence memories after this many days. Default: 30. */
+        archiveLowConfidenceAfterDays?: number | undefined;
+        /**
+         * Archive active memories that were injected at least `unusedMinInjections`
+         * times but never referenced by the assistant, this many days after their
+         * last content update. Default: 30.
+         */
+        archiveUnusedAfterDays?: number | undefined;
+        /** Minimum injection count before a never-used memory is archived. Default: 10. */
+        unusedMinInjections?: number | undefined;
+      }
+    | undefined;
+  embeddings?:
+    | {
+        /** Optional future semantic layer. Disabled by default and never required. */
+        enabled?: boolean | undefined;
+      }
+    | undefined;
 }
 
 export interface AutonomyConfig {
@@ -793,9 +815,8 @@ export interface AutonomyConfig {
   /**
    * How much fleet/subagent activity is streamed into the main TUI chat.
    * - 'off': no subagent lines (failures/errors still surface); F2/F3 stay live.
-   * - 'compact': spawn, one tool/message summary per agent turn, completion.
    * - 'full': every subagent tool call and interim message (legacy behavior).
-   * Resolved via {@link resolveFleetChatVerbosity}. Default: 'compact'.
+   * Resolved via {@link resolveFleetChatVerbosity}. Default: 'off'.
    */
   fleetChatVerbosity?: FleetChatVerbosity | undefined;
   /** Ring terminal bell when an agent run completes. Default: false. */
@@ -1330,13 +1351,19 @@ export interface GitBehaviorConfig {
    * `GIT_COMMITTER_NAME/EMAIL` into every child process. Either field may be
    * set alone; the missing one falls back to git's own config.
    */
-  identity?: {
-    name?: string | undefined;
-    email?: string | undefined;
-  } | undefined;
+  identity?:
+    | {
+        name?: string | undefined;
+        email?: string | undefined;
+      }
+    | undefined;
 }
 
 export interface Config {
+  /** Recurring provider/model blackout windows used by autonomous routing. */
+  modelAvailabilitySchedule?:
+    | import('../core/model-availability-calendar.js').ModelBlackoutRule[]
+    | undefined;
   version: 1;
   provider: string;
   model: string;

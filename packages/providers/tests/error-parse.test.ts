@@ -49,6 +49,19 @@ describe('parseProviderHttpError', () => {
     expect(err.describe()).toBe('openai rate limited (429): Rate limit reached for gpt-4o');
   });
 
+  it('classifies exhausted OpenAI credits separately from a burst rate limit', () => {
+    const body = JSON.stringify({
+      error: {
+        message: 'You exceeded your current quota, please check your plan and billing details.',
+        type: 'insufficient_quota',
+        code: 'insufficient_quota',
+      },
+    });
+    const err = parseProviderHttpError('openai', 429, body);
+    expect(err.kind).toBe('quota_exhausted');
+    expect(err.retryable).toBe(false);
+  });
+
   it('parses Google 5xx error with status field', () => {
     const body = JSON.stringify({
       error: { code: 503, message: 'The model is overloaded.', status: 'UNAVAILABLE' },

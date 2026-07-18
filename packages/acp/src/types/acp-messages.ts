@@ -10,34 +10,10 @@ export interface ACPMessage {
   error?: ACPError | undefined;
 }
 
-export interface ACPError {
+interface ACPError {
   code: number;
   message: string;
   data?: unknown | undefined;
-}
-
-export type ACPRequest = RequiredPick<ACPMessage, 'id' | 'params' | 'method'>;
-export type ACPResponse = RequiredPick<ACPMessage, 'id' | 'result' | 'method'>;
-export type ACPNotification = Omit<ACPMessage, 'id'> & { method: string };
-
-// --- Initialization ---
-export interface ACPInitializeParams {
-  capabilities?: string[] | undefined;
-  protocolVersion?: string | undefined;
-  sessionId?: string | undefined;
-  authToken?: string | undefined;
-  sessionPath?: string | undefined;
-  workspaceRoots?: string[] | undefined;
-  mcpServers?: unknown[] | undefined;
-  [key: string]: unknown;
-}
-
-export interface ACPCapabilities {
-  capabilities: string[];
-  agentName: string;
-  agentVersion: string;
-  tools?: ACPToolList | undefined;
-  protocolVersion: string;
 }
 
 export interface ACPToolList {
@@ -136,28 +112,3 @@ export interface ACPSessionInfo {
   createdAt: string;
   lastActiveAt: string;
 }
-
-// --- Agent plan ---
-export interface ACPPlanStep {
-  id: string;
-  description: string;
-  status?: 'pending' | 'running' | 'completed' | 'skipped' | undefined;
-}
-
-export interface ACPPlanContent {
-  type: 'plan';
-  plan: {
-    steps: ACPPlanStep[];
-  };
-}
-
-// --- Session modes ---
-export type ACPSessionMode = 'agent' | 'chat' | 'edit' | 'preview';
-
-// --- Cancels ---
-export interface ACPCancelParams {
-  reason?: string | undefined;
-}
-
-// --- Type utilities ---
-type RequiredPick<T, K extends keyof T> = Pick<T, K> & Partial<Omit<T, K>>;

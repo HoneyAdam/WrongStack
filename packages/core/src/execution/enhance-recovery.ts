@@ -24,6 +24,29 @@ export const ENHANCE_BASE_TIMEOUT_MS = 90_000;
 export const ENHANCE_MIN_RETRY_TIMEOUT_MS = 180_000;
 
 /**
+ * Dedicated provider/model configured for prompt refinement, normalized as a
+ * `provider/model` ref. The named refiner profile has precedence over the
+ * explicit refiner provider/model, matching `/refiner` and goal refinement.
+ * Returns undefined only when no dedicated refiner is configured; callers may
+ * then deliberately fall back to the live session target.
+ */
+export function resolveConfiguredRefinerRef(config: Config): string | undefined {
+  const activeProvider = config.provider?.trim();
+  const profileName = config.autonomy?.refinerFallbackProfile?.trim();
+  if (profileName) {
+    for (const entry of config.fallbackProfiles?.[profileName] ?? []) {
+      if (!parseModelRef(entry).model) continue;
+      return normalizeModelRef(entry, activeProvider);
+    }
+  }
+
+  const provider = config.autonomy?.refinerProvider?.trim() || activeProvider;
+  const model = config.autonomy?.refinerModel?.trim();
+  if (!model || !provider) return undefined;
+  return normalizeModelRef(`${provider}/${model}`, provider);
+}
+
+/**
  * Timeout to use for a retry after a first attempt timed out. Prefers an
  * explicit `enhanceRetryTimeoutMs` config override; otherwise doubles the base
  * window, floored at {@link ENHANCE_MIN_RETRY_TIMEOUT_MS} so the "extra time"

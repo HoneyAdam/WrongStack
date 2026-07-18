@@ -1,44 +1,10 @@
-export * from './chronicle/index.js';
-export * from './observability/process-telemetry.js';
-export * from './observability/network-telemetry.js';
-
-// Goal - autonomous phase-based workflow
-export {
-  type GoalOptions,
-  GoalPlanner,
-  type GoalPlannerOptions,
-  type GoalPlanResult,
-  GoalRunner,
-  type GoalRunnerOptions,
-  type Checkpoint,
-  CheckpointManager,
-  type CheckpointManagerOptions,
-  createGoalRunnerFromTaskGraph,
-  PHASE_EVENT_NAMES,
-  type PhaseEventMap,
-  type PhaseEventName,
-  type PhaseExecutionContext,
-  type PhaseFilter,
-  type PhaseGraph,
-  PhaseGraphBuilder,
-  type PhaseGraphBuilderOptions,
-  type PhaseNode,
-  PhaseOrchestrator,
-  type PhaseOrchestratorOptions,
-  type PhaseProgress,
-  type PhaseSort,
-  type PhaseStatus,
-  PhaseStore,
-  type PhaseStoreOptions,
-  type PhaseTemplate,
-} from './goal/index.js';
 export {
   type BootConfigOptions,
   type BootConfigResult,
   bootConfig,
   flagsToConfigPatch,
 } from './boot.js';
-export { allServers } from './infrastructure/mcp-servers.js';
+export * from './chronicle/index.js';
 export {
   type AgentFactory,
   type AgentFactoryResult,
@@ -53,16 +19,6 @@ export {
   ALL_AGENT_DEFINITIONS,
   getAgentDefinition,
 } from './coordination/agents/index.js';
-// ---- Provider/Model Status Tracker ----
-export {
-  ProviderModelStatusTracker,
-  type ErrorHistoryEntry,
-  type ProviderModelState,
-  type ProviderModelStatus,
-  type ProviderStatusSnapshot,
-  type ProviderStatusTrackerConfig,
-} from './coordination/provider-status-tracker.js';
-
 // ---- Coordination (fleet/multi-agent tools) ----
 export {
   type BrainArbiter,
@@ -71,9 +27,9 @@ export {
   BrainDecisionQueue,
   type BrainDecisionRequest,
   type BrainDecisionSource,
+  type BrainEscalationMode,
   type BrainFallback,
   type BrainRisk,
-  type BrainEscalationMode,
   DefaultBrainArbiter,
   type DefaultBrainArbiterOptions,
   EscalationRoutingBrainArbiter,
@@ -83,10 +39,10 @@ export {
   terminalPolicyDecision,
 } from './coordination/brain.js';
 export {
-  brainDecisionKey,
   BrainDecisionLedger,
   type BrainDecisionLedgerOptions,
   type BrainLedgerEntry,
+  brainDecisionKey,
   createLedgerGuardBrainArbiter,
   type LedgerGuardBrainArbiterOptions,
 } from './coordination/brain-ledger.js';
@@ -129,11 +85,6 @@ export {
   type TaskResultNotification,
 } from './coordination/director.js';
 export {
-  DEFAULT_MAX_FLEET_SPAWNS,
-  HARD_MAX_SPAWN_DEPTH,
-  resolveMaxSpawnDepth,
-} from './coordination/spawn-budget.js';
-export {
   type DirectorSessionFactory,
   type DirectorSessionFactoryOptions,
   makeDirectorSessionFactory,
@@ -151,14 +102,6 @@ export {
   makeSpawnTool,
   makeTerminateTool,
 } from './coordination/director-tools.js';
-export {
-  formatSubagentStructuredReport,
-  MAX_SUBAGENT_STRUCTURED_REPORT_CHARS,
-  makeSubagentResultTool,
-  normalizeSubagentStructuredReport,
-  readSubagentStructuredReport,
-  SUBAGENT_STRUCTURED_REPORT_META_KEY,
-} from './coordination/subagent-result-tool.js';
 export {
   DEFAULT_DISPATCH_ROLE,
   type DispatchCandidate,
@@ -214,17 +157,12 @@ export {
   type SupervisedSubagent,
   type SupervisorLogEntry,
 } from './coordination/fleet-supervisor.js';
-export { GlobalMailbox, resolveProjectDir, getSharedMailbox, _clearMailboxSingletons } from './coordination/global-mailbox.js';
-export type { AutoCompactOptions, AutoCompactResult } from './coordination/mailbox-types.js';
-export { MailboxEventEmitter } from './coordination/mailbox-events.js';
-export type { MailboxEvent, MailboxEventType, MailboxEventListener } from './coordination/mailbox-events.js';
 export {
-  SessionRegistry,
-  getSessionRegistry,
-  hasSessionRegistry,
-  type SessionRegistryEntry,
-  type SessionLiveStatus,
-} from './session-registry.js';
+  _clearMailboxSingletons,
+  GlobalMailbox,
+  getSharedMailbox,
+  resolveProjectDir,
+} from './coordination/global-mailbox.js';
 export * from './coordination/index.js';
 export {
   type MailToolsOptions,
@@ -233,6 +171,12 @@ export {
 } from './coordination/mail-tools.js';
 // ── Mailbox — inter-agent messaging ──────────────────────────────────────
 export { DefaultMailbox } from './coordination/mailbox.js';
+export type {
+  MailboxEvent,
+  MailboxEventListener,
+  MailboxEventType,
+} from './coordination/mailbox-events.js';
+export { MailboxEventEmitter } from './coordination/mailbox-events.js';
 export {
   type MailboxResolver,
   type MailboxToolOptions,
@@ -243,6 +187,8 @@ export {
 export type {
   AgentHeartbeatInput,
   AgentRegistrationInput,
+  AutoCompactOptions,
+  AutoCompactResult,
   Mailbox,
   MailboxAckInput,
   MailboxAgentStatus,
@@ -294,11 +240,33 @@ export {
   type PackageOutdatedWatcherOptions,
   startPackageOutdatedWatcher,
 } from './coordination/package-outdated-watcher.js';
+// ---- Provider/Model Status Tracker ----
+export {
+  type ErrorHistoryEntry,
+  type ProviderModelState,
+  type ProviderModelStatus,
+  ProviderModelStatusTracker,
+  type ProviderStatusSnapshot,
+  type ProviderStatusTrackerConfig,
+} from './coordination/provider-status-tracker.js';
+export {
+  DEFAULT_MAX_FLEET_SPAWNS,
+  HARD_MAX_SPAWN_DEPTH,
+  resolveMaxSpawnDepth,
+} from './coordination/spawn-budget.js';
 export {
   assignNickname,
   type NicknameAssignment,
   nicknameKeyFromDisplay,
 } from './coordination/subagent-nicknames.js';
+export {
+  formatSubagentStructuredReport,
+  MAX_SUBAGENT_STRUCTURED_REPORT_CHARS,
+  makeSubagentResultTool,
+  normalizeSubagentStructuredReport,
+  readSubagentStructuredReport,
+  SUBAGENT_STRUCTURED_REPORT_META_KEY,
+} from './coordination/subagent-result-tool.js';
 export {
   startTechStackConsumer,
   type TechStackConsumerOptions,
@@ -360,15 +328,13 @@ export {
   parseModelRef,
   smartDefaultFallbackChain,
 } from './core/fallback-model.js';
-export {
-  FallbackProfileManager,
-} from './core/fallback-profile-manager.js';
 export type {
   FallbackChain,
   FallbackChainEntry,
   ProviderAvailability,
   ProviderHealth,
 } from './core/fallback-profile-manager.js';
+export { FallbackProfileManager } from './core/fallback-profile-manager.js';
 export {
   InputBuilder,
   type InputBuilderEvent,
@@ -389,6 +355,12 @@ export {
   type MailboxDeliveryMode,
   type MailboxLoopOptions,
 } from './core/mailbox-loop.js';
+export {
+  evaluateModelCalendar,
+  logicalCalendarTarget,
+  type ModelBlackoutRule,
+  type ModelCalendarDecision,
+} from './core/model-availability-calendar.js';
 export { runProviderWithRetry } from './core/provider-runner.js';
 export {
   buildQueuedMessagesBlock,
@@ -460,11 +432,30 @@ export {
   resolveBrainConfigDefaults,
 } from './execution/brain-runtime.js';
 export {
+  buildLosslessDigest,
+  buildSmartDigest,
+  type ContentScore,
+  type EliseResult,
+  eliseOldToolResults,
+  estimateMessages,
+  extractText,
+  findPreserveStart,
+  hasTextContent,
+  scoreMessage,
+} from './execution/compaction-core.js';
+export {
   COUNCIL_REFUSE_OPTION_ID,
   type CouncilBrainOptions,
   type CouncilVoter,
   createCouncilBrainArbiter,
 } from './execution/council-brain.js';
+export {
+  COUNCIL_REFUSAL_OPTION_ID,
+  CouncilOrchestrator,
+  type CouncilOrchestratorOptions,
+  DEFAULT_COUNCIL_MAX_CONCURRENCY,
+  MAX_COUNCIL_CONCURRENCY,
+} from './execution/council-orchestrator.js';
 export {
   BUILTIN_COUNCIL_PERSONAS,
   CouncilPersonaRegistry,
@@ -495,13 +486,6 @@ export {
   COUNCIL_VOTER_PROMPT_PATH,
 } from './execution/council-prompts.js';
 export {
-  COUNCIL_REFUSAL_OPTION_ID,
-  CouncilOrchestrator,
-  type CouncilOrchestratorOptions,
-  DEFAULT_COUNCIL_MAX_CONCURRENCY,
-  MAX_COUNCIL_CONCURRENCY,
-} from './execution/council-orchestrator.js';
-export {
   type CouncilResolution,
   type CouncilResolutionInput,
   type CouncilResolutionSeat,
@@ -509,17 +493,12 @@ export {
   resolveCouncilVotes,
 } from './execution/council-resolution.js';
 export {
-  buildLosslessDigest,
-  buildSmartDigest,
-  type ContentScore,
-  type EliseResult,
-  eliseOldToolResults,
-  estimateMessages,
-  extractText,
-  findPreserveStart,
-  hasTextContent,
-  scoreMessage,
-} from './execution/compaction-core.js';
+  ENHANCE_BASE_TIMEOUT_MS,
+  ENHANCE_MIN_RETRY_TIMEOUT_MS,
+  nextEnhanceTimeout,
+  resolveConfiguredRefinerRef,
+  resolveEnhanceFallbackRef,
+} from './execution/enhance-recovery.js';
 export {
   applyModelRuntime,
   type ModelRuntimeMiddlewareOptions,
@@ -529,20 +508,15 @@ export {
   resolveModelRuntime,
   resolveReasoningForRequest,
 } from './execution/model-runtime.js';
+export { OneShotOrchestrator } from './execution/one-shot-llm.js';
 export {
-  ENHANCE_BASE_TIMEOUT_MS,
-  ENHANCE_MIN_RETRY_TIMEOUT_MS,
-  nextEnhanceTimeout,
-  resolveEnhanceFallbackRef,
-} from './execution/enhance-recovery.js';
-export {
+  buildRefinerContextSections,
   type ConversationTurn,
   DEFAULT_REFINER_RETRY_FEEDBACK,
   ENHANCER_SYSTEM_PROMPT,
   type EnhanceFailureKind,
   type EnhanceResult,
   type EnhanceUserPromptOptions,
-  buildRefinerContextSections,
   enhanceUserPrompt,
   gatedEnhancerReasoning,
   normalizedEqual,
@@ -564,6 +538,36 @@ export {
   type OnErrorHook,
   type ProviderRunnerWrapper,
 } from './extension/index.js';
+// Goal - autonomous phase-based workflow
+export {
+  type Checkpoint,
+  CheckpointManager,
+  type CheckpointManagerOptions,
+  createGoalRunnerFromTaskGraph,
+  type GoalOptions,
+  GoalPlanner,
+  type GoalPlannerOptions,
+  type GoalPlanResult,
+  GoalRunner,
+  type GoalRunnerOptions,
+  PHASE_EVENT_NAMES,
+  type PhaseEventMap,
+  type PhaseEventName,
+  type PhaseExecutionContext,
+  type PhaseFilter,
+  type PhaseGraph,
+  PhaseGraphBuilder,
+  type PhaseGraphBuilderOptions,
+  type PhaseNode,
+  PhaseOrchestrator,
+  type PhaseOrchestratorOptions,
+  type PhaseProgress,
+  type PhaseSort,
+  type PhaseStatus,
+  PhaseStore,
+  type PhaseStoreOptions,
+  type PhaseTemplate,
+} from './goal/index.js';
 export {
   countShellHooks,
   HookRegistry,
@@ -578,6 +582,7 @@ export {
   shellHooksEqual,
 } from './hooks/index.js';
 export * from './hq/index.js';
+export { allServers } from './infrastructure/mcp-servers.js';
 export * from './kernel/index.js';
 export { attachMailboxChecker } from './mailbox-attach.js';
 export {
@@ -586,6 +591,8 @@ export {
   collabPauseMiddleware,
   type InjectedToolResult as CollabInjectedToolResult,
 } from './middleware/collab-pause.js';
+export * from './observability/network-telemetry.js';
+export * from './observability/process-telemetry.js';
 export { DefaultPluginAPI, definePlugin, type PluginAPIInit } from './plugin/api.js';
 export {
   KERNEL_API_VERSION,
@@ -593,6 +600,8 @@ export {
   loadPlugins,
   unloadPlugins,
 } from './plugin/loader.js';
+// Built-in plugins
+export { createAutoReviewPlugin } from './plugins/auto-review-plugin.js';
 export type {
   CascadeAgentKind,
   ChimeraCascadeNeededPayload,
@@ -606,9 +615,6 @@ export {
   createChimeraPlugin,
   resolveChimeraConfig,
 } from './plugins/chimera-plugin.js';
-
-// Built-in plugins
-export { createAutoReviewPlugin } from './plugins/auto-review-plugin.js';
 export { createPromptsPlugin } from './plugins/prompts-plugin.js';
 export { createSecurityPlugin } from './plugins/security-plugin.js';
 export { createSkillsPlugin } from './plugins/skills-plugin.js';
@@ -642,7 +648,23 @@ export {
   type ToolCapability,
   WIDE_SUBAGENT_CAPABILITIES,
 } from './security/capabilities.js';
+export {
+  TRUST_POLICY_JSON_SCHEMA,
+  TRUST_POLICY_LIMITS,
+  TRUST_POLICY_SCHEMA_VERSION,
+  type TrustPolicyDiagnostic,
+  type TrustPolicyDiagnosticCode,
+  type TrustPolicyValidationResult,
+  validateTrustPolicy,
+} from './security/permission-policy-schema.js';
 export { DefaultSecretScrubber } from './security/secret-scrubber.js';
+export {
+  getSessionRegistry,
+  hasSessionRegistry,
+  type SessionLiveStatus,
+  SessionRegistry,
+  type SessionRegistryEntry,
+} from './session-registry.js';
 export * from './skills/index.js';
 export * from './storage/index.js';
 // Explicit re-exports for the new session audit bridge (helps some consumers
@@ -657,8 +679,28 @@ export {
   type SessionSamplingOptions,
   type ToolProgressSamplingOptions,
 } from './storage/session-event-bridge.js';
-export { createMcpControlTool, type MCPRegistryHandle } from './tools/mcp-control.js';
-export { createMcpUseTool } from './tools/mcp-use.js';
+// DefaultTaskStore lives in task-store.ts (a sibling of task-tracker.ts).
+// Re-exporting here from the package root so consumers can do
+// `import { DefaultTaskStore, TaskTracker } from '@wrongstack/core'`
+// without depending on the undeclared
+// `@wrongstack/core/tasking/task-store.js` subpath (the package's
+// `exports` field only declares the whole `./tasking` directory).
+export { DefaultTaskStore } from './tasking/task-store.js';
+// TaskTracker + TaskStore (the public task-graph mutation API). Lives
+// under `tasking/` so it's not bundled with the heavy `types/` chain.
+// Previously re-exported via `packages/sdd/src/task-tracker.js` only;
+// the core re-export was missing, which broke consumers that tried
+// `import { TaskTracker } from '@wrongstack/core/tasking/task-tracker.js'`
+// (Node 16+ refuses the subpath under the new package.json exports
+// contract, and the SDD re-export was never wired up to do it for them).
+export {
+  type TaskStore,
+  TaskTracker,
+  type TaskTrackerChange,
+  type TaskTrackerListener,
+  type TaskTrackerOptions,
+  type TaskTransition,
+} from './tasking/task-tracker.js';
 export {
   COUNCIL_TOOL_NAME,
   type CouncilToolInput,
@@ -668,20 +710,25 @@ export {
   MAX_COUNCIL_QUESTION_CHARS,
   MAX_COUNCIL_TOOL_OPTIONS,
 } from './tools/council-tool.js';
-export { createOneShotLLMTool, ONE_SHOT_LLM_TOOL_NAME, type CreateOneShotLLMToolOptions } from './tools/one-shot-llm-tool.js';
 export {
   AGENT_MODEL_ASSIGN_TOOL_NAME,
+  createFallbackManageTools,
   FALLBACK_CHAIN_MANAGE_TOOL_NAME,
   FALLBACK_PROFILE_MANAGE_TOOL_NAME,
   FAVORITE_MANAGE_TOOL_NAME,
+  type FallbackManageToolOptions,
   LEADER_MODEL_SET_TOOL_NAME,
   PROVIDER_KEY_SET_TOOL_NAME,
   PROVIDER_MANAGE_TOOL_NAME,
   SYSTEM_CONFIG_VIEW_TOOL_NAME,
-  type FallbackManageToolOptions,
-  createFallbackManageTools,
 } from './tools/fallback-manage-tools.js';
-export { OneShotOrchestrator } from './execution/one-shot-llm.js';
+export { createMcpControlTool, type MCPRegistryHandle } from './tools/mcp-control.js';
+export { createMcpUseTool } from './tools/mcp-use.js';
+export {
+  type CreateOneShotLLMToolOptions,
+  createOneShotLLMTool,
+  ONE_SHOT_LLM_TOOL_NAME,
+} from './tools/one-shot-llm-tool.js';
 export type { Compactor, CompactReport } from './types/compactor.js';
 export {
   CONTEXT_WINDOW_MODES,
@@ -717,15 +764,6 @@ export type { ProviderRunner, RunProviderOptions } from './types/provider-runner
 export type { SecretScrubber } from './types/secret-scrubber.js';
 export type { RotatableSecretVault, SecretVault } from './types/secret-vault.js';
 export {
-  TRUST_POLICY_JSON_SCHEMA,
-  TRUST_POLICY_LIMITS,
-  TRUST_POLICY_SCHEMA_VERSION,
-  type TrustPolicyDiagnostic,
-  type TrustPolicyDiagnosticCode,
-  type TrustPolicyValidationResult,
-  validateTrustPolicy,
-} from './security/permission-policy-schema.js';
-export {
   encryptedPrefixForVersion,
   noOpVault,
   parseEncryptedVersion,
@@ -739,7 +777,12 @@ export {
 } from './utils/instruction-file.js';
 // Re-export safeParse explicitly at the top-level export for consumers
 // who import from '@wrongstack/core' directly (e.g. providers package).
-export { safeParse, safeStringify, sanitizeJsonString, stripCodeFences } from './utils/safe-json.js';
+export {
+  safeParse,
+  safeStringify,
+  sanitizeJsonString,
+  stripCodeFences,
+} from './utils/safe-json.js';
 // Likewise pin the terminal helpers at the top-level public surface; consumers
 // import them directly from '@wrongstack/core' rather than the util subpath.
 export {
@@ -765,25 +808,3 @@ export {
   type WorktreeRunResult,
   type WorktreeStatus,
 } from './worktree/index.js';
-// TaskTracker + TaskStore (the public task-graph mutation API). Lives
-// under `tasking/` so it's not bundled with the heavy `types/` chain.
-// Previously re-exported via `packages/sdd/src/task-tracker.js` only;
-// the core re-export was missing, which broke consumers that tried
-// `import { TaskTracker } from '@wrongstack/core/tasking/task-tracker.js'`
-// (Node 16+ refuses the subpath under the new package.json exports
-// contract, and the SDD re-export was never wired up to do it for them).
-export {
-  type TaskStore,
-  type TaskTrackerOptions,
-  type TaskTransition,
-  type TaskTrackerChange,
-  type TaskTrackerListener,
-  TaskTracker,
-} from './tasking/task-tracker.js';
-// DefaultTaskStore lives in task-store.ts (a sibling of task-tracker.ts).
-// Re-exporting here from the package root so consumers can do
-// `import { DefaultTaskStore, TaskTracker } from '@wrongstack/core'`
-// without depending on the undeclared
-// `@wrongstack/core/tasking/task-store.js` subpath (the package's
-// `exports` field only declares the whole `./tasking` directory).
-export { DefaultTaskStore } from './tasking/task-store.js';

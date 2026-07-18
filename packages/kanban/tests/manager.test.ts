@@ -20,7 +20,7 @@ import {
   exportBoardAsMarkdown,
   exportBoardToTaskGraph,
   findBlockedTasks,
-  generateBoardFromDescription,
+  createBoardFromText,
   getBoard,
   getKanbanQueueHealth,
   getTask,
@@ -115,7 +115,7 @@ function sampleBoard(overrides?: Partial<KanbanBoard>): KanbanBoard {
   };
 }
 
-// ── generateBoardFromDescription ─────────────────────────────────────────
+// ── createBoardFromText ─────────────────────────────────────────
 
 describe('managed Kanban Agent lifecycle', () => {
   async function managedBoard() {
@@ -274,9 +274,9 @@ describe('managed Kanban Agent lifecycle', () => {
   });
 });
 
-describe('generateBoardFromDescription', () => {
+describe('createBoardFromText', () => {
   it('generates a board from a description with default columns', () => {
-    const result = generateBoardFromDescription({
+    const result = createBoardFromText({
       description: 'My board description',
     });
     expect(result.title).toBe('Kanban: My board description');
@@ -286,7 +286,7 @@ describe('generateBoardFromDescription', () => {
   });
 
   it('uses input title when provided', () => {
-    const result = generateBoardFromDescription({
+    const result = createBoardFromText({
       title: 'Custom Title',
       description: 'desc',
     });
@@ -295,12 +295,12 @@ describe('generateBoardFromDescription', () => {
 
   it('truncates long description in auto-title', () => {
     const long = 'a'.repeat(100);
-    const result = generateBoardFromDescription({ description: long });
+    const result = createBoardFromText({ description: long });
     expect(result.title).toBe(`Kanban: ${'a'.repeat(60)}...`);
   });
 
   it('includes context when provided', () => {
-    const result = generateBoardFromDescription({
+    const result = createBoardFromText({
       description: 'Do the thing',
       context: 'Because reasons',
     });
@@ -308,7 +308,7 @@ describe('generateBoardFromDescription', () => {
   });
 
   it('uses custom column count', () => {
-    const result = generateBoardFromDescription({
+    const result = createBoardFromText({
       description: 'desc',
       columnCount: 3,
     });
@@ -316,7 +316,7 @@ describe('generateBoardFromDescription', () => {
   });
 
   it('uses custom column titles', () => {
-    const result = generateBoardFromDescription({
+    const result = createBoardFromText({
       description: 'desc',
       columns: ['Alpha', 'Beta'],
     });

@@ -5,6 +5,7 @@ import type {
   MailboxTaskContext,
   ReadReceipts,
 } from './mailbox-types.js';
+import { normalizeRecipient, validateSendType } from './mailbox-types.js';
 
 const MESSAGE_TYPES = new Set<MailboxMessageType>([
   'note',
@@ -67,6 +68,62 @@ function parseMessageType(value: unknown): MailboxMessageType {
 /** Normalize message types emitted by pre-union mailbox builds. */
 export function normalizeMailboxMessageType(value: unknown): MailboxMessageType {
   return parseMessageType(value);
+}
+
+/**
+ * Resolve the message type for a SEND operation, applying default-type logic
+ * and cross-field validation.
+ *
+ * ** Default-type rules ** (mirror the `mail_send` tool's logic):
+ * - When `type` is explicitly provided, use it directly.
+ * - When `type` is omitted AND the resolved `to` is `"*"` or starts with
+ *   `"@session:"`, the default is `"broadcast"`.
+ * - Otherwise (omitted, non-broadcast target), the default is `"note"`.
+ *
+ * **Send-side validation** (from `validateSendType`):
+ * - `control` is rejected — it is reserved for runtime use.
+ * - `assign` and `steer` with `to="*"` are rejected — these types require a
+ *   specific recipient.
+ *
+ * @returns The resolved type (explicit or defaulted).
+ * @throws {TypeError} When the type is reserved or the (type, to) pair is
+ *   semantically invalid.
+ */
+export function resolveSendType(
+  type: MailboxMessageType | undefined,
+  to: string,
+): MailboxMessageType {
+  // Normalize recipient aliases ("all" → "*", "@session" → "@session:<id>")
+  // BEFORE default-type selection and cross-field validation, so every
+  // caller (mail_send, mailbox tool, HTTP bridge) gets consistent behavior
+  // even when they forget to normalize beforehand.
+  const normalizedTo = normalizeRecipient(to);
+  const resolved: MailboxMessageType =
+    type ?? (normalizedTo === '*' || normalizedTo.startsWith('@session:') ? 'broadcast' : 'note');
+  // Validate the resolved type against the CANONICAL recipient — after
+  // normalization — so "all" with type "assign" is correctly rejected
+  // as a multi-recipient target.
+  validateSendType(resolved, normalizedTo);
+  return resolved;
+}
+
+/**
+ * Resolve the message type for a SEND, returning a descriptive error instead
+ * of throwing. Convenience wrapper for use in tool handlers where a thrown
+ * TypeError would be awkward to catch.
+ *
+ * Returns `{ ok: true, type }` on success, or `{ ok: false, error }` when
+ * the (type, to) pair is invalid.
+ */
+export function resolveSendTypeSafe(
+  type: MailboxMessageType | undefined,
+  to: string,
+): { ok: true; type: MailboxMessageType } | { ok: false; error: string } {
+  try {
+    return { ok: true, type: resolveSendType(type, to) };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
 }
 
 function parsePriority(value: unknown): MailboxMessage['priority'] {

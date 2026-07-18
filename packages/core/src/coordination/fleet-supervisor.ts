@@ -108,7 +108,7 @@ const DEFAULTS = {
 
 const HISTORY_MAX = 100;
 
-export interface ResolvedSupervisorConfig {
+interface ResolvedSupervisorConfig {
   enabled: boolean;
   intervalMs: number;
   cooldownMs: number;

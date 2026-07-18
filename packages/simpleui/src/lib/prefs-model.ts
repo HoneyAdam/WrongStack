@@ -17,6 +17,10 @@ export interface SimplePrefs {
   showModelReasoning: boolean;
   chime: boolean;
   confirmExit: boolean;
+  refinerProvider: string;
+  refinerModel: string;
+  refinerFallbackProfile: string;
+  fallbackProfiles: Record<string, string[]>;
 }
 
 export const DEFAULT_PREFS: SimplePrefs = {
@@ -27,6 +31,10 @@ export const DEFAULT_PREFS: SimplePrefs = {
   showModelReasoning: true,
   chime: false,
   confirmExit: false,
+  refinerProvider: '',
+  refinerModel: '',
+  refinerFallbackProfile: '',
+  fallbackProfiles: {},
 };
 
 export const AUTONOMY_MODES: readonly AutonomyMode[] = ['off', 'suggest', 'auto'];
@@ -58,5 +66,17 @@ export function parsePrefs(payload: unknown, previous: SimplePrefs = DEFAULT_PRE
     showModelReasoning: bool(raw['showModelReasoning'], previous.showModelReasoning),
     chime: bool(raw['chime'], previous.chime),
     confirmExit: bool(raw['confirmExit'], previous.confirmExit),
+    refinerProvider:
+      typeof raw['refinerProvider'] === 'string' ? raw['refinerProvider'] : previous.refinerProvider,
+    refinerModel:
+      typeof raw['refinerModel'] === 'string' ? raw['refinerModel'] : previous.refinerModel,
+    refinerFallbackProfile:
+      typeof raw['refinerFallbackProfile'] === 'string'
+        ? raw['refinerFallbackProfile']
+        : previous.refinerFallbackProfile,
+    fallbackProfiles:
+      raw['fallbackProfiles'] && typeof raw['fallbackProfiles'] === 'object'
+        ? raw['fallbackProfiles'] as Record<string, string[]>
+        : previous.fallbackProfiles,
   };
 }

@@ -4,7 +4,7 @@
  * webui-server: `model.refine` { text, timeoutMs?, provider?, model?,
  * previousRefined?, previousEnglish?, retryFeedback? }
  * answers with `model.refine_result` { refined, english, error?, errorKind?,
- * retryTimeoutMs?, fallbackRef? }.
+ * retryTimeoutMs?, fallbackRef?, refinedWith? }.
  *
  * This module owns the decision of what a result means so the component
  * stays a renderer and the behaviour is unit-testable.
@@ -40,6 +40,7 @@ export interface RefineResultPayload {
   errorKind?: unknown;
   retryTimeoutMs?: unknown;
   fallbackRef?: unknown;
+  refinedWith?: unknown;
 }
 
 /** What the app should do with a `model.refine_result`. */
@@ -105,6 +106,10 @@ export function projectRefineResult(
   if (!refined || normalizedEqual(refined, current.original)) {
     return { kind: 'send', text: current.original };
   }
+  const refinedWith =
+    payload.refinedWith && typeof payload.refinedWith === 'object'
+      ? payload.refinedWith as Record<string, unknown>
+      : undefined;
   return {
     kind: 'panel',
     state: {
@@ -112,6 +117,9 @@ export function projectRefineResult(
       status: 'ready',
       refined,
       english: text(payload.english) || refined,
+      ...(refinedWith && text(refinedWith['provider']) && text(refinedWith['model'])
+        ? { provider: text(refinedWith['provider']), model: text(refinedWith['model']) }
+        : {}),
       // Clear any stale failure from a prior retry round.
       error: undefined,
       errorKind: undefined,

@@ -144,6 +144,8 @@ export interface AppProps {
    * changes are reflected.
    */
   getEnhanceFallbackRef?: (() => string | undefined) | undefined;
+  /** Resolve the dedicated refiner target (`provider/model`) for the initial attempt. */
+  getConfiguredRefinerRef?: (() => string | undefined) | undefined;
   /**
    * Query the live YOLO state from the permission policy. Called after
    * every slash-command dispatch so `/yolo off` (which mutates the

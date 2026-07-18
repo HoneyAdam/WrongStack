@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   ENHANCE_MIN_RETRY_TIMEOUT_MS,
   nextEnhanceTimeout,
+  resolveConfiguredRefinerRef,
   resolveEnhanceFallbackRef,
 } from '../../src/execution/enhance-recovery.js';
 import type { Config } from '../../src/types/config.js';
@@ -31,6 +32,35 @@ describe('nextEnhanceTimeout', () => {
     expect(nextEnhanceTimeout(90_000, { enhanceRetryTimeoutMs: 10_000 })).toBe(90_000);
     // Non-positive / non-finite overrides fall back to the derived value.
     expect(nextEnhanceTimeout(90_000, { enhanceRetryTimeoutMs: 0 })).toBe(180_000);
+  });
+});
+
+describe('resolveConfiguredRefinerRef', () => {
+  it('prefers the named refiner fallback profile', () => {
+    expect(resolveConfiguredRefinerRef(cfg({
+      autonomy: {
+        refinerProvider: 'openai',
+        refinerModel: 'gpt-4o-mini',
+        refinerFallbackProfile: 'cheap',
+      },
+      fallbackProfiles: { cheap: ['anthropic/claude-haiku-4-5'] },
+    }))).toBe('anthropic/claude-haiku-4-5');
+  });
+
+  it('uses the explicit refiner provider and model when no profile is set', () => {
+    expect(resolveConfiguredRefinerRef(cfg({
+      autonomy: { refinerProvider: 'deepseek', refinerModel: 'deepseek-chat' },
+    }))).toBe('deepseek/deepseek-chat');
+  });
+
+  it('uses the active provider when only a refiner model is configured', () => {
+    expect(resolveConfiguredRefinerRef(cfg({
+      autonomy: { refinerModel: 'gpt-4o-mini' },
+    }))).toBe('openai/gpt-4o-mini');
+  });
+
+  it('returns undefined when no dedicated refiner is configured', () => {
+    expect(resolveConfiguredRefinerRef(cfg())).toBeUndefined();
   });
 });
 

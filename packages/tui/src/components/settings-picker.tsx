@@ -99,12 +99,11 @@ export const TOKEN_SAVING_TIER_DESCS: Record<TokenSavingTierTui, string> = {
  * Fleet-chat verbosity options — cyclable via ←/→ in the settings picker.
  * Values MUST match core's `FleetChatVerbosity` union (config schema).
  */
-export const FLEET_CHAT_MODES = ['off', 'compact', 'full'] as const;
+export const FLEET_CHAT_MODES = ['off', 'full'] as const;
 export type FleetChatVerbosityTui = (typeof FLEET_CHAT_MODES)[number];
 
 export const FLEET_CHAT_MODE_DESCS: Record<FleetChatVerbosityTui, string> = {
   off: 'No subagent lines in chat (F2/F3 monitors stay live)',
-  compact: 'Spawn, one summary per agent turn, completion',
   full: 'Every subagent tool call and message',
 };
 
@@ -885,7 +884,7 @@ export const SETTINGS_DEFAULTS: Readonly<SettingsPickerValues> = Object.freeze({
   delayMs: 0,
   titleAnimation: true,
   yolo: true,
-  fleetChat: 'compact',
+  fleetChat: 'off',
   chime: false,
   confirmExit: true,
   nextPrediction: false,

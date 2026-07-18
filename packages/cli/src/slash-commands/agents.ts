@@ -4,8 +4,8 @@
  * Commands:
  *   /agents               — Show legacy subagent status
  *   /agents help          — Show detailed help
- *   /agents chat off|compact|full — Fleet-chat verbosity for the main chat
- *   /agents chat status   — Show current fleet-chat verbosity
+ *   /agents chat off|full   — Fleet-chat verbosity for the main chat
+ *   /agents chat status     — Show current fleet-chat verbosity
  *   /agents stream on     — Show agent conversations in the main chat timeline
  *   /agents stream off    — Hide agent conversations from the main chat
  *   /agents stream status — Show current stream state
@@ -63,7 +63,7 @@ export function buildAgentsCommand(opts: SlashCommandContext): SlashCommand {
             message: [
               '**/agents \u{2014} Subagent Monitoring**',
               '',
-              '`/agents chat off|compact|full` \u{2014} Fleet-chat verbosity (compact = one summary line per agent turn)',
+              '`/agents chat off|full` \u{2014} Fleet-chat verbosity',
               '`/agents chat status`   \u{2014} Show current fleet-chat verbosity',
               '`/agents stream on`     \u{2014} Show agent conversations inline in chat',
               '`/agents stream off`    \u{2014} Hide agent conversations from chat',
@@ -87,19 +87,17 @@ export function buildAgentsCommand(opts: SlashCommandContext): SlashCommand {
           const ctl = opts.fleetStreamController;
           const sub = (rest[0] ?? 'status').toLowerCase();
           if (sub === 'status') {
-            const mode = ctl?.mode ?? 'compact';
+            const mode = ctl?.mode ?? 'off';
             return {
               message: `Fleet chat is **${mode}**. ${
                 mode === 'full'
                   ? 'Every subagent tool call and message appears in chat.'
-                  : mode === 'compact'
-                    ? 'One summary line per agent turn; F2/F3 monitors stay fully live.'
-                    : 'Subagent chat lines are hidden; failures still surface. F2/F3 stay live.'
+                  : 'Subagent chat lines are hidden; failures still surface. F2/F3 stay live.'
               }`,
             };
           }
-          if (sub !== 'off' && sub !== 'compact' && sub !== 'full') {
-            return { message: 'Usage: `/agents chat off|compact|full|status`' };
+          if (sub !== 'off' && sub !== 'full') {
+            return { message: 'Usage: `/agents chat off|full|status`' };
           }
           const mode = sub as FleetChatVerbosity;
           ctl?.setMode(mode);
@@ -123,9 +121,7 @@ export function buildAgentsCommand(opts: SlashCommandContext): SlashCommand {
           const desc =
             mode === 'full'
               ? 'Every subagent tool call and message will appear in chat.'
-              : mode === 'compact'
-                ? 'One summary line per agent turn (spawn ▶ / 🔧 summary / ✓ done).'
-                : 'Subagent chat lines hidden — watch agents in F2/F3; failures still surface.';
+              : 'Subagent chat lines hidden — watch agents in F2/F3; failures still surface.';
           return { message: `Fleet chat → **${mode}**. ${desc}` };
         }
 

@@ -7,7 +7,7 @@ import type { DesktopWebuiRuntimeView, PendingWebuiCommandAck } from '../state/t
 import { MAX_PENDING_WEBUI_COMMANDS, MAX_PENDING_FLUSH_ATTEMPTS, WEBUI_COMMAND_FALLBACK_MS, WEBUI_COMMAND_ACK_TIMEOUT_MS, PENDING_WEBUI_FLUSH_DELAY_MS } from '../state/constants.js';
 import { buildWebuiCommandFallbackScript, normalizeDesktopWebuiCommand } from '../webui-command-bridge.js';
 
-export interface CommandBridgeContext {
+interface CommandBridgeContext {
   getWebuiViews(): Map<string, DesktopWebuiRuntimeView>;
   getActiveWebuiRuntimeId(): string | null;
   getWebuiStatus(): DesktopWebuiStatusSnapshot;
@@ -103,7 +103,7 @@ export async function dispatchWebuiCommandNow(
 
 // Module-level storage for pending acks (simplifies the architecture)
 const _pendingAcks = new Map<string, PendingWebuiCommandAck>();
-export function getPendingAcks(): Map<string, PendingWebuiCommandAck> {
+function getPendingAcks(): Map<string, PendingWebuiCommandAck> {
   return _pendingAcks;
 }
 

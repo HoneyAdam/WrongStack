@@ -7,7 +7,7 @@ import type { AuthMenuDeps } from './types.js';
 /* ------------------------------------------------------------------ */
 
 /** Render a provider entry line in the top-level listing. */
-export function renderProviderLine(
+function renderProviderLine(
   renderer: AuthMenuDeps['renderer'],
   id: string,
   cfg: ProviderConfig,
@@ -78,7 +78,7 @@ export function renderProviderHeader(
 }
 
 /** Render a single key entry line. */
-export function renderKeyLine(
+function renderKeyLine(
   renderer: AuthMenuDeps['renderer'],
   key: ProviderApiKey,
   idx: number,

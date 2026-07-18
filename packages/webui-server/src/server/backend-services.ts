@@ -94,7 +94,7 @@ import type { Config, ProviderConfig } from '@wrongstack/core/types';
 import type { WstackPaths } from '@wrongstack/core/utils';
 import { toErrorMessage } from '@wrongstack/core/utils';
 
-export interface AgentServicesInput {
+interface AgentServicesInput {
   config: Config;
   wpaths: WstackPaths;
   logger: Logger;
@@ -132,7 +132,7 @@ export interface AgentServicesInput {
   persistBrainConfig?: ((config: import('@wrongstack/core/types').BrainConfig) => Promise<void>) | undefined;
 }
 
-export interface AgentServices {
+interface AgentServices {
   collabBus: CollaborationBus;
   compactor: Compactor;
   autoCompactor: AutoCompactionMiddleware | undefined;

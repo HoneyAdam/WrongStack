@@ -55,7 +55,7 @@ function stubState(over: Partial<State> = {}): State {
     settingsPicker: {
       open: false, field: 0, lastSettingsField: 0, filter: '',
       mode: 'off', delayMs: 0, titleAnimation: true, yolo: false,
-      fleetChat: 'compact', chime: false, confirmExit: true,
+      fleetChat: 'off', chime: false, confirmExit: true,
       nextPrediction: false, featureMcp: true, featurePlugins: true,
       featureMemory: true, featureSkills: true, featureModelsRegistry: true,
       tokenSavingTier: 'off', allowOutsideProjectRoot: true,
@@ -107,7 +107,7 @@ function stubState(over: Partial<State> = {}): State {
     fleetCost: 0,
     fleetTokens: { input: 0, output: 0 },
     fleetConcurrency: 4,
-    fleetChat: 'compact',
+    fleetChat: 'off',
     monitorOpen: false,
     agentsMonitorOpen: false,
     helpOpen: false,
@@ -386,7 +386,7 @@ describe('reduceFleetState', () => {
 
   it('setFleetChat: sets the fleet-chat verbosity mode', () => {
     const state = stubState();
-    for (const mode of ['off', 'compact', 'full'] as const) {
+    for (const mode of ['off', 'full'] as const) {
       const result = reduceFleetState(state, { type: 'setFleetChat', mode });
       expect((result!).fleetChat).toBe(mode);
     }

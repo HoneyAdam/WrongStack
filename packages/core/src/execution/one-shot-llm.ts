@@ -1,6 +1,13 @@
+import type { FallbackChain } from '../core/fallback-profile-manager.js';
+import { evaluateModelCalendar } from '../core/model-availability-calendar.js';
 import { isTextBlock } from '../types/blocks.js';
+import type { Config } from '../types/config.js';
 import type { Message } from '../types/messages.js';
-import type { OneShotLLMInput, OneShotLLMResult, OneShotOrchestratorOptions } from '../types/one-shot-llm.js';
+import type {
+  OneShotLLMInput,
+  OneShotLLMResult,
+  OneShotOrchestratorOptions,
+} from '../types/one-shot-llm.js';
 import {
   isFallbackWorthy,
   type Provider,
@@ -8,8 +15,6 @@ import {
   type Request,
   type Response,
 } from '../types/provider.js';
-import type { FallbackChain } from '../core/fallback-profile-manager.js';
-import type { Config } from '../types/config.js';
 
 /**
  * Default timeout for one-shot LLM calls when the caller doesn't specify one.
@@ -102,17 +107,27 @@ export class OneShotOrchestrator {
     let servingProviderId = provider.id;
     let servingModel = target.model;
     let fromFallback = false;
-    let lastError: unknown = undefined;
+    let lastError: unknown;
     let fallbackEligible = false;
 
     // Check if the primary target is blocked
-    if (tracker && !tracker.isAvailable(target.providerId, target.model)) {
+    if (
+      (tracker && !tracker.isAvailable(target.providerId, target.model)) ||
+      !evaluateModelCalendar(config.modelAvailabilitySchedule, target.providerId, target.model)
+        .allowed
+    ) {
       this.opts.logger?.debug(
         `one-shot: primary "${target.providerId}/${target.model}" is blocked — trying fallback`,
       );
       // Fall through to the fallback chain
     } else {
-      const primaryAttempt = await this.tryCall(provider, request, signal, target.providerId, target.model);
+      const primaryAttempt = await this.tryCall(
+        provider,
+        request,
+        signal,
+        target.providerId,
+        target.model,
+      );
       const result = primaryAttempt.response;
       lastError = primaryAttempt.error;
       fallbackEligible = primaryAttempt.fallbackEligible;
@@ -125,21 +140,22 @@ export class OneShotOrchestrator {
       }
 
       if (!fallbackEligible || chain.length === 0) {
-        return this.buildErrorResult(
-          lastError,
-          target.providerId,
-          target.model,
-          false,
-          startedAt,
-        );
+        return this.buildErrorResult(lastError, target.providerId, target.model, false, startedAt);
       }
     }
 
     // ── 4b. Fallback chain ──────────────────────────────────────────
     // Filter blocked entries from the chain
-    const usableChain = tracker ? chain.filter((e) => tracker.isAvailable(e.providerId, e.model)) : chain;
+    const usableChain = tracker
+      ? chain.filter((e) => tracker.isAvailable(e.providerId, e.model))
+      : chain;
 
     for (const entry of usableChain) {
+      if (
+        !evaluateModelCalendar(config.modelAvailabilitySchedule, entry.providerId, entry.model)
+          .allowed
+      )
+        continue;
       if (entry.providerId === provider.id && entry.model === target.model) continue;
 
       let fbProvider: Provider;
@@ -171,7 +187,13 @@ export class OneShotOrchestrator {
     }
 
     // Total failure — all providers exhausted or non-retryable error.
-    return this.buildErrorResult(lastError, servingProviderId, servingModel, fromFallback, startedAt);
+    return this.buildErrorResult(
+      lastError,
+      servingProviderId,
+      servingModel,
+      fromFallback,
+      startedAt,
+    );
   }
 
   // ── Private helpers ─────────────────────────────────────────────
@@ -308,8 +330,7 @@ export class OneShotOrchestrator {
       return {
         error: err,
         fallbackEligible:
-          !signal.aborted &&
-          (!(err instanceof ProviderError) || isFallbackWorthy(err.kind)),
+          !signal.aborted && (!(err instanceof ProviderError) || isFallbackWorthy(err.kind)),
       };
     }
   }
@@ -323,7 +344,10 @@ export class OneShotOrchestrator {
     startedAt: number,
   ): OneShotLLMResult {
     const textBlocks = response.content.filter(isTextBlock);
-    const text = textBlocks.map((b) => b.text).join('\n').trim();
+    const text = textBlocks
+      .map((b) => b.text)
+      .join('\n')
+      .trim();
     return {
       text: text || '(empty response)',
       model: response.model ?? servingModel,
@@ -362,7 +386,9 @@ export class OneShotOrchestrator {
 /**
  * Normalize system prompt to TextBlock[].
  */
-function asTextBlocks(system: string | import('../types/blocks.js').TextBlock[] | undefined): import('../types/blocks.js').TextBlock[] {
+function asTextBlocks(
+  system: string | import('../types/blocks.js').TextBlock[] | undefined,
+): import('../types/blocks.js').TextBlock[] {
   if (!system) return [];
   if (Array.isArray(system)) return system;
   return [{ type: 'text', text: system }];

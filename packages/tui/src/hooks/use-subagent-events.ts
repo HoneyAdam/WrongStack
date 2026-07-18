@@ -28,9 +28,6 @@ function labelFor(
  *
  * Chat entries are gated by `getChatMode` (fleet-chat verbosity):
  * - 'full'    — every lifecycle line (legacy behavior).
- * - 'compact' — spawn ▶, completion ✓, and the FIRST budget ⚡ warning per
- *               (agent, limit-kind); task-started / iteration / extension
- *               lines are dropped (F2/F3 monitors show them live).
  * - 'off'     — only non-success completions (✗/⏱/⊘); failures never go
  *               silent. All fleet-table dispatches run in every mode.
  */
@@ -57,10 +54,6 @@ export function useSubagentEvents(
     // Read at event time so a live `/agents chat` flip applies immediately
     // without re-subscribing. Absent getter = legacy full behavior.
     const mode = (): FleetChatVerbosity => getChatMode?.() ?? 'full';
-    // compact mode: dedupe budget warnings per (agent, limit-kind) — the
-    // repeated "hitting tokens limit — extending" flood was the single
-    // noisiest line in fleet runs. Cleared when the subagent is removed.
-    const warnedBudget = new Set<string>();
     const offSpawned = events.on('subagent.spawned', (e) => {
       if (!isCurrentSession(e.sessionId)) return;
       // Record the session generation at spawn time so post-/clear events
@@ -108,9 +101,6 @@ export function useSubagentEvents(
       if (!isCurrentSession(e.sessionId)) return;
       labelsRef.current.delete(e.subagentId);
       gate.forget(e.subagentId);
-      for (const key of warnedBudget) {
-        if (key.startsWith(`${e.subagentId}\u0001`)) warnedBudget.delete(key);
-      }
       dispatch({ type: 'fleetRemove', id: e.subagentId });
     });
 
@@ -120,10 +110,8 @@ export function useSubagentEvents(
       const l = lbl(e.subagentId);
       dispatch({ type: 'fleetBudgetWarning', id: e.subagentId, kind: e.kind, used: e.used, limit: e.limit });
       const m = mode();
-      const budgetKey = `${e.subagentId}\u0001${e.kind}`;
-      const show = m === 'full' || (m === 'compact' && !warnedBudget.has(budgetKey));
+      const show = m === 'full';
       if (show) {
-        warnedBudget.add(budgetKey);
         const timeoutSuffix = e.kind === 'timeout' ? ' (subagent continues running)' : ' — extending';
         dispatch({ type: 'addEntry', entry: { kind: 'subagent', agentLabel: l.label, agentColor: l.color, icon: '⚡', text: `hitting ${e.kind} limit (${e.used}/${e.limit})${timeoutSuffix}` } });
       }

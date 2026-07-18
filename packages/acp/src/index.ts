@@ -48,7 +48,6 @@ export {EnsembleRegistry} from './registry/ensemble-registry.js';
 // Live registry sync — the official agentclientprotocol/registry snapshot.
 export {
   ACP_REGISTRY_URL,
-  currentPlatformKey,
   fetchAcpRegistry,
   mapRegistryEntry,
 } from './registry/acp-registry-fetch.js';

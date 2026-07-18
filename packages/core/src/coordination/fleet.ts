@@ -50,7 +50,7 @@ export const SECURITY_SCANNER_AGENT = defineAgent('security-scanner', 'Security 
  * Shadow Agent — one-shot fleet monitoring and intervention.
  * Use for: quiet anomaly checks and on-demand intervention.
  */
-export const SHADOW_AGENT = defineAgent('shadow-agent', 'Shadow');
+const SHADOW_AGENT = defineAgent('shadow-agent', 'Shadow');
 
 /**
  * Critic Agent — evaluates code quality, architecture decisions, and
@@ -58,7 +58,7 @@ export const SHADOW_AGENT = defineAgent('shadow-agent', 'Shadow');
  * Use for: real-time evaluation of bug reports, refactor plans, and
  * architectural proposals during collaborative debugging sessions.
  */
-export const CRITIC_AGENT = defineAgent('critic', 'Critic');
+const CRITIC_AGENT = defineAgent('critic', 'Critic');
 
 /**
  * All agents in a map for easy lookup by role. The 50-role phase catalog
@@ -106,7 +106,7 @@ export interface FleetRosterBudget {
  * working agent resets this clock continuously, so it runs until its task
  * naturally ends. Power users can still impose a hard `timeoutMs` per delegate.
  */
-export const DEFAULT_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+const DEFAULT_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
 
 export const FLEET_ROSTER_BUDGETS: Record<string, FleetRosterBudget> = {
   'audit-log': { timeoutMs: 3 * 60 * 60 * 1000, maxIterations: 2500, maxToolCalls: 7500 },
@@ -180,31 +180,31 @@ export const ALL_FLEET_AGENTS = Object.values(FLEET_ROSTER);
  * Cline — ACP-compatible coding agent by @asonix.
  * Spawned as: `npx @agentify/cline`
  */
-export const CLINE_AGENT = defineAgent('cline', 'Cline', 'acp-cline', 'acp');
+const CLINE_AGENT = defineAgent('cline', 'Cline', 'acp-cline', 'acp');
 
 /**
  * Gemini CLI — Google's ACP-compatible command-line agent.
  * Spawned as: `gemini` (when gemini CLI is installed and in PATH)
  */
-export const GEMINI_CLI_AGENT = defineAgent('gemini-cli', 'Gemini CLI', 'acp-gemini-cli', 'acp');
+const GEMINI_CLI_AGENT = defineAgent('gemini-cli', 'Gemini CLI', 'acp-gemini-cli', 'acp');
 
 /**
  * GitHub Copilot (public preview) — ACP-compatible Copilot CLI agent.
  * Spawned as: `gh copilot` (when gh CLI with copilot extension is installed)
  */
-export const COPILOT_AGENT = defineAgent('copilot', 'GitHub Copilot', 'acp-copilot', 'acp');
+const COPILOT_AGENT = defineAgent('copilot', 'GitHub Copilot', 'acp-copilot', 'acp');
 
 /**
  * OpenHands — AI coding agent by all-in.ai, ACP-compatible.
  * Spawned as: `openhands` (when installed)
  */
-export const OPENHANDS_AGENT = defineAgent('openhands', 'OpenHands', 'acp-openhands', 'acp');
+const OPENHANDS_AGENT = defineAgent('openhands', 'OpenHands', 'acp-openhands', 'acp');
 
 /**
  * Goose — IDE agent by ExoRL, ACP-compatible.
  * Spawned as: `goose` (when goose CLI is installed)
  */
-export const GOOSE_AGENT = defineAgent('goose', 'Goose', 'acp-goose', 'acp');
+const GOOSE_AGENT = defineAgent('goose', 'Goose', 'acp-goose', 'acp');
 
 /** All ACP external agents. */
 export const ACP_AGENTS: SubagentConfig[] = [

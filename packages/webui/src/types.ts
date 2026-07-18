@@ -65,6 +65,7 @@ export interface WSUserMessage {
     id: string;
     content: string;
     timestamp: number;
+    stateExpiresAt?: number | undefined;
     /** Images attached in the composer (paste / drop / file picker). The
      *  server converts these to canonical ImageBlocks ahead of the text. */
     images?: WSUserMessageImage[];
@@ -249,6 +250,31 @@ export interface WSProviderFallback {
   };
 }
 
+export interface WSProviderStatusChanged {
+  type: 'provider.status_changed';
+  payload: SessionScopedPayload & {
+    providerId: string;
+    model: string;
+    oldState: 'healthy' | 'degraded' | 'blocked';
+    newState: 'healthy' | 'degraded' | 'blocked';
+    reason: string;
+    timestamp: number;
+  };
+}
+
+export interface WSProviderActiveBlocked {
+  type: 'provider.active_blocked';
+  payload: SessionScopedPayload & {
+    providerId: string;
+    model: string;
+    state: 'blocked';
+    fallbackProviderId: string;
+    fallbackModel: string;
+    lastError: string;
+    timestamp: number;
+  };
+}
+
 export interface WSProviderStreamError {
   type: 'provider.stream_error';
   payload: SessionScopedPayload & {
@@ -285,45 +311,118 @@ export interface ChronicleEventView {
   durationNs?: string | undefined;
   scope: Record<string, string | undefined>;
   correlation: Record<string, string | undefined>;
-  runtime?: { providerId?: string; modelId?: string; processId?: number; parentProcessId?: number } | undefined;
-  resource?: { kind: string; id: string; path?: string; lineStart?: number; lineEnd?: number } | undefined;
+  runtime?:
+    | { providerId?: string; modelId?: string; processId?: number; parentProcessId?: number }
+    | undefined;
+  resource?:
+    | { kind: string; id: string; path?: string; lineStart?: number; lineEnd?: number }
+    | undefined;
   attributes?: Record<string, unknown> | undefined;
   tags?: Record<string, string> | undefined;
 }
 
 export interface ChronicleQuery {
   eventId?: string;
-  eventTypes?: string[]; outcomes?: string[]; from?: string; to?: string;
-  projectId?: string; sessionId?: string; agentId?: string; taskId?: string;
-  providerId?: string; modelId?: string; traceId?: string; logicalRequestId?: string;
-  attemptId?: string; toolCallId?: string; resourceKind?: string; resourceId?: string;
-  path?: string; line?: number; text?: string; order?: 'asc' | 'desc'; limit?: number; cursor?: string;
-  tags?: Record<string, string>; attributes?: Record<string, unknown>;
+  eventTypes?: string[];
+  outcomes?: string[];
+  from?: string;
+  to?: string;
+  projectId?: string;
+  sessionId?: string;
+  agentId?: string;
+  taskId?: string;
+  providerId?: string;
+  modelId?: string;
+  traceId?: string;
+  logicalRequestId?: string;
+  attemptId?: string;
+  toolCallId?: string;
+  resourceKind?: string;
+  resourceId?: string;
+  path?: string;
+  line?: number;
+  text?: string;
+  order?: 'asc' | 'desc';
+  limit?: number;
+  cursor?: string;
+  tags?: Record<string, string>;
+  attributes?: Record<string, unknown>;
 }
-export type ChronicleFacet = 'eventType' | 'outcome' | 'projectId' | 'sessionId' | 'agentId' | 'taskId' | 'providerId' | 'modelId' | 'resourceKind' | 'resourcePath' | 'toolCallId';
-export interface ChronicleFacetValue { value: string; count: number }
+export type ChronicleFacet =
+  | 'eventType'
+  | 'outcome'
+  | 'projectId'
+  | 'sessionId'
+  | 'agentId'
+  | 'taskId'
+  | 'providerId'
+  | 'modelId'
+  | 'resourceKind'
+  | 'resourcePath'
+  | 'toolCallId';
+export interface ChronicleFacetValue {
+  value: string;
+  count: number;
+}
 export interface ChronicleQueryResult {
-  events: ChronicleEventView[]; total: number; nextCursor?: string;
-  scannedEvents: number; sourceFiles: number; invalidLines: number;
+  events: ChronicleEventView[];
+  total: number;
+  nextCursor?: string;
+  scannedEvents: number;
+  sourceFiles: number;
+  invalidLines: number;
   summary: ChronicleSummary;
 }
 export interface ChronicleSummary {
-  logicalRequests: number; modelAttempts: number; completedAttempts: number; failedAttempts: number;
-  scheduledRetries: number; fallbacks: number; providers: number; models: number;
-  inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number;
+  logicalRequests: number;
+  modelAttempts: number;
+  completedAttempts: number;
+  failedAttempts: number;
+  scheduledRetries: number;
+  fallbacks: number;
+  providers: number;
+  models: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   estimatedCostUsd: number;
-  providerAvgDurationMs: number; providerP95DurationMs: number;
-  toolCalls: number; completedTools: number; failedTools: number; toolAvgDurationMs: number;
-  processes: number; failedProcesses: number; fileEvents: number; uniqueFiles: number;
-  agentEvents: number; uniqueAgents: number; decisions: number; escalations: number;
-  failures: number; cancellations: number;
+  providerAvgDurationMs: number;
+  providerP95DurationMs: number;
+  toolCalls: number;
+  completedTools: number;
+  failedTools: number;
+  toolAvgDurationMs: number;
+  processes: number;
+  failedProcesses: number;
+  fileEvents: number;
+  uniqueFiles: number;
+  agentEvents: number;
+  uniqueAgents: number;
+  decisions: number;
+  escalations: number;
+  failures: number;
+  cancellations: number;
   families: Record<ChronicleSignalFamily, number>;
   failuresByFamily: Record<ChronicleSignalFamily, number>;
 }
-export type ChronicleSignalFamily = 'llm'|'agent'|'tool'|'file'|'memory'|'task'|'decision'|'runtime';
+export type ChronicleSignalFamily =
+  | 'llm'
+  | 'agent'
+  | 'tool'
+  | 'file'
+  | 'memory'
+  | 'task'
+  | 'decision'
+  | 'runtime';
 export interface ChronicleGraphResult {
   nodes: ChronicleEventView[];
-  edges: Array<{ from: string; to: string; kind: string; confidence: 'explicit' | 'correlated' | 'inferred' }>;
+  edges: Array<{
+    from: string;
+    to: string;
+    kind: string;
+    confidence: 'explicit' | 'correlated' | 'inferred';
+  }>;
   truncated: boolean;
 }
 
@@ -764,7 +863,15 @@ export interface MemoryCandidateEntry {
   tags: string[];
   anchors: SuperMemoryAnchor[];
   sources: Array<{
-    type: 'user' | 'session' | 'tool_result' | 'project_instruction' | 'file' | 'test' | 'command' | 'legacy_memory';
+    type:
+      | 'user'
+      | 'session'
+      | 'tool_result'
+      | 'project_instruction'
+      | 'file'
+      | 'test'
+      | 'command'
+      | 'legacy_memory';
     sessionId?: string;
     toolUseId?: string;
     path?: string;
@@ -780,15 +887,17 @@ export interface WSMemorySuperBackfillRecoverable {
   type: 'memory.super.backfillRecoverable';
   payload: {
     /** Records that were backfilled into a fresh active version (dryRun=false). */
-    recoveredRecords?: Array<{
-      originalId: string;
-      newActiveId: string;
-      kind: string;
-      scope: string;
-      textPreview: string;
-      deletedAt: string;
-      persistence: string;
-    }> | undefined;
+    recoveredRecords?:
+      | Array<{
+          originalId: string;
+          newActiveId: string;
+          kind: string;
+          scope: string;
+          textPreview: string;
+          deletedAt: string;
+          persistence: string;
+        }>
+      | undefined;
     /** Total count of records recovered in this run. */
     recovered?: number | undefined;
     /** Total count examined. */
@@ -1732,7 +1841,10 @@ export type WSClientMessageCore =
         contradicts?: string[] | undefined;
       };
     }
-  | { type: 'memory.super.delete'; payload: { id: string; reason?: string | undefined; neverInject?: boolean | undefined } }
+  | {
+      type: 'memory.super.delete';
+      payload: { id: string; reason?: string | undefined; neverInject?: boolean | undefined };
+    }
   | {
       type: 'memory.super.recover';
       payload: { id: string; reason?: string | undefined };
@@ -1808,7 +1920,14 @@ export type WSClientMessageCore =
   | { type: 'diag.get'; payload?: SessionScopedPayload }
   | { type: 'stats.get'; payload?: SessionScopedPayload }
   | { type: 'chronicle.query'; payload: { query?: ChronicleQuery | undefined } }
-  | { type: 'chronicle.facet'; payload: { field: ChronicleFacet; query?: ChronicleQuery | undefined; limit?: number | undefined } }
+  | {
+      type: 'chronicle.facet';
+      payload: {
+        field: ChronicleFacet;
+        query?: ChronicleQuery | undefined;
+        limit?: number | undefined;
+      };
+    }
   | { type: 'chronicle.graph'; payload: { seed: ChronicleQuery; hops?: number; maxNodes?: number } }
   | { type: 'session.save'; payload?: SessionScopedPayload }
   | { type: 'sessions.list'; payload: { limit: number } & SessionScopedPayload }
@@ -2022,6 +2141,8 @@ export type WSServerMessage =
   | WSProviderRetry
   | WSProviderError
   | WSProviderFallback
+  | WSProviderStatusChanged
+  | WSProviderActiveBlocked
   | WSProviderStreamError
   | WSRunResult
   | WSSessionStats
@@ -2069,7 +2190,14 @@ export type WSServerMessage =
   | WSDiagGet
   | WSStatsGet
   | { type: 'chronicle.query_result'; payload: ChronicleQueryResult }
-  | { type: 'chronicle.facet_result'; payload: { field: ChronicleFacet; values: ChronicleFacetValue[]; diagnostics: { sourceFiles: number; invalidLines: number } } }
+  | {
+      type: 'chronicle.facet_result';
+      payload: {
+        field: ChronicleFacet;
+        values: ChronicleFacetValue[];
+        diagnostics: { sourceFiles: number; invalidLines: number };
+      };
+    }
   | { type: 'chronicle.graph_result'; payload: ChronicleGraphResult }
   | { type: 'chronicle.error'; payload: { message: string } }
   | WSSessionsList

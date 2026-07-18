@@ -47,6 +47,15 @@ export interface MemoryEventMap {
     sessionId?: string | undefined;
     traceId?: string | undefined;
   };
+  /** Fired when a review candidate is resolved via resolveCandidate (delete/archive/keep). */
+  'memory.candidate_resolved': {
+    candidateId: string;
+    decision: 'delete' | 'archive' | 'keep';
+    applied: boolean;
+    targetMemoryId?: string | undefined;
+    sessionId?: string | undefined;
+    traceId?: string | undefined;
+  };
   'memory.updated': {
     memoryId: string;
     status: string;

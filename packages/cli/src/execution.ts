@@ -36,7 +36,7 @@ import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import {
   attachTodosCheckpoint,
-  CascadeAgentKind,
+  type CascadeAgentKind,
   CHIMERA_REVIEW_PROMPT,
   type ChimeraCascadeNeededPayload,
   type ChimeraReviewCompletePayload,
@@ -56,26 +56,39 @@ import { capabilitiesFor } from '@wrongstack/providers';
 import { createToolVisionAdapters } from '@wrongstack/runtime/vision';
 import { runSingleShotDispatch } from './boot/dispatch-singleshot.js';
 import { runWebUIDispatch } from './boot/dispatch-webui.js';
-import { createKanbanRunMirror } from './webui-server/kanban-run-mirror.js';
-import { wireGoal } from './boot/tui-goal-wiring.js';
 import { setupAutonomousCoordinator } from './boot/tui-coordinator-setup.js';
-import { registerDebugStreamCallback, restoreDebugStreamCallback } from './boot/tui-debug-stream.js';
+import {
+  registerDebugStreamCallback,
+  restoreDebugStreamCallback,
+} from './boot/tui-debug-stream.js';
+import { wireGoal } from './boot/tui-goal-wiring.js';
 import { getLiveSessions, onSwitchToSession } from './boot/tui-live-sessions.js';
-import { getProjectPickerItems, onProjectSelect, type ProjectPickerContext } from './boot/tui-project-picker-callback.js';
+import {
+  getProjectPickerItems,
+  onProjectSelect,
+  type ProjectPickerContext,
+} from './boot/tui-project-picker-callback.js';
 import { handleProjectSwitchSpawn } from './boot/tui-project-spawn.js';
-import { switchProjectInPlace as switchProjectInPlaceExtracted, type ProjectSwitchContext } from './boot/tui-project-switch.js';
+import {
+  type ProjectSwitchContext,
+  switchProjectInPlace as switchProjectInPlaceExtracted,
+} from './boot/tui-project-switch.js';
 import type { TuiRuntimeState } from './boot/tui-runtime-state.js';
-import { getSDDContext as getSDDContextExtracted, onSDDOutput as onSDDOutputExtracted } from './boot/tui-sdd-callback.js';
+import {
+  getSDDContext as getSDDContextExtracted,
+  onSDDOutput as onSDDOutputExtracted,
+} from './boot/tui-sdd-callback.js';
 import { resumeSession } from './boot/tui-session-resume.js';
 import { createSettingsAdapter } from './boot/tui-settings-adapter.js';
-import { FleetStatusLine } from './fleet-statusline.js';
 import { createBrainPanelHost } from './brain-menu/panel-service.js';
+import type { ExecuteDeps } from './execute-deps.js';
+import { FleetStatusLine } from './fleet-statusline.js';
 import { type PredictLLMProvider, predictNextTasks } from './next-task-predictor.js';
 import { resolveActiveApiKey } from './provider-config-utils.js';
 import { parseSuggestionsFromOutput, runRepl } from './repl.js';
 import { setSuggestions } from './slash-commands/suggestion-store.js';
 import { CLI_VERSION } from './version.js';
-import type { ExecuteDeps } from './execute-deps.js';
+import { createKanbanRunMirror } from './webui-server/kanban-run-mirror.js';
 
 /**
  * Settings payload shared by `saveSettings` (persist) and `applyLiveSettings`
@@ -89,7 +102,7 @@ export interface LiveSettingsInput {
   yolo?: boolean | undefined;
   /** @deprecated Use fleetChatVerbosity; kept for boolean-only writers. */
   streamFleet?: boolean | undefined;
-  /** Fleet-chat verbosity (off | compact | full); persists with a mirrored streamFleet boolean. */
+  /** Fleet-chat verbosity (off | full); persists with a mirrored streamFleet boolean. */
   fleetChatVerbosity?: FleetChatVerbosity | undefined;
   chime?: boolean | undefined;
   confirmExit?: boolean | undefined;
@@ -145,52 +158,131 @@ export interface LiveSettingsInput {
   showModelReasoning?: boolean | undefined;
 }
 
-export type { ExecuteDeps, PluginPickerItem, McpPickerItem, ToolPickerItem, BrainData, BrainLogEntry, RestoredToolCall } from './execute-deps.js';
+export type {
+  BrainData,
+  BrainLogEntry,
+  ExecuteDeps,
+  McpPickerItem,
+  PluginPickerItem,
+  RestoredToolCall,
+  ToolPickerItem,
+} from './execute-deps.js';
 
 export async function execute(deps: ExecuteDeps): Promise<number> {
   const {
     core: {
-      agent, events, config, configStore, wpaths: initialWpaths,
-      projectRoot: initialProjectRoot, flags, positional, slashRegistry,
-      tokenCounter, recoveryLock: initialRecoveryLock,
+      agent,
+      events,
+      config,
+      configStore,
+      wpaths: initialWpaths,
+      projectRoot: initialProjectRoot,
+      flags,
+      positional,
+      slashRegistry,
+      tokenCounter,
+      recoveryLock: initialRecoveryLock,
     },
     session: {
-      session, context, attachments, queueStore, mcpRegistry, mailbox,
-      sessionStore, memoryStore, modeStore, detachTodosCheckpoint,
-      restoredMessages, restoredToolCalls, restoredEvents, needsSetup,
+      session,
+      context,
+      attachments,
+      queueStore,
+      mcpRegistry,
+      mailbox,
+      sessionStore,
+      memoryStore,
+      modeStore,
+      detachTodosCheckpoint,
+      restoredMessages,
+      restoredToolCalls,
+      restoredEvents,
+      needsSetup,
     },
     provider: {
-      modelsRegistry, savedProviderCfg, resolvedProvider,
-      getPickableProviders, switchProviderAndModel, onModelContextResolved,
+      modelsRegistry,
+      savedProviderCfg,
+      resolvedProvider,
+      statusTracker,
+      getPickableProviders,
+      switchProviderAndModel,
+      onModelContextResolved,
       sddSubagentFactory,
     },
     ui: {
-      renderer, reader, secretInputController, stats, effectiveMaxContext, getEffectiveMaxContext,
-      skillLoader, promptLoader, modeId,
+      renderer,
+      reader,
+      secretInputController,
+      stats,
+      effectiveMaxContext,
+      getEffectiveMaxContext,
+      skillLoader,
+      promptLoader,
+      modeId,
     },
     fleet: {
-      director, getDirector, coordinatorController, fleetRoster,
-      fleetStreamController, agentsMonitorController, agentTranscripts,
-      authHost, onPanelOpen,
+      director,
+      getDirector,
+      coordinatorController,
+      fleetRoster,
+      fleetStreamController,
+      agentsMonitorController,
+      agentTranscripts,
+      authHost,
+      onPanelOpen,
     },
     controllers: {
-      interruptController, enhanceController, getEnhancerReasoning,
-      buildEnhancerProvider, getEnhanceFallbackRef,
-      statuslineHiddenItems, setStatuslineHiddenItems, saveStatuslineHiddenItems,
-      getYolo, onYolo, getAutonomy, onAutonomy, getNextPredict,
-      applyLiveSettings, onCountdownTick,
+      interruptController,
+      enhanceController,
+      getEnhancerReasoning,
+      buildEnhancerProvider,
+      getEnhanceFallbackRef,
+      getConfiguredRefinerRef,
+      statuslineHiddenItems,
+      setStatuslineHiddenItems,
+      saveStatuslineHiddenItems,
+      getYolo,
+      onYolo,
+      getAutonomy,
+      onAutonomy,
+      getNextPredict,
+      applyLiveSettings,
+      onCountdownTick,
     },
     picker: {
-      getPluginItems, onPluginToggle, getMcpServers, onMcpToggle, onMcpRestart,
-      getToolsItems, onToolToggle, getBrainData, onBrainRiskLevel, getBrainLog,
-      brain, brainSettings, brainRuntime, getShadowData, onShadowStart, onShadowStop,
+      getPluginItems,
+      onPluginToggle,
+      getMcpServers,
+      onMcpToggle,
+      onMcpRestart,
+      getToolsItems,
+      onToolToggle,
+      getBrainData,
+      onBrainRiskLevel,
+      getBrainLog,
+      brain,
+      brainSettings,
+      brainRuntime,
+      getShadowData,
+      onShadowStart,
+      onShadowStop,
     } = {},
     lifecycles: {
-      getSuggestions, getAutoSuggestions, onSuggestionsParsed,
-      autonomyNextPrompt, autoProceedDelayMs, autoProceedMaxIterations,
-      onValidateAutoProceed, getEternalEngine, getParallelEngine, getSddRun,
-      onSddLifecycle, subscribeEternalIteration, subscribeEternalStage,
-      onDestroy, onCoordinatorStop,
+      getSuggestions,
+      getAutoSuggestions,
+      onSuggestionsParsed,
+      autonomyNextPrompt,
+      autoProceedDelayMs,
+      autoProceedMaxIterations,
+      onValidateAutoProceed,
+      getEternalEngine,
+      getParallelEngine,
+      getSddRun,
+      onSddLifecycle,
+      subscribeEternalIteration,
+      subscribeEternalStage,
+      onDestroy,
+      onCoordinatorStop,
     } = {},
   } = deps;
 
@@ -261,7 +353,9 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
         const lines: string[] = [];
 
         // Section 1: File list with diffs
-        lines.push(`Review the following ${p.files.length} file(s) changed in this session at ${p.cwd}.`);
+        lines.push(
+          `Review the following ${p.files.length} file(s) changed in this session at ${p.cwd}.`,
+        );
         lines.push('');
         for (const f of p.files) {
           lines.push(`## [${f.status.toUpperCase()}] ${f.path}`);
@@ -286,7 +380,9 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
           if (siblings.length > 0) {
             lines.push('---');
             lines.push('');
-            lines.push(`**Also changed this session (${siblings.length} files — for context, NOT in your review scope):**`);
+            lines.push(
+              `**Also changed this session (${siblings.length} files — for context, NOT in your review scope):**`,
+            );
             lines.push(siblings.slice(0, 30).join('\n'));
             lines.push('');
           }
@@ -417,15 +513,15 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
           //   3. Completely different provider/API (model-specific failures)
           fallbackModels: [
             // Tier 1 — same model pool, alternative endpoint:
-            "opencode/deepseek-chat",
-            "opencode-go/deepseek-v4-pro",
-            
+            'opencode/deepseek-chat',
+            'opencode-go/deepseek-v4-pro',
+
             // Tier 2 — smaller models on same provider:
-            "deepseek/deepseek-chat",
-            
+            'deepseek/deepseek-chat',
+
             // Tier 3 — different providers entirely:
-            "anthropic-oauth/claude-opus-4-8",
-            "openai-codex/gpt-5.3-codex-spark",
+            'anthropic-oauth/claude-opus-4-8',
+            'openai-codex/gpt-5.3-codex-spark',
           ],
         };
 
@@ -503,8 +599,8 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
           //   off  → type:result  — leader sees it, waits for user command
           //   ask  → type:ask     — leader prompts user for permission
           //   auto → type:result  — plus spawn a fix subagent immediately
-          const autoFix = (agent.ctx.meta['chimeraAutoFix'] as string | undefined)
-            ?? p.config.autoFix ?? 'off';
+          const autoFix =
+            (agent.ctx.meta['chimeraAutoFix'] as string | undefined) ?? p.config.autoFix ?? 'off';
           const mailboxType = autoFix === 'ask' ? 'ask' : 'result';
           const subject =
             autoFix === 'ask'
@@ -517,9 +613,11 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
               to: '*',
               type: mailboxType,
               subject,
-              body: reviewText.length > 8000
-                ? reviewText.slice(0, 8000) + '\n\n…(truncated, full report in session transcript)'
-                : reviewText,
+              body:
+                reviewText.length > 8000
+                  ? reviewText.slice(0, 8000) +
+                    '\n\n…(truncated, full report in session transcript)'
+                  : reviewText,
               priority: 'normal',
             });
           } catch (mailErr) {
@@ -566,14 +664,20 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
               };
               const fixSubagentId = await dir.spawn(fixCfg);
               const fixTaskId = (await import('node:crypto')).randomUUID();
-              await dir.assign({ id: fixTaskId, description: fixTaskDesc, subagentId: fixSubagentId });
+              await dir.assign({
+                id: fixTaskId,
+                description: fixTaskDesc,
+                subagentId: fixSubagentId,
+              });
               const fixResults = await dir.awaitTasks([fixTaskId]);
               const fixResult = fixResults[0];
               if (fixResult?.status === 'success') {
                 await session.append({
                   type: 'llm_response',
                   ts: new Date().toISOString(),
-                  content: [{ type: 'text', text: `Chimera fix subagent completed: ${fixResult.result}` }],
+                  content: [
+                    { type: 'text', text: `Chimera fix subagent completed: ${fixResult.result}` },
+                  ],
                   stopReason: 'end_turn' as import('@wrongstack/core').StopReason,
                   usage: { input: 0, output: 0 },
                 });
@@ -721,9 +825,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
 
           if (result?.status === 'success') {
             const resultText =
-              typeof result.result === 'string'
-                ? result.result
-                : JSON.stringify(result.result);
+              typeof result.result === 'string' ? result.result : JSON.stringify(result.result);
             await session.append({
               type: 'llm_response',
               ts: new Date().toISOString(),
@@ -1274,6 +1376,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
           getEnhancerReasoning,
           buildEnhancerProvider,
           getEnhanceFallbackRef,
+          getConfiguredRefinerRef,
           statuslineHiddenItems,
           setStatuslineHiddenItems,
           saveStatuslineHiddenItems,
@@ -1359,7 +1462,10 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
             }));
           },
           onResumeSession: (sessionId: string) =>
-            resumeSession({ state, agent, tokenCounter, switchProviderAndModel, events }, sessionId),
+            resumeSession(
+              { state, agent, tokenCounter, switchProviderAndModel, events },
+              sessionId,
+            ),
           getProjectPickerItems: () => getProjectPickerItems(pickerCtx),
           onProjectSelect: (slug: string, kind: 'project' | 'action') =>
             onProjectSelect(pickerCtx, slug, kind),
@@ -1415,6 +1521,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
         agentTranscripts,
         onModelContextResolved,
         sddSubagentFactory,
+        statusTracker,
         ...(sddSubagentFactory
           ? {
               onKanbanDispatch: async (description, spawnOpts) => {
@@ -1455,9 +1562,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
                       spawnOpts?.allowedCapabilities ?? WIDE_SUBAGENT_CAPABILITIES,
                     ...(resolvedProvider ? { provider: resolvedProvider } : {}),
                     ...(resolvedModel ? { model: resolvedModel } : {}),
-                    ...(resolvedFallbackModels
-                      ? { fallbackModels: resolvedFallbackModels }
-                      : {}),
+                    ...(resolvedFallbackModels ? { fallbackModels: resolvedFallbackModels } : {}),
                     ...(spawnOpts?.tools ? { tools: spawnOpts.tools } : {}),
                   });
                   try {
@@ -1514,67 +1619,67 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
           })
         : null;
       try {
-      code = await runRepl({
-        agent,
-        renderer,
-        reader,
-        slashRegistry,
-        tokenCounter,
-        visionAdapters,
-        supportsVision,
-        attachments,
-        effectiveMaxContext,
-        getEffectiveMaxContext,
-        projectName: path.basename(projectRoot) || undefined,
-        projectRoot,
-        appConfig: config,
-        getSessionId: () => agent.ctx.session?.id ?? session.id,
-        getAutonomy,
-        onAutonomy,
-        getNextPredict,
-        onSuggestionsParsed,
-        getSuggestions,
-        getAutoSuggestions,
-        getYolo,
-        autonomyNextPrompt,
-        autoProceedDelayMs,
-        onValidateAutoProceed,
-        autoProceedMaxIterations,
-        getEternalEngine,
-        getParallelEngine,
-        getSddRun,
-        skillLoader,
-        agentsMonitorController,
-        fleetStreamController,
-        interruptController,
-        onInterruptFleet: () => {
-          // Mirror the slash /fleet kill path: remove (not just terminate)
-          // every running/idle subagent so a Ctrl+C stops the whole fleet.
-          // Resolved through getDirector so subagents spawned via the LAZY
-          // director build (delegate tool in a non---director session) are
-          // seen too — the static `director` is null there.
-          const dir = getDirector?.() ?? director;
-          if (!dir) return 0;
-          let killed = 0;
-          for (const sa of dir.status().subagents) {
-            if (sa.status === 'running' || sa.status === 'idle') {
-              try {
-                void dir.remove(sa.id);
-                killed++;
-              } catch {
-                /* best-effort */
+        code = await runRepl({
+          agent,
+          renderer,
+          reader,
+          slashRegistry,
+          tokenCounter,
+          visionAdapters,
+          supportsVision,
+          attachments,
+          effectiveMaxContext,
+          getEffectiveMaxContext,
+          projectName: path.basename(projectRoot) || undefined,
+          projectRoot,
+          appConfig: config,
+          getSessionId: () => agent.ctx.session?.id ?? session.id,
+          getAutonomy,
+          onAutonomy,
+          getNextPredict,
+          onSuggestionsParsed,
+          getSuggestions,
+          getAutoSuggestions,
+          getYolo,
+          autonomyNextPrompt,
+          autoProceedDelayMs,
+          onValidateAutoProceed,
+          autoProceedMaxIterations,
+          getEternalEngine,
+          getParallelEngine,
+          getSddRun,
+          skillLoader,
+          agentsMonitorController,
+          fleetStreamController,
+          interruptController,
+          onInterruptFleet: () => {
+            // Mirror the slash /fleet kill path: remove (not just terminate)
+            // every running/idle subagent so a Ctrl+C stops the whole fleet.
+            // Resolved through getDirector so subagents spawned via the LAZY
+            // director build (delegate tool in a non---director session) are
+            // seen too — the static `director` is null there.
+            const dir = getDirector?.() ?? director;
+            if (!dir) return 0;
+            let killed = 0;
+            for (const sa of dir.status().subagents) {
+              if (sa.status === 'running' || sa.status === 'idle') {
+                try {
+                  void dir.remove(sa.id);
+                  killed++;
+                } catch {
+                  /* best-effort */
+                }
               }
             }
-          }
-          return killed;
-        },
-        onAgentIterationComplete: (tokens) => {
-          const dir = getDirector?.() ?? director;
-          dir?.setLeaderContextPressure(tokens);
-        },
-        onCountdownTick,
-        onDestroy,
-      });
+            return killed;
+          },
+          onAgentIterationComplete: (tokens) => {
+            const dir = getDirector?.() ?? director;
+            dir?.setLeaderContextPressure(tokens);
+          },
+          onCountdownTick,
+          onDestroy,
+        });
       } finally {
         headlessKanbanMirror?.dispose();
       }
@@ -1601,12 +1706,14 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
     // (e.g. MCP registry stop rejecting) cannot skip subsequent
     // durability steps (session_end, lock clear, reader close).
     await mcpRegistry.stopAll().catch((err) => {
-      console.warn(JSON.stringify({
-        level: 'warn',
-        event: 'shutdown.mcp_stop_failed',
-        message: `MCP registry stopAll failed: ${(err instanceof Error ? err.message : String(err))}`,
-        timestamp: new Date().toISOString(),
-      }));
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          event: 'shutdown.mcp_stop_failed',
+          message: `MCP registry stopAll failed: ${err instanceof Error ? err.message : String(err)}`,
+          timestamp: new Date().toISOString(),
+        }),
+      );
     });
     // Use the CURRENT writer, not the one captured at startup — an in-app
     // resume (TUI/WebUI) swaps agent.ctx.session to the resumed session's
@@ -1614,19 +1721,23 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
     // session never gets finalized (no summary sidecar, no index entry).
     const activeSession = agent.ctx.session ?? session;
     const pending = activeSession.pendingToolUses;
-    await activeSession.append({
-      type: 'session_end',
-      ts: new Date().toISOString(),
-      usage: tokenCounter.total(),
-      pendingToolUses: pending.length > 0 ? pending : undefined,
-    }).catch((err) => {
-      console.warn(JSON.stringify({
-        level: 'warn',
-        event: 'shutdown.session_end_append_failed',
-        message: `session_end append failed: ${(err instanceof Error ? err.message : String(err))}`,
-        timestamp: new Date().toISOString(),
-      }));
-    });
+    await activeSession
+      .append({
+        type: 'session_end',
+        ts: new Date().toISOString(),
+        usage: tokenCounter.total(),
+        pendingToolUses: pending.length > 0 ? pending : undefined,
+      })
+      .catch((err) => {
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            event: 'shutdown.session_end_append_failed',
+            message: `session_end append failed: ${err instanceof Error ? err.message : String(err)}`,
+            timestamp: new Date().toISOString(),
+          }),
+        );
+      });
     events.emit('session.ended', {
       id: activeSession.id,
       sessionId: activeSession.id,
@@ -1637,32 +1748,38 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
     // and the review text is silently dropped because append returns early on closed.
     if (pendingChimeraWork) {
       await pendingChimeraWork.catch((err) => {
-        console.warn(JSON.stringify({
-          level: 'warn',
-          event: 'shutdown.chimera_work_failed',
-          message: `Pending chimera work failed: ${(err instanceof Error ? err.message : String(err))}`,
-          timestamp: new Date().toISOString(),
-        }));
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            event: 'shutdown.chimera_work_failed',
+            message: `Pending chimera work failed: ${err instanceof Error ? err.message : String(err)}`,
+            timestamp: new Date().toISOString(),
+          }),
+        );
       });
     }
     await activeSession.close().catch((err) => {
-      console.warn(JSON.stringify({
-        level: 'warn',
-        event: 'shutdown.session_close_failed',
-        message: `Session close failed: ${(err instanceof Error ? err.message : String(err))}`,
-        timestamp: new Date().toISOString(),
-      }));
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          event: 'shutdown.session_close_failed',
+          message: `Session close failed: ${err instanceof Error ? err.message : String(err)}`,
+          timestamp: new Date().toISOString(),
+        }),
+      );
     });
     await currentRecoveryLock
       .clear()
       .catch(() => undefined); /* best-effort: stale lock will be recovered on next startup */
     await reader.close().catch((err) => {
-      console.warn(JSON.stringify({
-        level: 'warn',
-        event: 'shutdown.reader_close_failed',
-        message: `Input reader close failed: ${(err instanceof Error ? err.message : String(err))}`,
-        timestamp: new Date().toISOString(),
-      }));
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          event: 'shutdown.reader_close_failed',
+          message: `Input reader close failed: ${err instanceof Error ? err.message : String(err)}`,
+          timestamp: new Date().toISOString(),
+        }),
+      );
     });
   }
   return code;

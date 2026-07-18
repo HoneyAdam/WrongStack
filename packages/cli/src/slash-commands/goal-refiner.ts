@@ -9,7 +9,7 @@ import {
 /**
  * Result of refining a user's raw goal into a clear, actionable mission.
  */
-export interface RefinedGoal {
+interface RefinedGoal {
   /** Unambiguous, detailed goal statement. */
   refinedGoal: string;
   /** Concrete, verifiable deliverables (one per entry). */
@@ -19,7 +19,7 @@ export interface RefinedGoal {
 /**
  * Options for goal refinement with fallback tiers.
  */
-export interface GoalRefinerOptions {
+interface GoalRefinerOptions {
   /** Primary provider (usually the session's main LLM). */
   primaryProvider?: Provider | undefined;
   /** Primary model on the primary provider. */
@@ -49,7 +49,7 @@ export interface GoalRefinerOptions {
  * Both `provider` and `model` are defined when a viable dedicated refiner
  * is found; otherwise the caller should use the primary session defaults.
  */
-export interface ResolvedRefinerTarget {
+interface ResolvedRefinerTarget {
   /** Resolved provider instance, ready for `provider.complete()`. */
   provider: Provider;
   /** Resolved model id on that provider. */

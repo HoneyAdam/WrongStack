@@ -32,7 +32,6 @@ export {
   META_AGENTS,
   PLANNING_AGENTS,
   REVIEW_AGENTS,
-  TOOLS as AGENT_TOOL_PRESETS,
   VERIFY_AGENTS,
 } from './agents/index.js';
 export {
@@ -142,9 +141,6 @@ export {
   // is the standalone read-only peer-snapshot tool from fleet-status-tool.ts
   // (exported below). The old leader-side fleet_status was consolidated into
   // `fleet` (action: status).
-  makeFleetTool as makeFleetUsageTool,
-  makeFleetTool as makeFleetSessionTool,
-  makeFleetTool as makeFleetHealthTool,
   makeKanbanQueueTool,
   makeQualityGateTool,
   makeRollUpTool,

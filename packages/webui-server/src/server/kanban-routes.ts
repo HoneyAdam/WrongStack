@@ -16,7 +16,7 @@ import {
   createBoard,
   duplicateBoard,
   exportBoardToTaskGraph,
-  generateBoardFromDescription,
+  createBoardFromText,
   getBoard,
   getKanbanOrchestrationSnapshot,
   getKanbanQueueHealth,
@@ -299,7 +299,7 @@ export async function handleKanbanRoute(
         }
         const board = await createBoard(
           ctx.projectRoot,
-          generateBoardFromDescription({
+          createBoardFromText({
             description,
             ...(payload?.title ? { title: payload.title as string } : {}),
             ...(payload?.context ? { context: payload.context as string } : {}),

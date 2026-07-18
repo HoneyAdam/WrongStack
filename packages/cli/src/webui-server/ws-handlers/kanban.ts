@@ -35,7 +35,7 @@ import {
   createBoard,
   duplicateBoard,
   exportBoardToTaskGraph,
-  generateBoardFromDescription,
+  createBoardFromText,
   getBoard,
   getKanbanOrchestrationSnapshot,
   getTask,
@@ -43,6 +43,8 @@ import {
   type KanbanBoard,
   type KanbanColumn,
   type KanbanEventContext,
+  type KanbanLifecycleStage,
+  type KanbanLink,
   type KanbanTask,
   type KanbanTaskPriority,
   type KanbanTaskStatus,
@@ -63,11 +65,13 @@ import {
   syncBoardFromTaskGraph,
   touchKanbanPresence,
   transferTaskToBoard,
+  transitionTask,
   updateBoard as updateBoardManager,
   updateCheckOnTask,
   updateGoalMetricOnTask,
   updateTask,
   updateTaskAssignment,
+  KANBAN_AGENT_STAGES,
 } from '@wrongstack/kanban';
 import { applySessionKanbanTaskToSource } from '@wrongstack/tools/session-kanban';
 import type { WebSocket } from 'ws';
@@ -325,7 +329,7 @@ export async function handleKanbanMessage(
           fail(ctx, ws, type, 'description required');
           return;
         }
-        const genInput = generateBoardFromDescription({
+        const genInput = createBoardFromText({
           description,
           ...(payload?.title ? { title: payload.title as string } : {}),
           ...(payload?.context ? { context: payload.context as string } : {}),
@@ -699,6 +703,95 @@ export async function handleKanbanMessage(
           return;
         }
         ok(ctx, ws, type, result.targetBoard);
+        return;
+      }
+
+      // ── Task lifecycle transition (managed boards) ──
+      case 'kanban.task.transition': {
+        const boardId = payload?.boardId as string | undefined;
+        const taskId = payload?.taskId as string | undefined;
+        const toStage = payload?.to as string | undefined;
+        const actor = payload?.actor as string | undefined;
+        if (!boardId || !taskId || !toStage || !actor) {
+          fail(ctx, ws, type, 'boardId, taskId, to, and actor are required');
+          return;
+        }
+        // Validate the target stage against the five canonical lifecycle stages.
+        if (!KANBAN_AGENT_STAGES.includes(toStage as KanbanLifecycleStage)) {
+          fail(
+            ctx,
+            ws,
+            type,
+            `Invalid lifecycle stage "${toStage}". Must be one of: ${KANBAN_AGENT_STAGES.join(', ')}`,
+          );
+          return;
+        }
+        // Accept a nested `attachment` object (KanbanView format) or flat fields.
+        // Validate URL is non-blank and type is a recognised KanbanLink type
+        // so empty or malformed evidence cannot satisfy Review/Done guards.
+        const rawAttachment = payload?.attachment as Record<string, unknown> | undefined;
+        const nestedUrl =
+          rawAttachment && typeof rawAttachment.url === 'string'
+            ? rawAttachment.url.trim()
+            : '';
+        const flatUrl =
+          has(payload, 'attachmentUrl') && typeof payload?.attachmentUrl === 'string'
+            ? (payload.attachmentUrl as string).trim()
+            : '';
+        const validLinkTypes = ['issue', 'pr', 'doc', 'commit', 'design', 'file', 'url', 'other'] as const;
+        const rawType: string =
+          (rawAttachment && typeof rawAttachment.type === 'string' && rawAttachment.type.trim()
+            ? rawAttachment.type.trim()
+            : '') ||
+          (has(payload, 'attachmentType') && typeof payload?.attachmentType === 'string' && payload.attachmentType.trim()
+            ? (payload.attachmentType as string).trim()
+            : '') ||
+          'url';
+        const linkType = validLinkTypes.includes(rawType as typeof validLinkTypes[number])
+          ? (rawType as KanbanLink['type'])
+          : 'url';
+        const attachment: KanbanLink | undefined =
+          nestedUrl.length > 0
+            ? {
+                url: nestedUrl,
+                type: linkType,
+                ...(rawAttachment && typeof rawAttachment.title === 'string' && rawAttachment.title.trim()
+                  ? { title: rawAttachment.title.trim() }
+                  : {}),
+              }
+            : flatUrl.length > 0
+              ? {
+                  url: flatUrl,
+                  type: linkType,
+                  ...(typeof payload?.attachmentTitle === 'string' && payload.attachmentTitle.trim()
+                    ? { title: payload.attachmentTitle.trim() }
+                    : {}),
+                }
+              : undefined;
+        const result = await transitionTask(projectRoot, boardId, taskId, {
+          to: toStage as KanbanLifecycleStage,
+          actor,
+          ...(has(payload, 'action') ? { action: payload?.action as string } : {}),
+          ...(has(payload, 'comment') ? { comment: payload?.comment as string } : {}),
+          ...(attachment !== undefined ? { attachment } : {}),
+        });
+        if (!result) {
+          fail(ctx, ws, type, 'Transition failed');
+          return;
+        }
+        await syncSessionSource(ctx, result.task);
+        const updatedBoard = await getBoard(projectRoot, boardId);
+        if (updatedBoard) {
+          ctx.broadcast({
+            type: 'kanban.get',
+            payload: { success: true, data: { board: updatedBoard } },
+          });
+        }
+        ok(ctx, ws, type, {
+          board: result.board,
+          task: result.task,
+          transition: result.transition,
+        });
         return;
       }
 

@@ -27,23 +27,26 @@ import { FORBIDDEN_PROTO_KEYS } from '@wrongstack/core/utils';
 interface CliWebUIOptions {
   agent: { ctx: { meta: Record<string, unknown> } };
   globalConfigPath?: string | undefined;
-  appConfig?: {
-    fallbackModels?: string[] | undefined;
-    fallbackProfiles?: Record<string, string[]> | undefined;
-    favoriteModels?: string[] | undefined;
-    favoriteModelsOnly?: boolean | undefined;
-    fallbackAuto?: boolean | undefined;
-    modelMatrix?: Config['modelMatrix'] | undefined;
-    uiLocale?: string | undefined;
-  } | undefined;
+  appConfig?:
+    | {
+        fallbackModels?: string[] | undefined;
+        fallbackProfiles?: Record<string, string[]> | undefined;
+        favoriteModels?: string[] | undefined;
+        favoriteModelsOnly?: boolean | undefined;
+        modelAvailabilitySchedule?: import('@wrongstack/core').ModelBlackoutRule[] | undefined;
+        fallbackAuto?: boolean | undefined;
+        modelMatrix?: Config['modelMatrix'] | undefined;
+        uiLocale?: string | undefined;
+      }
+    | undefined;
 }
 
 import {
   atomicWrite,
   DefaultSecretVault,
-  FallbackProfileManager,
   decryptConfigSecrets,
   encryptConfigSecrets,
+  FallbackProfileManager,
 } from '@wrongstack/core';
 
 // ── PREF_KEYS ─────────────────────────────────────────────────────────────────
@@ -63,6 +66,7 @@ export const PREF_KEYS = [
   'fallbackProfiles',
   'favoriteModels',
   'favoriteModelsOnly',
+  'modelAvailabilitySchedule',
   'modelMatrix',
   'fallbackAuto',
   'uiLocale',
@@ -167,10 +171,10 @@ export async function seedConfigToMeta(opts: CliWebUIOptions): Promise<void> {
     meta['enhanceLanguage'] = (autonomyCfg['enhanceLanguage'] as string) ?? 'original';
     meta['nextPrediction'] = (cfg.nextPrediction as boolean) ?? false;
     meta['fallbackModels'] = (cfg.fallbackModels as string[]) ?? [];
-    meta['fallbackProfiles'] =
-      (cfg.fallbackProfiles as Record<string, string[]> | undefined) ?? {};
+    meta['fallbackProfiles'] = (cfg.fallbackProfiles as Record<string, string[]> | undefined) ?? {};
     meta['favoriteModels'] = (cfg.favoriteModels as string[]) ?? [];
     meta['favoriteModelsOnly'] = cfg.favoriteModelsOnly === true;
+    meta['modelAvailabilitySchedule'] = cfg.modelAvailabilitySchedule ?? [];
     meta['modelMatrix'] = (cfg.modelMatrix as Config['modelMatrix'] | undefined) ?? {};
     meta['fallbackAuto'] = cfg.fallbackAuto !== false;
     if (typeof cfg.uiLocale === 'string' && cfg.uiLocale) meta['uiLocale'] = cfg.uiLocale;
@@ -291,12 +295,11 @@ export async function seedConfigToMeta(opts: CliWebUIOptions): Promise<void> {
       } catch {
         resolvedChain = [];
       }
-      meta['autoReviewFallbackModels'] = resolvedChain.map(
-        (e) => `${e.providerId}/${e.model}`,
-      );
+      meta['autoReviewFallbackModels'] = resolvedChain.map((e) => `${e.providerId}/${e.model}`);
     }
     meta['autoReviewDebounceMs'] =
-      typeof autoReviewExt?.['debounceMs'] === 'number' && (autoReviewExt['debounceMs'] as number) >= 0
+      typeof autoReviewExt?.['debounceMs'] === 'number' &&
+      (autoReviewExt['debounceMs'] as number) >= 0
         ? (autoReviewExt['debounceMs'] as number)
         : 5000;
     meta['autoReviewMaxFilesPerBatch'] =
@@ -310,8 +313,7 @@ export async function seedConfigToMeta(opts: CliWebUIOptions): Promise<void> {
         ? (autoReviewExt['maxConcurrentReviews'] as number)
         : 2;
     const cascade = autoReviewExt?.['cascadeOn'];
-    meta['autoReviewCascadeOn'] =
-      cascade === 'critical' || cascade === 'high' ? cascade : 'off';
+    meta['autoReviewCascadeOn'] = cascade === 'critical' || cascade === 'high' ? cascade : 'off';
   } catch {
     // best-effort — missing/corrupt config just leaves prefs unseeded
   }
@@ -363,6 +365,12 @@ export function createPrefsSeeding(opts: CliWebUIOptions): PrefsSeeding {
       patchLiveAppConfig({ favoriteModels: payload['favoriteModels'] as string[] });
     if (typeof payload['favoriteModelsOnly'] === 'boolean')
       patchLiveAppConfig({ favoriteModelsOnly: payload['favoriteModelsOnly'] });
+    if (Array.isArray(payload['modelAvailabilitySchedule']))
+      patchLiveAppConfig({
+        modelAvailabilitySchedule: payload[
+          'modelAvailabilitySchedule'
+        ] as import('@wrongstack/core').ModelBlackoutRule[],
+      });
     if (typeof payload['fallbackAuto'] === 'boolean')
       patchLiveAppConfig({ fallbackAuto: payload['fallbackAuto'] });
     if (typeof payload['uiLocale'] === 'string')
@@ -426,6 +434,8 @@ export function createPrefsSeeding(opts: CliWebUIOptions): PrefsSeeding {
       if ('favoriteModels' in payload) decrypted['favoriteModels'] = payload['favoriteModels'];
       if ('favoriteModelsOnly' in payload)
         decrypted['favoriteModelsOnly'] = payload['favoriteModelsOnly'];
+      if ('modelAvailabilitySchedule' in payload)
+        decrypted['modelAvailabilitySchedule'] = payload['modelAvailabilitySchedule'];
       if ('modelMatrix' in payload) decrypted['modelMatrix'] = payload['modelMatrix'];
       if ('fallbackAuto' in payload) decrypted['fallbackAuto'] = payload['fallbackAuto'];
       if (typeof payload['uiLocale'] === 'string') decrypted['uiLocale'] = payload['uiLocale'];
@@ -454,7 +464,11 @@ export function createPrefsSeeding(opts: CliWebUIOptions): PrefsSeeding {
         decrypted['indexing'] = idx;
       }
 
-      if ('contextAutoCompact' in payload || 'contextStrategy' in payload || 'contextMode' in payload) {
+      if (
+        'contextAutoCompact' in payload ||
+        'contextStrategy' in payload ||
+        'contextMode' in payload
+      ) {
         const ctx2 = (decrypted.context as Record<string, unknown>) ?? {};
         if ('contextAutoCompact' in payload) ctx2['autoCompact'] = payload['contextAutoCompact'];
         if ('contextStrategy' in payload) ctx2['strategy'] = payload['contextStrategy'];
@@ -478,11 +492,19 @@ export function createPrefsSeeding(opts: CliWebUIOptions): PrefsSeeding {
       // Refiner + TUI visual prefs → autonomy block
       if ('refinerProvider' in payload) autonomy['refinerProvider'] = payload['refinerProvider'];
       if ('refinerModel' in payload) autonomy['refinerModel'] = payload['refinerModel'];
-      if ('refinerFallbackProfile' in payload) autonomy['refinerFallbackProfile'] = payload['refinerFallbackProfile'];
+      if ('refinerFallbackProfile' in payload)
+        autonomy['refinerFallbackProfile'] = payload['refinerFallbackProfile'];
       if ('thinkingWord' in payload) autonomy['thinkingWord'] = payload['thinkingWord'];
       if ('statuslineMode' in payload) autonomy['statuslineMode'] = payload['statuslineMode'];
       if ('animationStyle' in payload) autonomy['animationStyle'] = payload['animationStyle'];
-      if ('refinerProvider' in payload || 'refinerModel' in payload || 'refinerFallbackProfile' in payload || 'thinkingWord' in payload || 'statuslineMode' in payload || 'animationStyle' in payload) {
+      if (
+        'refinerProvider' in payload ||
+        'refinerModel' in payload ||
+        'refinerFallbackProfile' in payload ||
+        'thinkingWord' in payload ||
+        'statuslineMode' in payload ||
+        'animationStyle' in payload
+      ) {
         decrypted['autonomy'] = autonomy;
       }
 
@@ -545,7 +567,8 @@ export function createPrefsSeeding(opts: CliWebUIOptions): PrefsSeeding {
         typeof payload['breakerAutoKillResetMs'] === 'number'
       ) {
         const cb = (decrypted.circuitBreaker as Record<string, unknown>) ?? {};
-        if (typeof payload['breakerEnabled'] === 'boolean') cb['enabled'] = payload['breakerEnabled'];
+        if (typeof payload['breakerEnabled'] === 'boolean')
+          cb['enabled'] = payload['breakerEnabled'];
         if (typeof payload['breakerAutoKillResetMs'] === 'number')
           cb['autoKillResetMs'] = payload['breakerAutoKillResetMs'];
         decrypted['circuitBreaker'] = cb;
@@ -590,7 +613,9 @@ export function createPrefsSeeding(opts: CliWebUIOptions): PrefsSeeding {
       // Per-plugin enable/disable → extensions.<name>.enabled
       if (typeof payload['pluginsEnabled'] === 'object' && payload['pluginsEnabled'] !== null) {
         const ext = (decrypted.extensions as Record<string, Record<string, unknown>>) ?? {};
-        for (const [pluginName, enabled] of Object.entries(payload['pluginsEnabled'] as Record<string, boolean>)) {
+        for (const [pluginName, enabled] of Object.entries(
+          payload['pluginsEnabled'] as Record<string, boolean>,
+        )) {
           // See the twin guard in webui-server's pref-helpers.ts: a
           // `__proto__` plugin name would make `ext[pluginName]` read back
           // Object.prototype and the write below pollute it process-wide.
@@ -634,8 +659,7 @@ export function createPrefsSeeding(opts: CliWebUIOptions): PrefsSeeding {
           chimera['enabled'] = payload['chimeraEnabled'];
         if (typeof payload['chimeraProvider'] === 'string')
           chimera['provider'] = payload['chimeraProvider'];
-        if (typeof payload['chimeraModel'] === 'string')
-          chimera['model'] = payload['chimeraModel'];
+        if (typeof payload['chimeraModel'] === 'string') chimera['model'] = payload['chimeraModel'];
         if (typeof payload['chimeraMaxFiles'] === 'number' && payload['chimeraMaxFiles'] >= 1) {
           chimera['maxFiles'] = payload['chimeraMaxFiles'];
         }
@@ -677,7 +701,10 @@ export function createPrefsSeeding(opts: CliWebUIOptions): PrefsSeeding {
         // derived from `fallbackProfile` + `config.fallbackModels` by the
         // plugin's resolver. Ignore incoming writes to avoid silently
         // persisting a value that the plugin discards on every load.
-        if (typeof payload['autoReviewDebounceMs'] === 'number' && payload['autoReviewDebounceMs'] >= 0) {
+        if (
+          typeof payload['autoReviewDebounceMs'] === 'number' &&
+          payload['autoReviewDebounceMs'] >= 0
+        ) {
           ar['debounceMs'] = payload['autoReviewDebounceMs'];
         }
         if (

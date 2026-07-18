@@ -9,7 +9,7 @@ import type { DesktopWebuiRuntimeView } from '../state/types.js';
 import { webuiPreloadPath } from '../runtime-manager.js';
 import { OPEN_EXTERNAL_ALLOWED_PROTOCOLS } from '../state/constants.js';
 
-export interface ViewManagerContext {
+interface ViewManagerContext {
   getMainWindow(): BaseWindow | null;
   getWebuiViews(): Map<string, DesktopWebuiRuntimeView>;
   getActiveWebuiRuntimeId(): string | null;

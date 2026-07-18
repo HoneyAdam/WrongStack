@@ -2,17 +2,18 @@ import { toast } from '@/components/Toaster';
 import { isDesktopShell } from '@/lib/desktop-shell';
 import { setFaviconStatus } from '@/lib/favicon';
 import { streamCoalescer } from '@/lib/stream-coalescer';
+import { navigateToView, showPanel } from '@/lib/view-navigation';
 import { getWSClient } from '@/lib/ws-client';
 import { isActiveSessionMessage, pipeViz } from '@/lib/ws-client-utils';
-import { navigateToView, showPanel } from '@/lib/view-navigation';
 import type { ChatMessage, SessionHistoryEntry, SubagentView } from '@/stores';
 import {
+  resetUiNavigationToHome,
   useChatStore,
   useConfigStore,
   useFileStore,
   useFleetStore,
   useHistoryStore,
-  resetUiNavigationToHome,
+  useProviderStatusStore,
   useSessionStore,
   useUIStore,
 } from '@/stores';
@@ -200,12 +201,33 @@ export function handleSessionStart(msg: WSServerMessage) {
     reset?: boolean | undefined;
     clearedSessionId?: string | undefined;
     needsSetup?: boolean | undefined;
+    providerStatuses?: Array<{
+      providerId: string;
+      model: string;
+      state: 'healthy' | 'degraded' | 'blocked';
+      lastErrorKind?: string | null | undefined;
+      stateExpiresAt?: number | null | undefined;
+      lastFailureAt?: number | null | undefined;
+    }>;
   };
   const provider = sessionRouteIdentifier(payload.provider);
   const model = sessionRouteIdentifier(payload.model);
   const prev = useSessionStore.getState().session?.id;
   const isNew = !prev || prev !== payload.sessionId;
   const isReset = isNew || payload.reset;
+
+  if (Array.isArray(payload.providerStatuses)) {
+    useProviderStatusStore.getState().hydrate(
+      payload.providerStatuses.map((status) => ({
+        providerId: status.providerId,
+        model: status.model,
+        state: status.state,
+        reason: status.lastErrorKind ?? status.state,
+        updatedAt: status.lastFailureAt ?? Date.now(),
+        stateExpiresAt: status.stateExpiresAt ?? undefined,
+      })),
+    );
+  }
 
   if (payload.needsSetup) {
     navigateToView('setup');
@@ -469,7 +491,10 @@ export function handleProviderResponse(msg: WSServerMessage) {
     if (responseText.trim()) {
       if (!streamedText.trim()) {
         useChatStore.getState().updateMessage(id, { content: responseText });
-      } else if (responseText.startsWith(streamedText) && responseText.length > streamedText.length) {
+      } else if (
+        responseText.startsWith(streamedText) &&
+        responseText.length > streamedText.length
+      ) {
         useChatStore.getState().updateMessage(id, { content: responseText });
       }
     }
@@ -568,6 +593,45 @@ export function handleProviderFallback(msg: WSServerMessage) {
     content: `Provider fallback: \`${from}\` returned ${payload.status}; switching to \`${to}\`${payload.providerSwitched ? ' with provider change' : ''}.`,
   });
   toast.warn(`Fallback to ${to}`);
+}
+
+export function handleProviderStatusChanged(msg: WSServerMessage) {
+  const payload = msg.payload as {
+    providerId: string;
+    model: string;
+    oldState: 'healthy' | 'degraded' | 'blocked';
+    newState: 'healthy' | 'degraded' | 'blocked';
+    reason: string;
+    timestamp: number;
+    stateExpiresAt?: number | undefined;
+  };
+  useProviderStatusStore.getState().update({
+    providerId: payload.providerId,
+    model: payload.model,
+    state: payload.newState,
+    reason: payload.reason,
+    updatedAt: payload.timestamp,
+    stateExpiresAt: payload.stateExpiresAt,
+  });
+  const ref = `${payload.providerId}/${payload.model}`;
+  if (payload.newState === 'blocked' && payload.oldState !== 'blocked') {
+    toast.warn(`${ref} entered the limit-reset waiting room`);
+  } else if (payload.newState === 'healthy' && payload.oldState !== 'healthy') {
+    toast.success(`${ref} recovered and rejoined model routing`);
+  }
+}
+
+export function handleProviderActiveBlocked(msg: WSServerMessage) {
+  if (!isActiveSessionMessage(msg)) return;
+  const payload = msg.payload as {
+    providerId: string;
+    model: string;
+    lastError: string;
+  };
+  useChatStore.getState().addMessage({
+    role: 'assistant',
+    content: `Waiting room skipped \`${payload.providerId}/${payload.model}\`. ${payload.lastError}`,
+  });
 }
 
 export function handleProviderStreamError(msg: WSServerMessage) {
@@ -840,6 +904,8 @@ export const sessionHandlerMap: Partial<Record<string, (msg: WSServerMessage) =>
   'provider.retry': handleProviderRetry,
   'provider.error': handleProviderError,
   'provider.fallback': handleProviderFallback,
+  'provider.status_changed': handleProviderStatusChanged,
+  'provider.active_blocked': handleProviderActiveBlocked,
   'provider.stream_error': handleProviderStreamError,
   'tool.loop_detected': handleToolLoopDetected,
   'delegate.started': handleDelegateStarted,

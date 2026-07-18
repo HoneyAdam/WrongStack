@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_PREFS, parsePrefs, type SimplePrefs } from '../src/lib/prefs-model.js';
 
 const seeded: SimplePrefs = {
+  ...DEFAULT_PREFS,
   autonomy: 'auto',
   yolo: true,
   enhanceEnabled: true,
@@ -23,6 +24,7 @@ describe('parsePrefs', () => {
         confirmExit: false,
       }),
     ).toEqual({
+      ...DEFAULT_PREFS,
       autonomy: 'suggest',
       yolo: true,
       enhanceEnabled: true,

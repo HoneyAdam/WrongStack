@@ -18,10 +18,7 @@ import type { JSONSchema } from '@wrongstack/core';
 import { validateAgainstSchema } from '@wrongstack/core';
 import { isSecretField } from '@wrongstack/core/security';
 import { nextCustomProviderId } from './provider-id.js';
-import {
-  MAX_TUI_THINKING_WORD_LENGTH,
-  normalizeTuiThinkingWord,
-} from './tui-thinking-word.js';
+import { MAX_TUI_THINKING_WORD_LENGTH, normalizeTuiThinkingWord } from './tui-thinking-word.js';
 
 export type DoctorSeverity = 'error' | 'warning';
 
@@ -63,6 +60,7 @@ const KNOWN_TOP_LEVEL_KEYS = [
   'modelMatrix',
   'favoriteModels',
   'favoriteModelsOnly',
+  'modelAvailabilitySchedule',
   'context',
   'tools',
   'mcpServers',

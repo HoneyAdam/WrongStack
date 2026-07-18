@@ -1,8 +1,11 @@
 // ── Barrel re-exports — all stores and types ──
 
-export { useGoalRunStore } from './goal-run-store.js';
-
 export { useChatStore } from './chat-store.js';
+export type { ActivityType, FileActivity } from './codemap-activity-store.js';
+export {
+  extractActivitiesFromMessage,
+  useCodemapActivityStore,
+} from './codemap-activity-store.js';
 export type { ConfigState } from './config-store.js';
 export { useConfigStore } from './config-store.js';
 export type {
@@ -17,6 +20,8 @@ export type {
   VoteValue,
 } from './coordinator-monitor-store.js';
 export { useCoordinatorMonitorStore } from './coordinator-monitor-store.js';
+export type { CronJobView, CronSnapshot } from './cron-store.js';
+export { useCronStore } from './cron-store.js';
 export type { FileReference, FileReferenceInput } from './file-reference-store.js';
 export {
   refLabel,
@@ -30,8 +35,7 @@ export type { GitChangedFile, GitDiffContent } from './git-changes-store.js';
 export { useGitChangesStore } from './git-changes-store.js';
 export type { GitInfo } from './git-info-store.js';
 export { useGitInfoStore } from './git-info-store.js';
-export type { CronJobView, CronSnapshot } from './cron-store.js';
-export { useCronStore } from './cron-store.js';
+export { useGoalRunStore } from './goal-run-store.js';
 export { useGoalStateStore } from './goal-state-store.js';
 export { useHistoryStore } from './history-store.js';
 export { type KanbanResultPayload, useKanbanStore } from './kanban-store.js';
@@ -41,6 +45,11 @@ export { selectUnreadCount, useMailboxStore } from './mailbox-store.js';
 export type { ClientCounts, CurrentSessionStats, MailActivity } from './monitor-store.js';
 export { useMonitorStore } from './monitor-store.js';
 export { type BackgroundStyle, useOfficeMapStore } from './office-map-store.js';
+export {
+  type ProviderHealthEntry,
+  type ProviderHealthState,
+  useProviderStatusStore,
+} from './provider-status-store.js';
 export {
   type SddBoardFeedEntry,
   type SddBoardSnapshotUI,
@@ -57,6 +66,14 @@ export {
 export { useSessionStore } from './session-store.js';
 export { type SideEffectEntry, useSideEffectStore } from './side-effect-store.js';
 export {
+  type BoardTaskItem,
+  type BoardTaskStatus,
+  type SpecColumn,
+  type SpecDetail,
+  type SpecListItem,
+  useSpecsStore,
+} from './specs-store.js';
+export {
   type TechStackCoverage,
   type TechStackDependency,
   type TechStackEvidence,
@@ -72,14 +89,6 @@ export {
   type TechStackWorkspace,
   useTechStackStore,
 } from './techstack-store.js';
-export {
-  type BoardTaskItem,
-  type BoardTaskStatus,
-  type SpecColumn,
-  type SpecDetail,
-  type SpecListItem,
-  useSpecsStore,
-} from './specs-store.js';
 export type {
   AgentTranscriptEntry,
   AgentTranscriptKind,
@@ -104,8 +113,3 @@ export {
 export type { VizEdge, VizEvent, VizNode } from './viz-store.js';
 export { useVizStore } from './viz-store.js';
 export { useWorktreeStore } from './worktree-store.js';
-export type { ActivityType, FileActivity } from './codemap-activity-store.js';
-export {
-  extractActivitiesFromMessage,
-  useCodemapActivityStore,
-} from './codemap-activity-store.js';

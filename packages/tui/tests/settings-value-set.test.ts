@@ -260,7 +260,7 @@ describe('getSettingsFieldValue', () => {
     delayMs: 30_000,
     titleAnimation: true,
     yolo: false,
-    fleetChat: 'compact',
+    fleetChat: 'off',
     chime: true,
     confirmExit: false,
     nextPrediction: true,
@@ -402,7 +402,7 @@ describe('formatAllSettingsSummary', () => {
     delayMs: 0,
     titleAnimation: true,
     yolo: false,
-    fleetChat: 'compact',
+    fleetChat: 'off',
     chime: false,
     confirmExit: true,
     nextPrediction: false,
@@ -463,7 +463,7 @@ describe('formatAllSettingsSummary', () => {
     const out = formatAllSettingsSummary(testValues);
     expect(out).toContain('YOLO mode');
     expect(out).toMatch(/YOLO mode\s+off/);
-    expect(out).toMatch(/Fleet chat\s+compact/);
+    expect(out).toMatch(/Fleet chat\s+off/);
   });
 
   it('formats presets with display names', () => {

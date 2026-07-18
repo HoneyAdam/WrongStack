@@ -11,6 +11,7 @@
 
 import type {
   Agent,
+  AgentFactory,
   AttachmentStore,
   AutonomyStage,
   BrainArbiter,
@@ -26,28 +27,27 @@ import type {
   Message,
   ModelsRegistry,
   ModeStore,
+  PromptLoader,
   ProviderConfig,
+  QueueStore,
   RecoveryLock,
   ResolvedProvider,
   SessionEvent,
   SessionStore,
   SessionWriter,
-  SlashCommandRegistry,
   SkillLoader,
-  PromptLoader,
+  SlashCommandRegistry,
   TokenCounter,
   WstackPaths,
-  QueueStore,
-  AgentFactory,
 } from '@wrongstack/core';
 import type { MCPRegistry } from '@wrongstack/mcp';
-import type { SddRunControl, SddLifecycleResult } from '@wrongstack/sdd';
+import type { SddLifecycleResult, SddRunControl } from '@wrongstack/sdd';
+import type { LiveSettingsInput } from './execution.js';
 import type { ReadlineInputReader } from './input-reader.js';
 import type { TerminalRenderer } from './renderer.js';
 import type { SessionStats } from './session-stats.js';
-import type { StatuslineConfigKey } from './slash-commands/statusline.js';
 import type { AutonomyMode } from './slash-commands/autonomy.js';
-import type { LiveSettingsInput } from './execution.js';
+import type { StatuslineConfigKey } from './slash-commands/statusline.js';
 
 // ─── Shared picker types (duplicated from execution.ts to break the import cycle) ───
 
@@ -141,6 +141,7 @@ export interface SessionDeps {
 
 /** Provider/model registry, selection and switching. */
 export interface ProviderDeps {
+  statusTracker?: import('@wrongstack/core/coordination').ProviderModelStatusTracker | undefined;
   modelsRegistry: ModelsRegistry;
   savedProviderCfg: ProviderConfig | undefined;
   resolvedProvider: ResolvedProvider | undefined;
@@ -176,49 +177,69 @@ export interface FleetDeps {
   getDirector?: (() => Director | null) | undefined;
   coordinatorController?: Record<string, unknown> | undefined;
   fleetRoster?: Record<string, { name: string }> | undefined;
-  fleetStreamController?: {
-    enabled: boolean;
-    setEnabled: (enabled: boolean) => void;
-    mode: import('@wrongstack/core').FleetChatVerbosity;
-    setMode: (mode: import('@wrongstack/core').FleetChatVerbosity) => void;
-  } | undefined;
-  agentsMonitorController?: {
-    visible: boolean;
-    setVisible: (visible: boolean) => void;
-  } | undefined;
+  fleetStreamController?:
+    | {
+        enabled: boolean;
+        setEnabled: (enabled: boolean) => void;
+        mode: import('@wrongstack/core').FleetChatVerbosity;
+        setMode: (mode: import('@wrongstack/core').FleetChatVerbosity) => void;
+      }
+    | undefined;
+  agentsMonitorController?:
+    | {
+        visible: boolean;
+        setVisible: (visible: boolean) => void;
+      }
+    | undefined;
   /**
    * Read-only view of per-subagent transcripts (AgentMonitorService
    * satisfies this structurally). Threaded into the TUI so the F3 agents
    * monitor can render the selected agent's full transcript.
    */
-  agentTranscripts?: {
-    getTranscript(subagentId: string, limit?: number): import('@wrongstack/core/coordination').AgentTimelineEntry[];
-    getAllSessions(): import('@wrongstack/core/coordination').AgentVirtualSession[];
-    /** Ring + on-disk transcripts, for surfaces that survive a process restart. */
-    loadSessionsFromDisk(): Promise<
-      import('@wrongstack/core/coordination').AgentVirtualSession[]
-    >;
-  } | undefined;
+  agentTranscripts?:
+    | {
+        getTranscript(
+          subagentId: string,
+          limit?: number,
+        ): import('@wrongstack/core/coordination').AgentTimelineEntry[];
+        getAllSessions(): import('@wrongstack/core/coordination').AgentVirtualSession[];
+        /** Ring + on-disk transcripts, for surfaces that survive a process restart. */
+        loadSessionsFromDisk(): Promise<
+          import('@wrongstack/core/coordination').AgentVirtualSession[]
+        >;
+      }
+    | undefined;
   authHost?: import('@wrongstack/tui').AuthPanelHost | undefined;
   onPanelOpen?: { current: ((action: string) => boolean) | null } | undefined;
 }
 
 /** Shared mutable controllers for YOLO, autonomy, interrupt, etc. */
 export interface ControllerDeps {
-  interruptController?: {
-    abortLeader: () => boolean;
-  } | undefined;
-  enhanceController?: {
-    enabled: boolean;
-    setEnabled: (enabled: boolean) => void;
-  } | undefined;
-  getEnhancerReasoning?: (() => import('@wrongstack/core').ReasoningRequest | undefined) | undefined;
+  interruptController?:
+    | {
+        abortLeader: () => boolean;
+      }
+    | undefined;
+  enhanceController?:
+    | {
+        enabled: boolean;
+        setEnabled: (enabled: boolean) => void;
+      }
+    | undefined;
+  getEnhancerReasoning?:
+    | (() => import('@wrongstack/core').ReasoningRequest | undefined)
+    | undefined;
   /** Build an ephemeral Provider for retrying a failed refinement on another model (no session switch). */
   buildEnhancerProvider?:
-    | ((providerId: string, modelId: string) => Promise<import('@wrongstack/core').Provider | undefined>)
+    | ((
+        providerId: string,
+        modelId: string,
+      ) => Promise<import('@wrongstack/core').Provider | undefined>)
     | undefined;
   /** Resolve the one-key "retry with another model" fallback ref for refinement failures. */
   getEnhanceFallbackRef?: (() => string | undefined) | undefined;
+  /** Resolve the dedicated refiner target for the initial refinement attempt. */
+  getConfiguredRefinerRef?: (() => string | undefined) | undefined;
   statuslineHiddenItems: StatuslineConfigKey[];
   setStatuslineHiddenItems: (items: StatuslineConfigKey[]) => void;
   saveStatuslineHiddenItems: (items: StatuslineConfigKey[]) => Promise<void>;
@@ -264,15 +285,11 @@ export interface PickerDeps {
         error?: string | undefined;
       }>)
     | undefined;
-  getBrainData?:
-    | (() => BrainData)
-    | undefined;
+  getBrainData?: (() => BrainData) | undefined;
   onBrainRiskLevel?:
     | ((level: 'off' | 'low' | 'medium' | 'high' | 'all') => string | undefined)
     | undefined;
-  getBrainLog?:
-    | (() => BrainLogEntry[])
-    | undefined;
+  getBrainLog?: (() => BrainLogEntry[]) | undefined;
   brain?: BrainArbiter | undefined;
   brainSettings?:
     | {
@@ -311,12 +328,8 @@ export interface LifecycleDeps {
         opts?: { revertMerged?: boolean },
       ) => Promise<SddLifecycleResult>)
     | undefined;
-  subscribeEternalIteration?:
-    | ((fn: (entry: JournalEntry) => void) => () => void)
-    | undefined;
-  subscribeEternalStage?:
-    | ((fn: (stage: AutonomyStage) => void) => () => void)
-    | undefined;
+  subscribeEternalIteration?: ((fn: (entry: JournalEntry) => void) => () => void) | undefined;
+  subscribeEternalStage?: ((fn: (stage: AutonomyStage) => void) => () => void) | undefined;
   onDestroy?: (() => void) | undefined;
   onCoordinatorStop?: (() => void) | undefined;
 }

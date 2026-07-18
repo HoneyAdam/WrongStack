@@ -16,9 +16,10 @@
  *   no awareness of profile names, config shape, or provider internals.
  */
 
+import type { ProviderModelStatusTracker } from '../coordination/provider-status-tracker.js';
 import type { Config, ProviderConfig } from '../types/config.js';
 import { parseModelRef } from './fallback-model.js';
-import type { ProviderModelStatusTracker } from '../coordination/provider-status-tracker.js';
+import { evaluateModelCalendar } from './model-availability-calendar.js';
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -63,11 +64,16 @@ function providerHasKey(entry: ProviderConfig | undefined): boolean {
   if (!entry) return false;
   if (hasText(entry.apiKey)) return true;
   if (Array.isArray(entry.apiKeys) && entry.apiKeys.some((k) => hasText(k?.apiKey))) return true;
-  if (Array.isArray(entry.envVars) && entry.envVars.some((v) => hasText(process.env[v]))) return true;
+  if (Array.isArray(entry.envVars) && entry.envVars.some((v) => hasText(process.env[v])))
+    return true;
   return false;
 }
 
-function visibleProviderModels(config: Config, providerId: string, providerModels: string[]): string[] {
+function visibleProviderModels(
+  config: Config,
+  providerId: string,
+  providerModels: string[],
+): string[] {
   const entry = config.providers?.[providerId];
   return entry?.models !== undefined ? [...entry.models] : providerModels;
 }
@@ -164,6 +170,11 @@ export class FallbackProfileManager {
 
       // Skip entries that are blocked by the runtime status tracker
       if (this.statusTracker && !this.statusTracker.isAvailable(providerId, parsed.model)) continue;
+      if (
+        !evaluateModelCalendar(this.config.modelAvailabilitySchedule, providerId, parsed.model)
+          .allowed
+      )
+        continue;
 
       // Skip entries whose provider has no matching model in its allow-list
       // (provider may restrict which models are available).
@@ -271,6 +282,11 @@ export class FallbackProfileManager {
 
       // Skip entries blocked by the runtime status tracker
       if (this.statusTracker && !this.statusTracker.isAvailable(providerId, parsed.model)) continue;
+      if (
+        !evaluateModelCalendar(this.config.modelAvailabilitySchedule, providerId, parsed.model)
+          .allowed
+      )
+        continue;
 
       resolved.push({
         providerId,
@@ -324,7 +340,12 @@ export class FallbackProfileManager {
         if (excludeKey && ref === excludeKey) continue;
         // Skip models blocked by the runtime status tracker
         if (this.statusTracker && !this.statusTracker.isAvailable(id, model)) continue;
-        if (favoriteSet.has(ref)) { favorites.push(ref); continue; }
+        if (!evaluateModelCalendar(this.config.modelAvailabilitySchedule, id, model).allowed)
+          continue;
+        if (favoriteSet.has(ref)) {
+          favorites.push(ref);
+          continue;
+        }
         if (favoritesOnly && hasFavorites) continue;
         (id === leaderProvider ? sameProvider : crossProvider).push(ref);
       }
@@ -338,7 +359,8 @@ export class FallbackProfileManager {
         return {
           providerId: p.provider ?? leaderProvider,
           model: p.model,
-          providerSwitched: (p.provider ?? leaderProvider) !== (exclude?.providerId ?? leaderProvider),
+          providerSwitched:
+            (p.provider ?? leaderProvider) !== (exclude?.providerId ?? leaderProvider),
         } satisfies FallbackChainEntry;
       }),
     );

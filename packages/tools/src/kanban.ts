@@ -36,7 +36,7 @@ import {
   duplicateBoard,
   exportBoardAsMarkdown,
   exportBoardToTaskGraph,
-  generateBoardFromDescription,
+  createBoardFromText,
   getBoard,
   getKanbanOrchestrationSnapshot,
   getKanbanQueueHealth,
@@ -172,6 +172,16 @@ interface KanbanToolInput extends Omit<AssignKanbanTaskInput, 'status'> {
   preserveAssignment?: boolean | undefined;
   preserveDependencies?: boolean | undefined;
   leaseId?: string | undefined;
+  /**
+   * Ownership fence. When set on `mark_assignment` / `heartbeat_assignment`,
+   * the assignment is only mutated if `task.assignment.leaseId` still matches
+   * this value (checked atomically inside the board mutation lock). This lets
+   * a worker prove it still owns the lease before renewing or finalizing, and
+   * makes a stale worker that was recovered+reassigned a safe no-op rather
+   * than a TOCTOU gap that overwrites the successor's state. Omit for legacy
+   * unconditional behavior.
+   */
+  expectedLeaseId?: string | undefined;
   claimedAt?: string | undefined;
   heartbeatAt?: string | undefined;
   leaseExpiresAt?: string | undefined;
@@ -509,7 +519,7 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
         }
         case 'generate_board': {
           if (!input.description) return fail('generate_board requires description.');
-          const boardInput = generateBoardFromDescription({
+          const boardInput = createBoardFromText({
             description: input.description,
             ...(input.title !== undefined ? { title: input.title } : {}),
             ...(input.context !== undefined ? { context: input.context } : {}),
@@ -975,20 +985,33 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
           const assignmentStatus =
             input.assignmentStatus ??
             (input.status === 'completed' ? 'completed' : input.error ? 'failed' : undefined);
-          const board = await updateTaskAssignment(projectRoot, input.boardId, input.taskId, {
-            ...(assignmentStatus !== undefined ? { status: assignmentStatus } : {}),
-            ...(input.subagentId !== undefined ? { subagentId: input.subagentId } : {}),
-            ...(input.runTaskId !== undefined ? { runTaskId: input.runTaskId } : {}),
-            ...(input.lastResult !== undefined ? { lastResult: input.lastResult } : {}),
-            ...(input.error !== undefined ? { error: input.error } : {}),
-            ...(input.agentId !== undefined ? { agentId: input.agentId } : {}),
-            ...(input.leaseId !== undefined ? { leaseId: input.leaseId } : {}),
-            ...(input.claimedAt !== undefined ? { claimedAt: input.claimedAt } : {}),
-            ...(input.heartbeatAt !== undefined ? { heartbeatAt: input.heartbeatAt } : {}),
-            ...(input.leaseExpiresAt !== undefined ? { leaseExpiresAt: input.leaseExpiresAt } : {}),
-            ...(input.attempt !== undefined ? { attempt: input.attempt } : {}),
-            ...(input.maxAttempts !== undefined ? { maxAttempts: input.maxAttempts } : {}),
-          });
+          const board = await updateTaskAssignment(
+            projectRoot,
+            input.boardId,
+            input.taskId,
+            {
+              ...(assignmentStatus !== undefined ? { status: assignmentStatus } : {}),
+              ...(input.subagentId !== undefined ? { subagentId: input.subagentId } : {}),
+              ...(input.runTaskId !== undefined ? { runTaskId: input.runTaskId } : {}),
+              ...(input.lastResult !== undefined ? { lastResult: input.lastResult } : {}),
+              ...(input.error !== undefined ? { error: input.error } : {}),
+              ...(input.agentId !== undefined ? { agentId: input.agentId } : {}),
+              ...(input.leaseId !== undefined ? { leaseId: input.leaseId } : {}),
+              ...(input.claimedAt !== undefined ? { claimedAt: input.claimedAt } : {}),
+              ...(input.heartbeatAt !== undefined ? { heartbeatAt: input.heartbeatAt } : {}),
+              ...(input.leaseExpiresAt !== undefined ? { leaseExpiresAt: input.leaseExpiresAt } : {}),
+              ...(input.attempt !== undefined ? { attempt: input.attempt } : {}),
+              ...(input.maxAttempts !== undefined ? { maxAttempts: input.maxAttempts } : {}),
+            },
+            // Ownership fence: when expectedLeaseId is supplied, the write is
+            // applied only if the current assignment still holds this lease.
+            // This prevents a recovered+reassigned stale worker's terminal
+            // mark_assignment from overwriting the successor's state. The check
+            // is atomic inside updateTaskAssignment's mutateBoard lock.
+            input.expectedLeaseId !== undefined
+              ? { expectedLeaseId: input.expectedLeaseId }
+              : {},
+          );
           return board ? okBoard(board, 'Assignment updated.') : fail('Task not found.');
         }
         case 'heartbeat_assignment': {
@@ -998,6 +1021,14 @@ export const kanbanTool: Tool<KanbanToolInput, KanbanToolOutput> = {
           const board = await heartbeatTaskAssignment(projectRoot, input.boardId, input.taskId, {
             ...(input.heartbeatAt !== undefined ? { heartbeatAt: input.heartbeatAt } : {}),
             ...(input.leaseExpiresAt !== undefined ? { leaseExpiresAt: input.leaseExpiresAt } : {}),
+            // Ownership fence: when expectedLeaseId is supplied, the renewal
+            // is applied only if the current assignment still holds this lease.
+            // This prevents a recovered+reassigned stale worker's heartbeat
+            // from renewing the successor's lease. The check is atomic inside
+            // heartbeatTaskAssignment's mutateBoard lock.
+            ...(input.expectedLeaseId !== undefined
+              ? { expectedLeaseId: input.expectedLeaseId }
+              : {}),
           });
           return board
             ? okBoard(board, 'Assignment heartbeat updated.')

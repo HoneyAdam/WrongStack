@@ -37,7 +37,7 @@ function shortSessionId(sessionId: string): string {
 
 /** Canonical shell the `bash` tool targets — drives the Environment Shell line
  *  and the syntax-guidance sub-block. */
-export type EffectiveShell = 'pwsh' | 'powershell' | 'cmd' | 'posix';
+type EffectiveShell = 'pwsh' | 'powershell' | 'cmd' | 'posix';
 
 /**
  * Derive the shell the `bash` tool will use from `os.platform()` + the pinned

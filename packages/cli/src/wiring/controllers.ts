@@ -26,12 +26,12 @@ export interface FleetStreamController {
   enabled: boolean;
   /** @deprecated Maps to `setMode(enabled ? 'full' : 'off')`. */
   setEnabled(enabled: boolean): void;
-  /** Fleet-chat verbosity streamed into the main chat: off | compact | full. */
+  /** Fleet-chat verbosity streamed into the main chat: off | full. */
   mode: FleetChatVerbosity;
   setMode(mode: FleetChatVerbosity): void;
 }
 
-export function createFleetStreamController(initialMode: FleetChatVerbosity = 'compact'): FleetStreamController {
+export function createFleetStreamController(initialMode: FleetChatVerbosity = 'off'): FleetStreamController {
   return {
     enabled: initialMode !== 'off',
     mode: initialMode,

@@ -2,7 +2,7 @@ import type { Director, FleetChatVerbosity, FleetEvent } from '@wrongstack/core'
 import { useEffect, useRef } from 'react';
 import type { Action, State } from '../app-reducer.js';
 import { stripNextStepsBlock } from '@wrongstack/tools/next-steps';
-import { addTool, formatToolSummary, newToolAgg, type ToolAgg } from './fleet-chat-coalescer.js';
+import { formatToolSummary, type ToolAgg } from './fleet-chat-coalescer.js';
 import { useFleetGenerationGate } from './use-fleet-generation-gate.js';
 
 const FLUSH_MS = 150;
@@ -44,10 +44,6 @@ export interface UseDirectorFleetBridgeOptions {
  * Chat-history gating (`chatMode`):
  * - 'full'    — every tool call gets its own 🔧 line, interim 💬 text commits
  *               at each tool boundary (legacy behavior).
- * - 'compact' — tool calls fold into a per-agent {@link ToolAgg} and the
- *               whole turn commits as ONE entry (💬 text with the tool
- *               summary as `detail`, or a lone 🔧 summary) at session end /
- *               task completion / teardown.
  * - 'off'     — no subagent chat entries at all; provider errors/retries
  *               still surface as warn/error entries.
  * The fleet table (F2/F3) is fed in EVERY mode. The mode is read at commit
@@ -324,9 +320,7 @@ export function useDirectorFleetBridge({
             outputLines: payload?.outputLines,
           });
           enqueue({ type: 'fleetToolEnd', id: event.subagentId });
-          if (payload?.name) {
-            const mode = chatModeRef.current;
-            if (mode === 'full') {
+          if (payload?.name && chatModeRef.current === 'full') {
               const label = labelFor(labelsRef, event.subagentId);
               enqueue({
                 type: 'addEntry',
@@ -338,15 +332,7 @@ export function useDirectorFleetBridge({
                   text: `→ ${payload.name} ${payload.ok === false ? '✗' : '✓'}${payload.durationMs != null ? ` (${payload.durationMs}ms)` : ''}`,
                 },
               });
-            } else if (mode === 'compact') {
-              let agg = toolAgg.get(event.subagentId);
-              if (!agg) {
-                agg = newToolAgg();
-                toolAgg.set(event.subagentId, agg);
-              }
-              addTool(agg, payload.name, payload.ok, payload.durationMs);
             }
-          }
           break;
         }
         case 'provider.response':

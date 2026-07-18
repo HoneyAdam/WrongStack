@@ -9,8 +9,8 @@
  * PR 11 of Issue #30: extracted from `webui-server.ts`.
  */
 import * as path from 'node:path';
-import { DEFAULT_CONTEXT_WINDOW_MODE_ID } from '@wrongstack/core';
 import type { Context, ModelsRegistry } from '@wrongstack/core';
+import { DEFAULT_CONTEXT_WINDOW_MODE_ID } from '@wrongstack/core';
 import { getCostRates } from './cost-helpers.js';
 
 /** The slice of `CliWebUIOptions` the payload builder actually reads. */
@@ -18,6 +18,7 @@ export interface SessionStartPayloadDeps {
   agent: { ctx: Context };
   session: { id: string };
   modelsRegistry?: ModelsRegistry | undefined;
+  statusTracker?: import('@wrongstack/core/coordination').ProviderModelStatusTracker | undefined;
   modeId?: string | undefined;
   projectRoot?: string | undefined;
 }
@@ -67,8 +68,7 @@ export function createSessionStartPayloadBuilder(
     // WebUI. Emitting it here ensures the bar is accurate on reconnect/refresh
     // instead of staying at 0% until the next ctx.pct event.
     const lastInputTokens =
-      typeof deps.agent.ctx.lastRequestTokens === 'number' &&
-      deps.agent.ctx.lastRequestTokens > 0
+      typeof deps.agent.ctx.lastRequestTokens === 'number' && deps.agent.ctx.lastRequestTokens > 0
         ? deps.agent.ctx.lastRequestTokens
         : 0;
 
@@ -92,6 +92,7 @@ export function createSessionStartPayloadBuilder(
       outputCost,
       cacheReadCost,
       lastInputTokens,
+      providerStatuses: deps.statusTracker?.getAllStatuses() ?? [],
       protocolCapabilities: ['chronicle.query', 'chronicle.facet', 'chronicle.graph'],
       ...overrides,
     };

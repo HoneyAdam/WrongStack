@@ -6,7 +6,7 @@ import type { ModelsRegistry, SecretScrubber, SecretVault } from '@wrongstack/co
  * (which forwards each line into the panel's flow log) — keeping the
  * flows reusable from both the readline CLI and the Ink TUI.
  */
-export interface AuthMenuRenderer {
+interface AuthMenuRenderer {
   write(input: string): void;
   writeInfo(text: string): void;
   writeWarning(text: string): void;
@@ -20,7 +20,7 @@ export interface AuthMenuRenderer {
  * REJECT to cancel the surrounding flow (the TUI does this on Esc) —
  * every flow treats a thrown prompt as user-cancel.
  */
-export interface AuthMenuReader {
+interface AuthMenuReader {
   readLine(prompt?: string): Promise<string>;
   readSecret(prompt: string): Promise<string>;
 }

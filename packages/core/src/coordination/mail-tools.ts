@@ -26,6 +26,7 @@ import { ToolCapabilities } from '../security/capabilities.js';
 import { GlobalMailbox } from './global-mailbox.js';
 import { normalizeRecipient } from './mailbox-types.js';
 import type { Mailbox, MailboxMessage, MailboxMessageType } from './mailbox-types.js';
+import { resolveSendType } from './mailbox-message-codec.js';
 import {
   defaultResolveProjectDir,
   resolveMailboxIdentity,
@@ -75,14 +76,32 @@ export function makeMailSendTool(opts: MailToolsOptions = {}): Tool {
       'Send mail to any agent on this canonical project, across clients, processes, sessions, ' +
       'branches, and linked Git worktrees (CLI, TUI, WebUI, ACP/MCP/HTTP). ' +
       'Use it to hand off work, ask questions, announce what you just did, or request a ' +
-      'review (type="review" — passive ask, no immediate reply required). to="*" broadcasts to ' +
+      'review. to="*" broadcasts to ' +
       'everyone; to="@session" reaches agents in your current session; to="leader" reaches every ' +
       'leader process; an exact id like "leader@a1b2c3d4" reaches one agent. Use project-wide ' +
       'scope (`*` or a base alias) whenever another session may be affected. Recipients see your ' +
       'mail automatically before their next step. ' +
-      'Pick the type that matches the intent: note (default), ask (blocking question), ' +
-      'assign (task), steer (mid-task direction), result (completion notice), review ' +
-      '(passive ask), btw/status/broadcast/control (informational).',
+      '\n\n' +
+      '── TYPE SEMANTICS ──\n' +
+      'The `type` parameter determines how the recipient must handle your message:\n' +
+      '  actionable (requires a response):\n' +
+      '    ask    — blocking question, sender waits for an answer\n' +
+      '    assign — task delegation, act when current op allows (requires specific to, NOT "*")\n' +
+      '    steer  — mid-task direction change, recipient adjusts course NOW\n' +
+      '    review — passive ask, inspect when convenient, no reply needed\n' +
+      '  informational (consume for context):\n' +
+      '    note     — general FYI (default for directed sends)\n' +
+      '    btw      — low-priority aside, absorb and stay on task\n' +
+      '    result   — subagent completion notice, factor into next decision\n' +
+      '    status   — agent/system status update, avoid redundant work\n' +
+      '    broadcast — multi-recipient envelope (default when to="*" or "@session")\n' +
+      '  control (reserved for runtime use — agents cannot send this type)\n' +
+      '\n' +
+      'When no `type` is provided: broadcast for `*`/`@session`, otherwise note.\n' +
+      'assign/steer with to="*" is rejected (ambiguous). control is rejected (runtime-reserved).' +
+      '\n\n' +
+      'Type determines dispatch: steer renders first, control is out-of-band, ' +
+      'actionable types show "Action required" footer.',
     usageHint: 'mail_send to="<id>" type="review" body="please skim <file>"',
     category: 'Coordination',
     permission: 'auto',
@@ -125,13 +144,18 @@ export function makeMailSendTool(opts: MailToolsOptions = {}): Tool {
       // Normalize after identity resolution because "@session" needs the
       // sender's full session id to produce a canonical recipient.
       const to = normalizeRecipient(rawTo, identity.sessionId);
-      const type =
-        (i.type as MailboxMessageType | undefined) ??
-        (to === '*' || to.startsWith('@session:') ? 'broadcast' : 'note');
+      // Use the canonical resolveSendType helper for type selection +
+      // cross-field validation. This enforces:
+      //   - default: broadcast when to is "*" or "@session", otherwise note
+      //   - rejection: control (runtime-reserved), assign/steer to "*" (ambiguous)
+      const resolvedType = resolveSendType(
+        i.type as MailboxMessageType | undefined,
+        to,
+      );
       const msg = await mb.send({
         from: identity.callerId,
         to,
-        type,
+        type: resolvedType,
         subject,
         body,
         priority: (i.priority as 'low' | 'normal' | 'high' | undefined) ?? 'normal',

@@ -77,10 +77,7 @@ import { SkillInstaller } from '@wrongstack/core/skills';
 import { toErrorMessage } from '@wrongstack/core/utils/error';
 import type { MCPRegistry } from '@wrongstack/mcp';
 import { makeProviderFromConfig } from '@wrongstack/providers';
-import { createKanbanRunMirror } from './webui-server/kanban-run-mirror.js';
-import { createKanbanSupervisor } from './webui-server/kanban-supervisor.js';
 import {
-  GoalWebSocketHandler,
   buildSddWizardDeps,
   buildWebUIAccessUrl,
   type CustomModeStore,
@@ -88,6 +85,7 @@ import {
   type DesignContext,
   envFlag,
   findFreePort,
+  GoalWebSocketHandler,
   type PromptsContext,
   resolveAuthToken,
   SddBoardWebSocketHandler,
@@ -103,6 +101,8 @@ import {
   type ConnectedClient,
   createConnectionHandler,
 } from './webui-server/connection-handler.js';
+import { createKanbanRunMirror } from './webui-server/kanban-run-mirror.js';
+import { createKanbanSupervisor } from './webui-server/kanban-supervisor.js';
 import {
   announceWebuiReady,
   createWebuiShutdown,
@@ -169,6 +169,7 @@ export interface WSClientMessage {
 export interface CliWebUIOptions {
   agent: Agent;
   events: EventBus;
+  statusTracker?: import('@wrongstack/core/coordination').ProviderModelStatusTracker | undefined;
   session: SessionWriter;
   /** WebSocket backend port. Defaults to 3457 (auto-advances if taken). */
   port?: number | undefined;
@@ -195,13 +196,15 @@ export interface CliWebUIOptions {
   /** Pop the browser open to the served URL once the frontend is ready. */
   open?: boolean | undefined;
   /** Read-only worker transcript snapshot used for F5/reconnect replay. */
-  agentTranscripts?: {
-    getAllSessions(): import('@wrongstack/core/coordination').AgentVirtualSession[];
-    /** Ring + on-disk transcripts, for surfaces that survive a process restart. */
-    loadSessionsFromDisk(): Promise<
-      import('@wrongstack/core/coordination').AgentVirtualSession[]
-    >;
-  } | undefined;
+  agentTranscripts?:
+    | {
+        getAllSessions(): import('@wrongstack/core/coordination').AgentVirtualSession[];
+        /** Ring + on-disk transcripts, for surfaces that survive a process restart. */
+        loadSessionsFromDisk(): Promise<
+          import('@wrongstack/core/coordination').AgentVirtualSession[]
+        >;
+      }
+    | undefined;
   /**
    * Fired once the WebSocket server is accepting connections. Useful for
    * callers (and tests) that must not connect before the server is ready —
@@ -336,9 +339,8 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   const publicWsUrl = opts.publicWsUrl ?? process.env['WEBUI_PUBLIC_WS_URL'];
   const requireToken = opts.requireToken ?? envFlag('WEBUI_REQUIRE_TOKEN');
   const surface = opts.surface ?? 'webui';
-  const surfaceDefaults = surface === 'simpleui'
-    ? { http: 3466, ws: 3467 }
-    : { http: 3456, ws: 3457 };
+  const surfaceDefaults =
+    surface === 'simpleui' ? { http: 3466, ws: 3467 } : { http: 3456, ws: 3457 };
   const requestedWsPort = opts.port ?? surfaceDefaults.ws;
   const requestedHttpPort = opts.httpPort ?? surfaceDefaults.http;
   // Auto-advance past busy ports (unless WEBUI_STRICT_PORT) so this works
@@ -419,9 +421,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     goalStoreDir,
     opts.events,
     opts.projectRoot,
-    kanbanRunMirror
-      ? (graphId, state) => kanbanRunMirror.onGoalState(graphId, state)
-      : undefined,
+    kanbanRunMirror ? (graphId, state) => kanbanRunMirror.onGoalState(graphId, state) : undefined,
   );
   const worktreeHandler = new WorktreeWebSocketHandler(opts.events, consoleLogger);
 
@@ -471,7 +471,11 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       // @wrongstack/cli is the package we're currently inside; use
       // import.meta.url to find our own package.json (avoids the same
       // ERR_PACKAGE_PATH_NOT_EXPORTED issue the webui route had).
-      const cliPkgJson = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'package.json');
+      const cliPkgJson = path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        '..',
+        'package.json',
+      );
       let dir = path.dirname(cliPkgJson);
       for (let i = 0; i < 6; i++) {
         const candidate = path.join(dir, 'node_modules', 'node-pty');
@@ -490,7 +494,9 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       consoleLogger.debug?.(`[terminal] workspace-root walk failed: ${(err as Error).message}`);
     }
     cachedNodePty = null;
-    consoleLogger.debug?.('[terminal] node-pty resolution failed; terminal panel will report "unavailable"');
+    consoleLogger.debug?.(
+      '[terminal] node-pty resolution failed; terminal panel will report "unavailable"',
+    );
     return cachedNodePty as never;
   };
   const terminalHandler = new TerminalWebSocketHandler(
@@ -792,12 +798,21 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
           snapshot.fallbackAuto !== undefined;
         if (routingChanged) {
           const configStore = opts.agent.container?.safeResolve?.(TOKENS.ConfigStore) as
-            import('@wrongstack/core').ConfigStore | undefined;
+            | import('@wrongstack/core').ConfigStore
+            | undefined;
           configStore?.update({
-            ...(snapshot.fallbackModels !== undefined ? { fallbackModels: snapshot.fallbackModels } : {}),
-            ...(snapshot.fallbackProfiles !== undefined ? { fallbackProfiles: snapshot.fallbackProfiles } : {}),
-            ...(snapshot.favoriteModels !== undefined ? { favoriteModels: snapshot.favoriteModels } : {}),
-            ...(snapshot.favoriteModelsOnly !== undefined ? { favoriteModelsOnly: snapshot.favoriteModelsOnly } : {}),
+            ...(snapshot.fallbackModels !== undefined
+              ? { fallbackModels: snapshot.fallbackModels }
+              : {}),
+            ...(snapshot.fallbackProfiles !== undefined
+              ? { fallbackProfiles: snapshot.fallbackProfiles }
+              : {}),
+            ...(snapshot.favoriteModels !== undefined
+              ? { favoriteModels: snapshot.favoriteModels }
+              : {}),
+            ...(snapshot.favoriteModelsOnly !== undefined
+              ? { favoriteModelsOnly: snapshot.favoriteModelsOnly }
+              : {}),
             ...(snapshot.modelMatrix !== undefined ? { modelMatrix: snapshot.modelMatrix } : {}),
             ...(snapshot.fallbackAuto !== undefined ? { fallbackAuto: snapshot.fallbackAuto } : {}),
           } as never);

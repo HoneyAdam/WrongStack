@@ -357,8 +357,8 @@ describe('Super Memory tool-call middleware', () => {
       expect(uniqueIds.size).toBeGreaterThanOrEqual(4);
 
       // All test memories should still be readable with the latest text
-      for (let i = 0; i < 3; i++) {
-        const mem = await store.getSuperMemory(ids[i]);
+      for (const [i, id] of ids.entries()) {
+        const mem = await store.getSuperMemory(id);
         expect(mem?.text).toBe(`Updated again ${i}`);
         expect(mem?.status).toBe('active');
       }

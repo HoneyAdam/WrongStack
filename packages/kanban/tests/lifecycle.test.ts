@@ -264,6 +264,77 @@ describe('end-to-end managed lifecycle validation paths', () => {
     });
   });
 
+  it('rejects review transition with an attachment whose URL is blank', async () => {
+    const { board, cardId } = await managedBoardWithCard();
+    await updateTask(tmpDir, board.id, cardId, fullDetails());
+    await transitionTask(tmpDir, board.id, cardId, { to: 'todo', actor: 'agent-1', comment: 'Planned.' });
+    await transitionTask(tmpDir, board.id, cardId, { to: 'running', actor: 'agent-1', comment: 'Working.' });
+    await updateTaskAssignment(tmpDir, board.id, cardId, {
+      status: 'completed',
+      lastResult: 'Implementation complete; all tests green.',
+    });
+    // Empty/whitespace URL is treated as missing evidence → Review rejected.
+    await expect(
+      transitionTask(tmpDir, board.id, cardId, {
+        to: 'review',
+        actor: 'agent-1',
+        comment: 'Done.',
+        attachment: { url: '   ', type: 'file' },
+      }),
+    ).rejects.toThrow('Review requires a persisted implementation result and evidence attachment');
+  });
+
+  it('rejects review transition with no attachment at all', async () => {
+    const { board, cardId } = await managedBoardWithCard();
+    await updateTask(tmpDir, board.id, cardId, fullDetails());
+    await transitionTask(tmpDir, board.id, cardId, { to: 'todo', actor: 'agent-1', comment: 'Planned.' });
+    await transitionTask(tmpDir, board.id, cardId, { to: 'running', actor: 'agent-1', comment: 'Working.' });
+    await updateTaskAssignment(tmpDir, board.id, cardId, {
+      status: 'completed',
+      lastResult: 'Implementation complete; all tests green.',
+    });
+    await expect(
+      transitionTask(tmpDir, board.id, cardId, {
+        to: 'review',
+        actor: 'agent-1',
+        comment: 'Done.',
+        // attachment intentionally omitted
+      }),
+    ).rejects.toThrow('Review requires a persisted implementation result and evidence attachment');
+  });
+
+  it('rejects done transition with a blank-URL attachment even with reviewer action text', async () => {
+    const { board, cardId } = await managedBoardWithCard();
+    await updateTask(tmpDir, board.id, cardId, {
+      ...fullDetails(),
+      successCriteria: [
+        { id: 'c1', description: 'All green', type: 'manual', status: 'passed' },
+      ],
+    });
+    await transitionTask(tmpDir, board.id, cardId, { to: 'todo', actor: 'agent-1', comment: 'Planned.' });
+    await transitionTask(tmpDir, board.id, cardId, { to: 'running', actor: 'agent-1', comment: 'Working.' });
+    await updateTaskAssignment(tmpDir, board.id, cardId, {
+      status: 'completed',
+      lastResult: 'Implementation complete; all tests green.',
+    });
+    await transitionTask(tmpDir, board.id, cardId, {
+      to: 'review',
+      actor: 'agent-1',
+      comment: 'Done.',
+      attachment: { url: 'artifact://build', type: 'file' },
+    });
+    // Blank URL must not satisfy the Done evidence guard.
+    await expect(
+      transitionTask(tmpDir, board.id, cardId, {
+        to: 'done',
+        actor: 'reviewer-1',
+        comment: 'Ship it.',
+        action: 'approved',
+        attachment: { url: '', type: 'review' },
+      }),
+    ).rejects.toThrow('Done requires reviewer action text and a persisted review attachment');
+  });
+
   it('rejects a direct lifecycle mutation via updateTask on a managed board', async () => {
     const { board, cardId } = await managedBoardWithCard();
     await expect(

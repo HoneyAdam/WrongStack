@@ -10,10 +10,10 @@
  *  - the empty_response / overloaded chimera-review pattern
  */
 
-import { strictEqual, deepStrictEqual, ok } from 'node:assert';
-import { describe, it, beforeEach, afterEach } from 'vitest';
+import { deepStrictEqual, ok, strictEqual } from 'node:assert';
+import { beforeEach, describe, it } from 'vitest';
 import { ProviderModelStatusTracker } from '../../src/coordination/provider-status-tracker.js';
-import { ProviderError, classifyProviderError } from '../../src/types/provider.js';
+import { ProviderError } from '../../src/types/provider.js';
 
 /** Fresh tracker with all thresholds set to minimal values for fast testing. */
 function createTestTracker(): ProviderModelStatusTracker {
@@ -24,14 +24,11 @@ function createTestTracker(): ProviderModelStatusTracker {
       blockAfterRateLimitHits: 3,
       blockAfterFailures: 5,
       blockDurationMs: 50_000,
+      quotaBlockDurationMs: 120_000,
       recoverAfterSuccesses: 3,
       maxErrorHistory: 10,
     },
   });
-}
-
-function aSecondAgo(): number {
-  return Date.now() - 1000;
 }
 
 describe('ProviderModelStatusTracker', () => {
@@ -80,6 +77,50 @@ describe('ProviderModelStatusTracker', () => {
     strictEqual(status?.state, 'blocked');
     strictEqual(status?.rateLimitHits, 3);
     ok(status?.stateExpiresAt !== null);
+  });
+
+  it('sends exhausted quota to the waiting room on the first failure', () => {
+    tracker.recordFailure(
+      'openrouter',
+      'paid-model',
+      'rate_limit',
+      429,
+      'insufficient_quota: account credit exhausted',
+    );
+
+    const status = tracker.getStatus('openrouter', 'paid-model');
+    strictEqual(status?.state, 'blocked');
+    strictEqual(status?.rateLimitHits, 1);
+    ok((status?.stateExpiresAt ?? 0) > Date.now() + 100_000);
+  });
+
+  it('treats HTTP 402 as exhausted credit even without a provider-specific message', () => {
+    tracker.recordFailure('metered', 'model-a', 'invalid_request', 402, 'Payment required');
+    strictEqual(tracker.isAvailable('metered', 'model-a'), false);
+  });
+
+  it('does not confuse an ordinary burst rate limit with exhausted quota', () => {
+    tracker.recordFailure('test', 'model-a', 'rate_limit', 429, '5 requests per minute');
+    strictEqual(tracker.getStatus('test', 'model-a')?.state, 'healthy');
+  });
+
+  it('tracks an OmniRoute route as its logical provider/model identity', () => {
+    tracker.recordFailure(
+      'omniroute',
+      'cc/claude-opus-4.8',
+      'rate_limit',
+      429,
+      'credit exhausted for this route',
+    );
+
+    strictEqual(tracker.isAvailable('omniroute', 'cc/claude-opus-4.8'), false);
+    strictEqual(tracker.isAvailable('cc', 'claude-opus-4.8'), false);
+    strictEqual(tracker.isAvailable('omniroute', 'cc/claude-sonnet-4.7'), true);
+    strictEqual(tracker.isAvailable('omniroute', 'openai/gpt-5.5'), true);
+
+    const status = tracker.getStatus('omniroute', 'cc/claude-opus-4.8');
+    strictEqual(status?.providerId, 'cc');
+    strictEqual(status?.model, 'claude-opus-4.8');
   });
 
   it('enters blocked after 5 consecutive failures', () => {
@@ -133,6 +174,17 @@ describe('ProviderModelStatusTracker', () => {
     strictEqual(status?.recentErrors.length, 1);
     strictEqual(status?.recentErrors[0]?.kind, 'rate_limit');
     strictEqual(status?.recentErrors[0]?.retryAfterMs, 12_000);
+  });
+
+  it('honours long provider reset hints without truncating them to one minute', () => {
+    tracker.recordFailure('test', 'model-a', 'rate_limit', 429, 'Rate limited', {
+      retryAfterMs: 20 * 60_000,
+    });
+    tracker.recordFailure('test', 'model-a', 'rate_limit', 429, 'Rate limited', {
+      retryAfterMs: 20 * 60_000,
+    });
+
+    ok((tracker.getStatus('test', 'model-a')?.stateExpiresAt ?? 0) > Date.now() + 19 * 60_000);
   });
 
   it('caps error history to maxErrorHistory', () => {
@@ -273,20 +325,20 @@ describe('ProviderModelStatusTracker', () => {
 
   it('a different failure kind resets count for empty_response model', () => {
     // First chimera-review fails with overloaded
-    tracker.recordFailure(
-      'openai', 'gpt-4o', 'overloaded', 529, 'Empty response',
-      { sessionId: 'sess_1', agentId: 'chimera-review-1' },
-    );
+    tracker.recordFailure('openai', 'gpt-4o', 'overloaded', 529, 'Empty response', {
+      sessionId: 'sess_1',
+      agentId: 'chimera-review-1',
+    });
     // Second one also fails
-    tracker.recordFailure(
-      'openai', 'gpt-4o', 'overloaded', 529, 'Empty response',
-      { sessionId: 'sess_2', agentId: 'chimera-review-2' },
-    );
+    tracker.recordFailure('openai', 'gpt-4o', 'overloaded', 529, 'Empty response', {
+      sessionId: 'sess_2',
+      agentId: 'chimera-review-2',
+    });
     // Third one fails — crosses into degraded
-    tracker.recordFailure(
-      'openai', 'gpt-4o', 'overloaded', 529, 'Empty response',
-      { sessionId: 'sess_3', agentId: 'chimera-review-3' },
-    );
+    tracker.recordFailure('openai', 'gpt-4o', 'overloaded', 529, 'Empty response', {
+      sessionId: 'sess_3',
+      agentId: 'chimera-review-3',
+    });
 
     strictEqual(tracker.getStatus('openai', 'gpt-4o')?.state, 'degraded');
 
@@ -296,10 +348,10 @@ describe('ProviderModelStatusTracker', () => {
     strictEqual(tracker.getStatus('openai', 'gpt-4o')?.consecutiveFailures, 0);
 
     // But continue to fail again — now counts fresh
-    tracker.recordFailure(
-      'openai', 'gpt-4o', 'overloaded', 529, 'Empty response again',
-      { sessionId: 'sess_4', agentId: 'chimera-review-4' },
-    );
+    tracker.recordFailure('openai', 'gpt-4o', 'overloaded', 529, 'Empty response again', {
+      sessionId: 'sess_4',
+      agentId: 'chimera-review-4',
+    });
 
     strictEqual(tracker.getStatus('openai', 'gpt-4o')?.consecutiveFailures, 1);
   });
@@ -311,6 +363,7 @@ describe('ProviderModelStatusTracker', () => {
     const fastTracker = new ProviderModelStatusTracker({
       config: {
         blockDurationMs: 1, // 1ms — immediately expires
+        quotaBlockDurationMs: 50_000,
         blockAfterRateLimitHits: 3,
         degradedAfterFailures: 2,
         blockAfterFailures: 5,
@@ -334,6 +387,58 @@ describe('ProviderModelStatusTracker', () => {
         resolve();
       }, 10);
     });
+  });
+
+  it('sweepExpired releases waiting-room entries while idle', async () => {
+    const fastTracker = new ProviderModelStatusTracker({
+      config: {
+        blockDurationMs: 50_000,
+        quotaBlockDurationMs: 20,
+      },
+    });
+    fastTracker.recordFailure('metered', 'model-a', 'rate_limit', 429, 'credit exhausted');
+    strictEqual(fastTracker.isBlocked('metered', 'model-a'), true);
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    strictEqual(fastTracker.sweepExpired(), 1);
+    strictEqual(fastTracker.isAvailable('metered', 'model-a'), true);
+  });
+
+  it('retryNow releases exactly one namespaced model and retains its history', () => {
+    tracker.recordFailure('omniroute', 'cc/claude-opus-4.8', 'rate_limit', 429, 'credit exhausted');
+
+    strictEqual(tracker.retryNow('cc', 'claude-opus-4.8'), true);
+    strictEqual(tracker.isAvailable('omniroute', 'cc/claude-opus-4.8'), true);
+    strictEqual(tracker.getStatus('omniroute', 'cc/claude-opus-4.8')?.recentErrors.length, 1);
+    strictEqual(tracker.retryNow('cc', 'claude-opus-4.8'), false);
+  });
+
+  it('restores only non-expired waiting entries across process restarts', () => {
+    tracker.recordFailure('omniroute', 'cc/claude-opus-4.8', 'quota_exhausted', 429, 'quota');
+    const snapshot = tracker.getSnapshot();
+    const restored = createTestTracker();
+
+    strictEqual(restored.restoreSnapshot(snapshot), 1);
+    strictEqual(restored.isAvailable('cc', 'claude-opus-4.8'), false);
+    strictEqual(restored.getStatus('cc', 'claude-opus-4.8')?.lastErrorKind, 'quota_exhausted');
+  });
+
+  it('ignores malformed and expired persisted entries', () => {
+    const restored = createTestTracker();
+    const count = restored.restoreSnapshot({
+      statuses: [
+        null,
+        { providerId: 12, model: 'x', state: 'blocked' },
+        {
+          providerId: 'cc',
+          model: 'old',
+          state: 'blocked',
+          stateExpiresAt: Date.now() - 1,
+        },
+      ],
+    });
+    strictEqual(count, 0);
+    strictEqual(restored.getAllStatuses().length, 0);
   });
 
   // ── ProviderError integration ──────────────────────────────────────

@@ -1,8 +1,8 @@
 import type { Agent } from '@wrongstack/core';
 import { getProcessRegistry } from '@wrongstack/tools';
 import type { WebSocket } from 'ws';
+import { type PendingConfirm, resolveYoloEligiblePendingConfirms } from './connection.js';
 import type { WsCommon } from './index.js';
-import { resolveYoloEligiblePendingConfirms, type PendingConfirm } from './connection.js';
 
 /**
  * PR 5f of Issue #30: preference WebSocket handlers — `prefs.get`,
@@ -82,12 +82,18 @@ export function handlePrefsUpdate(
   // fallback extension pick them up without a restart.
   if (ctx.configStore) {
     const routingPatch: Record<string, unknown> = {};
-    if (Array.isArray(payload['fallbackModels'])) routingPatch.fallbackModels = payload['fallbackModels'];
+    if (Array.isArray(payload['fallbackModels']))
+      routingPatch.fallbackModels = payload['fallbackModels'];
     if (payload['fallbackProfiles']) routingPatch.fallbackProfiles = payload['fallbackProfiles'];
-    if (Array.isArray(payload['favoriteModels'])) routingPatch.favoriteModels = payload['favoriteModels'];
-    if (typeof payload['favoriteModelsOnly'] === 'boolean') routingPatch.favoriteModelsOnly = payload['favoriteModelsOnly'];
+    if (Array.isArray(payload['favoriteModels']))
+      routingPatch.favoriteModels = payload['favoriteModels'];
+    if (typeof payload['favoriteModelsOnly'] === 'boolean')
+      routingPatch.favoriteModelsOnly = payload['favoriteModelsOnly'];
+    if (Array.isArray(payload['modelAvailabilitySchedule']))
+      routingPatch.modelAvailabilitySchedule = payload['modelAvailabilitySchedule'];
     if (payload['modelMatrix']) routingPatch.modelMatrix = payload['modelMatrix'];
-    if (typeof payload['fallbackAuto'] === 'boolean') routingPatch.fallbackAuto = payload['fallbackAuto'];
+    if (typeof payload['fallbackAuto'] === 'boolean')
+      routingPatch.fallbackAuto = payload['fallbackAuto'];
     if (Object.keys(routingPatch).length > 0) ctx.configStore.update(routingPatch as never);
   }
   ctx.broadcast({ type: 'prefs.updated', payload: ctx.prefSnapshot() });

@@ -1,12 +1,12 @@
 import { FORBIDDEN_PROTO_KEYS } from '@wrongstack/core/utils';
 
-export type PayloadValidationResult<T> = { ok: true; value: T } | { ok: false; message: string };
+type PayloadValidationResult<T> = { ok: true; value: T } | { ok: false; message: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-export interface ModelSwitchPayload {
+interface ModelSwitchPayload {
   provider: string;
   model: string;
 }
@@ -31,13 +31,13 @@ export function validateModelSwitchPayload(
   return { ok: true, value: { provider, model } };
 }
 
-export interface PrefsUpdatePayload {
+interface PrefsUpdatePayload {
   prefs: Record<string, unknown>;
 }
 
 const AUTONOMY_VALUES = new Set(['off', 'suggest', 'auto', 'eternal', 'eternal-parallel']);
 
-export interface MailboxMessagesPayload {
+interface MailboxMessagesPayload {
   limit?: number;
   agentId?: string;
   unreadOnly?: boolean;
@@ -90,7 +90,7 @@ export function validateMailboxMessagesPayload(
   };
 }
 
-export interface MailboxAgentsPayload {
+interface MailboxAgentsPayload {
   onlineOnly?: boolean;
 }
 
@@ -114,7 +114,7 @@ export function validateMailboxAgentsPayload(
   };
 }
 
-export interface MailboxPurgePayload {
+interface MailboxPurgePayload {
   completedMaxAgeMs?: number;
   incompleteMaxAgeMs?: number;
 }
@@ -155,7 +155,9 @@ export function validateMailboxPurgePayload(
   return {
     ok: true,
     value: {
-      ...(completedMaxAgeMs !== undefined ? { completedMaxAgeMs: completedMaxAgeMs as number } : {}),
+      ...(completedMaxAgeMs !== undefined
+        ? { completedMaxAgeMs: completedMaxAgeMs as number }
+        : {}),
       ...(incompleteMaxAgeMs !== undefined
         ? { incompleteMaxAgeMs: incompleteMaxAgeMs as number }
         : {}),
@@ -163,7 +165,7 @@ export function validateMailboxPurgePayload(
   };
 }
 
-export interface BrainRiskPayload {
+interface BrainRiskPayload {
   level: string;
 }
 
@@ -185,7 +187,7 @@ export function validateBrainRiskPayload(
   return { ok: true, value: { level } };
 }
 
-export interface BrainAskPayload {
+interface BrainAskPayload {
   question: string;
 }
 
@@ -202,7 +204,7 @@ export function validateBrainAskPayload(
   return { ok: true, value: { question: question.trim() } };
 }
 
-export interface BrainConfigSetPayload {
+interface BrainConfigSetPayload {
   patch: Record<string, unknown>;
 }
 
@@ -221,7 +223,7 @@ export function validateBrainConfigSetPayload(
   return { ok: true, value: { patch } };
 }
 
-export interface AutonomySwitchPayload {
+interface AutonomySwitchPayload {
   mode: string;
 }
 
@@ -238,7 +240,7 @@ export function validateAutonomySwitchPayload(
   return { ok: true, value: { mode } };
 }
 
-export interface PlanTemplateUsePayload {
+interface PlanTemplateUsePayload {
   template: string;
 }
 
@@ -297,6 +299,7 @@ const BOOLEAN_PREF_KEYS = new Set([
   'hqRawContent',
   'fallbackAuto',
   'favoriteModelsOnly',
+  'modelAvailabilitySchedule',
   'breakerEnabled',
   'debugStream',
   // Chimera + auto-review master toggles
@@ -370,7 +373,10 @@ const ENUM_PREF_KEYS: Record<string, Set<string>> = {
   autoReviewCascadeOn: new Set(['off', 'critical', 'high']),
 };
 
-function validateModelRuntimeValue(modelRuntime: Record<string, unknown>, path: string): string | null {
+function validateModelRuntimeValue(
+  modelRuntime: Record<string, unknown>,
+  path: string,
+): string | null {
   const reasoning = modelRuntime['reasoning'];
   if (reasoning !== undefined) {
     if (!isRecord(reasoning)) return `${path}.reasoning must be an object when provided`;
@@ -380,7 +386,10 @@ function validateModelRuntimeValue(modelRuntime: Record<string, unknown>, path: 
     if (mode !== undefined && (typeof mode !== 'string' || !REASONING_MODE_VALUES.has(mode))) {
       return `${path}.reasoning.mode must be one of: ${Array.from(REASONING_MODE_VALUES).join(', ')}`;
     }
-    if (effort !== undefined && (typeof effort !== 'string' || !REASONING_EFFORT_VALUES.has(effort))) {
+    if (
+      effort !== undefined &&
+      (typeof effort !== 'string' || !REASONING_EFFORT_VALUES.has(effort))
+    ) {
       return `${path}.reasoning.effort must be one of: ${Array.from(REASONING_EFFORT_VALUES).join(', ')}`;
     }
     if (preserve !== undefined && typeof preserve !== 'boolean') {
@@ -392,7 +401,10 @@ function validateModelRuntimeValue(modelRuntime: Record<string, unknown>, path: 
   if (cache !== undefined) {
     if (!isRecord(cache)) return `${path}.cache must be an object when provided`;
     const ttl = cache['ttl'];
-    if (ttl !== undefined && (typeof ttl !== 'string' || !CACHE_TTL_VALUES.has(ttl) || ttl === 'default')) {
+    if (
+      ttl !== undefined &&
+      (typeof ttl !== 'string' || !CACHE_TTL_VALUES.has(ttl) || ttl === 'default')
+    ) {
       return `${path}.cache.ttl must be one of: 5m, 1h`;
     }
   }
@@ -466,7 +478,10 @@ function validatePreferenceValue(key: string, value: unknown): string | null {
         return `prefs.update payload.${key}.modelRuntime must be an object when provided`;
       }
       if (isRecord(modelRuntime)) {
-        const runtimeError = validateModelRuntimeValue(modelRuntime, `prefs.update payload.${key}.modelRuntime`);
+        const runtimeError = validateModelRuntimeValue(
+          modelRuntime,
+          `prefs.update payload.${key}.modelRuntime`,
+        );
         if (runtimeError) return runtimeError;
       }
       if (model === undefined && fallbackProfile === undefined && modelRuntime === undefined) {
@@ -497,7 +512,7 @@ export function validatePrefsUpdatePayload(
   return { ok: true, value: { prefs: payload } };
 }
 
-export interface SkillsCreatePayload {
+interface SkillsCreatePayload {
   name: string;
   description: string;
   scope: 'project' | 'global';
@@ -527,7 +542,7 @@ export function validateSkillsCreatePayload(
   return { ok: true, value: { name, description, scope } };
 }
 
-export interface SkillsEditPayload {
+interface SkillsEditPayload {
   name: string;
   body: string;
 }
@@ -549,7 +564,7 @@ export function validateSkillsEditPayload(
   return { ok: true, value: { name, body } };
 }
 
-export interface ProcessKillPayload {
+interface ProcessKillPayload {
   pid: number;
 }
 
@@ -566,7 +581,7 @@ export function validateProcessKillPayload(
   return { ok: true, value: { pid } };
 }
 
-export interface WorkingDirSetPayload {
+interface WorkingDirSetPayload {
   path: string;
 }
 
@@ -583,7 +598,7 @@ export function validateWorkingDirSetPayload(
   return { ok: true, value: { path: newPath } };
 }
 
-export interface ModeSwitchPayload {
+interface ModeSwitchPayload {
   id: string;
 }
 
@@ -600,7 +615,7 @@ export function validateModeSwitchPayload(
   return { ok: true, value: { id } };
 }
 
-export interface ContextModeIdPayload {
+interface ContextModeIdPayload {
   id: string;
 }
 
@@ -630,7 +645,7 @@ export function validateContextModeDeletePayload(
   return validateContextModeIdPayload(payload, 'context.mode.delete');
 }
 
-export interface ContextModeCreatePayload {
+interface ContextModeCreatePayload {
   id: string;
   name: string;
   description: string;
@@ -704,7 +719,7 @@ export function validateContextModeCreatePayload(
   };
 }
 
-export interface ContextModeUpdatePayload {
+interface ContextModeUpdatePayload {
   id: string;
   name?: string;
   description?: string;
@@ -794,7 +809,7 @@ export function validateContextModeUpdatePayload(
   };
 }
 
-export interface ShellOpenPayload {
+interface ShellOpenPayload {
   path: string;
   target?: 'file' | 'terminal';
 }
@@ -825,7 +840,7 @@ export function validateShellOpenPayload(
   };
 }
 
-export interface GitDiffPayload {
+interface GitDiffPayload {
   path: string;
 }
 
@@ -843,7 +858,7 @@ export function validateGitDiffPayload(payload: unknown): PayloadValidationResul
   return { ok: true, value: { path } };
 }
 
-export interface ProjectsAddPayload {
+interface ProjectsAddPayload {
   root: string;
   name?: string;
 }
@@ -868,7 +883,7 @@ export function validateProjectsAddPayload(
   };
 }
 
-export interface ProjectsSelectPayload {
+interface ProjectsSelectPayload {
   root: string;
   name?: string;
 }

@@ -119,11 +119,11 @@ import { broadcast, errMessage, send, sendResult } from './ws-utils.js';
  * so a second user_message while running is rejected and a project swap can
  * tear down the in-flight run.
  */
-export interface RunLockControl {
+interface RunLockControl {
   get(): AbortController | null;
   set(ctrl: AbortController | null): void;
 }
-export interface MessageDispatcherOptions {
+interface MessageDispatcherOptions {
   state: WebuiMutableState;
   deps: WebuiDeps;
   cb: WebuiCallbacks;

@@ -1,7 +1,7 @@
 import { randomInt } from 'node:crypto';
 import { ProviderError, type ProviderErrorKind } from '../types/provider.js';
-import { NETWORK_ERR_RE } from './regex-patterns.js';
 import type { RetryPolicy } from '../types/retry-policy.js';
+import { NETWORK_ERR_RE } from './regex-patterns.js';
 
 /**
  * Upper bound for any Retry-After hint surfaced by a provider.
@@ -15,7 +15,7 @@ import type { RetryPolicy } from '../types/retry-policy.js';
  * (it matches what most providers document as the practical upper
  * bound for a single rate-limit window).
  */
-export const MAX_RETRY_AFTER_MS = 60_000;
+const MAX_RETRY_AFTER_MS = 60_000;
 
 /**
  * In-place attempts per canonical failure kind. Exhaustive by construction
@@ -26,6 +26,7 @@ export const MAX_RETRY_AFTER_MS = 60_000;
  */
 const MAX_ATTEMPTS_BY_KIND: Record<ProviderErrorKind, number> = {
   rate_limit: 5,
+  quota_exhausted: 0,
   stream_hang: 5, // transient, worth retrying aggressively
   overloaded: 3,
   server: 3,

@@ -231,6 +231,14 @@ export interface KanbanEventContext {
   correlationId?: string | undefined;
   /** Human or system explanation for why this mutation happened. */
   note?: string | undefined;
+  /**
+   * Fencing token for ownership-checked writes. When set, the mutation is
+   * applied only if the task's current `assignment.leaseId` matches — checked
+   * inside the board mutation lock so a recovered-and-reassigned task cannot
+   * be overwritten by a stale owner. Omit to preserve legacy unconditional
+   * behavior.
+   */
+  expectedLeaseId?: string | undefined;
 }
 
 export interface KanbanGoalMetric {
@@ -644,6 +652,14 @@ export interface ReleaseKanbanTaskClaimInput {
 export interface HeartbeatKanbanTaskAssignmentInput {
   heartbeatAt?: string | undefined;
   leaseExpiresAt?: string | undefined;
+  /**
+   * Fencing token: if set, the heartbeat is applied only when the task's
+   * current `assignment.leaseId` matches. This makes lease renewal atomic
+   * (checked inside the board mutation lock) so a recovered-and-reassigned
+   * task whose leaseId changed cannot be renewed by a stale waiter. When
+   * omitted, the legacy unconditional behavior is preserved.
+   */
+  expectedLeaseId?: string | undefined;
 }
 
 export type RecoverStaleKanbanAssignmentMode = KanbanRecoveryMode;

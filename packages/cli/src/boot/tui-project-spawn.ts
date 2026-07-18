@@ -23,7 +23,7 @@ export interface PendingProjectSwitch {
   resumeSessionId?: string | undefined;
 }
 
-export interface ProjectSwitchSpawnOptions {
+interface ProjectSwitchSpawnOptions {
   /** The TUI's exit code. */
   code: number;
   /** The pending switch info set by onProjectSelect / onSwitchToSession. */

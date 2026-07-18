@@ -79,7 +79,7 @@ export interface ACPServerAgentTurnOptions {
 }
 
 /** A recorded conversation turn, replayable on `session/load`. */
-export interface SessionReplayUpdate {
+interface SessionReplayUpdate {
   sessionUpdate: 'user_message_chunk' | 'agent_message_chunk';
   content: { type: 'text'; text: string };
 }

@@ -1,5 +1,5 @@
-import { ProviderError, classifyProviderError, isRetryableKind } from '@wrongstack/core';
 import type { ProviderErrorBody } from '@wrongstack/core';
+import { classifyProviderError, isRetryableKind, ProviderError } from '@wrongstack/core';
 import { isPlainObject } from './object-utils.js';
 
 /**

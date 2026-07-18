@@ -22,8 +22,8 @@ describe('CLI wiring controllers', () => {
 
   it('fleet stream controller: setMode drives mode and mirrors the boolean', () => {
     const stream = createFleetStreamController();
-    expect(stream.mode).toBe('compact'); // default
-    expect(stream.enabled).toBe(true);
+    expect(stream.mode).toBe('off'); // default
+    expect(stream.enabled).toBe(false);
     stream.setMode('off');
     expect(stream.mode).toBe('off');
     expect(stream.enabled).toBe(false);

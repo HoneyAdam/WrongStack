@@ -12,7 +12,13 @@ import {
 import { listBoards } from './boards.js';
 import { matchesKanbanSearch, slugify } from './_internal.js';
 
-export function generateBoardFromDescription(input: KanbanGenerationInput): CreateKanbanBoardInput {
+/**
+ * @deprecated Renamed to `createBoardFromText` for clarity (no AI involved).
+ * Scheduled for removal in the next major version.
+ */
+export const generateBoardFromDescription = createBoardFromText;
+
+export function createBoardFromText(input: KanbanGenerationInput): CreateKanbanBoardInput {
   const title =
     input.title ??
     `Kanban: ${input.description.slice(0, 60)}${input.description.length > 60 ? '...' : ''}`;

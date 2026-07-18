@@ -9,7 +9,6 @@ import { buildProjectsMenu } from './projects-menu.js';
 import { buildFileMenu, buildWorkspaceMenu, buildViewMenu } from './sections.js';
 
 export { buildProjectsMenu, normalizeMenuRoot, groupProjectRuntimesForMenu } from './projects-menu.js';
-export { buildProjectsMenu as buildProjectsMenuSection } from './projects-menu.js';
 export * from './types.js';
 
 /**

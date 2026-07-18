@@ -42,7 +42,7 @@ export type GoalPriority = 'critical' | 'high' | 'medium' | 'low';
 export type ChangeStatus = 'proposed' | 'approved' | 'rejected' | 'applied' | 'rolled_back';
 export type VoteValue = 'approve' | 'reject' | 'abstain';
 
-export type DecisionType = 'spawn' | 'assign' | 'approve_change' | 'reject_change' | 'escalate' | 'rollback' | 'merge_results';
+type DecisionType = 'spawn' | 'assign' | 'approve_change' | 'reject_change' | 'escalate' | 'rollback' | 'merge_results';
 
 export interface FactNode {
   id: string;

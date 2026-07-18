@@ -11,9 +11,12 @@ import type {
   MailboxAckBatchInput,
   MailboxAckInput,
   MailboxMessage,
+  MailboxMessageType,
   MailboxQuery,
   MailboxSendInput,
 } from './mailbox-types.js';
+import { MAILBOX_TYPE_PROPERTIES, normalizeRecipient } from './mailbox-types.js';
+import { resolveSendType } from './mailbox-message-codec.js';
 
 export const MAILBOX_HTTP_MAX_BODY_BYTES = 256 * 1024;
 export const MAILBOX_HTTP_RATE_LIMIT_PER_MINUTE = 120;
@@ -417,18 +420,11 @@ function optionalBoolean(object: unknown, key: string): boolean | undefined {
   return value;
 }
 
-const VALID_TYPES = new Set([
-  'note',
-  'ask',
-  'assign',
-  'steer',
-  'btw',
-  'broadcast',
-  'status',
-  'result',
-  'review',
-  'control',
-]);
+/**
+ * Valid types derived from the canonical MAILBOX_TYPE_PROPERTIES table.
+ * Stays in sync automatically as the type union evolves.
+ */
+const VALID_TYPES = new Set(Object.keys(MAILBOX_TYPE_PROPERTIES) as MailboxMessageType[]);
 const VALID_PRIORITIES = new Set(['low', 'normal', 'high']);
 const RESERVED_FROM_IDS = new Set([
   'leader',
@@ -461,7 +457,7 @@ function validateSend(body: unknown): MailboxSendInput {
   }
   const object = body as Record<string, unknown>;
   const type = requireString(object, 'type');
-  if (!VALID_TYPES.has(type)) {
+  if (!VALID_TYPES.has(type as MailboxMessageType)) {
     throw validationError(`field "type" must be one of ${[...VALID_TYPES].join(', ')}`);
   }
   const priority = optionalString(object, 'priority');
@@ -475,10 +471,19 @@ function validateSend(body: unknown): MailboxSendInput {
       `field "from" must not use reserved internal agent id "${fromBase}" — external agents must use their own identity`,
     );
   }
+  const to = normalizeRecipient(requireString(object, 'to'));
+
+  // Cross-field (type, to) validation must use the same canonical recipient
+  // that is forwarded to and persisted by the mailbox.
+  try {
+    resolveSendType(type as MailboxMessageType, to);
+  } catch (err) {
+    throw validationError(`field "type" is invalid: ${(err as Error).message}`);
+  }
 
   const result: MailboxSendInput = {
     from,
-    to: requireString(object, 'to'),
+    to,
     type: type as MailboxSendInput['type'],
     subject: requireString(object, 'subject'),
     body: requireString(object, 'body'),
@@ -519,7 +524,7 @@ function validateQuery(body: unknown): MailboxQuery {
   if (from !== undefined) result.from = from;
   if (unreadBy !== undefined) result.unreadBy = unreadBy;
   if (type !== undefined) {
-    if (!VALID_TYPES.has(type)) {
+    if (!VALID_TYPES.has(type as MailboxMessageType)) {
       throw validationError(`field "type" must be one of ${[...VALID_TYPES].join(', ')}`);
     }
     result.type = type as MailboxQuery['type'];

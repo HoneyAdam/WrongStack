@@ -30,10 +30,10 @@ function makeConfig(): Config {
   } as never as Config;
 }
 
-function makeHarness() {
+function makeHarness(config = makeConfig()) {
   const buildProvider = vi.fn(async (providerId: string) => makeProvider(providerId));
   const ext = createFallbackModelExtension({
-    getConfig: makeConfig,
+    getConfig: () => config,
     buildProvider,
     events: new EventBus(),
     now: () => 1_000,
@@ -65,6 +65,44 @@ describe('fallback-model kind gating', () => {
     expect(res).toBe(okResponse);
     expect(buildProvider).toHaveBeenCalledWith('other', 'model-b');
     expect(ctx.model).toBe('model-b');
+  });
+
+  it('skips a calendar-blocked primary without calling it', async () => {
+    const config = {
+      ...makeConfig(),
+      modelAvailabilitySchedule: [
+        {
+          id: 'primary-night',
+          provider: 'primary',
+          model: 'model-a',
+          start: '00:00',
+          end: '00:00',
+        },
+      ],
+    } as Config;
+    const { ext, ctx, request, buildProvider } = makeHarness(config);
+    const inner = vi.fn().mockResolvedValue(okResponse);
+
+    const res = await ext.wrapProviderRunner?.(ctx, request, inner);
+
+    expect(res).toBe(okResponse);
+    expect(inner).toHaveBeenCalledTimes(1);
+    expect(buildProvider).toHaveBeenCalledWith('other', 'model-b');
+  });
+
+  it('hops immediately on exhausted quota without same-route retry semantics', async () => {
+    const { ext, ctx, request, buildProvider } = makeHarness();
+    const quota = new ProviderError('primary HTTP 402', 402, false, 'primary', {
+      body: { type: 'insufficient_quota', message: 'Account credit exhausted' },
+    });
+    expect(quota.kind).toBe('quota_exhausted');
+    const inner = vi.fn().mockRejectedValueOnce(quota).mockResolvedValueOnce(okResponse);
+
+    const res = await ext.wrapProviderRunner?.(ctx, request, inner);
+
+    expect(res).toBe(okResponse);
+    expect(inner).toHaveBeenCalledTimes(2);
+    expect(buildProvider).toHaveBeenCalledWith('other', 'model-b');
   });
 
   it('hops on stream_hang', async () => {

@@ -6,8 +6,10 @@ import {
   type Logger,
   type Provider,
   type ProviderConfig,
+  type ProviderConfigSnapshot,
   type ProviderModelStatusTracker,
   type ProviderRegistry,
+  readProviderSnapshot,
   type SecretVault,
   SessionMemoryConsolidator,
   type WstackPaths,
@@ -41,7 +43,10 @@ export interface ProviderRuntimeDeps {
   context: AnyObj;
   events: EventBus;
   resolveProviderCfgRuntime: (config: Config, providerId: string) => { cfg: ProviderConfig };
-  buildProviderForIdRuntime: (opts: { config: Config; providerRegistry: ProviderRegistry }, providerId: string) => Provider;
+  buildProviderForIdRuntime: (
+    opts: { config: Config; providerRegistry: ProviderRegistry },
+    providerId: string,
+  ) => Provider;
   /** Shared provider/model status tracker. */
   statusTracker: ProviderModelStatusTracker;
 }
@@ -89,20 +94,17 @@ export function setupProviderRuntime(deps: ProviderRuntimeDeps): ProviderRuntime
   let cfg = initialConfig;
   const sync = (next: Config): void => {
     cfg = next;
+    fallbackProfileManager.reload(next);
     onConfigUpdate(next);
   };
 
   // ── Provider config helpers ────────────────────────────────────────────
-  const resolveProviderCfg = (providerId: string) =>
-    resolveProviderCfgRuntime(cfg, providerId);
+  const resolveProviderCfg = (providerId: string) => resolveProviderCfgRuntime(cfg, providerId);
 
   const buildProviderForId = (providerId: string): Provider =>
     buildProviderForIdRuntime({ config: cfg, providerRegistry }, providerId);
 
-  const refreshMaxContextFor = async (
-    providerId: string,
-    modelId: string,
-  ): Promise<void> => {
+  const refreshMaxContextFor = async (providerId: string, modelId: string): Promise<void> => {
     const { cfg: resolvedCfg } = resolveProviderCfg(providerId);
     await refreshMaxContext(providerId, modelId, resolvedCfg);
   };
@@ -155,36 +157,185 @@ export function setupProviderRuntime(deps: ProviderRuntimeDeps): ProviderRuntime
     }
   };
 
-  // ── Credential hot-reload watcher ──────────────────────────────────────
+  // ── Multi-layer credential + routing hot-reload watcher ──────────────
+  // Previously watched only `wpaths.globalConfig` and applied its raw values
+  // to the already-merged config, which:
+  //   1. Missed changes to higher-precedence project-local and in-project
+  //      config files (project-scope hot-reload gap).
+  //   2. Overwrote project-local routing overrides with global values
+  //      (config-precedence regression).
+  //   3. Left deleted routing fields active in memory because optional
+  //      fields were patched only when defined (stale deleted settings).
+  //
+  // FIX: Watch all three config layers. When any layer changes, re-read
+  // all three and merge their credential/routing fields with the same
+  // precedence the config-loader uses: global → projectLocal → inProject.
+  // The merged result is then applied atomically, so deletions (absent
+  // fields) correctly restore the lower-precedence or default value.
+  const ROUTING_FIELDS: (keyof ProviderConfigSnapshot)[] = [
+    'fallbackModels',
+    'fallbackProfiles',
+    'favoriteModels',
+    'favoriteModelsOnly',
+    'modelAvailabilitySchedule',
+    'modelMatrix',
+    'fallbackAuto',
+    'uiLocale',
+  ];
+
   if (process.env['WRONGSTACK_DISABLE_CONFIG_WATCH'] !== '1') {
-    const credentialWatcher = watchProviderConfig(
-      wpaths.globalConfig,
-      vault,
-      (snapshot: AnyObj) => {
-        const activeId = cfg.provider;
-        const before = JSON.stringify(resolveProviderCfg(activeId).cfg);
-        sync(patchConfig(cfg, {
-          providers: snapshot.providers,
-          ...(snapshot.apiKey !== undefined ? { apiKey: snapshot.apiKey } : {}),
-          ...(snapshot.baseUrl !== undefined ? { baseUrl: snapshot.baseUrl } : {}),
-        }));
-        configStore.update({
-          providers: snapshot.providers,
-          ...(snapshot.apiKey !== undefined ? { apiKey: snapshot.apiKey } : {}),
-          ...(snapshot.baseUrl !== undefined ? { baseUrl: snapshot.baseUrl } : {}),
-        });
-        const after = JSON.stringify(resolveProviderCfg(activeId).cfg);
-        if (after === before) return;
-        try {
-          context.provider = buildProviderForId(activeId);
-          logger.info(`Provider credentials reloaded from config.json (${activeId})`);
-        } catch (err) {
-          logger.warn(`Credential hot-reload failed for ${activeId}: ${(err as Error).message ?? String(err)}`);
+    const configLayers: { path: string; priority: number }[] = [
+      { path: wpaths.globalConfig, priority: 1 },
+      { path: wpaths.projectLocalConfig, priority: 2 },
+      { path: wpaths.inProjectConfig, priority: 3 },
+    ];
+
+    /**
+     * Re-read ALL config layers and merge their credential/routing fields
+     * with correct precedence. Higher-priority layers override lower ones.
+     * Uses conditional spread so no `undefined` values reach the returned
+     * snapshot object (exactOptionalPropertyTypes compatibility).
+     */
+    const readMergedSnapshot = async (): Promise<ProviderConfigSnapshot | undefined> => {
+      let merged: ProviderConfigSnapshot | undefined;
+      // Read layers in priority order so each higher layer overrides the last.
+      for (const layer of configLayers.sort((a, b) => a.priority - b.priority)) {
+        const snap = await readProviderSnapshot(layer.path, vault, (msg: string) =>
+          logger.warn(`Config watcher (${layer.path}): ${msg}`),
+        );
+        if (!snap) continue;
+        if (!merged) {
+          // Deep-clone the first layer's providers to avoid future mutation.
+          merged = { ...snap, providers: { ...snap.providers } };
+        } else {
+          // Merge higher-priority layer with carry-forward from lower.
+          // Spread-with-condition avoids `undefined` values that violate
+          // exactOptionalPropertyTypes.
+          merged = {
+            providers: { ...merged.providers, ...snap.providers },
+            ...(snap.apiKey !== undefined
+              ? { apiKey: snap.apiKey }
+              : merged.apiKey !== undefined
+                ? { apiKey: merged.apiKey }
+                : {}),
+            ...(snap.baseUrl !== undefined
+              ? { baseUrl: snap.baseUrl }
+              : merged.baseUrl !== undefined
+                ? { baseUrl: merged.baseUrl }
+                : {}),
+            ...(snap.fallbackModels !== undefined
+              ? { fallbackModels: snap.fallbackModels }
+              : merged.fallbackModels !== undefined
+                ? { fallbackModels: merged.fallbackModels }
+                : {}),
+            ...(snap.fallbackProfiles !== undefined
+              ? { fallbackProfiles: snap.fallbackProfiles }
+              : merged.fallbackProfiles !== undefined
+                ? { fallbackProfiles: merged.fallbackProfiles }
+                : {}),
+            ...(snap.favoriteModels !== undefined
+              ? { favoriteModels: snap.favoriteModels }
+              : merged.favoriteModels !== undefined
+                ? { favoriteModels: merged.favoriteModels }
+                : {}),
+            ...(snap.favoriteModelsOnly !== undefined
+              ? { favoriteModelsOnly: snap.favoriteModelsOnly }
+              : merged.favoriteModelsOnly !== undefined
+                ? { favoriteModelsOnly: merged.favoriteModelsOnly }
+                : {}),
+            ...(snap.modelAvailabilitySchedule !== undefined
+              ? { modelAvailabilitySchedule: snap.modelAvailabilitySchedule }
+              : merged.modelAvailabilitySchedule !== undefined
+                ? { modelAvailabilitySchedule: merged.modelAvailabilitySchedule }
+                : {}),
+            ...(snap.modelMatrix !== undefined
+              ? { modelMatrix: snap.modelMatrix }
+              : merged.modelMatrix !== undefined
+                ? { modelMatrix: merged.modelMatrix }
+                : {}),
+            ...(snap.fallbackAuto !== undefined
+              ? { fallbackAuto: snap.fallbackAuto }
+              : merged.fallbackAuto !== undefined
+                ? { fallbackAuto: merged.fallbackAuto }
+                : {}),
+            ...(snap.uiLocale !== undefined
+              ? { uiLocale: snap.uiLocale }
+              : merged.uiLocale !== undefined
+                ? { uiLocale: merged.uiLocale }
+                : {}),
+          };
         }
-      },
-      { warn: (msg) => logger.warn(`Config watcher: ${msg}`) },
-    );
-    teardownHandlers.push(() => credentialWatcher.close());
+      }
+      return merged;
+    };
+
+    // Shared callback for all watchers: re-read all layers, compute the
+    // merged snapshot, and apply it to cfg + ConfigStore.
+    let previousSnapshotSerialized: string | undefined;
+    const onAnyConfigChange = async (): Promise<void> => {
+      const merged = await readMergedSnapshot();
+      if (!merged) return;
+      const serialized = JSON.stringify(merged, Object.keys(merged).sort());
+      if (serialized === previousSnapshotSerialized) return; // No change
+      previousSnapshotSerialized = serialized;
+
+      const activeId = cfg.provider;
+
+      // Build the full patch from the merged snapshot.
+      // CREDENTIALS: only propagate when present (they come from the vault).
+      // ROUTING FIELDS: ALWAYS propagate, using null when absent from every
+      // layer, so deleted fields are explicitly cleared in ConfigStore rather
+      // than preserved from the previous state (fixes stale-deleted-settings).
+      const mergedPatch: Record<string, unknown> = {
+        providers: merged.providers,
+      };
+      if (merged.apiKey !== undefined) mergedPatch.apiKey = merged.apiKey;
+      if (merged.baseUrl !== undefined) mergedPatch.baseUrl = merged.baseUrl;
+      for (const key of ROUTING_FIELDS) {
+        mergedPatch[key] = (merged as unknown as Record<string, unknown>)[key] ?? null;
+      }
+
+      // Snapshot credential state before applying, so we can detect
+      // credential-only changes below (routing-only edits skip provider rebuild).
+      const before = JSON.stringify(resolveProviderCfg(activeId).cfg);
+
+      // Apply the merged patch to both cfg and ConfigStore.
+      sync(patchConfig(cfg, mergedPatch));
+      configStore.update(mergedPatch);
+
+      // Only rebuild the active provider if its credential config changed.
+      // Routing-only edits (fallbackProfiles, modelMatrix, etc.) reach
+      // ConfigStore above but never need a provider rebuild.
+      const after = JSON.stringify(resolveProviderCfg(activeId).cfg);
+      if (after === before) return;
+      try {
+        context.provider = buildProviderForId(activeId);
+        logger.info(`Provider credentials reloaded from config (${activeId})`);
+      } catch (err) {
+        logger.warn(
+          `Credential hot-reload failed for ${activeId}: ${(err as Error).message ?? String(err)}`,
+        );
+      }
+    };
+
+    // Set up a watcher for EACH config layer. The `watchProviderConfig`
+    // watcher provides file-watch, debounce, and no-op guard per path.
+    // When any layer fires, `onAnyConfigChange` re-reads and merges all
+    // layers, so a change to any file produces a correctly-merged result.
+    const watchers = configLayers.map((layer) => {
+      const w = watchProviderConfig(
+        layer.path,
+        vault,
+        () => {
+          void onAnyConfigChange();
+        },
+        { warn: (msg) => logger.warn(`Config watcher (${layer.path}): ${msg}`) },
+      );
+      return w;
+    });
+    teardownHandlers.push(() => {
+      for (const w of watchers) w.close();
+    });
   }
 
   return {

@@ -292,6 +292,7 @@ export function App({
   getEnhancerReasoning,
   buildEnhancerProvider,
   getEnhanceFallbackRef,
+  getConfiguredRefinerRef,
   getYolo,
   onYolo,
   getAutonomy,
@@ -2133,7 +2134,7 @@ export function App({
       delayMs: s.delayMs,
       titleAnimation: s.titleAnimation ?? true,
       yolo: s.yolo ?? false,
-      fleetChat: s.fleetChatVerbosity ?? 'compact',
+      fleetChat: s.fleetChatVerbosity ?? 'off',
       chime: s.chime ?? false,
       confirmExit: s.confirmExit ?? true,
       nextPrediction: s.nextPrediction ?? false,
@@ -4549,7 +4550,7 @@ export function App({
           delayMs: cfg.delayMs,
           titleAnimation: cfg.titleAnimation ?? true,
           yolo: cfg.yolo ?? false,
-          fleetChat: cfg.fleetChatVerbosity ?? 'compact',
+          fleetChat: cfg.fleetChatVerbosity ?? 'off',
           chime: cfg.chime ?? false,
           confirmExit: cfg.confirmExit ?? true,
           nextPrediction: cfg.nextPrediction ?? false,
@@ -5911,22 +5912,40 @@ export function App({
         return { result: out, kind, reason };
       };
 
-      // First attempt: the session provider/model with a gated low-effort hint.
+      // First attempt: use the dedicated refiner target when configured;
+      // otherwise fall back deliberately to the live session provider/model.
+      let initialProvider = agent.ctx.provider;
+      let initialModel = agent.ctx.model;
+      let initialReasoning = getEnhancerReasoning?.();
+      const configuredRef = getConfiguredRefinerRef?.();
+      if (configuredRef && buildEnhancerProvider) {
+        const ref = parseModelRef(configuredRef);
+        const targetProvider = ref.provider ?? agent.ctx.provider.id;
+        if (ref.model) {
+          const built = await buildEnhancerProvider(targetProvider, ref.model);
+          if (built) {
+            initialProvider = built;
+            initialModel = ref.model;
+            // The session capability hint may be invalid for another model.
+            initialReasoning = undefined;
+          }
+        }
+      }
       let outcome = await runAttempt(
-        agent.ctx.provider,
-        agent.ctx.model,
+        initialProvider,
+        initialModel,
         baseTimeoutMs,
-        getEnhancerReasoning?.(),
+        initialReasoning,
       );
 
       // Auto-retry ONCE on a timeout with a longer window — the model was
       // reachable, just slow. Any other failure goes straight to the panel.
       if (outcome.result === null && outcome.kind === 'timeout' && !ac.signal.aborted) {
         outcome = await runAttempt(
-          agent.ctx.provider,
-          agent.ctx.model,
+          initialProvider,
+          initialModel,
           nextEnhanceTimeout(baseTimeoutMs, undefined),
-          getEnhancerReasoning?.(),
+          initialReasoning,
         );
       }
 

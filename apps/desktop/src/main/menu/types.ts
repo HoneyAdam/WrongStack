@@ -1,7 +1,6 @@
 /**
  * Menu builder types and interfaces.
  */
-import type { MenuItemConstructorOptions } from 'electron';
 import type { DesktopRuntimeRecord, DesktopWebuiCommand, DesktopWebuiPrefs } from '../../shared/types.js';
 
 // ============================================================================
@@ -62,14 +61,3 @@ export interface MenuBuilderContext {
   /** Reveal path in file explorer */
   revealInExplorer(root: string): void;
 }
-
-// ============================================================================
-// Menu Template Generator
-// ============================================================================
-
-export interface MenuSection {
-  label: string;
-  items: MenuItemConstructorOptions[];
-}
-
-export type MenuTemplateBuilder = (ctx: MenuBuilderContext) => MenuItemConstructorOptions[];
