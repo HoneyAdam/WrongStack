@@ -10,12 +10,22 @@ import {
   DOTS_FRAMES,
   HUE_WHEEL,
   type AnimationStyle,
+  hslToHex,
   mixHex,
   pulseColor,
+  rainbowColor,
+  rainbowHue,
   stripTrailingDots,
   styleForCycleTick,
   waveColor,
 } from '../src/components/animation-style.js';
+
+/** Parse a #rrggbb hex into [r, g, b] numbers. Helper for color tests. */
+function parseRgb(hex: string): [number, number, number] {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!m) return [0, 0, 0];
+  return [parseInt(m[1]!, 16), parseInt(m[2]!, 16), parseInt(m[3]!, 16)];
+}
 
 describe('animation-style', () => {
   describe('exports', () => {
@@ -162,6 +172,160 @@ describe('animation-style', () => {
     it('is assignable to the union', () => {
       const s: AnimationStyle = 'wave';
       expect(s).toBe('wave');
+    });
+  });
+
+  describe('hslToHex', () => {
+    it('produces valid hex for primary hues', () => {
+      expect(hslToHex(0, 1, 0.5)).toBe('#ff0000'); // red
+      expect(hslToHex(120, 1, 0.5)).toBe('#00ff00'); // green
+      expect(hslToHex(240, 1, 0.5)).toBe('#0000ff'); // blue
+    });
+
+    it('wraps hue values outside [0,360)', () => {
+      expect(hslToHex(360, 1, 0.5)).toBe(hslToHex(0, 1, 0.5));
+      expect(hslToHex(720, 1, 0.5)).toBe(hslToHex(0, 1, 0.5));
+      expect(hslToHex(-120, 1, 0.5)).toBe(hslToHex(240, 1, 0.5));
+    });
+
+    it('clamps saturation and lightness to [0,1]', () => {
+      expect(hslToHex(0, -1, 0.5)).toBe(hslToHex(0, 0, 0.5));
+      expect(hslToHex(0, 2, 0.5)).toBe(hslToHex(0, 1, 0.5));
+      expect(hslToHex(0, 1, -0.5)).toBe(hslToHex(0, 1, 0));
+      expect(hslToHex(0, 1, 1.5)).toBe(hslToHex(0, 1, 1));
+    });
+
+    it('always returns 7-char hex (#rrggbb)', () => {
+      for (let h = 0; h < 360; h += 7) {
+        for (let s = 0; s <= 1; s += 0.25) {
+          for (let l = 0; l <= 1; l += 0.25) {
+            expect(hslToHex(h, s, l)).toMatch(/^#[0-9a-f]{6}$/i);
+          }
+        }
+      }
+    });
+
+    it('produces white at l=1 and black at l=0 regardless of hue', () => {
+      expect(hslToHex(42, 0.8, 1)).toBe('#ffffff');
+      expect(hslToHex(42, 0.8, 0)).toBe('#000000');
+    });
+
+    it('produces gray at s=0 regardless of hue', () => {
+      // At s=0 the color is pure gray: l=0.5 → #808080
+      expect(hslToHex(0, 0, 0.5)).toBe('#808080');
+      expect(hslToHex(180, 0, 0.5)).toBe('#808080');
+    });
+  });
+
+  describe('rainbowHue', () => {
+    it('returns a value in [0, 360)', () => {
+      for (let i = 0; i < 20; i++) {
+        for (let phase = 0; phase < 100; phase += 5) {
+          const hue = rainbowHue(i, phase);
+          expect(hue).toBeGreaterThanOrEqual(0);
+          expect(hue).toBeLessThan(360);
+        }
+      }
+    });
+
+    it('is periodic in phase — same index repeats hue after full cycles', () => {
+      // The temporal term is sin(2π * (spatial + temporal)). After the
+      // temporal argument advances by 1 (one full sine cycle), the hue
+      // must return to the same value. With HUE_PER_TICK=15°, one full
+      // cycle = 360/15 = 24 ticks.
+      const base = rainbowHue(3, 0);
+      expect(rainbowHue(3, 24)).toBeCloseTo(base, 5);
+      expect(rainbowHue(3, 48)).toBeCloseTo(base, 5);
+    });
+
+    it('is periodic in spatial position', () => {
+      // The spatial term is sin(2π * (i/period)). After i advances by one
+      // period, the sine returns to the same argument.
+      // period = max(2, RAINBOW_SPATIAL_PERIOD) = 6
+      const base = rainbowHue(2, 0);
+      expect(rainbowHue(8, 0)).toBeCloseTo(base, 5);
+      expect(rainbowHue(14, 0)).toBeCloseTo(base, 5);
+    });
+
+    it('adjacent glyphs differ by a bounded hue delta (no full-spectrum snaps)', () => {
+      // Adjacent glyphs at the same phase can differ by up to ~90° at the
+      // sine's steepest point — that's inherent to a 180° amplitude over a
+      // 6-glyph period. The guarantee is that we never see a ~180° snap
+      // (which would indicate a discontinuity). A snap would be close to
+      // the full amplitude. Epsilon accounts for floating-point rounding.
+      const EPS = 0.001;
+      for (let phase = 0; phase < 50; phase += 5) {
+        for (let i = 0; i < 20; i++) {
+          const h1 = rainbowHue(i, phase);
+          const h2 = rainbowHue(i + 1, phase);
+          let delta = Math.abs(h2 - h1);
+          if (delta > 180) delta = 360 - delta;
+          expect(delta).toBeLessThanOrEqual(90 + EPS);
+        }
+      }
+    });
+
+    it('temporal smoothness: consecutive phase ticks shift each glyph by a small amount', () => {
+      // This is the key improvement over the old discrete lookup. The old
+      // HUE_WHEEL approach snapped every glyph by 30° (360/12) on each tick.
+      // The sinusoidal approach shifts each glyph by at most ~24° per tick
+      // (amp/2 * sin(2π * HUE_PER_TICK/360) ≈ 90 * 0.259 ≈ 23°). This is
+      // what makes the animation feel smooth rather than stepped.
+      for (let i = 0; i < 12; i++) {
+        for (let phase = 0; phase < 40; phase++) {
+          const h1 = rainbowHue(i, phase);
+          const h2 = rainbowHue(i, phase + 1);
+          let delta = Math.abs(h2 - h1);
+          if (delta > 180) delta = 360 - delta;
+          expect(delta).toBeLessThan(30); // strictly less than the old 30° snap
+        }
+      }
+    });
+
+    it('is deterministic — same inputs always produce the same hue', () => {
+      const a = rainbowHue(5, 13);
+      const b = rainbowHue(5, 13);
+      expect(a).toBe(b);
+    });
+  });
+
+  describe('rainbowColor', () => {
+    it('returns valid hex for any glyph index and phase', () => {
+      for (let i = 0; i < 15; i++) {
+        for (let phase = 0; phase < 40; phase++) {
+          expect(rainbowColor(i, phase)).toMatch(/^#[0-9a-f]{6}$/i);
+        }
+      }
+    });
+
+    it('produces smooth color progression across glyphs at a fixed phase', () => {
+      // Adjacent glyph colors should be perceptually close — their RGB
+      // components should not jump by more than ~128 (half of 255).
+      const phase = 5;
+      for (let i = 0; i < 12; i++) {
+        const c1 = rainbowColor(i, phase);
+        const c2 = rainbowColor(i + 1, phase);
+        const [r1, g1, b1] = parseRgb(c1);
+        const [r2, g2, b2] = parseRgb(c2);
+        const maxDelta = Math.max(Math.abs(r2 - r1), Math.abs(g2 - g1), Math.abs(b2 - b1));
+        expect(maxDelta).toBeLessThan(128);
+      }
+    });
+
+    it('produces pastel tones (not pure primaries)', () => {
+      // With saturation 0.7 and lightness 0.65, no component should be
+      // at 0 or 255 — the colors are always soft pastel.
+      for (let i = 0; i < 12; i++) {
+        const [r, g, b] = parseRgb(rainbowColor(i, 0));
+        expect(r).toBeGreaterThan(0);
+        expect(r).toBeLessThan(255);
+        expect(g).toBeGreaterThan(0);
+        expect(b).toBeGreaterThan(0);
+      }
+    });
+
+    it('is deterministic', () => {
+      expect(rainbowColor(4, 7)).toBe(rainbowColor(4, 7));
     });
   });
 });
