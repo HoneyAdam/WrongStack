@@ -112,6 +112,13 @@ export interface BuildReviewContextOptions {
    * Passed in by the caller — the builder itself has no ctx access.
    */
   activeTodos?: Array<{ id: string; content: string; status: string }> | undefined;
+  /**
+   * Cascade severity threshold from the auto-review plugin config.
+   * Threaded into the bundle so execution.ts and the cascade listener
+   * can decide whether findings warrant a follow-up agent. Absent for
+   * non-auto-review triggers (chimera plugin, /review slash command).
+   */
+  cascadeOn?: 'off' | 'critical' | 'high' | undefined;
 }
 
 /**
@@ -171,6 +178,9 @@ export async function buildReviewContext(
   const activeTodos =
     opts.activeTodos && opts.activeTodos.length > 0 ? opts.activeTodos : undefined;
 
+  // ── Cascade threshold (passed in from caller) ──
+  const cascadeOn = opts.cascadeOn ?? undefined;
+
   // ── Kanban card (P1: find in_progress task across all boards) ──
   let kanbanCard: ReviewContextBundle['kanbanCard'];
   try {
@@ -196,6 +206,7 @@ export async function buildReviewContext(
     allChangedFiles,
     recentCommits,
     activeTodos,
+    cascadeOn,
     kanbanCard,
     fileProvenance,
   };

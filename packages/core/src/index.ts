@@ -1,3 +1,7 @@
+export * from './chronicle/index.js';
+export * from './observability/process-telemetry.js';
+export * from './observability/network-telemetry.js';
+
 // Goal - autonomous phase-based workflow
 export {
   type GoalOptions,
@@ -590,8 +594,12 @@ export {
   unloadPlugins,
 } from './plugin/loader.js';
 export type {
+  CascadeAgentKind,
+  ChimeraCascadeNeededPayload,
+  ChimeraReviewCompletePayload,
   ChimeraReviewNeededPayload,
   ResolvedChimeraConfig,
+  ReviewContextBundle,
 } from './plugins/chimera-plugin.js';
 export {
   CHIMERA_REVIEW_PROMPT,
@@ -661,6 +669,18 @@ export {
   MAX_COUNCIL_TOOL_OPTIONS,
 } from './tools/council-tool.js';
 export { createOneShotLLMTool, ONE_SHOT_LLM_TOOL_NAME, type CreateOneShotLLMToolOptions } from './tools/one-shot-llm-tool.js';
+export {
+  AGENT_MODEL_ASSIGN_TOOL_NAME,
+  FALLBACK_CHAIN_MANAGE_TOOL_NAME,
+  FALLBACK_PROFILE_MANAGE_TOOL_NAME,
+  FAVORITE_MANAGE_TOOL_NAME,
+  LEADER_MODEL_SET_TOOL_NAME,
+  PROVIDER_KEY_SET_TOOL_NAME,
+  PROVIDER_MANAGE_TOOL_NAME,
+  SYSTEM_CONFIG_VIEW_TOOL_NAME,
+  type FallbackManageToolOptions,
+  createFallbackManageTools,
+} from './tools/fallback-manage-tools.js';
 export { OneShotOrchestrator } from './execution/one-shot-llm.js';
 export type { Compactor, CompactReport } from './types/compactor.js';
 export {

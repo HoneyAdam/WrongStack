@@ -249,4 +249,39 @@ describe('buildReviewContext', () => {
     expect(result).toHaveProperty('allChangedFiles');
     expect(result).toHaveProperty('recentCommits');
   });
+
+  // ── cascadeOn threading tests ──
+
+  it('threads cascadeOn into the returned bundle when provided', async () => {
+    const result = await buildReviewContext({
+      cwd: tmpDir,
+      config: MOCK_CONFIG,
+      files: [],
+      cascadeOn: 'high',
+    });
+
+    expect(result.cascadeOn).toBe('high');
+  });
+
+  it('leaves cascadeOn undefined when not provided', async () => {
+    const result = await buildReviewContext({
+      cwd: tmpDir,
+      config: MOCK_CONFIG,
+      files: [],
+    });
+
+    expect(result.cascadeOn).toBeUndefined();
+  });
+
+  it('threads all cascadeOn enum values correctly', async () => {
+    for (const val of ['off', 'critical', 'high'] as const) {
+      const result = await buildReviewContext({
+        cwd: tmpDir,
+        config: MOCK_CONFIG,
+        files: [],
+        cascadeOn: val,
+      });
+      expect(result.cascadeOn).toBe(val);
+    }
+  });
 });

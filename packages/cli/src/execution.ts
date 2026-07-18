@@ -35,7 +35,10 @@ import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import {
   attachTodosCheckpoint,
+  CascadeAgentKind,
   CHIMERA_REVIEW_PROMPT,
+  type ChimeraCascadeNeededPayload,
+  type ChimeraReviewCompletePayload,
   type ChimeraReviewNeededPayload,
   type CoordinatorEvent,
   type FleetChatVerbosity,
@@ -454,11 +457,33 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
               }),
             );
           }
+          // Emit review_complete with empty text so the cascade listener
+          // can record the outcome (it will no-op — no findings to parse).
+          // This keeps the event-bus contract uniform across success/failure.
+          events.emitCustom('chimera.review_complete', {
+            bundle: p,
+            reviewText: '',
+            status: result?.status ?? 'unknown',
+            cwd: p.cwd,
+          } satisfies ChimeraReviewCompletePayload);
           return;
         }
 
         const reviewText =
           typeof result.result === 'string' ? result.result.trim() : JSON.stringify(result.result);
+
+        // Emit review_complete so the auto-review plugin's cascade listener
+        // can parse severity and decide whether to emit chimera.cascade_needed.
+        // This fires synchronously within pendingChimeraWork, before any
+        // autoFix branching, so the cascade path is orthogonal to fix mode.
+        // The cascade listener only acts when bundle.cascadeOn is set (i.e.
+        // the trigger was the auto-review plugin, not chimera-plugin or /review).
+        events.emitCustom('chimera.review_complete', {
+          bundle: p,
+          reviewText,
+          status: 'success',
+          cwd: p.cwd,
+        } satisfies ChimeraReviewCompletePayload);
 
         if (reviewText) {
           await session.append({
@@ -587,6 +612,140 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
               timestamp: new Date().toISOString(),
             }),
           );
+        }
+      }
+    })();
+  });
+
+  // ── Cascade task description builder ──
+  //
+  // Tailors the follow-up agent's task based on its kind. The review
+  // report (capped at 12K chars to match the autoFix path's limit) is
+  // included so the agent sees the specific findings that triggered it.
+  function buildCascadeTaskDescription(
+    agentKind: CascadeAgentKind,
+    p: ChimeraCascadeNeededPayload,
+  ): string {
+    const fileList = p.bundle.files.map((f) => `- ${f.path}`).join('\n');
+    const reportSlice = p.reviewText.slice(0, 12_000);
+    const severityLine = `Critical: ${p.severities.critical}, High: ${p.severities.high}, Medium: ${p.severities.medium}`;
+
+    if (agentKind === 'security-scanner') {
+      return [
+        `You are a security cascade agent. A Chimera code review flagged security-relevant findings.`,
+        ``,
+        `Repository: ${p.bundle.cwd}`,
+        `Severity summary: ${severityLine}`,
+        ``,
+        `--- Review report ---`,
+        reportSlice,
+        ``,
+        `--- Changed files ---`,
+        fileList,
+        ``,
+        `Investigate the security findings above. Read the flagged files, confirm or refute`,
+        `each finding, and report confirmed vulnerabilities with severity (Critical/High/Medium),`,
+        `file:line citations, and remediation steps. If a finding is a false positive, say so.`,
+      ].join('\n');
+    }
+    // bug-hunter
+    return [
+      `You are a bug-hunter cascade agent. A Chimera code review flagged correctness defects.`,
+      ``,
+      `Repository: ${p.bundle.cwd}`,
+      `Severity summary: ${severityLine}`,
+      ``,
+      `--- Review report ---`,
+      reportSlice,
+      ``,
+      `--- Changed files ---`,
+      fileList,
+      ``,
+      `Hunt for the bugs flagged above. Read the affected files, trace each finding to its`,
+      `root cause, and report confirmed bugs with severity (Critical/High/Medium), file:line`,
+      `citations, and a minimal fix. If a finding is a false positive, say so.`,
+    ].join('\n');
+  }
+
+  // ── Chimera cascade: spawns follow-up agents on chimera.cascade_needed ──
+  //
+  // Emitted by the auto-review plugin when a review report contains
+  // findings at or above the configured cascadeOn threshold. This handler
+  // spawns the requested follow-up agents (security-scanner, bug-hunter)
+  // via the Director and appends their results to the session transcript.
+  //
+  // Like the review handler, the work is tracked in pendingChimeraWork so
+  // the session-close await covers it. The cascade fires synchronously
+  // after review_complete (the plugin's listener emits cascade_needed
+  // inline), so this handler runs within the same pendingChimeraWork IIFE
+  // timeline.
+  events.onPattern('chimera.cascade_needed', (_event, payload) => {
+    const p = payload as ChimeraCascadeNeededPayload;
+    const dir = director;
+    if (!dir) return; // Director not available — cascade skipped.
+    if (p.agents.length === 0) return;
+
+    // Track in pendingChimeraWork so the finally block awaits cascade
+    // completion before session.close(). Chain onto any prior in-flight
+    // work so cascades run after their parent review, not concurrently.
+    pendingChimeraWork = (async () => {
+      // Await any prior pending work (the parent review) before spawning.
+      try {
+        await pendingChimeraWork;
+      } catch {
+        // Parent failed — proceed with cascade anyway; the review text
+        // is carried in the payload, independent of subagent success.
+      }
+
+      for (const agentKind of p.agents) {
+        try {
+          const taskDesc = buildCascadeTaskDescription(agentKind, p);
+          const role = agentKind === 'security-scanner' ? 'security-scanner' : 'bug-hunter';
+          const cfg: SubagentConfig = {
+            name: `chimera-cascade-${agentKind}`,
+            role,
+            maxIterations: 40,
+            maxToolCalls: 200,
+            timeoutMs: 600_000,
+          };
+          const subagentId = await dir.spawn(cfg);
+          const taskId = randomUUID();
+          await dir.assign({ id: taskId, description: taskDesc, subagentId });
+          const results = await dir.awaitTasks([taskId]);
+          const result = results[0];
+
+          if (result?.status === 'success') {
+            const resultText =
+              typeof result.result === 'string'
+                ? result.result
+                : JSON.stringify(result.result);
+            await session.append({
+              type: 'llm_response',
+              ts: new Date().toISOString(),
+              content: [
+                {
+                  type: 'text',
+                  text: `🦂 Chimera cascade (${agentKind}) — ${resultText}`,
+                },
+              ],
+              stopReason: 'end_turn' as import('@wrongstack/core').StopReason,
+              usage: { input: 0, output: 0 },
+            });
+          } else {
+            await session.append({
+              type: 'error',
+              ts: new Date().toISOString(),
+              message: `🦂 Chimera cascade (${agentKind}) ${result?.status ?? 'unknown'}: ${result?.error?.message ?? 'no result'}`,
+              phase: 'agent',
+            });
+          }
+        } catch (err) {
+          await session.append({
+            type: 'error',
+            ts: new Date().toISOString(),
+            message: `🦂 Chimera cascade (${agentKind}) failed: ${err instanceof Error ? err.message : String(err)}`,
+            phase: 'agent',
+          });
         }
       }
     })();

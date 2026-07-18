@@ -19,6 +19,13 @@
 import path from 'node:path';
 import type { ContentBlock } from '@wrongstack/core';
 import {
+  ChronicleQueryEngine,
+  type ChronicleFacet,
+  type ChronicleQuery,
+  resolveWstackPaths,
+} from '@wrongstack/core';
+import * as os from 'node:os';
+import {
   buildUserContentBlocks,
   IncomingImageError,
   type IncomingImagePayload,
@@ -129,6 +136,27 @@ export interface MessageDispatcherOptions {
   runLock: RunLockControl;
   /** Pending permission confirmations — tool.confirm_result resolves one. */
   pendingConfirms: Map<string, PendingConfirm>;
+}
+
+/**
+ * Chronicle engine cache — mirrors the embedded server's pattern in
+ * `message-router.ts:332-340`. The engine reads the journal from disk
+ * (`.wrongstack/chronicle/` under the project dir), so we cache it for
+ * 1s to avoid re-reading on every query. The cache is keyed by project
+ * root so project switches get a fresh engine.
+ */
+const chronicleCache = new Map<string, { loadedAt: number; engine: ChronicleQueryEngine }>();
+
+async function chronicleEngine(projectRoot: string): Promise<ChronicleQueryEngine> {
+  const now = Date.now();
+  const cached = chronicleCache.get(projectRoot);
+  if (cached && now - cached.loadedAt < 1_000) return cached.engine;
+  const paths = resolveWstackPaths({ projectRoot, userHome: os.homedir() });
+  const engine = await ChronicleQueryEngine.fromDirectory(
+    path.join(paths.projectDir, 'chronicle'),
+  );
+  chronicleCache.set(projectRoot, { loadedAt: now, engine });
+  return engine;
 }
 
 /**
@@ -719,6 +747,70 @@ export function createMessageDispatcher(
               risk: se.risk,
             })),
           }),
+        });
+        break;
+      }
+
+      // ── Chronicle journal queries (parity with embedded webui-server) ──
+      // Mirrors packages/cli/src/webui-server/message-router.ts:645-664.
+      // The engine is cached for 1s to avoid re-reading the journal on every
+      // query; the cache is module-scoped so it survives across messages on
+      // the same connection.
+      case 'chronicle.query': {
+        const payload = (msg.payload ?? {}) as { query?: ChronicleQuery };
+        const engine = await chronicleEngine(state.getProjectRoot());
+        send(ws, { type: 'chronicle.query_result', payload: engine.query(payload.query ?? {}) });
+        break;
+      }
+
+      case 'chronicle.facet': {
+        const payload = (msg.payload ?? {}) as {
+          field?: ChronicleFacet;
+          query?: ChronicleQuery;
+          limit?: number;
+        };
+        const allowed = new Set<ChronicleFacet>([
+          'eventType',
+          'outcome',
+          'projectId',
+          'sessionId',
+          'agentId',
+          'taskId',
+          'providerId',
+          'modelId',
+          'resourceKind',
+          'resourcePath',
+          'toolCallId',
+        ]);
+        if (!payload.field || !allowed.has(payload.field)) {
+          send(ws, {
+            type: 'chronicle.error',
+            payload: { message: 'Invalid Chronicle facet field.' },
+          });
+          break;
+        }
+        const engine = await chronicleEngine(state.getProjectRoot());
+        send(ws, {
+          type: 'chronicle.facet_result',
+          payload: {
+            field: payload.field,
+            values: engine.facet(payload.field, payload.query ?? {}, payload.limit),
+            diagnostics: engine.diagnostics,
+          },
+        });
+        break;
+      }
+
+      case 'chronicle.graph': {
+        const payload = (msg.payload ?? {}) as {
+          seed?: ChronicleQuery;
+          hops?: number;
+          maxNodes?: number;
+        };
+        const engine = await chronicleEngine(state.getProjectRoot());
+        send(ws, {
+          type: 'chronicle.graph_result',
+          payload: engine.graph(payload.seed ?? {}, payload.hops, payload.maxNodes),
         });
         break;
       }
