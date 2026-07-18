@@ -294,9 +294,24 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
-    version: '0.289.0',
+    version: '0.290.0',
     date: '2026-07-18',
     latest: true,
+    tagline: 'Super Memory deletion protection and storage health',
+    highlights: [
+      'memory_delete now requires force: true for ALL deletions — the store-layer guard prevents autonomous agents from removing memories without explicit authorization',
+      'SessionMemoryConsolidator is strictly add-only — the unattended post-session hook can no longer issue edit or delete ops, closing the substring-matched deletion path',
+      'Mnemosyne custodian Phase 3 is propose-only — review proposals go through memory_candidates, final decisions belong to the user via memory_candidates resolve',
+      'Periodic JSONL compaction — the append-only memories.jsonl log compacts automatically when total records exceed 3× unique IDs, with an atomic temp-file rewrite',
+      '/memory compact-log slash command for on-demand mechanical log optimization (JSONL backend)',
+      'Log health display in /memory stats — shows raw records, unique IDs, duplicate ratio, and file size with a compaction hint',
+      'JSONL dedup ordering fix — same-revision tombstones no longer overwrite active records; non-deleted preferred on equal revisions',
+      'All 25 workspace manifests aligned to 0.290.0',
+    ],
+  },
+  {
+    version: '0.289.0',
+    date: '2026-07-18',
     tagline: 'Context-aware review and bounded self-correcting cascades',
     highlights: [
       'Chimera and continuous auto-review now receive diffs, sibling changes, recent commits, active TODOs, the current Kanban card, and Chronicle file provenance',
