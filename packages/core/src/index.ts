@@ -601,7 +601,10 @@ export {
   unloadPlugins,
 } from './plugin/loader.js';
 // Built-in plugins
-export { createAutoReviewPlugin } from './plugins/auto-review-plugin.js';
+export {
+  createAutoReviewPlugin,
+  DEFAULT_REVIEW_FALLBACK_MODELS,
+} from './plugins/auto-review-plugin.js';
 export type {
   CascadeAgentKind,
   ChimeraCascadeNeededPayload,

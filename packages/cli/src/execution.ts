@@ -42,6 +42,7 @@ import {
   type ChimeraReviewCompletePayload,
   type ChimeraReviewNeededPayload,
   type CoordinatorEvent,
+  DEFAULT_REVIEW_FALLBACK_MODELS,
   type FleetChatVerbosity,
   fallbackProfileChain,
   mergeCustomModelDefs,
@@ -464,13 +465,11 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
         // fallback extension a chain to rotate through, trying alternative providers
         // when the primary is unresponsive. These are parsed as `provider/model` refs.
         // The `/setmodel set reviewer <p>/<m>` command still overrides all of this.
-        const defaultReviewFallbackModels = [
-          'opencode/deepseek-chat',
-          'opencode-go/deepseek-v4-pro',
-          'deepseek/deepseek-chat',
-          'anthropic-oauth/claude-opus-4-8',
-          'openai-codex/gpt-5.3-codex-spark',
-        ];
+        // Shared with the resolver-level safety net in
+        // packages/core/src/plugins/auto-review-plugin.ts so the two spawn
+        // seams (auto-review bundle vs. manual/ordinary Chimera) can never
+        // drift out of sync. Spread into a mutable array for SubagentConfig.
+        const defaultReviewFallbackModels = [...DEFAULT_REVIEW_FALLBACK_MODELS];
         const cfg: SubagentConfig = {
           name: 'chimera-review',
           role: 'reviewer',
