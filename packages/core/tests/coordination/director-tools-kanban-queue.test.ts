@@ -105,13 +105,18 @@ describe('kanban_queue lease fencing', () => {
     const err = (res.errors ?? []).find((entry) => entry.taskId === 'task-1');
     expect(err).toBeDefined();
     expect(err?.error ?? '').toMatch(/lease/i);
-    // The fence itself: the dispatch write must carry expectedLeaseId.
+    // The fence itself: the dispatch write must carry the EXACT lease id
+    // seeded at claim time (the one advertised to the worker in the prompt),
+    // not merely any syntactically valid token.
+    const assignArg = director.assign.mock.calls[0]?.[0] as { description: string } | undefined;
+    const seededLeaseId = assignArg?.description.match(/leaseId: ([0-9a-f-]{36})/)?.[1];
+    expect(seededLeaseId).toBeDefined();
     const dispatchWrite = updateTaskAssignmentMock.mock.calls.find(
       (call) => (call[3] as { status?: string })?.status === 'running',
     );
     expect(dispatchWrite).toBeDefined();
-    expect((dispatchWrite?.[4] as { expectedLeaseId?: string })?.expectedLeaseId).toEqual(
-      expect.any(String),
+    expect((dispatchWrite?.[4] as { expectedLeaseId?: string })?.expectedLeaseId).toBe(
+      seededLeaseId,
     );
   });
 
