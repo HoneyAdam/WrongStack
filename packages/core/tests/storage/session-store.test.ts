@@ -44,6 +44,88 @@ describe('DefaultSessionStore — basic lifecycle', () => {
     await expect(store.load('nonexistent-id')).rejects.toThrow();
   });
 
+  it('replay excludes empty assistant turns persisted by interrupted streams (#271)', async () => {
+    const w = await store.create({ id: 'poisoned', model: 'm', provider: 'p' });
+    await w.append({
+      type: 'user_input',
+      ts: new Date().toISOString(),
+      content: 'first',
+    });
+    // Exact shape an aborted zero-output stream used to persist.
+    await w.append({
+      type: 'llm_response',
+      ts: new Date().toISOString(),
+      content: [{ type: 'text', text: '' }],
+      stopReason: 'end_turn',
+      usage: { input: 0, output: 0 },
+    });
+    await w.append({
+      type: 'llm_response',
+      ts: new Date().toISOString(),
+      content: [{ type: 'text', text: '  \n ' }],
+      stopReason: 'end_turn',
+      usage: { input: 0, output: 0 },
+    });
+    // Meaningful turns around the malformed ones must survive replay.
+    await w.append({
+      type: 'llm_response',
+      ts: new Date().toISOString(),
+      content: [{ type: 'text', text: 'partial before interrupt' }],
+      stopReason: 'end_turn',
+      usage: { input: 3, output: 1 },
+    });
+    await w.append({
+      type: 'user_input',
+      ts: new Date().toISOString(),
+      content: 'second',
+    });
+    await w.close();
+
+    const reloaded = await store.load('poisoned');
+    expect(reloaded.messages).toEqual([
+      { role: 'user', content: 'first', ts: expect.any(String) },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'partial before interrupt' }],
+        ts: expect.any(String),
+      },
+      { role: 'user', content: 'second', ts: expect.any(String) },
+    ]);
+    // No empty assistant turn remains to break strict providers.
+    for (const msg of reloaded.messages) {
+      if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue;
+      expect(
+        msg.content.some((b) => b.type !== 'text' || b.text.trim().length > 0),
+      ).toBe(true);
+    }
+  });
+
+  it('loads and replays user_input + llm_response events', async () => {
+    const w = await store.create({ id: 's1', model: 'm', provider: 'p' });
+    await w.append({
+      type: 'user_input',
+      ts: new Date().toISOString(),
+      content: 'hello',
+    });
+    await w.append({
+      type: 'llm_response',
+      ts: new Date().toISOString(),
+      content: [{ type: 'text', text: 'hi back' }],
+      usage: { input: 10, output: 5 },
+      model: 'm',
+    });
+    await w.close();
+
+    const data = await store.load('s1');
+    expect(data.metadata.id).toBe('s1');
+    expect(data.metadata.model).toBe('m');
+    expect(data.messages).toHaveLength(2);
+    // Replayed messages also carry the event's `ts` — match the core shape.
+    expect(data.messages[0]).toMatchObject({ role: 'user', content: 'hello' });
+    expect(data.usage.input).toBe(10);
+    expect(data.usage.output).toBe(5);
+  });
+
   it('loadEventsOnly throws for nonexistent session', async () => {
     const store = new DefaultSessionStore({ dir: tmpDir });
     await expect(store.loadEventsOnly('nonexistent-id')).rejects.toThrow();
