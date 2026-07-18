@@ -169,4 +169,84 @@ describe('buildReviewContext', () => {
     expect(diff!.length).toBeLessThan(52_000);
     expect(diff!).toContain('truncated');
   });
+
+  // ── P1 enrichment tests ──────────────────────────────────────────
+
+  it('passes activeTodos through to the bundle', async () => {
+    const result = await buildReviewContext({
+      cwd: tmpDir,
+      config: MOCK_CONFIG,
+      files: [],
+      activeTodos: [
+        { id: '1', content: 'Fix the bug', status: 'in_progress' },
+        { id: '2', content: 'Add tests', status: 'pending' },
+      ],
+    });
+
+    expect(result.activeTodos).toBeDefined();
+    expect(result.activeTodos).toHaveLength(2);
+    expect(result.activeTodos![0]!.content).toBe('Fix the bug');
+    expect(result.activeTodos![1]!.status).toBe('pending');
+  });
+
+  it('normalizes empty activeTodos to undefined', async () => {
+    const result = await buildReviewContext({
+      cwd: tmpDir,
+      config: MOCK_CONFIG,
+      files: [],
+      activeTodos: [],
+    });
+
+    expect(result.activeTodos).toBeUndefined();
+  });
+
+  it('leaves activeTodos undefined when not provided', async () => {
+    const result = await buildReviewContext({
+      cwd: tmpDir,
+      config: MOCK_CONFIG,
+      files: [],
+    });
+
+    expect(result.activeTodos).toBeUndefined();
+  });
+
+  it('returns undefined kanbanCard when no kanban boards exist', async () => {
+    // tmpDir has no .wrongstack/kanbans/ — kanban lookup should gracefully fail
+    const result = await buildReviewContext({
+      cwd: tmpDir,
+      config: MOCK_CONFIG,
+      files: [],
+    });
+
+    expect(result.kanbanCard).toBeUndefined();
+  });
+
+  it('returns undefined fileProvenance when no chronicle journal exists', async () => {
+    // tmpDir has no .wrongstack/chronicle/ — provenance should gracefully fail
+    const result = await buildReviewContext({
+      cwd: tmpDir,
+      config: MOCK_CONFIG,
+      files: [{ path: 'initial.txt', status: 'modified', content: 'test' }],
+    });
+
+    expect(result.fileProvenance).toBeUndefined();
+  });
+
+  it('includes all P1 fields in the returned bundle shape', async () => {
+    const result = await buildReviewContext({
+      cwd: tmpDir,
+      config: MOCK_CONFIG,
+      files: [],
+      activeTodos: [{ id: 't1', content: 'test task', status: 'in_progress' }],
+    });
+
+    // Verify the bundle has all P1 fields (even if some are undefined)
+    expect(result).toHaveProperty('activeTodos');
+    expect(result).toHaveProperty('kanbanCard');
+    expect(result).toHaveProperty('fileProvenance');
+    // P0 fields still present
+    expect(result).toHaveProperty('files');
+    expect(result).toHaveProperty('allChangedFiles');
+    expect(result).toHaveProperty('recentCommits');
+  });
 });
