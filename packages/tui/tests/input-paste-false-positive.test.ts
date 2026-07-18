@@ -4,27 +4,6 @@ import React from 'react';
 import { Input, type KeyEvent } from '../src/components/input.js';
 import { feedPaste } from '../src/paste-accumulator.js';
 
-function _emptyKey(): KeyEvent {
-  return {
-    upArrow: false,
-    downArrow: false,
-    leftArrow: false,
-    rightArrow: false,
-    return: false,
-    escape: false,
-    ctrl: false,
-    meta: false,
-    shift: false,
-    tab: false,
-    backspace: false,
-    delete: false,
-    pageUp: false,
-    pageDown: false,
-    home: false,
-    end: false,
-  };
-}
-
 describe('Input + paste accumulator integration', () => {
   it('does not turn normal typing into fake pasted blocks after a stripped ANSI fragment', async () => {
     const seen: Array<{ input: string; key: KeyEvent }> = [];

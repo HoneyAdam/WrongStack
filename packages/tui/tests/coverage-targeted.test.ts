@@ -69,20 +69,20 @@ describe('ink.tsx — branch gaps', () => {
   it('Text renders with known color', () => {
     // The Text component wraps InkText with softColor mapping.
     // Just verify it renders without error with a known color name.
-    const el = Text({ color: 'cyan', children: 'hello' });
+    const el = Text({ color: 'cyan', children: 'hello' }) as NonNullable<ReturnType<typeof Text>>;
     expect(el).toBeDefined();
     expect(el.props.color).toBe('#94e2d5'); // pastel cyan
   });
 
   it('Text renders without color prop (undefined)', () => {
     // colorProps returns {} when softColor returns undefined.
-    const el = Text({ children: 'plain' });
+    const el = Text({ children: 'plain' }) as NonNullable<ReturnType<typeof Text>>;
     expect(el).toBeDefined();
     expect(el.props.color).toBeUndefined();
   });
 
   it('Text renders with backgroundColor that resolves', () => {
-    const el = Text({ backgroundColor: 'blue', children: 'bg test' });
+    const el = Text({ backgroundColor: 'blue', children: 'bg test' }) as NonNullable<ReturnType<typeof Text>>;
     expect(el).toBeDefined();
     expect(el.props.backgroundColor).toBe('#89b4fa');
   });

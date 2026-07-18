@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { F_KEY_PANEL_ENTRIES, actionForFKeyPanel, type FKeyPanelAction } from '../src/f-key-panels.js';
-import type { StatuslineItem } from '../src/components/statusline-picker.js';
 import { helpSections } from '../src/components/help-overlay.js';
 
 const entry = (key: number) => {

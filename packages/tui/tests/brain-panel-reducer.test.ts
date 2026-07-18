@@ -15,8 +15,6 @@ import { reducer } from '../src/app.js';
 import type { State } from '../src/app-state.js';
 import type { BrainLogEntry, BrainRiskLevel } from '../src/components/brain-panel.js';
 
-const _ALL_LEVELS: BrainRiskLevel[] = ['off', 'low', 'medium', 'high', 'all'];
-
 function logEntry(kind = 'tool', question = 'test question', outcome = 'approved'): BrainLogEntry {
   return { kind, question, outcome, age: '30s' };
 }
