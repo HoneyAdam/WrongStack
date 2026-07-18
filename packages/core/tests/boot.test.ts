@@ -170,8 +170,10 @@ describe('flagsToConfigPatch — all branches', () => {
     expect(flagsToConfigPatch({ trace: true }).log).toEqual({ level: 'trace' });
   });
 
-  it('yolo → true', () => {
+  it('applies explicit YOLO overrides with the safe opt-out taking precedence', () => {
     expect(flagsToConfigPatch({ yolo: true }).yolo).toBe(true);
+    expect(flagsToConfigPatch({ 'no-yolo': true }).yolo).toBe(false);
+    expect(flagsToConfigPatch({ yolo: true, 'no-yolo': true }).yolo).toBe(false);
   });
 
   it('no-features disables every feature', () => {

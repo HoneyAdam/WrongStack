@@ -41,7 +41,8 @@ bash({ command: 'rm -rf /' })   // auto, source: 'yolo', unless explicitly denie
 
 | Flag | Effect |
 |---|---|
-| `--yolo` | Opt in to YOLO mode at startup (off by default) |
+| `--yolo` | Force YOLO mode on at startup |
+| `--no-yolo` | Force YOLO mode off at startup; wins if both flags are present |
 | `--confirm-destructive` | Deprecated compatibility flag |
 | `--yolo-destructive` | Deprecated compatibility flag |
 | `--force-all-yolo` | Deprecated compatibility flag |

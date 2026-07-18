@@ -457,7 +457,7 @@ Five-layer observability:
 ### Security
 
 - **Permission policy** (`trust.json`): per-tool allow/deny, persisted to disk, applies to subagents
-- **YOLO mode is opt-in** (`--yolo` or `/yolo on`): off by default so prompt-injection in repo, fetched, or mailbox content cannot induce arbitrary shell calls or writes without human confirmation; when on, non-denied tool calls auto-approve and trust-file deny rules + `permission: 'deny'` tools still win
+- **YOLO mode** (`--yolo`, `--no-yolo`, or `/yolo on|off`): interactive first launch selects and persists YOLO on; use `--no-yolo` or `yolo: false` to keep per-call approval prompts. When YOLO is on, non-denied tool calls auto-approve; trust-file deny rules and `permission: 'deny'` tools still win
 - **Project-root containment** (`tools.restrictToProjectRoot`): filesystem tools refuse to read or write outside the active project root unless `features.allowOutsideProjectRoot` is explicitly enabled
 - **Bash tool env allowlist**: `WRONGSTACK_BASH_ENV_PASSTHROUGH=1` disables the allowlist (legacy unsafe mode — see `SECURITY.md`)
 - **`WRONGSTACK_FETCH_ALLOW_PRIVATE=1`**: enables localhost/private IPs in the `fetch` tool
@@ -524,7 +524,7 @@ wrongstack          # provider list → model list → save prompt → REPL
 wrongstack --tui    # same, then enters TUI
 wrongstack --webui --open  # serve browser UI and open it
 
-# TUI + YOLO (off by default; opt in with --yolo)
+# TUI + explicit YOLO override
 wrongstack --tui --yolo
 
 # Desktop shell
@@ -593,7 +593,7 @@ wrongstack --provider openrouter --model anthropic/claude-opus-4-7
 --no-models-refresh  Skip the boot-time models.dev catalog refresh (offline/CI)
 --skip-index         Skip codebase indexing and large-codebase prompt
 --token-saving-mode  Lean prompt: 10 Tier-1 tools, compact skills, lazy MCP (mcp_use)
---yolo               Opt in to auto-approving non-denied tool calls (off by default; trust-file deny rules + `permission: 'deny'` tools still win)
+--yolo / --no-yolo   Force auto-approval on or off at startup (trust-file deny rules + `permission: 'deny'` tools still win)
 --goal "<task>"      Boot directly into goal mode — GOAL preamble injected, TUI auto-enabled
 --eternal "<task>"   Start an eternal-autonomy loop against a goal
 --ask "<text>"       Submit one turn verbatim on TUI boot (no preamble)

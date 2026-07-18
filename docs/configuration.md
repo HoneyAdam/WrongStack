@@ -11,7 +11,7 @@ WrongStack uses a layered configuration system. Settings are merged from multipl
 | Global | `~/.wrongstack/config.json` | Developer-level defaults (provider, keys, features) |
 | Project-private | `~/.wrongstack/projects/<slug>/config.local.json` | Project overrides outside the repo (not committed) |
 | In-project | `<project>/.wrongstack/config.json` | Repo-local safe preferences only; unsafe fields are stripped before merge |
-| CLI flags | `--provider`, `--model`, `--yolo`, etc. | Session-scoped overrides |
+| CLI flags | `--provider`, `--model`, `--yolo`, `--no-yolo`, etc. | Session-scoped overrides |
 
 **Precedence** (highest wins): CLI flags → extra config sources → env vars → in-project → project-private → global → built-in defaults.
 
@@ -55,7 +55,7 @@ WrongStack uses a layered configuration system. Settings are merged from multipl
 | `model` | `string` | *(required)* | Active model id (e.g. `claude-opus-4-7`, `gpt-4.1`). |
 | `apiKey` | `string` | — | API key for the active provider. Auto-encrypted on first contact. |
 | `baseUrl` | `string` | — | Custom API base URL. Overrides the provider's default endpoint. |
-| `yolo` | `boolean` | `true` | Auto-approve non-denied tool calls. Set false to restore permission prompts. Overridden by `--yolo` CLI flag. |
+| `yolo` | `boolean` | `false` | Auto-approve non-denied tool calls. Interactive first launch currently selects and persists `true`. Override at startup with `--yolo` or `--no-yolo`. |
 | `fallbackModels` | `string[]` | — | Ordered fallback chain tried when the primary model is overloaded (429/529/5xx) and its own retries are exhausted. Each entry is `model`, `provider/model`, or `provider model`. Cross-provider. After a fallback hop, the primary is retried only after its cooldown expires. Overridden by `--fallback-model a,b,c`. |
 | `fallbackProfiles` | `Record<string, string[]>` | — | Named fallback chains. `/setmodel` and WebUI Model Routing can point a role/phase/default entry at a profile. |
 | `fallbackAuto` | `boolean` | `true` | Auto-derive a fallback chain from other keyed providers when `fallbackModels` is empty. Toggle with `/fallback auto on\|off`. |

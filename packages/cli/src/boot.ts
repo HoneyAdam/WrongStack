@@ -488,7 +488,8 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
     let modePinned: 'tui' | 'repl' | undefined;
     if (flags['no-tui']) modePinned = 'repl';
     else if (flags['tui']) modePinned = 'tui';
-    const yoloPinned: boolean | undefined = flags['yolo'] === true ? true : undefined;
+    const yoloPinned: boolean | undefined =
+      flags['no-yolo'] === true ? false : flags['yolo'] === true ? true : undefined;
     let autonomyPinned: 'off' | 'auto' | undefined;
     if (flags['no-autonomy'] === true) autonomyPinned = 'off';
     else if (flags['eternal'] === true)

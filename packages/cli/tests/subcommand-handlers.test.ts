@@ -57,6 +57,7 @@ describe('helpCmd', () => {
       .map((call) => call[0])
       .join('');
     expect(output).toContain('--yolo');
+    expect(output).toContain('--no-yolo');
     expect(output).toContain('--confirm-destructive');
     expect(output).toContain('YOLO no longer prompts by destructiveness');
     expect(output).toContain('wstack desktop');

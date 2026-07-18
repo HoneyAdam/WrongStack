@@ -6,8 +6,8 @@ explicit deny rules.
 
 Current behavior:
 
-- **YOLO is opt-in.** Default config (`BEHAVIOR_DEFAULTS.yolo`) is `false`; prompt injection in repository content, fetched content, or mailbox messages cannot induce arbitrary shell calls or writes without human confirmation unless the user explicitly enables YOLO.
-- `--yolo` enables broad auto-approval.
+- The stored config default (`BEHAVIOR_DEFAULTS.yolo`) is `false`. Interactive first launch currently selects YOLO on and persists that launch choice.
+- `--yolo` forces broad auto-approval at startup. `--no-yolo` forces approval prompts and overrides both a saved YOLO preference and `--yolo`.
 - Explicit denies still win: session soft-deny, trust-file deny patterns, and
   tools declared with `permission: 'deny'`.
 - `--confirm-destructive`, `--yolo-destructive`, and `--force-all-yolo` are
@@ -18,13 +18,12 @@ Current behavior:
 
 | Surface | How to use it |
 |---|---|
-| CLI flag | `wrongstack --yolo` |
+| CLI flags | `wrongstack --yolo`, `wrongstack --no-yolo` |
 | Slash command | `/yolo`, `/yolo on`, `/yolo off`, `/yolo toggle` |
 | Programmatic | `permissionPolicy.setYolo(true)` |
 
-When YOLO is off (the default), mutating or sensitive calls fall through to
-confirm prompts. Trust-file deny rules and `permission: 'deny'` tools still
-win regardless.
+When YOLO is off, mutating or sensitive calls fall through to confirm prompts.
+Trust-file deny rules and `permission: 'deny'` tools still win regardless.
 
 ## Permission Evaluation Order
 

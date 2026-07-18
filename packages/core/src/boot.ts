@@ -250,7 +250,8 @@ export function flagsToConfigPatch(flags: Record<string, string | boolean>): Par
   } else if (flags['trace']) {
     patch.log = { level: 'trace' };
   }
-  if (flags['yolo']) patch.yolo = true;
+  if (flags['no-yolo'] === true) patch.yolo = false;
+  else if (flags['yolo']) patch.yolo = true;
   if (flags['no-features']) {
     patch.features = {
       mcp: false,
