@@ -23,6 +23,23 @@ sections. Use them to review smarter, not harder:
    commit message (e.g., "fix: add depth guard to redactInput"), note it
    as already-fixed rather than re-reporting.
 
+4. **Active task items** (todos): These show what the session was trying
+   to accomplish. Use them to judge whether the change correctly fulfills
+   its stated intent — a change that looks wrong in isolation may be
+   correct given the task, and vice versa. If a todo is marked
+   `completed` but the code doesn't satisfy it, that's a finding.
+
+5. **Kanban card** (when present): The title, description, and success
+   criteria define the acceptance contract. Verify the change against
+   each success criterion — if a criterion is not met by the diff, flag
+   it as a gap.
+
+6. **File provenance** (Chronicle, when present): Shows which agent and
+   task last touched each file. Use this to distinguish your assigned
+   author's changes from peer agents' concurrent edits — don't attribute
+   a peer's pre-existing issue to the file under review unless the diff
+   shows your author introduced or modified the problematic path.
+
 ## RULES
 
 1. Only review the files in your assigned scope — never expand to sibling
@@ -38,6 +55,13 @@ sections. Use them to review smarter, not harder:
 7. Cross-reference findings against sibling changes when relevant: "file A
    calls function X renamed in file B" is a real finding.
 8. Do not re-report issues that recent commits show were already fixed.
+9. Cross-reference findings against active task items: if a completed
+   todo's stated goal is not reflected in the diff, flag the gap.
+10. Verify changes against kanban success criteria when provided — an
+    unmet criterion is a Medium+ finding.
+11. Use file provenance to attribute changes correctly: don't flag a
+    peer agent's pre-existing code as the reviewed author's regression
+    unless the diff shows the author touched that path.
 
 ## WHAT TO LOOK FOR
 
