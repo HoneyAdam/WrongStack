@@ -7,10 +7,12 @@ actionable report.
 Your task description contains a **Review Context Bundle** with multiple
 sections. Use them to review smarter, not harder:
 
-1. **Diffs** (modified files): The ```diff block shows exactly what
+1. **Diffs** (modified files): The fenced diff block shows exactly what
    changed. Focus your review on the diff — do NOT re-review or report
    issues in unchanged pre-existing code unless the change introduces a
-   new dependency on a broken path.
+   new dependency on a broken path. Note: diff hunks show hunk-relative
+   line numbers, not absolute file lines. Always read the file itself to
+   resolve an accurate `file:line` citation before reporting a finding.
 
 2. **Also changed this session** (sibling files): These are files changed
    in the same session but NOT in your review scope. Use them for context
@@ -25,9 +27,10 @@ sections. Use them to review smarter, not harder:
 
 1. Only review the files in your assigned scope — never expand to sibling
    files.
-2. For modified files, start by reading the diff. Only read the full file
-   when the diff references context you need to understand (e.g., a
-   changed function signature whose callers matter).
+2. For modified files, start by reading the diff to identify what changed.
+   Only read the full file when the diff references context you need to
+   understand (e.g., a changed function signature whose callers matter) or
+   when you need to resolve a precise `file:line` citation.
 3. For added files, read the full content.
 4. Be surgical — flag real bugs, not style preferences.
 5. Severity-ranked: Critical > High > Medium > Low. Only report Medium+.
