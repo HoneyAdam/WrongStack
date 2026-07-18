@@ -3,22 +3,18 @@
  *
  * DEFAULT_REVIEW_FALLBACK_MODELS is defined once in
  * packages/core/src/plugins/auto-review-plugin.ts and shared with the CLI
- * reviewer spawn in packages/cli/src/execution.ts. These tests fail CI if a
- * future edit re-introduces a divergent hardcoded list on the CLI side, which
- * is exactly the drift that could reopen the chimera-review `provider_auth`
- * (1 iter / 0 tools) failure on one spawn seam but not the other.
+ * reviewer spawn in packages/cli/src/execution.ts via the exported
+ * resolveReviewerFallbackModels() helper. These tests assert, by strict
+ * runtime value equality against the real production code path, that the two
+ * spawn seams cannot diverge — which is exactly the drift that could reopen the
+ * chimera-review `provider_auth` (1 iter / 0 tools) failure on one seam but not
+ * the other.
  *
  * See: fix(auto-review) 623bd441a + refactor(auto-review) a93f3310a.
  */
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_REVIEW_FALLBACK_MODELS } from '@wrongstack/core';
-
-const executionSrc = readFileSync(
-  fileURLToPath(new URL('../src/execution.ts', import.meta.url)),
-  'utf8',
-);
+import { resolveReviewerFallbackModels } from '../src/execution.js';
 
 describe('reviewer fallback-chain drift guard', () => {
   it('exposes a non-empty shared DEFAULT_REVIEW_FALLBACK_MODELS from @wrongstack/core', () => {
@@ -39,24 +35,39 @@ describe('reviewer fallback-chain drift guard', () => {
     }
   });
 
-  it('CLI reviewer spawn imports the shared constant instead of redefining it', () => {
-    // The import must reference the shared core constant...
-    expect(executionSrc).toContain('DEFAULT_REVIEW_FALLBACK_MODELS');
-    // ...and the local reviewer default must be derived from it by spread,
-    // not from a fresh inline array literal.
-    expect(executionSrc).toMatch(
-      /defaultReviewFallbackModels\s*=\s*\[\s*\.\.\.DEFAULT_REVIEW_FALLBACK_MODELS\s*\]/,
-    );
+  it('CLI reviewer spawn resolves exactly the shared default when no bundle chain is present', () => {
+    // Strict runtime value comparison against the production code path: the
+    // manual/ordinary-Chimera reviewer spawn calls resolveReviewerFallbackModels()
+    // with no bundle chain, so it MUST equal the shared core default. If a future
+    // edit re-hardcodes a divergent local list, this equality fails in CI.
+    expect(resolveReviewerFallbackModels()).toEqual([
+      ...DEFAULT_REVIEW_FALLBACK_MODELS,
+    ]);
+    expect(resolveReviewerFallbackModels(undefined)).toEqual([
+      ...DEFAULT_REVIEW_FALLBACK_MODELS,
+    ]);
+    expect(resolveReviewerFallbackModels([])).toEqual([
+      ...DEFAULT_REVIEW_FALLBACK_MODELS,
+    ]);
   });
 
-  it('CLI does not re-hardcode a literal provider/model reviewer list', () => {
-    // Any of the well-known default entries appearing as a string literal in
-    // execution.ts would mean someone re-introduced a divergent hardcoded list.
-    for (const ref of DEFAULT_REVIEW_FALLBACK_MODELS) {
-      expect(
-        executionSrc.includes(`'${ref}'`) || executionSrc.includes(`"${ref}"`),
-        `execution.ts must not hardcode the reviewer fallback ref "${ref}" — import DEFAULT_REVIEW_FALLBACK_MODELS from @wrongstack/core instead`,
-      ).toBe(false);
-    }
+  it('returns a fresh mutable copy (never aliases the shared frozen constant)', () => {
+    const a = resolveReviewerFallbackModels();
+    const b = resolveReviewerFallbackModels();
+    expect(a).not.toBe(b);
+    expect(a).not.toBe(DEFAULT_REVIEW_FALLBACK_MODELS);
+    // SubagentConfig.fallbackModels is a mutable string[]; mutating the result
+    // must not corrupt the shared source constant.
+    a.push('mutation/check');
+    expect(resolveReviewerFallbackModels()).toEqual([
+      ...DEFAULT_REVIEW_FALLBACK_MODELS,
+    ]);
+  });
+
+  it('uses the auto-review bundle chain verbatim when one is supplied', () => {
+    // When the bundle already resolved a chain, the reviewer must use it as-is
+    // rather than the default — the other half of the spawn contract.
+    const bundleChain = ['minimax-coding-plan/MiniMax-M3', 'zai-coding-plan/glm-5.2'];
+    expect(resolveReviewerFallbackModels(bundleChain)).toEqual(bundleChain);
   });
 });

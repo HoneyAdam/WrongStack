@@ -92,6 +92,28 @@ import { CLI_VERSION } from './version.js';
 import { createKanbanRunMirror } from './webui-server/kanban-run-mirror.js';
 
 /**
+ * Resolve the fallback-model chain used when spawning the chimera-review
+ * reviewer subagent.
+ *
+ * - When the auto-review bundle already resolved a chain (`reviewFallbackModels`
+ *   present), that chain is used verbatim.
+ * - Otherwise (manual/ordinary Chimera), fall back to the shared
+ *   {@link DEFAULT_REVIEW_FALLBACK_MODELS} default from `@wrongstack/core`.
+ *
+ * Exported so the drift-guard test can assert the exact value the production
+ * spawn uses, rather than string-matching source. Shared single constant means
+ * the two spawn seams can never diverge and reopen the chimera-review
+ * `provider_auth` (1 iter / 0 tools) failure. See fix(auto-review) 623bd441a.
+ */
+export function resolveReviewerFallbackModels(
+  reviewFallbackModels?: readonly string[] | undefined,
+): string[] {
+  return reviewFallbackModels && reviewFallbackModels.length > 0
+    ? [...reviewFallbackModels]
+    : [...DEFAULT_REVIEW_FALLBACK_MODELS];
+}
+
+/**
  * Settings payload shared by `saveSettings` (persist) and `applyLiveSettings`
  * (apply to the running session). Mirrors the fields the TUI `/settings` picker
  * cycles with ←/→.
@@ -465,11 +487,6 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
         // fallback extension a chain to rotate through, trying alternative providers
         // when the primary is unresponsive. These are parsed as `provider/model` refs.
         // The `/setmodel set reviewer <p>/<m>` command still overrides all of this.
-        // Shared with the resolver-level safety net in
-        // packages/core/src/plugins/auto-review-plugin.ts so the two spawn
-        // seams (auto-review bundle vs. manual/ordinary Chimera) can never
-        // drift out of sync. Spread into a mutable array for SubagentConfig.
-        const defaultReviewFallbackModels = [...DEFAULT_REVIEW_FALLBACK_MODELS];
         const cfg: SubagentConfig = {
           name: 'chimera-review',
           role: 'reviewer',
@@ -485,7 +502,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
                 model: p.config.model,
                 fallbackModels: p.reviewFallbackModels,
               }
-            : { fallbackModels: defaultReviewFallbackModels }),
+            : { fallbackModels: resolveReviewerFallbackModels() }),
         };
 
         const subagentId = await dir.spawn(cfg);
