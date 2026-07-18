@@ -799,11 +799,19 @@ export function App({
     dispatch,
   });
 
-  // Keep the measurement callback referentially stable. ScrollableHistory
-  // calls it from a layout effect; changing its identity on every render makes
-  // that effect dispatch again during the same commit chain and can hit
-  // React's maximum-update-depth guard when a large layout oscillates.
+  // Keep the measurement callback referentially stable AND no-op-guarded.
+  // ScrollableHistory calls it from a layout effect on every commit. The
+  // callback identity is already stable (empty deps), but on Windows a large
+  // layout can re-measure to the same height across consecutive commits; an
+  // unguarded dispatch then fires a setMeasuredLines action on every one of
+  // those commits, chaining reducer updates within a single commit cycle until
+  // React throws "Maximum update depth exceeded" (error #185). Reading the live
+  // total via stateRef (not the closure-captured `state`) keeps the comparison
+  // correct across renders even though the callback identity is stable. This
+  // mirrors the guard on the sibling viewport-rows measurement callback below.
+  // See issue #276.
   const onMeasure = useCallback((totalLines: number) => {
+    if (totalLines === stateRef.current.totalLines) return;
     dispatch({ type: 'setMeasuredLines', totalLines });
   }, []);
 

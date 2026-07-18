@@ -31,6 +31,20 @@ describe('measurement update-loop regression', () => {
     expect(next.scrollOffset).toBe(90);
   });
 
+  // Regression for issue #276: the App.onMeasure callback (app.tsx) guards a
+  // dispatch with `if (totalLines === stateRef.current.totalLines) return;`
+  // before calling reducer. This mirrors the viewport-rows sibling guard and
+  // breaks the layout-effect → dispatch → re-render cycle that threw React
+  // error #185 (Maximum update depth exceeded) on Windows when a large layout
+  // re-measured to the same height across consecutive commits. This test pins
+  // the reducer-side half of that contract the callback relies on: an
+  // unchanged total MUST return state identity so the dispatch is a true no-op
+  // even when the offset is already validly clamped (not just at offset 0).
+  it('issue #276: unchanged measurement with a valid offset is a full no-op', () => {
+    const state = scrollState({ scrollOffset: 30 }); // 30 < maxOffset 90, so valid
+    expect(reducer(state, { type: 'setMeasuredLines', totalLines: 120 })).toBe(state);
+  });
+
   it('drops height-cache rows that were evicted from bounded history', () => {
     const cache = new EntryHeightCache();
     cache.record(1, 2);
