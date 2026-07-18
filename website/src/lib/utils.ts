@@ -294,9 +294,22 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: '0.289.0',
+    date: '2026-07-18',
+    latest: true,
+    tagline: 'Context-aware review and bounded self-correcting cascades',
+    highlights: [
+      'Chimera and continuous auto-review now receive diffs, sibling changes, recent commits, active TODOs, the current Kanban card, and Chronicle file provenance',
+      'Severity thresholds can dispatch bug-hunter and security-scanner agents to investigate and apply fixes for High or Critical findings',
+      'Cascade agents re-read and re-review the post-fix files in a closed loop bounded by maxCascadeDepth, with a clear handoff when the limit is reached',
+      'AutoPhase internals and exported symbols moved to Goal naming across core, CLI, TUI, tests, and docs; consumers of the old exports must update imports',
+      'Integration and coverage work now exercises Director, ToolExecutor, sessions, SDD, Kanban, SuperMemory, TechStack, LSP, WebUI, and core utilities',
+      'All packages, apps, README release highlights, and website release surfaces are aligned to 0.289.0',
+    ],
+  },
+  {
     version: '0.288.0',
     date: '2026-07-17',
-    latest: true,
     tagline: 'Remembered launch menu and lockstep release alignment',
     highlights: [
       'Plain wstack launches now open a four-option TTY menu for TUI/REPL, WebUI, SimpleUI, or HQ when no surface flag is provided',

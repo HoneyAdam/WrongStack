@@ -30,13 +30,22 @@ WrongStack is **free, open source, and MIT licensed**. It drives **autonomous go
 - 🧠 **Five surfaces, one brain** — a plain readline REPL, an Ink/React **TUI** (`--tui`), a standalone **web UI** (`--webui`), **WrongStack Desktop** (`--desktop` / `wstack desktop`), and the cross-machine **HQ Command Center**. Plain `wstack` opens a four-option launch menu on a TTY (bypass with `--no-menu`).
 - 🤖 **A fleet, not a lone agent** — a 47-role roster + smart dispatcher fan out under a Director, each subagent fully isolated with its own budget and JSONL transcript.
 - 🛰️ **HQ for the whole room** — `wstack --hq` aggregates live sessions, agents, fleets, mailbox state, cost, tools, Brain decisions, and worktrees across machines, then can steer, send BTW notes, queue prompts, or stop connected clients through their own guardrails.
-- 🧠 **Brain as an authority seam** — risky AutoPhase and Director choices can be auto-decided by policy, denied, or escalated to the human through the TUI.
+- 🧠 **Brain as an authority seam** — risky Goal and Director choices can be auto-decided by policy, denied, or escalated to the human through the TUI.
 - ♾️ **Set a goal, walk away** — `/goal` locks in a contract and the eternal / parallel engines grind until it's _verifiably_ done.
 - 🔌 **~140 providers, zero lock-in** — Anthropic, OpenAI, Google, and ~125 OpenAI-compatible endpoints, catalog refreshed from models.dev at boot.
 - 🔑 **Sign in with a subscription** — authenticate with a **ChatGPT (Codex)**, **Claude Pro/Max**, or **GitHub Copilot** subscription over OAuth, *alongside* (not instead of) API keys. See [`docs/oauth-signin.md`](docs/oauth-signin.md).
 - 🔎 **Fast model switching** — the startup provider/model picker and TUI `/model` support search + scroll-window navigation, the numbered fallback picker shares the responsive boxed look, and `wstack models` supports pagination.
 - 🔐 **Locked down by default** — encrypted secrets, SSRF guards on every redirect hop, fail-closed subagents, symlink containment, plugin trust tiers, WebUI redaction, and cloud-sync path guards.
 - 🪶 **A compact kernel** — `Container · Pipeline · EventBus · RunController` (~1670 lines including the full event type catalog). Everything above it is swappable; `--no-features` boots it fully offline.
+
+## What's new in 0.289.0
+
+- **Context-aware reviews** — Chimera and `/auto-review` now see diffs, sibling changes, recent commits, active TODOs, the current Kanban card, and Chronicle provenance.
+- **Self-correcting review cascades** — serious findings can dispatch targeted fix agents and re-review their edits in a loop bounded by `maxCascadeDepth`.
+- **Goal vocabulary throughout** — internal AutoPhase directories, APIs, CLI/TUI state, tests, and docs have moved to `Goal*` naming. Integrations importing the old exported symbols need to update.
+- **Deeper release confidence** — expanded integration coverage spans Director, ToolExecutor, sessions, SDD, Kanban, SuperMemory, TechStack, LSP, WebUI, and core utilities, alongside security and concurrency hardening.
+
+See the [0.289.0 changelog](CHANGELOG.md#02890--2026-07-18) for the full release notes.
 
 ## Requirements
 
@@ -79,7 +88,7 @@ After install, `wrongstack` is on your `PATH`. (`wstack` works too — it's an a
 - Per-message footer: token usage, Pin / Edit & resend / Retry
 - Tool bubbles: live `tool.progress` stream, collapsible gutter, Download/Copy on hover
 - Sidebar: live TODO snapshot, Pinned panel, History with grouping + search
-- Operations panels: Goal, Process Monitor, Checkpoint Timeline, AutoPhase, phase agents, task board, and worktree lanes
+- Operations panels: Goal, Process Monitor, Checkpoint Timeline, goal runs, phase agents, task board, and worktree lanes
 - Autonomy picker: switch `off` / `suggest` / `auto` / `eternal` / `eternal-parallel` from the UI
 - Overlays: `Ctrl+K` command palette, `Ctrl+M` model switcher with provider/model/name/description search, `Ctrl+F` chat search, `?` shortcuts
 - Slash commands with keyboard nav, day-separator dividers, dynamic tab title
@@ -231,7 +240,7 @@ wrongstack "audit src/ for security issues"   # Director plans + spawns automati
 ### Brain-governed decisions
 
 Brain is a small authority layer for decisions that are bigger than one tool
-permission prompt. Director and AutoPhase can ask a `BrainArbiter` whether to
+permission prompt. Director and Goal runs can ask a `BrainArbiter` whether to
 continue, deny, or escalate a risky choice — for example extending a subagent's
 budget or attempting an automatic worktree merge-conflict resolution.
 
@@ -658,8 +667,8 @@ Every built-in command is tagged with a category (`Run` · `Session` · `Inspect
 | **Ctrl+F** | Toggle the fleet monitor — per-subagent status + fleet-wide token gauge |
 | **Ctrl+G** | Toggle the agents monitor — live per-agent context (current tool, streaming tail, sparkline) |
 | **F9** | Toggle the goal panel — refined mission, deliverables checklist, progress bar, trend, state, and last task |
-| **Ctrl+T** | Toggle the worktree monitor — AutoPhase isolation branches |
-| **Ctrl+P** | Toggle the phase monitor — active AutoPhase phases and tasks |
+| **Ctrl+T** | Toggle the worktree monitor — Goal isolation branches |
+| **Ctrl+P** | Toggle the phase monitor — active Goal phases and tasks |
 | **Ctrl+T** | Close worktree monitor (when open); otherwise delete word before cursor |
 | `/fleet kill <id>` | Stop one specific subagent |
 

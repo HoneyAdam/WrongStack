@@ -79,7 +79,7 @@ export const pluginDetails: Record<string, PluginDetail> = {
   },
   "wstack-chimera": {
     version: "1.0.0",
-    longDescription: "Post-session code quality guardian with three auto-fix modes. When enabled it registers the /chimera status command and subscribes to the session.ended event: it collects the session's changed files from git (capped at maxFiles, skipping .wrongstack/), then emits a chimera.review_needed event that the host uses to spawn a review subagent with a dedicated provider and model. It silently skips outside git repositories or when no files changed.\n\nThe review report is sent to the inter-agent mailbox so the leader agent sees it before its next turn. How the report is handled depends on the autoFix config:\n\n- off (default) — the report arrives as a ✅ RESULT mailbox message. The leader sees it in context but waits for a user command (e.g. \"fix what chimera found\").\n- ask — the report arrives as a ❓ ASK message. The leader prompts the user for permission before acting.\n- auto — the report arrives as a ✅ RESULT AND a dedicated chimera-fix subagent spawns immediately. The fix subagent reads the review findings, applies edits using the edit tool, runs typecheck/lint, and reports the outcome back to the session.\n\nThe autoFix mode can be changed at runtime via /chimera autoFix <mode> (slash command), --chimera-auto-fix <mode> (CLI flag), or the Web UI Settings panel (Features → Chimera Review → Auto-fix mode).",
+    longDescription: "Post-session code quality guardian with context-aware review, three auto-fix modes, and an optional bounded correction cascade. When enabled it registers the /chimera status command and subscribes to session.ended: it collects changed files from git (capped at maxFiles, skipping .wrongstack/) and enriches them with diffs, sibling changes, recent commits, active TODOs, the current Kanban card, and Chronicle provenance before spawning a dedicated review subagent.\n\nThe review report is sent to the inter-agent mailbox so the leader sees it before its next turn. How the report is handled depends on autoFix: off reports only, ask requests permission, and auto immediately spawns a chimera-fix subagent. Independently, cascadeOn can dispatch bug-hunter and security-scanner agents for High or Critical findings. Their edits are re-read and re-reviewed until clean or maxCascadeDepth is reached.\n\nThe autoFix mode can be changed at runtime via /chimera autoFix <mode>, --chimera-auto-fix <mode>, or the Web UI Settings panel.",
     tools: [],
     configOptions: [
       {
@@ -112,10 +112,22 @@ export const pluginDetails: Record<string, PluginDetail> = {
         defaultValue: "off",
         description: "How to handle review findings: off = notify leader (wait for user command), ask = prompt user for permission first, auto = fix findings immediately with a dedicated subagent.",
       },
+      {
+        name: "cascadeOn",
+        type: "\"off\" | \"critical\" | \"high\"",
+        defaultValue: "off",
+        description: "Severity threshold that dispatches targeted follow-up agents to investigate and fix findings.",
+      },
+      {
+        name: "maxCascadeDepth",
+        type: "number",
+        defaultValue: "2",
+        description: "Maximum fix and re-review cycles; 0 runs fix agents once without re-review.",
+      },
     ],
     hooks: [],
     apiVersion: "^0.1",
-    example: "{\n  \"extensions\": {\n    \"wstack-chimera\": {\n      \"enabled\": true,\n      \"model\": \"gpt-5-mini\",\n      \"maxFiles\": 15,\n      \"autoFix\": \"ask\"\n    }\n  }\n}",
+    example: "{\n  \"extensions\": {\n    \"wstack-chimera\": {\n      \"enabled\": true,\n      \"model\": \"gpt-5-mini\",\n      \"maxFiles\": 15,\n      \"autoFix\": \"ask\",\n      \"cascadeOn\": \"high\",\n      \"maxCascadeDepth\": 2\n    }\n  }\n}",
   },
   "wstack-skills": {
     version: "1.1.0",

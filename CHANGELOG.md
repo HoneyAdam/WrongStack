@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.289.0] — 2026-07-18
+
+> The **self-correcting review release**. Chimera and continuous auto-review now
+> understand the work around a changed file, can dispatch targeted fix agents
+> for serious findings, and re-review the result in a bounded loop. This release
+> also completes the internal AutoPhase → Goal vocabulary migration and raises
+> confidence across the monorepo with a broad integration-test and coverage pass.
+
+### Added — Context-aware review and bounded cascade
+- **Richer review context** — review agents receive per-file diffs, sibling
+  changes, recent commits, active TODOs, the current Kanban card, and Chronicle
+  provenance instead of judging isolated file snapshots. Rename and quoted-path
+  parsing is hardened for real-world Git output.
+- **Continuous `/auto-review` surface** — the opt-in `wstack-auto-review`
+  plugin exposes its status and configuration, debounces iteration-complete
+  changes, and sends bounded batches through the governed Chimera review path.
+- **Severity-driven fix agents** — `cascadeOn: "high" | "critical"` can
+  dispatch `bug-hunter` and, for security-related findings,
+  `security-scanner` to investigate and apply verified fixes.
+- **Closed self-correcting loop** — after cascade agents finish, WrongStack
+  re-reads the changed files and reviews the post-fix state. `maxCascadeDepth`
+  bounds the fix → re-review cycle (default `2`), with an explicit manual-review
+  notice when the limit is reached.
+- **Post-session Chimera parity** — `cascadeOn` and `maxCascadeDepth` are also
+  wired into the Chimera plugin, so session-end reviews can use the same bounded
+  correction flow as continuous auto-review.
+
+### Changed — Goal terminology and runtime reliability
+- **AutoPhase internals are now Goal internals** — source directories, exported
+  `AutoPhase*` symbols, CLI/TUI state, tests, and documentation were migrated to
+  `Goal*` naming. Consumers of the old exported names must update their imports.
+- **SDD task generation is implemented** — `TaskGenerator.generateFromSpec()`
+  now turns spec requirements into task nodes, unblocking the TaskFlow suite.
+- **TUI interaction fixes** — completed tasks no longer leave a stale draft that
+  swallows Enter, `/clear` cleans up fleet state, Escape handling is consistent,
+  and the banner model label refreshes after remount.
+- **Security and persistence hardening** — command arguments are redacted at
+  telemetry emit sites, SuperMemory SQLite matches JSONL hygiene and deletion
+  safety, agent-status registry writes are serialized, and OAuth links are
+  rendered as clickable OSC 8 terminal hyperlinks.
+
+### Added — Verification depth
+- **Broad integration coverage** now exercises Director, session storage,
+  ToolExecutor, mailbox/HQ protocol paths, SDD controls, Kanban concurrency,
+  SuperMemory, TechStack, LSP search, WebUI finalization, and core utilities.
+- **Coverage reporting and gates** were refreshed from verified monorepo-wide
+  results, with flaky SDD, Kanban, and responsive WebUI assertions stabilized.
+
+### Changed — Release alignment
+- **All release surfaces are aligned to `0.289.0`** — workspace manifests,
+  both apps, website metadata and badges, README highlights, and the website
+  changelog share the same release line.
+
 ### Added — Adaptive `/goal` coordination
 - **`[DONE: index|prefix]` deliverable markers** — autonomy iterations can
   now mark individual deliverables complete via a 1-based index or a
