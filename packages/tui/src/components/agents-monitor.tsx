@@ -172,6 +172,13 @@ function riskMeta(risk: ReturnType<typeof agentRisk>): {
 function currentAction(entry: FleetEntry, now: number): string {
   if (entry.currentTool)
     return `→ ${entry.currentTool.name} ${fmtShortDuration(now - entry.currentTool.startedAt)}`;
+  // Subagents: show only tool activity. No streaming text, no "thinking",
+  // no message snippets — those caused screen flicker. Empty when idle.
+  if (!isLeaderEntry(entry)) {
+    const last = entry.recentTools[entry.recentTools.length - 1];
+    if (last) return `last ${last.name}`;
+    return '';
+  }
   if (entry.status === 'running') return 'thinking';
   const last = entry.recentTools[entry.recentTools.length - 1];
   if (last) return `last ${last.name}`;
@@ -578,9 +585,12 @@ function AgentDetailPanel({
 }): React.ReactElement {
   const s = STATUS[entry.status];
   const modelLabel = fmtModelLabel(entry.provider, entry.model);
-  const streamTail = entry.streamingText
-    ? snippet(entry.streamingText.slice(-160), Math.max(16, width - 10))
-    : '';
+  // Streaming text suppressed for subagents — deltas caused screen flicker.
+  // Only the leader shows its live streaming tail.
+  const streamTail =
+    isLeaderEntry(entry) && entry.streamingText
+      ? snippet(entry.streamingText.slice(-160), Math.max(16, width - 10))
+      : '';
   const lastMessage = entry.recentMessages[entry.recentMessages.length - 1];
 
   // Alert line: failure > budget > streaming tail > current action
@@ -658,15 +668,18 @@ function AgentDetailPanel({
         </Box>
       ) : null}
 
-      {/* Streaming tail or last message (when no transcript) */}
+      {/* Streaming tail (leader only — subagents suppressed to avoid flicker) */}
       {!transcript && entry.status === 'running' && streamTail ? (
         <Box height={1}>
           <Text dimColor>{'>'} {streamTail}</Text>
         </Box>
       ) : null}
 
-      {/* Latest message snippet (when no stream tail) */}
-      {!transcript && (entry.status !== 'running' || !streamTail) && lastMessage ? (
+      {/* Latest message snippet (leader only — subagents suppressed to avoid flicker) */}
+      {!transcript &&
+      isLeaderEntry(entry) &&
+      (entry.status !== 'running' || !streamTail) &&
+      lastMessage ? (
         <Box height={1}>
           <Text dimColor>msg: {snippet(lastMessage.text)}</Text>
         </Box>

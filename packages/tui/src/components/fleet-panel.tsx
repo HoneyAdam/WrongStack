@@ -132,16 +132,15 @@ function activityText(entry: FleetEntry, now: number): string {
   if (entry.currentTool) {
     return `${glyphs.tools} ${entry.currentTool.name} · ${fmtShortDuration(now - entry.currentTool.startedAt)}`;
   }
-  const streaming = normalizeInlineText(entry.streamingText);
-  if (entry.status === 'running' && streaming) return `› ${streaming}`;
-  const lastMessage = entry.recentMessages.at(-1);
-  if (lastMessage) return `↳ ${normalizeInlineText(lastMessage.text)}`;
+  // Streaming text and message snippets removed for subagents — they caused
+  // visual flicker as text deltas updated. Only tool calls are shown now;
+  // empty string when there are none.
   const lastTool = entry.recentTools.at(-1);
   if (lastTool) {
     const marker = lastTool.ok === false ? glyphs.failure : glyphs.success;
     return `${marker} ${lastTool.name}`;
   }
-  if (entry.status === 'running') return 'thinking…';
+  if (entry.status === 'running') return '';
   if (entry.status === 'idle') return 'waiting for a mission';
   if (entry.status === 'success') return 'mission complete';
   if (entry.status === 'timeout') return 'time budget reached';
