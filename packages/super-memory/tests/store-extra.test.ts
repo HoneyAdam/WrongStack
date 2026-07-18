@@ -284,6 +284,72 @@ describe('SuperMemoryStore — proposal resolution (propose → resolve → targ
     expect(second?.applied).toBe(false);
     expect(second?.alreadyResolved).toBe(true);
   });
+
+  // ── End-to-end deletion contract ────────────────────────────────────
+  // Walks the full propose → resolve → permanent-refusal flow in one test
+  // to lock the deletion contract as a single observable scenario.
+  it('end-to-end: propose→resolve respects the full deletion contract', async () => {
+    // 1. Create memories of different persistence classes
+    const normal = await store.rememberSuper({ text: 'Normal memory', kind: 'fact' });
+    const permanent = await store.rememberSuper({
+      text: 'Permanent memory',
+      kind: 'decision',
+      persistence: 'permanent',
+    });
+
+    // 2. Propose deletion for BOTH via memory_candidates
+    const normalCandidate = await store.createCandidate({
+      text: normal.text,
+      kind: normal.kind,
+      scope: 'project',
+      targetMemoryId: normal.id,
+      reviewReason: 'injected_never_used',
+    });
+    const permanentCandidate = await store.createCandidate({
+      text: permanent.text,
+      kind: permanent.kind,
+      scope: 'project',
+      targetMemoryId: permanent.id,
+      reviewReason: 'injected_never_used',
+    });
+
+    // Both candidates should be pending in the ReviewQueue
+    const pending = await store.listCandidates();
+    expect(pending.find((c) => c.id === normalCandidate.id)).toBeDefined();
+    expect(pending.find((c) => c.id === permanentCandidate.id)).toBeDefined();
+
+    // 3. Resolve: delete the normal memory → should succeed
+    const normalResolution = await store.resolveCandidate(normalCandidate.id, 'delete', 'Approved');
+    expect(normalResolution).toEqual({
+      candidateId: normalCandidate.id,
+      decision: 'delete',
+      targetMemoryId: normal.id,
+      applied: true,
+    });
+    const normalAfter = await store.getSuperMemory(normal.id);
+    expect(normalAfter?.status).toBe('deleted');
+
+    // 4. Resolve: delete the permanent memory → must REFUSE (applied: false)
+    const permanentResolution = await store.resolveCandidate(permanentCandidate.id, 'delete', 'Approved');
+    expect(permanentResolution?.applied).toBe(false);
+    const permanentAfter = await store.getSuperMemory(permanent.id);
+    expect(permanentAfter?.status).toBe('active');
+
+    // 5. The permanent candidate is still marked resolved (decision recorded),
+    //    but the memory itself survives — this is the core invariant.
+    expect(permanentResolution?.decision).toBe('delete');
+    expect(permanentResolution?.alreadyResolved).toBeUndefined(); // First resolution
+
+    // 6. Neither candidate remains pending
+    const remainingPending = await store.listCandidates();
+    expect(remainingPending.find((c) => c.id === normalCandidate.id)).toBeUndefined();
+    expect(remainingPending.find((c) => c.id === permanentCandidate.id)).toBeUndefined();
+
+    // 7. Re-resolving either is a no-op
+    const reResolve = await store.resolveCandidate(normalCandidate.id, 'keep');
+    expect(reResolve?.alreadyResolved).toBe(true);
+    expect(reResolve?.applied).toBe(false);
+  });
 });
 
 describe('SuperMemoryStore — graph traversal', () => {
