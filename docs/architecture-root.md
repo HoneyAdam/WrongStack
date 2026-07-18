@@ -668,7 +668,7 @@ flowchart TD
 3. Subject matching based on explicit `subjectKey` or known input fields such as `path`, `url`, `name`, or `command`.
 4. Deny rules.
 5. Allow/auto rules.
-6. YOLO mode (opt-in via `--yolo` or `/yolo on`): when on, non-denied tool calls auto-approve; when off (the default), mutating/network-sensitive calls fall through to confirm prompts. Trust-file deny rules and `permission: 'deny'` tools still win.
+6. YOLO mode (controlled at launch by `--yolo` / `--no-yolo` or at runtime by `/yolo on|off`): when on, non-denied tool calls auto-approve; when off, mutating/network-sensitive calls fall through to confirm prompts. Trust-file deny rules and `permission: 'deny'` tools still win.
 7. Tool default permission.
 8. User confirmation via delegate or event.
 

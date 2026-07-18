@@ -51,6 +51,14 @@ describe('parseArgs', () => {
     expect(r.positional).toContain('prompt');
   });
 
+  it('treats --no-yolo as a boolean flag without consuming the task', () => {
+    expect(BOOLEAN_FLAGS.has('no-yolo')).toBe(true);
+    expect(parseArgs(['--no-yolo', 'review this'])).toEqual({
+      flags: { 'no-yolo': true },
+      positional: ['review this'],
+    });
+  });
+
   it('treats --webui-require-token as a boolean flag', () => {
     expect(BOOLEAN_FLAGS.has('webui-require-token')).toBe(true);
     const r = parseArgs(['--webui', '--webui-require-token', 'prompt']);

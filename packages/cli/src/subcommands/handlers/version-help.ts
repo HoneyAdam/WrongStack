@@ -48,7 +48,7 @@ export const helpCmd: SubcommandHandler = async (_args, deps) => {
     '  wstack version               Print version',
     '',
     color.bold('Common flags'),
-    '  --yolo                       Auto-approve tool calls unless explicitly denied',
+    '  --yolo / --no-yolo           Force auto-approval on or off at startup',
     '  --confirm-destructive         Deprecated — YOLO no longer prompts by destructiveness',
     '  --yolo-destructive            Deprecated compatibility flag; YOLO no longer prompts by destructiveness',
     '  --tui / --no-tui             Force or disable TUI mode',
