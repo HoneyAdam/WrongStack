@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Super Memory storage health
+- **Periodic JSONL compaction** — the append-only `memories.jsonl` log now
+  compacts automatically after mutations when duplicate records exceed 3× the
+  unique ID count (minimum 500 records). The rewrite is atomic (temp-file +
+  rename) and preserves non-memory records. Uses the same revision-based dedup
+  logic as `loadMemories`.
+- **`/memory compact-log` slash command** — manual on-demand log compaction,
+  complementing the automatic threshold-gated path. Unlike `/memory compact`
+  (LLM-based content deduplication), this is a mechanical operation that
+  rewrites the JSONL keeping only the latest record per memory ID.
+- **`resolveCandidate` review pipeline** — new store method that applies
+  user-authorized review decisions (delete/archive/keep) to candidate targets.
+  Permanent memories refuse deletion even via the resolver. The resolver is
+  the sole authorized path for autonomous deletion — it passes `force`
+  internally as the review decision.
+- **`compactLog()` public API** — the compaction logic is now exposed as a
+  public method returning before/after statistics, enabling programmatic and
+  CLI invocation.
+
+### Changed — Super Memory deletion protection
+- **`memory_delete` requires `force: true` for ALL deletions** — previously
+  only `persistence: 'permanent'` memories were guarded. Now every deletion
+  requires explicit authorization via the `force` flag, preventing autonomous
+  agents from removing memories without review. The tool schema, store guard,
+  and system prompt all reflect this contract.
+- **SessionMemoryConsolidator is strictly add-only** — the consolidator (runs
+  unattended after every session) can no longer issue `edit` or `delete` ops.
+  LLM-emitted non-`add` operations are silently ignored. This closes the
+  unsupervised substring-matched deletion path identified in the mass-deletion
+  postmortem.
+- **Mnemosyne Phase 3 is propose-only** — the custodian agent files review
+  proposals via `memory_candidates({ action: 'propose' })` and never calls
+  `memory_delete` or `memory_update({ status: 'archived' })`. Final decisions
+  belong to the user via `memory_candidates({ action: 'resolve' })`.
+- **JSONL dedup prefers non-deleted on equal revisions** — when two records
+  share the same revision, the store now prefers `active`/`stale`/`archived`
+  over `deleted`. A same-revision tombstone is treated as a stale duplicate,
+  not a newer state. Previously, file ordering determined the winner, causing
+  active memories to appear deleted after log reordering.
+
+### Fixed — Super Memory
+- **JSONL dedup ordering bug** — fixed the root cause of active memories
+  silently flipping to `deleted`: the `revision >= current.revision` tiebreaker
+  used last-in-file-wins on equal revisions, allowing a same-revision tombstone
+  appended after an active record to overwrite it. Changed to strict
+  `revision > current.revision` with status-preference on ties.
+- **Super Memory mass-deletion root cause** — closed all three autonomous
+  deletion paths: (1) Mnemosyne Phase 3 direct deletions, (2) consolidator
+  LLM-issued edit/delete ops, (3) unguarded direct tool calls. All paths now
+  require either explicit `force: true` or a resolved review candidate.
+
 ## [0.289.0] — 2026-07-18
 
 > The **self-correcting review release**. Chimera and continuous auto-review now
