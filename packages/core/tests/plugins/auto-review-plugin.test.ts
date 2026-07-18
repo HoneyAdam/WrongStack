@@ -4,7 +4,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChimeraReviewNeededPayload, SlashCommand } from '../../src/index.js';
-import { createAutoReviewPlugin } from '../../src/plugins/auto-review-plugin.js';
+import {
+  createAutoReviewPlugin,
+  DEFAULT_REVIEW_FALLBACK_MODELS,
+  resolveAutoReviewConfig,
+} from '../../src/plugins/auto-review-plugin.js';
+import type { Config } from '../../src/types/config.js';
 
 let tmp: string;
 
@@ -135,5 +140,77 @@ describe('auto-review change detection', () => {
     expect(payload?.files.map((file) => file.path)).toEqual(['tracked.ts']);
     expect(payload?.allChangedFiles?.map((file) => file.path)).not.toContain('.env.local');
     expect(JSON.stringify(payload)).not.toContain('PRIVATE_TOKEN');
+  });
+});
+
+describe('resolveAutoReviewConfig — empty/unknown fallbackProfile', () => {
+  // A minimal session Config with a healthy session provider/model but NO
+  // fallbackProfiles map, so any profile name resolves to an empty chain.
+  function sessionConfig(overrides: Partial<Config> = {}): Config {
+    return {
+      provider: 'session-provider',
+      model: 'session-model',
+      ...overrides,
+    } as Config;
+  }
+
+  it('falls through to the session provider/model when the profile does not exist', () => {
+    // An unknown profile name → FallbackProfileManager.resolve returns an empty
+    // chain (no throw, no default), so the reviewer inherits the session model.
+    const resolved = resolveAutoReviewConfig(
+      { enabled: true, fallbackProfile: 'does-not-exist' },
+      sessionConfig(),
+    );
+
+    expect(resolved.provider).toBe('session-provider');
+    expect(resolved.model).toBe('session-model');
+  });
+
+  it('injects the default rotation chain (never empty) for an unknown profile', () => {
+    // Root-cause guard for chimera-review `provider_auth` (1 iter / 0 tools)
+    // failures: the resolver now injects DEFAULT_REVIEW_FALLBACK_MODELS when the
+    // profile resolves empty, so the reviewer is never spawned against the bare
+    // session model with nothing to fall back to. The safety net lives at the
+    // resolver level so no downstream spawn path can bypass it.
+    const resolved = resolveAutoReviewConfig(
+      { enabled: true, fallbackProfile: 'does-not-exist' },
+      sessionConfig(),
+    );
+
+    expect(resolved.fallbackModels.length).toBeGreaterThan(0);
+    // The primary session model is never listed as its own fallback.
+    expect(resolved.fallbackModels).not.toContain('session-provider/session-model');
+    // The injected chain is exactly the shared default set.
+    expect(resolved.fallbackModels).toEqual([...DEFAULT_REVIEW_FALLBACK_MODELS]);
+  });
+
+  it('never emits a blank model string that a provider would 401 as "Model is not supported"', () => {
+    // Shadow Agent observed opencode-go returning 401 "Model is not supported"
+    // for an empty model string. Guard that resolveAutoReviewConfig never yields
+    // an empty/whitespace model even on the empty-profile fallthrough path.
+    const resolved = resolveAutoReviewConfig(
+      { enabled: true, fallbackProfile: '' },
+      sessionConfig(),
+    );
+
+    expect(resolved.model.trim().length).toBeGreaterThan(0);
+    expect(resolved.provider.trim().length).toBeGreaterThan(0);
+  });
+
+  it('honors an explicit provider/model override even when the profile is unknown', () => {
+    // When the config sets provider/model directly, the empty profile must not
+    // override them — this is the safe configuration path.
+    const resolved = resolveAutoReviewConfig(
+      {
+        enabled: true,
+        provider: 'explicit-provider',
+        model: 'explicit-model',
+        fallbackProfile: 'does-not-exist',
+      },
+      sessionConfig(),
+    );
+
+    expect(resolved.provider).toBe('explicit-provider');
+    expect(resolved.model).toBe('explicit-model');
   });
 });

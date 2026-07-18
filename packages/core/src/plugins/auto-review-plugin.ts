@@ -69,6 +69,23 @@ const DEFAULT_MAX_FILES_PER_BATCH = 15;
 const DEFAULT_MAX_CONCURRENT_REVIEWS = 2;
 const DEFAULT_MAX_CASCADE_DEPTH = 2;
 
+/**
+ * Default reviewer rotation chain, used when the configured fallbackProfile is
+ * absent, unknown, or resolves to an empty chain. Without this, the reviewer
+ * would spawn against the bare session model with no fallback; if that model
+ * returns an empty response the subagent dies at 1 iter / 0 tools (surfaced as
+ * provider_auth). Kept in sync with the CLI-side default in
+ * packages/cli/src/execution.ts so both spawn seams share one safety net.
+ * Parsed downstream as `provider/model` refs.
+ */
+export const DEFAULT_REVIEW_FALLBACK_MODELS: readonly string[] = [
+  'opencode/deepseek-chat',
+  'opencode-go/deepseek-v4-pro',
+  'deepseek/deepseek-chat',
+  'anthropic-oauth/claude-opus-4-8',
+  'openai-codex/gpt-5.3-codex-spark',
+];
+
 export function resolveAutoReviewConfig(
   cfg: AutoReviewConfig,
   sessionConfig: Config,
@@ -79,11 +96,25 @@ export function resolveAutoReviewConfig(
     : mgr.resolveEffective({ fallbackAuto: true });
   const resolvedProvider = cfg.provider ?? (chain.length > 0 ? chain[0]!.providerId : sessionConfig.provider);
   const resolvedModel = cfg.model ?? (chain.length > 0 ? chain[0]!.model : sessionConfig.model);
-  const fallbackModels = chain
+  const profileFallbackModels = chain
     .filter((entry) =>
       entry.providerId !== resolvedProvider || entry.model !== resolvedModel,
     )
     .map((entry) => `${entry.providerId}/${entry.model}`);
+
+  // Safety net: when the profile is absent/unknown/empty the chain resolves to
+  // [], which would spawn the reviewer against the bare session model with no
+  // rotation target. If that model returns an empty response the subagent dies
+  // at 1 iter / 0 tools (surfaced as provider_auth). Guarantee a non-empty
+  // rotation chain at the resolver level so no downstream spawn path can bypass
+  // it. Entries equal to the resolved primary are filtered so the primary is
+  // never listed as its own fallback.
+  const fallbackModels =
+    profileFallbackModels.length > 0
+      ? profileFallbackModels
+      : DEFAULT_REVIEW_FALLBACK_MODELS.filter(
+          (ref) => ref !== `${resolvedProvider}/${resolvedModel}`,
+        );
 
   return {
     enabled: cfg.enabled === true,
