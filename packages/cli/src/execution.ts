@@ -32,6 +32,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import {
   attachTodosCheckpoint,
@@ -644,8 +645,10 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
         fileList,
         ``,
         `Investigate the security findings above. Read the flagged files, confirm or refute`,
-        `each finding, and report confirmed vulnerabilities with severity (Critical/High/Medium),`,
-        `file:line citations, and remediation steps. If a finding is a false positive, say so.`,
+        `each finding, and **apply fixes** for confirmed vulnerabilities using the edit tool.`,
+        `Use severity (Critical/High/Medium), file:line citations, and remediation steps.`,
+        `After fixing, run the project's typecheck and linter to verify. If a finding is a`,
+        `false positive, say so and do not modify the file.`,
       ].join('\n');
     }
     // bug-hunter
@@ -662,8 +665,10 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
       fileList,
       ``,
       `Hunt for the bugs flagged above. Read the affected files, trace each finding to its`,
-      `root cause, and report confirmed bugs with severity (Critical/High/Medium), file:line`,
-      `citations, and a minimal fix. If a finding is a false positive, say so.`,
+      `root cause, and **apply minimal fixes** for confirmed bugs using the edit tool.`,
+      `Use severity (Critical/High/Medium), file:line citations. After fixing, run the`,
+      `project's typecheck and linter to verify. If a finding is a false positive, say so`,
+      `and do not modify the file.`,
     ].join('\n');
   }
 
@@ -747,6 +752,87 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
             phase: 'agent',
           });
         }
+      }
+
+      // ── Re-review: closed self-correcting loop ──
+      //
+      // After the cascade fix agents finish, re-read the (now possibly
+      // modified) files and re-emit chimera.review_needed to trigger a
+      // fresh review. The loop is bounded by maxCascadeDepth: when
+      // cascadeDepth reaches it, we stop. This prevents infinite
+      // fix→re-review→fix cycles while giving the cascade a chance to
+      // verify its own fixes converged.
+      //
+      // Only fires when:
+      //   - bundle.maxCascadeDepth is set (> 0) — absent or 0 = no re-review
+      //   - cascadeDepth < maxCascadeDepth — depth guard
+      //   - at least one file path is re-readable (file still exists)
+      const maxDepth = p.bundle.maxCascadeDepth ?? 0;
+      const currentDepth = p.bundle.cascadeDepth ?? 0;
+      if (maxDepth > 0 && currentDepth < maxDepth) {
+        try {
+          // Re-read the changed files — they may have been edited by the
+          // fix agents. Skip files that were deleted or are unreadable.
+          const reReadFiles: ChimeraReviewNeededPayload['files'] = [];
+          for (const f of p.bundle.files) {
+            try {
+              const absPath = path.join(p.bundle.cwd, f.path);
+              const content = await fsp.readFile(absPath, 'utf8');
+              reReadFiles.push({ path: f.path, status: 'modified', content });
+            } catch {
+              // File deleted or unreadable — skip it
+            }
+          }
+
+          if (reReadFiles.length > 0) {
+            const reReviewBundle: ChimeraReviewNeededPayload = {
+              ...p.bundle,
+              files: reReadFiles,
+              cascadeDepth: currentDepth + 1,
+            };
+
+            await session.append({
+              type: 'llm_response',
+              ts: new Date().toISOString(),
+              content: [
+                {
+                  type: 'text',
+                  text: `🦂 Chimera cascade re-review (depth ${currentDepth + 1}/${maxDepth}) — re-reviewing ${reReadFiles.length} file(s) after fixes`,
+                },
+              ],
+              stopReason: 'end_turn' as import('@wrongstack/core').StopReason,
+              usage: { input: 0, output: 0 },
+            });
+
+            // Re-emit review_needed — the review handler will pick it up
+            // and run a fresh review subagent. If that review also finds
+            // High+ findings with cascadeOn set, the cycle continues until
+            // maxCascadeDepth or the review comes back clean.
+            events.emitCustom('chimera.review_needed', reReviewBundle);
+          }
+        } catch (err) {
+          await session.append({
+            type: 'error',
+            ts: new Date().toISOString(),
+            message: `🦂 Chimera cascade re-review failed: ${err instanceof Error ? err.message : String(err)}`,
+            phase: 'agent',
+          });
+        }
+      } else if (maxDepth > 0 && currentDepth >= maxDepth) {
+        // Depth limit reached — log so the user knows the loop stopped
+        // intentionally, not because fixes converged.
+        await session.append({
+          type: 'llm_response',
+          ts: new Date().toISOString(),
+          content: [
+            {
+              type: 'text',
+              text: `🦂 Chimera cascade stopped at depth limit (${currentDepth}/${maxDepth}) — manual review recommended if issues persist`,
+            },
+          ],
+          stopReason: 'end_turn' as import('@wrongstack/core').StopReason,
+          usage: { input: 0, output: 0 },
+        });
       }
     })();
   });

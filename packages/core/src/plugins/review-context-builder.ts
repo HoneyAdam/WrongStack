@@ -119,6 +119,16 @@ export interface BuildReviewContextOptions {
    * non-auto-review triggers (chimera plugin, /review slash command).
    */
   cascadeOn?: 'off' | 'critical' | 'high' | undefined;
+  /**
+   * Current cascade depth (0 = initial review). Increments on each
+   * fix+re-review cycle; the cascade stops at maxCascadeDepth.
+   */
+  cascadeDepth?: number | undefined;
+  /**
+   * Maximum cascade iterations before the self-correcting loop stops.
+   * Default 2. Absent for non-auto-review triggers.
+   */
+  maxCascadeDepth?: number | undefined;
 }
 
 /**
@@ -180,6 +190,8 @@ export async function buildReviewContext(
 
   // ── Cascade threshold (passed in from caller) ──
   const cascadeOn = opts.cascadeOn ?? undefined;
+  const cascadeDepth = opts.cascadeDepth ?? undefined;
+  const maxCascadeDepth = opts.maxCascadeDepth ?? undefined;
 
   // ── Kanban card (P1: find in_progress task across all boards) ──
   let kanbanCard: ReviewContextBundle['kanbanCard'];
@@ -207,6 +219,8 @@ export async function buildReviewContext(
     recentCommits,
     activeTodos,
     cascadeOn,
+    cascadeDepth,
+    maxCascadeDepth,
     kanbanCard,
     fileProvenance,
   };

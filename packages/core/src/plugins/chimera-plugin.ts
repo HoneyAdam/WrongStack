@@ -105,6 +105,19 @@ export interface ReviewContextBundle {
    * cascades only on Critical.
    */
   cascadeOn?: 'off' | 'critical' | 'high' | undefined;
+  /**
+   * Current cascade iteration depth (0 for the initial review, 1 after
+   * the first fix+re-review cycle, etc.). The cascade handler increments
+   * this on each re-review emission and stops when it reaches
+   * `maxCascadeDepth`. Absent (treated as 0) for non-cascade triggers.
+   */
+  cascadeDepth?: number | undefined;
+  /**
+   * Maximum cascade iterations before the self-correcting loop stops.
+   * Prevents infinite fix → re-review → fix cycles. Default 2. Set by
+   * the auto-review plugin; absent for non-cascade triggers.
+   */
+  maxCascadeDepth?: number | undefined;
 
   // ── Sibling awareness ──
   /**

@@ -43,6 +43,12 @@ export interface AutoReviewConfig {
    * Default: "off".
    */
   cascadeOn?: 'off' | 'critical' | 'high' | undefined;
+  /**
+   * Maximum cascade iterations (fix → re-review cycles) before the
+   * self-correcting loop stops. Prevents infinite cycles. Default: 2.
+   * 0 disables re-review (cascade agents investigate/fix once, no re-check).
+   */
+  maxCascadeDepth?: number | undefined;
 }
 
 export interface ResolvedAutoReviewConfig {
@@ -54,11 +60,13 @@ export interface ResolvedAutoReviewConfig {
   maxFilesPerBatch: number;
   maxConcurrentReviews: number;
   cascadeOn: 'off' | 'critical' | 'high';
+  maxCascadeDepth: number;
 }
 
 const DEFAULT_DEBOUNCE_MS = 5_000;
 const DEFAULT_MAX_FILES_PER_BATCH = 15;
 const DEFAULT_MAX_CONCURRENT_REVIEWS = 2;
+const DEFAULT_MAX_CASCADE_DEPTH = 2;
 
 export function resolveAutoReviewConfig(
   cfg: AutoReviewConfig,
@@ -83,6 +91,7 @@ export function resolveAutoReviewConfig(
     maxFilesPerBatch: cfg.maxFilesPerBatch ?? DEFAULT_MAX_FILES_PER_BATCH,
     maxConcurrentReviews: cfg.maxConcurrentReviews ?? DEFAULT_MAX_CONCURRENT_REVIEWS,
     cascadeOn: cfg.cascadeOn ?? 'off',
+    maxCascadeDepth: cfg.maxCascadeDepth ?? DEFAULT_MAX_CASCADE_DEPTH,
   };
 }
 
@@ -324,6 +333,7 @@ function buildAutoReviewCommand(getConfig: () => ResolvedAutoReviewConfig, getIn
       '                       Spawns security-scanner/bug-hunter when',
       '                       findings reach this severity. "high" fires',
       '                       on any High+ finding; "critical" only on Critical.',
+      '  maxCascadeDepth      max fix+re-review cycles (default 2, 0=off)',
     ].join('\n'),
     async run(args: string) {
       const cfg = getConfig();
@@ -351,6 +361,7 @@ function buildAutoReviewCommand(getConfig: () => ResolvedAutoReviewConfig, getIn
           `  Max files:      ${cfg.maxFilesPerBatch}`,
           `  Max parallel:   ${cfg.maxConcurrentReviews}`,
           `  Cascade:        ${cascadeDesc}`,
+          `  Max depth:      ${cfg.maxCascadeDepth} re-review cycle(s)`,
           `  In-flight:      ${inFlight} review(s)`,
           '',
           'Fires on every git-tracked file change during the session.',
@@ -516,6 +527,7 @@ export function createAutoReviewPlugin(): Plugin {
             files: filesWithContent,
             activeTodos: ctxTodos,
             cascadeOn: cfg.cascadeOn,
+            maxCascadeDepth: cfg.maxCascadeDepth,
           });
 
           api.log.info(
@@ -604,6 +616,7 @@ export function createAutoReviewPlugin(): Plugin {
             },
             files: filesWithContent,
             cascadeOn: cfg.cascadeOn,
+            maxCascadeDepth: cfg.maxCascadeDepth,
           });
 
           api.emitCustom('chimera.review_needed', bundle);

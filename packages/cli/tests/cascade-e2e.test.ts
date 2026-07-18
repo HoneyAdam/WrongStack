@@ -430,3 +430,96 @@ describe('Cascade chain: full e2e (review_complete → cascade_needed → spawn)
     expect(session.append).toHaveBeenCalledTimes(2);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════
+// PART 4: Re-review depth guard (closed self-correcting loop)
+// ═══════════════════════════════════════════════════════════════════════
+
+describe('Cascade re-review depth guard (closed loop)', () => {
+  /**
+   * Mirrors the re-review decision logic from execution.ts:757-838.
+   * Returns 're-review' | 'stop-at-limit' | 'no-re-review' based on the
+   * depth/maxCascadeDepth comparison.
+   */
+  function decideReReview(
+    cascadeDepth: number | undefined,
+    maxCascadeDepth: number | undefined,
+  ): 're-review' | 'stop-at-limit' | 'no-re-review' {
+    const maxDepth = maxCascadeDepth ?? 0;
+    const currentDepth = cascadeDepth ?? 0;
+    if (maxDepth > 0 && currentDepth < maxDepth) return 're-review';
+    if (maxDepth > 0 && currentDepth >= maxDepth) return 'stop-at-limit';
+    return 'no-re-review';
+  }
+
+  it('re-reviews when depth 0 and maxCascadeDepth is 2', () => {
+    expect(decideReReview(0, 2)).toBe('re-review');
+  });
+
+  it('re-reviews when depth 1 and maxCascadeDepth is 2', () => {
+    expect(decideReReview(1, 2)).toBe('re-review');
+  });
+
+  it('stops at depth limit when depth equals maxCascadeDepth', () => {
+    expect(decideReReview(2, 2)).toBe('stop-at-limit');
+  });
+
+  it('stops at depth limit when depth exceeds maxCascadeDepth', () => {
+    expect(decideReReview(3, 2)).toBe('stop-at-limit');
+  });
+
+  it('does not re-review when maxCascadeDepth is 0 (disabled)', () => {
+    expect(decideReReview(0, 0)).toBe('no-re-review');
+  });
+
+  it('does not re-review when maxCascadeDepth is absent (undefined)', () => {
+    expect(decideReReview(0, undefined)).toBe('no-re-review');
+  });
+
+  it('does not re-review when both fields are absent (non-cascade trigger)', () => {
+    expect(decideReReview(undefined, undefined)).toBe('no-re-review');
+  });
+
+  it('re-reviews at depth 0 when maxCascadeDepth is 1 (single re-review allowed)', () => {
+    expect(decideReReview(0, 1)).toBe('re-review');
+    // After the re-review, depth becomes 1 which equals maxCascadeDepth 1
+    expect(decideReReview(1, 1)).toBe('stop-at-limit');
+  });
+
+  it('full loop simulation: depth increments until limit reached', () => {
+    const maxDepth = 3;
+    let depth = 0;
+    const decisions: string[] = [];
+    // Simulate the loop: at each depth, decide whether to re-review
+    for (let i = 0; i < maxDepth + 2; i++) {
+      const decision = decideReReview(depth, maxDepth);
+      decisions.push(`${depth}:${decision}`);
+      if (decision !== 're-review') break;
+      depth++; // Simulate the re-review incrementing depth
+    }
+    // Should re-review at depths 0, 1, 2, then stop at 3
+    expect(decisions).toEqual([
+      '0:re-review',
+      '1:re-review',
+      '2:re-review',
+      '3:stop-at-limit',
+    ]);
+  });
+
+  it('bundle carries cascadeDepth+1 on re-review emission', () => {
+    // Verify the re-review bundle shape: depth increments, other fields preserved
+    const originalBundle = makeBundle('high');
+    originalBundle.cascadeDepth = 1;
+    originalBundle.maxCascadeDepth = 3;
+    // Simulate the spread + override from execution.ts
+    const reReviewBundle = {
+      ...originalBundle,
+      cascadeDepth: (originalBundle.cascadeDepth ?? 0) + 1,
+    };
+    expect(reReviewBundle.cascadeDepth).toBe(2);
+    expect(reReviewBundle.maxCascadeDepth).toBe(3);
+    expect(reReviewBundle.cascadeOn).toBe('high');
+    expect(reReviewBundle.cwd).toBe(originalBundle.cwd);
+    expect(reReviewBundle.files).toBe(originalBundle.files);
+  });
+});
