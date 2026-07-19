@@ -54,9 +54,23 @@ interface UpdateSuperMemoryInput {
   contradicts?: string[] | undefined;
 }
 
+interface ListSuperPageResultLike {
+  memories: SuperMemoryLike[];
+  nextCursor: string | null;
+  total: number;
+  statusCounts: Record<string, number>;
+}
+
 interface SuperMemoryStoreLike {
   stats(): Promise<SuperMemoryStatsLike>;
   listSuper(statuses?: string[]): Promise<SuperMemoryLike[]>;
+  listSuperPage?(options: {
+    statuses?: string[] | undefined;
+    kind?: string | undefined;
+    query?: string | undefined;
+    limit?: number | undefined;
+    cursor?: string | undefined;
+  }): Promise<ListSuperPageResultLike>;
   getSuperMemory(id: string): Promise<SuperMemoryLike | null>;
   updateSuperMemory(id: string, patch: UpdateSuperMemoryInput): Promise<SuperMemoryLike>;
   deleteSuperMemory(id: string, reason?: string, options?: { neverInject?: boolean }): Promise<void>;
@@ -196,6 +210,69 @@ export async function handleSuperMemoryList(
     send(ws, { type: 'memory.super.list', payload: { memories, stats } });
   } catch (err) {
     send(ws, { type: 'memory.super.list', payload: { error: errMessage(err) } });
+  }
+}
+
+/**
+ * Paginated, status-filtered SuperMemory listing. Preferred over
+ * `memory.super.list` for the MemoryManager: it returns a bounded page plus a
+ * cursor so the WebUI never loads thousands of soft-deleted records at once.
+ *
+ * Request:  { type: 'memory.super.listPage', payload: { statuses?, kind?, query?, limit?, cursor? } }
+ * Response: { type: 'memory.super.listPage', payload: { memories, nextCursor, total, statusCounts } }
+ *
+ * `statuses` defaults (backend-side) to every status EXCEPT `deleted`. Pass
+ * `statuses: ['deleted']` for the WebUI "Deleted" tab. Falls back gracefully to
+ * a full `listSuper()` for stores that predate `listSuperPage`.
+ */
+export async function handleSuperMemoryListPage(
+  ws: WebSocket,
+  msg: unknown,
+  memoryStore: MemoryStore,
+): Promise<void> {
+  if (!isSuperMemoryStore(memoryStore)) {
+    send(ws, { type: 'memory.super.listPage', payload: { error: requiresSuperMemory('memory.super.listPage') } });
+    return;
+  }
+  try {
+    const payload = (msg as { payload?: Record<string, unknown> }).payload ?? {};
+    const options = {
+      statuses: Array.isArray(payload['statuses'])
+        ? (payload['statuses'] as unknown[]).filter((s): s is string => typeof s === 'string')
+        : undefined,
+      kind: typeof payload['kind'] === 'string' ? (payload['kind'] as string) : undefined,
+      query: typeof payload['query'] === 'string' ? (payload['query'] as string) : undefined,
+      limit: typeof payload['limit'] === 'number' ? (payload['limit'] as number) : undefined,
+      cursor: typeof payload['cursor'] === 'string' ? (payload['cursor'] as string) : undefined,
+    };
+
+    if (typeof memoryStore.listSuperPage === 'function') {
+      const page = await memoryStore.listSuperPage(options);
+      send(ws, { type: 'memory.super.listPage', payload: page });
+      return;
+    }
+
+    // Backend without native pagination: emulate by loading + slicing in-memory.
+    const allowed = options.statuses && options.statuses.length > 0
+      ? new Set(options.statuses)
+      : undefined; // undefined => every status; deleted filtered below
+    const everything = await memoryStore.listSuper();
+    const statusCounts: Record<string, number> = {};
+    for (const m of everything) statusCounts[m.status] = (statusCounts[m.status] ?? 0) + 1;
+    const kind = options.kind && options.kind !== 'all' ? options.kind : undefined;
+    const q = options.query?.trim().toLowerCase();
+    const filtered = everything.filter((m) => {
+      if (allowed) return allowed.has(m.status);
+      return m.status !== 'deleted';
+    }).filter((m) => !kind || m.kind === kind)
+      .filter((m) => !q || m.text.toLowerCase().includes(q));
+    const limit = Math.max(1, Math.min(500, Math.floor(options.limit ?? 50)));
+    send(ws, {
+      type: 'memory.super.listPage',
+      payload: { memories: filtered.slice(0, limit), nextCursor: null, total: filtered.length, statusCounts },
+    });
+  } catch (err) {
+    send(ws, { type: 'memory.super.listPage', payload: { error: errMessage(err) } });
   }
 }
 

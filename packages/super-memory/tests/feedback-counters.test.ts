@@ -380,3 +380,79 @@ describe.skipIf(!isSqliteAvailable())('SqliteSuperMemoryStore feedback counters'
     expect(refreshed.some((item) => item.id === memory.id)).toBe(true);
   });
 });
+
+describe('SuperMemoryStore hygiene purgeDeletedAfterDays (JSONL)', () => {
+  it('is disabled by default — old deleted tombstones survive', async () => {
+    const store = makeStore();
+    const a = await store.rememberSuper({ text: 'active one', kind: 'fact', scope: 'project' });
+    const b = await store.rememberSuper({ text: 'to delete', kind: 'fact', scope: 'project' });
+    await store.deleteSuperMemory(b.id, 'test', { force: true });
+    advance(100 * DAY);
+
+    const report = await store.hygiene({ verify: false });
+    expect(report.purgedDeleted).toBe(0);
+    // Both ids still physically present in the log.
+    const stats = await store.getLogStats();
+    expect(stats.uniqueIds).toBe(2);
+    // The active memory is untouched.
+    const active = await store.listSuper(['active']);
+    expect(active.some((m) => m.id === a.id)).toBe(true);
+  });
+
+  it('purges only deleted tombstones older than the threshold', async () => {
+    const store = makeStore();
+    const active = await store.rememberSuper({ text: 'keep me active', kind: 'fact', scope: 'project' });
+    const oldDeleted = await store.rememberSuper({ text: 'old tombstone', kind: 'fact', scope: 'project' });
+
+    // Delete one at T0, then jump 40 days forward.
+    await store.deleteSuperMemory(oldDeleted.id, 'old', { force: true });
+    advance(40 * DAY);
+
+    // Delete another "recently" (only 5 days before the hygiene run).
+    const recentDeleted = await store.rememberSuper({ text: 'recent tombstone', kind: 'fact', scope: 'project' });
+    await store.deleteSuperMemory(recentDeleted.id, 'recent', { force: true });
+    advance(5 * DAY);
+
+    const report = await store.hygiene({ verify: false, purgeDeletedAfterDays: 30 });
+    expect(report.purgedDeleted).toBe(1);
+
+    // The old tombstone is physically gone; active + recent-deleted remain.
+    const deletedNow = await store.listSuper(['deleted']);
+    expect(deletedNow.some((m) => m.id === oldDeleted.id)).toBe(false);
+    expect(deletedNow.some((m) => m.id === recentDeleted.id)).toBe(true);
+    const activeNow = await store.listSuper(['active']);
+    expect(activeNow.some((m) => m.id === active.id)).toBe(true);
+  });
+
+  it('never purges permanent memories even when soft-deleted and old', async () => {
+    const store = makeStore();
+    const perm = await store.rememberSuper({
+      text: 'permanent tombstone',
+      kind: 'fact',
+      scope: 'project',
+      persistence: 'permanent',
+    });
+    // Force-delete a permanent memory, then age it well past the threshold.
+    await store.deleteSuperMemory(perm.id, 'forced', { force: true });
+    advance(100 * DAY);
+
+    const report = await store.hygiene({ verify: false, purgeDeletedAfterDays: 30 });
+    expect(report.purgedDeleted).toBe(0);
+    const deletedNow = await store.listSuper(['deleted']);
+    expect(deletedNow.some((m) => m.id === perm.id)).toBe(true);
+  });
+
+  it('does not purge a memory that was deleted then recovered', async () => {
+    const store = makeStore();
+    const m = await store.rememberSuper({ text: 'deleted then recovered', kind: 'fact', scope: 'project' });
+    await store.deleteSuperMemory(m.id, 'oops', { force: true });
+    advance(60 * DAY);
+    // Backfill creates a NEW active version whose latest record is active.
+    await store.backfillRecoverable({ dryRun: false });
+
+    const report = await store.hygiene({ verify: false, purgeDeletedAfterDays: 30 });
+    // The original tombstone's latest state is no longer 'deleted' (recovered
+    // chain), so it must not be purged.
+    expect(report.purgedDeleted).toBe(0);
+  });
+});

@@ -53,6 +53,7 @@ function createMockService(): SuperMemoryServiceLike {
         archived: 0,
         archivedUnused: 0,
         deleted: 0,
+        purgedDeleted: 0,
         verified: 0,
       };
     },

@@ -56,6 +56,8 @@ import {
   type SuperMemoryIndexes,
   type SuperMemoryManifest,
   type SuperMemoryRecord,
+  type ListSuperPageOptions,
+  type ListSuperPageResult,
   type SuperMemorySearchOptions,
   type SuperMemorySnapshot,
   type SuperMemoryStatus,
@@ -73,6 +75,61 @@ const MAX_MEMORY_METADATA_ITEMS = 128;
 const DEFAULT_COUNTER_FLUSH_INTERVAL_MS = 60 * 60_000;
 const CONTEXT_STATUSES: SuperMemoryStatus[] = ['active', 'deleted'];
 const VALID_STATUSES = new Set<SuperMemoryStatus>(['active', 'stale', 'superseded', 'contradicted', 'archived', 'deleted']);
+/** Statuses shown by default in the paginated listing (everything except the soft-delete audit trail). */
+const DEFAULT_PAGE_STATUSES: SuperMemoryStatus[] = ['active', 'stale', 'superseded', 'contradicted', 'archived'];
+const MAX_PAGE_LIMIT = 500;
+const DEFAULT_PAGE_LIMIT = 50;
+
+/** Clamp a requested page size into [1, MAX_PAGE_LIMIT], defaulting to DEFAULT_PAGE_LIMIT. */
+function clampPageLimit(limit: number | undefined): number {
+  if (typeof limit !== 'number' || !Number.isFinite(limit)) return DEFAULT_PAGE_LIMIT;
+  return Math.max(1, Math.min(MAX_PAGE_LIMIT, Math.floor(limit)));
+}
+
+/** Resolve the set of allowed statuses for a page request (default: all except `deleted`). */
+function normalizeListStatuses(statuses: SuperMemoryStatus[] | undefined): Set<SuperMemoryStatus> {
+  const list = statuses && statuses.length > 0
+    ? statuses.filter((s) => VALID_STATUSES.has(s))
+    : DEFAULT_PAGE_STATUSES;
+  return new Set(list.length > 0 ? list : DEFAULT_PAGE_STATUSES);
+}
+
+/** Sort comparator implementing `updatedAt DESC, id DESC` (id is the stable tie-breaker). */
+function compareByUpdatedDesc(a: SuperMemory, b: SuperMemory): number {
+  const byUpdated = b.updatedAt.localeCompare(a.updatedAt);
+  return byUpdated !== 0 ? byUpdated : b.id.localeCompare(a.id);
+}
+
+interface PageCursor { updatedAt: string; id: string }
+
+/** Encode the last item of a page into an opaque base64url cursor token. */
+function encodePageCursor(memory: SuperMemory): string {
+  const raw = JSON.stringify({ u: memory.updatedAt, i: memory.id } satisfies { u: string; i: string });
+  return Buffer.from(raw, 'utf8').toString('base64url');
+}
+
+/** Decode an opaque cursor token; returns undefined for missing/malformed input. */
+function decodePageCursor(cursor: string | undefined): PageCursor | undefined {
+  if (!cursor) return undefined;
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { u?: unknown; i?: unknown };
+    if (typeof parsed.u === 'string' && typeof parsed.i === 'string') {
+      return { updatedAt: parsed.u, id: parsed.i };
+    }
+  } catch {
+    // Malformed cursor → treat as first page.
+  }
+  return undefined;
+}
+
+/**
+ * Position comparison for the `updatedAt DESC, id DESC` order. Returns > 0 when
+ * `memory` sorts strictly AFTER the cursor position (i.e. is an older page item).
+ */
+function compareCursorPosition(memory: SuperMemory, cursor: PageCursor): number {
+  const byUpdated = cursor.updatedAt.localeCompare(memory.updatedAt);
+  return byUpdated !== 0 ? byUpdated : cursor.id.localeCompare(memory.id);
+}
 const VALID_SCOPES = new Set<SuperMemory['scope']>(['project', 'user', 'session', 'file', 'symbol']);
 const VALID_KINDS = new Set<SuperMemory['kind']>([
   'fact', 'decision', 'convention', 'preference', 'warning', 'anti_pattern',
@@ -270,6 +327,60 @@ export class SuperMemoryStore implements MemoryStore {
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
+  /**
+   * Paginated, status-filtered listing. Unlike `listSuper`, this defaults to
+   * EXCLUDING `deleted` memories and returns a bounded page plus a cursor so
+   * the WebUI never has to load thousands of soft-deleted records at once.
+   *
+   * Ordering: `updatedAt DESC, id DESC` (id is the deterministic tie-breaker
+   * that makes the cursor stable across pages).
+   */
+  async listSuperPage(options: ListSuperPageOptions = {}): Promise<ListSuperPageResult> {
+    const all = await this.loadMemories();
+
+    // statusCounts is over the WHOLE store (ignores filters) so the UI can show
+    // per-tab badges without a second call.
+    const statusCounts: Record<string, number> = {};
+    for (const memory of all) {
+      statusCounts[memory.status] = (statusCounts[memory.status] ?? 0) + 1;
+    }
+
+    const allowed = normalizeListStatuses(options.statuses);
+    const kind = options.kind && options.kind !== 'all' ? options.kind : undefined;
+    const query = options.query?.trim().toLowerCase();
+    const limit = clampPageLimit(options.limit);
+
+    const filtered = all
+      .filter((memory) => allowed.has(memory.status))
+      .filter((memory) => !kind || memory.kind === kind)
+      .filter((memory) => !query || memory.text.toLowerCase().includes(query))
+      .sort(compareByUpdatedDesc);
+
+    const total = filtered.length;
+
+    // Cursor walk: skip everything up to and including the cursor item.
+    const cursor = decodePageCursor(options.cursor);
+    let startIndex = 0;
+    if (cursor) {
+      const idx = filtered.findIndex(
+        (memory) => memory.updatedAt === cursor.updatedAt && memory.id === cursor.id,
+      );
+      // If the cursor item is gone (e.g. deleted between pages), fall back to
+      // the first item strictly older than the cursor position.
+      startIndex = idx >= 0
+        ? idx + 1
+        : filtered.findIndex((memory) => compareCursorPosition(memory, cursor) > 0);
+      if (startIndex < 0) startIndex = filtered.length;
+    }
+
+    const page = filtered.slice(startIndex, startIndex + limit);
+    const last = page[page.length - 1];
+    const hasMore = startIndex + page.length < total;
+    const nextCursor = hasMore && last ? encodePageCursor(last) : null;
+
+    return { memories: page, nextCursor, total, statusCounts };
+  }
+
   async addGraphEdge(
     from: string,
     to: string,
@@ -437,6 +548,7 @@ export class SuperMemoryStore implements MemoryStore {
       archived: 0,
       archivedUnused: 0,
       deleted: 0,
+      purgedDeleted: 0,
       verified: 0,
     };
     this.events?.emit('memory.hygiene_started', this.eventPayload({ examined: report.examined }));
@@ -559,6 +671,15 @@ export class SuperMemoryStore implements MemoryStore {
         report.reviewCandidatesCreated++;
       }
     }
+
+    // Opt-in, destructive purge of OLD already-deleted tombstones. This is the
+    // only hygiene step that physically drops records. It runs last so the
+    // review/verify passes above operate on the full set first.
+    const purgeDays = options.purgeDeletedAfterDays;
+    if (typeof purgeDays === 'number' && Number.isFinite(purgeDays) && purgeDays > 0) {
+      report.purgedDeleted = await this.purgeDeletedRecordsUnlocked(purgeDays, nowMs);
+    }
+
     await this.afterMutation();
     report.completedAt = this.nowIso();
     await appendJsonl(path.join(this.paths.hygieneDir, 'runs.jsonl'), report);
@@ -680,6 +801,18 @@ export class SuperMemoryStore implements MemoryStore {
     const allMemories = await this.loadMemories();
     const deleted = allMemories.filter((memory) => memory.status === 'deleted');
 
+    // Ids already recovered: a live (non-deleted) memory's supersedes chain
+    // points back at the tombstone. Skipping these makes backfill idempotent —
+    // re-running (e.g. after an interrupted run) never creates duplicate active
+    // versions of an already-recovered memory.
+    const alreadyRecovered = new Set<string>();
+    for (const memory of allMemories) {
+      if (memory.status === 'deleted') continue;
+      for (const supersededId of memory.supersedes ?? []) {
+        alreadyRecovered.add(supersededId);
+      }
+    }
+
     const report: SuperMemoryBackfillReport = {
       startedAt,
       completedAt: startedAt,
@@ -701,6 +834,12 @@ export class SuperMemoryStore implements MemoryStore {
 
     // Phase 1 — analyze and classify (no writes).
     for (const memory of deleted) {
+      if (alreadyRecovered.has(memory.id)) {
+        report.skipped++;
+        report.byReason['already_recovered'] = (report.byReason['already_recovered'] ?? 0) + 1;
+        report.skippedRecords.push(this.toBackfillRecord(memory, 'already_recovered', undefined));
+        continue;
+      }
       if (filter.kinds && !filter.kinds.includes(memory.kind)) {
         report.skipped++;
         report.byReason['filter_kinds'] = (report.byReason['filter_kinds'] ?? 0) + 1;
@@ -1989,6 +2128,86 @@ export class SuperMemoryStore implements MemoryStore {
     });
 
     return { beforeRecords: memoryRecords.length, afterRecords: latest.size, uniqueIds: uniqueIds.size };
+  }
+
+  /**
+   * Physically remove every record belonging to memories that are ALREADY
+   * `status: 'deleted'` and whose latest revision was updated (i.e. deleted)
+   * more than `days` days ago. Compacts them out of the JSONL log entirely.
+   *
+   * Safety invariants:
+   *  - Only touches memories whose *latest* record is `deleted` — a memory that
+   *    was deleted then recovered (latest record active) is never purged.
+   *  - Never purges `permanent` records, even if soft-deleted.
+   *  - Never changes any live memory's status — it does not create deletions,
+   *    it only drops tombstones that already exist.
+   *  - Non-memory records (edges, etc.) are preserved untouched.
+   *
+   * Called only from `hygieneUnlocked`, which already holds the mutation lock.
+   * Returns the number of memory IDs purged.
+   */
+  private async purgeDeletedRecordsUnlocked(days: number, nowMs: number): Promise<number> {
+    const cutoffMs = nowMs - daysToMs(days);
+    const snapshot = await readJsonlSnapshot<SuperMemoryRecord>(this.paths.memoriesLog);
+    const allRecords = snapshot.values;
+    const memoryRecords = allRecords.filter(isMemoryRecord);
+
+    // Determine the latest record per id (mirrors doCompactLog's preference).
+    const latest = new Map<string, SuperMemoryRecord>();
+    for (const rec of memoryRecords) {
+      const current = latest.get(rec.memory.id);
+      if (!current || rec.memory.revision > current.memory.revision) {
+        latest.set(rec.memory.id, rec);
+      } else if (rec.memory.revision === current.memory.revision) {
+        if (current.memory.status === 'deleted' && rec.memory.status !== 'deleted') {
+          latest.set(rec.memory.id, rec);
+        }
+      }
+    }
+
+    // Ids still referenced by a live (non-deleted) memory's supersedes chain —
+    // e.g. a tombstone that was recovered via backfillRecoverable. Purging these
+    // would break version-chain discoverability, so they are protected.
+    const referencedByLive = new Set<string>();
+    for (const rec of latest.values()) {
+      if (rec.memory.status === 'deleted') continue;
+      for (const supersededId of rec.memory.supersedes ?? []) {
+        referencedByLive.add(supersededId);
+      }
+    }
+
+    // Ids whose latest state is an old, non-permanent, unreferenced tombstone.
+    const purgeIds = new Set<string>();
+    for (const [id, rec] of latest) {
+      const memory = rec.memory;
+      if (memory.status !== 'deleted') continue;
+      if ((memory.persistence ?? DEFAULT_PERSISTENCE) === 'permanent') continue;
+      if (referencedByLive.has(id)) continue;
+      const deletedAtMs = Date.parse(memory.updatedAt);
+      if (Number.isNaN(deletedAtMs) || deletedAtMs > cutoffMs) continue;
+      purgeIds.add(id);
+    }
+
+    if (purgeIds.size === 0) return 0;
+
+    // Rewrite the log dropping ALL records (every revision) for purged ids.
+    const kept = allRecords.filter((rec) => !isMemoryRecord(rec) || !purgeIds.has(rec.memory.id));
+    const lines = kept.map((rec) => JSON.stringify(rec)).join('\n') + '\n';
+    await atomicWrite(this.paths.memoriesLog, lines);
+
+    // Invalidate caches so subsequent reads reflect the purge.
+    this.loaded = undefined;
+    this.loadedLogSignature = undefined;
+
+    await this.audit('memory.deleted_purged', {
+      details: {
+        purgedIds: [...purgeIds],
+        purgedCount: purgeIds.size,
+        olderThanDays: days,
+      },
+    });
+
+    return purgeIds.size;
   }
 
   private async writeSnapshot(memories: SuperMemory[]): Promise<string> {

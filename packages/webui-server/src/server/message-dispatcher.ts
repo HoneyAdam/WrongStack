@@ -69,6 +69,7 @@ import {
   handleSuperMemoryDelete,
   handleSuperMemoryGet,
   handleSuperMemoryList,
+  handleSuperMemoryListPage,
   handleSuperMemoryRemember,
   handleSuperMemoryUpdate,
   handleSuperMemoryRecover,
@@ -492,6 +493,8 @@ export function createMessageDispatcher(
       // ── SuperMemory operations ──
       case 'memory.super.list':
         return handleSuperMemoryList(ws, deps.memoryStore);
+      case 'memory.super.listPage':
+        return handleSuperMemoryListPage(ws, msg, deps.memoryStore);
       case 'memory.super.get':
         return handleSuperMemoryGet(ws, msg, deps.memoryStore);
       case 'memory.super.update':

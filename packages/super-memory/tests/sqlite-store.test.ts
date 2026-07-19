@@ -716,4 +716,60 @@ describe('SqliteSuperMemoryStore', () => {
       expect(result.accepted).toBe(1);
     });
   });
+
+  describe('listSuperPage', () => {
+    async function seed(store: SqliteSuperMemoryStore, count: number): Promise<string[]> {
+      const ids: string[] = [];
+      for (let i = 0; i < count; i++) {
+        const mem = await store.rememberSuper({ text: `Paginated ${i}`, kind: 'fact' });
+        ids.push(mem.id);
+      }
+      return ids;
+    }
+
+    it('excludes deleted by default and counts them in statusCounts', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      const ids = await seed(store, 3);
+      // Soft-delete one memory (status → deleted) to build the audit trail.
+      await store.updateSuper(ids[0] as string, { status: 'deleted' });
+
+      const page = await store.listSuperPage();
+      expect(page.memories.every((m) => m.status !== 'deleted')).toBe(true);
+      expect(page.total).toBe(2);
+      expect(page.statusCounts['deleted']).toBe(1);
+    });
+
+    it('returns only deleted memories when requested', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      const ids = await seed(store, 2);
+      await store.updateSuper(ids[0] as string, { status: 'deleted' });
+
+      const page = await store.listSuperPage({ statuses: ['deleted'] });
+      expect(page.memories).toHaveLength(1);
+      expect(page.memories[0]?.status).toBe('deleted');
+    });
+
+    it('paginates with a stable cursor', async () => {
+      const store = trackStore(new SqliteSuperMemoryStore({ projectRoot: tempDir }));
+      await store.initialize();
+      await seed(store, 5);
+
+      const first = await store.listSuperPage({ limit: 2 });
+      expect(first.memories).toHaveLength(2);
+      expect(first.total).toBe(5);
+      expect(first.nextCursor).toBeTruthy();
+
+      const second = await store.listSuperPage({ limit: 2, cursor: first.nextCursor ?? undefined });
+      const third = await store.listSuperPage({ limit: 2, cursor: second.nextCursor ?? undefined });
+      expect(third.memories).toHaveLength(1);
+      expect(third.nextCursor).toBeNull();
+
+      const seen = new Set(
+        [...first.memories, ...second.memories, ...third.memories].map((m) => m.id),
+      );
+      expect(seen.size).toBe(5);
+    });
+  });
 });

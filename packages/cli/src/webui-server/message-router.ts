@@ -69,6 +69,7 @@ import {
   handleSuperMemoryDelete,
   handleSuperMemoryGet,
   handleSuperMemoryList,
+  handleSuperMemoryListPage,
   handleSuperMemoryRemember,
   handleSuperMemoryUpdate,
   handleSuperMemoryRecover,
@@ -886,6 +887,16 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
         return;
       }
       return handleSuperMemoryList(ws, opts.memoryStore);
+    },
+    'memory.super.listPage': (msg, ws) => {
+      if (!opts.memoryStore) {
+        send(ws, {
+          type: 'memory.super.listPage',
+          payload: { error: 'Memory store not available' },
+        });
+        return;
+      }
+      return handleSuperMemoryListPage(ws, msg, opts.memoryStore);
     },
     'memory.super.get': (msg, ws) => {
       if (!opts.memoryStore) {

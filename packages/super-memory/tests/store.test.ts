@@ -643,3 +643,105 @@ describe('Super Memory tool-call middleware', () => {
     expect(payload.result.content).toContain('Cloned pipeline payloads still receive memory');
   });
 });
+
+describe('SuperMemoryStore.listSuperPage', () => {
+  async function seed(store: SuperMemoryStore, count: number): Promise<string[]> {
+    const ids: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const created = await store.rememberSuper({
+        text: `Paginated memory number ${i}`,
+        kind: 'fact',
+        scope: 'project',
+      });
+      ids.push(created.id);
+    }
+    return ids;
+  }
+
+  it('excludes deleted memories by default but counts them in statusCounts', async () => {
+    const store = new SuperMemoryStore({ projectRoot: tempDir });
+    const ids = await seed(store, 3);
+    await store.deleteSuperMemory(ids[0] as string, 'test', { force: true });
+
+    const page = await store.listSuperPage();
+    expect(page.memories).toHaveLength(2);
+    expect(page.memories.every((m) => m.status !== 'deleted')).toBe(true);
+    expect(page.total).toBe(2);
+    // statusCounts is over the whole store, so it still sees the deleted one.
+    expect(page.statusCounts['deleted']).toBe(1);
+    expect(page.statusCounts['active']).toBe(2);
+  });
+
+  it('returns only deleted memories when statuses:[deleted] is requested', async () => {
+    const store = new SuperMemoryStore({ projectRoot: tempDir });
+    const ids = await seed(store, 2);
+    await store.deleteSuperMemory(ids[0] as string, 'test', { force: true });
+
+    const page = await store.listSuperPage({ statuses: ['deleted'] });
+    expect(page.memories).toHaveLength(1);
+    expect(page.memories[0]?.status).toBe('deleted');
+    expect(page.total).toBe(1);
+  });
+
+  it('walks pages with a stable cursor and stops at the end', async () => {
+    const store = new SuperMemoryStore({ projectRoot: tempDir });
+    await seed(store, 5);
+
+    const first = await store.listSuperPage({ limit: 2 });
+    expect(first.memories).toHaveLength(2);
+    expect(first.total).toBe(5);
+    expect(first.nextCursor).toBeTruthy();
+
+    const second = await store.listSuperPage({ limit: 2, cursor: first.nextCursor ?? undefined });
+    expect(second.memories).toHaveLength(2);
+    const third = await store.listSuperPage({ limit: 2, cursor: second.nextCursor ?? undefined });
+    expect(third.memories).toHaveLength(1);
+    expect(third.nextCursor).toBeNull();
+
+    // No overlap across pages.
+    const seen = new Set([...first.memories, ...second.memories, ...third.memories].map((m) => m.id));
+    expect(seen.size).toBe(5);
+  });
+
+  it('applies kind and query filters to the page', async () => {
+    const store = new SuperMemoryStore({ projectRoot: tempDir });
+    await store.rememberSuper({ text: 'alpha decision entry', kind: 'decision', scope: 'project' });
+    await store.rememberSuper({ text: 'beta fact entry', kind: 'fact', scope: 'project' });
+
+    const byKind = await store.listSuperPage({ kind: 'decision' });
+    expect(byKind.memories).toHaveLength(1);
+    expect(byKind.memories[0]?.kind).toBe('decision');
+
+    const byQuery = await store.listSuperPage({ query: 'beta' });
+    expect(byQuery.memories).toHaveLength(1);
+    expect(byQuery.memories[0]?.text).toContain('beta');
+  });
+});
+
+describe('SuperMemoryStore.backfillRecoverable idempotency', () => {
+  it('does not re-recover an already-recovered tombstone on a second run', async () => {
+    const store = new SuperMemoryStore({ projectRoot: tempDir });
+    const m = await store.rememberSuper({
+      text: 'valuable memory with provenance',
+      kind: 'decision',
+      scope: 'project',
+      anchors: [{ type: 'file', path: 'src/x.ts' }],
+    });
+    await store.deleteSuperMemory(m.id, 'regression', { force: true });
+
+    // First backfill recovers it (creates a new active version).
+    const first = await store.backfillRecoverable({ dryRun: false });
+    expect(first.recovered).toBe(1);
+
+    // Second backfill must skip it — the tombstone is now referenced by the
+    // recovered version's supersedes chain — so no duplicate active version.
+    const second = await store.backfillRecoverable({ dryRun: false });
+    expect(second.recovered).toBe(0);
+    expect(second.byReason['already_recovered']).toBe(1);
+
+    // Exactly one active version exists for the recovered content.
+    const active = await store.listSuper(['active']);
+    const recovered = active.filter((x) => x.text === 'valuable memory with provenance');
+    expect(recovered).toHaveLength(1);
+  });
+});

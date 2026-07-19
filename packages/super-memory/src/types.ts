@@ -256,6 +256,21 @@ export interface SuperMemoryHygieneOptions {
   /** Minimum injection count before a never-used memory is archived. Default: 10. */
   unusedMinInjections?: number | undefined;
   verify?: boolean | undefined;
+  /**
+   * OPT-IN, destructive: physically remove records that are ALREADY
+   * `status: 'deleted'` and whose deletion is older than this many days,
+   * compacting them out of the JSONL log entirely.
+   *
+   * This is the ONLY hygiene step that physically drops records. It never
+   * changes any live memory's status (it does not create deletions), and it
+   * never touches `permanent` records. It exists to stop the soft-delete audit
+   * trail from growing unbounded once the tombstones are no longer needed.
+   *
+   * Undefined/omitted or <= 0 → the purge is disabled (default). `0` is treated
+   * as "disabled" rather than "purge everything" to prevent accidental data loss.
+   * Only supported by the JSONL-backed store; SQLite ignores it.
+   */
+  purgeDeletedAfterDays?: number | undefined;
 }
 
 export interface SuperMemoryHygieneReport {
@@ -277,6 +292,12 @@ export interface SuperMemoryHygieneReport {
   archivedUnused: number;
   /** Subset of historical semantics: ALWAYS 0 in the current pipeline. */
   deleted: number;
+  /**
+   * Number of already-`deleted` records physically compacted out of the JSONL
+   * log by the opt-in `purgeDeletedAfterDays` step. 0 unless that option was
+   * passed (and only ever non-zero on the JSONL backend).
+   */
+  purgedDeleted: number;
   verified: number;
 }
 
@@ -489,6 +510,46 @@ export interface SuperMemoryStoreOptions {
    * but increase disk writes on every store instance.
    */
   counterFlushIntervalMs?: number | undefined;
+}
+
+/**
+ * Options for a paginated, status-filtered Super Memory listing.
+ *
+ * Cursor-based: `cursor` is an opaque token derived from the last item of the
+ * previous page (encodes `updatedAt` + `id` so ties are broken deterministically).
+ * Ordering is always `updatedAt DESC, id DESC` so a stable cursor walk is possible.
+ *
+ * `statuses` defaults to every status EXCEPT `deleted` — deleted memories are a
+ * soft-delete audit trail and would otherwise dominate the list. To view them,
+ * pass `statuses: ['deleted']` explicitly (the "Deleted" page in the WebUI).
+ */
+export interface ListSuperPageOptions {
+  /** Which statuses to include. Default: all except `deleted`. */
+  statuses?: SuperMemoryStatus[] | undefined;
+  /** Optional kind filter (e.g. 'fact'). Omit or 'all' for every kind. */
+  kind?: string | undefined;
+  /** Case-insensitive substring match against memory text. */
+  query?: string | undefined;
+  /** Max items to return. Clamped to [1, 500]. Default: 50. */
+  limit?: number | undefined;
+  /** Opaque cursor from a previous page's `nextCursor`. Omit for the first page. */
+  cursor?: string | undefined;
+}
+
+/** A single page of Super Memory results plus paging metadata. */
+export interface ListSuperPageResult {
+  /** The page of memories (already filtered + sorted `updatedAt DESC, id DESC`). */
+  memories: SuperMemory[];
+  /** Opaque cursor to fetch the next page, or `null` when this is the last page. */
+  nextCursor: string | null;
+  /** Total number of memories matching the filter (across all pages). */
+  total: number;
+  /**
+   * Count of ALL memories per status, ignoring the `statuses`/`query`/`kind`
+   * filters. Lets the UI render tab badges (e.g. "Deleted (1234)") without a
+   * second round-trip. Keys are `SuperMemoryStatus` values.
+   */
+  statusCounts: Record<string, number>;
 }
 
 export interface RememberSuperMemoryInput {

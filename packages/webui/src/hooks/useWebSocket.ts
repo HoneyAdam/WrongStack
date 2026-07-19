@@ -181,6 +181,13 @@ export function useWebSocket() {
     (options?: WSSendOptions) => client.listSuperMemories(options),
     [client],
   );
+  const listSuperMemoriesPage = useCallback(
+    (
+      params?: { statuses?: string[]; kind?: string; query?: string; limit?: number; cursor?: string },
+      options?: WSSendOptions,
+    ) => client.listSuperMemoriesPage(params, options),
+    [client],
+  );
   const getSuperMemory = useCallback(
     (id: string, options?: WSSendOptions) => client.getSuperMemory(id, options),
     [client],
@@ -328,6 +335,7 @@ export function useWebSocket() {
     listTools,
     listMemory,
     listSuperMemories,
+    listSuperMemoriesPage,
     getSuperMemory,
     updateSuperMemory,
     deleteSuperMemory,

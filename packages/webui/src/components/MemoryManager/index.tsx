@@ -41,7 +41,7 @@ import {
 } from './shared';
 
 export function MemoryManager() {
-  const { client, listSuperMemories, rememberSuperMemory, updateSuperMemory, deleteSuperMemory,
+  const { client, listSuperMemoriesPage, rememberSuperMemory, updateSuperMemory, deleteSuperMemory,
     recoverSuperMemory, resolveMemoryCandidate, backfillRecoverable } = useWebSocket();
   const wsConnected = useConfigStore((state) => state.wsConnected);
   const setCurrentView = useUIStore((state) => state.setCurrentView);
@@ -66,6 +66,15 @@ export function MemoryManager() {
   const [kindFilter, setKindFilter] = useState('all');
   const [audienceOnly, setAudienceOnly] = useState(false);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  // Paginated "Active" vs "Deleted" views. The default view excludes deleted
+  // memories (which accumulate as a soft-delete audit trail and can number in
+  // the thousands); the Deleted tab requests them explicitly, one page at a time.
+  const [showDeleted, setShowDeleted] = useState(false);
+  const [pageCursor, setPageCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
+  const PAGE_SIZE = 100;
   // PR #4 file-drawer state. `currentFilePath` is set externally (e.g. from
   // the file editor) — when non-null and `drawerOpen=true`, the right-hand
   // panel renders `MemoryDrawer` instead of `MemoryDetail`. This keeps the
@@ -92,12 +101,23 @@ export function MemoryManager() {
     [memories, selectedId],
   );
 
-  const loadMemories = useCallback(() => {
+  /**
+   * Load one page of memories from the paginated backend endpoint.
+   * - `cursor` omitted → fresh load (replaces the list); provided → append.
+   * The "Deleted" tab requests `statuses: ['deleted']`; the default view lets
+   * the backend exclude deleted memories entirely.
+   */
+  const loadPage = useCallback((cursor: string | null) => {
+    const isAppend = cursor !== null;
     const generation = ++listGenerationRef.current;
     listCleanupRef.current?.();
-    setRefreshing(true);
     setLoadError(null);
-    if (!hasLoadedRef.current) setInitialLoading(true);
+    if (isAppend) {
+      setLoadingMore(true);
+    } else {
+      setRefreshing(true);
+      if (!hasLoadedRef.current) setInitialLoading(true);
+    }
 
     let off = () => {};
     let timeout: ReturnType<typeof setTimeout> | null = null;
@@ -110,7 +130,7 @@ export function MemoryManager() {
       if (listCleanupRef.current === cleanup) listCleanupRef.current = null;
     };
 
-    off = client.on('memory.super.list', (message) => {
+    off = client.on('memory.super.listPage', (message) => {
       if (generation !== listGenerationRef.current || !mountedRef.current) {
         cleanup();
         return;
@@ -119,16 +139,31 @@ export function MemoryManager() {
       if (message.payload.error) {
         setLoadError(message.payload.error);
       } else {
-        const next = message.payload.memories ?? [];
-        setMemories(next);
-        setStats(message.payload.stats ?? null);
+        const page = message.payload.memories ?? [];
+        setMemories((current) => (isAppend ? [...current, ...page] : page));
+        setPageCursor(message.payload.nextCursor ?? null);
+        setHasMore(Boolean(message.payload.nextCursor));
+        const counts = message.payload.statusCounts ?? {};
+        setStatusCounts(counts);
+        // Derive the stats banner from the whole-store status counts so it stays
+        // accurate even though we only hold one page in memory.
+        const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
+        setStats((prev) => ({
+          total,
+          byStatus: counts,
+          byKind: prev?.byKind ?? {},
+          edges: prev?.edges ?? 0,
+        }));
         hasLoadedRef.current = true;
-        setSelectedId((current) =>
-          current && next.some((memory) => memory.id === current) ? current : null,
-        );
+        if (!isAppend) {
+          setSelectedId((current) =>
+            current && page.some((memory) => memory.id === current) ? current : null,
+          );
+        }
       }
       setInitialLoading(false);
       setRefreshing(false);
+      setLoadingMore(false);
     });
 
     timeout = setTimeout(() => {
@@ -139,11 +174,30 @@ export function MemoryManager() {
       );
       setInitialLoading(false);
       setRefreshing(false);
+      setLoadingMore(false);
     }, 20_000);
 
     listCleanupRef.current = cleanup;
-    listSuperMemories({ echoToChat: false });
-  }, [client, listSuperMemories]);
+    listSuperMemoriesPage(
+      {
+        limit: PAGE_SIZE,
+        ...(showDeleted ? { statuses: ['deleted'] } : {}),
+        ...(cursor ? { cursor } : {}),
+      },
+      { echoToChat: false },
+    );
+  }, [client, listSuperMemoriesPage, showDeleted]);
+
+  const loadMemories = useCallback(() => {
+    setPageCursor(null);
+    setHasMore(false);
+    loadPage(null);
+  }, [loadPage]);
+
+  const loadMore = useCallback(() => {
+    if (loadingMore || !pageCursor) return;
+    loadPage(pageCursor);
+  }, [loadPage, loadingMore, pageCursor]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -709,6 +763,49 @@ export function MemoryManager() {
             </div>
           </div>
 
+          {/* Active / Deleted view tabs. The Deleted tab is a separate paginated
+              query so the soft-delete audit trail never floods the main list. */}
+          <div
+            className="flex shrink-0 items-center gap-1 border-b border-border/60 px-3 pt-1"
+            role="tablist"
+            aria-label="Memory view"
+          >
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              role="tab"
+              aria-selected={!showDeleted}
+              onClick={() => {
+                if (!showDeleted) return;
+                setShowDeleted(false);
+              }}
+              className={cn(
+                'h-7 rounded-b-none border-b-2 px-3 text-[11px]',
+                !showDeleted ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground',
+              )}
+            >
+              Active
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              role="tab"
+              aria-selected={showDeleted}
+              onClick={() => {
+                if (showDeleted) return;
+                setShowDeleted(true);
+              }}
+              className={cn(
+                'h-7 rounded-b-none border-b-2 px-3 text-[11px]',
+                showDeleted ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground',
+              )}
+            >
+              Deleted{typeof statusCounts['deleted'] === 'number' ? ` (${statusCounts['deleted']})` : ''}
+            </Button>
+          </div>
+
           <MemoryFilters
             searchQuery={searchQuery}
             statusFilter={statusFilter}
@@ -734,6 +831,20 @@ export function MemoryManager() {
             onOpenCreate={openCreate}
             onClearFilters={clearFilters}
           />
+          {hasMore ? (
+            <div className="shrink-0 border-t border-border/60 p-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="h-7 w-full text-[11px]"
+              >
+                {loadingMore ? 'Loading…' : `Load more (${memories.length} loaded)`}
+              </Button>
+            </div>
+          ) : null}
         </section>
 
         <section

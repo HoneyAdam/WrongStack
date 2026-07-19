@@ -599,16 +599,21 @@ function memoryHygieneTool(memory: SuperMemoryServiceLike): Tool<SuperMemoryHygi
   return {
     name: 'memory_hygiene',
     category: 'Session',
-    description: 'Deduplicate, verify anchors, mark stale, supersede old versions, and surface review candidates for deletion or archival. Never auto-deletes or auto-archives — final decisions belong to the user or agent.',
+    description: 'Deduplicate, verify anchors, mark stale, supersede old versions, and surface review candidates for deletion or archival. Never auto-deletes live memories — those decisions belong to the user or agent. The optional, opt-in purgeDeletedAfterDays physically compacts ALREADY-deleted tombstones older than N days out of the JSONL log (never touches active or permanent memories).',
     inputSchema: objectSchema({
       retentionDays: numberSchema(0, 3650),
       archiveLowConfidenceAfterDays: numberSchema(0, 3650),
       verify: { type: 'boolean' },
+      purgeDeletedAfterDays: {
+        ...numberSchema(0, 3650),
+        description:
+          'OPT-IN cleanup: physically remove records that are already status="deleted" and were deleted more than this many days ago, compacting them out of the JSONL log. Omit or 0 to disable (default). Never deletes active/permanent memories and never creates new deletions. JSONL backend only.',
+      },
     }),
     permission: 'confirm',
     mutating: true,
     riskTier: 'standard',
-    capabilities: ['memory.write', 'fs.read'],
+    capabilities: ['memory.write', 'memory.delete', 'fs.read'],
     icon: 'settings',
     async execute(input, _ctx, opts) {
       opts.signal.throwIfAborted();

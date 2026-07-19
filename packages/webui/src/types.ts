@@ -722,6 +722,17 @@ export interface WSMemorySuperList {
   };
 }
 
+export interface WSMemorySuperListPage {
+  type: 'memory.super.listPage';
+  payload: {
+    memories?: SuperMemoryEntry[] | undefined;
+    nextCursor?: string | null | undefined;
+    total?: number | undefined;
+    statusCounts?: Record<string, number> | undefined;
+    error?: string | undefined;
+  };
+}
+
 export interface WSMemorySuperGet {
   type: 'memory.super.get';
   payload: {
@@ -1824,6 +1835,16 @@ export type WSClientMessageCore =
   | { type: 'memory.list' }
   // ── SuperMemory send types ──
   | { type: 'memory.super.list' }
+  | {
+      type: 'memory.super.listPage';
+      payload: {
+        statuses?: string[] | undefined;
+        kind?: string | undefined;
+        query?: string | undefined;
+        limit?: number | undefined;
+        cursor?: string | undefined;
+      };
+    }
   | { type: 'memory.super.get'; payload: { id: string } }
   | {
       type: 'memory.super.update';
@@ -2166,6 +2187,7 @@ export type WSServerMessage =
   | WSToolsList
   | WSMemoryList
   | WSMemorySuperList
+  | WSMemorySuperListPage
   | WSMemorySuperGet
   | WSMemorySuperUpdate
   | WSMemorySuperRemember

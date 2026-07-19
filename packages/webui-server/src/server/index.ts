@@ -77,6 +77,7 @@ export {
   handleSuperMemoryDelete,
   handleSuperMemoryGet,
   handleSuperMemoryList,
+  handleSuperMemoryListPage,
   handleSuperMemoryRemember,
   handleSuperMemoryUpdate,
   handleSuperMemoryRecover,

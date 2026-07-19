@@ -24,6 +24,8 @@ import { normalizeTextKey } from './middleware/turn-memory.js';
 import type {
   CandidateDecision,
   CreateCandidateInput,
+  ListSuperPageOptions,
+  ListSuperPageResult,
   LegacyImportResult,
   MemoryAnchor,
   MemoryAudienceContext,
@@ -57,6 +59,50 @@ import {
   normalizeText,
   validateRememberInput,
 } from './store-helpers.js';
+
+// ─── Pagination helpers (mirror SuperMemoryStore.listSuperPage semantics) ──
+
+const SQLITE_VALID_STATUSES = new Set<SuperMemoryStatus>([
+  'active', 'stale', 'superseded', 'contradicted', 'archived', 'deleted',
+]);
+/** Statuses shown by default in the paginated listing (everything except the soft-delete audit trail). */
+const SQLITE_DEFAULT_PAGE_STATUSES: SuperMemoryStatus[] = [
+  'active', 'stale', 'superseded', 'contradicted', 'archived',
+];
+const SQLITE_MAX_PAGE_LIMIT = 500;
+const SQLITE_DEFAULT_PAGE_LIMIT = 50;
+
+/** Clamp a requested page size into [1, SQLITE_MAX_PAGE_LIMIT]. */
+function clampSqlitePageLimit(limit: number | undefined): number {
+  if (typeof limit !== 'number' || !Number.isFinite(limit)) return SQLITE_DEFAULT_PAGE_LIMIT;
+  return Math.max(1, Math.min(SQLITE_MAX_PAGE_LIMIT, Math.floor(limit)));
+}
+
+/** Escape `%`, `_`, and `\` so a user query is treated literally inside LIKE (ESCAPE '\\'). */
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
+interface SqlitePageCursor { updatedAt: string; id: string }
+
+/** Encode the last item of a page into an opaque base64url cursor token. */
+function encodeSqlitePageCursor(updatedAt: string, id: string): string {
+  return Buffer.from(JSON.stringify({ u: updatedAt, i: id }), 'utf8').toString('base64url');
+}
+
+/** Decode an opaque cursor token; returns undefined for missing/malformed input. */
+function decodeSqlitePageCursor(cursor: string | undefined): SqlitePageCursor | undefined {
+  if (!cursor) return undefined;
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as { u?: unknown; i?: unknown };
+    if (typeof parsed.u === 'string' && typeof parsed.i === 'string') {
+      return { updatedAt: parsed.u, id: parsed.i };
+    }
+  } catch {
+    // Malformed cursor → treat as first page.
+  }
+  return undefined;
+}
 
 // ─── SQLite loader (mirrors codebase-index's lazy pattern) ──────────────
 
@@ -689,6 +735,87 @@ export class SqliteSuperMemoryStore {
     return rows.map((r) => this.rowToMemory(r));
   }
 
+  /**
+   * Paginated, status-filtered listing (SQLite backend). Mirrors
+   * `SuperMemoryStore.listSuperPage`: defaults to EXCLUDING `deleted`, returns a
+   * bounded page plus an opaque `updatedAt`/`id` cursor, and reports total +
+   * whole-store `statusCounts` for UI tab badges.
+   *
+   * Ordering: `updated_at DESC, id DESC`. Cursor pagination uses the tuple
+   * comparison `(updated_at, id) < (cursorUpdatedAt, cursorId)` which the
+   * composite DESC index can serve without scanning skipped pages.
+   */
+  async listSuperPage(options: ListSuperPageOptions = {}): Promise<ListSuperPageResult> {
+    await this.initialize();
+
+    // Whole-store status counts (ignores filters) for tab badges.
+    const statusCounts: Record<string, number> = {};
+    const statusRows = this.db
+      .prepare('SELECT status, COUNT(*) AS n FROM memories GROUP BY status')
+      .all() as Array<{ status: string; n: number }>;
+    for (const r of statusRows) statusCounts[r.status] = r.n;
+
+    // Resolve status filter (default: all except 'deleted').
+    const requested = options.statuses && options.statuses.length > 0
+      ? options.statuses.filter((s) => SQLITE_VALID_STATUSES.has(s))
+      : SQLITE_DEFAULT_PAGE_STATUSES;
+    const statuses = requested.length > 0 ? requested : SQLITE_DEFAULT_PAGE_STATUSES;
+    const kind = options.kind && options.kind !== 'all' ? options.kind : undefined;
+    const query = options.query?.trim().toLowerCase();
+    const limit = clampSqlitePageLimit(options.limit);
+
+    const where: string[] = [];
+    const params: unknown[] = [];
+
+    where.push(`status IN (${statuses.map(() => '?').join(',')})`);
+    params.push(...statuses);
+    if (kind) {
+      where.push('kind = ?');
+      params.push(kind);
+    }
+    if (query) {
+      where.push("LOWER(json_extract(data, '$.text')) LIKE ? ESCAPE '\\'");
+      params.push(`%${escapeLikePattern(query)}%`);
+    }
+
+    const whereClause = `WHERE ${where.join(' AND ')}`;
+
+    // Total matching the filter (across all pages).
+    const totalRow = this.db
+      .prepare(`SELECT COUNT(*) AS n FROM memories ${whereClause}`)
+      .get(...params as (string | number)[]) as { n: number };
+    const total = totalRow.n;
+
+    // Cursor: keyset pagination on the DESC ordering.
+    const cursor = decodeSqlitePageCursor(options.cursor);
+    const pageParams = [...params];
+    let cursorClause = '';
+    if (cursor) {
+      // (updated_at, id) strictly "after" the cursor in DESC order.
+      cursorClause = " AND (updated_at < ? OR (updated_at = ? AND id < ?))";
+      pageParams.push(cursor.updatedAt, cursor.updatedAt, cursor.id);
+    }
+
+    // Fetch limit+1 to detect whether another page follows.
+    const rows = this.db
+      .prepare(
+        `SELECT data, updated_at, id FROM memories ${whereClause}${cursorClause}
+         ORDER BY updated_at DESC, id DESC
+         LIMIT ?`,
+      )
+      .all(...pageParams as (string | number)[], limit + 1) as Array<{ data: string; updated_at: string; id: string }>;
+
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    const memories = pageRows.map((r) => this.rowToMemory({ data: r.data }));
+    const lastRow = pageRows[pageRows.length - 1];
+    const nextCursor = hasMore && lastRow
+      ? encodeSqlitePageCursor(lastRow.updated_at, lastRow.id)
+      : null;
+
+    return { memories, nextCursor, total, statusCounts };
+  }
+
   async getStats(): Promise<SuperMemoryStats> {
     await this.initialize();
     const totalRow = this.db.prepare('SELECT COUNT(*) AS n FROM memories').get() as { n: number };
@@ -975,6 +1102,8 @@ export class SqliteSuperMemoryStore {
       archived: 0,
       archivedUnused: 0,
       deleted: 0,
+      // The physical purge is JSONL-only; SQLite ignores purgeDeletedAfterDays.
+      purgedDeleted: 0,
       verified: verified.length,
     };
     this.audit('memory.hygiene_completed', { details: report as unknown as Record<string, unknown> });

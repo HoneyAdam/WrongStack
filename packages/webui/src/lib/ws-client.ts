@@ -43,6 +43,7 @@ const CHAT_ECHO_RESPONSE_BY_REQUEST: Partial<
   'memory.list': 'memory.list',
   'memory.super.get': 'memory.super.get',
   'memory.super.list': 'memory.super.list',
+  'memory.super.listPage': 'memory.super.listPage',
   'memory.super.remember': 'memory.super.remember',
   'memory.super.update': 'memory.super.update',
   'skills.list': 'skills.list',
@@ -779,6 +780,24 @@ export class WrongStackWebSocketClient {
 
   listSuperMemories(options?: WSSendOptions) {
     this.send({ type: 'memory.super.list' }, options);
+  }
+
+  /**
+   * Paginated, status-filtered listing. Defaults (server-side) to every status
+   * except `deleted`. Pass `{ statuses: ['deleted'] }` for the "Deleted" tab and
+   * `cursor` (from the previous page's `nextCursor`) to load the next page.
+   */
+  listSuperMemoriesPage(
+    params?: {
+      statuses?: string[];
+      kind?: string;
+      query?: string;
+      limit?: number;
+      cursor?: string;
+    },
+    options?: WSSendOptions,
+  ) {
+    this.send({ type: 'memory.super.listPage', payload: { ...params } }, options);
   }
 
   getSuperMemory(id: string, options?: WSSendOptions) {
