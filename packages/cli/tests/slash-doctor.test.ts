@@ -211,7 +211,7 @@ function makeCtx(
   const update = vi.fn();
   const ctx = {
     configStore: { get: vi.fn(() => ({})), update },
-    paths: { globalConfig, inProjectConfig },
+    paths: { globalConfig, profileConfig: () => globalConfig, inProjectConfig },
   } as never as SlashCommandContext;
   return { ctx, globalConfig, inProjectConfig, update };
 }

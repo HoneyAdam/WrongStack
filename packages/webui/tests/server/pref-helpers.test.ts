@@ -2,18 +2,23 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DefaultSecretVault } from '@wrongstack/core/security';
-import { describe, expect, it } from 'vitest';
 import { persistPrefsToConfig } from '@wrongstack/webui-server';
+import { describe, expect, it } from 'vitest';
 
 describe('persistPrefsToConfig', () => {
   it('persists YOLO to both autonomy.yolo and top-level yolo', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'wstack-webui-prefs-'));
-    const globalConfigPath = path.join(dir, 'config.json');
-    writeFileSync(globalConfigPath, JSON.stringify({ version: 1, autonomy: { yolo: false }, yolo: false }), 'utf8');
+    const profileConfigPath = path.join(dir, 'config.json');
+    writeFileSync(
+      profileConfigPath,
+      JSON.stringify({ version: 1, autonomy: { yolo: false }, yolo: false }),
+      'utf8',
+    );
 
     await persistPrefsToConfig(
       {
-        globalConfigPath,
+        globalConfigPath: path.join(dir, 'root.json'),
+        profileConfigPath,
         vault: new DefaultSecretVault({ keyFile: path.join(dir, '.key') }),
         logger: { warn: () => undefined },
       },
@@ -21,7 +26,7 @@ describe('persistPrefsToConfig', () => {
       { yolo: true },
     );
 
-    const written = JSON.parse(readFileSync(globalConfigPath, 'utf8')) as {
+    const written = JSON.parse(readFileSync(profileConfigPath, 'utf8')) as {
       autonomy?: { yolo?: boolean };
       yolo?: boolean;
     };
@@ -31,12 +36,13 @@ describe('persistPrefsToConfig', () => {
 
   it('persists model matrix entries with route-specific runtime overrides', async () => {
     const dir = mkdtempSync(path.join(tmpdir(), 'wstack-webui-prefs-'));
-    const globalConfigPath = path.join(dir, 'config.json');
-    writeFileSync(globalConfigPath, JSON.stringify({ version: 1 }), 'utf8');
+    const profileConfigPath = path.join(dir, 'config.json');
+    writeFileSync(profileConfigPath, JSON.stringify({ version: 1 }), 'utf8');
 
     await persistPrefsToConfig(
       {
-        globalConfigPath,
+        globalConfigPath: path.join(dir, 'root.json'),
+        profileConfigPath,
         vault: new DefaultSecretVault({ keyFile: path.join(dir, '.key') }),
         logger: { warn: () => undefined },
       },
@@ -55,7 +61,7 @@ describe('persistPrefsToConfig', () => {
       },
     );
 
-    const written = JSON.parse(readFileSync(globalConfigPath, 'utf8')) as {
+    const written = JSON.parse(readFileSync(profileConfigPath, 'utf8')) as {
       modelMatrix?: Record<string, unknown>;
     };
     expect(written.modelMatrix).toEqual({

@@ -1,5 +1,5 @@
 import type { StreamEvent } from '@wrongstack/core';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { AnthropicProvider } from '../src/anthropic.js';
 import { GoogleProvider } from '../src/google.js';
 import { OpenAIProvider } from '../src/openai.js';
@@ -124,6 +124,25 @@ describe('AnthropicProvider.stream', () => {
 });
 
 describe('OpenAIProvider.stream', () => {
+  it('clears successful-read hang timers after the stream completes', async () => {
+    vi.useFakeTimers();
+    try {
+      const sse = ['data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}', '', 'data: [DONE]', ''].join('\n');
+      const provider = new OpenAIProvider({
+        apiKey: 'k',
+        fetchImpl: mockFetch(sseBody(sse)),
+        streamOpts: { streamHangTimeoutMs: 60_000 },
+      });
+      await provider.complete(
+        { model: 'm', messages: [{ role: 'user', content: 'hi' }], maxTokens: 10 },
+        { signal: new AbortController().signal },
+      );
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('parses OpenAI chat.completion chunks into StreamEvent[]', async () => {
     const sse = [
       'data: {"id":"x","model":"gpt-test","choices":[{"index":0,"delta":{"content":"Hi"}}]}',

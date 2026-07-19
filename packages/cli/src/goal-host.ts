@@ -176,7 +176,7 @@ function runCmd(
       out:
         `goal: command "${cmd}" not in autonomous safe-commands allowlist. ` +
         `Allowed: ${[...goalAllowed].join(', ')}. ` +
-        `Add it to tools.exec.allow in ~/.wrongstack/config.json (trusted config only), ` +
+        `Add it to tools.exec.allow in the active profile config (trusted config only), ` +
         `or set WRONGSTACK_GOAL_VERIFY_CMD to an allowed command.`,
     });
   }

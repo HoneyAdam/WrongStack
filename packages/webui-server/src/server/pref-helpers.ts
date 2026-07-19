@@ -106,11 +106,10 @@ export const PREF_KEYS = [
 ] as const;
 
 export interface PrefHelperDeps {
+  /** Root bootstrap path. Never a settings mutation target. */
   globalConfigPath: string;
-  /** Path to the active profile config (~/.wrongstack/profiles/<name>/config.json).
-   * When set, mutations are written here instead of the root bootstrap, so
-   * settings survive the next ensureGlobalDefaults() trim. */
-  profileConfigPath?: string | undefined;
+  /** Path to the active profile config; the sole settings mutation target. */
+  profileConfigPath: string;
   vault: SecretVault;
   logger: { warn(msg: string): void };
 }
@@ -184,17 +183,9 @@ export async function updateGlobalConfig(
   mutate: (config: Record<string, unknown>) => void,
   errorLabel: string,
 ): Promise<void> {
-  const { globalConfigPath, profileConfigPath, vault, logger } = deps;
+  const { profileConfigPath, vault, logger } = deps;
   const write = async (): Promise<void> => {
-    // Primary write: always update the root config (backward compat).
-    await writeGlobalConfigFile(globalConfigPath, vault, mutate, logger, errorLabel);
-
-    // Secondary write: when a profile config path is available, apply the
-    // SAME mutation so settings survive the next ensureGlobalDefaults() trim.
-    // This is the canonical storage location for user settings.
-    if (profileConfigPath && profileConfigPath !== globalConfigPath) {
-      await writeGlobalConfigFile(profileConfigPath, vault, mutate, logger, errorLabel);
-    }
+    await writeGlobalConfigFile(profileConfigPath, vault, mutate, logger, errorLabel);
   };
   const next = holder.lock.then(write);
   holder.lock = next.then(
@@ -211,7 +202,7 @@ export async function updateGlobalConfig(
 }
 
 /**
- * Persist pref changes into the global config.json — the SAME keys the TUI
+ * Persist pref changes into the active profile config — the SAME keys the TUI
  * settings picker writes — so a toggle made in the browser survives restarts
  * and is visible to the CLI/TUI (and vice versa on next boot). Best-effort
  * and serialized behind the holder's `lock`; failures log but never break

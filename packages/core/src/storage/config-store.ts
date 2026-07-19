@@ -6,7 +6,7 @@ import { toErrorMessage } from '../utils/error.js';
 /**
  * Strip fields that originated from environment variables so they are never
  * persisted back to disk. This prevents an env-sourced secret (e.g.
- * WRONGSTACK_API_KEY) from being accidentally written to ~/.wrongstack/config.json.
+ * WRONGSTACK_API_KEY) from being accidentally written to a profile config.
  */
 function stripEphemeralFields(cfg: Partial<Config>): Partial<Config> {
   const env = (cfg as Partial<Config & { _envSource?: Set<string> | undefined}>)._envSource;

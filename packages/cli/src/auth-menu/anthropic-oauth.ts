@@ -492,7 +492,7 @@ async function saveClaudeTokens(
       writeKeysBack(p, keys);
       p.activeKey = entry.label;
       all[providerId] = p;
-    });
+    }, deps.profileConfigPath);
     return true;
   } catch (err) {
     deps.renderer.writeError(`  Failed to save tokens: ${(err as Error).message}`);

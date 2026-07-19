@@ -34,6 +34,7 @@ describe('createPrefsSeeding', () => {
     const opts = {
       agent: { ctx: { meta: {} } },
       globalConfigPath,
+      profileConfigPath: globalConfigPath,
       appConfig: {},
     } as never;
 
@@ -66,6 +67,7 @@ describe('createPrefsSeeding', () => {
     const opts = {
       agent: { ctx: { meta: {} } },
       globalConfigPath,
+      profileConfigPath: globalConfigPath,
       appConfig: {},
     } as never;
 
@@ -96,7 +98,12 @@ describe('createPrefsSeeding', () => {
       JSON.stringify({ version: 1, provider: 'anthropic', model: 'old-model' }),
       'utf8',
     );
-    const opts = { agent: { ctx: { meta: {} } }, globalConfigPath, appConfig: {} } as never;
+    const opts = {
+      agent: { ctx: { meta: {} } },
+      globalConfigPath,
+      profileConfigPath: globalConfigPath,
+      appConfig: {},
+    } as never;
     const { persistPrefs } = createPrefsSeeding(opts);
     await persistPrefs({ provider: 'openai', model: 'gpt-5-codex' });
     const written = JSON.parse(readFileSync(globalConfigPath, 'utf8'));
@@ -111,6 +118,7 @@ describe('createPrefsSeeding', () => {
     const opts = {
       agent: { ctx: { meta: { uiLocale: 'tr' } } },
       globalConfigPath,
+      profileConfigPath: globalConfigPath,
       appConfig: {},
     } as never;
 
@@ -132,7 +140,12 @@ describe('createPrefsSeeding', () => {
       JSON.stringify({ version: 1, modelRuntime: { cache: { ttl: '1h' } } }),
       'utf8',
     );
-    const opts = { agent: { ctx: { meta: {} } }, globalConfigPath, appConfig: {} } as never;
+    const opts = {
+      agent: { ctx: { meta: {} } },
+      globalConfigPath,
+      profileConfigPath: globalConfigPath,
+      appConfig: {},
+    } as never;
     const { persistPrefs } = createPrefsSeeding(opts);
     await persistPrefs({ cacheTtl: 'default' });
     const written = JSON.parse(readFileSync(globalConfigPath, 'utf8'));
@@ -164,7 +177,11 @@ describe('seedConfigToMeta', () => {
       'utf8',
     );
     const meta: Record<string, unknown> = {};
-    await seedConfigToMeta({ agent: { ctx: { meta } }, globalConfigPath } as never);
+    await seedConfigToMeta({
+      agent: { ctx: { meta } },
+      globalConfigPath,
+      profileConfigPath: globalConfigPath,
+    } as never);
 
     expect(meta['maxConcurrent']).toBe(3);
     expect(meta['contextMode']).toBe('deep');
@@ -189,7 +206,11 @@ describe('seedConfigToMeta', () => {
     writeFileSync(globalConfigPath, JSON.stringify({ version: 1, uiLocale: 'tr' }), 'utf8');
     const meta: Record<string, unknown> = {};
 
-    await seedConfigToMeta({ agent: { ctx: { meta } }, globalConfigPath } as never);
+    await seedConfigToMeta({
+      agent: { ctx: { meta } },
+      globalConfigPath,
+      profileConfigPath: globalConfigPath,
+    } as never);
 
     expect(meta['uiLocale']).toBe('tr');
   });

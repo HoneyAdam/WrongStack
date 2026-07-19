@@ -72,10 +72,12 @@ export function setupSuperMemory(deps: SuperMemoryWiringDeps): () => Promise<voi
     }),
   );
   return async () => {
-    if (cfg?.hygiene?.autoAfterSession === false) return;
     const candidate = deps.memoryStore as unknown as {
       hygiene?: (opts?: object) => Promise<unknown>;
+      flushPendingCounters?: () => Promise<void>;
     };
+    await candidate.flushPendingCounters?.call(candidate);
+    if (cfg?.hygiene?.autoAfterSession === false) return;
     await candidate.hygiene?.call(candidate, {
       retentionDays: cfg?.hygiene?.retentionDays,
       archiveLowConfidenceAfterDays: cfg?.hygiene?.archiveLowConfidenceAfterDays,

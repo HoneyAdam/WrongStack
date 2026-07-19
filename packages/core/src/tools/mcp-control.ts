@@ -54,7 +54,7 @@ export interface CreateMcpControlToolOptions {
    */
   getConfig: () => Config;
   /**
-   * Path to ~/.wrongstack/config.json (or equivalent) for atomic config writes.
+   * Path to the active profile config for atomic config writes.
    */
   configPath: string;
   /**

@@ -161,6 +161,27 @@ describe('createInitialState', () => {
     });
   });
 
+  it('threads the preflight update-check fields into the banner entry', () => {
+    const state = createInitialState({
+      banner: true,
+      appVersion: '1.2.3',
+      provider: 'anthropic',
+      model: 'anthropic-test-model',
+      cwd: '/repo',
+      latestVersion: '1.3.0',
+      updateAvailable: true,
+      restoredEntries: [],
+      enhanceEnabled: false,
+    });
+
+    expect(state.entries[0]).toMatchObject({
+      kind: 'banner',
+      version: '1.2.3',
+      latestVersion: '1.3.0',
+      updateAvailable: true,
+    });
+  });
+
   it('prepends the banner before restored entries and derives nextId from entry count', () => {
     const restoredEntries = [
       { id: 1, kind: 'user' as const, text: 'restored user' },

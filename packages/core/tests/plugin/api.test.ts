@@ -630,6 +630,8 @@ describe('DefaultPluginAPI.llm', () => {
     } = {},
   ) {
     const { provider, calls } = fakeProvider('default-prov');
+    let liveProvider = provider;
+    let liveModel = 'default-model';
     const config = {
       provider: 'default-prov',
       model: 'default-model',
@@ -661,13 +663,19 @@ describe('DefaultPluginAPI.llm', () => {
       llm: {
         provider,
         model: 'default-model',
+        getProvider: () => liveProvider,
+        getModel: () => liveModel,
         createProvider: opts.createProvider,
       },
     });
     const pushConfig = (next: Partial<Config>) => {
       for (const w of watchers) w({ ...config, ...next }, config);
     };
-    return { api, calls, pushConfig };
+    const setHost = (nextProvider: import('../../src/index.js').Provider, nextModel: string) => {
+      liveProvider = nextProvider;
+      liveModel = nextModel;
+    };
+    return { api, calls, pushConfig, setHost };
   }
 
   it('is undefined when the host does not wire llm', () => {
@@ -684,6 +692,19 @@ describe('DefaultPluginAPI.llm', () => {
     expect(calls[0]!.model).toBe('default-model');
     expect(calls[0]!.maxTokens).toBe(2048);
     expect(api.llm!.defaults()).toEqual({ provider: 'default-prov', model: 'default-model' });
+  });
+
+  it('uses the current host provider and model after a runtime switch', async () => {
+    const next = fakeProvider('fallback-prov', 'fallback');
+    const { api, calls, setHost } = mkApiWithLLM();
+    setHost(next.provider, 'fallback-model');
+
+    const result = await api.llm!.complete('hello');
+
+    expect(result.provider).toBe('fallback-prov');
+    expect(next.calls[0]!.model).toBe('fallback-model');
+    expect(calls).toHaveLength(0);
+    expect(api.llm!.defaults()).toEqual({ provider: 'fallback-prov', model: 'fallback-model' });
   });
 
   it('applies system prompt, json format, and per-call model override', async () => {
@@ -730,6 +751,16 @@ describe('DefaultPluginAPI.llm', () => {
     await api.llm!.complete('a', { provider: 'other-prov' });
     await api.llm!.complete('b', { provider: 'other-prov' });
     expect(createProvider).toHaveBeenCalledTimes(1);
+  });
+
+  it('invalidates named-provider instances after a config update', async () => {
+    const other = fakeProvider('other-prov');
+    const createProvider = vi.fn(() => other.provider);
+    const { api, pushConfig } = mkApiWithLLM({ withConfigStore: true, createProvider });
+    await api.llm!.complete('a', { provider: 'other-prov' });
+    pushConfig({ providers: { 'other-prov': { type: 'openai', apiKey: 'new-key' } } } as Partial<Config>);
+    await api.llm!.complete('b', { provider: 'other-prov' });
+    expect(createProvider).toHaveBeenCalledTimes(2);
   });
 
   it('hard-caps maxTokens', async () => {

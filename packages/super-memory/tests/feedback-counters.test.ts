@@ -88,6 +88,18 @@ describe('SuperMemoryStore feedback counters (JSONL)', () => {
     expect((await store.getSuperMemory(memory.id))?.injectionCount).toBe(5);
   });
 
+  it('flushes pending batched counters explicitly during teardown', async () => {
+    const store = makeStore();
+    const memory = await store.rememberSuper({ text: 'Persist teardown counters.' });
+    await store.recordInjection([memory.id], 'turn_context'); // first flush
+    await store.recordInjection([memory.id], 'tool:read'); // remains batched
+    expect((await store.getSuperMemory(memory.id))?.injectionCount).toBe(1);
+
+    await store.flushPendingCounters();
+
+    expect((await store.getSuperMemory(memory.id))?.injectionCount).toBe(2);
+  });
+
   it('keeps increments additive across store instances sharing the same project', async () => {
     const storeA = makeStore();
     const storeB = makeStore();

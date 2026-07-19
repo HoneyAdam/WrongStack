@@ -37,8 +37,7 @@ export async function loadSavedProviders(
 }
 
 /**
- * Write `providers` back into the global config, encrypting secrets first.
- * Also writes to the profile config when `profileConfigPath` is provided.
+ * Write `providers` to the active profile config, encrypting secrets first.
  * Refuses to overwrite a corrupt-but-existing config file (the operator
  * should fix it manually). When the config file is missing (ENOENT), starts
  * from an empty object.
@@ -49,16 +48,17 @@ export async function saveProviders(
   providers: Record<string, ProviderConfig>,
   profileConfigPath?: string | undefined,
 ): Promise<void> {
+  const targetPath = profileConfigPath ?? configPath;
   let raw: string;
   let fileExists = true;
   try {
-    raw = await fs.readFile(configPath, 'utf8');
+    raw = await fs.readFile(targetPath, 'utf8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
       throw new ConfigError({
-        message: `Refusing to mutate ${configPath}: ${(err as Error).message}`,
+        message: `Refusing to mutate ${targetPath}: ${(err as Error).message}`,
         code: 'CONFIG_PARSE_FAILED',
-        context: { filePath: configPath },
+        context: { filePath: targetPath },
         cause: err,
       });
     }
@@ -72,10 +72,10 @@ export async function saveProviders(
     if (fileExists) {
       throw new ConfigError({
         message:
-          `Refusing to overwrite corrupt config at ${configPath} ` +
+          `Refusing to overwrite corrupt config at ${targetPath} ` +
           `(${(err as Error).message}). Fix or move the file aside before retrying.`,
         code: 'CONFIG_PARSE_FAILED',
-        context: { filePath: configPath },
+        context: { filePath: targetPath },
         cause: err,
       });
     }
@@ -83,27 +83,7 @@ export async function saveProviders(
   }
   parsed.providers = providers;
   const encrypted = encryptConfigSecrets(parsed, vault);
-  await atomicWrite(configPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
-
-  // Also write providers to the profile config when available, so the data
-  // survives the next ensureGlobalDefaults() bootstrap trim.
-  if (profileConfigPath && profileConfigPath !== configPath) {
-    let profileRaw: string;
-    try {
-      profileRaw = await fs.readFile(profileConfigPath, 'utf8');
-    } catch {
-      profileRaw = '{}';
-    }
-    let profileParsed: Record<string, unknown>;
-    try {
-      profileParsed = JSON.parse(profileRaw) as Record<string, unknown>;
-    } catch {
-      return; // Refuse to overwrite corrupt profile config
-    }
-    profileParsed.providers = providers;
-    const profileEncrypted = encryptConfigSecrets(profileParsed, vault);
-    await atomicWrite(profileConfigPath, JSON.stringify(profileEncrypted, null, 2), { mode: 0o600 });
-  }
+  await atomicWrite(targetPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
 }
 
 // createProviderConfigIO (the standalone boot-phase helper) lives in

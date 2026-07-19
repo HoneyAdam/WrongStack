@@ -4,6 +4,7 @@ import type { SlashCommand } from '@wrongstack/core';
 import { atomicWrite, color } from '@wrongstack/core';
 import { type DoctorFinding, diagnoseConfig, type PluginSchemaInfo } from '../config-doctor.js';
 import { appendHistory } from '../config-history.js';
+import { activeProfileConfigPath } from '../profile-config-path.js';
 import { filterSafeForProject } from '../settings-menu.js';
 import { parseSubcommand } from './helpers.js';
 import type { SlashCommandContext } from './index.js';
@@ -116,7 +117,11 @@ export function buildDoctorCommand(opts: SlashCommandContext): SlashCommand {
       }
 
       const targets: { label: string; file: string; isProject: boolean }[] = [
-        { label: 'global config', file: opts.paths.globalConfig, isProject: false },
+        {
+          label: 'active profile config',
+          file: activeProfileConfigPath(opts.paths, opts.configStore?.get() ?? {}),
+          isProject: false,
+        },
       ];
       if (opts.paths.inProjectConfig) {
         targets.push({
@@ -187,7 +192,7 @@ export function buildDoctorCommand(opts: SlashCommandContext): SlashCommand {
             if (!(key in safe)) {
               report.findings.push({
                 path: key,
-                problem: 'not project-safe — belongs in the global config (move it manually)',
+                problem: 'not project-safe — belongs in the active profile config (move it manually)',
                 severity: 'warning',
               });
             }

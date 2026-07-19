@@ -84,6 +84,15 @@ export interface CreateInitialStateOptions {
   profileConfigPath?: string | undefined;
   /** Background autonomy agents to display in the banner. */
   autonomyAgents?: ReadonlyArray<AutonomyAgentStatus> | undefined;
+  /** Latest version published to the npm registry (drives the
+   *  "update available" indicator next to the version chip). */
+  latestVersion?: string | undefined;
+  /** True when a newer published version exists than {@link appVersion}.
+   *  Both fields are sourced from the CLI's preflight update-check and
+   *  are independent — `latestVersion` may be set even when the current
+   *  version already matches the registry (in which case the indicator
+   *  is suppressed because {@link updateAvailable} is false). */
+  updateAvailable?: boolean | undefined;
   restoredEntries: State['entries'];
   /** Checkpoints rebuilt from a resumed session's events. Empty for a fresh session. */
   restoredCheckpoints?: State['checkpoints'] | undefined;
@@ -106,6 +115,8 @@ export function createInitialState(options: CreateInitialStateOptions): State {
     profile,
     profileConfigPath,
     autonomyAgents,
+    latestVersion,
+    updateAvailable,
     restoredEntries,
     restoredCheckpoints,
     enhanceEnabled,
@@ -134,6 +145,8 @@ export function createInitialState(options: CreateInitialStateOptions): State {
               profile,
               profileConfigPath,
               autonomyAgents,
+              latestVersion,
+              updateAvailable,
             },
           ]
         : []),

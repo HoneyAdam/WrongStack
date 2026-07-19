@@ -366,6 +366,7 @@ function makeCtx(configObj: Record<string, unknown>): {
     configStore: { get: vi.fn(() => configObj), update },
     paths: {
       globalConfig,
+      profileConfig: () => globalConfig,
       globalMemory: path.join(wsDir, 'memory.md'),
       inProjectAgentsFile: path.join(dir, 'project', '.wrongstack', 'AGENTS.md'),
       projectTrust: path.join(wsDir, 'trust.json'),

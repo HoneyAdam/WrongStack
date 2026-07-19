@@ -2,6 +2,7 @@ import type { SlashCommand } from '@wrongstack/core';
 import { color } from '@wrongstack/core';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import { persistTelegramConfig } from '../settings-menu.js';
+import { activeProfileConfigPath } from '../profile-config-path.js';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
 import type { SlashCommandContext } from './index.js';
 import { classifyTelegramChatId } from './telegram-setup.js';
@@ -90,6 +91,7 @@ export function buildTelegramSettingsCommand(opts: SlashCommandContext): SlashCo
       const persistDeps = {
         configStore: opts.configStore,
         globalConfigPath: opts.paths.globalConfig,
+        profileConfigPath: activeProfileConfigPath(opts.paths, opts.configStore.get()),
         vault: opts.vault,
       };
 

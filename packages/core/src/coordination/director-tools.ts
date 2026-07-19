@@ -96,9 +96,10 @@ export function makeSpawnTool(director: Director, roster?: Record<string, Subage
   };
   return {
     name: 'spawn_subagent',
-    description: 'Create a new subagent under this director. Returns the subagent id.',
+    description:
+      'Create a new subagent under this director (own LLM context, own budget). NON-BLOCKING: returns a `subagentId` immediately without triggering any model call. Pair with `assign_task` to send work and `await_tasks` to retrieve the result later — this is the async-delegation pattern that lets the leader keep working while the subagent runs in its own context.',
     usageHint:
-      'Pass `role` (matches the roster), `description` (smart dispatch to best agent), or `name` + `provider`/`model`. Returns `{ subagentId }`.',
+      'Pass `role` (matches the roster), `description` (smart dispatch to best agent), or `name` + `provider`/`model`. Returns `{ subagentId }`. Use this instead of `delegate` when you want to fan out to multiple subagents or keep the leader unblocked while work runs in parallel.',
     permission: 'auto',
     mutating: false,
     capabilities: [ToolCapabilities.SUBAGENT_SPAWN],
@@ -749,7 +750,8 @@ export function makeAssignTool(director: Director): Tool {
   };
   return {
     name: 'assign_task',
-    description: 'Hand a task to a previously spawned subagent. Returns the task id.',
+    description:
+      'Queue a task on a previously spawned subagent. NON-BLOCKING: returns a `taskId` IMMEDIATELY — the subagent processes the task on its next iteration with its own LLM budget. The `taskId` is the durable handle for retrieving the result later via `await_tasks`, `roll_up`, or `ask_result`. Many `assign_task` calls can be in flight in parallel against the same or different subagents. This is the primary tool for fan-out work; do NOT use `delegate` to spawn multiple investigations sequentially.',
     permission: 'auto',
     mutating: false,
     capabilities: [ToolCapabilities.SUBAGENT_SPAWN],
@@ -1491,7 +1493,7 @@ export function makeAwaitTasksTool(director: Director): Tool {
   return {
     name: 'await_tasks',
     description:
-      'Wait for assigned tasks. mode:"all" (default) blocks until EVERY named task completes and returns all results. mode:"any" returns as soon as AT LEAST ONE completes — use it for independent tasks so you can handle each finisher immediately (reassign work, spawn helpers) instead of idling on the slowest; call again with the returned `pending` ids to pick up the next finisher.',
+      'Block until one or more `taskId`s complete, then return their results. The subagents keep running in the background — only the leader\'s iteration pauses, which is the point: this is the correct tool to retrieve a result you started earlier with `assign_task`. mode:"all" (default) blocks until EVERY named task completes. mode:"any" returns as soon as AT LEAST ONE completes — use it for independent tasks so you can handle each finisher immediately (reassign work, spawn helpers) instead of idling on the slowest; call again with the returned `pending` ids to pick up the next finisher. The pattern "fan out via assign_task, then await_tasks({mode:\'any\'})" is the async replacement for serial `delegate` calls.',
     permission: 'auto',
     mutating: false,
     capabilities: [ToolCapabilities.COORDINATION_FLEET_READ],

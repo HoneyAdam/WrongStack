@@ -121,13 +121,15 @@ function fmtEntry(e: ModelMatrixEntry): string {
  * both the plain REPL and the Ink TUI.
  */
 async function patchGlobalConfig(
-  globalConfigPath: string,
+  _globalConfigPath: string,
   mutate: (cfg: Record<string, unknown>) => void,
+  profileConfigPath: string,
 ): Promise<Record<string, unknown>> {
+  const targetPath = profileConfigPath;
   let raw = '{}';
   let fileExists = true;
   try {
-    raw = await fs.readFile(globalConfigPath, 'utf8');
+    raw = await fs.readFile(targetPath, 'utf8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     fileExists = false;
@@ -138,9 +140,9 @@ async function patchGlobalConfig(
   } catch (err) {
     if (fileExists)
       throw new ConfigError({
-        message: `Config at ${globalConfigPath} is not valid JSON: ${(err as Error).message}`,
+        message: `Config at ${targetPath} is not valid JSON: ${(err as Error).message}`,
         code: 'CONFIG_PARSE_FAILED',
-        context: { filePath: globalConfigPath },
+        context: { filePath: targetPath },
         cause: err,
       });
     parsed = {};
@@ -148,14 +150,14 @@ async function patchGlobalConfig(
   const decrypted = decryptConfigSecrets(parsed, noOpVault) as Record<string, unknown>;
   mutate(decrypted);
   const encrypted = encryptConfigSecrets(decrypted, noOpVault);
-  await atomicWrite(globalConfigPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
+  await atomicWrite(targetPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
   return decrypted;
 }
 
 /**
  * `/setmodel` — view or change the active leader model and the per-task
  * model matrix. Argument-driven (never blocks on readline) so it behaves
- * identically in the REPL and the TUI. Persists to ~/.wrongstack/config.json.
+ * identically in the REPL and the TUI. Persists to the active profile config.
  *
  * Subcommands:
  *   (none)       Show leader model, matrix, and a summary of which model each
@@ -188,7 +190,7 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
     'Keys: a catalog role (e.g. security-scanner), a phase (' + MATRIX_PHASE_KEYS.join(', ') + '),',
     'or * for the fleet-wide default. Precedence at spawn: role → phase → * → leader.',
     '',
-    'Persisted to ~/.wrongstack/config.json.',
+    'Persisted to ~/.wrongstack/profiles/<name>/config.json.',
   ].join('\n');
 
   function currentView(): string {
@@ -286,6 +288,9 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
       const config = opts.configStore.get();
       const keyed = keyedProviderIds(config);
       const globalConfigPath = opts.paths.globalConfig;
+      const profileConfigPath = opts.paths.profileConfig(
+        (config as { activeProfile?: string }).activeProfile ?? 'default',
+      );
       const matrix = (config.modelMatrix ?? {}) as Record<string, ModelMatrixEntry>;
 
       if (sub === 'list') {
@@ -491,7 +496,7 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
               cfg.provider = provider;
               cfg.model = parsed.model;
               cfg.fallbackModels = chain.slice(1);
-            });
+            }, profileConfigPath);
             opts.configStore.update({
               provider: decrypted.provider as string,
               model: decrypted.model as string,
@@ -514,7 +519,7 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
           const decrypted = await patchGlobalConfig(globalConfigPath, (cfg) => {
             cfg.provider = provider;
             cfg.model = model;
-          });
+          }, profileConfigPath);
           opts.configStore.update({
             provider: decrypted.provider as string,
             model: decrypted.model as string,
@@ -584,7 +589,7 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
             entry.modelRuntime = modelRuntime;
             matrix[key] = entry;
             cfg.modelMatrix = matrix;
-          });
+          }, profileConfigPath);
           opts.configStore.update({
             modelMatrix: decrypted.modelMatrix as Record<string, ModelMatrixEntry>,
           });
@@ -634,7 +639,7 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
                     ...(previousRuntime ? { modelRuntime: previousRuntime } : {}),
                   };
             cfg.modelMatrix = matrix;
-          });
+          }, profileConfigPath);
           opts.configStore.update({
             modelMatrix: decrypted.modelMatrix as Record<string, ModelMatrixEntry>,
           });
@@ -652,7 +657,7 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
             const matrix = { ...((cfg.modelMatrix as Record<string, ModelMatrixEntry>) ?? {}) };
             delete matrix[key];
             cfg.modelMatrix = matrix;
-          });
+          }, profileConfigPath);
           opts.configStore.update({
             modelMatrix: decrypted.modelMatrix as Record<string, ModelMatrixEntry>,
           });

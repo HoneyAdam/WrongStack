@@ -122,8 +122,8 @@ export class OAuthRefreshCoordinator<TTokens, TPayload> {
   private readonly refreshSkewMs: number;
   private readonly label: string;
 
-  /** Host-supplied function returning the CURRENT refresh key (may rotate). */
-  private readonly getRefreshKey: () => string | undefined;
+  /** Current refresh key. Updated after providers rotate it. */
+  private refreshKey: string | undefined;
 
   /** Last refreshed expiry, in epoch ms. */
   private expiresAt: number | undefined;
@@ -133,12 +133,7 @@ export class OAuthRefreshCoordinator<TTokens, TPayload> {
     this.refreshSkewMs = opts.refreshSkewMs ?? DEFAULT_REFRESH_SKEW_MS;
     this.label = opts.label;
     this.expiresAt = opts.initialExpiresAt;
-    this.getRefreshKey = () => opts.initialRefreshKey;
-    // We capture the single-flight work function in a closure that re-reads
-    // `getRefreshKey()` on every invocation. That way a host that rotates
-    // its refresh token mid-flight picks up the latest value when the
-    // single-flight slot opens — the concurrent callers all share one
-    // refresh, and that refresh uses the most-recent key the host has.
+    this.refreshKey = opts.initialRefreshKey;
     this.singleFlight = createSingleFlightRefresh<TTokens>((signal) => this.performRefresh(signal));
   }
 
@@ -166,7 +161,7 @@ export class OAuthRefreshCoordinator<TTokens, TPayload> {
    * expiry once it resolves). Otherwise, kicks off a refresh.
    */
   async ensureFreshToken(signal: AbortSignal): Promise<void> {
-    if (!this.getRefreshKey()) return;
+    if (!this.refreshKey) return;
     if (!this.isStale()) return;
     await this.doRefresh(signal);
   }
@@ -177,7 +172,7 @@ export class OAuthRefreshCoordinator<TTokens, TPayload> {
    * share one upstream call.
    */
   async doRefresh(signal: AbortSignal): Promise<void> {
-    if (!this.getRefreshKey()) return;
+    if (!this.refreshKey) return;
     await this.singleFlight.refresh(signal);
   }
 
@@ -201,13 +196,14 @@ export class OAuthRefreshCoordinator<TTokens, TPayload> {
    * error message (`${this.label}: refresh key missing`) reads `this`.
    */
   private async performRefresh(signal?: AbortSignal): Promise<TTokens> {
-    const refreshKey = this.getRefreshKey();
+    const refreshKey = this.refreshKey;
     if (!refreshKey) {
       throw new Error(`${this.label}: refresh key missing`);
     }
     const tokens = await this.hooks.refreshFn(refreshKey, signal);
     const derived = this.hooks.projectTokens(tokens);
     this.expiresAt = derived.expiresAt;
+    if (derived.refreshKey) this.refreshKey = derived.refreshKey;
     this.hooks.applyTokens(derived);
     this.hooks.onRefresh?.(this.hooks.formatPayload(tokens, derived));
     return tokens;

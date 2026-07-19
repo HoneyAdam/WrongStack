@@ -32,10 +32,11 @@ async function getFileUid(filePath: string): Promise<string | number | undefined
 async function checkConfigOwnership(
   homeFn: HomeDirFn,
   uidFn: UidFn = defaultUidFn,
+  targetConfigPath?: string,
 ): Promise<boolean> {
   if (os.platform() === 'win32') return true; // ACLs handle this on Windows
 
-  const cfg = configPath(homeFn);
+  const cfg = configPath(homeFn, targetConfigPath);
   const fileUid = await getFileUid(cfg);
   if (fileUid === undefined) return true; // file doesn't exist yet — allow
 
@@ -94,7 +95,12 @@ function assertSafeToDelete(filename: string, parentDir: string): void {
   }
   // 4. Check parent is the .wrongstack root and the target is not a dir
   const resolvedParent = path.resolve(parentDir);
-  if (!resolvedParent.endsWith('.wrongstack')) {
+  const parentOfProfile = path.dirname(resolvedParent);
+  const isGlobalRoot = path.basename(resolvedParent) === '.wrongstack';
+  const isProfileDir =
+    path.basename(parentOfProfile) === 'profiles' &&
+    path.basename(path.dirname(parentOfProfile)) === '.wrongstack';
+  if (!isGlobalRoot && !isProfileDir) {
     throw new FsError({
       message: `Unexpected parent directory for bak prune: ${resolvedParent}`,
       code: ERROR_CODES.FS_DELETE_FAILED,
@@ -183,12 +189,12 @@ function historyIndexPath(homeFn: HomeDirFn = defaultHomeDir): string {
 
 // NOTE: config.json is the canonical path (defined in wstack-paths.ts).
 // backupCurrent() and restore*() all operate on config.json.
-function configPath(homeFn: HomeDirFn = defaultHomeDir): string {
-  return path.join(homeFn(), '.wrongstack', 'config.json');
+function configPath(homeFn: HomeDirFn = defaultHomeDir, targetConfigPath?: string): string {
+  return targetConfigPath ?? path.join(homeFn(), '.wrongstack', 'config.json');
 }
 
-function backupLastPath(homeFn: HomeDirFn = defaultHomeDir): string {
-  return path.join(homeFn(), '.wrongstack', 'config.json.last');
+function backupLastPath(homeFn: HomeDirFn = defaultHomeDir, targetConfigPath?: string): string {
+  return targetConfigPath ? `${targetConfigPath}.last` : path.join(homeFn(), '.wrongstack', 'config.json.last');
 }
 
 function entryId(ts: string): string {
@@ -271,9 +277,12 @@ async function pruneHistoryEntries(idx: HistoryIndex, homeFn: HomeDirFn = defaul
  * IMPORTANT: config.json and .key are never deleted by this function.
  * Only config.json.*.bak timestamped snapshots are pruned.
  */
-export async function backupCurrent(homeFn: HomeDirFn = defaultHomeDir): Promise<void> {
-  const cfg = configPath(homeFn);
-  const last = backupLastPath(homeFn);
+export async function backupCurrent(
+  homeFn: HomeDirFn = defaultHomeDir,
+  targetConfigPath?: string,
+): Promise<void> {
+  const cfg = configPath(homeFn, targetConfigPath);
+  const last = backupLastPath(homeFn, targetConfigPath);
   const ts = Date.now();
 
   // Read existing config content for .last backup
@@ -297,7 +306,7 @@ export async function backupCurrent(homeFn: HomeDirFn = defaultHomeDir): Promise
   // Create timestamped snapshot
   if (content !== undefined) {
     try {
-      const bakPath = path.join(homeFn(), '.wrongstack', `config.json.${ts}.bak`);
+      const bakPath = `${cfg}.${ts}.bak`;
       await atomicWrite(bakPath, content);
     } catch (err) {
       writeErr(
@@ -308,7 +317,7 @@ export async function backupCurrent(homeFn: HomeDirFn = defaultHomeDir): Promise
 
   // Prune old .bak files — keep last 10
   try {
-    const dir = path.join(homeFn(), '.wrongstack');
+    const dir = path.dirname(cfg);
     const files = await fs.readdir(dir);
     const baks = files
       .filter((f) => f.startsWith('config.json.') && f.endsWith('.bak'))
@@ -400,6 +409,7 @@ export async function getHistoryEntry(
 export async function restoreFromHistory(
   id: string,
   homeFn: HomeDirFn = defaultHomeDir,
+  targetConfigPath?: string,
 ): Promise<{ ok: boolean; backupId: string | null; error?: string | undefined }> {
   const entry = await getHistoryEntry(id, homeFn);
   if (!entry) return { ok: false, backupId: null, error: 'History entry not found' };
@@ -407,7 +417,7 @@ export async function restoreFromHistory(
   // Ownership guard — refuse to write config.json if the calling process
   // does not own the file. Prevents one user on a multi-user system from
   // overwriting another user's config via a shared wrongstack install.
-  if (!(await checkConfigOwnership(homeFn))) {
+  if (!(await checkConfigOwnership(homeFn, defaultUidFn, targetConfigPath))) {
     return {
       ok: false,
       backupId: null,
@@ -415,18 +425,18 @@ export async function restoreFromHistory(
     };
   }
 
-  await backupCurrent(homeFn);
+  await backupCurrent(homeFn, targetConfigPath);
 
   let oldCfg: Record<string, unknown> = {};
   try {
-    const raw = await fs.readFile(configPath(homeFn), 'utf8');
+    const raw = await fs.readFile(configPath(homeFn, targetConfigPath), 'utf8');
     oldCfg = JSON.parse(raw);
   } catch {
     // No config to restore from
   }
 
   try {
-    await atomicWrite(configPath(homeFn), JSON.stringify(entry.snapshotMasked, null, 2));
+    await atomicWrite(configPath(homeFn, targetConfigPath), JSON.stringify(entry.snapshotMasked, null, 2));
   } catch (err) {
     return { ok: false, backupId: null, error: String(err) };
   }
@@ -446,9 +456,10 @@ export async function restoreFromHistory(
  */
 export async function restoreLast(
   homeFn: HomeDirFn = defaultHomeDir,
+  targetConfigPath?: string,
 ): Promise<{ ok: boolean; error?: string | undefined }> {
-  const last = backupLastPath(homeFn);
-  const cfg = configPath(homeFn);
+  const last = backupLastPath(homeFn, targetConfigPath);
+  const cfg = configPath(homeFn, targetConfigPath);
 
   let oldCfg: Record<string, unknown> = {};
   try {
@@ -469,11 +480,11 @@ export async function restoreLast(
   // Ownership guard — refuse to write config.json if the calling process
   // does not own the file. Prevents one user on a multi-user system from
   // overwriting another user's config via a shared wrongstack install.
-  if (!(await checkConfigOwnership(homeFn))) {
+  if (!(await checkConfigOwnership(homeFn, defaultUidFn, targetConfigPath))) {
     return { ok: false, error: 'Operation denied: config file is not owned by current user' };
   }
 
-  await backupCurrent(homeFn);
+  await backupCurrent(homeFn, targetConfigPath);
 
   try {
     await atomicWrite(cfg, JSON.stringify(lastCfg, null, 2));

@@ -8,6 +8,7 @@ import { WireFormatProvider } from './wire-format.js';
 
 /** Default server-side TTL (seconds) for an explicit Gemini cached-content resource. */
 const GEMINI_CACHE_TTL_SECONDS = 3600;
+const GEMINI_EXPLICIT_CACHE_MAX_ENTRIES = 128;
 
 export interface GoogleProviderOptions {
   apiKey: string;
@@ -91,11 +92,14 @@ export class GoogleProvider extends WireFormatProvider<GoogleStreamState> {
       .update('\0')
       .update(system.map((b) => b.text).join('\0'))
       .update('\0')
-      .update((req.tools ?? []).map((t) => t.name).join(','))
+      // The cached resource contains the complete declarations. Hashing only
+      // names would reuse stale descriptions/schemas after a tool update.
+      .update(JSON.stringify(toolsToGemini(req.tools ?? [])))
       .digest('hex');
 
     const live = this.explicitCache.get(hash);
     if (live && live.expiresAt > Date.now()) return live.name;
+    if (live) this.explicitCache.delete(hash);
 
     const createBody: Record<string, unknown> = {
       model: `models/${req.model}`,
@@ -114,13 +118,26 @@ export class GoogleProvider extends WireFormatProvider<GoogleStreamState> {
     });
     // A too-small prefix (Gemini enforces a minimum cache size) or any other
     // error just means "no explicit cache this time" — the caller falls back.
-    if (!res.ok) return undefined;
+    if (!res.ok) {
+      // Drain the body so fetch implementations can promptly reuse the socket.
+      await res.text().catch(() => undefined);
+      return undefined;
+    }
     const json = (await res.json()) as { name?: unknown };
     const name = typeof json.name === 'string' ? json.name : undefined;
     if (!name) return undefined;
+    const now = Date.now();
+    for (const [key, entry] of this.explicitCache) {
+      if (entry.expiresAt <= now) this.explicitCache.delete(key);
+    }
+    while (this.explicitCache.size >= GEMINI_EXPLICIT_CACHE_MAX_ENTRIES) {
+      const oldest = this.explicitCache.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      this.explicitCache.delete(oldest);
+    }
     this.explicitCache.set(hash, {
       name,
-      expiresAt: Date.now() + GEMINI_CACHE_TTL_SECONDS * 1000 - 60_000,
+      expiresAt: now + GEMINI_CACHE_TTL_SECONDS * 1000 - 60_000,
     });
     return name;
   }

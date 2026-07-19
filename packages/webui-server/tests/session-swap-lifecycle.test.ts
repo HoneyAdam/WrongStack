@@ -34,6 +34,10 @@ describe('standalone WebUI session swap lifecycle', () => {
     expect(harness.context.session).toBe(next);
     expect(harness.context.state.replaceMessages).toHaveBeenLastCalledWith([]);
     expect(harness.context.state.replaceTodos).toHaveBeenLastCalledWith([]);
+    expect(harness.context.lastRequestTokens).toBeUndefined();
+    expect(harness.context.lastRealInputTokens).toBeUndefined();
+    expect(harness.context.state.deleteMeta).toHaveBeenCalledWith('lastRequestTokensAt');
+    expect(harness.context.state.deleteMeta).toHaveBeenCalledWith('realAnchorMsgCount');
     expect(harness.onSessionSwapped).toHaveBeenCalledWith(next.id);
     expect(harness.meta.get('plan.path')).toBe(
       sessionScopedPath(sessionsDir, next.id, '.plan.json'),
@@ -67,7 +71,7 @@ describe('standalone WebUI session swap lifecycle', () => {
     expect(harness.current()).toBe(resumed);
     expect(harness.context.state.replaceMessages).toHaveBeenLastCalledWith(messages);
     expect(harness.context.state.replaceTodos).toHaveBeenLastCalledWith([]);
-    expect(harness.tokenCounter.account).toHaveBeenCalledWith(usage, 'test-model');
+    expect(harness.tokenCounter.account).toHaveBeenCalledWith(usage, 'test-model', 'test-provider');
     expect(harness.onSessionSwapped).toHaveBeenCalledWith(resumed.id);
     expect(harness.ws.sent.at(-1)).toMatchObject({
       type: 'key.operation_result',
@@ -134,10 +138,14 @@ function makeHarness(input: {
   const context = {
     session: current,
     messages: [],
+    provider: { id: 'test-provider' },
+    lastRequestTokens: 999,
+    lastRealInputTokens: 888,
     state: {
       replaceMessages: vi.fn(),
       replaceTodos: vi.fn(),
       setMeta: vi.fn((key: string, value: unknown) => meta.set(key, value)),
+      deleteMeta: vi.fn((key: string) => meta.delete(key)),
     },
     readFiles: new Set<string>(),
     fileMtimes: new Map<string, number>(),

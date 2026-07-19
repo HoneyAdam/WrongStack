@@ -47,6 +47,14 @@ describe('cosineSimilarity', () => {
 // ── InjectionTracker — eviction + TTL ──────────────────────────────────
 
 describe('InjectionTracker eviction and TTL', () => {
+  it('bounds per-session context snapshots', () => {
+    const tracker = new InjectionTracker({ maxEntries: 2, ttlMs: 60_000 });
+    tracker.snapshotContext('', 's1', 1_000);
+    tracker.snapshotContext('', 's2', 1_001);
+    tracker.snapshotContext('', 's3', 1_002);
+    expect((tracker as any).activeContextBySession.size).toBe(2);
+  });
+
   it('evicts the oldest entries when maxEntries is exceeded', () => {
     const now = Date.now();
     const tracker = new InjectionTracker({ maxEntries: 2, ttlMs: 60_000, minTokens: 1 });

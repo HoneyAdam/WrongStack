@@ -28,6 +28,7 @@ export interface CostTelemetryBridgeOptions extends BridgeContextOptions {
 interface TokenAccountedEvent {
   sessionId?: string | undefined;
   usage: Usage;
+  deltaUsage?: Usage | undefined;
   cost: { input: number; output: number; total: number };
   /** Provider id that produced this usage (e.g. 'anthropic'), when known. */
   provider?: string | undefined;
@@ -44,18 +45,19 @@ export function startCostTelemetryBridge(opts: CostTelemetryBridgeOptions): () =
   const ctx = createBridgeContext(opts);
 
   const off = events.on('token.accounted', (p: TokenAccountedEvent) => {
+    const usage = p.deltaUsage ?? p.usage;
     const payload: HqUsagePayload = {
-      inputTokens: p.usage.input,
-      outputTokens: p.usage.output,
-      totalTokens: p.usage.input + p.usage.output,
+      inputTokens: usage.input,
+      outputTokens: usage.output,
+      totalTokens: usage.input + usage.output,
       costUsd: p.cost.total,
     };
     // Forward the dimensions HQ needs for per-model/per-provider cost charts
     // and cache-hit-ratio cards. All optional — older counters omit them.
     if (p.provider !== undefined) payload.provider = p.provider;
     if (p.model !== undefined) payload.model = p.model;
-    if (p.usage.cacheRead !== undefined) payload.cacheRead = p.usage.cacheRead;
-    if (p.usage.cacheWrite !== undefined) payload.cacheWrite = p.usage.cacheWrite;
+    if (usage.cacheRead !== undefined) payload.cacheRead = usage.cacheRead;
+    if (usage.cacheWrite !== undefined) payload.cacheWrite = usage.cacheWrite;
     const sessionId = opts.sessionId ?? p.sessionId;
     ctx.safePublish({
       type: 'session.usage',

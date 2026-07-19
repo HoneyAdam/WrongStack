@@ -15,13 +15,15 @@ import { parseSubcommand, unknownSubcommand } from './helpers.js';
 import type { SlashCommandContext } from './index.js';
 
 async function patchGlobalConfig(
-  globalConfigPath: string,
+  _globalConfigPath: string,
   mutate: (cfg: Record<string, unknown>) => void,
+  profileConfigPath: string,
 ): Promise<Record<string, unknown>> {
+  const targetPath = profileConfigPath;
   let raw = '{}';
   let fileExists = true;
   try {
-    raw = await fs.readFile(globalConfigPath, 'utf8');
+    raw = await fs.readFile(targetPath, 'utf8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     fileExists = false;
@@ -32,9 +34,9 @@ async function patchGlobalConfig(
   } catch (err) {
     if (fileExists) {
       throw new ConfigError({
-        message: `Config at ${globalConfigPath} is not valid JSON: ${(err as Error).message}`,
+        message: `Config at ${targetPath} is not valid JSON: ${(err as Error).message}`,
         code: 'CONFIG_PARSE_FAILED',
-        context: { filePath: globalConfigPath },
+        context: { filePath: targetPath },
         cause: err,
       });
     }
@@ -43,7 +45,7 @@ async function patchGlobalConfig(
   const decrypted = decryptConfigSecrets(parsed, noOpVault) as Record<string, unknown>;
   mutate(decrypted);
   const encrypted = encryptConfigSecrets(decrypted, noOpVault);
-  await atomicWrite(globalConfigPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
+  await atomicWrite(targetPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
   return decrypted;
 }
 
@@ -180,7 +182,7 @@ export function buildModelsCommand(opts: SlashCommandContext): SlashCommand {
     '  --reasoning          Reasoning support',
     '  --json-mode          JSON mode support',
     '',
-    'Persisted to ~/.wrongstack/config.json.',
+    'Persisted to ~/.wrongstack/profiles/<name>/config.json.',
   ].join('\n');
 
   return {
@@ -199,6 +201,9 @@ export function buildModelsCommand(opts: SlashCommandContext): SlashCommand {
 
       const config = opts.configStore.get();
       const globalConfigPath = opts.paths.globalConfig;
+      const profileConfigPath = opts.paths.profileConfig(
+        (config as { activeProfile?: string }).activeProfile ?? 'default',
+      );
 
       // ---- LIST ----
       if (!sub) {
@@ -253,7 +258,7 @@ export function buildModelsCommand(opts: SlashCommandContext): SlashCommand {
               },
             } as CustomModelDefinition;
             cfg.models = models;
-          });
+          }, profileConfigPath);
           opts.configStore.update({
             models: decrypted.models as Record<string, CustomModelDefinition>,
           });
@@ -278,7 +283,7 @@ export function buildModelsCommand(opts: SlashCommandContext): SlashCommand {
             const models = { ...((cfg.models as Record<string, CustomModelDefinition>) ?? {}) };
             delete models[modelId];
             cfg.models = models;
-          });
+          }, profileConfigPath);
           opts.configStore.update({
             models: decrypted.models as Record<string, CustomModelDefinition>,
           });

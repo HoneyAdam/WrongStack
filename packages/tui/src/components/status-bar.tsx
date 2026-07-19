@@ -820,6 +820,7 @@ export function StatusBar({
             <Text>
               {context ? (
                 <Text color={barColor}>
+                  <Text dimColor={!isNoColor}>{'ctx '}</Text>
                   {renderMeter(ratio, 8)} {pctText}/{fmtTok(context.max)}
                   {contextStrategy ? (
                     <Text dimColor={!isNoColor}>{` [${contextStrategy}]`}</Text>
@@ -955,6 +956,9 @@ export function StatusBar({
           return (
             <Text>
               <Text color={chipColor(c, isNoColor)}>
+                {context ? (
+                  <Text dimColor={!isNoColor}>{'ctx '}</Text>
+                ) : null}
                 {context ? renderMeter(ratio, 6) : ''} {pct}
               </Text>
               {hasTokens && context ? <Text dimColor={!isNoColor}>{' · '}</Text> : null}

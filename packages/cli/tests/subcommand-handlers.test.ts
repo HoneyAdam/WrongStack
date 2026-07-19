@@ -31,7 +31,7 @@ function fakeDeps() {
     reader: { readLine: vi.fn() },
     modelsRegistry: {},
     vault: {},
-    paths: { globalConfig: '/tmp/cfg.json' },
+    paths: { globalConfig: '/tmp/cfg.json', profileConfig: () => '/tmp/cfg.json' },
     cwd: '/tmp',
     projectRoot: '/tmp',
     userHome: '/tmp',

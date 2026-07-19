@@ -95,6 +95,23 @@ function mockFetchSpy() {
   });
 }
 
+/** A fetch that streams a single SSE `data:` frame then closes. */
+function sseFetch(frames: string[]): typeof fetch {
+  const text = frames.map((d) => `data: ${d}\n\n`).join('');
+  return (async () =>
+    ({
+      ok: true,
+      status: 200,
+      text: async () => '',
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(text));
+          controller.close();
+        },
+      }),
+    }) as never as Response) as never as typeof fetch;
+}
+
 describe('OpenAICompatibleProvider', () => {
   it('injects custom headers on each request', async () => {
     const spy = mockFetchSpy();
@@ -112,6 +129,34 @@ describe('OpenAICompatibleProvider', () => {
     const [, init] = spy.mock.calls[0]!;
     expect((init!.headers as Record<string, string>)['x-custom']).toBe('1');
     expect((init!.headers as Record<string, string>)['authorization']).toMatch(/Bearer sk-x/);
+  });
+
+  it('recovers input tokens from total_tokens when prompt_tokens is absent (MiniMax)', async () => {
+    // MiniMax (api.minimax.io) streams usage with only total_tokens +
+    // completion_tokens. Deriving input = total − completion keeps the context
+    // meter and ↑ sent-token counter from collapsing to 0.
+    const p = new OpenAICompatibleProvider({
+      id: 'minimax',
+      apiKey: 'k',
+      baseUrl: 'https://api.minimax.io/v1',
+      fetchImpl: sseFetch([
+        JSON.stringify({
+          model: 'MiniMax-M3',
+          choices: [{ delta: { content: 'hi' } }],
+        }),
+        JSON.stringify({
+          model: 'MiniMax-M3',
+          choices: [{ delta: {}, finish_reason: 'stop' }],
+          usage: { total_tokens: 5200, completion_tokens: 200 },
+        }),
+        '[DONE]',
+      ]),
+    });
+    const res = await p.complete(
+      { model: 'MiniMax-M3', messages: [{ role: 'user', content: 'hi' }], maxTokens: 16 },
+      { signal: new AbortController().signal },
+    );
+    expect(res.usage).toMatchObject({ input: 5000, output: 200 });
   });
 
   it('honours capabilities override', () => {

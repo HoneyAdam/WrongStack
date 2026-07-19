@@ -215,7 +215,7 @@ export interface CliWebUIOptions {
   modelsRegistry?: ModelsRegistry | undefined;
   globalConfigPath?: string | undefined;
   /** Resolved profile config path: ~/.wrongstack/profiles/<activeProfile>/config.json */
-  profileConfigPath?: string | undefined;
+  profileConfigPath: string;
   /**
    * Live MCP registry — the SAME instance the agent loop and `/mcp` use. When
    * provided, the WebUI MCP settings panel can add/remove/enable/disable and
@@ -748,7 +748,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   // them here is safe even though they're defined further down.
   const wsHandlerCtx: WsHandlerContext = {
     providerStore: createProviderConfigStore(
-      opts.globalConfigPath,
+      opts.profileConfigPath,
       // Use the in-memory merged config providers so the WebUI sees the
       // same provider list the agent uses. Without this, providers stored
       // only in the project-local config (config.local.json) would be
@@ -770,11 +770,8 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   // `handleModelSwitch` already does. Escape hatch: WRONGSTACK_DISABLE_CONFIG_WATCH=1.
   //
   // Watches the ACTIVE PROFILE config (~/.wrongstack/profiles/<name>/config.json)
-  // where all user settings, providers, and routing configs live. Falls back to
-  // the bootstrap config (~/.wrongstack/config.json) when no profile system is
-  // active. The bootstrap itself only holds { version, activeProfile }, so
-  // watching it would never detect provider or routing changes.
-  const watchConfigPath = opts.profileConfigPath ?? opts.globalConfigPath;
+  // where all user settings, providers, and routing configs live.
+  const watchConfigPath = opts.profileConfigPath;
   let credentialWatcherClose: (() => void) | undefined;
   if (watchConfigPath && process.env['WRONGSTACK_DISABLE_CONFIG_WATCH'] !== '1') {
     let lastActiveCfg = JSON.stringify(
@@ -967,7 +964,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   const agentConfigCtx: AgentConfigContext = {
     agent: opts.agent,
     modeStore: opts.modeStore,
-    globalConfigPath: opts.globalConfigPath,
+    globalConfigPath: opts.profileConfigPath,
     buildSessionStart: (overrides) => buildSessionStartPayload(overrides),
     modelsRegistry: opts.modelsRegistry,
     memoryStore: opts.memoryStore,

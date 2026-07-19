@@ -45,7 +45,7 @@ export function buildSupervisorCommand(opts: SlashCommandContext): SlashCommand 
       'The supervisor watches the Director fleet and, gated by the Brain',
       '(/brain risk), rebalances pending tasks off busy workers, spawns',
       'helpers on deep backlogs, and steers stuck or failing workers.',
-      'Configure via ~/.wrongstack/config.json → fleet.supervisor.',
+      'Configure via the active profile config → fleet.supervisor.',
     ].join('\n'),
     async run(args) {
       const supervisor = getActiveFleetSupervisor();

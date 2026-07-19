@@ -23,6 +23,7 @@ function baseConfig(): Partial<Config> {
 }
 
 let tmpDir: string;
+let rootConfigPath: string;
 let globalConfigPath: string;
 
 function makeCtx(initial: Partial<Config>): {
@@ -31,7 +32,7 @@ function makeCtx(initial: Partial<Config>): {
 } {
   const store = { value: { ...initial } };
   const ctx = {
-    paths: { globalConfig: globalConfigPath },
+    paths: { globalConfig: rootConfigPath, profileConfig: () => globalConfigPath },
     configStore: {
       get: () => store.value,
       update: (partial: Partial<Config>) => {
@@ -45,7 +46,13 @@ function makeCtx(initial: Partial<Config>): {
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wstack-setmodel-'));
-  globalConfigPath = path.join(tmpDir, 'config.json');
+  rootConfigPath = path.join(tmpDir, 'config.json');
+  globalConfigPath = path.join(tmpDir, 'profiles', 'default', 'config.json');
+  fs.mkdirSync(path.dirname(globalConfigPath), { recursive: true });
+  fs.writeFileSync(
+    rootConfigPath,
+    JSON.stringify({ version: 1, activeProfile: 'default' }, null, 2),
+  );
   fs.writeFileSync(globalConfigPath, JSON.stringify(baseConfig(), null, 2));
 });
 
@@ -335,7 +342,7 @@ describe('/setmodel slash command', () => {
     expect(cmd.help).toContain('/setmodel doctor');
   });
 
-  it('throws a structured ConfigError when global config is corrupt JSON', async () => {
+  it('throws a structured ConfigError when profile config is corrupt JSON', async () => {
     // Write invalid JSON to the config file. The patchGlobalConfig helper
     // throws ConfigError(CONFIG_PARSE_FAILED) — the slash-command runner
     // catches it and surfaces the message.

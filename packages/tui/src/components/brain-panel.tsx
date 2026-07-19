@@ -189,7 +189,7 @@ export function BrainPanel({
             );
           })}
           <Box marginTop={1}>
-            <Text dimColor>changes apply live and persist to ~/.wrongstack/config.json</Text>
+            <Text dimColor>changes apply live and persist to the active profile config</Text>
           </Box>
         </Box>
       ) : (

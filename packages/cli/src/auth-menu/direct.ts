@@ -77,7 +77,7 @@ export async function runAuthDirect(
     writeKeysBack(p, list);
     if (!p.activeKey) p.activeKey = label;
     all[providerId] = p;
-  });
+  }, deps.profileConfigPath);
 
   deps.renderer.writeInfo(`Stored encrypted key for ${providerId} (label "${label}").`);
   deps.renderer.writeInfo(`Use: wstack --provider ${providerId} "<task>"`);

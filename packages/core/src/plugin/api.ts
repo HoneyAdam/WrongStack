@@ -108,6 +108,8 @@ export interface PluginAPIInit {
     | {
         provider: Provider;
         model: string;
+        getProvider?: (() => Provider) | undefined;
+        getModel?: (() => string) | undefined;
         createProvider?: ((name: string, model?: string) => Provider) | undefined;
       }
     | undefined;
@@ -176,11 +178,11 @@ export class DefaultPluginAPI implements PluginAPI {
     // through ConfigStore.update(), and api.llm should honour the new
     // per-plugin override WITHOUT a restart. When no ConfigStore is wired
     // (minimal hosts), the setup-time snapshot stands.
-    let liveExtensions: Config['extensions'] | undefined;
+    let liveConfig: Config | undefined;
     if (init.configStore) {
       const off = init.configStore.watch((next) => {
         const n = next as Config | undefined;
-        if (n && typeof n === 'object') liveExtensions = n.extensions;
+        if (n && typeof n === 'object') liveConfig = n;
       });
       this.pluginCleanupFns.push(off);
     }
@@ -190,7 +192,7 @@ export class DefaultPluginAPI implements PluginAPI {
           init.llm,
           init.providerRegistry,
           init.config,
-          () => liveExtensions,
+          () => liveConfig,
           this.metrics,
           this.log,
         )
@@ -387,15 +389,22 @@ function makePluginLLM(
   hostLLM: {
     provider: Provider;
     model: string;
+    getProvider?: (() => Provider) | undefined;
+    getModel?: (() => string) | undefined;
     createProvider?: ((name: string, model?: string) => Provider) | undefined;
   },
   providerRegistry: ProviderRegistry,
   config: Config,
-  getLiveExtensions: () => Config['extensions'] | undefined,
+  getLiveConfig: () => Config | undefined,
   metrics: MetricsSinkView,
   log: Logger,
 ): PluginLLM {
   const providerCache = new Map<string, Provider>();
+  const PROVIDER_CACHE_MAX = 32;
+  let providerCacheConfigRef: Config | undefined = config;
+  const currentConfig = (): Config => getLiveConfig() ?? config;
+  const currentProvider = (): Provider => hostLLM.getProvider?.() ?? hostLLM.provider;
+  const currentModel = (): string => hostLLM.getModel?.() ?? hostLLM.model;
   // Keep plugin calls bounded — a plugin should never be able to ask for
   // an effectively unbounded generation on the user's bill.
   const DEFAULT_MAX_TOKENS = 2_048;
@@ -410,7 +419,7 @@ function makePluginLLM(
     // Once a ConfigStore update has been observed, the live extensions
     // map REPLACES the setup-time snapshot — so a cleared override falls
     // back to the session default instead of resurrecting the old value.
-    const extensions = getLiveExtensions() ?? config.extensions;
+    const extensions = currentConfig().extensions;
     const raw = extensions?.[owner]?.['llm'];
     if (!raw || typeof raw !== 'object') return {};
     const r = raw as Record<string, unknown>;
@@ -427,11 +436,17 @@ function makePluginLLM(
     model: string,
   ): { provider: Provider; providerName: string } => {
     const defaults = pluginDefaults();
-    const providerName = name ?? defaults.provider ?? config.provider;
+    const liveProvider = currentProvider();
+    const liveConfig = currentConfig();
+    if (liveConfig !== providerCacheConfigRef) {
+      providerCache.clear();
+      providerCacheConfigRef = liveConfig;
+    }
+    const providerName = name ?? defaults.provider ?? liveProvider.id;
     // The host session's own provider serves the default name directly —
     // no re-creation, and per-model capabilities stay as the host resolved them.
-    if (providerName === config.provider) {
-      return { provider: hostLLM.provider, providerName };
+    if (providerName === liveProvider.id) {
+      return { provider: liveProvider, providerName };
     }
     const cacheKey = `${providerName}|${model}`;
     const cached = providerCache.get(cacheKey);
@@ -440,8 +455,17 @@ function makePluginLLM(
     if (hostLLM.createProvider) {
       created = hostLLM.createProvider(providerName, model);
     } else {
-      const savedCfg = config.providers?.[providerName] ?? {};
-      created = providerRegistry.create({ ...savedCfg, type: providerName, model });
+      const savedCfg = liveConfig.providers?.[providerName];
+      const factoryType = savedCfg?.type ?? providerName;
+      created = providerRegistry.create(
+        { ...(savedCfg ?? {}), type: providerName, model },
+        factoryType,
+      );
+    }
+    while (providerCache.size >= PROVIDER_CACHE_MAX) {
+      const oldest = providerCache.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      providerCache.delete(oldest);
     }
     providerCache.set(cacheKey, created);
     return { provider: created, providerName };
@@ -451,13 +475,13 @@ function makePluginLLM(
     defaults() {
       const d = pluginDefaults();
       return {
-        provider: d.provider ?? config.provider,
-        model: d.model ?? hostLLM.model,
+        provider: d.provider ?? currentProvider().id,
+        model: d.model ?? currentModel(),
       };
     },
     async complete(prompt: string, opts?: PluginLLMOptions): Promise<PluginLLMResult> {
       const defaults = pluginDefaults();
-      const model = opts?.model ?? defaults.model ?? hostLLM.model;
+      const model = opts?.model ?? defaults.model ?? currentModel();
       const { provider, providerName } = resolveProvider(opts?.provider, model);
       const maxTokens = Math.min(
         HARD_MAX_TOKENS,

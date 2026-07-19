@@ -52,6 +52,42 @@ function baseProps(over: Record<string, unknown> = {}) {
 }
 
 describe('SettingsPicker filter mode', () => {
+  describe('persistence path', () => {
+    it('shows the default profile config path when no active path is supplied', () => {
+      const { lastFrame } = render(React.createElement(SettingsPicker, baseProps()));
+      expect(lastFrame() ?? '').toContain(
+        'Persisted to ~/.wrongstack/profiles/default/config.json',
+      );
+    });
+
+    it('shows the active profile config path for global settings', () => {
+      const { lastFrame } = render(
+        React.createElement(
+          SettingsPicker,
+          baseProps({ profileConfigPath: '~/.wrongstack/profiles/work/config.json' }),
+        ),
+      );
+      expect(lastFrame() ?? '').toContain(
+        'Persisted to ~/.wrongstack/profiles/work/config.json',
+      );
+    });
+
+    it('keeps the project path for project-scoped settings', () => {
+      const { lastFrame } = render(
+        React.createElement(
+          SettingsPicker,
+          baseProps({
+            configScope: 'project',
+            profileConfigPath: '~/.wrongstack/profiles/work/config.json',
+          }),
+        ),
+      );
+      expect(lastFrame() ?? '').toContain(
+        'Persisted to <project>/.wrongstack/config.json',
+      );
+    });
+  });
+
   describe('normal mode (no filter)', () => {
     it('renders the standard header with the search hint', () => {
       const { lastFrame } = render(React.createElement(SettingsPicker, baseProps()));

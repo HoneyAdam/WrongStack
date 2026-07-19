@@ -72,6 +72,7 @@ export function buildClearCommand(opts: SlashCommandContext): SlashCommand {
         ctx.toolAdjacencyDirty = false;
         ctx.pendingPostToolContext = undefined;
         ctx.lastRequestTokens = undefined;
+        ctx.lastRealInputTokens = undefined;
         for (const key of Object.keys(ctx.meta)) ctx.state.deleteMeta(key);
       }
       // Clear on-disk chat history via the session writer

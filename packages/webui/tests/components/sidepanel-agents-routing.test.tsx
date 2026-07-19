@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it } from 'vitest';
 
+import { AgentsPanel } from '../../src/components/SidePanel/AgentsPanel.js';
 import {
   selectFleetSummary,
   selectSortedAgentList,
@@ -30,15 +32,14 @@ function makeAgent(id: string, overrides: Partial<{ name: string; status: string
  * These test the selector chain that AgentsPanel uses:
  *   selectSortedAgentList → selectFleetSummary
  *
- * The selectors are the same ones mounted inside AgentsPanel via
- * useFleetStore(selectSortedAgentList) and useFleetStore(selectFleetSummary).
- * By testing them directly against seeded store state, we verify the
- * full data flow without triggering the zustand/useSyncExternalStore
- * infinite loop that occurs when components with new-reference selectors
- * are rendered in the test environment.
+ * The selectors are the same ones mounted inside AgentsPanel. Component
+ * subscriptions wrap derived array/object results in useShallow so Zustand's
+ * useSyncExternalStore snapshot stays reference-stable.
  */
 
 describe('AgentsPanel data routing', () => {
+  afterEach(cleanup);
+
   beforeEach(() => {
     useFleetStore.setState({ agents: new Map() });
   });
@@ -97,5 +98,15 @@ describe('AgentsPanel data routing', () => {
 
     const list = selectSortedAgentList(useFleetStore.getState());
     expect(list[0].name).toBe('Leader');
+  });
+
+  it('renders without a maximum-update-depth loop', () => {
+    const agents = new Map();
+    agents.set('a1', makeAgent('a1', { name: 'Alpha', status: 'running' }));
+    useFleetStore.setState({ agents, leaderId: 'a1' });
+
+    render(<AgentsPanel />);
+
+    expect(screen.getAllByText('Alpha')).toHaveLength(2);
   });
 });

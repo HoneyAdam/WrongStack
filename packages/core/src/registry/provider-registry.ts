@@ -66,11 +66,11 @@ export class ProviderRegistry {
     return this.factories.delete(type);
   }
 
-  create(cfg: ProviderConfig): Provider {
-    const f = this.factories.get(cfg.type);
+  create(cfg: ProviderConfig, factoryType: string = cfg.type): Provider {
+    const f = this.factories.get(factoryType);
     if (!f) {
       throw new Error(
-        `Provider type "${cfg.type}" not registered. Available: ${Array.from(this.factories.keys()).join(', ')}`,
+        `Provider type "${factoryType}" not registered. Available: ${Array.from(this.factories.keys()).join(', ')}`,
       );
     }
     return f.create(cfg);

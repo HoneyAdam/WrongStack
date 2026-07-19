@@ -301,7 +301,7 @@ export async function runAuthLocal(
         if (!p.activeKey) p.activeKey = finalLabel;
       }
       all[chosen.id] = p;
-    });
+    }, deps.profileConfigPath);
   } catch (err) {
     deps.renderer.writeError(`Failed to save ${chosen.id}: ${(err as Error).message}`);
     return 1;

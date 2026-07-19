@@ -169,7 +169,7 @@ export function createAgentResponseHandler(a: AgentInternals): AgentResponseHand
       usage: res.usage,
       stopReason: res.stopReason,
     });
-    a.ctx.tokenCounter.account(res.usage, req.model);
+    a.ctx.tokenCounter.account(res.usage, req.model, a.ctx.provider.id);
 
     // Issue #271: never append or persist a semantically empty assistant
     // response (e.g. a stream interrupted before the first meaningful delta,

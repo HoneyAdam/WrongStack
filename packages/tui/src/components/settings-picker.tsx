@@ -223,6 +223,8 @@ export interface SettingsPickerProps {
   statuslineMode: StatuslineMode;
   /** Where settings are persisted. */
   configScope: ConfigScope;
+  /** Active profile config path used when {@link configScope} is global. */
+  profileConfigPath?: string | undefined;
   /**
    * Animation style for the status bar's working/thinking chip.
    * One of the AnimationStyle values, or 'cycle' to rotate through variants.
@@ -1012,6 +1014,7 @@ export function SettingsPicker({
   debugStream,
   statuslineMode,
   configScope,
+  profileConfigPath = '~/.wrongstack/profiles/default/config.json',
   animationStyle,
   breakerEnabled,
   breakerAutoKillResetMs,
@@ -1590,7 +1593,7 @@ export function SettingsPicker({
       <Text dimColor>
         {configScope === 'project'
           ? 'Persisted to <project>/.wrongstack/config.json'
-          : 'Persisted to ~/.wrongstack/config.json'}
+          : `Persisted to ${profileConfigPath}`}
       </Text>
       {hint ? <Text color="yellow">{hint}</Text> : null}
     </Box>

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { stripAnsi } from '@wrongstack/core';
@@ -9,17 +9,20 @@ import type { SlashCommandContext } from '../src/slash-commands/index.js';
 function makeCtx(initial: Record<string, unknown> = {}) {
   const wsDir = mkdtempSync(path.join(tmpdir(), 'wstack-fallback-'));
   const globalConfig = path.join(wsDir, 'config.json');
+  const profileConfig = path.join(wsDir, 'profiles', 'default', 'config.json');
   const seed = { provider: 'anthropic', model: 'opus', providers: {}, ...initial };
-  writeFileSync(globalConfig, JSON.stringify(seed, null, 2));
+  writeFileSync(globalConfig, JSON.stringify({ version: 1, activeProfile: 'default' }, null, 2));
+  mkdirSync(path.dirname(profileConfig), { recursive: true });
+  writeFileSync(profileConfig, JSON.stringify(seed, null, 2));
   let live: Record<string, unknown> = { ...seed };
   const update = vi.fn((patch: Record<string, unknown>) => {
     live = { ...live, ...patch };
   });
   const ctx = {
     configStore: { get: vi.fn(() => live), update },
-    paths: { globalConfig },
+    paths: { globalConfig, profileConfig: () => profileConfig },
   } as never as SlashCommandContext;
-  const readFile = () => JSON.parse(readFileSync(globalConfig, 'utf8')) as Record<string, unknown>;
+  const readFile = () => JSON.parse(readFileSync(profileConfig, 'utf8')) as Record<string, unknown>;
   return { ctx, update, readFile, getLive: () => live };
 }
 

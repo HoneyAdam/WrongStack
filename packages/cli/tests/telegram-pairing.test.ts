@@ -58,7 +58,7 @@ async function setupRig(choice: string, useSurfacePrompt = false) {
   const readText = vi.fn(async () => choice);
   const command = buildTelegramSetupCommand({
     configStore,
-    paths: { globalConfig: configPath },
+    paths: { globalConfig: configPath, profileConfig: () => configPath },
     readSecret: vi.fn(async () => TOKEN),
     vault,
     renderer: { write },

@@ -77,7 +77,7 @@ async function dispatchAction(
     if (answer) {
       await mutateConfigProviders(deps.globalConfigPath, deps.vault, (all) => {
         delete all[providerId];
-      });
+      }, deps.profileConfigPath);
       deps.renderer.write(`  ${color.green('✓')} Removed ${providerId}.\n`);
       return 'exit';
     }
@@ -97,7 +97,7 @@ async function dispatchAction(
         k.label === target.label ? { ...k, apiKey: newKey, createdAt: nowIso() } : k,
       );
       writeKeysBack(p, list);
-    });
+    }, deps.profileConfigPath);
     deps.renderer.write(`  ${color.green('✓')} Updated ${providerId}/${target.label}.\n`);
     return 'continue';
   }
@@ -120,7 +120,7 @@ async function dispatchAction(
       if (p.activeKey === target.label) {
         p.activeKey = list[0]?.label;
       }
-    });
+    }, deps.profileConfigPath);
     deps.renderer.write(`  ${color.green('✓')} Deleted ${providerId}/${target.label}.\n`);
     return 'continue';
   }
@@ -135,7 +135,7 @@ async function dispatchAction(
       const list = normalizeKeys(p);
       writeKeysBack(p, list);
       p.activeKey = target.label;
-    });
+    }, deps.profileConfigPath);
     deps.renderer.write(`  ${color.green('✓')} Active key → ${color.bold(target.label)}.\n`);
     return 'continue';
   }
@@ -160,14 +160,14 @@ async function dispatchAction(
         const p = all[providerId];
         if (!p) return;
         p.family = validated;
-      });
+      }, deps.profileConfigPath);
       deps.renderer.write(`  ${color.green('✓')} family → ${validated}\n`);
     } else {
       await mutateConfigProviders(deps.globalConfigPath, deps.vault, (all) => {
         const p = all[providerId];
         if (!p) return;
         delete p.family;
-      });
+      }, deps.profileConfigPath);
       deps.renderer.write(`  ${color.green('✓')} family → (unset)\n`);
     }
     return 'continue';
@@ -189,7 +189,7 @@ async function dispatchAction(
       if (!p) return;
       if (ans === '') delete p.baseUrl;
       else p.baseUrl = ans;
-    });
+    }, deps.profileConfigPath);
     deps.renderer.write(`  ${color.green('✓')} baseUrl → ${ans || '(unset)'}\n`);
     return 'continue';
   }
@@ -213,7 +213,7 @@ async function dispatchAction(
       if (!p) return;
       if (list.length === 0) delete p.models;
       else p.models = list;
-    });
+    }, deps.profileConfigPath);
     deps.renderer.write(
       `  ${color.green('✓')} models → ${list.length === 0 ? '(catalog default)' : list.join(', ')}\n`,
     );

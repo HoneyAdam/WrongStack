@@ -302,7 +302,7 @@ export async function addKeyForProvider(
     writeKeysBack(existingProv, list);
     if (!existingProv.activeKey) existingProv.activeKey = label;
     all[providerId] = existingProv;
-  });
+  }, deps.profileConfigPath);
 
   deps.renderer.write(
     `  ${color.green('✓')} Saved ${color.bold(providerId)}/${color.bold(label)}.\n`,
@@ -349,9 +349,10 @@ async function adoptAsDefaultIfUnset(
   providerId: string,
   template: Partial<ProviderConfig>,
 ): Promise<void> {
+  const targetPath = deps.profileConfigPath;
   let cfg: Record<string, unknown> = {};
   try {
-    cfg = JSON.parse(await fs.readFile(deps.globalConfigPath, 'utf8')) as Record<string, unknown>;
+    cfg = JSON.parse(await fs.readFile(targetPath, 'utf8')) as Record<string, unknown>;
   } catch {
     // Missing/unparsable config — treat as "no default set" and continue.
   }
@@ -363,11 +364,11 @@ async function adoptAsDefaultIfUnset(
   // Write straight to the same config path we just saved the provider into.
   // Re-serialising the parsed object preserves the vault-encrypted provider
   // blobs verbatim (we never decrypt here), and scoping the write to
-  // `globalConfigPath` keeps it path-honest — unlike saveToGlobalConfig, whose
+  // the resolved profile target keeps it path-honest — unlike saveToGlobalConfig, whose
   // backup step targets the real ~/.wrongstack regardless of the path passed.
   cfg['provider'] = providerId;
   cfg['model'] = modelId;
-  await atomicWrite(deps.globalConfigPath, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+  await atomicWrite(targetPath, JSON.stringify(cfg, null, 2), { mode: 0o600 });
   deps.renderer.write(
     `  ${color.green('✓')} Set ${color.bold(providerId)}/${color.bold(modelId)} as the default.\n`,
   );

@@ -175,9 +175,9 @@ export function createDelegateTool(opts: CreateDelegateToolOptions): Tool {
   return {
     name: 'delegate',
     description:
-      'Hand a piece of work to a subagent and wait for its result. Has own context, LLM call, auto-extending budget. Can continue remaining work with a fresh subagent on partial completion (maxHandoffs, default 1). Workers cannot recursively spawn. Use roster roles when possible; otherwise pass `name` + `task`.',
+      'Hand a piece of work to a subagent and block until it returns. This call is synchronous: the leader\'s iteration pauses for the full duration of the subagent\'s run. (Multiple `delegate` calls fired in the same assistant turn still parallelize through the provider\'s parallel-tool-call surface, but each one eats wall-clock time — so for fan-out you actually control, reach for the async path below.) Use `delegate` when your next step genuinely needs the subagent\'s verdict — a review, a fact-check, a sign-off. Has own context, own LLM call, auto-extending budget, and a partial-completion handoff path (maxHandoffs, default 1). Workers cannot recursively spawn.\n\n**Do NOT use `delegate` for fan-out you control.** Multiple sequential `delegate` calls each block the leader, wasting wall-clock time. For independent investigations you want to run in parallel — security scan + bug hunt + perf review on the same PR — use the async tool family: `spawn_subagent` to create each worker (returns a `subagentId` immediately), `assign_task` to queue work on it (returns a `taskId` immediately), then the `await_tasks` tool with `{mode: \'any\'}` to fold the first useful result into the next decision while the rest keep churning. Reach for `delegate` only when the result gates your next move.',
     usageHint:
-      'Set `task` to a complete instruction. Pick `role` from roster or pass `name` for free-form. Override `timeoutMs`/`maxIterations`/`maxToolCalls` only when needed.',
+      'Set `task` to a complete instruction. Pick `role` from roster or pass `name` for free-form. Raise `maxHandoffs` (default 1, cap 8) for multi-day or multi-refactor tasks; pass larger `timeoutMs`/`maxIterations`/`maxToolCalls` only when needed. For parallel work, use `spawn_subagent` + `assign_task` + `await_tasks` instead.',
     permission: 'auto',
     mutating: false,
     managesOwnTimeout: true,

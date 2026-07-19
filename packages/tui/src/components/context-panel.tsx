@@ -1,5 +1,6 @@
+import type { ContextBreakdown } from '@wrongstack/core';
 import type React from 'react';
-import { contextBar } from '../context-slash.js';
+import { useState } from 'react';
 import { Box, Text, useInput } from '../ink.js';
 import type { MemoryContextMonitorState } from '../memory-context-monitor.js';
 import { theme } from '../theme.js';
@@ -11,6 +12,10 @@ import {
   SectionLabel,
   useMonitorSize,
 } from './monitor-shell.js';
+// The bracket-style `[000o····]` meter is the statusline's context bar; reuse
+// it here so the panel's fill bars mirror the statusline instead of using a
+// second (block `█░`) visual language.
+import { renderMeter } from './status-bar.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -22,6 +27,13 @@ export interface ContextPanelData {
   model: string;
   mode: string;
   uptime: string;
+  /**
+   * Real, measured per-category token accounting for the live request. When
+   * present the Composition tab shows honest numbers; when absent (no request
+   * has been assembled yet) the tab shows an empty state instead of fabricated
+   * percentages.
+   */
+  breakdown: ContextBreakdown | undefined;
   fleetEntries: Array<{
     name: string;
     status: string;
@@ -38,6 +50,16 @@ export interface ContextPanelProps {
   data: ContextPanelData;
   onClose: () => void;
 }
+
+type TabId = 'overview' | 'composition' | 'thresholds' | 'agents' | 'memory';
+
+const TABS: Array<{ id: TabId; label: string }> = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'composition', label: 'Composition' },
+  { id: 'thresholds', label: 'Thresholds' },
+  { id: 'agents', label: 'Agents' },
+  { id: 'memory', label: 'Memory' },
+];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -91,14 +113,27 @@ function zoneLabel(pct: number): string {
   }
 }
 
-const SOURCE_BREAKDOWN: Array<{ icon: string; label: string; pct: number }> = [
-  { icon: '💬', label: 'History', pct: 0.42 },
-  { icon: '⚙️', label: 'System', pct: 0.2 },
-  { icon: '🔧', label: 'Tools', pct: 0.14 },
-  { icon: '🔌', label: 'MCP', pct: 0.09 },
-  { icon: '📎', label: 'Files', pct: 0.06 },
-  { icon: '🎯', label: 'Custom', pct: 0.04 },
-];
+/** Compact token formatter, e.g. 30_800 → "30.8k". */
+function fmtTok(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}m`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
+  return String(Math.round(value));
+}
+
+/** Human labels for the system-prompt sub-sources reported by the breakdown. */
+const SOURCE_LABEL: Record<string, string> = {
+  identity: 'identity',
+  'tool-usage': 'tool-usage',
+  environment: 'environment',
+  skills: 'skills',
+  mode: 'mode',
+  plan: 'plan',
+  'leader-after-task': 'leader',
+  contributor: 'contributor',
+  ledger: 'ledger',
+  nextsteps: 'nextsteps',
+  other: 'other',
+};
 
 const ZONES: Array<{ label: string; emoji: string; from: number; to: number; desc: string }> = [
   { label: 'Safe', emoji: '🟢', from: 0, to: 60, desc: 'normal operation' },
@@ -106,13 +141,6 @@ const ZONES: Array<{ label: string; emoji: string; from: number; to: number; des
   { label: 'Critical', emoji: '🔴', from: 85, to: 95, desc: 'compact now' },
   { label: 'Danger', emoji: '⚫', from: 95, to: 100, desc: 'context nearly full' },
 ];
-
-/** Render a thin horizontal colored bar using block chars. */
-function thinBar(fillPct: number, totalLen: number): string {
-  if (totalLen <= 0) return '';
-  const f = Math.round(Math.min(1, Math.max(0, fillPct)) * totalLen);
-  return '█'.repeat(Math.max(1, f)) + '░'.repeat(Math.max(0, totalLen - f));
-}
 
 /** Render the threshold axis line with markers. */
 function renderAxis(pct: number, barWidth: number): { axis: string; label: string } {
@@ -168,7 +196,9 @@ function PressureSection({
       <Box marginTop={1}>
         <Text color={zoneColor(zoneFor(pct))}>{emoji}</Text>
         <Text> </Text>
-        <Text>{contextBar(pct, barWidth)}</Text>
+        <Text color={zoneColor(zoneFor(pct))}>
+          {renderMeter(pct, barWidth)} {(pct * 100).toFixed(0)}%
+        </Text>
       </Box>
       <Text color={theme.textMuted}> {axis}</Text>
       <Text color={theme.textMuted}> {label}</Text>
@@ -176,83 +206,192 @@ function PressureSection({
   );
 }
 
+/**
+ * Real composition, measured from the assembled request. Top-level categories
+ * (System / Tools / History / Volatile) each render a bar sized to their share
+ * of the total, plus a muted sub-line of the biggest constituents.
+ */
 function CompositionSection({
-  data,
+  breakdown,
   contentWidth,
 }: {
-  data: ContextPanelData;
+  breakdown: ContextBreakdown | undefined;
   contentWidth: number;
-}): React.ReactElement | null {
-  if (data.ctxTokens == null) return null;
-  const barLen = Math.min(20, Math.max(6, contentWidth - 30));
+}): React.ReactElement {
+  if (!breakdown || breakdown.total <= 0) {
+    return (
+      <Box flexDirection="column" marginTop={1}>
+        <SectionLabel>CONTEXT COMPOSITION</SectionLabel>
+        <Text color={theme.textMuted}>
+          No request assembled yet — composition appears once the request has been assembled for the
+          current turn.
+        </Text>
+      </Box>
+    );
+  }
+
+  const total = breakdown.total;
+  const barLen = Math.min(24, Math.max(8, contentWidth - 34));
+
+  // Top system sub-sources by token weight, for the System sub-line.
+  const topSources = Object.entries(breakdown.system.bySource)
+    .filter(([, tok]) => tok > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([src, tok]) => `${SOURCE_LABEL[src] ?? src} ${fmtTok(tok)}`)
+    .join(' · ');
+
+  // Top MCP servers, for the Tools sub-line.
+  const topServers = Object.entries(breakdown.tools.mcpByServer)
+    .filter(([, tok]) => tok > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    .map(([srv, tok]) => `${srv} ${fmtTok(tok)}`)
+    .join(' · ');
+
+  const rows: Array<{ icon: string; label: string; tokens: number; sub: string }> = [
+    {
+      icon: '⚙️',
+      label: 'System',
+      tokens: breakdown.system.total,
+      sub: topSources || 'prompt sections',
+    },
+    {
+      icon: '🔧',
+      label: 'Tools',
+      tokens: breakdown.tools.total,
+      sub: `builtin ${fmtTok(breakdown.tools.builtin)} · mcp ${fmtTok(breakdown.tools.mcp)}${
+        topServers ? ` (${topServers})` : ''
+      } · ${breakdown.tools.count} defs`,
+    },
+    {
+      icon: '💬',
+      label: 'History',
+      tokens: breakdown.history.total,
+      sub: `text ${fmtTok(breakdown.history.text)} · results ${fmtTok(
+        breakdown.history.toolResults,
+      )} · ${breakdown.history.messageCount} msgs`,
+    },
+    {
+      icon: '🎯',
+      label: 'Volatile',
+      tokens: breakdown.volatile.total,
+      sub: `ledger ${fmtTok(breakdown.volatile.ledger)} · next-steps ${fmtTok(
+        breakdown.volatile.nextsteps,
+      )}`,
+    },
+  ];
 
   return (
     <Box flexDirection="column" marginTop={1}>
       <SectionLabel>CONTEXT COMPOSITION</SectionLabel>
       <Text color={theme.textMuted}>
-        Estimated breakdown of {data.ctxTokens.toLocaleString('en-US')} tokens
+        Measured breakdown of {total.toLocaleString('en-US')} tokens ·{' '}
+        {((Number.isFinite(breakdown.usedPct) ? breakdown.usedPct : 0) * 100).toFixed(1)}% of{' '}
+        {fmtTok(breakdown.effectiveMaxContext)}
       </Text>
-      {SOURCE_BREAKDOWN.map((src) => {
-        const srcTokens = Math.round(data.ctxTokens! * src.pct).toLocaleString('en-US');
+      {rows.map((row) => {
+        const frac = total > 0 ? row.tokens / total : 0;
         return (
-          <Box key={src.label}>
+          <Box key={row.label} flexDirection="column">
             <Text>
-              <Text>{src.icon} </Text>
-              <Text color={theme.textSecondary}>{src.label.padEnd(12)}</Text>
-              <Text color={theme.textMuted}>{thinBar(src.pct, barLen)}</Text>
+              <Text>{row.icon} </Text>
+              <Text color={theme.textSecondary}>{row.label.padEnd(9)}</Text>
+              <Text color={theme.textMuted}>{renderMeter(frac, barLen)}</Text>
               <Text> </Text>
-              <Text color={theme.textMuted}>{(src.pct * 100).toFixed(1)}%</Text>
+              <Text color={theme.textMuted}>{(frac * 100).toFixed(1).padStart(4)}%</Text>
               <Text> </Text>
-              <Text color={theme.textSecondary}>{srcTokens}</Text>
+              <Text color={theme.textPrimary}>{fmtTok(row.tokens).padStart(6)}</Text>
+            </Text>
+            <Text color={theme.textMuted}>
+              {'   '}
+              {row.sub}
             </Text>
           </Box>
         );
       })}
+      {breakdown.warnings.length > 0 ? (
+        <Text color={theme.warn}> ⚠ {breakdown.warnings.join(' · ')}</Text>
+      ) : null}
     </Box>
   );
 }
 
-function ThresholdSection({ data }: { data: ContextPanelData }): React.ReactElement {
-  const curVal = (data.ctxPct ?? 0) * 100;
+function ThresholdSection({
+  data,
+  contentWidth,
+}: {
+  data: ContextPanelData;
+  contentWidth: number;
+}): React.ReactElement {
+  const pct = data.ctxPct ?? 0;
+  const curVal = pct * 100;
+  const activeZone = zoneFor(pct);
 
-  // Zone strip across the top
-  const stripLen = 30;
-  let zoneStrip = '';
-  for (const z of ZONES) {
-    const zLen = Math.round(((z.to - z.from) / 100) * stripLen);
-    zoneStrip += `${z.emoji}${'█'.repeat(Math.max(1, zLen))}`;
-  }
+  // Reuse the same bracket meter + tick axis as the Overview PRESSURE gauge so
+  // the two tabs read as one visual language (the old emoji+█ strip rendered
+  // ragged because emoji occupy an ambiguous cell width that breaks alignment).
+  const barWidth = Math.min(40, Math.max(10, contentWidth - 14));
+  const { axis, label } = renderAxis(pct, barWidth);
+
+  // Distance to the next threshold above the current fill, in % and tokens.
+  const nextBoundary = ZONES.find((z) => curVal < z.from);
+  const maxTok = data.ctxMaxTokens ?? 0;
+  const headroom =
+    nextBoundary && maxTok > 0
+      ? `${(nextBoundary.from - curVal).toFixed(1)}% (${fmtTok(
+          ((nextBoundary.from - curVal) / 100) * maxTok,
+        )}) until ${nextBoundary.desc}`
+      : nextBoundary
+        ? `${(nextBoundary.from - curVal).toFixed(1)}% until ${nextBoundary.desc}`
+        : 'in the final zone — compaction is overdue';
+
+  // Fixed-width ASCII columns (no emoji in the padded span) keep the table
+  // aligned; the zone state is carried by a single-cell colored ● instead.
+  const LABEL_W = 9;
+  const RANGE_W = 9;
 
   return (
     <Box flexDirection="column" marginTop={1}>
       <SectionLabel>THRESHOLD MAP</SectionLabel>
-      <Text color={theme.textMuted}> {zoneStrip}</Text>
-      {ZONES.map((z) => {
-        const marker = curVal >= z.from && curVal < z.to ? '  ◀' : '';
-        return (
-          <Box key={z.label}>
-            <Text>
-              <Text color={theme.textSecondary}>
-                {z.emoji} {z.label.padEnd(10)}
-              </Text>
-              <Text color={theme.textMuted}>
-                {' '}
-                {z.from}%–{z.to}%{' '.repeat(4)}
-                {z.desc.padEnd(24)}
-              </Text>
-              <Text color={zoneColor(zoneFor(data.ctxPct ?? 0))}>{marker}</Text>
-            </Text>
-          </Box>
-        );
-      })}
-      <Text color={theme.textMuted}>
-        {' '}
-        ▲ {curVal.toFixed(1)}% →{' '}
-        <Text color={zoneColor(zoneFor(data.ctxPct ?? 0))}>
-          {zoneEmoji(data.ctxPct ?? 0)} {zoneLabel(data.ctxPct ?? 0)}
+      <Box marginTop={1}>
+        <Text color={zoneColor(activeZone)}>
+          {renderMeter(pct, barWidth)} {curVal.toFixed(1)}%
         </Text>
-        {'    '}trigger: 85% limit: 100%
-      </Text>
+      </Box>
+      <Text color={theme.textMuted}> {axis}</Text>
+      <Text color={theme.textMuted}> {label}</Text>
+
+      <Box flexDirection="column" marginTop={1}>
+        {ZONES.map((z) => {
+          const isActive = curVal >= z.from && curVal < z.to;
+          const zColor = zoneColor(zoneFor((z.from + 0.01) / 100));
+          const range = `${z.from}–${z.to}%`;
+          return (
+            <Box key={z.label}>
+              <Text color={zColor}>{'●'}</Text>
+              <Text color={isActive ? theme.textPrimary : theme.textSecondary}>
+                {' '}
+                {z.label.padEnd(LABEL_W)}
+              </Text>
+              <Text color={theme.textMuted}>{range.padStart(RANGE_W)} </Text>
+              <Text color={isActive ? theme.textSecondary : theme.textMuted}>
+                {'  '}
+                {z.desc}
+              </Text>
+              {isActive ? <Text color={zColor}>{'  ◀ now'}</Text> : null}
+            </Box>
+          );
+        })}
+      </Box>
+
+      <Box marginTop={1}>
+        <Text color={theme.textMuted}>now </Text>
+        <Text color={zoneColor(activeZone)}>
+          {curVal.toFixed(1)}% {zoneLabel(pct)}
+        </Text>
+        <Text color={theme.textMuted}> · {headroom}</Text>
+      </Box>
     </Box>
   );
 }
@@ -260,7 +399,6 @@ function ThresholdSection({ data }: { data: ContextPanelData }): React.ReactElem
 function CompactionSection({ data }: { data: ContextPanelData }): React.ReactElement {
   const max = data.ctxMaxTokens ?? 200_000;
   const pct = data.ctxPct ?? 0;
-  const recoveryEst = Math.round(max * 0.18).toLocaleString('en-US');
   const needsCompact = pct > 0.65;
 
   return (
@@ -277,13 +415,9 @@ function CompactionSection({ data }: { data: ContextPanelData }): React.ReactEle
         <Text color={theme.textSecondary}> {(max * 0.85).toLocaleString('en-US')} (85%)</Text>
       </Box>
       <Box>
-        <Text color={theme.textMuted}>Recovery </Text>
-        <Text color={theme.textSecondary}> ~{recoveryEst} (~18% of window)</Text>
-      </Box>
-      <Box>
         <Text color={theme.textMuted}>Recommend </Text>
         <Text color={needsCompact ? theme.warn : theme.success}>
-          {needsCompact ? '⚠️ Compact now — reclaim ~18%' : '✅ No compaction needed'}
+          {needsCompact ? '⚠️ Compact soon' : '✅ No compaction needed'}
         </Text>
       </Box>
     </Box>
@@ -296,10 +430,9 @@ function AgentFootprintSection({
 }: {
   data: ContextPanelData;
   contentWidth: number;
-}): React.ReactElement | null {
+}): React.ReactElement {
   const leaderPct = data.ctxPct;
   const fleet = data.fleetEntries.filter((e) => e.ctxPct != null);
-  if (leaderPct == null && fleet.length === 0) return null;
 
   const allAgents: Array<{ name: string; ctxPct: number }> = [];
   if (leaderPct != null) allAgents.push({ name: 'LEADER', ctxPct: leaderPct });
@@ -307,7 +440,16 @@ function AgentFootprintSection({
     if (e.ctxPct != null) allAgents.push({ name: e.name, ctxPct: e.ctxPct });
   }
 
-  const agentBarLen = Math.min(30, contentWidth - 22);
+  if (allAgents.length === 0) {
+    return (
+      <Box flexDirection="column" marginTop={1}>
+        <SectionLabel>PER-AGENT FOOTPRINT</SectionLabel>
+        <Text color={theme.textMuted}>No agent context data yet.</Text>
+      </Box>
+    );
+  }
+
+  const agentBarLen = Math.min(30, Math.max(8, contentWidth - 22));
 
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -318,7 +460,7 @@ function AgentFootprintSection({
         const aColor = zoneColor(zoneFor(apct));
         const aPct = `${(apct * 100).toFixed(0)}%`.padStart(4);
         const tag = a.name === 'LEADER' ? '👑' : '  ';
-        const aBar = thinBar(apct, agentBarLen);
+        const aBar = renderMeter(apct, agentBarLen);
         return (
           <Box key={a.name}>
             <Text>
@@ -335,14 +477,21 @@ function AgentFootprintSection({
   );
 }
 
-function MetricsSection({ data }: { data: ContextPanelData }): React.ReactElement | null {
-  if (data.ctxTokens == null) return null;
+function MetricsSection({ data }: { data: ContextPanelData }): React.ReactElement {
+  if (data.ctxTokens == null) {
+    return (
+      <Box flexDirection="column" marginTop={1}>
+        <SectionLabel>TOKEN METRICS</SectionLabel>
+        <Text color={theme.textMuted}>No token count reported yet.</Text>
+      </Box>
+    );
+  }
   const used = data.ctxTokens;
   const max = data.ctxMaxTokens ?? 200_000;
   const pct = data.ctxPct ?? (max > 0 ? used / max : 0);
   const free = max - used;
   const freePct = max > 0 ? ((free / max) * 100).toFixed(1) : '0.0';
-  const utilBar = thinBar(pct, 20);
+  const utilBar = renderMeter(pct, 20);
 
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -406,22 +555,19 @@ function StatusSection({ data }: { data: ContextPanelData }): React.ReactElement
     <Box flexDirection="column" marginTop={1}>
       <SectionLabel>STATUS</SectionLabel>
       <Text color={zoneColor(z)}>{verdict}</Text>
-      <Text color={theme.textMuted}>
-        <Text> </Text>
-        Run{' '}
-        <Text color={theme.assistant} bold>
-          /context
-        </Text>{' '}
-        for the full dashboard with git, fleet, memory & env.
-      </Text>
     </Box>
   );
 }
 
-function MemoryContextSection({ data }: { data: ContextPanelData }): React.ReactElement | null {
+function MemoryContextSection({ data }: { data: ContextPanelData }): React.ReactElement {
   const ctx = data.memoryContext;
   if (!ctx || (Object.keys(ctx.memories).length === 0 && ctx.transitions.length === 0)) {
-    return null;
+    return (
+      <Box flexDirection="column" marginTop={1}>
+        <SectionLabel>SUPER MEMORY IN CONTEXT</SectionLabel>
+        <Text color={theme.textMuted}>No memory has entered this session context.</Text>
+      </Box>
+    );
   }
   const records = Object.values(ctx.memories)
     .slice()
@@ -445,47 +591,31 @@ function MemoryContextSection({ data }: { data: ContextPanelData }): React.React
         <Text color={theme.warn}>{` · ${pending} pending`}</Text>
         <Text color={theme.textMuted}>{` · ${exited} left · exact provider request snapshot`}</Text>
       </Text>
-      {records.length === 0 ? (
-        <Text color={theme.textMuted}>No memory has entered this session context.</Text>
-      ) : (
-        records.slice(0, 10).map((memory) => {
-          const stateLabel =
-            memory.state === 'active'
-              ? 'CONTEXT'
-              : memory.state === 'injected'
-                ? 'PENDING'
-                : 'LEFT';
-          const arrow = memory.state === 'exited' ? '↳' : '↲';
-          const stateColor =
-            memory.state === 'active'
-              ? theme.success
-              : memory.state === 'injected'
-                ? theme.warn
-                : theme.textMuted;
-          return (
-            <Box key={memory.id} flexDirection="column" marginTop={1}>
-              <Text>
-                <Text color={stateColor}>{`${arrow} ${stateLabel.padEnd(7)}`}</Text>
-                <Text color={theme.assistant}>{memory.id}</Text>
-                <Text color={theme.textMuted}>{` [${memory.kind}] ${memory.persistence}`}</Text>
-              </Text>
-              <Text color={theme.textSecondary}>{memory.text}</Text>
-              {memory.isPlaceholder !== true && memory.activationReasons.length > 0 && (
-                <Text color={theme.textMuted}>
-                  {`score ${memory.score.toFixed(2)} · confidence ${memory.confidence.toFixed(2)} · freshness ${memory.freshness.toFixed(2)} · importance ${memory.importance.toFixed(2)}`}
-                </Text>
-              )}
-              <Text color={theme.textMuted}>
-                {`why: ${memory.activationReasons.join(' · ') || 'context snapshot'}`}
-              </Text>
-            </Box>
-          );
-        })
-      )}
+      {records.slice(0, 6).map((memory) => {
+        const stateLabel =
+          memory.state === 'active' ? 'CONTEXT' : memory.state === 'injected' ? 'PENDING' : 'LEFT';
+        const arrow = memory.state === 'exited' ? '↳' : '↲';
+        const stateColor =
+          memory.state === 'active'
+            ? theme.success
+            : memory.state === 'injected'
+              ? theme.warn
+              : theme.textMuted;
+        return (
+          <Box key={memory.id} flexDirection="column" marginTop={1}>
+            <Text>
+              <Text color={stateColor}>{`${arrow} ${stateLabel.padEnd(7)}`}</Text>
+              <Text color={theme.assistant}>{memory.id}</Text>
+              <Text color={theme.textMuted}>{` [${memory.kind}] ${memory.persistence}`}</Text>
+            </Text>
+            <Text color={theme.textSecondary}>{memory.text}</Text>
+          </Box>
+        );
+      })}
       {data.memoryContext.transitions.length > 0 ? (
         <Box flexDirection="column" marginTop={1}>
           <Text color={theme.textSecondary}>CAME / WENT</Text>
-          {data.memoryContext.transitions.slice(0, 8).map((transition) => (
+          {data.memoryContext.transitions.slice(0, 6).map((transition) => (
             <Text
               key={transition.id}
               color={transition.action === 'exited' ? theme.textMuted : theme.success}
@@ -499,31 +629,79 @@ function MemoryContextSection({ data }: { data: ContextPanelData }): React.React
   );
 }
 
+// ── Tab bar ───────────────────────────────────────────────────────────────────
+
+function TabBar({ active }: { active: TabId }): React.ReactElement {
+  return (
+    <Box marginTop={1}>
+      <Text color={theme.textMuted}>‹ </Text>
+      {TABS.map((tab, i) => {
+        const isActive = tab.id === active;
+        return (
+          <Text key={tab.id}>
+            {i > 0 ? <Text color={theme.textMuted}> │ </Text> : null}
+            <Text
+              color={isActive ? theme.accent : theme.textMuted}
+              bold={isActive}
+              underline={isActive}
+            >
+              {i + 1} {tab.label}
+            </Text>
+          </Text>
+        );
+      })}
+      <Text color={theme.textMuted}> ›</Text>
+    </Box>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function ContextPanel({ data, onClose }: ContextPanelProps): React.ReactElement {
   const size = useMonitorSize();
   const contentWidth = size.contentWidth;
+  const [tab, setTab] = useState<TabId>('overview');
 
-  useInput((_input, key) => {
+  useInput((input, key) => {
     if (key.escape) {
       onClose();
+      return;
+    }
+    const idx = TABS.findIndex((t) => t.id === tab);
+    if (key.rightArrow || key.tab) {
+      const next = TABS[(idx + 1) % TABS.length];
+      if (next) setTab(next.id);
+      return;
+    }
+    if (key.leftArrow) {
+      const prev = TABS[(idx - 1 + TABS.length) % TABS.length];
+      if (prev) setTab(prev.id);
+      return;
+    }
+    // Direct 1-{TABS.length} jump. Non-digit input is safely ignored
+    // (parseInt returns NaN), and digits > TABS.length have no match.
+    const n = Number.parseInt(input, 10);
+    const direct = TABS[n - 1];
+    if (!Number.isNaN(n) && direct) {
+      setTab(direct.id);
     }
   });
 
-  if (
+  const isEmpty =
     data.ctxPct == null &&
     data.ctxTokens == null &&
     Object.keys(data.memoryContext.memories).length === 0 &&
     data.memoryContext.transitions.length === 0 &&
-    data.memoryContext.latest === undefined
-  ) {
+    data.memoryContext.latest === undefined;
+
+  if (isEmpty) {
     return (
       <MonitorShell
         accent={theme.monitor.fleet}
         icon={glyphs.context}
         title="CONTEXT"
         kicker={size.columns >= 80 ? 'context window' : undefined}
+        maxHeight={Math.max(8, size.rows - 1)}
         right={
           <Text color={theme.textMuted}>
             {glyphs.clock} {data.uptime}
@@ -552,6 +730,7 @@ export function ContextPanel({ data, onClose }: ContextPanelProps): React.ReactE
       icon={glyphs.context}
       title="CONTEXT WINDOW"
       kicker={size.columns >= 80 ? `${data.model} · ${data.provider}` : undefined}
+      maxHeight={Math.max(8, size.rows - 1)}
       right={
         <Text>
           <Text color={zoneClr}>{emoji}</Text>
@@ -566,7 +745,7 @@ export function ContextPanel({ data, onClose }: ContextPanelProps): React.ReactE
         <Box gap={2}>
           <KeyCap keyName="Esc" label="close" color={zoneClr} />
           <Text color={theme.textMuted}>
-            ctx = latest provider request · pending = next request
+            ←/→ or Ctrl+1-{TABS.length} switch tab · `/context` for full dashboard
           </Text>
         </Box>
       }
@@ -587,15 +766,29 @@ export function ContextPanel({ data, onClose }: ContextPanelProps): React.ReactE
           </Text>
         </Box>
 
-        {/* Sections */}
-        <PressureSection data={data} contentWidth={contentWidth} />
-        <CompositionSection data={data} contentWidth={contentWidth} />
-        <ThresholdSection data={data} />
-        <CompactionSection data={data} />
-        <AgentFootprintSection data={data} contentWidth={contentWidth} />
-        <MemoryContextSection data={data} />
-        <MetricsSection data={data} />
-        <StatusSection data={data} />
+        <TabBar active={tab} />
+
+        {/* Active tab body — only one tab renders, so the panel never overflows. */}
+        {tab === 'overview' ? (
+          <>
+            <PressureSection data={data} contentWidth={contentWidth} />
+            <StatusSection data={data} />
+            <MetricsSection data={data} />
+          </>
+        ) : null}
+        {tab === 'composition' ? (
+          <CompositionSection breakdown={data.breakdown} contentWidth={contentWidth} />
+        ) : null}
+        {tab === 'thresholds' ? (
+          <>
+            <ThresholdSection data={data} contentWidth={contentWidth} />
+            <CompactionSection data={data} />
+          </>
+        ) : null}
+        {tab === 'agents' ? (
+          <AgentFootprintSection data={data} contentWidth={contentWidth} />
+        ) : null}
+        {tab === 'memory' ? <MemoryContextSection data={data} /> : null}
 
         {/* Bottom spacer */}
         <Box height={1} />

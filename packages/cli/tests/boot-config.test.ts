@@ -75,6 +75,32 @@ describe('bootConfig', () => {
     expect(written.model).toBeUndefined();
   });
 
+  it('does not re-import root settings when the selected profile file already exists', async () => {
+    const projectDir = await mkTempDir('wstack-boot-existing-profile-');
+    const wsDir = path.join(homeDir, '.wrongstack');
+    const profilePath = path.join(wsDir, 'profiles', 'default', 'config.json');
+    await fs.mkdir(path.dirname(profilePath), { recursive: true });
+    await fs.writeFile(profilePath, '{}');
+    await fs.writeFile(
+      path.join(wsDir, 'config.json'),
+      JSON.stringify({
+        version: 1,
+        activeProfile: 'default',
+        provider: 'stale-root-provider',
+        model: 'stale-root-model',
+      }),
+    );
+
+    const result = await bootConfig({ cwd: projectDir });
+
+    expect(result.config.provider).toBeUndefined();
+    expect(result.config.model).toBeUndefined();
+    expect(JSON.parse(await fs.readFile(path.join(wsDir, 'config.json'), 'utf8'))).toEqual({
+      version: 1,
+      activeProfile: 'default',
+    });
+  });
+
   it('CLI provider/model flags override file defaults', async () => {
     const projectDir = await mkTempDir('wstack-boot-flags-');
     const result = await bootConfig({

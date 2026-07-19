@@ -73,6 +73,7 @@ import { refreshRuntimeModelCatalog } from './context-limit.js';
 import { execute } from './execution.js';
 import { createGoalHost } from './goal-host.js';
 import { PLUGIN_AUDIT_ENTRIES, runPluginManagementCommand } from './plugin-management.js';
+import { activeProfileConfigPath } from './profile-config-path.js';
 import { buildPickableProviders } from './provider-helpers.js';
 import { wireSessionEvents } from './session-event-wiring.js';
 import { SessionStats } from './session-stats.js';
@@ -150,7 +151,9 @@ export async function main(argv: string[]): Promise<number> {
     events,
     container,
     configStore,
+    updateInfo,
   } = cliCtx;
+  const profileConfigPath = activeProfileConfigPath(wpaths, config);
 
   // PR 4 of Issue #29: mode + provider + modelCapabilities
   // resolution is now in `resolveModeAndCapabilities()`. The
@@ -237,15 +240,15 @@ export async function main(argv: string[]): Promise<number> {
 
   // Register fallback/provider/model management tools (LLM-accessible).
   // These tools read config from the in-memory store and persist changes
-  // to the global config file, mirroring updates back to the store.
+    // to the active profile config file, mirroring updates back to the store.
   const stdinInteractive = process.stdin.isTTY;
   const fallbackManageTools = createFallbackManageTools({
     getConfig: () => configStore.get(),
     updateConfig: async (mutate: (cfg: Record<string, unknown>) => void) => {
-      const raw = await fs.readFile(wpaths.globalConfig, 'utf8').catch(() => '{}');
+      const raw = await fs.readFile(profileConfigPath, 'utf8').catch(() => '{}');
       const parsed = JSON.parse(raw) as Record<string, unknown>;
       mutate(parsed);
-      await fs.writeFile(wpaths.globalConfig, JSON.stringify(parsed, null, 2), { mode: 0o600 });
+      await fs.writeFile(profileConfigPath, JSON.stringify(parsed, null, 2), { mode: 0o600 });
       configStore.update(parsed as Parameters<typeof configStore.update>[0]);
     },
     // Interactive key entry for REPL mode — reads a line from stdin without echo.
@@ -1668,7 +1671,7 @@ export async function main(argv: string[]): Promise<number> {
       const parsed = args.length === 0 ? [] : args.split(/\s+/).filter(Boolean);
       const result = await runPluginManagementCommand(parsed, {
         config,
-        configPath: wpaths.globalConfig,
+        configPath: profileConfigPath,
       });
       if (result.patch) {
         const patch = result.patch as never as Partial<Config>;
@@ -1706,7 +1709,7 @@ export async function main(argv: string[]): Promise<number> {
       }
       return runMcpManagementCommand(parsed, {
         config,
-        configPath: wpaths.globalConfig,
+        configPath: profileConfigPath,
         mcpRegistry,
         allServerPresets: allServers(),
       });
@@ -2038,7 +2041,7 @@ export async function main(argv: string[]): Promise<number> {
   const togglePluginFromPicker = async (name: string) => {
     const result = await runPluginManagementCommand(['toggle', name], {
       config,
-      configPath: wpaths.globalConfig,
+      configPath: profileConfigPath,
     });
     if (result.patch) {
       const patch = result.patch as never as Partial<Config>;
@@ -2108,6 +2111,11 @@ export async function main(argv: string[]): Promise<number> {
         projectRoot,
         flags,
         positional,
+        // Forward preflight's update-info so the TUI banner can render
+        // the "(update available: v…)" indicator next to the version
+        // chip. May be undefined (e.g. when the registry check was
+        // aborted) — the TUI handles the absent case gracefully.
+        updateInfo,
       },
       session: {
         attachments,
@@ -2166,9 +2174,7 @@ export async function main(argv: string[]): Promise<number> {
           vault,
           modelsRegistry,
           globalConfigPath: wpaths.globalConfig,
-          profileConfigPath: wpaths.profileConfig(
-            ((configRef.current as { activeProfile?: string }).activeProfile ?? 'default'),
-          ),
+          profileConfigPath,
         }),
         onPanelOpen,
       },
@@ -2337,7 +2343,7 @@ export async function main(argv: string[]): Promise<number> {
         onMcpToggle: async (name: string) => {
           const { enableMcp, disableMcp, listMcp } = await import('@wrongstack/mcp');
           const deps = {
-            configPath: wpaths.globalConfig,
+            configPath: profileConfigPath,
             registry: mcpRegistry,
             presets: allServers(),
           };
@@ -2370,7 +2376,7 @@ export async function main(argv: string[]): Promise<number> {
         onMcpRestart: async (name: string) => {
           const { listMcp } = await import('@wrongstack/mcp');
           const deps = {
-            configPath: wpaths.globalConfig,
+            configPath: profileConfigPath,
             registry: mcpRegistry,
             presets: allServers(),
           };

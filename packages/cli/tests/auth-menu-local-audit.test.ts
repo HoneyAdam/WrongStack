@@ -114,6 +114,7 @@ async function setupDeps(opts: SetupOpts = {}): Promise<{
     modelsRegistry: makeModelsRegistry(),
     vault,
     globalConfigPath: configPath,
+    profileConfigPath: configPath,
   };
   return { deps, configPath, tmpDir, sink };
 }

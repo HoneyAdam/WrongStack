@@ -49,8 +49,10 @@ import type { AuthMenuDeps } from './types.js';
 export interface AuthPanelServiceDeps {
   vault: SecretVault;
   modelsRegistry: ModelsRegistry;
+  /** Root bootstrap path, retained only for callers that need the global root. */
   globalConfigPath: string;
-  profileConfigPath?: string;
+  /** The sole config file read or written by auth operations. */
+  profileConfigPath: string;
   secretScrubber?: SecretScrubber | undefined;
 }
 
@@ -96,7 +98,8 @@ function flowDeps(base: AuthPanelServiceDeps, io: AuthFlowIo): AuthMenuDeps {
     },
     modelsRegistry: base.modelsRegistry,
     vault: base.vault,
-    globalConfigPath: base.globalConfigPath,
+    globalConfigPath: base.profileConfigPath,
+    profileConfigPath: base.profileConfigPath,
     secretScrubber: base.secretScrubber,
   };
 }
@@ -132,14 +135,7 @@ export function plainMaskedKey(key: string): string {
 
 export function createAuthPanelHost(deps: AuthPanelServiceDeps): AuthPanelHost {
   const loadProviders = (): Promise<Record<string, ProviderConfig>> =>
-    loadConfigProviders(deps.globalConfigPath, deps.vault, {
-      // Only include the key when defined — `loadConfigProviders` types it as
-      // `profileConfigPath?: string` (no `| undefined`), so under
-      // exactOptionalPropertyTypes passing `string | undefined` is a type error.
-      ...(deps.profileConfigPath !== undefined && {
-        profileConfigPath: deps.profileConfigPath,
-      }),
-    });
+    loadConfigProviders(deps.profileConfigPath, deps.vault);
 
   const mutate = async (
     mutator: (providers: Record<string, ProviderConfig>) => string | null,
@@ -147,7 +143,7 @@ export function createAuthPanelHost(deps: AuthPanelServiceDeps): AuthPanelHost {
     let result: string | null = null;
     try {
       await mutateConfigProviders(
-        deps.globalConfigPath,
+        deps.profileConfigPath,
         deps.vault,
         (all) => {
           result = mutator(all);

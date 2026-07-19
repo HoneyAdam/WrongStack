@@ -20,6 +20,7 @@ export interface SettingsMenuDeps {
   reader: ReadlineInputReader;
   configStore: ConfigStore;
   globalConfigPath: string;
+  profileConfigPath: string;
   vault: SecretVault;
 }
 
@@ -197,19 +198,16 @@ async function showDefaults(deps: SettingsMenuDeps): Promise<void> {
  *  (the TUI, headless runs, the arg-driven `/settings` slash command). */
 export interface PersistSettingDeps {
   configStore: ConfigStore;
-  /** Path to the global bootstrap config (~/.wrongstack/config.json). */
+  /** Path to the global bootstrap config (~/.wrongstack/config.json). Never a settings target. */
   globalConfigPath: string;
-  /** Path to the active profile config (~/.wrongstack/profiles/<name>/config.json).
-   *  Used when configScope is 'global' or when no explicit scope is set.
-   *  When provided, settings are persisted to the profile instead of the
-   *  flat global config. */
-  profileConfigPath?: string | undefined;
+  /** Path to the active profile config (~/.wrongstack/profiles/<name>/config.json). */
+  profileConfigPath: string;
   /** Per-project config path (<project>/.wrongstack/config.json).
    *  Used when configScope === 'project'. Lives inside the project
    *  root so it can be gitignored or team-shared. */
   inProjectConfigPath?: string | undefined;
   vault: SecretVault;
-  /** Force writes to ~/.wrongstack/config.json even when configScope is project. */
+  /** Force writes to the active profile config even when configScope is project. */
   forceGlobal?: boolean | undefined;
   /**
    * Optional resolver that recomputes the profile config path for a given
@@ -222,27 +220,25 @@ export interface PersistSettingDeps {
 }
 
 export function resolvePersistPath(deps: PersistSettingDeps): string {
-  if (deps.forceGlobal) return deps.globalConfigPath;
+  if (deps.forceGlobal) return deps.profileConfigPath;
   const scope = (deps.configStore.get() as { configScope?: string | undefined }).configScope;
   if (scope === 'project' && deps.inProjectConfigPath) {
     return deps.inProjectConfigPath;
   }
-  // Default (global scope): write to the active profile config when available.
-  if (deps.profileConfigPath) {
-    return deps.profileConfigPath;
-  }
-  return deps.globalConfigPath;
+  // Default user scope always means the active profile, never the root bootstrap.
+  return deps.profileConfigPath;
 }
 
 /**
  * Re-resolve the target path after a mutator may have changed configScope.
- * Handles the three-way routing: project config, profile config, or bootstrap.
+ * Handles the two settings targets: project config or active profile config.
  */
 export function resolveActualTarget(
   deps: PersistSettingDeps,
   decrypted: Record<string, unknown>,
   fallbackPath: string,
 ): string {
+  if (deps.forceGlobal) return deps.profileConfigPath;
   const newScope = decrypted.configScope as string | undefined;
   // Recompute profile path when activeProfile changed in the mutation block.
   const newProfileName = decrypted.activeProfile as string | undefined;
@@ -253,24 +249,19 @@ export function resolveActualTarget(
   if (newScope === 'project' && deps.inProjectConfigPath) {
     return deps.inProjectConfigPath;
   }
-  if (newScope === 'global' && effectiveProfilePath) {
-    return effectiveProfilePath;
-  }
   if (newScope === 'global') {
-    return deps.globalConfigPath;
+    return effectiveProfilePath;
   }
   return fallbackPath;
 }
 
 /**
- * Returns true when the target path is the profile or global bootstrap config
- * (i.e. trusted user config), so secrets are NOT stripped before writing.
+ * Returns true when the target path is the trusted active-profile config, so
+ * secrets are NOT stripped before writing.
  * Returns false for project-scoped paths where credentials must be filtered.
  */
 function isProfileOrGlobalTarget(actualTarget: string, deps: PersistSettingDeps): boolean {
-  if (actualTarget === deps.globalConfigPath) return true;
-  if (deps.profileConfigPath && actualTarget === deps.profileConfigPath) return true;
-  return false;
+  return actualTarget === deps.profileConfigPath;
 }
 
 async function ensureProjectDir(filePath: string): Promise<void> {
@@ -285,7 +276,7 @@ async function ensureProjectDir(filePath: string): Promise<void> {
 /**
  * Fields that are safe to persist in a per-project `.wrongstack/config.json`.
  * Credential-bearing fields (apiKey, providers, sync) MUST NOT appear here —
- * they stay in the global config only. The global config always gets the
+ * they stay in the active profile config only. The active profile always gets the
  * full unfiltered object.
  *
  * When adding a field here, ask: "Would I commit this to a shared repo?"
@@ -487,7 +478,7 @@ export async function persistConfigSetting(
 }
 
 /**
- * Persist Telegram plugin config to `extensions.telegram` in the global config
+ * Persist Telegram plugin config to `extensions.telegram` in the active profile config
  * file. Mirrors `persistAutonomySetting` — reads the config, applies the
  * mutator, encrypts secrets, writes atomically, then updates ConfigStore.
  */
@@ -495,16 +486,17 @@ export async function persistTelegramConfig(
   deps: PersistSettingDeps,
   mutator: (telegram: Record<string, unknown>) => void,
 ): Promise<void> {
+  const targetPath = deps.profileConfigPath;
   let raw: string;
   let fileExists = true;
   try {
-    raw = await fs.readFile(deps.globalConfigPath, 'utf8');
+    raw = await fs.readFile(targetPath, 'utf8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
       throw new FsError({
-        message: `Could not read ${deps.globalConfigPath}: ${(err as Error).message}`,
+        message: `Could not read ${targetPath}: ${(err as Error).message}`,
         code: 'FS_READ_FAILED',
-        path: deps.globalConfigPath,
+        path: targetPath,
         context: { operation: 'readGlobalConfig', phase: 'read' },
         cause: err,
       });
@@ -519,9 +511,9 @@ export async function persistTelegramConfig(
   } catch (err) {
     if (fileExists) {
       throw new ConfigError({
-        message: `Config at ${deps.globalConfigPath} is not valid JSON: ${(err as Error).message}`,
+        message: `Config at ${targetPath} is not valid JSON: ${(err as Error).message}`,
         code: 'CONFIG_PARSE_FAILED',
-        context: { filePath: deps.globalConfigPath, operation: 'readGlobalConfig' },
+        context: { filePath: targetPath, operation: 'readProfileConfig' },
         cause: err,
       });
     }
@@ -536,7 +528,7 @@ export async function persistTelegramConfig(
   decrypted.extensions = extensions;
 
   const encrypted = encryptConfigSecrets(decrypted, deps.vault);
-  await atomicWrite(deps.globalConfigPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
+  await atomicWrite(targetPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
 
   // Also update the in-memory config store so changes are immediately visible
   deps.configStore.update({

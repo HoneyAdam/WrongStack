@@ -11,7 +11,10 @@ function makeCtx(config: Record<string, unknown> = {}): { ctx: SlashCommandConte
   const globalConfig = path.join(dir, 'global', 'config.json');
   const inProjectConfig = path.join(dir, 'project', 'config.json');
   const store = { get: vi.fn(() => config), update: vi.fn() };
-  const ctx = { configStore: store, paths: { globalConfig, inProjectConfig } } as never as SlashCommandContext;
+  const ctx = {
+    configStore: store,
+    paths: { globalConfig, profileConfig: () => globalConfig, inProjectConfig },
+  } as never as SlashCommandContext;
   return { ctx, globalConfig };
 }
 
@@ -49,7 +52,7 @@ describe('/hq slash command', () => {
     expect(cmd.description.toLowerCase()).toContain('hq');
   });
 
-  it('set <url> <token> persists url, token, and enabled to global config', async () => {
+  it('set <url> <token> persists url, token, and enabled to the active profile', async () => {
     const { ctx, globalConfig } = makeCtx();
     const res = await buildHqCommand(ctx).run!('set http://127.0.0.1:59999 my-token');
     expect(stripAnsi(res!.message!)).toContain('http://127.0.0.1:59999');

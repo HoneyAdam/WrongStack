@@ -14,6 +14,7 @@ import {
 import { toErrorMessage } from '@wrongstack/core/utils';
 import { persistConfigSetting } from '../settings-menu.js';
 import type { SlashCommandContext } from './index.js';
+import { activeProfileConfigPath } from '../profile-config-path.js';
 
 function fit(text: string, width: number): string {
   if (text.length <= width) return text.padEnd(width);
@@ -136,6 +137,7 @@ export function buildToolCommand(opts: SlashCommandContext): SlashCommand {
       {
         configStore: opts.configStore,
         globalConfigPath: opts.paths.globalConfig,
+        profileConfigPath: activeProfileConfigPath(opts.paths, opts.configStore.get()),
         inProjectConfigPath: opts.paths.inProjectConfig,
         vault: noOpVault,
       },
@@ -178,6 +180,7 @@ export function buildToolCommand(opts: SlashCommandContext): SlashCommand {
       {
         configStore: opts.configStore,
         globalConfigPath: opts.paths.globalConfig,
+        profileConfigPath: activeProfileConfigPath(opts.paths, opts.configStore.get()),
         inProjectConfigPath: opts.paths.inProjectConfig,
         vault: noOpVault,
       },

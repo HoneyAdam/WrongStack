@@ -22,11 +22,10 @@ interface Accum {
  * switched providers (fallback, `/model`) can show each provider's real
  * cache-hit ratio.
  *
- * It reconstructs per-request deltas from the `token.accounted` event stream —
- * whose `usage` is the session CUMULATIVE total — by diffing against the prior
- * snapshot and attributing the delta to the event's `provider`. This is exact
- * for the agent loop's sequential (awaited) provider calls; it does not assume
- * anything about pricing, so it works even when cost is unknown.
+ * New counters provide an exact per-call `deltaUsage`; older event producers
+ * remain compatible through cumulative-snapshot differencing. The explicit
+ * delta keeps attribution correct even when asynchronous price lookups settle
+ * out of order after a provider switch.
  *
  * **LIFECYCLE WARNING:** The constructor subscribes to `events.on('token.accounted', …)`,
  * creating a permanent listener on the shared EventBus. The **caller MUST invoke
@@ -43,13 +42,13 @@ export class ProviderCacheLedger {
   constructor(events: EventBus) {
     this.off = events.on(
       'token.accounted',
-      (p: { usage: Usage; provider?: string | undefined }) => {
-        this.record(p.usage, p.provider);
+      (p: { usage: Usage; deltaUsage?: Usage | undefined; provider?: string | undefined }) => {
+        this.record(p.usage, p.provider, p.deltaUsage);
       },
     );
   }
 
-  private record(usage: Usage, provider?: string): void {
+  private record(usage: Usage, provider?: string, deltaUsage?: Usage): void {
     const cur: Accum = {
       input: usage.input,
       cacheRead: usage.cacheRead ?? 0,
@@ -58,11 +57,17 @@ export class ProviderCacheLedger {
     // Diff the cumulative snapshot to isolate this request's contribution.
     // Guard against non-monotonic input (a counter reset): treat a decrease as
     // a fresh baseline rather than a negative delta.
-    const delta: Accum = {
-      input: Math.max(0, cur.input - this.last.input),
-      cacheRead: Math.max(0, cur.cacheRead - this.last.cacheRead),
-      cacheWrite: Math.max(0, cur.cacheWrite - this.last.cacheWrite),
-    };
+    const delta: Accum = deltaUsage
+      ? {
+          input: deltaUsage.input,
+          cacheRead: deltaUsage.cacheRead ?? 0,
+          cacheWrite: deltaUsage.cacheWrite ?? 0,
+        }
+      : {
+          input: Math.max(0, cur.input - this.last.input),
+          cacheRead: Math.max(0, cur.cacheRead - this.last.cacheRead),
+          cacheWrite: Math.max(0, cur.cacheWrite - this.last.cacheWrite),
+        };
     this.last = cur;
 
     const key = provider ?? 'unknown';

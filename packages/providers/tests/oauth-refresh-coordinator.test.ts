@@ -195,23 +195,22 @@ describe('OAuthRefreshCoordinator', () => {
   describe('token rotation', () => {
     it('persists the rotated refresh key back into the host state', async () => {
       // Host semantics: the refresh key rotates on every refresh (Codex-style).
+      const keys: string[] = [];
       const { coordinator } = makeCoordinator({
         initialRefresh: 'r1',
-        refreshFn: async () => ({
-          access: 'acc-2',
-          refresh: 'rotated-refresh',
-          expires: Date.now() + 3_600_000,
-        }),
+        refreshFn: async (key) => {
+          keys.push(key);
+          return {
+            access: `acc-${keys.length}`,
+            refresh: `r${keys.length + 1}`,
+            expires: Date.now() + 3_600_000,
+          };
+        },
         refreshKeyReturns: (t) => t.refresh, // rotates
       });
       await coordinator.runRefresh(new AbortController().signal);
-      // After rotation, the coordinator's `applyTokens` was called with
-      // the new refreshKey. The next refresh call would use that — but we
-      // can't observe it directly without exposing state. Instead, verify
-      // via the onRefresh payload that the rotated refresh was passed through.
-      // (The actual state-mutation behaviour is host-specific; this
-      // coordinator only guarantees the values flow through.)
-      expect(true).toBe(true); // placeholder — see payload test below
+      await coordinator.runRefresh(new AbortController().signal);
+      expect(keys).toEqual(['r1', 'r2']);
     });
 
     it('propagates the rotated refresh key into the onRefresh payload', async () => {

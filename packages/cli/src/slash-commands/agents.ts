@@ -110,10 +110,7 @@ export function buildAgentsCommand(opts: SlashCommandContext): SlashCommand {
               {
                 configStore: opts.configStore,
                 globalConfigPath: opts.paths.globalConfig,
-                profileConfigPath:
-                  typeof opts.paths.profileConfig === 'function'
-                    ? opts.paths.profileConfig(activeProfile)
-                    : undefined,
+                profileConfigPath: opts.paths.profileConfig(activeProfile),
                 inProjectConfigPath: opts.paths.inProjectConfig,
                 vault: noOpVault,
               },

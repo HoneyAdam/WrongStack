@@ -12,6 +12,7 @@ import {
   type SlashCommand,
 } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
+import { activeProfileConfigPath } from '../profile-config-path.js';
 
 /** Loose email shape check — git itself accepts nearly anything, so only
  * guard against the obvious "forgot the email" argument-order mistake. */
@@ -70,7 +71,7 @@ async function patchGlobalConfig(
  *   clear                       Remove the identity (git config applies
  *                               again). Add --session for this session only.
  *
- * Persisted to ~/.wrongstack/config.json (user-level). The in-project
+ * Persisted to the active profile config (user-level). The in-project
  * repo-committed config can NOT set this — identity spoofing must not be
  * repo-controllable.
  */
@@ -88,7 +89,7 @@ export function buildGitIdCommand(opts: SlashCommandContext): SlashCommand {
     'every git process the agent spawns (git tool, bash/exec, worktrees,',
     'plugins). Your git config and terminal commits are never touched.',
     '',
-    'Persisted to ~/.wrongstack/config.json.',
+    'Persisted to ~/.wrongstack/profiles/<name>/config.json.',
   ].join('\n');
 
   function currentView(): string {
@@ -107,7 +108,7 @@ export function buildGitIdCommand(opts: SlashCommandContext): SlashCommand {
         persisted?.name === active.name && persisted?.email === active.email;
       lines.push(
         '',
-        `  ${color.dim(isPersisted ? 'persisted in ~/.wrongstack/config.json' : 'session-only (not persisted)')}`,
+        `  ${color.dim(isPersisted ? 'persisted in the active profile config' : 'session-only (not persisted)')}`,
       );
     } else {
       lines.push(
@@ -135,7 +136,7 @@ export function buildGitIdCommand(opts: SlashCommandContext): SlashCommand {
       if (!opts.paths) {
         return { message: `${color.red('Error')} config paths not available.` };
       }
-      const globalConfigPath = opts.paths.globalConfig;
+      const globalConfigPath = activeProfileConfigPath(opts.paths, opts.configStore.get());
 
       try {
         if (sub === 'set') {

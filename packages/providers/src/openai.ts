@@ -472,6 +472,7 @@ async function* parseOpenAIStream(
           prompt_tokens?: number | undefined;
           input_tokens?: number | undefined;
           completion_tokens?: number | undefined;
+          total_tokens?: number | undefined;
           prompt_tokens_details?: {
             cached_tokens?: number | undefined;
             cache_write_tokens?: number | undefined;
@@ -489,14 +490,25 @@ async function* parseOpenAIStream(
         u.prompt_cache_hit_tokens !== undefined || u.prompt_cache_miss_tokens !== undefined;
       const cached = u.prompt_tokens_details?.cached_tokens ?? u.prompt_cache_hit_tokens ?? 0;
       const cacheWrite = u.prompt_tokens_details?.cache_write_tokens ?? 0;
+      const completion = u.completion_tokens ?? usage.output;
+      // MiniMax's OpenAI-compatible API formally guarantees only `total_tokens`
+      // in its streamed usage (prompt_tokens/completion_tokens are documented as
+      // examples, not required), so its final chunk can carry total+completion
+      // without a `prompt_tokens` field. Deriving prompt = total − completion
+      // recovers the input count instead of leaving it stuck at 0 (which zeroed
+      // the context meter and the ↑ sent-token counter). Ordered AFTER the
+      // explicit prompt fields so no compliant provider regresses.
       const promptTotal =
-        u.prompt_tokens ?? u.input_tokens ??
+        u.prompt_tokens ??
+        u.input_tokens ??
         (hasDeepSeekCacheFields
           ? (u.prompt_cache_hit_tokens ?? 0) + (u.prompt_cache_miss_tokens ?? 0)
-          : usage.input + cached);
+          : u.total_tokens !== undefined
+            ? Math.max(0, u.total_tokens - completion)
+            : usage.input + cached);
       const nextUsage: Usage = {
         input: u.prompt_cache_miss_tokens ?? Math.max(0, promptTotal - cached - cacheWrite),
-        output: u.completion_tokens ?? usage.output,
+        output: completion,
         cacheRead: cached || usage.cacheRead,
       };
       if (cacheWrite || usage.cacheWrite !== undefined) {

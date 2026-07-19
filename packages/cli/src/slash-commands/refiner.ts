@@ -3,6 +3,7 @@ import { toErrorMessage } from '@wrongstack/core/utils';
 import { persistAutonomySetting } from '../settings-menu.js';
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
 import type { SlashCommandContext } from './index.js';
+import { activeProfileConfigPath } from '../profile-config-path.js';
 
 /**
  * `/refiner` — view or change the goal-refiner provider/model.
@@ -90,6 +91,7 @@ export function buildRefinerCommand(opts: SlashCommandContext): SlashCommand {
         const persistDeps = {
           configStore: opts.configStore,
           globalConfigPath: opts.paths.globalConfig,
+          profileConfigPath: activeProfileConfigPath(opts.paths, opts.configStore.get()),
           inProjectConfigPath: opts.paths.inProjectConfig,
           vault: noOpVault,
         };
@@ -137,6 +139,7 @@ export function buildRefinerCommand(opts: SlashCommandContext): SlashCommand {
         const persistDeps = {
           configStore: opts.configStore,
           globalConfigPath: opts.paths.globalConfig,
+          profileConfigPath: activeProfileConfigPath(opts.paths, opts.configStore.get()),
           inProjectConfigPath: opts.paths.inProjectConfig,
           vault: noOpVault,
         };

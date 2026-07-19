@@ -606,7 +606,10 @@ describe('subcommands', () => {
       userHome: tmp,
     });
     await fs.mkdir(path.dirname(paths.globalConfig), { recursive: true });
-    await fs.writeFile(paths.globalConfig, JSON.stringify({ version: 1 }, null, 2));
+    await fs.writeFile(
+      paths.globalConfig,
+      JSON.stringify({ version: 1, activeProfile: 'default' }, null, 2),
+    );
 
     const code = await subcommands['mcp']!(
       ['add', 'minimax-vision', '--enable'],
@@ -614,7 +617,7 @@ describe('subcommands', () => {
     );
 
     expect(code).toBe(0);
-    const written = JSON.parse(await fs.readFile(paths.globalConfig, 'utf8')) as {
+    const written = JSON.parse(await fs.readFile(paths.profileConfig('default'), 'utf8')) as {
       mcpServers: Record<string, Record<string, unknown>>;
     };
     expect(written.mcpServers['minimax-vision']).toMatchObject({
@@ -682,13 +685,15 @@ describe('subcommands', () => {
       globalRoot: path.join(tmp, 'g'),
       userHome: tmp,
     });
+    await fs.mkdir(path.dirname(paths.globalConfig), { recursive: true });
+    await fs.writeFile(paths.globalConfig, JSON.stringify({ version: 1, activeProfile: 'default' }));
     const code = await subcommands['plugin']!(
       ['add', '@wrongstack/telegram'],
       mkDeps({ renderer: rig.renderer, paths }),
     );
 
     expect(code).toBe(0);
-    const written = JSON.parse(await fs.readFile(paths.globalConfig, 'utf8')) as {
+    const written = JSON.parse(await fs.readFile(paths.profileConfig('default'), 'utf8')) as {
       plugins: unknown[];
       features: { plugins: boolean };
     };
@@ -703,13 +708,15 @@ describe('subcommands', () => {
       globalRoot: path.join(tmp, 'g'),
       userHome: tmp,
     });
+    await fs.mkdir(path.dirname(paths.globalConfig), { recursive: true });
+    await fs.writeFile(paths.globalConfig, JSON.stringify({ version: 1, activeProfile: 'default' }));
     const code = await subcommands['plugin']!(
       ['install', 'telegram'],
       mkDeps({ renderer: rig.renderer, paths }),
     );
 
     expect(code).toBe(0);
-    const written = JSON.parse(await fs.readFile(paths.globalConfig, 'utf8')) as {
+    const written = JSON.parse(await fs.readFile(paths.profileConfig('default'), 'utf8')) as {
       plugins: unknown[];
       features: { plugins: boolean };
     };
@@ -746,8 +753,10 @@ describe('subcommands', () => {
       globalRoot: path.join(tmp, 'g'),
       userHome: tmp,
     });
-    await fs.mkdir(path.dirname(paths.globalConfig), { recursive: true });
-    await fs.writeFile(paths.globalConfig, JSON.stringify({ plugins: ['@wrongstack/telegram'] }));
+    const profileConfig = paths.profileConfig('default');
+    await fs.mkdir(path.dirname(profileConfig), { recursive: true });
+    await fs.writeFile(paths.globalConfig, JSON.stringify({ version: 1, activeProfile: 'default' }));
+    await fs.writeFile(profileConfig, JSON.stringify({ plugins: ['@wrongstack/telegram'] }));
 
     const code = await subcommands['plugin']!(
       ['disable', '@wrongstack/telegram'],
@@ -755,7 +764,7 @@ describe('subcommands', () => {
     );
 
     expect(code).toBe(0);
-    const written = JSON.parse(await fs.readFile(paths.globalConfig, 'utf8')) as {
+    const written = JSON.parse(await fs.readFile(profileConfig, 'utf8')) as {
       plugins: Array<{ name: string; enabled: boolean }>;
     };
     expect(written.plugins).toEqual([{ name: '@wrongstack/telegram', enabled: false }]);
@@ -768,9 +777,11 @@ describe('subcommands', () => {
       globalRoot: path.join(tmp, 'g'),
       userHome: tmp,
     });
-    await fs.mkdir(path.dirname(paths.globalConfig), { recursive: true });
+    const profileConfig = paths.profileConfig('default');
+    await fs.mkdir(path.dirname(profileConfig), { recursive: true });
+    await fs.writeFile(paths.globalConfig, JSON.stringify({ version: 1, activeProfile: 'default' }));
     await fs.writeFile(
-      paths.globalConfig,
+      profileConfig,
       JSON.stringify({ plugins: ['@wrongstack/telegram', 'other'] }),
     );
 
@@ -780,7 +791,7 @@ describe('subcommands', () => {
     );
 
     expect(code).toBe(0);
-    const written = JSON.parse(await fs.readFile(paths.globalConfig, 'utf8')) as {
+    const written = JSON.parse(await fs.readFile(profileConfig, 'utf8')) as {
       plugins: unknown[];
     };
     expect(written.plugins).toEqual(['other']);

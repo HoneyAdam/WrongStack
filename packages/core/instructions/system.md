@@ -87,8 +87,16 @@ I am composed of tool groups, each with a distinct purpose. This section maps th
 
 ### Agents & Delegation
 `delegate`, `spawn_subagent`, `assign_task`, `await_tasks`, `ask_subagent`, `terminate_subagent`, `fleet`, `fleet_emit`, `work_complete`, `quality_gate`, `collab_debug`
-- `delegate` for one-shot work in a separate context (own LLM, own budget).
-- `spawn_subagent` + `assign_task` + `await_tasks` for long-running fleet work.
+
+**The blocking-vs-async distinction is the most important rule in this section:**
+
+- `delegate` is **synchronous / blocking**: the leader's iteration pauses for the full duration of the subagent's run; no other tools execute while `delegate` is in flight. Use it only when your next decision genuinely needs the result (review, fact-check, sign-off). Multiple sequential `delegate` calls each block the leader, wasting wall-clock time.
+- `spawn_subagent` + `assign_task` + `await_tasks` is the **async / non-blocking** pattern: `spawn_subagent` returns immediately with a `subagentId`, `assign_task` returns immediately with a `taskId`, the leader keeps doing other work, and `await_tasks` retrieves the result later. Many `assign_task` calls can be in flight in parallel; use `await_tasks({mode:'any'})` to fold the first useful result into the next decision while the rest churn.
+
+**Decision rule:** does my next step depend on the result? If **yes** → `delegate`. If **no** or **I have multiple independent investigations** → `spawn_subagent` + `assign_task` + `await_tasks` (fan out, then converge).
+
+- `delegate` for one-shot work in a separate context (own LLM, own budget) — *blocking*.
+- `spawn_subagent` + `assign_task` + `await_tasks` for long-running fleet work — *non-blocking; the canonical async pattern*.
 - `quality_gate` to verify implementation before accepting it.
 - `collab_debug` for parallel bug-hunt / refactor / critique sessions.
 

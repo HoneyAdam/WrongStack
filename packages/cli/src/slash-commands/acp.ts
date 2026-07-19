@@ -69,7 +69,7 @@ export function buildAcpCommand(opts: SlashCommandContext): SlashCommand {
       '',
       'If an agent is detected but `probe` shows it failing, its catalog entry',
       'likely needs a different ACP entry command. Override it in',
-      '~/.wrongstack/config.json:',
+      '~/.wrongstack/profiles/<name>/config.json:',
       '  { "acp": { "agents": { "codex-cli": { "command": "codex", "args": ["acp"] } } } }',
     ].join('\n'),
     async run(args) {
@@ -207,7 +207,7 @@ async function probeAgents(
   lines.push('');
   lines.push(`${ok} of ${results.length} agents completed the ACP handshake.`);
   lines.push('A ✗ usually means the catalog entry needs a different command — override it');
-  lines.push('in ~/.wrongstack/config.json under acp.agents.');
+  lines.push('in the active profile config under acp.agents.');
   return { message: lines.join('\n') };
 }
 

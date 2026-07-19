@@ -622,6 +622,13 @@ export class SuperMemoryStore implements MemoryStore {
     }
   }
 
+  /** Persist batched injection/use counters during host teardown. */
+  async flushPendingCounters(): Promise<void> {
+    if (this.pendingCounters.size === 0) return; // skip disk-touching init when there's nothing to flush
+    await this.initialize();
+    await this.flushCounters();
+  }
+
   private async flushCountersUnlocked(opts: { skipAfterMutation?: boolean } = {}): Promise<void> {
     if (this.pendingCounters.size === 0) return;
     const now = this.nowIso();

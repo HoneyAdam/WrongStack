@@ -1,6 +1,7 @@
 import type { SlashCommand } from '@wrongstack/core';
 import { color } from '@wrongstack/core';
 import { persistTelegramConfig } from '../settings-menu.js';
+import { activeProfileConfigPath } from '../profile-config-path.js';
 import type { SlashCommandContext } from './index.js';
 import {
   discoverTelegramPairingCandidates,
@@ -221,6 +222,7 @@ export function buildTelegramSetupCommand(opts: SlashCommandContext): SlashComma
           {
             configStore: opts.configStore,
             globalConfigPath: opts.paths.globalConfig,
+            profileConfigPath: activeProfileConfigPath(opts.paths, opts.configStore.get()),
             vault: opts.vault,
           },
           (telegram) => {

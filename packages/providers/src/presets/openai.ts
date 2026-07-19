@@ -218,7 +218,9 @@ export const openaiWireFormat = defineWireFormat<OpenAIStreamState>({
     const u = obj['usage'] as
       | {
           prompt_tokens?: number | undefined;
+          input_tokens?: number | undefined;
           completion_tokens?: number | undefined;
+          total_tokens?: number | undefined;
           prompt_tokens_details?: {
             cached_tokens?: number | undefined;
             cache_write_tokens?: number | undefined;
@@ -235,14 +237,22 @@ export const openaiWireFormat = defineWireFormat<OpenAIStreamState>({
         u.prompt_cache_hit_tokens !== undefined || u.prompt_cache_miss_tokens !== undefined;
       const cached = u.prompt_tokens_details?.cached_tokens ?? u.prompt_cache_hit_tokens ?? 0;
       const cacheWrite = u.prompt_tokens_details?.cache_write_tokens ?? 0;
+      const completion = u.completion_tokens ?? state.usage.output;
+      // MiniMax (and other lean OpenAI-compatible endpoints) may report only
+      // `total_tokens` + `completion_tokens` with no `prompt_tokens`; derive
+      // prompt = total − completion so the input count is recovered instead of
+      // collapsing to 0. Ordered after the explicit prompt fields.
       const promptTotal =
         u.prompt_tokens ??
+        u.input_tokens ??
         (hasDeepSeekCacheFields
           ? (u.prompt_cache_hit_tokens ?? 0) + (u.prompt_cache_miss_tokens ?? 0)
-          : state.usage.input + cached);
+          : u.total_tokens !== undefined
+            ? Math.max(0, u.total_tokens - completion)
+            : state.usage.input + cached);
       const nextUsage: Usage = {
         input: u.prompt_cache_miss_tokens ?? Math.max(0, promptTotal - cached - cacheWrite),
-        output: u.completion_tokens ?? state.usage.output,
+        output: completion,
         cacheRead: cached || state.usage.cacheRead,
       };
       if (cacheWrite || state.usage.cacheWrite !== undefined) {

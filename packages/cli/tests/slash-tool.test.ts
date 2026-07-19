@@ -69,6 +69,7 @@ function makeCommand() {
     configStore,
     paths: {
       globalConfig,
+      profileConfig: () => globalConfig,
       inProjectConfig: path.join(tmp, 'project', '.wrongstack', 'config.json'),
     },
   } as never);

@@ -33,7 +33,7 @@ function mkDeps(over: Record<string, unknown> = {}) {
       writeInfo: (s: string) => infos.push(s),
     },
     config: { mcpServers: {} },
-    paths: { globalConfig: configPath },
+    paths: { globalConfig: configPath, profileConfig: () => configPath },
     ...over,
   } as never;
 }

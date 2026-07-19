@@ -8,6 +8,7 @@ import {
 } from '@wrongstack/core/utils';
 import { allServers } from '@wrongstack/core/infrastructure';
 import { serveMcpStdio } from '../../mcp-serve.js';
+import { activeProfileConfigPath } from '../../profile-config-path.js';
 import type { SubcommandDeps, SubcommandHandler } from '../index.js';
 
 const BUILT_IN_MCP = allServers();
@@ -56,6 +57,7 @@ export const mcpCmd: SubcommandHandler = async (args, deps) => {
 };
 
 async function addMcpServer(args: string[], deps: SubcommandDeps): Promise<number> {
+  const configPath = activeProfileConfigPath(deps.paths, deps.config);
   const name = args[1];
   const enable = args.includes('--enable') || args.includes('-e');
   if (!name) {
@@ -80,32 +82,33 @@ async function addMcpServer(args: string[], deps: SubcommandDeps): Promise<numbe
   }
   const serverCfg = { ...factory };
   serverCfg.enabled = enable;
-  const existing = await readJsonObjectFile(deps.paths.globalConfig);
+  const existing = await readJsonObjectFile(configPath);
   const mcpServers = isRecord(existing.mcpServers) ? existing.mcpServers : {};
   if (mcpServers[name])
     deps.renderer.writeWarning(`Server "${name}" already in config. Updating.\n`);
-  await updateJsonObjectFile(deps.paths.globalConfig, (config) => {
+  await updateJsonObjectFile(configPath, (config) => {
     setJsonPath(config, ['mcpServers', name], serverCfg);
   });
   const verb = enable ? 'Enabled' : 'Added (disabled — set enabled:true to activate)';
   deps.renderer.writeInfo(
-    `${verb} "${name}" (${serverCfg.transport}). Config written to ${deps.paths.globalConfig}.\n`,
+    `${verb} "${name}" (${serverCfg.transport}). Config written to ${configPath}.\n`,
   );
   return 0;
 }
 
 async function removeMcpServer(name: string, deps: SubcommandDeps): Promise<number> {
-  if (!(await jsonObjectFileExists(deps.paths.globalConfig))) {
+  const configPath = activeProfileConfigPath(deps.paths, deps.config);
+  if (!(await jsonObjectFileExists(configPath))) {
     deps.renderer.writeError('No config file found.\n');
     return 1;
   }
-  const existing = await readJsonObjectFile(deps.paths.globalConfig);
+  const existing = await readJsonObjectFile(configPath);
   const mcpServers = isRecord(existing.mcpServers) ? existing.mcpServers : {};
   if (!mcpServers[name]) {
     deps.renderer.writeError(`Server "${name}" not in config.\n`);
     return 1;
   }
-  await updateJsonObjectFile(deps.paths.globalConfig, (config) => {
+  await updateJsonObjectFile(configPath, (config) => {
     removeJsonPath(config, ['mcpServers', name]);
   });
   deps.renderer.writeInfo(`Removed "${name}" from config.\n`);

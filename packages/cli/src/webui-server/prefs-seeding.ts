@@ -28,7 +28,7 @@ interface CliWebUIOptions {
   agent: { ctx: { meta: Record<string, unknown> } };
   globalConfigPath?: string | undefined;
   /** Resolved profile config path: ~/.wrongstack/profiles/<activeProfile>/config.json */
-  profileConfigPath?: string | undefined;
+  profileConfigPath: string;
   appConfig?:
     | {
         fallbackModels?: string[] | undefined;
@@ -165,7 +165,7 @@ export async function seedConfigToMeta(opts: CliWebUIOptions): Promise<void> {
     // Keep the helper usable for legacy callers and focused tests that only
     // provide a config path. Prefer the active profile when it is available;
     // globalConfigPath remains the fallback for pre-profile installations.
-    const configPath = opts.profileConfigPath ?? opts.globalConfigPath;
+    const configPath = opts.profileConfigPath;
     if (!configPath) return;
     try {
       const raw = await fs.readFile(configPath, 'utf8');
@@ -372,7 +372,7 @@ export function createPrefsSeeding(opts: CliWebUIOptions): PrefsSeeding {
     // instead of the bootstrap file (~/.wrongstack/config.json), which should
     // only contain { version, activeProfile }. Fall back to globalConfigPath
     // when profileConfigPath is not available (no profile system active).
-    const configPath = opts.profileConfigPath ?? opts.globalConfigPath;
+    const configPath = opts.profileConfigPath;
     if (Array.isArray(payload['fallbackModels']))
       patchLiveAppConfig({ fallbackModels: payload['fallbackModels'] as string[] });
     if (

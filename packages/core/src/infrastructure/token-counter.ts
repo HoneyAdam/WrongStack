@@ -28,7 +28,7 @@ export class DefaultTokenCounter implements TokenCounter {
   private costOutput = 0;
   private cacheSaved = 0;
   private readonly registry?: ModelsRegistry | undefined;
-  private readonly providerId?: string | undefined;
+  private readonly providerId?: string | (() => string | undefined) | undefined;
   private readonly events?: EventBus | undefined;
   private sessionId?: string | (() => string | undefined) | undefined;
   private priceCache = new Map<string, PriceEntry>();
@@ -40,7 +40,7 @@ export class DefaultTokenCounter implements TokenCounter {
   constructor(
     opts: {
       registry?: ModelsRegistry | undefined;
-      providerId?: string | undefined;
+      providerId?: string | (() => string | undefined) | undefined;
       events?: EventBus | undefined;
       sessionId?: string | (() => string | undefined) | undefined;
     } = {},
@@ -55,7 +55,7 @@ export class DefaultTokenCounter implements TokenCounter {
     this.sessionId = sessionId;
   }
 
-  account(usage: Usage, model?: string): void {
+  account(usage: Usage, model?: string, providerId = this.currentProviderId()): void {
     const eventSessionId = this.currentSessionId();
     this.input += usage.input;
     this.output += usage.output;
@@ -66,14 +66,15 @@ export class DefaultTokenCounter implements TokenCounter {
     this.lastCacheRead = usage.cacheRead ?? 0;
     this.lastCacheWrite = usage.cacheWrite ?? 0;
 
-    const price = model ? this.priceCache.get(model) : undefined;
+    const priceKey = providerId && model ? `${providerId}\0${model}` : undefined;
+    const price = priceKey ? this.priceCache.get(priceKey) : undefined;
     if (price) {
       this.applyPrice(usage, price);
-      this.emitAccounted(eventSessionId, model);
+      this.emitAccounted(eventSessionId, model, providerId, usage);
       return;
     }
 
-    if (this.registry && this.providerId && model) {
+    if (this.registry && providerId && model) {
       // Evict oldest entry when cache is full before async lookup.
       if (this.priceCache.size >= PRICE_CACHE_MAX_SIZE) {
         const keys = [...this.priceCache.keys()];
@@ -81,17 +82,17 @@ export class DefaultTokenCounter implements TokenCounter {
       }
       // Async lookup — populate cache, but don't block this call.
       void this.registry
-        .getModel(this.providerId, model)
+        .getModel(providerId, model)
         .then((m) => {
           if (m) {
             const p = priceFromModel(m);
-            this.priceCache.set(model, p);
+            this.priceCache.set(priceKey!, p);
             this.applyPrice(usage, p);
           }
           // Token totals are authoritative even when pricing is unresolved.
           // Emit after the lookup settles so live UIs update for unknown models
           // without double-emitting when pricing is resolved.
-          this.emitAccounted(eventSessionId, model);
+          this.emitAccounted(eventSessionId, model, providerId, usage);
         })
         .catch(() => {
           // Emit so observability tooling can detect unknown models.
@@ -99,7 +100,7 @@ export class DefaultTokenCounter implements TokenCounter {
             ...(eventSessionId ? { sessionId: eventSessionId } : {}),
             model: model ?? '<unknown>',
           });
-          this.emitAccounted(eventSessionId, model);
+          this.emitAccounted(eventSessionId, model, providerId, usage);
           return undefined;
         });
       return;
@@ -107,7 +108,7 @@ export class DefaultTokenCounter implements TokenCounter {
 
     // No pricing source exists. Still emit token totals so live UIs do not stay
     // at 0 just because cost cannot be estimated.
-    this.emitAccounted(eventSessionId, model);
+    this.emitAccounted(eventSessionId, model, providerId, usage);
   }
 
   /** Synchronous variant for code paths that have already resolved the model. */
@@ -126,9 +127,9 @@ export class DefaultTokenCounter implements TokenCounter {
       const keys = [...this.priceCache.keys()];
       this.priceCache.delete(keys[0] ?? '');
     }
-    this.priceCache.set(resolved.modelId, price);
+    this.priceCache.set(`${resolved.providerId}\0${resolved.modelId}`, price);
     this.applyPrice(usage, price);
-    this.emitAccounted(eventSessionId, resolved.modelId);
+    this.emitAccounted(eventSessionId, resolved.modelId, resolved.providerId, usage);
   }
 
   total(): Usage {
@@ -177,18 +178,29 @@ export class DefaultTokenCounter implements TokenCounter {
     this.priceCache.clear();
   }
 
-  private emitAccounted(sessionId = this.currentSessionId(), model?: string): void {
+  private emitAccounted(
+    sessionId = this.currentSessionId(),
+    model?: string,
+    providerId = this.currentProviderId(),
+    deltaUsage?: Usage,
+  ): void {
     this.events?.emit('token.accounted', {
       ...(sessionId ? { sessionId } : {}),
       usage: this.total(),
+      ...(deltaUsage ? { deltaUsage: { ...deltaUsage } } : {}),
       cost: { input: this.costInput, output: this.costOutput, total: this.costInput + this.costOutput },
-      ...(this.providerId ? { provider: this.providerId } : {}),
+      ...(providerId ? { provider: providerId } : {}),
       ...(model ? { model } : {}),
     });
   }
 
   private currentSessionId(): string | undefined {
     const value = typeof this.sessionId === 'function' ? this.sessionId() : this.sessionId;
+    return typeof value === 'string' && value.length > 0 ? value : undefined;
+  }
+
+  private currentProviderId(): string | undefined {
+    const value = typeof this.providerId === 'function' ? this.providerId() : this.providerId;
     return typeof value === 'string' && value.length > 0 ? value : undefined;
   }
 
@@ -203,7 +215,12 @@ export class DefaultTokenCounter implements TokenCounter {
     this.lastInput = 0;
     this.lastCacheRead = 0;
     this.lastCacheWrite = 0;
-    this.emitAccounted();
+    this.emitAccounted(undefined, undefined, undefined, {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+    });
   }
 
   private applyPrice(usage: Usage, price: PriceEntry): void {

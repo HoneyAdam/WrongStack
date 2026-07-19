@@ -46,7 +46,10 @@ export {
  */
 
 export function getVault(globalConfigPath: string | undefined): DefaultSecretVault {
-  const keyFile = path.join(path.dirname(globalConfigPath ?? ''), '.key');
+  const configDir = path.dirname(globalConfigPath ?? '');
+  const parentDir = path.dirname(configDir);
+  const globalRoot = path.basename(parentDir) === 'profiles' ? path.dirname(parentDir) : configDir;
+  const keyFile = path.join(globalRoot, '.key');
   return new DefaultSecretVault({ keyFile });
 }
 

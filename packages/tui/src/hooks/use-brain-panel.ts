@@ -70,7 +70,7 @@ export function useBrainPanel(opts: UseBrainPanelOptions): BrainPanelController 
           dispatch({ type: 'brainSettingsLoaded', settings: brainPanelHost.getSettings() });
           dispatch({
             type: 'brainHint',
-            text: err ?? successHint ?? 'Saved to ~/.wrongstack/config.json',
+            text: err ?? successHint ?? 'Saved to the active profile config',
           });
           if (!err) onSuccess?.();
         })

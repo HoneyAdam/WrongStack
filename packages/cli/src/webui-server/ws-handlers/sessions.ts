@@ -155,6 +155,10 @@ export async function handleSessionNew(ctx: SessionsContext, _ws: WebSocket): Pr
   }
   actx.state.replaceMessages([]);
   actx.state.replaceTodos([]);
+  actx.lastRequestTokens = undefined;
+  actx.lastRealInputTokens = undefined;
+  actx.state.deleteMeta?.('lastRequestTokensAt');
+  actx.state.deleteMeta?.('realAnchorMsgCount');
   actx.readFiles.clear();
   actx.fileMtimes.clear();
   const payload = await ctx.buildSessionStart({ reset: true, clearedSessionId: oldId });
@@ -336,11 +340,15 @@ export async function handleSessionResume(
         ).catch(() => null)) ?? [])
       : [];
     actx.state.replaceTodos(restoredTodos);
+    actx.lastRequestTokens = undefined;
+    actx.lastRealInputTokens = undefined;
+    actx.state.deleteMeta?.('lastRequestTokensAt');
+    actx.state.deleteMeta?.('realAnchorMsgCount');
     actx.readFiles.clear();
     actx.fileMtimes.clear();
     actx.tokenCounter.reset();
     // Replay usage so the topbar shows accurate totals.
-    actx.tokenCounter.account(resumed.data.usage, actx.model);
+    actx.tokenCounter.account(resumed.data.usage, actx.model, actx.provider.id);
     const payload = await ctx.buildSessionStart({
       reset: true,
       replayMessages: resumed.data.messages,

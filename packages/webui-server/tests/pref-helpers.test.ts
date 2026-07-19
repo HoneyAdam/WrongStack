@@ -13,6 +13,7 @@ import {
 
 describe('WebUI preference persistence helpers', () => {
   let dir: string;
+  let rootConfigPath: string;
   let configPath: string;
   let warn: ReturnType<typeof vi.fn>;
   let deps: PrefHelperDeps;
@@ -20,9 +21,21 @@ describe('WebUI preference persistence helpers', () => {
 
   beforeEach(async () => {
     dir = await fs.mkdtemp(path.join(os.tmpdir(), 'wrongstack-pref-helpers-'));
-    configPath = path.join(dir, 'config.json');
+    rootConfigPath = path.join(dir, 'config.json');
+    configPath = path.join(dir, 'profiles', 'default', 'config.json');
+    await fs.mkdir(path.dirname(configPath), { recursive: true });
+    await fs.writeFile(
+      rootConfigPath,
+      JSON.stringify({ version: 1, activeProfile: 'default' }),
+      'utf8',
+    );
     warn = vi.fn();
-    deps = { globalConfigPath: configPath, vault: noOpVault, logger: { warn } };
+    deps = {
+      globalConfigPath: rootConfigPath,
+      profileConfigPath: configPath,
+      vault: noOpVault,
+      logger: { warn },
+    };
     holder = { lock: Promise.resolve() };
   });
 
@@ -67,6 +80,10 @@ describe('WebUI preference persistence helpers', () => {
 
     expect(order).toEqual(['first', 'second']);
     expect(await readConfig()).toEqual({ first: true, second: true });
+    expect(JSON.parse(await fs.readFile(rootConfigPath, 'utf8'))).toEqual({
+      version: 1,
+      activeProfile: 'default',
+    });
     await expect(holder.lock).resolves.toBeUndefined();
     expect(warn).not.toHaveBeenCalled();
   });

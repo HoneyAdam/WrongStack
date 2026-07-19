@@ -172,6 +172,65 @@ describe('DefaultConfigLoader', () => {
     expect(cfg.model).toBe('anthropic-test-model');
   });
 
+  it('never loads settings from the root bootstrap once a profile exists', async () => {
+    const { loader: l, paths, profileCfgPath } = loader();
+    await fs.mkdir(path.dirname(profileCfgPath), { recursive: true });
+    await fs.writeFile(
+      profileCfgPath,
+      JSON.stringify({
+        activeProfile: 'must-not-win',
+        provider: 'profile-provider',
+        model: 'profile-model',
+        maxConcurrent: 7,
+      }),
+    );
+    await fs.writeFile(
+      paths.globalConfig,
+      JSON.stringify({
+        version: 1,
+        activeProfile: 'default',
+        provider: 'stale-root-provider',
+        model: 'stale-root-model',
+        maxConcurrent: 99,
+      }),
+    );
+
+    const cfg = await l.load();
+
+    expect(cfg.provider).toBe('profile-provider');
+    expect(cfg.model).toBe('profile-model');
+    expect(cfg.maxConcurrent).toBe(7);
+    expect(cfg.activeProfile).toBe('default');
+    expect(JSON.parse(await fs.readFile(paths.globalConfig, 'utf8'))).toEqual({
+      version: 1,
+      activeProfile: 'default',
+    });
+  });
+
+  it('does not migrate root settings into an existing empty profile', async () => {
+    const { loader: l, paths, profileCfgPath } = loader();
+    await fs.mkdir(path.dirname(profileCfgPath), { recursive: true });
+    await fs.writeFile(profileCfgPath, '{}');
+    await fs.writeFile(
+      paths.globalConfig,
+      JSON.stringify({
+        version: 1,
+        activeProfile: 'default',
+        provider: 'stale-root-provider',
+        model: 'stale-root-model',
+      }),
+    );
+
+    const cfg = await l.load();
+
+    expect(cfg.provider).toBeUndefined();
+    expect(cfg.model).toBeUndefined();
+    expect(JSON.parse(await fs.readFile(paths.globalConfig, 'utf8'))).toEqual({
+      version: 1,
+      activeProfile: 'default',
+    });
+  });
+
   it('memoizes file reads across repeated load() calls until mtime changes', async () => {
     const { loader: l, paths, profileCfgPath } = loader();
     // Write the initial config to the profile config (user settings)

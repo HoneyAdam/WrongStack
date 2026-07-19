@@ -351,7 +351,7 @@ export async function setupLifecycleAndPlugins(
     vault,
     paths: {
       globalRoot: wpaths.globalRoot,
-      globalConfig: wpaths.globalConfig,
+      globalConfig: wpaths.profileConfig(config.activeProfile ?? 'default'),
       globalSkills: wpaths.globalSkills,
       globalPrompts: wpaths.globalPrompts,
       globalMemory: wpaths.globalMemory,
@@ -366,8 +366,10 @@ export async function setupLifecycleAndPlugins(
     llm: {
       provider,
       model: config.model,
+      getProvider: () => context.provider,
+      getModel: () => context.model,
       createProvider: (name: string) =>
-        buildProviderForIdRuntimeFn({ config, providerRegistry }, name),
+        buildProviderForIdRuntimeFn({ config: configStore.get(), providerRegistry }, name),
     },
   });
 

@@ -17,7 +17,7 @@ export interface CacheStats {
 }
 
 export interface TokenCounter {
-  account(usage: Usage, model?: string): void | undefined;
+  account(usage: Usage, model?: string, providerId?: string): void | undefined;
   /** Optional live session binding used by token.accounted events. */
   setSessionId?(sessionId: string | (() => string | undefined) | undefined): void;
   /**

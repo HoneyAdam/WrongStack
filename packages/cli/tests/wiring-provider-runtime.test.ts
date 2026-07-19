@@ -4,6 +4,7 @@ import {
   buildProviderForId,
   resolveProviderCfg,
 } from '../src/wiring/provider-runtime.js';
+import { serializeProviderRuntimeSnapshot } from '../src/wiring/provider-runtime-setup.js';
 
 // Mock the providers package — we test the resolver / builder in
 // isolation from the real provider factory chain. The factories are
@@ -32,6 +33,18 @@ function fakeProvider(id: string): Provider {
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+it('detects nested credential changes in provider runtime snapshots', () => {
+  const before = serializeProviderRuntimeSnapshot({
+    provider: 'alias',
+    providers: { alias: { type: 'anthropic', apiKey: 'old' } },
+  });
+  const after = serializeProviderRuntimeSnapshot({
+    provider: 'alias',
+    providers: { alias: { type: 'anthropic', apiKey: 'new' } },
+  });
+  expect(after).not.toBe(before);
 });
 
 describe('resolveProviderCfg', () => {
@@ -157,6 +170,29 @@ describe('buildProviderForId', () => {
       expect.objectContaining({ type: 'anthropic' }),
     );
     // makeProviderFromConfig is NOT called on the registry path.
+    expect(makeProviderFromConfig).not.toHaveBeenCalled();
+  });
+
+  it('saved alias uses its wire-family registry factory while preserving the alias id', () => {
+    const cfg = fakeConfig({
+      providers: {
+        alias: { type: 'anthropic', apiKey: 'sk', family: 'anthropic' },
+      },
+    });
+    const registry = new ProviderRegistry();
+    const anthropicFactory = {
+      type: 'anthropic',
+      family: 'anthropic' as const,
+      create: vi.fn((c: { type: string }) => fakeProvider(c.type)),
+    };
+    registry.register(anthropicFactory);
+
+    const provider = buildProviderForId({ config: cfg, providerRegistry: registry }, 'alias');
+
+    expect(provider.id).toBe('alias');
+    expect(anthropicFactory.create).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'alias', family: 'anthropic' }),
+    );
     expect(makeProviderFromConfig).not.toHaveBeenCalled();
   });
 

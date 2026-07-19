@@ -428,6 +428,7 @@ export async function startWebUI(
     mcpRegistry,
     vault,
     globalConfigPath,
+    profileConfigPath,
     wpaths,
     configStore,
     tokenCounter,
@@ -485,11 +486,9 @@ export async function startWebUI(
   // live-swap (routes.ts). Escape hatch: WRONGSTACK_DISABLE_CONFIG_WATCH=1.
   //
   // Watches the ACTIVE PROFILE config (~/.wrongstack/profiles/<name>/config.json)
-  // where all user settings, providers, and routing configs live. Falls back to
-  // the bootstrap config (~/.wrongstack/config.json) when no profile system is
-  // active. The bootstrap itself only holds { version, activeProfile }, so
-  // watching it would never detect provider or routing changes.
-  const watchConfigPath = profileConfigPath ?? globalConfigPath;
+  // where all user settings, providers, and routing configs live. The root
+  // bootstrap is deliberately not watched as a settings source.
+  const watchConfigPath = profileConfigPath;
   let credentialWatcherClose: (() => void) | undefined;
   if (process.env['WRONGSTACK_DISABLE_CONFIG_WATCH'] !== '1') {
     let lastActiveCfg = JSON.stringify(

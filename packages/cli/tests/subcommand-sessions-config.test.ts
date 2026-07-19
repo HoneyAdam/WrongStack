@@ -48,7 +48,10 @@ function mkDeps(over: Record<string, unknown> = {}) {
   return {
     renderer,
     config: { providers: { anth: { apiKey: 'secret' } }, model: 'opus' },
-    paths: { globalConfig: path.join(tmp, 'config.json') },
+    paths: {
+      globalConfig: path.join(tmp, 'config.json'),
+      profileConfig: () => path.join(tmp, 'config.json'),
+    },
     sessionStore: {
       list: vi.fn().mockResolvedValue([]),
     },
@@ -297,14 +300,22 @@ describe('configCmd', () => {
     histMocks.restoreFromHistory.mockResolvedValue({ ok: true });
     const code = await configCmd(['restore', 'h-3'], mkDeps());
     expect(code).toBe(0);
-    expect(histMocks.restoreFromHistory).toHaveBeenCalledWith('h-3');
+    expect(histMocks.restoreFromHistory).toHaveBeenCalledWith(
+      'h-3',
+      undefined,
+      path.join(tmp, 'config.json'),
+    );
     expect(writes.join('')).toContain('Restored to history entry');
   });
 
   it('restore --id <id> form also works', async () => {
     histMocks.restoreFromHistory.mockResolvedValue({ ok: true });
     await configCmd(['restore', '--id', 'h-4'], mkDeps());
-    expect(histMocks.restoreFromHistory).toHaveBeenCalledWith('h-4');
+    expect(histMocks.restoreFromHistory).toHaveBeenCalledWith(
+      'h-4',
+      undefined,
+      path.join(tmp, 'config.json'),
+    );
   });
 
   it('restore <id> reports error on failure', async () => {

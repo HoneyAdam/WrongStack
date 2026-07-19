@@ -73,7 +73,7 @@ function makeAdapter(initial = baseConfig()) {
   const applied: unknown[] = [];
   const adapter = createSettingsAdapter({
     configStore,
-    wpaths: { globalConfig, inProjectConfig } as never,
+    wpaths: { globalConfig, profileConfig: () => globalConfig, inProjectConfig } as never,
     fleetStreamController: undefined,
     applyLiveSettings: (settings) => {
       applied.push(settings);

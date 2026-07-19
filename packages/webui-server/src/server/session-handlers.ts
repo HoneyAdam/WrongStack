@@ -116,6 +116,12 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
       .catch(() => undefined);
     await writer.close().catch(() => undefined);
   };
+  const resetContextAccounting = (): void => {
+    ctx.context.lastRequestTokens = undefined;
+    ctx.context.lastRealInputTokens = undefined;
+    ctx.context.state.deleteMeta('lastRequestTokensAt');
+    ctx.context.state.deleteMeta('realAnchorMsgCount');
+  };
   const activateSession = async (
     next: Session,
     messages: Context['messages'],
@@ -131,6 +137,7 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
     // Restore the resumed session's todo board from its .todos.json sidecar
     // (empty for a fresh session). Without this a resume cleared the panel.
     ctx.context.state.replaceTodos(todos);
+    resetContextAccounting();
     ctx.context.readFiles.clear();
     ctx.context.fileMtimes.clear();
     ctx.context.state.setMeta(
@@ -142,7 +149,7 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
       sessionScopedPath(ctx.sessionsDir, next.id, '.tasks.json'),
     );
     ctx.tokenCounter.reset();
-    if (usage) ctx.tokenCounter.account(usage, ctx.config.model);
+    if (usage) ctx.tokenCounter.account(usage, ctx.config.model, ctx.context.provider.id);
     ctx.setSessionStartedAt(Date.now());
     await ctx.onSessionSwapped(next.id);
   };
@@ -163,6 +170,7 @@ export function createSessionHandlers(ctx: SessionHandlersContext): SessionRoute
       if (!ensureCurrentSession(ws, msg, 'context.clear')) return;
       ctx.context.state.replaceMessages([]);
       ctx.context.state.replaceTodos([]);
+      resetContextAccounting();
       ctx.context.readFiles.clear();
       ctx.context.fileMtimes.clear();
       ctx.tokenCounter.reset();

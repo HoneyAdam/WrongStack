@@ -1,10 +1,11 @@
 import { runPluginManagementCommand } from '../../plugin-management.js';
+import { activeProfileConfigPath } from '../../profile-config-path.js';
 import type { SubcommandHandler } from '../index.js';
 
 export const pluginCmd: SubcommandHandler = async (args, deps) => {
   const result = await runPluginManagementCommand(args, {
     config: deps.config,
-    configPath: deps.paths.globalConfig,
+    configPath: activeProfileConfigPath(deps.paths, deps.config),
   });
   if (result.level === 'error') {
     deps.renderer.writeError(`${result.message}\n`);

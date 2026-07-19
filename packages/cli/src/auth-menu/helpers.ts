@@ -6,5 +6,6 @@ import type { AuthMenuDeps } from './types.js';
 export async function loadProviders(deps: AuthMenuDeps): Promise<Record<string, ProviderConfig>> {
   return loadConfigProviders(deps.globalConfigPath, deps.vault, {
     warn: (msg: string) => deps.renderer.writeWarning(msg),
+    profileConfigPath: deps.profileConfigPath,
   });
 }

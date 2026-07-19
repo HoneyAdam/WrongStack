@@ -48,6 +48,7 @@ import type { TerminalRenderer } from './renderer.js';
 import type { SessionStats } from './session-stats.js';
 import type { AutonomyMode } from './slash-commands/autonomy.js';
 import type { StatuslineConfigKey } from './slash-commands/statusline.js';
+import type { UpdateInfo } from './update-check.js';
 
 // ─── Shared picker types (duplicated from execution.ts to break the import cycle) ───
 
@@ -117,6 +118,14 @@ export interface CoreDeps {
   slashRegistry: SlashCommandRegistry;
   tokenCounter: TokenCounter;
   recoveryLock: RecoveryLock;
+  /**
+   * Resolved preflight update-check info (current/latest/outdated/checkFailed).
+   * Optional — when omitted, the TUI banner simply omits the "(update
+   * available)" indicator. The CLI's preflight phase is the source of
+   * truth and already calls {@link checkForUpdate} once before this value
+   * is consumed; the TUI reuses the result without making a second request.
+   */
+  updateInfo?: UpdateInfo | undefined;
 }
 
 /** Session + state stores. */

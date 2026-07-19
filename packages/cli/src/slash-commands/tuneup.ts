@@ -20,6 +20,7 @@ import {
 import { checkForUpdate } from '../update-check.js';
 import { parseSubcommand } from './helpers.js';
 import type { SlashCommandContext } from './index.js';
+import { activeProfileConfigPath } from '../profile-config-path.js';
 
 /**
  * `/tuneup` (alias `/checkup`) — broad session health, context-cost, and
@@ -255,8 +256,8 @@ async function gatherTrust(opts: SlashCommandContext): Promise<TuneupTrustPolicy
 
 /** Count `/doctor`-style config issues so /tuneup can point at /doctor fix. */
 async function gatherConfigIssues(opts: SlashCommandContext): Promise<number> {
-  const file = opts.paths?.globalConfig;
-  if (!file) return 0;
+  if (!opts.paths) return 0;
+  const file = activeProfileConfigPath(opts.paths, opts.configStore.get());
   try {
     const raw = await fs.readFile(file, 'utf8');
     const parsed = JSON.parse(raw) as Record<string, unknown>;
@@ -309,7 +310,7 @@ async function applyActions(
   const messages: string[] = [];
   if (actions.length === 0 || !opts.paths) return { messages, changed: false };
 
-  const file = opts.paths.globalConfig;
+  const file = activeProfileConfigPath(opts.paths, opts.configStore.get());
   let raw = '{}';
   try {
     raw = await fs.readFile(file, 'utf8');

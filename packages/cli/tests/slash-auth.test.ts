@@ -11,7 +11,7 @@ function makeContext(overrides: Partial<SlashCommandContext> = {}): SlashCommand
     events: {} as SlashCommandContext['events'],
     cwd: '/tmp/test',
     projectRoot: '/tmp/test',
-    configStore: {} as SlashCommandContext['configStore'],
+    configStore: { get: () => ({}) } as SlashCommandContext['configStore'],
     reader: {} as SlashCommandContext['reader'],
     ...overrides,
   };
@@ -45,6 +45,7 @@ describe('/auth slash command', () => {
     const ctx = makeContext({
       paths: {
         globalConfig: '/tmp/does-not-exist.json',
+        profileConfig: () => '/tmp/does-not-exist.json',
       } as SlashCommandContext['paths'],
     });
     const cmd = buildAuthCommand(ctx);
@@ -57,6 +58,7 @@ describe('/auth slash command', () => {
     const ctx = makeContext({
       paths: {
         globalConfig: '/tmp/empty-config.json',
+        profileConfig: () => '/tmp/empty-config.json',
       } as SlashCommandContext['paths'],
     });
     const cmd = buildAuthCommand(ctx);
@@ -69,6 +71,7 @@ describe('/auth slash command', () => {
     const ctx = makeContext({
       paths: {
         globalConfig: '/tmp/empty-config.json',
+        profileConfig: () => '/tmp/empty-config.json',
       } as SlashCommandContext['paths'],
     });
     const cmd = buildAuthCommand(ctx);
@@ -79,7 +82,10 @@ describe('/auth slash command', () => {
 });
 
 describe('/auth — TUI panel bridge', () => {
-  const paths = { globalConfig: '/tmp/empty-config.json' } as SlashCommandContext['paths'];
+  const paths = {
+    globalConfig: '/tmp/empty-config.json',
+    profileConfig: () => '/tmp/empty-config.json',
+  } as SlashCommandContext['paths'];
 
   it('bare /auth opens the panel when the bridge is live', async () => {
     const current = vi.fn().mockReturnValue(true);

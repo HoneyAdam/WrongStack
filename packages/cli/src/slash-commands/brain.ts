@@ -20,7 +20,7 @@
  *   /brain ask <question>   consult the Brain directly for a decision
  *   /brain save             re-persist the current settings
  *
- * Every setter applies LIVE and persists to ~/.wrongstack/config.json
+ * Every setter applies LIVE and persists to the active profile config
  * (config.brain is denied in project scope by design).
  */
 import { randomUUID } from 'node:crypto';
@@ -124,7 +124,7 @@ export function buildBrainCommand(opts: SlashCommandContext): SlashCommand {
       'escalation tier resolves via the terminal policy instead of prompting',
       'you, so the Brain never blocks on a human. Model refs use the',
       '"provider/model" grammar (bare "model" = session provider). Every',
-      'setter applies live AND persists to ~/.wrongstack/config.json. The',
+      'setter applies live AND persists to the active profile config. The',
       'Brain also self-activates on tool failure streaks and error storms,',
       'steering agents via mailbox.',
     ].join('\n'),
@@ -147,7 +147,7 @@ export function buildBrainCommand(opts: SlashCommandContext): SlashCommand {
           const { snapshot, persisted } = opts.brainRuntime.apply(patch);
           const result = await persisted;
           const note = result.ok
-            ? color.dim(' — saved to ~/.wrongstack/config.json')
+            ? color.dim(' — saved to the active profile config')
             : ` — applied live but NOT saved: ${result.error ?? 'unknown error'}`;
           const msg = `${describe(snapshot)}${note}`;
           if (result.ok) opts.renderer.write(msg);
@@ -528,7 +528,7 @@ export function buildBrainCommand(opts: SlashCommandContext): SlashCommand {
           );
         }
         if (opts.brainRuntime) {
-          lines.push(color.dim('  setters apply live and persist to ~/.wrongstack/config.json'));
+          lines.push(color.dim('  setters apply live and persist to the active profile config'));
         }
         const log = opts.getBrainLog?.() ?? [];
         if (log.length === 0) {

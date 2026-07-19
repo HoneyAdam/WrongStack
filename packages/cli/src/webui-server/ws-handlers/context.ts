@@ -55,6 +55,10 @@ export async function handleContextClear(ctx: ContextHandlerContext, ws: WebSock
   const actx = ctx.agent.ctx;
   actx.state.replaceMessages([]);
   actx.state.replaceTodos([]);
+  actx.lastRequestTokens = undefined;
+  actx.lastRealInputTokens = undefined;
+  actx.state.deleteMeta?.('lastRequestTokensAt');
+  actx.state.deleteMeta?.('realAnchorMsgCount');
   actx.readFiles.clear();
   actx.fileMtimes.clear();
   sendResult(ctx, ws, true, 'Context cleared');

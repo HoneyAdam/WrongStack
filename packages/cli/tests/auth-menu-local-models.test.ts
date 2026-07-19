@@ -95,6 +95,7 @@ async function setupDeps(opts: {
     modelsRegistry: makeModelsRegistry(),
     vault,
     globalConfigPath: configPath,
+    profileConfigPath: configPath,
   };
   return { deps, configPath, tmpDir };
 }

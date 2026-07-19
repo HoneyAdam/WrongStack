@@ -294,11 +294,17 @@ export abstract class WireAdapter implements Provider {
       async pull(controller) {
         // Race the read against a hang timeout
         const readPromise = reader.read();
+        let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
         const timeoutPromise = new Promise<{ timedOut: true }>((resolve) => {
-          setTimeout(() => resolve({ timedOut: true }), timeout);
+          timeoutHandle = setTimeout(() => resolve({ timedOut: true }), timeout);
         });
 
-        const result = await Promise.race([readPromise, timeoutPromise]);
+        let result: { done: boolean; value?: Uint8Array | undefined } | { timedOut: true };
+        try {
+          result = await Promise.race([readPromise, timeoutPromise]);
+        } finally {
+          if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+        }
 
         if ('timedOut' in result && result.timedOut) {
           // The read is still pending — this is a hang.

@@ -440,16 +440,13 @@ export const useFleetStore = create<FleetState>()((set, get) => ({
 
 // ── Derived selectors ──────────────────────────────────────────────────
 //
-// These can be passed directly to useFleetStore. For object selectors
-// (selectFleetSummary), pass the `shallow` equality helper as the second
-// argument to avoid re-renders when only the Map reference changes:
+// These can be called directly against store state. When subscribing to a
+// selector that returns a new object or array, wrap it with Zustand's
+// `useShallow` so useSyncExternalStore receives a reference-stable snapshot:
 //
-//   const summary = useFleetStore(selectFleetSummary, shallow);
+//   const summary = useFleetStore(useShallow(selectFleetSummary));
 //
-// selectSortedAgentList returns a new array on every call — consumers that
-// want memoization should wrap in useMemo with selectSortedAgentList's
-// result as the dependency, or use the selector inside a component that
-// re-renders infrequently.
+// The local `shallow` export below remains available for direct comparisons.
 
 /** Pre-computed fleet-wide summary statistics. */
 export interface FleetSummary {
@@ -510,8 +507,8 @@ export const selectFleetSummary = (state: FleetState): FleetSummary => {
 };
 
 /** Selector: return agents sorted leader-first → running-first → by start time.
- *  Creates a new array on every call; pair with useMemo or pass through
- *  a component that tolerates re-derivation when the agents Map changes.
+ *  Creates a new array on every call; wrap with `useShallow` when subscribing
+ *  through useFleetStore.
  */
 export const selectSortedAgentList = (state: FleetState): SubagentView[] => {
   const arr = Array.from(state.agents.values());

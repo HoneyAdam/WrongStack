@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const cp = vi.hoisted(() => ({ execFileSync: vi.fn() }));
-vi.mock('node:child_process', async (o) => ({ ...(await o()), execFileSync: cp.execFileSync }));
+const cp = vi.hoisted(() => ({ execFileSync: vi.fn(), execFile: vi.fn() }));
+vi.mock('node:child_process', async (o) => ({ ...(await o()), execFile: cp.execFile }));
 const fsm = vi.hoisted(() => ({ existsSync: vi.fn() }));
 vi.mock('node:fs', async (o) => ({ ...(await o()), existsSync: fsm.existsSync }));
 
@@ -42,6 +42,22 @@ beforeEach(() => {
   fsm.existsSync.mockReturnValue(true);
   gitHandler = () => '';
   cp.execFileSync.mockImplementation((_bin: string, args: string[]) => gitHandler(args));
+  cp.execFile.mockImplementation(
+    (
+      bin: string,
+      args: string[],
+      options: Record<string, unknown>,
+      callback: (error: Error | null, stdout: string, stderr: string) => void,
+    ) => {
+      try {
+        callback(null, String(cp.execFileSync(bin, args, options) ?? ''), '');
+      } catch (error) {
+        const e = error as Error & { stdout?: string; stderr?: string };
+        callback(e, e.stdout ?? '', e.stderr ?? '');
+      }
+      return {};
+    },
+  );
 });
 
 const key = (args: string[]) => args.join(' ');

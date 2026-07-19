@@ -186,7 +186,7 @@ export async function mutateConfigProviders(
   let raw: string;
   let fileExists = true;
   try {
-    raw = await fs.readFile(configPath, 'utf8');
+    raw = await fs.readFile(targetPath, 'utf8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
       throw new FsError({
@@ -223,5 +223,5 @@ export async function mutateConfigProviders(
   decrypted.providers = providers;
   clearStaleProviderDefaults(decrypted);
   const encrypted = encryptConfigSecrets(decrypted, vault);
-  await atomicWrite(configPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
+  await atomicWrite(targetPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
 }

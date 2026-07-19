@@ -96,6 +96,7 @@ async function setupDeps(opts: {
     modelsRegistry: makeModelsRegistry(),
     vault,
     globalConfigPath: configPath,
+    profileConfigPath: configPath,
     ...(opts.secretScrubber ? { secretScrubber: opts.secretScrubber } : {}),
   };
   return { deps, configPath, tmpDir };

@@ -155,6 +155,8 @@ export interface PluginsWiringDeps {
     | {
         provider: import('@wrongstack/core').Provider;
         model: string;
+        getProvider?: (() => import('@wrongstack/core').Provider) | undefined;
+        getModel?: (() => string) | undefined;
         createProvider?:
           | ((name: string, model?: string) => import('@wrongstack/core').Provider)
           | undefined;

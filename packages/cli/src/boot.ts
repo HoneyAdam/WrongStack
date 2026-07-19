@@ -55,6 +55,7 @@ import { bootConfig } from './boot-config.js';
 import { ReadlineInputReader } from './input-reader.js';
 import { printLaunchHints } from './launch-hints.js';
 import { type PickerResult, runPicker, saveToGlobalConfig } from './picker.js';
+import { activeProfileConfigPath } from './profile-config-path.js';
 import {
   LaunchAbortedError,
   maybeAskAboutIndexing,
@@ -267,6 +268,7 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
   config = applySimpleUiFullAutoProfile(config, flags);
   const simpleUiFullAuto = isSimpleUiFullAuto(flags);
   const { cwd, projectRoot, userHome, wpaths, pathResolver } = paths;
+  const profileConfigPath = activeProfileConfigPath(wpaths, config);
   void pathResolver; // used by callers via container binding
 
   // `wrongstack quick` — accept all defaults, list plugins, open TUI with F3 panel.
@@ -483,7 +485,7 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
         config = patchConfig(config, { provider: picked.provider, model: picked.model });
         if (picked.provider !== prevProvider || picked.model !== prevModel) {
           const saved = await saveToGlobalConfig(
-            wpaths.globalConfig,
+            profileConfigPath,
             picked.provider,
             picked.model,
           );
@@ -625,7 +627,7 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
         const toPersist = flags['webui']
           ? { ...choices, mode: lastChoices?.mode ?? config.launch?.mode ?? 'tui' }
           : choices;
-        await persistLaunchChoices(wpaths.globalConfig, toPersist);
+        await persistLaunchChoices(profileConfigPath, toPersist);
       } catch {
         // Best-effort — never blocks launch.
       }

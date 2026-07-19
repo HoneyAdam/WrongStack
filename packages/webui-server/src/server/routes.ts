@@ -224,6 +224,8 @@ export interface WebuiDeps {
   mcpRegistry: MCPRegistry;
   vault: SecretVault;
   globalConfigPath: string;
+  /** Active profile settings config; globalConfigPath is bootstrap metadata only. */
+  profileConfigPath: string;
   /** Per-project layout — expose only the bits the route layer touches. */
   wpaths: { globalRoot: string; globalSkills: string; projectSessions: string };
   configStore: ConfigStore;
@@ -334,7 +336,7 @@ export function buildRoutes(
   // ---- Provider/Key management helpers (extracted to provider-handlers.ts) ----
   const providerHandlers = createProviderHandlers({
     globalConfigPath: deps.globalConfigPath,
-    profileConfigPath: (deps as { profileConfigPath?: string }).profileConfigPath,
+    profileConfigPath: deps.profileConfigPath,
     vault: deps.vault,
     getConfigWriteLock: state.getConfigWriteLock,
     setConfigWriteLock: state.setConfigWriteLock,
@@ -1009,21 +1011,21 @@ export function buildRoutes(
   // inside the residual switch before this PR; now they're an explicit
   // sibling in the chain.
   const mcpRoutes: McpRouteHandlers = {
-    list: (ws, msg) => handleMcpList(ws, msg, deps.globalConfigPath, deps.mcpRegistry),
-    add: (ws, msg) => handleMcpAdd(ws, msg, deps.globalConfigPath, deps.mcpRegistry),
-    update: (ws, msg) => handleMcpUpdate(ws, msg, deps.globalConfigPath, deps.mcpRegistry),
-    remove: (ws, msg) => handleMcpRemove(ws, msg, deps.globalConfigPath, deps.mcpRegistry),
-    enable: (ws, msg) => handleMcpEnable(ws, msg, deps.globalConfigPath, deps.mcpRegistry),
-    disable: (ws, msg) => handleMcpDisable(ws, msg, deps.globalConfigPath, deps.mcpRegistry),
-    sleep: (ws, msg) => handleMcpSleep(ws, msg, deps.globalConfigPath, deps.mcpRegistry),
-    wake: (ws, msg) => handleMcpWake(ws, msg, deps.globalConfigPath, deps.mcpRegistry),
-    restart: (ws, msg) => handleMcpRestart(ws, msg, deps.globalConfigPath, deps.mcpRegistry),
-    discover: (ws, msg) => handleMcpDiscover(ws, msg, deps.globalConfigPath, deps.mcpRegistry),
-    resources: (ws, msg) => handleMcpResources(ws, msg, deps.globalConfigPath, deps.mcpRegistry),
-    prompts: (ws, msg) => handleMcpPrompts(ws, msg, deps.globalConfigPath, deps.mcpRegistry),
+    list: (ws, msg) => handleMcpList(ws, msg, deps.profileConfigPath, deps.mcpRegistry),
+    add: (ws, msg) => handleMcpAdd(ws, msg, deps.profileConfigPath, deps.mcpRegistry),
+    update: (ws, msg) => handleMcpUpdate(ws, msg, deps.profileConfigPath, deps.mcpRegistry),
+    remove: (ws, msg) => handleMcpRemove(ws, msg, deps.profileConfigPath, deps.mcpRegistry),
+    enable: (ws, msg) => handleMcpEnable(ws, msg, deps.profileConfigPath, deps.mcpRegistry),
+    disable: (ws, msg) => handleMcpDisable(ws, msg, deps.profileConfigPath, deps.mcpRegistry),
+    sleep: (ws, msg) => handleMcpSleep(ws, msg, deps.profileConfigPath, deps.mcpRegistry),
+    wake: (ws, msg) => handleMcpWake(ws, msg, deps.profileConfigPath, deps.mcpRegistry),
+    restart: (ws, msg) => handleMcpRestart(ws, msg, deps.profileConfigPath, deps.mcpRegistry),
+    discover: (ws, msg) => handleMcpDiscover(ws, msg, deps.profileConfigPath, deps.mcpRegistry),
+    resources: (ws, msg) => handleMcpResources(ws, msg, deps.profileConfigPath, deps.mcpRegistry),
+    prompts: (ws, msg) => handleMcpPrompts(ws, msg, deps.profileConfigPath, deps.mcpRegistry),
     resourceRead: (ws, msg) =>
-      handleMcpResourceRead(ws, msg, deps.globalConfigPath, deps.mcpRegistry),
-    promptGet: (ws, msg) => handleMcpPromptGet(ws, msg, deps.globalConfigPath, deps.mcpRegistry),
+      handleMcpResourceRead(ws, msg, deps.profileConfigPath, deps.mcpRegistry),
+    promptGet: (ws, msg) => handleMcpPromptGet(ws, msg, deps.profileConfigPath, deps.mcpRegistry),
   };
 
   const sendBrainStatus = (ws: WebSocket): void => {

@@ -17,6 +17,10 @@ import {
 } from '@wrongstack/core';
 import { patchConfig } from '../utils.js';
 
+export function serializeProviderRuntimeSnapshot(snapshot: unknown): string {
+  return JSON.stringify(snapshot);
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -172,9 +176,8 @@ export function setupProviderRuntime(deps: ProviderRuntimeDeps): ProviderRuntime
   //   3. Left deleted routing fields active in memory because optional
   //      fields were patched only when defined (stale deleted settings).
   //
-  // FIX: Watch all three config layers. When any layer changes, re-read
-  // all three and merge their credential/routing fields with the same
-  // precedence the config-loader uses: global → projectLocal → inProject.
+  // Watch the active profile and project layers. The root config is bootstrap
+  // metadata only and must never participate in credential/routing reloads.
   // The merged result is then applied atomically, so deletions (absent
   // fields) correctly restore the lower-precedence or default value.
   const ROUTING_FIELDS: (keyof ProviderConfigSnapshot)[] = [
@@ -193,14 +196,9 @@ export function setupProviderRuntime(deps: ProviderRuntimeDeps): ProviderRuntime
     const activeProfile =
       typeof cfg.activeProfile === 'string' && cfg.activeProfile ? cfg.activeProfile : 'default';
     const configLayers: { path: string; priority: number }[] = [
-      { path: wpaths.globalConfig, priority: 1 },
-      // Profile config (~/.wrongstack/profiles/<name>/config.json) sits between
-      // the thin global bootstrap (version + activeProfile only) and the
-      // project-local override. All user settings, providers, and routing configs
-      // live in the profile — without this layer, hot-reload never reads them.
-      { path: wpaths.profileConfig(activeProfile), priority: 2 },
-      { path: wpaths.projectLocalConfig, priority: 3 },
-      { path: wpaths.inProjectConfig, priority: 4 },
+      { path: wpaths.profileConfig(activeProfile), priority: 1 },
+      { path: wpaths.projectLocalConfig, priority: 2 },
+      { path: wpaths.inProjectConfig, priority: 3 },
     ];
 
     /**
@@ -295,7 +293,9 @@ export function setupProviderRuntime(deps: ProviderRuntimeDeps): ProviderRuntime
     const onAnyConfigChange = async (): Promise<void> => {
       const merged = await readMergedSnapshot();
       if (!merged) return;
-      const serialized = JSON.stringify(merged, Object.keys(merged).sort());
+      // An array replacer filters nested provider ids and credential fields,
+      // making distinct configs serialize as the same `{ providers: {} }`.
+      const serialized = serializeProviderRuntimeSnapshot(merged);
       if (serialized === previousSnapshotSerialized) return; // No change
       previousSnapshotSerialized = serialized;
 

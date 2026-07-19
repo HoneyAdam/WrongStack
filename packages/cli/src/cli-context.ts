@@ -33,6 +33,7 @@ import { wireContainer } from './boot/container-wiring.js';
 import { bindReplayToContainer } from './wiring/replay.js';
 import { setOAuthTokenPersister } from '@wrongstack/providers';
 import { mutateConfigProviders, normalizeKeys, writeKeysBack } from './provider-config-utils.js';
+import { activeProfileConfigPath } from './profile-config-path.js';
 import { TOKENS } from '@wrongstack/core';
 
 import type { EventBus, ConfigStore } from '@wrongstack/core';
@@ -151,7 +152,7 @@ export async function initializeCli(argv: string[]): Promise<CliContext | number
     const persisted = toPersistedMenuChoice(menuResult);
     if (persisted) {
       try {
-        await persistMenuChoice(ctx.wpaths.globalConfig, persisted);
+        await persistMenuChoice(activeProfileConfigPath(ctx.wpaths, ctx.config), persisted);
       } catch (err) {
         ctx.logger.debug(
           `launch-menu: failed to persist menu choice (${err instanceof Error ? err.message : String(err)})`,
@@ -175,8 +176,9 @@ export async function initializeCli(argv: string[]): Promise<CliContext | number
   const { updateInfo: refreshedUpdateInfo } = await runPreflight(config, ctx.updateInfo);
 
   // OAuth token persistence.
+  const profileConfigPath = activeProfileConfigPath(wpaths, config);
   setOAuthTokenPersister((providerId, creds) => {
-    void mutateConfigProviders(wpaths.globalConfig, vault, (all) => {
+    void mutateConfigProviders(profileConfigPath, vault, (all) => {
       const p = all[providerId];
       if (!p) return;
       const keys = normalizeKeys(p);

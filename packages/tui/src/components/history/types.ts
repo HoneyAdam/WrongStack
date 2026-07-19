@@ -121,6 +121,15 @@ export type HistoryEntry =
       /** Background autonomy agents currently online/active (Brain, Shadow,
        *  Kanban, Mailbox, Memory, etc.). Rendered below the footer links. */
       autonomyAgents?: ReadonlyArray<AutonomyAgentStatus> | undefined;
+      /** Latest version published to the npm registry, when known. Drives
+       *  the "update available" indicator next to the version chip when
+       *  paired with {@link updateAvailable}. */
+      latestVersion?: string | undefined;
+      /** True when the CLI detected a newer published version than
+       *  {@link version}. The banner renders `(update available)` next to
+       *  the version chip when set, so users notice without having to read
+       *  the stderr notice. Source: preflight update-check (cache-aware). */
+      updateAvailable?: boolean | undefined;
     }
   | { id: number; kind: 'confirm'; toolName: string; input: unknown; suggestedPattern: string }
   | {

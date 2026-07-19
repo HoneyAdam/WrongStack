@@ -1025,31 +1025,31 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
     },
 
     // ── MCP operations (shared handlers from @wrongstack/webui-server) ──
-    'mcp.list': (msg, ws) => handleMcpList(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
-    'mcp.add': (msg, ws) => handleMcpAdd(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+    'mcp.list': (msg, ws) => handleMcpList(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
+    'mcp.add': (msg, ws) => handleMcpAdd(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
     'mcp.remove': (msg, ws) =>
-      handleMcpRemove(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+      handleMcpRemove(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
     'mcp.update': (msg, ws) =>
-      handleMcpUpdate(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
-    'mcp.wake': (msg, ws) => handleMcpWake(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+      handleMcpUpdate(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
+    'mcp.wake': (msg, ws) => handleMcpWake(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
     'mcp.sleep': (msg, ws) =>
-      handleMcpSleep(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+      handleMcpSleep(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
     'mcp.discover': (msg, ws) =>
-      handleMcpDiscover(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+      handleMcpDiscover(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
     'mcp.enable': (msg, ws) =>
-      handleMcpEnable(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+      handleMcpEnable(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
     'mcp.disable': (msg, ws) =>
-      handleMcpDisable(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+      handleMcpDisable(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
     'mcp.restart': (msg, ws) =>
-      handleMcpRestart(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+      handleMcpRestart(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
     'mcp.resources': (msg, ws) =>
-      handleMcpResources(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+      handleMcpResources(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
     'mcp.prompts': (msg, ws) =>
-      handleMcpPrompts(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+      handleMcpPrompts(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
     'mcp.resource.read': (msg, ws) =>
-      handleMcpResourceRead(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+      handleMcpResourceRead(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
     'mcp.prompt.get': (msg, ws) =>
-      handleMcpPromptGet(ws, msg, opts.globalConfigPath ?? '', opts.mcpRegistry),
+      handleMcpPromptGet(ws, msg, opts.profileConfigPath, opts.mcpRegistry),
 
     // ── Skills ──
     'skills.list': (_msg, ws) => handleSkillsList(introspectionCtx, ws),

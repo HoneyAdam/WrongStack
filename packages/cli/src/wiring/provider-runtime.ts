@@ -79,6 +79,6 @@ export function buildProviderForId(
   const { cfg, factoryType } = resolveProviderCfg(args.config, providerId);
   const useRegistry = !!args.config.features.modelsRegistry && args.providerRegistry.has(factoryType);
   return useRegistry
-    ? args.providerRegistry.create(cfg)
+    ? args.providerRegistry.create(cfg, factoryType)
     : makeProviderFromConfig(providerId, cfg);
 }

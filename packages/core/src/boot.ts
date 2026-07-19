@@ -153,7 +153,7 @@ export async function bootConfig(options: BootConfigOptions = {}): Promise<BootC
   // Defensive: profileConfig may not be available in test mocks.
   const bootstrapProfilePath =
     typeof wpaths.profileConfig === 'function' ? wpaths.profileConfig('default') : null;
-  const secretFiles = [wpaths.globalConfig, wpaths.projectLocalConfig].filter(Boolean) as string[];
+  const secretFiles = [wpaths.projectLocalConfig].filter(Boolean) as string[];
   if (bootstrapProfilePath) secretFiles.push(bootstrapProfilePath);
   for (const file of secretFiles) {
     try {
@@ -302,38 +302,12 @@ export function flagsToConfigPatch(flags: Record<string, string | boolean>): Par
  * This function migrates a legacy flat config into the default profile config
  * BEFORE any config loader runs, so the loader always reads from the right place.
  *
- * MANDATORY: if profiles/default/config.json is empty or missing AND the old
- * root config has meaningful content, the migration MUST happen — no skip paths.
- * The only conditions that genuinely prevent migration are:
- *   - Root config file doesn't exist (nothing to migrate)
- *   - Root config content is not valid JSON (can't parse)
- *   - Filesystem error creating the profiles directory (hard error, not skippable)
+ * Migration is allowed only when the selected profile file does not exist.
+ * An existing empty or corrupt profile is still authoritative: root settings
+ * must never be re-imported once profiles are in use.
  */
 async function migrateLegacyConfig(wpaths: WstackPaths): Promise<void> {
   const rootFp = wpaths.globalConfig;
-  const profileFp = wpaths.profileConfig('default');
-
-  // Check if the profile file has any meaningful content.
-  // If it's empty (0 bytes), just `{}`, or contains only bootstrap-like keys
-  // (version, activeProfile), treat it as "doesn't exist" and migrate into it.
-  let profileHasContent = false;
-  try {
-    const profileRaw = await fs.readFile(profileFp, 'utf8');
-    const trimmed = profileRaw.trim();
-    if (trimmed.length > 0 && trimmed !== '{}') {
-      const parsed = safeParse<Record<string, unknown>>(trimmed);
-      if (parsed.ok && parsed.value && typeof parsed.value === 'object' && !Array.isArray(parsed.value)) {
-        const keys = Object.keys(parsed.value);
-        const onlyBootstrapKeys = keys.length > 0 && keys.every((k) => k === 'version' || k === 'activeProfile');
-        if (!onlyBootstrapKeys) {
-          profileHasContent = true;
-        }
-      }
-    }
-  } catch {
-    // ENOENT or read error → profile doesn't exist or is unreadable, proceed
-  }
-  if (profileHasContent) return;
 
   // If legacy root doesn't exist, nothing to migrate.
   let legacyRaw: string;
@@ -349,8 +323,22 @@ async function migrateLegacyConfig(wpaths: WstackPaths): Promise<void> {
     return;
   }
 
-  // Ensure the profiles directory exists.
-  await fs.mkdir(wpaths.profilesDir, { recursive: true });
+  const activeProfile =
+    typeof result.value['activeProfile'] === 'string'
+      ? result.value['activeProfile']
+      : 'default';
+  const profileFp = wpaths.profileConfig(activeProfile);
+
+  // File existence, not content, is the boundary. Never recover settings from
+  // root over an existing profile, even when that profile is empty or corrupt.
+  try {
+    await fs.access(profileFp);
+    return;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return;
+  }
+
+  await fs.mkdir(path.dirname(profileFp), { recursive: true });
 
   // Copy legacy content into the profile config, stripping bootstrap-only fields.
   const profileContent = { ...result.value };
@@ -359,10 +347,6 @@ async function migrateLegacyConfig(wpaths: WstackPaths): Promise<void> {
   await atomicWrite(profileFp, JSON.stringify(profileContent, null, 2), { mode: 0o600 });
 
   // Write the root config as a thin bootstrap pointer.
-  const activeProfile =
-    typeof result.value['activeProfile'] === 'string'
-      ? result.value['activeProfile']
-      : 'default';
   const bootstrap = { version: 1, activeProfile };
 
   try {

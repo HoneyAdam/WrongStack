@@ -407,15 +407,12 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
         // resolveActualTarget checks), so the pre-mutation snapshot is stale.
         const actualTarget = resolveActualTarget(persistDeps, decrypted as Record<string, unknown>, targetPath);
         // Only filter for project safety when writing to the in-project
-        // config (.wrongstack/config.json). Both the global-profile config
-        // (~/.wrongstack/profiles/<name>/config.json) and the bootstrap
-        // global config (~/.wrongstack/config.json) store the full config.
+        // config (.wrongstack/config.json). The active profile config stores
+        // the full trusted user settings; the root bootstrap is never targeted.
         const isProjectTarget = actualTarget === wpaths.inProjectConfig;
         const toWrite = isProjectTarget ? filterSafeForProject(decrypted) : decrypted;
         const encrypted = encryptConfigSecrets(toWrite, noOpVault);
-        if (actualTarget !== wpaths.globalConfig) {
-          await fs.mkdir(path.dirname(actualTarget), { recursive: true });
-        }
+        await fs.mkdir(path.dirname(actualTarget), { recursive: true });
         await atomicWrite(actualTarget, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
 
         const currentConfig = configStore.get();

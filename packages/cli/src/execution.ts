@@ -88,6 +88,7 @@ import { type PredictLLMProvider, predictNextTasks } from './next-task-predictor
 import { resolveActiveApiKey } from './provider-config-utils.js';
 import { parseSuggestionsFromOutput, runRepl } from './repl.js';
 import { setSuggestions } from './slash-commands/suggestion-store.js';
+import type { UpdateInfo } from './update-check.js';
 import { CLI_VERSION } from './version.js';
 import { createKanbanRunMirror } from './webui-server/kanban-run-mirror.js';
 
@@ -213,6 +214,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
       slashRegistry,
       tokenCounter,
       recoveryLock: initialRecoveryLock,
+      updateInfo: initialUpdateInfo,
     },
     session: {
       session,
@@ -330,6 +332,12 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
   const detachActiveTodosCheckpoint: (() => void | Promise<void>) | undefined =
     detachTodosCheckpoint;
   const profileName = config.activeProfile ?? 'default';
+  // Latest known update-check result, forwarded to the TUI so the banner
+  // can render "(update available: v…)" next to the version chip without
+  // re-running the npm registry lookup. A refresh during the session
+  // (e.g. on project switch) is not currently modeled — the TUI mounts
+  // its banner once at startup. Sourced from the CLI's preflight.
+  const bootUpdateInfo: UpdateInfo | undefined = initialUpdateInfo;
 
   // ── Storage observability: relay storage.* events to stdout as structured JSON ──
   // The root traceId from the Context is the primary correlation ID. Storage
@@ -1164,6 +1172,13 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
           subscribeEternalStage,
           subscribeGoal,
           appVersion: CLI_VERSION,
+          // Forward preflight's update-check to the banner so the
+          // "(update available)" indicator renders next to the version
+          // chip. Both fields are optional and undefined-safe: when
+          // `bootUpdateInfo` is absent the banner simply renders just
+          // `v<version>` with no trailing indicator.
+          latestVersion: bootUpdateInfo?.latest,
+          updateAvailable: bootUpdateInfo?.outdated,
           provider: config.provider,
           family: banneredFamily,
           keyTail: banneredKeyTail,

@@ -26,7 +26,7 @@
  * @public
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import type { Plugin } from '@wrongstack/core';
 import { collectSourceFiles, withinProject } from '../runtime/index.js';
@@ -58,6 +58,18 @@ interface DuplicateCodeDetectorState {
   errorCount: number;
   hookUnregister: null | (() => void);
   lastHookWarning: Map<string, number>;
+  /**
+   * Process-lifetime fingerprint index. Maps `filePath -> {mtimeMs, size, windows}`.
+   * On every PostToolUse invocation the hook compares `(mtimeMs, size)` of each
+   * source file against the cached value. When the pair matches, the file is
+   * byte-identical to its last read and we skip both the read AND the per-window
+   * extraction. This collapses the hook's per-edit cost from `O(all_sources *
+   * lines)` re-extraction to `O(all_sources * stat())` for unchanged files.
+   *
+   * The index is invalidated when the plugin reloads (module-scope reset in
+   * setup()) or when a file's `(mtimeMs, size)` changes.
+   */
+  fileIndex: Map<string, { mtimeMs: number; size: number; windows: CodeWindow[] }>;
 }
 
 const state: DuplicateCodeDetectorState = {
@@ -68,6 +80,7 @@ const state: DuplicateCodeDetectorState = {
   errorCount: 0,
   hookUnregister: null,
   lastHookWarning: new Map(),
+  fileIndex: new Map(),
 };
 
 // ---------------------------------------------------------------------------
@@ -278,6 +291,7 @@ const plugin: Plugin = {
     state.warningCount = 0;
     state.errorCount = 0;
     state.lastHookWarning.clear();
+    state.fileIndex.clear();
     if (state.hookUnregister) {
       try {
         state.hookUnregister();
@@ -288,6 +302,35 @@ const plugin: Plugin = {
     }
 
     const cfg = readConfig(api.config.extensions?.['duplicate-code-detector']);
+
+    /**
+     * Cached read: stat() then either return cached windows (when mtime+size
+     * match) or read + extract + cache the new windows. Cheap stat() cost per
+     * unchanged file; only changed files pay the read + extract cost.
+     *
+     * Returns null if the file is unreadable.
+     */
+    function readCachedWindows(filePath: string, minLines: number): CodeWindow[] | null {
+      let st: { mtimeMs: number; size: number };
+      try {
+        st = statSync(filePath);
+      } catch {
+        return null;
+      }
+      const cached = state.fileIndex.get(filePath);
+      if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
+        return cached.windows;
+      }
+      let content: string;
+      try {
+        content = readFileSync(filePath, 'utf-8');
+      } catch {
+        return null;
+      }
+      const windows = extractWindows(filePath, content, minLines);
+      state.fileIndex.set(filePath, { mtimeMs: st.mtimeMs, size: st.size, windows });
+      return windows;
+    }
 
     const hook = (
       input: {
@@ -320,37 +363,34 @@ const plugin: Plugin = {
       if (lastWarning !== undefined && now - lastWarning < 60_000) return;
 
       const changedFile = resolve(process.cwd(), sourcePath);
-      let content: string;
-      try {
-        content = readFileSync(changedFile, 'utf-8');
-      } catch {
+      const changedWindows = readCachedWindows(changedFile, cfg.minLines);
+      if (changedWindows === null) {
         state.errorCount += 1;
         return;
       }
-
-      const changedWindows = extractWindows(changedFile, content, cfg.minLines);
       if (changedWindows.length === 0) return;
 
       const projectRoot = resolve(process.cwd());
-      let otherFiles: Map<string, string>;
+      let otherFilePaths: string[];
       try {
-        const filePaths = collectSourceFiles(projectRoot, { extensions: cfg.extensions, excludeDirs: cfg.excludeDirs }).filter((p) => p !== changedFile);
-        otherFiles = new Map<string, string>();
-        for (const p of filePaths) {
-          try {
-            otherFiles.set(p, readFileSync(p, 'utf-8'));
-          } catch {
-            // skip unreadable
-          }
-        }
+        otherFilePaths = collectSourceFiles(projectRoot, {
+          extensions: cfg.extensions,
+          excludeDirs: cfg.excludeDirs,
+        }).filter((p) => p !== changedFile);
       } catch {
         state.errorCount += 1;
         return;
       }
 
+      // Build the comparison set with the fingerprint cache. Unchanged files
+      // pay only a stat() per file; only files that changed since the last
+      // hook fire pay the read + extract cost. This collapses the per-edit
+      // scan from O(all_sources * lines) to O(all_sources * stat()) on
+      // no-op projects.
       const existingWindows: CodeWindow[] = [];
-      for (const [p, c] of otherFiles.entries()) {
-        existingWindows.push(...extractWindows(p, c, cfg.minLines));
+      for (const p of otherFilePaths) {
+        const w = readCachedWindows(p, cfg.minLines);
+        if (w !== null) existingWindows.push(...w);
       }
 
       const hits: CodeWindow[] = [];

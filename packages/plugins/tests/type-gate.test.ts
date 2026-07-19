@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('node:child_process', () => ({
-  execFileSync: vi.fn(),
-}));
+const cp = vi.hoisted(() => ({ execFile: vi.fn(), result: vi.fn() }));
+vi.mock('node:child_process', () => ({ execFile: cp.execFile }));
 
-const { execFileSync } = await import('node:child_process');
+const execFileSync = cp.result;
 const typeGatePlugin = (await import('../src/type-gate')).default;
 
 interface MockApi {
@@ -35,7 +34,7 @@ function makeApi(overrides: { extensions?: Record<string, unknown>; enabled?: bo
 
 type HookResult = { decision?: string; reason?: string; additionalContext?: string } | undefined;
 
-function getHook(api: MockApi): (input: unknown) => HookResult {
+function getHook(api: MockApi): (input: unknown) => Promise<HookResult> {
   const call = api.registerHook.mock.calls[0];
   if (!call) throw new Error('hook not registered');
   return (call as unknown[])[2] as (input: unknown) => HookResult;
@@ -43,7 +42,44 @@ function getHook(api: MockApi): (input: unknown) => HookResult {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(execFileSync).mockReset();
+  execFileSync.mockReset();
+  execFileSync.mockReturnValue('');
+  cp.execFile.mockImplementation(
+    (
+      bin: string,
+      args: string[],
+      options: Record<string, unknown>,
+      callback: (error: Error | null) => void,
+    ) => {
+      const childHandlers = new Map<string, (...args: unknown[]) => void>();
+      const stdoutHandlers = new Map<string, (chunk: Buffer) => void>();
+      const stderrHandlers = new Map<string, (chunk: Buffer) => void>();
+      const child = {
+        stdout: { on: (event: string, handler: (chunk: Buffer) => void) => void stdoutHandlers.set(event, handler) },
+        stderr: { on: (event: string, handler: (chunk: Buffer) => void) => void stderrHandlers.set(event, handler) },
+        on: (event: string, handler: (...args: unknown[]) => void) => {
+          childHandlers.set(event, handler);
+          return child;
+        },
+      };
+      queueMicrotask(() => {
+        try {
+          const output = String(execFileSync(bin, args, options) ?? '');
+          if (output) stdoutHandlers.get('data')?.(Buffer.from(output));
+          callback(null);
+        } catch (error) {
+          const e = error as Error & { stdout?: string; stderr?: string; code?: string };
+          if (e.stdout) stdoutHandlers.get('data')?.(Buffer.from(e.stdout));
+          if (e.stderr) stderrHandlers.get('data')?.(Buffer.from(e.stderr));
+          if (e.code && ['ENOENT', 'EPERM', 'EACCES'].includes(e.code)) {
+            childHandlers.get('error')?.(e);
+          }
+          callback(e);
+        }
+      });
+      return child;
+    },
+  );
 });
 
 afterEach(async () => {

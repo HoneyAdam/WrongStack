@@ -38,6 +38,81 @@ describe('<Banner />', () => {
     expect(frame).toContain('my-project');
   });
 
+  it('renders the update-available indicator when the registry reports a newer version', () => {
+    const { lastFrame, unmount } = render(
+      React.createElement(Banner, {
+        entry: {
+          id: 0,
+          kind: 'banner',
+          version: '1.2.3',
+          provider: 'test-provider',
+          model: 'test-model',
+          cwd: '/workspace/project',
+          latestVersion: '1.3.0',
+          updateAvailable: true,
+        },
+      }),
+    );
+
+    const frame = lastFrame() ?? '';
+    unmount();
+
+    // The current version chip is still rendered as before.
+    expect(frame).toContain('v1.2.3');
+    // The "(update available: v…)" chip is appended to that chip's line.
+    expect(frame).toContain('(update available: v1.3.0)');
+  });
+
+  it('omits the update-available indicator when updateAvailable is false', () => {
+    const { lastFrame, unmount } = render(
+      React.createElement(Banner, {
+        entry: {
+          id: 0,
+          kind: 'banner',
+          version: '1.3.0',
+          provider: 'test-provider',
+          model: 'test-model',
+          cwd: '/workspace/project',
+          // latestVersion set but the current version already matches —
+          // the indicator must stay suppressed.
+          latestVersion: '1.3.0',
+          updateAvailable: false,
+        },
+      }),
+    );
+
+    const frame = lastFrame() ?? '';
+    unmount();
+
+    expect(frame).toContain('v1.3.0');
+    expect(frame).not.toContain('(update available');
+  });
+
+  it('does not render a half-message when updateAvailable is true but latestVersion is missing', () => {
+    // Defensive coverage: the banner guard requires BOTH fields to render —
+    // a malformed pair (e.g. mid-flight check failure that flipped the
+    // boolean but lost the version) must not produce "(update available: v)".
+    const { lastFrame, unmount } = render(
+      React.createElement(Banner, {
+        entry: {
+          id: 0,
+          kind: 'banner',
+          version: '1.2.3',
+          provider: 'test-provider',
+          model: 'test-model',
+          cwd: '/workspace/project',
+          updateAvailable: true,
+        },
+      }),
+    );
+
+    const frame = lastFrame() ?? '';
+    unmount();
+
+    expect(frame).toContain('v1.2.3');
+    expect(frame).not.toContain('(update available');
+  });
+
   it('renders the pixel wordmark and runtime facts at normal terminal widths', () => {
     const { lastFrame, unmount } = render(
       React.createElement(Banner, {

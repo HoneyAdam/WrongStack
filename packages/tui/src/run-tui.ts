@@ -141,6 +141,15 @@ export interface RunTuiOptions {
   /** Background autonomy agents to display in the banner (Brain, Shadow,
    *  Kanban, Mailbox, Memory, etc.). Read from the mailbox at boot. */
   autonomyAgents?: import('./components/history/types.js').AutonomyAgentStatus[] | undefined;
+  /** Latest version published to the npm registry (drives the
+   *  "update available" indicator next to the banner version chip).
+   *  Sourced from the CLI's preflight update-check. */
+  latestVersion?: string | undefined;
+  /** True when the preflight update-check found a newer version than
+   *  {@link appVersion}. The banner renders `(update available)` next to
+   *  the version chip when this is true, so users notice without having
+   *  to read the stderr notice. */
+  updateAvailable?: boolean | undefined;
   /** Snapshot of keyed providers + their model lists for the `/model` picker. Async — the catalog fetch may need to hit disk/network. */
   getPickableProviders?:
     | (() => Promise<import('./components/model-picker.js').ProviderOption[]>)
@@ -1253,6 +1262,8 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           profile: opts.profile,
           profileConfigPath: opts.profileConfigPath,
           autonomyAgents: opts.autonomyAgents,
+          latestVersion: opts.latestVersion,
+          updateAvailable: opts.updateAvailable,
           getPickableProviders: opts.getPickableProviders,
           switchProviderAndModel: opts.switchProviderAndModel,
           switchAutonomy: opts.switchAutonomy,

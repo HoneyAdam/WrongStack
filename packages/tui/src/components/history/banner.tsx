@@ -321,6 +321,9 @@ export function Banner({
     >
       <Box justifyContent="flex-end" marginTop={1}>
         <Text color={MUTED}>v{version}</Text>
+        {entry.updateAvailable && entry.latestVersion ? (
+          <Text color={STACK_ORANGE}> · (update available: v{entry.latestVersion})</Text>
+        ) : null}
       </Box>
 
       <Box justifyContent="center" marginTop={compact ? 0 : 1}>

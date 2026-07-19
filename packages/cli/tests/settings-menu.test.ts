@@ -12,7 +12,36 @@
  * as a symptom in a consumer.
  */
 import { describe, expect, it } from 'vitest';
-import { deriveFsAccessPair } from '../src/settings-menu.js';
+import {
+  deriveFsAccessPair,
+  resolveActualTarget,
+  resolvePersistPath,
+} from '../src/settings-menu.js';
+
+describe('profile persistence routing', () => {
+  const root = '/home/test/.wrongstack/config.json';
+  const profile = '/home/test/.wrongstack/profiles/default/config.json';
+  const project = '/repo/.wrongstack/config.json';
+
+  function deps(scope: 'global' | 'project' = 'global') {
+    return {
+      globalConfigPath: root,
+      profileConfigPath: profile,
+      inProjectConfigPath: project,
+      configStore: { get: () => ({ configScope: scope }) },
+    } as never;
+  }
+
+  it('never resolves a user-settings write to the root bootstrap', () => {
+    expect(resolvePersistPath(deps())).toBe(profile);
+    expect(resolvePersistPath({ ...deps('project'), forceGlobal: true })).toBe(profile);
+    expect(resolveActualTarget(deps(), { configScope: 'global' }, root)).toBe(profile);
+  });
+
+  it('still supports explicitly project-scoped safe settings', () => {
+    expect(resolvePersistPath(deps('project'))).toBe(project);
+  });
+});
 
 describe('deriveFsAccessPair', () => {
   it('returns undefined when neither field is set', () => {

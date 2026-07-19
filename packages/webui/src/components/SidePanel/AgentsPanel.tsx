@@ -7,6 +7,7 @@
 
 import { Bot, CheckCircle2, LayoutGrid, ListFilter, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { usePagination } from '@/hooks/usePagination';
 import { cn } from '@/lib/utils';
 import type { SubagentView } from '@/stores';
@@ -26,7 +27,10 @@ const FILTER_OPTIONS: { value: AgentFilter; label: string }[] = [
 ];
 
 export function AgentsPanel() {
-  const fleetList = useFleetStore(selectSortedAgentList);
+  // This derived selector allocates on every invocation. Zustand 5 reads it
+  // through useSyncExternalStore, so the selected snapshot must keep its
+  // reference while the underlying values are unchanged.
+  const fleetList = useFleetStore(useShallow(selectSortedAgentList));
   const leaderId = useFleetStore((s) => s.leaderId);
   const leaderName = useFleetStore(selectLeaderName);
   const clearFinishedAgents = useFleetStore((s) => s.clearFinishedAgents);

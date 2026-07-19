@@ -102,7 +102,7 @@ describe('token-saving tier in settings picker', () => {
     expect(s.settingsPicker.tokenSavingTier).toBe('minimal');
   });
 
-  it('settingsValueChange cycles off → minimal → light → medium → aggressive → off', () => {
+  it('settingsValueChange cycles off → minimal → light → medium → aggressive → auto → off', () => {
     let tier: (typeof TOKEN_SAVING_TIERS)[number] = 'off';
     let s = {
       ...settingsBase({ tokenSavingTier: tier }),
@@ -111,7 +111,8 @@ describe('token-saving tier in settings picker', () => {
     for (let i = 0; i < TOKEN_SAVING_TIERS.length; i++) {
       expect(s.settingsPicker.tokenSavingTier).toBe(tier);
       s = reducer(s, { type: 'settingsValueChange', delta: 1 });
-      tier = TOKEN_SAVING_TIERS[(i + 1) % TOKEN_SAVING_TIERS.length]!;
+      const currentIndex = TOKEN_SAVING_TIERS.indexOf(tier);
+      tier = TOKEN_SAVING_TIERS[(currentIndex + 1) % TOKEN_SAVING_TIERS.length]!;
       expect(s.settingsPicker.tokenSavingTier).toBe(tier);
     }
   });
@@ -130,20 +131,20 @@ describe('token-saving tier in settings picker', () => {
     }
   });
 
-  it('settingsValueChange wraps aggressive → off on forward delta', () => {
+  it('settingsValueChange wraps aggressive → auto on forward delta', () => {
     const s = reducer(
       { ...settingsBase({ tokenSavingTier: 'aggressive' }) } as never as Parameters<typeof reducer>[0],
       { type: 'settingsValueChange', delta: 1 },
     );
-    expect(s.settingsPicker.tokenSavingTier).toBe('off');
+    expect(s.settingsPicker.tokenSavingTier).toBe('auto');
   });
 
-  it('settingsValueChange wraps off → aggressive on backward delta', () => {
+  it('settingsValueChange moves off → auto on backward delta', () => {
     const s = reducer(
       { ...settingsBase({ tokenSavingTier: 'off' }) } as never as Parameters<typeof reducer>[0],
       { type: 'settingsValueChange', delta: -1 },
     );
-    expect(s.settingsPicker.tokenSavingTier).toBe('aggressive');
+    expect(s.settingsPicker.tokenSavingTier).toBe('auto');
   });
 
   it('settingsValueChange on field 13 sets restart hint (boot-only)', () => {
@@ -154,8 +155,15 @@ describe('token-saving tier in settings picker', () => {
     expect(s.settingsPicker.hint).toBe('↻ Takes effect next session');
   });
 
-  it('TOKEN_SAVING_TIERS exports all five tiers', () => {
-    expect(TOKEN_SAVING_TIERS).toEqual(['off', 'minimal', 'light', 'medium', 'aggressive']);
+  it('TOKEN_SAVING_TIERS exports auto and all five concrete tiers', () => {
+    expect(TOKEN_SAVING_TIERS).toEqual([
+      'auto',
+      'off',
+      'minimal',
+      'light',
+      'medium',
+      'aggressive',
+    ]);
   });
 
   it('field 13 is the token-saving tier field', () => {

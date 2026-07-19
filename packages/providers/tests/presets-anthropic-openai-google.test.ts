@@ -777,6 +777,29 @@ describe('OpenAI preset - cached token usage', () => {
       },
     );
   });
+
+  it('derives input from total_tokens when prompt_tokens is absent (MiniMax)', async () => {
+    // MiniMax's OpenAI-compatible API guarantees only `total_tokens` in its
+    // streamed usage; without a `prompt_tokens` field the input count used to
+    // collapse to 0 (zeroing the context meter and the ↑ sent-token counter).
+    const events = await collectFromPreset(
+      openaiWireFormat,
+      sseBody([
+        JSON.stringify({
+          model: 'MiniMax-M3',
+          choices: [{ finish_reason: 'stop' }],
+          usage: { total_tokens: 5200, completion_tokens: 200 },
+        }),
+        '[DONE]',
+      ]),
+      'MiniMax-M3',
+    );
+    const stop = events.find((e) => e.type === 'message_stop');
+    expect((stop as { usage: { input: number; output: number } }).usage).toMatchObject({
+      input: 5000, // 5200 total − 200 completion
+      output: 200,
+    });
+  });
 });
 
 describe('OpenAI preset - multiple tool calls', () => {

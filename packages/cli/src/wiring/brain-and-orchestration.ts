@@ -23,6 +23,7 @@ import {
   type ToolRegistry,
 } from '@wrongstack/core';
 import { persistConfigSetting } from '../settings-menu.js';
+import { activeProfileConfigPath } from '../profile-config-path.js';
 import { buildProviderForId } from './provider-runtime.js';
 import { MultiAgentHost } from '../multi-agent.js';
 import { subscribeBrainDecisionLog } from '../boot/brain-decision-log.js';
@@ -144,6 +145,7 @@ export function setupBrainAndOrchestration(
     mcpRegistry,
     sessResult,
   } = deps;
+  const profileConfigPath = activeProfileConfigPath(wpaths, config);
 
   // ── Global Brain chain — policy → LLM/council → escalation ─────────────
   // Escalation routing is config-driven: 'interactive' prompts the human,
@@ -207,11 +209,17 @@ export function setupBrainAndOrchestration(
       failureStreakFor: (request) => brainLedger?.failureStreakFor(request) ?? 0,
       getDecisionDigest: (request) => brainLedger?.digestFor(request),
     },
-    // config.brain is denied in project scope (read AND write side), so the
-    // persist path always targets ~/.wrongstack/config.json.
+    // config.brain is denied in project scope, so persistence always targets
+    // the active profile config.
     persist: (brainConfig) =>
       persistConfigSetting(
-        { configStore, globalConfigPath: wpaths.globalConfig, vault, forceGlobal: true },
+        {
+          configStore,
+          globalConfigPath: wpaths.globalConfig,
+          profileConfigPath,
+          vault,
+          forceGlobal: true,
+        },
         (decrypted) => {
           decrypted['brain'] = brainConfig as never;
         },
@@ -376,7 +384,7 @@ export function setupBrainAndOrchestration(
   toolRegistry.register(
     createMcpControlTool({
       getConfig: () => configStore.get(),
-      configPath: wpaths.globalConfig,
+      configPath: profileConfigPath,
       registry: mcpRegistry,
     }),
   );

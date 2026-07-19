@@ -216,7 +216,7 @@ describe('buildContextCommand', () => {
     const renderer = fakeRenderer();
     const cmd = buildContextCommand({
       renderer,
-      paths: { globalConfig: configPath },
+      paths: { globalConfig: configPath, profileConfig: () => configPath },
       configStore,
       onContextLimit: vi.fn((tokens?: number) => tokens ?? 0),
     } as never);

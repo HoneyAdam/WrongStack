@@ -52,7 +52,14 @@ function makeModelsRegistry(catalog: Partial<ResolvedProvider>[]): ModelsRegistr
 
 async function setup(opts: { catalog?: Partial<ResolvedProvider>[]; preExisting?: object } = {}) {
   const tmpDir = await mkTempDir();
-  const configPath = path.join(tmpDir, 'config.json');
+  const rootConfigPath = path.join(tmpDir, 'config.json');
+  const configPath = path.join(tmpDir, 'profiles', 'default', 'config.json');
+  await fs.mkdir(path.dirname(configPath), { recursive: true });
+  await fs.writeFile(
+    rootConfigPath,
+    JSON.stringify({ version: 1, activeProfile: 'default' }),
+    { mode: 0o600 },
+  );
   if (opts.preExisting) {
     await fs.writeFile(configPath, JSON.stringify(opts.preExisting), { mode: 0o600 });
   }
@@ -60,9 +67,10 @@ async function setup(opts: { catalog?: Partial<ResolvedProvider>[]; preExisting?
   const host = createAuthPanelHost({
     vault,
     modelsRegistry: makeModelsRegistry(opts.catalog ?? []),
-    globalConfigPath: configPath,
+    globalConfigPath: rootConfigPath,
+    profileConfigPath: configPath,
   });
-  return { host, configPath };
+  return { host, configPath, rootConfigPath };
 }
 
 /** Scripted AuthFlowIo: each prompt consumes the next answer (Error → reject). */
@@ -156,10 +164,14 @@ describe('listCatalog', () => {
 
 describe('direct mutations', () => {
   it('setActiveKey flips the active label', async () => {
-    const { host, configPath } = await setup({ preExisting: TWO_KEYS_CONFIG });
+    const { host, configPath, rootConfigPath } = await setup({ preExisting: TWO_KEYS_CONFIG });
     expect(await host.setActiveKey('anthropic', 'work')).toBeNull();
     const raw = JSON.parse(await fs.readFile(configPath, 'utf8'));
     expect(raw.providers.anthropic.activeKey).toBe('work');
+    expect(JSON.parse(await fs.readFile(rootConfigPath, 'utf8'))).toEqual({
+      version: 1,
+      activeProfile: 'default',
+    });
   });
 
   it('deleteKey removes the entry and repoints the active label', async () => {

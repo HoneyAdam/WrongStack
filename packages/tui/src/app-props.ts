@@ -367,6 +367,16 @@ export interface AppProps {
   /** Background autonomy agents to display in the banner (Brain, Shadow,
    *  Kanban, Mailbox, Memory, etc.). */
   autonomyAgents?: import('./components/history/types.js').AutonomyAgentStatus[] | undefined;
+  /** Latest version published to the npm registry, when known. Drives
+   *  the "update available" indicator next to the banner version chip
+   *  when paired with {@link updateAvailable}. Sourced from the CLI's
+   *  preflight update-check. */
+  latestVersion?: string | undefined;
+  /** True when the preflight update-check found a newer published
+   *  version than {@link appVersion}. The banner renders
+   *  `(update available)` next to the version chip when this is set, so
+   *  users notice without having to read the stderr notice. */
+  updateAvailable?: boolean | undefined;
   /**
    * Snapshot the keyed providers (and their model lists) for the
    * `/model` picker. Called every time the picker opens, so the result

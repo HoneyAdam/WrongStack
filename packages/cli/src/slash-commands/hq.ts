@@ -9,6 +9,7 @@ import {
 import { persistConfigSetting } from '../settings-menu.js';
 import { parseSubcommand } from './helpers.js';
 import type { SlashCommandContext } from './index.js';
+import { activeProfileConfigPath } from '../profile-config-path.js';
 
 function maskToken(t: string): string {
   if (t.length <= 10) return `${t.slice(0, 2)}…(${t.length})`;
@@ -56,7 +57,7 @@ export function buildHqCommand(opts: SlashCommandContext): SlashCommand {
       '  /hq on | off            Enable / disable HQ publishing',
       '  /hq clear               Remove all HQ settings',
       '',
-      'Saved to ~/.wrongstack/config.json (global). Telemetry connects on the',
+      'Saved to the active profile config. Telemetry connects on the',
       'NEXT session start (an already-running session keeps its connection).',
       'A locally running `wstack --hq` is auto-discovered with no config.',
       '',
@@ -73,6 +74,7 @@ export function buildHqCommand(opts: SlashCommandContext): SlashCommand {
       const persistDeps = {
         configStore: opts.configStore,
         globalConfigPath: opts.paths.globalConfig,
+        profileConfigPath: activeProfileConfigPath(opts.paths, opts.configStore.get()),
         inProjectConfigPath: opts.paths.inProjectConfig,
         vault: noOpVault,
         forceGlobal: true as const,

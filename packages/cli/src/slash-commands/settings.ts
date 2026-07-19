@@ -67,7 +67,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
     '  /settings hq-raw on|off       Send raw content previews to HQ',
     '  /settings defaults            Show built-in default values',
     '',
-    'Settings are persisted to the active config scope: global (~/.wrongstack/config.json) or project (<project>/.wrongstack/config.json).',
+    'Settings are persisted to the active config scope: profile (~/.wrongstack/profiles/<name>/config.json) or project (<project>/.wrongstack/config.json).',
   ].join('\n');
 
   function currentView(): string {
@@ -123,7 +123,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
     const persistedTo =
       configScope === 'project'
         ? '<project>/.wrongstack/config.json'
-        : '~/.wrongstack/config.json';
+        : `~/.wrongstack/profiles/${opts.configStore.get().activeProfile ?? 'default'}/config.json`;
     const au = autonomy as Record<string, unknown> | undefined;
     const tools = opts.configStore.get().tools as never as Record<string, unknown> | undefined;
     const log = opts.configStore.get().log as never as Record<string, unknown> | undefined;
@@ -226,10 +226,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
       const persistDeps = {
         configStore: opts.configStore,
         globalConfigPath: opts.paths.globalConfig,
-        profileConfigPath:
-          typeof opts.paths.profileConfig === 'function'
-            ? opts.paths.profileConfig(activeProfile)
-            : undefined,
+        profileConfigPath: opts.paths.profileConfig(activeProfile),
         inProjectConfigPath: opts.paths.inProjectConfig,
         vault: noOpVault,
       };
@@ -276,7 +273,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
             hq.enabled = true;
             cfg.hq = hq;
           });
-          return { message: `${color.green('✓')} HQ token saved ${color.dim('(global config)')}` };
+          return { message: `${color.green('✓')} HQ token saved ${color.dim('(active profile config)')}` };
         }
 
         if (sub === 'hq-raw') {
@@ -369,7 +366,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
           const label =
             raw === 'project'
               ? `${color.cyan('project')} — settings saved to <project>/.wrongstack/config.json`
-              : `${color.cyan('global')} — settings saved to ~/.wrongstack/config.json`;
+              : `${color.cyan('global')} — settings saved to ~/.wrongstack/profiles/${activeProfile}/config.json`;
           return { message: `${color.green('✓')} config scope → ${label}` };
         }
 
@@ -539,7 +536,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
             cfg.extensions = ext;
           });
           return {
-            message: `${color.green('✓')} semver default part → ${color.bold(raw)}   ${color.dim('saved to global config; used when /semver or semver_bump gets no explicit part')}`,
+            message: `${color.green('✓')} semver default part → ${color.bold(raw)}   ${color.dim('saved to active profile config; used when /semver or semver_bump gets no explicit part')}`,
           };
         }
 

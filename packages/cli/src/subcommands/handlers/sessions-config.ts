@@ -8,6 +8,7 @@ import {
 import type { SubcommandDeps, SubcommandHandler } from '../index.js';
 import { redactKeys } from './helpers.js';
 import { sessionsFleetCmd } from './sessions-fleet.js';
+import { activeProfileConfigPath } from '../../profile-config-path.js';
 export const sessionsCmd: SubcommandHandler = async (args, deps) => {
   const sub = args[0];
   // `wrongstack sessions fleet [runId]` — fleet run inspection
@@ -87,7 +88,7 @@ export const configCmd: SubcommandHandler = async (args, deps) => {
   }
   if (sub === 'edit') {
     const editor = process.env['EDITOR'] ?? 'vi';
-    deps.renderer.write(`Run: ${editor} ${deps.paths.globalConfig}\n`);
+    deps.renderer.write(`Run: ${editor} ${activeProfileConfigPath(deps.paths, deps.config)}\n`);
     return 0;
   }
   if (sub === 'history') {
@@ -154,11 +155,12 @@ async function runHistory(args: string[], deps: SubcommandDeps): Promise<number>
 }
 
 async function runRestore(args: string[], deps: SubcommandDeps): Promise<number> {
+  const profileConfigPath = activeProfileConfigPath(deps.paths, deps.config);
   const latest = args.includes('--latest') || args.includes('-l');
   const id = extractArg(args, '--id') ?? (args[0] && !args[0]?.startsWith('-') ? args[0] : null);
 
   if (latest) {
-    const result = await restoreLast();
+    const result = await restoreLast(undefined, profileConfigPath);
     if (!result.ok) {
       deps.renderer.writeError(`Restore failed: ${result.error}\n`);
       return 1;
@@ -172,7 +174,7 @@ async function runRestore(args: string[], deps: SubcommandDeps): Promise<number>
     return 1;
   }
 
-  const result = await restoreFromHistory(id);
+  const result = await restoreFromHistory(id, undefined, profileConfigPath);
   if (!result.ok) {
     deps.renderer.writeError(`Restore failed: ${result.error}\n`);
     return 1;

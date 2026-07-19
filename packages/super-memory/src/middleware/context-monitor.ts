@@ -19,7 +19,11 @@ export function createSuperMemoryContextMonitorMiddleware(
     async handler(request, next) {
       const now = opts.now?.() ?? new Date();
       const sessionId = opts.getSessionId?.();
-      const snapshot = opts.tracker.snapshotContext(requestText(request), sessionId, now.getTime());
+      const snapshot = opts.tracker.snapshotContextParts(
+        requestTextParts(request),
+        sessionId,
+        now.getTime(),
+      );
       opts.events.emit('memory.context_snapshot', {
         at: now.toISOString(),
         ...snapshot,
@@ -31,11 +35,9 @@ export function createSuperMemoryContextMonitorMiddleware(
   };
 }
 
-function requestText(request: Request): string {
-  return [
-    ...(request.system ?? []).map((block) => block.text),
-    ...request.messages.flatMap(messageText),
-  ].join('\n');
+function* requestTextParts(request: Request): Iterable<string> {
+  for (const block of request.system ?? []) yield block.text;
+  for (const message of request.messages) yield* messageText(message);
 }
 
 function messageText(message: Message): string[] {

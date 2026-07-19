@@ -66,6 +66,7 @@ function makeDeps(cfg: Config, configPath: string, renderer: TerminalRenderer) {
     modelsRegistry,
     paths: {
       globalConfig: configPath,
+      profileConfig: () => configPath,
       modelsCache: path.join(path.dirname(configPath), 'models.dev.json'),
     },
     vault: new DefaultSecretVault({ keyFile: path.join(path.dirname(configPath), '.key') }),

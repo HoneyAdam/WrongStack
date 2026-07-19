@@ -108,8 +108,16 @@ export function createAgentLoopHandler(
   async function compactContextIfNeeded(): Promise<boolean> {
     const msgCount = a.ctx.messages.length;
     const maxContext = currentMaxContext();
+    const revision = a.ctx.state.revision;
+    const toolsRef = a.ctx.tools;
+    const systemRef = a.ctx.systemPrompt;
+    const requestTokens = a.ctx.lastRequestTokens;
     if (
       _lastCompactionMsgCount === msgCount &&
+      _lastCompactionRevision === revision &&
+      _lastCompactionToolsRef === toolsRef &&
+      _lastCompactionSystemRef === systemRef &&
+      _lastCompactionRequestTokens === requestTokens &&
       _lastCompactionWasNoop &&
       _lastCompactionMaxContext === maxContext &&
       maxContext > 0
@@ -120,6 +128,9 @@ export function createAgentLoopHandler(
     const beforeMsgCount = a.ctx.messages.length;
     await a.pipelines.contextWindow.run(a.ctx);
     _lastCompactionMsgCount = a.ctx.messages.length;
+    _lastCompactionRevision = a.ctx.state.revision;
+    _lastCompactionToolsRef = a.ctx.tools;
+    _lastCompactionSystemRef = a.ctx.systemPrompt;
     _lastCompactionMaxContext = maxContext;
     const changed = a.ctx.messages !== beforeMessages || a.ctx.messages.length !== beforeMsgCount;
     // Mark as noop when the cached token count is below the warn fraction.
@@ -127,6 +138,7 @@ export function createAgentLoopHandler(
     // nuanced "tried but couldn't reduce" state — this flag is coarser: it
     // answers "should we even bother running the pipeline next time?"
     const tokens = refreshContextRequestTokenStash({ force: changed });
+    _lastCompactionRequestTokens = tokens;
     const load = maxContext > 0 ? tokens / maxContext : 0;
     // 0.5 is the soft default warn threshold used by `defaultConfig`; we
     // hard-code it here to avoid a context.options lookup. The middleware
@@ -257,9 +269,11 @@ export function createAgentLoopHandler(
     const msgCount = a.ctx.messages.length;
     const toolCount = (a.ctx.tools ?? []).length;
     const maxContext = currentMaxContext();
+    const revision = a.ctx.state.revision;
     if (
       msgCount === _lastEmittedMsgCount &&
       toolCount === _lastEmittedToolCount &&
+      revision === _lastEmittedRevision &&
       maxContext === _lastEmittedMaxContext &&
       maxContext > 0
     ) {
@@ -267,6 +281,7 @@ export function createAgentLoopHandler(
     }
     _lastEmittedMsgCount = msgCount;
     _lastEmittedToolCount = toolCount;
+    _lastEmittedRevision = revision;
     _lastEmittedMaxContext = maxContext;
 
     // H1: the pre-flight stash is stale if tool results have been appended
@@ -351,6 +366,7 @@ export function createAgentLoopHandler(
 
   let _lastEmittedMsgCount = -1;
   let _lastEmittedToolCount = -1;
+  let _lastEmittedRevision = -1;
   let _lastEmittedMaxContext = -1;
   // H1: tracks the message count at the most recent pre-flight. emitContextPct
   // uses it to detect when tool results have been appended since the
@@ -363,6 +379,10 @@ export function createAgentLoopHandler(
   // pipeline materialization itself (chain walk, await plumbing) is
   // pure overhead in this case.
   let _lastCompactionMsgCount = -1;
+  let _lastCompactionRevision = -1;
+  let _lastCompactionToolsRef: unknown = null;
+  let _lastCompactionSystemRef: unknown = null;
+  let _lastCompactionRequestTokens: number | undefined;
   let _lastCompactionMaxContext = -1;
   let _lastCompactionWasNoop = false;
 

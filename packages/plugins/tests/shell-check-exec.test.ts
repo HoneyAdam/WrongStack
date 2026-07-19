@@ -5,18 +5,20 @@ import { join } from 'node:path';
 
 // Mock the OS-facing calls so we exercise the plugin's logic without a real
 // shellcheck binary or filesystem.
-const cp = vi.hoisted(() => ({ execFileSync: vi.fn(), execSync: vi.fn() }));
+const cp = vi.hoisted(() => ({
+  execFileSync: vi.fn(),
+  execFile: vi.fn(),
+  probeFails: { value: false },
+}));
 vi.mock('node:child_process', async (orig) => ({
   ...(await orig()),
-  execFileSync: cp.execFileSync,
-  execSync: cp.execSync,
+  execFile: cp.execFile,
 }));
 
-const fsm = vi.hoisted(() => ({ existsSync: vi.fn(), readdirSync: vi.fn() }));
-vi.mock('node:fs', async (orig) => ({
+const fsm = vi.hoisted(() => ({ readdir: vi.fn() }));
+vi.mock('node:fs/promises', async (orig) => ({
   ...(await orig()),
-  existsSync: fsm.existsSync,
-  readdirSync: fsm.readdirSync,
+  readdir: fsm.readdir,
 }));
 
 import shellCheckPlugin from '../src/shell-check';
@@ -27,7 +29,27 @@ let originalCwd: string;
 let tmpRoot: string;
 beforeEach(() => {
   vi.clearAllMocks();
-  fsm.existsSync.mockReturnValue(true); // pretend `shellcheck` resolves; skip PATH probe
+  cp.probeFails.value = false;
+  cp.execFile.mockImplementation(
+    (
+      bin: string,
+      args: string[],
+      options: Record<string, unknown>,
+      callback: (error: Error | null, stdout: string, stderr: string) => void,
+    ) => {
+      if (args[0] === '--version') {
+        callback(cp.probeFails.value ? new Error('not found') : null, 'ShellCheck 0.9.0', '');
+        return {};
+      }
+      try {
+        callback(null, String(cp.execFileSync(bin, args, options) ?? ''), '');
+      } catch (error) {
+        const e = error as { stdout?: string; stderr?: string };
+        callback(error as Error, e.stdout ?? '', e.stderr ?? '');
+      }
+      return {};
+    },
+  );
   originalCwd = process.cwd();
   tmpRoot = mkdtempSync(join(tmpdir(), 'shellcheck-'));
   mkdirSync(join(tmpRoot, 'sub'), { recursive: true });
@@ -117,10 +139,7 @@ describe('shellcheck tool execute', () => {
   });
 
   it('returns ok:false when shellcheck is not installed', async () => {
-    fsm.existsSync.mockReturnValue(false);
-    cp.execSync.mockImplementation(() => {
-      throw new Error('not found');
-    });
+    cp.probeFails.value = true;
     const { tools } = setup();
     const res = await tools.shellcheck!.execute({ files: ['a.sh'] });
     expect(res.ok).toBe(false);
@@ -128,14 +147,17 @@ describe('shellcheck tool execute', () => {
     expect(res.issues).toEqual([]);
   });
 
-  it('uses the PATH probe when the local binary is absent but shellcheck resolves', async () => {
-    fsm.existsSync.mockReturnValue(false);
-    cp.execSync.mockReturnValue('ShellCheck 0.9.0');
+  it('continues when the async PATH probe resolves', async () => {
     cp.execFileSync.mockReturnValue('[]');
     const { tools } = setup();
     const res = await tools.shellcheck!.execute({ files: ['a.sh'] });
     expect(res.ok).toBe(true);
-    expect(cp.execSync).toHaveBeenCalled();
+    expect(cp.execFile).toHaveBeenCalledWith(
+      'shellcheck',
+      ['--version'],
+      expect.any(Object),
+      expect.any(Function),
+    );
   });
 
   it('treats a non-zero exit carrying issue JSON on stderr as findings', async () => {
@@ -181,7 +203,7 @@ describe('shellcheck tool execute', () => {
 
 describe('shellcheck tool — directory scan mode (merged from shellcheck_scan)', () => {
   it('returns early when no shell files are found in directory', async () => {
-    fsm.readdirSync.mockReturnValue([dirent('readme.md', false)]);
+    fsm.readdir.mockResolvedValue([dirent('readme.md', false)]);
     const { tools } = setup();
     const res = await tools.shellcheck!.execute({ directory: '.' });
     expect(res).toMatchObject({
@@ -193,7 +215,7 @@ describe('shellcheck tool — directory scan mode (merged from shellcheck_scan)'
   });
 
   it('scans found files recursively, skipping node_modules and .git', async () => {
-    fsm.readdirSync.mockImplementation((dir: string) => {
+    fsm.readdir.mockImplementation(async (dir: string) => {
       if (dir === tmpRoot) {
         return [
           dirent('sub', true),
@@ -229,7 +251,7 @@ describe('shellcheck tool — directory scan mode (merged from shellcheck_scan)'
   });
 
   it('filters by filename pattern in directory mode', async () => {
-    fsm.readdirSync.mockReturnValue([dirent('build.sh', false), dirent('deploy.sh', false)]);
+    fsm.readdir.mockResolvedValue([dirent('build.sh', false), dirent('deploy.sh', false)]);
     cp.execFileSync.mockReturnValue('[]');
     const { tools } = setup();
     const res = await tools.shellcheck!.execute({ directory: tmpRoot, pattern: 'deploy' });
@@ -237,7 +259,7 @@ describe('shellcheck tool — directory scan mode (merged from shellcheck_scan)'
   });
 
   it('tolerates unreadable directories', async () => {
-    fsm.readdirSync.mockImplementation(() => {
+    fsm.readdir.mockImplementation(async () => {
       throw new Error('EACCES');
     });
     const { tools } = setup();
@@ -246,11 +268,8 @@ describe('shellcheck tool — directory scan mode (merged from shellcheck_scan)'
   });
 
   it('returns ok:false when shellcheck fails during a directory scan', async () => {
-    fsm.readdirSync.mockReturnValue([dirent('a.sh', false)]);
-    fsm.existsSync.mockReturnValue(false);
-    cp.execSync.mockImplementation(() => {
-      throw new Error('nope');
-    });
+    fsm.readdir.mockResolvedValue([dirent('a.sh', false)]);
+    cp.probeFails.value = true;
     const { tools } = setup();
     const res = await tools.shellcheck!.execute({ directory: tmpRoot });
     expect(res.ok).toBe(false);
@@ -258,20 +277,20 @@ describe('shellcheck tool — directory scan mode (merged from shellcheck_scan)'
   });
 
   it('defaults directory to "." when omitted', async () => {
-    fsm.readdirSync.mockReturnValue([]);
+    fsm.readdir.mockResolvedValue([]);
     const { tools } = setup();
     const res = await tools.shellcheck!.execute({});
     expect(res).toMatchObject({ ok: true, filesScanned: 0 });
-    expect(fsm.readdirSync).toHaveBeenCalledWith('.', expect.anything());
+    expect(fsm.readdir).toHaveBeenCalledWith('.', expect.anything());
   });
 
   it('files mode takes precedence over directory mode', async () => {
-    fsm.readdirSync.mockReturnValue([dirent('other.sh', false)]);
+    fsm.readdir.mockResolvedValue([dirent('other.sh', false)]);
     cp.execFileSync.mockReturnValue('[]');
     const { tools } = setup();
     const res = await tools.shellcheck!.execute({ files: ['a.sh'], directory: tmpRoot });
     expect(res.mode).toBe('files');
-    expect(fsm.readdirSync).not.toHaveBeenCalled();
+    expect(fsm.readdir).not.toHaveBeenCalled();
   });
 
   it('rejects directory paths outside the project root', async () => {

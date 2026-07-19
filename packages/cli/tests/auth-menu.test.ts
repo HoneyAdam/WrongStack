@@ -112,6 +112,7 @@ async function setupDeps(opts: {
     modelsRegistry: makeModelsRegistry(opts.catalog ?? {}),
     vault,
     globalConfigPath: configPath,
+    profileConfigPath: configPath,
   };
   return { deps, configPath, tmpDir };
 }
@@ -598,6 +599,7 @@ describe('runAuthMenu', () => {
       }),
       vault,
       globalConfigPath: dirAsConfig,
+      profileConfigPath: dirAsConfig,
     };
     await expect(runAuthDirect(deps, { providerId: 'myprov' })).rejects.toThrow(
       /Refusing to mutate/,
@@ -617,6 +619,7 @@ describe('runAuthMenu', () => {
       }),
       vault,
       globalConfigPath: configPath,
+      profileConfigPath: configPath,
     };
     await expect(runAuthDirect(deps, { providerId: 'myprov' })).rejects.toThrow(
       /Refusing to overwrite corrupt config/,

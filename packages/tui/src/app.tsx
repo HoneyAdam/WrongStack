@@ -15,6 +15,8 @@ import {
   enhanceUserPrompt,
   expectDefined,
   formatTodosList,
+  type ContextBreakdown,
+  getContextBreakdown,
   getDesignKitLoader,
   InputBuilder,
   isDesignStack,
@@ -1388,10 +1390,24 @@ export function App({
 
   const contextWindow = useMemo(() => {
     void state.contextChipVersion;
-    return currentContextTokens > 0 && maxContext > 0
-      ? { used: currentContextTokens, max: maxContext }
-      : undefined;
+    // Show the meter from session start (used may be 0 before the first
+    // provider request) so the context bar is always findable in the
+    // statusline. It only needs a known ceiling to be meaningful.
+    return maxContext > 0 ? { used: currentContextTokens, max: maxContext } : undefined;
   }, [currentContextTokens, maxContext, state.contextChipVersion]);
+
+  // Real, measured per-category token accounting for the /context panel's
+  // Composition tab. Only computed while the panel is open (it walks every
+  // assembled message/tool to estimate tokens); recomputed when the live
+  // context changes (contextChipVersion bumps once per request).
+  const contextBreakdown = useMemo<ContextBreakdown | undefined>(() => {
+    if (!state.contextPanelOpen) return undefined;
+    try {
+      return getContextBreakdown(agent.ctx);
+    } catch {
+      return undefined;
+    }
+  }, [state.contextPanelOpen, state.contextChipVersion, agent.ctx]);
 
   // Todo counts come from the agent's context, which is mutated by
   // the `todo` tool. Re-read on each render — array access is O(N) on
@@ -6976,6 +6992,7 @@ export function App({
               reasoningPreserve={state.settingsPicker.reasoningPreserve}
               cacheTtl={state.settingsPicker.cacheTtl}
               configScope={state.settingsPicker.configScope}
+              profileConfigPath={profileConfigPath}
               animationStyle={state.settingsPicker.animationStyle}
               breakerEnabled={state.settingsPicker.breakerEnabled}
               breakerAutoKillResetMs={state.settingsPicker.breakerAutoKillResetMs}
@@ -7495,6 +7512,7 @@ export function App({
                   leaderIterations: state.leader.iterations,
                   leaderToolCalls: state.leader.toolCalls,
                   leaderStatus: state.status,
+                  breakdown: contextBreakdown,
                   memoryContext: memoryContextMonitor,
                 }}
                 onClose={() => dispatch({ type: 'toggleContextPanel' })}

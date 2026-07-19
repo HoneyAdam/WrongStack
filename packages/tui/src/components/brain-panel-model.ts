@@ -43,7 +43,7 @@ export interface BrainPanelSettings {
 /**
  * Host bridge implemented by the CLI. Every setter returns an error string
  * (shown as the panel hint) or null on success; all setters apply LIVE and
- * persist to ~/.wrongstack/config.json. Model SELECTION is not part of this
+ * persist to the active profile config. Model SELECTION is not part of this
  * bridge — the panel uses the shared /model picker via requestModelPick.
  */
 export interface BrainPanelHost {

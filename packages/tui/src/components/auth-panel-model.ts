@@ -22,7 +22,7 @@ export interface AuthKeyRow {
   expiresAt?: string | undefined;
 }
 
-/** One saved provider from ~/.wrongstack/config.json. */
+/** One saved provider from the active profile config. */
 export interface AuthProviderRow {
   id: string;
   type?: string | undefined;

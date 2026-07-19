@@ -13,6 +13,7 @@ import {
 } from '@wrongstack/core';
 import { mutateConfigProviders } from '../../provider-config-utils.js';
 import { visibleModelIds } from '../../provider-helpers.js';
+import { activeProfileConfigPath } from '../../profile-config-path.js';
 import type { SubcommandHandler } from '../index.js';
 export const providersCmd: SubcommandHandler = async (args, deps) => {
   const showAll = args.includes('--all');
@@ -302,7 +303,7 @@ async function modelsHide(args: string[], deps: Parameters<SubcommandHandler>[1]
     return 0;
   }
   const nextVisible = visible.filter((id) => id !== modelId);
-  await mutateConfigProviders(deps.paths.globalConfig, deps.vault, (providers) => {
+  await mutateConfigProviders(activeProfileConfigPath(deps.paths, deps.config), deps.vault, (providers) => {
     const p = providers[providerId];
     if (!p) return;
     p.models = nextVisible;
@@ -347,7 +348,7 @@ async function modelsShow(args: string[], deps: Parameters<SubcommandHandler>[1]
     return 0;
   }
   const nextVisible = uniqueStrings([...saved.models, modelId]);
-  await mutateConfigProviders(deps.paths.globalConfig, deps.vault, (providers) => {
+  await mutateConfigProviders(activeProfileConfigPath(deps.paths, deps.config), deps.vault, (providers) => {
     const p = providers[providerId];
     if (!p) return;
     p.models = nextVisible;
@@ -411,7 +412,7 @@ async function modelsReset(args: string[], deps: Parameters<SubcommandHandler>[1
     deps.renderer.writeInfo(`${providerId} already shows the full catalog model list.`);
     return 0;
   }
-  await mutateConfigProviders(deps.paths.globalConfig, deps.vault, (providers) => {
+  await mutateConfigProviders(activeProfileConfigPath(deps.paths, deps.config), deps.vault, (providers) => {
     const p = providers[providerId];
     if (!p) return;
     delete p.models;
@@ -486,7 +487,7 @@ async function mutateModelsConfig(
   mutator: (models: Record<string, CustomModelDefinition>) => void,
 ): Promise<void> {
   const vault = deps.vault;
-  const configPath = deps.paths.globalConfig;
+  const configPath = activeProfileConfigPath(deps.paths, deps.config);
   let fileExists = true;
   let raw: string;
   try {

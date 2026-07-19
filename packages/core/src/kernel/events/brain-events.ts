@@ -78,6 +78,8 @@ export interface BrainEventMap {
   'token.accounted': {
     sessionId?: string | undefined;
     usage: Usage;
+    /** Usage contributed by this one accounting call (not cumulative). */
+    deltaUsage?: Usage | undefined;
     cost: { input: number; output: number; total: number };
     /** Provider id that produced this usage (e.g. 'anthropic'), when known. */
     provider?: string | undefined;

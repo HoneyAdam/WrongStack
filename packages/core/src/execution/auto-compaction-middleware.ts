@@ -121,6 +121,9 @@ export class AutoCompactionMiddleware {
   private _cachedTokens = -1;
   private _cachedMsgCount = -1;
   private _cachedToolCount = -1;
+  private _cachedRevision = -1;
+  private _cachedSystemRef: unknown = null;
+  private _cachedToolsRef: unknown = null;
 
   /**
    * @param compactor        Compactor to use for compaction.
@@ -203,6 +206,7 @@ export class AutoCompactionMiddleware {
       // cannot safely cache its result across calls.
       const msgCount = ctx.messages.length;
       const toolCount = (ctx.tools ?? []).length;
+      const revision = ctx.state?.revision ?? -1;
 
       let tokens: number;
       // Prefer the REAL usage anchor: compaction decisions run against the
@@ -223,6 +227,9 @@ export class AutoCompactionMiddleware {
       } else if (
         msgCount === this._cachedMsgCount &&
         toolCount === this._cachedToolCount &&
+        revision === this._cachedRevision &&
+        ctx.systemPrompt === this._cachedSystemRef &&
+        ctx.tools === this._cachedToolsRef &&
         this._cachedTokens >= 0
       ) {
         // Default estimator, context unchanged — reuse cached value.
@@ -240,6 +247,9 @@ export class AutoCompactionMiddleware {
         this._cachedTokens = tokens;
         this._cachedMsgCount = msgCount;
         this._cachedToolCount = toolCount;
+        this._cachedRevision = revision;
+        this._cachedSystemRef = ctx.systemPrompt;
+        this._cachedToolsRef = ctx.tools;
       } else {
         // Default estimator, context changed and no stash — compute fresh
         // and cache. Cold-start path: very first iteration, or the
@@ -254,6 +264,9 @@ export class AutoCompactionMiddleware {
         this._cachedTokens = tokens;
         this._cachedMsgCount = msgCount;
         this._cachedToolCount = toolCount;
+        this._cachedRevision = revision;
+        this._cachedSystemRef = ctx.systemPrompt;
+        this._cachedToolsRef = ctx.tools;
       }
       // A provider overflow can teach the session a route-specific effective
       // limit that is lower than the catalog/native-model value. Resolve it on

@@ -14,6 +14,7 @@ import {
 } from '@wrongstack/core';
 import { countToolResults, countToolUses, countTurnPairs, estimateTokens } from './helpers.js';
 import type { SlashCommandContext } from './index.js';
+import { activeProfileConfigPath } from '../profile-config-path.js';
 
 export function buildContextCommand(opts: SlashCommandContext): SlashCommand {
   return {
@@ -396,12 +397,14 @@ async function persistContextConfig(
   if (!opts.configStore || !opts.paths)
     return 'Cannot persist context settings: config store not available.';
 
+  const configPath = activeProfileConfigPath(opts.paths, opts.configStore.get());
+
   let raw = '{}';
   try {
-    raw = await fs.readFile(opts.paths.globalConfig, 'utf8');
+    raw = await fs.readFile(configPath, 'utf8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      return `Could not read ${opts.paths.globalConfig}: ${(err as Error).message}`;
+      return `Could not read ${configPath}: ${(err as Error).message}`;
     }
   }
 
@@ -409,7 +412,7 @@ async function persistContextConfig(
   try {
     parsed = JSON.parse(raw) as Record<string, unknown>;
   } catch (err) {
-    return `Config at ${opts.paths.globalConfig} is not valid JSON: ${(err as Error).message}`;
+    return `Config at ${configPath} is not valid JSON: ${(err as Error).message}`;
   }
 
   const current = opts.configStore.get();
@@ -419,7 +422,7 @@ async function persistContextConfig(
     ...patch,
   };
   parsed.context = context;
-  await atomicWrite(opts.paths.globalConfig, JSON.stringify(parsed, null, 2), { mode: 0o600 });
+  await atomicWrite(configPath, JSON.stringify(parsed, null, 2), { mode: 0o600 });
   opts.configStore.update({ context });
   return null;
 }

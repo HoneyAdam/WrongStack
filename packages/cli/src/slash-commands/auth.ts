@@ -2,6 +2,7 @@ import type { SlashCommand } from '@wrongstack/core';
 import { color } from '@wrongstack/core';
 import { loadConfigProviders } from '../provider-config-utils.js';
 import type { SlashCommandContext } from './index.js';
+import { activeProfileConfigPath } from '../profile-config-path.js';
 
 /** Levenshtein distance, capped iteration for short provider ids. */
 function editDistance(a: string, b: string): number {
@@ -129,7 +130,7 @@ export function buildAuthCommand(opts: SlashCommandContext): SlashCommand {
       let providers: Record<string, unknown>;
       try {
         providers = await loadConfigProviders(
-          opts.paths.globalConfig,
+          activeProfileConfigPath(opts.paths, opts.configStore.get()),
           // We don't have a full vault reference in slash commands;
           // use a simple passthrough vault since keys won't decrypt anyway
           // in this read-only view and the config may not have encrypted fields.

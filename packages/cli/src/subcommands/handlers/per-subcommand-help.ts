@@ -410,13 +410,13 @@ const helpTable: Record<string, PerSubcommandHelp> = {
     title: 'wstack config — show or edit effective config',
     description:
       'Print the resolved config (with the on-disk overrides merged ' +
-      'on top), or open the global config in $EDITOR for interactive ' +
+      'on top), or open the active profile config in $EDITOR for interactive ' +
       'edits. Also exposes a small audit log of recent config-history ' +
       'changes for diagnostics.',
     usage: 'wstack config [show|edit|history|restore] [...]',
     subcommands: [
       { name: 'show', description: 'Print the resolved config to stdout (default).' },
-      { name: 'edit', description: 'Open the global config in $EDITOR.' },
+      { name: 'edit', description: 'Open the active profile config in $EDITOR.' },
       { name: 'history', description: 'List recent config-history entries.' },
       { name: 'restore <id>', description: 'Restore a previous config-history entry.' },
     ],
@@ -982,7 +982,7 @@ const deepHelpTable: Record<string, PerSubcommandHelp> = {
     name: 'config:show',
     title: 'wstack config show — print the resolved config',
     description:
-      'Print the resolved global config (config.json with all on-disk ' +
+      'Print the resolved config (active profile plus all on-disk ' +
       'overrides applied) to stdout. Secrets are masked. The default ' +
       'subcommand — `wstack config` without a sub invokes this.',
     usage: 'wstack config show',
@@ -990,10 +990,10 @@ const deepHelpTable: Record<string, PerSubcommandHelp> = {
   },
   'config:edit': {
     name: 'config:edit',
-    title: 'wstack config edit — open the global config in $EDITOR',
+    title: 'wstack config edit — open the active profile config in $EDITOR',
     description:
-      'Print the path to the global config (typically ' +
-      '`~/.wrongstack/config.json`) and the command to open it. ' +
+      'Print the active profile config path (typically ' +
+      '`~/.wrongstack/profiles/default/config.json`) and the command to open it. ' +
       'Does not spawn the editor itself — the user runs the printed ' +
       'command (or sets `$EDITOR` and re-runs). Useful for offline ' +
       'edits when you want to see the full file at once.',
@@ -1004,7 +1004,7 @@ const deepHelpTable: Record<string, PerSubcommandHelp> = {
     name: 'config:history',
     title: 'wstack config history — list recent config-history entries',
     description:
-      'List every recent change to the global config, with a ' +
+      'List every recent change to the active profile config, with a ' +
       'one-line description and a snapshot id. Pass `--id <id>` to ' +
       'see the full diff + masked snapshot. The audit trail is ' +
       'append-only (entries are never modified post-creation).',
@@ -1201,7 +1201,7 @@ const deepHelpTable: Record<string, PerSubcommandHelp> = {
     name: 'auth:list',
     title: 'wstack auth list — list saved providers and key status',
     description:
-      'Read-only listing of every provider in `~/.wrongstack/config.json`. ' +
+      'Read-only listing of every provider in the active profile config. ' +
       'Each provider block shows the family, baseUrl, model-allowlist size, ' +
       'and the saved API keys (the active key is marked with a green `●`, ' +
       'inactive keys with a dim `○`; all values are masked). Alias: ' +
@@ -1236,7 +1236,7 @@ const deepHelpTable: Record<string, PerSubcommandHelp> = {
     title: 'wstack auth remove <provider> — delete a provider and its keys',
     description:
       'Remove a provider entry and all its saved API keys from ' +
-      '`~/.wrongstack/config.json`. The flow is always interactive: ' +
+      'the active profile config. The flow is always interactive: ' +
       'after printing a confirmation prompt the handler waits for ' +
       'a `y` / `yes` answer (default `N`). The active session\'s ' +
       'in-memory provider is NOT reloaded — restart the REPL to ' +

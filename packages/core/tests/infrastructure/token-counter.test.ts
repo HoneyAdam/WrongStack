@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DefaultTokenCounter } from '../../src/infrastructure/token-counter.js';
+import { ProviderCacheLedger } from '../../src/infrastructure/provider-cache-ledger.js';
 import { EventBus } from '../../src/kernel/events.js';
 import type { ModelsRegistry, ResolvedModel } from '../../src/index.js';
 
@@ -147,6 +148,42 @@ describe('DefaultTokenCounter', () => {
     await new Promise((r) => setTimeout(r, 5));
 
     expect(seen).toEqual(['s1']);
+  });
+
+  it('prices and attributes each request to its account-time provider', async () => {
+    const events = new EventBus();
+    const ledger = new ProviderCacheLedger(events);
+    const pending = new Map<string, (value: ResolvedModel | undefined) => void>();
+    const registry = {
+      getModel: vi.fn((providerId: string, modelId: string) =>
+        new Promise<ResolvedModel | undefined>((resolve) => {
+          pending.set(providerId, resolve);
+        })),
+      load: async () => ({}) as never,
+      refresh: async () => ({}) as never,
+      listProviders: async () => [],
+      getProvider: async () => undefined,
+      suggestModel: async () => undefined,
+      ageSeconds: async () => 0,
+    } as never as ModelsRegistry;
+    const tc = new DefaultTokenCounter({ events, registry, providerId: 'boot-provider' });
+
+    tc.account({ input: 100, output: 1, cacheRead: 900 }, 'shared-model', 'anthropic');
+    tc.account({ input: 200, output: 2, cacheRead: 300 }, 'shared-model', 'openai');
+    pending.get('openai')?.({ ...m1, providerId: 'openai', modelId: 'shared-model' });
+    await Promise.resolve();
+    pending.get('anthropic')?.({ ...m1, providerId: 'anthropic', modelId: 'shared-model' });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(registry.getModel).toHaveBeenCalledWith('anthropic', 'shared-model');
+    expect(registry.getModel).toHaveBeenCalledWith('openai', 'shared-model');
+    expect(ledger.perProvider()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ provider: 'anthropic', input: 100, cacheRead: 900 }),
+        expect.objectContaining({ provider: 'openai', input: 200, cacheRead: 300 }),
+      ]),
+    );
+    ledger.dispose();
   });
 
   it('reset clears tokens and cost and emits a zero snapshot', () => {

@@ -42,7 +42,7 @@ export interface WebUIDispatchContext {
   projectRoot: string;
   globalConfigPath: string;
   /** Resolved profile config path: ~/.wrongstack/profiles/<activeProfile>/config.json */
-  profileConfigPath?: string | undefined;
+  profileConfigPath: string;
   projectSessionsDir: string;
   modelsRegistry: ModelsRegistry;
   mcpRegistry: MCPRegistry;

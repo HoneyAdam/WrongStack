@@ -13,16 +13,19 @@ import {
   mutateConfigProviders,
   normalizeKeys,
 } from '../../provider-config-utils.js';
+import { activeProfileConfigPath } from '../../profile-config-path.js';
 import type { SubcommandHandler } from '../index.js';
 
 export const authCmd: SubcommandHandler = async (args, deps) => {
   const flags = parseAuthFlags(args);
+  const profileConfigPath = activeProfileConfigPath(deps.paths, deps.config);
   const menuDeps: AuthMenuDeps = {
     renderer: deps.renderer,
     reader: deps.reader,
     modelsRegistry: deps.modelsRegistry,
     vault: deps.vault,
-    globalConfigPath: deps.paths.globalConfig,
+    globalConfigPath: profileConfigPath,
+    profileConfigPath,
   };
 
   // No args → interactive menu

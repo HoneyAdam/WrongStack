@@ -98,4 +98,23 @@ describe('GoogleProvider explicit cached-content', () => {
     expect(generates).toHaveLength(2);
     expect(generates.every((g) => g.body['cachedContent'] === 'cachedContents/abc123')).toBe(true);
   });
+
+  it('creates a new resource when a same-named tool changes schema', async () => {
+    const { provider, calls } = makeProvider();
+    const firstTool = {
+      name: 'lookup',
+      description: 'lookup by string',
+      inputSchema: { type: 'object', properties: { q: { type: 'string' } } },
+    };
+    const secondTool = {
+      name: 'lookup',
+      description: 'lookup by numeric id',
+      inputSchema: { type: 'object', properties: { id: { type: 'number' } } },
+    };
+
+    await provider.complete(req({ tools: [firstTool] }), { signal: signal() });
+    await provider.complete(req({ tools: [secondTool] }), { signal: signal() });
+
+    expect(calls.filter((c) => c.url.endsWith('/cachedContents'))).toHaveLength(2);
+  });
 });

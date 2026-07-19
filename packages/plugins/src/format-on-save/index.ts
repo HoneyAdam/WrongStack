@@ -28,8 +28,8 @@
  * @public
  */
 
-import { execFileSync, execSync } from 'node:child_process';
-import { existsSync, statSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { access, stat } from 'node:fs/promises';
 import type { Plugin } from '@wrongstack/core';
 import { withinProject } from '../runtime/index.js';
 
@@ -178,43 +178,63 @@ interface FormatResult {
  * Run `biome format --write` on a file. Returns the byte sizes before
  * and after, and whether the file changed. Returns null if biome
  * failed or the file doesn't exist.
+ *
+ * Async: all fs/exec operations yield the event loop so the PostToolUse
+ * hook returns immediately and the formatter runs without blocking other
+ * tool results / messages from interleaving.
  */
-function formatFile(filePath: string, timeoutMs: number): FormatResult | null {
+async function formatFile(filePath: string, timeoutMs: number): Promise<FormatResult | null> {
   // Sandbox: refuse to format files outside the project root before we
   // spawn biome. Without this guard a host-FS file could be written or
   // diffed through the formatter call.
   if (!withinProject(filePath)) return null;
-  if (!existsSync(filePath)) return null;
+  try {
+    await access(filePath);
+  } catch {
+    return null;
+  }
 
   let bytesBefore: number;
   try {
-    bytesBefore = statSync(filePath).size;
+    bytesBefore = (await stat(filePath)).size;
   } catch {
     return null;
   }
 
   try {
-    execFileSync('npx', ['biome', 'format', '--write', filePath], {
-      encoding: 'utf-8',
-      timeout: timeoutMs,
-      cwd: process.cwd(),
-      stdio: ['pipe', 'pipe', 'pipe'],
+    await new Promise<void>((resolve, reject) => {
+      execFile(
+        'npx',
+        ['biome', 'format', '--write', filePath],
+        {
+          encoding: 'utf-8',
+          timeout: timeoutMs,
+          cwd: process.cwd(),
+          windowsHide: true,
+          maxBuffer: 16 * 1024 * 1024,
+        },
+        (err) => {
+          if (err) {
+            const e = err as NodeJS.ErrnoException & { killed?: boolean };
+            // Biome exits 0 on success even when it reformats. Non-zero exit
+            // usually means a parse error or the file is not formattable.
+            // A killed process means timeout.
+            if (e.killed) return reject(err);
+            // Some non-zero exits still format the file (e.g. exit code 1
+            // when there are diagnostics alongside formatting). Fall through
+            // and let the byte-size delta detect whether formatting landed.
+          }
+          resolve();
+        },
+      );
     });
-  } catch (err: unknown) {
-    const e = err as { killed?: boolean; status?: number };
-    // Biome exits 0 on success even when it reformats. Non-zero exit
-    // usually means a parse error or the file is not formattable.
-    // A killed process means timeout.
-    if (e.killed) return null;
-
-    // Some non-zero exits still format the file (e.g. exit code 1 when
-    // there are diagnostics alongside formatting). Check if the file
-    // size changed to detect if formatting happened anyway.
+  } catch {
+    return null;
   }
 
   let bytesAfter: number;
   try {
-    bytesAfter = statSync(filePath).size;
+    bytesAfter = (await stat(filePath)).size;
   } catch {
     return null;
   }
@@ -229,11 +249,22 @@ function formatFile(filePath: string, timeoutMs: number): FormatResult | null {
   // We can't compare pre/post without a snapshot, so we re-run biome
   // in check mode: if it exits 0, the file is already formatted.
   try {
-    execFileSync('npx', ['biome', 'format', filePath], {
-      encoding: 'utf-8',
-      timeout: timeoutMs,
-      cwd: process.cwd(),
-      stdio: ['pipe', 'pipe', 'pipe'],
+    await new Promise<void>((resolve, reject) => {
+      execFile(
+        'npx',
+        ['biome', 'format', filePath],
+        {
+          encoding: 'utf-8',
+          timeout: timeoutMs,
+          cwd: process.cwd(),
+          windowsHide: true,
+          maxBuffer: 16 * 1024 * 1024,
+        },
+        (err) => {
+          if (err) return reject(err);
+          resolve();
+        },
+      );
     });
     // Exit 0 = already formatted
     return { changed: false, bytesBefore, bytesAfter };
@@ -287,7 +318,7 @@ const plugin: Plugin = {
     },
   },
 
-  setup(api) {
+  async setup(api) {
     // Idempotent re-init (H1 pattern). Unregister old hooks/listeners before
     // resetting counters so plugin reload cannot stack duplicate callbacks.
     clearRegistrations();
@@ -301,14 +332,26 @@ const plugin: Plugin = {
 
     const cfg = readConfig(api.config.extensions?.['format-on-save']);
 
-    // Detect biome at setup time.
+    // Detect biome at setup time. Uses async execFile so plugin init does
+    // not block the event loop for the full 5s timeout on a slow PATH
+    // lookup or Windows antivirus scan.
     let biomeAvailable = false;
     try {
-      execSync('npx biome --version', {
-        encoding: 'utf-8',
-        timeout: 5_000,
-        cwd: process.cwd(),
-        stdio: ['pipe', 'pipe', 'pipe'],
+      await new Promise<void>((resolve, reject) => {
+        execFile(
+          'npx',
+          ['biome', '--version'],
+          {
+            encoding: 'utf-8',
+            timeout: 5_000,
+            cwd: process.cwd(),
+            windowsHide: true,
+          },
+          (err) => {
+            if (err) reject(err);
+            else resolve();
+          },
+        );
       });
       biomeAvailable = true;
       api.log.info('format-on-save: biome detected');
@@ -317,11 +360,11 @@ const plugin: Plugin = {
       api.log.warn('format-on-save: biome not found — hook will be a no-op');
     }
 
-    const hook = (input: {
+    const hook = async (input: {
       toolName?: string | undefined;
       toolInput?: unknown;
       toolResult?: { content: string; isError: boolean } | undefined;
-    }): { additionalContext?: string | undefined } | void => {
+    }): Promise<{ additionalContext?: string | undefined } | void> => {
       if (!cfg.enabled || !biomeAvailable) return;
 
       // Skip if the tool errored — the file may not have been written.
@@ -355,7 +398,7 @@ const plugin: Plugin = {
 
       state.invocationCount += 1;
 
-      const result = formatFile(filePath, cfg.timeoutMs);
+      const result = await formatFile(filePath, cfg.timeoutMs);
       if (!result) {
         state.errorCount += 1;
         return; // biome failed or file doesn't exist — silent

@@ -54,7 +54,10 @@ export class InjectionTracker {
   private readonly matchThreshold: number;
   private readonly entries = new Map<string, TrackedInjection>();
   private readonly contextEntries = new Map<string, ContextInjection>();
-  private readonly activeContextBySession = new Map<string, Set<string>>();
+  private readonly activeContextBySession = new Map<
+    string,
+    { memoryIds: Set<string>; at: number }
+  >();
 
   constructor(opts: InjectionTrackerOptions = {}) {
     this.ttlMs = opts.ttlMs ?? 2 * 60 * 60_000;
@@ -96,18 +99,40 @@ export class InjectionTracker {
     sessionId?: string,
     now = Date.now(),
   ): ContextMemorySnapshot {
+    return this.snapshotContextParts([requestText], sessionId, now);
+  }
+
+  /**
+   * Snapshot provider-visible context without first concatenating the entire
+   * request into one large temporary string.
+   */
+  snapshotContextParts(
+    requestParts: Iterable<string>,
+    sessionId?: string,
+    now = Date.now(),
+  ): ContextMemorySnapshot {
     this.prune(now);
     const sessionKey = sessionId ?? '<no-session>';
-    const normalizedRequest = normalizeTextKey(requestText);
+    const normalizedParts = [...requestParts]
+      .map((part) => normalizeTextKey(part))
+      .filter((part) => part.length > 0);
     const active = new Set<string>();
     for (const entry of this.contextEntries.values()) {
       if ((entry.sessionId ?? '<no-session>') !== sessionKey) continue;
-      if (normalizedRequest.includes(entry.contextTextKey)) active.add(entry.memoryId);
+      if (normalizedParts.some((part) => part.includes(entry.contextTextKey))) {
+        active.add(entry.memoryId);
+      }
     }
-    const previous = this.activeContextBySession.get(sessionKey) ?? new Set<string>();
+    const previous =
+      this.activeContextBySession.get(sessionKey)?.memoryIds ?? new Set<string>();
     const enteredMemoryIds = [...active].filter((id) => !previous.has(id));
     const exitedMemoryIds = [...previous].filter((id) => !active.has(id));
-    this.activeContextBySession.set(sessionKey, active);
+    this.activeContextBySession.set(sessionKey, { memoryIds: active, at: now });
+    while (this.activeContextBySession.size > this.maxEntries) {
+      const oldest = this.activeContextBySession.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      this.activeContextBySession.delete(oldest);
+    }
     return {
       activeMemoryIds: [...active],
       enteredMemoryIds,
@@ -156,6 +181,9 @@ export class InjectionTracker {
     }
     for (const [key, entry] of this.contextEntries) {
       if (entry.at < cutoff) this.contextEntries.delete(key);
+    }
+    for (const [key, entry] of this.activeContextBySession) {
+      if (entry.at < cutoff) this.activeContextBySession.delete(key);
     }
     if (this.contextEntries.size > this.maxEntries) {
       const overflow = this.contextEntries.size - this.maxEntries;

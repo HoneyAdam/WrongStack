@@ -231,7 +231,7 @@ describe('/brain slash command', () => {
       expect(patches).toEqual([{ models: ['prov/x'] }]);
       const message = stripAnsi(result!.message!);
       expect(message).toContain('prov/x');
-      expect(message).toContain('saved to ~/.wrongstack/config.json');
+      expect(message).toContain('saved to the active profile config');
     });
 
     it('/brain model session clears the pool', async () => {

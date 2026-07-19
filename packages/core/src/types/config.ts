@@ -363,7 +363,7 @@ export interface ToolsConfig {
    * curated default allowlist of dev/build commands; this extends or trims it.
    *
    * SECURITY: `allow` EXPANDS what the agent may execute, so it is honored only
-   * from TRUSTED config (`~/.wrongstack/config.json`) — the config loader
+   * from the trusted active-profile config — the config loader
    * strips `tools.exec.allow` from the untrusted, repo-committed
    * `<project>/.wrongstack/config.json`. `deny` only ever REMOVES commands, so
    * it is honored from any source.
@@ -1102,7 +1102,7 @@ export interface CustomModelDefinition {
 
 /**
  * Skill subsystem configuration. All fields optional; the subsystem itself is
- * gated by `features.skills`. Honored from the user's `~/.wrongstack/config.json`;
+ * gated by `features.skills`. Honored from the user's active-profile config;
  * in the repo-committed in-project config the `extraDirs` field is stripped
  * (arbitrary directories are a prompt-injection vector) — only `readClaudeSkills`
  * and `mode` survive there.
@@ -1333,7 +1333,7 @@ export interface BrainCouncilConfig {
  * Brain decision-layer configuration. SECURITY: in the in-project config
  * DENY list — a repo-committed config must not be able to raise the
  * autonomy ceiling, remove the human tier, or point Brain decisions at an
- * attacker-chosen provider. Only honoured from `~/.wrongstack/config.json`.
+ * attacker-chosen provider. Only honoured from the active-profile config.
  */
 export interface BrainConfig {
   /**
@@ -1464,7 +1464,7 @@ export interface Config {
    * Per-task model matrix. Keys are catalog roles (e.g. "security-scanner"),
    * phase names (e.g. "review"), or the `*` default. Resolution precedence at
    * subagent spawn: exact role → the role's phase → `*` → leader model. Set via
-   * the `/setmodel` slash command; persisted to ~/.wrongstack/config.json.
+   * the `/setmodel` slash command; persisted to the active-profile config.
    */
   modelMatrix?: Record<string, ModelMatrixEntry>;
   /**
@@ -1488,7 +1488,7 @@ export interface Config {
    * adapter — without a code change. Consumed by `/acp`, `/ensemble`, and
    * `wstack acp`. SECURITY: this is an arbitrary-command exec surface, so it
    * is in the in-project config DENY list — only honoured from the user's
-   * `~/.wrongstack/config.json`, never from a repo-committed config.
+   * active-profile config, never from a repo-committed config.
    */
   acp?: {
     agents?: Record<string, { command: string; args?: string[]; env?: Record<string, string> }>;
@@ -1533,10 +1533,8 @@ export interface Config {
   nextPrediction?: boolean | undefined;
   cwd?: string | undefined;
   /**
-   * Active profile name. When set, config is loaded from
-   * ~/.wrongstack/profiles/<name>/config.json instead of the flat
-   * ~/.wrongstack/config.json. Default: 'default'.
-   * Set via /settings active-profile <name>.
+   * Active profile name selected by the root bootstrap config. Settings load
+   * from ~/.wrongstack/profiles/<name>/config.json. Default: 'default'.
    */
   activeProfile?: string | undefined;
   /** Autonomy mode configuration (auto-proceed delay, etc.). */
@@ -1546,7 +1544,7 @@ export interface Config {
   /** Raw SSE stream debugging — hex-dump every byte received from providers to stderr. */
   debugStream?: boolean | undefined;
   /**
-   * Where settings are persisted. 'global' → ~/.wrongstack/config.json
+   * Where settings are persisted. 'global' → the active profile config
    * (default). 'project' → <project>/.wrongstack/config.json.
    * When 'project', safe settings are saved per-project.
    */
@@ -1586,7 +1584,7 @@ export interface Config {
    * status-broadcast mails, and the brain-gated FleetSupervisor). SECURITY:
    * in the in-project config DENY list — a repo-committed config must not be
    * able to enable autonomous spawning/steering or mailbox traffic. Only
-   * honoured from the user's `~/.wrongstack/config.json`.
+   * honoured from the user's active-profile config.
    */
   fleet?: FleetConfig | undefined;
   /**
@@ -1594,7 +1592,7 @@ export interface Config {
    * on a human), LLM pool with fallback/round-robin, autonomy ceiling, and
    * the multi-LLM council. SECURITY: in the in-project config DENY list —
    * a repo-committed config must not be able to raise the autonomy ceiling
-   * or reroute Brain decisions. Only honoured from `~/.wrongstack/config.json`.
+   * or reroute Brain decisions. Only honoured from the active-profile config.
    */
   brain?: BrainConfig | undefined;
   /**
@@ -1614,7 +1612,7 @@ export interface Config {
    *
    * SECURITY: in the in-project config DENY list — a repo-committed config
    * must not be able to spoof the identity written into the user's commit
-   * history. Only honoured from the user's `~/.wrongstack/config.json`.
+   * history. Only honoured from the user's active-profile config.
    */
   git?: GitBehaviorConfig | undefined;
   /**

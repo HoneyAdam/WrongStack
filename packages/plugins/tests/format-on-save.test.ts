@@ -1,31 +1,34 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-// Mock execSync + execFileSync before importing the plugin. The plugin
-// switched from execSync string templates to execFileSync argv to defeat
-// shell-injection; tests must cover both surfaces.
+// Mock the setup-time version probe and the async formatter process.
 const mockExecSync = vi.fn((cmd: string): string => {
   if (cmd.includes('--version')) return '2.5.1\n';
   return '';
 });
 
-const mockExecFileSync = vi.fn((_cmd: string, _args: string[]): string => {
-  // biome --write returns empty on success; second invocation (check
-  // mode) also returns empty when the file is already clean. Tests can
-  // override mockExecFileSync.mockImplementation when they need
-  // specific behavior (size change, parse error, etc.).
-  return '';
-});
+const mockExecFile = vi.fn(
+  (
+    _cmd: string,
+    _args: string[],
+    _options: Record<string, unknown>,
+    callback: (error: Error | null, stdout?: string, stderr?: string) => void,
+  ) => {
+    callback(null, '', '');
+    return {};
+  },
+);
 
 vi.mock('node:child_process', () => ({
   execSync: mockExecSync,
-  execFileSync: mockExecFileSync,
+  execFile: mockExecFile,
 }));
 
-// Mock fs to simulate file existence + size changes.
-const mockStatSync = vi.fn((): { size: number } => ({ size: 100 }));
-vi.mock('node:fs', () => ({
-  existsSync: vi.fn(() => true),
-  statSync: mockStatSync,
+// Mock async fs operations to simulate file existence + size changes.
+const mockAccess = vi.fn(async () => undefined);
+const mockStat = vi.fn(async (): Promise<{ size: number }> => ({ size: 100 }));
+vi.mock('node:fs/promises', () => ({
+  access: mockAccess,
+  stat: mockStat,
 }));
 
 const formatOnSavePlugin = (await import('../src/format-on-save')).default;
@@ -64,7 +67,9 @@ function makeApi(overrides: { extensions?: Record<string, unknown> } = {}): Mock
   };
 }
 
-function getHook(api: MockApi): (input: unknown) => { additionalContext?: string } | void {
+function getHook(api: MockApi): (
+  input: unknown,
+) => Promise<{ additionalContext?: string } | void> {
   const call = api.registerHook.mock.calls[0];
   if (!call) throw new Error('hook not registered');
   return (call as unknown[])[2] as ReturnType<typeof getHook>;
@@ -81,13 +86,18 @@ function getStatusTool(api: MockApi): { execute: (input: unknown) => Promise<unk
 beforeEach(() => {
   vi.clearAllMocks();
   // Reset to default: file exists, size stays 100 (clean)
-  mockStatSync.mockReturnValue({ size: 100 });
+  mockAccess.mockResolvedValue(undefined);
+  mockStat.mockResolvedValue({ size: 100 });
+  mockExecFile.mockImplementation((_cmd, _args, _options, callback) => {
+    callback(null, '', '');
+    return {};
+  });
 });
 
 describe('format-on-save plugin', () => {
-  it('registers format_on_save_status tool and a PostToolUse hook', () => {
+  it('registers format_on_save_status tool and a PostToolUse hook', async () => {
     const api = makeApi();
-    formatOnSavePlugin.setup(api as never);
+    await formatOnSavePlugin.setup(api as never);
     expect(api.tools.register).toHaveBeenCalledTimes(1);
     expect(api.registerHook).toHaveBeenCalledTimes(1);
     const [event, matcher] = api.registerHook.mock.calls[0]!;
@@ -97,11 +107,11 @@ describe('format-on-save plugin', () => {
 });
 
 describe('hook behavior', () => {
-  it('stays silent when file is already formatted (no change)', () => {
+  it('stays silent when file is already formatted (no change)', async () => {
     const api = makeApi();
-    formatOnSavePlugin.setup(api as never);
+    await formatOnSavePlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: 'src/test.ts', content: 'x' },
       toolResult: { content: 'ok', isError: false },
@@ -109,18 +119,18 @@ describe('hook behavior', () => {
     expect(result).toBeUndefined();
   });
 
-  it('injects context when file size changed (formatted)', () => {
+  it('injects context when file size changed (formatted)', async () => {
     // Simulate: before=100, after=120 (file grew = reformatted)
     let callCount = 0;
-    mockStatSync.mockImplementation(() => {
+    mockStat.mockImplementation(async () => {
       callCount++;
       return { size: callCount === 1 ? 100 : 120 };
     });
 
     const api = makeApi();
-    formatOnSavePlugin.setup(api as never);
+    await formatOnSavePlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'edit',
       toolInput: { path: 'src/test.ts', old_string: 'a', new_string: 'b' },
       toolResult: { content: 'ok', isError: false },
@@ -129,11 +139,11 @@ describe('hook behavior', () => {
     expect(result?.additionalContext).toContain('src/test.ts');
   });
 
-  it('stays silent when tool errored', () => {
+  it('stays silent when tool errored', async () => {
     const api = makeApi();
-    formatOnSavePlugin.setup(api as never);
+    await formatOnSavePlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: 'src/test.ts', content: 'x' },
       toolResult: { content: 'error', isError: true },
@@ -141,11 +151,11 @@ describe('hook behavior', () => {
     expect(result).toBeUndefined();
   });
 
-  it('stays silent when enabled=false', () => {
+  it('stays silent when enabled=false', async () => {
     const api = makeApi({ extensions: { 'format-on-save': { enabled: false } } });
-    formatOnSavePlugin.setup(api as never);
+    await formatOnSavePlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: 'src/test.ts', content: 'x' },
       toolResult: { content: 'ok', isError: false },
@@ -153,11 +163,11 @@ describe('hook behavior', () => {
     expect(result).toBeUndefined();
   });
 
-  it('stays silent when path is missing', () => {
+  it('stays silent when path is missing', async () => {
     const api = makeApi();
-    formatOnSavePlugin.setup(api as never);
+    await formatOnSavePlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { content: 'x' },
       toolResult: { content: 'ok', isError: false },
@@ -165,13 +175,13 @@ describe('hook behavior', () => {
     expect(result).toBeUndefined();
   });
 
-  it('does not invoke biome when the file path is outside the project root', () => {
+  it('does not invoke biome when the file path is outside the project root', async () => {
     const api = makeApi();
-    formatOnSavePlugin.setup(api as never);
+    await formatOnSavePlugin.setup(api as never);
     const hook = getHook(api);
     const outside =
       process.platform === 'win32' ? 'C:\\Windows\\System32\\evil.ts' : '/etc/evil.ts';
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: outside, content: 'x' },
       toolResult: { content: 'ok', isError: false },
@@ -180,25 +190,25 @@ describe('hook behavior', () => {
     // biome binary probe still runs at setup time, but the per-file
     // format --write must not.
     expect(
-      mockExecFileSync.mock.calls.some(
+      mockExecFile.mock.calls.some(
         (c) => Array.isArray(c[1]) && (c[1] as string[]).includes('--write'),
       ),
     ).toBe(false);
   });
 
-  it('does not invoke biome when the path traverses out of the project root', () => {
+  it('does not invoke biome when the path traverses out of the project root', async () => {
     const api = makeApi();
-    formatOnSavePlugin.setup(api as never);
+    await formatOnSavePlugin.setup(api as never);
     const hook = getHook(api);
     const escapedPath = '../../escape.ts';
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: escapedPath, content: 'x' },
       toolResult: { content: 'ok', isError: false },
     });
     expect(result).toBeUndefined();
     expect(
-      mockExecFileSync.mock.calls.some(
+      mockExecFile.mock.calls.some(
         (c) => Array.isArray(c[1]) && (c[1] as string[]).includes('--write'),
       ),
     ).toBe(false);
@@ -208,7 +218,7 @@ describe('hook behavior', () => {
 describe('status tool', () => {
   it('reports config + counters', async () => {
     const api = makeApi();
-    formatOnSavePlugin.setup(api as never);
+    await formatOnSavePlugin.setup(api as never);
     const status = await getStatusTool(api).execute({});
     expect(status.enabled).toBe(true);
     expect(status.biomeAvailable).toBe(true);
@@ -217,16 +227,16 @@ describe('status tool', () => {
 
   it('reports enabled=false from config', async () => {
     const api = makeApi({ extensions: { 'format-on-save': { enabled: false } } });
-    formatOnSavePlugin.setup(api as never);
+    await formatOnSavePlugin.setup(api as never);
     const status = await getStatusTool(api).execute({});
     expect(status.enabled).toBe(false);
   });
 });
 
 describe('teardown + H1 pattern', () => {
-  it('logs completion line and does not throw', () => {
+  it('logs completion line and does not throw', async () => {
     const api = makeApi();
-    formatOnSavePlugin.setup(api as never);
+    await formatOnSavePlugin.setup(api as never);
     expect(() => formatOnSavePlugin.teardown!(api as never)).not.toThrow();
     expect(api.log.info).toHaveBeenCalledWith(
       'format-on-save: teardown complete',
@@ -236,9 +246,9 @@ describe('teardown + H1 pattern', () => {
 
   it('zeros counters on teardown', async () => {
     const api = makeApi();
-    formatOnSavePlugin.setup(api as never);
+    await formatOnSavePlugin.setup(api as never);
     const hook = getHook(api);
-    hook({
+    await hook({
       toolName: 'write',
       toolInput: { path: 'src/test.ts', content: 'x' },
       toolResult: { content: 'ok', isError: false },
@@ -249,29 +259,29 @@ describe('teardown + H1 pattern', () => {
     expect(health.counters.formatted).toBe(0);
   });
 
-  it('teardown unregisters both hook and import-organizer listener', () => {
+  it('teardown unregisters both hook and import-organizer listener', async () => {
     const hookUnregister = vi.fn();
     const patternUnregister = vi.fn();
     const api = makeApi();
     api.registerHook.mockReturnValueOnce(hookUnregister);
     api.onPattern.mockReturnValueOnce(patternUnregister);
 
-    formatOnSavePlugin.setup(api as never);
+    await formatOnSavePlugin.setup(api as never);
     formatOnSavePlugin.teardown!(api as never);
 
     expect(hookUnregister).toHaveBeenCalledTimes(1);
     expect(patternUnregister).toHaveBeenCalledTimes(1);
   });
 
-  it('setup unregisters previous hook and listener before reinitializing', () => {
+  it('setup unregisters previous hook and listener before reinitializing', async () => {
     const hookUnregister = vi.fn();
     const patternUnregister = vi.fn();
     const api = makeApi();
     api.registerHook.mockReturnValue(hookUnregister);
     api.onPattern.mockReturnValue(patternUnregister);
 
-    formatOnSavePlugin.setup(api as never);
-    formatOnSavePlugin.setup(api as never);
+    await formatOnSavePlugin.setup(api as never);
+    await formatOnSavePlugin.setup(api as never);
 
     expect(hookUnregister).toHaveBeenCalledTimes(1);
     expect(patternUnregister).toHaveBeenCalledTimes(1);
@@ -297,28 +307,28 @@ describe('cross-plugin coordination with import-organizer', () => {
     return call[1] as (eventName: string, payload: unknown) => void;
   }
 
-  it('subscribes to import-organizer:done on setup', () => {
+  it('subscribes to import-organizer:done on setup', async () => {
     const api = makeApi();
-    formatOnSavePlugin.setup(api as never);
+    await formatOnSavePlugin.setup(api as never);
     const eventNames = api.onPattern.mock.calls.map((c) => c[0]);
     expect(eventNames).toContain('import-organizer:done');
   });
 
-  it('skips the format pass when import-organizer:done was just received for the same path', () => {
+  it('skips the format pass when import-organizer:done was just received for the same path', async () => {
     let callCount = 0;
-    mockStatSync.mockImplementation(() => {
+    mockStat.mockImplementation(async () => {
       callCount++;
       // Both calls would normally show a size change. The skip must
       // short-circuit BEFORE the second statSync call, so we count.
       return { size: callCount === 1 ? 100 : 120 };
     });
-    // Count execFileSync calls with --write (the format-on-save pass).
-    const writeCallsBefore = mockExecFileSync.mock.calls.filter(
+    // Count execFile calls with --write (the format-on-save pass).
+    const writeCallsBefore = mockExecFile.mock.calls.filter(
       (c) => Array.isArray(c[1]) && (c[1] as string[]).includes('--write'),
     ).length;
 
     const api = makeApi();
-    formatOnSavePlugin.setup(api as never);
+    await formatOnSavePlugin.setup(api as never);
     const listener = getImportOrganizerListener(api);
     const hook = getHook(api);
 
@@ -326,32 +336,32 @@ describe('cross-plugin coordination with import-organizer', () => {
     listener('import-organizer:done', { path: 'src/foo.ts', changed: true });
 
     // A write to the same path arrives — the hook should skip
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: 'src/foo.ts', content: 'x' },
       toolResult: { content: 'ok', isError: false },
     });
     expect(result).toBeUndefined();
     // No additional biome --write invocation was made for this hook
-    const writeCallsAfter = mockExecFileSync.mock.calls.filter(
+    const writeCallsAfter = mockExecFile.mock.calls.filter(
       (c) => Array.isArray(c[1]) && (c[1] as string[]).includes('--write'),
     ).length;
     expect(writeCallsAfter).toBe(writeCallsBefore);
   });
 
-  it('runs normally when import-organizer:done was for a different path', () => {
+  it('runs normally when import-organizer:done was for a different path', async () => {
     let callCount = 0;
-    mockStatSync.mockImplementation(() => {
+    mockStat.mockImplementation(async () => {
       callCount++;
       return { size: callCount === 1 ? 100 : 120 };
     });
     const api = makeApi();
-    formatOnSavePlugin.setup(api as never);
+    await formatOnSavePlugin.setup(api as never);
     const listener = getImportOrganizerListener(api);
     const hook = getHook(api);
 
     listener('import-organizer:done', { path: 'src/foo.ts', changed: true });
-    const result = hook({
+    const result = await hook({
       toolName: 'edit',
       toolInput: { path: 'src/other.ts', old_string: 'a', new_string: 'b' },
       toolResult: { content: 'ok', isError: false },
@@ -360,21 +370,21 @@ describe('cross-plugin coordination with import-organizer', () => {
     expect(result?.additionalContext).toContain('src/other.ts');
   });
 
-  it('runs normally when skipWhenCoveredBy=false', () => {
+  it('runs normally when skipWhenCoveredBy=false', async () => {
     let callCount = 0;
-    mockStatSync.mockImplementation(() => {
+    mockStat.mockImplementation(async () => {
       callCount++;
       return { size: callCount === 1 ? 100 : 120 };
     });
     const api = makeApi({
       extensions: { 'format-on-save': { skipWhenCoveredBy: false } },
     });
-    formatOnSavePlugin.setup(api as never);
+    await formatOnSavePlugin.setup(api as never);
     const listener = getImportOrganizerListener(api);
     const hook = getHook(api);
 
     listener('import-organizer:done', { path: 'src/foo.ts', changed: true });
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: 'src/foo.ts', content: 'x' },
       toolResult: { content: 'ok', isError: false },
@@ -384,17 +394,17 @@ describe('cross-plugin coordination with import-organizer', () => {
 
   it('increments coveredSkips counter when a skip happens', async () => {
     let callCount = 0;
-    mockStatSync.mockImplementation(() => {
+    mockStat.mockImplementation(async () => {
       callCount++;
       return { size: callCount === 1 ? 100 : 120 };
     });
     const api = makeApi();
-    formatOnSavePlugin.setup(api as never);
+    await formatOnSavePlugin.setup(api as never);
     const listener = getImportOrganizerListener(api);
     const hook = getHook(api);
 
     listener('import-organizer:done', { path: 'src/foo.ts', changed: true });
-    hook({
+    await hook({
       toolName: 'write',
       toolInput: { path: 'src/foo.ts', content: 'x' },
       toolResult: { content: 'ok', isError: false },
@@ -406,9 +416,9 @@ describe('cross-plugin coordination with import-organizer', () => {
     expect(status.counters.coveredSkips).toBe(1);
   });
 
-  it('ignores import-organizer:done payloads without a path string', () => {
+  it('ignores import-organizer:done payloads without a path string', async () => {
     const api = makeApi();
-    formatOnSavePlugin.setup(api as never);
+    await formatOnSavePlugin.setup(api as never);
     const listener = getImportOrganizerListener(api);
 
     // Each must not throw and must not register a covered path.
@@ -419,12 +429,12 @@ describe('cross-plugin coordination with import-organizer', () => {
 
   it('teardown clears the recentlyCovered cache so a fresh setup starts clean', async () => {
     let callCount = 0;
-    mockStatSync.mockImplementation(() => {
+    mockStat.mockImplementation(async () => {
       callCount++;
       return { size: callCount === 1 ? 100 : 120 };
     });
     const api = makeApi();
-    formatOnSavePlugin.setup(api as never);
+    await formatOnSavePlugin.setup(api as never);
     const listener = getImportOrganizerListener(api);
 
     listener('import-organizer:done', { path: 'src/foo.ts', changed: true });
@@ -433,9 +443,9 @@ describe('cross-plugin coordination with import-organizer', () => {
     // Re-setup, then verify the cache was cleared: a follow-up
     // PostToolUse on the same path without a fresh listener emission
     // must NOT be skipped.
-    formatOnSavePlugin.setup(api as never);
+    await formatOnSavePlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: 'src/foo.ts', content: 'x' },
       toolResult: { content: 'ok', isError: false },

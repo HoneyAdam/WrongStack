@@ -10,7 +10,7 @@
  * - For status: use the built-in `git` tool with `command: "status"` or `command: "diff"`.
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import type { Plugin } from '@wrongstack/core';
 
@@ -33,7 +33,8 @@ type ConventionalType =
 //
 // Why module-level? The Plugin interface in @wrongstack/core does not
 // thread state from `setup` → `teardown`. Today `git-autocommit` holds
-// no in-process resources (everything goes through `execFileSync`),
+// no in-process resources (everything goes through `execFile`, the
+// async variant),
 // but `health()` wants to report a commit count and last-commit hash
 // that survive the function-call boundary — and a future reload-cycle
 // audit could turn those into resource-tracking requirements the same
@@ -57,25 +58,43 @@ const DEFAULT_GIT_TIMEOUT_MS = 30_000;
 // short timeout appropriate for read-only git commands.
 const GIT_COMMIT_TIMEOUT_MS = 5 * 60_000;
 
-function runGit(args: string[], cwd?: string, timeoutMs = DEFAULT_GIT_TIMEOUT_MS): string {
-  try {
-    return execFileSync('git', args, {
-      encoding: 'utf-8',
-      cwd,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: timeoutMs,
-      maxBuffer: 10 * 1024 * 1024,
-      windowsHide: true,
-    }).trim();
-  } catch (err: unknown) {
-    const e = err as { message?: string | undefined; stderr?: string | undefined };
-    /* v8 ignore next -- execFileSync errors always carry .message; the stderr/String fallbacks are defensive. */
-    throw new Error(`git command failed: ${e.message ?? e.stderr ?? String(err)}`);
-  }
+async function runGit(
+  args: string[],
+  cwd?: string,
+  timeoutMs = DEFAULT_GIT_TIMEOUT_MS,
+): Promise<string> {
+  return await new Promise<string>((resolvePromise, rejectPromise) => {
+    execFile(
+      'git',
+      args,
+      {
+        encoding: 'utf-8',
+        cwd,
+        windowsHide: true,
+        timeout: timeoutMs,
+        maxBuffer: 10 * 1024 * 1024,
+      },
+      (err, stdout) => {
+        if (err) {
+          const e = err as NodeJS.ErrnoException & {
+            message?: string;
+            stderr?: string;
+          };
+          rejectPromise(
+            new Error(
+              `git command failed: ${e.message ?? e.stderr ?? String(err)}`,
+            ),
+          );
+          return;
+        }
+        resolvePromise(stdout.trim());
+      },
+    );
+  });
 }
 
-function getChangedFiles(cwd?: string): string[] {
-  const output = runGit(['status', '--porcelain'], cwd);
+async function getChangedFiles(cwd?: string): Promise<string[]> {
+  const output = await runGit(['status', '--porcelain'], cwd);
   if (!output) return [];
   return output
     .split('\n')
@@ -83,12 +102,12 @@ function getChangedFiles(cwd?: string): string[] {
     .map((l) => l.slice(3).trim());
 }
 
-function getStagedFiles(cwd?: string): string[] {
-  const output = runGit(['diff', '--cached', '--name-only'], cwd);
+async function getStagedFiles(cwd?: string): Promise<string[]> {
+  const output = await runGit(['diff', '--cached', '--name-only'], cwd);
   return output ? output.split('\n').filter(Boolean) : [];
 }
 
-function stageFiles(files: string[] | undefined, cwd?: string): void {
+async function stageFiles(files: string[] | undefined, cwd?: string): Promise<void> {
   /* v8 ignore next -- callers always pass a validated array; the guard is defensive. */
   if (!files || !Array.isArray(files)) return;
   // Filter to only files that exist (avoids "pathspec did not match any files" errors)
@@ -100,11 +119,11 @@ function stageFiles(files: string[] | undefined, cwd?: string): void {
     }
   });
   if (existing.length === 0) throw new Error('No files exist to stage');
-  runGit(['add', ...existing], cwd);
+  await runGit(['add', ...existing], cwd);
 }
 
-function commitWithMessage(message: string, cwd?: string): string {
-  return runGit(['commit', '-m', message], cwd, GIT_COMMIT_TIMEOUT_MS);
+async function commitWithMessage(message: string, cwd?: string): Promise<string> {
+  return await runGit(['commit', '-m', message], cwd, GIT_COMMIT_TIMEOUT_MS);
 }
 
 // ---------------------------------------------------------------------------
@@ -118,9 +137,9 @@ interface WorktreeInfo {
 }
 
 /** Parse `git worktree list --porcelain` into structured entries. */
-function getWorktrees(cwd?: string): WorktreeInfo[] {
+async function getWorktrees(cwd?: string): Promise<WorktreeInfo[]> {
   try {
-    const out = runGit(['worktree', 'list', '--porcelain'], cwd);
+    const out = await runGit(['worktree', 'list', '--porcelain'], cwd);
     if (!out) return [];
     const entries: WorktreeInfo[] = [];
     let current: Partial<WorktreeInfo> = {};
@@ -145,8 +164,8 @@ function getWorktrees(cwd?: string): WorktreeInfo[] {
  * Return a warning string when other worktrees exist besides the main one.
  * Multiple worktrees mean other agents may be making simultaneous changes.
  */
-function simultaneousEditWarning(cwd?: string): string | null {
-  const worktrees = getWorktrees(cwd);
+async function simultaneousEditWarning(cwd?: string): Promise<string | null> {
+  const worktrees = await getWorktrees(cwd);
   if (worktrees.length > 1) {
     const otherBranches = worktrees
       .filter((wt) => wt.branch)
@@ -162,11 +181,13 @@ function simultaneousEditWarning(cwd?: string): string | null {
 }
 
 /** Run git diff --cached and return both stat and full diff. */
-function getStagedDiff(cwd?: string): { stat: string; diff: string } {
+async function getStagedDiff(
+  cwd?: string,
+): Promise<{ stat: string; diff: string }> {
   try {
-    const stat = runGit(['diff', '--cached', '--stat'], cwd);
+    const stat = await runGit(['diff', '--cached', '--stat'], cwd);
     // Limit full diff to prevent blowing up tool output
-    const diff = runGit(['diff', '--cached'], cwd);
+    const diff = await runGit(['diff', '--cached'], cwd);
     const MAX_DIFF = 20_000;
     const truncated =
       diff.length > MAX_DIFF ? diff.slice(0, MAX_DIFF) + '\n\n... (diff truncated)' : diff;
@@ -183,9 +204,9 @@ function getStagedDiff(cwd?: string): { stat: string; diff: string } {
  * simultaneous edits from agents working in the same directory without
  * worktree isolation.
  */
-function externalChangesSinceStage(cwd?: string): string[] | null {
+async function externalChangesSinceStage(cwd?: string): Promise<string[] | null> {
   try {
-    const out = runGit(['status', '--porcelain'], cwd);
+    const out = await runGit(['status', '--porcelain'], cwd);
     if (!out) return null;
     const unstaged = out
       .split('\n')
@@ -429,7 +450,7 @@ const plugin: Plugin = {
           // Stage files if provided.
           if (files && files.length > 0) {
             try {
-              stageFiles(files);
+              await stageFiles(files);
             } catch (err: unknown) {
               /* v8 ignore next -- stageFiles only throws Error; the String(err) branch is defensive. */
               return {
@@ -442,21 +463,21 @@ const plugin: Plugin = {
           // Check staged files; auto-detect and stage all changed if empty.
           let staged: string[] = [];
           try {
-            staged = getStagedFiles();
+            staged = await getStagedFiles();
           } catch {
             staged = [];
           }
           if (staged.length === 0) {
             try {
-              const changed = getChangedFiles();
+              const changed = await getChangedFiles();
               if (changed.length > 0) {
                 try {
-                  stageFiles(changed);
+                  await stageFiles(changed);
                 } catch {
                   /* ignore staging errors */
                 }
                 try {
-                  staged = getStagedFiles();
+                  staged = await getStagedFiles();
                 } catch {
                   staged = [];
                 }
@@ -468,7 +489,7 @@ const plugin: Plugin = {
 
           // Compute the staged diff once — used for LLM generation, the
           // dry-run preview, and the committed result's diff field.
-          const { stat, diff: stagedDiff } = getStagedDiff();
+          const { stat, diff: stagedDiff } = await getStagedDiff();
 
           // LLM generation from the staged diff (best-effort; needs a diff).
           let generatedByLlm = false;
@@ -525,10 +546,10 @@ const plugin: Plugin = {
           }
 
           // Build warning before committing.
-          const worktreeWarn = simultaneousEditWarning();
+          const worktreeWarn = await simultaneousEditWarning();
 
           // Detect files modified by other agents since staging
-          const externalChanges = externalChangesSinceStage();
+          const externalChanges = await externalChangesSinceStage();
           let externalWarning: string | null = null;
           if (externalChanges && externalChanges.length > 0) {
             const preview = externalChanges.slice(0, 10).join(', ');
@@ -559,7 +580,7 @@ const plugin: Plugin = {
           let preCommitStat = stat;
           /* v8 ignore start -- unreachable: an empty `staged` already returned at the "Nothing staged" guard above. */
           if (staged.length === 0) {
-            const fresh = getStagedDiff();
+            const fresh = await getStagedDiff();
             preCommitDiff = fresh.diff;
             preCommitStat = fresh.stat;
           }
@@ -568,7 +589,7 @@ const plugin: Plugin = {
           // Commit
           let hash = '';
           try {
-            hash = commitWithMessage(msg);
+            hash = await commitWithMessage(msg);
           } catch (err: unknown) {
             /* v8 ignore next -- commitWithMessage only throws Error; the String(err) branch is defensive. */
             return {
@@ -630,8 +651,9 @@ const plugin: Plugin = {
 
   teardown(api) {
     // git-autocommit has no in-process resources to release (every
-    // git interaction goes through `execFileSync` and finishes before
-    // the tool returns), but we still want a symmetric teardown so:
+    // git interaction goes through the async `execFile` and finishes
+    // before the tool returns), but we still want a symmetric teardown
+    // so:
     //   1. /diag plugins can observe the unload
     //   2. The counters reset cleanly on the next setup() — without
     //      this, a reload that skips a successful commit would leave

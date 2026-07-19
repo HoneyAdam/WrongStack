@@ -13,6 +13,7 @@ import {
   smartDefaultFallbackChain,
 } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
+import { activeProfileConfigPath } from '../profile-config-path.js';
 
 /**
  * Canonicalize a model reference so equivalent spellings dedupe:
@@ -75,7 +76,7 @@ async function patchGlobalConfig(
  * agent rotates to when the primary model is rate-limited / overloaded
  * (429/529/5xx) and its own retries are exhausted. Argument-driven (never
  * blocks on readline) so it behaves identically in the REPL and the TUI.
- * Persists to ~/.wrongstack/config.json.
+ * Persists to the active profile config.
  *
  * Subcommands:
  *   (none)              Show the active chain (explicit or smart-default
@@ -105,7 +106,7 @@ export function buildFallbackCommand(opts: SlashCommandContext): SlashCommand {
     'When the explicit chain is empty and auto is on, a chain is derived from',
     'your other keyed providers/models so 429s recover without any setup.',
     '',
-    'Persisted to ~/.wrongstack/config.json.',
+    'Persisted to ~/.wrongstack/profiles/<name>/config.json.',
   ].join('\n');
 
   function currentView(): string {
@@ -198,8 +199,8 @@ export function buildFallbackCommand(opts: SlashCommandContext): SlashCommand {
       }
       if (!sub) return { message: currentView() };
 
-      const globalConfigPath = opts.paths.globalConfig;
       const config = opts.configStore.get();
+      const globalConfigPath = activeProfileConfigPath(opts.paths, config);
       const explicit = [...(config.fallbackModels ?? [])];
 
       try {

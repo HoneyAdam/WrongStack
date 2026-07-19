@@ -29,7 +29,7 @@ export function buildEnhanceCommand(opts: SlashCommandContext): SlashCommand {
       'When on, each free-text message is rewritten into a clearer instruction',
       'by a separate LLM call and briefly previewed (auto-sends after a short',
       'countdown; Enter sends now, Esc keeps your original, e edits). Persisted',
-      'to ~/.wrongstack/config.json (autonomy.enhance).',
+      'to the active profile config (autonomy.enhance).',
     ].join('\n'),
     async run(args) {
       if (!controller) {
@@ -73,10 +73,7 @@ export function buildEnhanceCommand(opts: SlashCommandContext): SlashCommand {
             {
               configStore: opts.configStore,
               globalConfigPath: opts.paths.globalConfig,
-              profileConfigPath:
-                typeof opts.paths.profileConfig === 'function'
-                  ? opts.paths.profileConfig(activeProfile)
-                  : undefined,
+              profileConfigPath: opts.paths.profileConfig(activeProfile),
               vault: noOpVault,
             },
             (autonomy) => {

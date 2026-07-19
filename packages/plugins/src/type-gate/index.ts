@@ -30,7 +30,6 @@
  * @public
  */
 
-import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import type { Plugin } from '@wrongstack/core';
 import {
@@ -159,7 +158,7 @@ interface TypeCheckResult {
   durationMs: number;
 }
 
-function runTypeCheck(cfg: TypeGateConfig): TypeCheckResult | null {
+async function runTypeCheck(cfg: TypeGateConfig): Promise<TypeCheckResult | null> {
   const start = Date.now();
   const rawTsConfig = cfg.tsConfigPath;
   const validTsConfig = rawTsConfig && rawTsConfig !== 'tsconfig.json'
@@ -176,7 +175,12 @@ function runTypeCheck(cfg: TypeGateConfig): TypeCheckResult | null {
     if (!resolved) return null;
     argv = [resolved.cmd, ...resolved.args];
   } else {
-    argv = ['npx', 'tsc', '--noEmit'];
+    // Default argv: enable `--incremental` so tsc reuses the project's
+    // `.tsbuildinfo` cache. On a no-op edit (the common case under
+    // PostToolUse fire-on-every-edit) tsc returns in tens of milliseconds
+    // instead of re-typechecking every file. tsbuildinfo is written next
+    // to tsconfig.json or in the path pointed at by `--tsBuildInfoFile`.
+    argv = ['npx', 'tsc', '--noEmit', '--incremental'];
     if (tsConfig && tsConfig !== 'tsconfig.json') {
       argv = [...argv, '-p', tsConfig];
     }
@@ -187,27 +191,24 @@ function runTypeCheck(cfg: TypeGateConfig): TypeCheckResult | null {
     return null;
   }
 
-  // Synchronous runner for ts completion — leverage execFileSync through the
-  // helper's argv contract. We only need stdout/stderr/exit code here.
-  let stdout = '';
-  let stderr = '';
-  try {
-    const out = execFileSync(argv[0]!, argv.slice(1) as string[], {
-      encoding: 'utf-8',
-      timeout: cfg.timeoutMs,
-      cwd: process.cwd(),
-      stdio: ['pipe', 'pipe', 'pipe'],
-      shell: false,
-    });
-    stdout = out;
-  } catch (err: unknown) {
-    const e = err as { stdout?: string; stderr?: string; killed?: boolean; status?: number | null };
-    if (e.killed) return null; // timeout
-    stdout = e.stdout ?? '';
-    stderr = e.stderr ?? '';
-  }
-  void runRunnerCommand; // async helper available for future hooks
+  // Async runner: yields the event loop so other hooks / messages / tool
+  // results can interleave while tsc runs. The runtime helper handles
+  // timeout / signal / maxBuffer uniformly for all subprocess-spawning
+  // plugins (was the source of the sync-blocking PostToolUse lag).
+  const result = await runRunnerCommand([argv[0]!, ...argv.slice(1)] as string[], {
+    cwd: process.cwd(),
+    timeoutMs: cfg.timeoutMs,
+  });
+  if (result.timedOut) return null;
+  // spawnError == true means the runtime helper itself failed to start the
+  // binary (ENOENT, EPERM, EACCES, cwd-rejected). The helper's diagnostic
+  // stderr is "runtime helper: …" prose that does not match the tsc error
+  // pattern; without this short-circuit we'd silently report `passed: true`
+  // and never re-attempt when the user installs tsc.
+  if (result.spawnError) return null;
 
+  const stdout = result.stdout;
+  const stderr = result.stderr;
   const combined = `${stdout}\n${stderr}`.trim();
   const durationMs = Date.now() - start;
 
@@ -304,13 +305,13 @@ const plugin: Plugin = {
 
     const cfg = readConfig(api.config.extensions?.['type-gate']);
 
-    const hook = (
+    const hook = async (
       input: {
         toolName?: string | undefined;
         toolInput?: unknown;
         toolResult?: { content: string; isError: boolean } | undefined;
       },
-    ): { decision?: 'block'; reason?: string; additionalContext?: string } | void => {
+    ): Promise<{ decision?: 'block'; reason?: string; additionalContext?: string } | void> => {
       if (!cfg.enabled) return;
 
       // Skip if the write/edit itself errored.
@@ -330,7 +331,7 @@ const plugin: Plugin = {
       }
 
       state.invocationCount += 1;
-      const result = runTypeCheck(cfg);
+      const result = await runTypeCheck(cfg);
       if (!result) {
         state.errorCount += 1;
         return;

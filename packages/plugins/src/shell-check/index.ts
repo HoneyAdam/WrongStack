@@ -9,8 +9,8 @@
  * files, or `directory` (optionally with `pattern`) for recursive scanning.
  */
 import type { Plugin } from '@wrongstack/core';
-import { execFileSync, execSync } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { readdir } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 
 const API_VERSION = '^0.1.10';
@@ -35,7 +35,7 @@ function withinProject(p: string): boolean {
 
 // Length cap matched to the schema description (filenames) and arbitrary
 // user-supplied paths via tool input — prevents absurd inputs from
-// blowing up `readdirSync` recursion.
+// blowing up the recursive directory walk.
 const MAX_PATH_LEN = 4096;
 
 // ---------------------------------------------------------------------------
@@ -75,20 +75,29 @@ interface ShellCheckIssue {
 // ShellCheck runner
 // ---------------------------------------------------------------------------
 
-function runShellCheck(
+async function runShellCheck(
   files: string[],
   severity: 'error' | 'warning' | 'info' | 'style',
   cwd?: string | undefined,
-): ShellCheckIssue[] {
-  if (!existsSync('shellcheck')) {
-    // Try to find shellcheck in PATH
-    try {
-      execSync('shellcheck --version', { encoding: 'utf-8', stdio: 'ignore', windowsHide: true });
-    } catch {
-      throw new Error(
-        'shellcheck is not installed. Install via: apt install shellcheck / brew install shellcheck',
+): Promise<ShellCheckIssue[]> {
+  // Probe: verify shellcheck is installed. Uses async execFile to keep the
+  // event loop free — the prior sync version blocked on every tool invocation.
+  try {
+    await new Promise<void>((resolvePromise, rejectPromise) => {
+      execFile(
+        'shellcheck',
+        ['--version'],
+        { encoding: 'utf-8', windowsHide: true },
+        (err) => {
+          if (err) rejectPromise(err);
+          else resolvePromise();
+        },
       );
-    }
+    });
+  } catch {
+    throw new Error(
+      'shellcheck is not installed. Install via: apt install shellcheck / brew install shellcheck',
+    );
   }
 
   const levelMap: Record<string, string> = {
@@ -104,23 +113,52 @@ function runShellCheck(
 
   let raw: string;
   try {
-    // Use execFileSync to avoid shell injection — filenames could contain
-    // shell metacharacters like `; rm -rf /` if the LLM is tricked.
-    raw = execFileSync('shellcheck', args, {
-      encoding: 'utf-8',
-      cwd,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 60_000,
-      windowsHide: true,
+    // Use async execFile to keep the event loop free — the previous sync
+    // version blocked the event loop for up to 60s. Promise-wrapped to
+    // preserve the same error semantics as the sync version.
+    raw = await new Promise<string>((resolvePromise, rejectPromise) => {
+      execFile(
+        'shellcheck',
+        args,
+        {
+          encoding: 'utf-8',
+          cwd,
+          windowsHide: true,
+          timeout: 60_000,
+          maxBuffer: 16 * 1024 * 1024,
+        },
+        (err, stdout, stderr) => {
+          if (err) {
+            const e = err as NodeJS.ErrnoException & {
+              stdout?: string | Buffer;
+              stderr?: string | Buffer;
+            };
+            // ShellCheck exits non-zero when it finds issues. Depending on
+            // the Node version/wrapper, its JSON can be delivered through
+            // the callback's stdout/stderr or copied onto the Error object.
+            const diagnostic =
+              stdout ||
+              e.stdout?.toString() ||
+              stderr ||
+              e.stderr?.toString() ||
+              '';
+            if (diagnostic.trim()) {
+              resolvePromise(diagnostic);
+              return;
+            }
+            // shellcheck exited non-zero with no diagnostic stderr → not
+            // a runtime error, just no JSON to parse. Reject so the
+            // outer try/catch returns [].
+            rejectPromise(err);
+            return;
+          }
+          resolvePromise(stdout);
+        },
+      );
     });
-  } catch (err: unknown) {
+  } catch {
     // shellcheck returns non-zero when issues are found, which is not an error
-    const e = err as { stderr?: string | undefined };
-    if (e.stderr && !e.stderr.includes('shellcheck')) {
-      raw = e.stderr;
-    } else {
-      return [];
-    }
+    return [];
   }
 
   if (!raw.trim()) return [];
@@ -147,22 +185,23 @@ function runShellCheck(
   }
 }
 
-function findShellFiles(dir: string, pattern: string): string[] {
+async function findShellFiles(dir: string, pattern: string): Promise<string[]> {
   const results: string[] = [];
+  let entries: import('node:fs').Dirent[];
   try {
-    const entries = readdirSync(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      const full = join(dir, entry.name);
-      if (entry.isDirectory() && entry.name !== 'node_modules' && entry.name !== '.git') {
-        results.push(...findShellFiles(full, pattern));
-      } else if (entry.isFile() && (entry.name.endsWith('.sh') || entry.name === 'Dockerfile')) {
-        if (!pattern || entry.name.includes(pattern)) {
-          results.push(full);
-        }
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return results; // ignore access errors
+  }
+  for (const entry of entries) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory() && entry.name !== 'node_modules' && entry.name !== '.git') {
+      results.push(...(await findShellFiles(full, pattern)));
+    } else if (entry.isFile() && (entry.name.endsWith('.sh') || entry.name === 'Dockerfile')) {
+      if (!pattern || entry.name.includes(pattern)) {
+        results.push(full);
       }
     }
-  } catch {
-    // ignore access errors
   }
   return results;
 }
@@ -297,7 +336,7 @@ const plugin: Plugin = {
         if (files && files.length > 0) {
           checkFiles = files;
         } else {
-          checkFiles = findShellFiles(directory, pattern);
+          checkFiles = await findShellFiles(directory, pattern);
           scannedDirectories = true;
         }
 
@@ -320,7 +359,7 @@ const plugin: Plugin = {
 
         let issues: ShellCheckIssue[];
         try {
-          issues = runShellCheck(checkFiles, severity);
+          issues = await runShellCheck(checkFiles, severity);
         } catch (err: unknown) {
           /* v8 ignore next -- runShellCheck only throws Error; the String(err) branch is defensive. */
           const msg = err instanceof Error ? err.message : String(err);
@@ -380,8 +419,8 @@ const plugin: Plugin = {
 
   teardown(api) {
     // H1 pattern: zero counters on unload. shell-check has no
-    // file handles, timers, or watches — execFileSync calls are
-    // synchronous and complete before the tool returns. The unload
+    // file handles, timers, or watches — async `execFile` calls
+    // complete before the tool returns. The unload
     // log preserves the per-session counter so operators can see
     // how many lints this session ran.
     const finalInvocations = state.invocationCount;
