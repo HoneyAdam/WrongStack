@@ -5,8 +5,8 @@
  * Subcommand tree:
  *   wstack hq                      → start HQ server (alias for `wstack --hq`)
  *   wstack hq serve                → start HQ server (explicit form)
- *   wstack hq token create [label] → mint a browser token, write auth.json
- *   wstack hq token create --client [label] → mint a client token (/ws/client)
+ *   wstack hq token create [label] [--ttl <duration>] → mint a browser token, write auth.json
+ *   wstack hq token create --client [label] [--ttl <duration>] → mint a client token (/ws/client)
  *   wstack hq token list           → list issued browser tokens
  *   wstack hq token list --client   → list issued client tokens
  *   wstack hq token revoke <id>    → revoke a browser token (prefix match)
@@ -202,6 +202,12 @@ function tokenPositionals(args: string[]): string[] {
       i += 1;
       continue;
     }
+    // Skip --ttl and its value (both bare `--ttl 1h` and inline `--ttl=1h`).
+    if (arg === '--ttl') {
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith('--ttl=')) continue;
     if (!arg.startsWith('-')) result.push(arg);
   }
   return result;
@@ -245,6 +251,11 @@ async function tokenCreate(args: string[], deps: SubcommandDeps): Promise<number
     deps.renderer.writeError(`${resolvedCapabilities.error}\n`);
     return 1;
   }
+  const ttlMs = resolveTokenTtl(args, deps);
+  if (ttlMs?.error) {
+    deps.renderer.writeError(`${ttlMs.error}\n`);
+    return 1;
+  }
   const pos = tokenPositionals(args);
   const label = pos[0]; // first positional is the label
   const dataDir = resolveDataDir(deps);
@@ -256,7 +267,7 @@ async function tokenCreate(args: string[], deps: SubcommandDeps): Promise<number
       (current) => {
         const tokens = current[tokenField] ?? [];
         const newToken = {
-          ...mintHqToken(label),
+          ...mintHqToken({ label, ttlMs: ttlMs?.value }),
           capabilities: resolvedCapabilities.capabilities,
         };
         return {
@@ -275,6 +286,7 @@ async function tokenCreate(args: string[], deps: SubcommandDeps): Promise<number
     deps.renderer.write(`  capabilities: ${(token.capabilities ?? []).join(', ') || '(none)'}\n`);
     deps.renderer.write(`  token:      ${token.token}\n`);
     deps.renderer.write(`  createdAt:  ${token.createdAt}\n`);
+    if (token.expiresAt) deps.renderer.write(`  expiresAt:  ${token.expiresAt}\n`);
     deps.renderer.write(`\n`);
     deps.renderer.write(`Connect with: ws://localhost:3499${endpoint}?token=${token.token}\n`);
     deps.renderer.write(`(Copy the token now — it will not be shown again in full.)\n`);
@@ -283,6 +295,89 @@ async function tokenCreate(args: string[], deps: SubcommandDeps): Promise<number
     deps.renderer.writeError(`Failed to write auth.json: ${(err as Error).message}\n`);
     return 1;
   }
+}
+
+// ── --ttl parsing ──────────────────────────────────────────────────────────
+
+/**
+ * Accepted `--ttl` forms:
+ *   --ttl 1h        → 1 hour
+ *   --ttl 7d        → 7 days
+ *   --ttl 30m       → 30 minutes
+ *   --ttl 3600s     → 1 hour
+ *   --ttl 86400000  → 1 day (bare milliseconds)
+ *   --ttl=1h        → inline form
+ *
+ * Compound durations (`1h30m`) are intentionally NOT supported — they add
+ * parsing complexity without meaningful operator benefit, and a single
+ * unit is always sufficient for a rotation cadence.
+ */
+const TTL_UNIT_MS: Record<string, number> = {
+  ms: 1,
+  s: 1_000,
+  m: 60_000,
+  h: 3_600_000,
+  d: 86_400_000,
+  w: 604_800_000,
+};
+
+interface ResolvedTtl {
+  value?: number | undefined;
+  error?: string | undefined;
+}
+
+function resolveTokenTtl(args: string[], deps: SubcommandDeps): ResolvedTtl {
+  // parseArgs may have already lifted `--ttl <value>` into deps.flags.
+  const flagValue = deps.flags?.['ttl'];
+  if (typeof flagValue === 'string' && flagValue.length > 0) {
+    return parseTtlValue(flagValue);
+  }
+  // Inline `--ttl=1h`.
+  const inline = args.find((a) => a?.startsWith('--ttl='));
+  if (inline) {
+    return parseTtlValue(inline.slice('--ttl='.length));
+  }
+  // Bare `--ttl <value>` — scan args manually so we don't depend on parseArgs.
+  const idx = args.findIndex((a) => a === '--ttl');
+  if (idx >= 0) {
+    const raw = args[idx + 1];
+    if (raw === undefined || raw.startsWith('-')) {
+      return { error: '--ttl requires a value (e.g. --ttl 1h, --ttl 7d, --ttl 3600s)' };
+    }
+    return parseTtlValue(raw);
+  }
+  return {};
+}
+
+function parseTtlValue(raw: string): ResolvedTtl {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return { error: '--ttl value is empty' };
+  }
+  // Bare integer → milliseconds.
+  if (/^\d+$/.test(trimmed)) {
+    const ms = Number.parseInt(trimmed, 10);
+    if (!Number.isFinite(ms) || ms <= 0) {
+      return { error: `--ttl value must be positive (got ${raw})` };
+    }
+    return { value: ms };
+  }
+  // <number><unit> — capture the trailing unit suffix.
+  const match = /^(?<value>\d+)(?<unit>ms|s|m|h|d|w)$/i.exec(trimmed);
+  if (match?.groups) {
+    const value = Number.parseInt(match.groups.value!, 10);
+    const unit = match.groups.unit!.toLowerCase();
+    const multiplier = TTL_UNIT_MS[unit];
+    if (!Number.isFinite(value) || value <= 0 || multiplier === undefined) {
+      return { error: `--ttl value must be positive with a valid unit (got ${raw})` };
+    }
+    return { value: value * multiplier };
+  }
+  return {
+    error:
+      `--ttl must be a positive integer (milliseconds) or <number><unit> ` +
+      `where unit is one of ms, s, m, h, d, w (got ${raw})`,
+  };
 }
 
 async function tokenList(args: string[], deps: SubcommandDeps): Promise<number> {
@@ -367,8 +462,8 @@ function printHelp(deps: SubcommandDeps): void {
   deps.renderer.write('\n');
   deps.renderer.write(`  wstack hq                      Start the HQ command center server.\n`);
   deps.renderer.write(`  wstack hq serve                Same as above (explicit form).\n`);
-  deps.renderer.write(`  wstack hq token create [label] Mint a browser token, enter token mode.\n`);
-  deps.renderer.write(`  wstack hq token create --client [label]  Mint a client token (/ws/client).\n`);
+  deps.renderer.write(`  wstack hq token create [label] [--ttl <dur>] Mint a browser token, enter token mode.\n`);
+  deps.renderer.write(`  wstack hq token create --client [label] [--ttl <dur>]  Mint a client token (/ws/client).\n`);
   deps.renderer.write(`  wstack hq token list           List issued browser tokens.\n`);
   deps.renderer.write(`  wstack hq token list --client   List issued client tokens.\n`);
   deps.renderer.write(`  wstack hq token revoke <id>    Revoke a browser token (id prefix match).\n`);
@@ -385,6 +480,7 @@ function printHelp(deps: SubcommandDeps): void {
   deps.renderer.write(`  --open              Open the dashboard in the default browser.\n`);
   deps.renderer.write(`  --client, -c        Operate on client tokens instead of browser tokens.\n`);
   deps.renderer.write(`  --capabilities <csv>  Token grants (browser: control.enqueue; client: telemetry.publish,control.execute).\n`);
+  deps.renderer.write(`  --ttl <duration>    Stamp an expiresAt on the token (e.g. --ttl 1h, --ttl 7d, --ttl 3600s).\n`);
   deps.renderer.write('\n');
   deps.renderer.write(`auth.json schema version: ${HQ_AUTH_FILE_VERSION}.\n`);
 }
