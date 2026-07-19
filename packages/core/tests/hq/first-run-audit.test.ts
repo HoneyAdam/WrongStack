@@ -16,6 +16,8 @@
 import {
   ensureHqFirstRunAuthFile,
   hqAuthAuditPath,
+  hqAuthContentHash,
+  readHqAuthFile,
   type HqAuthAuditEntry,
 } from '@wrongstack/core';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
@@ -157,6 +159,80 @@ describe('ensureHqFirstRunAuthFile — first-run audit logging', () => {
       // The token ids (UUIDs) must appear — they are safe to log.
       expect(raw).toContain(result.browserToken!.id);
       expect(raw).toContain(result.clientToken!.id);
+    });
+  });
+
+  it('stamps a contentHash on both first-run entries (ties to on-disk state)', async () => {
+    await withTempDir(async (dir) => {
+      const result = await ensureHqFirstRunAuthFile(dir);
+      const entries = await readAuditEntries(dir);
+      const firstRun = entries.filter((e) => e.kind === 'first-run');
+      expect(firstRun).toHaveLength(2);
+
+      // Every first-run entry carries a SHA-256 hex hash that identifies
+      // the structural state of the auth file at emit time. The hash
+      // must be a 64-char hex string (no secrets — projection redacts
+      // tokens, passwordHash, cookieSecret before hashing).
+      for (const entry of firstRun) {
+        expect(entry.contentHash).toMatch(/^[0-9a-f]{64}$/);
+      }
+
+      // Both entries (browser + client) are stamped from the same auth
+      // file, so the hashes must match — an operator reviewing the log
+      // sees one hash per bootstrap, not one per token.
+      const hashes = new Set(firstRun.map((e) => e.contentHash));
+      expect(hashes.size).toBe(1);
+
+      // The hash must NOT leak secrets: re-deriving it from the persisted
+      // file (via the same redacted projection) must reproduce the same
+      // hash, confirming the audit entry is consistent with the on-disk
+      // state the operator can independently inspect.
+      const file = await readHqAuthFile(dir);
+      const derived = hqAuthContentHash(file);
+      expect(derived).toBe(firstRun[0]!.contentHash);
+
+      // And the raw token strings must not appear in the hash payload —
+      // the hash is over a redacted projection, so the raw tokens never
+      // enter the digest.
+      const raw = await readFile(hqAuthAuditPath(dir), 'utf8');
+      expect(raw).not.toContain(result.browserToken!.token);
+      expect(raw).not.toContain(result.clientToken!.token);
+    });
+  });
+
+  it('contentHash stays stable when secrets rotate but the structure does not', async () => {
+    await withTempDir(async (dir) => {
+      // First bootstrap — establishes the baseline hash.
+      const first = await ensureHqFirstRunAuthFile(dir);
+      const firstEntries = (await readAuditEntries(dir)).filter((e) => e.kind === 'first-run');
+      const firstHash = firstEntries[0]!.contentHash;
+
+      // Re-derive the hash from the on-disk file after the bootstrap.
+      // Reissuing just the browser token's secret (token string) without
+      // changing its id/label/expiry must produce the SAME hash — the
+      // projection redacts the token field, so a rotated secret does not
+      // flip the hash. (We can't easily mint a new token in-place here
+      // without going through the full mutate path, so we verify the
+      // invariant at the helper level instead.)
+      const file = await readHqAuthFile(dir);
+      const rotatedSecretFile: typeof file = {
+        ...file,
+        browserTokens: file.browserTokens?.map((t) =>
+          t.id === first.browserToken!.id ? { ...t, token: 'rotated-secret-string' } : t,
+        ),
+      };
+      expect(hqAuthContentHash(rotatedSecretFile)).toBe(firstHash);
+
+      // But changing structural state (adding a label to the token) must
+      // flip the hash — otherwise the hash would be useless for forensic
+      // tie-back.
+      const relabeledFile: typeof file = {
+        ...file,
+        browserTokens: file.browserTokens?.map((t) =>
+          t.id === first.browserToken!.id ? { ...t, label: 'relabeled' } : t,
+        ),
+      };
+      expect(hqAuthContentHash(relabeledFile)).not.toBe(firstHash);
     });
   });
 });

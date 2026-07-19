@@ -45,7 +45,13 @@ export type HqAuthAuditKind =
    * live-reload watcher pruned one or more tokens whose `expiresAt`
    * had already passed. The entry records how many were pruned.
    */
-  | 'expired-prune';
+  | 'expired-prune'
+  /**
+   * Password rotation — the operator changed the browser password, which
+   * also rotated the cookie secret (invalidating all active sessions).
+   * Recorded by `ensureHqFirstRunAuthFile` for the password-change path.
+   */
+  | 'password-rotate';
 
 export interface HqAuthAuditEntry {
   /** Epoch milliseconds when the event was recorded. */
@@ -70,6 +76,18 @@ export interface HqAuthAuditEntry {
    * live-reload watcher in this reload. For other kinds: undefined.
    */
   prunedCount?: number;
+  /**
+   * SHA-256 hash (hex) of the redacted `auth.json` contents at the
+   * moment of the event — lets an operator reviewing the audit log tie
+   * an entry back to the exact on-disk state that produced it without
+   * the log ever holding derivable token material. Computed over a
+   * projection of the `HqAuthFile` with the raw token strings,
+   * `passwordHash`, and `cookieSecret` replaced by constant sentinels
+   * (so two files that differ only in secrets hash identically). Absent
+   * on entries emitted before the hash landed and when the file is
+   * unreadable at emit time.
+   */
+  contentHash?: string;
 }
 
 /** Path to `auth-audit.jsonl` under the given data dir. */

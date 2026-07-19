@@ -21,7 +21,7 @@
  *
  * @module hq/auth-store
  */
-import { randomBytes, randomUUID, scrypt, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as syncFs from 'node:fs';
 import * as path from 'node:path';
@@ -175,6 +175,57 @@ export function emptyHqAuthFile(): HqAuthFile {
     version: HQ_AUTH_FILE_VERSION,
     updatedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * Compute a SHA-256 content hash over a *redacted* projection of an
+ * `HqAuthFile`. The projection replaces every raw token string, the
+ * `passwordHash`, and the `cookieSecret` with constant sentinels, so:
+ *
+ *   - the audit log never holds derivable token material (a hash of a
+ *     redacted projection can't be reversed to recover the originals),
+ *   - two files that differ only in their secrets hash identically
+ *     (reissuing a token without changing its id/label/expiry does not
+ *     change the hash), and
+ *   - the hash still flips whenever the structural state the operator
+ *     cares about (version, token ids/labels/capabilities/expiries,
+ *     alert rules, redaction policy) changes.
+ *
+ * Returns `undefined` when hashing or serialization throws (e.g. a
+ * future schema addition that isn't JSON-serializable) — callers
+ * should pass that through as an absent `contentHash` field rather
+ * than failing the audit append, matching the audit module's
+ * best-effort contract.
+ */
+export function hqAuthContentHash(file: HqAuthFile): string | undefined {
+  const REDACTED = '<redacted>';
+  const redactToken = (t: HqToken): HqToken => ({ ...t, token: REDACTED });
+  try {
+    // `exactOptionalPropertyTypes: true` means optional fields can't be
+    // assigned `undefined` explicitly — preserve absence via conditional
+    // spreads so the projection stays a valid `HqAuthFile`.
+    const projection: HqAuthFile = {
+      version: file.version,
+      updatedAt: file.updatedAt,
+      ...(file.redactionPolicy !== undefined ? { redactionPolicy: file.redactionPolicy } : {}),
+      ...(file.browserTokens !== undefined
+        ? { browserTokens: file.browserTokens.map(redactToken) }
+        : {}),
+      ...(file.clientTokens !== undefined
+        ? { clientTokens: file.clientTokens.map(redactToken) }
+        : {}),
+      ...(file.passwordHash !== undefined ? { passwordHash: REDACTED } : {}),
+      ...(file.cookieSecret !== undefined ? { cookieSecret: REDACTED } : {}),
+      ...(file.alertRules !== undefined ? { alertRules: file.alertRules } : {}),
+    };
+    // Stable key ordering — the projection above has a fixed key order, so
+    // the serialized form is deterministic across runs for the same
+    // structural state.
+    const payload = JSON.stringify(projection);
+    return createHash('sha256').update(payload).digest('hex');
+  } catch {
+    return undefined;
+  }
 }
 
 /** Path to `auth.json` under the given data directory. */
@@ -345,6 +396,12 @@ export async function ensureHqFirstRunAuthFile(
           cookieSecret: mintHqCookieSecret(),
         };
         await writeHqAuthFile(dataDir, authFile);
+        // Re-read so the hash reflects exactly what landed on disk —
+        // `writeHqAuthFile` re-stamps `updatedAt` internally, so hashing
+        // the in-memory `authFile` would diverge from the persisted state
+        // an operator can independently inspect.
+        const persisted = await readHqAuthFile(dataDir, opts);
+        const hash = hqAuthContentHash(persisted);
         const actorField = opts.actor ? { actor: opts.actor } : {};
         logHqAuthAudit(
           dataDir,
@@ -352,6 +409,7 @@ export async function ensureHqFirstRunAuthFile(
             kind: 'password-rotate',
             scope: 'browser',
             tokenId: '(password-rotation)',
+            ...(hash !== undefined ? { contentHash: hash } : {}),
             ...actorField,
           },
           {
@@ -359,7 +417,7 @@ export async function ensureHqFirstRunAuthFile(
               opts.warn?.(`HQ password-rotate audit write failed: ${(err as Error).message}`),
           },
         );
-        return { authFile: await readHqAuthFile(dataDir, opts), created: false };
+        return { authFile: persisted, created: false };
       }
     }
     return { authFile: existing, created: false };
@@ -394,10 +452,21 @@ export async function ensureHqFirstRunAuthFile(
   }
   await writeHqAuthFile(dataDir, authFile);
 
+  // Re-read so the audit hash + the returned `authFile` reflect exactly
+  // what landed on disk. `writeHqAuthFile` re-stamps `updatedAt` (and
+  // could normalize other fields in the future); hashing the in-memory
+  // `authFile` would diverge from the persisted state an operator can
+  // independently inspect, defeating the forensic-tie-back purpose.
+  const persisted = await readHqAuthFile(dataDir, opts);
+
   // Record both first-run mints in auth-audit.jsonl. Best-effort: a failed
   // append must never roll back the fresh auth.json we just wrote. The two
   // entries use the same `kind: 'first-run'` discriminator the audit
-  // schema reserves for this bootstrap path.
+  // schema reserves for this bootstrap path. Both carry the content hash of
+  // the persisted file so an operator reviewing the log can tie them back
+  // to the exact on-disk state without the log holding secrets.
+  const hash = hqAuthContentHash(persisted);
+  const hashField = hash !== undefined ? { contentHash: hash } : {};
   const actorField = opts.actor ? { actor: opts.actor } : {};
   for (const [scope, token] of [
     ['browser', browserToken],
@@ -409,6 +478,7 @@ export async function ensureHqFirstRunAuthFile(
         kind: 'first-run',
         scope,
         tokenId: token.id,
+        ...hashField,
         ...(token.label ? { label: token.label } : {}),
         capabilities: token.capabilities,
         ...(token.expiresAt ? { expiresAt: token.expiresAt } : {}),
@@ -421,7 +491,7 @@ export async function ensureHqFirstRunAuthFile(
     );
   }
 
-  return { authFile: await readHqAuthFile(dataDir, opts), created: true, browserToken, clientToken };
+  return { authFile: persisted, created: true, browserToken, clientToken };
 }
 
 /**
