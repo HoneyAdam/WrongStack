@@ -12,7 +12,7 @@ export function cn(...inputs: ClassValue[]) {
    ========================================================================= */
 
 export const META = {
-  version: '0.291.1',
+  version: '0.291.2',
   repo: 'https://github.com/WrongStack/WrongStack',
   npm: 'wrongstack',
   node: '22',
@@ -296,9 +296,24 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: '0.291.1',
+    date: '2026-07-19',
+    latest: true,
+    tagline: 'Explainable permissions, safer maintenance, and runtime hardening',
+    highlights: [
+      'wstack permissions explain evaluates proposed tool calls through the effective permission policy and returns a structured trace without executing them',
+      'Chronicle records effective permission decisions so allow, confirm, and deny outcomes remain auditable',
+      'Explicit --no-yolo support and a first-run disclosure make autonomy behavior clear while deny rules continue to win',
+      'Super Memory adds paginated listing, opt-in deleted-record purging, idempotent embedding backfill, and a dedicated maintenance script',
+      'Profile migration is concurrency-safe and backed up for multi-process startup',
+      'Chimera retains the session provider/model, reviewer fallback defaults cannot drift or resolve empty, and provider-only matrix routes are preserved',
+      'Session replay, provider tool schemas, process guards, TUI streaming, scrolling, and asynchronous coordination tests are hardened',
+      'All workspace manifests, apps, README release highlights, changelog data, and website surfaces are aligned to 0.291.1',
+    ],
+  },
+  {
     version: '0.290.0',
     date: '2026-07-18',
-    latest: true,
     tagline: 'Super Memory deletion protection and storage health',
     highlights: [
       'memory_delete now requires force: true for ALL deletions — the store-layer guard prevents autonomous agents from removing memories without explicit authorization',

@@ -38,14 +38,14 @@ WrongStack is **free, open source, and MIT licensed**. It drives **autonomous go
 - 🔐 **Locked down by default** — encrypted secrets, SSRF guards on every redirect hop, fail-closed subagents, symlink containment, plugin trust tiers, WebUI redaction, and cloud-sync path guards.
 - 🪶 **A compact kernel** — `Container · Pipeline · EventBus · RunController` (~1670 lines including the full event type catalog). Everything above it is swappable; `--no-features` boots it fully offline.
 
-## What's new in 0.289.0
+## What's new in 0.291.1
 
-- **Context-aware reviews** — Chimera and `/auto-review` now see diffs, sibling changes, recent commits, active TODOs, the current Kanban card, and Chronicle provenance.
-- **Self-correcting review cascades** — serious findings can dispatch targeted fix agents and re-review their edits in a loop bounded by `maxCascadeDepth`.
-- **Goal vocabulary throughout** — internal AutoPhase directories, APIs, CLI/TUI state, tests, and docs have moved to `Goal*` naming. Integrations importing the old exported symbols need to update.
-- **Deeper release confidence** — expanded integration coverage spans Director, ToolExecutor, sessions, SDD, Kanban, SuperMemory, TechStack, LSP, WebUI, and core utilities, alongside security and concurrency hardening.
+- **Explainable permissions** — `wstack permissions explain` traces the effective policy decision without executing a tool, while Chronicle records the decisions that actually governed tool calls.
+- **Safer autonomy controls** — `--no-yolo` provides an explicit opt-out, first-run disclosure makes the active behavior clear, and deny rules continue to win in every mode.
+- **Super Memory maintenance** — paginated listing, opt-in purging of deleted records, idempotent embedding backfill, and a dedicated maintenance script make large stores easier to operate safely.
+- **More reliable execution** — profile migration is concurrency-safe, review agents retain their provider/model route, provider-only matrix routes survive resolution, and TUI streaming/scroll behavior is hardened.
 
-See the [0.289.0 changelog](CHANGELOG.md#02890--2026-07-18) for the full release notes.
+See the [0.291.1 changelog](CHANGELOG.md#02911--2026-07-19) for the full release notes.
 
 ## Requirements
 

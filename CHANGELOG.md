@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.291.1] — 2026-07-19
+
+> The **explainable permissions and runtime hardening release**. Permission
+> decisions are now inspectable before execution and recorded after execution;
+> autonomy has an explicit opt-out; Super Memory gains safe maintenance tools;
+> and provider routing, profile migration, TUI behavior, and session replay are
+> more resilient under real-world workloads.
+
+### Added — permissions, autonomy, and operations
+- **Read-only permission explainer** — `wstack permissions explain` evaluates a
+  proposed tool call through the effective permission policy and returns a
+  structured decision trace without executing the tool.
+- **Chronicle permission decisions** — effective allow, confirm, and deny
+  outcomes are recorded so operators can audit which policy governed a tool
+  call and why.
+- **Explicit YOLO opt-out and first-run disclosure** — `--no-yolo` and
+  persisted `yolo: false` provide a clear override, while the first interactive
+  launch explains the selected behavior. Explicit deny rules continue to win.
+- **Super Memory maintenance workflow** — memory listing is paginated, deleted
+  record purging is opt-in, embedding backfill is idempotent, and
+  `scripts/super-memory-maintenance.mjs` provides a dedicated maintenance entry
+  point for large stores.
+
 ### Added — bundled operational skills
 - **`auto-review` and `mnemosyne` now ship with `@wrongstack/core`** — their
   project-independent instructions and Mnemosyne agent prompt resource are
@@ -14,6 +37,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   skills. Bundled-skill discovery is sorted within each priority layer so
   eager prompt-budget selection is deterministic across filesystems; eager and
   progressive context paths are covered by integration tests.
+
+### Changed — routing and configuration reliability
+- **Profile migration is concurrency-safe** — migration writes are serialized,
+  backed up, and hardened against multiple WrongStack processes starting at
+  the same time.
+- **Reviewer routing stays explicit** — Chimera review subagents always receive
+  the active session provider/model, the shared reviewer fallback chain cannot
+  resolve empty, and runtime drift checks keep CLI and core defaults aligned.
+- **Provider-only matrix routes are preserved** — resolving a route no longer
+  drops a provider selection when no model override is present.
+
+### Fixed — execution and interface stability
+- **Provider tool-schema compatibility** — top-level `anyOf`, `oneOf`, and
+  `allOf` schemas are normalized for Anthropic and OpenAI tool payloads.
+- **Session replay integrity** — empty assistant turns are no longer persisted,
+  and existing empty turns are repaired when sessions are replayed.
+- **Process and command guards** — Node runtime termination checks and command
+  validation are hardened without weakening explicit user-approved execution.
+- **TUI streaming stability** — measurement no-ops no longer trigger render
+  churn, streaming output no longer causes unexpected upward scrolling, and
+  asynchronous coordination tests wait on observable state instead of fixed
+  timers.
+- **All release surfaces aligned to `0.291.1`** — workspace manifests, app
+  packages, website metadata and content, README highlights, and changelog
+  release data now report the same current version.
+
+## [0.290.0] — 2026-07-18
+
+> The **Super Memory deletion-protection and storage-health release**. It closes
+> autonomous deletion paths, adds review-mediated decisions, and keeps the
+> JSONL backend compact and observable as stores grow.
 
 ### Added — Super Memory storage health
 - **Periodic JSONL compaction** — the append-only `memories.jsonl` log now

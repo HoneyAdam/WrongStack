@@ -73,12 +73,23 @@ function updateWebsite(version) {
   const utilsPath = resolve(websiteDir, 'src', 'lib', 'utils.ts');
   try {
     const src = readFileSync(utilsPath, 'utf8');
-    const next = src.replace(
-      /(META\s*=\s*\{[\s\S]*?version:\s*)'[^']*'/,
-      `$1'${version}'`,
-    );
+    const next = src.replace(/(META\s*=\s*\{[\s\S]*?version:\s*)'[^']*'/, `$1'${version}'`);
     if (next !== src) {
       writeFileSync(utilsPath, next);
+      updated++;
+    }
+  } catch {
+    // file absent — skip
+  }
+
+  // src/data/content.ts — shared homepage/product content exports a second
+  // current-version constant. Keep it aligned with META and package metadata.
+  const contentPath = resolve(websiteDir, 'src', 'data', 'content.ts');
+  try {
+    const src = readFileSync(contentPath, 'utf8');
+    const next = src.replace(/(export\s+const\s+version\s*=\s*)'[^']*'/, `$1'${version}'`);
+    if (next !== src) {
+      writeFileSync(contentPath, next);
       updated++;
     }
   } catch {
