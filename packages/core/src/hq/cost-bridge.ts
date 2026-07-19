@@ -1,6 +1,6 @@
 /**
- * CostTelemetryBridge — forwards local token/cost accounting events to the HQ
- * publisher as `session.usage` envelopes, giving the command center the
+ * CostTelemetryBridge — forwards local token/cost accounting events to the
+ * HQ publisher as `session.usage` envelopes, giving the command center the
  * granular per-call cost signal it needs to render live cost trends and
  * roll-ups across every connected machine.
  *
@@ -18,17 +18,11 @@
 import type { EventBus } from '../kernel/events.js';
 import type { Usage } from '../types/provider.js';
 import type { HqEventEnvelope, HqUsagePayload } from './protocol.js';
-import type { HqPublisher } from './publisher.js';
+import { createBridgeContext, type BridgeContextOptions } from './bridge-context.js';
 
-export interface CostTelemetryBridgeOptions {
+export interface CostTelemetryBridgeOptions extends BridgeContextOptions {
   /** Local EventBus emitting `token.accounted`. */
   events: EventBus;
-  /** HQ publisher to forward envelopes to. */
-  publisher: HqPublisher;
-  /** Optional sessionId to tag envelopes with (overrides the event's, when set). */
-  sessionId?: string;
-  /** Override `now()` for deterministic tests. */
-  now?: () => string;
 }
 
 interface TokenAccountedEvent {
@@ -46,38 +40,33 @@ interface TokenAccountedEvent {
  * unsubscribes the listener — call on shutdown.
  */
 export function startCostTelemetryBridge(opts: CostTelemetryBridgeOptions): () => void {
-  const { events, publisher } = opts;
-  const now = opts.now ?? (() => new Date().toISOString());
+  const { events } = opts;
+  const ctx = createBridgeContext(opts);
 
   const off = events.on('token.accounted', (p: TokenAccountedEvent) => {
-    try {
-      const payload: HqUsagePayload = {
-        inputTokens: p.usage.input,
-        outputTokens: p.usage.output,
-        totalTokens: p.usage.input + p.usage.output,
-        costUsd: p.cost.total,
-      };
-      // Forward the dimensions HQ needs for per-model/per-provider cost charts
-      // and cache-hit-ratio cards. All optional — older counters omit them.
-      if (p.provider !== undefined) payload.provider = p.provider;
-      if (p.model !== undefined) payload.model = p.model;
-      if (p.usage.cacheRead !== undefined) payload.cacheRead = p.usage.cacheRead;
-      if (p.usage.cacheWrite !== undefined) payload.cacheWrite = p.usage.cacheWrite;
-      const sessionId = opts.sessionId ?? p.sessionId;
-      publisher.publishEvent({
-        type: 'session.usage',
-        payload,
-        ...(sessionId !== undefined ? { sessionId } : {}),
-        timestamp: now(),
-      });
-    } catch {
-      /* best-effort */
-    }
+    const payload: HqUsagePayload = {
+      inputTokens: p.usage.input,
+      outputTokens: p.usage.output,
+      totalTokens: p.usage.input + p.usage.output,
+      costUsd: p.cost.total,
+    };
+    // Forward the dimensions HQ needs for per-model/per-provider cost charts
+    // and cache-hit-ratio cards. All optional — older counters omit them.
+    if (p.provider !== undefined) payload.provider = p.provider;
+    if (p.model !== undefined) payload.model = p.model;
+    if (p.usage.cacheRead !== undefined) payload.cacheRead = p.usage.cacheRead;
+    if (p.usage.cacheWrite !== undefined) payload.cacheWrite = p.usage.cacheWrite;
+    const sessionId = opts.sessionId ?? p.sessionId;
+    ctx.safePublish({
+      type: 'session.usage',
+      payload,
+      ...(sessionId !== undefined ? { sessionId } : {}),
+      timestamp: ctx.now(),
+    });
   });
 
-  return () => {
-    off();
-  };
+  ctx.track(off);
+  return ctx.dispose;
 }
 
 /** Re-export for type-only consumers. */

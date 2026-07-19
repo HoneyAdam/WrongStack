@@ -19,19 +19,13 @@
 import type { EventBus } from '../kernel/events.js';
 import { resolveHqRedactionPolicy, scrubAndTruncateHqPreview, summarizeHqToolArgs } from './redaction.js';
 import type { HqEventEnvelope, HqRedactionPolicy, HqToolCompletedPayload, HqToolStartedPayload } from './protocol.js';
-import type { HqPublisher } from './publisher.js';
+import { createBridgeContext, type BridgeContextOptions } from './bridge-context.js';
 
-export interface ToolTelemetryBridgeOptions {
+export interface ToolTelemetryBridgeOptions extends BridgeContextOptions {
   /** Local EventBus emitting `tool.started` and `tool.executed` events. */
   events: EventBus;
-  /** HQ publisher to forward envelopes to. */
-  publisher: HqPublisher;
   /** Project root for path redaction in tool input summaries. */
   projectRoot?: string;
-  /** Optional sessionId to tag envelopes with. */
-  sessionId?: string;
-  /** Override `now()` for deterministic tests. */
-  now?: () => string;
 }
 
 interface ToolStartedEvent {
@@ -64,65 +58,53 @@ interface InFlightTool {
  */
 export function startToolTelemetryBridge(opts: ToolTelemetryBridgeOptions): () => void {
   const { events, publisher } = opts;
-  const now = opts.now ?? (() => new Date().toISOString());
+  const ctx = createBridgeContext(opts);
   const inFlight = new Map<string, InFlightTool>();
-
-  function sessionIdTag(sessionId?: string): { sessionId?: string } {
-    const tag = sessionId ?? opts.sessionId;
-    return tag !== undefined ? { sessionId: tag } : {};
-  }
 
   const offStarted = events.on('tool.started', (p: ToolStartedEvent) => {
     inFlight.set(p.id, { name: p.name, startedAt: Date.now() });
-    try {
-      const payload: HqToolStartedPayload = {
-        toolName: p.name,
-        ...(p.input !== undefined
-          ? {
-              inputSummary: summarizeHqToolArgs(p.input, {
-                policy: publisher.redactionPolicy,
-                ...(opts.projectRoot !== undefined ? { projectRoot: opts.projectRoot } : {}),
-              }),
-            }
-          : {}),
-      };
-      publisher.publishEvent({
-        type: 'tool.started',
-        payload,
-        ...sessionIdTag(p.sessionId),
-        timestamp: now(),
-      });
-    } catch {
-      /* best-effort */
-    }
+    const payload: HqToolStartedPayload = {
+      toolName: p.name,
+      ...(p.input !== undefined
+        ? {
+            inputSummary: summarizeHqToolArgs(p.input, {
+              policy: publisher.redactionPolicy,
+              ...(opts.projectRoot !== undefined ? { projectRoot: opts.projectRoot } : {}),
+            }),
+          }
+        : {}),
+    };
+    ctx.safePublish({
+      type: 'tool.started',
+      payload,
+      ...ctx.sessionIdTag(p.sessionId),
+      timestamp: ctx.now(),
+    });
   });
 
   const offExecuted = events.on('tool.executed', (p: ToolExecutedEvent) => {
     const id = p.id;
     if (id !== undefined) inFlight.delete(id);
-    try {
-      const payload: HqToolCompletedPayload = {
-        toolName: p.name,
-        status: p.ok ? 'success' : 'error',
-        durationMs: p.durationMs,
-        ...(p.output !== undefined && p.output.length > 0
-          ? { outputSummary: truncateForSummary(p.output, publisher.redactionPolicy) }
-          : {}),
-      };
-      publisher.publishEvent({
-        type: 'tool.completed',
-        payload,
-        ...sessionIdTag(p.sessionId),
-        timestamp: now(),
-      });
-    } catch {
-      /* best-effort */
-    }
+    const payload: HqToolCompletedPayload = {
+      toolName: p.name,
+      status: p.ok ? 'success' : 'error',
+      durationMs: p.durationMs,
+      ...(p.output !== undefined && p.output.length > 0
+        ? { outputSummary: truncateForSummary(p.output, publisher.redactionPolicy) }
+        : {}),
+    };
+    ctx.safePublish({
+      type: 'tool.completed',
+      payload,
+      ...ctx.sessionIdTag(p.sessionId),
+      timestamp: ctx.now(),
+    });
   });
 
+  ctx.track(offStarted);
+  ctx.track(offExecuted);
   return () => {
-    offStarted();
-    offExecuted();
+    ctx.dispose();
     inFlight.clear();
   };
 }

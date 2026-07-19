@@ -13,17 +13,11 @@
  */
 import type { EventBus } from '../kernel/events.js';
 import type { HqEventEnvelope, HqWorktreeEventPayload } from './protocol.js';
-import type { HqPublisher } from './publisher.js';
+import { createBridgeContext, type BridgeContextOptions } from './bridge-context.js';
 
-export interface WorktreeTelemetryBridgeOptions {
+export interface WorktreeTelemetryBridgeOptions extends BridgeContextOptions {
   /** Local EventBus emitting `worktree.*` events. */
   events: EventBus;
-  /** HQ publisher to forward envelopes to. */
-  publisher: HqPublisher;
-  /** Optional sessionId to tag envelopes with. */
-  sessionId?: string;
-  /** Override `now()` for deterministic tests. */
-  now?: () => string;
 }
 
 type WorktreeAllocated = {
@@ -82,26 +76,19 @@ type WorktreeFailed = {
  * unsubscribes all listeners — call on shutdown.
  */
 export function startWorktreeTelemetryBridge(opts: WorktreeTelemetryBridgeOptions): () => void {
-  const { events, publisher } = opts;
-  const now = opts.now ?? (() => new Date().toISOString());
+  const { events } = opts;
+  const ctx = createBridgeContext(opts);
 
-  function publish(payload: HqWorktreeEventPayload, sessionId?: string): void {
-    try {
-      publisher.publishEvent({
-        type: 'worktree.event',
-        payload,
-        ...(sessionId !== undefined && sessionId !== '' ? { sessionId } : {}),
-        ...(opts.sessionId !== undefined ? { sessionId: opts.sessionId } : {}),
-        timestamp: now(),
-      });
-    } catch {
-      /* best-effort */
-    }
+  function publish(payload: HqWorktreeEventPayload, eventSessionId?: string): void {
+    ctx.safePublish({
+      type: 'worktree.event',
+      payload,
+      ...ctx.sessionIdTag(eventSessionId),
+      timestamp: ctx.now(),
+    });
   }
 
-  const offs: Array<() => void> = [];
-
-  offs.push(
+  ctx.track(
     events.on('worktree.allocated', (p: WorktreeAllocated) => {
       publish(
         {
@@ -118,7 +105,7 @@ export function startWorktreeTelemetryBridge(opts: WorktreeTelemetryBridgeOption
     }),
   );
 
-  offs.push(
+  ctx.track(
     events.on('worktree.committed', (p: WorktreeCommitted) => {
       publish(
         {
@@ -136,7 +123,7 @@ export function startWorktreeTelemetryBridge(opts: WorktreeTelemetryBridgeOption
     }),
   );
 
-  offs.push(
+  ctx.track(
     events.on('worktree.merged', (p: WorktreeMerged) => {
       publish(
         {
@@ -152,7 +139,7 @@ export function startWorktreeTelemetryBridge(opts: WorktreeTelemetryBridgeOption
     }),
   );
 
-  offs.push(
+  ctx.track(
     events.on('worktree.conflict', (p: WorktreeConflict) => {
       publish(
         {
@@ -167,7 +154,7 @@ export function startWorktreeTelemetryBridge(opts: WorktreeTelemetryBridgeOption
     }),
   );
 
-  offs.push(
+  ctx.track(
     events.on('worktree.released', (p: WorktreeReleased) => {
       publish(
         {
@@ -182,7 +169,7 @@ export function startWorktreeTelemetryBridge(opts: WorktreeTelemetryBridgeOption
     }),
   );
 
-  offs.push(
+  ctx.track(
     events.on('worktree.failed', (p: WorktreeFailed) => {
       publish(
         {
@@ -197,9 +184,7 @@ export function startWorktreeTelemetryBridge(opts: WorktreeTelemetryBridgeOption
     }),
   );
 
-  return () => {
-    for (const off of offs) off();
-  };
+  return ctx.dispose;
 }
 
 /** Re-export for type-only consumers. */

@@ -16,19 +16,13 @@
  */
 import type { EventBus } from '../kernel/events.js';
 import type { HqEventEnvelope, HqFleetSnapshotPayload, HqSubagentSummary } from './protocol.js';
-import type { HqPublisher } from './publisher.js';
+import { createBridgeContext, type BridgeContextOptions } from './bridge-context.js';
 
-export interface FleetTelemetryBridgeOptions {
+export interface FleetTelemetryBridgeOptions extends BridgeContextOptions {
   /** Local EventBus emitting `coordinator.stats` (host EventBus after the FleetBus hop). */
   events: EventBus;
-  /** HQ publisher to forward envelopes to. */
-  publisher: HqPublisher;
   /** Coordinator run id — identifies this fleet instance. Falls back to a stable per-session id. */
   runId: string;
-  /** Optional sessionId to tag envelopes with. */
-  sessionId?: string;
-  /** Override `now()` for deterministic tests. */
-  now?: () => string;
 }
 
 /**
@@ -37,7 +31,7 @@ export interface FleetTelemetryBridgeOptions {
  */
 export function startFleetTelemetryBridge(opts: FleetTelemetryBridgeOptions): () => void {
   const { events, publisher, runId } = opts;
-  const now = opts.now ?? (() => new Date().toISOString());
+  const ctx = createBridgeContext(opts);
   let lastHash = '';
 
   function buildPayload(stats: {
@@ -83,24 +77,23 @@ export function startFleetTelemetryBridge(opts: FleetTelemetryBridgeOptions): ()
   }
 
   const off = events.on('coordinator.stats', (stats) => {
+    const payload = buildPayload(stats);
+    // Hash-dedup so identical fleet state isn't republished.
+    const hash = JSON.stringify(payload);
+    if (hash === lastHash) return;
+    lastHash = hash;
     try {
-      const payload = buildPayload(stats);
-      // Hash-dedup so identical fleet state isn't republished.
-      const hash = JSON.stringify(payload);
-      if (hash === lastHash) return;
-      lastHash = hash;
       publisher.publishFleetSnapshot(payload, {
-        ...(opts.sessionId !== undefined ? { sessionId: opts.sessionId } : {}),
-        timestamp: now(),
+        ...ctx.sessionIdTag(),
+        timestamp: ctx.now(),
       });
     } catch {
       /* best-effort — HQ telemetry must never break the host */
     }
   });
 
-  return () => {
-    off();
-  };
+  ctx.track(off);
+  return ctx.dispose;
 }
 
 const FLEET_STATUS_MAP: Record<string, HqSubagentSummary['status']> = {

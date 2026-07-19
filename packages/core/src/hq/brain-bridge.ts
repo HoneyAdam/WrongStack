@@ -17,17 +17,11 @@
 import type { EventBus } from '../kernel/events.js';
 import type { BrainDecision, BrainDecisionRequest } from '../coordination/brain.js';
 import type { HqBrainEventKind, HqBrainEventPayload, HqEventEnvelope } from './protocol.js';
-import type { HqPublisher } from './publisher.js';
+import { createBridgeContext, type BridgeContextOptions } from './bridge-context.js';
 
-export interface BrainTelemetryBridgeOptions {
+export interface BrainTelemetryBridgeOptions extends BridgeContextOptions {
   /** Local EventBus emitting `brain.*` events. */
   events: EventBus;
-  /** HQ publisher to forward envelopes to. */
-  publisher: HqPublisher;
-  /** Optional sessionId to tag envelopes with. */
-  sessionId?: string;
-  /** Override `now()` for deterministic tests. */
-  now?: () => string;
 }
 
 function extractRequestFields(req: BrainDecisionRequest | undefined): {
@@ -65,31 +59,28 @@ function extractDecisionFields(dec: BrainDecision | undefined): { decision?: str
  * all listeners — call on shutdown.
  */
 export function startBrainTelemetryBridge(opts: BrainTelemetryBridgeOptions): () => void {
-  const { events, publisher } = opts;
-  const now = opts.now ?? (() => new Date().toISOString());
+  const { events } = opts;
+  const ctx = createBridgeContext(opts);
 
-  function publish(kind: HqBrainEventKind, payload: Partial<HqBrainEventPayload>, at: number): void {
-    try {
-      const full: HqBrainEventPayload = { kind, at, ...payload } as HqBrainEventPayload;
-      publisher.publishEvent({
-        type: 'brain.event',
-        payload: full,
-        ...(opts.sessionId !== undefined ? { sessionId: opts.sessionId } : {}),
-        timestamp: now(),
-      });
-    } catch {
-      /* best-effort */
-    }
+  function publish(
+    kind: HqBrainEventKind,
+    payload: Partial<HqBrainEventPayload>,
+    at: number,
+  ): void {
+    ctx.safePublish({
+      type: 'brain.event',
+      payload: { kind, at, ...payload } as HqBrainEventPayload,
+      ...ctx.sessionIdTag(),
+      timestamp: ctx.now(),
+    });
   }
 
-  const offs: Array<() => void> = [];
-
-  offs.push(
+  ctx.track(
     events.on('brain.decision_requested', (p) => {
       publish('decision_requested', extractRequestFields(p.request), p.at);
     }),
   );
-  offs.push(
+  ctx.track(
     events.on('brain.decision_answered', (p) => {
       publish('decision_answered', {
         ...extractRequestFields(p.request),
@@ -97,7 +88,7 @@ export function startBrainTelemetryBridge(opts: BrainTelemetryBridgeOptions): ()
       }, p.at);
     }),
   );
-  offs.push(
+  ctx.track(
     events.on('brain.decision_ask_human', (p) => {
       publish('decision_ask_human', {
         ...extractRequestFields(p.request),
@@ -105,7 +96,7 @@ export function startBrainTelemetryBridge(opts: BrainTelemetryBridgeOptions): ()
       }, p.at);
     }),
   );
-  offs.push(
+  ctx.track(
     events.on('brain.decision_denied', (p) => {
       publish('decision_denied', {
         ...extractRequestFields(p.request),
@@ -113,7 +104,7 @@ export function startBrainTelemetryBridge(opts: BrainTelemetryBridgeOptions): ()
       }, p.at);
     }),
   );
-  offs.push(
+  ctx.track(
     events.on('brain.human_answered', (p) => {
       const detail = typeof p.text === 'string' ? p.text : p.optionId;
       publish('human_answered', {
@@ -123,7 +114,7 @@ export function startBrainTelemetryBridge(opts: BrainTelemetryBridgeOptions): ()
       }, p.at);
     }),
   );
-  offs.push(
+  ctx.track(
     events.on('brain.intervention', (p) => {
       publish('intervention', {
         ...extractRequestFields(p.request),
@@ -134,9 +125,7 @@ export function startBrainTelemetryBridge(opts: BrainTelemetryBridgeOptions): ()
     }),
   );
 
-  return () => {
-    for (const off of offs) off();
-  };
+  return ctx.dispose;
 }
 
 /** Re-export for type-only consumers. */
