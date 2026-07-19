@@ -80,6 +80,16 @@ describe('fleet-spawn spawn()', () => {
     expect(config.provider).toBe('matrix-prov');
   });
 
+  it('preserves a provider-only matrix route when the model is filled later', async () => {
+    const host = makeHost({
+      modelMatrix: { hunter: { provider: 'matrix-prov' } } as never,
+    });
+    const config = cfg({ model: undefined, provider: undefined });
+    await fleetSpawn.spawn(host, config);
+    expect(config.model).toBeUndefined();
+    expect(config.provider).toBe('matrix-prov');
+  });
+
   it('does not pre-apply a wildcard matrix route to reviewer', async () => {
     const host = makeHost({
       modelMatrix: { '*': { model: 'same-model', provider: 'same-provider' } } as never,

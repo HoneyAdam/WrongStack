@@ -1387,13 +1387,13 @@ export class Director implements ICoordinator {
         resolution?.source === 'default' && roleNeedsIndependentReviewModel(config.role)
           ? undefined
           : resolution?.entry;
-      if (entry?.model) {
-        config.model = entry.model;
+      if (entry) {
+        // Matrix fields are independent: a provider-only route must survive
+        // when the missing model is filled from the session below, just as a
+        // model-only route keeps its model while inheriting the provider.
+        if (entry.model) config.model = entry.model;
         if (entry.provider) config.provider = entry.provider;
         if (entry.fallbackProfile) config.fallbackProfile = entry.fallbackProfile;
-        if (entry.modelRuntime) config.modelRuntime = entry.modelRuntime;
-      } else if (entry?.fallbackProfile) {
-        config.fallbackProfile = entry.fallbackProfile;
         if (entry.modelRuntime) config.modelRuntime = entry.modelRuntime;
       }
     }

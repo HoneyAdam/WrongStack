@@ -128,13 +128,10 @@ export async function spawn(
       resolution?.source === 'default' && roleNeedsIndependentReviewModel(config.role)
         ? undefined
         : resolution?.entry;
-    if (entry?.model) {
-      config.model = entry.model;
+    if (entry) {
+      if (entry.model) config.model = entry.model;
       if (entry.provider) config.provider = entry.provider;
       if (entry.fallbackProfile) config.fallbackProfile = entry.fallbackProfile;
-      if (entry.modelRuntime) config.modelRuntime = entry.modelRuntime;
-    } else if (entry?.fallbackProfile) {
-      config.fallbackProfile = entry.fallbackProfile;
       if (entry.modelRuntime) config.modelRuntime = entry.modelRuntime;
     }
   }

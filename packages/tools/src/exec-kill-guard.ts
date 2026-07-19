@@ -18,6 +18,7 @@
  */
 
 import * as os from 'node:os';
+import * as path from 'node:path';
 import { getPersistentProcessRegistry } from './process-registry-persistent.js';
 
 const isWin = os.platform() === 'win32';
@@ -314,17 +315,30 @@ async function checkKillTarget(target: KillTarget): Promise<ExecKillCheckResult>
       };
     }
 
-    // Check persistent registry for name matches
+    // The guard itself runs inside the current WrongStack process, which may
+    // not have been written to the persistent registry yet (notably in fresh
+    // CLI/test sessions). A broad image-name kill matching the current runtime
+    // would therefore kill WrongStack even when the registry is empty.
+    const currentImage = path
+      .basename(process.execPath)
+      .toLowerCase()
+      .replace(/\.exe$/, '');
+    const targetsNodeRuntime = nameLower === 'node' || nameLower.startsWith('node');
+    if (targetsNodeRuntime && currentImage === 'node') {
+      return {
+        blocked: true,
+        reason: `Blocked: kill ${target.signal} '${target.name}' would kill the active WrongStack node.exe runtime.`,
+      };
+    }
+
+    // Also protect other registered WrongStack instances that use Node even
+    // when this instance is running from a packaged executable.
     const protectedPids = await registry.getAllProtectedPids();
-    if (protectedPids.length > 0) {
-      // If there are protected WrongStack processes, block node/deno/bun kills
-      // because that includes the WrongStack Node.js runtime
-      if (nameLower === 'node' || nameLower === 'node.exe' || nameLower.startsWith('node')) {
-        return {
-          blocked: true,
-          reason: `Blocked: kill ${target.signal} '${target.name}' would kill all node.exe processes including active WrongStack instance(s).`,
-        };
-      }
+    if (protectedPids.length > 0 && targetsNodeRuntime) {
+      return {
+        blocked: true,
+        reason: `Blocked: kill ${target.signal} '${target.name}' would kill all node.exe processes including active WrongStack instance(s).`,
+      };
     }
 
     return { blocked: false };
