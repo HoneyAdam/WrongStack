@@ -38,14 +38,14 @@ WrongStack is **free, open source, and MIT licensed**. It drives **autonomous go
 - 🔐 **Locked down by default** — encrypted secrets, SSRF guards on every redirect hop, fail-closed subagents, symlink containment, plugin trust tiers, WebUI redaction, and cloud-sync path guards.
 - 🪶 **A compact kernel** — `Container · Pipeline · EventBus · RunController` (~1670 lines including the full event type catalog). Everything above it is swappable; `--no-features` boots it fully offline.
 
-## What's new in 0.291.1
+## What's new in 0.292.0
 
-- **Explainable permissions** — `wstack permissions explain` traces the effective policy decision without executing a tool, while Chronicle records the decisions that actually governed tool calls.
-- **Safer autonomy controls** — `--no-yolo` provides an explicit opt-out, first-run disclosure makes the active behavior clear, and deny rules continue to win in every mode.
-- **Super Memory maintenance** — paginated listing, opt-in purging of deleted records, idempotent embedding backfill, and a dedicated maintenance script make large stores easier to operate safely.
-- **More reliable execution** — profile migration is concurrency-safe, review agents retain their provider/model route, provider-only matrix routes survive resolution, and TUI streaming/scroll behavior is hardened.
+- **Task-aware memory injection** — Super Memory now retrieves relevant project knowledge on demand from tool activity, todo state, and Kanban context, with bounded decision traces in the TUI and WebUI.
+- **Smarter context management** — gateway-specific context ceilings are learned after overflow, while selective compaction protects recent work and preserves concise file and error evidence.
+- **Verifiable HQ auth audits** — redacted `auth.json` projections receive stable content hashes, and `wstack hq audit verify` makes forensic comparisons available without exposing token material.
+- **More reliable profile and interface behavior** — settings consistently target the active profile, `/context` and status-line accounting are more accurate, and TUI/WebUI state handling is hardened.
 
-See the [0.291.1 changelog](CHANGELOG.md#02911--2026-07-19) for the full release notes.
+See the [0.292.0 changelog](CHANGELOG.md#02920--2026-07-20) for the full release notes.
 
 ## Requirements
 
@@ -502,11 +502,10 @@ Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. Wha
 
 ## Recent changes
 
-**Current package line: 0.286.0.** Highlights include the autonomous Brain
-control plane, live/persistable Brain settings across CLI/TUI/WebUI, realtime
-mailbox SSE + indexing work, WebUI image attachments and accessibility cleanup,
-the fullscreen TUI agents monitor, governed MCP OAuth, and refreshed release
-copy for the current 18-package + 2-app workspace shape.
+**Current package line: 0.292.0.** Highlights include task-aware on-demand
+memory injection, selective context compaction, gateway-specific context-limit
+learning, verifiable HQ authentication audit hashes, active-profile settings
+routing, and more accurate context reporting across the TUI and WebUI.
 
 See **[CHANGELOG.md](CHANGELOG.md)** for the full, versioned history.
 

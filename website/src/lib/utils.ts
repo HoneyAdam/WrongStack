@@ -296,9 +296,23 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: '0.292.0',
+    date: '2026-07-20',
+    latest: true,
+    tagline: 'Task-aware memory, context resilience, and HQ auth forensics',
+    highlights: [
+      'Super Memory retrieves relevant project knowledge on demand from tool activity, todo state, and Kanban context',
+      'Bounded injector decision traces expose candidate, rejection, pressure, budget, and injection details in the TUI and WebUI without entering model context',
+      'Gateway-specific context ceilings are learned after overflow and selective compaction preserves recent work plus concise file and error evidence',
+      'HQ auth audit entries carry a secret-safe contentHash that can be compared with persisted state through wstack hq audit verify',
+      'CLI, TUI, WebUI, auth, provider, plugin, and MCP settings mutations consistently target the active profile',
+      '/context panel routing, status-line context accounting, session state resets, and WebUI fleet selectors are hardened',
+      'All workspace manifests, apps, README release highlights, changelog data, and website surfaces are aligned to 0.292.0',
+    ],
+  },
+  {
     version: '0.291.1',
     date: '2026-07-19',
-    latest: true,
     tagline: 'Explainable permissions, safer maintenance, and runtime hardening',
     highlights: [
       'wstack permissions explain evaluates proposed tool calls through the effective permission policy and returns a structured trace without executing them',

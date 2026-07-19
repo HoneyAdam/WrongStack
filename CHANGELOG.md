@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.292.0] — 2026-07-20
+
+> The **task-aware memory, context resilience, and HQ auth forensics release**.
+> Super Memory retrieves project knowledge only when the current task calls for
+> it, context management adapts to real gateway limits, and HQ authentication
+> audit entries can be tied back to a secret-safe projection of persisted state.
+
 ### Added — HQ auth audit forensic tie-back (`contentHash`)
 - **`contentHash` field on `HqAuthAuditEntry`** — every audit entry now carries
   a SHA-256 hash of the redacted `auth.json` projection, letting an operator
@@ -62,6 +69,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   code, and collapsed tool exchanges retain bounded file/error evidence without
   carrying their raw payloads forward. Rewrites remain threshold-driven to
   preserve prompt-cache stability between compactions.
+- **Active-profile settings routing is consistent** — CLI, TUI, WebUI, auth,
+  provider, plugin, and MCP configuration mutations target the selected profile
+  instead of treating the root bootstrap file as a settings store.
+- **Context reporting and interface state are more reliable** — `/context`
+  opens through the TUI panel path, status-line accounting uses the effective
+  provider context, and derived WebUI fleet selectors retain stable snapshots.
+- **All release surfaces aligned to `0.292.0`** — workspace manifests, app
+  packages, website metadata and release content, README highlights, and this
+  changelog now report the same current version.
 
 ## [0.291.1] — 2026-07-19
 
