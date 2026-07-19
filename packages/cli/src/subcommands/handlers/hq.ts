@@ -303,6 +303,33 @@ async function fileExistsQuiet(filePath: string): Promise<boolean> {
 }
 
 /**
+ * Re-read the persisted `auth.json` and return a conditional
+ * `contentHash` field for embedding in an audit entry. This closes the
+ * forensic tie-back loop: an operator reviewing `auth-audit.jsonl` can
+ * compare the `contentHash` against the current on-disk file via
+ * `wstack hq audit verify`.
+ *
+ * Re-reads rather than hashing the in-memory post-mutation snapshot
+ * because `writeHqAuthFile` re-stamps `updatedAt` on the persisted
+ * payload — hashing the in-memory `next` would diverge from what
+ * `verify` computes. Matches the pattern established by the `first-run`
+ * and `expired-prune` emitters in `auth-store.ts` / `hq-server.ts`.
+ *
+ * Returns `{}` (no `contentHash` key) when the file is unreadable, so
+ * the audit entry still records the event without a tie-back — the
+ * absence itself is meaningful. Conditional spread preserves
+ * `exactOptionalPropertyTypes`.
+ */
+async function computeAuditHashField(
+  dataDir: string,
+  warn: (msg: string) => void,
+): Promise<{ contentHash?: string }> {
+  const persisted = await readHqAuthFile(dataDir, { warn });
+  const hash = hqAuthContentHash(persisted);
+  return hash !== undefined ? { contentHash: hash } : {};
+}
+
+/**
  * Token scope: `browser` (validated on `/ws/browser`) or `client`
  * (validated on `/ws/client`). Defaults to `browser` for backward
  * compatibility with Phase 3.
@@ -416,6 +443,9 @@ async function tokenCreate(args: string[], deps: SubcommandDeps): Promise<number
     );
     const list = next[tokenField] ?? [];
     const token = expectDefined(list[list.length - 1]);
+    const hashField = await computeAuditHashField(dataDir, (msg) =>
+      deps.renderer.writeWarning(`${msg}\n`),
+    );
     logHqAuthAudit(
       dataDir,
       {
@@ -426,6 +456,7 @@ async function tokenCreate(args: string[], deps: SubcommandDeps): Promise<number
         ...(token.capabilities ? { capabilities: token.capabilities } : {}),
         ...(token.expiresAt ? { expiresAt: token.expiresAt } : {}),
         actor: resolveAuditActor(),
+        ...hashField,
       },
       {
         onError: (err) =>
@@ -561,6 +592,9 @@ async function tokenRevoke(args: string[], deps: SubcommandDeps): Promise<number
     return 1;
   }
   deps.renderer.write(`Revoked ${scope} token ${revoked.id}${revoked.label ? ` ("${revoked.label}")` : ''}.\n`);
+  const hashField = await computeAuditHashField(dataDir, (msg) =>
+    deps.renderer.writeWarning(`${msg}\n`),
+  );
   logHqAuthAudit(
     dataDir,
     {
@@ -570,6 +604,7 @@ async function tokenRevoke(args: string[], deps: SubcommandDeps): Promise<number
       ...(revoked.label ? { label: revoked.label } : {}),
       ...(revoked.capabilities ? { capabilities: revoked.capabilities } : {}),
       actor: resolveAuditActor(),
+      ...hashField,
     },
     {
       onError: (err) =>
