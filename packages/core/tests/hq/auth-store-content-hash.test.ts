@@ -189,7 +189,7 @@ describe('hqAuthContentHash — pinned snapshot (projection-shape guard)', () =>
   // change must be deliberate and documented.
   //
   // To update after an intentional projection change:
-  //   1. Run: node -e "const {hqAuthContentHash} = require('@wrongstack/core'); console.log(hqAuthContentHash({version:1,updatedAt:'2026-07-19T12:00:00.000Z',browserTokens:[{id:'browser-1',token:'secret-browser',createdAt:'2026-07-19T11:00:00.000Z',capabilities:['control.enqueue']}],clientTokens:[{id:'client-1',token:'secret-client',createdAt:'2026-07-19T11:00:00.000Z',capabilities:['telemetry.publish']}],passwordHash:'hashed-password',cookieSecret:'cookie-secret'}))"
+  //   1. Run: node -e "const {hqAuthContentHash} = require('@wrongstack/core'); console.log(hqAuthContentHash({version:1,updatedAt:'2026-07-19T12:00:00.000Z',browserTokens:[{id:'browser-1',token:'secret-browser',createdAt:'2026-07-19T11:00:00.000Z',capabilities:['control.enqueue'],label:'first-run browser'}],clientTokens:[{id:'client-1',token:'secret-client',createdAt:'2026-07-19T11:00:00.000Z',capabilities:['telemetry.publish'],label:'first-run client'}],passwordHash:'hashed-password',cookieSecret:'cookie-secret'}))"
   //   2. Paste the new hash below.
   //   3. Add a note to the commit message explaining the projection
   //      change and its impact on existing audit logs.
@@ -242,9 +242,10 @@ describe('hqAuthContentHash — pinned snapshot (projection-shape guard)', () =>
     // won't, but defense-in-depth).
     const hash = hqAuthContentHash(pinnedFile);
     expect(hash).toBeDefined();
-    // The hash is a hex digest — raw secrets are not hex, so this is
-    // structurally impossible. But assert the secrets aren't trivially
-    // embedded anyway.
+    // SHA-256 output is 64 lowercase-hex characters, so raw ASCII
+    // secrets can never appear in it structurally.  This test defends
+    // against a future regression where the redaction breaks and the
+    // projection somehow includes raw secrets in a non-hex output.
     expect(hash).not.toContain('secret-browser');
     expect(hash).not.toContain('secret-client');
     expect(hash).not.toContain('hashed-password');

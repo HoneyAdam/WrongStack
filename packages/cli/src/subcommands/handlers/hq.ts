@@ -28,6 +28,9 @@ import {
   readHqAuthFile,
   resolveHqDataDir,
   logHqAuthAudit,
+  hqAuthContentHash,
+  hqAuthAuditPath,
+  hqAuthFilePath,
   type HqToken,
 } from '@wrongstack/core';
 import type { HqServerHandle } from '../../hq-server.js';
@@ -69,6 +72,10 @@ export const hqCmd: SubcommandHandler = async (args, deps) => {
 
   if (sub === 'token') {
     return hqTokenCmd(args.slice(1), deps);
+  }
+
+  if (sub === 'audit') {
+    return hqAuditCmd(args.slice(1), deps);
   }
 
   if (sub === 'help' || sub === '--help') {
@@ -196,6 +203,77 @@ async function hqTokenCmd(args: string[], deps: SubcommandDeps): Promise<number>
   deps.renderer.writeError(`Unknown hq token subcommand: ${action ?? '(none)'}\n`);
   deps.renderer.write('Usage: wstack hq token <create|list|revoke>\n');
   return 1;
+}
+
+/**
+ * `wstack hq audit verify` — re-derive the contentHash from the current
+ * on-disk `auth.json` and print it so an operator can compare against a
+ * `contentHash` field in an audit entry. This closes the forensic
+ * tie-back loop without requiring the operator to write a script: copy
+ * the hash from the audit log, run this command, eyeball (or `diff`)
+ * the two values.
+ *
+ * Prints:
+ *   - the resolved `auth.json` path (so the operator knows which file
+ *     was hashed)
+ *   - the SHA-256 contentHash, or `(unavailable)` if the file is
+ *     missing/unreadable
+ *   - the `auth-audit.jsonl` path (so the operator knows where to look
+ *     for entries to compare against)
+ *
+ * Exit codes:
+ *   0 — hash computed and printed
+ *   1 — `auth.json` missing or unreadable (hash unavailable); the
+ *       audit-log path is still printed so the operator can inspect
+ *       historical entries
+ */
+async function hqAuditCmd(args: string[], deps: SubcommandDeps): Promise<number> {
+  const action = args[0];
+
+  if (action === 'verify' || action === undefined) {
+    return hqAuditVerify(deps);
+  }
+
+  deps.renderer.writeError(`Unknown hq audit subcommand: ${action ?? '(none)'}\n`);
+  deps.renderer.write('Usage: wstack hq audit <verify>\n');
+  return 1;
+}
+
+async function hqAuditVerify(deps: SubcommandDeps): Promise<number> {
+  const dataDir = resolveDataDir(deps);
+  const authPath = hqAuthFilePath(dataDir);
+  const auditPath = hqAuthAuditPath(dataDir);
+
+  deps.renderer.write(`auth file:   ${authPath}\n`);
+  deps.renderer.write(`audit log:   ${auditPath}\n`);
+
+  const authFile = await readHqAuthFile(dataDir, {
+    warn: (msg) => deps.renderer.writeWarning(`${msg}\n`),
+  });
+
+  const hash = hqAuthContentHash(authFile);
+  if (hash === undefined) {
+    deps.renderer.write(
+      `contentHash: (unavailable — auth.json is missing or unreadable)\n`,
+    );
+    deps.renderer.write(
+      `Compare historical entries in the audit log above against a known-good hash.\n`,
+    );
+    return 1;
+  }
+
+  deps.renderer.write(`contentHash: ${hash}\n`);
+  deps.renderer.write('\n');
+  deps.renderer.write(
+    `Compare this value against the 'contentHash' field of entries in the audit log.\n`,
+  );
+  deps.renderer.write(
+    `A match means the redacted projection of auth.json is identical to when that\n`,
+  );
+  deps.renderer.write(
+    `entry was emitted (secrets may differ — only the non-secret shape is hashed).\n`,
+  );
+  return 0;
 }
 
 /**
@@ -476,7 +554,7 @@ async function tokenRevoke(args: string[], deps: SubcommandDeps): Promise<number
 }
 
 function printHelp(deps: SubcommandDeps): void {
-  deps.renderer.write(`Usage: wstack hq <serve | token>\n`);
+  deps.renderer.write(`Usage: wstack hq <serve | token | audit>\n`);
   deps.renderer.write('\n');
   deps.renderer.write(`  wstack hq                      Start the HQ command center server.\n`);
   deps.renderer.write(`  wstack hq serve                Same as above (explicit form).\n`);
@@ -486,6 +564,7 @@ function printHelp(deps: SubcommandDeps): void {
   deps.renderer.write(`  wstack hq token list --client   List issued client tokens.\n`);
   deps.renderer.write(`  wstack hq token revoke <id>    Revoke a browser token (id prefix match).\n`);
   deps.renderer.write(`  wstack hq token revoke --client <id>  Revoke a client token.\n`);
+  deps.renderer.write(`  wstack hq audit verify         Re-derive auth.json contentHash for forensic comparison.\n`);
   deps.renderer.write('\n');
   deps.renderer.write(`Flags (apply to all subcommands):\n`);
   deps.renderer.write(`  --data-dir <path>   Override HQ data directory (default ~/.wrongstack/hq).\n`);
