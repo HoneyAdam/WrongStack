@@ -208,4 +208,77 @@ describe('Cockpit — Auth Tokens (tokenStats) KPA card', () => {
     expect(tokenCard).toBeDefined();
     expect(tokenCard?.textContent).toContain('Token expiry stats unavailable');
   });
+
+  it('propagates tokenStats end-to-end through _onSnapshot (WS path) and re-renders on update', async () => {
+    fetchJsonMock.mockResolvedValue({ active: [], history: [] });
+    // Start with no snapshot at all — the card body hasn't rendered yet.
+    useHqStore.setState({ snapshot: null });
+    await mountCockpit();
+
+    // The Cockpit reads `totals?.tokenStats` defensively; with no snapshot,
+    // the Auth Tokens card renders the unavailable placeholder.
+    const cardsBefore = container?.querySelectorAll<HTMLDivElement>('div.hq-cockpit-section') ?? [];
+    const tokenCardBefore = Array.from(cardsBefore).find(
+      (card) => card.querySelector('.hq-cockpit-section-title')?.textContent === 'Auth Tokens',
+    );
+    expect(tokenCardBefore?.textContent).toContain('Token expiry stats unavailable');
+
+    // Drive the store through the WS snapshot path — the same path the live
+    // hq-ws-client uses. `_onSnapshot` applies `snapshotPatch` and flips
+    // `connected` to true, exercising the producer→store→consumer loop.
+    act(() => {
+      useHqStore.getState()._onSnapshot(
+        snapshotWithTokenStats({
+          browserTotal: 4,
+          clientTotal: 3,
+          expired: 2,
+          expiringSoon: 1,
+        }),
+      );
+    });
+
+    const entries = new Map(
+      findTokenStatsEntries().map((e) => [e.label, e.value]),
+    );
+    expect(entries.get('browser')).toBe('4');
+    expect(entries.get('client')).toBe('3');
+    expect(entries.get('total')).toBe('7');
+    expect(entries.get('expired')).toBe('2');
+    expect(entries.get('expiring soon')).toBe('1');
+
+    // A second snapshot with different counts must overwrite the first —
+    // the store does not merge tokenStats fields.
+    act(() => {
+      useHqStore.getState()._onSnapshot(
+        snapshotWithTokenStats({
+          browserTotal: 1,
+          clientTotal: 0,
+          expired: 0,
+          expiringSoon: 5,
+        }),
+      );
+    });
+
+    const entriesAfter = new Map(
+      findTokenStatsEntries().map((e) => [e.label, e.value]),
+    );
+    expect(entriesAfter.get('browser')).toBe('1');
+    expect(entriesAfter.get('client')).toBe('0');
+    expect(entriesAfter.get('total')).toBe('1');
+    expect(entriesAfter.get('expired')).toBe('0');
+    expect(entriesAfter.get('expiring soon')).toBe('5');
+
+    // And a snapshot without tokenStats must flip the card back to the
+    // unavailable placeholder — the store does not preserve the prior
+    // tokenStats when the field is absent on the new snapshot.
+    act(() => {
+      useHqStore.getState()._onSnapshot(snapshotWithTokenStats(undefined));
+    });
+
+    const cardsAfter = container?.querySelectorAll<HTMLDivElement>('div.hq-cockpit-section') ?? [];
+    const tokenCardAfter = Array.from(cardsAfter).find(
+      (card) => card.querySelector('.hq-cockpit-section-title')?.textContent === 'Auth Tokens',
+    );
+    expect(tokenCardAfter?.textContent).toContain('Token expiry stats unavailable');
+  });
 });
