@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { lookup } from 'node:dns/promises';
 
 // Mock DNS lookup so the async SSRF check in setup() resolves instantly.
+// The default mock returns a public IP so setup() proceeds normally for
+// tests that don't care about the SSRF layer. Tests that *do* assert the
+// SSRF block path override via mockResolvedValueOnce / mockImplementationOnce.
 vi.mock('node:dns/promises', () => ({
   lookup: vi.fn().mockResolvedValue([{ address: '93.184.216.34', family: 4 }]),
 }));
@@ -104,6 +108,26 @@ describe('notify-hub plugin', () => {
       expect(result['ok']).toBe(false);
       expect(api.registerHook).not.toHaveBeenCalled();
     }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects hostnames that resolve to private IPs via DNS (SSRF defense)', async () => {
+    // Override the default mock to simulate a DNS rebinding attack:
+    // the webhook URL passes the string-level validator (public hostname)
+    // but DNS resolves to a private IP (10.0.0.5). The SSRF layer must
+    // block channel construction and log a warning.
+    vi.mocked(lookup).mockResolvedValueOnce([{ address: '10.0.0.5', family: 4 }]);
+    const api = makeApi({ extensions: URL_CFG });
+    await notifyHubPlugin.setup(api as never);
+    expect(api.registerHook).not.toHaveBeenCalled();
+    expect(api.onPattern).not.toHaveBeenCalled();
+    expect(api.log.warn).toHaveBeenCalledWith(
+      expect.stringContaining('resolves to a private/local IP'),
+    );
+    // notify_send tool is still registered (global tool registry) but returns
+    // "no webhookUrl configured" because the channel was never constructed.
+    const result = await getTool(api, 'notify_send').execute({ message: 'x' });
+    expect(result['ok']).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
