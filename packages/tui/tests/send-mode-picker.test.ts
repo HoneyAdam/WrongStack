@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { render } from 'ink-testing-library';
+import React from 'react';
 import {
   SEND_MODE_OPTIONS,
+  SendModePicker,
   formatSendModeMessagePreview,
   nextSendModeIndex,
   sendModeFromKey,
@@ -50,7 +53,7 @@ describe('sendModeFromKey', () => {
     expect(sendModeFromKey('', k({ return: true }), 2)).toBe('steer');
   });
 
-  it('Esc cancels (caller treats as queue)', () => {
+  it('Esc cancels (caller restores the draft to the composer)', () => {
     expect(sendModeFromKey('', k({ escape: true }), 1)).toBe('cancel');
   });
 
@@ -68,5 +71,24 @@ describe('formatSendModeMessagePreview', () => {
 
   it('truncates long prompts with an ellipsis', () => {
     expect(formatSendModeMessagePreview('abcdefghijklmnopqrstuvwxyz', 10)).toBe('abcdefghi…');
+  });
+});
+
+describe('SendModePicker render', () => {
+  it('shows Esc as returning to the input, not queueing', () => {
+    const view = render(
+      React.createElement(SendModePicker, {
+        selected: 0,
+        messagePreview: 'hello',
+        onMove: () => {},
+        onSelect: () => {},
+      }),
+    );
+    const frame = view.lastFrame() ?? '';
+
+    expect(frame).toContain('Esc → back to input');
+    expect(frame).not.toContain('Esc → queue');
+
+    view.unmount();
   });
 });

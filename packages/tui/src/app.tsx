@@ -6472,7 +6472,7 @@ export function App({
       //   btw    — fold in at the next iteration without interrupting
       //   steer  — abort now, drop the queue, redirect to this
       // The picker is on by default; `/queue picker off` reverts to silent
-      // queue. Esc resolves to 'queue' so the typed text is never lost.
+      // queue. Esc restores the draft to the composer — nothing is sent.
       let mode: SendMode | 'cancel' = 'queue';
       if (midRunSendPickerRef.current) {
         mode = await new Promise<SendMode | 'cancel'>((resolve) => {
@@ -6530,7 +6530,15 @@ export function App({
         return;
       }
 
-      // 'queue' (or 'cancel' → safest fallback): enqueue for the drainer.
+      if (mode === 'cancel') {
+        // Esc: hand the text back to the composer instead of delivering it.
+        // The user changed their mind about interrupting the run — restore
+        // the draft exactly as typed so the turn simply never happened.
+        setDraft(effectiveText, effectiveText.length);
+        return;
+      }
+
+      // 'queue': enqueue for the drainer.
       dispatch({
         type: 'addEntry',
         entry: { kind: 'user', text: displayText, queued: true, pasteContent },

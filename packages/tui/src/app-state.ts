@@ -631,9 +631,9 @@ export type State = {
    * Mid-run send-mode picker. Set when the user submits a plain message while
    * the agent is busy and `midRunSendPicker` is enabled — the picker asks how
    * to deliver the text (queue / by-the-way / steer). The `resolve` callback
-   * is awaited inside `submit()` (same Promise pattern as `enhance`); the
-   * caller treats `'cancel'` (Esc) as queue so the typed text is never lost.
-   * Null when no picker is pending.
+   * is awaited inside `submit()` (same Promise pattern as `enhance`); on
+   * `'cancel'` (Esc) the caller restores the draft to the composer instead
+   * of sending — nothing is queued. Null when no picker is pending.
    */
   sendModePicker: {
     selected: number;

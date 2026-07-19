@@ -108,7 +108,7 @@ export interface SendModePickerProps {
  * - q / b / s → pick that mode immediately
  * - ↑ / ↓     → move the highlight
  * - Enter     → pick the highlighted mode
- * - Esc       → cancel (caller treats this as Queue — text is never lost)
+ * - Esc       → cancel (caller restores the draft to the composer)
  */
 export function SendModePicker({
   selected,
@@ -141,7 +141,7 @@ export function SendModePicker({
         </Text>
       ) : null}
       <Text dimColor>
-        q/b/s pick · ↑/↓ move · Enter select · Esc → queue
+        q/b/s pick · ↑/↓ move · Enter select · Esc → back to input
       </Text>
       {SEND_MODE_OPTIONS.map((opt, i) => (
         <Text key={opt.mode} inverse={i === selected} {...(i === selected ? { color: opt.color } : {})}>
