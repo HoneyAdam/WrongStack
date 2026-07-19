@@ -76,6 +76,8 @@ export interface CreateInitialStateOptions {
   keyTail?: string | undefined;
   /** Current session id (e.g. "sess_01KXV6…"). Static for the session lifetime. */
   sessionId?: string | undefined;
+  /** Active fallback profile name to display in the banner (e.g. "default"). */
+  profile?: string | undefined;
   /** Background autonomy agents to display in the banner. */
   autonomyAgents?: ReadonlyArray<AutonomyAgentStatus> | undefined;
   restoredEntries: State['entries'];
@@ -97,6 +99,7 @@ export function createInitialState(options: CreateInitialStateOptions): State {
     family,
     keyTail,
     sessionId,
+    profile,
     autonomyAgents,
     restoredEntries,
     restoredCheckpoints,
@@ -123,6 +126,7 @@ export function createInitialState(options: CreateInitialStateOptions): State {
               family,
               keyTail,
               sessionId,
+              profile,
               autonomyAgents,
             },
           ]

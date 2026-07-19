@@ -27,6 +27,8 @@ import { FORBIDDEN_PROTO_KEYS } from '@wrongstack/core/utils';
 interface CliWebUIOptions {
   agent: { ctx: { meta: Record<string, unknown> } };
   globalConfigPath?: string | undefined;
+  /** Resolved profile config path: ~/.wrongstack/profiles/<activeProfile>/config.json */
+  profileConfigPath?: string | undefined;
   appConfig?:
     | {
         fallbackModels?: string[] | undefined;
@@ -141,182 +143,199 @@ type PrefSnapshot = Record<string, unknown>;
 // ── seedConfigToMeta ──────────────────────────────────────────────────────────
 
 /**
- * One-time startup seed: reads `globalConfigPath` and copies recognised fields
- * into `agent.ctx.meta` so the browser settings panel starts with the real
- * persisted values instead of blank/undefined.
+ * One-time startup seed: reads the merged in-memory appConfig (which already
+ * includes bootstrap + active profile + project-local + in-project layers)
+ * and copies recognised fields into `agent.ctx.meta` so the browser settings
+ * panel starts with the real persisted values instead of blank/undefined.
  *
- * Best-effort – missing or corrupt config leaves prefs unseeded.
+ * Before the profile-based config system (0.291.0+), this function read the
+ * bootstrap file (~/.wrongstack/config.json) directly — but that file now
+ * only contains { version, activeProfile }. All user settings live in the
+ * active profile config (~/.wrongstack/profiles/<name>/config.json), which
+ * the config loader has already merged into `opts.appConfig` during boot.
+ *
+ * Best-effort — missing or partial appConfig leaves prefs unseeded.
  */
 export async function seedConfigToMeta(opts: CliWebUIOptions): Promise<void> {
-  const configPath = opts.globalConfigPath;
-  if (!configPath) return;
-
-  try {
-    const raw = await fs.readFile(configPath, 'utf8');
-    const cfg = JSON.parse(raw) as Record<string, unknown>;
-    const autonomyCfg = (cfg.autonomy as Record<string, unknown>) ?? {};
-    const features = (cfg.features as Record<string, unknown>) ?? {};
-    const meta = opts.agent.ctx.meta;
-
-    const rawMode = autonomyCfg['defaultMode'];
-    meta['autonomy'] = rawMode === 'suggest' || rawMode === 'auto' ? rawMode : 'off';
-    meta['autonomyDelayMs'] = (autonomyCfg['autoProceedDelayMs'] as number) ?? 45_000;
-    meta['autoProceedMaxIterations'] = (autonomyCfg['autoProceedMaxIterations'] as number) ?? 50;
-    meta['yolo'] = (autonomyCfg['yolo'] as boolean) ?? (cfg.yolo as boolean) ?? false;
-    meta['chime'] = (autonomyCfg['chime'] as boolean) ?? false;
-    meta['confirmExit'] = autonomyCfg['confirmExit'] !== false;
-    meta['streamFleet'] = autonomyCfg['streamFleet'] !== false;
-    meta['enhanceEnabled'] = (autonomyCfg['enhance'] as boolean) ?? true;
-    meta['enhanceDelayMs'] = (autonomyCfg['enhanceDelayMs'] as number) ?? 60_000;
-    meta['enhanceLanguage'] = (autonomyCfg['enhanceLanguage'] as string) ?? 'original';
-    meta['nextPrediction'] = (cfg.nextPrediction as boolean) ?? false;
-    meta['fallbackModels'] = (cfg.fallbackModels as string[]) ?? [];
-    meta['fallbackProfiles'] = (cfg.fallbackProfiles as Record<string, string[]> | undefined) ?? {};
-    meta['favoriteModels'] = (cfg.favoriteModels as string[]) ?? [];
-    meta['favoriteModelsOnly'] = cfg.favoriteModelsOnly === true;
-    meta['modelAvailabilitySchedule'] = cfg.modelAvailabilitySchedule ?? [];
-    meta['modelMatrix'] = (cfg.modelMatrix as Config['modelMatrix'] | undefined) ?? {};
-    meta['fallbackAuto'] = cfg.fallbackAuto !== false;
-    if (typeof cfg.uiLocale === 'string' && cfg.uiLocale) meta['uiLocale'] = cfg.uiLocale;
-    meta['featureMcp'] = features['mcp'] !== false;
-    meta['featurePlugins'] = features['plugins'] !== false;
-    meta['featureMemory'] = features['memory'] !== false;
-    meta['featureSkills'] = features['skills'] !== false;
-    meta['featureModelsRegistry'] = features['modelsRegistry'] !== false;
-    meta['indexOnStart'] = (cfg.indexing as Record<string, unknown>)?.['onSessionStart'] !== false;
-    meta['contextAutoCompact'] =
-      (cfg.context as Record<string, unknown>)?.['autoCompact'] !== false;
-    meta['contextStrategy'] = (cfg.context as Record<string, unknown>)?.['strategy'] ?? 'hybrid';
-    meta['contextMode'] = (cfg.context as Record<string, unknown>)?.['mode'] ?? 'balanced';
-    {
-      const tsm = (features as Record<string, unknown>)['tokenSavingMode'];
-      meta['tokenSavingTier'] = typeof tsm === 'string' ? tsm : tsm ? 'medium' : 'off';
+  // Use the already-merged in-memory config (bootstrap + profile + layers).
+  // The raw file at globalConfigPath is now only { version, activeProfile }
+  // and contains none of the user settings needed to seed the WebUI prefs.
+  let cfg = opts.appConfig as Record<string, unknown> | undefined;
+  if (!cfg || Object.keys(cfg).length === 0) {
+    // Keep the helper usable for legacy callers and focused tests that only
+    // provide a config path. Prefer the active profile when it is available;
+    // globalConfigPath remains the fallback for pre-profile installations.
+    const configPath = opts.profileConfigPath ?? opts.globalConfigPath;
+    if (!configPath) return;
+    try {
+      const raw = await fs.readFile(configPath, 'utf8');
+      cfg = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      // Best-effort startup seed: a missing/corrupt file leaves prefs unseeded.
+      return;
     }
-    meta['maxConcurrent'] = typeof cfg.maxConcurrent === 'number' ? cfg.maxConcurrent : 10;
-    meta['titleAnimation'] = autonomyCfg['terminalTitleAnimation'] !== false;
-    {
-      const mr = (cfg.modelRuntime as Record<string, unknown> | undefined) ?? {};
-      const reasoning = (mr['reasoning'] as Record<string, unknown> | undefined) ?? {};
-      const cache = (mr['cache'] as Record<string, unknown> | undefined) ?? {};
-      meta['reasoningMode'] = (reasoning['mode'] as string) ?? 'auto';
-      meta['reasoningEffort'] = (reasoning['effort'] as string) ?? 'high';
-      meta['reasoningPreserve'] = reasoning['preserve'] === true;
-      meta['cacheTtl'] = (cache['ttl'] as string) ?? 'default';
-    }
-    meta['logLevel'] = (cfg.log as Record<string, unknown>)?.['level'] ?? 'info';
-    meta['auditLevel'] = (cfg.session as Record<string, unknown>)?.['auditLevel'] ?? 'standard';
-    meta['maxIterations'] = (cfg.tools as Record<string, unknown>)?.['maxIterations'] ?? 500;
-    const hqCfg = (cfg.hq as Record<string, unknown>) ?? {};
-    meta['hqEnabled'] = hqCfg['enabled'] === true;
-    meta['hqUrl'] = typeof hqCfg['url'] === 'string' ? (hqCfg['url'] as string) : '';
-    meta['hqToken'] = typeof hqCfg['token'] === 'string' ? (hqCfg['token'] as string) : '';
-    meta['hqRawContent'] = hqCfg['rawContent'] === true;
-    meta['refinerProvider'] = (autonomyCfg['refinerProvider'] as string) ?? '';
-    meta['refinerModel'] = (autonomyCfg['refinerModel'] as string) ?? '';
-    meta['refinerFallbackProfile'] = (autonomyCfg['refinerFallbackProfile'] as string) ?? '';
-    meta['thinkingWord'] = (autonomyCfg['thinkingWord'] as string) ?? 'thinking';
-    meta['statuslineMode'] = (autonomyCfg['statuslineMode'] as string) ?? 'detailed';
-    meta['animationStyle'] = (autonomyCfg['animationStyle'] as string) ?? 'rainbow';
-    // Telegram plugin notification settings live under extensions.telegram —
-    // same path the standalone server seeds and /telegram-settings writes.
-    const tgExt = (cfg.extensions as Record<string, Record<string, unknown>> | undefined)?.[
-      'telegram'
-    ];
-    meta['tgConfigured'] =
-      typeof tgExt?.['botToken'] === 'string' && (tgExt['botToken'] as string).length > 0;
-    meta['tgSessionEnd'] = tgExt?.['notifyOnSessionEnd'] === true;
-    meta['tgDelegate'] = tgExt?.['notifyOnDelegate'] !== false; // default true
-    const tgMs = tgExt?.['longToolThresholdMs'];
-    meta['tgLongToolMs'] = typeof tgMs === 'number' ? (tgMs as number) : 30_000;
-    // Safety / system prefs
-    const cbCfg = (cfg.circuitBreaker as Record<string, unknown>) ?? {};
-    meta['breakerEnabled'] = cbCfg['enabled'] === true;
-    meta['breakerAutoKillResetMs'] =
-      typeof cbCfg['autoKillResetMs'] === 'number' ? cbCfg['autoKillResetMs'] : 60_000;
-    {
-      // Same precedence as deriveFsAccessPair: features.allowOutsideProjectRoot
-      // wins when set, else the legacy tools.restrictToProjectRoot inverse.
-      const featuresAllow = features['allowOutsideProjectRoot'];
-      const toolsRestrict = (cfg.tools as Record<string, unknown>)?.['restrictToProjectRoot'];
-      const allow =
-        featuresAllow !== undefined
-          ? featuresAllow === true
-          : toolsRestrict !== undefined
-            ? toolsRestrict !== true
-            : true;
-      meta['fsAccess'] = allow ? 'unrestricted' : 'project';
-    }
-    meta['debugStream'] = cfg.debugStream === true;
-
-    // Chimera (post-session) — seed from extensions['wstack-chimera'].
-    // Defaults match ResolvedChimeraConfig (chimera-plugin.ts:34):
-    // enabled=true; provider/model/session fallback.
-    const chimeraExt = (cfg.extensions as Record<string, Record<string, unknown>> | undefined)?.[
-      'wstack-chimera'
-    ];
-    meta['chimeraEnabled'] = chimeraExt?.['enabled'] !== false; // default true
-    meta['chimeraProvider'] = (chimeraExt?.['provider'] as string) ?? '';
-    meta['chimeraModel'] = (chimeraExt?.['model'] as string) ?? '';
-    meta['chimeraMaxFiles'] =
-      typeof chimeraExt?.['maxFiles'] === 'number' && (chimeraExt['maxFiles'] as number) >= 1
-        ? (chimeraExt['maxFiles'] as number)
-        : 15;
-    const autoFix = chimeraExt?.['autoFix'];
-    meta['chimeraAutoFix'] =
-      autoFix === 'off' || autoFix === 'ask' || autoFix === 'auto' ? autoFix : 'off';
-
-    // Auto-review (mid-session continuous) — seed from extensions['wstack-auto-review'].
-    // Defaults match ResolvedAutoReviewConfig (auto-review-plugin.ts:42):
-    // enabled=false; provider/model resolve via fallbackProfile/effective chain.
-    const autoReviewExt = (cfg.extensions as Record<string, Record<string, unknown>> | undefined)?.[
-      'wstack-auto-review'
-    ];
-    meta['autoReviewEnabled'] = autoReviewExt?.['enabled'] === true; // default false (strict opt-in)
-    meta['autoReviewProvider'] = (autoReviewExt?.['provider'] as string) ?? '';
-    meta['autoReviewModel'] = (autoReviewExt?.['model'] as string) ?? '';
-    meta['autoReviewFallbackProfile'] = (autoReviewExt?.['fallbackProfile'] as string) ?? '';
-    // Resolve the effective fallback chain for auto-review via the same
-    // FallbackProfileManager the plugin uses (auto-review-plugin.ts:62-69),
-    // so the SettingsPanel displays the chain the plugin will actually run.
-    // Inputs: extensions['wstack-auto-review'].fallbackProfile (named) OR
-    // the session-effective chain via config.fallbackModels/fallbackProfiles.
-    {
-      let resolvedChain: ReadonlyArray<{ providerId: string; model: string }> = [];
-      try {
-        // cfg is the parsed config.json (JSON.parse → Record<string, unknown>).
-        // FallbackProfileManager takes Config; cast through unknown since the
-        // resolver only reads the fallback-models fields it knows about.
-        const mgr = new FallbackProfileManager(cfg as unknown as Config);
-        const named = autoReviewExt?.['fallbackProfile'];
-        resolvedChain =
-          typeof named === 'string' && named.length > 0
-            ? mgr.resolve(named)
-            : mgr.resolveEffective({ fallbackAuto: true });
-      } catch {
-        resolvedChain = [];
-      }
-      meta['autoReviewFallbackModels'] = resolvedChain.map((e) => `${e.providerId}/${e.model}`);
-    }
-    meta['autoReviewDebounceMs'] =
-      typeof autoReviewExt?.['debounceMs'] === 'number' &&
-      (autoReviewExt['debounceMs'] as number) >= 0
-        ? (autoReviewExt['debounceMs'] as number)
-        : 5000;
-    meta['autoReviewMaxFilesPerBatch'] =
-      typeof autoReviewExt?.['maxFilesPerBatch'] === 'number' &&
-      (autoReviewExt['maxFilesPerBatch'] as number) >= 1
-        ? (autoReviewExt['maxFilesPerBatch'] as number)
-        : 15;
-    meta['autoReviewMaxConcurrentReviews'] =
-      typeof autoReviewExt?.['maxConcurrentReviews'] === 'number' &&
-      (autoReviewExt['maxConcurrentReviews'] as number) >= 1
-        ? (autoReviewExt['maxConcurrentReviews'] as number)
-        : 2;
-    const cascade = autoReviewExt?.['cascadeOn'];
-    meta['autoReviewCascadeOn'] = cascade === 'critical' || cascade === 'high' ? cascade : 'off';
-  } catch {
-    // best-effort — missing/corrupt config just leaves prefs unseeded
   }
+  const autonomyCfg = (cfg.autonomy as Record<string, unknown>) ?? {};
+  const features = (cfg.features as Record<string, unknown>) ?? {};
+  // A few lightweight server embeddings construct an agent context without
+  // a meta bag. Seeding should initialize it instead of aborting WebUI boot.
+  const meta = (opts.agent.ctx.meta ??= {});
+
+  const rawMode = autonomyCfg['defaultMode'];
+  meta['autonomy'] = rawMode === 'suggest' || rawMode === 'auto' ? rawMode : 'off';
+  meta['autonomyDelayMs'] = (autonomyCfg['autoProceedDelayMs'] as number) ?? 45_000;
+  meta['autoProceedMaxIterations'] = (autonomyCfg['autoProceedMaxIterations'] as number) ?? 50;
+  meta['yolo'] = (autonomyCfg['yolo'] as boolean) ?? (cfg.yolo as boolean) ?? false;
+  meta['chime'] = (autonomyCfg['chime'] as boolean) ?? false;
+  meta['confirmExit'] = autonomyCfg['confirmExit'] !== false;
+  meta['streamFleet'] = autonomyCfg['streamFleet'] !== false;
+  meta['enhanceEnabled'] = (autonomyCfg['enhance'] as boolean) ?? true;
+  meta['enhanceDelayMs'] = (autonomyCfg['enhanceDelayMs'] as number) ?? 60_000;
+  meta['enhanceLanguage'] = (autonomyCfg['enhanceLanguage'] as string) ?? 'original';
+  meta['nextPrediction'] = (cfg.nextPrediction as boolean) ?? false;
+  meta['fallbackModels'] = (cfg.fallbackModels as string[]) ?? [];
+  meta['fallbackProfiles'] = (cfg.fallbackProfiles as Record<string, string[]> | undefined) ?? {};
+  meta['favoriteModels'] = (cfg.favoriteModels as string[]) ?? [];
+  meta['favoriteModelsOnly'] = cfg.favoriteModelsOnly === true;
+  meta['modelAvailabilitySchedule'] = cfg.modelAvailabilitySchedule ?? [];
+  meta['modelMatrix'] = (cfg.modelMatrix as Config['modelMatrix'] | undefined) ?? {};
+  meta['fallbackAuto'] = cfg.fallbackAuto !== false;
+  if (typeof cfg.uiLocale === 'string' && cfg.uiLocale) meta['uiLocale'] = cfg.uiLocale;
+  meta['featureMcp'] = features['mcp'] !== false;
+  meta['featurePlugins'] = features['plugins'] !== false;
+  meta['featureMemory'] = features['memory'] !== false;
+  meta['featureSkills'] = features['skills'] !== false;
+  meta['featureModelsRegistry'] = features['modelsRegistry'] !== false;
+  meta['indexOnStart'] = (cfg.indexing as Record<string, unknown>)?.['onSessionStart'] !== false;
+  meta['contextAutoCompact'] = (cfg.context as Record<string, unknown>)?.['autoCompact'] !== false;
+  meta['contextStrategy'] = (cfg.context as Record<string, unknown>)?.['strategy'] ?? 'hybrid';
+  meta['contextMode'] = (cfg.context as Record<string, unknown>)?.['mode'] ?? 'balanced';
+  {
+    const tsm = (features as Record<string, unknown>)['tokenSavingMode'];
+    meta['tokenSavingTier'] = typeof tsm === 'string' ? tsm : tsm ? 'medium' : 'off';
+  }
+  meta['maxConcurrent'] = typeof cfg.maxConcurrent === 'number' ? cfg.maxConcurrent : 10;
+  meta['titleAnimation'] = autonomyCfg['terminalTitleAnimation'] !== false;
+  {
+    const mr = (cfg.modelRuntime as Record<string, unknown> | undefined) ?? {};
+    const reasoning = (mr['reasoning'] as Record<string, unknown> | undefined) ?? {};
+    const cache = (mr['cache'] as Record<string, unknown> | undefined) ?? {};
+    meta['reasoningMode'] = (reasoning['mode'] as string) ?? 'auto';
+    meta['reasoningEffort'] = (reasoning['effort'] as string) ?? 'high';
+    meta['reasoningPreserve'] = reasoning['preserve'] === true;
+    meta['cacheTtl'] = (cache['ttl'] as string) ?? 'default';
+  }
+  meta['logLevel'] = (cfg.log as Record<string, unknown>)?.['level'] ?? 'info';
+  meta['auditLevel'] = (cfg.session as Record<string, unknown>)?.['auditLevel'] ?? 'standard';
+  meta['maxIterations'] = (cfg.tools as Record<string, unknown>)?.['maxIterations'] ?? 500;
+  const hqCfg = (cfg.hq as Record<string, unknown>) ?? {};
+  meta['hqEnabled'] = hqCfg['enabled'] === true;
+  meta['hqUrl'] = typeof hqCfg['url'] === 'string' ? (hqCfg['url'] as string) : '';
+  meta['hqToken'] = typeof hqCfg['token'] === 'string' ? (hqCfg['token'] as string) : '';
+  meta['hqRawContent'] = hqCfg['rawContent'] === true;
+  meta['refinerProvider'] = (autonomyCfg['refinerProvider'] as string) ?? '';
+  meta['refinerModel'] = (autonomyCfg['refinerModel'] as string) ?? '';
+  meta['refinerFallbackProfile'] = (autonomyCfg['refinerFallbackProfile'] as string) ?? '';
+  meta['thinkingWord'] = (autonomyCfg['thinkingWord'] as string) ?? 'thinking';
+  meta['statuslineMode'] = (autonomyCfg['statuslineMode'] as string) ?? 'detailed';
+  meta['animationStyle'] = (autonomyCfg['animationStyle'] as string) ?? 'rainbow';
+  // Telegram plugin notification settings live under extensions.telegram —
+  // same path the standalone server seeds and /telegram-settings writes.
+  const tgExt = (cfg.extensions as Record<string, Record<string, unknown>> | undefined)?.[
+    'telegram'
+  ];
+  meta['tgConfigured'] =
+    typeof tgExt?.['botToken'] === 'string' && (tgExt['botToken'] as string).length > 0;
+  meta['tgSessionEnd'] = tgExt?.['notifyOnSessionEnd'] === true;
+  meta['tgDelegate'] = tgExt?.['notifyOnDelegate'] !== false; // default true
+  const tgMs = tgExt?.['longToolThresholdMs'];
+  meta['tgLongToolMs'] = typeof tgMs === 'number' ? (tgMs as number) : 30_000;
+  // Safety / system prefs
+  const cbCfg = (cfg.circuitBreaker as Record<string, unknown>) ?? {};
+  meta['breakerEnabled'] = cbCfg['enabled'] === true;
+  meta['breakerAutoKillResetMs'] =
+    typeof cbCfg['autoKillResetMs'] === 'number' ? cbCfg['autoKillResetMs'] : 60_000;
+  {
+    // Same precedence as deriveFsAccessPair: features.allowOutsideProjectRoot
+    // wins when set, else the legacy tools.restrictToProjectRoot inverse.
+    const featuresAllow = features['allowOutsideProjectRoot'];
+    const toolsRestrict = (cfg.tools as Record<string, unknown>)?.['restrictToProjectRoot'];
+    const allow =
+      featuresAllow !== undefined
+        ? featuresAllow === true
+        : toolsRestrict !== undefined
+          ? toolsRestrict !== true
+          : true;
+    meta['fsAccess'] = allow ? 'unrestricted' : 'project';
+  }
+  meta['debugStream'] = cfg.debugStream === true;
+
+  // Chimera (post-session) — seed from extensions['wstack-chimera'].
+  // Defaults match ResolvedChimeraConfig (chimera-plugin.ts:34):
+  // enabled=true; provider/model/session fallback.
+  const chimeraExt = (cfg.extensions as Record<string, Record<string, unknown>> | undefined)?.[
+    'wstack-chimera'
+  ];
+  meta['chimeraEnabled'] = chimeraExt?.['enabled'] !== false; // default true
+  meta['chimeraProvider'] = (chimeraExt?.['provider'] as string) ?? '';
+  meta['chimeraModel'] = (chimeraExt?.['model'] as string) ?? '';
+  meta['chimeraMaxFiles'] =
+    typeof chimeraExt?.['maxFiles'] === 'number' && (chimeraExt['maxFiles'] as number) >= 1
+      ? (chimeraExt['maxFiles'] as number)
+      : 15;
+  const autoFix = chimeraExt?.['autoFix'];
+  meta['chimeraAutoFix'] =
+    autoFix === 'off' || autoFix === 'ask' || autoFix === 'auto' ? autoFix : 'off';
+
+  // Auto-review (mid-session continuous) — seed from extensions['wstack-auto-review'].
+  // Defaults match ResolvedAutoReviewConfig (auto-review-plugin.ts:42):
+  // enabled=false; provider/model resolve via fallbackProfile/effective chain.
+  const autoReviewExt = (cfg.extensions as Record<string, Record<string, unknown>> | undefined)?.[
+    'wstack-auto-review'
+  ];
+  meta['autoReviewEnabled'] = autoReviewExt?.['enabled'] === true; // default false (strict opt-in)
+  meta['autoReviewProvider'] = (autoReviewExt?.['provider'] as string) ?? '';
+  meta['autoReviewModel'] = (autoReviewExt?.['model'] as string) ?? '';
+  meta['autoReviewFallbackProfile'] = (autoReviewExt?.['fallbackProfile'] as string) ?? '';
+  // Resolve the effective fallback chain for auto-review via the same
+  // FallbackProfileManager the plugin uses (auto-review-plugin.ts:62-69),
+  // so the SettingsPanel displays the chain the plugin will actually run.
+  // Inputs: extensions['wstack-auto-review'].fallbackProfile (named) OR
+  // the session-effective chain via config.fallbackModels/fallbackProfiles.
+  {
+    let resolvedChain: ReadonlyArray<{ providerId: string; model: string }> = [];
+    try {
+      // cfg is the parsed config.json (JSON.parse → Record<string, unknown>).
+      // FallbackProfileManager takes Config; cast through unknown since the
+      // resolver only reads the fallback-models fields it knows about.
+      const mgr = new FallbackProfileManager(cfg as unknown as Config);
+      const named = autoReviewExt?.['fallbackProfile'];
+      resolvedChain =
+        typeof named === 'string' && named.length > 0
+          ? mgr.resolve(named)
+          : mgr.resolveEffective({ fallbackAuto: true });
+    } catch {
+      resolvedChain = [];
+    }
+    meta['autoReviewFallbackModels'] = resolvedChain.map((e) => `${e.providerId}/${e.model}`);
+  }
+  meta['autoReviewDebounceMs'] =
+    typeof autoReviewExt?.['debounceMs'] === 'number' &&
+    (autoReviewExt['debounceMs'] as number) >= 0
+      ? (autoReviewExt['debounceMs'] as number)
+      : 5000;
+  meta['autoReviewMaxFilesPerBatch'] =
+    typeof autoReviewExt?.['maxFilesPerBatch'] === 'number' &&
+    (autoReviewExt['maxFilesPerBatch'] as number) >= 1
+      ? (autoReviewExt['maxFilesPerBatch'] as number)
+      : 15;
+  meta['autoReviewMaxConcurrentReviews'] =
+    typeof autoReviewExt?.['maxConcurrentReviews'] === 'number' &&
+    (autoReviewExt['maxConcurrentReviews'] as number) >= 1
+      ? (autoReviewExt['maxConcurrentReviews'] as number)
+      : 2;
+  const cascade = autoReviewExt?.['cascadeOn'];
+  meta['autoReviewCascadeOn'] = cascade === 'critical' || cascade === 'high' ? cascade : 'off';
 }
 
 // ── createPrefsSeeding ────────────────────────────────────────────────────────
@@ -347,9 +366,13 @@ export function createPrefsSeeding(opts: CliWebUIOptions): PrefsSeeding {
     return snapshot;
   };
 
-  /** Persist a preference diff back to config.json. */
+  /** Persist a preference diff back to the active profile config. */
   const persistPrefs = async (payload: PrefSnapshot): Promise<void> => {
-    const configPath = opts.globalConfigPath;
+    // Write to the profile config (~/.wrongstack/profiles/<name>/config.json)
+    // instead of the bootstrap file (~/.wrongstack/config.json), which should
+    // only contain { version, activeProfile }. Fall back to globalConfigPath
+    // when profileConfigPath is not available (no profile system active).
+    const configPath = opts.profileConfigPath ?? opts.globalConfigPath;
     if (Array.isArray(payload['fallbackModels']))
       patchLiveAppConfig({ fallbackModels: payload['fallbackModels'] as string[] });
     if (
@@ -387,8 +410,14 @@ export function createPrefsSeeding(opts: CliWebUIOptions): PrefsSeeding {
     const write = async (): Promise<void> => {
       const raw = await fs.readFile(configPath, 'utf8');
       const parsed = JSON.parse(raw) as Record<string, unknown>;
+      // Vault key lives at ~/.wrongstack/.key, not in the profile directory.
+      // Derive from globalConfigPath so the key path stays correct even when
+      // configPath points to the profile config.
+      const globalRoot = opts.globalConfigPath ? path.dirname(opts.globalConfigPath) : undefined;
       const vault = new DefaultSecretVault({
-        keyFile: path.join(path.dirname(configPath), '.key'),
+        keyFile: globalRoot
+          ? path.join(globalRoot, '.key')
+          : path.join(path.dirname(configPath), '.key'),
       });
       const decrypted = decryptConfigSecrets(parsed, vault) as Record<string, unknown>;
 

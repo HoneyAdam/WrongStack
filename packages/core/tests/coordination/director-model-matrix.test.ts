@@ -18,7 +18,10 @@ type MatrixSource =
   | Record<string, { provider?: string; model: string }>
   | (() => Record<string, { provider?: string; model: string }> | undefined);
 
-function makeDirector(modelMatrix?: MatrixSource): Director {
+function makeDirector(
+  modelMatrix?: MatrixSource,
+  session?: { provider?: string; model?: string },
+): Director {
   return new Director({
     config: {
       coordinatorId: 'mm-test',
@@ -27,6 +30,8 @@ function makeDirector(modelMatrix?: MatrixSource): Director {
     },
     runner: noopRunner,
     modelMatrix,
+    sessionProvider: session?.provider,
+    sessionModel: session?.model,
   });
 }
 
@@ -108,6 +113,78 @@ describe('Director model matrix', () => {
     const spawned = captureSpawned(d);
     await d.spawn({ name: role, role });
     expect(spawned.current?.model).toBeUndefined();
+  });
+
+  it('normalizes blank spawn fields before resolving the matrix', async () => {
+    const d = makeDirector({ [role]: { provider: 'minimax', model: 'minimax-m3' } });
+    director = d;
+    const spawned = captureSpawned(d);
+    await d.spawn({ name: role, role, provider: '   ', model: '' });
+    expect(spawned.current).toEqual({ provider: 'minimax', model: 'minimax-m3' });
+  });
+
+  it('falls back to the session provider and model when the matrix does not resolve', async () => {
+    const d = makeDirector(undefined, { provider: 'anthropic', model: 'claude-sonnet' });
+    director = d;
+    const spawned = captureSpawned(d);
+    await d.spawn({ name: role, role });
+    expect(spawned.current).toEqual({ provider: 'anthropic', model: 'claude-sonnet' });
+  });
+
+  it('preserves a model-only matrix route while filling only its missing provider', async () => {
+    const d = makeDirector(
+      { [role]: { model: 'role-specific-model' } },
+      { provider: 'anthropic', model: 'session-model' },
+    );
+    director = d;
+    const spawned = captureSpawned(d);
+    await d.spawn({ name: role, role });
+    expect(spawned.current).toEqual({ provider: 'anthropic', model: 'role-specific-model' });
+  });
+
+  it('fills only the missing provider from session when matrix provides only model', async () => {
+    const d = makeDirector(
+      { [role]: { model: 'matrix-model' } },
+      { provider: 'anthropic' },  // no sessionModel
+    );
+    director = d;
+    const spawned = captureSpawned(d);
+    await d.spawn({ name: role, role });
+    // Session provider fills in but session model is absent — matrix model must survive.
+    expect(spawned.current).toEqual({ provider: 'anthropic', model: 'matrix-model' });
+  });
+
+  it('fills only the missing model from session when matrix provides only provider', async () => {
+    const d = makeDirector(
+      { [role]: { provider: 'minimax' } },
+      { model: 'session-model' },  // no sessionProvider
+    );
+    director = d;
+    const spawned = captureSpawned(d);
+    await d.spawn({ name: role, role });
+    // Session model fills in but session provider is absent — matrix provider must survive.
+    expect(spawned.current).toEqual({ provider: 'minimax', model: 'session-model' });
+  });
+
+  it('does not let a partial session override a fully-resolved matrix entry', async () => {
+    const d = makeDirector(
+      { [role]: { provider: 'zai', model: 'glm-5-turbo' } },
+      { provider: 'anthropic' },  // partial session, not needed
+    );
+    director = d;
+    const spawned = captureSpawned(d);
+    await d.spawn({ name: role, role });
+    // Matrix fully resolved — session provider must not overwrite matrix provider.
+    expect(spawned.current).toEqual({ provider: 'zai', model: 'glm-5-turbo' });
+  });
+
+  it('fills only the available session field when matrix resolves nothing', async () => {
+    const d = makeDirector(undefined, { provider: 'anthropic' });  // no sessionModel
+    director = d;
+    const spawned = captureSpawned(d);
+    await d.spawn({ name: role, role });
+    // Only provider field is filled; model remains undefined.
+    expect(spawned.current).toEqual({ provider: 'anthropic', model: undefined });
   });
 
   it('re-reads a live (function) matrix on every spawn', async () => {

@@ -44,6 +44,12 @@ import type { SecretVault } from '../types/secret-vault.js';
  */
 export interface ProviderConfigSnapshot {
   providers: Record<string, ProviderConfig>;
+  /** True when the config file actually had a `providers` key. The watcher
+   *  callback uses this to avoid clearing in-memory providers during hot-reload
+   *  when the profile config file simply doesn't define any — without this
+   *  guard, reading a profile config that has no `providers` key would set
+   *  `appConfig.providers = {}` and wipe all configured providers. */
+  snapshotHasProviders: boolean;
   apiKey?: string;
   baseUrl?: string;
   /** Display language (Config.uiLocale), surfaced so a cross-process change
@@ -113,6 +119,7 @@ export async function readProviderSnapshot(
   };
   const snapshot: ProviderConfigSnapshot = {
     providers: decrypted.providers ?? {},
+    snapshotHasProviders: decrypted.providers !== undefined,
   };
   if (typeof decrypted.apiKey === 'string') snapshot.apiKey = decrypted.apiKey;
   if (typeof decrypted.baseUrl === 'string') snapshot.baseUrl = decrypted.baseUrl;

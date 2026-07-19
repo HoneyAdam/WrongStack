@@ -83,21 +83,30 @@ export async function initializeCli(argv: string[]): Promise<CliContext | number
   // we re-run the relevant short-circuit with the augmented argv so
   // existing flag parsing paths keep their single source of truth.
   const { flags: _earlyForMenu, positional: _positionalForMenu } = parseArgs(argv);
-  const menuResult = await runLaunchMenu({
-    argv,
-    flags: _earlyForMenu,
-    positional: _positionalForMenu,
-    renderer: new TerminalRenderer(),
-    reader: new ReadlineInputReader(),
-    // Last-saved menu choice wiring is intentionally minimal here:
-    // we only honor it when the user has *also* chosen no other
-    // surface flag. The persisted record is updated lazily inside
-    // boot() via a follow-up patch in the wiring layer, but the
-    // menu itself stays stateless so unit tests don't need to mock
-    // a ConfigStore. Users who want the saved-port shortcut without
-    // the menu can pass `--no-menu --webui --port=<saved>`.
-    lastChoice: undefined,
-  });
+  const launchMenuReader = new ReadlineInputReader();
+  let menuResult: Awaited<ReturnType<typeof runLaunchMenu>>;
+  try {
+    menuResult = await runLaunchMenu({
+      argv,
+      flags: _earlyForMenu,
+      positional: _positionalForMenu,
+      renderer: new TerminalRenderer(),
+      reader: launchMenuReader,
+      // Last-saved menu choice wiring is intentionally minimal here:
+      // we only honor it when the user has *also* chosen no other
+      // surface flag. The persisted record is updated lazily inside
+      // boot() via a follow-up patch in the wiring layer, but the
+      // menu itself stays stateless so unit tests don't need to mock
+      // a ConfigStore. Users who want the saved-port shortcut without
+      // the menu can pass `--no-menu --webui --port=<saved>`.
+      lastChoice: undefined,
+    });
+  } finally {
+    // The launch menu owns a short-lived readline instance. Fully release it
+    // before boot creates its own reader (and before Ink later takes stdin),
+    // so no listener or closed-interface state leaks across owners.
+    await launchMenuReader.close();
+  }
   let effectiveArgv = argv;
   if (menuResult !== null) {
     if (menuResult.cancelled) {

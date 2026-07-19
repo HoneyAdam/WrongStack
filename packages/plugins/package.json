@@ -1,7 +1,7 @@
 {
   "name": "@wrongstack/plugins",
   "version": "0.291.1",
-  "description": "Official WrongStack plugin collection — 63 focused, single-purpose plugins for code quality, security, observability, planning, and agent coordination",
+  "description": "Official WrongStack plugin collection — 64 focused, single-purpose plugins for code quality, security, observability, planning, and agent coordination",
   "license": "MIT",
   "author": "ECOSTACK TECHNOLOGY OÜ",
   "type": "module",
@@ -107,6 +107,10 @@
     "./path-guard": {
       "types": "./dist/path-guard.d.ts",
       "import": "./dist/path-guard.js"
+    },
+    "./process-guard": {
+      "types": "./dist/process-guard.d.ts",
+      "import": "./dist/process-guard.js"
     },
     "./context-pins": {
       "types": "./dist/context-pins.d.ts",

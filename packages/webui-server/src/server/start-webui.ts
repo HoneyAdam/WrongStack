@@ -477,12 +477,19 @@ export async function startWebUI(
     prefSnapshot,
   };
 
-  // Hot-reload provider credentials when config.json changes on disk (another
+  // Hot-reload provider credentials when config file changes on disk (another
   // terminal's `wstack auth`, a provider panel in another window, or a manual
-  // edit). Rebuild the live agent's provider so the next message uses the new
-  // key without restarting the server, and re-broadcast the saved-providers
+  // edit). Rebuild the live agent's provider so the next message uses the
+  // new key without restarting the server, and re-broadcast the saved-providers
   // projection so every connected panel re-renders. Mirrors `switchModel`'s
   // live-swap (routes.ts). Escape hatch: WRONGSTACK_DISABLE_CONFIG_WATCH=1.
+  //
+  // Watches the ACTIVE PROFILE config (~/.wrongstack/profiles/<name>/config.json)
+  // where all user settings, providers, and routing configs live. Falls back to
+  // the bootstrap config (~/.wrongstack/config.json) when no profile system is
+  // active. The bootstrap itself only holds { version, activeProfile }, so
+  // watching it would never detect provider or routing changes.
+  const watchConfigPath = profileConfigPath ?? globalConfigPath;
   let credentialWatcherClose: (() => void) | undefined;
   if (process.env['WRONGSTACK_DISABLE_CONFIG_WATCH'] !== '1') {
     let lastActiveCfg = JSON.stringify(
@@ -493,7 +500,7 @@ export async function startWebUI(
     // webui client live, without a restart.
     let lastUiLocale: string | undefined = state.getConfig().uiLocale;
     const credentialWatcher = watchProviderConfig(
-      globalConfigPath,
+      watchConfigPath,
       vault,
       (snapshot) => {
         // Refresh in-memory config + store so panels and the next switch read fresh.

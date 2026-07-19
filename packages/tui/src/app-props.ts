@@ -357,6 +357,8 @@ export interface AppProps {
   family?: string | undefined;
   /** Last 3 chars of the active API key, shown in the banner for "did I pick the right key?" verification. */
   keyTail?: string | undefined;
+  /** Active fallback profile name, shown in the banner (e.g. "default"). */
+  profile?: string | undefined;
   /** Background autonomy agents to display in the banner (Brain, Shadow,
    *  Kanban, Mailbox, Memory, etc.). */
   autonomyAgents?: import('./components/history/types.js').AutonomyAgentStatus[] | undefined;

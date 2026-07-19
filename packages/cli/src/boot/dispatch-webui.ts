@@ -41,6 +41,8 @@ export interface WebUIDispatchContext {
   flags: Record<string, string | boolean>;
   projectRoot: string;
   globalConfigPath: string;
+  /** Resolved profile config path: ~/.wrongstack/profiles/<activeProfile>/config.json */
+  profileConfigPath?: string | undefined;
   projectSessionsDir: string;
   modelsRegistry: ModelsRegistry;
   mcpRegistry: MCPRegistry;
@@ -267,6 +269,7 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
     hqAllowExec: flagBoolean(['hq-allow-exec']) ?? false,
     modelsRegistry,
     globalConfigPath,
+    profileConfigPath: ctx.profileConfigPath,
     mcpRegistry,
     subscribeEternalIteration,
     sessionStore,

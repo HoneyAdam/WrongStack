@@ -74,6 +74,9 @@ export type HistoryEntry =
       /** Current session id (e.g. "sess_01KXV6…"). Static per session lifetime,
        *  used for /resume, bug reports, and mailbox coordination. */
       sessionId?: string | undefined;
+      /** Active fallback profile name (e.g. "default"), shown in the banner
+       *  to make the active profile visible at a glance. */
+      profile?: string | undefined;
       /** Background autonomy agents currently online/active (Brain, Shadow,
        *  Kanban, Mailbox, Memory, etc.). Rendered below the footer links. */
       autonomyAgents?: ReadonlyArray<AutonomyAgentStatus> | undefined;

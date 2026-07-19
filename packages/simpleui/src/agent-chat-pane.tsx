@@ -11,6 +11,7 @@ interface AgentChatPaneProps {
   entries: AgentTranscriptEntry[];
   running: boolean;
   hidden: boolean;
+  theme: 'dark' | 'light';
 }
 
 const CONVERSATION_KINDS = new Set<AgentTranscriptEntry['kind']>([
@@ -39,6 +40,11 @@ function formatTime(value: string): string {
   return new Date(parsed).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+/** Shiki theme name for syntax-highlighted code blocks. */
+function codeTheme(theme: 'dark' | 'light'): string {
+  return theme === 'light' ? 'github-light' : 'github-dark-dimmed';
+}
+
 /** A mounted pane preserves its DOM and scroll position while another tab is selected. */
 export const AgentChatPane = memo(function AgentChatPane({
   agentId,
@@ -46,6 +52,7 @@ export const AgentChatPane = memo(function AgentChatPane({
   entries,
   running,
   hidden,
+  theme,
 }: AgentChatPaneProps) {
   const conversationEntries = agentConversationEntries(entries);
   return (
@@ -80,7 +87,7 @@ export const AgentChatPane = memo(function AgentChatPane({
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
                       rehypePlugins={[
-                        [rehypePrettyCode, { theme: 'github-dark-dimmed', keepBackground: false }],
+                        [rehypePrettyCode, { theme: codeTheme(theme), keepBackground: false }],
                       ]}
                       components={{
                         a: ({ children, ...props }) => (

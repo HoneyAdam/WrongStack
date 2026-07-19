@@ -513,6 +513,10 @@ export class MultiAgentHost {
       taskResultNotifier: (n) => this.reportTaskResultToLeader(n),
       subagentIdleTimeoutMs,
       ...(this.opts.statusTracker ? { statusTracker: this.opts.statusTracker } : {}),
+      // Session's own working provider/model — absolute last-resort fallback
+      // for every subagent when matrix resolution leaves model undefined.
+      sessionProvider: this.deps.configStore.get().provider,
+      sessionModel: this.deps.configStore.get().model,
       retireSubagentOnTaskComplete:
         this.opts.retireSubagentOnTaskComplete ?? fleetLifecycle?.retireOnTaskComplete ?? true,
     });

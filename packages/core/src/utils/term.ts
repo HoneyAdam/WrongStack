@@ -466,6 +466,13 @@ export class TerminalLifecycle {
   private _wasRaw: boolean | null = null;
 
   /**
+   * Whether stdin was paused before the TUI took ownership. Readline closes
+   * its interface by pausing the shared process stream, so raw mode alone is
+   * not enough to make Ink receive bytes during the boot-prompt -> TUI handoff.
+   */
+  private _wasPaused: boolean | null = null;
+
+  /**
    * Request the process to exit. Set the flag, trigger any registered
    * `onRequestExit` callback (typically Ink's `unmount()`), and arm a
    * deadline timer.  When the timer fires the process is hard-exited.
@@ -530,9 +537,14 @@ export class TerminalLifecycle {
 
     // Snapshot the pre-TUI raw state so release() restores correctly.
     this._wasRaw = stdin.isRaw ?? false;
+    this._wasPaused = stdin.isPaused();
     this._stdin  = stdin;
 
     stdin.setRawMode(true);
+    // A preceding readline prompt normally leaves process.stdin paused.
+    // Explicitly start the stream before Ink installs its input listener;
+    // otherwise the UI can render perfectly while every key appears dead.
+    stdin.resume();
     this._active = true;
 
     // Windows ConPTY double-acquire: schedule a second setRawMode on the next
@@ -569,9 +581,11 @@ export class TerminalLifecycle {
     if (stdin?.isTTY === true) {
       // Restore to pre-TUI state rather than blindly disabling raw mode.
       stdin.setRawMode?.(this._wasRaw ?? false);
+      if (this._wasPaused) stdin.pause();
     }
     this._stdin  = undefined;
     this._wasRaw = null;
+    this._wasPaused = null;
   }
 
   /**

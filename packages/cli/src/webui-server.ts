@@ -214,6 +214,8 @@ export interface CliWebUIOptions {
   onListening?: (info: { httpPort: number; wsPort: number; host: string; url: string }) => void;
   modelsRegistry?: ModelsRegistry | undefined;
   globalConfigPath?: string | undefined;
+  /** Resolved profile config path: ~/.wrongstack/profiles/<activeProfile>/config.json */
+  profileConfigPath?: string | undefined;
   /**
    * Live MCP registry — the SAME instance the agent loop and `/mcp` use. When
    * provided, the WebUI MCP settings panel can add/remove/enable/disable and
@@ -766,14 +768,23 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   // the new key without a server restart, and re-broadcast the saved-providers
   // projection so every connected panel re-renders. Mirrors the live-swap that
   // `handleModelSwitch` already does. Escape hatch: WRONGSTACK_DISABLE_CONFIG_WATCH=1.
+  //
+  // Watches the ACTIVE PROFILE config (~/.wrongstack/profiles/<name>/config.json)
+  // where all user settings, providers, and routing configs live. Falls back to
+  // the bootstrap config (~/.wrongstack/config.json) when no profile system is
+  // active. The bootstrap itself only holds { version, activeProfile }, so
+  // watching it would never detect provider or routing changes.
+  const watchConfigPath = opts.profileConfigPath ?? opts.globalConfigPath;
   let credentialWatcherClose: (() => void) | undefined;
-  if (opts.globalConfigPath && process.env['WRONGSTACK_DISABLE_CONFIG_WATCH'] !== '1') {
+  if (watchConfigPath && process.env['WRONGSTACK_DISABLE_CONFIG_WATCH'] !== '1') {
     let lastActiveCfg = JSON.stringify(
       opts.appConfig?.providers?.[opts.agent.ctx.provider.id] ?? null,
     );
     let lastUiLocale = opts.appConfig?.uiLocale;
     const watcher = watchProviderConfig(
-      opts.globalConfigPath,
+      watchConfigPath,
+      // Vault key lives at ~/.wrongstack/.key (derived from globalConfigPath),
+      // not inside the profile directory — resolve via global root to stay correct.
       getVault(opts.globalConfigPath),
       (snapshot) => {
         // Best-effort: refresh the in-memory providers ref the panel reads from

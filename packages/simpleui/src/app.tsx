@@ -1210,6 +1210,7 @@ export function App() {
             copiedMessageId={copiedMessageId}
             running={running}
             activity={activity}
+            theme={theme}
             onOpenDiff={(meta) => setDiffFiles([meta])}
             emptyState={
               <div className="empty-state">
@@ -1233,6 +1234,7 @@ export function App() {
               entries={agentTranscripts[agent.id] ?? []}
               running={agent.status === 'running' || agent.status === 'busy'}
               hidden={activeAgentId !== agent.id}
+              theme={theme}
             />
           ))}
       </ErrorBoundary>

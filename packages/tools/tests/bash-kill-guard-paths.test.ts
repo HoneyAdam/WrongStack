@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 // extractKillCommand and isKillRelatedCommand are module-internal, but
 // checkAndBlockKillCommand is the public entry point that wraps them. We
 // drive coverage through it to pin the real behavior callers depend on.
-import { checkAndBlockKillCommand } from '../src/bash-kill-guard.js';
+import { checkAndBlockKillCommand, parseKillCommand } from '../src/bash-kill-guard.js';
 
 /**
  * P2 #10 (before-release.md): extractKillCommand()'s regex only matched
@@ -63,18 +63,15 @@ describe('bash-kill-guard — shell path coverage (P2 #10)', () => {
         "/usr/bin/env bash -c 'pkill node'",
       ];
 
-  it.each(shellWrappedKillCommands)(
-    'extracts the inner kill command from %j',
-    async (command) => {
-      // The command targets PID 12345 / "node" — neither is protected in a
-      // fresh registry, so the result is { blocked: false }. But if extraction
-      // failed we'd ALSO get { blocked: false } — that alone doesn't prove
-      // extraction. So we also assert against a control: an unparseable kill
-      // pipeline that ONLY blocks when extraction succeeds. (See next test.)
-      const result = await checkAndBlockKillCommand(command);
-      expect(result.blocked).toBe(false);
-    },
-  );
+  it.each(shellWrappedKillCommands)('extracts the inner kill command from %j', async (command) => {
+    // The command targets PID 12345 / "node" — neither is protected in a
+    // fresh registry, so the result is { blocked: false }. But if extraction
+    // failed we'd ALSO get { blocked: false } — that alone doesn't prove
+    // extraction. So we also assert against a control: an unparseable kill
+    // pipeline that ONLY blocks when extraction succeeds. (See next test.)
+    const result = await checkAndBlockKillCommand(command);
+    expect(result.blocked).toBe(false);
+  });
 
   // ── Pipeline block detection ────────────────────────────────────────
   // A kill command piped into another command is unparseable → the guard
@@ -82,8 +79,8 @@ describe('bash-kill-guard — shell path coverage (P2 #10)', () => {
   // extractKillCommand unwrapped the shell -c successfully.
   // On each platform we use the appropriately recognised kill command.
 
-  // On Windows use /IM (image name) not /PID so parseKillCommand returns null
-  // (the taskkill regex only matches /PID, leaving /IM pipelines unparseable)
+  // On Windows, shell control operators deliberately keep taskkill pipelines
+  // out of the simple parser so this conservative fallback handles them.
   const pipelineCommand = isWin
     ? 'cmd.exe -c "taskkill /IM notepad.exe | findstr test"'
     : '/usr/local/bin/bash -c "kill -9 12345 | xargs kill"';
@@ -107,9 +104,7 @@ describe('bash-kill-guard — shell path coverage (P2 #10)', () => {
   // ── Non-kill shell -c (no false positive) ───────────────────────────
 
   it('does not match a non-kill shell -c command (no false positive)', async () => {
-    const command = isWin
-      ? 'cmd.exe -c "echo hello"'
-      : '/usr/local/bin/bash -c "echo hello"';
+    const command = isWin ? 'cmd.exe -c "echo hello"' : '/usr/local/bin/bash -c "echo hello"';
     const result = await checkAndBlockKillCommand(command);
     expect(result.blocked).toBe(false);
   });
@@ -129,4 +124,50 @@ describe('bash-kill-guard — shell path coverage (P2 #10)', () => {
     // by design (better to over-block than under-block).
     expect(typeof result.blocked).toBe('boolean');
   });
+});
+
+describe.runIf(os.platform() === 'win32')('bash-kill-guard — Windows parser regressions', () => {
+  it.each([
+    ['kill -9 12345', { pid: 12345, signal: '9' }],
+    ['kill -TERM 12345', { pid: 12345, signal: 'TERM' }],
+    ['kill -s 9 12345', { pid: 12345, signal: '9' }],
+    ['kill -s TERM 12345', { pid: 12345, signal: 'TERM' }],
+    ['kill 12345', { pid: 12345, signal: 'TERM' }],
+    ['kill -Id 12345', { pid: 12345, signal: 'FORCE' }],
+    ['Stop-Process -Id 12345 -Force', { pid: 12345, signal: 'FORCE' }],
+    ['taskkill /F /PID 12345 /T', { pid: 12345, signal: 'FORCE' }],
+    ['taskkill /PID 12345 /F', { pid: 12345, signal: 'FORCE' }],
+    ['taskkill /PID 12345 /FI "MEMUSAGE gt 1"', { pid: 12345, signal: 'TERM' }],
+    ['taskkill /FI "IMAGENAME eq node.exe"', { name: 'node.exe', signal: 'TERM' }],
+    ['taskkill /F /FI "IMAGENAME eq node.exe"', { name: 'node.exe', signal: 'FORCE' }],
+  ] as const)('classifies PID command %j', (command, expected) => {
+    expect(parseKillCommand(command)).toMatchObject({
+      ...expected,
+      isGroupKill: false,
+      isAllKill: false,
+    });
+  });
+
+  it.each([
+    ['Stop-Process -Name node', 'node'],
+    ['Stop-Process -Name "node.exe"', 'node.exe'],
+    ['kill -Name wrongstack', 'wrongstack'],
+    ['wmic process where "name=\'node.exe\'" delete', 'node.exe'],
+    ['taskkill /F /IM node.exe /T', 'node.exe'],
+  ] as const)('captures the complete process name from %j', (command, expectedName) => {
+    expect(parseKillCommand(command)).toMatchObject({
+      name: expectedName,
+      isGroupKill: false,
+      isAllKill: false,
+    });
+  });
+
+  it.each(['.\\kill-wrongstack.ps1', './stop-agent.sh 12345'])(
+    'blocks opaque kill script %j, including zero-argument scripts',
+    async (command) => {
+      const result = await checkAndBlockKillCommand(command);
+      expect(result.blocked).toBe(true);
+      expect(result.reason).toMatch(/kill-script|script-based kill/i);
+    },
+  );
 });

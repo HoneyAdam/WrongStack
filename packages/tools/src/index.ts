@@ -106,6 +106,10 @@ export {
   type TrackedProcess,
 } from './process-registry.js';
 export {
+  checkExecKillCommand,
+  type ExecKillCheckResult,
+} from './exec-kill-guard.js';
+export {
   getPersistentProcessRegistry,
   type PersistentProcessEntry,
   type PersistentRegistryData,

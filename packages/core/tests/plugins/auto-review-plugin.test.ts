@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChimeraReviewNeededPayload, SlashCommand } from '../../src/index.js';
 import {
   createAutoReviewPlugin,
+  type AutoReviewConfig,
   DEFAULT_REVIEW_FALLBACK_MODELS,
   resolveAutoReviewConfig,
 } from '../../src/plugins/auto-review-plugin.js';
@@ -178,10 +179,12 @@ describe('resolveAutoReviewConfig — empty/unknown fallbackProfile', () => {
     );
 
     expect(resolved.fallbackModels.length).toBeGreaterThan(0);
-    // The primary session model is never listed as its own fallback.
-    expect(resolved.fallbackModels).not.toContain('session-provider/session-model');
-    // The injected chain is exactly the shared default set.
-    expect(resolved.fallbackModels).toEqual([...DEFAULT_REVIEW_FALLBACK_MODELS]);
+    // The shared defaults rotate first, followed by the known-working session
+    // model as the absolute last resort.
+    expect(resolved.fallbackModels).toEqual([
+      ...DEFAULT_REVIEW_FALLBACK_MODELS,
+      'session-provider/session-model',
+    ]);
   });
 
   it('never emits a blank model string that a provider would 401 as "Model is not supported"', () => {
@@ -212,5 +215,148 @@ describe('resolveAutoReviewConfig — empty/unknown fallbackProfile', () => {
 
     expect(resolved.provider).toBe('explicit-provider');
     expect(resolved.model).toBe('explicit-model');
+  });
+});
+
+describe('resolveAutoReviewConfig — session last-resort fallback', () => {
+  function sessionConfig(overrides: Partial<Config> = {}): Config {
+    return {
+      provider: 'session-provider',
+      model: 'session-model',
+      ...overrides,
+    } as Config;
+  }
+
+  it('appends the session provider/model as the last fallback when profile is empty', () => {
+    // When no fallbackProfile is set and resolveEffective returns [], the
+    // DEFAULT_REVIEW_FALLBACK_MODELS safety net kicks in. The session's own
+    // provider/model must be the FINAL entry so the reviewer always has a
+    // known-working target as absolute last resort.
+    const resolved = resolveAutoReviewConfig(
+      { enabled: true },
+      sessionConfig(),
+    );
+
+    const fallbacks = resolved.fallbackModels;
+    expect(fallbacks.length).toBeGreaterThan(0);
+    expect(fallbacks[fallbacks.length - 1]).toBe('session-provider/session-model');
+  });
+
+  it('appends the session provider/model as the last fallback when profile is unknown', () => {
+    // Same as above but triggered by an unknown profile name.
+    const resolved = resolveAutoReviewConfig(
+      { enabled: true, fallbackProfile: 'does-not-exist' },
+      sessionConfig(),
+    );
+
+    const fallbacks = resolved.fallbackModels;
+    expect(fallbacks.length).toBeGreaterThan(0);
+    expect(fallbacks[fallbacks.length - 1]).toBe('session-provider/session-model');
+  });
+
+  it('does not duplicate the session ref when it is already in the fallback chain', () => {
+    // When a valid profile resolves a chain that already includes the session's
+    // provider/model, the dedup check must prevent appending it again.
+    const cfg: Config = {
+      provider: 'profile-p1',
+      model: 'profile-m1',
+      fallbackProfiles: {
+        good: ['alt-provider/alt-model', 'session-provider/session-model'],
+      },
+      providers: {
+        'alt-provider': { baseUrl: 'http://alt.test', models: ['alt-model'] },
+        'session-provider': {
+          baseUrl: 'http://session.test',
+          models: ['session-model'],
+        },
+      },
+    } as Config;
+
+    const resolved = resolveAutoReviewConfig(
+      { enabled: true, fallbackProfile: 'good' },
+      cfg,
+    );
+
+    const fallbacks = resolved.fallbackModels;
+    expect(fallbacks.filter((ref) => ref === 'session-provider/session-model')).toHaveLength(1);
+  });
+
+  it('appends the session ref when the profile chain has entries but none match the session', () => {
+    // Profile resolves to models that don't include the session's own
+    // provider/model → the session ref must be appended as last entry.
+    const cfg: Config = {
+      provider: 'session-provider',
+      model: 'session-model',
+      fallbackProfiles: {
+        alt: ['alt-provider/alt-model'],
+      },
+      providers: {
+        'alt-provider': { baseUrl: 'http://alt.test', models: ['alt-model'] },
+      },
+    } as Config;
+
+    const resolved = resolveAutoReviewConfig(
+      { enabled: true, fallbackProfile: 'alt' },
+      cfg,
+    );
+
+    const fallbacks = resolved.fallbackModels;
+    expect(fallbacks[fallbacks.length - 1]).toBe('session-provider/session-model');
+  });
+
+  it('never allows an empty fallbackModels array', () => {
+    // Every code path must guarantee at least one fallback entry, ensuring
+    // the reviewer always has a rotation target.
+    const emptyConfig: Config = { provider: 'p', model: 'm' } as Config;
+    const resolved = resolveAutoReviewConfig({ enabled: true }, emptyConfig);
+    expect(resolved.fallbackModels.length).toBeGreaterThan(0);
+
+    const unknownProfile = resolveAutoReviewConfig(
+      { enabled: true, fallbackProfile: '' },
+      emptyConfig,
+    );
+    expect(unknownProfile.fallbackModels.length).toBeGreaterThan(0);
+
+    const withProfile = resolveAutoReviewConfig(
+      { enabled: true, fallbackProfile: 'nonexistent' },
+      emptyConfig,
+    );
+    expect(withProfile.fallbackModels.length).toBeGreaterThan(0);
+  });
+
+  it('fallback chain always ends with the session provider/model regardless of config', () => {
+    // Comprehensive: test multiple config combinations and verify the session
+    // ref is always the last entry in fallbackModels.
+    const configs: Array<{ cfg: AutoReviewConfig; session: Config; label: string }> = [
+      {
+        cfg: { enabled: true },
+        session: { provider: 'p1', model: 'm1' } as Config,
+        label: 'bare session',
+      },
+      {
+        cfg: { enabled: true, provider: 'explicit-p', model: 'explicit-m' },
+        session: { provider: 'p2', model: 'm2' } as Config,
+        label: 'explicit provider/model',
+      },
+      {
+        cfg: { enabled: true, fallbackProfile: 'unknown' },
+        session: { provider: 'p3', model: 'm3' } as Config,
+        label: 'unknown profile',
+      },
+      {
+        cfg: { enabled: true, provider: 'ep', model: 'em', fallbackProfile: 'u' },
+        session: { provider: 'p4', model: 'm4' } as Config,
+        label: 'explicit + unknown profile',
+      },
+    ];
+
+    for (const { cfg, session, label } of configs) {
+      const resolved = resolveAutoReviewConfig(cfg, session);
+      const fallbacks = resolved.fallbackModels;
+      expect(
+        fallbacks[fallbacks.length - 1],
+        `[${label}] last fallback should be the session provider/model`,
+      ).toBe(`${session.provider}/${session.model}`);
+    }
   });
 });

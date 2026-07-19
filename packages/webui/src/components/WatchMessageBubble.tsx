@@ -6,14 +6,14 @@
  * error status, and full-length markdown for user/assistant messages.
  */
 
-import { LazyMarkdown as ReactMarkdown } from './MessageBubble/LazyMarkdown.js';
-import remarkGfm from 'remark-gfm';
 import { AlertCircle, Bot, Clock, Terminal, User } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import remarkGfm from 'remark-gfm';
 import { useAppTranslation } from '@/i18n';
+import { cn } from '@/lib/utils';
 import { CopyButton } from './MessageBubble/CopyButton.js';
-import { ToolInputView } from './MessageBubble/ToolInputView.js';
 import { ErrorBodyWithStack } from './MessageBubble/ErrorBody.js';
+import { LazyMarkdown as ReactMarkdown } from './MessageBubble/LazyMarkdown.js';
+import { ToolInputView } from './MessageBubble/ToolInputView.js';
 import { markdownComponents, rehypePlugins } from './MessageBubble/utils.js';
 
 interface WatchEntry {
@@ -172,7 +172,9 @@ function WatchBubbleContent({ entry }: { entry: WatchEntry }) {
         {/* Error banner */}
         {entry.isError && (
           <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
-            <span className="text-xs font-medium text-destructive">{t('activity:watch.toolFailed')}</span>
+            <span className="text-xs font-medium text-destructive">
+              {t('activity:watch.toolFailed')}
+            </span>
             {entry.text && (
               <pre className="mt-1 text-xs whitespace-pre-wrap text-destructive/80">
                 {entry.text}
@@ -198,10 +200,7 @@ function WatchBubbleContent({ entry }: { entry: WatchEntry }) {
   );
 }
 
-export function WatchMessageBubble({
-  entry,
-  isContinuation = false,
-}: WatchMessageBubbleProps) {
+export function WatchMessageBubble({ entry, isContinuation = false }: WatchMessageBubbleProps) {
   const { t } = useAppTranslation();
   const cfg = ROLE_CONFIG[entry.role];
   const Icon = cfg.Icon;
@@ -251,7 +250,7 @@ export function WatchMessageBubble({
         <div
           className={cn(
             'rounded-2xl px-4 py-3 border',
-            entry.role === 'user' && 'rounded-br-md',
+            entry.role === 'user' && 'rounded-br-md msg-user-bubble',
             entry.role === 'assistant' && 'rounded-bl-md',
             entry.role === 'tool' && 'rounded-bl-sm',
             entry.role === 'system' && 'rounded-bl-sm opacity-70',

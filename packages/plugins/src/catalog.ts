@@ -44,6 +44,7 @@ import loopBreaker from './loop-breaker/index.js';
 import modelRouter from './model-router/index.js';
 import notifyHub from './notify-hub/index.js';
 import pathGuard from './path-guard/index.js';
+import processGuard from './process-guard/index.js';
 import pluginStackObserver from './plugin-stack-observer/index.js';
 import prDrafter from './pr-drafter/index.js';
 import promptFirewall from './prompt-firewall/index.js';
@@ -119,6 +120,7 @@ const ENTRIES: CatalogEntry[] = [
   { name: 'spec-linker', path: './src/spec-linker' },
   { name: loopBreaker.name, path: './src/loop-breaker' },
   { name: pathGuard.name, path: './src/path-guard' },
+  { name: processGuard.name, path: './src/process-guard' },
   { name: contextPins.name, path: './src/context-pins' },
   { name: checkpoint.name, path: './src/checkpoint' },
   { name: errorLens.name, path: './src/error-lens' },

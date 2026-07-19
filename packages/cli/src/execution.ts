@@ -107,10 +107,18 @@ import { createKanbanRunMirror } from './webui-server/kanban-run-mirror.js';
  */
 export function resolveReviewerFallbackModels(
   reviewFallbackModels?: readonly string[] | undefined,
+  /** Append session ref as a final fallback chain entry — useful on the
+   *  auto-review branch when the bundle carries a separate fallback chain;
+   *  redundant with the primary on the manual branch. */
+  sessionRef?: string,
 ): string[] {
-  return reviewFallbackModels && reviewFallbackModels.length > 0
+  const base = reviewFallbackModels && reviewFallbackModels.length > 0
     ? [...reviewFallbackModels]
     : [...DEFAULT_REVIEW_FALLBACK_MODELS];
+  if (sessionRef && !base.includes(sessionRef)) {
+    base.push(sessionRef);
+  }
+  return base;
 }
 
 /**
@@ -321,6 +329,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
   let currentRecoveryLock = activeRecoveryLock;
   const detachActiveTodosCheckpoint: (() => void | Promise<void>) | undefined =
     detachTodosCheckpoint;
+  const profileName = config.activeProfile ?? 'default';
 
   // ── Storage observability: relay storage.* events to stdout as structured JSON ──
   // The root traceId from the Context is the primary correlation ID. Storage
@@ -478,15 +487,13 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
         // control the review model. Budget is generous because reviews regularly
         // need 15–19 iterations, 21+ tools, and 2+ minutes of wall time for
         // deep multi-file reading + git cross-referencing.
-        //
-        // Fallback models: FIX-2026-07-16 — the `roleNeedsIndependentReviewModel()`
-        // guard discards the `*` default matrix entry for review roles, so the
-        // reviewer falls through to the session's own provider/model. If that model
-        // returns empty responses (common with some providers), the subagent fails
-        // immediately with 0 tool calls. The fallbackModels below give the subagent's
-        // fallback extension a chain to rotate through, trying alternative providers
-        // when the primary is unresponsive. These are parsed as `provider/model` refs.
-        // The `/setmodel set reviewer <p>/<m>` command still overrides all of this.
+        // Trim + collapse empty provider/model so the subagent never spawns with empty credentials.
+        const tProvider = config.provider?.trim() || undefined;
+        const tModel = config.model?.trim() || undefined;
+        const rawProvider = p.reviewFallbackModels ? (p.config.provider?.trim() || undefined) : tProvider;
+        const rawModel = p.reviewFallbackModels ? (p.config.model?.trim() || undefined) : tModel;
+        const effectiveProvider = rawProvider || tProvider;
+        const effectiveModel = rawModel || tModel;
         const cfg: SubagentConfig = {
           name: 'chimera-review',
           role: 'reviewer',
@@ -494,23 +501,11 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
           maxIterations: 50,
           maxToolCalls: 250,
           timeoutMs: 900_000,
-          // Auto-review resolves its configured profile before emitting the bundle
-          // and passes the explicit provider/model + fallback chain.
-          //
-          // Ordinary Chimera/manual reviews: the session config's own provider/model
-          // serve as the starting point. Together with the fallback chain this
-          // guarantees the subagent always has a concrete model to use — without it
-          // the Director's model-matrix resolution could leave config.model undefined
-          // (the `*` default is discarded for reviewer roles via
-          // roleNeedsIndependentReviewModel), causing the subagent to issue a
-          // provider request with an empty model string → 401 "Model is not
-          // supported" from opencode-go (1 iter / 0 tools / provider_auth).
-          // See fix(execution) <commit-hash>.
-          provider: p.reviewFallbackModels ? p.config.provider : config.provider,
-          model: p.reviewFallbackModels ? p.config.model : config.model,
+          provider: effectiveProvider,
+          model: effectiveModel,
           ...(p.reviewFallbackModels
             ? { fallbackModels: p.reviewFallbackModels }
-            : { fallbackModels: resolveReviewerFallbackModels() }),
+            : { fallbackModels: resolveReviewerFallbackModels(undefined) }),
         };
 
         const subagentId = await dir.spawn(cfg);
@@ -1172,6 +1167,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
           provider: config.provider,
           family: banneredFamily,
           keyTail: banneredKeyTail,
+          profile: profileName,
           getPickableProviders,
           switchProviderAndModel,
           switchAutonomy: (mode: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel') => {
@@ -1487,6 +1483,7 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
         flags,
         projectRoot,
         globalConfigPath: wpaths.globalConfig,
+        profileConfigPath: wpaths.profileConfig(profileName),
         projectSessionsDir: wpaths.projectSessions,
         modelsRegistry,
         mcpRegistry,

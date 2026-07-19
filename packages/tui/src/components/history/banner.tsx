@@ -327,6 +327,16 @@ export function Banner({
           contentWidth={contentWidth}
           compact={compact}
         />
+        {entry.profile ? (
+          <InfoRow
+            icon="⚙"
+            label="profile"
+            value={entry.profile}
+            contentWidth={contentWidth}
+            compact={compact}
+            accent
+          />
+        ) : null}
       </Box>
 
       <Footer contentWidth={contentWidth} compact={compact} />

@@ -84,7 +84,7 @@ export function ModelSection({
                 badges: m.capabilities,
                 detail: [
                   m.contextWindow ? `${Math.round(m.contextWindow / 1000)}k` : '',
-                  m.inputCost != null ? `\${m.inputCost}/\${m.outputCost}` : '',
+                  m.inputCost != null ? `${m.inputCost}/${m.outputCost}` : '',
                 ]
                   .filter(Boolean)
                   .join(' · '),

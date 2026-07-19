@@ -359,6 +359,20 @@ interface DirectorOptions {
    * subagent — so a blocked model is never assigned to a new worker.
    */
   statusTracker?: ProviderModelStatusTracker | undefined;
+  /**
+   * Session/leader's own provider id — independent per-field fallback
+   * when matrix resolution and explicit config both leave provider
+   * undefined. Both this and sessionModel must be set for every spawn
+   * to be guaranteed credentialed.
+   */
+  sessionProvider?: string | undefined;
+  /**
+   * Session/leader's own model id — independent per-field fallback
+   * when matrix resolution and explicit config both leave model
+   * undefined. Each field falls back independently; the two fields
+   * are not required to be paired.
+   */
+  sessionModel?: string | undefined;
 }
 
 /** Either a static matrix or a live getter (re-read on every spawn). */
@@ -618,6 +632,10 @@ export class Director implements ICoordinator {
   readonly largeAnswerStore: LargeAnswerStore;
   /** Shared provider/model status tracker, or undefined. */
   private readonly statusTracker: ProviderModelStatusTracker | undefined;
+  /** Session/leader's provider id — absolute last-resort fallback for every spawn. */
+  private readonly sessionProvider: string | undefined;
+  /** Session/leader's model id — paired with sessionProvider above. */
+  private readonly sessionModel: string | undefined;
 
   constructor(opts: DirectorOptions) {
     this.id = opts.config.coordinatorId || randomUUID();
@@ -666,6 +684,8 @@ export class Director implements ICoordinator {
     this.fleetManager = opts.fleetManager;
     this.statusTracker = opts.statusTracker;
     this.logger = opts.logger;
+    this.sessionProvider = opts.sessionProvider;
+    this.sessionModel = opts.sessionModel;
     if (this.sharedScratchpadPath) {
       // Create the directory eagerly so subagents that try to write
       // there on first iteration don't trip on ENOENT. Fire-and-forget,
@@ -1349,6 +1369,13 @@ export class Director implements ICoordinator {
   }
 
   private resolveSpawnModel(config: SubagentConfig): void {
+    // Normalize: empty strings are equivalent to undefined. A config that
+    // arrives with provider: "" or model: "" would bypass the !config.model
+    // check below and remain as empty strings through the entire spawn,
+    // producing a subagent with no valid credentials.
+    if (config.provider?.trim() === '') config.provider = undefined;
+    if (config.model?.trim() === '') config.model = undefined;
+
     // Per-task model matrix: when the caller didn't pin a model, resolve one
     // from the matrix by role (→ phase → `*`). Done here, before the spawned
     // event + manifest + coordinator handoff, so the fleet UI and the agent
@@ -1370,6 +1397,27 @@ export class Director implements ICoordinator {
         if (entry.modelRuntime) config.modelRuntime = entry.modelRuntime;
       }
     }
+
+    // Final per-field guarantee: when the matrix or explicit config left
+    // one field undefined, restore it from the session's own values. Each
+    // field is guarded independently — a matrix entry that sets `model` but
+    // omits `provider` (a documented supported pattern) must not have its
+    // model silently overwritten by the session fallback.
+    if (!config.provider && this.sessionProvider) {
+      config.provider = this.sessionProvider;
+      this.logger?.info(
+        `spawn: provider="${config.provider}" for role "${config.role ?? '?'}" ` +
+          'fell back to session provider (matrix resolution left it undefined)',
+      );
+    }
+    if (!config.model && this.sessionModel) {
+      config.model = this.sessionModel;
+      this.logger?.info(
+        `spawn: model="${config.model}" for role "${config.role ?? '?'}" ` +
+          'fell back to session model (matrix resolution left it undefined)',
+      );
+    }
+
     // Check the tracker — if the resolved provider/model is blocked, log a
     // warning. The subagent itself will also check via its fallback extension
     // and rotate away, but this early warning helps debugging.

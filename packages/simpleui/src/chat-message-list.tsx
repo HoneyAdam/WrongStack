@@ -16,6 +16,7 @@ interface ChatMessageListProps {
   running: boolean;
   activity: string;
   emptyState: React.ReactNode;
+  theme: 'dark' | 'light';
   onCopyMessage: (id: string, text: string) => void;
   onSelectNextStep: (text: string) => void;
   /** Open the file diff panel for a single file edit. */
@@ -28,14 +29,21 @@ interface MessageItemProps {
   message: ChatMessage;
   isLatestAssistant: boolean;
   copiedMessageId: string | null;
+  theme: 'dark' | 'light';
   onCopyMessage: (id: string, text: string) => void;
   onSelectNextStep: (text: string) => void;
+}
+
+/** Shiki theme name for syntax-highlighted code blocks. */
+function codeTheme(theme: 'dark' | 'light'): string {
+  return theme === 'light' ? 'github-light' : 'github-dark-dimmed';
 }
 
 const MessageItem = memo(function MessageItem({
   message,
   isLatestAssistant,
   copiedMessageId,
+  theme,
   onCopyMessage,
   onSelectNextStep,
 }: MessageItemProps) {
@@ -85,7 +93,7 @@ const MessageItem = memo(function MessageItem({
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[
-              [rehypePrettyCode, { theme: 'github-dark-dimmed', keepBackground: false }],
+              [rehypePrettyCode, { theme: codeTheme(theme), keepBackground: false }],
             ]}
             components={{
               a: ({ children, ...props }) => (
@@ -147,6 +155,7 @@ export function ChatMessageList({
   running,
   activity,
   emptyState,
+  theme,
   onCopyMessage,
   onSelectNextStep,
   onOpenDiff,
@@ -188,6 +197,7 @@ export function ChatMessageList({
               message={entry.message}
               isLatestAssistant={entry.message.id === latestAssistantId}
               copiedMessageId={copiedMessageId}
+              theme={theme}
               onCopyMessage={onCopyMessage}
               onSelectNextStep={onSelectNextStep}
             />

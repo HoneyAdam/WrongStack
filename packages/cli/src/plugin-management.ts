@@ -276,6 +276,13 @@ export const PLUGIN_AUDIT_ENTRIES: readonly PluginAuditEntry[] = [
     canDisable: true,
   },
   {
+    name: 'process-guard',
+    risk: 'high',
+    summary: 'Blocks commands that target active WrongStack processes or host terminals.',
+    defaultState: 'active',
+    canDisable: true,
+  },
+  {
     name: 'context-pins',
     risk: 'low',
     summary: 'Pins durable facts into the system prompt across compactions.',

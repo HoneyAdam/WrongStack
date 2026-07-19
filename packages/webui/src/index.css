@@ -707,6 +707,32 @@
   @apply border-l-2 border-primary pl-4 italic text-muted-foreground;
 }
 
+/* ── User bubble overrides ──
+   User bubbles have `bg-primary text-primary-foreground`. The standard
+   `.markdown-content` link/code/blockquote styles (above) are designed for
+   neutral backgrounds and produce unreadable contrasts on the primary surface.
+   These scoped rules restore readability by inverting to the foreground
+   palette with subtle contrast hints. */
+.msg-user-bubble .markdown-content a {
+  color: hsl(var(--primary-foreground));
+  text-decoration: underline;
+  text-decoration-color: hsl(var(--primary-foreground) / 0.5);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 2px;
+}
+.msg-user-bubble .markdown-content a:hover {
+  text-decoration-color: hsl(var(--primary-foreground));
+}
+.msg-user-bubble .markdown-content code {
+  background: hsl(var(--primary-foreground) / 0.12);
+  border-color: hsl(var(--primary-foreground) / 0.2);
+  color: hsl(var(--primary-foreground));
+}
+.msg-user-bubble .markdown-content blockquote {
+  border-left-color: hsl(var(--primary-foreground) / 0.4);
+  color: hsl(var(--primary-foreground) / 0.85);
+}
+
 /* — Tables in markdown: no background — */
 .markdown-content table {
   @apply w-full mb-3 border-collapse;

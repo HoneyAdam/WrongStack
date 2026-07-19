@@ -15,6 +15,7 @@ import {
   resolveWin32Command,
 } from './_win32-resolve.js';
 import { detectDanger, type DangerAssessment } from './_danger-detect.js';
+import { checkExecKillCommand } from './exec-kill-guard.js';
 
 const isWin = process.platform === 'win32';
 
@@ -488,6 +489,22 @@ export const execTool: Tool<ExecInput, ExecOutput> = {
     // argument is wired from `config.tools.exec.danger.bypass` (see
     // `configureDangerBypass`); rule ids in that set are skipped.
     const danger: DangerAssessment = detectDanger(cmd, args, dangerBypass);
+
+    // Kill guard: check if the command targets protected WrongStack processes
+    // (taskkill /F /IM node.exe, Stop-Process -Name node, wmic process delete, etc.)
+    const killCheck = await checkExecKillCommand(cmd, args);
+    if (killCheck.blocked) {
+      return {
+        command: cmd,
+        args,
+        stdout: '',
+        stderr: killCheck.reason ?? 'Kill command blocked: targets a protected WrongStack process.',
+        exitCode: 1,
+        truncated: false,
+        allowed: false,
+        danger,
+      };
+    }
 
     // Validate args against per-command security patterns
     const argError = validateArgs(cmd, args);

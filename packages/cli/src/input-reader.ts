@@ -148,7 +148,11 @@ export class ReadlineInputReader implements InputReader {
         // first (see the guard above).  On Windows / Node ≥ 24 the
         // interface can enter an internally-closed state after
         // question() resolves; reusing it throws ERR_USE_AFTER_CLOSE.
-        this.rl?.close();
+        // Drop our reference before closing as well. Keeping a closed
+        // interface reachable made the next terminal owner inherit stale
+        // readline state during the boot-prompt -> Ink handoff.
+        if (this.rl === fresh) this.rl = undefined;
+        fresh.close();
         return result;
       });
     } finally {

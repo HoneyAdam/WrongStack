@@ -189,10 +189,18 @@ export function setupProviderRuntime(deps: ProviderRuntimeDeps): ProviderRuntime
   ];
 
   if (process.env['WRONGSTACK_DISABLE_CONFIG_WATCH'] !== '1') {
+    // Active profile name from the merged config (bootstrap + layers).
+    const activeProfile =
+      typeof cfg.activeProfile === 'string' && cfg.activeProfile ? cfg.activeProfile : 'default';
     const configLayers: { path: string; priority: number }[] = [
       { path: wpaths.globalConfig, priority: 1 },
-      { path: wpaths.projectLocalConfig, priority: 2 },
-      { path: wpaths.inProjectConfig, priority: 3 },
+      // Profile config (~/.wrongstack/profiles/<name>/config.json) sits between
+      // the thin global bootstrap (version + activeProfile only) and the
+      // project-local override. All user settings, providers, and routing configs
+      // live in the profile — without this layer, hot-reload never reads them.
+      { path: wpaths.profileConfig(activeProfile), priority: 2 },
+      { path: wpaths.projectLocalConfig, priority: 3 },
+      { path: wpaths.inProjectConfig, priority: 4 },
     ];
 
     /**
@@ -211,7 +219,11 @@ export function setupProviderRuntime(deps: ProviderRuntimeDeps): ProviderRuntime
         if (!snap) continue;
         if (!merged) {
           // Deep-clone the first layer's providers to avoid future mutation.
-          merged = { ...snap, providers: { ...snap.providers } };
+          merged = {
+            ...snap,
+            providers: { ...snap.providers },
+            snapshotHasProviders: snap.snapshotHasProviders,
+          };
         } else {
           // Merge higher-priority layer with carry-forward from lower.
           // Spread-with-condition avoids `undefined` values that violate
@@ -268,6 +280,9 @@ export function setupProviderRuntime(deps: ProviderRuntimeDeps): ProviderRuntime
               : merged.uiLocale !== undefined
                 ? { uiLocale: merged.uiLocale }
                 : {}),
+            // Carry forward the snapshotHasProviders flag from the higher-priority layer.
+            // When a layer has providers, merged knows providers were found somewhere.
+            snapshotHasProviders: snap.snapshotHasProviders || merged.snapshotHasProviders,
           };
         }
       }

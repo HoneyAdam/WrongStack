@@ -94,27 +94,38 @@ export function resolveAutoReviewConfig(
   const chain = cfg.fallbackProfile
     ? mgr.resolve(cfg.fallbackProfile)
     : mgr.resolveEffective({ fallbackAuto: true });
-  const resolvedProvider = cfg.provider ?? (chain.length > 0 ? chain[0]!.providerId : sessionConfig.provider);
-  const resolvedModel = cfg.model ?? (chain.length > 0 ? chain[0]!.model : sessionConfig.model);
+  // Normalize: empty strings are equivalent to undefined — treat them the same
+  // so a config with provider: "" doesn't produce an empty provider string that
+  // bypasses the ?? fallback below.
+  const rawProvider = cfg.provider?.trim();
+  const rawModel = cfg.model?.trim();
+  const resolvedProvider = rawProvider || (chain.length > 0 ? chain[0]!.providerId : sessionConfig.provider);
+  const resolvedModel = rawModel || (chain.length > 0 ? chain[0]!.model : sessionConfig.model);
   const profileFallbackModels = chain
     .filter((entry) =>
       entry.providerId !== resolvedProvider || entry.model !== resolvedModel,
     )
     .map((entry) => `${entry.providerId}/${entry.model}`);
 
-  // Safety net: when the profile is absent/unknown/empty the chain resolves to
-  // [], which would spawn the reviewer against the bare session model with no
-  // rotation target. If that model returns an empty response the subagent dies
-  // at 1 iter / 0 tools (surfaced as provider_auth). Guarantee a non-empty
-  // rotation chain at the resolver level so no downstream spawn path can bypass
-  // it. Entries equal to the resolved primary are filtered so the primary is
-  // never listed as its own fallback.
-  const fallbackModels =
+  // When a named/effective profile is empty, retain the shared reviewer
+  // rotation defaults. The session's provider/model is appended as the final
+  // known-working target. Filter both the resolved primary and session target
+  // before appending so the chain stays ordered and duplicate-free.
+  const sessionRef = `${sessionConfig.provider}/${sessionConfig.model}`;
+  const baseFallbackModels: string[] =
     profileFallbackModels.length > 0
       ? profileFallbackModels
       : DEFAULT_REVIEW_FALLBACK_MODELS.filter(
           (ref) => ref !== `${resolvedProvider}/${resolvedModel}`,
         );
+
+  // Unconditional last resort: the session's own known-working provider/model.
+  // Even if the profile has no fallbacks at all, the subagent always has this
+  // as its final rotation target.
+  const fallbackModels = [
+    ...baseFallbackModels.filter((ref) => ref !== sessionRef),
+    sessionRef,
+  ];
 
   return {
     enabled: cfg.enabled === true,

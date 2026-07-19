@@ -200,7 +200,9 @@ async function enrichProviderModelDescriptors(
       if (resolved.capabilities.vision) capabilities.add('vision');
       return {
         ...model,
-        contextWindow: model.contextWindow || resolved.capabilities.maxContext || undefined,
+        contextWindow: model.contextWindow ?? resolved.capabilities.maxContext ?? undefined,
+        inputCost: model.inputCost ?? resolved.cost?.input,
+        outputCost: model.outputCost ?? resolved.cost?.output,
         capabilities: [...capabilities],
       };
     }),

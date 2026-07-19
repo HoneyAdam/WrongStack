@@ -147,6 +147,7 @@ export { default as loopBreakerPlugin } from './loop-breaker/index.js';
 export { default as modelRouterPlugin } from './model-router/index.js';
 export { default as notifyHubPlugin } from './notify-hub/index.js';
 export { default as pathGuardPlugin } from './path-guard/index.js';
+export { default as processGuardPlugin } from './process-guard/index.js';
 export { default as pluginStackObserverPlugin } from './plugin-stack-observer/index.js';
 export { default as prDrafterPlugin } from './pr-drafter/index.js';
 export { default as promptFirewallPlugin } from './prompt-firewall/index.js';

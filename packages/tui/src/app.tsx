@@ -95,6 +95,7 @@ import {
   inputContentWidth,
   type KeyEvent,
 } from './components/input.js';
+import { safeDispatch } from './input-validation.js';
 import { KanbanPanel } from './components/kanban-panel.js';
 import { KeyHintBar, type KeyHintContext } from './components/key-hint-bar.js';
 import { MailboxPanel } from './components/mailbox-panel.js';
@@ -318,6 +319,7 @@ export function App({
   provider,
   family,
   keyTail,
+  profile,
   autonomyAgents,
   tokenSavingMode,
   toolCount,
@@ -528,7 +530,7 @@ export function App({
   // bridge, so a resumed session would have none and /rewind would refuse.
   const restoredCheckpoints = buildRestoredCheckpoints(restoredEvents);
 
-  const [state, dispatch] = useReducer(
+  const [state, rawDispatch] = useReducer(
     reducer,
     createInitialState({
       banner,
@@ -539,6 +541,7 @@ export function App({
       family,
       keyTail,
       sessionId: agent.ctx.session.id,
+      profile,
       autonomyAgents,
       restoredEntries,
       restoredCheckpoints,
@@ -546,6 +549,20 @@ export function App({
       initialAgentsMonitorOpen,
       initialFleetChat: fleetStreamController?.mode,
     }),
+  );
+  // Wrap dispatch with input validation — every external action that reaches
+  // the reducer goes through the allow-list gate (see input-validation.ts).
+  // Invalid actions are silently rejected (logged) rather than crashing the
+  // session. useCallback keeps the wrapped reference stable across renders so
+  // all closures (effects, callbacks) capture the wrapped dispatch.
+  // The cast to safeDispatch's wide parameter type is intentional —
+  // validateAction re-validates every action from scratch at runtime.
+  // Returns void (safeDispatch's boolean is discarded to match React.Dispatch).
+  const dispatch = useCallback(
+    (action: Parameters<typeof rawDispatch>[0]): void => {
+      safeDispatch(action as Parameters<typeof safeDispatch>[0], rawDispatch as (action: Record<string, unknown>) => void);
+    },
+    [rawDispatch],
   );
   // Board id captured by `/kanban use <boardId>` or the Goal → Kanban
   // bridge. The KanbanPanel reads it as `initialBoardId` so the panel

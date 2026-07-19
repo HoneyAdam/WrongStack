@@ -186,8 +186,15 @@ export const markdownComponents = {
             </code>
           </pre>
         )}
-        {/* Fade-out gradient at bottom when scrollable — only visible on hover */}
-        <div className="pointer-events-none absolute bottom-8 left-0 right-0 h-8 bg-gradient-to-t from-black/10 to-transparent opacity-0 group-hover/codeblock:opacity-100 transition-opacity" />
+        {/* Fade-out gradient at bottom when scrollable — only visible on hover.
+            Uses foreground-based opacity for correct appearance in both modes. */}
+        <div
+          className="pointer-events-none absolute bottom-8 left-0 right-0 h-8 opacity-0 group-hover/codeblock:opacity-100 transition-opacity"
+          style={{
+            background:
+              'linear-gradient(to top, hsl(var(--foreground) / 0.08), transparent)',
+          }}
+        />
       </div>
     );
   },

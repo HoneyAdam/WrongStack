@@ -243,6 +243,7 @@ export const BUILTIN_PLUGIN_FACTORIES: (() => Promise<Plugin>)[] = [
   async () => (await import('@wrongstack/plugins/spec-linker')).default,
   async () => (await import('@wrongstack/plugins/loop-breaker')).default,
   async () => (await import('@wrongstack/plugins/path-guard')).default,
+  async () => (await import('@wrongstack/plugins/process-guard')).default,
   async () => (await import('@wrongstack/plugins/context-pins')).default,
   async () => (await import('@wrongstack/plugins/checkpoint')).default,
   async () => (await import('@wrongstack/plugins/error-lens')).default,

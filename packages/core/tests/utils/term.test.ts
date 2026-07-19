@@ -7,6 +7,7 @@ import {
   onResize,
   setOutputLineGuard,
   setRawMode,
+  TerminalLifecycle,
   writeErr,
   writeOut,
 } from '../../src/utils/term.js';
@@ -215,6 +216,64 @@ describe('term helpers', () => {
     it('returns false when stream is a TTY but lacks setRawMode (Windows ConPTY edge case)', () => {
       const input = makeInput(true, false);
       expect(setRawMode(input, true)).toBe(false);
+    });
+  });
+
+  describe('TerminalLifecycle', () => {
+    function makeInput(paused: boolean): NodeJS.ReadStream & {
+      pause: ReturnType<typeof vi.fn>;
+      resume: ReturnType<typeof vi.fn>;
+      setRawMode: ReturnType<typeof vi.fn>;
+    } {
+      let isPaused = paused;
+      const input = {
+        isTTY: true,
+        isRaw: false,
+        isPaused: () => isPaused,
+        pause: vi.fn(() => {
+          isPaused = true;
+          return input;
+        }),
+        resume: vi.fn(() => {
+          isPaused = false;
+          return input;
+        }),
+        setRawMode: vi.fn((raw: boolean) => {
+          input.isRaw = raw;
+          return input;
+        }),
+      };
+      return input as never;
+    }
+
+    it('resumes stdin when taking over from a closed readline prompt', () => {
+      const input = makeInput(true);
+      const lifecycle = new TerminalLifecycle();
+
+      expect(lifecycle.acquire(input)).toBe(true);
+      expect(input.setRawMode).toHaveBeenCalledWith(true);
+      expect(input.resume).toHaveBeenCalledOnce();
+    });
+
+    it('restores the paused state captured before TUI ownership', () => {
+      const input = makeInput(true);
+      const lifecycle = new TerminalLifecycle();
+
+      lifecycle.acquire(input);
+      lifecycle.release();
+
+      expect(input.setRawMode).toHaveBeenLastCalledWith(false);
+      expect(input.pause).toHaveBeenCalledOnce();
+    });
+
+    it('does not pause a stream that was already active', () => {
+      const input = makeInput(false);
+      const lifecycle = new TerminalLifecycle();
+
+      lifecycle.acquire(input);
+      lifecycle.release();
+
+      expect(input.pause).not.toHaveBeenCalled();
     });
   });
 
