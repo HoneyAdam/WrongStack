@@ -16,6 +16,22 @@
  * `notify_hub_status` / `health()`, and delivery stops trying after
  * `maxConsecutiveFailures` (circuit breaker) until setup runs again.
  *
+ * Each webhook delivery POSTs a compact JSON body with the following
+ * shape (the original event payload is preserved via metadata spread
+ * at the top level):
+ *
+ * ```json
+ * {
+ *   "source": "wrongstack/notify-hub",
+ *   "event": "<event-name>",
+ *   "ts": "<ISO-8601>",
+ *   "title": "<notification-title>",
+ *   "message": "<notification-body>",
+ *   "level": "info|warning|critical",
+ *   ...metadata   // original event payload
+ * }
+ * ```
+ *
  * The agent can also send an ad-hoc notification with `notify_send`
  * ("tell the user the migration finished").
  *
@@ -37,32 +53,33 @@
  *
  * @public
  */
-import type { Plugin } from '@wrongstack/core';
+import { lookup } from 'node:dns/promises';
+import type { Logger, NotificationMessage, NotificationResult, Plugin } from '@wrongstack/core';
+import { WebhookNotificationChannel } from './webhook-channel.js';
 
 // ---------------------------------------------------------------------------
 // Module-scope state (H1 audit pattern)
 // ---------------------------------------------------------------------------
 
+/** Captured during setup() — the host logger for structured log lines. */
+let _pluginLog: Logger | null = null;
+/** Tracks whether we already logged the circuit-open event (log-once). */
+let _circuitWarned = false;
+
 interface NotifyHubState {
-  sent: number;
-  failed: number;
-  suppressed: number;
-  consecutiveFailures: number;
-  circuitOpen: boolean;
+  channel: WebhookNotificationChannel | null;
   lastDelivery: { event: string; ok: boolean; when: string } | null;
   stopHookUnregister: null | (() => void);
   eventUnsubscribers: Array<() => void>;
+  circuitWarned: boolean;
 }
 
 const state: NotifyHubState = {
-  sent: 0,
-  failed: 0,
-  suppressed: 0,
-  consecutiveFailures: 0,
-  circuitOpen: false,
+  channel: null,
   lastDelivery: null,
   stopHookUnregister: null,
   eventUnsubscribers: [],
+  circuitWarned: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -121,6 +138,45 @@ function isBlockedHostname(hostname: string): boolean {
   );
 }
 
+/**
+ * Resolve `hostname` via DNS and verify that none of the resolved IPs
+ * are in private / loopback / link-local ranges. This catches SSRF
+ * vectors where a public DNS name (e.g. `127.0.0.1.nip.io`, any
+ * `nip.io` / `xip.io` variant, or a custom A/AAAA record) resolves
+ * to an internal address that the string-level `normalizeWebhookUrl`
+ * validator cannot detect.
+ *
+ * Resolution failures (NXDOMAIN, timeout, network unreachable) are
+ * treated as a soft-pass so transient DNS issues never permanently
+ * disable the plugin at setup time — the string-level validator is
+ * the primary defense; this is a secondary belt-and-suspenders check.
+ *
+ * @returns `true` if the hostname is safe or unresolvable
+ */
+async function hasPrivateResolvedIP(hostname: string): Promise<boolean> {
+  try {
+    const entries = await lookup(hostname, { all: true, verbatim: true });
+    for (const { address } of entries) {
+      if (isPrivateIPv4(address)) return true;
+      const lower = address.toLowerCase();
+      if (
+        lower === '::1' ||
+        lower === '0:0:0:0:0:0:0:1' ||
+        lower.startsWith('fc') ||
+        lower.startsWith('fd') ||
+        lower.startsWith('fe80:')
+      ) {
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    // DNS resolution failure — not reachable or NXDOMAIN.
+    // Allow through so a transient outage doesn't brick the plugin.
+    return false;
+  }
+}
+
 function normalizeWebhookUrl(raw: unknown): string {
   if (typeof raw !== 'string' || raw.trim().length === 0) return '';
   try {
@@ -166,54 +222,54 @@ function readConfig(raw: unknown): NotifyHubConfig {
 // Delivery
 // ---------------------------------------------------------------------------
 
-async function deliver(
-  cfg: NotifyHubConfig,
-  event: string,
-  payload: Record<string, unknown>,
-  log: { warn(msg: string, meta?: unknown): void },
-): Promise<boolean> {
-  if (!cfg.webhookUrl) return false;
-  if (state.circuitOpen) {
-    state.suppressed += 1;
+async function deliver(event: string, payload: Record<string, unknown>): Promise<boolean> {
+  const ch = state.channel;
+  if (!ch) {
     return false;
   }
-  const body = JSON.stringify({
-    source: 'wrongstack/notify-hub',
-    event,
-    ts: new Date().toISOString(),
-    ...payload,
+  const result = await deliverViaChannel(ch, event, {
+    title: typeof payload.title === 'string' ? payload.title : event,
+    body:
+      typeof payload.message === 'string'
+        ? payload.message
+        : typeof payload.error === 'string'
+          ? payload.error
+          : JSON.stringify(payload),
+    level: event === 'tool.error' || event === 'budget.threshold' ? 'warning' : 'info',
+    source: event,
+    metadata: payload,
   });
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
-    try {
-      const res = await fetch(cfg.webhookUrl, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...cfg.headers },
-        body,
-        signal: controller.signal,
-      });
-      if (!res.ok) throw new Error(`webhook responded ${res.status}`);
-    } finally {
-      clearTimeout(timer);
-    }
+  return result.ok;
+}
+
+/**
+ * Send a notification through the channel and update local session counters.
+ * Logs circuit-open on the false→true transition (once per trip).
+ */
+async function deliverViaChannel(
+  ch: WebhookNotificationChannel,
+  event: string,
+  msg: NotificationMessage,
+): Promise<NotificationResult> {
+  const result = await ch.deliver(msg);
+  if (result.ok) {
     state.sent += 1;
-    state.consecutiveFailures = 0;
+    _circuitWarned = false;
     state.lastDelivery = { event, ok: true, when: new Date().toISOString() };
-    return true;
-  } catch (err) {
+  } else {
     state.failed += 1;
-    state.consecutiveFailures += 1;
     state.lastDelivery = { event, ok: false, when: new Date().toISOString() };
-    if (state.consecutiveFailures >= cfg.maxConsecutiveFailures) {
-      state.circuitOpen = true;
-      log.warn(
-        `notify-hub: ${state.consecutiveFailures} consecutive delivery failures — circuit opened, further notifications suppressed`,
-        { error: err instanceof Error ? err.message : String(err) },
+    // Log circuit-open on the false→true transition (once per trip).
+    const cs = ch.circuitStatus();
+    if (cs.open && !_circuitWarned) {
+      _circuitWarned = true;
+      _pluginLog?.warn(
+        `notify-hub: ${cs.consecutiveFailures} consecutive delivery failures — circuit opened, further notifications suppressed`,
+        { consecutiveFailures: cs.consecutiveFailures, event },
       );
     }
-    return false;
   }
+  return result;
 }
 
 function truncateText(s: string, max: number): string {
@@ -268,13 +324,13 @@ const plugin: Plugin = {
     },
   },
 
-  setup(api) {
+  async setup(api) {
     // Idempotent re-init (H1 pattern).
+    _pluginLog = api.log;
+    _circuitWarned = false;
+    state.channel = null;
     state.sent = 0;
     state.failed = 0;
-    state.suppressed = 0;
-    state.consecutiveFailures = 0;
-    state.circuitOpen = false;
     state.lastDelivery = null;
     if (state.stopHookUnregister) {
       try {
@@ -294,18 +350,51 @@ const plugin: Plugin = {
     state.eventUnsubscribers = [];
 
     const cfg = readConfig(api.config.extensions?.['notify-hub']);
-    const active = cfg.enabled && cfg.webhookUrl.length > 0;
+    let active = cfg.enabled && cfg.webhookUrl.length > 0;
+
+    // ── SSRF defense: resolve hostname via DNS and reject private IPs ────
+    // The string-level normalizeWebhookUrl already blocks literal private
+    // addresses (localhost, 10.x, 172.16-31.x, 192.168.x, etc.). This DNS
+    // layer catches DNS names that resolve to private IPs — a gap that
+    // tools like nip.io / xip.io / custom A-records can exploit.
+    if (active) {
+      try {
+        const url = new URL(cfg.webhookUrl);
+        const hostnameBlocked = await hasPrivateResolvedIP(url.hostname);
+        if (hostnameBlocked) {
+          api.log.warn(
+            `notify-hub: webhook URL resolves to a private/local IP (${url.hostname}) — disabling plugin`,
+          );
+          active = false;
+        }
+      } catch {
+        // URL parse failure — should not happen since normalizeWebhookUrl
+        // already validated it, but if it does, let setup continue and the
+        // channel construction below will fail naturally.
+      }
+    }
+
+    // ── Webhook notification channel ────────────────────────────────────
+    if (active) {
+      state.channel = new WebhookNotificationChannel({
+        webhookUrl: cfg.webhookUrl,
+        headers: cfg.headers,
+        timeoutMs: cfg.timeoutMs,
+        maxConsecutiveFailures: cfg.maxConsecutiveFailures,
+      });
+      // Register with the host's Notifier so other subsystems can send
+      // to the "webhook" channel without knowing the URL.
+      api.notifier?.registerChannel(state.channel);
+    }
 
     // ── session.stop via Stop hook ────────────────────────────────────
     if (active && cfg.events.includes('session.stop')) {
       const stopHook = (input: { cwd?: string | undefined; sessionId?: string | undefined }) => {
         // Fire-and-forget: never block the stop path on network I/O.
-        void deliver(
-          cfg,
-          'session.stop',
-          { sessionId: input.sessionId ?? null, cwd: input.cwd ?? null },
-          api.log,
-        );
+        void deliver('session.stop', {
+          sessionId: input.sessionId ?? null,
+          cwd: input.cwd ?? null,
+        });
       };
       state.stopHookUnregister = api.registerHook('Stop', undefined, stopHook as never);
     }
@@ -315,19 +404,14 @@ const plugin: Plugin = {
       const off = api.onPattern('tool.*', (eventName: string, payload: unknown) => {
         if (!/error|failed/.test(eventName)) return;
         const p = payload as { tool?: string; name?: string; error?: unknown } | null;
-        void deliver(
-          cfg,
-          'tool.error',
-          {
-            tool: p?.tool ?? p?.name ?? 'unknown',
-            busEvent: eventName,
-            error: truncateText(
-              p?.error instanceof Error ? p.error.message : String(p?.error ?? ''),
-              500,
-            ),
-          },
-          api.log,
-        );
+        void deliver('tool.error', {
+          tool: p?.tool ?? p?.name ?? 'unknown',
+          busEvent: eventName,
+          error: truncateText(
+            p?.error instanceof Error ? p.error.message : String(p?.error ?? ''),
+            500,
+          ),
+        });
       });
       state.eventUnsubscribers.push(off);
     }
@@ -336,7 +420,7 @@ const plugin: Plugin = {
     if (active && cfg.events.includes('budget.threshold')) {
       const off = api.onPattern('budget.*', (eventName: string, payload: unknown) => {
         if (!eventName.includes('threshold')) return;
-        void deliver(cfg, 'budget.threshold', { busEvent: eventName, detail: payload }, api.log);
+        void deliver('budget.threshold', { busEvent: eventName, detail: payload });
       });
       state.eventUnsubscribers.push(off);
     }
@@ -368,27 +452,24 @@ const plugin: Plugin = {
         level?: string | undefined;
       }) {
         if (!cfg.enabled) return { ok: false, error: 'notify-hub is disabled' };
-        if (!cfg.webhookUrl) {
+        const ch = state.channel;
+        if (!ch) {
           return {
             ok: false,
             error:
               'no webhookUrl configured — set config.extensions["notify-hub"].webhookUrl to enable deliveries',
           };
         }
-        const delivered = await deliver(
-          cfg,
-          'manual',
-          {
-            title: truncateText(String(input.title ?? 'WrongStack notification'), 200),
-            message: truncateText(String(input.message ?? ''), 2_000),
-            level: input.level === 'warning' || input.level === 'critical' ? input.level : 'info',
-          },
-          api.log,
-        );
+        const result = await deliverViaChannel(ch, 'manual', {
+          title: truncateText(String(input.title ?? 'WrongStack notification'), 200),
+          body: truncateText(String(input.message ?? ''), 2_000),
+          level: input.level === 'warning' || input.level === 'critical' ? input.level : 'info',
+          source: 'manual',
+        });
         return {
-          ok: delivered,
-          circuitOpen: state.circuitOpen,
-          ...(delivered ? {} : { error: 'delivery failed (see notify_hub_status)' }),
+          ok: result.ok,
+          circuitOpen: ch.circuitStatus().open,
+          ...(result.ok ? {} : { error: result.error ?? 'delivery failed' }),
         };
       },
     });
@@ -403,18 +484,28 @@ const plugin: Plugin = {
       category: 'Diagnostics',
       mutating: false,
       async execute() {
+        const ch = state.channel;
+        const counters = ch?.counters() ?? {
+          attempted: 0,
+          delivered: 0,
+          failed: 0,
+          suppressed: 0,
+        };
+        // The channel tracks absolute totals; legacy state tracks
+        // session-scoped counters. Report both.
         return {
           ok: true,
           enabled: cfg.enabled,
           webhookConfigured: cfg.webhookUrl.length > 0,
           events: cfg.events,
           timeoutMs: cfg.timeoutMs,
-          circuitOpen: state.circuitOpen,
+          circuitOpen: ch?.circuitStatus().open ?? false,
           counters: {
-            sent: state.sent,
-            failed: state.failed,
-            suppressed: state.suppressed,
-            consecutiveFailures: state.consecutiveFailures,
+            sent: counters.delivered,
+            failed: counters.failed,
+            suppressed: counters.suppressed,
+            consecutiveFailures: ch?.circuitStatus().consecutiveFailures ?? 0,
+            totalAttempted: counters.attempted,
           },
           lastDelivery: state.lastDelivery,
         };
@@ -430,6 +521,8 @@ const plugin: Plugin = {
   },
 
   teardown(api) {
+    _pluginLog = null;
+    _circuitWarned = false;
     if (state.stopHookUnregister) {
       try {
         state.stopHookUnregister();
@@ -446,28 +539,33 @@ const plugin: Plugin = {
       }
     }
     state.eventUnsubscribers = [];
-    const final = { sent: state.sent, failed: state.failed, suppressed: state.suppressed };
+    const final = {
+      sent: state.sent,
+      failed: state.failed,
+      channelCounters: state.channel?.counters(),
+    };
+    state.channel = null;
     state.sent = 0;
     state.failed = 0;
-    state.suppressed = 0;
-    state.consecutiveFailures = 0;
-    state.circuitOpen = false;
     state.lastDelivery = null;
     api.log.info('notify-hub: teardown complete', { final });
   },
 
   async health() {
+    const ch = state.channel;
+    const cs = ch?.circuitStatus();
+    const channelCounters = ch?.counters();
+    const sent = channelCounters?.delivered ?? state.sent;
+    const failed = channelCounters?.failed ?? state.failed;
+    const suppressed = channelCounters?.suppressed ?? 0;
     return {
-      ok: !state.circuitOpen,
-      message: state.circuitOpen
-        ? `notify-hub: circuit OPEN after ${state.consecutiveFailures} consecutive failures — deliveries suppressed`
-        : `notify-hub: ${state.sent} sent, ${state.failed} failed, ${state.suppressed} suppressed`,
-      counters: {
-        sent: state.sent,
-        failed: state.failed,
-        suppressed: state.suppressed,
-        consecutiveFailures: state.consecutiveFailures,
-      },
+      ok: !cs?.open,
+      message: cs?.open
+        ? `notify-hub: circuit OPEN after ${cs.consecutiveFailures} consecutive failures — deliveries suppressed`
+        : ch
+          ? `notify-hub: ${sent} sent, ${failed} failed, ${suppressed} suppressed`
+          : `notify-hub: idle — no webhook channel configured`,
+      counters: { sent, failed, suppressed, consecutiveFailures: cs?.consecutiveFailures ?? 0 },
     };
   },
 };
