@@ -315,6 +315,13 @@ export interface EnsureHqFirstRunAuthResult {
  * Ensure a brand-new HQ data directory has the auth required for safe
  * first-run operation. Only a missing auth.json is bootstrapped; an existing
  * file, including one with empty token arrays, is treated as operator intent.
+ *
+ * Caller surface: the sole production caller is `startHqServer` in
+ * `packages/cli/src/hq-server.ts`, which threads `actor: resolveAuditActor()`
+ * so both first-run audit entries carry `user@host`. Test callers live under
+ * `packages/core/tests/hq/` (token-ttl, first-run-audit, auth-store). Any
+ * new production caller MUST pass `actor` for the audit log to carry
+ * forensic identity — see `EnsureHqFirstRunAuthOptions.actor`.
  */
 export async function ensureHqFirstRunAuthFile(
   dataDir: string,
