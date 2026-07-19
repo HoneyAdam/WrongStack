@@ -70,6 +70,16 @@ async function startServer(deps: SubcommandDeps): Promise<number> {
   const password =
     typeof flags['password'] === 'string' ? flags['password'] : process.env.WRONGSTACK_HQ_PASSWORD;
   const allowInsecureOpen = flags['insecure-open'] === true;
+  const rawTtl = typeof flags['hq-token-ttl'] === 'string' ? flags['hq-token-ttl'] : undefined;
+  let tokenTtlMs: number | undefined;
+  if (rawTtl !== undefined && rawTtl.length > 0) {
+    const parsed = parseTtlValue(rawTtl);
+    if (parsed.error) {
+      deps.renderer.writeError(`Invalid --hq-token-ttl: ${parsed.error}\n`);
+      return 1;
+    }
+    tokenTtlMs = parsed.value;
+  }
 
   if (password !== undefined && password.length < 8) {
     deps.renderer.writeError('HQ password must be at least 8 characters.\n');
@@ -85,6 +95,7 @@ async function startServer(deps: SubcommandDeps): Promise<number> {
       dataDir,
       allowInsecureOpen,
       ...(password !== undefined ? { password } : {}),
+      ...(tokenTtlMs !== undefined ? { tokenTtlMs } : {}),
     });
   } catch (err) {
     // A refusal is operator-actionable guidance, not a crash — print the
@@ -298,28 +309,12 @@ async function tokenCreate(args: string[], deps: SubcommandDeps): Promise<number
 }
 
 // ── --ttl parsing ──────────────────────────────────────────────────────────
+//
+// Delegates to the shared `parseTokenTtlValue` from utils/hq-ttl.ts so the
+// same syntax (1h, 7d, 3600s, bare ms) is accepted here and in the
+// server-startup `--hq-token-ttl` flag.
 
-/**
- * Accepted `--ttl` forms:
- *   --ttl 1h        → 1 hour
- *   --ttl 7d        → 7 days
- *   --ttl 30m       → 30 minutes
- *   --ttl 3600s     → 1 hour
- *   --ttl 86400000  → 1 day (bare milliseconds)
- *   --ttl=1h        → inline form
- *
- * Compound durations (`1h30m`) are intentionally NOT supported — they add
- * parsing complexity without meaningful operator benefit, and a single
- * unit is always sufficient for a rotation cadence.
- */
-const TTL_UNIT_MS: Record<string, number> = {
-  ms: 1,
-  s: 1_000,
-  m: 60_000,
-  h: 3_600_000,
-  d: 86_400_000,
-  w: 604_800_000,
-};
+import { parseTokenTtlValue as parseTtlValue } from '../../utils/hq-ttl.js';
 
 interface ResolvedTtl {
   value?: number | undefined;
@@ -347,37 +342,6 @@ function resolveTokenTtl(args: string[], deps: SubcommandDeps): ResolvedTtl {
     return parseTtlValue(raw);
   }
   return {};
-}
-
-function parseTtlValue(raw: string): ResolvedTtl {
-  const trimmed = raw.trim();
-  if (trimmed.length === 0) {
-    return { error: '--ttl value is empty' };
-  }
-  // Bare integer → milliseconds.
-  if (/^\d+$/.test(trimmed)) {
-    const ms = Number.parseInt(trimmed, 10);
-    if (!Number.isFinite(ms) || ms <= 0) {
-      return { error: `--ttl value must be positive (got ${raw})` };
-    }
-    return { value: ms };
-  }
-  // <number><unit> — capture the trailing unit suffix.
-  const match = /^(?<value>\d+)(?<unit>ms|s|m|h|d|w)$/i.exec(trimmed);
-  if (match?.groups) {
-    const value = Number.parseInt(match.groups.value!, 10);
-    const unit = match.groups.unit!.toLowerCase();
-    const multiplier = TTL_UNIT_MS[unit];
-    if (!Number.isFinite(value) || value <= 0 || multiplier === undefined) {
-      return { error: `--ttl value must be positive with a valid unit (got ${raw})` };
-    }
-    return { value: value * multiplier };
-  }
-  return {
-    error:
-      `--ttl must be a positive integer (milliseconds) or <number><unit> ` +
-      `where unit is one of ms, s, m, h, d, w (got ${raw})`,
-  };
 }
 
 async function tokenList(args: string[], deps: SubcommandDeps): Promise<number> {
@@ -477,6 +441,7 @@ function printHelp(deps: SubcommandDeps): void {
   deps.renderer.write(`  --insecure-open     Allow a non-loopback bind with no token/password set.\n`);
   deps.renderer.write(`  --port <n>          Bind port (default 3499).\n`);
   deps.renderer.write(`  --strict-port       Fail if port is in use.\n`);
+  deps.renderer.write(`  --hq-token-ttl <dur>  Stamp an expiresAt on first-run tokens (e.g. 1h, 7d, 3600s).\n`);
   deps.renderer.write(`  --open              Open the dashboard in the default browser.\n`);
   deps.renderer.write(`  --client, -c        Operate on client tokens instead of browser tokens.\n`);
   deps.renderer.write(`  --capabilities <csv>  Token grants (browser: control.enqueue; client: telemetry.publish,control.execute).\n`);

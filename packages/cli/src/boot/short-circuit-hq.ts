@@ -144,6 +144,22 @@ export async function handleHqShortCircuit(
     return 1;
   }
 
+  // --hq-token-ttl: optional TTL stamped on first-run tokens (e.g. "1h", "7d", "86400000").
+  let tokenTtlMs: number | undefined;
+  const rawTtl =
+    typeof flags['hq-token-ttl'] === 'string'
+      ? flags['hq-token-ttl']
+      : (process.env.WRONGSTACK_HQ_TOKEN_TTL as string | undefined);
+  if (rawTtl !== undefined && rawTtl.length > 0) {
+    const { parseTokenTtlValue } = await import('../utils/hq-ttl.js');
+    const parsed = parseTokenTtlValue(rawTtl);
+    if (parsed.error) {
+      process.stderr.write(`${color.red('✗')} Invalid --hq-token-ttl: ${parsed.error}\n`);
+      return 1;
+    }
+    tokenTtlMs = parsed.value;
+  }
+
   let handle;
   try {
     handle = await startHqServer({
@@ -156,6 +172,7 @@ export async function handleHqShortCircuit(
       requireBrowserAuth: tunnelRequested,
       ...(dataDir !== undefined ? { dataDir } : {}),
       ...(password !== undefined ? { password } : {}),
+      ...(tokenTtlMs !== undefined ? { tokenTtlMs } : {}),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

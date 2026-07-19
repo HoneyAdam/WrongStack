@@ -272,15 +272,18 @@ describe('wstack hq token create --ttl — error paths', () => {
     const deps = makeDeps();
     expect(await hqCmd(['token', 'create', '--ttl', '5x'], deps)).toBe(1);
     const err = deps.renderer.captured.err.join('');
-    expect(err).toContain('--ttl');
+    // The shared parser drops the `--ttl` prefix from error strings; assert
+    // on the actionable tokens the operator actually needs (the value and
+    // the unit list) rather than the prefix.
     expect(err).toContain('5x');
+    expect(err).toMatch(/ms.*s.*m.*h.*d.*w/);
   });
 
   it('errors when --ttl value is empty', async () => {
     const deps = makeDeps();
     expect(await hqCmd(['token', 'create', '--ttl', ''], deps)).toBe(1);
     const err = deps.renderer.captured.err.join('');
-    expect(err).toContain('--ttl value is empty');
+    expect(err).toContain('empty');
   });
 });
 
