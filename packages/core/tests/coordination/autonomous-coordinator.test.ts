@@ -518,8 +518,16 @@ describe('AutonomousCoordinator', () => {
         subagentId: assignedTask.subagentId!,
         payload: { subagentId: assignedTask.subagentId!, taskId: assignedTask.id, status: 'success', result },
       });
+      // createGoal() publishes to the graph before _createFollowUpGoalsFromResult()
+      // emits its event. Wait for the final event, not merely the first graph
+      // mutation, so the assertions below cannot race the async follow-up loop.
       await vi.waitFor(() => {
-        expect(coordinator.graph.getGoals({}).some((goal) => goal.title === 'Add regression coverage for retry path')).toBe(true);
+        expect(
+          events.some(
+            (event) =>
+              event.type === 'goal:added' && event.title === 'Check telemetry output',
+          ),
+        ).toBe(true);
       });
 
       const followUps = coordinator.graph.getGoals({}).filter((goal) => goal.tags.includes('follow-up'));

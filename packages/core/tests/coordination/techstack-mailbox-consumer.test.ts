@@ -50,10 +50,7 @@ describe('techstack-mailbox-consumer', () => {
       timestamp: new Date().toISOString(),
     });
 
-    // Wait for poll cycle
-    await new Promise((r) => setTimeout(r, 250));
-
-    expect(onSpawn).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(onSpawn).toHaveBeenCalledTimes(1));
     expect(spawnedTasks[0].name).toBe('tech-stack-package.json');
     expect(spawnedTasks[0].task).toContain('package.json');
   });
@@ -127,8 +124,7 @@ describe('techstack-mailbox-consumer', () => {
       timestamp: new Date().toISOString(),
     });
 
-    await new Promise((r) => setTimeout(r, 250));
-    expect(onSpawn).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(onSpawn).toHaveBeenCalledTimes(1));
     expect(spawnedTasks[0].task).toContain('go.mod');
   });
 
@@ -155,8 +151,7 @@ describe('techstack-mailbox-consumer', () => {
       timestamp: new Date().toISOString(),
     });
 
-    await new Promise((r) => setTimeout(r, 250));
-    expect(onError).toHaveBeenCalled();
+    await vi.waitFor(() => expect(onError).toHaveBeenCalled());
   });
 
   it('extracts manifest from markdown table body', async () => {
@@ -179,8 +174,7 @@ describe('techstack-mailbox-consumer', () => {
       timestamp: new Date().toISOString(),
     });
 
-    await new Promise((r) => setTimeout(r, 250));
-    expect(onSpawn).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(onSpawn).toHaveBeenCalledTimes(1));
   });
 
   it('skips messages with no manifest path', async () => {
@@ -204,11 +198,10 @@ describe('techstack-mailbox-consumer', () => {
       timestamp: new Date().toISOString(),
     });
 
-    await new Promise((r) => setTimeout(r, 250));
+    await vi.waitFor(() => {
+      expect(onLog).toHaveBeenCalledWith(expect.stringContaining('No manifest path'));
+    });
     expect(onSpawn).not.toHaveBeenCalled();
-    expect(onLog).toHaveBeenCalledWith(
-      expect.stringContaining('No manifest path'),
-    );
   });
 
   it('does not spawn duplicate messages (processedIds)', async () => {
@@ -228,9 +221,7 @@ describe('techstack-mailbox-consumer', () => {
       body: 'Manifest: package.json',
     });
 
-    // Wait for first poll
-    await new Promise((r) => setTimeout(r, 200));
-    expect(onSpawn).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(onSpawn).toHaveBeenCalledTimes(1));
 
     // Send a reply (different message ID) — should also be processed
     await mailbox.send({
@@ -241,8 +232,7 @@ describe('techstack-mailbox-consumer', () => {
       body: 'Manifest: go.mod',
     });
 
-    await new Promise((r) => setTimeout(r, 200));
-    expect(onSpawn).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(onSpawn).toHaveBeenCalledTimes(2));
   });
 
   it('handles onError from query failure gracefully', async () => {
@@ -260,8 +250,7 @@ describe('techstack-mailbox-consumer', () => {
       pollIntervalMs: 50,
     });
 
-    await new Promise((r) => setTimeout(r, 150));
-    expect(onError).toHaveBeenCalled();
+    await vi.waitFor(() => expect(onError).toHaveBeenCalled());
   });
 
   it('can extract manifest from subject with path pattern', async () => {
@@ -284,8 +273,7 @@ describe('techstack-mailbox-consumer', () => {
       timestamp: new Date().toISOString(),
     });
 
-    await new Promise((r) => setTimeout(r, 250));
-    expect(onSpawn).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(onSpawn).toHaveBeenCalledTimes(1));
   });
 
   it('handles fileAuthorOpts and recordFileAction', async () => {
@@ -313,8 +301,7 @@ describe('techstack-mailbox-consumer', () => {
         body: 'Manifest: package.json',
       });
 
-      await new Promise((r) => setTimeout(r, 250));
-      expect(onSpawn).toHaveBeenCalled();
+      await vi.waitFor(() => expect(onSpawn).toHaveBeenCalled());
     } finally {
       await fs.rm(fileAuthDir, { recursive: true, force: true }).catch(() => {});
     }
@@ -339,8 +326,7 @@ describe('techstack-mailbox-consumer', () => {
       body: 'Manifest: Cargo.toml',
     });
 
-    await new Promise((r) => setTimeout(r, 250));
-    expect(onSpawn).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(onSpawn).toHaveBeenCalledTimes(1));
   });
 
   it('extracts manifest from cmake and conanfile patterns', async () => {
@@ -361,7 +347,6 @@ describe('techstack-mailbox-consumer', () => {
       body: 'Manifest: CMakeLists.txt',
     });
 
-    await new Promise((r) => setTimeout(r, 250));
-    expect(onSpawn).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(onSpawn).toHaveBeenCalledTimes(1));
   });
 });
