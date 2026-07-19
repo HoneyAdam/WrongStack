@@ -132,6 +132,71 @@ function InfoRow({
   );
 }
 
+// Renders the profile row with the full config.json path, highlighting the
+// profile-name segment (the directory between "profiles/" and "/config.json")
+// in the accent color. Falls back to a plain InfoRow when only the bare
+// profile name is available. When the path overflows the value column it is
+// shortened from the left (…/<tail>) so the trailing filename survives.
+function ProfileRow({
+  profile,
+  profileConfigPath,
+  contentWidth,
+  compact,
+}: {
+  profile?: string | undefined;
+  profileConfigPath?: string | undefined;
+  contentWidth: number;
+  compact: boolean;
+}): React.ReactElement | null {
+  if (!profileConfigPath && !profile) return null;
+  const labelWidth = compact ? 6 : 9;
+  const valueWidth = Math.max(1, contentWidth - labelWidth - 3);
+  const icon = '⚙';
+  const label = 'profile';
+
+  // Bare-name fallback: render as a normal accent InfoRow.
+  if (!profileConfigPath) {
+    return (
+      <InfoRow
+        icon={icon}
+        label={label}
+        value={profile as string}
+        contentWidth={contentWidth}
+        compact={compact}
+        accent
+      />
+    );
+  }
+
+  const fullPath = profileConfigPath;
+  const displayPath =
+    fullPath.length <= valueWidth ? fullPath : shortenPath(fullPath, valueWidth);
+
+  // Locate the profile-name segment so we can highlight just that part.
+  // Match either "/profiles/<name>/config.json" or "\profiles\<name>\config.json".
+  const segmentMatch = fullPath.match(/[/\\]profiles[/\\]([^/\\]+)[/\\]config\.json$/);
+  const profileSegment = segmentMatch?.[1] ?? '';
+  // lastIndexOf returns -1 when the segment was truncated away — in that case
+  // we fall through to a plain muted render rather than mis-highlighting.
+  const segIdx = profileSegment ? displayPath.lastIndexOf(profileSegment) : -1;
+
+  return (
+    <Text>
+      <Text color={STACK_ORANGE}>{icon}</Text>
+      <Text color={STACK_ORANGE} bold>{` ${trunc(label, labelWidth).padEnd(labelWidth)} `}</Text>
+      {segIdx >= 0 && profileSegment ? (
+        <>
+          <Text color={MUTED}>{displayPath.slice(0, segIdx)}</Text>
+          <Text color={STACK_ORANGE} bold>{profileSegment}</Text>
+          <Text color={MUTED}>{displayPath.slice(segIdx + profileSegment.length)}</Text>
+        </>
+      ) : (
+        <Text color={MUTED}>{displayPath}</Text>
+      )}
+    </Text>
+  );
+}
+
 // OSC 8 terminal hyperlinks — the same escape-sequence mechanism used by the
 // OAuth flows. Terminals that support clickable links (iTerm2, Windows Terminal,
 // Kitty, etc.) will render these as interactive; others see plain underlined text.
@@ -327,16 +392,12 @@ export function Banner({
           contentWidth={contentWidth}
           compact={compact}
         />
-        {entry.profile ? (
-          <InfoRow
-            icon="⚙"
-            label="profile"
-            value={entry.profile}
-            contentWidth={contentWidth}
-            compact={compact}
-            accent
-          />
-        ) : null}
+        <ProfileRow
+          profile={entry.profile}
+          profileConfigPath={entry.profileConfigPath}
+          contentWidth={contentWidth}
+          compact={compact}
+        />
       </Box>
 
       <Footer contentWidth={contentWidth} compact={compact} />

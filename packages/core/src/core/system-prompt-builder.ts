@@ -5,8 +5,8 @@ import * as path from 'node:path';
 import type { MailboxAgentStatus } from '../coordination/mailbox-types.js';
 import { SKILL_LIMITS } from '../skills/limits.js';
 import type { TextBlock } from '../types/blocks.js';
-import type { TokenSavingTier } from '../types/config.js';
-import { normalizeTokenSavingTier } from '../types/config.js';
+import type { ConcreteTokenSavingTier, TokenSavingTier } from '../types/config.js';
+import { resolveTokenSavingTier } from '../types/config.js';
 import type { MemoryStore } from '../types/memory.js';
 import type { ModeStore } from '../types/mode.js';
 import type { SkillLoader } from '../types/skill.js';
@@ -264,13 +264,16 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     return this.tier !== 'off';
   }
 
-  /** Exposes the normalized `TokenSavingTier` for tier-aware guidance decisions. */
-  private get tier(): TokenSavingTier {
-    // Delegate to the canonical normalizer so invalid strings
-    // (e.g. "MINIMAL" from a user typo in .wrongstack/config.json)
-    // are coerced to 'off' instead of flowing through verbatim.
-    // See packages/core/src/types/config.ts:112-125.
-    return normalizeTokenSavingTier(this.opts.tokenSavingMode);
+  /** Exposes the effective (concrete) `TokenSavingTier` for tier-aware guidance
+   *  decisions. Invalid strings coerce to 'off'; the `'auto'` sentinel expands
+   *  from the model's context window (cache-safe — the window is stable per
+   *  session, so the resolved tier and therefore the prompt prefix stay stable).
+   *  See packages/core/src/types/config.ts. */
+  private get tier(): ConcreteTokenSavingTier {
+    return resolveTokenSavingTier(
+      this.opts.tokenSavingMode,
+      this.modelCapabilities()?.maxContextTokens,
+    );
   }
 
   /**

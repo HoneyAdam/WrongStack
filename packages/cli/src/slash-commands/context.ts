@@ -174,10 +174,20 @@ export function buildContextCommand(opts: SlashCommandContext): SlashCommand {
       const detailed = trimmed === 'detail';
       const policy = readPolicy(ctx);
       const breakdown = safeBreakdown(ctx);
+      const caps = ctx.provider?.capabilities;
+      const realUsage = ctx.lastRealInputTokens;
       const lines = [
         `${color.bold('Context Window')}`,
         `  messages:    ${messages.length} total (${countTurnPairs(messages)} user+assistant pairs)`,
         `  tokens (est): ${estimateTokens(messages).toLocaleString()} (≈ chars/3.5)`,
+        // The provider's authoritative prompt-token count from the last
+        // response — a REAL number, not an estimate. Absent before the first call.
+        ...(typeof realUsage === 'number' && realUsage > 0
+          ? [`  tokens (real): ${realUsage.toLocaleString()} (provider-reported, last request)`]
+          : []),
+        `  window:      ${(caps?.maxContext ?? 0).toLocaleString()} ctx${
+          caps?.maxOutput ? ` / ${caps.maxOutput.toLocaleString()} output` : ''
+        } (models.dev)`,
         `  mode:        ${policy ? `${policy.id} (${policy.name})` : 'balanced'}`,
         `  limit:       ${formatLimit(readEffectiveLimit(ctx, opts))}`,
         `  system prompt: ${ctx.systemPrompt.length} block${ctx.systemPrompt.length !== 1 ? 's' : ''}`,
@@ -187,7 +197,7 @@ export function buildContextCommand(opts: SlashCommandContext): SlashCommand {
       ];
       if (breakdown) {
         lines.push('', ...renderBreakdown(breakdown, detailed));
-      } else if (messages.length > 0 || ctx.tools.length > 0) {
+      } else if (messages.length > 0 || (ctx.tools?.length ?? 0) > 0) {
         lines.push('', `  ${color.dim('breakdown: unavailable (see logs)')}`);
       }
       const cache = ctx.tokenCounter?.cacheStats();

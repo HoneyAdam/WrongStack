@@ -336,7 +336,7 @@ export type ProviderErrorKind =
  * (which had drifted apart) — keep additions here, nowhere else.
  */
 const CONTEXT_OVERFLOW_RE =
-  /context.length|context.window|max.*tokens?.*exceeded|prompt is too long|too long|exceeds the context|\btokens\b.*exceed|context_length_exceeded/i;
+  /context.length|context.window|maximum context|max.*tokens?.*exceeded|prompt is too long|too long|exceeds the context|\btokens\b.*exceed|too many tokens|reduce the length|resulted in \d+ tokens|input.{0,12}too (?:large|long)|context_length_exceeded/i;
 
 /** Content-policy refusals surfaced as HTTP errors (Azure/OpenAI `content_filter`, etc.). */
 const CONTENT_FILTER_RE = /content.(filter|policy|moderation)|safety (system|filter)/i;
@@ -506,6 +506,25 @@ export class ProviderError extends WrongStackError {
     }
     return `${head}${reqId}`;
   }
+}
+
+/**
+ * Belt-and-suspenders overflow detection for the recovery layer. Returns true
+ * when a `ProviderError` is *shaped* like a context overflow even if its `kind`
+ * says otherwise — an HTTP 413, or an overflow phrase anywhere in its message /
+ * body. Gateways and proxies sometimes relabel an overflow as a generic
+ * `invalid_request`/400 (or a caller constructs the error with an explicit
+ * wrong `kind`); the `context_overflow_reduce` strategy uses this so those
+ * still trigger compact-and-retry instead of failing terminally.
+ */
+export function isContextOverflowShaped(err: unknown): boolean {
+  if (!(err instanceof ProviderError)) return false;
+  if (err.kind === 'context_overflow' || err.status === 413) return true;
+  if (err.status < 400) return false;
+  const text = [err.message, err.body?.message, err.body?.type, err.body?.raw]
+    .filter(Boolean)
+    .join('\n');
+  return CONTEXT_OVERFLOW_RE.test(text);
 }
 
 function describeStatus(status: number, type?: string): string {

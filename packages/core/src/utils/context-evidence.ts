@@ -1,12 +1,14 @@
 import * as path from 'node:path';
 import type { Context } from '../core/context.js';
 import type { TextBlock } from '../types/blocks.js';
+import type { CompactReport } from '../types/compactor.js';
 import type {
   CompletedWorkEvidence,
   CompletedWorkSource,
   ContextEvidenceState,
   ToolOutputMetadata,
 } from '../types/context-evidence.js';
+import type { Message } from '../types/messages.js';
 
 const MAX_TOOL_CALLS = 80;
 const MAX_FACTS = 40;
@@ -210,6 +212,83 @@ export function buildContextEvidenceDigest(ctx: Context): string {
 
 export function repeatedReadPressure(ctx: Context): number {
   return ensureEvidence(ctx).repeatedReads.reduce((max, item) => Math.max(max, item.count), 0);
+}
+
+/** Marker prefixing the forced evidence-floor system message (also its dedupe key). */
+const CONTEXT_STATE_MARKER = '[context_state]';
+
+/**
+ * Stable issue keys emitted by `checkCompactionQuality` and consumed by
+ * `injectEvidenceFloor`. Using typed consts instead of raw string literals
+ * ensures the producer/consumer contract is typechecker-enforced — any new
+ * issue key must be added here and both sides will be updated together.
+ */
+const QUALITY_ISSUE = {
+  missingIntent: 'missing intent anchor',
+  missingPathTrail: 'missing tool/path trail',
+} as const;
+
+/**
+ * Deterministic post-compaction sanity check. Cheap and local: records whether
+ * the compacted context still carries an intent anchor and a tool/path trail.
+ * Shared across all compactors so they report quality the same way (previously
+ * only HybridCompactor did). Advisory on its own — pair with
+ * `injectEvidenceFloor` to actually repair a flagged loss.
+ */
+export function checkCompactionQuality(
+  ctx: Context,
+  opts: {
+    collapsedDigest?: string | undefined;
+    evidenceDigest?: string | undefined;
+    reduced: boolean;
+  },
+): CompactReport['quality'] {
+  const evidence = ctx.contextEvidence;
+  const digest = `${opts.collapsedDigest ?? ''}\n${opts.evidenceDigest ?? ''}`;
+  const hasIntent = Boolean(
+    evidence?.currentIntent?.text ||
+      /\b(intent|goal|session_goals|hedef|amac|istiyorum|gerekiyor)\b/i.test(digest),
+  );
+  const hasPathTrail = Boolean(
+    Object.keys(evidence?.fileGraph ?? {}).length > 0 ||
+      (evidence?.toolCalls.length ?? 0) > 0 ||
+      /\b(dependency_graph|tool_trail|files=)\b/i.test(digest),
+  );
+  const issues: string[] = [];
+  if (opts.reduced && !hasIntent) issues.push(QUALITY_ISSUE.missingIntent);
+  if (opts.reduced && !hasPathTrail) issues.push(QUALITY_ISSUE.missingPathTrail);
+  return { ok: issues.length === 0, hasIntent, hasPathTrail, issues };
+}
+
+/**
+ * Enforce an evidence floor: when `checkCompactionQuality` flags that
+ * compaction dropped the intent anchor or tool/path trail, prepend a compact
+ * `[context_state]` system message rebuilt from the live evidence state so the
+ * session goal is never silently lost. Idempotent (won't double-inject) and a
+ * no-op when quality is fine or there is no evidence to inject. Returns true
+ * when it injected a block (so the caller re-estimates tokens).
+ */
+export function injectEvidenceFloor(
+  ctx: Context,
+  quality: CompactReport['quality'] | undefined,
+): boolean {
+  if (!quality || quality.ok) return false;
+  const needsRepair =
+    quality.issues.includes(QUALITY_ISSUE.missingIntent) ||
+    quality.issues.includes(QUALITY_ISSUE.missingPathTrail);
+  if (!needsRepair) return false;
+
+  const digest = buildContextEvidenceDigest(ctx);
+  if (!digest.trim()) return false;
+
+  const already = ctx.messages.some(
+    (m) => typeof m.content === 'string' && m.content.startsWith(CONTEXT_STATE_MARKER),
+  );
+  if (already) return false;
+
+  const block: Message = { role: 'system', content: `${CONTEXT_STATE_MARKER}\n${digest}` };
+  ctx.state.replaceMessages([block, ...ctx.messages]);
+  return true;
 }
 
 function ensureEvidence(ctx: Context): ContextEvidenceState {

@@ -66,8 +66,8 @@ export const MessageBubble = memo(function MessageBubble({
   const [showRaw, setShowRaw] = useState(false);
   const isUser = message.role === 'user';
   const isTool = message.role === 'tool';
-  const isSystem = message.role === 'system';
   const isThinkingLog = !!message.thinkingLog;
+  const isSystem = message.role === 'system' && !isThinkingLog;
   void message.role;
 
   const truncateAfter = useChatStore((s) => s.truncateAfter);

@@ -83,11 +83,15 @@ export const MULTI_DIFF_SUMMARY_THRESHOLD_PRESETS = [3, 5, 8, 10, 15, 0];
 export const ENHANCE_LANGUAGES = ['original', 'english'] as const;
 export type EnhanceLanguage = (typeof ENHANCE_LANGUAGES)[number];
 
-/** Token-saving tier options — cyclable via ←/→ in the settings picker. */
-export const TOKEN_SAVING_TIERS = ['off', 'minimal', 'light', 'medium', 'aggressive'] as const;
+/** Token-saving tier options — cyclable via ←/→ in the settings picker.
+ *  `auto` is the default: it keeps all tools and picks a leaner PROMPT only on
+ *  small context windows (cache-safe). The concrete tiers below force a fixed
+ *  level regardless of window. */
+export const TOKEN_SAVING_TIERS = ['auto', 'off', 'minimal', 'light', 'medium', 'aggressive'] as const;
 export type TokenSavingTierTui = (typeof TOKEN_SAVING_TIERS)[number];
 
 export const TOKEN_SAVING_TIER_DESCS: Record<TokenSavingTierTui, string> = {
+  auto: 'By window — full tools, lean prompt on small models (cache-safe)',
   off: 'All tools enabled (full prompt)',
   minimal: '~2.5–2.7k tokens — core tools only',
   light: '~2.3–2.4k tokens — core + patterns',

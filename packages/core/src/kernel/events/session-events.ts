@@ -123,6 +123,43 @@ export interface SessionEventMap {
     load: number;
     fatal: boolean;
   };
+  /**
+   * Fired when the last-resort emergency trim runs — normal compaction left the
+   * request above the hard threshold, so message content was head/tail
+   * truncated (and, as a final step, oldest messages dropped) until it
+   * structurally fit the window. This is the no-overflow guarantee in action;
+   * `withinBudget: false` would indicate the impossible case where even a
+   * fully-floored request exceeds the budget.
+   */
+  'compaction.emergency_trim': {
+    sessionId?: string | undefined;
+    level: 'warn' | 'soft' | 'hard';
+    /** Estimated message tokens reclaimed by the trim. */
+    saved: number;
+    /** Content blocks elided or head/tail truncated. */
+    trimmedBlocks: number;
+    /** Whole messages dropped as the final pass. */
+    droppedMessages: number;
+    /** Full-request token estimate after the trim. */
+    tokens: number;
+    /** Fraction of the window occupied after the trim. */
+    load: number;
+    maxContext: number;
+    budget?:
+      | {
+          maxContext: number;
+          inputTokens: number;
+          availableInputTokens: number;
+          remainingInputTokens: number;
+          reservedOutputTokens: number;
+          reservedSafetyTokens: number;
+          load: number;
+          overflowTokens: number;
+        }
+      | undefined;
+    /** True when the request fits the window after trimming (expected: always). */
+    withinBudget: boolean;
+  };
   /** Fired by SessionWriter.writeCheckpoint() after the checkpoint event is appended to JSONL. */
   'checkpoint.written': {
     sessionId?: string | undefined;

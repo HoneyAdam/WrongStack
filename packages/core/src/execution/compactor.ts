@@ -4,10 +4,15 @@ import type { ContextWindowPolicy } from '../types/context-window.js';
 import type { Message } from '../types/messages.js';
 import { estimateRequestTokens } from '../utils/token-estimate.js';
 import { repairToolUseAdjacency } from '../utils/message-invariants.js';
-import { buildContextEvidenceDigest } from '../utils/context-evidence.js';
+import {
+  buildContextEvidenceDigest,
+  checkCompactionQuality,
+  injectEvidenceFloor,
+} from '../utils/context-evidence.js';
 import {
   buildLosslessDigest,
   buildSmartDigest,
+  dedupStaleReads,
   eliseOldToolResults,
   estimateMessages,
   hasTextContent,
@@ -66,6 +71,13 @@ export class HybridCompactor implements Compactor {
     if (elide.changed) ctx.state.replaceMessages(elide.messages);
     if (elide.saved > 0) reductions.push({ phase: 'elision', saved: elide.saved });
 
+    // Phase 1b: collapse superseded repeated reads that slipped under eliseThreshold.
+    const dedup = dedupStaleReads(ctx.messages, ctx.contextEvidence?.repeatedReads ?? [], {
+      preserveK,
+    });
+    if (dedup.changed) ctx.state.replaceMessages(dedup.messages);
+    if (dedup.saved > 0) reductions.push({ phase: 'elision', saved: dedup.saved });
+
     // Phase 2: lossless collapse of ancient turns into a single digest.
     // Preserves ALL textual content (instructions, decisions, conclusions);
     // only raw tool I/O is dropped (it remains in the session log). No sub-LLM call.
@@ -83,13 +95,19 @@ export class HybridCompactor implements Compactor {
       ctx.state.replaceMessages(repaired.messages);
     }
 
-    const afterTokens = estimateMessages(ctx.messages);
-    const afterFull = this.estimateFullRequest(ctx);
+    let afterTokens = estimateMessages(ctx.messages);
+    let afterFull = this.estimateFullRequest(ctx);
     const quality = checkCompactionQuality(ctx, {
       collapsedDigest,
       evidenceDigest,
       reduced: beforeTokens > afterTokens || beforeFull > afterFull,
     });
+    // Enforce the evidence floor: if quality flags a dropped intent/path anchor,
+    // re-inject a compact [context_state] block so the goal survives (not advisory).
+    if (injectEvidenceFloor(ctx, quality)) {
+      afterTokens = estimateMessages(ctx.messages);
+      afterFull = this.estimateFullRequest(ctx);
+    }
     return {
       before: beforeTokens,
       after: afterTokens,
@@ -177,33 +195,6 @@ export class HybridCompactor implements Compactor {
       evidenceDigest: evidenceDigest || undefined,
     };
   }
-}
-
-function checkCompactionQuality(
-  ctx: Context,
-  opts: {
-    collapsedDigest?: string | undefined;
-    evidenceDigest?: string | undefined;
-    reduced: boolean;
-  },
-): CompactReport['quality'] {
-  const evidence = ctx.contextEvidence;
-  const digest = `${opts.collapsedDigest ?? ''}\n${opts.evidenceDigest ?? ''}`;
-  const hasIntent = Boolean(evidence?.currentIntent?.text || /\b(intent|goal|session_goals)\b/i.test(digest));
-  const hasPathTrail = Boolean(
-    Object.keys(evidence?.fileGraph ?? {}).length > 0 ||
-      (evidence?.toolCalls.length ?? 0) > 0 ||
-      /\b(dependency_graph|tool_trail|files=)\b/i.test(digest),
-  );
-  const issues: string[] = [];
-  if (opts.reduced && !hasIntent) issues.push('missing intent anchor');
-  if (opts.reduced && !hasPathTrail) issues.push('missing tool/path trail');
-  return {
-    ok: issues.length === 0,
-    hasIntent,
-    hasPathTrail,
-    issues,
-  };
 }
 
 function readContextWindowPolicy(ctx: Context): ContextWindowPolicy | null {

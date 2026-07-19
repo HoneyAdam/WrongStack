@@ -359,6 +359,11 @@ export interface AppProps {
   keyTail?: string | undefined;
   /** Active fallback profile name, shown in the banner (e.g. "default"). */
   profile?: string | undefined;
+  /** Absolute path to the active profile's config.json
+   *  (e.g. "~/.wrongstack/profiles/default/config.json"). When present,
+   *  the banner renders this full path with the profile name highlighted,
+   *  instead of the bare {@link profile} string. */
+  profileConfigPath?: string | undefined;
   /** Background autonomy agents to display in the banner (Brain, Shadow,
    *  Kanban, Mailbox, Memory, etc.). */
   autonomyAgents?: import('./components/history/types.js').AutonomyAgentStatus[] | undefined;

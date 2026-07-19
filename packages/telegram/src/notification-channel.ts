@@ -49,6 +49,10 @@ const LEVEL_ICON: Record<NotificationLevel, string> = {
 export interface TelegramNotificationChannelOptions {
   /** The TelegramBot instance (owned by the main plugin). */
   readonly bot: TelegramBot;
+  /** Queue-backed notification sender used by the plugin runtime. */
+  readonly enqueueNotification?:
+    | ((chatId: string | number, text: string) => void)
+    | undefined;
   /** Target chat or user ID for all notifications sent through this channel. */
   readonly chatId: string | number;
   /**
@@ -65,12 +69,16 @@ export class TelegramNotificationChannel implements NotificationChannel {
 
   readonly #bot: TelegramBot;
   readonly #chatId: string | number;
+  readonly #enqueueNotification:
+    | ((chatId: string | number, text: string) => void)
+    | undefined;
   readonly #maxLen: number;
   readonly #log: Logger | undefined;
 
   constructor(opts: TelegramNotificationChannelOptions) {
     this.#bot = opts.bot;
     this.#chatId = opts.chatId;
+    this.#enqueueNotification = opts.enqueueNotification;
     this.#maxLen = opts.maxMessageLength ?? 4000;
     this.#log = opts.log;
   }
@@ -104,7 +112,14 @@ export class TelegramNotificationChannel implements NotificationChannel {
       // 3. Truncate to fit Telegram's message size limit
       const truncated = truncateForTelegram(scrubbed, this.#maxLen);
 
-      // 4. Send
+      // 4. Queue when the plugin runtime supplies its bounded outbound path.
+      if (this.#enqueueNotification) {
+        this.#enqueueNotification(this.#chatId, truncated);
+        this.#log?.debug?.(`telegram notification queued (${truncated.length} chars)`);
+        return { ok: true, channel: this.name, deliveredAt };
+      }
+
+      // Standalone channels retain direct delivery for backwards compatibility.
       const res = await this.#bot.sendMessage(this.#chatId, truncated);
 
       this.#log?.debug?.(`telegram notification delivered (${truncated.length} chars, ok=${res.ok})`);

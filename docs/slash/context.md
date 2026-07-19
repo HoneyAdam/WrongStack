@@ -4,9 +4,9 @@ Alias: `/ctx`.
 
 ## What it does
 
-Shows a live snapshot of the current context window: message counts, estimated tokens, effective context limit, tool call stats, todo counts, read files, and active context policy. It also prints a **real per-category token breakdown** — measured from the assembled request (`getContextBreakdown`), not guessed — so you can see exactly what fills the window: system prompt (split by section), tool definitions (builtin vs MCP), conversation history (text vs tool results), and the per-turn volatile blocks. Also has subcommands for switching context modes, setting session-local compaction limits/thresholds, and repairing orphan tool_use/tool_result blocks.
+Shows a live snapshot of the current context window. In TUI, bare `/context` opens the interactive Ink monitor and leaves only a two-line context/memory summary in chat history; it never prints the removed Markdown dashboard. The panel includes the measured token breakdown and exact Super Memory `ctx`/`pending`/`left` state. CLI/REPL keeps the text report and configuration subcommands below.
 
-## Subcommands
+## CLI/REPL subcommands
 
 | Usage | Output |
 |---|---|
@@ -56,14 +56,15 @@ Example for an endpoint that starts rejecting requests around 256K tokens:
 
 For a persistent config-level setting, set `context.effectiveMaxContext` and optionally `context.warnThreshold`, `context.softThreshold`, and `context.hardThreshold` in config.
 
-## The breakdown (TUI dashboard + CLI)
+## The breakdown (TUI monitor + CLI)
 
-The token breakdown is computed by `getContextBreakdown(ctx)` (`packages/core/src/utils/context-breakdown.ts`). It attributes each system-prompt block to its origin section via a builder-side `SYSTEM_BLOCK_SOURCE` WeakMap, splits tool definitions into builtin vs MCP (by server), and separates conversation text from tool-result output. The TUI expanded view (`/context window`) renders the same measured numbers plus a threshold map and compaction box driven by the **active policy** thresholds — no hardcoded percentages.
+The token breakdown is computed by `getContextBreakdown(ctx)` (`packages/core/src/utils/context-breakdown.ts`). It attributes each system-prompt block to its origin section via a builder-side `SYSTEM_BLOCK_SOURCE` WeakMap, splits tool definitions into builtin vs MCP (by server), and separates conversation text from tool-result output. The interactive TUI `/context` monitor renders the same measured numbers plus exact provider-bound memory presence.
 
 ## Code reference
 
 - `packages/cli/src/slash-commands/context.ts`
 - `packages/core/src/utils/context-breakdown.ts` — `getContextBreakdown()`
-- `packages/tui/src/context-slash.ts` — the expanded dashboard
+- `packages/tui/src/context-slash.ts` — panel-only TUI command bridge
+- `packages/tui/src/components/context-panel.tsx` — interactive TUI monitor
 - `packages/core/src/execution/intelligent-compactor.ts` — `repairToolUseAdjacency()`
 - `packages/core/src/models/mode-store.ts` — context window modes

@@ -89,68 +89,84 @@ describe('startHeapWatchdog', () => {
 
   it('fires warn then critical once per crossing (critical first)', () => {
     vi.useFakeTimers();
-    const calls: Array<{ level: string }> = [];
-    const stop = startHeapWatchdog({
-      logPath,
-      sampleEveryMs: 1_000,
-      warnAt: 0,
-      criticalAt: 0,
-      onWarn: (level) => calls.push({ level }),
-    });
-    vi.advanceTimersByTime(5_000);
-    stop();
-    // critical fires first (only once), warn is suppressed by critical
-    expect(calls).toEqual([{ level: 'critical' }]);
+    try {
+      const calls: Array<{ level: string }> = [];
+      const stop = startHeapWatchdog({
+        logPath,
+        sampleEveryMs: 1_000,
+        warnAt: 0,
+        criticalAt: 0,
+        onWarn: (level) => calls.push({ level }),
+      });
+      vi.advanceTimersByTime(5_000);
+      stop();
+      // critical fires first (only once), warn is suppressed by critical
+      expect(calls).toEqual([{ level: 'critical' }]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('fires warn (not critical) between the two thresholds', () => {
     vi.useFakeTimers();
-    const calls: string[] = [];
-    const stop = startHeapWatchdog({
-      logPath,
-      sampleEveryMs: 1_000,
-      warnAt: 0,
-      criticalAt: 1.01,
-      onWarn: (level) => calls.push(level),
-    });
-    vi.advanceTimersByTime(5_000);
-    stop();
-    expect(calls).toEqual(['warn']);
+    try {
+      const calls: string[] = [];
+      const stop = startHeapWatchdog({
+        logPath,
+        sampleEveryMs: 1_000,
+        warnAt: 0,
+        criticalAt: 1.01,
+        onWarn: (level) => calls.push(level),
+      });
+      vi.advanceTimersByTime(5_000);
+      stop();
+      expect(calls).toEqual(['warn']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('re-arms warn after falling below threshold minus margin', () => {
     vi.useFakeTimers();
-    const warnAt = 1.0; // Very high — load is always below it
-    const criticalAt = 2.0; // Never reached
-    // With warnAt=1.0 and load always < 1, warn never fires
-    const calls: string[] = [];
-    const stop = startHeapWatchdog({
-      logPath,
-      sampleEveryMs: 1_000,
-      warnAt: 0, // Always fires
-      criticalAt: 1.01,
-      onWarn: (level) => calls.push(level),
-    });
-    vi.advanceTimersByTime(2_000);
-    // First tick should fire warn, second should also fire (re-armed because load is back below 0-0.05 = -0.05)
-    // Actually with warnAt=0 and load=~0.3, warn fires once, then since load (0.3) < warnAt - 0.05 (-0.05) is false,
-    // warnArmed stays false, so only one 'warn' call.
-    // Let's verify
-    stop();
-    expect(calls.length).toBeGreaterThanOrEqual(1);
+    try {
+      const warnAt = 1.0; // Very high — load is always below it
+      const criticalAt = 2.0; // Never reached
+      // With warnAt=1.0 and load always < 1, warn never fires
+      const calls: string[] = [];
+      const stop = startHeapWatchdog({
+        logPath,
+        sampleEveryMs: 1_000,
+        warnAt: 0, // Always fires
+        criticalAt: 1.01,
+        onWarn: (level) => calls.push(level),
+      });
+      vi.advanceTimersByTime(2_000);
+      // First tick should fire warn, second should also fire (re-armed because load is back below 0-0.05 = -0.05)
+      // Actually with warnAt=0 and load=~0.3, warn fires once, then since load (0.3) < warnAt - 0.05 (-0.05) is false,
+      // warnArmed stays false, so only one 'warn' call.
+      // Let's verify
+      stop();
+      expect(calls.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a throwing collectStats does not break sampling', () => {
     vi.useFakeTimers();
-    const stop = startHeapWatchdog({
-      logPath,
-      sampleEveryMs: 1_000,
-      collectStats: () => {
-        throw new Error('boom');
-      },
-    });
-    expect(() => vi.advanceTimersByTime(3_000)).not.toThrow();
-    stop();
+    try {
+      const stop = startHeapWatchdog({
+        logPath,
+        sampleEveryMs: 1_000,
+        collectStats: () => {
+          throw new Error('boom');
+        },
+      });
+      expect(() => vi.advanceTimersByTime(3_000)).not.toThrow();
+      stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('logs additional line when threshold is crossed (due or crossed)', async () => {

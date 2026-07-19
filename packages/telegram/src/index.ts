@@ -321,6 +321,7 @@ const plugin: Plugin = {
           bot,
           chatId: runtimeCfg.notifyChatId,
           maxMessageLength: runtimeCfg.maxMessageLength,
+          enqueueNotification: (chatId, text) => outbound.enqueueNotification(chatId, text),
           log,
         });
         // Register with the host's Notifier so other subsystems can send
@@ -331,9 +332,8 @@ const plugin: Plugin = {
       // ---- Notification event handlers ----
       // Always subscribed; guard at event time against runtime flags so changes
       // take effect immediately without needing to restart the plugin.
-      // Delivery goes through `notifyChannel` (which wraps bot.sendMessage with
-      // scrubbing + truncation) rather than the outbound queue, because
-      // notifications are fire-and-forget and the queue is for manual sends.
+      // Delivery goes through `notifyChannel` for rendering/scrubbing and then
+      // through the shared outbound queue for ordering and backpressure.
 
       cleanups.push(
         api.events.on('session.ended', (event) => {
@@ -425,6 +425,8 @@ const plugin: Plugin = {
                   bot,
                   chatId: fresh.notifyChatId,
                   maxMessageLength: fresh.maxMessageLength,
+                  enqueueNotification: (chatId, text) =>
+                    outbound.enqueueNotification(chatId, text),
                   log,
                 })
               : undefined;

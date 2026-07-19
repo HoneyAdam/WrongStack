@@ -110,20 +110,76 @@ export interface HqClientConfig {
  * - 'medium'     — TIER1 + TIER2 development tools, some guidance (default when `true`)
  * - 'aggressive' — Maximum savings before tools become unusable (~4-5k tokens saved)
  */
-export type TokenSavingTier = 'off' | 'minimal' | 'light' | 'medium' | 'aggressive';
+/**
+ * Prompt token-saving tiers. `'auto'` is an INPUT-only sentinel meaning "pick a
+ * concrete tier from the model's context window" — it is resolved to one of the
+ * concrete tiers by {@link resolveTokenSavingTier} before reaching the prompt
+ * builder (which never sees `'auto'`; if it somehow does, it behaves as `'off'`,
+ * i.e. the full prompt — the safe fallback).
+ */
+export type TokenSavingTier = 'off' | 'auto' | 'minimal' | 'light' | 'medium' | 'aggressive';
+
+/** Concrete tiers the prompt builder actually consumes ('auto' excluded). */
+export type ConcreteTokenSavingTier = Exclude<TokenSavingTier, 'auto'>;
 
 /**
  * Normalize a TokenSavingTier value, handling backward-compatible boolean inputs.
  * - `true`  → 'medium' (existing behavior)
  * - `false` → 'off'
- * - string values are returned as-is after validation
- * - `undefined` → 'off'
+ * - `'auto'` → `'off'` — the `'auto'` sentinel is window-dependent, so EVERY
+ *   consumer that isn't the prompt builder (tool selection, lazy-load gate, TUI
+ *   display) must treat it as the safe no-op `'off'`: it must NOT reduce the
+ *   registered tool set or enable lazy loading on its own. Only the prompt
+ *   builder expands `'auto'` — via {@link resolveTokenSavingTier} — and only for
+ *   the (cache-stable) prompt prose. This keeps auto-tiering capability-neutral.
+ * - other valid strings are returned as-is; `undefined`/invalid → 'off'
  */
-export function normalizeTokenSavingTier(val?: TokenSavingTier | boolean): TokenSavingTier {
+export function normalizeTokenSavingTier(val?: TokenSavingTier | boolean): ConcreteTokenSavingTier {
   if (val === undefined) return 'off';
   if (typeof val === 'boolean') return val ? 'medium' : 'off';
-  const validTiers = new Set<TokenSavingTier>(['off', 'minimal', 'light', 'medium', 'aggressive']);
-  return validTiers.has(val) ? val : 'off';
+  const validTiers = new Set<ConcreteTokenSavingTier>([
+    'off',
+    'minimal',
+    'light',
+    'medium',
+    'aggressive',
+  ]);
+  // 'auto' is deliberately absent → collapses to 'off' for non-prompt consumers.
+  return validTiers.has(val as ConcreteTokenSavingTier) ? (val as ConcreteTokenSavingTier) : 'off';
+}
+
+/**
+ * Resolve the effective (concrete) token-saving tier for the **prompt builder**,
+ * expanding the `'auto'` sentinel from the model's context window. This is
+ * **cache-safe**: the window is stable for a session, so it resolves to the same
+ * tier every turn — the system-prompt prefix stays byte-stable and the provider
+ * prompt cache is never busted by a shifting tier (unlike a per-turn
+ * pressure-driven tier). It re-resolves only on `/model` switch, which busts the
+ * cache anyway.
+ *
+ * Conservative thresholds (small windows only; large windows keep the full
+ * prompt so nothing changes for the common 200k+/1M case):
+ *   - `< 32k`  → `'medium'`  (identity + tool prose is a big fraction — trim it)
+ *   - `< 96k`  → `'light'`
+ *   - `>= 96k` → `'off'`     (room to spare; favour cache stability + capability)
+ *   - unknown window → `'off'` (never guess a lean prompt without evidence)
+ *
+ * Explicit concrete tiers (a user who set `'medium'`, `'off'`, …) are always
+ * respected verbatim — `'auto'` is the only value that consults the window.
+ */
+export function resolveTokenSavingTier(
+  val: TokenSavingTier | boolean | undefined,
+  maxContext: number | undefined,
+): ConcreteTokenSavingTier {
+  if (val === 'auto') {
+    if (typeof maxContext !== 'number' || !Number.isFinite(maxContext) || maxContext <= 0) {
+      return 'off';
+    }
+    if (maxContext < 32_000) return 'medium';
+    if (maxContext < 96_000) return 'light';
+    return 'off';
+  }
+  return normalizeTokenSavingTier(val);
 }
 
 /**

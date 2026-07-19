@@ -123,7 +123,13 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
       featureMemory: cfg.features?.memory !== false,
       featureSkills: cfg.features?.skills !== false,
       featureModelsRegistry: cfg.features?.modelsRegistry !== false,
-      featureTokenSaving: normalizeTokenSavingTier(cfg.features?.tokenSavingMode),
+      // Preserve the 'auto' sentinel for the picker DISPLAY (normalize would
+      // collapse it to 'off', which would then overwrite 'auto' on save);
+      // everything else normalizes to a concrete tier.
+      featureTokenSaving:
+        cfg.features?.tokenSavingMode === 'auto'
+          ? 'auto'
+          : normalizeTokenSavingTier(cfg.features?.tokenSavingMode),
       allowOutsideProjectRoot: resolvedAllow,
       contextAutoCompact: cfg.context?.autoCompact !== false,
       contextStrategy: cfg.context?.strategy ?? 'hybrid',
@@ -226,19 +232,19 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
         s.breakerAutoKillResetMs !== undefined ||
         s.showModelReasoning !== undefined
       ) {
-        const configScope = s.configScope ?? configStore.get().configScope ?? 'global';
+        const cfg = configStore.get();
         // Delegate path resolution to the canonical resolver. This keeps
         // the three-way routing (project → profile → bootstrap) consistent
         // with the settings-menu.ts slash commands and the run-tui live-apply
         // path; a future fourth target (e.g. org config) only needs one update.
+        const activeProfileName = (cfg as { activeProfile?: string }).activeProfile ?? 'default';
         const persistDeps = {
           configStore,
           globalConfigPath: wpaths.globalConfig,
-          profileConfigPath: wpaths.profileConfig(
-            (configStore.get() as { activeProfile?: string }).activeProfile ?? 'default',
-          ),
+          profileConfigPath: wpaths.profileConfig(activeProfileName),
           inProjectConfigPath: wpaths.inProjectConfig,
           vault: noOpVault,
+          resolveProfilePath: (name: string) => wpaths.profileConfig(name),
         };
         const targetPath = resolvePersistPath(persistDeps);
         let raw: string;

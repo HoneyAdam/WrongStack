@@ -1,9 +1,44 @@
-import { expectDefined } from '@wrongstack/core';
 import type { EventBus, FleetChatVerbosity } from '@wrongstack/core';
+import { expectDefined } from '@wrongstack/core';
 import { useCallback, useEffect, useRef } from 'react';
 import type { Action } from '../app-reducer.js';
 import { useFleetGenerationGate } from './use-fleet-generation-gate.js';
+
 const STREAM_COLORS = ['cyan', 'magenta', 'yellow', 'green', 'blue'];
+
+interface CompactionHistoryEvent {
+  sessionId?: string | undefined;
+  level: 'warn' | 'soft' | 'hard';
+  report: {
+    before: number;
+    after: number;
+    fullRequestTokensBefore?: number | undefined;
+    fullRequestTokensAfter?: number | undefined;
+  };
+}
+
+export function compactionHistoryEntry(
+  event: CompactionHistoryEvent,
+  currentSessionId?: string | undefined,
+): { kind: 'info' | 'warn'; text: string } | null {
+  if (event.sessionId && currentSessionId && event.sessionId !== currentSessionId) return null;
+  const before = event.report.fullRequestTokensBefore ?? event.report.before;
+  const after = event.report.fullRequestTokensAfter ?? event.report.after;
+  const saved = before - after;
+  if (saved === 0) return null;
+  if (saved < 0) {
+    return {
+      kind: 'warn',
+      text: `⚠️ compact: context grew by ${-saved} tokens [${event.level}]`,
+    };
+  }
+  const minimumUsefulSaving = Math.max(1_000, Math.ceil(before * 0.005));
+  if (saved < minimumUsefulSaving) return null;
+  return {
+    kind: 'info',
+    text: `⚡ compact: ${before} → ${after} tokens (−${saved}) [${event.level}]`,
+  };
+}
 
 function labelFor(
   labelsRef: React.MutableRefObject<Map<string, { label: string; color: string }>>,
@@ -60,11 +95,27 @@ export function useSubagentEvents(
       // from this agent can be detected and discarded.
       if (sessionGenerationRef) gate.track(e.subagentId);
       const l = lbl(e.subagentId, e.name);
-      dispatch({ type: 'fleetSpawn', id: e.subagentId, name: e.name, provider: e.provider, model: e.model, transcriptPath: e.transcriptPath });
+      dispatch({
+        type: 'fleetSpawn',
+        id: e.subagentId,
+        name: e.name,
+        provider: e.provider,
+        model: e.model,
+        transcriptPath: e.transcriptPath,
+      });
       if (mode() !== 'off') {
         const where = e.provider && e.model ? `${e.provider}/${e.model}` : 'spawned';
         const desc = e.description ? ` — ${e.description.slice(0, 80)}` : '';
-        dispatch({ type: 'addEntry', entry: { kind: 'subagent', agentLabel: l.label, agentColor: l.color, icon: '▶', text: `${where}${desc}` } });
+        dispatch({
+          type: 'addEntry',
+          entry: {
+            kind: 'subagent',
+            agentLabel: l.label,
+            agentColor: l.color,
+            icon: '▶',
+            text: `${where}${desc}`,
+          },
+        });
       }
     });
 
@@ -75,7 +126,16 @@ export function useSubagentEvents(
       dispatch({ type: 'fleetStart', id: e.subagentId, taskId: e.taskId });
       if (mode() === 'full') {
         const desc = e.description ? ` — ${e.description.slice(0, 80)}` : '';
-        dispatch({ type: 'addEntry', entry: { kind: 'subagent', agentLabel: l.label, agentColor: l.color, icon: '●', text: `task started${desc}` } });
+        dispatch({
+          type: 'addEntry',
+          entry: {
+            kind: 'subagent',
+            agentLabel: l.label,
+            agentColor: l.color,
+            icon: '●',
+            text: `task started${desc}`,
+          },
+        });
       }
     });
 
@@ -84,16 +144,41 @@ export function useSubagentEvents(
       if (!gate.isLive(e.subagentId)) return;
       const l = lbl(e.subagentId);
       const errKind = e.error?.kind;
-      dispatch({ type: 'fleetDone', id: e.subagentId, status: e.status, iterations: e.iterations, toolCalls: e.toolCalls, failureReason: errKind });
-      const icon = e.status === 'success' ? '✓' : e.status === 'timeout' ? '⏱' : e.status === 'stopped' ? '⊘' : '✗';
+      dispatch({
+        type: 'fleetDone',
+        id: e.subagentId,
+        status: e.status,
+        iterations: e.iterations,
+        toolCalls: e.toolCalls,
+        failureReason: errKind,
+      });
+      const icon =
+        e.status === 'success'
+          ? '✓'
+          : e.status === 'timeout'
+            ? '⏱'
+            : e.status === 'stopped'
+              ? '⊘'
+              : '✗';
       // In 'off' mode only non-success completions surface — failures must
       // never be silent even when fleet chat is fully muted.
       if (mode() !== 'off' || e.status !== 'success') {
         const errMsg = e.error?.message;
-        const errMsgTail = errMsg ? ` — ${errMsg.replace(/\s+/g, ' ').slice(0, 100)}${errMsg.length > 100 ? '…' : ''}` : '';
+        const errMsgTail = errMsg
+          ? ` — ${errMsg.replace(/\s+/g, ' ').slice(0, 100)}${errMsg.length > 100 ? '…' : ''}`
+          : '';
         const errChip = errKind ? ` [${errKind}]` : '';
         const secs = (e.durationMs / 1000).toFixed(e.durationMs < 10_000 ? 1 : 0);
-        dispatch({ type: 'addEntry', entry: { kind: 'subagent', agentLabel: l.label, agentColor: l.color, icon, text: `${e.status} (${e.iterations} iter · ${e.toolCalls} tools · ${secs}s)${errChip}${errMsgTail}` } });
+        dispatch({
+          type: 'addEntry',
+          entry: {
+            kind: 'subagent',
+            agentLabel: l.label,
+            agentColor: l.color,
+            icon,
+            text: `${e.status} (${e.iterations} iter · ${e.toolCalls} tools · ${secs}s)${errChip}${errMsgTail}`,
+          },
+        });
       }
     });
 
@@ -108,12 +193,28 @@ export function useSubagentEvents(
       if (!isCurrentSession(e.sessionId)) return;
       if (!gate.isLive(e.subagentId)) return;
       const l = lbl(e.subagentId);
-      dispatch({ type: 'fleetBudgetWarning', id: e.subagentId, kind: e.kind, used: e.used, limit: e.limit });
+      dispatch({
+        type: 'fleetBudgetWarning',
+        id: e.subagentId,
+        kind: e.kind,
+        used: e.used,
+        limit: e.limit,
+      });
       const m = mode();
       const show = m === 'full';
       if (show) {
-        const timeoutSuffix = e.kind === 'timeout' ? ' (subagent continues running)' : ' — extending';
-        dispatch({ type: 'addEntry', entry: { kind: 'subagent', agentLabel: l.label, agentColor: l.color, icon: '⚡', text: `hitting ${e.kind} limit (${e.used}/${e.limit})${timeoutSuffix}` } });
+        const timeoutSuffix =
+          e.kind === 'timeout' ? ' (subagent continues running)' : ' — extending';
+        dispatch({
+          type: 'addEntry',
+          entry: {
+            kind: 'subagent',
+            agentLabel: l.label,
+            agentColor: l.color,
+            icon: '⚡',
+            text: `hitting ${e.kind} limit (${e.used}/${e.limit})${timeoutSuffix}`,
+          },
+        });
       }
     });
 
@@ -121,9 +222,22 @@ export function useSubagentEvents(
       if (!isCurrentSession(e.sessionId)) return;
       if (!gate.isLive(e.subagentId)) return;
       const l = lbl(e.subagentId);
-      dispatch({ type: 'fleetBudgetExtended', id: e.subagentId, totalExtensions: e.totalExtensions });
+      dispatch({
+        type: 'fleetBudgetExtended',
+        id: e.subagentId,
+        totalExtensions: e.totalExtensions,
+      });
       if (mode() === 'full') {
-        dispatch({ type: 'addEntry', entry: { kind: 'subagent', agentLabel: l.label, agentColor: l.color, icon: '⚡', text: `extended ${e.kind} → ${e.newLimit} (×${e.totalExtensions})` } });
+        dispatch({
+          type: 'addEntry',
+          entry: {
+            kind: 'subagent',
+            agentLabel: l.label,
+            agentColor: l.color,
+            icon: '⚡',
+            text: `extended ${e.kind} → ${e.newLimit} (×${e.totalExtensions})`,
+          },
+        });
       }
     });
 
@@ -134,14 +248,31 @@ export function useSubagentEvents(
       const l = lbl(e.subagentId);
       const costStr = e.costUsd > 0 ? ` · ${e.costUsd.toFixed(4)}` : '';
       const toolStr = e.currentTool ? ` · doing ${e.currentTool}` : '';
-      const partial = e.partialText ? ` · "${e.partialText.slice(0, 60)}${e.partialText.length > 60 ? '…' : ''}"` : '';
-      dispatch({ type: 'addEntry', entry: { kind: 'subagent', agentLabel: l.label, agentColor: l.color, icon: '💬', text: `L${e.iteration} · ${e.toolCalls} tools${costStr}${toolStr}${partial}` } });
+      const partial = e.partialText
+        ? ` · "${e.partialText.slice(0, 60)}${e.partialText.length > 60 ? '…' : ''}"`
+        : '';
+      dispatch({
+        type: 'addEntry',
+        entry: {
+          kind: 'subagent',
+          agentLabel: l.label,
+          agentColor: l.color,
+          icon: '💬',
+          text: `L${e.iteration} · ${e.toolCalls} tools${costStr}${toolStr}${partial}`,
+        },
+      });
     });
 
     const offCtxPct = events.on('subagent.ctx_pct', (e) => {
       if (!isCurrentSession(e.sessionId)) return;
       if (!gate.isLive(e.subagentId)) return;
-      dispatch({ type: 'fleetCtxPct', id: e.subagentId, load: e.load, tokens: e.tokens, maxContext: e.maxContext });
+      dispatch({
+        type: 'fleetCtxPct',
+        id: e.subagentId,
+        load: e.load,
+        tokens: e.tokens,
+        maxContext: e.maxContext,
+      });
     });
 
     // NOTE: AgentMonitorService also emits `agent.timeline.message` (one event
@@ -175,30 +306,37 @@ export function useSubagentEvents(
     });
 
     const offCompactionFired = events.on('compaction.fired', (e) => {
-      const saved = e.report.before - e.report.after;
-      let label: string;
-      if (saved > 0) {
-        label = `⚡ compact: ${e.report.before} → ${e.report.after} tokens (−${saved}) [${e.level}]`;
-      } else if (saved < 0) {
-        label = `⚠️ compact: context GREW by ${-saved} tokens [${e.level}]`;
-      } else {
-        label = '⚡ compact: no reduction needed';
-      }
-      dispatch({ type: 'addEntry', entry: { kind: 'warn', text: label } });
+      const entry = compactionHistoryEntry(e, getSessionId?.());
+      if (entry) dispatch({ type: 'addEntry', entry });
     });
 
     const offTool = events.on('subagent.tool_executed', (e) => {
       if (!isCurrentSession(e.sessionId)) return;
       if (!gate.isLive(e.subagentId)) return;
-      dispatch({ type: 'fleetTool', id: e.subagentId, name: e.name, ok: e.ok, durationMs: e.durationMs, outputBytes: e.outputBytes });
+      dispatch({
+        type: 'fleetTool',
+        id: e.subagentId,
+        name: e.name,
+        ok: e.ok,
+        durationMs: e.durationMs,
+        outputBytes: e.outputBytes,
+      });
       dispatch({ type: 'fleetToolEnd', id: e.subagentId });
     });
 
     return () => {
-      offSpawned(); offStarted(); offCompleted(); offRemoved();
-      offBudgetWarning(); offBudgetExtended();
-      offIterationSummary(); offCtxPct(); offConcurrencyChanged();
-      offLeaderCtxPct(); offLeaderMaxContext(); offCompactionFired();
+      offSpawned();
+      offStarted();
+      offCompleted();
+      offRemoved();
+      offBudgetWarning();
+      offBudgetExtended();
+      offIterationSummary();
+      offCtxPct();
+      offConcurrencyChanged();
+      offLeaderCtxPct();
+      offLeaderMaxContext();
+      offCompactionFired();
       offTool();
     };
   }, [events, dispatch, setActiveMaxContext, getSessionId, getChatMode, lbl, gate]);

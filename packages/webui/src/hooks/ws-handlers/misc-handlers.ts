@@ -267,6 +267,11 @@ export function handleMemoryEvent(msg: WSServerMessage) {
       payload as unknown as import('@/stores/memory-injector-store').MemoryInjectorTrace,
     );
   }
+  if (payload.event === 'memory.context_snapshot') {
+    useMemoryInjectorTraceStore.getState().applyContextSnapshot(
+      payload as unknown as import('@/stores/memory-injector-store').MemoryContextSnapshot,
+    );
+  }
   useMemoryLifecycleStore.getState().pushEvent(payload);
   if (payload.event === 'memory.staled')
     toast.warn(`Memory became stale: ${String(payload['memoryId'] ?? '')}`);

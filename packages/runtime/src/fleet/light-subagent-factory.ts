@@ -30,6 +30,7 @@ import {
   createDefaultPipelines,
   createFallbackModelExtension,
   EventBus,
+  installSubagentAutoCompaction,
   type ModelsRegistry,
   mergeModelRuntime,
   type ProviderRegistry,
@@ -174,6 +175,11 @@ export function makeLightSubagentFactory(deps: LightSubagentFactoryDeps): AgentF
         });
       },
     });
+
+    // Proactive auto-compaction — subagents shrink on the warn/soft/hard
+    // thresholds (and get the last-resort emergency trim) like the leader,
+    // instead of growing unbounded until the provider rejects the request.
+    installSubagentAutoCompaction(pipelines, ctx, config.context, events);
 
     // Subagents can't answer prompts — auto-approve the wide work capability set
     // (the spawn site may narrow it via allowedCapabilities). `source: 'yolo'`

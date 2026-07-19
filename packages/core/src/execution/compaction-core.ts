@@ -1,8 +1,11 @@
 import type { ContentBlock, ToolResultBlock, ToolUseBlock } from '../types/blocks.js';
 import { isTextBlock } from '../types/blocks.js';
 import type { Message } from '../types/messages.js';
+import { repairToolUseAdjacency } from '../utils/message-invariants.js';
 import {
+  computeMessageTokens,
   estimateMessageTokens,
+  estimateTextTokens,
   estimateToolInputTokens,
   estimateToolResultTokens,
 } from '../utils/token-estimate.js';
@@ -16,7 +19,7 @@ import {
 
 // Repeated-failure detection (used twice in scoreMessage — once for the
 // boolean match, once to extract the error key).
-const FAILURE_PATTERN = /(error|fail|exception|timeout|enonet|eacces|eperm|enoent|abort)/i;
+const FAILURE_PATTERN = /(error|fail|exception|timeout|enonet|eacces|eperm|enoent|abort|hata|başarısız|basarisiz)/i;
 
 // User corrections / stop signals.
 const CORRECTION_PATTERN = /\b(wrong|no\b|stop\b|don'?t\b|actually|fix that|undo|revert|forget|ignore|skip)\b/i;
@@ -29,6 +32,23 @@ const SECURITY_PATTERN = /\b(security|vulnerability|injection|xss|csrf|secret|ap
 
 // Architecture / design decisions.
 const ARCHITECTURE_PATTERN = /\b(architecture|design|approach|strategy|pattern|refactor|migrate|restructure|decision|trade.?off)\b/i;
+
+// ── Turkish-language signals (this user works in Turkish) ─────────────────
+// JS `\b` is ASCII-only, so it mis-anchors words ending in Turkish letters
+// (ş, ı, ç…). These patterns deliberately omit `\b` and include diacritic
+// AND ascii-folded spellings, since users often type without diacritics.
+
+// User corrections / stop signals — Turkish.
+const CORRECTION_PATTERN_TR =
+  /(hayır|hayir|yanlış|yanlis|durdur|dur\b|yapma\b|geri al|düzelt|duzelt|boş ?ver|bosver|iptal|olmadı|olmadi|bozdun|yapmadın|yapmadin|değil|degil|vazgeç|vazgec)/i;
+
+// Error / exception / crash language — Turkish.
+const ERROR_LANG_PATTERN_TR =
+  /(hata\b|hatası|hatasi|başarısız|basarisiz|çöktü|coktu|kritik|çakıldı|cakildi|takıldı|takildi|patladı|patladi)/i;
+
+// Architecture / design decisions — Turkish.
+const ARCHITECTURE_PATTERN_TR =
+  /(mimari|tasarım|tasarim|yaklaşım|yaklasim|strateji|karar\b|yeniden yapıland|yeniden yapiland|refaktör|refaktor|göç et|goc et|geçiş|gecis)/i;
 
 // Grep / list / tree output markers (low-priority boilerplate).
 const BOILERPLATE_PATTERN = /\b(files_with_matches|count|found \d+ match|directory tree|\.\.\. and \d+ more)\b/i;
@@ -126,63 +146,12 @@ function emitCompactionMetrics(event: string, metrics: CompactionMetrics): void 
  */
 export const estimateMessages = estimateMessageTokens;
 
-/**
- * Compact, information-dense representation of one message for selector and
- * summarizer calls. Raw tool payloads are intentionally not copied wholesale:
- * keep the tool name, status, paths, first error, and a short content sample.
- * This lets the pruning model reason over the whole session instead of using
- * its budget on the first large read/grep result it encounters.
- */
-export function buildCompactionPreview(message: Message, maxChars = 600): string {
-  if (maxChars <= 0) return '';
-  if (typeof message.content === 'string') {
-    return truncatePreview(message.content, maxChars);
-  }
-
-  const parts: string[] = [];
-  for (const block of message.content) {
-    if (isTextBlock(block)) {
-      const text = truncatePreview(block.text, maxChars);
-      if (text) parts.push(text);
-      continue;
-    }
-    if (block.type === 'tool_use') {
-      const input = truncatePreview(safePreviewString(block.input), 220);
-      parts.push(`[tool_use: ${block.name}${input ? `; input=${input}` : ''}]`);
-      continue;
-    }
-    if (block.type === 'tool_result') {
-      const raw = safePreviewString(block.content);
-      const details: string[] = [block.is_error ? 'error' : 'ok'];
-      if (block.name) details.push(`tool=${block.name}`);
-      const files = extractPathHints(raw).slice(0, 5);
-      if (files.length > 0) details.push(`files=${files.join(', ')}`);
-      const error = firstErrorLine(raw);
-      if (error) details.push(`error=${error}`);
-      const sample = truncatePreview(raw, 260);
-      if (sample) details.push(`sample=${sample}`);
-      parts.push(`[tool_result: ${details.join('; ')}]`);
-      continue;
-    }
-    parts.push(`[${block.type}]`);
-  }
-  return truncatePreview(parts.join(' '), maxChars);
-}
-
-function safePreviewString(value: unknown): string {
-  if (typeof value === 'string') return value;
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
-
-function truncatePreview(value: string, maxChars: number): string {
-  const compact = value.replace(WHITESPACE_COLLAPSE_PATTERN, ' ').trim();
-  if (compact.length <= maxChars) return compact;
-  return `${compact.slice(0, Math.max(0, maxChars - 1))}…`;
-}
+// `buildCompactionPreview` (with its `safePreviewString`/`truncatePreview`
+// helpers) moved to `../utils/compaction-preview.js` — a neutral layer both the
+// execution compactors and the models-layer LLMSelector can import without the
+// models→execution runtime cycle the boundary test forbids. The shared
+// `extractPathHints`/`firstErrorLine` helpers stay here (they are also used by
+// the elision summariser below).
 
 /**
  * Shared, pure compaction primitives.
@@ -538,6 +507,399 @@ function firstErrorLine(content: unknown): string | undefined {
   return undefined;
 }
 
+// ── Last-resort emergency trim (the no-overflow guarantee) ─────────────────
+
+export interface HardBudgetResult {
+  /** New message array, or the same reference when nothing changed. */
+  messages: Message[];
+  changed: boolean;
+  /** Estimated message tokens reclaimed (before − after). */
+  saved: number;
+  /** Number of content blocks elided or truncated. */
+  trimmedBlocks: number;
+  /** Number of whole messages dropped (last-resort Pass 4). */
+  droppedMessages: number;
+  /** True when the message array fits `budgetTokens` after trimming. */
+  withinBudget: boolean;
+}
+
+/** Old text blocks above this token size are head/tail truncated in Pass 2. */
+const EMERGENCY_TEXT_TOKEN_CAP = 400;
+/** Pass 2 (old messages): generous head/tail retention. */
+const EMERGENCY_KEEP_HEAD = 800;
+const EMERGENCY_KEEP_TAIL = 300;
+/** Pass 3 (whole array, incl. preserved window): tighter floor retention. */
+const EMERGENCY_FLOOR_HEAD = 400;
+const EMERGENCY_FLOOR_TAIL = 150;
+/** Below this token size a text block is left alone (not worth a marker). */
+const EMERGENCY_MIN_TRIM_TOKENS = 120;
+
+function isElidedResultContent(content: string): boolean {
+  return typeof content === 'string' && content.startsWith('[elided:');
+}
+
+function isElidedToolInput(input: Record<string, unknown> | undefined): boolean {
+  return !!input && Object.hasOwn(input, '__elided_tool_input');
+}
+
+/**
+ * Head/tail truncate a long string, keeping the first `keepHead` and last
+ * `keepTail` characters with a token-count marker in between. Returns the
+ * original when it is already small enough to make trimming pointless.
+ */
+function headTailTruncate(text: string, keepHead: number, keepTail: number): string {
+  if (text.length <= keepHead + keepTail + 60) return text;
+  const removedChars = text.length - keepHead - keepTail;
+  const approxTokens = Math.ceil(removedChars / 3.5);
+  return `${text.slice(0, keepHead)}\n… [truncated ~${approxTokens} tokens — see session log] …\n${text.slice(text.length - keepTail)}`;
+}
+
+/**
+ * Truncate the oversized **text** content of one message (string content, or
+ * `text` blocks in an array). Thinking blocks are never touched (their verbatim
+ * echo — with signature — is a provider replay requirement) and protocol blocks
+ * are handled by the elision pass. Returns a new message when it changed the
+ * content, or `null` when nothing qualified.
+ */
+function truncateMessageText(
+  m: Message,
+  keepHead: number,
+  keepTail: number,
+  minTokens: number,
+): { message: Message; trimmed: number } | null {
+  if (typeof m.content === 'string') {
+    if (estimateTextTokens(m.content) < minTokens) return null;
+    const next = headTailTruncate(m.content, keepHead, keepTail);
+    if (next === m.content) return null;
+    return { message: { ...m, content: next, _estTokens: undefined }, trimmed: 1 };
+  }
+  let newContent: ContentBlock[] | undefined;
+  let trimmed = 0;
+  for (let j = 0; j < m.content.length; j++) {
+    const b = m.content[j];
+    if (!b) continue;
+    if (b.type !== 'text') continue;
+    if (estimateTextTokens(b.text) < minTokens) continue;
+    const next = headTailTruncate(b.text, keepHead, keepTail);
+    if (next === b.text) continue;
+    newContent ??= m.content.slice();
+    newContent[j] = { ...b, text: next };
+    trimmed++;
+  }
+  if (!newContent) return null;
+  return { message: { ...m, content: newContent, _estTokens: undefined }, trimmed };
+}
+
+/**
+ * Elide every oversized tool_use / tool_result block in one message,
+ * regardless of the usual `eliseThreshold` — this is the emergency floor, so
+ * the threshold does not apply. Keeps the block (and its id) so tool_use ↔
+ * tool_result pairing survives; only the payload is replaced with a marker.
+ */
+function elideMessageToolIo(m: Message): { message: Message; trimmed: number } | null {
+  if (typeof m.content === 'string') return null;
+  let newContent: ContentBlock[] | undefined;
+  let trimmed = 0;
+  for (let j = 0; j < m.content.length; j++) {
+    const b = m.content[j];
+    if (!b) continue;
+    if (b.type === 'tool_result' && !isElidedResultContent(b.content)) {
+      const tokens = estimateToolResultTokens(b.content);
+      if (tokens < EMERGENCY_MIN_TRIM_TOKENS) continue;
+      newContent ??= m.content.slice();
+      newContent[j] = {
+        type: 'tool_result',
+        tool_use_id: b.tool_use_id,
+        ...(b.name !== undefined && { name: b.name }),
+        content: summarizeToolResultElision(b, tokens),
+        is_error: b.is_error,
+      };
+      trimmed++;
+    } else if (b.type === 'tool_use' && !isElidedToolInput(b.input)) {
+      const tokens = estimateToolInputTokens(b.input);
+      if (tokens < EMERGENCY_MIN_TRIM_TOKENS) continue;
+      newContent ??= m.content.slice();
+      newContent[j] = { ...b, input: summarizeToolUseInputElision(b, tokens) };
+      trimmed++;
+    }
+  }
+  if (!newContent) return null;
+  return { message: { ...m, content: newContent, _estTokens: undefined }, trimmed };
+}
+
+/**
+ * Last-resort trim that makes a request **structurally guaranteed** to fit its
+ * budget. Call it after normal compaction when the message array still exceeds
+ * the hard budget (a single huge paste, a preserved-window tool_result, or a
+ * >1.5× token under-estimate). It escalates through four increasingly
+ * destructive passes and stops the instant the array fits, so loss is
+ * minimised:
+ *
+ *   1. Elide all old tool I/O before the preserve window (no threshold floor).
+ *   2. Head/tail truncate large text in old messages.
+ *   3. Head/tail truncate large text across the whole array (incl. preserved).
+ *   4. Drop the oldest whole messages (never the last one) until it fits.
+ *
+ * A final `repairToolUseAdjacency` re-links any protocol pair Pass 4 orphaned.
+ *
+ * `budgetTokens` is the maximum tokens the **message array** may occupy — the
+ * caller subtracts the system-prompt + tool-definition overhead from the
+ * context window first, so this stays a pure function over `Message[]`.
+ */
+export function enforceHardBudget(
+  messages: readonly Message[],
+  budgetTokens: number,
+  opts: { preserveK: number },
+): HardBudgetResult {
+  const target = Math.max(1, Math.floor(budgetTokens));
+  const perMsg: number[] = messages.map((m) =>
+    typeof m._estTokens === 'number' && m._estTokens > 0 ? m._estTokens : computeMessageTokens(m),
+  );
+  let total = perMsg.reduce((a, b) => a + b, 0);
+  const before = total;
+  if (total <= target) {
+    return {
+      messages: messages as Message[],
+      changed: false,
+      saved: 0,
+      trimmedBlocks: 0,
+      droppedMessages: 0,
+      withinBudget: true,
+    };
+  }
+
+  const work = messages.slice() as Message[];
+  const preserveStart = findPreserveStart(messages, opts.preserveK);
+  let changed = false;
+  let trimmedBlocks = 0;
+
+  // Replace message i, keeping `total`/`perMsg` in sync via a fresh estimate.
+  const setMsg = (i: number, newMsg: Message): void => {
+    const t = computeMessageTokens(newMsg);
+    total += t - (perMsg[i] ?? 0);
+    perMsg[i] = t;
+    work[i] = newMsg;
+    changed = true;
+  };
+
+  // ── Pass 1: elide all old tool I/O (before the preserve window) ──────────
+  for (let i = 0; i < preserveStart && total > target; i++) {
+    const m = work[i];
+    if (!m) continue;
+    const res = elideMessageToolIo(m);
+    if (res) {
+      trimmedBlocks += res.trimmed;
+      setMsg(i, res.message);
+    }
+  }
+
+  // ── Pass 2: truncate large text in old messages ─────────────────────────
+  for (let i = 0; i < preserveStart && total > target; i++) {
+    const m = work[i];
+    if (!m) continue;
+    const res = truncateMessageText(
+      m,
+      EMERGENCY_KEEP_HEAD,
+      EMERGENCY_KEEP_TAIL,
+      EMERGENCY_TEXT_TOKEN_CAP,
+    );
+    if (res) {
+      trimmedBlocks += res.trimmed;
+      setMsg(i, res.message);
+    }
+  }
+
+  // ── Pass 3: floor-truncate text across the whole array (incl. preserved) +
+  //            elide any remaining oversized tool I/O in the preserved tail ──
+  for (let i = 0; i < work.length && total > target; i++) {
+    const m = work[i];
+    if (!m) continue;
+    const elided = elideMessageToolIo(m);
+    if (elided) {
+      trimmedBlocks += elided.trimmed;
+      setMsg(i, elided.message);
+      if (total <= target) break;
+    }
+    const current = work[i];
+    if (!current) continue;
+    const res = truncateMessageText(
+      current,
+      EMERGENCY_FLOOR_HEAD,
+      EMERGENCY_FLOOR_TAIL,
+      EMERGENCY_MIN_TRIM_TOKENS,
+    );
+    if (res) {
+      trimmedBlocks += res.trimmed;
+      setMsg(i, res.message);
+    }
+  }
+
+  // ── Pass 4: drop the oldest whole messages until it fits (guaranteed) ────
+  let dropFrom = 0;
+  while (total > target && dropFrom < work.length - 1) {
+    total -= perMsg[dropFrom] ?? 0;
+    dropFrom++;
+    changed = true;
+  }
+  let trimmed: Message[] = dropFrom > 0 ? work.slice(dropFrom) : work;
+  const droppedMessages = dropFrom;
+
+  // Repair any tool_use/tool_result adjacency the drop pass orphaned.
+  if (changed) {
+    const repair = repairToolUseAdjacency(trimmed);
+    if (repair.report.changed) trimmed = repair.messages;
+  }
+
+  return {
+    messages: changed ? trimmed : (messages as Message[]),
+    changed,
+    saved: Math.max(0, before - total),
+    trimmedBlocks,
+    droppedMessages,
+    withinBudget: total <= target,
+  };
+}
+
+// ── Stale repeated-read dedup (smart cleanup) ──────────────────────────────
+
+export interface DedupResult {
+  messages: Message[];
+  changed: boolean;
+  /** Estimated tokens reclaimed. */
+  saved: number;
+  /** Number of stale reads collapsed. */
+  deduped: number;
+}
+
+/** Path-like value from a read tool_use input (path / file / file_path…). */
+function readPathOf(input: Record<string, unknown> | undefined): string | undefined {
+  if (!input) return undefined;
+  for (const key of ['file_path', 'path', 'file', 'filename']) {
+    const v = input[key];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return undefined;
+}
+
+function normalizePathKey(p: string): string {
+  return p.replace(PATH_BACKSLASH_PATTERN, '/').toLowerCase();
+}
+
+/** Does `pathKey` refer to one of the hot (repeatedly-read) files? */
+function isHotRead(pathKey: string, hot: readonly string[]): boolean {
+  for (const h of hot) {
+    if (pathKey === h) return true;
+    if (pathKey.endsWith(h) || h.endsWith(pathKey)) return true;
+    const base = pathKey.slice(pathKey.lastIndexOf('/') + 1);
+    if (base && h.endsWith(base)) return true;
+  }
+  return false;
+}
+
+/**
+ * Collapse **superseded** reads of the same file. When a file is read
+ * repeatedly (tracked in `repeatedReads` evidence), every read of it before
+ * the preserve window that is *not* the newest occurrence is redundant — the
+ * later read replaced it. This replaces those stale `tool_result` payloads
+ * with a one-line marker (and elides the paired `tool_use` input), keeping the
+ * newest read verbatim. Complements `eliseOldToolResults`, which only fires on
+ * results ≥ `eliseThreshold`: many small-but-repeated reads slip under that bar
+ * and accumulate, so this catches the pattern `eliseThreshold` misses.
+ */
+export function dedupStaleReads(
+  messages: readonly Message[],
+  repeatedReads: readonly { file: string; count: number }[],
+  opts: { preserveK: number },
+): DedupResult {
+  const unchanged: DedupResult = {
+    messages: messages as Message[],
+    changed: false,
+    saved: 0,
+    deduped: 0,
+  };
+  const hot = repeatedReads.filter((r) => r.count >= 2).map((r) => normalizePathKey(r.file));
+  if (hot.length === 0) return unchanged;
+
+  // Pass A: find, per hot path key, the newest message index that reads it.
+  const newestIndexByKey = new Map<string, number>();
+  const readKeyByUseId = new Map<string, string>();
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (!m || typeof m.content === 'string') continue;
+    for (const b of m.content) {
+      if (b.type !== 'tool_use' || b.name.toLowerCase() !== 'read') continue;
+      const p = readPathOf(b.input);
+      if (!p) continue;
+      const key = normalizePathKey(p);
+      if (!isHotRead(key, hot)) continue;
+      readKeyByUseId.set(b.id, key);
+      const prev = newestIndexByKey.get(key);
+      if (prev === undefined || i > prev) newestIndexByKey.set(key, i);
+    }
+  }
+  if (newestIndexByKey.size === 0) return unchanged;
+
+  const preserveStart = findPreserveStart(messages, opts.preserveK);
+
+  // Pass B: collect the tool_use ids of stale (superseded, pre-preserve) reads.
+  const staleIds = new Map<string, string>(); // tool_use_id → path key
+  for (let i = 0; i < preserveStart; i++) {
+    const m = messages[i];
+    if (!m || typeof m.content === 'string') continue;
+    for (const b of m.content) {
+      if (b.type !== 'tool_use') continue;
+      const key = readKeyByUseId.get(b.id);
+      if (!key) continue;
+      const newest = newestIndexByKey.get(key);
+      if (newest !== undefined && i < newest) staleIds.set(b.id, key);
+    }
+  }
+  if (staleIds.size === 0) return unchanged;
+
+  // Pass C: rewrite stale tool_use inputs + their paired tool_result payloads.
+  let saved = 0;
+  let deduped = 0;
+  let next: Message[] | undefined;
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (!m || typeof m.content === 'string') continue;
+    let newContent: ContentBlock[] | undefined;
+    for (let j = 0; j < m.content.length; j++) {
+      const b = m.content[j];
+      if (!b) continue;
+      if (b.type === 'tool_use' && staleIds.has(b.id) && !isElidedToolInput(b.input)) {
+        newContent ??= m.content.slice();
+        newContent[j] = {
+          ...b,
+          input: { __stale_read: `superseded by a later read of ${staleIds.get(b.id)}`, tool: b.name },
+        };
+      } else if (b.type === 'tool_result' && staleIds.has(b.tool_use_id)) {
+        const key = staleIds.get(b.tool_use_id);
+        if (isElidedResultContent(b.content)) continue;
+        const tokens = estimateToolResultTokens(b.content);
+        if (tokens < 1) continue;
+        saved += tokens;
+        deduped++;
+        newContent ??= m.content.slice();
+        newContent[j] = {
+          type: 'tool_result',
+          tool_use_id: b.tool_use_id,
+          ...(b.name !== undefined && { name: b.name }),
+          content: `[stale read of ${key} — superseded by a later read; see session log]`,
+          is_error: b.is_error,
+        };
+      }
+    }
+    if (newContent) {
+      next ??= messages.slice() as Message[];
+      next[i] = { ...m, content: newContent, _estTokens: undefined };
+    }
+  }
+
+  if (!next) return unchanged;
+  return { messages: next, changed: true, saved, deduped };
+}
+
 /**
  * Lossless textual digest of a message range. Every text block is kept verbatim
  * (across all roles, so prior `system` digests fold forward and nothing
@@ -645,15 +1007,15 @@ export function scoreMessage(
     }
   }
 
-  // ── Critical: user corrections / stop signals ──────────────────────
+  // ── Critical: user corrections / stop signals (EN + TR) ────────────
   if (m.role === 'user') {
-    if (CORRECTION_PATTERN.test(text)) {
+    if (CORRECTION_PATTERN.test(text) || CORRECTION_PATTERN_TR.test(text)) {
       return 5;
     }
   }
 
-  // ── Critical: error / exception messages ───────────────────────────
-  if (ERROR_LANG_PATTERN.test(text)) {
+  // ── Critical: error / exception messages (EN + TR) ─────────────────
+  if (ERROR_LANG_PATTERN.test(text) || ERROR_LANG_PATTERN_TR.test(text)) {
     return 5;
   }
 
@@ -662,8 +1024,8 @@ export function scoreMessage(
     return 5;
   }
 
-  // ── Critical: architecture / design decisions ──────────────────────
-  if (m.role === 'assistant' && ARCHITECTURE_PATTERN.test(text)) {
+  // ── Critical: architecture / design decisions (EN + TR) ────────────
+  if (m.role === 'assistant' && (ARCHITECTURE_PATTERN.test(text) || ARCHITECTURE_PATTERN_TR.test(text))) {
     return 5;
   }
 

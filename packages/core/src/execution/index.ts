@@ -4,6 +4,7 @@ export {
   AutoCompactionMiddleware,
   type ContextWindowBudgetSnapshot,
 } from './auto-compaction-middleware.js';
+export { installSubagentAutoCompaction } from './subagent-compaction.js';
 export {
   AutonomousRunner,
   type AutonomousRunnerOptions,

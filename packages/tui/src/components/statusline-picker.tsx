@@ -1,5 +1,5 @@
-import { Box, Text } from '../ink.js';
 import type React from 'react';
+import { Box, Text } from '../ink.js';
 import { theme } from '../theme.js';
 import { glyphs } from '../ui-glyphs.js';
 import { KeyCap, MonitorShell, truncatePanelText, useMonitorSize } from './monitor-shell.js';
@@ -16,6 +16,7 @@ export type StatuslineItem =
   | 'hint'
   | 'index'
   | 'memory'
+  | 'super_memory'
   | 'breaker'
   | 'todos'
   | 'plan'
@@ -97,6 +98,7 @@ const ITEM_DESCRIPTIONS: Record<StatuslineItem, string> = {
   hint: 'Transient status hint text',
   index: 'Codebase indexing status',
   memory: 'Current CLI process RAM and V8 heap usage',
+  super_memory: 'Total Super Memory records and exact provider-context active count',
   breaker: 'Process breaker countdown',
   todos: 'Todo items (pending/in-progress/done)',
   plan: 'Plan board items',
@@ -150,6 +152,7 @@ export const ITEM_LINE: Record<StatuslineItem, number> = {
   processes: 1,
   queue: 1,
   state: 1,
+  super_memory: 1,
   time: 1,
   tokens: 1,
   version: 1,
@@ -209,6 +212,7 @@ export const STATUSLINE_ITEMS: StatuslineItem[] = [
   'processes',
   'queue',
   'state',
+  'super_memory',
   'time',
   'tokens',
   'version',

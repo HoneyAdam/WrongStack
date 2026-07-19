@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
 import { render } from 'ink-testing-library';
 import React from 'react';
+import { describe, expect, it } from 'vitest';
 import { StatusBar, type StatusBarProps } from '../src/components/status-bar.js';
 
 // Strip ANSI so we assert on the plain glyphs the user actually sees.
@@ -44,6 +44,26 @@ describe('StatusBar chip separators', () => {
 
     expect(frame).toContain('RAM 1.5G');
     expect(frame).toContain('heap 768M');
+  });
+
+  it('shows total Super Memory records and the exact provider-context active count', () => {
+    const frame = frameOf({
+      superMemory: { total: 6261, activeInContext: 3 },
+      hiddenItems: ['state'],
+    });
+
+    expect(frame).toContain('mem 6261 total');
+    expect(frame).toContain('3 ctx');
+  });
+
+  it('hides Super Memory counts when the statusline item is disabled', () => {
+    const frame = frameOf({
+      superMemory: { total: 6261, activeInContext: 3 },
+      hiddenItems: ['super_memory'],
+    });
+
+    expect(frame).not.toContain('6261 total');
+    expect(frame).not.toContain('3 ctx');
   });
 
   it('places live provider/model before context and project/workdir on line 2', () => {

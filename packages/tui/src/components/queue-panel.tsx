@@ -125,7 +125,7 @@ export function QueuePanel({
                 <Text color={theme.textMuted}> {idx === 0 ? 'NEXT' : 'WAIT'}</Text>
                 <Text color={isSelected ? theme.textPrimary : theme.textSecondary}>
                   {'  '}
-                  {truncatePanelText(item.displayText, Math.max(12, size.contentWidth - 36))}
+                  {truncatePanelText(item.displayText, Math.max(12, size.contentWidth - 18))}
                 </Text>
                 {item.shouldRefine ? (
                   <Text color={theme.brandPrimary}> ✦</Text>

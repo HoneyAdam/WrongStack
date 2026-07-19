@@ -9,8 +9,14 @@ import { estimateRequestTokens } from '../utils/token-estimate.js';
 import { repairToolUseAdjacency } from '../utils/message-invariants.js';
 import { readBundledInstructionText } from '../utils/instruction-file.js';
 import {
+  buildContextEvidenceDigest,
+  checkCompactionQuality,
+  injectEvidenceFloor,
+} from '../utils/context-evidence.js';
+import {
   buildLosslessDigest,
   buildSmartDigest,
+  dedupStaleReads,
   eliseOldToolResults,
   estimateMessages,
   findSafeBoundary,
@@ -107,6 +113,13 @@ export class IntelligentCompactor implements Compactor {
     const saved1 = this.elide(ctx);
     if (saved1 > 0) reductions.push({ phase: 'elision', saved: saved1 });
 
+    // Phase 1b: collapse superseded repeated reads under the elise threshold.
+    const dedup = dedupStaleReads(ctx.messages, ctx.contextEvidence?.repeatedReads ?? [], {
+      preserveK: this.preserveK,
+    });
+    if (dedup.changed) ctx.state.replaceMessages(dedup.messages);
+    if (dedup.saved > 0) reductions.push({ phase: 'elision', saved: dedup.saved });
+
     // Phase 2: LLM summarization of ancient turns
     let collapsedDigest: string | undefined;
     if (aggressive) {
@@ -125,8 +138,18 @@ export class IntelligentCompactor implements Compactor {
     const repaired = repairToolUseAdjacency(ctx.messages);
     if (repaired.report.changed) ctx.state.replaceMessages(repaired.messages);
 
-    const afterTokens = estimateMessages(ctx.messages);
-    const afterFull = this.estimateFullRequest(ctx);
+    let afterTokens = estimateMessages(ctx.messages);
+    let afterFull = this.estimateFullRequest(ctx);
+    const evidenceDigest = buildContextEvidenceDigest(ctx) || undefined;
+    const quality = checkCompactionQuality(ctx, {
+      collapsedDigest,
+      evidenceDigest,
+      reduced: beforeTokens > afterTokens || beforeFull > afterFull,
+    });
+    if (injectEvidenceFloor(ctx, quality)) {
+      afterTokens = estimateMessages(ctx.messages);
+      afterFull = this.estimateFullRequest(ctx);
+    }
     return {
       before: beforeTokens,
       after: afterTokens,
@@ -134,6 +157,8 @@ export class IntelligentCompactor implements Compactor {
       fullRequestTokensAfter: afterFull,
       reductions,
       collapsedDigest,
+      evidenceDigest,
+      quality,
       repaired: repaired.report.changed
         ? {
             removedToolUses: repaired.report.removedToolUses,

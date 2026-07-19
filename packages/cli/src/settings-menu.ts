@@ -211,9 +211,17 @@ export interface PersistSettingDeps {
   vault: SecretVault;
   /** Force writes to ~/.wrongstack/config.json even when configScope is project. */
   forceGlobal?: boolean | undefined;
+  /**
+   * Optional resolver that recomputes the profile config path for a given
+   * profile name. When set, {@link resolveActualTarget} uses this to
+   * re-resolve the target path when `decrypted.activeProfile` differs from
+   * the one used to compute `profileConfigPath`. This prevents the write
+   * from landing in the wrong profile when the mutator changes activeProfile.
+   */
+  resolveProfilePath?: ((profileName: string) => string) | undefined;
 }
 
-function resolvePersistPath(deps: PersistSettingDeps): string {
+export function resolvePersistPath(deps: PersistSettingDeps): string {
   if (deps.forceGlobal) return deps.globalConfigPath;
   const scope = (deps.configStore.get() as { configScope?: string | undefined }).configScope;
   if (scope === 'project' && deps.inProjectConfigPath) {
@@ -230,17 +238,23 @@ function resolvePersistPath(deps: PersistSettingDeps): string {
  * Re-resolve the target path after a mutator may have changed configScope.
  * Handles the three-way routing: project config, profile config, or bootstrap.
  */
-function resolveActualTarget(
+export function resolveActualTarget(
   deps: PersistSettingDeps,
   decrypted: Record<string, unknown>,
   fallbackPath: string,
 ): string {
   const newScope = decrypted.configScope as string | undefined;
+  // Recompute profile path when activeProfile changed in the mutation block.
+  const newProfileName = decrypted.activeProfile as string | undefined;
+  const effectiveProfilePath =
+    newProfileName && deps.resolveProfilePath
+      ? deps.resolveProfilePath(newProfileName)
+      : deps.profileConfigPath;
   if (newScope === 'project' && deps.inProjectConfigPath) {
     return deps.inProjectConfigPath;
   }
-  if (newScope === 'global' && deps.profileConfigPath) {
-    return deps.profileConfigPath;
+  if (newScope === 'global' && effectiveProfilePath) {
+    return effectiveProfilePath;
   }
   if (newScope === 'global') {
     return deps.globalConfigPath;

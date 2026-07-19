@@ -18,6 +18,7 @@ import {
   estimateMessageTokens,
   estimateRequestTokens,
   getCalibrationState,
+  realAnchoredInputTokens,
   type RequestTokenBreakdown,
   recordActualUsage,
 } from '../utils/token-estimate.js';
@@ -292,13 +293,24 @@ export function createAgentLoopHandler(
       a.ctx.meta['lastRequestTokensAt'] = { msgCount, toolCount };
     }
 
-    // H1: prefer the pre-flight stash so the bar and the middleware see
-    // the same number. Fall back to a fresh compute only on cold start
-    // (no pre-flight yet) — emitContextPct is called at the end of an
-    // iteration, after the pre-flight has always run.
+    // Prefer the REAL usage anchor: the provider's authoritative prompt-token
+    // count from the last response + the estimate of messages appended since.
+    // This is exact for everything but the newest unsent turn, so the bar shows
+    // real tokens rather than a scaled estimate. Falls back to the calibrated
+    // estimate before the first response, or when compaction shrank the array
+    // below the anchor (until the next response re-anchors).
     let total: number;
+    const anchored = realAnchoredInputTokens(
+      a.ctx.messages,
+      a.ctx.lastRealInputTokens,
+      typeof a.ctx.meta?.['realAnchorMsgCount'] === 'number'
+        ? (a.ctx.meta['realAnchorMsgCount'] as number)
+        : undefined,
+    );
     const stashed = a.ctx.lastRequestTokens;
-    if (typeof stashed === 'number' && stashed > 0) {
+    if (anchored !== null) {
+      total = anchored;
+    } else if (typeof stashed === 'number' && stashed > 0) {
       const cal = getCalibrationState(calibrationKey());
       total = cal.calibrated
         ? Math.round(stashed * Math.min(1.5, Math.max(0.5, cal.ratio)))
@@ -733,7 +745,28 @@ export function createAgentLoopHandler(
           const calibratedTotal = cal.calibrated
             ? Math.round(preFlight.total * Math.min(1.5, Math.max(0.5, cal.ratio)))
             : preFlight.total;
-          recordActualUsage(effectiveInputTokens(res.usage), calibratedTotal, key);
+          const realInputTokens = effectiveInputTokens(res.usage);
+          recordActualUsage(realInputTokens, calibratedTotal, key);
+          // Anchor the live context figure to the provider's REAL prompt-token
+          // count. `_lastPreFlightMsgCount` is the ctx.messages length of the
+          // request that produced this usage (the response is appended later),
+          // so subsequent estimates only need to add the delta on top of a real
+          // base. See `realAnchoredInputTokens`.
+          const previousRealInput = a.ctx.lastRealInputTokens;
+          const previousAnchorMsgCount =
+            typeof a.ctx.meta?.['realAnchorMsgCount'] === 'number'
+              ? (a.ctx.meta['realAnchorMsgCount'] as number)
+              : undefined;
+          const anchorIsPlausible = realInputTokens >= calibratedTotal * 0.5;
+          const anchorAdvanced =
+            previousRealInput === undefined ||
+            realInputTokens > previousRealInput ||
+            (previousAnchorMsgCount !== undefined &&
+              _lastPreFlightMsgCount < previousAnchorMsgCount);
+          if (realInputTokens > 0 && anchorIsPlausible && anchorAdvanced) {
+            a.ctx.lastRealInputTokens = realInputTokens;
+            a.ctx.meta['realAnchorMsgCount'] = _lastPreFlightMsgCount;
+          }
           recoveryRetries = 0;
         } catch (err) {
           if (controller.signal.aborted) {

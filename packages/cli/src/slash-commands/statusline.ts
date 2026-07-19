@@ -25,6 +25,7 @@ export interface StatuslineConfig {
   processes?: boolean | undefined;
   hint?: boolean | undefined;
   index?: boolean | undefined;
+  super_memory?: boolean | undefined;
   breaker?: boolean | undefined;
   working_dir?: boolean | undefined;
   project?: boolean | undefined;
@@ -63,6 +64,7 @@ export const DEFAULTS: StatuslineConfig = {
   processes: true,
   hint: true,
   index: true,
+  super_memory: true,
   breaker: true,
   working_dir: true,
   project: true,
@@ -96,6 +98,7 @@ export const STATUSLINE_CONFIG_KEYS: StatuslineConfigKey[] = [
   'processes',
   'hint',
   'index',
+  'super_memory',
   'breaker',
   'yolo',
   'autonomy',
@@ -210,25 +213,15 @@ export async function saveStatuslineConfig(cfg: StatuslineConfig): Promise<void>
 export interface StatuslineCommandDeps {
   cwd: string;
   /** Current hidden items list. Written by the command when toggling. */
-  hiddenItems: Array<
-    StatuslineConfigKey
-  >;
-  setHiddenItems: (
-    items: Array<
-      StatuslineConfigKey
-    >,
-  ) => void;
+  hiddenItems: Array<StatuslineConfigKey>;
+  setHiddenItems: (items: Array<StatuslineConfigKey>) => void;
   getConfig: () => Promise<StatuslineConfig>;
   setConfig: (cfg: StatuslineConfig) => Promise<void>;
   /**
    * Atomically updates hidden items in memory AND persists to disk.
    * Used by the TUI statusline picker.
    */
-  saveStatuslineHiddenItems?: (
-    items: Array<
-      StatuslineConfigKey
-    >,
-  ) => Promise<void>;
+  saveStatuslineHiddenItems?: (items: Array<StatuslineConfigKey>) => Promise<void>;
   /**
    * Slash-command → TUI panel bridge. When present (TUI mounted), a bare
    * `/statusline` opens the interactive picker instead of printing the
@@ -257,6 +250,7 @@ const ITEM_DESCRIPTIONS: Record<keyof StatuslineConfig, string> = {
   processes: 'Tracked shell/process count',
   hint: 'Transient status hint text',
   index: 'Codebase indexing status',
+  super_memory: 'Total Super Memory records and provider-context active count',
   breaker: 'Process breaker countdown',
   working_dir: 'Current working directory',
   project: 'Project name',
@@ -342,7 +336,9 @@ export function buildStatuslineCommand(deps: StatuslineCommandDeps): SlashComman
         }
         await deps.setConfig(next);
         deps.setHiddenItems(onOff === 'off' ? [...ALL_CONFIG_KEYS] : []);
-        return { message: `statusline all: ${onOff === 'on' ? 'showing all chips' : 'hiding all chips'}` };
+        return {
+          message: `statusline all: ${onOff === 'on' ? 'showing all chips' : 'hiding all chips'}`,
+        };
       }
 
       // Single item toggle (no on/off specified)

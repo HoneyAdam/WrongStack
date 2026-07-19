@@ -254,7 +254,11 @@ function sanitizeSchemaForGemini(node: unknown): Record<string, unknown> | undef
 function messagesToGemini(messages: Message[]): GeminiContent[] {
   const out: GeminiContent[] = [];
   for (const m of messages) {
-    if (m.role === 'system') continue;
+    // System-role messages carried INSIDE the conversation (compaction
+    // digests, the evidence floor) must not be dropped — Gemini has no system
+    // turn, so they fall through to the user branch below (mirrors the
+    // Anthropic wire, which maps system→user). The coalesce pass then merges
+    // the resulting consecutive user turns so alternation stays valid.
     const blocks =
       typeof m.content === 'string' ? [{ type: 'text' as const, text: m.content }] : m.content;
     if (m.role === 'assistant') {
@@ -305,5 +309,26 @@ function messagesToGemini(messages: Message[]): GeminiContent[] {
     if (functionParts.length > 0) userParts.push(...functionParts);
     if (userParts.length > 0) out.push({ role: 'user', parts: userParts });
   }
-  return out;
+  return coalesceConsecutiveRoles(out);
+}
+
+/**
+ * Merge adjacent contents that share a role into one turn. Gemini requires
+ * user/model turns to alternate; folding an in-conversation system message into
+ * a user turn (above) can produce two consecutive user turns, which the API
+ * rejects. Concatenating their parts preserves every part in order (text,
+ * functionCall/response, inlineData) without reordering across roles, so
+ * tool-call pairing is untouched.
+ */
+function coalesceConsecutiveRoles(contents: GeminiContent[]): GeminiContent[] {
+  const merged: GeminiContent[] = [];
+  for (const content of contents) {
+    const prev = merged[merged.length - 1];
+    if (prev && prev.role === content.role) {
+      prev.parts.push(...content.parts);
+    } else {
+      merged.push({ role: content.role, parts: [...content.parts] });
+    }
+  }
+  return merged;
 }

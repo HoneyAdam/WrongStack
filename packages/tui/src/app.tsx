@@ -8,7 +8,6 @@ import {
   buildRefinerContextSections,
   clearActiveKit,
   clearPersistedActiveKit,
-  type ContextWindowPolicy,
   DEFAULT_REFINER_RETRY_FEEDBACK,
   DefaultSessionRewinder,
   detectContinueIntent,
@@ -16,7 +15,6 @@ import {
   enhanceUserPrompt,
   expectDefined,
   formatTodosList,
-  getContextBreakdown,
   getDesignKitLoader,
   InputBuilder,
   isDesignStack,
@@ -42,8 +40,6 @@ import { toErrorMessage } from '@wrongstack/core/utils';
 import { routeImagesForModel } from '@wrongstack/runtime/vision';
 import { getIndexState, getProcessRegistry, onIndexStateChange } from '@wrongstack/tools';
 import { createAutoProceedLoopGuard } from '@wrongstack/tools/auto-proceed-loop-guard';
-import { startPromptRefinement } from './prompt-refinement-start.js';
-import { memoryLifecycleEntry } from './memory-lifecycle-entry.js';
 import React, {
   useCallback,
   useEffect,
@@ -67,14 +63,8 @@ import { AUTONOMY_OPTIONS, AutonomyPicker } from './components/autonomy-picker.j
 import { BrainDecisionPrompt } from './components/brain-decision-prompt.js';
 import { BrainPanel } from './components/brain-panel.js';
 import { CheckpointTimeline } from './components/checkpoint-timeline.js';
-import {
-  clearConfirmationKeyResult,
-  ClearConfirmPanel,
-} from './components/clear-confirm-panel.js';
-import {
-  exitConfirmationDecision,
-  ExitConfirmPanel,
-} from './components/exit-confirm-panel.js';
+import { clearConfirmationKeyResult, ClearConfirmPanel } from './components/clear-confirm-panel.js';
+import { exitConfirmationDecision, ExitConfirmPanel } from './components/exit-confirm-panel.js';
 import { composerStatusFromState } from './components/composer-status-chip.js';
 import { type ConfirmDecision, ConfirmPrompt } from './components/confirm-prompt.js';
 import { ContextPanel } from './components/context-panel.js';
@@ -102,6 +92,7 @@ import {
 import { KanbanPanel } from './components/kanban-panel.js';
 import { KeyHintBar, type KeyHintContext } from './components/key-hint-bar.js';
 import { MailboxPanel } from './components/mailbox-panel.js';
+import { MemoryContextWidget } from './components/memory-context-widget.js';
 import { McpPicker } from './components/mcp-picker.js';
 import { ModePicker } from './components/mode-picker.js';
 import { ModelPicker } from './components/model-picker.js';
@@ -123,10 +114,7 @@ import { ScrollableHistory, scrollOffsetForTrackRow } from './components/scrolla
 import { SddBoardOverlay } from './components/sdd-board-overlay.js';
 import { type SendMode, SendModePicker } from './components/send-mode-picker.js';
 import { SessionsPanel } from './components/sessions-panel.js';
-import {
-  slashConfirmationDecision,
-  SlashConfirmPanel,
-} from './components/slash-confirm-panel.js';
+import { slashConfirmationDecision, SlashConfirmPanel } from './components/slash-confirm-panel.js';
 import {
   type ContextMode,
   formatAllSettingsSummary,
@@ -161,7 +149,7 @@ import { TodosMonitor } from './components/todos-monitor.js';
 import { ToolsPicker } from './components/tools-picker.js';
 import { WorktreeMonitor } from './components/worktree-monitor.js';
 import { WorktreePanel } from './components/worktree-panel.js';
-import { createContextMemoryStatsGetter, createContextSlashCommand } from './context-slash.js';
+import { createContextSlashCommand } from './context-slash.js';
 import { createCronJobsGetter, createCronSlashCommand } from './cron-slash.js';
 import { escCloseAction } from './esc-close-panels.js';
 import { actionForFKeyPanel, fKeyEntryFor } from './f-key-panels.js';
@@ -199,6 +187,15 @@ import {
 } from './input-tokens.js';
 import { createKanbanSlashCommand } from './kanban-slash.js';
 import { createKillSlashCommand } from './kill-slash.js';
+import {
+  activeMemoryContextCount,
+  applyMemoryContextSnapshot,
+  applyMemoryInjectorRun,
+  emptyMemoryContextMonitor,
+  memoryEventMatchesSession,
+  readMemoryRecordTotal,
+} from './memory-context-monitor.js';
+import { memoryLifecycleEntry } from './memory-lifecycle-entry.js';
 import { createMemorySlashCommand } from './memory-slash.js';
 import { MOUSE_CLICK_ON, MOUSE_OFF } from './mouse.js';
 import { createPanelOpenDispatcher } from './on-panel-open.js';
@@ -207,6 +204,7 @@ import { createPsSlashCommand } from './ps-slash.js';
 import { renderRunningTools } from './running-tools.js';
 import { sddLifecycleEntry } from './sdd-lifecycle-entry.js';
 import { buildSlashCommandMatches, selectedSlashCommandLine } from './slash-command-search.js';
+import { startPromptRefinement } from './prompt-refinement-start.js';
 import { buildSteeringPreamble } from './steering-preamble.js';
 import { shouldPushSubmittedHistory } from './submit-history.js';
 
@@ -323,6 +321,7 @@ export function App({
   family,
   keyTail,
   profile,
+  profileConfigPath,
   autonomyAgents,
   tokenSavingMode,
   toolCount,
@@ -396,6 +395,34 @@ export function App({
 }: AppProps): React.ReactElement {
   const { exit } = useApp();
   const { stdout } = useStdout();
+  const [memoryContextMonitor, setMemoryContextMonitor] = useState(emptyMemoryContextMonitor);
+  const [memoryRecordTotal, setMemoryRecordTotal] = useState<number | undefined>();
+  const memoryContextMonitorRef = useRef(memoryContextMonitor);
+  memoryContextMonitorRef.current = memoryContextMonitor;
+  const memoryRecordTotalRef = useRef(memoryRecordTotal);
+  memoryRecordTotalRef.current = memoryRecordTotal;
+  const activeMemoryInContext = activeMemoryContextCount(memoryContextMonitor);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refreshTotal = async (): Promise<void> => {
+      try {
+        const total = await readMemoryRecordTotal(memoryStore);
+        if (!cancelled) setMemoryRecordTotal(total);
+      } catch {
+        if (!cancelled) setMemoryRecordTotal(undefined);
+      }
+    };
+
+    void refreshTotal();
+    const offAccepted = events.on('memory.accepted', () => {
+      void refreshTotal();
+    });
+    return () => {
+      cancelled = true;
+      offAccepted();
+    };
+  }, [events, memoryStore]);
   // Reactive mirrors of agent.ctx.{model,provider.id} so the status bar
   // re-renders when /model or /use mutate them. The banner is `Static`, so
   // `/clear` refreshes its preserved history entry from the live Context
@@ -545,6 +572,7 @@ export function App({
       keyTail,
       sessionId: agent.ctx.session.id,
       profile,
+      profileConfigPath,
       autonomyAgents,
       restoredEntries,
       restoredCheckpoints,
@@ -1871,60 +1899,19 @@ export function App({
     }
     slashRegistry.register(
       createContextSlashCommand({
-        cwd: agent.ctx.cwd,
-        getProvider: () => (agent.ctx.provider as { id?: string } | undefined)?.id ?? 'unknown',
-        getModel: () => agent.ctx.model,
-        getModeLabel: () => getModeLabel?.() ?? 'default',
-        getGitInfo: () => gitInfoRef.current,
-        getFleet: () => {
-          const entries = Object.values(stateRef.current.fleet);
-          return {
-            total: entries.length,
-            running: entries.filter((e) => e.status === 'running').length,
-            entries: entries.map((e) => ({
-              name: e.name,
-              status: e.status,
-              currentTool: e.currentTool?.name,
-              ctxPct: e.ctxPct,
-            })),
-          };
-        },
-        getLeader: () => {
-          const s = stateRef.current;
-          return {
-            iterations: s.leader.iterations,
-            toolCalls: s.leader.toolCalls,
-            startedAt: s.leader.startedAt,
-            status: s.status,
-            currentTool: s.leader.currentTool,
-            ctxPct: s.leader.ctxPct,
-            ctxTokens: s.leader.ctxTokens,
-            ctxMaxTokens: s.leader.ctxMaxTokens,
-            cacheStats: tokenCounter?.cacheStats(),
-          };
-        },
-        getUptime: () => {
-          const elapsed = Date.now() - stateRef.current.leader.startedAt;
-          const hrs = Math.floor(elapsed / 3600000);
-          const mins = Math.floor((elapsed % 3600000) / 60000);
-          const secs = Math.floor((elapsed % 60000) / 1000);
-          if (hrs > 0) return `${hrs}h ${mins}m`;
-          if (mins > 0) return `${mins}m ${secs}s`;
-          return `${secs}s`;
-        },
-        terminalWidth: stdout.columns ?? 80,
-        memoryStats: createContextMemoryStatsGetter(memoryStore),
         onPanelOpen,
-        getBreakdown: () => {
-          try {
-            return getContextBreakdown(agent.ctx);
-          } catch {
-            return null;
-          }
-        },
-        getPolicy: () => {
-          const p = (agent.ctx.meta as Record<string, unknown>)['contextWindowPolicy'];
-          return p && typeof p === 'object' ? (p as ContextWindowPolicy) : null;
+        getSummary: () => {
+          const leader = stateRef.current.leader;
+          const memories = Object.values(memoryContextMonitorRef.current.memories);
+          return {
+            contextPct: leader.ctxPct,
+            contextTokens: leader.ctxTokens,
+            contextMaxTokens: leader.ctxMaxTokens,
+            memoryTotal: memoryRecordTotalRef.current,
+            memoryCtx: memories.filter((memory) => memory.state === 'active').length,
+            memoryPending: memories.filter((memory) => memory.state === 'injected').length,
+            memoryLeft: memories.filter((memory) => memory.state === 'exited').length,
+          };
         },
       }),
     );
@@ -3515,7 +3502,10 @@ export function App({
         contextPressure: number;
         injectedChars: number;
         error?: string | undefined;
-        rejected: Record<'duplicate' | 'belowScore' | 'alreadyVisible' | 'cooldown' | 'budget', number>;
+        rejected: Record<
+          'duplicate' | 'belowScore' | 'alreadyVisible' | 'cooldown' | 'budget',
+          number
+        >;
         activated: Array<{
           id: string;
           kind: string;
@@ -3531,22 +3521,29 @@ export function App({
           persistence: string;
         }>;
         injected: Array<{ id: string }>;
+        sessionId?: string | undefined;
       };
-      dispatch({
-        type: 'addEntry',
-        entry: {
-          kind: 'memory-activation',
-          trigger: e.trigger,
-          outcome: e.outcome,
-          candidates: e.candidates,
-          contextPressure: e.contextPressure,
-          injectedChars: e.injectedChars,
-          activated: e.activated,
-          injectedIds: e.injected.map((memory) => memory.id),
-          rejected: e.rejected,
-          error: e.error,
-        },
-      });
+      if (!memoryEventMatchesSession(e, agent.ctx.session.id)) return;
+      setMemoryContextMonitor((current) =>
+        applyMemoryInjectorRun(current, e as unknown as Record<string, unknown>),
+      );
+    });
+    const offMemoryContextSnapshot = events.onPattern(
+      'memory.context_snapshot',
+      (_event, payload) => {
+        if (!memoryEventMatchesSession(payload, agent.ctx.session.id)) return;
+        setMemoryContextMonitor((current) =>
+          applyMemoryContextSnapshot(current, payload as Record<string, unknown>),
+        );
+      },
+    );
+    const offMemoryContextSession = events.on('session.started', (payload) => {
+      // Require an explicit sessionId match — the widget-clear is destructive
+      // and the permissive === undefined branch in memoryEventMatchesSession
+      // would wipe the monitor for any legacy emitter that omits sessionId.
+      const eventSessionId = (payload as { sessionId?: unknown } | undefined)?.sessionId;
+      if (typeof eventSessionId !== 'string' || eventSessionId !== agent.ctx.session.id) return;
+      setMemoryContextMonitor(emptyMemoryContextMonitor());
     });
     const offMemoryLifecycle = events.onPattern('memory.*', (event, payload) => {
       const lifecycle = memoryLifecycleEntry(event, payload as Record<string, unknown>);
@@ -3573,10 +3570,12 @@ export function App({
       offMemoryContradicted();
       offMemoryHygiene();
       offMemoryInjector();
+      offMemoryContextSnapshot();
+      offMemoryContextSession();
       offMemoryLifecycle();
       if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
     };
-  }, [events, agent.ctx.todos]);
+  }, [events, agent.ctx.todos, agent.ctx.session.id]);
 
   // ── Client status reporting ─────────────────────────────────────────────────
   // Emit client.status events to the EventBus so the WebUI and other clients
@@ -6051,6 +6050,7 @@ export function App({
           // clean screen.
           clearTerminal?.();
           onClearHistory?.(dispatch);
+          setMemoryContextMonitor(emptyMemoryContextMonitor());
           // Reset cumulative token/cost counters so the status bar
           // reflects a fresh session, not pre-clear stats.
           tokenCounter?.reset();
@@ -7135,19 +7135,19 @@ export function App({
                 />
               );
             })()}
-          {state.clearConfirm
-            ? <ClearConfirmPanel
-                leaderActive={state.clearConfirm.leaderActive}
-                subagentCount={state.clearConfirm.subagentCount}
-                value={state.clearConfirm.value}
-              />
-            : null}
-          {state.exitConfirm
-            ? <ExitConfirmPanel
-                leaderActive={state.exitConfirm.leaderActive}
-                subagentCount={state.exitConfirm.subagentCount}
-              />
-            : null}
+          {state.clearConfirm ? (
+            <ClearConfirmPanel
+              leaderActive={state.clearConfirm.leaderActive}
+              subagentCount={state.clearConfirm.subagentCount}
+              value={state.clearConfirm.value}
+            />
+          ) : null}
+          {state.exitConfirm ? (
+            <ExitConfirmPanel
+              leaderActive={state.exitConfirm.leaderActive}
+              subagentCount={state.exitConfirm.subagentCount}
+            />
+          ) : null}
           {state.slashConfirm ? (
             <SlashConfirmPanel
               question={state.slashConfirm.question}
@@ -7222,7 +7222,9 @@ export function App({
               original={enhanceOriginalRef.current}
               elapsedMs={enhanceStartedAt === null ? 0 : Math.max(0, Date.now() - enhanceStartedAt)}
               pulseFrame={enhanceDots}
-              providerId={refineProviderId ?? (agent.ctx.provider as { id?: string } | undefined)?.id}
+              providerId={
+                refineProviderId ?? (agent.ctx.provider as { id?: string } | undefined)?.id
+              }
               model={refineModel ?? agent.ctx.model}
             />
           ) : null}
@@ -7246,7 +7248,9 @@ export function App({
                     enhanceLanguage={state.settingsPicker.enhanceLanguage}
                     onDecision={onDecision}
                     onTick={(r) => setEnhanceCountdown(r > 0 ? r : null)}
-                    providerId={refineProviderId ?? (agent.ctx.provider as { id?: string } | undefined)?.id}
+                    providerId={
+                      refineProviderId ?? (agent.ctx.provider as { id?: string } | undefined)?.id
+                    }
                     model={refineModel ?? agent.ctx.model}
                   />
                 );
@@ -7321,6 +7325,11 @@ export function App({
               fleet={fleetCounts}
               git={gitInfo}
               context={contextWindow}
+              superMemory={
+                memoryRecordTotal === undefined
+                  ? undefined
+                  : { total: memoryRecordTotal, activeInContext: activeMemoryInContext }
+              }
               contextStrategy={getSettings ? getSettings().contextStrategy : undefined}
               brain={state.brain}
               projectName={projectName}
@@ -7358,6 +7367,7 @@ export function App({
               sideEffectCount={agent.ctx.sideEffects?.length ?? 0}
             />
           </Box>
+          <MemoryContextWidget state={memoryContextMonitor} />
           {/* Mailbox panel — toggled via /mailbox slash command */}
           <MailboxPanel
             messages={mailboxMessages}
@@ -7485,6 +7495,7 @@ export function App({
                   leaderIterations: state.leader.iterations,
                   leaderToolCalls: state.leader.toolCalls,
                   leaderStatus: state.status,
+                  memoryContext: memoryContextMonitor,
                 }}
                 onClose={() => dispatch({ type: 'toggleContextPanel' })}
               />

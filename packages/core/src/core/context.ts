@@ -211,6 +211,17 @@ export class Context implements RunEnv {
    */
   lastRequestTokens: number | undefined = undefined;
 
+  /**
+   * The provider's **authoritative** prompt-token count from the most recent
+   * response — `effectiveInputTokens(usage)` = `input + cacheRead + cacheWrite`.
+   * This is a REAL number, not an estimate. Paired with
+   * `meta.realAnchorMsgCount` (the `messages.length` of the request that
+   * produced it), it anchors the live context figure: the true count of
+   * everything sent last turn, plus only an estimate of the messages appended
+   * since. Undefined before the first response. See `realAnchoredInputTokens`.
+   */
+  lastRealInputTokens: number | undefined = undefined;
+
   constructor(init: ContextInit) {
     this.systemPrompt = init.systemPrompt;
     this.provider = init.provider;

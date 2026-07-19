@@ -127,6 +127,7 @@ export {
   SubagentBudget,
 } from '../coordination/subagent-budget.js';
 export { AutoCompactionMiddleware } from '../execution/auto-compaction-middleware.js';
+export { installSubagentAutoCompaction } from '../execution/subagent-compaction.js';
 export {
   AutonomousRunner,
   type AutonomousRunnerOptions,

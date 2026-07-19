@@ -34,6 +34,7 @@ import {
   type FleetWorktreePolicy,
   GlobalMailbox,
   HARD_MAX_SPAWN_DEPTH,
+  installSubagentAutoCompaction,
   type ModelsRegistry,
   mailboxSessionTag,
   makeDirectorSessionFactory,
@@ -1170,6 +1171,11 @@ export class MultiAgentHost {
           });
         },
       });
+
+      // Proactive auto-compaction — subagents shrink on the warn/soft/hard
+      // thresholds (and get the last-resort emergency trim) like the leader,
+      // instead of growing unbounded until the provider rejects the request.
+      installSubagentAutoCompaction(pipelines, ctx, config.context, events);
 
       const agent = new Agent({
         container: this.deps.container,

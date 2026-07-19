@@ -2,14 +2,18 @@ import type { Context } from '../core/context.js';
 import type { EventBus } from '../kernel/events.js';
 import type { MiddlewareHandler } from '../kernel/pipeline.js';
 import type { SessionEventBridge } from '../storage/session-event-bridge.js';
-import type { CompactReport, Compactor } from '../types/compactor.js';
+import type { Compactor, CompactReport } from '../types/compactor.js';
 import type { ContextWindowAggressiveOn, ContextWindowPolicy } from '../types/context-window.js';
 import { AgentError, ERROR_CODES } from '../types/errors.js';
-import {
-  estimateRequestTokensCalibrated,
-  getCalibrationState,
-} from '../utils/token-estimate.js';
 import { repeatedReadPressure } from '../utils/context-evidence.js';
+import {
+  estimateRequestTokens,
+  estimateRequestTokensCalibrated,
+  estimateRequestTokensUpperBound,
+  getCalibrationState,
+  realAnchoredInputTokens,
+} from '../utils/token-estimate.js';
+import { enforceHardBudget, estimateMessages } from './compaction-core.js';
 
 type PressureLevel = 'warn' | 'soft' | 'hard';
 const LEVEL_RANK: Record<PressureLevel, number> = { warn: 0, soft: 1, hard: 2 };
@@ -39,10 +43,9 @@ interface AutoCompactionOptions {
   aggressiveOn?: ContextWindowAggressiveOn | undefined;
   events?: EventBus | undefined;
   failureMode?: CompactionFailureMode | undefined;
-  policyProvider?: (ctx: Context) => Pick<
-    ContextWindowPolicy,
-    'thresholds' | 'aggressiveOn'
-  > | null | undefined;
+  policyProvider?: (
+    ctx: Context,
+  ) => Pick<ContextWindowPolicy, 'thresholds' | 'aggressiveOn'> | null | undefined;
   /** Optional bridge for writing compaction events into the persistent session log. */
   sessionBridge?: SessionEventBridge | undefined;
   /**
@@ -67,7 +70,7 @@ export class AutoCompactionMiddleware {
 
   private readonly compactor: Compactor;
   /** Deprecated. Kept for backward compat with tests that pass simpleEstimator. */
-  private readonly _estimator?: (((ctx: Context) => number)) | undefined;
+  private readonly _estimator?: ((ctx: Context) => number) | undefined;
   private readonly warnThreshold: number;
   private readonly softThreshold: number;
   private readonly hardThreshold: number;
@@ -94,6 +97,17 @@ export class AutoCompactionMiddleware {
    * has grown by at least this many tokens since the failed attempt.
    */
   private static readonly NOOP_RETRY_DELTA_TOKENS = 2_000;
+  /** A tiny positive delta is operationally still a no-op at large context sizes. */
+  private static readonly MIN_EFFECTIVE_REDUCTION_TOKENS = 1_000;
+  private static readonly MIN_EFFECTIVE_REDUCTION_RATIO = 0.005;
+
+  /**
+   * Calibrated-load floor above which the upper-bound send guard runs. Below
+   * this, even the maximum density under-count factor (2.5×) cannot push the
+   * real token count past the window, so the extra scan is pure waste. Equals
+   * 1 / 2.5 = 0.4.
+   */
+  private static readonly GUARD_GATE_LOAD = 0.4;
 
   /** Tracks the most recent no-op attempt so we can avoid re-firing per turn. */
   private lastNoopAttempt: { level: PressureLevel; tokens: number } | null = null;
@@ -125,7 +139,13 @@ export class AutoCompactionMiddleware {
   constructor(
     compactor: Compactor,
     maxContext: number,
-    _estimator: (ctx: Context) => number,
+    /**
+     * Optional custom estimator. When omitted (pass `undefined`), the
+     * middleware uses its internal `estimateRequestTokensCalibrated` default —
+     * the right choice for subagents, which want the same per-(provider,model)
+     * calibration as the leader without threading an estimator through.
+     */
+    _estimator: ((ctx: Context) => number) | undefined,
     thresholds: { warn: number; soft: number; hard: number },
     optsOrAggressiveOn: AutoCompactionOptions | ContextWindowAggressiveOn = {},
     events?: EventBus | undefined,
@@ -185,7 +205,19 @@ export class AutoCompactionMiddleware {
       const toolCount = (ctx.tools ?? []).length;
 
       let tokens: number;
-      if (this._estimator) {
+      // Prefer the REAL usage anchor: compaction decisions run against the
+      // provider's authoritative prompt-token count (+ the delta of unsent
+      // messages), not a scaled estimate. Only the newest turn is estimated;
+      // everything else is exact. Falls through to the estimate paths before
+      // the first response or right after compaction shrank the array.
+      const anchorAt =
+        typeof ctx.meta?.['realAnchorMsgCount'] === 'number'
+          ? (ctx.meta['realAnchorMsgCount'] as number)
+          : undefined;
+      const anchored = realAnchoredInputTokens(ctx.messages, ctx.lastRealInputTokens, anchorAt);
+      if (anchored !== null) {
+        tokens = anchored;
+      } else if (this._estimator) {
         // Custom estimator — never cache; call fresh every invocation.
         tokens = this._estimator(ctx);
       } else if (
@@ -228,7 +260,7 @@ export class AutoCompactionMiddleware {
       // every pass so the next retry compacts against the learned denominator.
       const runtimeMaxContext = effectiveMaxContext(ctx, this._maxContext);
       const budget = computeContextWindowBudget(ctx, tokens, runtimeMaxContext);
-      const load = budget.load;
+      const calibratedLoad = budget.load;
       const policy = this.policyProvider?.(ctx);
       const thresholds = policy?.thresholds ?? {
         warn: this.warnThreshold,
@@ -240,6 +272,26 @@ export class AutoCompactionMiddleware {
         repeatedReadCount: repetition,
       });
       const aggressiveOn = policy?.aggressiveOn ?? this.aggressiveOn;
+
+      // ── Never-undercount send guard ──────────────────────────────────────
+      // The calibrated estimate can under-count dense content (CJK, base64,
+      // minified) by >1.5×, which would let an over-limit request slip past the
+      // thresholds and reach the provider. Once the calibrated load is high
+      // enough that even the max density factor (2.5×) *could* overflow
+      // (load ≥ 1/2.5 = 0.4), re-check with the upper-bound estimator and
+      // escalate the effective load to whichever is larger. Below 0.4 an
+      // overflow is arithmetically impossible, so the extra scan is skipped.
+      let load = calibratedLoad;
+      if (calibratedLoad >= AutoCompactionMiddleware.GUARD_GATE_LOAD) {
+        const guardTotal = estimateRequestTokensUpperBound(
+          ctx.messages,
+          ctx.systemPrompt,
+          ctx.tools ?? [],
+          `${ctx.provider?.id ?? 'unknown'}/${ctx.model}`,
+        ).total;
+        const guardLoad = guardTotal / budget.availableInputTokens;
+        if (guardLoad > load) load = guardLoad;
+      }
 
       const level: PressureLevel | null =
         load >= adaptiveThresholds.hard
@@ -322,8 +374,14 @@ export class AutoCompactionMiddleware {
 
   private recordAttempt(level: PressureLevel, tokens: number, report: CompactReport): void {
     // Prefer full-request tokens (accurate); fall back to message-only before/after.
-    const reduced =
-      (report.fullRequestTokensBefore ?? report.before) > (report.fullRequestTokensAfter ?? report.after);
+    const before = report.fullRequestTokensBefore ?? report.before;
+    const after = report.fullRequestTokensAfter ?? report.after;
+    const saved = before - after;
+    const minimumUsefulSaving = Math.max(
+      AutoCompactionMiddleware.MIN_EFFECTIVE_REDUCTION_TOKENS,
+      Math.ceil(before * AutoCompactionMiddleware.MIN_EFFECTIVE_REDUCTION_RATIO),
+    );
+    const reduced = saved >= minimumUsefulSaving;
     const repaired = !!report.repaired;
     if (reduced || repaired) {
       this.lastNoopAttempt = null;
@@ -378,19 +436,62 @@ export class AutoCompactionMiddleware {
         // Record what was collapsed so the audit trail shows the preserved
         // content, not just token counts. Bounded to keep the log line small;
         // the full original turns are already in the session JSONL.
-        ...(report.collapsedDigest
-          ? { digest: truncateDigest(report.collapsedDigest) }
-          : {}),
+        ...(report.collapsedDigest ? { digest: truncateDigest(report.collapsedDigest) } : {}),
       });
 
       // Stale file-read metadata from before the compaction boundary is no
       // longer useful and would cause hasRead() to skip legitimate re-reads.
       ctx.clearFileTracking();
 
+      // The real-usage anchor was captured for the PRE-compaction message array.
+      // Compaction just rewrote it, so the anchor no longer corresponds — drop
+      // it so the live figure and the next decision use a fresh estimate of the
+      // compacted array until the next response re-anchors. (Without this, an
+      // elision-only pass that keeps the message count would leave the stale,
+      // larger real count in place and could spuriously re-trigger compaction.)
+      ctx.lastRealInputTokens = undefined;
+
       const afterTokens = report.fullRequestTokensAfter ?? report.after;
-      const afterBudget = computeContextWindowBudget(ctx, afterTokens, runtimeMaxContext);
-      const afterLoad = afterBudget.load;
-      const stillHard = afterLoad >= pressure.hardThreshold;
+      let afterBudget = computeContextWindowBudget(ctx, afterTokens, runtimeMaxContext);
+      let afterLoad = afterBudget.load;
+      let stillHard = afterLoad >= pressure.hardThreshold;
+
+      // Last-resort emergency trim — the no-overflow guarantee. When normal
+      // compaction (preserveK protects everything, a single oversized message,
+      // a >1.5× under-estimate) leaves the request above the hard line, trim
+      // message CONTENT until it structurally fits rather than throwing a
+      // terminal AGENT_CONTEXT_OVERFLOW. This runs in-band so recovery/retry is
+      // never needed for a proactively-detected overflow.
+      if (stillHard) {
+        const trim = this.emergencyTrim(ctx, afterBudget, pressure.hardThreshold);
+        if (trim) {
+          const retryTokens = estimateRequestTokens(
+            ctx.messages,
+            ctx.systemPrompt,
+            ctx.tools ?? [],
+          ).total;
+          afterBudget = computeContextWindowBudget(ctx, retryTokens, runtimeMaxContext);
+          afterLoad = afterBudget.load;
+          stillHard = afterLoad >= pressure.hardThreshold;
+          ctx.clearFileTracking();
+          this.events?.emit('compaction.emergency_trim', {
+            sessionId: ctx.session.id,
+            level: pressure.level,
+            saved: trim.saved,
+            trimmedBlocks: trim.trimmedBlocks,
+            droppedMessages: trim.droppedMessages,
+            tokens: retryTokens,
+            load: afterLoad,
+            maxContext: runtimeMaxContext,
+            budget: afterBudget,
+            withinBudget: trim.withinBudget,
+          });
+        }
+      }
+
+      // Only reachable if the emergency trim somehow could not fit the request
+      // (e.g. a budget smaller than a single floored message — not achievable in
+      // practice). Preserve the original fail-safe so nothing is silently sent.
       const fatal =
         stillHard &&
         (this.failureMode === 'throw' ||
@@ -404,9 +505,9 @@ export class AutoCompactionMiddleware {
           err: error,
           aggressive,
           level: pressure.level,
-          tokens: afterTokens,
+          tokens: afterBudget.inputTokens,
           maxContext: runtimeMaxContext,
-          budget: computeContextWindowBudget(ctx, afterTokens, runtimeMaxContext),
+          budget: afterBudget,
           signals: pressure.signals,
           load: afterLoad,
           fatal,
@@ -418,7 +519,7 @@ export class AutoCompactionMiddleware {
             recoverable: true,
             context: {
               level: pressure.level,
-              tokens: afterTokens,
+              tokens: afterBudget.inputTokens,
               maxContext: runtimeMaxContext,
             },
           });
@@ -457,6 +558,64 @@ export class AutoCompactionMiddleware {
     }
     if (postCompactionOverflow) throw postCompactionOverflow;
   }
+
+  /**
+   * Last-resort trim that makes the request structurally fit the window.
+   * Converts the calibrated context budget into a raw message-token budget
+   * (the estimator scale `enforceHardBudget` works in) by subtracting the
+   * system-prompt + tool-definition overhead, then trims message content until
+   * it fits. Targets 95% of the hard line so re-estimation jitter does not
+   * leave it exactly on the boundary. Returns the trim result, or null when
+   * nothing needed trimming.
+   */
+  private emergencyTrim(
+    ctx: Context,
+    budget: ContextWindowBudgetSnapshot,
+    hardThreshold: number,
+  ): {
+    saved: number;
+    trimmedBlocks: number;
+    droppedMessages: number;
+    withinBudget: boolean;
+  } | null {
+    const rawMessageTokens = estimateMessages(ctx.messages);
+    const rawFull = estimateRequestTokens(ctx.messages, ctx.systemPrompt, ctx.tools ?? []).total;
+    const rawOverhead = Math.max(0, rawFull - rawMessageTokens);
+    // Target 95% of the hard line, expressed in the estimator's raw scale.
+    const targetGuardFull = Math.floor(hardThreshold * budget.availableInputTokens * 0.95);
+    // `enforceHardBudget` counts raw tokens, but the request is measured by the
+    // upper-bound guard. Deflate the raw message budget by the current density
+    // inflation so the trimmed request fits the guard, not just the raw
+    // estimate — over-trimming slightly is the safe direction here.
+    const guardFull = estimateRequestTokensUpperBound(
+      ctx.messages,
+      ctx.systemPrompt,
+      ctx.tools ?? [],
+    ).total;
+    const inflation = rawFull > 0 ? Math.max(1, guardFull / rawFull) : 1;
+    const messageBudget = Math.max(1, Math.floor(targetGuardFull / inflation) - rawOverhead);
+    const result = enforceHardBudget(ctx.messages, messageBudget, {
+      preserveK: this.resolvePreserveK(ctx),
+    });
+    if (!result.changed) return null;
+    ctx.state.replaceMessages(result.messages);
+    return {
+      saved: result.saved,
+      trimmedBlocks: result.trimmedBlocks,
+      droppedMessages: result.droppedMessages,
+      withinBudget: result.withinBudget,
+    };
+  }
+
+  /** Preserve-window size from the active policy, defaulting to 6 recent pairs. */
+  private resolvePreserveK(ctx: Context): number {
+    const policy = ctx.meta?.['contextWindowPolicy'];
+    const k =
+      policy && typeof policy === 'object'
+        ? (policy as { preserveK?: unknown }).preserveK
+        : undefined;
+    return typeof k === 'number' && k > 0 ? Math.floor(k) : 6;
+  }
 }
 
 function effectiveMaxContext(ctx: Context, configured: number): number {
@@ -476,9 +635,10 @@ function computeContextWindowBudget(
   inputTokens: number,
   maxContext: number,
 ): ContextWindowBudgetSnapshot {
-  const reservedOutputTokens = readPositiveMetaNumber(ctx, 'contextOutputReserveTokens') ??
-    Math.floor(Math.min(8192, maxContext * 0.08));
-  const reservedSafetyTokens = readPositiveMetaNumber(ctx, 'contextSafetyBufferTokens') ??
+  const reservedOutputTokens =
+    readPositiveMetaNumber(ctx, 'contextOutputReserveTokens') ?? realOutputReserve(ctx, maxContext);
+  const reservedSafetyTokens =
+    readPositiveMetaNumber(ctx, 'contextSafetyBufferTokens') ??
     Math.floor(Math.min(4096, maxContext * 0.02));
   const availableInputTokens = Math.max(
     1,
@@ -495,6 +655,32 @@ function computeContextWindowBudget(
     load: inputTokens / availableInputTokens,
     overflowTokens: Math.max(0, -remainingInputTokens),
   };
+}
+
+/**
+ * The output-token reserve subtracted from the window to get the input budget.
+ *
+ * This is the room left for the model's RESPONSE, so it must track the actual
+ * per-request output cap — which in an agentic loop is `Request.maxTokens`
+ * (typically a few thousand), NOT the model's *theoretical* `maxOutput` ceiling
+ * (which the catalog reports as 32k-65k for many models). Reserving the full
+ * theoretical ceiling shrinks the usable window so far that a large context
+ * sits permanently above the compaction thresholds → constant re-compaction.
+ *
+ * So the reserve is the heuristic `min(8192, 8% of window)` — the same value
+ * that has always worked — tightened only when the model's real `maxOutput` is
+ * *smaller* than that (a genuinely small-output model can't produce more, so
+ * reserving less is both accurate and frees input budget). It never exceeds the
+ * heuristic, so it can only keep or reduce compaction frequency, never raise it.
+ * The real catalog `maxOutput` is still surfaced in `/context` for visibility.
+ */
+function realOutputReserve(ctx: Context, maxContext: number): number {
+  const heuristic = Math.floor(Math.min(8192, maxContext * 0.08));
+  const maxOutput = ctx.provider?.capabilities?.maxOutput;
+  if (typeof maxOutput === 'number' && Number.isFinite(maxOutput) && maxOutput > 0) {
+    return Math.min(heuristic, Math.floor(maxOutput));
+  }
+  return heuristic;
 }
 
 function readPositiveMetaNumber(ctx: Context, key: string): number | undefined {

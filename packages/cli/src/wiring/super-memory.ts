@@ -1,6 +1,7 @@
 import type { AgentPipelines, Config, EventBus, Logger, MemoryStore } from '@wrongstack/core';
 import {
   createSuperMemoryToolCallMiddleware,
+  createSuperMemoryContextMonitorMiddleware,
   createSuperMemoryTurnMiddleware,
   InjectionTracker,
   type SuperMemoryRetrieverLike,
@@ -12,6 +13,7 @@ export interface SuperMemoryWiringDeps {
   memoryStore: MemoryStore | undefined;
   logger: Logger;
   events: EventBus;
+  getSessionId?: (() => string | undefined) | undefined;
 }
 
 export function setupSuperMemory(deps: SuperMemoryWiringDeps): () => Promise<void> {
@@ -58,9 +60,17 @@ export function setupSuperMemory(deps: SuperMemoryWiringDeps): () => Promise<voi
         minScore: cfg?.inject?.minScore,
         metadataWeight: cfg?.retrieval?.metadataWeight,
         tracker: injectionTracker,
+        getSessionId: deps.getSessionId,
       }),
     );
   }
+  deps.pipelines.request.use(
+    createSuperMemoryContextMonitorMiddleware({
+      tracker: injectionTracker,
+      events: deps.events,
+      getSessionId: deps.getSessionId,
+    }),
+  );
   return async () => {
     if (cfg?.hygiene?.autoAfterSession === false) return;
     const candidate = deps.memoryStore as unknown as {

@@ -167,7 +167,7 @@ describe('BrainDecisionPrompt', () => {
       }),
     );
     const frame = lastFrame() ?? '';
-    expect(frame).toContain('5');
+    expect(frame).toMatch(/…|more/);
     expect(frame).not.toContain('6');
     unmount();
   });

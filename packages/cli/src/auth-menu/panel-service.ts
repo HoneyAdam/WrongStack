@@ -133,7 +133,12 @@ export function plainMaskedKey(key: string): string {
 export function createAuthPanelHost(deps: AuthPanelServiceDeps): AuthPanelHost {
   const loadProviders = (): Promise<Record<string, ProviderConfig>> =>
     loadConfigProviders(deps.globalConfigPath, deps.vault, {
-      profileConfigPath: deps.profileConfigPath,
+      // Only include the key when defined — `loadConfigProviders` types it as
+      // `profileConfigPath?: string` (no `| undefined`), so under
+      // exactOptionalPropertyTypes passing `string | undefined` is a type error.
+      ...(deps.profileConfigPath !== undefined && {
+        profileConfigPath: deps.profileConfigPath,
+      }),
     });
 
   const mutate = async (

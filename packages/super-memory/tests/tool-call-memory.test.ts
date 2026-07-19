@@ -34,7 +34,12 @@ function makePayload(overrides: Partial<ToolCallPipelinePayload> = {}): ToolCall
   return {
     toolUse: { type: 'tool_use', id: 'tu1', name: 'read', input: { path: 'src/file.ts' } },
     result: { type: 'tool_result', tool_use_id: 'tu1', name: 'read', content: 'file content' },
-    ctx: { projectRoot: tmpDir, cwd: tmpDir, session: { id: 'sess1' }, signal: new AbortController().signal },
+    ctx: {
+      projectRoot: tmpDir,
+      cwd: tmpDir,
+      session: { id: 'sess1' },
+      signal: new AbortController().signal,
+    },
     ...overrides,
   } as ToolCallPipelinePayload;
 }
@@ -52,7 +57,13 @@ describe('SuperMemoryToolCallMiddleware — disabled and no-trigger scenarios', 
     const store = makeStore();
     const mw = createSuperMemoryToolCallMiddleware({ memory: store });
     const payload = makePayload({
-      result: { type: 'tool_result', tool_use_id: 'tu1', name: 'read', content: 'Error', is_error: true },
+      result: {
+        type: 'tool_result',
+        tool_use_id: 'tu1',
+        name: 'read',
+        content: 'Error',
+        is_error: true,
+      },
     });
     await mw.handler(payload, async (p) => p);
     expect(payload.result.content).toBe('Error');
@@ -62,8 +73,19 @@ describe('SuperMemoryToolCallMiddleware — disabled and no-trigger scenarios', 
     const store = await storeWithFileMemory('src/file.ts');
     const mw = createSuperMemoryToolCallMiddleware({ memory: store, repeatCooldownMs: 0 });
     const payload = makePayload({
-      toolUse: { type: 'tool_use', id: 'tu_bash', name: 'bash', input: { command: 'ls src/' } },
-      result: { type: 'tool_result', tool_use_id: 'tu_bash', name: 'bash', content: 'Error output', is_error: true },
+      toolUse: {
+        type: 'tool_use',
+        id: 'tu_bash',
+        name: 'bash',
+        input: { command: 'Get-Content src/file.ts' },
+      },
+      result: {
+        type: 'tool_result',
+        tool_use_id: 'tu_bash',
+        name: 'bash',
+        content: 'Error output',
+        is_error: true,
+      },
     });
     await mw.handler(payload, async (p) => p);
     expect(payload.result.content).toContain('Memory for src/file.ts');
@@ -103,7 +125,12 @@ describe('SuperMemoryToolCallMiddleware — mutation triggers', () => {
       anchors: [{ type: 'file', path: 'src/newfile.ts' }],
     });
     const payload = makePayload({
-      toolUse: { type: 'tool_use', id: 'tu_write', name: 'write', input: { path: 'src/newfile.ts' } },
+      toolUse: {
+        type: 'tool_use',
+        id: 'tu_write',
+        name: 'write',
+        input: { path: 'src/newfile.ts' },
+      },
       result: { type: 'tool_result', tool_use_id: 'tu_write', name: 'write', content: 'written' },
     });
     await mw.handler(payload, async (p) => p);
@@ -138,13 +165,18 @@ describe('SuperMemoryToolCallMiddleware — patch tool', () => {
         id: 'tu_patch',
         name: 'patch',
         input: {
-          patch: '--- a/packages/demo/source.ts\n+++ b/packages/demo/source.ts\n@@ -1 +1 @@\n-old\n+new\n',
+          patch:
+            '--- a/packages/demo/source.ts\n+++ b/packages/demo/source.ts\n@@ -1 +1 @@\n-old\n+new\n',
           directory: tmpDir,
           strip: 1,
         },
       },
       result: { type: 'tool_result', tool_use_id: 'tu_patch', name: 'patch', content: 'applied' },
-      ctx: { projectRoot: tmpDir, cwd: tmpDir, session: { id: 'patch-session' } } as ToolCallPipelinePayload['ctx'],
+      ctx: {
+        projectRoot: tmpDir,
+        cwd: tmpDir,
+        session: { id: 'patch-session' },
+      } as ToolCallPipelinePayload['ctx'],
     });
 
     await mw.handler(payload as never, async (p) => p);
@@ -167,7 +199,12 @@ describe('SuperMemoryToolCallMiddleware — replace tool with dry_run check', ()
         name: 'replace',
         input: { files: 'src/file.ts', pattern: 'old', replacement: 'new', dry_run: false },
       },
-      result: { type: 'tool_result', tool_use_id: 'tu_replace', name: 'replace', content: 'replaced' },
+      result: {
+        type: 'tool_result',
+        tool_use_id: 'tu_replace',
+        name: 'replace',
+        content: 'replaced',
+      },
     });
     await mw.handler(payload as never, async (p) => p);
     expect(verifyForPaths).toHaveBeenCalled();
@@ -187,7 +224,12 @@ describe('SuperMemoryToolCallMiddleware — replace tool with dry_run check', ()
         name: 'replace',
         input: { files: 'src/file.ts', pattern: 'old', replacement: 'new' },
       },
-      result: { type: 'tool_result', tool_use_id: 'tu_replace', name: 'replace', content: 'dry-run: would replace' },
+      result: {
+        type: 'tool_result',
+        tool_use_id: 'tu_replace',
+        name: 'replace',
+        content: 'dry-run: would replace',
+      },
     });
     await mw.handler(payload as never, async (p) => p);
     expect(verifyForPaths).not.toHaveBeenCalled();
@@ -203,8 +245,18 @@ describe('SuperMemoryToolCallMiddleware — tool name variants', () => {
     });
     const mw = createSuperMemoryToolCallMiddleware({ memory: store, repeatCooldownMs: 0 });
     const payload = makePayload({
-      toolUse: { type: 'tool_use', id: 'tu_cs', name: 'codebase-search', input: { query: 'finds', path: '.' } },
-      result: { type: 'tool_result', tool_use_id: 'tu_cs', name: 'codebase-search', content: 'results' },
+      toolUse: {
+        type: 'tool_use',
+        id: 'tu_cs',
+        name: 'codebase-search',
+        input: { query: 'finds', path: '.' },
+      },
+      result: {
+        type: 'tool_result',
+        tool_use_id: 'tu_cs',
+        name: 'codebase-search',
+        content: 'results',
+      },
     });
     await mw.handler(payload as never, async (p) => p);
     expect(payload.result.content).toContain('finds this memory');
@@ -239,7 +291,13 @@ describe('SuperMemoryToolCallMiddleware — tool name variants', () => {
         cwd: tmpDir,
         session: { id: 'task-aware' },
         signal: new AbortController().signal,
-        todos: [{ id: 'todo-auth', content: 'Refactor authentication refresh flow', status: 'in_progress' }],
+        todos: [
+          {
+            id: 'todo-auth',
+            content: 'Refactor authentication refresh flow',
+            status: 'in_progress',
+          },
+        ],
         meta: {},
       } as never,
     });
@@ -247,7 +305,9 @@ describe('SuperMemoryToolCallMiddleware — tool name variants', () => {
     await mw.handler(payload, async (p) => p);
 
     expect(payload.result.content).toContain('Authentication package refresh tokens');
-    expect((payload.ctx.meta['memoryInjectorLastRun'] as Record<string, number>)['injected']).toBe(1);
+    expect((payload.ctx.meta['memoryInjectorLastRun'] as Record<string, number>)['injected']).toBe(
+      1,
+    );
   });
 });
 
@@ -261,8 +321,18 @@ describe('SuperMemoryToolCallMiddleware — result path extraction', () => {
     });
     const mw = createSuperMemoryToolCallMiddleware({ memory: store, repeatCooldownMs: 0 });
     const payload = makePayload({
-      toolUse: { type: 'tool_use', id: 'tu_glob', name: 'glob', input: { pattern: '**/*.ts', path: '.' } },
-      result: { type: 'tool_result', tool_use_id: 'tu_glob', name: 'glob', content: JSON.stringify({ results: ['test/unit/test.ts'] }) },
+      toolUse: {
+        type: 'tool_use',
+        id: 'tu_glob',
+        name: 'glob',
+        input: { pattern: '**/*.ts', path: '.' },
+      },
+      result: {
+        type: 'tool_result',
+        tool_use_id: 'tu_glob',
+        name: 'glob',
+        content: JSON.stringify({ results: ['test/unit/test.ts'] }),
+      },
     });
     await mw.handler(payload as never, async (p) => p);
     expect(payload.result.content).toContain('Memory for test file');
@@ -275,9 +345,29 @@ describe('SuperMemoryToolCallMiddleware — content already visible', () => {
     const mw = createSuperMemoryToolCallMiddleware({ memory: store });
     // Make a payload where the system prompt already mentions the memory text
     const payload = makePayload({
-      result: { type: 'tool_result', tool_use_id: 'tu1', name: 'read', content: 'Memory for src/file.ts' },
+      result: {
+        type: 'tool_result',
+        tool_use_id: 'tu1',
+        name: 'read',
+        content: 'Memory for src/file.ts',
+      },
     });
-    const existingMemory = { id: 'mem_1', text: 'Memory for src/file.ts', revision: 1, scope: 'project', kind: 'fact', status: 'active', importance: 0.95, confidence: 0.95, freshness: 1, tags: [] as string[], anchors: [{ type: 'file', path: 'src/file.ts' }], sources: [] as never[], createdAt: '', updatedAt: '' };
+    const existingMemory = {
+      id: 'mem_1',
+      text: 'Memory for src/file.ts',
+      revision: 1,
+      scope: 'project',
+      kind: 'fact',
+      status: 'active',
+      importance: 0.95,
+      confidence: 0.95,
+      freshness: 1,
+      tags: [] as string[],
+      anchors: [{ type: 'file', path: 'src/file.ts' }],
+      sources: [] as never[],
+      createdAt: '',
+      updatedAt: '',
+    };
     (store as any).loaded = [existingMemory];
     (store as any).initialized = true;
 
@@ -288,8 +378,8 @@ describe('SuperMemoryToolCallMiddleware — content already visible', () => {
   });
 });
 
-describe('SuperMemoryToolCallMiddleware — cooldown with high importance bypass', () => {
-  it('bypasses cooldown for high importance memories with some wait', async () => {
+describe('SuperMemoryToolCallMiddleware — cooldown for high importance memory', () => {
+  it('does not bypass cooldown merely because importance is high', async () => {
     const store = makeStore();
     const mw = createSuperMemoryToolCallMiddleware({ memory: store, repeatCooldownMs: 60000 });
     await store.rememberSuper({
@@ -313,8 +403,7 @@ describe('SuperMemoryToolCallMiddleware — cooldown with high importance bypass
       result: { type: 'tool_result', tool_use_id: 'tu2', name: 'read', content: 'file content' },
     });
     await mw.handler(payload2 as never, async (p) => p);
-    // High importance reduces cooldown to min(cooldownMs, 5min) = 60s here,
-    // but the second call is immediate (<60s), so it should NOT inject.
+    // Importance affects ranking only; it must not bypass the repeat cooldown.
     expect(payload2.result.content).toBe('file content');
   });
 });
@@ -322,7 +411,11 @@ describe('SuperMemoryToolCallMiddleware — cooldown with high importance bypass
 describe('SuperMemoryToolCallMiddleware — availableHintChars', () => {
   it('respects maxOutputBytes cap', async () => {
     const store = await storeWithFileMemory('src/file.ts');
-    const mw = createSuperMemoryToolCallMiddleware({ memory: store, repeatCooldownMs: 0, maxCharsPerTool: 200 });
+    const mw = createSuperMemoryToolCallMiddleware({
+      memory: store,
+      repeatCooldownMs: 0,
+      maxCharsPerTool: 200,
+    });
 
     const payload = makePayload();
     // Set tool maxOutputBytes cap to limit chars
@@ -369,6 +462,144 @@ describe('SuperMemoryToolCallMiddleware — no memories match', () => {
     await mw.handler(payload, async (p) => p);
 
     expect(payload.result.content).toBe('file content');
+  });
+});
+
+describe('SuperMemoryToolCallMiddleware — relevance gates', () => {
+  const memoryRecord = (overrides: Record<string, unknown> = {}) => ({
+    id: 'mem_candidate',
+    revision: 1,
+    scope: 'project' as const,
+    kind: 'fact' as const,
+    status: 'active' as const,
+    persistence: 'long_lived' as const,
+    text: 'Telegram outbound queue security policy.',
+    importance: 1,
+    confidence: 1,
+    freshness: 1,
+    tags: ['telegram', 'security'],
+    anchors: [],
+    sources: [],
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  });
+
+  it('rejects an unrelated maximum-importance lexical candidate', async () => {
+    const unrelated = memoryRecord();
+    const memory = {
+      retrieveForPath: async () => [],
+      searchSuper: async () => [unrelated],
+    };
+    const mw = createSuperMemoryToolCallMiddleware({ memory, repeatCooldownMs: 0 });
+    const payload = makePayload({
+      toolUse: {
+        type: 'tool_use',
+        id: 'tu_relevance',
+        name: 'read',
+        input: { path: 'packages/super-memory/src/store.ts' },
+      },
+    });
+
+    await mw.handler(payload, async (next) => next);
+
+    expect(payload.result.content).toBe('file content');
+  });
+
+  it('does not treat a project-root anchor as relevant to every file', async () => {
+    const store = makeStore();
+    await store.rememberSuper({
+      text: 'Repository-wide release checklist.',
+      importance: 1,
+      confidence: 1,
+      anchors: [{ type: 'directory', path: '.' }],
+    });
+    const mw = createSuperMemoryToolCallMiddleware({ memory: store, repeatCooldownMs: 0 });
+
+    const payload = makePayload();
+    await mw.handler(payload, async (next) => next);
+
+    expect(payload.result.content).toBe('file content');
+  });
+
+  it('drops graph expansion without a shared structural anchor or two strong tags', async () => {
+    const seed = memoryRecord({
+      id: 'mem_seed',
+      text: 'Store retrieval scoring requires evidence.',
+      tags: ['retrieval', 'scoring', 'architecture', 'backfill', 'recovered'],
+      anchors: [{ type: 'file', path: 'packages/super-memory/src/store.ts' }],
+    });
+    const unrelated = memoryRecord({
+      id: 'mem_graph_noise',
+      tags: ['architecture', 'backfill', 'recovered'],
+    });
+    const memory = {
+      retrieveForPath: async () => [seed],
+      searchSuper: async () => [],
+      findRelatedSuper: async () => [unrelated],
+    };
+    const mw = createSuperMemoryToolCallMiddleware({ memory, repeatCooldownMs: 0 });
+    const payload = makePayload({
+      toolUse: {
+        type: 'tool_use',
+        id: 'tu_graph_relevance',
+        name: 'read',
+        input: { path: 'packages/super-memory/src/store.ts' },
+      },
+    });
+
+    await mw.handler(payload, async (next) => next);
+
+    expect(payload.result.content).toContain('Store retrieval scoring requires evidence.');
+    expect(payload.result.content).not.toContain('Telegram outbound queue');
+  });
+
+  it('caps lexical-only injection at two memories per tool result', async () => {
+    const candidates = [
+      memoryRecord({
+        id: 'mem_query_1',
+        text: 'Authentication refresh rotation uses the session service.',
+      }),
+      memoryRecord({
+        id: 'mem_query_2',
+        text: 'Authentication refresh rotation invalidates old tokens.',
+      }),
+      memoryRecord({
+        id: 'mem_query_3',
+        text: 'Authentication refresh rotation emits an audit event.',
+      }),
+    ];
+    const findRelatedSuper = vi.fn(async () => [
+      memoryRecord({ id: 'mem_query_graph_noise', text: 'Unrelated graph expansion.' }),
+    ]);
+    const memory = {
+      retrieveForPath: async () => [],
+      searchSuper: async () => candidates,
+      findRelatedSuper,
+    };
+    const mw = createSuperMemoryToolCallMiddleware({ memory, repeatCooldownMs: 0 });
+    const payload = makePayload({
+      toolUse: {
+        type: 'tool_use',
+        id: 'tu_query_cap',
+        name: 'codebase-search',
+        input: { query: 'authentication refresh rotation' },
+      },
+      result: {
+        type: 'tool_result',
+        tool_use_id: 'tu_query_cap',
+        name: 'codebase-search',
+        content: 'results',
+      },
+    });
+
+    await mw.handler(payload, async (next) => next);
+
+    expect(payload.result.content).toContain('uses the session service');
+    expect(payload.result.content).toContain('invalidates old tokens');
+    expect(payload.result.content).not.toContain('emits an audit event');
+    expect(payload.result.content).not.toContain('Unrelated graph expansion');
+    expect(findRelatedSuper).not.toHaveBeenCalled();
   });
 });
 
@@ -475,7 +706,12 @@ describe('SuperMemoryToolCallMiddleware — tool name -> trigger mapping', () =>
     for (const name of ['read', 'tree', 'grep', 'glob', 'write', 'edit']) {
       const payload = makePayload({
         toolUse: { type: 'tool_use', id: `tu_${name}`, name, input: { path: 'src/x.ts' } },
-        result: { type: 'tool_result', tool_use_id: `tu_${name}`, name, content: `result from ${name}` },
+        result: {
+          type: 'tool_result',
+          tool_use_id: `tu_${name}`,
+          name,
+          content: `result from ${name}`,
+        },
       });
       await mw.handler(payload as never, async (p) => p);
       expect(payload.result.content).toBe(`result from ${name}`);
@@ -490,7 +726,9 @@ describe('SuperMemoryToolCallMiddleware — parallel retrieval', () => {
     // gate that can never open and the test would time out.
     const started: string[] = [];
     let openGate!: () => void;
-    const gate = new Promise<void>((resolve) => { openGate = resolve; });
+    const gate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
     const memoryTemplate = (id: string) => ({
       id,
       revision: 1,
@@ -528,7 +766,12 @@ describe('SuperMemoryToolCallMiddleware — parallel retrieval', () => {
         name: 'replace',
         input: { files: 'src/a.ts,src/b.ts', pattern: 'needle', dry_run: true },
       },
-      result: { type: 'tool_result', tool_use_id: 'tu_parallel', name: 'replace', content: 'preview' },
+      result: {
+        type: 'tool_result',
+        tool_use_id: 'tu_parallel',
+        name: 'replace',
+        content: 'preview',
+      },
     });
 
     await mw.handler(payload as never, async (p) => p);

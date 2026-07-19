@@ -7,7 +7,10 @@ export type MemoryLifecycleAction =
   | 'recovered'
   | 'exited'
   | 'related'
-  | 'state';
+  | 'superseded'
+  | 'archived'
+  | 'staled'
+  | 'contradicted';
 
 export interface MemoryLifecycleItem {
   id: string;
@@ -26,6 +29,14 @@ interface MemoryLifecycleState {
 }
 
 const MAX_ITEMS = 100;
+
+const TERMINAL_ACTIONS: ReadonlySet<MemoryLifecycleAction> = new Set([
+  'exited',
+  'superseded',
+  'archived',
+  'staled',
+  'contradicted',
+]);
 
 export function toMemoryLifecycleItem(
   payload: Record<string, unknown> & { event: string },
@@ -120,18 +131,40 @@ export function toMemoryLifecycleItem(
       detail: `${numberValue(payload.added) ?? 0} added / ${numberValue(payload.proposed) ?? 0} proposed`,
     };
   }
-  if (
-    ['memory.superseded', 'memory.archived', 'memory.staled', 'memory.contradicted'].includes(
-      event,
-    ) &&
-    memoryId
-  ) {
+  if (event === 'memory.superseded' && memoryId) {
     return {
       ...base,
-      action: 'state',
+      action: 'superseded',
       memoryId,
-      label: `${memoryId} → ${event.slice('memory.'.length)}`,
+      label: `${memoryId} → superseded`,
+      detail: stringValue(payload.reason) ?? healthDetail(payload),
+    };
+  }
+  if (event === 'memory.archived' && memoryId) {
+    return {
+      ...base,
+      action: 'archived',
+      memoryId,
+      label: `${memoryId} → archived`,
       detail: stringValue(payload.reason),
+    };
+  }
+  if (event === 'memory.staled' && memoryId) {
+    return {
+      ...base,
+      action: 'staled',
+      memoryId,
+      label: `${memoryId} → staled`,
+      detail: stringValue(payload.reason) ?? 'anchor drift detected',
+    };
+  }
+  if (event === 'memory.contradicted' && memoryId) {
+    return {
+      ...base,
+      action: 'contradicted',
+      memoryId,
+      label: `${memoryId} → contradicted`,
+      detail: stringValue(payload.reason) ?? 'conflicting evidence',
     };
   }
   return null;
@@ -143,12 +176,12 @@ export const useMemoryLifecycleStore = create<MemoryLifecycleState>()((set) => (
     set((state) => {
       const item = toMemoryLifecycleItem(payload);
       if (!item) return state;
-      const withoutDuplicateExit =
-        item.action === 'exited'
-          ? state.items.filter(
-              (existing) => !(existing.action === 'exited' && existing.memoryId === item.memoryId),
-            )
-          : state.items;
+      const withoutDuplicateExit = TERMINAL_ACTIONS.has(item.action)
+        ? state.items.filter(
+            (existing) =>
+              !(TERMINAL_ACTIONS.has(existing.action) && existing.memoryId === item.memoryId),
+          )
+        : state.items;
       return { items: [item, ...withoutDuplicateExit].slice(0, MAX_ITEMS) };
     }),
   clear: () => set({ items: [] }),

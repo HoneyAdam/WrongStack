@@ -715,7 +715,7 @@ export type State = {
   /** When true, the goal panel is shown (F9). */
   goalPanelOpen: boolean;
   goalKanbanPanelOpen: boolean;
-  /** When true, the context-window telemetry panel is shown (/context window). */
+  /** When true, the interactive context monitor is shown (`/context`). */
   contextPanelOpen: boolean;
   /** When true, the sessions panel is shown (F10). */
   sessionsPanelOpen: boolean;

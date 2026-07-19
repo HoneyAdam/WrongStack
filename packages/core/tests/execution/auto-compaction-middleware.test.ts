@@ -3,8 +3,8 @@ import type { Context } from '../../src/core/context.js';
 import { AutoCompactionMiddleware } from '../../src/execution/auto-compaction-middleware.js';
 import { EventBus } from '../../src/kernel/events.js';
 import type { SessionEventBridge } from '../../src/storage/session-event-bridge.js';
-import { createContextEvidenceState } from '../../src/utils/context-evidence.js';
 import type { Compactor } from '../../src/types/compactor.js';
+import { createContextEvidenceState } from '../../src/utils/context-evidence.js';
 
 function mockContext(_tokenEstimate: number): Context {
   return {
@@ -63,6 +63,33 @@ describe('AutoCompactionMiddleware', () => {
 
     expect(ran).toBe(true);
     expect(compactor.compactCalls).toHaveLength(0);
+  });
+
+  it('drives the compaction decision from the REAL usage anchor over the estimator', () => {
+    // The estimator says the context is tiny (100 tokens), but the provider's
+    // real last-usage anchor says it is nearly full. The real number must win
+    // so compaction fires — proving decisions run on real tokens, not the guess.
+    const ctx = mockContext(0) as unknown as Context & {
+      messages: unknown[];
+      lastRealInputTokens?: number;
+      meta: Record<string, unknown>;
+    };
+    ctx.messages = [{ role: 'user', content: 'q' }];
+    ctx.lastRealInputTokens = 9_500; // real, from provider usage
+    ctx.meta['realAnchorMsgCount'] = 1; // nothing appended since → delta 0
+
+    const mw = new AutoCompactionMiddleware(compactor, 10_000, simpleEstimator(100), {
+      warn: 0.5,
+      soft: 0.75,
+      hard: 0.9,
+    });
+
+    return mw
+      .handler()(ctx as never as Context, async (c) => c)
+      .then(() => {
+        expect(compactor.compactCalls).toHaveLength(1);
+        expect(compactor.compactCalls[0]?.aggressive).toBe(true); // hard → aggressive
+      });
   });
 
   it('is a pass-through when disabled via setEnabled(false), even above hard threshold', async () => {
@@ -263,13 +290,21 @@ describe('AutoCompactionMiddleware', () => {
     };
     const events = new EventBus();
     const failures: Array<{ fatal: boolean; tokens: number; load: number }> = [];
-    events.on('compaction.failed', (p) => failures.push({ fatal: p.fatal, tokens: p.tokens, load: p.load }));
+    events.on('compaction.failed', (p) =>
+      failures.push({ fatal: p.fatal, tokens: p.tokens, load: p.load }),
+    );
 
-    const mw = new AutoCompactionMiddleware(stuckCompactor, 10000, simpleEstimator(9500), {
-      warn: 0.5,
-      soft: 0.75,
-      hard: 0.9,
-    }, { events });
+    const mw = new AutoCompactionMiddleware(
+      stuckCompactor,
+      10000,
+      simpleEstimator(9500),
+      {
+        warn: 0.5,
+        soft: 0.75,
+        hard: 0.9,
+      },
+      { events },
+    );
 
     let ran = false;
     await expect(
@@ -282,6 +317,77 @@ describe('AutoCompactionMiddleware', () => {
     expect(ran).toBe(false);
     expect(failures).toHaveLength(1);
     expect(failures[0]).toMatchObject({ fatal: true, tokens: 9500, load: 9500 / 9000 });
+  });
+
+  it('emergency-trims (instead of throwing) when compaction leaves trimmable content above hard', async () => {
+    // A no-op compactor that never shrinks ctx.messages — the classic "preserveK
+    // protects a single oversized message" case that used to throw
+    // AGENT_CONTEXT_OVERFLOW. With the last-resort emergency trim, the middleware
+    // must instead truncate the content until it fits, and continue the chain.
+    const bigMsg = { role: 'user', content: [{ type: 'text', text: 'x'.repeat(400_000) }] };
+    const messages: any[] = [bigMsg];
+    const noopCompactor: Compactor = {
+      async compact() {
+        // Report the real full-request size so `stillHard` is genuinely true.
+        return { before: 114_000, after: 114_000, reductions: [] };
+      },
+    };
+    const events = new EventBus();
+    const trims: Array<{ trimmedBlocks: number; withinBudget: boolean; load: number }> = [];
+    const failures: unknown[] = [];
+    events.on('compaction.emergency_trim', (p) =>
+      trims.push({ trimmedBlocks: p.trimmedBlocks, withinBudget: p.withinBudget, load: p.load }),
+    );
+    events.on('compaction.failed', (p) => failures.push(p));
+
+    const ctx = {
+      messages,
+      todos: [],
+      readFiles: new Set(),
+      fileMtimes: new Map(),
+      systemPrompt: [],
+      provider: { id: 'test', capabilities: { maxContext: 20_000 } } as any,
+      session: { id: 's1' } as any,
+      signal: new AbortController().signal,
+      tokenCounter: {} as any,
+      cwd: '/tmp',
+      projectRoot: '/tmp',
+      model: 'test',
+      tools: [],
+      meta: {},
+      clearFileTracking: () => {},
+      state: {
+        replaceMessages(next: any[]) {
+          messages.length = 0;
+          messages.push(...next);
+        },
+      },
+    } as never as Context;
+
+    // Default estimator (undefined) → the middleware measures ctx.messages itself.
+    const mw = new AutoCompactionMiddleware(
+      noopCompactor,
+      20_000,
+      undefined,
+      {
+        warn: 0.5,
+        soft: 0.75,
+        hard: 0.9,
+      },
+      { events },
+    );
+
+    let ran = false;
+    await mw.handler()(ctx, async (c) => {
+      ran = true;
+      return c;
+    });
+
+    expect(ran).toBe(true); // chain advanced — NO throw
+    expect(failures).toHaveLength(0);
+    expect(trims).toHaveLength(1);
+    expect(trims[0]?.withinBudget).toBe(true);
+    expect(trims[0]?.load).toBeLessThan(0.9); // now under the hard line
   });
 
   it('can continue when hard compaction remains above the hard threshold if configured', async () => {
@@ -429,6 +535,28 @@ describe('AutoCompactionMiddleware', () => {
     // First attempt fires; subsequent no-op-at-same-level attempts are skipped.
     expect(noopCompactor.calls).toBe(1);
     expect(fired).toHaveLength(1);
+  });
+
+  it('treats a negligible positive reduction as a no-op and backs off', async () => {
+    const tinyCompactor: Compactor & { calls: number } = {
+      calls: 0,
+      async compact() {
+        this.calls++;
+        return { before: 459_607, after: 459_253, reductions: [] };
+      },
+    };
+    const mw = new AutoCompactionMiddleware(
+      tinyCompactor,
+      1_000_000,
+      simpleEstimator(600_000),
+      { warn: 0.5, soft: 0.75, hard: 0.9 },
+      { failureMode: 'continue' },
+    );
+
+    await mw.handler()(mockContext(0), async (c) => c);
+    await mw.handler()(mockContext(0), async (c) => c);
+
+    expect(tinyCompactor.calls).toBe(1);
   });
 
   it('retries compaction after a no-op when context grows materially', async () => {
@@ -586,12 +714,11 @@ describe('AutoCompactionMiddleware', () => {
       return 3000; // 30% load — below all thresholds
     };
 
-    const mw = new AutoCompactionMiddleware(
-      compactor,
-      10000,
-      countingEstimator,
-      { warn: 0.5, soft: 0.75, hard: 0.9 },
-    );
+    const mw = new AutoCompactionMiddleware(compactor, 10000, countingEstimator, {
+      warn: 0.5,
+      soft: 0.75,
+      hard: 0.9,
+    });
 
     const ctx = mockContext(0);
 
@@ -613,12 +740,11 @@ describe('AutoCompactionMiddleware', () => {
       return 3000;
     };
 
-    const mw = new AutoCompactionMiddleware(
-      compactor,
-      10000,
-      countingEstimator,
-      { warn: 0.5, soft: 0.75, hard: 0.9 },
-    );
+    const mw = new AutoCompactionMiddleware(compactor, 10000, countingEstimator, {
+      warn: 0.5,
+      soft: 0.75,
+      hard: 0.9,
+    });
 
     // First call
     const ctx1 = mockContext(0);

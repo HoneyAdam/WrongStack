@@ -21,8 +21,13 @@ export {
 } from './middleware/memory-injector-agent.js';
 export {
   InjectionTracker,
+  type ContextMemorySnapshot,
   type InjectionTrackerOptions,
 } from './middleware/injection-tracker.js';
+export {
+  createSuperMemoryContextMonitorMiddleware,
+  type SuperMemoryContextMonitorOptions,
+} from './middleware/context-monitor.js';
 export {
   createSuperMemoryTurnMiddleware,
   normalizeTextKey,
@@ -36,12 +41,20 @@ export {
   type FormattedMemoryHints,
   type FormatMemoryHintsOptions,
 } from './retrieval/format.js';
+export {
+  memoryQueryRelevance,
+  memoryStructuralRelevance,
+  type MemoryQueryRelevance,
+} from './retrieval/relevance.js';
 export { SuperMemoryGraph } from './graph/graph.js';
 export { verifyMemoryAnchors } from './anchors/verify.js';
-export { HashingEmbeddingProvider, type HashingEmbeddingProviderOptions } from './embeddings/hashing.js';
+export {
+  HashingEmbeddingProvider,
+  type HashingEmbeddingProviderOptions,
+} from './embeddings/hashing.js';
 export {
   createSuperMemoryTools,
   type SuperMemoryServiceLike,
 } from './tools/memory-tools.js';
-export { type UpdateSuperMemoryInput } from './types.js';
+export type { UpdateSuperMemoryInput } from './types.js';
 export * from './types.js';

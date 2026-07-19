@@ -397,6 +397,8 @@ export interface StatusBarProps {
   subagentCount?: number | undefined;
   /** Renders the "ctx ████░░ 42%" chip on line 1 when present. */
   context?: ContextWindow | undefined;
+  /** All Super Memory records plus the exact count present in the latest provider request. */
+  superMemory?: { total: number; activeInContext: number } | undefined;
   /**
    * Context compaction strategy. When provided alongside `context`, renders
    * the strategy label (e.g. "hybrid", "intelligent", "selective") next to
@@ -559,6 +561,7 @@ export function StatusBar({
   processCount,
   processMemory,
   context,
+  superMemory,
   contextStrategy,
   hiddenItems,
   mode = 'detailed',
@@ -782,6 +785,15 @@ export function StatusBar({
         ) : null}
       </Text>
     ) : null;
+  const superMemoryStatusChip =
+    superMemory && showChip('super_memory') ? (
+      <Text color={chipColor(theme.accent, isNoColor)}>
+        {isNoColor ? 'mem ' : `${glyphs.brain} mem `}
+        {superMemory.total} total
+        <Text dimColor={!isNoColor}> · </Text>
+        <Text color={chipColor(theme.success, isNoColor)}>{superMemory.activeInContext} ctx</Text>
+      </Text>
+    ) : null;
 
   const primaryChips: React.ReactElement[] = [
     // Combined context bar: meter · tokens · cost
@@ -840,6 +852,7 @@ export function StatusBar({
           );
         })()
       : null,
+    superMemoryStatusChip,
     cache && cache.hitRatio > 0 && isComfortable && showChip('cache') ? (
       <Text dimColor={!isNoColor}>cache {(cache.hitRatio * 100).toFixed(0)}%</Text>
     ) : null,
@@ -961,6 +974,7 @@ export function StatusBar({
           );
         })()
       : null,
+    superMemoryStatusChip,
     // Autonomy mode (if active)
     autonomy && autonomy !== 'off' && showChip('autonomy') ? (
       <Text

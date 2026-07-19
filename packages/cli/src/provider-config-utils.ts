@@ -156,7 +156,7 @@ export async function loadConfigProviders(
     raw = await fs.readFile(targetPath, 'utf8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-      warn?.(`Could not read ${configPath}: ${(err as Error).message}. Treating as empty.`);
+      warn?.(`Could not read ${targetPath}: ${(err as Error).message}. Treating as empty.`);
     }
     return {};
   }
@@ -164,7 +164,7 @@ export async function loadConfigProviders(
   try {
     parsed = JSON.parse(raw) as Record<string, unknown>;
   } catch (err) {
-    warn?.(`Config at ${configPath} is not valid JSON: ${(err as Error).message}`);
+    warn?.(`Config at ${targetPath} is not valid JSON: ${(err as Error).message}`);
     return {};
   }
   const decrypted = decryptConfigSecrets(parsed, vault);

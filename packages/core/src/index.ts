@@ -383,6 +383,7 @@ export {
   type CompactorStrategy,
   createStrategyCompactor,
   HybridCompactor,
+  installSubagentAutoCompaction,
   IntelligentCompactor,
   type IntelligentCompactorOptions,
   SelectiveCompactor,

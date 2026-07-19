@@ -78,6 +78,10 @@ export interface CreateInitialStateOptions {
   sessionId?: string | undefined;
   /** Active fallback profile name to display in the banner (e.g. "default"). */
   profile?: string | undefined;
+  /** Absolute path to the active profile's config.json, shown in the banner
+   *  with the profile name highlighted. Optional — falls back to the bare
+   *  {@link profile} string when not provided. */
+  profileConfigPath?: string | undefined;
   /** Background autonomy agents to display in the banner. */
   autonomyAgents?: ReadonlyArray<AutonomyAgentStatus> | undefined;
   restoredEntries: State['entries'];
@@ -100,6 +104,7 @@ export function createInitialState(options: CreateInitialStateOptions): State {
     keyTail,
     sessionId,
     profile,
+    profileConfigPath,
     autonomyAgents,
     restoredEntries,
     restoredCheckpoints,
@@ -127,6 +132,7 @@ export function createInitialState(options: CreateInitialStateOptions): State {
               keyTail,
               sessionId,
               profile,
+              profileConfigPath,
               autonomyAgents,
             },
           ]

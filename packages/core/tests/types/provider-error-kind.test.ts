@@ -3,6 +3,7 @@ import {
   ProviderError,
   StreamHangError,
   classifyProviderError,
+  isContextOverflowShaped,
   isRetryableKind,
 } from '../../src/types/provider.js';
 import { ERROR_CODES } from '../../src/types/errors.js';
@@ -29,6 +30,21 @@ describe('classifyProviderError', () => {
     expect(classifyProviderError(400, { type: 'overloaded_error' })).toBe('overloaded');
     expect(classifyProviderError(400, { type: 'authentication_error' })).toBe('auth');
     expect(classifyProviderError(400, { type: 'permission_error' })).toBe('auth');
+  });
+
+  it('detects more overflow phrasings on 4xx', () => {
+    expect(classifyProviderError(400, undefined, 'too many tokens in the request')).toBe(
+      'context_overflow',
+    );
+    expect(classifyProviderError(400, undefined, 'please reduce the length of your messages')).toBe(
+      'context_overflow',
+    );
+    expect(classifyProviderError(400, undefined, 'your input is too large')).toBe(
+      'context_overflow',
+    );
+    expect(
+      classifyProviderError(400, undefined, 'your messages resulted in 130000 tokens'),
+    ).toBe('context_overflow');
   });
 
   it('detects context overflow from message shapes on 4xx', () => {
@@ -123,5 +139,40 @@ describe('ProviderError.describe — new kind labels', () => {
       body: { type: 'content_filter', message: 'The response was filtered' },
     });
     expect(err.describe()).toBe('azure content filtered (400): The response was filtered');
+  });
+});
+
+describe('isContextOverflowShaped', () => {
+  it('is true for a cleanly-classified context_overflow', () => {
+    const err = new ProviderError('prompt is too long', 413, false, 'anthropic');
+    expect(err.kind).toBe('context_overflow');
+    expect(isContextOverflowShaped(err)).toBe(true);
+  });
+
+  it('is true for an overflow mislabeled as invalid_request by a gateway', () => {
+    // A gateway forces kind=invalid_request but the message is clearly an overflow.
+    const err = new ProviderError(
+      'This request exceeds the context window: 200000 tokens',
+      400,
+      false,
+      'gateway',
+      { kind: 'invalid_request' },
+    );
+    expect(err.kind).toBe('invalid_request'); // mislabeled
+    expect(isContextOverflowShaped(err)).toBe(true); // but shape is detected
+  });
+
+  it('is true for a bare 413 regardless of message', () => {
+    const err = new ProviderError('Request Entity Too Large', 413, false, 'proxy', {
+      kind: 'invalid_request',
+    });
+    expect(isContextOverflowShaped(err)).toBe(true);
+  });
+
+  it('is false for a genuine invalid_request and for non-ProviderErrors', () => {
+    const err = new ProviderError('messages.0.role is invalid', 400, false, 'anthropic');
+    expect(isContextOverflowShaped(err)).toBe(false);
+    expect(isContextOverflowShaped(new Error('boom'))).toBe(false);
+    expect(isContextOverflowShaped(undefined)).toBe(false);
   });
 });

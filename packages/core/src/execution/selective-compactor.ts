@@ -8,8 +8,14 @@ import type { MessageSelector, SelectorResult } from '../types/selector.js';
 import { estimateRequestTokens } from '../utils/token-estimate.js';
 import { repairToolUseAdjacency } from '../utils/message-invariants.js';
 import { readBundledInstructionText } from '../utils/instruction-file.js';
+import { buildCompactionPreview } from '../utils/compaction-preview.js';
 import {
-  buildCompactionPreview,
+  buildContextEvidenceDigest,
+  checkCompactionQuality,
+  injectEvidenceFloor,
+} from '../utils/context-evidence.js';
+import {
+  dedupStaleReads,
   eliseOldToolResults as coreEliseOldToolResults,
   estimateMessages,
   findPreserveStart,
@@ -107,22 +113,17 @@ export class SelectiveCompactor implements Compactor {
       // Only do lightweight elision if below warn threshold
       const saved = this.eliseOldToolResults(ctx);
       if (saved > 0) reductions.push({ phase: 'elision', saved });
+      const dedupSaved = this.dedupStaleReads(ctx);
+      if (dedupSaved > 0) reductions.push({ phase: 'elision', saved: dedupSaved });
       const repair = this.repairProtocolAdjacency(ctx);
-      const afterTokens = this.estimateTokens(ctx.messages);
-      const afterFull = this.estimateFullRequest(ctx);
-      return {
-        before: beforeTokens,
-        after: afterTokens,
-        fullRequestTokensBefore: beforeFull,
-        fullRequestTokensAfter: afterFull,
-        reductions,
-        repaired: repair,
-      };
+      return this.finalize(ctx, beforeTokens, beforeFull, reductions, repair);
     }
 
     // Phase 1: elision — always run first to get a baseline reduction
     const savedElision = this.eliseOldToolResults(ctx);
     if (savedElision > 0) reductions.push({ phase: 'elision', saved: savedElision });
+    const dedupSaved = this.dedupStaleReads(ctx);
+    if (dedupSaved > 0) reductions.push({ phase: 'elision', saved: dedupSaved });
 
     // Phase 2: LLM-driven selective compaction
     const afterPhase1 = this.estimateTokens(ctx.messages);
@@ -134,15 +135,42 @@ export class SelectiveCompactor implements Compactor {
     }
 
     const repair = this.repairProtocolAdjacency(ctx);
-    const afterTokens = this.estimateTokens(ctx.messages);
-    const afterFull = this.estimateFullRequest(ctx);
+    return this.finalize(ctx, beforeTokens, beforeFull, reductions, repair);
+  }
+
+  /**
+   * Compute after-tokens, run the shared quality check, inject the evidence
+   * floor when compaction dropped the intent/path anchor, and assemble the
+   * report — shared by both exit paths so every SelectiveCompactor run reports
+   * quality and carries a `[context_state]` evidence digest like the others.
+   */
+  private finalize(
+    ctx: Context,
+    beforeTokens: number,
+    beforeFull: number,
+    reductions: CompactReport['reductions'],
+    repaired: CompactReport['repaired'],
+  ): CompactReport {
+    const evidenceDigest = buildContextEvidenceDigest(ctx) || undefined;
+    let afterTokens = this.estimateTokens(ctx.messages);
+    let afterFull = this.estimateFullRequest(ctx);
+    const quality = checkCompactionQuality(ctx, {
+      evidenceDigest,
+      reduced: beforeTokens > afterTokens || beforeFull > afterFull,
+    });
+    if (injectEvidenceFloor(ctx, quality)) {
+      afterTokens = this.estimateTokens(ctx.messages);
+      afterFull = this.estimateFullRequest(ctx);
+    }
     return {
       before: beforeTokens,
       after: afterTokens,
       fullRequestTokensBefore: beforeFull,
       fullRequestTokensAfter: afterFull,
       reductions,
-      repaired: repair,
+      repaired,
+      evidenceDigest,
+      quality,
     };
   }
 
@@ -334,6 +362,15 @@ export class SelectiveCompactor implements Compactor {
     const result = coreEliseOldToolResults(ctx.messages, {
       preserveK: this.preserveK,
       eliseThreshold: this.eliseThreshold,
+    });
+    if (result.changed) ctx.state.replaceMessages(result.messages);
+    return result.saved;
+  }
+
+  /** Collapse superseded repeated reads that slipped under the elise threshold. */
+  private dedupStaleReads(ctx: Context): number {
+    const result = dedupStaleReads(ctx.messages, ctx.contextEvidence?.repeatedReads ?? [], {
+      preserveK: this.preserveK,
     });
     if (result.changed) ctx.state.replaceMessages(result.messages);
     return result.saved;

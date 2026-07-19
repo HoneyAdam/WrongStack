@@ -119,6 +119,7 @@ export interface HqRouterDeps {
   trustedPublicOrigins: Set<string>;
   mutableAuth: HqRouterMutableAuth;
   sessions: Map<string, { createdAt: number }>;
+  loginAttempts: Map<string, { count: number; blockedUntil: number; lastAttempt: number }>;
   clients: Map<WebSocket, ConnectedClient>;
   browsers: Set<WebSocket>;
   eventLog: HqEventEnvelope[];
@@ -158,6 +159,7 @@ export function createHqRouter(deps: HqRouterDeps): (req: http.IncomingMessage, 
     trustedPublicOrigins,
     mutableAuth,
     sessions,
+    loginAttempts,
     clients,
     browsers,
     transcripts,
@@ -375,11 +377,6 @@ export function createHqRouter(deps: HqRouterDeps): (req: http.IncomingMessage, 
 }
 
 // ── Login rate-limit state (scoped to routes, mutable) ────────────────────
-
-const loginAttempts = new Map<
-  string,
-  { count: number; blockedUntil: number; lastAttempt: number }
->();
 
 // ── Individual route handlers ──────────────────────────────────────────────
 
@@ -899,12 +896,30 @@ async function handleApiCommand(
 async function handleApiMailboxSend(
   _req: http.IncomingMessage,
   res: http.ServerResponse,
-  _mutableAuth: HqRouterMutableAuth,
-  _sessions: Map<string, { createdAt: number }>,
+  mutableAuth: HqRouterMutableAuth,
+  sessions: Map<string, { createdAt: number }>,
   dataDir: string,
   getMailboxGateway: (projectDir: string) => HqRouterMailboxGateway,
   hqSessionTag: string,
 ): Promise<void> {
+  const auth = authenticateBrowserRequest(
+    _req,
+    new URL(_req.url ?? '/', 'http://localhost'),
+    mutableAuth,
+    sessions,
+  );
+  const token = isTokenAuth(auth) ? mutableAuth.browserTokenObjs.get(auth.token) : undefined;
+  const canEnqueue =
+    auth === 'cookie' ||
+    mutableAuth.browserTokens.size === 0 ||
+    token?.capabilities === undefined ||
+    token.capabilities.includes('control.enqueue');
+  if (!canEnqueue) {
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'forbidden: token lacks control.enqueue capability' }));
+    return;
+  }
+
   let mbody: {
     sessionId?: string;
     projectId?: string;

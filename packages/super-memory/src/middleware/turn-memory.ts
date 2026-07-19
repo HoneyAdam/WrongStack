@@ -1,6 +1,7 @@
 import type { Middleware } from '@wrongstack/core/kernel';
 import type { Message, Request } from '@wrongstack/core';
 import { formatMemoryHintsDetailed } from '../retrieval/format.js';
+import { memoryQueryRelevance } from '../retrieval/relevance.js';
 import { tokenize } from '../store-helpers.js';
 import { InjectionTracker } from './injection-tracker.js';
 import type { SuperMemorySearchLike } from './tool-call-memory.js';
@@ -29,6 +30,7 @@ export interface SuperMemoryTurnMiddlewareOptions {
    * Defaults to a private tracker (turn-context injections only).
    */
   tracker?: InjectionTracker | undefined;
+  getSessionId?: (() => string | undefined) | undefined;
 }
 
 export function createSuperMemoryTurnMiddleware(
@@ -58,7 +60,7 @@ export function createSuperMemoryTurnMiddleware(
           const minScore = opts.minScore ?? 0.65;
           const metadataWeight = opts.metadataWeight ?? 0.3;
           const existingSystem = (request.system ?? [])
-            .map((block) => block.type === 'text' ? normalizeTextKey(block.text) : '')
+            .map((block) => (block.type === 'text' ? normalizeTextKey(block.text) : ''))
             .join('\n');
           const seenText = new Set<string>();
           const eligible = memories.filter((memory) => {
@@ -68,19 +70,30 @@ export function createSuperMemoryTurnMiddleware(
             if (memory.status !== 'active' || memory.contextPolicy === 'never') return false;
             const textKey = normalizeTextKey(memory.text);
             if (seenText.has(textKey) || existingSystem.includes(textKey)) return false;
-            const metadataScore = (memory.importance * 3 + memory.confidence * 2 + memory.freshness) / 6;
-            const relevance = overlapCoefficient(query.toLowerCase(), textKey);
+            const metadataScore =
+              (memory.importance * 3 + memory.confidence * 2 + memory.freshness) / 6;
+            const relevance = memoryQueryRelevance(memory, query).strength;
             const score = metadataScore * (metadataWeight + relevance * (1 - metadataWeight));
-            const accepted = score >= minScore || memory.importance >= 0.95;
+            const accepted = relevance >= 0.62 && score >= minScore;
             if (accepted) seenText.add(textKey);
             return accepted;
           });
-          const rendered = formatMemoryHintsDetailed(eligible, { maxChars: opts.maxChars ?? 2_400 });
+          const rendered = formatMemoryHintsDetailed(eligible, {
+            maxChars: opts.maxChars ?? 2_400,
+          });
           if (rendered.text) {
             await opts.memory.recordInjection?.(rendered.memoryIds, 'turn_context');
             const renderedIds = new Set(rendered.memoryIds);
             for (const memory of eligible) {
-              if (renderedIds.has(memory.id)) tracker.record(memory.id, memory.text);
+              if (renderedIds.has(memory.id)) {
+                tracker.record(
+                  memory.id,
+                  memory.text,
+                  Date.now(),
+                  opts.getSessionId?.(),
+                  rendered.text,
+                );
+              }
             }
             nextRequest = {
               ...request,

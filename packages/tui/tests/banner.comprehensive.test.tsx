@@ -144,6 +144,61 @@ describe('<Banner /> — additional coverage', () => {
     // Compact label (6 chars for compact mode) for cwd
     expect(frame).toContain('cwd');
   });
+
+  it('renders the full profile config path when profileConfigPath is provided', () => {
+    const { lastFrame, unmount } = render(
+      React.createElement(Banner, {
+        termWidth: 100,
+        entry: {
+          id: 0, kind: 'banner', version: '1.0.0',
+          provider: 'openai', model: 'gpt-4',
+          cwd: '/home/user/project',
+          profile: 'default',
+          profileConfigPath: '~/.wrongstack/profiles/default/config.json',
+        } as const,
+      }),
+    );
+    const frame = lastFrame() ?? '';
+    unmount();
+    // The full path is rendered (not just the bare "default" name).
+    expect(frame).toContain('~/.wrongstack/profiles/default/config.json');
+    // The profile label is still present.
+    expect(frame).toContain('profile');
+  });
+
+  it('falls back to the bare profile name when profileConfigPath is absent', () => {
+    const { lastFrame, unmount } = render(
+      React.createElement(Banner, {
+        termWidth: 80,
+        entry: {
+          id: 0, kind: 'banner', version: '1.0.0',
+          provider: 'openai', model: 'gpt-4',
+          cwd: '/home/user/project',
+          profile: 'work-profile',
+        } as const,
+      }),
+    );
+    const frame = lastFrame() ?? '';
+    unmount();
+    expect(frame).toContain('work-profile');
+    expect(frame).not.toContain('config.json');
+  });
+
+  it('omits the profile row entirely when neither field is set', () => {
+    const { lastFrame, unmount } = render(
+      React.createElement(Banner, {
+        termWidth: 80,
+        entry: {
+          id: 0, kind: 'banner', version: '1.0.0',
+          provider: 'openai', model: 'gpt-4',
+          cwd: '/home/user/project',
+        } as const,
+      }),
+    );
+    const frame = lastFrame() ?? '';
+    unmount();
+    expect(frame).not.toContain('profile');
+  });
 });
 
 import { bannerGradientColor } from '../src/components/history/banner.js';

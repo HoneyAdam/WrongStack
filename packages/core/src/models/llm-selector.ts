@@ -5,7 +5,7 @@ import type { Message } from '../types/messages.js';
 import type { Provider, Request } from '../types/provider.js';
 import type { MessageSelector, SelectorResult } from '../types/selector.js';
 import type { OneShotOrchestrator } from '../execution/one-shot-llm.js';
-import { buildCompactionPreview } from '../execution/compaction-core.js';
+import { buildCompactionPreview } from '../utils/compaction-preview.js';
 import { readBundledInstructionText } from '../utils/instruction-file.js';
 export interface LLMSelectorOptions {
   /** Provider used for the selector LLM call. Required. */

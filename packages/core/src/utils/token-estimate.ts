@@ -175,6 +175,31 @@ export function estimateMessageTokens(messages: readonly Message[]): number {
 }
 
 /**
+ * Real-usage-anchored input-token count. Given the provider's authoritative
+ * prompt-token count from the last response (`anchorTokens`, a REAL number) and
+ * the `messages.length` of the request that produced it (`anchorMsgCount`),
+ * returns `anchorTokens + estimate(messages appended since)` — so everything up
+ * to the last turn is exact and only the newest, not-yet-sent messages are
+ * estimated. This is deliberately NOT calibrated: the base is already real, and
+ * on the next response the whole thing re-anchors to the new real count.
+ *
+ * Returns `null` when there is no usable anchor (no response yet, or the
+ * message array shrank below the anchor — e.g. after compaction — in which case
+ * the caller falls back to a full estimate until the next response re-anchors).
+ */
+export function realAnchoredInputTokens(
+  messages: readonly Message[],
+  anchorTokens: number | undefined,
+  anchorMsgCount: number | undefined,
+): number | null {
+  if (typeof anchorTokens !== 'number' || anchorTokens <= 0) return null;
+  if (typeof anchorMsgCount !== 'number' || anchorMsgCount < 0) return null;
+  if (messages.length < anchorMsgCount) return null;
+  const delta = anchorMsgCount === messages.length ? 0 : estimateMessageTokens(messages.slice(anchorMsgCount));
+  return anchorTokens + delta;
+}
+
+/**
  * Rough estimate of tokens in a tool definition (name + description + schema).
  * Accounts for the JSON-serialized inputSchema which is sent to the API
  * but NOT included in roughEstimate(content).
@@ -386,6 +411,96 @@ export function estimateRequestTokensCalibrated(
   }
 
   return result;
+}
+
+/** Per-block sample cap for the density scan — bounds work on giant blocks. */
+const DENSITY_SAMPLE_PER_BLOCK = 4_096;
+/** Hard cap on total sampled chars so the density scan stays cheap. */
+const DENSITY_SAMPLE_TOTAL_CAP = 2_000_000;
+
+/**
+ * Estimate a **token-density multiplier** for content that the flat 3.5
+ * chars/token basis under-counts. The basis is tuned for ASCII English
+ * (~4 chars/token); CJK, and other high-codepoint scripts tokenize at ~1.5-2
+ * chars/token, so a message that is mostly CJK carries up to ~2.3× the tokens
+ * the flat basis predicts. Long unbroken ASCII runs (base64, minified blobs)
+ * pack slightly denser too. This scans a bounded sample and returns a
+ * multiplier in [1, 2.5] — always ≥ 1, so it can only push the estimate UP,
+ * never down. Used only by the send-time overflow guard, never for display.
+ */
+function textDensityMultiplier(messages: readonly Message[]): number {
+  let sampled = 0;
+  let nonAscii = 0;
+  let maxRun = 0;
+  const consider = (s: string): void => {
+    const n = Math.min(s.length, DENSITY_SAMPLE_PER_BLOCK);
+    let run = 0;
+    for (let i = 0; i < n; i++) {
+      const c = s.charCodeAt(i);
+      if (c > 127) nonAscii++;
+      if (c === 32 || c === 9 || c === 10 || c === 13) {
+        if (run > maxRun) maxRun = run;
+        run = 0;
+      } else {
+        run++;
+      }
+    }
+    if (run > maxRun) maxRun = run;
+    sampled += n;
+  };
+
+  for (const m of messages) {
+    if (typeof m.content === 'string') {
+      consider(m.content);
+    } else if (Array.isArray(m.content)) {
+      for (const b of m.content) {
+        if (b.type === 'text') consider(b.text);
+        else if (b.type === 'tool_result' && typeof b.content === 'string') consider(b.content);
+        else if (b.type === 'thinking') consider(b.thinking);
+      }
+    }
+    if (sampled >= DENSITY_SAMPLE_TOTAL_CAP) break;
+  }
+
+  if (sampled === 0) return 1;
+  const nonAsciiRatio = nonAscii / sampled;
+  // 3.5 chars/token at 0% non-ASCII → 1.5 at 100% (heavy CJK).
+  let charsPerToken = 3.5 - 2.0 * nonAsciiRatio;
+  // A very long unbroken ASCII run (base64/minified) packs a little denser.
+  if (maxRun > 2_000 && nonAsciiRatio < 0.1) charsPerToken = Math.min(charsPerToken, 3.0);
+  const multiplier = 3.5 / Math.max(1.4, charsPerToken);
+  return Math.min(2.5, Math.max(1, multiplier));
+}
+
+/**
+ * Never-undercount upper bound for the request token total, for the **send
+ * guard** only. Takes the flat estimate and scales it up by the greater of the
+ * content-density multiplier and the calibration ceiling, so the guarded value
+ * satisfies `real ≤ upperBound`. The context bar and `/context` keep using the
+ * calibrated estimate — this deliberately over-counts, which is only ever safe
+ * for the "must this be trimmed before sending?" decision.
+ */
+export function estimateRequestTokensUpperBound(
+  messages: unknown,
+  systemPrompt: unknown,
+  tools: { name: string; description?: string | undefined; inputSchema: unknown }[],
+  calibrationKey: string = CALIBRATION_GLOBAL_KEY,
+): RequestTokenBreakdown {
+  const base = estimateRequestTokens(messages, systemPrompt, tools, calibrationKey);
+  const density = Array.isArray(messages)
+    ? textDensityMultiplier(messages as readonly Message[])
+    : 1;
+  const cal = calState(calibrationKey);
+  const calCeiling =
+    cal.count >= MIN_SAMPLES_FOR_CALIBRATION ? Math.min(1.5, Math.max(1, cal.ratio)) : 1;
+  const mult = Math.max(density, calCeiling);
+  if (mult <= 1) return base;
+  return {
+    messages: Math.ceil(base.messages * mult),
+    systemPrompt: Math.ceil(base.systemPrompt * mult),
+    tools: Math.ceil(base.tools * mult),
+    total: Math.ceil(base.total * mult),
+  };
 }
 
 /** Look up the fallback chars/token ratio for a calibration key (e.g. "provider/model"). */

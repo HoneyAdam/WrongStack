@@ -94,7 +94,14 @@ export class ProviderCacheLedger {
     return out.sort((x, y) => y.cacheRead - x.cacheRead);
   }
 
-  /** Unsubscribe from the event bus. */
+  /**
+   * Unsubscribe from the event bus and release the per-session listener.
+   *
+   * **The caller MUST invoke `dispose()` on session teardown** — see the
+   * constructor's lifecycle warning. Failure to call this method leaves a
+   * permanent `token.accounted` listener on the shared EventBus that
+   * accumulates unboundedly across session restarts/resumes.
+   */
   dispose(): void {
     this.off();
   }

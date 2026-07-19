@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeTokenSavingTier, type TokenSavingTier } from '../../src/types/config.js';
+import {
+  normalizeTokenSavingTier,
+  resolveTokenSavingTier,
+  type TokenSavingTier,
+} from '../../src/types/config.js';
 
 describe('normalizeTokenSavingTier', () => {
   describe('boolean input (backward compatibility)', () => {
@@ -61,5 +65,39 @@ describe('normalizeTokenSavingTier', () => {
       expect(normalizeTokenSavingTier(false)).toBe('off');
       expect(normalizeTokenSavingTier(undefined)).toBe('off');
     });
+  });
+
+  describe("'auto' collapses to 'off' for non-prompt consumers", () => {
+    it("normalizeTokenSavingTier('auto') → 'off' (tools full, no lazy load)", () => {
+      // Every consumer except the prompt builder must treat 'auto' as the safe
+      // no-op 'off' so it never reduces the tool set or enables lazy loading.
+      expect(normalizeTokenSavingTier('auto')).toBe('off');
+    });
+  });
+});
+
+describe('resolveTokenSavingTier (window-based auto-tier for the prompt)', () => {
+  it("expands 'auto' from the context window (conservative thresholds)", () => {
+    expect(resolveTokenSavingTier('auto', 8_000)).toBe('medium'); // <32k
+    expect(resolveTokenSavingTier('auto', 31_999)).toBe('medium');
+    expect(resolveTokenSavingTier('auto', 32_000)).toBe('light'); // <96k
+    expect(resolveTokenSavingTier('auto', 64_000)).toBe('light');
+    expect(resolveTokenSavingTier('auto', 96_000)).toBe('off'); // ≥96k → full
+    expect(resolveTokenSavingTier('auto', 200_000)).toBe('off');
+    expect(resolveTokenSavingTier('auto', 1_000_000)).toBe('off');
+  });
+
+  it("'auto' with an unknown/zero window → 'off' (never guess a lean prompt)", () => {
+    expect(resolveTokenSavingTier('auto', undefined)).toBe('off');
+    expect(resolveTokenSavingTier('auto', 0)).toBe('off');
+    expect(resolveTokenSavingTier('auto', Number.NaN)).toBe('off');
+  });
+
+  it('respects explicit concrete tiers verbatim, regardless of window', () => {
+    expect(resolveTokenSavingTier('off', 8_000)).toBe('off');
+    expect(resolveTokenSavingTier('medium', 1_000_000)).toBe('medium');
+    expect(resolveTokenSavingTier('aggressive', 200_000)).toBe('aggressive');
+    expect(resolveTokenSavingTier(true, 8_000)).toBe('medium'); // boolean back-compat
+    expect(resolveTokenSavingTier(undefined, 8_000)).toBe('off');
   });
 });

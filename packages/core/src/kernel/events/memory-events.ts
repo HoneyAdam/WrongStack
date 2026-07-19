@@ -137,6 +137,16 @@ export interface MemoryEventMap {
     sessionId?: string | undefined;
     traceId?: string | undefined;
   };
+  /** Exact Super Memory presence in the provider-bound request context. */
+  'memory.context_snapshot': {
+    at: string;
+    activeMemoryIds: string[];
+    enteredMemoryIds: string[];
+    exitedMemoryIds: string[];
+    reason: 'provider_request';
+    sessionId?: string | undefined;
+    traceId?: string | undefined;
+  };
   /**
    * One bounded, UI-facing decision trace for each on-demand Memory Injector
    * run. This is deliberately richer than `memory.injected`: it is also

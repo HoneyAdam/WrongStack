@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  STATUSLINE_ITEMS,
-  STATUSLINE_FIELD_COUNT,
   ITEM_LINE,
+  STATUSLINE_FIELD_COUNT,
+  STATUSLINE_ITEMS,
   type StatuslineItem,
 } from '../src/components/statusline-picker.js';
 
@@ -13,9 +13,9 @@ import {
  * by index, so the array order must match the visual top-to-bottom order.
  */
 describe('STATUSLINE_ITEMS navigation order matches visual layout', () => {
-  it('has exactly 37 fields', () => {
-    expect(STATUSLINE_ITEMS.length).toBe(37);
-    expect(STATUSLINE_FIELD_COUNT).toBe(37);
+  it('has exactly 38 fields', () => {
+    expect(STATUSLINE_ITEMS.length).toBe(38);
+    expect(STATUSLINE_FIELD_COUNT).toBe(38);
   });
 
   it('follows line 1 → line 2 → line 3 order with no line 4 items', () => {
@@ -89,13 +89,43 @@ describe('STATUSLINE_ITEMS navigation order matches visual layout', () => {
 
   it('includes every statusline item exactly once', () => {
     const expected = [
-      'auto_proceed', 'autonomy', 'brain', 'breaker', 'cache',
-      'context', 'cost', 'debug_stream', 'elapsed', 'enhance',
-      'eternal_stage', 'fleet', 'fleet_agents', 'git', 'goal',
-      'hint', 'index', 'mailbox', 'memory', 'mode', 'model',
-      'next_steps', 'plan', 'processes', 'project', 'queue',
-      'sessions', 'state', 'tasks', 'time', 'token_saving',
-      'tokens', 'todos', 'tools', 'version', 'working_dir',
+      'auto_proceed',
+      'autonomy',
+      'brain',
+      'breaker',
+      'cache',
+      'context',
+      'cost',
+      'debug_stream',
+      'elapsed',
+      'enhance',
+      'eternal_stage',
+      'fleet',
+      'fleet_agents',
+      'git',
+      'goal',
+      'hint',
+      'index',
+      'mailbox',
+      'memory',
+      'mode',
+      'model',
+      'next_steps',
+      'plan',
+      'processes',
+      'project',
+      'queue',
+      'sessions',
+      'state',
+      'tasks',
+      'time',
+      'token_saving',
+      'tokens',
+      'todos',
+      'tools',
+      'super_memory',
+      'version',
+      'working_dir',
       'yolo',
     ].sort();
     const actual = [...STATUSLINE_ITEMS].sort();

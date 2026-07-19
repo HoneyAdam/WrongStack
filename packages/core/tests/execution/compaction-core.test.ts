@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildLosslessDigest,
   buildSmartDigest,
+  dedupStaleReads,
   eliseOldToolResults,
+  enforceHardBudget,
   extractText,
   findExchangeStart,
   findPreserveStart,
@@ -11,6 +13,7 @@ import {
   hasToolUse,
   scoreMessage,
 } from '../../src/execution/compaction-core.js';
+import { estimateMessageTokens } from '../../src/utils/token-estimate.js';
 import type { Message } from '../../src/types/index.js';
 
 afterEach(() => vi.restoreAllMocks());
@@ -69,6 +72,19 @@ describe('scoreMessage', () => {
     expect(scoreMessage(text('assistant', 'a TypeError was thrown'))).toBe(5);
     expect(scoreMessage(text('assistant', 'found a SQL injection vulnerability'))).toBe(5);
     expect(scoreMessage(text('assistant', 'I will refactor the approach here'))).toBe(5);
+  });
+
+  it('marks Turkish corrections / errors / decisions as critical (5)', () => {
+    // Corrections / stop signals (user role).
+    expect(scoreMessage(text('user', 'hayır bu yanlış olmuş'))).toBe(5);
+    expect(scoreMessage(text('user', 'dur, geri al bunu'))).toBe(5);
+    expect(scoreMessage(text('user', 'yanlis, vazgec'))).toBe(5); // ascii-folded
+    // Error language (any role).
+    expect(scoreMessage(text('assistant', 'testler başarısız oldu'))).toBe(5);
+    expect(scoreMessage(text('user', 'burada bir hata var'))).toBe(5);
+    // Architecture / decision (assistant role).
+    expect(scoreMessage(text('assistant', 'mimari kararı şöyle veriyorum'))).toBe(5);
+    expect(scoreMessage(text('assistant', 'bu tasarim yaklasimini secelim'))).toBe(5);
   });
 
   it('marks large tool results and grep/list output as low (1)', () => {
@@ -344,5 +360,108 @@ describe('findSafeBoundary / findExchangeStart', () => {
     expect(findExchangeStart(messages, 1)).toBe(0); // prior user at index 0
     // only tool-use assistants before the user index → walk falls through to 0
     expect(findExchangeStart([toolUse('assistant'), toolUse('assistant')], 1)).toBe(0);
+  });
+});
+
+// ── enforceHardBudget: the no-overflow guarantee ───────────────────────────
+
+describe('enforceHardBudget', () => {
+  const bigText = (role: Message['role'], n: number): Message =>
+    ({ role, content: [{ type: 'text', text: 'x'.repeat(n) }] }) as Message;
+
+  it('is a no-op when already within budget', () => {
+    const msgs = [text('user', 'hello'), text('assistant', 'hi')];
+    const before = estimateMessageTokens(msgs);
+    const res = enforceHardBudget(msgs, before + 1000, { preserveK: 5 });
+    expect(res.changed).toBe(false);
+    expect(res.messages).toBe(msgs); // same reference
+    expect(res.withinBudget).toBe(true);
+  });
+
+  it('trims a single oversized message to fit the budget', () => {
+    // One giant message far larger than the budget — no elision target,
+    // preserveK protects it, yet the request MUST end up under budget.
+    const msgs = [bigText('user', 200_000)];
+    const budget = 2_000;
+    const res = enforceHardBudget(msgs, budget, { preserveK: 5 });
+    expect(res.changed).toBe(true);
+    expect(estimateMessageTokens(res.messages)).toBeLessThanOrEqual(budget);
+    expect(res.withinBudget).toBe(true);
+  });
+
+  it('elides old tool results before truncating text', () => {
+    const msgs: Message[] = [
+      toolUse('assistant'),
+      toolResult('R'.repeat(40_000)),
+      text('user', 'recent turn 1'),
+      text('assistant', 'recent turn 2'),
+      text('user', 'recent turn 3'),
+    ];
+    const budget = 1_500;
+    const res = enforceHardBudget(msgs, budget, { preserveK: 2 });
+    expect(res.changed).toBe(true);
+    expect(estimateMessageTokens(res.messages)).toBeLessThanOrEqual(budget);
+    // The big tool_result payload is gone (elided marker or dropped).
+    const serialized = JSON.stringify(res.messages);
+    expect(serialized).not.toContain('R'.repeat(1_000));
+  });
+
+  it('keeps tool_use/tool_result adjacency intact after dropping messages', () => {
+    // Force Pass 4 (whole-message drops) with a tiny budget, then verify no
+    // orphaned protocol blocks survive.
+    const msgs: Message[] = [];
+    for (let i = 0; i < 8; i++) {
+      msgs.push({ role: 'assistant', content: [{ type: 'tool_use', id: `u${i}`, name: 'read', input: { path: `f${i}` } }] } as Message);
+      msgs.push({ role: 'user', content: [{ type: 'tool_result', tool_use_id: `u${i}`, content: 'y'.repeat(5_000) }] } as Message);
+    }
+    const res = enforceHardBudget(msgs, 500, { preserveK: 1 });
+    expect(estimateMessageTokens(res.messages)).toBeLessThanOrEqual(500);
+    // Every surviving tool_result must have its tool_use in the prior assistant msg.
+    const useIds = new Set<string>();
+    for (const m of res.messages) {
+      if (typeof m.content === 'string') continue;
+      for (const b of m.content) {
+        if (b.type === 'tool_use') useIds.add(b.id);
+        if (b.type === 'tool_result') expect(useIds.has(b.tool_use_id)).toBe(true);
+      }
+    }
+  });
+});
+
+// ── dedupStaleReads: superseded repeated reads ─────────────────────────────
+
+describe('dedupStaleReads', () => {
+  const readUse = (id: string, path: string): Message =>
+    ({ role: 'assistant', content: [{ type: 'tool_use', id, name: 'read', input: { path } }] }) as Message;
+  const readResult = (id: string, content: string): Message =>
+    ({ role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content }] }) as Message;
+
+  it('marks the stale (older) read of a repeated file and keeps the newest', () => {
+    const msgs: Message[] = [
+      readUse('u1', 'src/a.ts'),
+      readResult('u1', 'OLD content of a.ts '.repeat(200)),
+      text('user', 'turn 1'),
+      text('assistant', 'turn 2'),
+      text('user', 'turn 3'),
+      text('assistant', 'turn 4'),
+      readUse('u2', 'src/a.ts'),
+      readResult('u2', 'NEW content of a.ts '.repeat(200)),
+      text('user', 'turn 5'),
+      text('assistant', 'turn 6'),
+    ];
+    const res = dedupStaleReads(msgs, [{ file: 'src/a.ts', count: 2 }], { preserveK: 2 });
+    expect(res.changed).toBe(true);
+    expect(res.deduped).toBe(1);
+    const serialized = JSON.stringify(res.messages);
+    expect(serialized).toContain('stale read of');
+    expect(serialized).toContain('NEW content'); // newest kept verbatim
+    expect(serialized).not.toContain('OLD content'); // oldest collapsed
+  });
+
+  it('is a no-op when there is no repeated-read pressure', () => {
+    const msgs: Message[] = [readUse('u1', 'src/a.ts'), readResult('u1', 'content'.repeat(100))];
+    const res = dedupStaleReads(msgs, [], { preserveK: 2 });
+    expect(res.changed).toBe(false);
+    expect(res.messages).toBe(msgs);
   });
 });

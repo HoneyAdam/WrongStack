@@ -14,7 +14,7 @@ import {
   makeFleetStatusTool,
   makeMailSendTool,
   normalizeTokenSavingTier,
-  type TokenSavingTier,
+  type ConcreteTokenSavingTier,
   type MemoryStore,
   TOKENS,
   type ToolRegistry,
@@ -74,7 +74,7 @@ export interface ToolsWiringResult {
  * included here — they are registered conditionally in setupTools() based
  * on `config.features.memory`.
  */
-export function getToolsForTier(tier: TokenSavingTier, allTools: Tool[]): Tool[] {
+export function getToolsForTier(tier: ConcreteTokenSavingTier, allTools: Tool[]): Tool[] {
   const t1Names = new Set(TIER1_TOOLS.map((t) => t.name));
   const t2Names = new Set(TIER2_TOOLS.map((t) => t.name));
   const t3Names = new Set(TIER3_TOOLS.map((t) => t.name));

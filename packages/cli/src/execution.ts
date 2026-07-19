@@ -1168,6 +1168,14 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
           family: banneredFamily,
           keyTail: banneredKeyTail,
           profile: profileName,
+          // Tilde-substitute the home directory so the banner shows
+          // ~/.wrongstack/profiles/<name>/config.json — compact, portable,
+          // and matches how users reference the path in docs and shells.
+          profileConfigPath: (() => {
+            const abs = wpaths.profileConfig(profileName);
+            const home = wpaths.homeDir;
+            return home && abs.startsWith(home) ? `~${abs.slice(home.length)}` : abs;
+          })(),
           getPickableProviders,
           switchProviderAndModel,
           switchAutonomy: (mode: 'off' | 'suggest' | 'auto' | 'eternal' | 'eternal-parallel') => {

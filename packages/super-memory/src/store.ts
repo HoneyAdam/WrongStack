@@ -3221,6 +3221,9 @@ function scorePathMemory(
   for (const anchor of memory.anchors) {
     if (!anchor.path) continue;
     const anchorPath = normalizeSlashes(anchor.path);
+    // Project-root anchors describe the repository as a whole; treating `.`
+    // as an ancestor of every file turns them into universal injection seeds.
+    if (anchorPath === '.' || anchorPath === '') continue;
     if (anchorPath === target) score += 10;
     else if (includeAncestors && ancestors.includes(anchorPath)) score += 5;
     else if (

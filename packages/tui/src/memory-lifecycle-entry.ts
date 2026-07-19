@@ -5,7 +5,10 @@ export type MemoryLifecycleAction =
   | 'recovered'
   | 'exited'
   | 'related'
-  | 'state';
+  | 'superseded'
+  | 'archived'
+  | 'staled'
+  | 'contradicted';
 
 export interface MemoryLifecycleEntryData {
   action: MemoryLifecycleAction;
@@ -78,16 +81,32 @@ export function memoryLifecycleEntry(
       detail: `${numberValue(payload.added) ?? 0} added / ${numberValue(payload.proposed) ?? 0} proposed`,
     };
   }
-  if (
-    ['memory.superseded', 'memory.archived', 'memory.staled', 'memory.contradicted'].includes(
-      event,
-    ) &&
-    memoryId
-  ) {
+  if (event === 'memory.superseded' && memoryId) {
     return {
-      action: 'state',
-      label: `${memoryId} → ${event.slice('memory.'.length)}`,
+      action: 'superseded',
+      label: `${memoryId} → superseded`,
+      detail: stringValue(payload.reason) ?? health(payload),
+    };
+  }
+  if (event === 'memory.archived' && memoryId) {
+    return {
+      action: 'archived',
+      label: `${memoryId} → archived`,
       detail: stringValue(payload.reason),
+    };
+  }
+  if (event === 'memory.staled' && memoryId) {
+    return {
+      action: 'staled',
+      label: `${memoryId} → staled`,
+      detail: stringValue(payload.reason) ?? 'anchor drift detected',
+    };
+  }
+  if (event === 'memory.contradicted' && memoryId) {
+    return {
+      action: 'contradicted',
+      label: `${memoryId} → contradicted`,
+      detail: stringValue(payload.reason) ?? 'conflicting evidence',
     };
   }
   return null;

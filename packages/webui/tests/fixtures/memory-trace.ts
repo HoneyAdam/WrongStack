@@ -1,0 +1,35 @@
+export function memoryTrace() {
+  const memory = {
+    id: 'mem_auth_contract',
+    kind: 'symbol_note',
+    text: 'refreshSession rotates refresh tokens.',
+    score: 0.93,
+    relationStrength: 0.95,
+    anchor: 'symbol:refreshSession',
+    anchors: ['symbol:src/auth/session.ts#refreshSession'],
+    tags: ['auth', 'refresh-token'],
+    activationReasons: ['anchor:path-match', 'task:#auth'],
+    importance: 0.88,
+    confidence: 0.94,
+    freshness: 0.79,
+    persistence: 'long_lived',
+  };
+  return {
+    runId: 'run_1',
+    at: '2026-07-19T16:00:00.000Z',
+    outcome: 'injected' as const,
+    trigger: 'read',
+    toolName: 'read',
+    queryPreview: 'session refresh auth',
+    paths: ['src/auth/session.ts'],
+    taskSignals: ['Refactor auth refresh flow'],
+    contextPressure: 0.42,
+    budget: { maxHints: 8, maxChars: 2800 },
+    candidates: 12,
+    eligible: 1,
+    rejected: { duplicate: 1, belowScore: 7, alreadyVisible: 2, cooldown: 1, budget: 0 },
+    activated: [memory],
+    injected: [memory],
+    injectedChars: 420,
+  };
+}

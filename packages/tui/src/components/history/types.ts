@@ -83,7 +83,7 @@ export type HistoryEntry =
   | {
       id: number;
       kind: 'memory-lifecycle';
-      action: 'entered' | 'updated' | 'merged' | 'recovered' | 'exited' | 'related' | 'state';
+      action: 'entered' | 'updated' | 'merged' | 'recovered' | 'exited' | 'related' | 'superseded' | 'archived' | 'staled' | 'contradicted';
       label: string;
       detail?: string | undefined;
     }
@@ -112,6 +112,12 @@ export type HistoryEntry =
       /** Active fallback profile name (e.g. "default"), shown in the banner
        *  to make the active profile visible at a glance. */
       profile?: string | undefined;
+      /** Absolute path to the active profile's config.json
+       *  (e.g. "~/.wrongstack/profiles/default/config.json"). When present,
+       *  the banner renders this full path with the profile name segment
+       *  (the directory between "profiles/" and "/config.json") highlighted
+       *  in the accent color, instead of the bare {@link profile} string. */
+      profileConfigPath?: string | undefined;
       /** Background autonomy agents currently online/active (Brain, Shadow,
        *  Kanban, Mailbox, Memory, etc.). Rendered below the footer links. */
       autonomyAgents?: ReadonlyArray<AutonomyAgentStatus> | undefined;

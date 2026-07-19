@@ -1223,13 +1223,35 @@ describe('Google preset - finalizeStream edge cases', () => {
 });
 
 describe('Google preset - messagesToGemini coverage via buildBody', () => {
-  it('skips system messages', () => {
+  it('folds in-conversation system messages into a user turn (not dropped)', () => {
+    // Compaction digests + the evidence floor are carried as role:'system'
+    // messages. Gemini has no system turn, so they must be folded into a user
+    // turn — dropping them would silently lose the collapsed history.
     const body = googleWireFormat.buildBody({
       model: 'gemini',
       maxTokens: 100,
-      messages: [{ role: 'system', content: 'ignore this' }],
+      messages: [{ role: 'system', content: '[prior_turns_digest: keep me]' }],
     } as Parameters<typeof googleWireFormat.buildBody>[0]);
-    expect(body.contents as unknown[]).toHaveLength(0);
+    const contents = body.contents as { role: string; parts: { text?: string }[] }[];
+    expect(contents).toHaveLength(1);
+    expect(contents[0]?.role).toBe('user');
+    expect(contents[0]?.parts[0]?.text).toContain('keep me');
+  });
+
+  it('coalesces a folded system digest with the following user turn', () => {
+    const body = googleWireFormat.buildBody({
+      model: 'gemini',
+      maxTokens: 100,
+      messages: [
+        { role: 'system', content: '[digest]' },
+        { role: 'user', content: 'real question' },
+      ],
+    } as Parameters<typeof googleWireFormat.buildBody>[0]);
+    const contents = body.contents as { role: string; parts: { text?: string }[] }[];
+    // Two consecutive user turns are merged into one so alternation stays valid.
+    expect(contents).toHaveLength(1);
+    expect(contents[0]?.role).toBe('user');
+    expect(contents[0]?.parts.map((p) => p.text)).toEqual(['[digest]', 'real question']);
   });
 
   it('converts assistant tool_use to functionCall part with thoughtSignature', () => {

@@ -47,6 +47,37 @@ describe('tool-format conversions', () => {
     expect(assistant?.tool_calls).toHaveLength(1);
   });
 
+  it('folds in-conversation system messages (compaction digest / evidence floor) into a user turn', () => {
+    // Without this, role:'system' messages inserted by the compactors are
+    // silently dropped across the entire OpenAI-compatible family, losing the
+    // collapsed history. They must survive as a user turn.
+    const messages: Message[] = [
+      { role: 'system', content: '[prior_turns_digest: important context]' },
+      { role: 'user', content: 'continue' },
+    ];
+    const out = messagesToOpenAI(undefined, messages);
+    const folded = out.find(
+      (m) => m.role === 'user' && typeof m.content === 'string' && m.content.includes('prior_turns_digest'),
+    );
+    expect(folded).toBeDefined();
+    // No stray system role leaks into the message list from the fold.
+    expect(out.some((m) => m.role === 'system')).toBe(false);
+  });
+
+  it('folds in-conversation system messages into a user turn on the Responses adapter too', () => {
+    const messages: Message[] = [
+      { role: 'system', content: '[prior_turns_digest: important context]' },
+      { role: 'user', content: 'continue' },
+    ];
+    const out = messagesToResponsesInput(messages);
+    const folded = out.find(
+      (m) =>
+        m['role'] === 'user' &&
+        JSON.stringify(m['content'] ?? '').includes('prior_turns_digest'),
+    );
+    expect(folded).toBeDefined();
+  });
+
   it('reuses stringified tool inputs for identical object references across OpenAI and Responses adapters', () => {
     const sharedInput = { path: 'a.ts' };
     const messages: Message[] = [

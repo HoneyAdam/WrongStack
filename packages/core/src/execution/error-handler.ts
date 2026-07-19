@@ -3,7 +3,12 @@ import type { Compactor } from '../types/compactor.js';
 import type { Config } from '../types/config.js';
 import type { ErrorHandler, RecoveryDecision } from '../types/error-handler.js';
 import type { ModelsRegistry } from '../types/models-registry.js';
-import { isRetryableKind, ProviderError, type ProviderErrorKind } from '../types/provider.js';
+import {
+  isContextOverflowShaped,
+  isRetryableKind,
+  ProviderError,
+  type ProviderErrorKind,
+} from '../types/provider.js';
 import { NETWORK_ERR_RE } from './regex-patterns.js';
 
 /**
@@ -34,7 +39,10 @@ export function buildRecoveryStrategies(opts?: {
       compactor: opts?.compactor,
       async attempt(err, ctx) {
         if (!(err instanceof ProviderError)) return null;
-        if (err.kind !== 'context_overflow') return null;
+        // Accept both the cleanly-classified overflow AND an overflow-shaped
+        // error a gateway mislabeled (413, or an overflow phrase under a
+        // generic invalid_request/400) — see isContextOverflowShaped.
+        if (err.kind !== 'context_overflow' && !isContextOverflowShaped(err)) return null;
 
         // Catalog limits describe the native model, but gateways and
         // subscription routes can enforce a smaller effective window. A
@@ -48,6 +56,11 @@ export function buildRecoveryStrategies(opts?: {
         if (this.compactor) {
           try {
             const report = await this.compactor.compact(ctx, { aggressive: true });
+            // Compaction rewrote the message array, so the real-usage anchor
+            // (captured for the pre-compaction array) is stale — drop it so the
+            // retry's pre-flight estimates the compacted array afresh until the
+            // next response re-anchors.
+            ctx.lastRealInputTokens = undefined;
             if (report.after < report.before) {
               return { action: 'retry', reason: 'context_compacted' };
             }

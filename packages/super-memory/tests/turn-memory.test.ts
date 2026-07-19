@@ -102,7 +102,7 @@ describe('createSuperMemoryTurnMiddleware', () => {
     expect(result.system).toHaveLength(0);
   });
 
-  it('includes low-score memory with importance >= 0.95', async () => {
+  it('does not let importance bypass missing relevance', async () => {
     const memory = {
       searchSuper: async () => [makeMemory({ importance: 0.95, confidence: 0.1, freshness: 0.1 })],
       recordInjection: async () => {},
@@ -115,7 +115,7 @@ describe('createSuperMemoryTurnMiddleware', () => {
     };
 
     const result = await middleware.handler(request as never, async (next) => next);
-    expect(result.system).toHaveLength(1);
+    expect(result.system).toHaveLength(0);
   });
 
   it('handles string content messages', async () => {
@@ -126,7 +126,7 @@ describe('createSuperMemoryTurnMiddleware', () => {
     const middleware = createSuperMemoryTurnMiddleware({ memory });
     const request = {
       model: 'test',
-      messages: [{ role: 'user' as const, content: 'Testing string content' }],
+      messages: [{ role: 'user' as const, content: 'Lifecycle' }],
       system: [],
     };
 
@@ -142,10 +142,12 @@ describe('createSuperMemoryTurnMiddleware', () => {
     const middleware = createSuperMemoryTurnMiddleware({ memory });
     const request = {
       model: 'test',
-      messages: [{
-        role: 'user' as const,
-        content: [{ type: 'text' as const, text: 'Block content' }],
-      }],
+      messages: [
+        {
+          role: 'user' as const,
+          content: [{ type: 'text' as const, text: 'Lifecycle' }],
+        },
+      ],
       system: [],
     };
 
@@ -155,7 +157,9 @@ describe('createSuperMemoryTurnMiddleware', () => {
 
   it('fails open when searchSuper throws', async () => {
     const memory = {
-      searchSuper: async () => { throw new Error('unavailable'); },
+      searchSuper: async () => {
+        throw new Error('unavailable');
+      },
     };
     const middleware = createSuperMemoryTurnMiddleware({ memory });
     const request = {
@@ -195,7 +199,7 @@ describe('createSuperMemoryTurnMiddleware', () => {
     const middleware = createSuperMemoryTurnMiddleware({ memory });
     const request = {
       model: 'test',
-      messages: [{ role: 'user' as const, content: 'dedup' }],
+      messages: [{ role: 'user' as const, content: 'Duplicate' }],
       system: [],
     };
 
@@ -209,9 +213,7 @@ describe('createSuperMemoryTurnMiddleware', () => {
     // normalization it matches the memory's textKey. Before the dedup-form
     // fix, this would slip past the raw toLowerCase() check.
     const memory = {
-      searchSuper: async () => [
-        makeMemory({ text: 'Always run lifecycle tests.' }),
-      ],
+      searchSuper: async () => [makeMemory({ text: 'Always run lifecycle tests.' })],
       recordInjection: async () => {},
     };
     const middleware = createSuperMemoryTurnMiddleware({ memory });
@@ -233,9 +235,7 @@ describe('createSuperMemoryTurnMiddleware', () => {
     // The system prompt uses decomposed Unicode (NFD): café (with combining accent)
     // After NFKC normalization, both forms collapse to the same string.
     const memory = {
-      searchSuper: async () => [
-        makeMemory({ text: 'café au lait convention' }),
-      ],
+      searchSuper: async () => [makeMemory({ text: 'café au lait convention' })],
       recordInjection: async () => {},
     };
     const middleware = createSuperMemoryTurnMiddleware({ memory });

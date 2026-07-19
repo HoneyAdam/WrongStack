@@ -124,6 +124,18 @@ export function messagesToResponsesInput(messages: Message[]): Record<string, un
           arguments: stringifyToolInputOnce(u.input ?? {}),
         });
       }
+    } else if (msg.role === 'system') {
+      // In-conversation system messages (compaction digests, evidence floor)
+      // must not be dropped — fold them into a user turn, matching the Chat
+      // Completions / Anthropic / Gemini wires. Dropping them silently loses
+      // the collapsed history on the Responses API (Codex).
+      const text = blocks
+        .filter((b): b is TextBlock => b.type === 'text')
+        .map((b) => b.text)
+        .join('');
+      if (text.trim().length > 0) {
+        out.push({ role: 'user', content: [{ type: 'input_text', text }] });
+      }
     }
   }
 

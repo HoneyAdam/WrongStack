@@ -200,6 +200,17 @@ export function messagesToOpenAI(
         message.reasoning_content = reasoning;
       }
       out.push(message);
+    } else if (msg.role === 'system') {
+      // System-role messages carried INSIDE the conversation (compaction
+      // digests, the evidence floor) must not be dropped. Fold them into a
+      // user turn — mirrors the Anthropic and Gemini wires. Emitting a second
+      // role:'system' would be unreliable (some OpenAI-compatible backends only
+      // honour the first system message), whereas a user turn is universally
+      // accepted; dropping it silently loses the collapsed history.
+      const text = blocksToString(normalizeContent(msg.content));
+      if (text.trim().length > 0) {
+        out.push({ role: 'user', content: text });
+      }
     }
   }
   return out;

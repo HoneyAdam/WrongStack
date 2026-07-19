@@ -38,9 +38,10 @@ function optionKey(index: number): string {
   return String.fromCharCode('A'.charCodeAt(0) + index);
 }
 
-function contextLines(context?: string): string[] {
-  if (!context?.trim()) return [];
-  return context.trim().split('\n').slice(0, 5);
+function contextLines(context?: string): { kept: string[]; dropped: number } {
+  if (!context?.trim()) return { kept: [], dropped: 0 };
+  const all = context.trim().split('\n');
+  return { kept: all.slice(0, 5), dropped: Math.max(0, all.length - 5) };
 }
 
 /**
@@ -57,7 +58,7 @@ export function BrainDecisionPrompt({
   onAnswer,
 }: BrainDecisionPromptProps): React.ReactElement {
   const color = riskColor(risk);
-  const ctx = contextLines(context);
+  const { kept: ctx, dropped } = contextLines(context);
 
   useInput((input, key) => {
     if (!onAnswer) return;
@@ -93,6 +94,9 @@ export function BrainDecisionPrompt({
               {line}
             </Text>
           ))}
+          {dropped > 0 ? (
+            <Text dimColor>… ({dropped} more)</Text>
+          ) : null}
         </Box>
       ) : null}
       {options.length > 0 ? (

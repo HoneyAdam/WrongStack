@@ -84,7 +84,12 @@ const BEHAVIOR_DEFAULTS: Omit<Config, 'provider' | 'model'> = {
     modelsRegistry: true,
     skills: true,
     prompts: true,
-    tokenSavingMode: 'off',
+    // 'auto' → resolveTokenSavingTier picks a concrete tier from the model's
+    // context window ONCE per session (cache-safe): lean prompt on small
+    // windows (<32k medium, <96k light) where the fixed identity+tool prose is
+    // a big fraction; full prompt (off) on 96k+ so nothing changes for the
+    // common large-window case. Explicit tiers are respected verbatim.
+    tokenSavingMode: 'auto',
     allowOutsideProjectRoot: true,
   },
   superMemory: {

@@ -34,14 +34,19 @@ export class MemoryInjectorAgent {
     const taskSignals = input.taskAware === false ? [] : collectTaskSignals(input.ctx);
     const queryText = uniqueTerms([input.toolQuery, ...taskSignals].join(' '), 1_600);
     const contextPressure = readContextPressure(input.ctx);
-    const budgetFactor = contextPressure >= 0.82 ? 0.45 : contextPressure >= 0.65 ? 0.7 : 1;
-    const minimumHints = Math.min(input.baseMaxHints, contextPressure >= 0.82 ? 3 : 4);
-    const minimumChars = Math.min(input.baseMaxChars, contextPressure >= 0.82 ? 1_200 : 1_600);
+    const budget =
+      contextPressure >= 0.95
+        ? { maxHints: 0, maxChars: 0 }
+        : contextPressure >= 0.82
+          ? { maxHints: 1, maxChars: 600 }
+          : contextPressure >= 0.65
+            ? { maxHints: 3, maxChars: 1_400 }
+            : { maxHints: input.baseMaxHints, maxChars: input.baseMaxChars };
     return {
       queryText,
       taskSignals,
-      maxHints: Math.max(minimumHints, Math.floor(input.baseMaxHints * budgetFactor)),
-      maxChars: Math.max(minimumChars, Math.floor(input.baseMaxChars * budgetFactor)),
+      maxHints: Math.min(input.baseMaxHints, budget.maxHints),
+      maxChars: Math.min(input.baseMaxChars, budget.maxChars),
       contextPressure,
     };
   }
@@ -69,51 +74,56 @@ function collectTaskSignals(ctx: ToolCallPipelinePayload['ctx']): string[] {
   for (const todo of todos.filter((item) => item.status === 'in_progress').slice(0, 3)) {
     signals.push(todo.activeForm ?? todo.content);
   }
-  for (const todo of todos.filter((item) => item.status === 'pending').slice(0, 2)) {
-    signals.push(todo.content);
-  }
-  collectBoundedStrings(ctx.meta?.['kanban'], signals, 12);
+  collectKanbanSignals(ctx.meta?.['kanban'], signals);
   if (ctx.currentKanbanTaskId) signals.push(`kanban-task ${ctx.currentKanbanTaskId}`);
   if (ctx.currentKanbanBoardId) signals.push(`kanban-board ${ctx.currentKanbanBoardId}`);
-  return [...new Set(signals.map((value) => value.replace(/\s+/g, ' ').trim()).filter(Boolean))]
-    .slice(0, 12);
+  return [
+    ...new Set(signals.map((value) => value.replace(/\s+/g, ' ').trim()).filter(Boolean)),
+  ].slice(0, 12);
 }
 
-function collectBoundedStrings(value: unknown, out: string[], remaining: number): number {
-  if (remaining <= 0 || value == null) return remaining;
-  if (typeof value === 'string') {
-    const text = value.replace(/\s+/g, ' ').trim();
-    if (text) out.push(text.slice(0, 400));
-    return remaining - 1;
-  }
-  if (Array.isArray(value)) {
-    let left = remaining;
-    for (const item of value) {
-      left = collectBoundedStrings(item, out, left);
-      if (left <= 0) break;
+function collectKanbanSignals(value: unknown, out: string[]): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return;
+  const record = value as Record<string, unknown>;
+  const semanticKeys = [
+    'title',
+    'name',
+    'description',
+    'content',
+    'activeForm',
+    'summary',
+    'task',
+    'taskTitle',
+    'boardTitle',
+    'tags',
+    'labels',
+  ];
+  for (const key of semanticKeys) {
+    const item = record[key];
+    const values =
+      typeof item === 'string'
+        ? [item]
+        : Array.isArray(item)
+          ? item.filter((entry): entry is string => typeof entry === 'string')
+          : [];
+    for (const entry of values) {
+      const text = entry.replace(/\s+/g, ' ').trim();
+      if (text) out.push(`${key} ${text.slice(0, 400)}`);
+      if (out.length >= 8) return;
     }
-    return left;
   }
-  if (typeof value !== 'object') return remaining;
-  let left = remaining;
-  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof item === 'string') out.push(`${key} ${item.slice(0, 400)}`);
-    else left = collectBoundedStrings(item, out, left);
-    left--;
-    if (left <= 0) break;
-  }
-  return left;
 }
 
 function readContextPressure(ctx: ToolCallPipelinePayload['ctx']): number {
   const used = ctx.lastRequestTokens;
   const learned = ctx.meta?.['effectiveMaxContext'];
   const providerMax = ctx.provider?.capabilities?.maxContext;
-  const max = typeof learned === 'number' && learned > 0
-    ? learned
-    : typeof providerMax === 'number' && providerMax > 0
-      ? providerMax
-      : 0;
+  const max =
+    typeof learned === 'number' && learned > 0
+      ? learned
+      : typeof providerMax === 'number' && providerMax > 0
+        ? providerMax
+        : 0;
   return typeof used === 'number' && used > 0 && max > 0 ? used / max : 0;
 }
 

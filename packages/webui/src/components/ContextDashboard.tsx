@@ -30,6 +30,8 @@ import {
 } from 'lucide-react';
 import { useAppTranslation } from '@/i18n';
 import { useScrollPosition } from '@/hooks/useScrollPosition';
+import { ContextMemoryMonitor } from './ContextMemoryMonitor';
+import { MemoryLifecycleTrace } from './MemoryManager/MemoryLifecycleTrace';
 import { getWSClient } from '@/lib/ws-client';
 import { cn } from '@/lib/utils';
 import { useConfigStore, useFleetStore, useSessionStore, type SubagentView } from '@/stores';
@@ -661,6 +663,9 @@ export function ContextDashboard() {
 
         {/* Fleet footprint */}
         <AgentFootprintSection agents={fleetAgents} />
+
+        <ContextMemoryMonitor />
+        <MemoryLifecycleTrace />
 
         {/* Bottom row: metrics */}
         <MetricsSection

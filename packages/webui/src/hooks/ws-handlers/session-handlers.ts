@@ -18,6 +18,7 @@ import {
   useUIStore,
 } from '@/stores';
 import { useVizStore, wsToVizEvent } from '@/stores/viz-store';
+import { useMemoryInjectorTraceStore } from '@/stores/memory-injector-store';
 import type { WSServerMessage } from '@/types';
 
 interface ReplayMessage {
@@ -234,6 +235,7 @@ export function handleSessionStart(msg: WSServerMessage) {
   }
 
   if (isReset) {
+    useMemoryInjectorTraceStore.getState().resetContext();
     useSessionStore.getState().startSession({
       id: payload.sessionId,
       startedAt: Date.now(),

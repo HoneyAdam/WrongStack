@@ -37,8 +37,9 @@ describe('SuperMemoryStore feedback counters (JSONL)', () => {
   it.each([-1, Number.NaN, Number.POSITIVE_INFINITY])(
     'rejects an invalid counter flush interval: %s',
     (counterFlushIntervalMs) => {
-      expect(() => new SuperMemoryStore({ projectRoot: tempDir, counterFlushIntervalMs }))
-        .toThrow('counterFlushIntervalMs must be a finite, non-negative number.');
+      expect(() => new SuperMemoryStore({ projectRoot: tempDir, counterFlushIntervalMs })).toThrow(
+        'counterFlushIntervalMs must be a finite, non-negative number.',
+      );
     },
   );
 
@@ -126,7 +127,11 @@ describe('SuperMemoryStore feedback counters (JSONL)', () => {
     expect((await store.getSuperMemory(memory.id))?.injectionCount).toBe(10);
 
     advance(31 * DAY);
-    const report = await store.hygiene({ verify: false, archiveUnusedAfterDays: 30, unusedMinInjections: 10 });
+    const report = await store.hygiene({
+      verify: false,
+      archiveUnusedAfterDays: 30,
+      unusedMinInjections: 10,
+    });
 
     // Hygiene now produces a review candidate instead of auto-archiving.
     // The memory's status must NOT change — final decision is the user's.
@@ -160,7 +165,11 @@ describe('SuperMemoryStore feedback counters (JSONL)', () => {
     await store.recordUse([memory.id], 'assistant_reference');
 
     advance(31 * DAY);
-    const report = await store.hygiene({ verify: false, archiveUnusedAfterDays: 30, unusedMinInjections: 10 });
+    const report = await store.hygiene({
+      verify: false,
+      archiveUnusedAfterDays: 30,
+      unusedMinInjections: 10,
+    });
 
     expect(report.archivedUnused).toBe(0);
     expect((await store.getSuperMemory(memory.id))?.status).toBe('active');
@@ -180,7 +189,11 @@ describe('SuperMemoryStore feedback counters (JSONL)', () => {
     await store.recordInjection([memory.id], 'turn_context');
 
     advance(31 * DAY);
-    const report = await store.hygiene({ verify: false, archiveUnusedAfterDays: 30, unusedMinInjections: 10 });
+    const report = await store.hygiene({
+      verify: false,
+      archiveUnusedAfterDays: 30,
+      unusedMinInjections: 10,
+    });
 
     expect(report.archivedUnused).toBe(0);
     expect((await store.getSuperMemory(memory.id))?.status).toBe('active');
@@ -210,7 +223,9 @@ describe('InjectionTracker', () => {
     const tracker = new InjectionTracker();
     tracker.record('mem_a', TEXT);
 
-    expect(tracker.consumeMatches('I will use pnpm for installing dependencies now.')).toEqual(['mem_a']);
+    expect(tracker.consumeMatches('I will use pnpm for installing dependencies now.')).toEqual([
+      'mem_a',
+    ]);
     expect(tracker.consumeMatches('I will use pnpm for installing dependencies now.')).toEqual([]);
   });
 
@@ -218,7 +233,9 @@ describe('InjectionTracker', () => {
     const tracker = new InjectionTracker();
     tracker.record('mem_a', TEXT);
 
-    expect(tracker.consumeMatches('The database migration failed with a constraint error.')).toEqual([]);
+    expect(
+      tracker.consumeMatches('The database migration failed with a constraint error.'),
+    ).toEqual([]);
   });
 
   it('ignores memories too short to be a trustworthy signal', () => {
@@ -232,7 +249,43 @@ describe('InjectionTracker', () => {
     const tracker = new InjectionTracker({ ttlMs: 1_000 });
     tracker.record('mem_a', TEXT, 5_000);
 
-    expect(tracker.consumeMatches('I will use pnpm for installing dependencies now.', 7_000)).toEqual([]);
+    expect(
+      tracker.consumeMatches('I will use pnpm for installing dependencies now.', 7_000),
+    ).toEqual([]);
+  });
+
+  it('reports exact provider-context entry and exit independently from use attribution', () => {
+    const tracker = new InjectionTracker();
+    tracker.record('mem_a', TEXT, 5_000, 'sess_a');
+    tracker.consumeMatches('I will use pnpm for installing dependencies now.', 5_100);
+
+    expect(tracker.snapshotContext(`tool result\n${TEXT}`, 'sess_a', 5_200)).toEqual({
+      activeMemoryIds: ['mem_a'],
+      enteredMemoryIds: ['mem_a'],
+      exitedMemoryIds: [],
+    });
+    expect(
+      tracker.snapshotContext('compacted summary without the raw hint', 'sess_a', 5_300),
+    ).toEqual({
+      activeMemoryIds: [],
+      enteredMemoryIds: [],
+      exitedMemoryIds: ['mem_a'],
+    });
+  });
+
+  it('tracks the rendered prefix when the provider-visible memory line was truncated', () => {
+    const tracker = new InjectionTracker({ minTokens: 4 });
+    const fullText =
+      'Authentication middleware validates bearer tokens before every protected route';
+    const rendered =
+      '--- Super Memory ---\n- [fact] Authentication middleware validates bearer tokens…';
+    tracker.record('mem_truncated', fullText, 1_000, 'session-a', rendered);
+
+    expect(tracker.snapshotContext(rendered, 'session-a', 1_001)).toEqual({
+      activeMemoryIds: ['mem_truncated'],
+      enteredMemoryIds: ['mem_truncated'],
+      exitedMemoryIds: [],
+    });
   });
 });
 
@@ -281,7 +334,10 @@ describe('createSuperMemoryTurnMiddleware feedback loop', () => {
       system: injected.system,
       messages: [
         { role: 'user' as const, content: 'How do I run the lifecycle tests?' },
-        { role: 'assistant' as const, content: 'I will run lifecycle tests with pnpm vitest now before committing.' },
+        {
+          role: 'assistant' as const,
+          content: 'I will run lifecycle tests with pnpm vitest now before committing.',
+        },
         { role: 'user' as const, content: 'Thanks.' },
       ],
     };
@@ -308,7 +364,10 @@ describe('createSuperMemoryTurnMiddleware feedback loop', () => {
       system: [],
       messages: [
         { role: 'user' as const, content: 'How do I run the lifecycle tests?' },
-        { role: 'assistant' as const, content: 'The database migration failed with a constraint error.' },
+        {
+          role: 'assistant' as const,
+          content: 'The database migration failed with a constraint error.',
+        },
         { role: 'user' as const, content: 'Thanks.' },
       ],
     };
@@ -327,7 +386,11 @@ describe.skipIf(!isSqliteAvailable())('SqliteSuperMemoryStore feedback counters'
 
   afterEach(async () => {
     for (const store of sqliteStores) {
-      try { store.close(); } catch { /* already closed */ }
+      try {
+        store.close();
+      } catch {
+        /* already closed */
+      }
     }
     // Give Windows a tick to release WAL file handles
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -401,15 +464,27 @@ describe('SuperMemoryStore hygiene purgeDeletedAfterDays (JSONL)', () => {
 
   it('purges only deleted tombstones older than the threshold', async () => {
     const store = makeStore();
-    const active = await store.rememberSuper({ text: 'keep me active', kind: 'fact', scope: 'project' });
-    const oldDeleted = await store.rememberSuper({ text: 'old tombstone', kind: 'fact', scope: 'project' });
+    const active = await store.rememberSuper({
+      text: 'keep me active',
+      kind: 'fact',
+      scope: 'project',
+    });
+    const oldDeleted = await store.rememberSuper({
+      text: 'old tombstone',
+      kind: 'fact',
+      scope: 'project',
+    });
 
     // Delete one at T0, then jump 40 days forward.
     await store.deleteSuperMemory(oldDeleted.id, 'old', { force: true });
     advance(40 * DAY);
 
     // Delete another "recently" (only 5 days before the hygiene run).
-    const recentDeleted = await store.rememberSuper({ text: 'recent tombstone', kind: 'fact', scope: 'project' });
+    const recentDeleted = await store.rememberSuper({
+      text: 'recent tombstone',
+      kind: 'fact',
+      scope: 'project',
+    });
     await store.deleteSuperMemory(recentDeleted.id, 'recent', { force: true });
     advance(5 * DAY);
 
@@ -444,7 +519,11 @@ describe('SuperMemoryStore hygiene purgeDeletedAfterDays (JSONL)', () => {
 
   it('does not purge a memory that was deleted then recovered', async () => {
     const store = makeStore();
-    const m = await store.rememberSuper({ text: 'deleted then recovered', kind: 'fact', scope: 'project' });
+    const m = await store.rememberSuper({
+      text: 'deleted then recovered',
+      kind: 'fact',
+      scope: 'project',
+    });
     await store.deleteSuperMemory(m.id, 'oops', { force: true });
     advance(60 * DAY);
     // Backfill creates a NEW active version whose latest record is active.

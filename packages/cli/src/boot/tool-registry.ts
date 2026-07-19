@@ -53,7 +53,7 @@ import { applyToolDescriptionModes, applyToolResultRenderModes, configureChildEn
 import { builtinToolsPack, configureDangerBypass, configureExecPolicy, forgetTool, relatedMemoryTool, rememberTool, searchMemoryTool, TIER1_TOOLS, TIER2_TOOLS, TIER3_TOOLS } from '@wrongstack/tools';
 import { createSuperMemoryTools, type SuperMemoryServiceLike } from '@wrongstack/super-memory';
 import { configureGoalPolicy } from '../goal-host.js';
-import type { TokenSavingTier } from '@wrongstack/core';
+import type { ConcreteTokenSavingTier, TokenSavingTier } from '@wrongstack/core';
 import type { Tool } from '@wrongstack/core';
 
 interface RegisterBuiltinToolsDeps {
@@ -88,7 +88,7 @@ interface RegisterBuiltinToolsDeps {
  * Returns the tool subset for the given token-saving tier.
  * @see getToolsForTier in `wiring/tools.ts` — kept in sync
  */
-function toolsForTier(tier: TokenSavingTier, allTools: Tool[]): Tool[] {
+function toolsForTier(tier: ConcreteTokenSavingTier, allTools: Tool[]): Tool[] {
   switch (tier) {
     case 'off':
       return allTools;

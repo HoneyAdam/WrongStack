@@ -2,11 +2,13 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   estimateRequestTokens,
   estimateRequestTokensCalibrated,
+  estimateRequestTokensUpperBound,
   estimateTextTokens,
   estimateToolDefTokens,
   estimateToolInputTokens,
   estimateToolResultTokens,
   getCalibrationState,
+  realAnchoredInputTokens,
   recordActualUsage,
   resetCalibration,
 } from '../../src/utils/token-estimate.js';
@@ -310,5 +312,66 @@ describe('recordActualUsage + estimateRequestTokensCalibrated', () => {
     const state = getCalibrationState();
     // Ratio should be 60 / 60 = 1.0 (explicit override), not rough.total / 60
     expect(state.ratio).toBeCloseTo(1.0, 5);
+  });
+});
+
+describe('estimateRequestTokensUpperBound', () => {
+  const msg = (text: string) => [{ role: 'user', content: [{ type: 'text', text }] }];
+
+  it('never returns less than the flat estimate', () => {
+    const messages = msg('hello world '.repeat(500));
+    const base = estimateRequestTokens(messages, [], []);
+    const upper = estimateRequestTokensUpperBound(messages, [], []);
+    expect(upper.total).toBeGreaterThanOrEqual(base.total);
+  });
+
+  it('leaves ASCII English essentially unchanged (multiplier ~1)', () => {
+    const messages = msg('the quick brown fox jumps over the lazy dog. '.repeat(300));
+    const base = estimateRequestTokens(messages, [], []);
+    const upper = estimateRequestTokensUpperBound(messages, [], []);
+    // Prose has whitespace runs and no non-ASCII → density factor ≈ 1.
+    expect(upper.total).toBeLessThanOrEqual(Math.ceil(base.total * 1.05));
+  });
+
+  it('bumps the estimate up for dense CJK content the flat basis under-counts', () => {
+    const messages = msg('这是一段很长的中文文本用来测试令牌密度'.repeat(500));
+    const base = estimateRequestTokens(messages, [], []);
+    const upper = estimateRequestTokensUpperBound(messages, [], []);
+    // High non-ASCII ratio → the guard scales the estimate well above flat.
+    expect(upper.total).toBeGreaterThan(base.total * 1.5);
+  });
+
+  it('caps the density multiplier at 2.5×', () => {
+    const messages = msg('中'.repeat(5000));
+    const base = estimateRequestTokens(messages, [], []);
+    const upper = estimateRequestTokensUpperBound(messages, [], []);
+    expect(upper.total).toBeLessThanOrEqual(Math.ceil(base.total * 2.5) + 4);
+  });
+});
+
+describe('realAnchoredInputTokens', () => {
+  const msg = (t: string) => ({ role: 'user' as const, content: [{ type: 'text' as const, text: t }] });
+
+  it('returns null before any anchor exists', () => {
+    expect(realAnchoredInputTokens([msg('hi')], undefined, undefined)).toBeNull();
+    expect(realAnchoredInputTokens([msg('hi')], 0, 0)).toBeNull();
+  });
+
+  it('returns the real anchor exactly when no messages were appended since', () => {
+    const messages = [msg('a'), msg('b')];
+    // 2 messages sent, provider said 5000 real tokens, nothing appended since.
+    expect(realAnchoredInputTokens(messages, 5000, 2)).toBe(5000);
+  });
+
+  it('adds only the estimated delta of messages appended after the anchor', () => {
+    const messages = [msg('a'), msg('b'), msg('c'.repeat(3500))];
+    // Anchor at 2 messages / 5000 real tokens; the 3rd message is the delta.
+    const delta = estimateRequestTokens([messages[2]], [], []).messages;
+    expect(realAnchoredInputTokens(messages, 5000, 2)).toBe(5000 + delta);
+  });
+
+  it('falls back to null when the array shrank below the anchor (post-compaction)', () => {
+    // Anchor said 40 messages, but compaction cut it to 5 → anchor unusable.
+    expect(realAnchoredInputTokens([msg('a')], 90_000, 40)).toBeNull();
   });
 });

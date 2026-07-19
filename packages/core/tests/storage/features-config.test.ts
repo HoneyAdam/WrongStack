@@ -31,7 +31,10 @@ describe('Config.features defaults', () => {
       modelsRegistry: true,
       skills: true,
       prompts: true,
-      tokenSavingMode: 'off',
+      // Default is 'auto' — the prompt builder resolves it to a concrete tier
+      // from the model's context window (cache-safe, per session). Non-prompt
+      // consumers treat 'auto' as 'off', so tools/lazy-load are unchanged.
+      tokenSavingMode: 'auto',
       allowOutsideProjectRoot: true,
     });
   });

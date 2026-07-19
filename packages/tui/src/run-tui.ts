@@ -133,6 +133,11 @@ export interface RunTuiOptions {
   keyTail?: string | undefined;
   /** Active fallback profile name, shown in the banner (e.g. "default"). */
   profile?: string | undefined;
+  /** Absolute path to the active profile's config.json
+   *  (e.g. "~/.wrongstack/profiles/default/config.json"). When present,
+   *  the banner shows the full path with the profile name highlighted,
+   *  instead of the bare {@link profile} string. */
+  profileConfigPath?: string | undefined;
   /** Background autonomy agents to display in the banner (Brain, Shadow,
    *  Kanban, Mailbox, Memory, etc.). Read from the mailbox at boot. */
   autonomyAgents?: import('./components/history/types.js').AutonomyAgentStatus[] | undefined;
@@ -1246,6 +1251,7 @@ export async function runTui(opts: RunTuiOptions): Promise<number> {
           family: opts.family,
           keyTail: opts.keyTail,
           profile: opts.profile,
+          profileConfigPath: opts.profileConfigPath,
           autonomyAgents: opts.autonomyAgents,
           getPickableProviders: opts.getPickableProviders,
           switchProviderAndModel: opts.switchProviderAndModel,
