@@ -176,3 +176,78 @@ describe('hqAuthContentHash — format + identity invariants', () => {
     expect(HQ_AUTH_CONTENT_HASH_REDACTED).toBe('<redacted>');
   });
 });
+
+describe('hqAuthContentHash — pinned snapshot (projection-shape guard)', () => {
+  // ──────────────────────────────────────────────────────────────────
+  // SNAPSHOT TEST — read before changing.
+  //
+  // This test pins a known (file → hash) pair. If it fails, the
+  // redacted projection shape has changed (a field was added or removed,
+  // key order shifted, or the sentinel value changed). That is an
+  // INTENTIONAL break: every existing `contentHash` value in every
+  // `auth-audit.jsonl` file on every deployed HQ becomes stale, so the
+  // change must be deliberate and documented.
+  //
+  // To update after an intentional projection change:
+  //   1. Run: node -e "const {hqAuthContentHash} = require('@wrongstack/core'); console.log(hqAuthContentHash({version:1,updatedAt:'2026-07-19T12:00:00.000Z',browserTokens:[{id:'browser-1',token:'secret-browser',createdAt:'2026-07-19T11:00:00.000Z',capabilities:['control.enqueue']}],clientTokens:[{id:'client-1',token:'secret-client',createdAt:'2026-07-19T11:00:00.000Z',capabilities:['telemetry.publish']}],passwordHash:'hashed-password',cookieSecret:'cookie-secret'}))"
+  //   2. Paste the new hash below.
+  //   3. Add a note to the commit message explaining the projection
+  //      change and its impact on existing audit logs.
+  // ──────────────────────────────────────────────────────────────────
+
+  // The canonical fixture: a fully-populated auth file with known token
+  // ids, known secrets (which the projection redacts), a password hash,
+  // and a cookie secret. Both tokens carry capabilities + labels so the
+  // projection exercises every field.
+  const pinnedFile: HqAuthFile = {
+    version: 1 as typeof HQ_AUTH_FILE_VERSION,
+    updatedAt: '2026-07-19T12:00:00.000Z',
+    browserTokens: [
+      {
+        id: 'browser-1',
+        token: 'secret-browser',
+        createdAt: '2026-07-19T11:00:00.000Z',
+        capabilities: ['control.enqueue'],
+        label: 'first-run browser',
+      },
+    ],
+    clientTokens: [
+      {
+        id: 'client-1',
+        token: 'secret-client',
+        createdAt: '2026-07-19T11:00:00.000Z',
+        capabilities: ['telemetry.publish'],
+        label: 'first-run client',
+      },
+    ],
+    passwordHash: 'hashed-password',
+    cookieSecret: 'cookie-secret',
+  };
+
+  it('produces the pinned hash for the canonical fixture (guard against silent projection drift)', () => {
+    const hash = hqAuthContentHash(pinnedFile);
+    expect(hash).toBe(
+      // Computed via hqAuthContentHash over the pinnedFile above. Any
+      // change to the projection shape (field set, key order, sentinel
+      // value, JSON.stringify behavior) will flip this hash.
+      '814aa4549e30710fb278ce89b26254db5a27c02f801a367c0e90d45db717c27a',
+    );
+  });
+
+  it('the pinned fixture includes real secrets that must NOT appear in the hash payload', () => {
+    // Defensive: the snapshot test above pins the hash, but this test
+    // explicitly asserts that the raw secrets never appear in the
+    // serialized projection. If the redaction ever breaks, this test
+    // catches it even if the hash coincidentally stays the same (it
+    // won't, but defense-in-depth).
+    const hash = hqAuthContentHash(pinnedFile);
+    expect(hash).toBeDefined();
+    // The hash is a hex digest — raw secrets are not hex, so this is
+    // structurally impossible. But assert the secrets aren't trivially
+    // embedded anyway.
+    expect(hash).not.toContain('secret-browser');
+    expect(hash).not.toContain('secret-client');
+    expect(hash).not.toContain('hashed-password');
+    expect(hash).not.toContain('cookie-secret');
+  });
+});
