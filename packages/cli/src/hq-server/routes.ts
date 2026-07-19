@@ -14,6 +14,7 @@ import type * as http from 'node:http';
 import { WebSocket } from 'ws';
 import {
   buildTranscriptFromEvents,
+  type HqSnapshot,
   createHqPersistence,
   createMailboxHttpRouter,
   DEFAULT_HQ_REDACTION_POLICY,
@@ -137,6 +138,8 @@ export interface HqRouterDeps {
     projectDir: string,
   ) => MailboxHttpAccessDecision;
   getMailboxGateway: (projectDir: string) => HqRouterMailboxGateway;
+  /** Aggregate token-expiry stats for snapshot totals + alert engine. */
+  getTokenStats?: (() => HqSnapshot['totals']['tokenStats'] | undefined) | undefined;
 }
 
 // ── Route handler factory ──────────────────────────────────────────────────
@@ -168,6 +171,7 @@ export function createHqRouter(deps: HqRouterDeps): (req: http.IncomingMessage, 
     secureCookies,
     authorizeMailboxGateway,
     getMailboxGateway,
+    getTokenStats,
   } = deps;
 
   return async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
@@ -249,7 +253,7 @@ export function createHqRouter(deps: HqRouterDeps): (req: http.IncomingMessage, 
 
       if (url.pathname === '/api/snapshot' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(HqServerSnapshot.buildSnapshot(clients)));
+        res.end(JSON.stringify(HqServerSnapshot.buildSnapshot(clients, { tokenStats: getTokenStats?.() })));
         return;
       }
 
@@ -275,7 +279,7 @@ export function createHqRouter(deps: HqRouterDeps): (req: http.IncomingMessage, 
       // ── Fleet tree ────────────────────────────────────────────────
       if (url.pathname === '/api/fleet' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(HqServerSnapshot.buildSnapshot(clients)));
+        res.end(JSON.stringify(HqServerSnapshot.buildSnapshot(clients, { tokenStats: getTokenStats?.() })));
         return;
       }
 

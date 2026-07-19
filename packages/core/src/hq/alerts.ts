@@ -33,10 +33,15 @@ export interface HqAlertRuleConfig {
   staleMachineSeconds?: number;
   /** Minimum number of active agents before concurrency alert fires. Default: disabled (0). */
   maxAgents?: number;
+  /**
+   * Hours before expiry at which the `token-expiry-imminent` warning fires.
+   * Default 24. Set to 0 to disable the warning entirely (expired-only alert remains).
+   */
+  tokenExpiryWarningHours?: number;
 }
 
 /** The fully-resolved config passed to rule.evaluate (no optional fields). */
-type ResolvedAlertConfig = Required<Pick<HqAlertRuleConfig, 'costThresholdUsd' | 'staleMachineSeconds' | 'maxAgents'>>;
+type ResolvedAlertConfig = Required<Pick<HqAlertRuleConfig, 'costThresholdUsd' | 'staleMachineSeconds' | 'maxAgents' | 'tokenExpiryWarningHours'>>;
 
 /** A rule is a pure function: snapshot + config → optional firing. */
 interface HqAlertRule {
@@ -49,6 +54,7 @@ const DEFAULT_CONFIG: ResolvedAlertConfig = {
   costThresholdUsd: 50,
   staleMachineSeconds: 120,
   maxAgents: 0,
+  tokenExpiryWarningHours: 24,
 };
 
 function resolveConfig(config?: HqAlertRuleConfig): ResolvedAlertConfig {
@@ -107,6 +113,27 @@ const RULES: readonly HqAlertRule[] = [
         return `${failed} failed task(s) across the fleet`;
       }
       return null;
+    },
+  },
+  {
+    id: 'token-expired-present',
+    severity: 'error',
+    evaluate: (snapshot) => {
+      if (snapshot === null) return null;
+      const stats = snapshot.totals.tokenStats;
+      if (stats === undefined || stats.expired <= 0) return null;
+      return `${stats.expired} expired token(s) filtered from live auth — rotate or revoke them`;
+    },
+  },
+  {
+    id: 'token-expiry-imminent',
+    severity: 'warn',
+    evaluate: (snapshot, config) => {
+      if (snapshot === null) return null;
+      if (config.tokenExpiryWarningHours <= 0) return null;
+      const stats = snapshot.totals.tokenStats;
+      if (stats === undefined || stats.expiringSoon <= 0) return null;
+      return `${stats.expiringSoon} token(s) expire within ${config.tokenExpiryWarningHours}h — mint replacements before they lapse`;
     },
   },
 ];

@@ -24,6 +24,7 @@ import * as path from 'node:path';
 import { WebSocket, WebSocketServer } from 'ws';
 import {
   assessHqExposure,
+  type HqSnapshot,
   createHqPersistence,
   createMailboxHttpRouter,
   DEFAULT_HQ_REDACTION_POLICY,
@@ -226,6 +227,30 @@ function startHqServerWithAuth(
   const filterLiveTokens = <T extends { token: string; expiresAt?: string }>(list: T[] | undefined): T[] =>
     (list ?? []).filter((t) => !isTokenExpired(t));
 
+  // Track the raw (unfiltered) token lists so computeTokenStats can count
+  // expired tokens that filterLiveTokens has already removed from mutableAuth.
+  let rawBrowserTokens: readonly HqToken[] = authFile.browserTokens ?? [];
+  let rawClientTokens: readonly HqToken[] = authFile.clientTokens ?? [];
+
+  const TOKEN_EXPIRY_WARNING_MS = 24 * 60 * 60 * 1000;
+  function computeTokenStats(): NonNullable<HqSnapshot['totals']['tokenStats']> {
+    const now = Date.now();
+    const all = [...rawBrowserTokens, ...rawClientTokens];
+    const expired = all.filter((t) => isTokenExpired(t, now)).length;
+    const live = all.filter((t) => !isTokenExpired(t, now));
+    const expiringSoon = live.filter((t) => {
+      if (t.expiresAt === undefined) return false;
+      const ms = Date.parse(t.expiresAt);
+      return Number.isFinite(ms) && ms - now <= TOKEN_EXPIRY_WARNING_MS;
+    }).length;
+    return {
+      browserTotal: mutableAuth.browserTokens.size,
+      clientTotal: mutableAuth.clientTokens.size,
+      expired,
+      expiringSoon,
+    };
+  }
+
   const mutableAuth: HqRouterMutableAuth = {
     operatorPolicy: { ...DEFAULT_HQ_REDACTION_POLICY, ...(authFile.redactionPolicy ?? {}) },
     operatorPolicyOverride: authFile.redactionPolicy,
@@ -248,6 +273,8 @@ function startHqServerWithAuth(
   };
 
   const applyAuthFile = (next: typeof authFile): void => {
+    rawBrowserTokens = next.browserTokens ?? [];
+    rawClientTokens = next.clientTokens ?? [];
     mutableAuth.operatorPolicy = { ...DEFAULT_HQ_REDACTION_POLICY, ...(next.redactionPolicy ?? {}) };
     mutableAuth.operatorPolicyOverride = next.redactionPolicy;
     mutableAuth.browserTokens = new Set(filterLiveTokens(next.browserTokens).map((t) => t.token));
@@ -416,7 +443,7 @@ function startHqServerWithAuth(
     snapshotBroadcaster.currentSerialized();
 
     const stopAlertEngine = alertEngine.startPeriodic(
-      () => HqServerSnapshot.buildSnapshot(clients),
+      () => HqServerSnapshot.buildSnapshot(clients, { tokenStats: computeTokenStats() }),
       (): HqAlertRuleConfig | undefined => mutableAuth.alertRules,
     );
 
@@ -487,6 +514,7 @@ function startHqServerWithAuth(
       secureCookies: options.secureCookies,
       authorizeMailboxGateway,
       getMailboxGateway,
+      getTokenStats: computeTokenStats,
     };
     const handleRequest = createHqRouter(routerDeps);
 

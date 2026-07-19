@@ -182,5 +182,18 @@ export interface HqSnapshot {
     activeMachines?: number;
     /** Total live agents across all sessions. */
     activeAgents?: number;
+    /**
+     * Aggregate auth-token expiry stats, populated by the HQ server from
+     * its in-memory auth state. Only counts are exposed — never token
+     * strings. Absent on older snapshots (additive, default undefined).
+     */
+    tokenStats?: {
+      browserTotal: number;
+      clientTotal: number;
+      /** Tokens whose expiresAt has already passed (filtered out of live auth). */
+      expired: number;
+      /** Tokens whose expiresAt is within the imminent window (default 24h). */
+      expiringSoon: number;
+    };
   };
 }

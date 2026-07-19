@@ -32,7 +32,10 @@ export const HQ_SNAPSHOT_BROADCAST_DEBOUNCE_MS = 100;
 
 // ── buildSnapshot ──────────────────────────────────────────────────────────
 
-export function buildSnapshot(clients: Map<WebSocket, ConnectedClient>): HqSnapshot {
+export function buildSnapshot(
+  clients: Map<WebSocket, ConnectedClient>,
+  options?: { tokenStats?: HqSnapshot['totals']['tokenStats'] },
+): HqSnapshot {
   const now = new Date().toISOString();
   // Dedupe client records by clientId — one process may hold two sockets (a
   // mailbox publisher + a telemetry publisher) sharing the same clientId.
@@ -326,6 +329,7 @@ export function buildSnapshot(clients: Map<WebSocket, ConnectedClient>): HqSnaps
       totalCostUsd,
       activeMachines: machines.length,
       activeAgents: totalAgents,
+      ...(options?.tokenStats !== undefined ? { tokenStats: options.tokenStats } : {}),
     },
   };
 }
