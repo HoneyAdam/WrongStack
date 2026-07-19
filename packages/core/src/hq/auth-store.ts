@@ -178,6 +178,16 @@ export function emptyHqAuthFile(): HqAuthFile {
 }
 
 /**
+ * Sentinel value `hqAuthContentHash` substitutes for every raw secret
+ * (`HqToken.token`, `HqAuthFile.passwordHash`, `HqAuthFile.cookieSecret`)
+ * before hashing. Exported so downstream consumers of the audit log can
+ * recognize the redaction shape without hardcoding the literal — e.g. a
+ * forensic tool that re-derives a `contentHash` from a known on-disk
+ * `auth.json` can substitute this same sentinel and compare.
+ */
+export const HQ_AUTH_CONTENT_HASH_REDACTED = '<redacted>';
+
+/**
  * Compute a SHA-256 content hash over a *redacted* projection of an
  * `HqAuthFile`. The projection replaces every raw token string, the
  * `passwordHash`, and the `cookieSecret` with constant sentinels, so:
@@ -198,7 +208,7 @@ export function emptyHqAuthFile(): HqAuthFile {
  * best-effort contract.
  */
 export function hqAuthContentHash(file: HqAuthFile): string | undefined {
-  const REDACTED = '<redacted>';
+  const REDACTED = HQ_AUTH_CONTENT_HASH_REDACTED;
   const redactToken = (t: HqToken): HqToken => ({ ...t, token: REDACTED });
   try {
     // `exactOptionalPropertyTypes: true` means optional fields can't be
