@@ -403,7 +403,9 @@ export function FleetPanel({
   const hasSwarm = grid.rows.length > 0;
   if (!hasSwarm && todoRows.length === 0 && !hasCollab) return null;
 
-  const runningCount = subagents.filter((entry) => entry.status === 'running').length;
+  // LIVE counts every running agent, leader included — a lone leader working
+  // should read as `● 1 LIVE`, not a gray `0`.
+  const runningCount = list.filter((entry) => entry.status === 'running').length;
   const totalIterations = subagents.reduce((sum, entry) => sum + entry.iterations, 0);
   const totalTools = subagents.reduce((sum, entry) => sum + entry.toolCalls, 0);
   const todoCounts = (todos ?? []).reduce(

@@ -274,4 +274,22 @@ describe('FleetPanel render', () => {
 
     view.unmount();
   });
+
+  it('counts a lone running leader as 1 LIVE', () => {
+    const view = render(
+      React.createElement(FleetPanel, {
+        entries: {
+          leader: entry({ id: 'leader', name: 'LEADER', status: 'running', startedAt: 1_000 }),
+        },
+        totalCost: 0,
+        nowTick: 5_000,
+      }),
+    );
+    const frame = view.lastFrame() ?? '';
+
+    expect(frame).toContain('AGENT SWARM');
+    expect(frame).toContain('1 LIVE');
+
+    view.unmount();
+  });
 });
