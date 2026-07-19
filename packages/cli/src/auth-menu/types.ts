@@ -36,6 +36,13 @@ export interface AuthMenuDeps {
   vault: SecretVault;
   globalConfigPath: string;
   /**
+   * Optional path to the active profile's config file. When provided,
+   * provider credentials are read from and written to this file (in addition
+   * to the global config when both are needed). Profile-scoped providers
+   * ensure each profile can carry its own API keys.
+   */
+  profileConfigPath?: string;
+  /**
    * Optional scrubber used by `wstack auth local` to redact Bearer
    * tokens from probe logs before they reach the renderer. Falls back
    * to a fresh {@link DefaultSecretScrubber} when not supplied.

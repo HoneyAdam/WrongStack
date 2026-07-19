@@ -50,6 +50,7 @@ export interface AuthPanelServiceDeps {
   vault: SecretVault;
   modelsRegistry: ModelsRegistry;
   globalConfigPath: string;
+  profileConfigPath?: string;
   secretScrubber?: SecretScrubber | undefined;
 }
 
@@ -131,16 +132,23 @@ export function plainMaskedKey(key: string): string {
 
 export function createAuthPanelHost(deps: AuthPanelServiceDeps): AuthPanelHost {
   const loadProviders = (): Promise<Record<string, ProviderConfig>> =>
-    loadConfigProviders(deps.globalConfigPath, deps.vault);
+    loadConfigProviders(deps.globalConfigPath, deps.vault, {
+      profileConfigPath: deps.profileConfigPath,
+    });
 
   const mutate = async (
     mutator: (providers: Record<string, ProviderConfig>) => string | null,
   ): Promise<string | null> => {
     let result: string | null = null;
     try {
-      await mutateConfigProviders(deps.globalConfigPath, deps.vault, (all) => {
-        result = mutator(all);
-      });
+      await mutateConfigProviders(
+        deps.globalConfigPath,
+        deps.vault,
+        (all) => {
+          result = mutator(all);
+        },
+        deps.profileConfigPath,
+      );
     } catch (err) {
       return err instanceof Error ? err.message : String(err);
     }

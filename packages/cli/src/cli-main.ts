@@ -2004,6 +2004,7 @@ export async function main(argv: string[]): Promise<number> {
     memoryStore,
     logger,
     events,
+    getSessionId: () => agent.ctx.session.id,
   });
   const disposeIndexing = await setupCodebaseIndexing({
     config,
@@ -2165,6 +2166,9 @@ export async function main(argv: string[]): Promise<number> {
           vault,
           modelsRegistry,
           globalConfigPath: wpaths.globalConfig,
+          profileConfigPath: wpaths.profileConfig(
+            ((configRef.current as { activeProfile?: string }).activeProfile ?? 'default'),
+          ),
         }),
         onPanelOpen,
       },
