@@ -36,6 +36,7 @@ import {
 import type { HqServerHandle } from '../../hq-server.js';
 import type { SubcommandDeps, SubcommandHandler } from '../index.js';
 import * as os from 'node:os';
+import * as fs from 'node:fs/promises';
 
 /**
  * Build a free-form actor string for the auth audit log. Combines the OS
@@ -247,6 +248,22 @@ async function hqAuditVerify(deps: SubcommandDeps): Promise<number> {
   deps.renderer.write(`auth file:   ${authPath}\n`);
   deps.renderer.write(`audit log:   ${auditPath}\n`);
 
+  // readHqAuthFile returns a synthetic default when auth.json is missing
+  // (it doesn't throw), so hqAuthContentHash would still produce a hash
+  // over that default — which is misleading: no audit entry corresponds
+  // to a file that isn't on disk. Check existence directly so the
+  // operator gets an honest "unavailable" when there's nothing to hash.
+  const fileExists = await fileExistsQuiet(authPath);
+  if (!fileExists) {
+    deps.renderer.write(
+      `contentHash: (unavailable — auth.json does not exist)\n`,
+    );
+    deps.renderer.write(
+      `Compare historical entries in the audit log above against a known-good hash.\n`,
+    );
+    return 1;
+  }
+
   const authFile = await readHqAuthFile(dataDir, {
     warn: (msg) => deps.renderer.writeWarning(`${msg}\n`),
   });
@@ -254,7 +271,7 @@ async function hqAuditVerify(deps: SubcommandDeps): Promise<number> {
   const hash = hqAuthContentHash(authFile);
   if (hash === undefined) {
     deps.renderer.write(
-      `contentHash: (unavailable — auth.json is missing or unreadable)\n`,
+      `contentHash: (unavailable — auth.json is unreadable or malformed)\n`,
     );
     deps.renderer.write(
       `Compare historical entries in the audit log above against a known-good hash.\n`,
@@ -274,6 +291,15 @@ async function hqAuditVerify(deps: SubcommandDeps): Promise<number> {
     `entry was emitted (secrets may differ — only the non-secret shape is hashed).\n`,
   );
   return 0;
+}
+
+async function fileExistsQuiet(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
