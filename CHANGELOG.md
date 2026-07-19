@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — HQ auth audit forensic tie-back (`contentHash`)
+- **`contentHash` field on `HqAuthAuditEntry`** — every audit entry now carries
+  a SHA-256 hash of the redacted `auth.json` projection, letting an operator
+  reviewing `auth-audit.jsonl` tie an entry back to the exact on-disk state
+  that produced it without the log ever holding derivable token material.
+- **`hqAuthContentHash` helper + `HQ_AUTH_CONTENT_HASH_REDACTED` sentinel**
+  (exported from `@wrongstack/core`) — the helper computes the hash over a
+  projection where raw token strings, `passwordHash`, and `cookieSecret` are
+  replaced by the sentinel, so two files that differ only in secrets hash
+  identically. Re-derivable from the current `auth.json` via
+  `hqAuthContentHash(await readHqAuthFile(dir))`.
+- **Five emission sites carry `contentHash`** — `first-run` (browser + client)
+  and `password-rotate` in `auth-store.ts`, `expired-prune` (browser + client)
+  in `hq-server.ts`, and `token create` / `token revoke` in the `wstack hq`
+  CLI handler. Every `kind` in the `HqAuthAuditKind` union now has at least
+  one emission site with forensic tie-back. All five re-read the persisted
+  file after writing (rather than hashing the in-memory snapshot) because
+  `writeHqAuthFile` re-stamps `updatedAt` on the persisted payload.
+- **`wstack hq audit verify` CLI helper** — re-derives the contentHash from
+  the current on-disk `auth.json` and prints it alongside the resolved file
+  paths, so an operator can compare against audit entries without writing a
+  script. Exits 1 with an honest `(unavailable)` message when `auth.json` is
+  missing (distinguishing it from the unreadable/malformed case).
+- **Projection-shape snapshot test** — `auth-store-content-hash.test.ts` pins
+  a known `(file → hash)` pair so any future change to the redacted projection
+  (field set, key order, sentinel value) surfaces as an intentional test
+  update rather than a silent hash migration across every deployed audit log.
+- **`hq audit verify` test coverage** — `hq-audit-verify.test.ts` (7 cases)
+  pins the output format, both exit-code paths, and the CLI-to-core hash
+  contract.
+
 ### Changed
 - **Task-aware Memory Injector** — on-demand retrieval now combines concrete
   tool paths/queries with live todo and Kanban state, expands direct seeds via
