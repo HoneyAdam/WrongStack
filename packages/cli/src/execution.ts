@@ -494,14 +494,22 @@ export async function execute(deps: ExecuteDeps): Promise<number> {
           maxIterations: 50,
           maxToolCalls: 250,
           timeoutMs: 900_000,
-          // Auto-review resolves its configured profile before emitting the bundle.
-          // Ordinary Chimera/manual reviews retain the established reviewer defaults.
+          // Auto-review resolves its configured profile before emitting the bundle
+          // and passes the explicit provider/model + fallback chain.
+          //
+          // Ordinary Chimera/manual reviews: the session config's own provider/model
+          // serve as the starting point. Together with the fallback chain this
+          // guarantees the subagent always has a concrete model to use — without it
+          // the Director's model-matrix resolution could leave config.model undefined
+          // (the `*` default is discarded for reviewer roles via
+          // roleNeedsIndependentReviewModel), causing the subagent to issue a
+          // provider request with an empty model string → 401 "Model is not
+          // supported" from opencode-go (1 iter / 0 tools / provider_auth).
+          // See fix(execution) <commit-hash>.
+          provider: p.reviewFallbackModels ? p.config.provider : config.provider,
+          model: p.reviewFallbackModels ? p.config.model : config.model,
           ...(p.reviewFallbackModels
-            ? {
-                provider: p.config.provider,
-                model: p.config.model,
-                fallbackModels: p.reviewFallbackModels,
-              }
+            ? { fallbackModels: p.reviewFallbackModels }
             : { fallbackModels: resolveReviewerFallbackModels() }),
         };
 
