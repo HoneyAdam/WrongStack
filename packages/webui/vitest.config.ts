@@ -16,6 +16,15 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
+    // A handful of server suites spawn real `git` / worktree processes
+    // (git-handlers, worktree-ws-handler). Each passes comfortably in
+    // isolation, but under the full 200+ file suite the box is CPU-starved
+    // and those spawns miss vitest's default ceilings (test 5s / hook 10s) —
+    // surfacing as spurious timeouts that abort `release:check`'s `pnpm test`
+    // step. Raise the ceilings so load, not a real hang, no longer fails the
+    // release. See memory: full-suite-load-flakes.
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
