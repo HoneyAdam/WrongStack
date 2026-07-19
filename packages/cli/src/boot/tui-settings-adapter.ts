@@ -227,10 +227,19 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
         s.showModelReasoning !== undefined
       ) {
         const configScope = s.configScope ?? configStore.get().configScope ?? 'global';
+        // Resolve the active profile: read from the live config and default
+        // to 'default' when unset (pre-migration or fresh install). Profile
+        // configs live at ~/.wrongstack/profiles/<name>/config.json; the thin
+        // bootstrap file at ~/.wrongstack/config.json holds only version +
+        // activeProfile.
+        const currentConfigForProfile = configStore.get();
+        const activeProfileName =
+          (currentConfigForProfile as { activeProfile?: string }).activeProfile ?? 'default';
+        const globalProfilePath = wpaths.profileConfig(activeProfileName);
         const targetPath =
           configScope === 'project' && wpaths.inProjectConfig
             ? wpaths.inProjectConfig
-            : wpaths.globalConfig;
+            : globalProfilePath;
         let raw: string;
         try {
           raw = await fs.readFile(targetPath, 'utf8');
@@ -386,9 +395,14 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
           if (s.breakerAutoKillResetMs !== undefined) cb.autoKillResetMs = s.breakerAutoKillResetMs;
           decrypted.circuitBreaker = cb;
         }
-        const toWrite = targetPath === wpaths.globalConfig ? decrypted : filterSafeForProject(decrypted);
+        // Only filter for project safety when writing to the in-project
+        // config (.wrongstack/config.json). Both the global-profile config
+        // (~/.wrongstack/profiles/<name>/config.json) and the bootstrap
+        // global config (~/.wrongstack/config.json) store the full config.
+        const isProjectScope = configScope === 'project' && wpaths.inProjectConfig !== undefined;
+        const toWrite = isProjectScope ? filterSafeForProject(decrypted) : decrypted;
         const encrypted = encryptConfigSecrets(toWrite, noOpVault);
-        if (targetPath !== wpaths.globalConfig) {
+        if (isProjectScope) {
           await fs.mkdir(path.dirname(targetPath), { recursive: true });
         }
         await atomicWrite(targetPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
