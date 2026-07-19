@@ -1,7 +1,7 @@
 import { Box, Static, useStdout } from '../../ink.js';
 import type React from 'react';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { AssistantTail } from './assistant.js';
+import { AssistantTail, ASSISTANT_TAIL_HEIGHT } from './assistant.js';
 import { Entry } from './entry.js';
 import { MAX_STREAM_DISPLAY_CHARS, tailForDisplay } from './utils.js';
 import type { HistoryProps } from './types.js';
@@ -30,7 +30,7 @@ export {
   summarizeMultiFileDiffs,
 } from './code-block.js';
 export { Entry } from './entry.js';
-export { MESSAGE_PANEL_BORDER_WIDTH, MESSAGE_PANEL_CHROME_WIDTH, MESSAGE_PANEL_MARGIN, AssistantBody, AssistantTail, assistantContentWidth, assistantTailRows, splitFencedBlocks } from './assistant.js';
+export { MESSAGE_PANEL_BORDER_WIDTH, MESSAGE_PANEL_CHROME_WIDTH, MESSAGE_PANEL_MARGIN, ASSISTANT_TAIL_HEIGHT, AssistantBody, AssistantTail, assistantContentWidth, assistantTailRows, splitFencedBlocks } from './assistant.js';
 export {
   shortenPath,
   previewArgs,
@@ -150,9 +150,16 @@ export const History = memo(function History({ entries, generation, streamingTex
         node at the history / bottom-area boundary. Without this, <Static>
         bypasses the virtual screen and when a tall overlay (SettingsPicker)
         unmounts the reclaimed space is not cleared, leaving ghost text.
+
+        The assistant tail is only rendered while content exists; when absent
+        the flexGrow anchor takes zero visual space so no gap remains.
       */}
       <Box flexGrow={1}>
-        {tail ? <AssistantTail text={tail} termWidth={termWidth} /> : null}
+        {tail ? (
+          <Box height={ASSISTANT_TAIL_HEIGHT} flexShrink={0}>
+            <AssistantTail text={tail} termWidth={termWidth} />
+          </Box>
+        ) : null}
       </Box>
     </>
   );

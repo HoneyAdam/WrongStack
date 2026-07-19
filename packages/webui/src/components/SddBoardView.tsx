@@ -17,7 +17,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useProviderModels } from '@/hooks/useProviderModels';
 import { useWebSocket } from '@/hooks/useWebSocket';
-import { usePagination } from '@/hooks/usePagination';
+
 import { agentInitials, fmtDuration, SDD_AGENT_COLORS, SDD_RUN_STATUS } from '@/lib/sdd-theme';
 import { cn } from '@/lib/utils';
 import { i18n, useAppTranslation } from '@/i18n';
@@ -28,7 +28,6 @@ import { type FlowTask, SddFlowGraph } from './SddFlowGraph';
 import { SddKanbanView } from './SddKanbanView';
 import { SddTaskDrawer } from './SddTaskDrawer';
 import { Button } from './ui/button';
-import { Pagination } from './ui/pagination';
 
 /** Circular progress ring. */
 function ProgressRing({ pct }: { pct: number }): React.ReactElement {
@@ -240,7 +239,7 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
 
   const p = snapshot?.progress;
   const chains = snapshot?.diagnostics?.deadlockChains ?? [];
-  const chainPage = usePagination(chains, 5);
+  // Deadlock chains are bounded (per board), show all without pagination.
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-background">
@@ -474,20 +473,11 @@ export function SddBoardView({ onClose }: { onClose: () => void }): React.ReactE
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <div>
             <div className="font-semibold">{t('activity:sddBoard.deadlock')}</div>
-            {chainPage.pageItems.map((c) => (
+            {chains.map((c) => (
               <div key={c.blocked} className="font-mono">
                 {c.blocked} ← {c.blockedBy.join(', ')}
               </div>
             ))}
-            <Pagination
-              page={chainPage.page}
-              pageSize={chainPage.pageSize}
-              totalItems={chainPage.totalItems}
-              onPageChange={chainPage.setPage}
-              className="mt-1 border-destructive/20 bg-transparent"
-              compact
-              itemLabel="deadlock chains"
-            />
           </div>
         </div>
       )}

@@ -2,8 +2,6 @@ import { getWSClient } from '@/lib/ws-client';
 import { cn } from '@/lib/utils';
 import { useAppTranslation } from '@/i18n';
 import { useSessionStore } from '@/stores';
-import { usePagination } from '@/hooks/usePagination';
-import { Pagination } from '@/components/ui/pagination';
 import { CheckCircle2, Circle, Clock, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -59,12 +57,12 @@ export function TodosPanel(): React.ReactElement | null {
   const sorted = [...todos].sort(
     (a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9),
   );
-  const todoPage = usePagination(sorted, 15);
+  // Todos are bounded (per session), show all without pagination.
   const totalCompleted = sorted.filter((todo) => todo.status === 'completed').length;
 
-  const inProgress = todoPage.pageItems.filter((todo) => todo.status === 'in_progress');
-  const pending = todoPage.pageItems.filter((todo) => todo.status === 'pending');
-  const completed = todoPage.pageItems.filter((todo) => todo.status === 'completed');
+  const inProgress = sorted.filter((todo) => todo.status === 'in_progress');
+  const pending = sorted.filter((todo) => todo.status === 'pending');
+  const completed = sorted.filter((todo) => todo.status === 'completed');
   const hasCompleted = completed.length > 0;
   const completedCollapsed = collapsedSections.has('completed');
 
@@ -186,14 +184,6 @@ export function TodosPanel(): React.ReactElement | null {
           {!completedCollapsed && completed.map(renderItem)}
         </div>
       )}
-      <Pagination
-        page={todoPage.page}
-        pageSize={todoPage.pageSize}
-        totalItems={todoPage.totalItems}
-        onPageChange={todoPage.setPage}
-        compact
-        itemLabel="todos"
-      />
     </div>
   );
 }

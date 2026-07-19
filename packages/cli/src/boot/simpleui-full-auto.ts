@@ -11,8 +11,12 @@ export type CliFlags = Record<string, string | boolean>;
  * project-root containment. Those guarantees are enforced below config/flag
  * selection and continue to win over YOLO.
  */
+export function isSimpleUiFullAuto(flags: CliFlags): boolean {
+  return flags['simpleui'] === true && flags['full-auto'] === true;
+}
+
 export function applySimpleUiFullAutoProfile(config: Config, flags: CliFlags): Config {
-  if (flags['simpleui'] !== true || flags['full-auto'] !== true) return config;
+  if (!isSimpleUiFullAuto(flags)) return config;
 
   flags['yolo'] = true;
   flags['director'] = true;
@@ -28,10 +32,6 @@ export function applySimpleUiFullAutoProfile(config: Config, flags: CliFlags): C
       disabledTools: [],
     }),
   });
-}
-
-export function isSimpleUiFullAuto(flags: CliFlags): boolean {
-  return flags['simpleui'] === true && flags['full-auto'] === true;
 }
 
 /**

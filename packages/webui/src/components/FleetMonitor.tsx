@@ -32,8 +32,6 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ConcurrencyGauge, EventTimeline } from '@/components/ui';
-import { Pagination } from '@/components/ui/pagination';
-import { usePagination } from '@/hooks/usePagination';
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from './ui/sheet';
 import { AgentTranscript } from '@/components/AgentTranscript';
 import { SparklineChart } from '@/components/ui/sparkline';
@@ -414,7 +412,7 @@ export function FleetMonitor({
     });
     return arr;
   }, [fleetAgents, leaderId]);
-  const fleetPage = usePagination(fleetList, 15);
+  // Fleet is bounded (active agents), show all without pagination.
 
   const totalCost = useMemo(
     () => Array.from(fleetAgents.values()).reduce((sum, a) => sum + a.costUsd, 0),
@@ -549,8 +547,8 @@ export function FleetMonitor({
               </div>
             ) : (
               <div className="p-2 space-y-0.5">
-                {fleetPage.pageItems.map((agent, i) => {
-                  const globalIndex = (fleetPage.page - 1) * fleetPage.pageSize + i;
+                {fleetList.map((agent, i) => {
+                  const globalIndex = i;
                   return (
                   <FleetAgentRow
                     key={agent.id}
@@ -564,18 +562,6 @@ export function FleetMonitor({
               </div>
             )}
           </div>
-          <Pagination
-            page={fleetPage.page}
-            pageSize={fleetPage.pageSize}
-            totalItems={fleetPage.totalItems}
-            onPageChange={(page) => {
-              fleetPage.setPage(page);
-              setSelectedIdx(null);
-            }}
-            compact
-            itemLabel="agents"
-          />
-
           {/* Footer: event timeline */}
           <div className="border-t bg-card/80 shrink-0">
             <div className="px-4 py-2 border-b">

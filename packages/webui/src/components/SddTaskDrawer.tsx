@@ -17,13 +17,11 @@ import {
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { ModelCandidate } from '@/hooks/useProviderModels';
-import { usePagination } from '@/hooks/usePagination';
 import { agentInitials, fmtDuration, priorityStyle, statusStyle } from '@/lib/sdd-theme';
 import { cn } from '@/lib/utils';
 import { useAppTranslation } from '@/i18n';
 import type { BoardTaskItem, SddBoardFeedEntry } from '@/stores';
 import { ModelPicker } from './ModelPicker';
-import { Pagination } from './ui/pagination';
 
 /**
  * SddTaskDrawer — the per-task "show": full detail of a clicked task. Status,
@@ -539,7 +537,7 @@ function TaskEventLog({
   expanded?: boolean;
 }) {
   const { t } = useAppTranslation();
-  const eventPage = usePagination(events, expanded ? 20 : 10, expanded);
+  // Task events are bounded (per task), show all without pagination.
   return (
     <section className={cn('rounded-lg border border-border/70 bg-background/45', expanded && 'col-span-2')}>
       <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2.5">
@@ -561,7 +559,7 @@ function TaskEventLog({
         </p>
       ) : (
         <div className={cn('divide-y divide-border/45 overflow-auto', expanded ? 'max-h-[32rem]' : 'max-h-72')}>
-          {eventPage.pageItems.map((event, index) => {
+          {events.map((event, index) => {
             const isFile = event.kind === 'file';
             const isTool = event.kind === 'tool';
             const failed = event.ok === false || event.kind === 'failed' || event.kind === 'verification_failed';
@@ -626,14 +624,6 @@ function TaskEventLog({
           })}
         </div>
       )}
-      <Pagination
-        page={eventPage.page}
-        pageSize={eventPage.pageSize}
-        totalItems={eventPage.totalItems}
-        onPageChange={eventPage.setPage}
-        compact
-        itemLabel="task events"
-      />
     </section>
   );
 }

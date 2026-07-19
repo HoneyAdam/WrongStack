@@ -6,8 +6,6 @@ import { Bot, Check, ChevronDown, ChevronRight, Clock, Copy, Cpu, Wrench, X, Zap
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAppTranslation } from '@/i18n';
 import { SparklineChart } from '@/components/ui/sparkline';
-import { Pagination } from '@/components/ui/pagination';
-import { usePagination } from '@/hooks/usePagination';
 
 /** Status → LED color + label. */
 const STATUS_META: Record<
@@ -417,7 +415,7 @@ export function FleetPanel({
     arr.sort(compareAgentsByActivity);
     return arr;
   }, [agents]);
-  const fleetPage = usePagination(list, 8);
+  // Fleet is bounded (active agents), show all without pagination.
 
   const selected = selectedId ? list.find((a) => a.id === selectedId) : null;
 
@@ -470,7 +468,7 @@ export function FleetPanel({
         {!effectiveCollapsed && (
           <div>
             <div className="flex gap-2 overflow-x-auto px-2 pb-2 min-h-0">
-            {fleetPage.pageItems.map((a) => (
+            {list.map((a) => (
               <AgentCard
                 key={a.id}
                 a={a}
@@ -478,14 +476,6 @@ export function FleetPanel({
               />
             ))}
             </div>
-            <Pagination
-              page={fleetPage.page}
-              pageSize={fleetPage.pageSize}
-              totalItems={fleetPage.totalItems}
-              onPageChange={fleetPage.setPage}
-              compact
-              itemLabel="agents"
-            />
           </div>
         )}
       </div>

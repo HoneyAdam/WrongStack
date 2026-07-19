@@ -8,12 +8,10 @@
 import { Bot, CheckCircle2, LayoutGrid, ListFilter, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { usePagination } from '@/hooks/usePagination';
 import { cn } from '@/lib/utils';
 import type { SubagentView } from '@/stores';
 import { selectLeaderName, selectSortedAgentList, useFleetStore, useUIStore } from '@/stores';
 import { useAppTranslation } from '@/i18n';
-import { Pagination } from '@/components/ui/pagination';
 import { FleetSummaryBar } from '@/components/agents/FleetSummaryBar';
 import { AgentRosterCard } from '@/components/agents/AgentRosterCard';
 
@@ -52,7 +50,7 @@ export function AgentsPanel() {
     });
   }, [fleetList, filter]);
 
-  const agentPage = usePagination(filteredList, 12);
+  // Agents are bounded (active fleet), show all without pagination.
 
   const hasFinished = fleetList.some(
     (a) => a.status !== 'running',
@@ -75,7 +73,7 @@ export function AgentsPanel() {
 
   // ── Keyboard navigation ─────────────────────────────────────────
   const handleRosterKeyDown = useCallback((e: React.KeyboardEvent) => {
-    const page = agentPage.pageItems;
+    const page = filteredList;
     if (page.length === 0) return;
 
     switch (e.key) {
@@ -97,20 +95,6 @@ export function AgentsPanel() {
         });
         break;
       }
-      case 'ArrowRight':
-        e.preventDefault();
-        if (agentPage.page < Math.ceil(agentPage.totalItems / agentPage.pageSize)) {
-          agentPage.setPage(agentPage.page + 1);
-          setFocusedIndex(0);
-        }
-        break;
-      case 'ArrowLeft':
-        e.preventDefault();
-        if (agentPage.page > 1) {
-          agentPage.setPage(agentPage.page - 1);
-          setFocusedIndex(0);
-        }
-        break;
       case 'Enter':
       case ' ':
         e.preventDefault();
@@ -125,7 +109,7 @@ export function AgentsPanel() {
         }
         break;
     }
-  }, [agentPage, focusedIndex, toggleAgent, expandedAgentId]);
+  }, [filteredList, focusedIndex, toggleAgent, expandedAgentId]);
 
   // Focus the card element when focusedIndex changes.
   useEffect(() => {
@@ -134,7 +118,7 @@ export function AgentsPanel() {
       const el = cards[focusedIndex] as HTMLElement | undefined;
       el?.focus();
     }
-  }, [focusedIndex, agentPage.page]);
+  }, [focusedIndex]);
 
   // ── Empty states ──────────────────────────────────────────────────
   // Three distinct states: no agents ever, filtered out, all finished.
@@ -261,7 +245,7 @@ export function AgentsPanel() {
         ref={rosterRef}
         role="listbox"
         aria-label="Agent roster"
-        aria-activedescendant={focusedIndex >= 0 ? `agent-card-${agentPage.pageItems[focusedIndex]?.id}` : undefined}
+        aria-activedescendant={focusedIndex >= 0 ? `agent-card-${filteredList[focusedIndex]?.id}` : undefined}
         tabIndex={0}
         onKeyDown={handleRosterKeyDown}
         className="min-h-0 min-w-0 flex-1 space-y-1.5 overflow-y-auto overscroll-contain bg-[hsl(var(--surface-2)/0.35)] p-2"
@@ -271,19 +255,18 @@ export function AgentsPanel() {
             {t('activity:agents.rosterHint')}
           </div>
         )}
-        {agentPage.pageItems.map((a) => (
+        {filteredList.map((a) => (
           <AgentRosterCard
             key={a.id}
             agent={a}
             isLeader={a.id === leaderId}
             isExpanded={expandedAgentId === a.id}
-            isFocused={focusedIndex >= 0 && agentPage.pageItems[focusedIndex]?.id === a.id}
+            isFocused={focusedIndex >= 0 && filteredList[focusedIndex]?.id === a.id}
             onToggle={() => toggleAgent(a.id)}
             onOpenInspector={() => openFleetInspector(a.id)}
           />
         ))}
       </div>
-      <Pagination page={agentPage.page} pageSize={agentPage.pageSize} totalItems={agentPage.totalItems} onPageChange={agentPage.setPage} compact itemLabel="agents" />
       <div className="shrink-0 border-t border-border/70 bg-card/75 px-3 py-2">
         <button
           type="button"

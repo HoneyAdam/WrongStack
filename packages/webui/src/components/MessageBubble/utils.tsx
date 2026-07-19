@@ -59,6 +59,19 @@ export function formatToolDuration(ms: number): string {
   return `${m}m ${s}s`;
 }
 
+/**
+ * Pull a trailing exit code out of a tool result for the ledger header chip.
+ * Matches the same shapes the ToolResult shell parses ("exit code: N",
+ * "[exit 1]", "exit=0"). Returns undefined when none is present so the chip
+ * is only shown when it carries real information — a bash command that
+ * succeeded quietly gets a green status dot, not a redundant "exit 0".
+ */
+export function extractExitCode(result: string | undefined): number | undefined {
+  if (!result) return undefined;
+  const m = result.match(/(?:^|\n)\s*(?:\[?exit(?:\s*code)?\]?\s*[:=]?\s*)(\d+)\s*$/i);
+  return m ? Number(m[1]) : undefined;
+}
+
 /** Rehype plugins for react-markdown — syntax highlighting via highlight.js. */
 export const rehypePlugins = [rehypeHighlight];
 

@@ -1,0 +1,122 @@
+/* ── Terminal Ledger ────────────────────────────────────────────────────────
+ * Tool results and model-reasoning blocks in the chat history, styled as sharp
+ * editorial-terminal cards with a colored status rail. The design system pins
+ * every radius to 0, so identity comes from hairline borders, a monospace
+ * ledger header, and a left status rail — never rounded corners. Motion is
+ * restrained: only a live (running / streaming) card breathes.
+ * ---------------------------------------------------------------------------*/
+
+.ws-ledger {
+  position: relative;
+  background: hsl(var(--card) / 0.4);
+  border-left-width: 2px;
+  border-left-style: solid;
+}
+
+/* Status rails — the ambient "is this ok?" signal, echoed by the header dot. */
+.ws-ledger--ok {
+  border-left-color: hsl(var(--success) / 0.75);
+}
+.ws-ledger--error {
+  border-left-color: hsl(var(--destructive) / 0.85);
+  background: hsl(var(--destructive) / 0.04);
+}
+.ws-ledger--running {
+  border-left-color: hsl(var(--warning) / 0.9);
+  animation: wsRailPulse 1.8s ease-in-out infinite;
+}
+
+/* A single hairline sweep down a running rail — reads as "work in flight"
+ * without the noise of a spinner in the body. */
+.ws-ledger--running::before {
+  content: "";
+  position: absolute;
+  left: -2px;
+  top: 0;
+  width: 2px;
+  height: 34%;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    hsl(var(--warning)),
+    transparent
+  );
+  animation: wsRailSweep 1.9s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* The header dot: solid, tinted by status; pulses only while running. */
+.ws-ledger__dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  background: currentColor;
+  box-shadow: 0 0 6px -1px currentColor;
+}
+.ws-ledger__dot--running {
+  animation: wsDotPulse 1.4s ease-in-out infinite;
+}
+
+/* ── Reasoning log ──────────────────────────────────────────────────────────
+ * Model reasoning gets a dotted rail instead of a solid one — a quieter,
+ * "aside" texture distinct from the tool ledger's decisive solid rail. */
+.ws-reasoning {
+  position: relative;
+  border-left: 1px dashed hsl(var(--primary) / 0.35);
+  padding-left: 0.75rem;
+}
+.ws-reasoning__mark {
+  color: hsl(var(--primary));
+  filter: drop-shadow(0 0 5px hsl(var(--primary) / 0.4));
+}
+
+@keyframes wsRailPulse {
+  0%,
+  100% {
+    border-left-color: hsl(var(--warning) / 0.9);
+  }
+  50% {
+    border-left-color: hsl(var(--warning) / 0.4);
+  }
+}
+
+@keyframes wsRailSweep {
+  0% {
+    top: -34%;
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    top: 100%;
+    opacity: 0;
+  }
+}
+
+@keyframes wsDotPulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ws-ledger--running,
+  .ws-ledger--running::before,
+  .ws-ledger__dot--running {
+    animation: none !important;
+  }
+  .ws-ledger--running::before {
+    display: none;
+  }
+}

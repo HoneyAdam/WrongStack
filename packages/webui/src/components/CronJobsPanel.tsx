@@ -10,14 +10,13 @@
  * pattern as ProcessMonitor and QueuePanel.
  */
 import { Clock, PauseCircle, PlayCircle, RotateCw } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback } from 'react';
 import { useCronStore } from '@/stores';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogTitle, DialogHeader, DialogDescription } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Pagination } from '@/components/ui/pagination';
 
-const CRON_PAGE_SIZE = 12;
+// Jobs are bounded (user-defined), show all without pagination.
 
 // ── Props ──────────────────────────────────────────────────────────────────
 
@@ -71,7 +70,6 @@ export function CronJobsPanel({ open, onClose }: CronJobsPanelProps): React.Reac
   const snapshot = useCronStore((s) => s.snapshot);
   const lastFiredAt = useCronStore((s) => s.lastFiredAt);
   const revision = useCronStore((s) => s.revision);
-  const [page, setPage] = useState(1);
 
   // Cast revision to a noop usage so the hook re-renders on store changes.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -83,13 +81,6 @@ export function CronJobsPanel({ open, onClose }: CronJobsPanelProps): React.Reac
   const overdueCount = jobs.filter((j) => j.overdue).length;
   const enabledCount = jobs.filter((j) => j.enabled).length;
   const totalRuns = jobs.reduce((s, j) => s + j.runCount, 0);
-  const visibleJobs = jobs.slice((page - 1) * CRON_PAGE_SIZE, page * CRON_PAGE_SIZE);
-
-  useEffect(() => {
-    if (!open) setPage(1);
-    const totalPages = Math.max(1, Math.ceil(jobs.length / CRON_PAGE_SIZE));
-    if (page > totalPages) setPage(totalPages);
-  }, [jobs.length, open, page]);
 
   const handleOpenChange = useCallback(
     (open: boolean) => {
@@ -147,7 +138,7 @@ export function CronJobsPanel({ open, onClose }: CronJobsPanelProps): React.Reac
                 </tr>
               </thead>
               <tbody>
-                {visibleJobs.map((job) => (
+                {jobs.map((job) => (
                   <tr key={job.name} className="border-b border-border/30 last:border-0">
                     <td className="py-2.5 pr-3">
                       <StatusBadge enabled={job.enabled} overdue={job.overdue} />
@@ -179,15 +170,6 @@ export function CronJobsPanel({ open, onClose }: CronJobsPanelProps): React.Reac
             </table>
           </ScrollArea>
         )}
-        <Pagination
-          page={page}
-          pageSize={CRON_PAGE_SIZE}
-          totalItems={jobs.length}
-          onPageChange={setPage}
-          compact
-          itemLabel="cron jobs"
-        />
-
         {/* Footer hint */}
         {count > 0 && (
           <p className="text-xs text-muted-foreground pt-3 border-t border-border/70">

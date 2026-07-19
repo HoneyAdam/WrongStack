@@ -223,8 +223,7 @@ function CompositionSection({
       <Box flexDirection="column" marginTop={1}>
         <SectionLabel>CONTEXT COMPOSITION</SectionLabel>
         <Text color={theme.textMuted}>
-          No request assembled yet — composition appears once the request has been assembled for the
-          current turn.
+          No request assembled yet — composition appears once the request begins assembling.
         </Text>
       </Box>
     );
@@ -365,7 +364,7 @@ function ThresholdSection({
       <Box flexDirection="column" marginTop={1}>
         {ZONES.map((z) => {
           const isActive = curVal >= z.from && curVal < z.to;
-          const zColor = zoneColor(zoneFor((z.from + 0.01) / 100));
+          const zColor = zoneColor(zoneFor((z.to - 0.01) / 100));
           const range = `${z.from}–${z.to}%`;
           return (
             <Box key={z.label}>
@@ -455,7 +454,7 @@ function AgentFootprintSection({
     <Box flexDirection="column" marginTop={1}>
       <SectionLabel>PER-AGENT FOOTPRINT</SectionLabel>
       {allAgents.map((a) => {
-        const apct = Math.min(1, Math.max(0, a.ctxPct));
+        const apct = a.ctxPct;
         const aEmoji = zoneEmoji(apct);
         const aColor = zoneColor(zoneFor(apct));
         const aPct = `${(apct * 100).toFixed(0)}%`.padStart(4);

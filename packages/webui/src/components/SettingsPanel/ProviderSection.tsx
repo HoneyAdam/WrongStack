@@ -21,8 +21,6 @@ import type { WSServerMessage } from '@/types';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { useFieldKeyboardNav } from '@/hooks/useFieldKeyboardNav';
-import { usePagination } from '@/hooks/usePagination';
-import { Pagination } from '../ui/pagination';
 import { LOCAL_PRESET_FAMILY, LOCAL_SERVER_PRESETS } from './local-presets';
 import { OAuthLoginSection } from './OAuthLoginSection';
 import { ProviderModelsPanel } from './ProviderModelsPanel';
@@ -249,10 +247,9 @@ export function ProviderSection({
         );
       })
     : catalogProviders;
-  const catalogPage = usePagination(filteredCatalog, 12, catalogQuery);
-  const savedPage = usePagination(savedProviders, 8, providerTab);
+  // Provider catalogs are bounded, show all without pagination.
 
-  const catalogByFamily = catalogPage.pageItems.reduce(
+  const catalogByFamily = filteredCatalog.reduce(
     (acc, p) => {
       if (!acc[p.family]) acc[p.family] = [];
       acc[p.family]?.push(p);
@@ -462,13 +459,6 @@ export function ProviderSection({
               );
             })
           )}
-          <Pagination
-            page={catalogPage.page}
-            pageSize={catalogPage.pageSize}
-            totalItems={catalogPage.totalItems}
-            onPageChange={catalogPage.setPage}
-            itemLabel="providers"
-          />
         </div>
       )}
 
@@ -604,7 +594,7 @@ export function ProviderSection({
               <p className="text-sm">{t('settings:provider.noSavedHint')}</p>
             </div>
           ) : (
-            savedPage.pageItems.map((sp) => (
+            savedProviders.map((sp) => (
               <div
                 key={sp.id}
                 className="rounded-lg border border-border/80 bg-card/70 p-4 shadow-sm shadow-black/[0.02]"
@@ -809,13 +799,6 @@ export function ProviderSection({
               </div>
             ))
           )}
-          <Pagination
-            page={savedPage.page}
-            pageSize={savedPage.pageSize}
-            totalItems={savedPage.totalItems}
-            onPageChange={savedPage.setPage}
-            itemLabel="saved providers"
-          />
         </div>
       )}
     </div>

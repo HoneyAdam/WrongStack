@@ -3,8 +3,6 @@ import { cn } from '@/lib/utils';
 import { useAppTranslation } from '@/i18n';
 import { CheckCircle2, Circle, Clock, Pause, XCircle, RotateCcw } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { usePagination } from '@/hooks/usePagination';
-import { Pagination } from '@/components/ui/pagination';
 
 interface TaskItem {
   id: string;
@@ -91,9 +89,9 @@ export function TasksPanel(): React.ReactElement | null {
   const sortedTasks = [...tasks].sort(
     (a, b) => statusOrder.indexOf(a.status) - statusOrder.indexOf(b.status),
   );
-  const taskPage = usePagination(sortedTasks, 15);
+  // Tasks are bounded (per session), show all without pagination.
   const grouped = new Map<TaskItem['status'], TaskItem[]>();
-  for (const t of taskPage.pageItems) {
+  for (const t of sortedTasks) {
     const list = grouped.get(t.status) ?? [];
     list.push(t);
     grouped.set(t.status, list);
@@ -190,14 +188,6 @@ export function TasksPanel(): React.ReactElement | null {
           </div>
         );
       })}
-      <Pagination
-        page={taskPage.page}
-        pageSize={taskPage.pageSize}
-        totalItems={taskPage.totalItems}
-        onPageChange={taskPage.setPage}
-        compact
-        itemLabel="tasks"
-      />
     </div>
   );
 }

@@ -3,6 +3,7 @@ import type React from 'react';
 import { useEffect, useLayoutEffect, useRef, useState, memo } from 'react';
 import { theme } from '../theme.js';
 import {
+  ASSISTANT_TAIL_HEIGHT,
   AssistantTail,
   Entry,
   type HistoryEntry,
@@ -260,11 +261,14 @@ export const ScrollableHistory = memo(function ScrollableHistory({
             <Box height={win.spacerBelow} flexShrink={0} />
           ) : null}
 
-          {/* Streaming tails — always at the bottom of the viewport.
-              justifyContent="flex-end" on the parent pins the last child
-              to the bottom edge, so these stay visible regardless of
-              how far the user has scrolled up. */}
-          {tail ? <AssistantTail text={tail} termWidth={termWidth} /> : null}
+          {/* Streaming assistant tail — only rendered while content exists.
+              When absent, the viewport's justifyContent="flex-end" keeps
+              the remaining content pinned to the bottom with no gap. */}
+          {tail ? (
+            <Box height={ASSISTANT_TAIL_HEIGHT} flexShrink={0}>
+              <AssistantTail text={tail} termWidth={termWidth} />
+            </Box>
+          ) : null}
           {toolTail && toolStream ? (
             <ToolStreamBox
               name={toolStream.name}

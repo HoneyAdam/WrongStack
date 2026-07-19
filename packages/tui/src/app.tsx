@@ -1,6 +1,12 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import type { ContentBlock, Director, Message, TokenSavingTier } from '@wrongstack/core';
+import type {
+  ContentBlock,
+  Director,
+  Message,
+  SlashCommand,
+  TokenSavingTier,
+} from '@wrongstack/core';
 import {
   applyRewindToConversation,
   applyTokenOverrides,
@@ -1377,16 +1383,66 @@ export function App({
   // ctx.pct events keep activeMaxContext in sync with the live agent context.
   const maxContext = activeMaxContext ?? agent.ctx.provider.capabilities.maxContext;
 
-  // Per-request context pressure: current prompt tokens (input + cacheRead +
-  // cacheWrite).
-  // Unlike the cumulative tokenCounter.total() which grows across all turns,
-  // this tracks the live request's context weight — what actually determines
-  // how close we are to the maxContext ceiling.
-  const currentRequestTokens = tokenCounter?.currentRequestTokens();
-  const currentCacheWrite =
-    (currentRequestTokens as { cacheWrite?: number } | undefined)?.cacheWrite ?? 0;
-  const currentContextTokens =
-    (currentRequestTokens?.input ?? 0) + (currentRequestTokens?.cacheRead ?? 0) + currentCacheWrite;
+  // Context-window fullness for the statusline chip.
+  //
+  // Per-request first, cumulative as fallback. The per-request snapshot from
+  // `currentRequestTokens()` is the canonical measure of *this prompt's* pressure
+  // against the per-model `maxContext` ceiling — that's the comparison the
+  // `TokenCounter` JSDoc (`packages/core/src/types/token-counter.ts:24-30`) says
+  // is meaningful. The cumulative total from `tokenCounter.total()` is a session-
+  // aggregate that cannot be compared against a per-request ceiling.
+  //
+  // Until the first `token.accounted` event lands, `currentRequestTokens()`
+  // returns `{ input: 0, cacheRead: 0, cacheWrite: 0 }` (non-nullable, all
+  // numbers — see the interface at `token-counter.ts:30`). We fall back to the
+  // cumulative total in that window so the chip is visible from session start,
+  // and clamp it to `maxContext` so a long session with the ceiling lowered via
+  // `/context limit` doesn't render a misleading ">100% of new limit" bar.
+  //
+  // The chip reads tokenCounter.total() and currentRequestTokens() on every
+  // render, so any App re-render keeps it current.  contextChipVersion is
+  // included as a memo dep (via `void state.contextChipVersion` below) to
+  // additionally pick up /clear and /rewind side effects.
+  const perReq = tokenCounter?.currentRequestTokens();
+  const perReqInput = perReq?.input ?? 0;
+  const perReqCacheRead = perReq?.cacheRead ?? 0;
+  const perReqCacheWrite = perReq?.cacheWrite ?? 0;
+  const perReqSum = perReqInput + perReqCacheRead + perReqCacheWrite;
+  const cumulativeUsage = tokenCounter?.total();
+  const cumulativeInput = cumulativeUsage?.input ?? 0;
+  const cumulativeCacheRead = cumulativeUsage?.cacheRead ?? 0;
+  const cumulativeCacheWrite = cumulativeUsage?.cacheWrite ?? 0;
+  const cumulativeSum = cumulativeInput + cumulativeCacheRead + cumulativeCacheWrite;
+  // Provider-reported fullness: per-request first, cumulative as fallback.
+  const providerReportedTokens = perReqSum > 0 ? perReqSum : cumulativeSum;
+  // Some providers under-report prompt usage — they stream only `total_tokens`,
+  // or return `usage.input = 0` outright (see
+  // [[statusline-vs-context-token-source]]). When that happens the provider
+  // numbers above collapse to 0 and the statusline bar shows a false "0%" even
+  // though the context is genuinely filling. In that case we fall back to the
+  // SAME local tokenizer estimate the /context panel uses (`getContextBreakdown`),
+  // so the bar reflects real fill regardless of provider usage reporting.
+  const needLocalEstimate = providerReportedTokens <= 0;
+
+  // Real, measured per-category token accounting. Feeds the /context panel's
+  // Composition tab AND the statusline bar's local-estimate fallback. It walks
+  // every assembled message/tool to estimate tokens, so it's only computed when
+  // the panel is open or when the provider under-reports usage (the fallback
+  // case); recomputed at most once per request (contextChipVersion bumps once
+  // per request).
+  const contextBreakdown = useMemo<ContextBreakdown | undefined>(() => {
+    if (!state.contextPanelOpen && !needLocalEstimate) return undefined;
+    try {
+      return getContextBreakdown(agent.ctx);
+    } catch {
+      return undefined;
+    }
+  }, [state.contextPanelOpen, needLocalEstimate, state.contextChipVersion]);
+
+  const currentContextTokens = Math.min(
+    providerReportedTokens > 0 ? providerReportedTokens : (contextBreakdown?.total ?? 0),
+    maxContext,
+  );
 
   const contextWindow = useMemo(() => {
     void state.contextChipVersion;
@@ -1395,19 +1451,6 @@ export function App({
     // statusline. It only needs a known ceiling to be meaningful.
     return maxContext > 0 ? { used: currentContextTokens, max: maxContext } : undefined;
   }, [currentContextTokens, maxContext, state.contextChipVersion]);
-
-  // Real, measured per-category token accounting for the /context panel's
-  // Composition tab. Only computed while the panel is open (it walks every
-  // assembled message/tool to estimate tokens); recomputed when the live
-  // context changes (contextChipVersion bumps once per request).
-  const contextBreakdown = useMemo<ContextBreakdown | undefined>(() => {
-    if (!state.contextPanelOpen) return undefined;
-    try {
-      return getContextBreakdown(agent.ctx);
-    } catch {
-      return undefined;
-    }
-  }, [state.contextPanelOpen, state.contextChipVersion, agent.ctx]);
 
   // Todo counts come from the agent's context, which is mutated by
   // the `todo` tool. Re-read on each render — array access is O(N) on
@@ -1913,24 +1956,44 @@ export function App({
     if (memoryStore) {
       slashRegistry.register(createMemorySlashCommand({ memoryStore }));
     }
-    slashRegistry.register(
-      createContextSlashCommand({
-        onPanelOpen,
-        getSummary: () => {
-          const leader = stateRef.current.leader;
-          const memories = Object.values(memoryContextMonitorRef.current.memories);
-          return {
-            contextPct: leader.ctxPct,
-            contextTokens: leader.ctxTokens,
-            contextMaxTokens: leader.ctxMaxTokens,
-            memoryTotal: memoryRecordTotalRef.current,
-            memoryCtx: memories.filter((memory) => memory.state === 'active').length,
-            memoryPending: memories.filter((memory) => memory.state === 'injected').length,
-            memoryLeft: memories.filter((memory) => memory.state === 'exited').length,
-          };
-        },
-      }),
-    );
+    // `/context` — the panel wrapper must WIN over the CLI's text `context`
+    // command. The registry's rule is "first core registration of a name
+    // wins" and the CLI registers `buildContextCommand` first at boot, so a
+    // plain register() here is a silent no-op (that was the bug: bare
+    // /context printed the text summary and the panel never opened).
+    //
+    // Fix: capture the CLI command as the delegate `fallback`, unregister it
+    // (clears the bare name + `ctx` alias), then register the wrapper which
+    // reclaims both. The `__panelWrapper` sentinel makes this idempotent —
+    // on any re-run of this effect the wrapper is already installed, so we
+    // must NOT re-capture (that would nest wrappers and drop the CLI command).
+    {
+      const existingContext = slashRegistry.get('context') as
+        | (SlashCommand & { __panelWrapper?: boolean })
+        | undefined;
+      if (!existingContext?.__panelWrapper) {
+        if (existingContext) slashRegistry.unregister('context');
+        const contextPanelCmd = createContextSlashCommand({
+          onPanelOpen,
+          fallback: existingContext,
+          getSummary: () => {
+            const leader = stateRef.current.leader;
+            const memories = Object.values(memoryContextMonitorRef.current.memories);
+            return {
+              contextPct: leader.ctxPct,
+              contextTokens: leader.ctxTokens,
+              contextMaxTokens: leader.ctxMaxTokens,
+              memoryTotal: memoryRecordTotalRef.current,
+              memoryCtx: memories.filter((memory) => memory.state === 'active').length,
+              memoryPending: memories.filter((memory) => memory.state === 'injected').length,
+              memoryLeft: memories.filter((memory) => memory.state === 'exited').length,
+            };
+          },
+        }) as SlashCommand & { __panelWrapper?: boolean };
+        contextPanelCmd.__panelWrapper = true;
+        slashRegistry.register(contextPanelCmd);
+      }
+    }
     // `/kanban` — open the project kanban panel, create a board, add a task,
     // or list boards. Mirrors the WebUI `kanban` text surface so users get
     // the same operations in either client. The panel-open bridge is shared
@@ -7342,6 +7405,7 @@ export function App({
               fleet={fleetCounts}
               git={gitInfo}
               context={contextWindow}
+              estimatedContextTokens={currentContextTokens}
               superMemory={
                 memoryRecordTotal === undefined
                   ? undefined

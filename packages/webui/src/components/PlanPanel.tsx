@@ -3,8 +3,6 @@ import { cn } from '@/lib/utils';
 import { useAppTranslation } from '@/i18n';
 import { CheckCircle2, Circle, Clock } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { usePagination } from '@/hooks/usePagination';
-import { Pagination } from '@/components/ui/pagination';
 
 interface PlanItem {
   id: string;
@@ -67,9 +65,9 @@ export function PlanPanel(): React.ReactElement | null {
   const sortedItems = [...items].sort(
     (a, b) => statusOrder.indexOf(a.status) - statusOrder.indexOf(b.status),
   );
-  const planPage = usePagination(sortedItems, 15);
+  // Plan items are bounded (per session), show all without pagination.
   const grouped = new Map<PlanItem['status'], PlanItem[]>();
-  for (const it of planPage.pageItems) {
+  for (const it of sortedItems) {
     const list = grouped.get(it.status) ?? [];
     list.push(it);
     grouped.set(it.status, list);
@@ -158,14 +156,6 @@ export function PlanPanel(): React.ReactElement | null {
           </div>
         );
       })}
-      <Pagination
-        page={planPage.page}
-        pageSize={planPage.pageSize}
-        totalItems={planPage.totalItems}
-        onPageChange={planPage.setPage}
-        compact
-        itemLabel="plan items"
-      />
     </div>
   );
 }

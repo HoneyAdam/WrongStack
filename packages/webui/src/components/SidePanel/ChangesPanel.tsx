@@ -7,13 +7,11 @@
 
 import { GitCompare, Loader2, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect } from 'react';
-import { usePagination } from '@/hooks/usePagination';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
 import { showPanel } from '@/lib/view-navigation';
 import { type GitChangedFile, useConfigStore, useGitChangesStore } from '@/stores';
 import { useAppTranslation } from '@/i18n';
-import { Pagination } from '@/components/ui/pagination';
 
 /** Visual treatment for each git status letter. */
 const STATUS_META: Record<string, { label: string; cls: string }> = {
@@ -101,7 +99,7 @@ export function ChangesPanel() {
 
   const totalAdded = files.reduce((n, f) => n + f.added, 0);
   const totalDeleted = files.reduce((n, f) => n + f.deleted, 0);
-  const filePage = usePagination(files, 20);
+  // Git changes per working tree are bounded, show all without pagination.
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
@@ -140,7 +138,7 @@ export function ChangesPanel() {
           </div>
         ) : (
           <div className="flex flex-col gap-0.5">
-            {filePage.pageItems.map((f) => (
+            {files.map((f) => (
               <FileRow
                 key={f.path}
                 file={f}
@@ -151,7 +149,6 @@ export function ChangesPanel() {
           </div>
         )}
       </div>
-      <Pagination page={filePage.page} pageSize={filePage.pageSize} totalItems={filePage.totalItems} onPageChange={filePage.setPage} compact itemLabel="changed files" />
     </div>
   );
 }

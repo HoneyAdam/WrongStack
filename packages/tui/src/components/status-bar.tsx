@@ -215,14 +215,27 @@ export function tokenDisplayTotals(
       }
     | undefined,
   currentRequest: { input: number; cacheRead: number; cacheWrite?: number | undefined } | undefined,
+  /**
+   * Local estimate of the assembled request size (prompt tokens we're about
+   * to send). Used ONLY when the provider reports nothing — some providers
+   * omit prompt usage or return `input: 0` (see
+   * [[statusline-vs-context-token-source]]), which otherwise leaves the "↑"
+   * sent-token counter stuck at 0 even though we're clearly sending tokens.
+   * The breakdown total IS the sent size, so this is an honest fallback, not
+   * a guess. Output stays provider-only (received tokens can't be known
+   * locally).
+   */
+  estimatedInput?: number | undefined,
 ): TokenDisplayTotals {
   const usageInput = usage ? usage.input + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0) : 0;
   const usageOutput = usage?.output ?? 0;
   const fallbackInput = currentRequest
     ? currentRequest.input + currentRequest.cacheRead + (currentRequest.cacheWrite ?? 0)
     : 0;
+  const input =
+    usageInput > 0 ? usageInput : fallbackInput > 0 ? fallbackInput : Math.max(0, estimatedInput ?? 0);
   return {
-    input: usageInput > 0 ? usageInput : fallbackInput,
+    input,
     output: usageOutput,
   };
 }
@@ -397,6 +410,12 @@ export interface StatusBarProps {
   subagentCount?: number | undefined;
   /** Renders the "ctx ████░░ 42%" chip on line 1 when present. */
   context?: ContextWindow | undefined;
+  /**
+   * Local estimate of the assembled request size, used as the last-resort
+   * fallback for the "↑" sent-token counter when the provider reports no
+   * prompt usage. Passed straight to {@link tokenDisplayTotals}.
+   */
+  estimatedContextTokens?: number | undefined;
   /** All Super Memory records plus the exact count present in the latest provider request. */
   superMemory?: { total: number; activeInContext: number } | undefined;
   /**
@@ -561,6 +580,7 @@ export function StatusBar({
   processCount,
   processMemory,
   context,
+  estimatedContextTokens,
   superMemory,
   contextStrategy,
   hiddenItems,
@@ -607,7 +627,11 @@ export function StatusBar({
   // the provider responds, instead of waiting for the next nowTick poll.
   const tokenData = useTokenCounterRefresh(tokenCounter, events, sessionId);
   const usage = tokenData?.usage;
-  const displayTokens = tokenDisplayTotals(usage, tokenData?.currentRequest);
+  const displayTokens = tokenDisplayTotals(
+    usage,
+    tokenData?.currentRequest,
+    estimatedContextTokens,
+  );
   const showTokenDisplay = hasTokenDisplay(displayTokens);
   const cost = tokenData?.cost;
   const cache = tokenData?.cacheStats;
@@ -801,7 +825,6 @@ export function StatusBar({
     (showChip('context') || showChip('tokens') || showChip('cost'))
       ? (() => {
           const ratio = context ? Math.min(context.used / context.max, 1) : 0;
-          const pctText = context ? `${Math.min(Math.round(ratio * 100), 100)}%` : '';
           const barColor = isNoColor
             ? undefined
             : ratio < 0.6
@@ -821,7 +844,7 @@ export function StatusBar({
               {context ? (
                 <Text color={barColor}>
                   <Text dimColor={!isNoColor}>{'ctx '}</Text>
-                  {renderMeter(ratio, 8)} {pctText}/{fmtTok(context.max)}
+                  {renderMeter(ratio, 8)} {fmtTok(context.used)}/{fmtTok(context.max)}
                   {contextStrategy ? (
                     <Text dimColor={!isNoColor}>{` [${contextStrategy}]`}</Text>
                   ) : null}
@@ -944,7 +967,6 @@ export function StatusBar({
     (context || showTokenDisplay) && showChip('context')
       ? (() => {
           const ratio = context ? Math.min(context.used / context.max, 1) : 0;
-          const pct = context ? `${Math.min(Math.round(ratio * 100), 100)}%` : '';
           const c = context
             ? ratio < 0.6
               ? theme.success
@@ -959,7 +981,7 @@ export function StatusBar({
                 {context ? (
                   <Text dimColor={!isNoColor}>{'ctx '}</Text>
                 ) : null}
-                {context ? renderMeter(ratio, 6) : ''} {pct}
+                {context ? renderMeter(ratio, 6) : ''} {context ? fmtTok(context.used) : ''}
               </Text>
               {hasTokens && context ? <Text dimColor={!isNoColor}>{' · '}</Text> : null}
               {hasTokens ? (

@@ -2,11 +2,8 @@ import { expectDefined } from '@wrongstack/core';
 import {
   Bot,
   Brain,
-  CheckCircle2,
   ChevronDown,
   ChevronRight,
-  Clock,
-  Download,
   FileCode2,
   Info,
   Pencil,
@@ -15,13 +12,10 @@ import {
   RotateCcw,
   Terminal,
   User,
-  XCircle,
 } from 'lucide-react';
 import { memo, useEffect, useState } from 'react';
 import remarkGfm from 'remark-gfm';
 import { useAppTranslation } from '@/i18n';
-import { getToolTooltip, getToolVisual } from '@/lib/tool-icon';
-import { summarizeToolInput } from '@/lib/tool-summary';
 import { cn } from '@/lib/utils';
 import { getWSClient } from '@/lib/ws-client';
 import type { ChatMessage } from '@/stores';
@@ -29,20 +23,15 @@ import { useChatStore, useConfigStore, useSessionStore, useUIStore } from '@/sto
 import { useAutoSubmitStreak } from '@/stores/auto-submit-streak.js';
 import { useLocalPrefs } from '@/stores/local-prefs';
 import { toWireImages } from '../ChatInput/image-attachments.js';
-import { diffFromToolInput, ToolDiffView } from '../DiffView';
 import { fillInput, NextStepsBar } from '../NextStepsBar';
 import { toast } from '../Toaster';
-import { ToolResult } from '../ToolResult';
 import { AttachmentGallery } from './AttachmentGallery.js';
 import { CopyButton } from './CopyButton.js';
 import { ErrorBodyWithStack } from './ErrorBody.js';
 import { LazyMarkdown as ReactMarkdown } from './LazyMarkdown.js';
 import { StreamingMarkdown } from './StreamingMarkdown.js';
-import { ToolInputView } from './ToolInputView.js';
+import { ToolLedgerCard } from './ToolLedgerCard.js';
 import {
-  downloadTextFile,
-  fileExtensionFor,
-  formatToolDuration,
   markdownComponents,
   rehypePlugins,
 } from './utils.js';
@@ -59,7 +48,6 @@ export const MessageBubble = memo(function MessageBubble({
   isContinuation = false,
 }: MessageBubbleProps) {
   const { t } = useAppTranslation();
-  const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
@@ -209,10 +197,6 @@ export const MessageBubble = memo(function MessageBubble({
     client.sendMessage(userMsg.content, atts.length > 0 ? toWireImages(atts) : undefined);
   };
 
-  const toggleTool = (id: string) => {
-    setExpandedTools((prev) => ({ ...prev, [id]: !prev[id] }));
-  };
-
   const startEdit = () => {
     setEditValue(message.content);
     setEditing(true);
@@ -323,192 +307,23 @@ export const MessageBubble = memo(function MessageBubble({
           </span>
         )}
 
-        {isTool &&
-          message.toolName &&
-          (() => {
-            const { Icon: ToolIcon, color: toolColor } = getToolVisual(message.toolName);
-            const tooltip = getToolTooltip(message.toolName);
-            return (
-              <button
-                type="button"
-                onClick={() => toggleTool(message.id)}
-                className={cn(
-                  'flex items-center gap-2 text-sm font-medium cursor-pointer select-none',
-                  'hover:bg-muted/50 rounded-lg px-2 py-1 -mx-2 transition-colors',
-                  message.isError ? 'text-destructive' : 'text-foreground',
-                )}
-                aria-expanded={!!expandedTools[message.id]}
-                title={tooltip}
-              >
-                <span className="text-muted-foreground/70">
-                  {expandedTools[message.id] ? (
-                    <ChevronDown className="h-3 w-3" />
-                  ) : (
-                    <ChevronRight className="h-3 w-3" />
-                  )}
-                </span>
-                <ToolIcon className="h-3 w-3" style={{ color: toolColor }} />
-                <span className="font-mono" style={{ color: toolColor }}>
-                  {message.toolName}
-                </span>
-                {message.toolResult === undefined ? (
-                  <span className="h-1.5 w-1.5 rounded-full bg-warning animate-pulse" aria-hidden />
-                ) : message.isError ? (
-                  <XCircle className="h-3 w-3 text-destructive" />
-                ) : (
-                  <CheckCircle2 className="h-3 w-3 text-success" />
-                )}
-                {typeof message.toolDurationMs === 'number' && (
-                  <span className="text-xs text-muted-foreground tabular-nums font-normal">
-                    {formatToolDuration(message.toolDurationMs)}
-                  </span>
-                )}
-              </button>
-            );
-          })()}
-
-        <div
-          className={cn(
-            'max-w-full rounded-lg shadow-sm',
-            compactMode ? 'px-3 py-1.5' : 'px-4 py-3',
-            isUser
-              ? 'bg-primary text-primary-foreground rounded-br-sm msg-user-bubble'
-              : isSystem
-                ? 'bg-muted/30 border border-border/30 text-muted-foreground text-xs italic py-2'
-                : isTool
-                  ? message.isError
-                    ? 'bg-destructive/5 border border-destructive/25 text-destructive'
-                    : 'bg-muted/70 border border-border/60 text-foreground'
+        {isTool ? (
+          <ToolLedgerCard message={message} />
+        ) : (
+          <div
+            className={cn(
+              'max-w-full rounded-lg shadow-sm',
+              compactMode ? 'px-3 py-1.5' : 'px-4 py-3',
+              isUser
+                ? 'bg-primary text-primary-foreground rounded-br-sm msg-user-bubble'
+                : isSystem
+                  ? 'bg-muted/30 border border-border/30 text-muted-foreground text-xs italic py-2'
                   : 'bg-card border border-border/70 text-foreground',
-            message.isError && !isTool && 'border-destructive/20',
-            isUser && message.status === 'failed' && 'opacity-60 ring-1 ring-destructive/30',
-          )}
-        >
-          {isTool ? (
-            (() => {
-              const expanded = !!expandedTools[message.id];
-              const inputSummary =
-                message.toolInput !== undefined
-                  ? summarizeToolInput(message.toolName, message.toolInput)
-                  : '';
-              const lines = message.toolResult ? message.toolResult.split('\n').length : 0;
-              return (
-                <div className="space-y-1 tool-details">
-                  {inputSummary && !expanded && (
-                    <div className="text-xs text-muted-foreground font-mono truncate">
-                      {inputSummary}
-                    </div>
-                  )}
-                  {message.toolResult === undefined &&
-                    message.progressLines &&
-                    message.progressLines.length > 0 && (
-                      <div className="mt-1 rounded-md border border-warning/20 bg-warning/5 p-1.5 text-[11px] font-mono leading-snug max-h-32 overflow-auto">
-                        {(() => {
-                          const seen = new Map<string, number>();
-                          return message.progressLines.slice(-6).map((line) => {
-                            const occurrence = seen.get(line) ?? 0;
-                            seen.set(line, occurrence + 1);
-                            return (
-                              <div
-                                key={`${line}-${occurrence}`}
-                                className="truncate text-muted-foreground"
-                              >
-                                {line}
-                              </div>
-                            );
-                          });
-                        })()}
-                      </div>
-                    )}
-                  {expanded &&
-                    message.toolInput !== undefined &&
-                    (() => {
-                      const diff = diffFromToolInput(message.toolName, message.toolInput);
-                      if (diff) return <ToolDiffView diff={diff} />;
-                      return (
-                        <div className="p-3 bg-muted/50 rounded-lg overflow-x-auto">
-                          <div className="flex items-center gap-1 text-muted-foreground mb-2 text-xs">
-                            <Clock className="h-3 w-3" />
-                            <span>{t('activity:message.inputLabel')}</span>
-                          </div>
-                          <ToolInputView input={message.toolInput} />
-                        </div>
-                      );
-                    })()}
-                  {expanded &&
-                    message.toolResult !== undefined &&
-                    message.toolResult.length > 0 && (
-                      <div className="relative group/tool">
-                        <ToolResult
-                          toolName={message.toolName}
-                          result={message.toolResult}
-                          isError={message.isError}
-                          // TODO: wire to backend — pass the per-tool
-                          // `tools.resultRenderMode[name]` value down through
-                          // the WS tool.executed event so the WebUI mirrors
-                          // the CLI's `/tool <name> result simple|extend`
-                          // toggle. Until then, always extend (default).
-                        />
-                        <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 group-hover/tool:opacity-100 transition-opacity">
-                          <CopyButton
-                            text={message.toolResult}
-                            label=""
-                            className="bg-background/80 border rounded px-1.5 py-0.5"
-                          />
-                          {message.toolResult.split('\n').length > 5 && (
-                            <button
-                              type="button"
-                              onClick={(ev) => {
-                                ev.stopPropagation();
-                                const ext = fileExtensionFor(message.toolName);
-                                const base = (message.toolName ?? 'output')
-                                  .replace(/[^a-z0-9_-]+/gi, '-')
-                                  .toLowerCase();
-                                downloadTextFile(
-                                  `${base}-${new Date().toISOString().replace(/[:.]/g, '-')}.${ext}`,
-                                  message.toolResult ?? '',
-                                );
-                              }}
-                              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground bg-background/80 border rounded px-1.5 py-0.5"
-                              title={t('activity:message.downloadTitle')}
-                            >
-                              <Download className="h-3 w-3" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  {expanded &&
-                    message.toolResult !== undefined &&
-                    message.toolResult.length === 0 && (
-                      <span className="text-xs text-muted-foreground italic">
-                        {t('activity:message.empty')}
-                      </span>
-                    )}
-                  {!expanded && message.isError && message.toolResult && (
-                    <div className="text-xs font-mono text-destructive truncate">
-                      {message.toolResult.split('\n')[0]}
-                    </div>
-                  )}
-                  {((message.toolResult !== undefined && message.toolResult.length > 0) ||
-                    (message.toolInput !== undefined &&
-                      Object.keys((message.toolInput as object) ?? {}).length > 0)) && (
-                    <button
-                      type="button"
-                      onClick={() => toggleTool(message.id)}
-                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {expanded
-                        ? t('activity:message.hideDetails')
-                        : lines > 0
-                          ? t('activity:message.showDetailsLines', { count: lines })
-                          : t('activity:message.showDetails')}
-                    </button>
-                  )}
-                </div>
-              );
-            })()
-          ) : editing && isUser ? (
+              message.isError && 'border-destructive/20',
+              isUser && message.status === 'failed' && 'opacity-60 ring-1 ring-destructive/30',
+            )}
+          >
+            {editing && isUser ? (
             <div className="flex flex-col gap-2 min-w-[280px]">
               <textarea
                 value={editValue}
@@ -558,49 +373,53 @@ export const MessageBubble = memo(function MessageBubble({
                 : `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
               const preview = log.text.split('\n').slice(-4).join('\n').trim();
               return (
-                <div className="min-w-0 max-w-full sm:max-w-[720px]">
+                <div className="ws-reasoning min-w-0 max-w-full py-0.5 sm:max-w-[720px]">
                   <button
                     type="button"
                     onClick={() => setThinkingExpanded((v) => !v)}
-                    className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 text-left text-sm font-medium text-primary"
+                    className="flex w-full flex-wrap items-center gap-x-2 gap-y-0.5 text-left font-mono text-xs"
                     aria-expanded={thinkingExpanded}
                   >
-                    <span className="text-muted-foreground/75">
-                      {thinkingExpanded ? (
-                        <ChevronDown className="h-3.5 w-3.5" />
-                      ) : (
-                        <ChevronRight className="h-3.5 w-3.5" />
-                      )}
+                    <span className="ws-reasoning__mark text-sm leading-none" aria-hidden>
+                      ✦
                     </span>
-                    <Brain className="h-3.5 w-3.5" />
-                    <span className="min-w-0">{t('activity:message.thinkingProcess')}</span>
-                    <span className="ml-0 text-[10px] font-mono font-normal text-muted-foreground sm:ml-auto">
+                    <span className="font-semibold uppercase tracking-wide text-primary">
+                      {t('activity:message.thinkingProcess')}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground/70">
                       {t('activity:message.thinkingMeta', {
                         iter: log.iteration,
                         dur: durationLabel,
                         lines: t('activity:message.linesSuffix', { count: lineCount }),
                       })}
                     </span>
+                    <span className="ml-auto text-muted-foreground/60">
+                      {thinkingExpanded ? (
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      )}
+                    </span>
                   </button>
                   <pre
                     className={cn(
-                      'mt-2 whitespace-pre-wrap break-words rounded-lg border border-primary/20 bg-primary/[0.04] p-3 font-mono text-xs leading-relaxed text-foreground/80',
+                      'mt-1.5 whitespace-pre-wrap break-words font-mono text-xs italic leading-relaxed text-foreground/65',
                       thinkingExpanded ? 'max-h-[32rem] overflow-auto' : 'max-h-24 overflow-hidden',
                     )}
                   >
                     {thinkingExpanded ? log.text : preview || log.text}
                   </pre>
-                  <div className="mt-2 flex items-center gap-2">
+                  <div className="mt-1.5 flex items-center gap-2">
                     <CopyButton
                       text={log.text}
                       label={t('activity:message.copyLog')}
-                      className="opacity-70 hover:opacity-100 transition-opacity"
+                      className="text-[10px] text-muted-foreground/60 opacity-70 transition-opacity hover:opacity-100"
                     />
                     {!thinkingExpanded && lineCount > 4 && (
                       <button
                         type="button"
                         onClick={() => setThinkingExpanded(true)}
-                        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                        className="text-[10px] text-muted-foreground/70 transition-colors hover:text-foreground"
                       >
                         {t('activity:message.showFullLog')}
                       </button>
@@ -669,7 +488,8 @@ export const MessageBubble = memo(function MessageBubble({
               );
             })()
           )}
-        </div>
+          </div>
+        )}
 
         {/* Failed delivery indicator for optimistic user messages */}
         {isUser && message.status === 'failed' && (

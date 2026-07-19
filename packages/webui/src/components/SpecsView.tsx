@@ -7,9 +7,8 @@ import { cn } from '@/lib/utils';
 import { ChevronDown, ChevronRight, FileText, LayoutList, Network, Play, X } from 'lucide-react';
 import { Button } from './ui/button';
 import { DependencyGraph } from './DependencyGraph';
-import { Pagination } from './ui/pagination';
 
-const SPEC_PAGE_SIZE = 12;
+// Specs are bounded (user-created), show all without pagination.
 
 /** Convert a spec's topological columns into Goal phase templates. */
 function detailToPhases(detail: SpecDetail): unknown[] {
@@ -42,7 +41,6 @@ export function SpecsView({ onClose }: { onClose: () => void }): React.ReactElem
   const expandedSpecId = useSpecsStore((s) => s.expandedSpecId);
   const setExpanded = useSpecsStore((s) => s.setExpanded);
   const [mode, setMode] = useState<'list' | 'graph'>('graph');
-  const [page, setPage] = useState(1);
 
   // Launch the spec's tasks as a live Goal run (phases = topological
   // columns), then jump to the Phases board to watch the agents work.
@@ -81,12 +79,6 @@ export function SpecsView({ onClose }: { onClose: () => void }): React.ReactElem
     running: allTasks.filter((t) => t.status === 'in_progress').length,
     pending: allTasks.filter((t) => t.status === 'pending' || t.displayStatus === 'queued').length,
   };
-  const visibleSpecs = specs.slice((page - 1) * SPEC_PAGE_SIZE, page * SPEC_PAGE_SIZE);
-
-  useEffect(() => {
-    const totalPages = Math.max(1, Math.ceil(specs.length / SPEC_PAGE_SIZE));
-    if (page > totalPages) setPage(totalPages);
-  }, [page, specs.length]);
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-background">
@@ -112,7 +104,7 @@ export function SpecsView({ onClose }: { onClose: () => void }): React.ReactElem
           </div>
         ) : (
           <div className="space-y-3">
-            {visibleSpecs.map((spec) => {
+            {specs.map((spec) => {
               const expanded = expandedSpecId === spec.id;
               const pct = spec.total > 0 ? Math.round((spec.completed / spec.total) * 100) : 0;
               return (
@@ -228,16 +220,7 @@ export function SpecsView({ onClose }: { onClose: () => void }): React.ReactElem
           </div>
         )}
       </div>
-      <Pagination
-        page={page}
-        pageSize={SPEC_PAGE_SIZE}
-        totalItems={specs.length}
-        onPageChange={(nextPage) => {
-          setPage(nextPage);
-          setExpanded(null);
-        }}
-        itemLabel="specifications"
-      />
+
     </div>
   );
 }

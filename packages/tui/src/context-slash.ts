@@ -1,10 +1,19 @@
-import type { SlashCommand } from '@wrongstack/core';
+import type { Context, SlashCommand } from '@wrongstack/core';
 
 export interface ContextSlashDeps {
   /** Bridge from slash-command execution to the mounted TUI reducer. */
   onPanelOpen?: { current: ((action: string) => boolean) | null } | undefined;
   /** Small history-safe snapshot shown after the interactive panel opens. */
   getSummary?: (() => ContextPanelSummary) | undefined;
+  /**
+   * The text `/context` command this one shadows (the CLI's
+   * `buildContextCommand`). Bare `/context` opens the panel; every
+   * sub-command (`detail`, `mode`, `limit`, `thresholds`, `cache`,
+   * `repair`, …) is delegated here verbatim so none of that surface is
+   * lost. Without a fallback (e.g. isolated unit test) sub-commands print a
+   * short usage line and the panel path still works.
+   */
+  fallback?: SlashCommand | undefined;
 }
 
 export interface ContextPanelSummary {
@@ -29,29 +38,59 @@ export function contextBar(pct: number, width: number): string {
     : `${'█'.repeat(Math.max(1, filled))}${'░'.repeat(Math.max(0, empty))} ${label}`;
 }
 
-/** TUI `/context` is panel-first; history receives only a compact snapshot. */
+/**
+ * TUI `/context` is panel-first. Bare `/context` (and `window` / `--window`)
+ * opens the interactive tabbed panel and emits nothing to chat history. Every
+ * other argument is delegated to the underlying text command (`deps.fallback`,
+ * the CLI's `buildContextCommand`) so `/context detail|mode|limit|thresholds|
+ * cache|repair` keep working exactly as before.
+ *
+ * This command must be registered so it *wins* over the CLI's same-named
+ * command — the registry's rule is "first core registration of a name wins"
+ * (`slash-command-registry.ts`), and the CLI registers first at boot. The App
+ * captures the CLI command as `fallback`, unregisters it, then registers this
+ * wrapper (see app.tsx). Without that override, this whole file is dead code
+ * and `/context` prints the CLI's text summary instead of opening the panel.
+ */
 export function createContextSlashCommand(deps: ContextSlashDeps): SlashCommand {
   return {
     name: 'context',
+    aliases: ['ctx'],
     description: 'Open the interactive provider-context and Super Memory monitor.',
-    argsHint: '',
+    argsHint: '[window|detail|mode|limit|thresholds|cache|repair]',
     category: 'Inspect',
     help:
       'Usage:\n' +
-      '  /context                  — open the interactive context monitor\n' +
+      '  /context                  — open the interactive context monitor (tabbed panel)\n' +
       '  /context window           — same as above\n' +
-      '  /context --window         — same as above\n',
-    async run(args: string) {
+      '  /context detail           — text breakdown in chat history\n' +
+      '  /context mode [id]        — list / switch context-window modes\n' +
+      '  /context limit [tokens]   — show / set the effective context window\n' +
+      '  /context thresholds …     — set compaction thresholds\n' +
+      '  /context cache            — prompt-cache report\n' +
+      '  /context repair           — repair orphan tool_use/tool_result blocks\n',
+    async run(args: string, ctx?: Context) {
       const trimmed = args.trim().toLowerCase();
       const panelRequest = trimmed === '' || trimmed === 'window' || trimmed === '--window';
-      if (!panelRequest) return { message: 'Usage: /context [window]' };
+
+      if (!panelRequest) {
+        // Sub-command → hand off to the CLI text command untouched.
+        if (deps.fallback) return deps.fallback.run(args, ctx);
+        return { message: 'Usage: /context [window|detail|mode|limit|thresholds|cache|repair]' };
+      }
 
       const opened = deps.onPanelOpen?.current?.('toggleContextPanel') ?? false;
-      return {
-        message: opened
-          ? formatContextPanelSummary(deps.getSummary?.())
-          : 'Interactive context panel is unavailable in this TUI instance.',
-      };
+      // Panel opened: emit NOTHING to chat history. The app's slash handler
+      // only pushes an entry when `res.message` is truthy (`if (res?.message)`),
+      // so the empty string is dropped (same pattern /kanban open uses). The
+      // panel shows everything the old summary did and more, so the extra chat
+      // row was just noise. `getSummary` stays wired for headless/test callers.
+      if (opened) return { message: '' };
+
+      // No panel bridge (headless / plain REPL): fall back to the text summary
+      // so `/context` still does something useful there.
+      if (deps.fallback) return deps.fallback.run(args, ctx);
+      return { message: 'Interactive context panel is unavailable in this TUI instance.' };
     },
   };
 }

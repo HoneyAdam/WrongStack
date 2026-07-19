@@ -111,6 +111,24 @@ export function AssistantBody({
 const ASSISTANT_TAIL_LINES = 8;
 
 /**
+ * Total layout height of the AssistantTail in terminal rows. Must be kept
+ * in sync with the component's actual rendered height so callers can
+ * reserve space unconditionally (preventing layout jank when streaming
+ * starts/stops).
+ *
+ * Margin: marginY={1} adds 2 rows (top + bottom).
+ * Header: the "💬 ASSISTANT (streaming…)" line is 1 row.
+ * Body: ASSISTANT_TAIL_LINES = 8 content rows.
+ * Borders: borderTop/Right/Bottom are disabled; borderLeft is active but
+ * contributes 0 vertical rows (it draws alongside existing rows).
+ * Total = 2 + 1 + 8 = 11.
+ */
+const ASSISTANT_TAIL_MARGIN_Y = 2;
+const ASSISTANT_TAIL_HEADER_ROWS = 1;
+export const ASSISTANT_TAIL_HEIGHT =
+  ASSISTANT_TAIL_MARGIN_Y + ASSISTANT_TAIL_HEADER_ROWS + ASSISTANT_TAIL_LINES;
+
+/**
  * Build the CONSTANT-height row set for the live assistant tail: always exactly
  * `tailLines` rows (newest pinned to the bottom, blank padding on top), each
  * truncated to `contentWidth` so nothing wraps. Pure + exported for testing.

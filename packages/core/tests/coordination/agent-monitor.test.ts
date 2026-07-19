@@ -362,10 +362,9 @@ describe('AgentMonitorService', () => {
     );
 
     // Streaming segments are persisted when they CLOSE (segment-per-line,
-    // not delta-per-line) — stop() flushes any still-open segment.
-    monitor.stop();
-    // Wait for async file write
-    await waitForEvents(100);
+    // not delta-per-line) — close() flushes open segments AND awaits the
+    // write chain so no async I/O is still in flight.
+    await monitor.close();
 
     const filePath = path.join(transcriptsDir, 'a1', 'transcript.jsonl');
     const content = await fsp.readFile(filePath, 'utf8');
@@ -393,9 +392,9 @@ describe('AgentMonitorService', () => {
       makeFleetEvent('agent-b', 'provider.text_delta', { text: 'from b', iteration: 0 }),
     );
 
-    // Flush open streaming segments to disk (segment-per-line persistence).
-    monitor.stop();
-    await waitForEvents(50);
+    // Flush open streaming segments to disk — close() deterministically awaits
+    // the write chain so no async I/O is still in flight.
+    await monitor.close();
 
     const dirA = path.join(transcriptsDir, 'agent-a');
     const dirB = path.join(transcriptsDir, 'agent-b');

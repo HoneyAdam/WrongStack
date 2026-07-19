@@ -230,4 +230,22 @@ describe('tokenDisplayTotals', () => {
   it('keeps the token chip hidden when no input or output tokens exist', () => {
     expect(hasTokenDisplay(tokenDisplayTotals({ input: 0, output: 0 }, undefined))).toBe(false);
   });
+
+  it('falls back to the local estimate when provider AND current-request tokens are zero', () => {
+    // A provider that reports no prompt usage would otherwise leave "↑" at 0
+    // even though we clearly sent a request — use the local breakdown estimate.
+    expect(tokenDisplayTotals({ input: 0, output: 0 }, undefined, 48_500)).toEqual({
+      input: 48_500,
+      output: 0,
+    });
+    expect(
+      hasTokenDisplay(tokenDisplayTotals({ input: 0, output: 0 }, undefined, 48_500)),
+    ).toBe(true);
+  });
+
+  it('ignores the local estimate once the provider reports real usage', () => {
+    expect(
+      tokenDisplayTotals({ input: 1000, output: 200 }, undefined, 48_500),
+    ).toEqual({ input: 1000, output: 200 });
+  });
 });

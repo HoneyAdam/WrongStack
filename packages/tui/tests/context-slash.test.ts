@@ -6,14 +6,16 @@ import {
 } from '../src/context-slash.js';
 
 describe('/context TUI command', () => {
-  it('opens the interactive panel for bare /context without rendering a legacy dump', async () => {
+  it('opens the interactive panel for bare /context and emits nothing to chat history', async () => {
     const open = vi.fn(() => true);
     const command = createContextSlashCommand({ onPanelOpen: { current: open } });
 
     const result = await command.run('');
 
     expect(open).toHaveBeenCalledWith('toggleContextPanel');
-    expect((result as { message: string }).message).toBe('Context panel opened.');
+    // Panel-only: an empty message is dropped by the app's slash handler
+    // (`if (res?.message)`), so no summary row appears in chat history.
+    expect((result as { message: string }).message).toBe('');
   });
 
   it.each(['window', '--window'])('keeps /context %s as a panel alias', async (arg) => {
@@ -23,7 +25,7 @@ describe('/context TUI command', () => {
     const result = await command.run(arg);
 
     expect(open).toHaveBeenCalledWith('toggleContextPanel');
-    expect((result as { message: string }).message).toBe('Context panel opened.');
+    expect((result as { message: string }).message).toBe('');
   });
 
   it('never falls back to the removed Markdown dashboard', async () => {
@@ -35,11 +37,58 @@ describe('/context TUI command', () => {
     expect((result as { message: string }).message).not.toContain('Context Dashboard');
   });
 
-  it('rejects unknown arguments instead of printing the removed dashboard', async () => {
+  it('falls back to a usage line for sub-commands when no delegate is wired', async () => {
     const command = createContextSlashCommand({});
-    expect(((await command.run('legacy')) as { message: string }).message).toBe(
-      'Usage: /context [window]',
-    );
+    const msg = ((await command.run('detail')) as { message: string }).message;
+    expect(msg).toContain('Usage: /context');
+    expect(msg).toContain('detail');
+    expect(msg).not.toContain('Context Dashboard');
+  });
+
+  it('delegates sub-commands to the fallback text command verbatim', async () => {
+    const open = vi.fn(() => true);
+    const fallbackRun = vi.fn(async () => ({ message: 'window: 200,000 ctx' }));
+    const fallback = {
+      name: 'context',
+      description: 'text',
+      run: fallbackRun,
+    };
+    const command = createContextSlashCommand({ onPanelOpen: { current: open }, fallback });
+
+    const result = await command.run('detail', undefined);
+
+    // Sub-command must NOT open the panel and must hand off to the delegate.
+    expect(open).not.toHaveBeenCalled();
+    expect(fallbackRun).toHaveBeenCalledWith('detail', undefined);
+    expect((result as { message: string }).message).toBe('window: 200,000 ctx');
+  });
+
+  it('opens the panel for bare /context even when a fallback is present', async () => {
+    const open = vi.fn(() => true);
+    const fallbackRun = vi.fn(async () => ({ message: 'text summary' }));
+    const command = createContextSlashCommand({
+      onPanelOpen: { current: open },
+      fallback: { name: 'context', description: 'text', run: fallbackRun },
+    });
+
+    const result = await command.run('');
+
+    expect(open).toHaveBeenCalledWith('toggleContextPanel');
+    expect(fallbackRun).not.toHaveBeenCalled();
+    expect((result as { message: string }).message).toBe('');
+  });
+
+  it('uses the fallback text summary when no panel bridge is available', async () => {
+    const fallbackRun = vi.fn(async () => ({ message: 'text summary' }));
+    const command = createContextSlashCommand({
+      fallback: { name: 'context', description: 'text', run: fallbackRun },
+    });
+
+    const result = await command.run('');
+
+    // No onPanelOpen → panel can't open → fall back to text (plain REPL path).
+    expect(fallbackRun).toHaveBeenCalledWith('', undefined);
+    expect((result as { message: string }).message).toBe('text summary');
   });
 });
 

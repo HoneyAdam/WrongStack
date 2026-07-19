@@ -3,8 +3,6 @@ import { useEffect, useState } from 'react';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useAppTranslation } from '@/i18n';
 import { useWorktreeStore } from '@/stores';
-import { usePagination } from '@/hooks/usePagination';
-import { Pagination } from '@/components/ui/pagination';
 import { confirmModal } from './ConfirmModal';
 
 const shortBranch = (b?: string) => (b ? b.replace(/^wstack\/ap\//, '') : '');
@@ -24,7 +22,7 @@ export function WorktreeOrphans(): React.ReactElement | null {
   const blockedReason = useWorktreeStore((s) => s.cleanBlockedReason);
   const cleanResult = useWorktreeStore((s) => s.cleanResult);
   const [cleaning, setCleaning] = useState(false);
-  const orphanPage = usePagination(orphans, 8);
+  // Orphans are bounded (cleanup state), show all without pagination.
 
   // Scan once on mount (and whenever the socket reconnects).
   useEffect(() => {
@@ -61,7 +59,7 @@ export function WorktreeOrphans(): React.ReactElement | null {
               {t('activity:worktree.orphanCount', { count: orphans.length })}
             </div>
             <div className="mt-0.5 max-h-16 overflow-auto font-mono text-[10px] text-muted-foreground">
-              {orphanPage.pageItems.map((o, i) => (
+              {orphans.map((o, i) => (
                 <div key={`${o.kind}-${o.branch ?? o.dir ?? i}`} className="truncate">
                   {o.kind === 'branch' ? '⌥ ' : '▢ '}
                   {shortBranch(o.branch) || o.dir}
@@ -85,15 +83,6 @@ export function WorktreeOrphans(): React.ReactElement | null {
           </button>
         </div>
       ) : null}
-      <Pagination
-        page={orphanPage.page}
-        pageSize={orphanPage.pageSize}
-        totalItems={orphanPage.totalItems}
-        onPageChange={orphanPage.setPage}
-        className="-mx-3 mb-1 mt-2 border-warning/20 bg-transparent"
-        compact
-        itemLabel="orphan worktrees"
-      />
       {cleanResult && (
         <div
           className={cleanResult.ok ? 'mt-1 text-success' : 'mt-1 text-destructive'}
