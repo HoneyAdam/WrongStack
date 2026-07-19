@@ -17,6 +17,8 @@ const client = {
 const websocket = {
   client,
   listSuperMemories: () => sends.push({ type: 'memory.super.list' }),
+  listSuperMemoriesPage: (params: unknown, options: unknown) =>
+    sends.push({ type: 'memory.super.listPage', payload: params }),
   rememberSuperMemory: (payload: unknown) => sends.push({ type: 'memory.super.remember', payload }),
   updateSuperMemory: (id: string, patch: unknown) =>
     sends.push({ type: 'memory.super.update', payload: { id, ...(patch as object) } }),
@@ -79,8 +81,14 @@ function emit(type: string, payload: unknown) {
 
 async function loadManager() {
   render(<MemoryManager />);
-  expect(sends).toContainEqual({ type: 'memory.super.list' });
-  emit('memory.super.list', { memories: [memory, secondMemory], stats });
+  expect(sends).toContainEqual(
+    expect.objectContaining({ type: 'memory.super.listPage' }),
+  );
+  emit('memory.super.listPage', {
+    memories: [memory, secondMemory],
+    nextCursor: null,
+    statusCounts: { active: 2 },
+  });
   await screen.findByText(memory.text);
 }
 

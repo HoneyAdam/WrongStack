@@ -110,6 +110,8 @@ export async function probeModelDescriptors(
 
 export interface ProviderHandlerDeps {
   globalConfigPath: string;
+  /** Path to the active profile config for dual-write persistence. */
+  profileConfigPath?: string | undefined;
   vault: import('@wrongstack/core').SecretVault;
   /** Shared config write lock — serialized via chained promises */
   setConfigWriteLock: (lock: Promise<void>) => void;
@@ -123,7 +125,7 @@ export interface ProviderHandlerDeps {
 }
 
 export function createProviderHandlers(deps: ProviderHandlerDeps) {
-  const { globalConfigPath, vault, broadcast, clients } = deps;
+  const { globalConfigPath, profileConfigPath, vault, broadcast, clients } = deps;
   let configWriteLock = deps.getConfigWriteLock();
 
   async function loadConfigProviders(): Promise<Record<string, ProviderConfig>> {
@@ -132,7 +134,7 @@ export function createProviderHandlers(deps: ProviderHandlerDeps) {
 
   async function saveConfigProviders(providers: Record<string, ProviderConfig>): Promise<void> {
     const next = configWriteLock
-      .then(() => saveProviders(globalConfigPath, vault, providers))
+      .then(() => saveProviders(globalConfigPath, vault, providers, profileConfigPath))
       .catch((err) => {
         const msg = toErrorMessage(err);
         console.error(JSON.stringify({

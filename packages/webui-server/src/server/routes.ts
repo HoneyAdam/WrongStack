@@ -332,6 +332,7 @@ export function buildRoutes(
   // ---- Provider/Key management helpers (extracted to provider-handlers.ts) ----
   const providerHandlers = createProviderHandlers({
     globalConfigPath: deps.globalConfigPath,
+    profileConfigPath: (deps as { profileConfigPath?: string }).profileConfigPath,
     vault: deps.vault,
     getConfigWriteLock: state.getConfigWriteLock,
     setConfigWriteLock: state.setConfigWriteLock,

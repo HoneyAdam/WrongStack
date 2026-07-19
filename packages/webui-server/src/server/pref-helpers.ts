@@ -17,9 +17,10 @@
  */
 
 import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import type { SecretVault } from '@wrongstack/core';
 import { decryptConfigSecrets, encryptConfigSecrets } from '@wrongstack/core/security';
-import { atomicWrite, FORBIDDEN_PROTO_KEYS } from '@wrongstack/core/utils';
+import { atomicWrite, backupConfigFile, FORBIDDEN_PROTO_KEYS } from '@wrongstack/core/utils';
 
 /** Pref keys exposed to the settings panel via prefs.get / prefs.updated. */
 export const PREF_KEYS = [
@@ -106,6 +107,10 @@ export const PREF_KEYS = [
 
 export interface PrefHelperDeps {
   globalConfigPath: string;
+  /** Path to the active profile config (~/.wrongstack/profiles/<name>/config.json).
+   * When set, mutations are written here instead of the root bootstrap, so
+   * settings survive the next ensureGlobalDefaults() trim. */
+  profileConfigPath?: string | undefined;
   vault: SecretVault;
   logger: { warn(msg: string): void };
 }
@@ -141,31 +146,55 @@ export interface ConfigWriteLockHolder {
  *
  * Mutates `holder.lock` in place to the new (non-poisoning) chain value.
  */
+/**
+ * Write the mutated config to a single file path. Handles read/decrypt/mutate/encrypt/write.
+ */
+async function writeGlobalConfigFile(
+  filePath: string,
+  vault: SecretVault,
+  mutate: (config: Record<string, unknown>) => void,
+  logger: { warn(msg: string): void },
+  errorLabel: string,
+): Promise<void> {
+  // Back up the current file before overwriting
+  const globalRoot = path.dirname(filePath);
+  await backupConfigFile(filePath, { globalRoot });
+  let raw: string;
+  try {
+    raw = await fs.readFile(filePath, 'utf8');
+  } catch {
+    raw = '{}';
+  }
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    logger.warn(`${errorLabel}: refusing to overwrite corrupt config at ${filePath}`);
+    return;
+  }
+  const decrypted = decryptConfigSecrets(parsed, vault) as Record<string, unknown>;
+  mutate(decrypted);
+  const encrypted = encryptConfigSecrets(decrypted, vault);
+  await atomicWrite(filePath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
+}
+
 export async function updateGlobalConfig(
   deps: PrefHelperDeps,
   holder: ConfigWriteLockHolder,
   mutate: (config: Record<string, unknown>) => void,
   errorLabel: string,
 ): Promise<void> {
-  const { globalConfigPath, vault, logger } = deps;
+  const { globalConfigPath, profileConfigPath, vault, logger } = deps;
   const write = async (): Promise<void> => {
-    let raw: string;
-    try {
-      raw = await fs.readFile(globalConfigPath, 'utf8');
-    } catch {
-      raw = '{}';
+    // Primary write: always update the root config (backward compat).
+    await writeGlobalConfigFile(globalConfigPath, vault, mutate, logger, errorLabel);
+
+    // Secondary write: when a profile config path is available, apply the
+    // SAME mutation so settings survive the next ensureGlobalDefaults() trim.
+    // This is the canonical storage location for user settings.
+    if (profileConfigPath && profileConfigPath !== globalConfigPath) {
+      await writeGlobalConfigFile(profileConfigPath, vault, mutate, logger, errorLabel);
     }
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(raw) as Record<string, unknown>;
-    } catch {
-      logger.warn(`${errorLabel}: refusing to overwrite corrupt config at ${globalConfigPath}`);
-      return;
-    }
-    const decrypted = decryptConfigSecrets(parsed, vault) as Record<string, unknown>;
-    mutate(decrypted);
-    const encrypted = encryptConfigSecrets(decrypted, vault);
-    await atomicWrite(globalConfigPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
   };
   const next = holder.lock.then(write);
   holder.lock = next.then(

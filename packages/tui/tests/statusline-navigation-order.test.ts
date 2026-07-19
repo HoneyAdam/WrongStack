@@ -40,8 +40,15 @@ describe('STATUSLINE_ITEMS navigation order matches visual layout', () => {
 
   it('is alphabetically sorted within each line (after priority items)', () => {
     // Priority items that appear at the start of a line regardless of alpha sort.
-    // Currently only line 1 has priority items (yolo, autonomy, time).
-    const PRIORITY_ITEMS = new Set<StatuslineItem>(['yolo', 'autonomy', 'time']);
+    // Line 1 starts with its runtime-priority items; line 2 starts with the
+    // location pair so navigation follows the rendered status-bar rail.
+    const PRIORITY_ITEMS = new Set<StatuslineItem>([
+      'yolo',
+      'autonomy',
+      'time',
+      'project',
+      'working_dir',
+    ]);
 
     // Group by line, in the order items actually appear in STATUSLINE_ITEMS
     // (so we exercise the same grouping the picker uses for navigation).

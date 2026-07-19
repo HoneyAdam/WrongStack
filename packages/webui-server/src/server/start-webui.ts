@@ -117,7 +117,12 @@ export async function startWebUI(
   // serialized behind configWriteLock. Implementation lives in
   // ./pref-helpers.ts; this thin wrapper preserves the two-arg signature the
   // route layer (provider routes, key handlers) expects.
-  const prefHelperDeps: PrefHelperDeps = { globalConfigPath, vault, logger };
+  // Resolve the active profile config path so updateGlobalConfig writes settings
+  // to the canonical profile file (~/.wrongstack/profiles/<name>/config.json)
+  // instead of the thin root bootstrap (~/.wrongstack/config.json).
+  const activeProfile = (config as { activeProfile?: string | undefined }).activeProfile ?? 'default';
+  const profileConfigPath = wpaths.profileConfig(activeProfile);
+  const prefHelperDeps: PrefHelperDeps = { globalConfigPath, profileConfigPath, vault, logger };
   const updateGlobalConfig = async (
     mutate: (cfg: Record<string, unknown>) => void,
     errorLabel: string,

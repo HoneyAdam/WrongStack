@@ -187,7 +187,9 @@ describe('DefaultConfigLoader', () => {
     expect(second.provider).toBe('anthropic');
 
     const profileReads = readSpy.mock.calls.filter(([file]) => String(file) === profileCfgPath);
-    expect(profileReads.length).toBe(3);
+    // 3 structural reads (ensureProfileConfig + backup + readJson on first load)
+    // + 1 for ensureProfileConfig on second load = 4
+    expect(profileReads.length).toBe(4);
 
     await new Promise((resolve) => setTimeout(resolve, 5));
     // Update the profile config to simulate a config change

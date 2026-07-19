@@ -7,8 +7,10 @@ import { DefaultPathResolver } from './infrastructure/path-resolver.js';
 import { DefaultSecretVault, migratePlaintextSecrets } from './security/secret-vault.js';
 import { DefaultConfigLoader } from './storage/config-loader.js';
 import { type Config, normalizeTokenSavingTier } from './types/config.js';
+import { safeParse } from './utils/safe-json.js';
 import { writeErr } from './utils/term.js';
 import { toErrorMessage } from './utils/error.js';
+import { atomicWrite } from './utils/atomic-write.js';
 import {
   canonicalProjectRoot,
   type WstackPaths,
@@ -95,6 +97,7 @@ export async function bootConfig(options: BootConfigOptions = {}): Promise<BootC
   // three eagerly is harmless and removes the "new wpath added to one copy
   // only" drift hazard.
   await fs.mkdir(wpaths.globalRoot, { recursive: true });
+  await fs.mkdir(wpaths.profilesDir, { recursive: true });
   await fs.mkdir(wpaths.projectDir, { recursive: true });
   await fs.mkdir(wpaths.projectSessions, { recursive: true });
   await writeProjectMeta(wpaths, projectIdentityRoot);
@@ -106,6 +109,21 @@ export async function bootConfig(options: BootConfigOptions = {}): Promise<BootC
     cwd !== projectIdentityRoot ? cwd : undefined,
   );
   await ensureGitignore(projectRoot);
+
+  // ═════════════════════════════════════════════════════════════════════
+  // Legacy config migration: move ~/.wrongstack/config.json content into
+  // ~/.wrongstack/profiles/default/config.json BEFORE any config load.
+  // Starting with 0.291.0 the root config is a thin bootstrap pointer
+  // (version + activeProfile); all user settings live in the profile config.
+  // ═════════════════════════════════════════════════════════════════════
+  await migrateLegacyConfig(wpaths);
+
+  // ═════════════════════════════════════════════════════════════════════
+  // Profile-file migration: copy statusline.json, mode.json,
+  // provider-status.json, and update-cache.json from the global root into
+  // the active profile's directory if they don't exist there yet.
+  // ═════════════════════════════════════════════════════════════════════
+  await migrateProfileFiles(wpaths);
 
   // Clean up stale project directories left behind by tests or deleted
   // working directories.  Best-effort — never blocks boot.
@@ -274,6 +292,168 @@ export function flagsToConfigPatch(flags: Record<string, string | boolean>): Par
     );
   }
   return patch;
+}
+
+/**
+ * Before 0.291.0, all config lived in ~/.wrongstack/config.json.
+ * Starting with 0.291.0, the root config is a thin bootstrap (version +
+ * activeProfile) and settings live in ~/.wrongstack/profiles/<name>/config.json.
+ *
+ * This function migrates a legacy flat config into the default profile config
+ * BEFORE any config loader runs, so the loader always reads from the right place.
+ *
+ * MANDATORY: if profiles/default/config.json is empty or missing AND the old
+ * root config has meaningful content, the migration MUST happen — no skip paths.
+ * The only conditions that genuinely prevent migration are:
+ *   - Root config file doesn't exist (nothing to migrate)
+ *   - Root config content is not valid JSON (can't parse)
+ *   - Filesystem error creating the profiles directory (hard error, not skippable)
+ */
+async function migrateLegacyConfig(wpaths: WstackPaths): Promise<void> {
+  const rootFp = wpaths.globalConfig;
+  const profileFp = wpaths.profileConfig('default');
+
+  // Check if the profile file has any meaningful content.
+  // If it's empty (0 bytes), just `{}`, or contains only bootstrap-like keys
+  // (version, activeProfile), treat it as "doesn't exist" and migrate into it.
+  let profileHasContent = false;
+  try {
+    const profileRaw = await fs.readFile(profileFp, 'utf8');
+    const trimmed = profileRaw.trim();
+    if (trimmed.length > 0 && trimmed !== '{}') {
+      const parsed = safeParse<Record<string, unknown>>(trimmed);
+      if (parsed.ok && parsed.value && typeof parsed.value === 'object' && !Array.isArray(parsed.value)) {
+        const keys = Object.keys(parsed.value);
+        const onlyBootstrapKeys = keys.length > 0 && keys.every((k) => k === 'version' || k === 'activeProfile');
+        if (!onlyBootstrapKeys) {
+          profileHasContent = true;
+        }
+      }
+    }
+  } catch {
+    // ENOENT or read error → profile doesn't exist or is unreadable, proceed
+  }
+  if (profileHasContent) return;
+
+  // If legacy root doesn't exist, nothing to migrate.
+  let legacyRaw: string;
+  try {
+    legacyRaw = await fs.readFile(rootFp, 'utf8');
+  } catch {
+    return; // ENOENT or other error — nothing to migrate
+  }
+
+  // Validate the legacy content is parseable JSON with actual settings.
+  const result = safeParse<Record<string, unknown>>(legacyRaw);
+  if (!result.ok || !result.value || typeof result.value !== 'object' || Array.isArray(result.value)) {
+    return;
+  }
+
+  // Ensure the profiles directory exists.
+  await fs.mkdir(wpaths.profilesDir, { recursive: true });
+
+  // Copy legacy content into the profile config, stripping bootstrap-only fields.
+  const profileContent = { ...result.value };
+  delete profileContent['activeProfile'];
+
+  await atomicWrite(profileFp, JSON.stringify(profileContent, null, 2), { mode: 0o600 });
+
+  // Write the root config as a thin bootstrap pointer.
+  const activeProfile =
+    typeof result.value['activeProfile'] === 'string'
+      ? result.value['activeProfile']
+      : 'default';
+  const bootstrap = { version: 1, activeProfile };
+
+  try {
+    await atomicWrite(rootFp, JSON.stringify(bootstrap, null, 2), { mode: 0o600 });
+  } catch {
+    // best-effort — profile already migrated
+  }
+}
+
+/** Pairs of (global source, profile destination) that need migration. */
+const PROFILE_FILE_PAIRS: ReadonlyArray<{
+  globalSrc: (wpaths: WstackPaths) => string;
+  profileDst: (wpaths: WstackPaths, name: string) => string;
+}> = [
+  {
+    globalSrc: (w) => path.join(w.globalRoot, 'statusline.json'),
+    profileDst: (w, n) => w.profileStatuslineConfig(n),
+  },
+  {
+    globalSrc: (w) => path.join(w.globalRoot, 'mode.json'),
+    profileDst: (w, n) => w.profileModeConfig(n),
+  },
+  {
+    globalSrc: (w) => path.join(w.globalRoot, 'provider-status.json'),
+    profileDst: (w, n) => w.profileProviderStatus(n),
+  },
+  {
+    globalSrc: (w) => path.join(w.globalRoot, 'update-cache.json'),
+    profileDst: (w, n) => w.profileUpdateCache(n),
+  },
+];
+
+/**
+ * Migrate profile-scoped files (statusline.json, mode.json,
+ * provider-status.json, update-cache.json) from the global root into the
+ * active profile's directory. Runs after migrateLegacyConfig() so the
+ * active profile name is resolved from the now-migrated root bootstrap.
+ *
+ * For each file: if it exists in the profile directory, it's left untouched
+ * (idempotent). If it's missing in the profile but exists at the global root,
+ * it's copied into the profile. If neither exists, silently skipped.
+ * Best-effort: failures never block boot.
+ */
+async function migrateProfileFiles(wpaths: WstackPaths): Promise<void> {
+  // Read the active profile name from the bootstrap (already migrated by
+  // migrateLegacyConfig above). Default to 'default' if unset.
+  let profileName = 'default';
+  try {
+    const raw = await fs.readFile(wpaths.globalConfig, 'utf8');
+    const parsed = safeParse<Record<string, unknown>>(raw);
+    if (parsed.ok && parsed.value && typeof parsed.value.activeProfile === 'string') {
+      profileName = parsed.value.activeProfile;
+    }
+  } catch {
+    // best-effort — default profile
+  }
+
+  // Ensure the profile directory exists so the copy targets are writable.
+  try {
+    await fs.mkdir(path.join(wpaths.profilesDir, profileName), { recursive: true });
+  } catch {
+    return;
+  }
+
+  for (const pair of PROFILE_FILE_PAIRS) {
+    const src = pair.globalSrc(wpaths);
+    const dst = pair.profileDst(wpaths, profileName);
+
+    // Skip if the profile already has this file (idempotent).
+    try {
+      await fs.access(dst);
+      continue; // profile file already exists
+    } catch {
+      // doesn't exist — proceed to check global source
+    }
+
+    // If the global source doesn't exist, nothing to do.
+    try {
+      await fs.access(src);
+    } catch {
+      continue;
+    }
+
+    // Copy the global file into the profile directory.
+    try {
+      const content = await fs.readFile(src, 'utf8');
+      await fs.writeFile(dst, content, { mode: 0o600, encoding: 'utf8' });
+    } catch {
+      // best-effort — never block boot
+    }
+  }
 }
 
 async function writeProjectMeta(paths: WstackPaths, projectRoot: string): Promise<void> {

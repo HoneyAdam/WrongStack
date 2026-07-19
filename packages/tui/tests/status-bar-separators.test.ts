@@ -46,7 +46,7 @@ describe('StatusBar chip separators', () => {
     expect(frame).toContain('heap 768M');
   });
 
-  it('places live provider/model after project/workdir and before context', () => {
+  it('places live provider/model before context and project/workdir on line 2', () => {
     const frame = frameOf({
       provider: 'openai',
       model: 'gpt-5.6',
@@ -55,9 +55,10 @@ describe('StatusBar chip separators', () => {
       context: { used: 25_000, max: 100_000 },
       hiddenItems: ['state'],
     });
-    const line = frame.split('\n')[0] ?? '';
+    const [line1 = '', line2 = ''] = frame.split('\n');
 
-    expect(line).toMatch(/▣ WrongStack.*▶.*⌁ packages\/tui.*▶.*openai\/gpt-5\.6.*▶.*\[00o/);
+    expect(line1).toMatch(/openai\/gpt-5\.6.*▶.*\[00o/);
+    expect(line2).toMatch(/▣ WrongStack.*▶.*⌁ packages\/tui/);
   });
 
   it('updates the rendered provider/model when current state changes', () => {
@@ -88,8 +89,8 @@ describe('StatusBar chip separators', () => {
   });
 
   it('line 1: separates the autonomy chip from subsequent runtime chips', () => {
-    // Autonomy and project now share line 1; both should remain separated
-    // from the following runtime chips.
+    // Autonomy stays on line 1 with provider/model and state, while project
+    // starts line 2. Both rails should keep their internal separators.
     const frame = frameOf({
       autonomy: 'auto',
       projectName: 'proj',
@@ -98,8 +99,9 @@ describe('StatusBar chip separators', () => {
     });
     expect(frame).toContain('∞ AUTO');
     expect(frame).toContain('▣ proj');
-    // Autonomy transitions through project to the next line-1 runtime chip.
-    expect(frame).toMatch(/AUTO.*▶.*▣ proj.*▶.*● idle/);
+    const [line1 = '', line2 = ''] = frame.split('\n');
+    expect(line1).toMatch(/AUTO.*▶.*anthropic\/claude.*▶.*● idle/);
+    expect(line2).toMatch(/^◖ ▣ proj/);
   });
 
   it('line 2: separates the task chip from the fleet chip without todos/plan present', () => {

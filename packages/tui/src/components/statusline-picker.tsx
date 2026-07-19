@@ -153,22 +153,20 @@ export const ITEM_LINE: Record<StatuslineItem, number> = {
   time: 1,
   tokens: 1,
   version: 1,
-  working_dir: 1,
   yolo: 1,
-  // Line 2 — session context: memory pressure (RAM/heap), git, mode label,
-  // goals, countdowns, tools. RAM/heap sampling is slower than the line 1
-  // runtime counters and is more useful grouped alongside session-context
-  // chips that the user inspects together when something goes wrong.
+  // Line 2 — session context: workdir/project first, then mode, git, goals,
+  // memory pressure (RAM/heap), countdowns, tools.
   auto_proceed: 2,
   eternal_stage: 2,
   git: 2,
   goal: 2,
   memory: 2,
   mode: 2,
-  project: 1, // kept on line 1 by render parity — see comment near project
+  project: 2,
   sessions: 2,
   token_saving: 2,
   tools: 2,
+  working_dir: 2,
   // Line 3 — active work + connectivity
   brain: 3,
   debug_stream: 3,
@@ -209,15 +207,15 @@ export const STATUSLINE_ITEMS: StatuslineItem[] = [
   'index',
   'model',
   'processes',
-  'project',
   'queue',
   'state',
   'time',
   'tokens',
   'version',
-  'working_dir',
   'yolo',
-  // Line 2
+  // Line 2 — workdir/project first, then session context
+  'project',
+  'working_dir',
   'auto_proceed',
   'eternal_stage',
   'git',

@@ -24,6 +24,7 @@ import { ConfigError, ERROR_CODES } from '../types/errors.js';
 import type { Logger } from '../types/logger.js';
 import type { SecretVault } from '../types/secret-vault.js';
 import { atomicWrite, withFileLock } from '../utils/atomic-write.js';
+import { backupConfigFile } from '../utils/config-backup.js';
 import { type DeepMergeOptions, deepMerge as deepMergeCore } from '../utils/deep-merge.js';
 import { toErrorMessage } from '../utils/error.js';
 import { safeParse } from '../utils/safe-json.js';
@@ -946,6 +947,12 @@ export class DefaultConfigLoader implements ConfigLoader {
     return Object.freeze(cfg) as Config;
   }
 
+  /** Check whether a config object contains only the two bootstrap keys. */
+  private static isBootstrapOnly(config: Record<string, unknown>): boolean {
+    const BOOTSTRAP_KEYS = new Set(['version', 'activeProfile']);
+    return Object.keys(config).every((k) => BOOTSTRAP_KEYS.has(k));
+  }
+
   private async ensureGlobalDefaults(): Promise<void> {
     const fp = this.paths.globalConfig;
     const t0 = Date.now();
@@ -984,11 +991,22 @@ export class DefaultConfigLoader implements ConfigLoader {
           parsed = {};
         }
 
+        const profileName =
+          (parsed as { activeProfile?: string | undefined }).activeProfile ?? 'default';
+        const profileFp = this.paths.profileConfig(profileName);
+
+        // ✅ CRITICAL: ensureProfileConfig MUST run BEFORE the root is trimmed.
+        // `parsed` here is the pre-trim content of the root config. If it has
+        // extra keys (because WebUI/CLI persistence functions wrote settings
+        // to the wrong file), those keys are passed to ensureProfileConfig so
+        // they get merged into the profile config instead of being destroyed.
+        await this.ensureProfileConfig(profileFp, parsed, fileExisted);
+
         // Bootstrap config now only stores version + activeProfile.
         // Full behavior defaults go into the profile config instead.
         const bootstrap: Record<string, unknown> = {
           version: 1,
-          activeProfile: (parsed as { activeProfile?: string | undefined }).activeProfile ?? 'default',
+          activeProfile: profileName,
         };
 
         let needsBootstrapWrite = false;
@@ -1000,8 +1018,14 @@ export class DefaultConfigLoader implements ConfigLoader {
         if (parsed.activeProfile === undefined) {
           needsBootstrapWrite = true;
         }
+        // If the bootstrap has extra keys beyond version+activeProfile, trim it.
+        if (!DefaultConfigLoader.isBootstrapOnly(parsed)) {
+          needsBootstrapWrite = true;
+        }
 
         if (needsBootstrapWrite) {
+          // Back up the current root config before overwriting
+          await backupConfigFile(fp, this.paths);
           await atomicWrite(fp, JSON.stringify(bootstrap, null, 2), { mode: 0o600 });
           this.events?.emit('storage.write', {
             sessionId: '~config~',
@@ -1013,11 +1037,6 @@ export class DefaultConfigLoader implements ConfigLoader {
             ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
           });
         }
-
-        // Ensure the default profile exists.
-        const profileName = (bootstrap as { activeProfile?: string | undefined }).activeProfile ?? 'default';
-        const profileFp = this.paths.profileConfig(profileName);
-        await this.ensureProfileConfig(profileFp, parsed, fileExisted);
       });
     } catch (err) {
       this.events?.emit('storage.error', {
@@ -1044,6 +1063,12 @@ export class DefaultConfigLoader implements ConfigLoader {
    * On first boot: migrate content from the old flat global config, or seed
    * with behavior defaults. Subsequent boots: fill any missing keys from
    * BEHAVIOR_DEFAULTS (keeping user settings intact).
+   *
+   * CRITICAL SAFETY NET: when the profile already exists but the old global
+   * config has extra non-bootstrap keys (because WebUI/CLI persistence functions
+   * mistakenly wrote settings to the root config), those keys are merged into
+   * the profile so they are NOT silently destroyed by the subsequent bootstrap
+   * trim. This prevents the "config keeps getting emptied" bug.
    */
   private async ensureProfileConfig(
     profileFp: string,
@@ -1051,82 +1076,111 @@ export class DefaultConfigLoader implements ConfigLoader {
     oldFileExisted: boolean,
   ): Promise<void> {
     const t0 = Date.now();
+
+    // No nested file lock: the profile write is idempotent (same content from
+    // all writers) and atomicWrite handles concurrent writes atomically on
+    // every platform.  Using withFileLock here caused a second lock acquisition
+    // inside the outer ensureGlobalDefaults() lock — under high concurrency
+    // (50+ peers) the nested lock could time out, silently aborting the
+    // migration and leaving the bootstrap overstuffed forever.
+    let parsed: Record<string, unknown>;
+    let existed = true;
     try {
-      await withFileLock(profileFp, async () => {
-        let parsed: Record<string, unknown>;
-        let existed = true;
-        try {
-          const raw = await fs.readFile(profileFp, 'utf8');
-          const result = safeParse<unknown>(raw);
-          if (!result.ok || !isPlainRecord(result.value)) {
-            this.logWarn('Profile config parse failed — falling back to defaults', {
-              event: 'config.profile_parse_failed',
-              path: profileFp,
-            });
-            parsed = {};
-          } else {
-            parsed = result.value;
+      const raw = await fs.readFile(profileFp, 'utf8');
+      const result = safeParse<unknown>(raw);
+      if (!result.ok || !isPlainRecord(result.value)) {
+        this.logWarn('Profile config parse failed — falling back to defaults', {
+          event: 'config.profile_parse_failed',
+          path: profileFp,
+        });
+        parsed = {};
+      } else {
+        parsed = result.value;
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        this.logWarn('Profile config read failed', {
+          event: 'config.profile_read_failed',
+          path: profileFp,
+          message: toErrorMessage(err),
+        });
+        return;
+      }
+      existed = false;
+      parsed = {};
+    }
+
+    // Migration from old flat config to profile: If the old global config
+    // existed and had any setting at all (can be just `version` + one user
+    // setting like `mcpServers`), promote them into the new profile config.
+    //
+    // CRITICAL: "existed" means meaningful user content, not just file-on-disk.
+    // An empty `{}` file or one containing only bootstrap keys (version,
+    // activeProfile) is treated as non-existent so the migration still fires.
+    const profileHasContent =
+      existed && Object.keys(parsed).some((k) => k !== 'version' && k !== 'activeProfile');
+    let seed: Record<string, unknown>;
+    if (!profileHasContent && oldFileExisted && Object.keys(oldGlobalParsed).length >= 1) {
+      // Copy old global content into the profile, excluding bootstrap-only fields.
+      seed = { ...oldGlobalParsed };
+      delete seed['activeProfile'];
+      // Fill in any missing behavior defaults.
+      const filled = fillMissingDefaults(seed, BEHAVIOR_DEFAULTS as Record<string, unknown>);
+      seed = filled.value;
+    } else {
+      // ── Safety net: merge non-bootstrap keys from old root into profile ──
+      // If the profile already exists but the old global config had extra keys
+      // beyond version+activeProfile (because persistence code wrote to the
+      // wrong file), merge those keys INTO the profile so they survive the
+      // bootstrap trim that follows in ensureGlobalDefaults().
+      if (existed && !DefaultConfigLoader.isBootstrapOnly(oldGlobalParsed)) {
+        const BOOTSTRAP_KEYS = new Set(['version', 'activeProfile']);
+        let merged = false;
+        for (const [k, v] of Object.entries(oldGlobalParsed)) {
+          if (!BOOTSTRAP_KEYS.has(k) && !(k in parsed)) {
+            parsed[k] = v;
+            merged = true;
           }
-        } catch (err) {
-          if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-            this.logWarn('Profile config read failed', {
-              event: 'config.profile_read_failed',
-              path: profileFp,
-              message: toErrorMessage(err),
+        }
+        // If we merged new keys AND the profile had no other user content,
+        // also fill behavior defaults so the profile is complete.
+        if (merged) {
+          const filled = fillMissingDefaults(parsed, BEHAVIOR_DEFAULTS as Record<string, unknown>);
+          if (filled.changed) {
+            seed = filled.value;
+            await backupConfigFile(profileFp, this.paths);
+            await atomicWrite(profileFp, JSON.stringify(seed, null, 2), { mode: 0o600 });
+            this.events?.emit('storage.write', {
+              sessionId: '~config~',
+              store: 'config',
+              filePath: profileFp,
+              operation: 'ensure_profile_defaults',
+              outcome: 'success',
+              durationMs: Date.now() - t0,
+              ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
             });
             return;
           }
-          existed = false;
-          parsed = {};
         }
+      }
 
-        // Migration from old flat config to profile: If the old global config
-        // existed and had any setting at all (can be just `version` + one user
-        // setting like `mcpServers`), promote them into the new profile config.
-        let seed: Record<string, unknown>;
-        if (!existed && oldFileExisted && Object.keys(oldGlobalParsed).length >= 1) {
-          // Copy old global content into the profile, excluding bootstrap-only fields.
-          seed = { ...oldGlobalParsed };
-          delete seed['activeProfile'];
-          // Fill in any missing behavior defaults.
-          const filled = fillMissingDefaults(seed, BEHAVIOR_DEFAULTS as Record<string, unknown>);
-          seed = filled.value;
-        } else {
-          // Normal boot: fill missing defaults on existing (or empty) profile.
-          const filled = fillMissingDefaults(parsed, BEHAVIOR_DEFAULTS as Record<string, unknown>);
-          if (!filled.changed) return; // Nothing to write
-          seed = filled.value;
-        }
-
-        await atomicWrite(profileFp, JSON.stringify(seed, null, 2), { mode: 0o600 });
-        this.events?.emit('storage.write', {
-          sessionId: '~config~',
-          store: 'config',
-          filePath: profileFp,
-          operation: 'ensure_profile_defaults',
-          outcome: 'success',
-          durationMs: Date.now() - t0,
-          ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
-        });
-      });
-    } catch (err) {
-      this.events?.emit('storage.error', {
-        sessionId: '~config~',
-        store: 'config',
-        filePath: profileFp,
-        operation: 'ensure_profile_defaults',
-        outcome: 'failure',
-        error: storageErrorString(err),
-        recoverable: false,
-        durationMs: Date.now() - t0,
-        ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
-      });
-      this.logWarn('Profile config defaults write failed', {
-        event: 'config.profile_write_failed',
-        path: profileFp,
-        message: toErrorMessage(err),
-      });
+      // Normal boot: fill missing defaults on existing (or empty) profile.
+      const filled = fillMissingDefaults(parsed, BEHAVIOR_DEFAULTS as Record<string, unknown>);
+      if (!filled.changed) return; // Nothing to write
+      seed = filled.value;
     }
+
+    await backupConfigFile(profileFp, this.paths);
+    await atomicWrite(profileFp, JSON.stringify(seed, null, 2), { mode: 0o600 });
+    this.events?.emit('storage.write', {
+      sessionId: '~config~',
+      store: 'config',
+      filePath: profileFp,
+      operation: 'ensure_profile_defaults',
+      outcome: 'success',
+      durationMs: Date.now() - t0,
+      ...(this.traceId !== undefined ? { traceId: this.traceId } : {}),
+    });
   }
 
   /**

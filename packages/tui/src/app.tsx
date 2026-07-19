@@ -3655,6 +3655,11 @@ export function App({
   // panel can report exactly how long the rewrite took.
   const [enhanceStartedAt, setEnhanceStartedAt] = useState<number | null>(null);
   const [enhanceDurationMs, setEnhanceDurationMs] = useState<number | null>(null);
+  // The actual provider/model used for the current refinement — captured after
+  // refiner profile resolution, NOT agent.ctx (which may differ when a dedicated
+  // refiner fallback profile is configured). Cleared per-attempt in runAttempt.
+  const [refineProviderId, setRefineProviderId] = useState<string | null>(null);
+  const [refineModel, setRefineModel] = useState<string | null>(null);
 
   // Next-steps auto-submit countdown state: seconds remaining and the suggestion text.
   // When autonomy is 'auto' and suggestions exist, this countdown auto-submits the first suggestion.
@@ -6103,6 +6108,11 @@ export function App({
         const attemptStartedAt = Date.now();
         setEnhanceStartedAt(attemptStartedAt);
         setEnhanceDurationMs(null);
+        // Capture the actual provider/model for this attempt — the display
+        // must reflect who is refining, not agent.ctx (which may be the
+        // session default while the refiner runs on a fallback profile).
+        setRefineProviderId(provider.id);
+        setRefineModel(model);
         enhanceAbortRef.current = ac;
         dispatch({ type: 'enhanceBusy', on: true });
         let out: { refined: string; english: string } | null = null;
@@ -7107,8 +7117,8 @@ export function App({
               original={enhanceOriginalRef.current}
               elapsedMs={enhanceStartedAt === null ? 0 : Math.max(0, Date.now() - enhanceStartedAt)}
               pulseFrame={enhanceDots}
-              providerId={(agent.ctx.provider as { id?: string } | undefined)?.id}
-              model={agent.ctx.model}
+              providerId={refineProviderId ?? (agent.ctx.provider as { id?: string } | undefined)?.id}
+              model={refineModel ?? agent.ctx.model}
             />
           ) : null}
           {state.enhance
@@ -7131,8 +7141,8 @@ export function App({
                     enhanceLanguage={state.settingsPicker.enhanceLanguage}
                     onDecision={onDecision}
                     onTick={(r) => setEnhanceCountdown(r > 0 ? r : null)}
-                    providerId={(agent.ctx.provider as { id?: string } | undefined)?.id}
-                    model={agent.ctx.model}
+                    providerId={refineProviderId ?? (agent.ctx.provider as { id?: string } | undefined)?.id}
+                    model={refineModel ?? agent.ctx.model}
                   />
                 );
               })()

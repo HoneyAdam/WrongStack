@@ -22,6 +22,16 @@ const { canonicalRootMock, mkdirMock, writeFileMock, mockWpaths } = vi.hoisted((
     projectMeta: '/tmp/test/.wrongstack/meta.json',
     projectHash: 'abc123',
     globalConfig: '/home/testuser/.wrongstack/config.json',
+    profilesDir: '/home/testuser/.wrongstack/profiles',
+    profileConfig: (name: string) => `/home/testuser/.wrongstack/profiles/${name}/config.json`,
+    profileStatuslineConfig: (name: string) =>
+      `/home/testuser/.wrongstack/profiles/${name}/statusline.json`,
+    profileModeConfig: (name: string) =>
+      `/home/testuser/.wrongstack/profiles/${name}/mode.json`,
+    profileProviderStatus: (name: string) =>
+      `/home/testuser/.wrongstack/profiles/${name}/provider-status.json`,
+    profileUpdateCache: (name: string) =>
+      `/home/testuser/.wrongstack/profiles/${name}/update-cache.json`,
     projectLocalConfig: '/tmp/test/.wrongstack/config.json',
     secretsKey: '/home/testuser/.wrongstack/.key',
     logFile: '/home/testuser/.wrongstack/wrongstack.log',
@@ -66,7 +76,10 @@ vi.mock('../src/utils/wstack-paths.js', () => ({
   canonicalProjectRoot: canonicalRootMock,
   resolveWstackPaths: vi.fn().mockReturnValue(mockWpaths),
 }));
-vi.mock('../src/utils/term.js', () => ({ writeErr: (s: string) => process.stderr.write(s) }));
+vi.mock('../src/utils/term.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/utils/term.js')>()),
+  writeErr: (s: string) => process.stderr.write(s),
+}));
 
 import { bootConfig, flagsToConfigPatch } from '../src/boot.js';
 import { migratePlaintextSecrets } from '../src/security/secret-vault.js';
@@ -98,6 +111,9 @@ describe('bootConfig (core)', () => {
   it('creates the global, project, and session directories', async () => {
     await bootConfig();
     expect(mkdirMock).toHaveBeenCalledWith('/home/testuser/.wrongstack', { recursive: true });
+    expect(mkdirMock).toHaveBeenCalledWith('/home/testuser/.wrongstack/profiles', {
+      recursive: true,
+    });
     expect(mkdirMock).toHaveBeenCalledWith('/tmp/test/.wrongstack', { recursive: true });
     expect(mkdirMock).toHaveBeenCalledWith('/tmp/test/.wrongstack/sessions', { recursive: true });
   });

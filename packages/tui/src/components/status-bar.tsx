@@ -853,7 +853,6 @@ export function StatusBar({
         {glyphs.process} {processCount} process{processCount === 1 ? '' : 'es'}
       </Text>
     ) : null,
-    memoryStatusChip,
     hint && showChip('hint') ? <Text dimColor={!isNoColor}>{hint}</Text> : null,
     indexState?.indexing && showChip('index') ? (
       <Text color={isNoColor ? undefined : theme.warn}>
@@ -876,7 +875,7 @@ export function StatusBar({
   ].filter((chip): chip is React.ReactElement => chip !== null);
 
   const modeChips = [
-    // Line 1 runtime chips: YOLO, autonomy, project/workdir, provider/model,
+    // Line 1 runtime chips: YOLO, autonomy, provider/model,
     // then the context meter and remaining runtime details.
     yolo && showChip('yolo') ? (
       <Text color={chipColor(theme.error, isNoColor)} bold>
@@ -892,20 +891,6 @@ export function StatusBar({
         bold
       >
         {isNoColor ? autonomy.toUpperCase() : `∞ ${autonomy.toUpperCase()}`}
-      </Text>
-    ) : null,
-    projectName && showChip('project') ? (
-      <Text color={chipColor(theme.accent, isNoColor)}>
-        {isNoColor
-          ? truncateChip(projectName, 24)
-          : `${glyphs.folder} ${truncateChip(projectName, 24)}`}
-      </Text>
-    ) : null,
-    workingDir && showChip('working_dir') ? (
-      <Text color={chipColor(theme.accent, isNoColor)}>
-        {isNoColor
-          ? truncateChip(workingDir, 28)
-          : `${glyphs.workingDirectory} ${truncateChip(workingDir, 28)}`}
       </Text>
     ) : null,
     modelStatusChip,
@@ -1104,10 +1089,24 @@ export function StatusBar({
         fillBg={LINE_BG_COLORS[0]}
       />
 
-      {/* Line 2 — Session context: git, mode, sessions, tools,
-          token-saving */}
+      {/* Line 2 — Session context: workdir/project first, then git, mode,
+          sessions, tools, token-saving, RAM/heap at the end */}
       <PowerlineRail
         segments={[
+          projectName && showChip('project') ? (
+            <Text color={chipColor(theme.accent, isNoColor)}>
+              {isNoColor
+                ? truncateChip(projectName, 24)
+                : `${glyphs.folder} ${truncateChip(projectName, 24)}`}
+            </Text>
+          ) : null,
+          workingDir && showChip('working_dir') ? (
+            <Text color={chipColor(theme.accent, isNoColor)}>
+              {isNoColor
+                ? truncateChip(workingDir, 28)
+                : `${glyphs.workingDirectory} ${truncateChip(workingDir, 28)}`}
+            </Text>
+          ) : null,
           git && showChip('git') ? (
             <Text>
               <Text color={theme.monitor.agents}>
@@ -1148,6 +1147,7 @@ export function StatusBar({
                 : `${glyphs.audit} ${sideEffectCount} audit${sideEffectCount === 1 ? '' : 's'}`}
             </Text>
           ) : null,
+          memoryStatusChip,
         ].filter((c): c is React.ReactElement => c !== null)}
         budget={Math.max(12, termWidth)}
         monochrome={isNoColor}

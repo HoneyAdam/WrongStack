@@ -39,6 +39,14 @@ export interface WstackPaths {
    * Returns ~/.wrongstack/profiles/<name>/config.json.
    */
   profileConfig: (name: string) => string;
+  /** Resolve ~/.wrongstack/profiles/<name>/statusline.json */
+  profileStatuslineConfig: (name: string) => string;
+  /** Resolve ~/.wrongstack/profiles/<name>/mode.json */
+  profileModeConfig: (name: string) => string;
+  /** Resolve ~/.wrongstack/profiles/<name>/provider-status.json */
+  profileProviderStatus: (name: string) => string;
+  /** Resolve ~/.wrongstack/profiles/<name>/update-cache.json */
+  profileUpdateCache: (name: string) => string;
   /** ~/.wrongstack/.key — 32 random bytes, mode 0600, AES-GCM key for the secret vault. */
   secretsKey: string;
   /** ~/.wrongstack/memory.md — user-global memory. */
@@ -122,6 +130,8 @@ export interface WstackPaths {
   projectSddBoards: string;
   /** ~/.wrongstack/sync.json — CloudSync configuration */
   syncConfig: string;
+  /** ~/.wrongstack/config-history — timestamped backups on every config write */
+  configHistoryDir: string;
   /** Function to get the status.json path for a project given its hash. */
   projectStatus: (projectHash: string) => string;
 }
@@ -241,9 +251,24 @@ export function resolveWstackPaths(opts: WstackPathOptions): WstackPaths {
     globalConfig: path.join(globalRoot, 'config.json'),
     profilesDir: path.join(globalRoot, 'profiles'),
     profileConfig: (name: string) => {
-      // Prevent path traversal: only allow a single safe path segment.
       const safe = name.replace(/[/\\:]/g, '_').replace(/\.\./g, '_');
       return path.join(globalRoot, 'profiles', safe || 'default', 'config.json');
+    },
+    profileStatuslineConfig: (name: string) => {
+      const safe = name.replace(/[/\\:]/g, '_').replace(/\.\./g, '_');
+      return path.join(globalRoot, 'profiles', safe || 'default', 'statusline.json');
+    },
+    profileModeConfig: (name: string) => {
+      const safe = name.replace(/[/\\:]/g, '_').replace(/\.\./g, '_');
+      return path.join(globalRoot, 'profiles', safe || 'default', 'mode.json');
+    },
+    profileProviderStatus: (name: string) => {
+      const safe = name.replace(/[/\\:]/g, '_').replace(/\.\./g, '_');
+      return path.join(globalRoot, 'profiles', safe || 'default', 'provider-status.json');
+    },
+    profileUpdateCache: (name: string) => {
+      const safe = name.replace(/[/\\:]/g, '_').replace(/\.\./g, '_');
+      return path.join(globalRoot, 'profiles', safe || 'default', 'update-cache.json');
     },
     secretsKey: path.join(globalRoot, '.key'),
     globalMemory: path.join(globalRoot, 'memory.md'),
@@ -284,6 +309,7 @@ export function resolveWstackPaths(opts: WstackPathOptions): WstackPaths {
     projectAutophase: path.join(projectDir, 'autophase'),
     projectSddBoards: path.join(projectDir, 'sdd-boards'),
     syncConfig: path.join(globalRoot, 'sync.json'),
+    configHistoryDir: path.join(globalRoot, 'config-history'),
     projectStatus: (projectHash: string) => path.join(globalRoot, 'projects', projectHash, 'status.json'),
   };
 }
