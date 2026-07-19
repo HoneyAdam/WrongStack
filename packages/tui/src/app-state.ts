@@ -51,6 +51,8 @@ export interface QueueItem {
   id: number;
   displayText: string;
   blocks: ContentBlock[];
+  /** When true, the item will be refined via model.refine before entering the agent context. */
+  shouldRefine?: boolean | undefined;
 }
 
 /** Per-subagent state tracked live from the FleetBus. */
@@ -1011,6 +1013,7 @@ export type Action =
   | { type: 'dequeueFirst' }
   | { type: 'queueClear' }
   | { type: 'queueDelete'; positions: number[] }
+  | { type: 'queueToggleRefine'; position: number }
   | { type: 'slashPickerOpen'; query: string; matches: SlashCommandMatch[] }
   | { type: 'slashPickerClose' }
   | { type: 'slashPickerMove'; delta: number }

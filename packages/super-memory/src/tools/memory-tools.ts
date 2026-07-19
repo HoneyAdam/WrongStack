@@ -8,6 +8,7 @@ import type {
   MemoryCandidateResolution,
   MemoryGraphEdge,
   MemoryVerificationResult,
+  PersistenceClass,
   RememberSuperMemoryInput,
   SuperMemory,
   SuperMemoryBackfillFilter,
@@ -112,6 +113,7 @@ interface RememberToolInput {
   no_auto_audience?: boolean | undefined;
   importance?: number | undefined;
   confidence?: number | undefined;
+  persistence?: PersistenceClass | undefined;
   supersedes?: string[] | undefined;
   contradicts?: string[] | undefined;
   /** Legacy back-compat — mapped to `kind`/`importance` by rememberSuper. */
@@ -133,12 +135,20 @@ function memoryRememberTool(memory: SuperMemoryServiceLike): Tool<RememberToolIn
       '- User preferences expressed (prefers short names, always uses pnpm)\n' +
       '- Anti-patterns / warnings identified (never do X, avoid pattern Y)\n' +
       '- Bug root-causes and file/symbol notes useful across sessions\n\n' +
+      'PREFER DURABLE PROJECT REFERENCES:\n' +
+      '- Package ownership/boundaries and the files that implement them\n' +
+      '- Symbol contracts, invariants, callers, and canonical entry points\n' +
+      '- Canonical build/test/debug commands and when to use them\n' +
+      '- Stable facts, decisions, conventions, workflows, and known root causes\n' +
+      '- Use multiple anchors when one fact connects a package, file, symbol, or command\n\n' +
       'WHEN NOT TO USE:\n' +
       '- Temporary task state or progress → use `todo`\n' +
       '- One-off debugging notes\n' +
       '- Information already obvious from the codebase\n\n' +
-      'Pick the most specific `kind`. Add 1-3 `tags`. Anchor to a `path`/`symbol`/`command`\n' +
-      'whenever the memory is about a concrete code location so it stays verifiable.\n\n' +
+      'Pick the most specific `kind`. Add 1-3 stable topic tags. Anchor to a file/directory,\n' +
+      'package, symbol, command, test, or git reference whenever applicable. Default persistence\n' +
+      'is `long_lived`; use `permanent` only for explicit project/user invariants.\n' +
+      'Concrete anchors keep memory verifiable and let related knowledge travel together.\n\n' +
       'AUDIENCE SCOPING:\n' +
       '- Pass `audience: { roles: [...] }` to target a memory to specific agent types.\n' +
       '- Scoped memories are injected into matching subagent system prompts automatically.\n' +
@@ -161,6 +171,7 @@ function memoryRememberTool(memory: SuperMemoryServiceLike): Tool<RememberToolIn
       no_auto_audience: { type: 'boolean', description: 'Set to true to prevent auto-scoping from your agent role/mode. Creates a general project memory even when called from a subagent.' },
       importance: numberSchema(0, 1),
       confidence: numberSchema(0, 1),
+      persistence: enumSchema(['permanent', 'long_lived', 'short_lived'], 'Retention class. Prefer long_lived; permanent is only for explicit invariants.'),
       supersedes: stringArraySchema('Memory ids this replaces (they become superseded).'),
       contradicts: stringArraySchema('Memory ids this contradicts.'),
       type: { type: 'string', enum: ['fact', 'decision', 'convention', 'preference', 'reference', 'anti_pattern'], description: 'Legacy category (optional; prefer `kind`).' },
@@ -189,6 +200,7 @@ function memoryRememberTool(memory: SuperMemoryServiceLike): Tool<RememberToolIn
         audience: autoAudience,
         importance: input.importance,
         confidence: input.confidence,
+        persistence: input.persistence,
         supersedes: input.supersedes,
         contradicts: input.contradicts,
         type: input.type,

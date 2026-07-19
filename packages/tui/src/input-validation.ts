@@ -281,6 +281,7 @@ export const ALLOWED_ACTION_TYPES = defineActionTypes([
   'promptPickerOpen',
   'queueClear',
   'queueDelete',
+  'queueToggleRefine',
   'refineFailureClose',
   'refineFailureOpen',
   'replaceHistory',
@@ -404,6 +405,8 @@ export const TEXT_BEARING_ENTRY_KINDS = new Set([
 export const ALLOWED_ENTRY_KINDS = new Set([
   ...TEXT_BEARING_ENTRY_KINDS,
   'tool',
+  'memory-activation',
+  'memory-lifecycle',
   'banner',
   'divider',
 ]);

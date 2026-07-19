@@ -146,6 +146,21 @@ describe('AutoCompactionMiddleware', () => {
     expect(compactor.compactCalls[0].aggressive).toBe(true);
   });
 
+  it('uses a provider-overflow learned effective limit on the next pass', async () => {
+    const mw = new AutoCompactionMiddleware(compactor, 1_000_000, simpleEstimator(647_000), {
+      warn: 0.5,
+      soft: 0.75,
+      hard: 0.9,
+    });
+    const ctx = mockContext(0);
+    ctx.meta['effectiveMaxContext'] = 655_000;
+
+    await mw.handler()(ctx, async (c) => c);
+
+    expect(compactor.compactCalls).toHaveLength(1);
+    expect(compactor.compactCalls[0].aggressive).toBe(true);
+  });
+
   it('emits the budget snapshot used for compaction decisions', async () => {
     const events = new EventBus();
     const fired: unknown[] = [];

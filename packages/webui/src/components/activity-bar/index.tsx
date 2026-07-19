@@ -299,22 +299,9 @@ export function ActivityBar({ desktopShell = false }: { desktopShell?: boolean |
             compact={desktopShell}
             icon={def.icon}
             label={`${navLabel(def.id, def.label)} (${shortcutLabelForActivity(def.id)})`}
-            active={def.id === 'agents' ? (inspectorOpen && inspectorTab === 'agents') : (sidebarOpen && activeActivity === def.id)}
+            active={sidebarOpen && activeActivity === def.id}
             badge={badgeFor(def.id)}
-            onClick={() => {
-              if (def.id === 'agents') {
-                // Agents icon opens the inspector sidebar, not the side panel
-                const ui = useUIStore.getState();
-                if (ui.inspectorOpen && ui.inspectorTab === 'agents') {
-                  ui.setInspectorOpen(false);
-                } else {
-                  ui.setInspectorTab('agents');
-                  ui.setInspectorOpen(true);
-                }
-              } else {
-                openPanel(def.id);
-              }
-            }}
+            onClick={() => openPanel(def.id)}
           />
         ))}
 

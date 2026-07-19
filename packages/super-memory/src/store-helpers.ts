@@ -94,6 +94,66 @@ export function normalizeSources(sources: SuperMemory['sources']): SuperMemory['
   })));
 }
 
+/** Rank explicit structural relationships shared with one or more seed memories. */
+export function scoreMemoryRelationship(
+  candidate: SuperMemory,
+  seeds: readonly SuperMemory[],
+  graphRelatedIds: ReadonlySet<string> = new Set(),
+): number {
+  if (seeds.some((seed) => seed.id === candidate.id)) return 0;
+  let relation = graphRelatedIds.has(candidate.id) ? 8 : 0;
+
+  for (const seed of seeds) {
+    const sharedTags = candidate.tags.filter((tag) => seed.tags.includes(tag));
+    relation += Math.min(4, sharedTags.length * 1.5);
+
+    for (const left of candidate.anchors) {
+      for (const right of seed.anchors) {
+        const leftPath = left.path ? normalizeSlashes(left.path).toLowerCase() : '';
+        const rightPath = right.path ? normalizeSlashes(right.path).toLowerCase() : '';
+        if (left.symbol && right.symbol && left.symbol.toLowerCase() === right.symbol.toLowerCase()) {
+          relation += leftPath && leftPath === rightPath ? 12 : 8;
+        }
+        if (left.command && right.command) {
+          const a = normalizeCommand(left.command);
+          const b = normalizeCommand(right.command);
+          if (a === b) relation += 10;
+          else if (commandFamily(a) === commandFamily(b)) relation += 5;
+        }
+        if (leftPath && rightPath) {
+          if (leftPath === rightPath) {
+            relation += left.type === 'package' || right.type === 'package' ? 10 : 8;
+          } else if (leftPath.startsWith(`${rightPath}/`) || rightPath.startsWith(`${leftPath}/`)) {
+            relation += left.type === 'package' || right.type === 'package' ? 6 : 3;
+          }
+        }
+      }
+    }
+  }
+
+  if (relation <= 0) return 0;
+  const persistence = candidate.persistence ?? 'long_lived';
+  const persistenceBonus = persistence === 'permanent' ? 2 : persistence === 'long_lived' ? 1 : -1;
+  const durableKindBonus = [
+    'fact', 'decision', 'convention', 'warning', 'anti_pattern', 'workflow',
+    'bug_root_cause', 'file_note', 'symbol_note', 'command_note',
+  ].includes(candidate.kind) ? 1 : 0;
+  return relation
+    + candidate.importance * 2
+    + candidate.confidence
+    + candidate.freshness
+    + persistenceBonus
+    + durableKindBonus;
+}
+
+function normalizeCommand(command: string): string {
+  return command.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function commandFamily(command: string): string {
+  return command.split(/\s+/).slice(0, 2).join(' ');
+}
+
 export function validateRememberInput(input: RememberSuperMemoryInput): void {
   if (typeof input.text !== 'string') throw new Error('Super Memory text must be a string.');
   if (input.text.length > MAX_MEMORY_TEXT_CHARS) {

@@ -89,6 +89,14 @@ interface ChatState {
    *  between the session's current cost and the cost captured here. Null
    *  while idle. */
   runStart: { at: number; cost: number } | null;
+  /** True while a queued message is being refined (goal-refiner running).
+   *  The UI shows a "Refining..." indicator instead of "loading". */
+  refining: boolean;
+  /** Text and images of a message being refined before entering the queue.
+   *  Set by ChatInput.sendMsg before calling model.refine; consumed by
+   *  handleModelRefineResult to open the RefinePanel for user approval.
+   *  Null when idle or refinement completed. */
+  pendingRefinement: { text: string; images: Array<{ data: string; mime: string }> } | null;
   /** Transient extended-thinking buffer. Populated by provider.thinking_delta
    *  events and shown as a soft, ephemeral bubble below the chat tail while
    *  the model is reasoning. Cleared the moment the model produces user-
@@ -138,6 +146,10 @@ interface ChatState {
   dequeue: () => QueuedItem | null;
   removeQueued: (idx: number) => void;
   clearQueue: () => void;
+  setRefining: (v: boolean) => void;
+  setPendingRefinement: (text: string | null, images?: Array<{ data: string; mime: string }>) => void;
+  removeMessage: (id: string) => void;
+  updateLastUserMessage: (text: string) => void;
   setRunStart: (s: { at: number; cost: number } | null) => void;
   appendThinking: (text: string) => void;
   clearThinking: () => void;
@@ -168,6 +180,8 @@ export const useChatStore = create<ChatState>()(
       toolMessageIdsByUseId: new Map(),
       queue: [],
       runStart: null,
+      refining: false,
+      pendingRefinement: null,
       thinkingBuffer: '',
       thinkingStartedAt: null,
       thinkingLogBuffer: '',
@@ -356,6 +370,11 @@ export const useChatStore = create<ChatState>()(
         });
       },
 
+      setRefining: (v) => set({ refining: v }),
+      setPendingRefinement: (text, images) =>
+        set({
+          pendingRefinement: text !== null ? { text, images: images ?? [] } : null,
+        }),
       enqueue: (text, mode = 'queue', images) =>
         set((state) => ({
           queue: [
@@ -372,6 +391,24 @@ export const useChatStore = create<ChatState>()(
       },
       removeQueued: (idx) => set((state) => ({ queue: state.queue.filter((_, i) => i !== idx) })),
       clearQueue: () => set({ queue: [] }),
+      removeMessage: (id) =>
+        set((state) => {
+          const messages = state.messages.filter((m) => m.id !== id);
+          return { messages, toolMessageIdsByUseId: indexToolMessages(messages) };
+        }),
+      updateLastUserMessage: (text) =>
+        set((state) => {
+          const messages = state.messages;
+          for (let i = messages.length - 1; i >= 0; i--) {
+            if (messages[i].role === 'user') {
+              const updated = { ...messages[i], content: text };
+              const newMessages = [...messages];
+              newMessages[i] = updated;
+              return { messages: newMessages };
+            }
+          }
+          return state;
+        }),
       setRunStart: (s) => set({ runStart: s }),
       appendThinking: (text) =>
         set((state) => ({
@@ -412,7 +449,7 @@ export const useChatStore = create<ChatState>()(
       //                      detect cross-session bleed.
       //
       // We deliberately do NOT persist: isLoading, abortController, runStart,
-      // executions, currentAssistantMessageId, currentToolId, the live
+      // executions, currentAssistantMessageId, currentToolId, refining, the live
       // thinking buffers, or toolMessageIdsByUseId. These are either non-
       // serializable (AbortController, Map), pure runtime state (isLoading,
       // runStart, currentAssistantMessageId is reset on every replay), or

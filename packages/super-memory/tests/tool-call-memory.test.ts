@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSuperMemoryToolCallMiddleware } from '../src/middleware/tool-call-memory.js';
-import type { ToolCallPipelinePayload } from '@wrongstack/core';
+import { EventBus, type ToolCallPipelinePayload } from '@wrongstack/core';
 import { SuperMemoryStore } from '../src/store.js';
 
 let tmpDir: string;
@@ -220,6 +220,35 @@ describe('SuperMemoryToolCallMiddleware — tool name variants', () => {
     await mw.handler(payload as never, async (p) => p);
     expect(payload.result.content).toBe('test output'); // no file paths so no memories
   });
+
+  it('uses the live task as a retrieval signal for an otherwise unrelated command', async () => {
+    const store = makeStore();
+    await store.rememberSuper({
+      text: 'Authentication package refresh tokens are rotated by the session service.',
+      kind: 'fact',
+      tags: ['authentication', 'session'],
+      anchors: [{ type: 'package', path: 'src/auth' }],
+      persistence: 'long_lived',
+    });
+    const mw = createSuperMemoryToolCallMiddleware({ memory: store, repeatCooldownMs: 0 });
+    const payload = makePayload({
+      toolUse: { type: 'tool_use', id: 'tu_task', name: 'exec', input: { command: 'node -v' } },
+      result: { type: 'tool_result', tool_use_id: 'tu_task', name: 'exec', content: 'v24' },
+      ctx: {
+        projectRoot: tmpDir,
+        cwd: tmpDir,
+        session: { id: 'task-aware' },
+        signal: new AbortController().signal,
+        todos: [{ id: 'todo-auth', content: 'Refactor authentication refresh flow', status: 'in_progress' }],
+        meta: {},
+      } as never,
+    });
+
+    await mw.handler(payload, async (p) => p);
+
+    expect(payload.result.content).toContain('Authentication package refresh tokens');
+    expect((payload.ctx.meta['memoryInjectorLastRun'] as Record<string, number>)['injected']).toBe(1);
+  });
 });
 
 describe('SuperMemoryToolCallMiddleware — result path extraction', () => {
@@ -311,6 +340,130 @@ describe('SuperMemoryToolCallMiddleware — no memories match', () => {
     const payload = makePayload();
     await mw.handler(payload as never, async (p) => p);
     expect(payload.result.content).toBe('file content');
+  });
+
+  it('never appends deleted lifecycle history returned by a retriever', async () => {
+    const deleted = {
+      id: 'mem_deleted',
+      revision: 2,
+      scope: 'project' as const,
+      kind: 'fact' as const,
+      status: 'deleted' as const,
+      text: 'Deleted guidance must stay out of context.',
+      importance: 1,
+      confidence: 1,
+      freshness: 1,
+      tags: [],
+      anchors: [{ type: 'file' as const, path: 'src/file.ts' }],
+      sources: [],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    const memory = {
+      retrieveForPath: async () => [deleted],
+      searchSuper: async () => [deleted],
+    };
+    const mw = createSuperMemoryToolCallMiddleware({ memory, repeatCooldownMs: 0 });
+    const payload = makePayload();
+
+    await mw.handler(payload, async (p) => p);
+
+    expect(payload.result.content).toBe('file content');
+  });
+});
+
+describe('SuperMemoryToolCallMiddleware — injector observability', () => {
+  it('emits the selected memories and bounded decision metrics after injection', async () => {
+    const store = await storeWithFileMemory('src/file.ts');
+    const events = new EventBus();
+    const traces: Array<Record<string, unknown>> = [];
+    events.onPattern('memory.injector_run', (_event, payload) => {
+      traces.push(payload as Record<string, unknown>);
+    });
+    const mw = createSuperMemoryToolCallMiddleware({
+      memory: store,
+      events,
+      repeatCooldownMs: 0,
+    });
+
+    await mw.handler(makePayload(), async (p) => p);
+
+    expect(traces).toHaveLength(1);
+    expect(traces[0]).toMatchObject({
+      outcome: 'injected',
+      trigger: 'read',
+      toolName: 'read',
+      candidates: 1,
+      eligible: 1,
+    });
+    expect(traces[0]?.['injected']).toEqual([
+      expect.objectContaining({ kind: 'fact', text: 'Memory for src/file.ts' }),
+    ]);
+    expect(traces[0]?.['activated']).toEqual([
+      expect.objectContaining({
+        kind: 'fact',
+        anchors: expect.arrayContaining([expect.stringContaining('file:')]),
+        activationReasons: expect.arrayContaining([expect.stringContaining('anchor:')]),
+        confidence: expect.any(Number),
+        freshness: expect.any(Number),
+        importance: expect.any(Number),
+        persistence: 'long_lived',
+      }),
+    ]);
+  });
+
+  it('also emits empty runs with the reason memories left the candidate set', async () => {
+    const store = await storeWithFileMemory('src/file.ts');
+    const events = new EventBus();
+    const traces: Array<Record<string, unknown>> = [];
+    events.onPattern('memory.injector_run', (_event, payload) => {
+      traces.push(payload as Record<string, unknown>);
+    });
+    const mw = createSuperMemoryToolCallMiddleware({ memory: store, events });
+    const payload = makePayload({
+      result: {
+        type: 'tool_result',
+        tool_use_id: 'tu1',
+        name: 'read',
+        content: 'file content already says Memory for src/file.ts',
+      },
+    });
+
+    await mw.handler(payload, async (p) => p);
+
+    expect(traces).toHaveLength(1);
+    expect(traces[0]).toMatchObject({
+      outcome: 'empty',
+      candidates: 1,
+      eligible: 0,
+      rejected: { alreadyVisible: 1 },
+      injected: [],
+      injectedChars: 0,
+    });
+  });
+
+  it('distinguishes an activated memory from one actually written into context', async () => {
+    const store = await storeWithFileMemory('src/file.ts');
+    const events = new EventBus();
+    const traces: Array<Record<string, unknown>> = [];
+    events.onPattern('memory.injector_run', (_event, payload) => {
+      traces.push(payload as Record<string, unknown>);
+    });
+    const mw = createSuperMemoryToolCallMiddleware({
+      memory: store,
+      events,
+      repeatCooldownMs: 0,
+      maxCharsPerTool: 0,
+    });
+
+    await mw.handler(makePayload(), async (p) => p);
+
+    expect(traces[0]).toMatchObject({
+      outcome: 'empty',
+      activated: [expect.objectContaining({ text: 'Memory for src/file.ts' })],
+      injected: [],
+      rejected: { budget: 1 },
+    });
   });
 });
 

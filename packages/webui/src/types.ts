@@ -713,6 +713,16 @@ export interface SuperMemoryStats {
   edges: number;
 }
 
+export interface SuperMemoryGraphEdge {
+  id: string;
+  from: string;
+  to: string;
+  relation: string;
+  weight: number;
+  evidence?: string[] | undefined;
+  createdAt: string;
+}
+
 export interface WSMemorySuperList {
   type: 'memory.super.list';
   payload: {
@@ -729,6 +739,7 @@ export interface WSMemorySuperListPage {
     nextCursor?: string | null | undefined;
     total?: number | undefined;
     statusCounts?: Record<string, number> | undefined;
+    stats?: SuperMemoryStats | undefined;
     error?: string | undefined;
   };
 }
@@ -737,6 +748,16 @@ export interface WSMemorySuperGet {
   type: 'memory.super.get';
   payload: {
     memory?: SuperMemoryEntry | undefined;
+    error?: string | undefined;
+  };
+}
+
+export interface WSMemorySuperGraph {
+  type: 'memory.super.graph';
+  payload: {
+    query: string;
+    edges?: SuperMemoryGraphEdge[] | undefined;
+    memories?: SuperMemoryEntry[] | undefined;
     error?: string | undefined;
   };
 }
@@ -1846,6 +1867,7 @@ export type WSClientMessageCore =
       };
     }
   | { type: 'memory.super.get'; payload: { id: string } }
+  | { type: 'memory.super.graph'; payload: { query: string; maxDepth?: number; limit?: number } }
   | {
       type: 'memory.super.update';
       payload: {
@@ -2189,6 +2211,7 @@ export type WSServerMessage =
   | WSMemorySuperList
   | WSMemorySuperListPage
   | WSMemorySuperGet
+  | WSMemorySuperGraph
   | WSMemorySuperUpdate
   | WSMemorySuperRemember
   | WSMemorySuperDelete

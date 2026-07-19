@@ -63,8 +63,6 @@ import { WebhookNotificationChannel } from './webhook-channel.js';
 
 /** Captured during setup() — the host logger for structured log lines. */
 let _pluginLog: Logger | null = null;
-/** Tracks whether we already logged the circuit-open event (log-once). */
-let _circuitWarned = false;
 
 interface NotifyHubState {
   channel: WebhookNotificationChannel | null;
@@ -243,7 +241,7 @@ async function deliver(event: string, payload: Record<string, unknown>): Promise
 }
 
 /**
- * Send a notification through the channel and update local session counters.
+ * Send a notification through the channel and update delivery tracking.
  * Logs circuit-open on the false→true transition (once per trip).
  */
 async function deliverViaChannel(
@@ -253,16 +251,14 @@ async function deliverViaChannel(
 ): Promise<NotificationResult> {
   const result = await ch.deliver(msg);
   if (result.ok) {
-    state.sent += 1;
-    _circuitWarned = false;
+    state.circuitWarned = false;
     state.lastDelivery = { event, ok: true, when: new Date().toISOString() };
   } else {
-    state.failed += 1;
     state.lastDelivery = { event, ok: false, when: new Date().toISOString() };
     // Log circuit-open on the false→true transition (once per trip).
     const cs = ch.circuitStatus();
-    if (cs.open && !_circuitWarned) {
-      _circuitWarned = true;
+    if (cs.open && !state.circuitWarned) {
+      state.circuitWarned = true;
       _pluginLog?.warn(
         `notify-hub: ${cs.consecutiveFailures} consecutive delivery failures — circuit opened, further notifications suppressed`,
         { consecutiveFailures: cs.consecutiveFailures, event },
@@ -327,10 +323,8 @@ const plugin: Plugin = {
   async setup(api) {
     // Idempotent re-init (H1 pattern).
     _pluginLog = api.log;
-    _circuitWarned = false;
+    state.circuitWarned = false;
     state.channel = null;
-    state.sent = 0;
-    state.failed = 0;
     state.lastDelivery = null;
     if (state.stopHookUnregister) {
       try {
@@ -522,7 +516,7 @@ const plugin: Plugin = {
 
   teardown(api) {
     _pluginLog = null;
-    _circuitWarned = false;
+    state.circuitWarned = false;
     if (state.stopHookUnregister) {
       try {
         state.stopHookUnregister();
@@ -539,24 +533,18 @@ const plugin: Plugin = {
       }
     }
     state.eventUnsubscribers = [];
-    const final = {
-      sent: state.sent,
-      failed: state.failed,
-      channelCounters: state.channel?.counters(),
-    };
+    const channelCounters = state.channel?.counters();
     state.channel = null;
-    state.sent = 0;
-    state.failed = 0;
     state.lastDelivery = null;
-    api.log.info('notify-hub: teardown complete', { final });
+    api.log.info('notify-hub: teardown complete', { channelCounters });
   },
 
   async health() {
     const ch = state.channel;
     const cs = ch?.circuitStatus();
     const channelCounters = ch?.counters();
-    const sent = channelCounters?.delivered ?? state.sent;
-    const failed = channelCounters?.failed ?? state.failed;
+    const sent = channelCounters?.delivered ?? 0;
+    const failed = channelCounters?.failed ?? 0;
     const suppressed = channelCounters?.suppressed ?? 0;
     return {
       ok: !cs?.open,

@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  SessionMemoryConsolidator,
-  type ConsolidatorSuperMemory,
-} from '../../src/storage/memory-consolidator.js';
-import type { Context } from '../../src/core/context.js';
 import type { RunResult } from '../../src/core/agent-types.js';
+import type { Context } from '../../src/core/context.js';
+import {
+  type ConsolidatorSuperMemory,
+  SessionMemoryConsolidator,
+} from '../../src/storage/memory-consolidator.js';
 import type { MemoryStore } from '../../src/types/memory.js';
 import type { Provider } from '../../src/types/provider.js';
 
@@ -33,27 +33,38 @@ const mkStoreWithBackend = () => {
     forget: vi.fn(async () => 1),
     getBackend: vi.fn(() => ({ deleteSuperMemory, listSuper })),
   };
-  return { store: store as never as MemoryStore & Record<string, ReturnType<typeof vi.fn>>, deleteSuperMemory, listSuper };
+  return {
+    store: store as never as MemoryStore & Record<string, ReturnType<typeof vi.fn>>,
+    deleteSuperMemory,
+    listSuper,
+  };
 };
 
-const mkSuperMemory = () => ({
-  rememberSuper: vi.fn(async () => ({})),
-  searchSuper: vi.fn(async () => [] as unknown[]),
-}) satisfies ConsolidatorSuperMemory;
+const mkSuperMemory = () =>
+  ({
+    rememberSuper: vi.fn(async () => ({})),
+    searchSuper: vi.fn(async () => [] as unknown[]),
+  }) satisfies ConsolidatorSuperMemory;
 
 const mkProvider = (text: string): Provider =>
   ({
     complete: vi.fn(async () => ({ content: [{ type: 'text', text }], stopReason: 'end_turn' })),
   }) as never as Provider;
 
-const ctx = (provider?: Provider): Context => ({
-  provider,
-  model: 'haiku',
-  session: { id: '2026-07-18/sess_consolidator' },
-}) as never as Context;
+const ctx = (provider?: Provider): Context =>
+  ({
+    provider,
+    model: 'haiku',
+    session: { id: '2026-07-18/sess_consolidator' },
+  }) as never as Context;
 
 const result = (over: Partial<RunResult> = {}): RunResult =>
-  ({ status: 'done', finalText: 'a meaningful session summary text', iterations: 5, ...over }) as RunResult;
+  ({
+    status: 'done',
+    finalText: 'a meaningful session summary text',
+    iterations: 5,
+    ...over,
+  }) as RunResult;
 
 let store: ReturnType<typeof mkStore>;
 beforeEach(() => {
@@ -105,14 +116,25 @@ describe('SessionMemoryConsolidator operations', () => {
         { action: 'add', text: 'another fact', type: 'convention' },
       ],
     };
-    const c = new SessionMemoryConsolidator({ memoryStore: store, provider: mkProvider(JSON.stringify(ops)) });
+    const c = new SessionMemoryConsolidator({
+      memoryStore: store,
+      provider: mkProvider(JSON.stringify(ops)),
+    });
     c.afterRun(ctx(), result());
     // Consolidation is fire-and-forget — wait for the background IIFE to settle.
     await vi.waitFor(() => {
       expect(store.remember).toHaveBeenCalledTimes(2);
     });
-    expect(store.remember).toHaveBeenCalledWith('new fact', undefined, expect.objectContaining({ type: 'fact' }));
-    expect(store.remember).toHaveBeenCalledWith('another fact', undefined, expect.objectContaining({ type: 'convention' }));
+    expect(store.remember).toHaveBeenCalledWith(
+      'new fact',
+      undefined,
+      expect.objectContaining({ type: 'fact' }),
+    );
+    expect(store.remember).toHaveBeenCalledWith(
+      'another fact',
+      undefined,
+      expect.objectContaining({ type: 'convention' }),
+    );
     expect(stderr).toHaveBeenCalledWith(expect.stringContaining('2 added'));
   });
 
@@ -196,23 +218,31 @@ describe('SessionMemoryConsolidator operations', () => {
     await vi.waitFor(() => {
       expect(superMemory.rememberSuper).toHaveBeenCalledTimes(2);
     });
-    expect(superMemory.rememberSuper).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      kind: 'file_note',
-      importance: 0.95,
-    }));
-    expect(superMemory.rememberSuper).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      kind: 'decision',
-      importance: 0.8,
-      sources: [{ type: 'session', sessionId: '2026-07-18/sess_consolidator' }],
-    }));
+    expect(superMemory.rememberSuper).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        kind: 'file_note',
+        importance: 0.95,
+      }),
+    );
+    expect(superMemory.rememberSuper).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        kind: 'decision',
+        importance: 0.8,
+        sources: [{ type: 'session', sessionId: '2026-07-18/sess_consolidator' }],
+      }),
+    );
     expect(stderr).toHaveBeenCalledWith(expect.stringContaining('1 added'));
   });
 
   it('continues after a malformed operation and preserves session provenance', async () => {
     const superMemory = mkSuperMemory();
-    const provider = mkProvider(JSON.stringify({
-      operations: [null, { action: 'add', text: 'valid session-derived fact' }],
-    }));
+    const provider = mkProvider(
+      JSON.stringify({
+        operations: [null, { action: 'add', text: 'valid session-derived fact' }],
+      }),
+    );
     const c = new SessionMemoryConsolidator({
       memoryStore: {} as MemoryStore,
       superMemory,
@@ -224,10 +254,78 @@ describe('SessionMemoryConsolidator operations', () => {
     await vi.waitFor(() => {
       expect(superMemory.rememberSuper).toHaveBeenCalledTimes(1);
     });
-    expect(superMemory.rememberSuper).toHaveBeenCalledWith(expect.objectContaining({
-      text: 'valid session-derived fact',
-      sources: [{ type: 'session', sessionId: '2026-07-18/sess_consolidator' }],
-    }));
+    expect(superMemory.rememberSuper).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: 'valid session-derived fact',
+        sources: [{ type: 'session', sessionId: '2026-07-18/sess_consolidator' }],
+      }),
+    );
+  });
+
+  it('persists anchored long-lived memory from bounded run evidence before afterRun returns', async () => {
+    const superMemory = mkSuperMemory();
+    const provider = mkProvider(
+      JSON.stringify({
+        operations: [
+          {
+            action: 'add',
+            text: 'buildProject validates the workspace with the focused test command.',
+            type: 'symbol_note',
+            priority: 'high',
+            confidence: 0.91,
+            tags: ['build', 'test'],
+            anchors: [
+              { type: 'symbol', path: 'src/build.ts', symbol: 'buildProject' },
+              { type: 'command', command: 'pnpm test build' },
+            ],
+          },
+        ],
+      }),
+    );
+    const evidenceCtx = {
+      ...ctx(),
+      projectRoot: '/repo',
+      cwd: '/repo',
+      readFiles: new Set(['/repo/src/build.ts']),
+      writtenFiles: new Set(['/repo/src/build.ts']),
+      sideEffects: [
+        {
+          toolUseId: 'tool-1',
+          toolName: 'bash',
+          ts: '2026-07-19T00:00:00.000Z',
+          input: { command: 'pnpm test build' },
+          outcome: 'exit 0',
+          risk: 'shell',
+        },
+      ],
+      todos: [{ id: 't1', content: 'Verify focused build tests', status: 'completed' }],
+      currentKanbanBoardId: 'board-1',
+      currentKanbanTaskId: 'task-1',
+    } as never as Context;
+    const c = new SessionMemoryConsolidator({
+      memoryStore: {} as MemoryStore,
+      superMemory,
+      provider,
+    });
+
+    await c.afterRun(evidenceCtx, result({ iterations: 1 }));
+
+    expect(superMemory.rememberSuper).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'symbol_note',
+        persistence: 'long_lived',
+        confidence: 0.91,
+        anchors: [
+          { type: 'symbol', path: 'src/build.ts', symbol: 'buildProject' },
+          { type: 'command', command: 'pnpm test build' },
+        ],
+      }),
+    );
+    const complete = provider.complete as ReturnType<typeof vi.fn>;
+    const prompt = complete.mock.calls[0]?.[0].system[0].text as string;
+    expect(prompt).toContain('src/build.ts');
+    expect(prompt).toContain('pnpm test build');
+    expect(prompt).toContain('task-1');
   });
 
   it('ignores edit/delete ops entirely — add-only contract (regression: mass deletion)', async () => {
@@ -240,7 +338,10 @@ describe('SessionMemoryConsolidator operations', () => {
         { action: 'edit', query: 'old', text: 'updated fact', type: 'fact' },
       ],
     };
-    const c = new SessionMemoryConsolidator({ memoryStore: store, provider: mkProvider(JSON.stringify(ops)) });
+    const c = new SessionMemoryConsolidator({
+      memoryStore: store,
+      provider: mkProvider(JSON.stringify(ops)),
+    });
     c.afterRun(ctx(), result());
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(store.forget).not.toHaveBeenCalled();
@@ -261,10 +362,15 @@ describe('SessionMemoryConsolidator operations', () => {
         { action: 'add', text: 'safe fact' },
       ],
     };
-    const c = new SessionMemoryConsolidator({ memoryStore: backendStore, provider: mkProvider(JSON.stringify(ops)) });
+    const c = new SessionMemoryConsolidator({
+      memoryStore: backendStore,
+      provider: mkProvider(JSON.stringify(ops)),
+    });
     c.afterRun(ctx(), result());
     await vi.waitFor(() => {
-      expect((backendStore as { remember: ReturnType<typeof vi.fn> }).remember).toHaveBeenCalledTimes(1);
+      expect(
+        (backendStore as { remember: ReturnType<typeof vi.fn> }).remember,
+      ).toHaveBeenCalledTimes(1);
     });
     expect(deleteSuperMemory).not.toHaveBeenCalled();
     expect(listSuper).not.toHaveBeenCalled();
@@ -279,7 +385,10 @@ describe('SessionMemoryConsolidator operations', () => {
         { action: 'edit', query: 'old', text: 'updated fact' },
       ],
     };
-    const c = new SessionMemoryConsolidator({ memoryStore: store, provider: mkProvider(JSON.stringify(ops)) });
+    const c = new SessionMemoryConsolidator({
+      memoryStore: store,
+      provider: mkProvider(JSON.stringify(ops)),
+    });
     c.afterRun(ctx(), result());
     await vi.waitFor(() => {
       expect(store.remember).toHaveBeenCalledTimes(1);
@@ -289,7 +398,8 @@ describe('SessionMemoryConsolidator operations', () => {
   });
 
   it('wraps JSON in surrounding prose and still extracts it', async () => {
-    const text = 'Here is the result:\n{"operations":[{"action":"add","text":"wrapped fact"}]}\nDone.';
+    const text =
+      'Here is the result:\n{"operations":[{"action":"add","text":"wrapped fact"}]}\nDone.';
     const c = new SessionMemoryConsolidator({ memoryStore: store, provider: mkProvider(text) });
     c.afterRun(ctx(), result());
     await vi.waitFor(() => {
@@ -305,7 +415,10 @@ describe('SessionMemoryConsolidator operations', () => {
         { action: 'add', text: '   ' }, // blank text
       ],
     };
-    const c = new SessionMemoryConsolidator({ memoryStore: store, provider: mkProvider(JSON.stringify(ops)) });
+    const c = new SessionMemoryConsolidator({
+      memoryStore: store,
+      provider: mkProvider(JSON.stringify(ops)),
+    });
     c.afterRun(ctx(), result());
     // Give the fire-and-forget IIFE time to settle, then verify nothing was written.
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -321,30 +434,46 @@ describe('SessionMemoryConsolidator operations', () => {
   });
 
   it('returns when there is no JSON object in the response', async () => {
-    const c = new SessionMemoryConsolidator({ memoryStore: store, provider: mkProvider('no json here') });
+    const c = new SessionMemoryConsolidator({
+      memoryStore: store,
+      provider: mkProvider('no json here'),
+    });
     c.afterRun(ctx(), result());
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(store.remember).not.toHaveBeenCalled();
   });
 
   it('returns when operations is empty or not an array', async () => {
-    const c1 = new SessionMemoryConsolidator({ memoryStore: store, provider: mkProvider('{"operations":[]}') });
+    const c1 = new SessionMemoryConsolidator({
+      memoryStore: store,
+      provider: mkProvider('{"operations":[]}'),
+    });
     c1.afterRun(ctx(), result());
-    const c2 = new SessionMemoryConsolidator({ memoryStore: store, provider: mkProvider('{"operations":"nope"}') });
+    const c2 = new SessionMemoryConsolidator({
+      memoryStore: store,
+      provider: mkProvider('{"operations":"nope"}'),
+    });
     c2.afterRun(ctx(), result());
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(store.remember).not.toHaveBeenCalled();
   });
 
   it('swallows a malformed-JSON parse error', async () => {
-    const c = new SessionMemoryConsolidator({ memoryStore: store, provider: mkProvider('{ not valid json }') });
+    const c = new SessionMemoryConsolidator({
+      memoryStore: store,
+      provider: mkProvider('{ not valid json }'),
+    });
     c.afterRun(ctx(), result());
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(store.remember).not.toHaveBeenCalled();
   });
 
   it('swallows a provider failure', async () => {
-    const provider = { complete: vi.fn(async () => { throw new Error('llm down'); }) } as never as Provider;
+    const provider = {
+      complete: vi.fn(async () => {
+        throw new Error('llm down');
+      }),
+    } as never as Provider;
     const c = new SessionMemoryConsolidator({ memoryStore: store, provider });
     c.afterRun(ctx(), result());
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -371,7 +500,13 @@ describe('SessionMemoryConsolidator operations', () => {
 
     const ops = {
       operations: [
-        { action: 'add', text: 'new convention discovered', type: 'convention', priority: 'high', tags: ['test'] },
+        {
+          action: 'add',
+          text: 'new convention discovered',
+          type: 'convention',
+          priority: 'high',
+          tags: ['test'],
+        },
         { action: 'edit', query: 'old fact', text: 'this edit should be ignored', type: 'fact' },
         { action: 'delete', query: 'another fact' },
         { action: 'add', text: 'second new fact', type: 'decision' },
@@ -379,18 +514,31 @@ describe('SessionMemoryConsolidator operations', () => {
       ],
     };
 
-    const c = new SessionMemoryConsolidator({ memoryStore: backendStore, provider: mkProvider(JSON.stringify(ops)) });
+    const c = new SessionMemoryConsolidator({
+      memoryStore: backendStore,
+      provider: mkProvider(JSON.stringify(ops)),
+    });
     c.afterRun(ctx(), result());
 
     // Wait for the background IIFE to settle.
     await vi.waitFor(() => {
-      expect((backendStore as { remember: ReturnType<typeof vi.fn> }).remember).toHaveBeenCalledTimes(2);
+      expect(
+        (backendStore as { remember: ReturnType<typeof vi.fn> }).remember,
+      ).toHaveBeenCalledTimes(2);
     });
 
     // 1. Only the two add ops reached store.remember()
     const remember = (backendStore as { remember: ReturnType<typeof vi.fn> }).remember;
-    expect(remember).toHaveBeenCalledWith('new convention discovered', undefined, expect.objectContaining({ type: 'convention' }));
-    expect(remember).toHaveBeenCalledWith('second new fact', undefined, expect.objectContaining({ type: 'decision' }));
+    expect(remember).toHaveBeenCalledWith(
+      'new convention discovered',
+      undefined,
+      expect.objectContaining({ type: 'convention' }),
+    );
+    expect(remember).toHaveBeenCalledWith(
+      'second new fact',
+      undefined,
+      expect.objectContaining({ type: 'decision' }),
+    );
 
     // 2. NO deletion surface was ever called — the core invariant
     expect((backendStore as { forget: ReturnType<typeof vi.fn> }).forget).not.toHaveBeenCalled();

@@ -339,6 +339,15 @@ export function reducer(state: State, action: Action): State {
       if (filtered.length === state.queue.length) return state;
       return { ...state, queue: filtered };
     }
+    case 'queueToggleRefine': {
+      const pos = action.position;
+      if (pos < 0 || pos >= state.queue.length) return state;
+      const updated = [...state.queue];
+      const existing = updated[pos];
+      if (!existing) return state;
+      updated[pos] = { ...existing, shouldRefine: !existing.shouldRefine };
+      return { ...state, queue: updated };
+    }
     case 'slashPickerOpen':
       return {
         ...state,

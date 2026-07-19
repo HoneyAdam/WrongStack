@@ -8,6 +8,7 @@ import {
   Clock,
   Download,
   FileCode2,
+  Info,
   Pencil,
   Pin,
   PinOff,
@@ -65,6 +66,7 @@ export const MessageBubble = memo(function MessageBubble({
   const [showRaw, setShowRaw] = useState(false);
   const isUser = message.role === 'user';
   const isTool = message.role === 'tool';
+  const isSystem = message.role === 'system';
   const isThinkingLog = !!message.thinkingLog;
   void message.role;
 
@@ -267,15 +269,19 @@ export const MessageBubble = memo(function MessageBubble({
               ? 'bg-primary text-primary-foreground ring-primary/20'
               : isTool
                 ? 'bg-secondary text-secondary-foreground ring-secondary/20'
-                : isThinkingLog
-                  ? 'bg-primary/10 text-primary ring-primary/20'
-                  : 'bg-accent text-accent-foreground ring-accent/20',
+                : isSystem
+                  ? 'bg-muted/60 text-muted-foreground ring-border/40'
+                  : isThinkingLog
+                    ? 'bg-primary/10 text-primary ring-primary/20'
+                    : 'bg-accent text-accent-foreground ring-accent/20',
           )}
         >
           {isUser ? (
             <User className="h-4 w-4" />
           ) : isTool ? (
             <Terminal className="h-4 w-4" />
+          ) : isSystem ? (
+            <Info className="h-4 w-4" />
           ) : isThinkingLog ? (
             <Brain className="h-4 w-4" />
           ) : (
@@ -296,20 +302,24 @@ export const MessageBubble = memo(function MessageBubble({
               'text-xs font-medium px-1',
               isUser
                 ? 'text-primary'
-                : isTool
-                  ? 'text-secondary'
-                  : isThinkingLog
-                    ? 'text-primary'
-                    : 'text-muted-foreground',
+                : isSystem
+                  ? 'text-muted-foreground/60'
+                  : isTool
+                    ? 'text-secondary'
+                    : isThinkingLog
+                      ? 'text-primary'
+                      : 'text-muted-foreground',
             )}
           >
             {isUser
               ? t('activity:message.roleYou')
-              : isTool
-                ? t('activity:message.roleTool')
-                : isThinkingLog
-                  ? t('activity:message.roleThinking')
-                  : t('activity:message.roleAssistant')}
+              : isSystem
+                ? 'System'
+                : isTool
+                  ? t('activity:message.roleTool')
+                  : isThinkingLog
+                    ? t('activity:message.roleThinking')
+                    : t('activity:message.roleAssistant')}
           </span>
         )}
 
@@ -363,11 +373,13 @@ export const MessageBubble = memo(function MessageBubble({
             compactMode ? 'px-3 py-1.5' : 'px-4 py-3',
             isUser
               ? 'bg-primary text-primary-foreground rounded-br-sm msg-user-bubble'
-              : isTool
-                ? message.isError
-                  ? 'bg-destructive/5 border border-destructive/25 text-destructive'
-                  : 'bg-muted/70 border border-border/60 text-foreground'
-                : 'bg-card border border-border/70 text-foreground',
+              : isSystem
+                ? 'bg-muted/30 border border-border/30 text-muted-foreground text-xs italic py-2'
+                : isTool
+                  ? message.isError
+                    ? 'bg-destructive/5 border border-destructive/25 text-destructive'
+                    : 'bg-muted/70 border border-border/60 text-foreground'
+                  : 'bg-card border border-border/70 text-foreground',
             message.isError && !isTool && 'border-destructive/20',
             isUser && message.status === 'failed' && 'opacity-60 ring-1 ring-destructive/30',
           )}

@@ -2,9 +2,12 @@ import * as fs from 'node:fs/promises';
 import type { Config, Context, SlashCommand } from '@wrongstack/core';
 import {
   atomicWrite,
+  type ContextBreakdown,
   type ContextWindowPolicy,
+  type SystemBlockSource,
   color,
   formatContextWindowModeList,
+  getContextBreakdown,
   getContextWindowMode,
   repairToolUseAdjacency,
   resolveContextWindowPolicy,
@@ -30,6 +33,7 @@ export function buildContextCommand(opts: SlashCommandContext): SlashCommand {
       '  /context thresholds <warn> <soft> <hard> --persist Persist thresholds to config.',
       '  /context mode      List context-window modes.',
       '  /context mode <id> Switch context-window mode for this session.',
+      '  /context cache     Prompt-cache report: hit ratio, $ saved, per-provider, and each provider’s cache mechanism.',
     ].join('\n'),
     async run(args, ctx) {
       if (!ctx) {
@@ -160,9 +164,16 @@ export function buildContextCommand(opts: SlashCommandContext): SlashCommand {
         return { message: msg };
       }
 
+      if (trimmed === 'cache') {
+        const msg = renderCacheReport(ctx);
+        opts.renderer.write(`${msg}\n`);
+        return { message: msg };
+      }
+
       const messages = ctx.messages;
       const detailed = trimmed === 'detail';
       const policy = readPolicy(ctx);
+      const breakdown = safeBreakdown(ctx);
       const lines = [
         `${color.bold('Context Window')}`,
         `  messages:    ${messages.length} total (${countTurnPairs(messages)} user+assistant pairs)`,
@@ -174,6 +185,28 @@ export function buildContextCommand(opts: SlashCommandContext): SlashCommand {
         `  read files:  ${ctx.readFiles.size} files`,
         `  todos:       ${ctx.todos.filter((t) => t.status === 'in_progress').length} in_progress / ${ctx.todos.filter((t) => t.status === 'pending').length} pending / ${ctx.todos.filter((t) => t.status === 'completed').length} completed`,
       ];
+      if (breakdown) {
+        lines.push('', ...renderBreakdown(breakdown, detailed));
+      } else if (messages.length > 0 || ctx.tools.length > 0) {
+        lines.push('', `  ${color.dim('breakdown: unavailable (see logs)')}`);
+      }
+      const cache = ctx.tokenCounter?.cacheStats();
+      if (cache && (cache.readTokens > 0 || cache.writeTokens > 0)) {
+        const saved =
+          cache.savedUsd > 0 ? `  ·  saved ~$${cache.savedUsd.toFixed(2)}` : '';
+        lines.push(
+          `  cache-hit: ${(cache.hitRatio * 100).toFixed(1)}%  ·  read ${cache.readTokens.toLocaleString('en-US')}, write ${cache.writeTokens.toLocaleString('en-US')}${saved} (session cumulative)`,
+        );
+        // Per-provider split — only meaningful once the session spanned >1 provider.
+        const perProvider = readProviderCacheLedger(ctx);
+        if (perProvider.length > 1) {
+          for (const p of perProvider) {
+            lines.push(
+              `    ${p.provider.padEnd(16)} ${(p.hitRatio * 100).toFixed(1)}% hit  ·  read ${p.cacheRead.toLocaleString('en-US')}, write ${p.cacheWrite.toLocaleString('en-US')}`,
+            );
+          }
+        }
+      }
       if (detailed) {
         lines.push(
           `  thresholds:  warn ${pct(policy?.thresholds.warn ?? 0.6)}, soft ${pct(policy?.thresholds.soft ?? 0.75)}, hard ${pct(policy?.thresholds.hard ?? 0.9)}`,
@@ -194,6 +227,148 @@ export function buildContextCommand(opts: SlashCommandContext): SlashCommand {
 function readPolicy(ctx: Context): ContextWindowPolicy | null {
   const policy = ctx.meta?.['contextWindowPolicy'];
   return policy && typeof policy === 'object' ? (policy as ContextWindowPolicy) : null;
+}
+
+interface ProviderCacheRow {
+  provider: string;
+  cacheRead: number;
+  cacheWrite: number;
+  hitRatio: number;
+}
+
+/** Read the per-provider cache ledger attached to ctx.meta by session wiring. */
+function readProviderCacheLedger(ctx: Context): ProviderCacheRow[] {
+  const ledger = ctx.meta?.['providerCacheLedger'] as
+    | { perProvider?: () => ProviderCacheRow[] }
+    | undefined;
+  try {
+    return ledger?.perProvider?.() ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** Human label for how a provider does prompt caching, from its capabilities. */
+function cacheMechanismLabel(providerId: string, cacheControl: string | undefined): string {
+  const id = providerId.toLowerCase();
+  if (cacheControl === 'native') return 'native cache_control breakpoints (ttl-tunable)';
+  if (id.includes('google') || id.includes('gemini')) {
+    return 'implicit (auto) + explicit cachedContents (opt-in)';
+  }
+  if (cacheControl === 'auto') return 'automatic + prompt_cache_key routing';
+  return 'none / provider-managed';
+}
+
+/** `/context cache` — consolidated prompt-cache report. */
+function renderCacheReport(ctx: Context): string {
+  const lines: string[] = [`${color.bold('Prompt Cache Report')}`];
+  const cache = ctx.tokenCounter?.cacheStats();
+  if (cache && (cache.readTokens > 0 || cache.writeTokens > 0)) {
+    lines.push(
+      `  hit ratio: ${(cache.hitRatio * 100).toFixed(1)}%`,
+      `  tokens:    read ${K(cache.readTokens)}, write ${K(cache.writeTokens)}`,
+    );
+    if (cache.savedUsd > 0) {
+      lines.push(`  saved:     ~$${cache.savedUsd.toFixed(2)} vs the full input rate`);
+    }
+  } else {
+    lines.push('  No cached tokens yet this session.');
+  }
+
+  const providerId =
+    typeof ctx.provider === 'object'
+      ? ((ctx.provider as { id?: string }).id ?? 'provider')
+      : String(ctx.provider);
+  const caps = (ctx.provider as { capabilities?: { cacheControl?: string } } | undefined)
+    ?.capabilities;
+  lines.push(
+    `  ${color.dim('active:')} ${providerId} — ${cacheMechanismLabel(providerId, caps?.cacheControl)}`,
+  );
+
+  const perProvider = readProviderCacheLedger(ctx);
+  if (perProvider.length > 0) {
+    lines.push(`  ${color.dim('by provider:')}`);
+    for (const p of perProvider) {
+      lines.push(
+        `    ${p.provider.padEnd(16)} ${(p.hitRatio * 100).toFixed(1)}% hit  ·  read ${K(p.cacheRead)}, write ${K(p.cacheWrite)}`,
+      );
+    }
+  }
+  return lines.join('\n');
+}
+
+function safeBreakdown(ctx: Context): ContextBreakdown | null {
+  try {
+    return getContextBreakdown(ctx);
+  } catch (err) {
+    if (process.env['DEBUG_WS']) {
+      console.warn(JSON.stringify({ level: 'warn', event: 'context.breakdown_failed', message: String(err), timestamp: Date.now() }));
+    }
+    return null;
+  }
+}
+
+const K = (n: number): string => n.toLocaleString('en-US');
+const PCT = (n: number, total: number): string =>
+  total > 0 ? `${((n / total) * 100).toFixed(1)}%` : '0.0%';
+
+const SOURCE_LABELS: Record<SystemBlockSource | 'other', string> = {
+  identity: 'identity (system.md)',
+  'tool-usage': 'tool-usage prose',
+  environment: 'environment',
+  skills: 'skills',
+  mode: 'mode',
+  plan: 'plan',
+  'leader-after-task': 'leader-after-task (post-tool summary)',
+  contributor: 'contributor',
+  ledger: 'completed-work ledger',
+  nextsteps: 'next-steps gate',
+  other: 'other (untagged)',
+};
+
+/**
+ * Real per-category token breakdown for `/context`. Replaces the old fabricated
+ * fixed-percentage split — every number is measured from the assembled request.
+ */
+function renderBreakdown(bd: ContextBreakdown, detailed: boolean): string[] {
+  const limit = bd.effectiveMaxContext;
+  const overBy = Math.max(0, bd.total - limit);
+  const headerSuffix =
+    overBy > 0
+      ? `exceeds ${K(limit)}-token limit by ${K(overBy)}`
+      : `est. tokens · % of ${K(limit)} limit`;
+  const out = [
+    `${color.bold('Breakdown')} (${headerSuffix})`,
+    `  system:   ${K(bd.system.total)} (${PCT(bd.system.total, limit)})`,
+    `  tools:    ${K(bd.tools.total)} (${PCT(bd.tools.total, limit)})  ·  builtin ${K(bd.tools.builtin)}, mcp ${K(bd.tools.mcp)} across ${bd.tools.count} defs`,
+    `  history:  ${K(bd.history.total)} (${PCT(bd.history.total, limit)})  ·  text ${K(bd.history.text)}, tool results ${K(bd.history.toolResults)}`,
+    `  volatile: ${K(bd.volatile.total)} (${PCT(bd.volatile.total, limit)})  ·  ledger ${K(bd.volatile.ledger)}, nextsteps ${K(bd.volatile.nextsteps)}`,
+    `  ${color.bold('total')}:    ${K(bd.total)}${overBy > 0 ? '' : ` (${PCT(bd.total, limit)})`}`,
+  ];
+  if (overBy > 0) {
+    out.push(
+      `  ${color.dim('!')} exceeds limit by ${K(overBy)}; increase the context limit or switch to a token-saving tier to fit.`,
+    );
+  }
+
+  // Static-bloat audit: which system sections cost the most (report only).
+  const sources = Object.entries(bd.system.bySource)
+    .filter(([, tokens]) => tokens > 0)
+    .sort((a, b) => b[1] - a[1]);
+  if (sources.length > 0) {
+    const top = detailed ? sources : sources.slice(0, 3);
+    out.push(
+      `  ${color.dim('heaviest static:')} ${top
+        .map(([src, tokens]) => `${SOURCE_LABELS[src as keyof typeof SOURCE_LABELS] ?? src} ${K(tokens)}`)
+        .join(', ')}`,
+    );
+    if (detailed && bd.tools.total > 0 && (bd.system.bySource['tool-usage'] ?? 0) > 0) {
+      out.push(
+        `  ${color.dim('audit:')} tool schemas ship in full (req.tools ${K(bd.tools.total)}) and in the 'tool-usage' system block — double coverage; consider a higher token-saving tier to trim one path.`,
+      );
+    }
+  }
+  return out;
 }
 
 function hasPersistFlag(input: string): boolean {

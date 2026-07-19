@@ -7,6 +7,7 @@ import type { Capabilities, ReasoningEffort, Request, ResponseFormat, StopReason
 import { safeParse } from '@wrongstack/core';
 import { parseToolInput } from '../_tool-input.js';
 import { capabilitiesForFamily } from '../family-capabilities.js';
+import { applyPromptCacheKey } from '../prompt-cache-key.js';
 import { normalizeOpenAI } from '../stop-reason.js';
 import { messagesToOpenAI, toolsToOpenAI } from '../tool-format/to-openai.js';
 import { defineWireFormat } from '../wire-format.js';
@@ -88,6 +89,7 @@ export const openaiWireFormat = defineWireFormat<OpenAIStreamState>({
     if (req.presencePenalty !== undefined) body['presence_penalty'] = req.presencePenalty;
     if (req.seed !== undefined) body['seed'] = req.seed;
     if (req.user) body['user'] = req.user;
+    applyPromptCacheKey(body, req, ctx?.capabilities);
     if (req.logprobs === true) {
       body['logprobs'] = true;
       if (req.topLogprobs !== undefined) body['top_logprobs'] = req.topLogprobs;

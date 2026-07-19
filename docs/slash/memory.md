@@ -22,7 +22,7 @@
 | `/memory import-legacy` | Import legacy project/user `memory.md` files idempotently |
 | `/memory stats` | Show status, kind, and graph-edge totals |
 | `/memory compact` | Ask the active LLM to curate legacy-compatible project entries |
-| `/memory clear` | Delete entries in all compatibility scopes |
+| `/memory clear --force` | Intentionally delete every non-permanent entry; blocked without `--force` and confirmation |
 | `/memory audience list [--role <r>] [--task-type <t>] [--mode <m>]` | View role-scoped memories, optionally filtered by role/task/mode |
 | `/memory audience remember --role <r> [--task-type <t>] [--mode <m>] <text>` | Store a memory targeted at specific agent types (at least one selector required) |
 | `/memory audience search <query>` | Search scoped memories by partial text/role/mode match |
@@ -43,7 +43,7 @@ The WebUI Memory view includes an **Audience-Scoped Memory** sidebar panel for b
 
 ## Automatic retrieval and hygiene
 
-Relevant memory is injected into ordinary turn context and into read/tree/search/command/edit tool results. Cooldowns, score thresholds, and output caps prevent repeated hints. Write/edit/patch calls re-verify affected anchors; session shutdown runs hygiene unless disabled.
+Relevant active memory is retrieved on demand and appended to matching read/tree/search/command/edit tool results. A task-aware Memory Injector combines the concrete tool context with live todo/Kanban state, follows graph and shared file/symbol/package/command/tag relationships, prefers durable project facts/references, and measures context pressure before selecting up to 8 diverse hints. New and updated memories also gain bounded direct memory-to-memory edges from shared symbols, paths, packages, commands, and strong topic tags; each edge stores its weight and human-readable structural evidence. The WebUI relationship map queries these persisted edges when a memory is selected, renders related memory records, and lists the exact `why` evidence; TUI exposes the same data through `/memory graph <id|path|query>`. Every injector run emits a UI-only decision trace, including empty runs. “Activated” means a memory crossed the relevance/cooldown gates and was selected; “injected” means it was actually written into the model-visible tool result after the character budget was applied. The WebUI keeps this trace compact: only three one-line run summaries are visible and all score/anchor/rejection details are collapsed on demand. A separate bounded lifecycle ledger and the TUI timeline show when memories enter, update, merge, recover, exit, or gain a direct memory relationship; delete reasons and relationship evidence remain visible without reading the raw audit log. Ordinary turn-context injection is off by default and can be explicitly enabled with `superMemory.inject.turnContext: true`. Deleted records are storage tombstones for audit/recovery and are never injected; stale records may appear only as warnings after mutation verification. `/clear` always preserves Super Memory. Each meaningful successful run synchronously consolidates at most five grounded, `long_lived` memories before the response lifecycle completes. Cooldowns, score thresholds, and output caps prevent repeated hints. Write/edit/patch calls re-verify affected anchors; session shutdown runs non-destructive hygiene unless disabled.
 
 CLI, TUI, WebUI, SimpleUI, and Desktop use the same Super Memory backend and injection rules. Relative tool paths are resolved from the active working directory before file/directory anchors are matched.
 

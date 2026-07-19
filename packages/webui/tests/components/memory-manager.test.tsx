@@ -17,8 +17,10 @@ const client = {
 const websocket = {
   client,
   listSuperMemories: () => sends.push({ type: 'memory.super.list' }),
-  listSuperMemoriesPage: (params: unknown, options: unknown) =>
+  listSuperMemoriesPage: (params: unknown, _options: unknown) =>
     sends.push({ type: 'memory.super.listPage', payload: params }),
+  getSuperMemoryGraph: (query: string, params: unknown) =>
+    sends.push({ type: 'memory.super.graph', payload: { query, ...(params as object) } }),
   rememberSuperMemory: (payload: unknown) => sends.push({ type: 'memory.super.remember', payload }),
   updateSuperMemory: (id: string, patch: unknown) =>
     sends.push({ type: 'memory.super.update', payload: { id, ...(patch as object) } }),
@@ -35,7 +37,9 @@ vi.mock('@/hooks/useScrollPosition', () => ({
 }));
 
 vi.mock('@/components/MemoryManager/MemoryGraph', () => ({
-  MemoryGraph: () => <div data-testid="memory-graph" />,
+  MemoryGraph: ({ graphEdges }: { graphEdges: unknown[] }) => (
+    <div data-testid="memory-graph" data-edge-count={graphEdges.length} />
+  ),
 }));
 
 import { MemoryManager } from '../../src/components/MemoryManager/index.js';
@@ -81,13 +85,12 @@ function emit(type: string, payload: unknown) {
 
 async function loadManager() {
   render(<MemoryManager />);
-  expect(sends).toContainEqual(
-    expect.objectContaining({ type: 'memory.super.listPage' }),
-  );
+  expect(sends).toContainEqual(expect.objectContaining({ type: 'memory.super.listPage' }));
   emit('memory.super.listPage', {
     memories: [memory, secondMemory],
     nextCursor: null,
     statusCounts: { active: 2 },
+    stats,
   });
   await screen.findByText(memory.text);
 }
@@ -100,6 +103,35 @@ beforeEach(() => {
 });
 
 describe('MemoryManager', () => {
+  it('loads the persisted relationship graph when a memory is selected', async () => {
+    await loadManager();
+    fireEvent.click(screen.getByText(memory.text));
+
+    expect(sends).toContainEqual({
+      type: 'memory.super.graph',
+      payload: { query: memory.id, maxDepth: 1, limit: 120 },
+    });
+    emit('memory.super.graph', {
+      query: memory.id,
+      edges: [
+        {
+          id: 'edge-related',
+          from: `mem:${memory.id}`,
+          to: `mem:${secondMemory.id}`,
+          relation: 'same_topic',
+          weight: 0.82,
+          evidence: ['tag:webui'],
+          createdAt: '2026-07-19T00:00:00.000Z',
+        },
+      ],
+      memories: [memory, secondMemory],
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('memory-graph').getAttribute('data-edge-count')).toBe('1');
+    });
+  });
+
   it('loads Super Memory records and filters the operator library', async () => {
     await loadManager();
 

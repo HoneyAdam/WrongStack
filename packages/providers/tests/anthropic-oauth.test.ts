@@ -78,6 +78,28 @@ describe('AnthropicOAuthProvider request shape', () => {
     expect(body.system[1]).toEqual({ type: 'text', text: 'Be terse.' });
   });
 
+  it('caps cache breakpoints to 4 on the wire after prepending the identity block', async () => {
+    const captured: Captured = {};
+    const p = new AnthropicOAuthProvider({
+      credentials: { accessToken: 'sk-ant-oat-XYZ', expiresAt: Date.now() + 3_600_000 },
+      fetchImpl: capturingFetch(ANTHROPIC_SSE, captured),
+    });
+    // Six ephemeral markers — over Anthropic's ceiling of 4. The OAuth override
+    // runs super.buildBody (which caps), then prepends the marker-less identity
+    // block, so the wire must still carry ≤4 breakpoints.
+    const system = Array.from({ length: 6 }, (_, i) => ({
+      type: 'text' as const,
+      text: `block-${i}`,
+      cache_control: { type: 'ephemeral' as const },
+    }));
+    await p.complete({ ...baseReq, system }, { signal: new AbortController().signal });
+    const body = JSON.parse(captured.init?.body ?? '{}');
+    const markers = (body.system as Array<Record<string, unknown>>).filter((b) => b['cache_control']);
+    expect(markers.length).toBe(4);
+    // Identity block is still prepended and carries no breakpoint of its own.
+    expect(body.system[0]).toEqual({ type: 'text', text: CLAUDE_CODE_SYSTEM_PROMPT });
+  });
+
   it('does not duplicate the identity block when already present', async () => {
     const captured: Captured = {};
     const p = new AnthropicOAuthProvider({

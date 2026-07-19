@@ -1,0 +1,2 @@
+92: * Handles Infinity/NaN by returning "0".
+122: * Pass `null` or non-finite values -> returns "-".

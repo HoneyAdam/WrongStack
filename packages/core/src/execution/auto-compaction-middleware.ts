@@ -223,7 +223,11 @@ export class AutoCompactionMiddleware {
         this._cachedMsgCount = msgCount;
         this._cachedToolCount = toolCount;
       }
-      const budget = computeContextWindowBudget(ctx, tokens, this._maxContext);
+      // A provider overflow can teach the session a route-specific effective
+      // limit that is lower than the catalog/native-model value. Resolve it on
+      // every pass so the next retry compacts against the learned denominator.
+      const runtimeMaxContext = effectiveMaxContext(ctx, this._maxContext);
+      const budget = computeContextWindowBudget(ctx, tokens, runtimeMaxContext);
       const load = budget.load;
       const policy = this.policyProvider?.(ctx);
       const thresholds = policy?.thresholds ?? {
@@ -340,6 +344,7 @@ export class AutoCompactionMiddleware {
       signals: { repeatedReadCount: number };
     },
   ): Promise<void> {
+    const runtimeMaxContext = pressure.budget.maxContext;
     let postCompactionOverflow: AgentError | null = null;
     try {
       const report = await this.compactor.compact(ctx, { aggressive });
@@ -350,7 +355,7 @@ export class AutoCompactionMiddleware {
         level: pressure.level,
         tokens: pressure.tokens,
         load: pressure.load,
-        maxContext: this._maxContext,
+        maxContext: runtimeMaxContext,
         budget: pressure.budget,
         signals: pressure.signals,
         report,
@@ -383,7 +388,7 @@ export class AutoCompactionMiddleware {
       ctx.clearFileTracking();
 
       const afterTokens = report.fullRequestTokensAfter ?? report.after;
-      const afterBudget = computeContextWindowBudget(ctx, afterTokens, this._maxContext);
+      const afterBudget = computeContextWindowBudget(ctx, afterTokens, runtimeMaxContext);
       const afterLoad = afterBudget.load;
       const stillHard = afterLoad >= pressure.hardThreshold;
       const fatal =
@@ -400,8 +405,8 @@ export class AutoCompactionMiddleware {
           aggressive,
           level: pressure.level,
           tokens: afterTokens,
-          maxContext: this._maxContext,
-          budget: computeContextWindowBudget(ctx, afterTokens, this._maxContext),
+          maxContext: runtimeMaxContext,
+          budget: computeContextWindowBudget(ctx, afterTokens, runtimeMaxContext),
           signals: pressure.signals,
           load: afterLoad,
           fatal,
@@ -414,7 +419,7 @@ export class AutoCompactionMiddleware {
             context: {
               level: pressure.level,
               tokens: afterTokens,
-              maxContext: this._maxContext,
+              maxContext: runtimeMaxContext,
             },
           });
         }
@@ -430,7 +435,7 @@ export class AutoCompactionMiddleware {
         aggressive,
         level: pressure.level,
         tokens: pressure.tokens,
-        maxContext: this._maxContext,
+        maxContext: runtimeMaxContext,
         budget: pressure.budget,
         signals: pressure.signals,
         load: pressure.load,
@@ -444,7 +449,7 @@ export class AutoCompactionMiddleware {
           context: {
             level: pressure.level,
             tokens: pressure.tokens,
-            maxContext: this._maxContext,
+            maxContext: runtimeMaxContext,
           },
           cause: err,
         });
@@ -452,6 +457,18 @@ export class AutoCompactionMiddleware {
     }
     if (postCompactionOverflow) throw postCompactionOverflow;
   }
+}
+
+function effectiveMaxContext(ctx: Context, configured: number): number {
+  const learned = ctx.meta?.['effectiveMaxContext'];
+  if (typeof learned === 'number' && Number.isFinite(learned) && learned > 0) {
+    return Math.floor(learned);
+  }
+  const providerMax = ctx.provider?.capabilities?.maxContext;
+  if (typeof providerMax === 'number' && Number.isFinite(providerMax) && providerMax > 0) {
+    return Math.floor(providerMax);
+  }
+  return configured;
 }
 
 function computeContextWindowBudget(

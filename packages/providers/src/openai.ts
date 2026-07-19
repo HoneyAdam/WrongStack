@@ -4,6 +4,7 @@ import { type ProviderError, safeParse } from '@wrongstack/core';
 import { parseToolInput } from './_tool-input.js';
 import { type HeadersLike, parseProviderHttpError } from './error-parse.js';
 import { capabilitiesForFamily } from './family-capabilities.js';
+import { applyPromptCacheKey } from './prompt-cache-key.js';
 import { parseSSE } from './sse.js';
 import { normalizeOpenAI } from './stop-reason.js';
 import { type ConvertOptions, messagesToOpenAI, toolsToOpenAI } from './tool-format/to-openai.js';
@@ -121,6 +122,7 @@ export class OpenAIProvider extends WireAdapter {
     if (req.presencePenalty !== undefined) body['presence_penalty'] = req.presencePenalty;
     if (req.seed !== undefined) body['seed'] = req.seed;
     if (req.user) body['user'] = req.user;
+    applyPromptCacheKey(body, req, ctx?.capabilities);
     if (req.logprobs === true) {
       body['logprobs'] = true;
       if (req.topLogprobs !== undefined) body['top_logprobs'] = req.topLogprobs;

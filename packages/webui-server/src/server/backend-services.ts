@@ -225,7 +225,12 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
         triggers: config.superMemory?.inject?.triggers,
       }));
     }
-    if (config.superMemory?.inject?.turnContext !== false) {
+    // Opt-in only (default OFF), matching the CLI wiring. Turn-context injection
+    // appends a query-dependent block to the system prompt every turn, which
+    // moves the provider cache breakpoint and defeats prefix caching. The
+    // default retrieval path is the contextual tool-result injection above plus
+    // the on-demand memory_* tools. See wiring/super-memory.ts.
+    if (config.superMemory?.inject?.turnContext === true) {
       pipelines.request.use(createSuperMemoryTurnMiddleware({
         memory: memoryStore,
         maxMemories: config.superMemory?.inject?.maxTurnMemories,

@@ -35,6 +35,7 @@ import { type HeadersLike, parseProviderHttpError } from './error-parse.js';
 import { extractAccountId } from './openai-codex-account.js';
 import { capabilitiesForFamily } from './family-capabilities.js';
 import { OAuthRefreshCoordinator } from './oauth-refresh-coordinator.js';
+import { applyPromptCacheKey } from './prompt-cache-key.js';
 import { createSseLineFoldingTransform, parseSSE } from './sse.js';
 import { messagesToResponsesInput, toolsToResponses } from './tool-format/to-responses.js';
 import { WireAdapter, type WireAdapterStreamOptions } from './wire-adapter.js';
@@ -257,7 +258,7 @@ export class OpenAICodexProvider extends WireAdapter {
 
   protected override buildBody(
     req: Request,
-    _ctx: { capabilities: Capabilities },
+    ctx: { capabilities: Capabilities },
   ): Record<string, unknown> {
     const instructions =
       req.system && req.system.length > 0
@@ -286,6 +287,10 @@ export class OpenAICodexProvider extends WireAdapter {
     if (req.reasoning?.enabled !== false && reasoningEffort !== 'none') {
       body['reasoning'] = { effort: reasoningEffort, summary: 'auto' };
     }
+    // Responses API accepts prompt_cache_key for cache routing (codex caps are
+    // cacheControl:'auto'). Best-effort — the field is dropped by backends that
+    // don't recognize it.
+    applyPromptCacheKey(body, req, ctx?.capabilities);
     return body;
   }
 

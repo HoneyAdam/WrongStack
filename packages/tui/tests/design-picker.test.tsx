@@ -1,0 +1,95 @@
+import { describe, expect, it } from 'vitest';
+import React from 'react';
+import { render } from 'ink-testing-library';
+import { DesignPicker } from '../src/components/design-picker.js';
+
+describe('DesignPicker', () => {
+  const kits = [
+    { id: 'minimal-clarity', aesthetic: 'Clean, modern — built for speed' },
+    { id: 'neo-brutalist', aesthetic: 'Bold high-contrast industrial' },
+    { id: 'retro-wave', aesthetic: 'Synthwave-flavoured neon' },
+  ];
+
+  it('renders the header with the current stack', () => {
+    const { lastFrame, unmount } = render(
+      React.createElement(DesignPicker, { kits, selected: 0, stack: 'web' }),
+    );
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('Design Studio · pick a kit');
+    expect(frame).toContain('stack:web');
+    unmount();
+  });
+
+  it('highlights the selected kit with inverse styling', () => {
+    const { lastFrame, unmount } = render(
+      React.createElement(DesignPicker, { kits, selected: 1, stack: 'react-native' }),
+    );
+    const frame = lastFrame() ?? '';
+    // Selected kit should have the › prefix and be listed
+    expect(frame).toContain('neo-brutalist');
+    // Stack should show react-native
+    expect(frame).toContain('stack:react-native');
+    unmount();
+  });
+
+  it('shows empty state when no kits are installed', () => {
+    const { lastFrame, unmount } = render(
+      React.createElement(DesignPicker, { kits: [], selected: 0, stack: 'web' }),
+    );
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('No design kits installed.');
+    unmount();
+  });
+
+  it('renders all kit names and aesthetics', () => {
+    const { lastFrame, unmount } = render(
+      React.createElement(DesignPicker, { kits, selected: 0, stack: 'web' }),
+    );
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('minimal-clarity');
+    expect(frame).toContain('neo-brutalist');
+    expect(frame).toContain('retro-wave');
+    expect(frame).toContain('Clean, modern');
+    expect(frame).toContain('Bold high-contrast');
+    unmount();
+  });
+
+  it('shows the › prefix only on the selected kit', () => {
+    const { lastFrame, unmount } = render(
+      React.createElement(DesignPicker, { kits, selected: 2, stack: 'flutter' }),
+    );
+    const frame = lastFrame() ?? '';
+    // The last kit (retro-wave, index 2) is selected
+    // Count › occurrences - should be exactly 1
+    const prefixCount = (frame.match(/›/g) ?? []).length;
+    expect(prefixCount).toBe(1);
+    unmount();
+  });
+
+  it('renders correctly with empty aesthetic strings', () => {
+    const { lastFrame, unmount } = render(
+      React.createElement(DesignPicker, {
+        kits: [{ id: 'custom', aesthetic: '' }],
+        selected: 0,
+        stack: 'web',
+      }),
+    );
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('custom');
+    unmount();
+  });
+
+  it('handles kit with very long id', () => {
+    const longId = 'a'.repeat(40);
+    const { lastFrame, unmount } = render(
+      React.createElement(DesignPicker, {
+        kits: [{ id: longId, aesthetic: 'test' }],
+        selected: 0,
+        stack: 'web',
+      }),
+    );
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain(longId);
+    unmount();
+  });
+});

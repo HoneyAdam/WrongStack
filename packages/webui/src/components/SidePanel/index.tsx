@@ -30,9 +30,11 @@ import { SkillsList } from './SkillsList';
 import { DesignStudioPanel } from './DesignStudioPanel';
 import { WorktreesPanel } from './WorktreesPanel';
 import { OfficeMapSettingsPanel } from '../OfficeMapSettingsPanel';
+import { AgentsPanel } from './AgentsPanel';
 
 const PANEL_DESCRIPTIONS: Record<string, string> = {
   chat: 'Run state, model, context and quick controls',
+  agents: 'Live fleet roster and agent monitoring',
   history: 'Resume or inspect previous sessions',
   files: 'Browse and open project files',
   changes: 'Review source control changes',
@@ -146,6 +148,11 @@ export function SidePanel({ desktopShell = false }: { desktopShell?: boolean | u
       {/* Panel body — routed by activity */}
       <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden">
         {activeActivity === 'chat' && <SessionPanel />}
+        {activeActivity === 'agents' && (
+          <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain">
+            <AgentsPanel />
+          </div>
+        )}
         {activeActivity === 'history' && <HistoryPanel />}
         {activeActivity === 'files' && (
           <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overscroll-contain">

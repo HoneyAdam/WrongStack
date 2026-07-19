@@ -12,9 +12,9 @@
  *   case 'memory.super.list': return handleSuperMemoryList(ws, memoryStore);
  */
 
-import type { WebSocket } from 'ws';
 import type { MemoryStore } from '@wrongstack/core';
-import { send, errMessage } from './ws-utils.js';
+import type { WebSocket } from 'ws';
+import { errMessage, send } from './ws-utils.js';
 
 // ── SuperMemory duck-type interface (local, mirrors @wrongstack/super-memory) ──
 
@@ -38,6 +38,16 @@ interface SuperMemoryStatsLike {
   byStatus: Record<string, number>;
   byKind: Partial<Record<string, number>>;
   edges: number;
+}
+
+interface SuperMemoryGraphEdgeLike {
+  id: string;
+  from: string;
+  to: string;
+  relation: string;
+  weight: number;
+  evidence?: string[] | undefined;
+  createdAt: string;
 }
 
 interface UpdateSuperMemoryInput {
@@ -72,8 +82,13 @@ interface SuperMemoryStoreLike {
     cursor?: string | undefined;
   }): Promise<ListSuperPageResultLike>;
   getSuperMemory(id: string): Promise<SuperMemoryLike | null>;
+  graphFor?(query: string, maxDepth?: number, limit?: number): Promise<SuperMemoryGraphEdgeLike[]>;
   updateSuperMemory(id: string, patch: UpdateSuperMemoryInput): Promise<SuperMemoryLike>;
-  deleteSuperMemory(id: string, reason?: string, options?: { neverInject?: boolean }): Promise<void>;
+  deleteSuperMemory(
+    id: string,
+    reason?: string,
+    options?: { neverInject?: boolean },
+  ): Promise<void>;
   rememberSuper(input: {
     text: string;
     kind?: string | undefined;
@@ -107,12 +122,15 @@ interface SuperMemoryStoreLike {
     recoverable: number;
   }>;
   // PR #4: rich file-drawer query — 3 buckets (primary/symbol/related).
-  findMemoriesForFile(filePath: string, options?: {
-    lineStart?: number;
-    lineEnd?: number;
-    limit?: number;
-    includeDeleted?: boolean;
-  }): Promise<Record<string, unknown>>;
+  findMemoriesForFile(
+    filePath: string,
+    options?: {
+      lineStart?: number;
+      lineEnd?: number;
+      limit?: number;
+      includeDeleted?: boolean;
+    },
+  ): Promise<Record<string, unknown>>;
 }
 
 function isSuperMemoryStore(store: MemoryStore): store is MemoryStore & SuperMemoryStoreLike {
@@ -141,19 +159,14 @@ function requiresSuperMemory(command: string): string {
  * to `readAll()` text only for a non-super store.
  * Responds with `{ type: 'memory.list', payload: { text } }`.
  */
-export async function handleMemoryList(
-  ws: WebSocket,
-  memoryStore: MemoryStore,
-): Promise<void> {
+export async function handleMemoryList(ws: WebSocket, memoryStore: MemoryStore): Promise<void> {
   try {
     if (isSuperMemoryStore(memoryStore)) {
-      const [stats, memories] = await Promise.all([
-        memoryStore.stats(),
-        memoryStore.listSuper(),
-      ]);
-      const text = memories.length === 0
-        ? '🧠 Super Memory is empty.'
-        : formatSuperMemoryText(stats, memories);
+      const [stats, memories] = await Promise.all([memoryStore.stats(), memoryStore.listSuper()]);
+      const text =
+        memories.length === 0
+          ? '🧠 Super Memory is empty.'
+          : formatSuperMemoryText(stats, memories);
       send(ws, { type: 'memory.list', payload: { text } });
       return;
     }
@@ -180,7 +193,14 @@ function formatSuperMemoryText(stats: SuperMemoryStatsLike, memories: SuperMemor
   ];
   for (const m of memories) {
     const tags = m.tags.length > 0 ? ` \`${m.tags.slice(0, 3).join('` `')}\`` : '';
-    const icon = m.status === 'active' ? '🟢' : m.status === 'stale' ? '🟡' : m.status === 'archived' ? '🔵' : '⚪';
+    const icon =
+      m.status === 'active'
+        ? '🟢'
+        : m.status === 'stale'
+          ? '🟡'
+          : m.status === 'archived'
+            ? '🔵'
+            : '⚪';
     const preview = m.text.replace(/\s+/g, ' ').trim().slice(0, 140);
     lines.push(`- ${icon} \`${m.id.slice(0, 12)}…\` [${m.kind}] ${preview}${tags}`);
   }
@@ -199,14 +219,14 @@ export async function handleSuperMemoryList(
   memoryStore: MemoryStore,
 ): Promise<void> {
   if (!isSuperMemoryStore(memoryStore)) {
-    send(ws, { type: 'memory.super.list', payload: { error: requiresSuperMemory('memory.super.list') } });
+    send(ws, {
+      type: 'memory.super.list',
+      payload: { error: requiresSuperMemory('memory.super.list') },
+    });
     return;
   }
   try {
-    const [stats, memories] = await Promise.all([
-      memoryStore.stats(),
-      memoryStore.listSuper(),
-    ]);
+    const [stats, memories] = await Promise.all([memoryStore.stats(), memoryStore.listSuper()]);
     send(ws, { type: 'memory.super.list', payload: { memories, stats } });
   } catch (err) {
     send(ws, { type: 'memory.super.list', payload: { error: errMessage(err) } });
@@ -231,7 +251,10 @@ export async function handleSuperMemoryListPage(
   memoryStore: MemoryStore,
 ): Promise<void> {
   if (!isSuperMemoryStore(memoryStore)) {
-    send(ws, { type: 'memory.super.listPage', payload: { error: requiresSuperMemory('memory.super.listPage') } });
+    send(ws, {
+      type: 'memory.super.listPage',
+      payload: { error: requiresSuperMemory('memory.super.listPage') },
+    });
     return;
   }
   try {
@@ -247,29 +270,39 @@ export async function handleSuperMemoryListPage(
     };
 
     if (typeof memoryStore.listSuperPage === 'function') {
-      const page = await memoryStore.listSuperPage(options);
-      send(ws, { type: 'memory.super.listPage', payload: page });
+      const [page, stats] = await Promise.all([
+        memoryStore.listSuperPage(options),
+        memoryStore.stats(),
+      ]);
+      send(ws, { type: 'memory.super.listPage', payload: { ...page, stats } });
       return;
     }
 
     // Backend without native pagination: emulate by loading + slicing in-memory.
-    const allowed = options.statuses && options.statuses.length > 0
-      ? new Set(options.statuses)
-      : undefined; // undefined => every status; deleted filtered below
+    const allowed =
+      options.statuses && options.statuses.length > 0 ? new Set(options.statuses) : undefined; // undefined => every status; deleted filtered below
     const everything = await memoryStore.listSuper();
     const statusCounts: Record<string, number> = {};
     for (const m of everything) statusCounts[m.status] = (statusCounts[m.status] ?? 0) + 1;
     const kind = options.kind && options.kind !== 'all' ? options.kind : undefined;
     const q = options.query?.trim().toLowerCase();
-    const filtered = everything.filter((m) => {
-      if (allowed) return allowed.has(m.status);
-      return m.status !== 'deleted';
-    }).filter((m) => !kind || m.kind === kind)
+    const filtered = everything
+      .filter((m) => {
+        if (allowed) return allowed.has(m.status);
+        return m.status !== 'deleted';
+      })
+      .filter((m) => !kind || m.kind === kind)
       .filter((m) => !q || m.text.toLowerCase().includes(q));
     const limit = Math.max(1, Math.min(500, Math.floor(options.limit ?? 50)));
     send(ws, {
       type: 'memory.super.listPage',
-      payload: { memories: filtered.slice(0, limit), nextCursor: null, total: filtered.length, statusCounts },
+      payload: {
+        memories: filtered.slice(0, limit),
+        nextCursor: null,
+        total: filtered.length,
+        statusCounts,
+        stats: await memoryStore.stats(),
+      },
     });
   } catch (err) {
     send(ws, { type: 'memory.super.listPage', payload: { error: errMessage(err) } });
@@ -287,7 +320,10 @@ export async function handleSuperMemoryGet(
   memoryStore: MemoryStore,
 ): Promise<void> {
   if (!isSuperMemoryStore(memoryStore)) {
-    send(ws, { type: 'memory.super.get', payload: { error: requiresSuperMemory('memory.super.get') } });
+    send(ws, {
+      type: 'memory.super.get',
+      payload: { error: requiresSuperMemory('memory.super.get') },
+    });
     return;
   }
   const { id } = (msg as { payload: { id: string } }).payload;
@@ -307,6 +343,53 @@ export async function handleSuperMemoryGet(
   }
 }
 
+/** Return the real persisted graph plus memory records for directly referenced nodes. */
+export async function handleSuperMemoryGraph(
+  ws: WebSocket,
+  msg: unknown,
+  memoryStore: MemoryStore,
+): Promise<void> {
+  if (!isSuperMemoryStore(memoryStore) || typeof memoryStore.graphFor !== 'function') {
+    send(ws, {
+      type: 'memory.super.graph',
+      payload: { query: '', error: requiresSuperMemory('memory.super.graph') },
+    });
+    return;
+  }
+  const payload = (msg as { payload?: Record<string, unknown> }).payload ?? {};
+  const query = typeof payload['query'] === 'string' ? payload['query'].trim() : '';
+  if (!query) {
+    send(ws, { type: 'memory.super.graph', payload: { query, error: 'query is required' } });
+    return;
+  }
+  const maxDepth =
+    typeof payload['maxDepth'] === 'number'
+      ? Math.max(1, Math.min(3, Math.floor(payload['maxDepth'])))
+      : 1;
+  const limit =
+    typeof payload['limit'] === 'number'
+      ? Math.max(1, Math.min(250, Math.floor(payload['limit'])))
+      : 100;
+  try {
+    const edges = await memoryStore.graphFor(query, maxDepth, limit);
+    const memoryIds = new Set<string>();
+    for (const edge of edges) {
+      for (const node of [edge.from, edge.to]) {
+        if (node.startsWith('mem:')) memoryIds.add(node.slice(4));
+      }
+    }
+    const memories = (
+      await Promise.all([...memoryIds].map((id) => memoryStore.getSuperMemory(id)))
+    ).filter((memory): memory is SuperMemoryLike => memory !== null);
+    send(ws, { type: 'memory.super.graph', payload: { query, edges, memories } });
+  } catch (err) {
+    send(ws, {
+      type: 'memory.super.graph',
+      payload: { query, error: errMessage(err) },
+    });
+  }
+}
+
 /**
  * Update a SuperMemory entry.
  * Request:  { type: 'memory.super.update', payload: { id, ...patch } }
@@ -319,7 +402,10 @@ export async function handleSuperMemoryUpdate(
   memoryStore: MemoryStore,
 ): Promise<void> {
   if (!isSuperMemoryStore(memoryStore)) {
-    send(ws, { type: 'memory.super.update', payload: { error: requiresSuperMemory('memory.super.update') } });
+    send(ws, {
+      type: 'memory.super.update',
+      payload: { error: requiresSuperMemory('memory.super.update') },
+    });
     return;
   }
   const payload = (msg as { payload: Record<string, unknown> }).payload;
@@ -358,12 +444,15 @@ export async function handleSuperMemoryRemember(
   memoryStore: MemoryStore,
 ): Promise<void> {
   if (!isSuperMemoryStore(memoryStore)) {
-    send(ws, { type: 'memory.super.remember', payload: { error: requiresSuperMemory('memory.super.remember') } });
+    send(ws, {
+      type: 'memory.super.remember',
+      payload: { error: requiresSuperMemory('memory.super.remember') },
+    });
     return;
   }
   const payload = (msg as { payload: Record<string, unknown> }).payload;
   const text = payload['text'] as string | undefined;
-  if (!text || !text.trim()) {
+  if (!text?.trim()) {
     send(ws, { type: 'memory.super.remember', payload: { error: 'text is required' } });
     return;
   }
@@ -373,11 +462,15 @@ export async function handleSuperMemoryRemember(
       kind: payload['kind'] as string | undefined,
       scope: payload['scope'] as string | undefined,
       tags: payload['tags'] as string[] | undefined,
-      anchors: payload['anchors'] as Array<{ type: string; path?: string; symbol?: string; command?: string }> | undefined,
+      anchors: payload['anchors'] as
+        | Array<{ type: string; path?: string; symbol?: string; command?: string }>
+        | undefined,
       importance: payload['importance'] as number | undefined,
       confidence: payload['confidence'] as number | undefined,
       freshness: payload['freshness'] as number | undefined,
-      audience: payload['audience'] as { roles?: string[]; taskTypes?: string[]; modes?: string[] } | undefined,
+      audience: payload['audience'] as
+        | { roles?: string[]; taskTypes?: string[]; modes?: string[] }
+        | undefined,
       supersedes: payload['supersedes'] as string[] | undefined,
       contradicts: payload['contradicts'] as string[] | undefined,
     });
@@ -402,20 +495,37 @@ export async function handleSuperMemoryDelete(
   memoryStore: MemoryStore,
 ): Promise<void> {
   if (!isSuperMemoryStore(memoryStore)) {
-    send(ws, { type: 'memory.super.delete', payload: { success: false, message: requiresSuperMemory('memory.super.delete') } });
+    send(ws, {
+      type: 'memory.super.delete',
+      payload: { success: false, message: requiresSuperMemory('memory.super.delete') },
+    });
     return;
   }
-  const { id, reason, neverInject } = (msg as { payload: { id: string; reason?: string | undefined; neverInject?: boolean | undefined } }).payload;
+  const { id, reason, neverInject } = (
+    msg as {
+      payload: { id: string; reason?: string | undefined; neverInject?: boolean | undefined };
+    }
+  ).payload;
   if (!id) {
-    send(ws, { type: 'memory.super.delete', payload: { success: false, message: 'id is required' } });
+    send(ws, {
+      type: 'memory.super.delete',
+      payload: { success: false, message: 'id is required' },
+    });
     return;
   }
   try {
-    if (neverInject === true) await memoryStore.deleteSuperMemory(id, reason, { neverInject: true });
+    if (neverInject === true)
+      await memoryStore.deleteSuperMemory(id, reason, { neverInject: true });
     else await memoryStore.deleteSuperMemory(id, reason);
-    send(ws, { type: 'memory.super.delete', payload: { success: true, message: `Deleted memory "${id}".` } });
+    send(ws, {
+      type: 'memory.super.delete',
+      payload: { success: true, message: `Deleted memory "${id}".` },
+    });
   } catch (err) {
-    send(ws, { type: 'memory.super.delete', payload: { success: false, message: errMessage(err) } });
+    send(ws, {
+      type: 'memory.super.delete',
+      payload: { success: false, message: errMessage(err) },
+    });
   }
 }
 
@@ -434,7 +544,10 @@ export async function handleSuperMemoryRecover(
   memoryStore: MemoryStore,
 ): Promise<void> {
   if (!isSuperMemoryStore(memoryStore)) {
-    send(ws, { type: 'memory.super.recover', payload: { error: requiresSuperMemory('memory.super.recover') } });
+    send(ws, {
+      type: 'memory.super.recover',
+      payload: { error: requiresSuperMemory('memory.super.recover') },
+    });
     return;
   }
   const payload = (msg as { payload: Record<string, unknown> }).payload;
@@ -447,12 +560,18 @@ export async function handleSuperMemoryRecover(
   try {
     const preExisting = await memoryStore.getSuperMemory(id);
     if (!preExisting) {
-      send(ws, { type: 'memory.super.recover', payload: { error: `Super Memory "${id}" not found.` } });
+      send(ws, {
+        type: 'memory.super.recover',
+        payload: { error: `Super Memory "${id}" not found.` },
+      });
       return;
     }
     // Already active: no-op — return the existing record without calling recover.
     if (preExisting.status === 'active') {
-      send(ws, { type: 'memory.super.recover', payload: { recovered: true, memory: preExisting, noop: true } });
+      send(ws, {
+        type: 'memory.super.recover',
+        payload: { recovered: true, memory: preExisting, noop: true },
+      });
       return;
     }
     // Deleted or superseded: call recover to get the actual result.
@@ -577,8 +696,10 @@ export async function handleSuperMemoryBackfillRecoverable(
   } = {};
   if (Array.isArray(rawFilter['kinds'])) filter.kinds = rawFilter['kinds'] as string[];
   if (Array.isArray(rawFilter['scopes'])) filter.scopes = rawFilter['scopes'] as string[];
-  if (typeof rawFilter['updatedAfter'] === 'string') filter.updatedAfter = rawFilter['updatedAfter'];
-  if (typeof rawFilter['updatedBefore'] === 'string') filter.updatedBefore = rawFilter['updatedBefore'];
+  if (typeof rawFilter['updatedAfter'] === 'string')
+    filter.updatedAfter = rawFilter['updatedAfter'];
+  if (typeof rawFilter['updatedBefore'] === 'string')
+    filter.updatedBefore = rawFilter['updatedBefore'];
   try {
     const report = await memoryStore.backfillRecoverable({
       apply,
@@ -625,7 +746,9 @@ export async function handleSuperMemoryForFile(
   }
   try {
     const response = await memoryStore.findMemoriesForFile(filePath, {
-      ...(typeof payload['lineStart'] === 'number' ? { lineStart: payload['lineStart'] as number } : {}),
+      ...(typeof payload['lineStart'] === 'number'
+        ? { lineStart: payload['lineStart'] as number }
+        : {}),
       ...(typeof payload['lineEnd'] === 'number' ? { lineEnd: payload['lineEnd'] as number } : {}),
       ...(typeof payload['limit'] === 'number' ? { limit: payload['limit'] as number } : {}),
       ...(payload['includeDeleted'] === true ? { includeDeleted: true } : {}),

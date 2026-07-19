@@ -14,6 +14,8 @@ import { toErrorMessage } from '../utils/error.js';
 export interface PersistedQueueItem {
   displayText: string;
   blocks: ContentBlock[];
+  /** When true, the item will be refined via model.refine before entering the agent context. */
+  shouldRefine?: boolean | undefined;
 }
 
 /**

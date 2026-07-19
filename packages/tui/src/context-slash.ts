@@ -1,4 +1,9 @@
-import type { MemoryStore, SlashCommand } from '@wrongstack/core';
+import type {
+  ContextBreakdown,
+  ContextWindowPolicy,
+  MemoryStore,
+  SlashCommand,
+} from '@wrongstack/core';
 import type { GitInfo } from './git-info.js';
 
 // ── Deps ──────────────────────────────────────────────────────────────────────
@@ -28,6 +33,10 @@ export interface ContextSlashDeps {
     ctxPct: number | undefined;
     ctxTokens: number | undefined;
     ctxMaxTokens: number | undefined;
+    /** Cumulative prompt-cache stats for the session (from the token counter). */
+    cacheStats?:
+      | { readTokens: number; writeTokens: number; hitRatio: number; savedUsd?: number | undefined }
+      | undefined;
   };
   getUptime: () => string;
   /** Terminal width in columns. */
@@ -43,6 +52,19 @@ export interface ContextSlashDeps {
     | undefined;
   /** Optional panel-open bridge for dispatching TUI panels from the slash command. */
   onPanelOpen?: { current: ((action: string) => boolean) | null } | undefined;
+  /**
+   * Real per-category token breakdown of the leader's live context. When
+   * provided, the expanded view shows measured numbers instead of the old
+   * hardcoded fixed-percentage split. Returns null when no context is assembled
+   * yet (falls back to a coarse estimate).
+   */
+  getBreakdown?: (() => ContextBreakdown | null) | undefined;
+  /**
+   * Active context-window policy (thresholds + compaction params). Drives the
+   * threshold map, pressure axis, and compaction box with real values instead
+   * of hardcoded 60/85/95. Null → balanced defaults.
+   */
+  getPolicy?: (() => ContextWindowPolicy | null) | undefined;
 }
 
 type ContextMemoryStats = Awaited<ReturnType<NonNullable<ContextSlashDeps['memoryStats']>>>;
@@ -58,12 +80,14 @@ export function createContextMemoryStatsGetter(
       byStatus: Record<string, number>;
       edges: number;
     }>;
-    listSuper(): Promise<Array<{ kind: string }>>;
+    listSuper(statuses?: string[]): Promise<Array<{ kind: string }>>;
   };
   return async (): Promise<ContextMemoryStats> => {
     const stats = await store.stats();
     const byKind: Record<string, number> = {};
-    for (const memory of await store.listSuper()) {
+    // The kind chart describes usable guidance, not the soft-delete audit
+    // trail. Lifecycle totals remain available separately in byStatus.
+    for (const memory of await store.listSuper(['active'])) {
       byKind[memory.kind] = (byKind[memory.kind] ?? 0) + 1;
     }
     return { total: stats.total, byKind, edges: stats.edges, byStatus: stats.byStatus };
@@ -303,6 +327,14 @@ export function renderContextWindowExpanded(deps: ContextSlashDeps): string {
   const used = leader.ctxTokens ?? 0;
   const max = leader.ctxMaxTokens ?? 200_000;
   const free = max - used;
+  const bd = deps.getBreakdown?.() ?? null;
+  const policy = deps.getPolicy?.() ?? null;
+  // Real compaction thresholds (fractions of the window). Fall back to the
+  // *balanced* defaults (0.50/0.65/0.80) — the actual default mode — not the
+  // old fabricated 0.60/0.85/0.95 that matched no mode.
+  const warnT = policy?.thresholds.warn ?? 0.5;
+  const softT = policy?.thresholds.soft ?? 0.65;
+  const hardT = policy?.thresholds.hard ?? 0.8;
   const BOX_W = Math.min(Math.max(50, deps.terminalWidth - 6), 90);
   const INNER = BOX_W - 4; // content width inside │  │
 
@@ -360,16 +392,16 @@ export function renderContextWindowExpanded(deps: ContextSlashDeps): string {
   // The pressure bar
   pressureBody.push(`${zoneColor}  ${bar(pct, barWidth)}${pctStr}`);
 
-  // Threshold axis below
-  const softPos = Math.round(0.6 * barWidth);
+  // Threshold axis below — positioned from the *active* policy thresholds.
+  const warnPos = Math.round(warnT * barWidth);
   const nowPos = filled;
-  const hardPos = Math.round(0.85 * barWidth);
-  const dangerPos = Math.round(0.95 * barWidth);
+  const softPos = Math.round(softT * barWidth);
+  const hardPos = Math.round(hardT * barWidth);
 
   const axis: string[] = [];
   for (let i = 0; i <= barWidth; i++) {
     if (i === 0) axis.push('├');
-    else if (i === softPos || i === hardPos || i === dangerPos) axis.push('┼');
+    else if (i === warnPos || i === softPos || i === hardPos) axis.push('┼');
     else if (i === barWidth) axis.push('┤');
     else axis.push('─');
   }
@@ -378,10 +410,10 @@ export function renderContextWindowExpanded(deps: ContextSlashDeps): string {
   // Label row
   const markers: Array<{ pos: number; text: string }> = [
     { pos: 0, text: '0%' },
-    { pos: softPos, text: 'soft⏤60%' },
+    { pos: warnPos, text: `warn⏤${Math.round(warnT * 100)}%` },
     { pos: nowPos, text: '◀ now' },
-    { pos: hardPos, text: 'hard⏤85%' },
-    { pos: dangerPos, text: 'max⏤95%' },
+    { pos: softPos, text: `soft⏤${Math.round(softT * 100)}%` },
+    { pos: hardPos, text: `hard⏤${Math.round(hardT * 100)}%` },
     { pos: barWidth, text: '100%' },
   ];
   let labelRow = '     ';
@@ -400,31 +432,50 @@ export function renderContextWindowExpanded(deps: ContextSlashDeps): string {
   //  2. SOURCE BREAKDOWN
   // ═════════════════════════════════════════════════════════════════════════════
   const srcBarLen = INNER - 28;
-  const sources: Array<{ icon: string; label: string; pct: number }> = [
-    { icon: '💬', label: 'History', pct: 0.42 },
-    { icon: '⚙️', label: 'System', pct: 0.2 },
-    { icon: '🔧', label: 'Tools', pct: 0.14 },
-    { icon: '🔌', label: 'MCP', pct: 0.09 },
-    { icon: '📎', label: 'Files', pct: 0.06 },
-    { icon: '🎯', label: 'Custom', pct: 0.04 },
-  ];
-
   const srcBody: string[] = [];
-  srcBody.push('Estimated breakdown — actual distribution may vary.');
-  for (const src of sources) {
-    const srcBarStr = bar(src.pct, srcBarLen);
-    const srcTokens = Math.round(used * src.pct).toLocaleString('en-US');
-    const pctS = `${(src.pct * 100).toFixed(1)}%`.padStart(6);
-    srcBody.push(`${src.icon} ${src.label.padEnd(10)} ${srcBarStr}  ${pctS}  ${srcTokens}`);
-  }
-  // Total
-  srcBody.push(`${'─'.repeat(INNER)}`);
-  const usedStr = used.toLocaleString('en-US');
   const maxStr = max.toLocaleString('en-US');
-  const totalBarStr = bar(pct, srcBarLen);
-  const totalPct = `${(pct * 100).toFixed(1)}%`.padStart(6);
-  srcBody.push(`📊 TOTAL      ${totalBarStr}  ${totalPct}  ${usedStr}`);
-  srcBody.push(`${' '.repeat(14)}${' '.repeat(srcBarLen)}   of ${maxStr} max`);
+  const usedStr = used.toLocaleString('en-US');
+
+  if (bd) {
+    // Real, measured breakdown (chars/3.5 estimate over the assembled request).
+    const denom = bd.total > 0 ? bd.total : 1;
+    const sources: Array<{ icon: string; label: string; tokens: number }> = [
+      { icon: '💬', label: 'History', tokens: bd.history.total },
+      { icon: '⚙️', label: 'System', tokens: bd.system.total },
+      { icon: '🔧', label: 'Tools', tokens: bd.tools.builtin },
+      { icon: '🔌', label: 'MCP', tokens: bd.tools.mcp },
+      { icon: '📌', label: 'Volatile', tokens: bd.volatile.total },
+    ];
+    srcBody.push('Measured from the assembled request (≈ chars/3.5).');
+    for (const src of sources) {
+      const frac = src.tokens / denom;
+      const srcBarStr = bar(frac, srcBarLen);
+      const pctS = `${(frac * 100).toFixed(1)}%`.padStart(6);
+      srcBody.push(
+        `${src.icon} ${src.label.padEnd(10)} ${srcBarStr}  ${pctS}  ${src.tokens.toLocaleString('en-US')}`,
+      );
+    }
+    srcBody.push(`${'─'.repeat(INNER)}`);
+    const totalPct = `${(bd.usedPct * 100).toFixed(1)}%`.padStart(6);
+    srcBody.push(
+      `📊 TOTAL      ${bar(bd.usedPct, srcBarLen)}  ${totalPct}  ${bd.total.toLocaleString('en-US')}`,
+    );
+    srcBody.push(`${' '.repeat(14)}${' '.repeat(srcBarLen)}   of ${maxStr} limit`);
+    // Heaviest static system sections — the static-bloat audit surface.
+    const heaviest = Object.entries(bd.system.bySource)
+      .filter(([, t]) => t > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([s, t]) => `${s} ${t.toLocaleString('en-US')}`)
+      .join(', ');
+    if (heaviest) srcBody.push(`heaviest static: ${heaviest}`);
+  } else {
+    // No assembled context yet — show the honest total only, no fake split.
+    srcBody.push('Per-category breakdown appears once a request is assembled.');
+    const totalPct = `${(pct * 100).toFixed(1)}%`.padStart(6);
+    srcBody.push(`📊 TOTAL      ${bar(pct, srcBarLen)}  ${totalPct}  ${usedStr}`);
+    srcBody.push(`${' '.repeat(14)}${' '.repeat(srcBarLen)}   of ${maxStr} limit`);
+  }
 
   allParts.push(...rbox('📦  Context Composition', srcBody));
   allParts.push('');
@@ -432,11 +483,14 @@ export function renderContextWindowExpanded(deps: ContextSlashDeps): string {
   // ═════════════════════════════════════════════════════════════════════════════
   //  3. THRESHOLD MAP
   // ═════════════════════════════════════════════════════════════════════════════
+  const warnPct = Math.round(warnT * 100);
+  const softPct = Math.round(softT * 100);
+  const hardPct = Math.round(hardT * 100);
   const zones: Array<{ label: string; emoji: string; from: number; to: number; desc: string }> = [
-    { label: 'Safe', emoji: '🟢', from: 0, to: 60, desc: 'normal operation' },
-    { label: 'Warning', emoji: '🟡', from: 60, to: 85, desc: 'compaction advised' },
-    { label: 'Critical', emoji: '🔴', from: 85, to: 95, desc: 'compact now' },
-    { label: 'Danger', emoji: '⚫', from: 95, to: 100, desc: 'context nearly full' },
+    { label: 'Safe', emoji: '🟢', from: 0, to: warnPct, desc: 'normal operation' },
+    { label: 'Warning', emoji: '🟡', from: warnPct, to: softPct, desc: 'compaction advised' },
+    { label: 'Critical', emoji: '🔴', from: softPct, to: hardPct, desc: 'compact soon' },
+    { label: 'Danger', emoji: '⚫', from: hardPct, to: 100, desc: 'forced compaction' },
   ];
 
   const thresholdBody: string[] = [];
@@ -461,10 +515,10 @@ export function renderContextWindowExpanded(deps: ContextSlashDeps): string {
 
   // Current position line
   const zoneName =
-    pct > 0.95 ? '⚫ DANGER' : pct > 0.85 ? '🔴 CRITICAL' : pct > 0.6 ? '🟡 WARNING' : '🟢 SAFE';
+    pct >= hardT ? '⚫ DANGER' : pct >= softT ? '🔴 CRITICAL' : pct >= warnT ? '🟡 WARNING' : '🟢 SAFE';
   thresholdBody.push('');
   thresholdBody.push(
-    `▲ ${curVal.toFixed(1)}%  →  ${zoneName}       trigger: 85%       limit: 100%`,
+    `▲ ${curVal.toFixed(1)}%  →  ${zoneName}       trigger: ${softPct}%       limit: 100%`,
   );
 
   allParts.push(...rbox('🚦  Threshold Map', thresholdBody));
@@ -473,22 +527,31 @@ export function renderContextWindowExpanded(deps: ContextSlashDeps): string {
   // ═════════════════════════════════════════════════════════════════════════════
   //  4. COMPACTION ENGINE
   // ═════════════════════════════════════════════════════════════════════════════
-  const recoveryEst = Math.round(max * 0.18).toLocaleString('en-US');
-  const iterations = leader.iterations;
-  const lastCompactAgo =
-    iterations > 0 ? `${Math.min(iterations, Math.round(iterations * 0.6))} turns ago` : '—';
-  const needsCompact = pct > 0.65;
+  // Real compaction parameters from the active policy — no fabricated numbers.
+  const modeLabel = policy ? `${policy.id} (${policy.name})` : 'balanced (default)';
+  const nextTriggerTokens = Math.round(max * softT).toLocaleString('en-US');
+  const recommendation =
+    pct >= hardT
+      ? '⚫ Over hard limit — forced compaction imminent'
+      : pct >= softT
+        ? '🔴 Past soft threshold — compaction will fire'
+        : pct >= warnT
+          ? '🟡 Past warn threshold — compaction advised'
+          : '🟢 Below warn threshold — no action needed';
 
   const compactBody: string[] = [];
-  compactBody.push(`│ Parameter         │ Value`);
-  compactBody.push(`│───────────────────┼──────────────────────────────────────`);
-  compactBody.push(`│ Strategy          │ hybrid  (auto-compact ✅)`);
-  compactBody.push(`│ Next trigger      │ ${(max * 0.85).toLocaleString('en-US')}  (85%)`);
-  compactBody.push(`│ Est. recovery     │ ${recoveryEst}  (~18% of window)`);
-  compactBody.push(`│ Last compact      │ ${lastCompactAgo}`);
-  compactBody.push(
-    `│ Recommendation    │ ${needsCompact ? '⚠️ Compact now — reclaim ~18%' : '✅ No compaction needed'}`,
-  );
+  compactBody.push(`│ Parameter          │ Value`);
+  compactBody.push(`│────────────────────┼─────────────────────────────────────`);
+  compactBody.push(`│ Mode               │ ${modeLabel}`);
+  compactBody.push(`│ Thresholds         │ warn ${warnPct}% · soft ${softPct}% · hard ${hardPct}%`);
+  if (policy) {
+    compactBody.push(`│ Preserve           │ last ${policy.preserveK} user/assistant messages`);
+    compactBody.push(
+      `│ Elide tool results │ ≥ ${policy.eliseThreshold.toLocaleString('en-US')} tokens`,
+    );
+  }
+  compactBody.push(`│ Next trigger       │ ~${nextTriggerTokens} tokens (soft ${softPct}%)`);
+  compactBody.push(`│ Status             │ ${recommendation}`);
 
   allParts.push(...rbox('♻️  Compaction Engine', compactBody));
   allParts.push('');
@@ -529,6 +592,13 @@ export function renderContextWindowExpanded(deps: ContextSlashDeps): string {
   metricsBody.push(`│ Free              │ ${freeFormatted}  (${freePct}%)`);
   metricsBody.push(`│ Capacity          │ ${maxStr}`);
   metricsBody.push(`│ Utilization       │ ${utilBar}  ${(pct * 100).toFixed(1)}%`);
+  const cache = leader.cacheStats;
+  if (cache && (cache.readTokens > 0 || cache.writeTokens > 0)) {
+    const saved = cache.savedUsd && cache.savedUsd > 0 ? `  saved ~$${cache.savedUsd.toFixed(2)}` : '';
+    metricsBody.push(
+      `│ Cache hit         │ ${(cache.hitRatio * 100).toFixed(1)}%  (read ${cache.readTokens.toLocaleString('en-US')} · write ${cache.writeTokens.toLocaleString('en-US')})${saved}`,
+    );
+  }
   metricsBody.push(`│ Model             │ ${deps.getModel()}  ·  ${deps.getProvider()}`);
   metricsBody.push(`│ Mode              │ ${deps.getModeLabel()}`);
   metricsBody.push(`│ Uptime            │ ${deps.getUptime()}`);
@@ -690,17 +760,10 @@ function renderMemory(memory: {
   lines.push('');
 
   const active = memory.byStatus['active'] ?? 0;
-  const stale = memory.byStatus['stale'] ?? 0;
-  const archived = memory.byStatus['archived'] ?? 0;
-  const deleted = memory.byStatus['deleted'] ?? 0;
-  lines.push(
-    `**Total:** ${memory.total} · ` +
-      `🟢 ${active} active · ` +
-      `🟡 ${stale} stale · ` +
-      `🔵 ${archived} archived · ` +
-      `⚫ ${deleted} deleted`,
-  );
-  lines.push(`**Graph edges:** ${memory.edges}`);
+  lines.push('**Mode:** on-demand tool-result retrieval');
+  lines.push(`**Eligible pool:** ${active} active`);
+  lines.push('> No memory dump is in the prompt. Only a few active, relevant hints may be appended after a matching tool call.');
+  lines.push('> Full storage history and graph totals live under `/memory stats`.');
   lines.push('');
 
   // Kind breakdown
@@ -722,7 +785,7 @@ function renderMemory(memory: {
   for (const kind of kindOrder) {
     const count = memory.byKind[kind] ?? 0;
     if (count === 0) continue;
-    const bar = sparkbar(count, memory.total);
+    const bar = sparkbar(count, active);
     kindRows.push(`\`${kind}\`: ${count} ${bar}`);
   }
   if (kindRows.length > 0) {

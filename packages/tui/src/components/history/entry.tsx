@@ -51,6 +51,16 @@ function brainStatusStyle(status: Extract<HistoryEntry, { kind: 'brain' }>['stat
   }
 }
 
+function memoryLifecycleStyle(action: Extract<HistoryEntry, { kind: 'memory-lifecycle' }>['action']): {
+  icon: string;
+  color: string;
+} {
+  if (action === 'entered' || action === 'recovered') return { icon: '↳', color: 'green' };
+  if (action === 'exited') return { icon: '↲', color: 'red' };
+  if (action === 'related') return { icon: '◇', color: 'magenta' };
+  return { icon: '•', color: 'cyan' };
+}
+
 function brainRiskColor(risk: Extract<HistoryEntry, { kind: 'brain' }>['risk']): string {
   switch (risk) {
     case 'low':
@@ -498,6 +508,50 @@ export const Entry = React.memo(function Entry({
             />
           ) : null}
         </ToolCard>
+      );
+    }
+    case 'memory-activation': {
+      const rejected = Object.entries(entry.rejected)
+        .filter(([, count]) => count > 0)
+        .map(([reason, count]) => `${reason} ${count}`)
+        .join(' · ');
+      const injected = entry.activated.filter((memory) => entry.injectedIds.includes(memory.id));
+      const injectedSummary = injected
+        .slice(0, 3)
+        .map((memory) => memory.id)
+        .join(', ');
+      const why = [...new Set(injected.flatMap((memory) => memory.activationReasons))]
+        .slice(0, 3)
+        .join(' · ');
+      return (
+        <Box flexDirection="column" borderStyle="single" borderColor="magenta" paddingX={1}>
+          <Box flexDirection="row">
+            <Text bold color="magenta">{'🧠 MEMORY INJECTOR  '}</Text>
+            <Text color="cyan">{entry.trigger}</Text>
+            <Text dimColor>
+              {`  ${entry.activated.length} activated → ${entry.injectedIds.length} injected / ${entry.candidates} · ctx ${Math.round(entry.contextPressure * 100)}% · +${entry.injectedChars} chars`}
+            </Text>
+          </Box>
+          {entry.error ? <Text color="red">{`error: ${entry.error}`}</Text> : null}
+          {injectedSummary ? (
+            <Text>
+              <Text color="green">{'injected '}</Text>
+              <Text dimColor>{`${injectedSummary}${injected.length > 3 ? ` +${injected.length - 3}` : ''}`}</Text>
+              {why ? <Text dimColor>{` · why: ${why}`}</Text> : null}
+            </Text>
+          ) : null}
+          {rejected ? <Text dimColor>{`filtered: ${rejected}`}</Text> : null}
+        </Box>
+      );
+    }
+    case 'memory-lifecycle': {
+      const style = memoryLifecycleStyle(entry.action);
+      return (
+        <Box flexDirection="row">
+          <Text bold color={style.color}>{`${style.icon} MEMORY  `}</Text>
+          <Text color={style.color}>{entry.label}</Text>
+          {entry.detail ? <Text dimColor>{`  · ${entry.detail}`}</Text> : null}
+        </Box>
       );
     }
     case 'info': {

@@ -9,9 +9,8 @@
  */
 
 import { Activity, Bot, PanelRightOpen, Users, X } from 'lucide-react';
-import { type ReactNode, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import {
-  ConcurrencyGauge,
   EventTimeline,
   Tabs,
   TabsContent,
@@ -24,7 +23,7 @@ import type { FleetTimelineEvent, SubagentView } from '@/stores';
 import { useFleetStore, useSideEffectStore, useUIStore } from '@/stores';
 import { usePagination } from '@/hooks/usePagination';
 import { AgentCard } from './AgentsMonitor';
-import { FleetAgentRow } from './FleetMonitor';
+import { FleetAgentRow } from '@/components/ui/fleet-agent-row';
 import { SideEffectTimeline } from './SideEffectTimeline';
 import { Pagination } from './ui/pagination';
 import {
@@ -108,6 +107,8 @@ export function InspectorPanel() {
   const inspectorTab = useUIStore((s) => s.inspectorTab);
   const setInspectorOpen = useUIStore((s) => s.setInspectorOpen);
   const setInspectorTab = useUIStore((s) => s.setInspectorTab);
+  const inspectorFocusedAgentId = useUIStore((s) => s.inspectorFocusedAgentId);
+  const setInspectorFocusedAgentId = useUIStore((s) => s.setInspectorFocusedAgentId);
   const { t } = useAppTranslation();
 
   // Fleet-wide signals (subscribed narrowly so tab switches / typing in the
@@ -116,8 +117,6 @@ export function InspectorPanel() {
   const leaderId = useFleetStore((s) => s.leaderId);
   const fleetTokensIn = useFleetStore((s) => s.fleetTokensIn);
   const fleetTokensOut = useFleetStore((s) => s.fleetTokensOut);
-  const fleetConcurrency = useFleetStore((s) => s.fleetConcurrency);
-  const fleetConcurrencyMax = useFleetStore((s) => s.fleetConcurrencyMax);
   const eventTimeline = useFleetStore((s) => s.eventTimeline);
 
   const fleetList = useMemo(() => sortFleet(fleetAgents, leaderId), [fleetAgents, leaderId]);
@@ -142,6 +141,16 @@ export function InspectorPanel() {
     setSelectedAgentId(agent.id);
     setInspectorTab('agents');
   };
+
+  // React to external focus request (e.g., clicking "Open in Inspector"
+  // from the AgentsPanel detail section).
+  useEffect(() => {
+    if (inspectorFocusedAgentId && inspectorOpen) {
+      setSelectedAgentId(inspectorFocusedAgentId);
+      setInspectorTab('agents');
+      setInspectorFocusedAgentId(null);
+    }
+  }, [inspectorFocusedAgentId, inspectorOpen, setInspectorTab, setInspectorFocusedAgentId]);
 
   return (
     <Sheet open={inspectorOpen} onOpenChange={setInspectorOpen} modal={false}>
@@ -234,12 +243,6 @@ export function InspectorPanel() {
               fleetList={fleetList}
               leaderId={leaderId}
               selectedAgentId={selectedAgentId}
-              runningCount={runningCount}
-              fleetConcurrency={fleetConcurrency}
-              fleetConcurrencyMax={fleetConcurrencyMax}
-              fleetTokensIn={fleetTokensIn}
-              fleetTokensOut={fleetTokensOut}
-              totalCost={totalCost}
               eventTimeline={eventTimeline}
               onSelectAgent={handleSelectAgent}
             />
@@ -309,24 +312,12 @@ function FleetTabContent({
   fleetList,
   leaderId,
   selectedAgentId,
-  runningCount,
-  fleetConcurrency,
-  fleetConcurrencyMax,
-  fleetTokensIn,
-  fleetTokensOut,
-  totalCost,
   eventTimeline,
   onSelectAgent,
 }: {
   fleetList: SubagentView[];
   leaderId: string | undefined;
   selectedAgentId: string | null;
-  runningCount: number;
-  fleetConcurrency: number;
-  fleetConcurrencyMax: number;
-  fleetTokensIn: number;
-  fleetTokensOut: number;
-  totalCost: number;
   eventTimeline: FleetTimelineEvent[];
   onSelectAgent: (agent: SubagentView) => void;
 }) {
@@ -334,24 +325,6 @@ function FleetTabContent({
   const fleetPage = usePagination(fleetList, 15);
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
-      {/* Summary strip */}
-      <div className="flex items-center gap-3 px-3 py-1.5 border-b text-[11px] text-muted-foreground shrink-0">
-        <span className="flex items-center gap-1">
-          {runningCount > 0 && (
-            <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
-          )}
-          <span className="tabular-nums">
-            {t('activity:agents.runningCount', { count: runningCount })} ·{' '}
-            {t('activity:agents.totalCount', { count: fleetList.length })}
-          </span>
-        </span>
-        <ConcurrencyGauge current={fleetConcurrency} max={fleetConcurrencyMax} showLabel />
-        <div className="flex-1" />
-        <span className="tabular-nums font-mono">
-          ↓{fmtTok(fleetTokensIn)} ↑{fmtTok(fleetTokensOut)} · {fmtCost(totalCost)}
-        </span>
-      </div>
-
       {/* Agent list */}
       {fleetList.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">

@@ -54,6 +54,22 @@ describe('createSuperMemoryTurnMiddleware', () => {
     expect(result.system).toHaveLength(0);
   });
 
+  it('never injects deleted lifecycle history even if a retriever returns it', async () => {
+    const memory = {
+      searchSuper: async () => [makeMemory({ status: 'deleted', importance: 1 })],
+      recordInjection: async () => {},
+    };
+    const middleware = createSuperMemoryTurnMiddleware({ memory });
+    const request = {
+      model: 'test',
+      messages: [{ role: 'user' as const, content: 'Run lifecycle tests.' }],
+      system: [],
+    };
+
+    const result = await middleware.handler(request as never, async (next) => next);
+    expect(result.system).toHaveLength(0);
+  });
+
   it('skips memories already in the system prompt', async () => {
     const memory = {
       searchSuper: async () => [makeMemory({ text: 'Always run lifecycle tests.' })],

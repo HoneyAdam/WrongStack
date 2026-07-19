@@ -1,9 +1,13 @@
-import type { Capabilities, ProviderError } from '@wrongstack/core';
+import { createHash } from 'node:crypto';
+import type { Capabilities, ProviderError, Request, StreamEvent } from '@wrongstack/core';
 import { type HeadersLike, parseProviderHttpError } from './error-parse.js';
 import type { GoogleStreamState } from './presets/google.js';
-import { googleWireFormat } from './presets/google.js';
+import { googleWireFormat, toolsToGemini } from './presets/google.js';
 import type { WireAdapterStreamOptions } from './wire-adapter.js';
 import { WireFormatProvider } from './wire-format.js';
+
+/** Default server-side TTL (seconds) for an explicit Gemini cached-content resource. */
+const GEMINI_CACHE_TTL_SECONDS = 3600;
 
 export interface GoogleProviderOptions {
   apiKey: string;
@@ -39,5 +43,85 @@ export class GoogleProvider extends WireFormatProvider<GoogleStreamState> {
     headers?: HeadersLike,
   ): ProviderError {
     return parseProviderHttpError(this.id, status, text, headers);
+  }
+
+  /**
+   * Prefix-hash → live cached-content resource. Entries carry a client-side
+   * expiry a minute before the server TTL, so a just-expired name is never
+   * reused; Gemini deletes the resource server-side when its TTL lapses, so no
+   * explicit dispose is needed (which is why this works despite the provider
+   * being rebuilt on every model switch).
+   */
+  private readonly explicitCache = new Map<string, { name: string; expiresAt: number }>();
+
+  override async *stream(
+    req: Request,
+    opts: { signal: AbortSignal },
+  ): AsyncIterable<StreamEvent> {
+    // Explicit caching is opt-in and best-effort: any failure resolving the
+    // cached-content resource falls back to the normal inline request (where
+    // Gemini's implicit caching still applies), so enabling it can never break
+    // a request.
+    if (req.cache?.geminiExplicit && req.system && req.system.length > 0) {
+      let name: string | undefined;
+      try {
+        name = await this.resolveCachedContent(req, opts.signal);
+      } catch {
+        name = undefined;
+      }
+      if (name) {
+        yield* super.stream(
+          { ...req, cache: { ...req.cache, geminiCachedContentName: name } },
+          opts,
+        );
+        return;
+      }
+    }
+    yield* super.stream(req, opts);
+  }
+
+  private async resolveCachedContent(
+    req: Request,
+    signal: AbortSignal,
+  ): Promise<string | undefined> {
+    const system = req.system ?? [];
+    if (system.length === 0) return undefined;
+    const hash = createHash('sha256')
+      .update(req.model)
+      .update('\0')
+      .update(system.map((b) => b.text).join('\0'))
+      .update('\0')
+      .update((req.tools ?? []).map((t) => t.name).join(','))
+      .digest('hex');
+
+    const live = this.explicitCache.get(hash);
+    if (live && live.expiresAt > Date.now()) return live.name;
+
+    const createBody: Record<string, unknown> = {
+      model: `models/${req.model}`,
+      systemInstruction: { parts: system.map((b) => ({ text: b.text })) },
+      ttl: `${GEMINI_CACHE_TTL_SECONDS}s`,
+    };
+    if (req.tools && req.tools.length > 0) {
+      createBody['tools'] = [{ functionDeclarations: toolsToGemini(req.tools) }];
+    }
+
+    const res = await this.fetchImpl(`${this.baseUrl}/cachedContents`, {
+      method: 'POST',
+      headers: { ...this.buildHeaders(req), 'content-type': 'application/json' },
+      body: JSON.stringify(createBody),
+      signal,
+    });
+    // A too-small prefix (Gemini enforces a minimum cache size) or any other
+    // error just means "no explicit cache this time" — the caller falls back.
+    if (!res.ok) return undefined;
+    const json = (await res.json()) as { name?: unknown };
+    const name = typeof json.name === 'string' ? json.name : undefined;
+    if (!name) return undefined;
+    this.explicitCache.set(hash, {
+      name,
+      expiresAt: Date.now() + GEMINI_CACHE_TTL_SECONDS * 1000 - 60_000,
+    });
+    return name;
   }
 }

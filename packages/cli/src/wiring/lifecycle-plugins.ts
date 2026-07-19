@@ -12,6 +12,7 @@ import {
   type ModelsRegistry,
   type MetricsRuntimeStatus,
   normalizeTokenSavingTier,
+  NotifierImpl,
   type Provider,
   type ProviderConfig,
   type ProviderRegistry,
@@ -326,6 +327,7 @@ export async function setupLifecycleAndPlugins(
   const slashRegistry = new SlashCommandRegistry();
   const hqPublisherRef: { current: HqPublisher | undefined } = { current: undefined };
   const brainMailbox = new GlobalMailbox(wpaths.projectDir, events, () => hqPublisherRef.current);
+  const notifier = new NotifierImpl();
 
   await setupPlugins({
     config,
@@ -360,6 +362,7 @@ export async function setupLifecycleAndPlugins(
     },
     hookRegistry,
     mailbox: brainMailbox,
+    notifier,
     llm: {
       provider,
       model: config.model,

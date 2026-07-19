@@ -102,6 +102,27 @@ export interface ReasoningRequest {
 
 export interface RequestCacheControl {
   ttl?: CacheTtl | undefined;
+  /**
+   * Provider-agnostic cache-partition key. A stable hash of the cacheable
+   * system-prompt prefix (see `deriveCachePrefixKey`); requests sharing a prefix
+   * share a key so provider backends route them to the same automatic-cache
+   * partition. Consumed by OpenAI-family wires as `prompt_cache_key`; ignored by
+   * Anthropic (which uses `ttl` + explicit `cache_control` markers).
+   */
+  key?: string | undefined;
+  /**
+   * Opt-in flag (from `ModelRuntimeCacheConfig.geminiExplicit`) telling the
+   * Google provider to use explicit `cachedContents` for this request. Ignored
+   * by other providers.
+   */
+  geminiExplicit?: boolean | undefined;
+  /**
+   * Resolved Gemini `cachedContents/*` resource name, injected by
+   * `GoogleProvider.stream()` after it creates/reuses the cache. When present,
+   * the Google wire sends `cachedContent` and OMITS the (now-cached) system
+   * instruction + tool defs from the live body. Internal — never set by callers.
+   */
+  geminiCachedContentName?: string | undefined;
 }
 
 export interface ReasoningConfig {

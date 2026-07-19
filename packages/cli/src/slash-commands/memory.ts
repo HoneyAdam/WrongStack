@@ -1,6 +1,4 @@
 import type { SlashCommand } from '@wrongstack/core';
-import { parseSubcommand, unknownSubcommand } from './helpers.js';
-import type { SlashCommandContext } from './index.js';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import type {
   FindMemoriesForFileResponse,
@@ -21,6 +19,8 @@ import type {
   SuperMemoryStatus,
   UpdateSuperMemoryInput,
 } from '@wrongstack/super-memory';
+import { parseSubcommand, unknownSubcommand } from './helpers.js';
+import type { SlashCommandContext } from './index.js';
 
 export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
   return {
@@ -39,10 +39,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         case 'list': {
           // SuperMemory path: show stats + structured entries when available
           if (isSuperMemoryStore(store)) {
-            const [stats, allMemories] = await Promise.all([
-              store.stats(),
-              store.listSuper(),
-            ]);
+            const [stats, allMemories] = await Promise.all([store.stats(), store.listSuper()]);
             if (allMemories.length === 0) {
               return { message: '🧠 Super Memory is empty.' };
             }
@@ -60,7 +57,10 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         case 'remember':
         case 'add': {
           if (rest.length === 0) {
-            return { message: 'Usage: /memory remember <text> [--kind <k>] [--scope <s>] [--tag a,b] [--anchor <path>] [--symbol <path#name>] [--command <cmd>] [--importance 0..1] [--confidence 0..1] [--supersedes id,id] [--contradicts id,id]' };
+            return {
+              message:
+                'Usage: /memory remember <text> [--kind <k>] [--scope <s>] [--tag a,b] [--anchor <path>] [--symbol <path#name>] [--command <cmd>] [--importance 0..1] [--confidence 0..1] [--supersedes id,id] [--contradicts id,id]',
+            };
           }
           if (!isSuperMemoryStore(store)) {
             // Legacy fallback: no structured args available.
@@ -69,8 +69,12 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
             return { message: `Remembered: ${restJoined}` };
           }
           const parsed = parseMemoryFlags(rest);
-          if (parsed.errors.length > 0) return { message: `Cannot remember:\n- ${parsed.errors.join('\n- ')}` };
-          if (!parsed.text) return { message: 'Nothing to remember — provide the memory text before/after the flags.' };
+          if (parsed.errors.length > 0)
+            return { message: `Cannot remember:\n- ${parsed.errors.join('\n- ')}` };
+          if (!parsed.text)
+            return {
+              message: 'Nothing to remember — provide the memory text before/after the flags.',
+            };
           try {
             const memory = await store.rememberSuper({
               text: parsed.text,
@@ -83,8 +87,11 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
               ...(parsed.supersedes && { supersedes: parsed.supersedes }),
               ...(parsed.contradicts && { contradicts: parsed.contradicts }),
             });
-            const tags = memory.tags.length > 0 ? ` ${memory.tags.map((t) => `#${t}`).join(' ')}` : '';
-            return { message: `Remembered \`${memory.id}\` [${memory.kind}] ${memory.text}${tags}` };
+            const tags =
+              memory.tags.length > 0 ? ` ${memory.tags.map((t) => `#${t}`).join(' ')}` : '';
+            return {
+              message: `Remembered \`${memory.id}\` [${memory.kind}] ${memory.text}${tags}`,
+            };
           } catch (err) {
             return { message: `Could not remember: ${toErrorMessage(err)}` };
           }
@@ -93,9 +100,14 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         case 'edit': {
           if (!isSuperMemoryStore(store)) return requiresSuperMemory('update');
           const id = rest[0];
-          if (!id) return { message: 'Usage: /memory update <memory-id> [--text <t>] [--kind <k>] [--tag a,b] [--anchor <path>] [--importance 0..1] [--status active|stale|archived|deleted] [--supersedes id,id]' };
+          if (!id)
+            return {
+              message:
+                'Usage: /memory update <memory-id> [--text <t>] [--kind <k>] [--tag a,b] [--anchor <path>] [--importance 0..1] [--status active|stale|archived|deleted] [--supersedes id,id]',
+            };
           const parsed = parseMemoryFlags(rest.slice(1));
-          if (parsed.errors.length > 0) return { message: `Cannot update:\n- ${parsed.errors.join('\n- ')}` };
+          if (parsed.errors.length > 0)
+            return { message: `Cannot update:\n- ${parsed.errors.join('\n- ')}` };
           const patch: UpdateSuperMemoryInput = {
             ...(parsed.text && { text: parsed.text }),
             ...(parsed.kind && { kind: parsed.kind }),
@@ -109,11 +121,16 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
             ...(parsed.contradicts && { contradicts: parsed.contradicts }),
           };
           if (Object.keys(patch).length === 0) {
-            return { message: 'Nothing to update — pass at least one field (e.g. --text, --status, --tag).' };
+            return {
+              message:
+                'Nothing to update — pass at least one field (e.g. --text, --status, --tag).',
+            };
           }
           try {
             const memory = await store.updateSuperMemory(id, patch);
-            return { message: `Updated \`${memory.id}\` [${memory.kind}|${memory.status}] ${memory.text}` };
+            return {
+              message: `Updated \`${memory.id}\` [${memory.kind}|${memory.status}] ${memory.text}`,
+            };
           } catch (err) {
             return { message: `Could not update: ${toErrorMessage(err)}` };
           }
@@ -177,16 +194,24 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         // overlap the caret position.
         case 'for-file': {
           if (!isSuperMemoryStore(store)) return requiresSuperMemory('for-file');
-          if (!restJoined) return { message: 'Usage: /memory for-file <path> [--line <n>] [--limit <n>] [--show-deleted]' };
+          if (!restJoined)
+            return {
+              message: 'Usage: /memory for-file <path> [--line <n>] [--limit <n>] [--show-deleted]',
+            };
           // Inline flag parsing — kept local so we don't widen the
           // whitelist of the shared `parseMemoryFlags` (which is reused
           // for remember/update and validates against the canonical
           // memory-record field set).
           const pathArg = rest[0];
-          if (!pathArg) return { message: 'Usage: /memory for-file <path> [--line <n>] [--limit <n>] [--show-deleted]' };
+          if (!pathArg)
+            return {
+              message: 'Usage: /memory for-file <path> [--line <n>] [--limit <n>] [--show-deleted]',
+            };
           const forFileFlags = parseForFileFlags(rest.slice(1));
           if (forFileFlags.errors.length > 0) {
-            return { message: `Cannot run /memory for-file:\n- ${forFileFlags.errors.join('\n- ')}` };
+            return {
+              message: `Cannot run /memory for-file:\n- ${forFileFlags.errors.join('\n- ')}`,
+            };
           }
           const { singleLine, limit, showDeleted } = forFileFlags;
           try {
@@ -197,16 +222,28 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
             });
             return { message: formatForFileResponse(pathArg, response) };
           } catch (err) {
-            return { message: `for-file failed: ${err instanceof Error ? err.message : String(err)}` };
+            return {
+              message: `for-file failed: ${err instanceof Error ? err.message : String(err)}`,
+            };
           }
         }
         case 'search': {
           if (!restJoined) return { message: 'Usage: /memory search <query>' };
           if (!isSuperMemoryStore(store)) {
             const entries = await store.search(restJoined, 'project-memory', 20);
-            return { message: formatLegacyEntries(entries.map((entry) => entry.text), restJoined) };
+            return {
+              message: formatLegacyEntries(
+                entries.map((entry) => entry.text),
+                restJoined,
+              ),
+            };
           }
-          return { message: formatSuperMemories(await store.searchSuper(restJoined, { limit: 20 }), `Search: ${restJoined}`) };
+          return {
+            message: formatSuperMemories(
+              await store.searchSuper(restJoined, { limit: 20 }),
+              `Search: ${restJoined}`,
+            ),
+          };
         }
         case 'graph': {
           if (!isSuperMemoryStore(store)) return requiresSuperMemory('graph');
@@ -219,7 +256,7 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         }
         case 'hygiene': {
           if (!isSuperMemoryStore(store)) return requiresSuperMemory('hygiene');
-          return { message: formatHygiene(await store.hygiene() as SuperMemoryHygieneReport) };
+          return { message: formatHygiene((await store.hygiene()) as SuperMemoryHygieneReport) };
         }
         case 'candidates': {
           if (!isSuperMemoryStore(store)) return requiresSuperMemory('candidates');
@@ -227,12 +264,22 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
           if (action === 'accept') {
             if (!rest[1]) return { message: 'Usage: /memory candidates accept <candidate-id>' };
             const accepted = await store.acceptCandidate(rest[1]);
-            return { message: accepted ? `Accepted ${rest[1]} as ${accepted.id}.` : `Candidate ${rest[1]} was not found.` };
+            return {
+              message: accepted
+                ? `Accepted ${rest[1]} as ${accepted.id}.`
+                : `Candidate ${rest[1]} was not found.`,
+            };
           }
           if (action === 'reject') {
-            if (!rest[1]) return { message: 'Usage: /memory candidates reject <candidate-id> [reason]' };
-            const rejected = await store.rejectCandidate(rest[1], rest.slice(2).join(' ') || 'Rejected from /memory.');
-            return { message: rejected ? `Rejected ${rest[1]}.` : `Candidate ${rest[1]} was not found.` };
+            if (!rest[1])
+              return { message: 'Usage: /memory candidates reject <candidate-id> [reason]' };
+            const rejected = await store.rejectCandidate(
+              rest[1],
+              rest.slice(2).join(' ') || 'Rejected from /memory.',
+            );
+            return {
+              message: rejected ? `Rejected ${rest[1]}.` : `Candidate ${rest[1]} was not found.`,
+            };
           }
           return { message: formatCandidates(await store.listCandidates(action === 'all')) };
         }
@@ -242,13 +289,34 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         }
         case 'import-legacy': {
           if (!isSuperMemoryStore(store)) return requiresSuperMemory('import-legacy');
-          const legacyPaths = [opts.paths?.projectMemory, opts.paths?.globalMemory].filter((value): value is string => !!value);
-          if (legacyPaths.length === 0) return { message: 'Legacy memory paths are unavailable in this session.' };
+          const legacyPaths = [opts.paths?.projectMemory, opts.paths?.globalMemory].filter(
+            (value): value is string => !!value,
+          );
+          if (legacyPaths.length === 0)
+            return { message: 'Legacy memory paths are unavailable in this session.' };
           return { message: formatLegacyImport(await store.importLegacy(legacyPaths)) };
         }
         case 'clear': {
+          const force = rest.includes('--force');
+          if (!force) {
+            return {
+              message:
+                'Bulk memory clear is blocked by default because Super Memory is durable. ' +
+                'Review entries with `/memory show` and delete individual IDs, or use ' +
+                '`/memory clear --force` for an intentional full wipe.',
+            };
+          }
+          if (opts.confirm) {
+            const confirmed = await opts.confirm(
+              'Delete every non-permanent memory entry across all scopes? This cannot be undone from the UI.',
+              false,
+            );
+            if (confirmed !== true) {
+              return { message: 'Memory clear cancelled; all entries were preserved.' };
+            }
+          }
           await store.clear();
-          return { message: 'Cleared all memory scopes.' };
+          return { message: 'Cleared all non-permanent memory scopes by explicit force request.' };
         }
         case 'compact': {
           return runCompact(opts);
@@ -256,12 +324,17 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
         case 'compact-log': {
           if (!isSuperMemoryStore(store)) return requiresSuperMemory('compact-log');
           if (typeof store.compactLog !== 'function') {
-            return { message: '🧹 Log compaction is only available on the JSONL backend. The SQLite backend compacts automatically via UPSERT.' };
+            return {
+              message:
+                '🧹 Log compaction is only available on the JSONL backend. The SQLite backend compacts automatically via UPSERT.',
+            };
           }
           try {
             const result = await store.compactLog();
             if (result.beforeRecords === result.afterRecords) {
-              return { message: `🧹 Log already compact — ${result.uniqueIds} records, 0 duplicates removed.` };
+              return {
+                message: `🧹 Log already compact — ${result.uniqueIds} records, 0 duplicates removed.`,
+              };
             }
             const saved = result.beforeRecords - result.afterRecords;
             return {
@@ -295,11 +368,15 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
                 const logStats = await store.getLogStats();
                 const kbSize = (logStats.fileSizeBytes / 1024).toFixed(1);
                 const ratio = logStats.duplicateRatio.toFixed(1);
-                const healthIcon = logStats.duplicateRatio > 3 ? '⚠️' : logStats.duplicateRatio > 1.5 ? 'ℹ️' : '✅';
-                const compactHint = logStats.duplicateRatio > 3
-                  ? ` — run \`/memory compact-log\` to reclaim space`
-                  : '';
-                statsLines.push(`${healthIcon} Log health: ${logStats.rawRecords} records / ${logStats.uniqueIds} unique (${ratio}× ratio, ${kbSize} KB)${compactHint}`);
+                const healthIcon =
+                  logStats.duplicateRatio > 3 ? '⚠️' : logStats.duplicateRatio > 1.5 ? 'ℹ️' : '✅';
+                const compactHint =
+                  logStats.duplicateRatio > 3
+                    ? ` — run \`/memory compact-log\` to reclaim space`
+                    : '';
+                statsLines.push(
+                  `${healthIcon} Log health: ${logStats.rawRecords} records / ${logStats.uniqueIds} unique (${ratio}× ratio, ${kbSize} KB)${compactHint}`,
+                );
               } catch {
                 // Best-effort — log stats are informational
               }
@@ -317,7 +394,26 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
           return {
             message: unknownSubcommand(
               cmd,
-              ['show', 'search', 'file', 'path', 'graph', 'remember', 'update', 'delete', 'forget', 'hygiene', 'verify', 'candidates', 'audit', 'import-legacy', 'clear', 'compact', 'stats', 'audience'],
+              [
+                'show',
+                'search',
+                'file',
+                'path',
+                'graph',
+                'remember',
+                'update',
+                'delete',
+                'forget',
+                'hygiene',
+                'verify',
+                'candidates',
+                'audit',
+                'import-legacy',
+                'clear',
+                'compact',
+                'stats',
+                'audience',
+              ],
               'memory',
             ),
           };
@@ -329,12 +425,27 @@ export function buildMemoryCommand(opts: SlashCommandContext): SlashCommand {
 // ── /memory remember|update flag parsing ────────────────────────────────
 
 const MEMORY_KINDS: SuperMemoryKind[] = [
-  'fact', 'decision', 'convention', 'preference', 'warning', 'anti_pattern',
-  'workflow', 'bug_root_cause', 'file_note', 'symbol_note', 'command_note', 'summary',
+  'fact',
+  'decision',
+  'convention',
+  'preference',
+  'warning',
+  'anti_pattern',
+  'workflow',
+  'bug_root_cause',
+  'file_note',
+  'symbol_note',
+  'command_note',
+  'summary',
 ];
 const MEMORY_SCOPES: SuperMemoryScope[] = ['project', 'user', 'session', 'file', 'symbol'];
 const MEMORY_STATUSES: SuperMemoryStatus[] = [
-  'active', 'stale', 'superseded', 'contradicted', 'archived', 'deleted',
+  'active',
+  'stale',
+  'superseded',
+  'contradicted',
+  'archived',
+  'deleted',
 ];
 
 interface ParsedMemoryFlags {
@@ -370,9 +481,15 @@ function parseMemoryFlags(tokens: string[]): ParsedMemoryFlags {
     return { value: nxt, skip: true };
   };
   const csv = (value: string): string[] =>
-    value.split(',').map((part) => part.trim()).filter(Boolean);
+    value
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean);
   const num = (name: string, value: string | undefined): number | undefined => {
-    if (value === undefined) { errors.push(`${name} needs a value between 0 and 1.`); return undefined; }
+    if (value === undefined) {
+      errors.push(`${name} needs a value between 0 and 1.`);
+      return undefined;
+    }
     const parsed = Number.parseFloat(value);
     if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
       errors.push(`${name} must be a number between 0 and 1 (got "${value}").`);
@@ -383,21 +500,27 @@ function parseMemoryFlags(tokens: string[]): ParsedMemoryFlags {
 
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i] ?? '';
-    if (!token.startsWith('--')) { words.push(token); continue; }
+    if (!token.startsWith('--')) {
+      words.push(token);
+      continue;
+    }
     const name = token.slice(2).toLowerCase();
     const { value, skip } = nextValue(i);
     if (skip) i++;
     switch (name) {
       case 'kind':
-        if (value && (MEMORY_KINDS as string[]).includes(value)) out.kind = value as SuperMemoryKind;
+        if (value && (MEMORY_KINDS as string[]).includes(value))
+          out.kind = value as SuperMemoryKind;
         else errors.push(`--kind must be one of: ${MEMORY_KINDS.join(', ')}.`);
         break;
       case 'scope':
-        if (value && (MEMORY_SCOPES as string[]).includes(value)) out.scope = value as SuperMemoryScope;
+        if (value && (MEMORY_SCOPES as string[]).includes(value))
+          out.scope = value as SuperMemoryScope;
         else errors.push(`--scope must be one of: ${MEMORY_SCOPES.join(', ')}.`);
         break;
       case 'status':
-        if (value && (MEMORY_STATUSES as string[]).includes(value)) out.status = value as SuperMemoryStatus;
+        if (value && (MEMORY_STATUSES as string[]).includes(value))
+          out.status = value as SuperMemoryStatus;
         else errors.push(`--status must be one of: ${MEMORY_STATUSES.join(', ')}.`);
         break;
       case 'tag':
@@ -411,9 +534,15 @@ function parseMemoryFlags(tokens: string[]): ParsedMemoryFlags {
         else errors.push('--anchor needs a file path.');
         break;
       case 'symbol': {
-        if (!value) { errors.push('--symbol needs a value like path#SymbolName.'); break; }
+        if (!value) {
+          errors.push('--symbol needs a value like path#SymbolName.');
+          break;
+        }
         const hash = value.lastIndexOf('#');
-        if (hash <= 0 || hash === value.length - 1) { errors.push('--symbol must be path#SymbolName.'); break; }
+        if (hash <= 0 || hash === value.length - 1) {
+          errors.push('--symbol must be path#SymbolName.');
+          break;
+        }
         anchors.push({ type: 'symbol', path: value.slice(0, hash), symbol: value.slice(hash + 1) });
         break;
       }
@@ -421,9 +550,15 @@ function parseMemoryFlags(tokens: string[]): ParsedMemoryFlags {
         if (value) anchors.push({ type: 'command', command: value });
         else errors.push('--command needs a value.');
         break;
-      case 'importance': out.importance = num('--importance', value); break;
-      case 'confidence': out.confidence = num('--confidence', value); break;
-      case 'freshness': out.freshness = num('--freshness', value); break;
+      case 'importance':
+        out.importance = num('--importance', value);
+        break;
+      case 'confidence':
+        out.confidence = num('--confidence', value);
+        break;
+      case 'freshness':
+        out.freshness = num('--freshness', value);
+        break;
       case 'supersedes':
         if (value) out.supersedes = [...(out.supersedes ?? []), ...csv(value)];
         else errors.push('--supersedes needs one or more memory ids.');
@@ -518,10 +653,7 @@ function previewText(text: string, maxLen: number): string {
   return text.slice(0, maxLen - 1) + '…';
 }
 
-function formatForFileResponse(
-  filePath: string,
-  response: FindMemoriesForFileResponse,
-): string {
+function formatForFileResponse(filePath: string, response: FindMemoriesForFileResponse): string {
   const lines: string[] = [
     `## Super Memory — File: \`${filePath}\``,
     '',
@@ -529,10 +661,7 @@ function formatForFileResponse(
       `(${response.activeCount} active, ${response.supersededCount} superseded, ` +
       `${response.reviewPendingCount} pending review).`,
   ];
-  const renderBucket = (
-    label: string,
-    matches: ReadonlyArray<MemoryForFileMatch>,
-  ): void => {
+  const renderBucket = (label: string, matches: ReadonlyArray<MemoryForFileMatch>): void => {
     if (matches.length === 0) return;
     lines.push('', `### ${label} (${matches.length})`);
     for (const match of matches) {
@@ -583,7 +712,9 @@ async function runPathMemory(
   for (const memory of memories) {
     const tags = memory.tags.length > 0 ? ` ${memory.tags.map((tag) => `#${tag}`).join(' ')}` : '';
     const anchor = memory.anchors.find((a) => a.path || a.symbol || a.command);
-    const anchorText = anchor ? `\n  anchor: ${anchor.path ?? anchor.symbol ?? anchor.command}` : '';
+    const anchorText = anchor
+      ? `\n  anchor: ${anchor.path ?? anchor.symbol ?? anchor.command}`
+      : '';
     lines.push(`- [${memory.kind}|${memory.status}] ${memory.text}${tags}${anchorText}`);
   }
   return { message: lines.join('\n') };
@@ -594,7 +725,9 @@ type CliSuperMemoryService = SuperMemoryServiceLike & {
   listSuper(statuses?: string[]): Promise<SuperMemory[]>;
   importLegacy(files: string[]): Promise<LegacyImportResult>;
   readAudit(limit?: number): Promise<SuperMemoryAuditRecord[]>;
-  rememberSuper(input: import('@wrongstack/super-memory').RememberSuperMemoryInput): Promise<SuperMemory>;
+  rememberSuper(
+    input: import('@wrongstack/super-memory').RememberSuperMemoryInput,
+  ): Promise<SuperMemory>;
   updateSuperMemory(id: string, patch: UpdateSuperMemoryInput): Promise<SuperMemory>;
   deleteSuperMemory(
     id: string,
@@ -602,20 +735,32 @@ type CliSuperMemoryService = SuperMemoryServiceLike & {
     options?: { force?: boolean; neverInject?: boolean },
   ): Promise<void>;
   compactLog(): Promise<{ beforeRecords: number; afterRecords: number; uniqueIds: number }>;
-  getLogStats(): Promise<{ rawRecords: number; uniqueIds: number; duplicateRatio: number; fileSizeBytes: number }>;
+  getLogStats(): Promise<{
+    rawRecords: number;
+    uniqueIds: number;
+    duplicateRatio: number;
+    fileSizeBytes: number;
+  }>;
   getSuperMemory(id: string): Promise<SuperMemory | null>;
-  retrieveForAudience(context: { role?: string; taskType?: string; mode?: string }, limit?: number): Promise<SuperMemory[]>;
+  retrieveForAudience(
+    context: { role?: string; taskType?: string; mode?: string },
+    limit?: number,
+  ): Promise<SuperMemory[]>;
 };
 
-function isSuperMemoryStore(store: NonNullable<SlashCommandContext['memoryStore']>): store is NonNullable<SlashCommandContext['memoryStore']> & CliSuperMemoryService {
+function isSuperMemoryStore(
+  store: NonNullable<SlashCommandContext['memoryStore']>,
+): store is NonNullable<SlashCommandContext['memoryStore']> & CliSuperMemoryService {
   const value = store as unknown as Record<string, unknown>;
-  return typeof value['retrieveForPath'] === 'function'
-    && typeof value['searchSuper'] === 'function'
-    && typeof value['graphFor'] === 'function'
-    && typeof value['hygiene'] === 'function'
-    && typeof value['listSuper'] === 'function'
-    && typeof value['rememberSuper'] === 'function'
-    && typeof value['updateSuperMemory'] === 'function';
+  return (
+    typeof value['retrieveForPath'] === 'function' &&
+    typeof value['searchSuper'] === 'function' &&
+    typeof value['graphFor'] === 'function' &&
+    typeof value['hygiene'] === 'function' &&
+    typeof value['listSuper'] === 'function' &&
+    typeof value['rememberSuper'] === 'function' &&
+    typeof value['updateSuperMemory'] === 'function'
+  );
 }
 
 // ── /memory audience — view and manage role-scoped memories ──────────
@@ -639,7 +784,10 @@ function parseAudienceFlags(tokens: string[]): ParsedAudienceFlags {
       continue;
     }
     i++;
-    const csv = value.split(',').map((part) => part.trim()).filter(Boolean);
+    const csv = value
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean);
     switch (name) {
       case 'role':
       case 'roles':
@@ -687,12 +835,16 @@ async function runAudienceMemory(
       return { message: `Cannot parse audience flags:\n- ${flags.errors.join('\n- ')}` };
     }
     if (hasAudienceSelector(flags)) {
-      const matches = await store.retrieveForAudience({
-        ...(flags.roles ? { role: flags.roles[0] } : {}),
-        ...(flags.taskTypes ? { taskType: flags.taskTypes[0] } : {}),
-        ...(flags.modes ? { mode: flags.modes[0] } : {}),
-      }, 50);
-      if (matches.length === 0) return { message: 'No audience-scoped memories match the given selectors.' };
+      const matches = await store.retrieveForAudience(
+        {
+          ...(flags.roles ? { role: flags.roles[0] } : {}),
+          ...(flags.taskTypes ? { taskType: flags.taskTypes[0] } : {}),
+          ...(flags.modes ? { mode: flags.modes[0] } : {}),
+        },
+        50,
+      );
+      if (matches.length === 0)
+        return { message: 'No audience-scoped memories match the given selectors.' };
       const lines = ['## Audience-Scoped Memory — Matching', ''];
       for (const mem of matches) {
         const aud = mem.audience ? ` (${formatAudienceSelector(mem.audience)})` : '';
@@ -704,7 +856,10 @@ async function runAudienceMemory(
     const all = await store.listSuper(['active', 'stale']);
     const scoped = all.filter((m) => m.audience);
     if (scoped.length === 0) {
-      return { message: 'No audience-scoped memories. Add one with `/memory audience remember --role <r> <text>`.' };
+      return {
+        message:
+          'No audience-scoped memories. Add one with `/memory audience remember --role <r> <text>`.',
+      };
     }
     const lines = ['## Audience-Scoped Memory', ''];
     for (const mem of scoped) {
@@ -721,11 +876,23 @@ async function runAudienceMemory(
       return { message: `Cannot remember:\n- ${flags.errors.join('\n- ')}` };
     }
     if (!hasAudienceSelector(flags)) {
-      return { message: 'Usage: /memory audience remember --role <role> [--task-type <t>] [--mode <m>] <text>\nAt least one of --role, --task-type, or --mode is required.' };
+      return {
+        message:
+          'Usage: /memory audience remember --role <role> [--task-type <t>] [--mode <m>] <text>\nAt least one of --role, --task-type, or --mode is required.',
+      };
     }
     // Extract text: tokens after the flags
     const words: string[] = [];
-    const flagSet = new Set(['--role', '--roles', '--task-type', '--task-types', '--tasktype', '--tasktypes', '--mode', '--modes']);
+    const flagSet = new Set([
+      '--role',
+      '--roles',
+      '--task-type',
+      '--task-types',
+      '--tasktype',
+      '--tasktypes',
+      '--mode',
+      '--modes',
+    ]);
     for (let i = 1; i < rest.length; i++) {
       const token = rest[i] ?? '';
       if (token.startsWith('--')) {
@@ -744,7 +911,9 @@ async function runAudienceMemory(
       if (flags.taskTypes?.length) audience.taskTypes = flags.taskTypes;
       if (flags.modes?.length) audience.modes = flags.modes;
       const memory = await store.rememberSuper({ text, audience });
-      return { message: `Remembered \`${memory.id}\` for ${formatAudienceSelector(memory.audience!)}: ${memory.text}` };
+      return {
+        message: `Remembered \`${memory.id}\` for ${formatAudienceSelector(memory.audience!)}: ${memory.text}`,
+      };
     } catch (err) {
       return { message: `Could not remember: ${toErrorMessage(err)}` };
     }
@@ -756,7 +925,9 @@ async function runAudienceMemory(
     if (!id) return { message: 'Usage: /memory audience clear <memory-id>' };
     try {
       await store.updateSuperMemory(id, { audience: {} });
-      return { message: `Cleared audience scope from \`${id}\` — it is now general project memory.` };
+      return {
+        message: `Cleared audience scope from \`${id}\` — it is now general project memory.`,
+      };
     } catch (err) {
       return { message: `Could not clear audience: ${toErrorMessage(err)}` };
     }
@@ -778,7 +949,9 @@ async function runAudienceMemory(
         m.audience?.taskTypes?.join(' ') ?? '',
         m.audience?.modes?.join(' ') ?? '',
         m.tags.join(' '),
-      ].join(' ').toLowerCase();
+      ]
+        .join(' ')
+        .toLowerCase();
       return haystack.includes(query);
     });
     if (matches.length === 0) return { message: `No audience-scoped memories match "${query}".` };
@@ -799,16 +972,16 @@ async function runAudienceMemory(
       return { message: 'Usage: /memory audience transfer <from-role> <to-role>' };
     }
     const all = await store.listSuper(['active', 'stale']);
-    const toUpdate = all.filter(
-      (m) => m.audience?.roles?.some((r) => r.toLowerCase() === fromRole),
+    const toUpdate = all.filter((m) =>
+      m.audience?.roles?.some((r) => r.toLowerCase() === fromRole),
     );
     if (toUpdate.length === 0) {
       return { message: `No audience-scoped memories found for role "${fromRole}".` };
     }
     let updated = 0;
     for (const mem of toUpdate) {
-      const roles = (mem.audience!.roles ?? []).map(
-        (r) => (r.toLowerCase() === fromRole ? toRole : r),
+      const roles = (mem.audience!.roles ?? []).map((r) =>
+        r.toLowerCase() === fromRole ? toRole : r,
       );
       const deduped = [...new Set(roles)];
       try {
@@ -846,9 +1019,12 @@ async function runAudienceMemory(
       const taskMatch = flags.taskTypes?.[0]?.toLowerCase();
       const modeMatch = flags.modes?.[0]?.toLowerCase();
       scoped = scoped.filter((m) => {
-        if (roleMatch && !(m.audience?.roles ?? []).some((r) => r.toLowerCase() === roleMatch)) return false;
-        if (taskMatch && !(m.audience?.taskTypes ?? []).some((r) => r.toLowerCase() === taskMatch)) return false;
-        if (modeMatch && !(m.audience?.modes ?? []).some((r) => r.toLowerCase() === modeMatch)) return false;
+        if (roleMatch && !(m.audience?.roles ?? []).some((r) => r.toLowerCase() === roleMatch))
+          return false;
+        if (taskMatch && !(m.audience?.taskTypes ?? []).some((r) => r.toLowerCase() === taskMatch))
+          return false;
+        if (modeMatch && !(m.audience?.modes ?? []).some((r) => r.toLowerCase() === modeMatch))
+          return false;
         return true;
       });
     }
@@ -875,11 +1051,19 @@ async function runAudienceMemory(
   if (sub === 'import' || sub === 'load') {
     const jsonText = rest.slice(1).join(' ').trim();
     if (!jsonText) {
-      return { message: 'Usage: /memory audience import <json-array>\nPaste the JSON output from `/memory audience export`.' };
+      return {
+        message:
+          'Usage: /memory audience import <json-array>\nPaste the JSON output from `/memory audience export`.',
+      };
     }
     let entries: Array<{
-      text?: unknown; kind?: unknown; status?: unknown;
-      audience?: unknown; tags?: unknown; importance?: unknown; confidence?: unknown;
+      text?: unknown;
+      kind?: unknown;
+      status?: unknown;
+      audience?: unknown;
+      tags?: unknown;
+      importance?: unknown;
+      confidence?: unknown;
     }>;
     try {
       const cleaned = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
@@ -902,7 +1086,9 @@ async function runAudienceMemory(
           text: entry.text,
           ...(typeof entry.kind === 'string' ? { kind: entry.kind as never } : {}),
           ...(Array.isArray(entry.tags) ? { tags: entry.tags as string[] } : {}),
-          ...(entry.audience && typeof entry.audience === 'object' ? { audience: entry.audience as never } : {}),
+          ...(entry.audience && typeof entry.audience === 'object'
+            ? { audience: entry.audience as never }
+            : {}),
           ...(typeof entry.importance === 'number' ? { importance: entry.importance } : {}),
           ...(typeof entry.confidence === 'number' ? { confidence: entry.confidence } : {}),
         });
@@ -935,36 +1121,60 @@ async function runAudienceMemory(
 }
 
 function requiresSuperMemory(command: string): { message: string } {
-  return { message: `\`/memory ${command}\` requires the Super Memory backend. Enable \`superMemory.enabled\` and restart the session.` };
+  return {
+    message: `\`/memory ${command}\` requires the Super Memory backend. Enable \`superMemory.enabled\` and restart the session.`,
+  };
 }
 
 function formatSuperMemories(memories: SuperMemory[], title: string): string {
   if (memories.length === 0) return `No Super Memory entries matched ${title}.`;
-  return [`## Super Memory — ${title}`, ...memories.map((memory) => `- \`${memory.id}\` [${memory.kind}|${memory.status}] ${memory.text}`)].join('\n');
+  return [
+    `## Super Memory — ${title}`,
+    ...memories.map(
+      (memory) => `- \`${memory.id}\` [${memory.kind}|${memory.status}] ${memory.text}`,
+    ),
+  ].join('\n');
 }
 
 function formatLegacyEntries(entries: string[], query: string): string {
-  return entries.length === 0 ? `No memory entries matched "${query}".` : [`## Memory — Search: ${query}`, ...entries.map((text) => `- ${text}`)].join('\n');
+  return entries.length === 0
+    ? `No memory entries matched "${query}".`
+    : [`## Memory — Search: ${query}`, ...entries.map((text) => `- ${text}`)].join('\n');
 }
 
 function formatGraph(edges: MemoryGraphEdge[], query: string): string {
   if (edges.length === 0) return `No graph relationships matched "${query}".`;
-  return [`## Memory Graph — ${query}`, ...edges.map((edge) => `- ${edge.from} —[${edge.relation}:${edge.weight.toFixed(2)}]→ ${edge.to}`)].join('\n');
+  return [
+    `## Memory Graph — ${query}`,
+    ...edges.map(
+      (edge) =>
+        `- ${edge.from} —[${edge.relation}:${edge.weight.toFixed(2)}]→ ${edge.to}` +
+        (edge.evidence?.length ? ` _(why: ${edge.evidence.join(', ')})_` : ''),
+    ),
+  ].join('\n');
 }
 
 function formatVerification(results: MemoryVerificationResult[]): string {
   if (results.length === 0) return 'No memories were available to verify.';
   const counts = new Map<string, number>();
   for (const result of results) counts.set(result.status, (counts.get(result.status) ?? 0) + 1);
-  const lines = ['## Super Memory Verification', ...[...counts].map(([status, count]) => `- ${status}: ${count}`)];
+  const lines = [
+    '## Super Memory Verification',
+    ...[...counts].map(([status, count]) => `- ${status}: ${count}`),
+  ];
   for (const result of results.filter((item) => item.status !== 'verified').slice(0, 20)) {
-    lines.push(`- \`${result.memoryId}\`: ${result.anchors.map((anchor) => anchor.reason).join('; ') || result.status}`);
+    lines.push(
+      `- \`${result.memoryId}\`: ${result.anchors.map((anchor) => anchor.reason).join('; ') || result.status}`,
+    );
   }
   return lines.join('\n');
 }
 
 function formatHygiene(report: SuperMemoryHygieneReport): string {
-  const unusedNote = report.archivedUnused > 0 ? ` (${report.archivedUnused} for repeated injection without use)` : '';
+  const unusedNote =
+    report.archivedUnused > 0
+      ? ` (${report.archivedUnused} for repeated injection without use)`
+      : '';
   return [
     '## Super Memory Hygiene',
     `Examined ${report.examined}; deduplicated ${report.deduplicated}; superseded ${report.superseded}.`,
@@ -974,24 +1184,44 @@ function formatHygiene(report: SuperMemoryHygieneReport): string {
 
 function formatCandidates(candidates: MemoryCandidate[]): string {
   if (candidates.length === 0) return 'No memory candidates.';
-  return ['## Memory Candidates', ...candidates.map((candidate) => `- \`${candidate.id}\` [${candidate.status}|${candidate.kind}] ${candidate.text}`)].join('\n');
+  return [
+    '## Memory Candidates',
+    ...candidates.map(
+      (candidate) =>
+        `- \`${candidate.id}\` [${candidate.status}|${candidate.kind}] ${candidate.text}`,
+    ),
+  ].join('\n');
 }
 
 function formatAudit(rows: SuperMemoryAuditRecord[]): string {
   if (rows.length === 0) return 'Super Memory audit log is empty.';
-  return ['## Super Memory Audit', ...rows.map((row) => `- ${row.at} ${row.event}${row.memoryId ? ` \`${row.memoryId}\`` : ''}${row.reason ? ` — ${row.reason}` : ''}`)].join('\n');
+  return [
+    '## Super Memory Audit',
+    ...rows.map(
+      (row) =>
+        `- ${row.at} ${row.event}${row.memoryId ? ` \`${row.memoryId}\`` : ''}${row.reason ? ` — ${row.reason}` : ''}`,
+    ),
+  ].join('\n');
 }
 
 function formatLegacyImport(result: LegacyImportResult): string {
   return `Legacy import complete: ${result.imported} imported, ${result.skipped} skipped from ${result.files} file(s).`;
 }
 
-function formatSuperStats(stats: SuperMemoryStats, scopedCount?: number, scopedRoles?: string): string {
+function formatSuperStats(
+  stats: SuperMemoryStats,
+  scopedCount?: number,
+  scopedRoles?: string,
+): string {
   const lines = [
     '## Super Memory Stats',
     `Total: ${stats.total}; active ${stats.byStatus.active}; stale ${stats.byStatus.stale}; archived ${stats.byStatus.archived}; deleted ${stats.byStatus.deleted}.`,
     `Graph edges: ${stats.edges}.`,
-    `Kinds: ${Object.entries(stats.byKind).map(([kind, count]) => `${kind}=${count}`).join(', ') || 'none'}.`,
+    `Kinds: ${
+      Object.entries(stats.byKind)
+        .map(([kind, count]) => `${kind}=${count}`)
+        .join(', ') || 'none'
+    }.`,
   ];
   if (scopedCount !== undefined) {
     lines.push(`Audience-scoped: ${scopedCount}${scopedRoles ? ` (${scopedRoles})` : ''}.`);
@@ -1008,12 +1238,27 @@ function formatSuperMemoryShow(stats: SuperMemoryStats, memories: SuperMemory[])
   const archived = stats.byStatus['archived'] ?? 0;
   lines.push('## 🧠 Super Memory');
   lines.push('');
-  lines.push(`**Total:** ${stats.total} · 🟢 ${active} active · 🟡 ${stale} stale · 🔵 ${archived} archived`);
+  lines.push(
+    `**Total:** ${stats.total} · 🟢 ${active} active · 🟡 ${stale} stale · 🔵 ${archived} archived`,
+  );
   lines.push(`**Graph edges:** ${stats.edges}`);
   lines.push('');
 
   // Kind breakdown
-  const kindOrder: SuperMemoryKind[] = ['fact', 'decision', 'convention', 'preference', 'anti_pattern', 'warning', 'workflow', 'bug_root_cause', 'file_note', 'symbol_note', 'command_note', 'summary'];
+  const kindOrder: SuperMemoryKind[] = [
+    'fact',
+    'decision',
+    'convention',
+    'preference',
+    'anti_pattern',
+    'warning',
+    'workflow',
+    'bug_root_cause',
+    'file_note',
+    'symbol_note',
+    'command_note',
+    'summary',
+  ];
   const kindRows: string[] = [];
   for (const kind of kindOrder) {
     const count = stats.byKind[kind] ?? 0;
@@ -1031,9 +1276,19 @@ function formatSuperMemoryShow(stats: SuperMemoryStats, memories: SuperMemory[])
   lines.push('### 📋 Entries');
   lines.push('');
   for (const mem of memories) {
-    const tags = mem.tags.length > 0 ? ` \`${mem.tags.slice(0, 3).join('` `')}${mem.tags.length > 3 ? '…' : ''}\`` : '';
+    const tags =
+      mem.tags.length > 0
+        ? ` \`${mem.tags.slice(0, 3).join('` `')}${mem.tags.length > 3 ? '…' : ''}\``
+        : '';
     const preview = mem.text.replace(/\s+/g, ' ').trim().slice(0, 120);
-    const statusIcon = mem.status === 'active' ? '🟢' : mem.status === 'stale' ? '🟡' : mem.status === 'archived' ? '🔵' : '⚪';
+    const statusIcon =
+      mem.status === 'active'
+        ? '🟢'
+        : mem.status === 'stale'
+          ? '🟡'
+          : mem.status === 'archived'
+            ? '🔵'
+            : '⚪';
     lines.push(`- ${statusIcon} \`${mem.id.slice(0, 12)}…\` [${mem.kind}] ${preview}${tags}`);
   }
   lines.push('');
@@ -1302,9 +1557,7 @@ async function runCompact(opts: SlashCommandContext): Promise<{ message: string 
         }
       }
     } catch (err) {
-      errors.push(
-        `${op.action} failed for ${op.targets.join(', ')}: ${toErrorMessage(err)}`,
-      );
+      errors.push(`${op.action} failed for ${op.targets.join(', ')}: ${toErrorMessage(err)}`);
     }
   }
 

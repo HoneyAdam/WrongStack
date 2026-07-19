@@ -26,6 +26,7 @@ export class DefaultTokenCounter implements TokenCounter {
   private cacheWrite = 0;
   private costInput = 0;
   private costOutput = 0;
+  private cacheSaved = 0;
   private readonly registry?: ModelsRegistry | undefined;
   private readonly providerId?: string | undefined;
   private readonly events?: EventBus | undefined;
@@ -167,6 +168,7 @@ export class DefaultTokenCounter implements TokenCounter {
       readTokens: this.cacheRead,
       writeTokens: this.cacheWrite,
       hitRatio: denom === 0 ? 0 : this.cacheRead / denom,
+      savedUsd: round4(this.cacheSaved),
     };
   }
 
@@ -197,6 +199,7 @@ export class DefaultTokenCounter implements TokenCounter {
     this.cacheWrite = 0;
     this.costInput = 0;
     this.costOutput = 0;
+    this.cacheSaved = 0;
     this.lastInput = 0;
     this.lastCacheRead = 0;
     this.lastCacheWrite = 0;
@@ -208,6 +211,11 @@ export class DefaultTokenCounter implements TokenCounter {
     if (price.output) this.costOutput += (usage.output / 1_000_000) * price.output;
     if (usage.cacheRead && price.cacheRead) {
       this.costInput += (usage.cacheRead / 1_000_000) * price.cacheRead;
+    }
+    // Gross read savings: what those cached tokens would have cost at the full
+    // input rate, minus the discounted cache-read rate actually billed.
+    if (usage.cacheRead && price.input !== undefined) {
+      this.cacheSaved += (usage.cacheRead / 1_000_000) * (price.input - (price.cacheRead ?? 0));
     }
     const hasCacheWriteSplit = usage.cacheWrite5m !== undefined || usage.cacheWrite1h !== undefined;
     const cacheWrite5m = usage.cacheWrite5m ?? (hasCacheWriteSplit ? 0 : usage.cacheWrite);

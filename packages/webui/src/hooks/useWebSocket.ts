@@ -183,13 +183,24 @@ export function useWebSocket() {
   );
   const listSuperMemoriesPage = useCallback(
     (
-      params?: { statuses?: string[]; kind?: string; query?: string; limit?: number; cursor?: string },
+      params?: {
+        statuses?: string[];
+        kind?: string;
+        query?: string;
+        limit?: number;
+        cursor?: string;
+      },
       options?: WSSendOptions,
     ) => client.listSuperMemoriesPage(params, options),
     [client],
   );
   const getSuperMemory = useCallback(
     (id: string, options?: WSSendOptions) => client.getSuperMemory(id, options),
+    [client],
+  );
+  const getSuperMemoryGraph = useCallback(
+    (query: string, params?: { maxDepth?: number; limit?: number }, options?: WSSendOptions) =>
+      client.getSuperMemoryGraph(query, params, options),
     [client],
   );
   const updateSuperMemory = useCallback(
@@ -337,6 +348,7 @@ export function useWebSocket() {
     listSuperMemories,
     listSuperMemoriesPage,
     getSuperMemory,
+    getSuperMemoryGraph,
     updateSuperMemory,
     deleteSuperMemory,
     rememberSuperMemory,

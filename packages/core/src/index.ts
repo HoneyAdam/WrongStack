@@ -373,6 +373,8 @@ export {
   DefaultSystemPromptBuilder,
   type DefaultSystemPromptBuilderOptions,
   LAYER_1_IDENTITY,
+  SYSTEM_BLOCK_SOURCE,
+  type SystemBlockSource,
 } from './core/system-prompt-builder.js';
 export * from './defaults/index.js';
 export {
@@ -583,6 +585,10 @@ export {
 } from './hooks/index.js';
 export * from './hq/index.js';
 export { allServers } from './infrastructure/mcp-servers.js';
+export {
+  ProviderCacheLedger,
+  type ProviderCacheEntry,
+} from './infrastructure/provider-cache-ledger.js';
 export * from './kernel/index.js';
 export { attachMailboxChecker } from './mailbox-attach.js';
 export {
@@ -593,6 +599,17 @@ export {
 } from './middleware/collab-pause.js';
 export * from './observability/network-telemetry.js';
 export * from './observability/process-telemetry.js';
+// ---- Notifications (one-way channel-agnostic delivery) ----
+export {
+  type NotificationChannel,
+  type NotificationChannelStatus,
+  type NotificationLevel,
+  type NotificationMessage,
+  type NotificationResult,
+  type Notifier,
+  type NotifierCounters,
+  NotifierImpl,
+} from './notifications/index.js';
 export { DefaultPluginAPI, definePlugin, type PluginAPIInit } from './plugin/api.js';
 export {
   KERNEL_API_VERSION,

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { AgentTranscriptEntry, AgentTranscriptKind, FleetTimelineEvent, SubagentView, SubagentEvent } from './types.js';
 import { stripNextStepsBlock } from '@wrongstack/tools/next-steps';
+import { compareAgentsByActivity } from '@/lib/agent-status';
 
 // ── Fleet store (live subagent roster; not persisted) ───────────────────────
 
@@ -34,6 +35,8 @@ interface FleetState {
   getAgentsBySession: (sessionId: string) => SubagentView[];
   /** Return one agent's full ordered transcript. */
   getAgentTranscript: (subagentId: string) => AgentTranscriptEntry[];
+  /** Remove all non-running agents (completed, failed, timeout, stopped) from the roster. */
+  clearFinishedAgents: () => void;
 }
 
 function blankAgent(id: string, name?: string, sessionId?: string): SubagentView {
@@ -163,6 +166,28 @@ export const useFleetStore = create<FleetState>()((set, get) => ({
     return result;
   },
   getAgentTranscript: (subagentId) => get().agentTranscripts.get(subagentId) ?? EMPTY_AGENT_TRANSCRIPT,
+  clearFinishedAgents: () =>
+    set((state) => {
+      const survivors = new Map(state.agents);
+      const finished = new Set<string>();
+      for (const [id, agent] of survivors) {
+        if (agent.status !== 'running') {
+          survivors.delete(id);
+          finished.add(id);
+        }
+      }
+      const agentTranscripts = new Map(state.agentTranscripts);
+      for (const id of finished) {
+        agentTranscripts.delete(id);
+      }
+      return {
+        agents: survivors,
+        agentTranscripts,
+        agentTimeline: state.agentTimeline.filter((e) => !finished.has(e.subagentId)),
+        eventTimeline: state.eventTimeline.filter((e) => !finished.has(e.agentId)),
+        leaderId: state.leaderId && finished.has(state.leaderId) ? undefined : state.leaderId,
+      };
+    }),
   applyEvent: (e) =>
     set((state) => {
       const agents = new Map(state.agents);
@@ -412,3 +437,94 @@ export const useFleetStore = create<FleetState>()((set, get) => ({
       return { agents, leaderId, fleetTokensIn, fleetTokensOut, eventTimeline: timeline };
     }),
 }));
+
+// ── Derived selectors ──────────────────────────────────────────────────
+//
+// These can be passed directly to useFleetStore. For object selectors
+// (selectFleetSummary), pass the `shallow` equality helper as the second
+// argument to avoid re-renders when only the Map reference changes:
+//
+//   const summary = useFleetStore(selectFleetSummary, shallow);
+//
+// selectSortedAgentList returns a new array on every call — consumers that
+// want memoization should wrap in useMemo with selectSortedAgentList's
+// result as the dependency, or use the selector inside a component that
+// re-renders infrequently.
+
+/** Pre-computed fleet-wide summary statistics. */
+export interface FleetSummary {
+  running: number;
+  completed: number;
+  failed: number;
+  total: number;
+  totalCost: number;
+  tokensIn: number;
+  tokensOut: number;
+  concurrency: number;
+  concurrencyMax: number;
+}
+
+/** Shallow comparison for zustand selector equality checks.
+ *  Compares own enumerable string-keyed properties by reference.
+ *  Use with object selectors to avoid unnecessary re-renders:
+ *    useFleetStore(selectFleetSummary, shallow)
+ */
+export function shallow<T extends Record<string, unknown>>(a: T, b: T): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const ak = Object.keys(a);
+  const bk = Object.keys(b);
+  if (ak.length !== bk.length) return false;
+  for (const k of ak) {
+    if (a[k] !== b[k]) return false;
+  }
+  return true;
+}
+
+/** Selector: derive fleet-wide summary from raw store state.
+ *  Iterates the agents Map once to compute running/completed/failed
+ *  counts and total cost, then reads scalar fields directly.
+ */
+export const selectFleetSummary = (state: FleetState): FleetSummary => {
+  let running = 0;
+  let completed = 0;
+  let failed = 0;
+  let totalCost = 0;
+  for (const agent of state.agents.values()) {
+    if (agent.status === 'running') running++;
+    else if (agent.status === 'completed') completed++;
+    else if (agent.status === 'failed' || agent.status === 'timeout') failed++;
+    if (Number.isFinite(agent.costUsd) && agent.costUsd > 0) totalCost += agent.costUsd;
+  }
+  return {
+    running,
+    completed,
+    failed,
+    total: state.agents.size,
+    totalCost,
+    tokensIn: state.fleetTokensIn,
+    tokensOut: state.fleetTokensOut,
+    concurrency: state.fleetConcurrency,
+    concurrencyMax: state.fleetConcurrencyMax,
+  };
+};
+
+/** Selector: return agents sorted leader-first → running-first → by start time.
+ *  Creates a new array on every call; pair with useMemo or pass through
+ *  a component that tolerates re-derivation when the agents Map changes.
+ */
+export const selectSortedAgentList = (state: FleetState): SubagentView[] => {
+  const arr = Array.from(state.agents.values());
+  const leaderId = state.leaderId;
+  arr.sort((x, y) => {
+    if (x === y || x.id === y.id) return 0;
+    if (x.id === leaderId) return -1;
+    if (y.id === leaderId) return 1;
+    return compareAgentsByActivity(x, y);
+  });
+  return arr;
+};
+
+/** Selector: O(1) lookup of the leader agent's name via the agents Map. */
+export const selectLeaderName = (state: FleetState): string | undefined =>
+  state.leaderId ? state.agents.get(state.leaderId)?.name : undefined;

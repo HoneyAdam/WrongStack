@@ -1,4 +1,4 @@
-import type { AgentPipelines, Config, Logger, MemoryStore } from '@wrongstack/core';
+import type { AgentPipelines, Config, EventBus, Logger, MemoryStore } from '@wrongstack/core';
 import {
   createSuperMemoryToolCallMiddleware,
   createSuperMemoryTurnMiddleware,
@@ -11,6 +11,7 @@ export interface SuperMemoryWiringDeps {
   pipelines: AgentPipelines;
   memoryStore: MemoryStore | undefined;
   logger: Logger;
+  events: EventBus;
 }
 
 export function setupSuperMemory(deps: SuperMemoryWiringDeps): () => Promise<void> {
@@ -36,15 +37,19 @@ export function setupSuperMemory(deps: SuperMemoryWiringDeps): () => Promise<voi
         memory: deps.memoryStore,
         maxHintsPerTool: cfg?.inject?.maxHintsPerTool,
         maxCharsPerTool: cfg?.inject?.maxCharsPerTool,
+        taskAware: cfg?.inject?.taskAware,
         minScore: cfg?.inject?.minScore,
         repeatCooldownMs: cfg?.inject?.repeatCooldownMs,
         verifyOnMutation: cfg?.hygiene?.autoOnFileChange,
         triggers: cfg?.inject?.triggers,
         tracker: injectionTracker,
+        events: deps.events,
       }),
     );
   }
-  if (cfg?.inject?.turnContext !== false) {
+  // Turn-level injection is deliberately opt-in. The default retrieval path
+  // is tool-result injection, after a concrete path/query supplies context.
+  if (cfg?.inject?.turnContext === true) {
     deps.pipelines.request.use(
       createSuperMemoryTurnMiddleware({
         memory: deps.memoryStore,

@@ -1,9 +1,9 @@
+import type { MemoryStore } from '@wrongstack/core';
 import { describe, expect, it, vi } from 'vitest';
 import { buildDiagCommand, buildStatsCommand } from '../src/slash-commands/diag-stats.js';
+import type { SlashCommandContext } from '../src/slash-commands/index.js';
 import { buildMemoryCommand } from '../src/slash-commands/memory.js';
 import { buildTodosCommand } from '../src/slash-commands/todos.js';
-import type { SlashCommandContext } from '../src/slash-commands/index.js';
-import type { MemoryStore } from '@wrongstack/core';
 
 function emptyCtx(overrides: Partial<SlashCommandContext> = {}): SlashCommandContext {
   return {
@@ -134,12 +134,30 @@ describe('buildMemoryCommand', () => {
     expect(res?.message ?? '').toMatch(/Forgot \d+ entr/);
   });
 
-  it('clear empties the store', async () => {
+  it('blocks bulk clear unless explicitly forced', async () => {
     const store = makeMemStore('xx');
     const cmd = buildMemoryCommand(emptyCtx({ memoryStore: store }));
     const res = await cmd.run('clear');
-    expect(res?.message ?? '').toContain('Cleared');
+    expect(res?.message ?? '').toContain('blocked');
+    expect(store.clear).not.toHaveBeenCalled();
+  });
+
+  it('clears the store only with an explicit force request', async () => {
+    const store = makeMemStore('xx');
+    const cmd = buildMemoryCommand(emptyCtx({ memoryStore: store }));
+    const res = await cmd.run('clear --force');
+    expect(res?.message ?? '').toContain('explicit force');
     expect(store.clear).toHaveBeenCalled();
+  });
+
+  it('preserves memory when a forced clear is not confirmed', async () => {
+    const store = makeMemStore('xx');
+    const confirm = vi.fn().mockResolvedValue(false);
+    const cmd = buildMemoryCommand(emptyCtx({ memoryStore: store, confirm }));
+    const res = await cmd.run('clear --force');
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Delete every'), false);
+    expect(res?.message ?? '').toContain('cancelled');
+    expect(store.clear).not.toHaveBeenCalled();
   });
 
   it('unknown subcommand reports usage', async () => {
@@ -151,7 +169,9 @@ describe('buildMemoryCommand', () => {
 
 // ── /todos ──────────────────────────────────────────────────────────────────
 
-function makeCtx(initialTodos: Array<{ id: string; content: string; status: string; activeForm?: string }> = []) {
+function makeCtx(
+  initialTodos: Array<{ id: string; content: string; status: string; activeForm?: string }> = [],
+) {
   const todos = [...initialTodos];
   return {
     todos,
@@ -172,7 +192,11 @@ describe('buildTodosCommand', () => {
   });
 
   it('show renders the formatted list', async () => {
-    const cmd = buildTodosCommand(emptyCtx({ context: makeCtx([{ id: 't1', content: 'do thing', status: 'pending' }]) as never }));
+    const cmd = buildTodosCommand(
+      emptyCtx({
+        context: makeCtx([{ id: 't1', content: 'do thing', status: 'pending' }]) as never,
+      }),
+    );
     const res = await cmd.run('');
     expect(res?.message ?? '').toContain('do thing');
   });

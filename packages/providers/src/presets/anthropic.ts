@@ -10,6 +10,7 @@
 import type { Capabilities, ContentBlock, Message, ReasoningEffort, Request, StopReason, StreamEvent, Usage } from '@wrongstack/core';
 import { ProviderError, safeParse } from '@wrongstack/core';
 import { parseToolInput } from '../_tool-input.js';
+import { capAnthropicCacheBreakpoints } from '../cache-breakpoint-cap.js';
 import { capabilitiesForFamily } from '../family-capabilities.js';
 import { normalizeAnthropic } from '../stop-reason.js';
 import { toolsToAnthropic } from '../tool-format/to-anthropic.js';
@@ -60,11 +61,19 @@ export const anthropicWireFormat = defineWireFormat<AnthropicStreamState>({
       stream: true,
     };
     if (req.system && req.system.length > 0) {
-      body['system'] = req.system.map((b, index) =>
-        req.cache?.ttl && index === req.system!.length - 1
-          ? { ...b, cache_control: { type: 'ephemeral', ttl: req.cache.ttl } }
-          : b,
-      );
+      // Always emit fresh, field-allowlisted objects (never the shared
+      // ctx.systemPrompt block references): the breakpoint cap below mutates
+      // cache_control in place, and any builder-side metadata must not leak.
+      const lastIndex = req.system.length - 1;
+      body['system'] = req.system.map((b, index) => {
+        const out: Record<string, unknown> = { type: 'text', text: b.text };
+        const cc =
+          req.cache?.ttl && index === lastIndex
+            ? { type: 'ephemeral', ttl: req.cache.ttl }
+            : b.cache_control;
+        if (cc) out['cache_control'] = cc;
+        return out;
+      });
     }
     if (req.tools && req.tools.length > 0) body['tools'] = toolsToAnthropic(req.tools);
     if (req.temperature !== undefined) body['temperature'] = req.temperature;
@@ -83,6 +92,9 @@ export const anthropicWireFormat = defineWireFormat<AnthropicStreamState>({
         };
       }
     }
+    // Enforce Anthropic's global 4-breakpoint ceiling across tools+system+
+    // messages. No-op when ≤4 markers; drops redundant middle breakpoints only.
+    capAnthropicCacheBreakpoints(body);
     return body;
   },
   createStreamState: (fallbackModel) => ({

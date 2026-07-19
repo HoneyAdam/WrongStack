@@ -148,9 +148,9 @@ describe('SelectiveCompactor', () => {
       const provider = makeFakeProvider(['summarized content']);
       const selector: MessageSelector = {
         select: vi.fn().mockResolvedValue({
-          kept: [{ from: 0, to: 1, importance: 'high' }],
-          collapsed: [{ from: 2, to: 3, summary: 'summary' }],
-          reasoning: 'keep first',
+          kept: [{ from: 2, to: 3, importance: 'high' }],
+          collapsed: [{ from: 0, to: 1, summary: 'summary' }],
+          reasoning: 'keep recent working pair',
         }),
       };
       const compactor = new SelectiveCompactor({
@@ -420,11 +420,13 @@ describe('SelectiveCompactor', () => {
 
     it('uses provided summary when available', async () => {
       const provider = makeFakeProvider([]);
-      const compactor = new SelectiveCompactor({ provider });
+      const compactor = new SelectiveCompactor({ provider, preserveK: 1 });
 
       const messages = [
         makeMessage('user', [makeTextBlock('msg1')]),
         makeMessage('assistant', [makeTextBlock('msg2')]),
+        makeMessage('user', [makeTextBlock('current question')]),
+        makeMessage('assistant', [makeTextBlock('current answer')]),
       ];
       const ctx = fakeContext(messages);
 
@@ -436,6 +438,58 @@ describe('SelectiveCompactor', () => {
 
       const sysMsg = ctx.messages[0];
       expect(sysMsg?.content).toContain('my custom summary');
+    });
+
+    it('never lets a selector collapse the configured recent working pairs', async () => {
+      const provider = makeFakeProvider([]);
+      const compactor = new SelectiveCompactor({ provider, preserveK: 1 });
+      const messages = [
+        makeMessage('user', 'old question'),
+        makeMessage('assistant', 'old answer'),
+        makeMessage('user', 'current question'),
+        makeMessage('assistant', 'current answer'),
+      ];
+      const ctx = fakeContext(messages);
+
+      await (compactor as any).executePlan(ctx, {
+        kept: [],
+        collapsed: [{ from: 0, to: 3, summary: 'old summary' }],
+        reasoning: 'over-broad plan',
+      });
+
+      expect(ctx.messages.some((m) => m.content === 'current question')).toBe(true);
+      expect(ctx.messages.some((m) => m.content === 'current answer')).toBe(true);
+      expect(ctx.messages.some((m) => String(m.content).includes('old summary'))).toBe(true);
+    });
+
+    it('carries compact tool evidence into an LLM-provided range summary', async () => {
+      const provider = makeFakeProvider([]);
+      const compactor = new SelectiveCompactor({ provider, preserveK: 1 });
+      const messages: Message[] = [
+        makeMessage('assistant', [
+          { type: 'tool_use', id: 't1', name: 'read', input: { path: 'src/old.ts' } },
+        ]),
+        makeMessage('user', [{
+          type: 'tool_result',
+          tool_use_id: 't1',
+          content: 'Error: parse failed at src/old.ts',
+          is_error: true,
+        }]),
+        makeMessage('user', 'current question'),
+        makeMessage('assistant', 'current answer'),
+      ];
+      const ctx = fakeContext(messages);
+
+      await (compactor as any).executePlan(ctx, {
+        kept: [],
+        collapsed: [{ from: 0, to: 1, summary: 'read attempt failed' }],
+        reasoning: 'compact old tool exchange',
+      });
+
+      const summary = String(ctx.messages[0]?.content);
+      expect(summary).toContain('[tool evidence]');
+      expect(summary).toContain('src/old.ts');
+      expect(summary).toContain('parse failed');
     });
   });
 

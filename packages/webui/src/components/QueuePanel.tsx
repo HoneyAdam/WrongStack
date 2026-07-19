@@ -143,58 +143,60 @@ export function QueuePanel({
               <p className="text-xs text-center max-w-xs">{t('activity:queue.emptyBody')}</p>
             </div>
           ) : (
-            <ul className="divide-y divide-border/60" data-testid="queue-list">
-              {queuePage.pageItems.map(({ item, sourceIdx }, idx) => {
-                // sourceIdx was threaded through the sort so removal
-                // targets the correct entry in the underlying store.
-                const meta = MODE_META[item.mode];
-                return (
-                  <li
-                    key={`${item.addedAt}-${sourceIdx}`}
-                    className="flex items-start justify-between gap-3 px-4 py-3 text-xs transition-colors hover:bg-muted/35"
-                    data-testid="queue-item"
-                  >
-                    <div className="flex items-start gap-3 min-w-0 flex-1">
-                      <span className="mt-1 text-[10px] font-mono text-muted-foreground shrink-0 w-5 text-right tabular-nums">
-                        {(queuePage.page - 1) * queuePage.pageSize + idx + 1}.
-                      </span>
-                      <span
-                        className={cn(
-                          'shrink-0 inline-flex items-center justify-center rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase',
-                          meta.tone,
-                        )}
-                        title={t(`activity:queue.${meta.titleKey}`)}
-                        data-testid={`queue-mode-${item.mode}`}
-                      >
-                        {meta.label}
-                      </span>
-                      <p className="text-sm text-foreground leading-relaxed min-w-0 break-words">
-                        {item.text.length > 120 ? `${item.text.slice(0, 117)}…` : item.text}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleRemove(sourceIdx)}
-                      className="ml-1 p-1.5 rounded-md shrink-0 hover:bg-destructive/10 hover:text-destructive transition-colors"
-                      title={t('activity:queue.removeTitle')}
-                      data-testid={`queue-remove-${sourceIdx}`}
+            <>
+              <ul className="divide-y divide-border/60" data-testid="queue-list">
+                {queuePage.pageItems.map(({ item, sourceIdx }, idx) => {
+                  // sourceIdx was threaded through the sort so removal
+                  // targets the correct entry in the underlying store.
+                  const meta = MODE_META[item.mode];
+                  return (
+                    <li
+                      key={`${item.addedAt}-${sourceIdx}`}
+                      className="flex items-start justify-between gap-3 px-4 py-3 text-xs transition-colors hover:bg-muted/35"
+                      data-testid="queue-item"
                     >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+                      <div className="flex items-start gap-3 min-w-0 flex-1">
+                        <span className="mt-1 text-[10px] font-mono text-muted-foreground shrink-0 w-5 text-right tabular-nums">
+                          {(queuePage.page - 1) * queuePage.pageSize + idx + 1}.
+                        </span>
+                        <span
+                          className={cn(
+                            'shrink-0 inline-flex items-center justify-center rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase',
+                            meta.tone,
+                          )}
+                          title={t(`activity:queue.${meta.titleKey}`)}
+                          data-testid={`queue-mode-${item.mode}`}
+                        >
+                          {meta.label}
+                        </span>
+                        <p className="text-sm text-foreground leading-relaxed min-w-0 break-words">
+                          {item.text.length > 120 ? `${item.text.slice(0, 117)}…` : item.text}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemove(sourceIdx)}
+                        className="ml-1 p-1.5 rounded-md shrink-0 hover:bg-destructive/10 hover:text-destructive transition-colors"
+                        title={t('activity:queue.removeTitle')}
+                        data-testid={`queue-remove-${sourceIdx}`}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+              <Pagination
+                page={queuePage.page}
+                pageSize={queuePage.pageSize}
+                totalItems={queuePage.totalItems}
+                onPageChange={queuePage.setPage}
+                compact
+                itemLabel="queued messages"
+              />
+            </>
           )}
         </div>
-        <Pagination
-          page={queuePage.page}
-          pageSize={queuePage.pageSize}
-          totalItems={queuePage.totalItems}
-          onPageChange={queuePage.setPage}
-          compact
-          itemLabel="queued messages"
-        />
 
         {/* Footer hint */}
         {queue.length > 0 && (

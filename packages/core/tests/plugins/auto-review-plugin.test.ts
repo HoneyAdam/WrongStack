@@ -16,6 +16,7 @@ let tmp: string;
 
 function gitInit(dir: string): void {
   execFileSync('git', ['init', '-q'], { cwd: dir });
+  execFileSync('git', ['config', 'core.autocrlf', 'false'], { cwd: dir });
   execFileSync('git', ['config', 'user.email', 'auto-review@example.test'], { cwd: dir });
   execFileSync('git', ['config', 'user.name', 'auto-review test'], { cwd: dir });
 }

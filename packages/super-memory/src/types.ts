@@ -61,6 +61,62 @@ declare module '@wrongstack/core' {
       sessionId?: string | undefined;
       traceId?: string | undefined;
     };
+    /** One bounded observability trace for each on-demand injector decision. */
+    'memory.injector_run': {
+      runId: string;
+      at: string;
+      outcome: 'injected' | 'empty' | 'error';
+      trigger: string;
+      toolName: string;
+      queryPreview: string;
+      paths: string[];
+      taskSignals: string[];
+      contextPressure: number;
+      budget: { maxHints: number; maxChars: number };
+      candidates: number;
+      eligible: number;
+      rejected: {
+        duplicate: number;
+        belowScore: number;
+        alreadyVisible: number;
+        cooldown: number;
+        budget: number;
+      };
+      activated: Array<{
+        id: string;
+        kind: string;
+        text: string;
+        score: number;
+        relationStrength: number;
+        anchor?: string | undefined;
+        anchors: string[];
+        tags: string[];
+        activationReasons: string[];
+        importance: number;
+        confidence: number;
+        freshness: number;
+        persistence: string;
+      }>;
+      injected: Array<{
+        id: string;
+        kind: string;
+        text: string;
+        score: number;
+        relationStrength: number;
+        anchor?: string | undefined;
+        anchors: string[];
+        tags: string[];
+        activationReasons: string[];
+        importance: number;
+        confidence: number;
+        freshness: number;
+        persistence: string;
+      }>;
+      injectedChars: number;
+      error?: string | undefined;
+      sessionId?: string | undefined;
+      traceId?: string | undefined;
+    };
   }
 }
 
@@ -88,7 +144,9 @@ export type PersistenceClass = 'permanent' | 'long_lived' | 'short_lived';
 
 export const DEFAULT_PERSISTENCE: PersistenceClass = 'long_lived';
 export const VALID_PERSISTENCE: ReadonlySet<PersistenceClass> = new Set([
-  'permanent', 'long_lived', 'short_lived',
+  'permanent',
+  'long_lived',
+  'short_lived',
 ]);
 
 export type SuperMemoryKind =
@@ -223,6 +281,8 @@ export interface MemoryGraphEdge {
   to: string;
   relation: MemoryGraphRelation;
   weight: number;
+  /** Human-readable structural evidence for why this edge exists. */
+  evidence?: string[] | undefined;
   createdAt: string;
   deletedAt?: string | undefined;
 }
@@ -331,6 +391,8 @@ export interface SuperMemoryStats {
  * are eligible for new-active-version creation. Empty fields mean "no filter".
  */
 export interface SuperMemoryBackfillFilter {
+  /** Restrict recovery to an explicitly reviewed set of tombstone ids. */
+  ids?: string[] | undefined;
   kinds?: SuperMemoryKind[] | undefined;
   scopes?: SuperMemoryScope[] | undefined;
   /** Only consider records with `updatedAt >= this`. ISO-8601 string. */
@@ -461,10 +523,12 @@ export interface SuperMemoryManifest {
   createdAt: string;
   updatedAt: string;
   lastSnapshotId?: string | undefined;
-  indexes?: {
-    version: 1;
-    builtAt: string;
-  } | undefined;
+  indexes?:
+    | {
+        version: 1;
+        builtAt: string;
+      }
+    | undefined;
 }
 
 export interface SuperMemorySnapshot {
@@ -584,7 +648,10 @@ export interface RememberSuperMemoryInput {
  * `memoryId`/`reason` on `MemoryCandidate`, which record resolution results
  * (accepted memory id / rejection reason) and must not be overwritten.
  */
-export type CreateCandidateInput = Omit<RememberSuperMemoryInput, 'legacyScope' | 'priority' | 'type'> & {
+export type CreateCandidateInput = Omit<
+  RememberSuperMemoryInput,
+  'legacyScope' | 'priority' | 'type'
+> & {
   /** Id of the memory this proposal reviews (e.g. a suggested delete/archive target). */
   targetMemoryId?: string | undefined;
   /** Review reason (e.g. 'noise', 'contradiction', 'expires_at_passed'). */

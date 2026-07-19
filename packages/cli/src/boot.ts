@@ -49,16 +49,12 @@ import { createDefaultContainer } from '@wrongstack/runtime';
 import { builtinToolsPack } from '@wrongstack/tools';
 import { parseArgs } from './arg-parser.js';
 import { discoverAndMergeProviders } from './boot/auto-discover-providers.js';
-import {
-  applySimpleUiFullAutoProfile,
-  isSimpleUiFullAuto,
-} from './boot/simpleui-full-auto.js';
+import { maybeRestoreDefaultProfileFromBackup } from './boot/config-backup-recovery.js';
+import { applySimpleUiFullAutoProfile, isSimpleUiFullAuto } from './boot/simpleui-full-auto.js';
 import { bootConfig } from './boot-config.js';
 import { ReadlineInputReader } from './input-reader.js';
 import { printLaunchHints } from './launch-hints.js';
 import { type PickerResult, runPicker, saveToGlobalConfig } from './picker.js';
-import { resolveActiveApiKey } from './provider-config-utils.js';
-import { isKeylessLocalProvider, visibleModelIds } from './provider-helpers.js';
 import {
   LaunchAbortedError,
   maybeAskAboutIndexing,
@@ -66,6 +62,8 @@ import {
   runLaunchPrompts,
   runProjectCheck,
 } from './pre-launch.js';
+import { resolveActiveApiKey } from './provider-config-utils.js';
+import { isKeylessLocalProvider, visibleModelIds } from './provider-helpers.js';
 import { TerminalRenderer } from './renderer.js';
 import { runUpdateCommand } from './subcommands/handlers/update.js';
 import { subcommands } from './subcommands/index.js';
@@ -232,13 +230,44 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
     writeErr(`Config error: ${toErrorMessage(err)}\n`);
     return 2;
   }
-  const { paths, config: _config, vault } = bootResult;
-  let config = _config;
+  let { paths, config, vault } = bootResult;
+  const first = positional[0];
+
+  // Only an ordinary interactive CLI launch may offer backup recovery. Keep
+  // subcommands, single-shot prompts, WebUI, and explicit skip modes silent.
+  const mayOfferConfigRecovery =
+    isStdinTTY() &&
+    (positional.length === 0 || first === 'quick') &&
+    (!config.activeProfile || config.activeProfile === 'default') &&
+    typeof flags['prompt'] !== 'string' &&
+    !flags['webui'] &&
+    !flags['no-interactive'] &&
+    !flags['skip'];
+  const renderer = new TerminalRenderer();
+  const reader = new ReadlineInputReader({ historyFile: paths.wpaths.historyFile });
+  if (mayOfferConfigRecovery) {
+    const restored = await maybeRestoreDefaultProfileFromBackup({
+      globalRoot: paths.wpaths.globalRoot,
+      profilePath: paths.wpaths.profileConfig('default'),
+      renderer,
+      reader,
+    });
+    if (restored) {
+      try {
+        bootResult = await bootConfig(flags);
+        ({ paths, config, vault } = bootResult);
+      } catch (err) {
+        writeErr(`Config error after backup restore: ${toErrorMessage(err)}\n`);
+        await reader.close();
+        return 2;
+      }
+    }
+  }
+
   config = applySimpleUiFullAutoProfile(config, flags);
   const simpleUiFullAuto = isSimpleUiFullAuto(flags);
   const { cwd, projectRoot, userHome, wpaths, pathResolver } = paths;
   void pathResolver; // used by callers via container binding
-  const first = positional[0];
 
   // `wrongstack quick` — accept all defaults, list plugins, open TUI with F3 panel.
   // Handled here (before subcommand dispatch) so `wstack quick something` doesn't
@@ -268,8 +297,6 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
     // Logs still go to the disk file for post-hoc debugging.
     stderr: !flags.tui,
   });
-  const renderer = new TerminalRenderer();
-  const reader = new ReadlineInputReader({ historyFile: wpaths.historyFile });
   const modelsRegistry = new DefaultModelsRegistry({
     cacheFile: wpaths.modelsCache,
     // Force a refresh attempt once per CLI process. Model metadata changes faster

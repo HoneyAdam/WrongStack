@@ -16,15 +16,16 @@
  * message shapes, ordering, validation, tripwire throws, and the runLock
  * guard around `agent.run` are all unchanged.
  */
+
+import * as os from 'node:os';
 import path from 'node:path';
 import type { ContentBlock } from '@wrongstack/core';
 import {
-  ChronicleQueryEngine,
   type ChronicleFacet,
   type ChronicleQuery,
+  ChronicleQueryEngine,
   resolveWstackPaths,
 } from '@wrongstack/core';
-import * as os from 'node:os';
 import {
   buildUserContentBlocks,
   IncomingImageError,
@@ -38,7 +39,6 @@ import {
   VisionUrlBlockedError,
 } from '@wrongstack/runtime/vision';
 import type { WebSocket } from 'ws';
-import { handleGoalRoute } from './goal-routes.js';
 import { handleBrainRoute } from './brain-routes.js';
 import { createToolLspCompletionSource, handleCompletionRequest } from './completion-handlers.js';
 import {
@@ -56,6 +56,7 @@ import {
   handleFilesWrite,
 } from './file-handlers.js';
 import { handleGoalGet } from './goal-handlers.js';
+import { handleGoalRoute } from './goal-routes.js';
 import {
   handleWorklistMessage,
   type WorklistContext,
@@ -66,16 +67,17 @@ import { handleMailboxRoute } from './mailbox-routes.js';
 import { handleMcpRoute } from './mcp-routes.js';
 import {
   handleMemoryList,
+  handleSuperMemoryBackfillRecoverable,
+  handleSuperMemoryCandidateResolve,
   handleSuperMemoryDelete,
+  handleSuperMemoryForFile,
   handleSuperMemoryGet,
+  handleSuperMemoryGraph,
   handleSuperMemoryList,
   handleSuperMemoryListPage,
+  handleSuperMemoryRecover,
   handleSuperMemoryRemember,
   handleSuperMemoryUpdate,
-  handleSuperMemoryRecover,
-  handleSuperMemoryCandidateResolve,
-  handleSuperMemoryBackfillRecoverable,
-  handleSuperMemoryForFile,
 } from './memory-handlers.js';
 import { handleModeRoute } from './mode-routes.js';
 import { resolveProviderModelMetadata } from './model-catalog.js';
@@ -153,9 +155,7 @@ async function chronicleEngine(projectRoot: string): Promise<ChronicleQueryEngin
   const cached = chronicleCache.get(projectRoot);
   if (cached && now - cached.loadedAt < 60_000) return cached.engine;
   const paths = resolveWstackPaths({ projectRoot, userHome: os.homedir() });
-  const engine = await ChronicleQueryEngine.fromDirectory(
-    path.join(paths.projectDir, 'chronicle'),
-  );
+  const engine = await ChronicleQueryEngine.fromDirectory(path.join(paths.projectDir, 'chronicle'));
   chronicleCache.set(projectRoot, { loadedAt: now, engine });
   return engine;
 }
@@ -497,6 +497,8 @@ export function createMessageDispatcher(
         return handleSuperMemoryListPage(ws, msg, deps.memoryStore);
       case 'memory.super.get':
         return handleSuperMemoryGet(ws, msg, deps.memoryStore);
+      case 'memory.super.graph':
+        return handleSuperMemoryGraph(ws, msg, deps.memoryStore);
       case 'memory.super.update':
         return handleSuperMemoryUpdate(ws, msg, deps.memoryStore);
       case 'memory.super.delete':
@@ -762,7 +764,10 @@ export function createMessageDispatcher(
       case 'chronicle.query': {
         const payload = (msg.payload ?? {}) as { query?: ChronicleQuery };
         const engine = await chronicleEngine(state.getProjectRoot());
-        send(ws, { type: 'chronicle.query_result', payload: await engine.query(payload.query ?? {}) });
+        send(ws, {
+          type: 'chronicle.query_result',
+          payload: await engine.query(payload.query ?? {}),
+        });
         break;
       }
 

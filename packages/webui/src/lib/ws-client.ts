@@ -42,6 +42,7 @@ const CHAT_ECHO_RESPONSE_BY_REQUEST: Partial<
   'diag.get': 'diag.get',
   'memory.list': 'memory.list',
   'memory.super.get': 'memory.super.get',
+  'memory.super.graph': 'memory.super.graph',
   'memory.super.list': 'memory.super.list',
   'memory.super.listPage': 'memory.super.listPage',
   'memory.super.remember': 'memory.super.remember',
@@ -802,6 +803,14 @@ export class WrongStackWebSocketClient {
 
   getSuperMemory(id: string, options?: WSSendOptions) {
     this.send({ type: 'memory.super.get', payload: { id } }, options);
+  }
+
+  getSuperMemoryGraph(
+    query: string,
+    params?: { maxDepth?: number; limit?: number },
+    options?: WSSendOptions,
+  ) {
+    this.send({ type: 'memory.super.graph', payload: { query, ...params } }, options);
   }
 
   updateSuperMemory(id: string, patch: Record<string, unknown>, options?: WSSendOptions) {

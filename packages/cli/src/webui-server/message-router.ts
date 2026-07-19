@@ -16,17 +16,15 @@
  *
  * PR 15 of Issue #30: extracted from `webui-server.ts`.
  */
-import type { ChronicleFacet, ChronicleQuery, PhaseTemplate, TodoItem } from '@wrongstack/core';
-import { ChronicleQueryEngine, PhaseGraphBuilder, resolveWstackPaths } from '@wrongstack/core';
+
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type { ChronicleFacet, ChronicleQuery, PhaseTemplate, TodoItem } from '@wrongstack/core';
+import { ChronicleQueryEngine, PhaseGraphBuilder, resolveWstackPaths } from '@wrongstack/core';
 import { exportBoardToTaskGraph } from '@wrongstack/kanban';
-import { startSddRunFromGraph } from '@wrongstack/webui-server';
-import type { KanbanRunMirror } from './kanban-run-mirror.js';
-import type { KanbanSupervisor } from './kanban-supervisor.js';
 import type {
-  GoalWebSocketHandler,
   DesignContext,
+  GoalWebSocketHandler,
   PromptsContext,
   SddBoardWebSocketHandler,
   SddWizardWebSocketHandler,
@@ -66,16 +64,6 @@ import {
   handleMcpUpdate,
   handleMcpWake,
   handleMemoryList,
-  handleSuperMemoryDelete,
-  handleSuperMemoryGet,
-  handleSuperMemoryList,
-  handleSuperMemoryListPage,
-  handleSuperMemoryRemember,
-  handleSuperMemoryUpdate,
-  handleSuperMemoryRecover,
-  handleSuperMemoryCandidateResolve,
-  handleSuperMemoryBackfillRecoverable,
-  handleSuperMemoryForFile,
   handlePromptsContent,
   handlePromptsCreate,
   handlePromptsFavorite,
@@ -91,10 +79,24 @@ import {
   handleSkillsInstall,
   handleSkillsUninstall,
   handleSkillsUpdate,
+  handleSuperMemoryBackfillRecoverable,
+  handleSuperMemoryCandidateResolve,
+  handleSuperMemoryDelete,
+  handleSuperMemoryForFile,
+  handleSuperMemoryGet,
+  handleSuperMemoryGraph,
+  handleSuperMemoryList,
+  handleSuperMemoryListPage,
+  handleSuperMemoryRecover,
+  handleSuperMemoryRemember,
+  handleSuperMemoryUpdate,
+  startSddRunFromGraph,
 } from '@wrongstack/webui-server';
 import type { WebSocket } from 'ws';
 import type { CliWebUIOptions, WSClientMessage, WSServerMessage } from '../webui-server.js';
 import type { ConnectedClient } from './connection-handler.js';
+import type { KanbanRunMirror } from './kanban-run-mirror.js';
+import type { KanbanSupervisor } from './kanban-supervisor.js';
 import { consoleLogger } from './logger-shim.js';
 import type {
   AgentConfigContext,
@@ -111,6 +113,7 @@ import type {
   WsHandlerContext,
 } from './ws-handlers/index.js';
 import {
+  adoptDefaultProviderIfUnset,
   handleAbort,
   handleAutonomySwitch,
   handleBrainAsk,
@@ -147,7 +150,6 @@ import {
   handlePrefsUpdate,
   handleProcessKill,
   handleProcessKillAll,
-  adoptDefaultProviderIfUnset,
   handleProcessList,
   handleProjectsAdd,
   handleProjectsList,
@@ -646,22 +648,58 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
     'chronicle.query': async (msg, ws) => {
       const payload = (msg.payload ?? {}) as { query?: ChronicleQuery };
       const engine = await chronicleEngine();
-      send(ws, { type: 'chronicle.query_result', payload: await engine.query(payload.query ?? {}) });
+      send(ws, {
+        type: 'chronicle.query_result',
+        payload: await engine.query(payload.query ?? {}),
+      });
     },
     'chronicle.facet': async (msg, ws) => {
-      const payload = (msg.payload ?? {}) as { field?: ChronicleFacet; query?: ChronicleQuery; limit?: number };
-      const allowed = new Set<ChronicleFacet>(['eventType', 'outcome', 'projectId', 'sessionId', 'agentId', 'taskId', 'providerId', 'modelId', 'resourceKind', 'resourcePath', 'toolCallId']);
+      const payload = (msg.payload ?? {}) as {
+        field?: ChronicleFacet;
+        query?: ChronicleQuery;
+        limit?: number;
+      };
+      const allowed = new Set<ChronicleFacet>([
+        'eventType',
+        'outcome',
+        'projectId',
+        'sessionId',
+        'agentId',
+        'taskId',
+        'providerId',
+        'modelId',
+        'resourceKind',
+        'resourcePath',
+        'toolCallId',
+      ]);
       if (!payload.field || !allowed.has(payload.field)) {
-        send(ws, { type: 'chronicle.error', payload: { message: 'Invalid Chronicle facet field.' } });
+        send(ws, {
+          type: 'chronicle.error',
+          payload: { message: 'Invalid Chronicle facet field.' },
+        });
         return;
       }
       const engine = await chronicleEngine();
-      send(ws, { type: 'chronicle.facet_result', payload: { field: payload.field, values: await engine.facet(payload.field, payload.query ?? {}, payload.limit), diagnostics: engine.diagnostics } });
+      send(ws, {
+        type: 'chronicle.facet_result',
+        payload: {
+          field: payload.field,
+          values: await engine.facet(payload.field, payload.query ?? {}, payload.limit),
+          diagnostics: engine.diagnostics,
+        },
+      });
     },
     'chronicle.graph': async (msg, ws) => {
-      const payload = (msg.payload ?? {}) as { seed?: ChronicleQuery; hops?: number; maxNodes?: number };
+      const payload = (msg.payload ?? {}) as {
+        seed?: ChronicleQuery;
+        hops?: number;
+        maxNodes?: number;
+      };
       const engine = await chronicleEngine();
-      send(ws, { type: 'chronicle.graph_result', payload: await engine.graph(payload.seed ?? {}, payload.hops, payload.maxNodes) });
+      send(ws, {
+        type: 'chronicle.graph_result',
+        payload: await engine.graph(payload.seed ?? {}, payload.hops, payload.maxNodes),
+      });
     },
     'side_effects.list': (_msg, ws) => {
       const sideEffects = opts.agent.ctx.sideEffects ?? [];
@@ -908,6 +946,16 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
       }
       return handleSuperMemoryGet(ws, msg, opts.memoryStore);
     },
+    'memory.super.graph': (msg, ws) => {
+      if (!opts.memoryStore) {
+        send(ws, {
+          type: 'memory.super.graph',
+          payload: { query: '', error: 'Memory store not available' },
+        });
+        return;
+      }
+      return handleSuperMemoryGraph(ws, msg, opts.memoryStore);
+    },
     'memory.super.update': (msg, ws) => {
       if (!opts.memoryStore) {
         send(ws, {
@@ -937,7 +985,10 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
     },
     'memory.super.recover': (msg, ws) => {
       if (!opts.memoryStore) {
-        send(ws, { type: 'memory.super.recover', payload: { error: 'Memory store not available' } });
+        send(ws, {
+          type: 'memory.super.recover',
+          payload: { error: 'Memory store not available' },
+        });
         return;
       }
       return handleSuperMemoryRecover(ws, msg, opts.memoryStore);
@@ -1105,9 +1156,7 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
     // ── Prefix-based fallback for delegated handlers ──
     const msgType = (msg as { type: string }).type;
     if (msgType.startsWith('goal.')) {
-      await goalHandler.handleMessage(
-        msg as { type: string; payload?: Record<string, unknown> },
-      );
+      await goalHandler.handleMessage(msg as { type: string; payload?: Record<string, unknown> });
     } else if (msgType.startsWith('specs.')) {
       await specsHandler.handleMessage(msg as { type: string; payload?: Record<string, unknown> });
     } else if (msgType.startsWith('sdd.board.')) {
@@ -1140,7 +1189,8 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
       // Protocol skew is expected during WebUI hot reloads. Unknown read-only
       // observability messages are ignored instead of flooding terminal logs;
       // feature negotiation prevents current clients from sending them.
-      if (!msgType.startsWith('chronicle.')) console.debug(`[WebUI] Unhandled message type: ${msgType}`);
+      if (!msgType.startsWith('chronicle.'))
+        console.debug(`[WebUI] Unhandled message type: ${msgType}`);
     }
   };
 }

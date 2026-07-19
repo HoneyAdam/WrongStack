@@ -2003,6 +2003,7 @@ export async function main(argv: string[]): Promise<number> {
     pipelines,
     memoryStore,
     logger,
+    events,
   });
   const disposeIndexing = await setupCodebaseIndexing({
     config,

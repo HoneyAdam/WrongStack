@@ -261,6 +261,26 @@ describe('LLMSelector', () => {
       const result = await selector.select(messages, 1000);
       expect(result).toBeDefined();
     });
+
+    it('keeps the current working tail visible when old content exhausts the preview budget', async () => {
+      const provider = mockProvider(['{"kept":[],"collapsed":[],"reasoning":""}']);
+      const selector = new LLMSelector({ provider, maxContextTokens: 40_000 });
+      const messages: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: 'old bulk '.repeat(20_000) }] },
+        ...Array.from({ length: 30 }, (_, i) =>
+          makeMessage('assistant', `middle ${i} ${'x'.repeat(500)}`),
+        ),
+        makeMessage('user', 'CURRENT TASK MUST REMAIN VISIBLE'),
+        makeMessage('assistant', 'CURRENT WORKING ANSWER'),
+      ];
+
+      await selector.select(messages, 1_200);
+
+      const req = vi.mocked(provider.complete).mock.calls[0]![0];
+      const preview = req.messages[0]?.content;
+      expect(preview).toContain('CURRENT TASK MUST REMAIN VISIBLE');
+      expect(preview).toContain('CURRENT WORKING ANSWER');
+    });
   });
 
   describe('parseSelectorOutput edge cases', () => {

@@ -14,6 +14,12 @@ export {
   type SuperMemoryToolCallMiddlewareOptions,
 } from './middleware/tool-call-memory.js';
 export {
+  MemoryInjectorAgent,
+  type MemoryInjectorMeasurement,
+  type MemoryInjectorPlan,
+  type MemoryInjectorPlanInput,
+} from './middleware/memory-injector-agent.js';
+export {
   InjectionTracker,
   type InjectionTrackerOptions,
 } from './middleware/injection-tracker.js';

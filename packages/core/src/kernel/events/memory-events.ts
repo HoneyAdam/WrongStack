@@ -33,6 +33,10 @@ export interface MemoryEventMap {
   /** Structured Super Memory lifecycle events. Kept structural so core never depends on the package. */
   'memory.accepted': {
     memoryId: string;
+    kind?: string | undefined;
+    persistence?: string | undefined;
+    confidence?: number | undefined;
+    freshness?: number | undefined;
     sessionId?: string | undefined;
     traceId?: string | undefined;
   };
@@ -59,6 +63,20 @@ export interface MemoryEventMap {
   'memory.updated': {
     memoryId: string;
     status: string;
+    kind?: string | undefined;
+    persistence?: string | undefined;
+    confidence?: number | undefined;
+    freshness?: number | undefined;
+    sessionId?: string | undefined;
+    traceId?: string | undefined;
+  };
+  /** Fired after an explicitly authorized memory deletion has completed. */
+  'memory.deleted': {
+    memoryId: string;
+    reason: string;
+    persistence: string;
+    removedEdges: number;
+    contextPolicy: 'never' | 'eligible';
     sessionId?: string | undefined;
     traceId?: string | undefined;
   };
@@ -119,6 +137,68 @@ export interface MemoryEventMap {
     sessionId?: string | undefined;
     traceId?: string | undefined;
   };
+  /**
+   * One bounded, UI-facing decision trace for each on-demand Memory Injector
+   * run. This is deliberately richer than `memory.injected`: it is also
+   * emitted when nothing is injected, so operators can see what entered the
+   * model context and what was rejected by score, visibility, cooldown, or
+   * the current context budget.
+   */
+  'memory.injector_run': {
+    runId: string;
+    at: string;
+    outcome: 'injected' | 'empty' | 'error';
+    trigger: string;
+    toolName: string;
+    queryPreview: string;
+    paths: string[];
+    taskSignals: string[];
+    contextPressure: number;
+    budget: { maxHints: number; maxChars: number };
+    candidates: number;
+    eligible: number;
+    rejected: {
+      duplicate: number;
+      belowScore: number;
+      alreadyVisible: number;
+      cooldown: number;
+      budget: number;
+    };
+    activated: Array<{
+      id: string;
+      kind: string;
+      text: string;
+      score: number;
+      relationStrength: number;
+      anchor?: string | undefined;
+      anchors: string[];
+      tags: string[];
+      activationReasons: string[];
+      importance: number;
+      confidence: number;
+      freshness: number;
+      persistence: string;
+    }>;
+    injected: Array<{
+      id: string;
+      kind: string;
+      text: string;
+      score: number;
+      relationStrength: number;
+      anchor?: string | undefined;
+      anchors: string[];
+      tags: string[];
+      activationReasons: string[];
+      importance: number;
+      confidence: number;
+      freshness: number;
+      persistence: string;
+    }>;
+    injectedChars: number;
+    error?: string | undefined;
+    sessionId?: string | undefined;
+    traceId?: string | undefined;
+  };
   'memory.used': {
     memoryIds: string[];
     source: string;
@@ -149,6 +229,15 @@ export interface MemoryEventMap {
     from: string;
     to: string;
     relation: string;
+    weight?: number | undefined;
+    evidence?: string[] | undefined;
+    sessionId?: string | undefined;
+    traceId?: string | undefined;
+  };
+  'memory.relationships_rebuilt': {
+    examined: number;
+    proposed: number;
+    added: number;
     sessionId?: string | undefined;
     traceId?: string | undefined;
   };

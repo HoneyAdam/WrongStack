@@ -24,11 +24,18 @@ import { useScrollPosition } from '@/hooks/useScrollPosition';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { cn } from '@/lib/utils';
 import { useConfigStore, useUIStore } from '@/stores';
-import type { SuperMemoryEntry, SuperMemoryStats, SuperMemoryStatus } from '@/types';
+import type {
+  SuperMemoryEntry,
+  SuperMemoryGraphEdge,
+  SuperMemoryStats,
+  SuperMemoryStatus,
+} from '@/types';
 import { MemoryDetail } from './MemoryDetail';
 import { MemoryDrawer } from './MemoryDrawer';
 import { MemoryEditor } from './MemoryEditor';
 import { MemoryFilters } from './MemoryFilters';
+import { MemoryInjectorTrace } from './MemoryInjectorTrace';
+import { MemoryLifecycleTrace } from './MemoryLifecycleTrace';
 import { MemoryList } from './MemoryList';
 import type { MemoryDraft } from './shared';
 import {
@@ -41,8 +48,16 @@ import {
 } from './shared';
 
 export function MemoryManager() {
-  const { client, listSuperMemoriesPage, rememberSuperMemory, updateSuperMemory, deleteSuperMemory,
-    recoverSuperMemory, resolveMemoryCandidate, backfillRecoverable } = useWebSocket();
+  const {
+    client,
+    listSuperMemoriesPage,
+    rememberSuperMemory,
+    updateSuperMemory,
+    deleteSuperMemory,
+    getSuperMemoryGraph,
+    recoverSuperMemory,
+    resolveMemoryCandidate,
+  } = useWebSocket();
   const wsConnected = useConfigStore((state) => state.wsConnected);
   const setCurrentView = useUIStore((state) => state.setCurrentView);
   const memoryListRef = useScrollPosition<HTMLDivElement>('memory');
@@ -55,6 +70,10 @@ export function MemoryManager() {
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [graphEdges, setGraphEdges] = useState<SuperMemoryGraphEdge[]>([]);
+  const [graphMemories, setGraphMemories] = useState<SuperMemoryEntry[]>([]);
+  const [graphError, setGraphError] = useState<string | null>(null);
+  const [graphLoading, setGraphLoading] = useState(false);
   const [editing, setEditing] = useState(false);
   const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState<MemoryDraft>(emptyDraft);
@@ -82,8 +101,8 @@ export function MemoryManager() {
   // memories without forcing the MemoryManager to know about file context.
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [currentFilePath, setCurrentFilePath] = useState<string | null>(null);
-  const [cursorLineStart, setCursorLineStart] = useState<number | undefined>(undefined);
-  const [cursorLineEnd, setCursorLineEnd] = useState<number | undefined>(undefined);
+  const [cursorLineStart, _setCursorLineStart] = useState<number | undefined>(undefined);
+  const [cursorLineEnd, _setCursorLineEnd] = useState<number | undefined>(undefined);
 
   const hasLoadedRef = useRef(false);
   const mountedRef = useRef(true);
@@ -107,86 +126,93 @@ export function MemoryManager() {
    * The "Deleted" tab requests `statuses: ['deleted']`; the default view lets
    * the backend exclude deleted memories entirely.
    */
-  const loadPage = useCallback((cursor: string | null) => {
-    const isAppend = cursor !== null;
-    const generation = ++listGenerationRef.current;
-    listCleanupRef.current?.();
-    setLoadError(null);
-    if (isAppend) {
-      setLoadingMore(true);
-    } else {
-      setRefreshing(true);
-      if (!hasLoadedRef.current) setInitialLoading(true);
-    }
-
-    let off = () => {};
-    let timeout: ReturnType<typeof setTimeout> | null = null;
-    let settled = false;
-    const cleanup = () => {
-      if (settled) return;
-      settled = true;
-      if (timeout !== null) clearTimeout(timeout);
-      off();
-      if (listCleanupRef.current === cleanup) listCleanupRef.current = null;
-    };
-
-    off = client.on('memory.super.listPage', (message) => {
-      if (generation !== listGenerationRef.current || !mountedRef.current) {
-        cleanup();
-        return;
-      }
-      cleanup();
-      if (message.payload.error) {
-        setLoadError(message.payload.error);
+  const loadPage = useCallback(
+    (cursor: string | null) => {
+      const isAppend = cursor !== null;
+      const generation = ++listGenerationRef.current;
+      listCleanupRef.current?.();
+      setLoadError(null);
+      if (isAppend) {
+        setLoadingMore(true);
       } else {
-        const page = message.payload.memories ?? [];
-        setMemories((current) => (isAppend ? [...current, ...page] : page));
-        setPageCursor(message.payload.nextCursor ?? null);
-        setHasMore(Boolean(message.payload.nextCursor));
-        const counts = message.payload.statusCounts ?? {};
-        setStatusCounts(counts);
-        // Derive the stats banner from the whole-store status counts so it stays
-        // accurate even though we only hold one page in memory.
-        const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
-        setStats((prev) => ({
-          total,
-          byStatus: counts,
-          byKind: prev?.byKind ?? {},
-          edges: prev?.edges ?? 0,
-        }));
-        hasLoadedRef.current = true;
-        if (!isAppend) {
-          setSelectedId((current) =>
-            current && page.some((memory) => memory.id === current) ? current : null,
-          );
-        }
+        setRefreshing(true);
+        if (!hasLoadedRef.current) setInitialLoading(true);
       }
-      setInitialLoading(false);
-      setRefreshing(false);
-      setLoadingMore(false);
-    });
 
-    timeout = setTimeout(() => {
-      if (generation !== listGenerationRef.current || !mountedRef.current) return;
-      cleanup();
-      setLoadError(
-        'The memory store did not respond. Check the WebSocket connection and try again.',
+      let off = () => {};
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+      let settled = false;
+      const cleanup = () => {
+        if (settled) return;
+        settled = true;
+        if (timeout !== null) clearTimeout(timeout);
+        off();
+        if (listCleanupRef.current === cleanup) listCleanupRef.current = null;
+      };
+
+      off = client.on('memory.super.listPage', (message) => {
+        if (generation !== listGenerationRef.current || !mountedRef.current) {
+          cleanup();
+          return;
+        }
+        cleanup();
+        if (message.payload.error) {
+          setLoadError(message.payload.error);
+        } else {
+          const page = message.payload.memories ?? [];
+          setMemories((current) => (isAppend ? [...current, ...page] : page));
+          setPageCursor(message.payload.nextCursor ?? null);
+          setHasMore(Boolean(message.payload.nextCursor));
+          const counts = message.payload.statusCounts ?? {};
+          setStatusCounts(counts);
+          // Derive the stats banner from the whole-store status counts so it stays
+          // accurate even though we only hold one page in memory.
+          const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
+          if (message.payload.stats) {
+            setStats(message.payload.stats);
+          } else {
+            setStats((prev) => ({
+              total,
+              byStatus: counts,
+              byKind: prev?.byKind ?? {},
+              edges: prev?.edges ?? 0,
+            }));
+          }
+          hasLoadedRef.current = true;
+          if (!isAppend) {
+            setSelectedId((current) =>
+              current && page.some((memory) => memory.id === current) ? current : null,
+            );
+          }
+        }
+        setInitialLoading(false);
+        setRefreshing(false);
+        setLoadingMore(false);
+      });
+
+      timeout = setTimeout(() => {
+        if (generation !== listGenerationRef.current || !mountedRef.current) return;
+        cleanup();
+        setLoadError(
+          'The memory store did not respond. Check the WebSocket connection and try again.',
+        );
+        setInitialLoading(false);
+        setRefreshing(false);
+        setLoadingMore(false);
+      }, 20_000);
+
+      listCleanupRef.current = cleanup;
+      listSuperMemoriesPage(
+        {
+          limit: PAGE_SIZE,
+          ...(showDeleted ? { statuses: ['deleted'] } : {}),
+          ...(cursor ? { cursor } : {}),
+        },
+        { echoToChat: false },
       );
-      setInitialLoading(false);
-      setRefreshing(false);
-      setLoadingMore(false);
-    }, 20_000);
-
-    listCleanupRef.current = cleanup;
-    listSuperMemoriesPage(
-      {
-        limit: PAGE_SIZE,
-        ...(showDeleted ? { statuses: ['deleted'] } : {}),
-        ...(cursor ? { cursor } : {}),
-      },
-      { echoToChat: false },
-    );
-  }, [client, listSuperMemoriesPage, showDeleted]);
+    },
+    [client, listSuperMemoriesPage, showDeleted],
+  );
 
   const loadMemories = useCallback(() => {
     setPageCursor(null);
@@ -210,6 +236,36 @@ export function MemoryManager() {
       mutationCleanupRef.current?.();
     };
   }, [loadMemories]);
+
+  useEffect(() => {
+    setGraphEdges([]);
+    setGraphMemories([]);
+    setGraphError(null);
+    if (!selectedId) {
+      setGraphLoading(false);
+      return;
+    }
+    const query = selectedId;
+    setGraphLoading(true);
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    const off = client.on('memory.super.graph', (message) => {
+      if (message.payload.query !== query) return;
+      if (timeout !== null) clearTimeout(timeout);
+      setGraphEdges(message.payload.edges ?? []);
+      setGraphMemories(message.payload.memories ?? []);
+      setGraphError(message.payload.error ?? null);
+      setGraphLoading(false);
+    });
+    timeout = setTimeout(() => {
+      setGraphError('Relationship graph did not respond in time.');
+      setGraphLoading(false);
+    }, 15_000);
+    getSuperMemoryGraph(query, { maxDepth: 1, limit: 120 }, { echoToChat: false });
+    return () => {
+      if (timeout !== null) clearTimeout(timeout);
+      off();
+    };
+  }, [client, getSuperMemoryGraph, selectedId]);
 
   const wasConnectedRef = useRef(wsConnected);
   useEffect(() => {
@@ -653,6 +709,9 @@ export function MemoryManager() {
         </div>
       </div>
 
+      <MemoryInjectorTrace />
+      <MemoryLifecycleTrace />
+
       {(() => {
         const scopedCount = memories.filter((m) => m.audience).length;
         if (scopedCount === 0) return null;
@@ -747,11 +806,7 @@ export function MemoryManager() {
                 disabled={!currentFilePath}
                 className="h-7 gap-1 px-2 text-[11px]"
                 aria-pressed={drawerActive}
-                title={
-                  drawerActive
-                    ? 'Hide file memory drawer'
-                    : 'Show file memory drawer'
-                }
+                title={drawerActive ? 'Hide file memory drawer' : 'Show file memory drawer'}
               >
                 {drawerActive ? (
                   <PanelRightOpen className="size-3" />
@@ -782,7 +837,9 @@ export function MemoryManager() {
               }}
               className={cn(
                 'h-7 rounded-b-none border-b-2 px-3 text-[11px]',
-                !showDeleted ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground',
+                !showDeleted
+                  ? 'border-primary text-foreground'
+                  : 'border-transparent text-muted-foreground',
               )}
             >
               Active
@@ -799,10 +856,13 @@ export function MemoryManager() {
               }}
               className={cn(
                 'h-7 rounded-b-none border-b-2 px-3 text-[11px]',
-                showDeleted ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground',
+                showDeleted
+                  ? 'border-primary text-foreground'
+                  : 'border-transparent text-muted-foreground',
               )}
             >
-              Deleted{typeof statusCounts['deleted'] === 'number' ? ` (${statusCounts['deleted']})` : ''}
+              Deleted
+              {typeof statusCounts['deleted'] === 'number' ? ` (${statusCounts['deleted']})` : ''}
             </Button>
           </div>
 
@@ -894,7 +954,9 @@ export function MemoryManager() {
                   // The server emits memory.deleted in response; refetch to
                   // pick up the new state. Fallback timeout ensures the UI
                   // doesn't hang if the server is slow.
-                  setTimeout(() => { void loadMemories(); }, 500);
+                  setTimeout(() => {
+                    void loadMemories();
+                  }, 500);
                 }}
                 onKeep={async (candidateId, memoryId) => {
                   // PR #1: reject candidate → server keeps the memory and
@@ -929,14 +991,19 @@ export function MemoryManager() {
                   // restored entry (or `noop: true` if it was already active).
                   recoverSuperMemory({ id: memoryId, reason: 'recovered via file drawer' });
                   setNotice(`Recovered ${memoryId.slice(0, 12)}…`);
-                  setTimeout(() => { void loadMemories(); }, 500);
+                  setTimeout(() => {
+                    void loadMemories();
+                  }, 500);
                 }}
               />
             ) : (
               <MemoryDetail
                 memory={selectedMemory}
-                allMemories={memories}
+                allMemories={[...memories, ...graphMemories]}
                 relatedMemories={relatedMemories}
+                graphEdges={graphEdges}
+                graphLoading={graphLoading}
+                graphError={graphError}
                 onClose={() => setSelectedId(null)}
                 onOpenMemory={openMemory}
                 onEdit={openEdit}

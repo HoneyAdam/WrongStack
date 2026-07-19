@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Task-aware Memory Injector** — on-demand retrieval now combines concrete
+  tool paths/queries with live todo and Kanban state, expands direct seeds via
+  graph and structural anchors, prefers long-lived project knowledge, and
+  records pressure/budget/candidate/injection measurements. Every run now emits
+  a bounded decision trace: the TUI renders activation/injection cards and the
+  WebUI keeps the latest 50 runs as inspectable widgets with tag/anchor match
+  reasons, confidence, freshness, importance, persistence, score, rejection
+  reason, and character budget details. Activation (selected) and injection
+  (actually written into context) are tracked separately. The trace stays outside model context. The normal
+  budget rises to 8 diverse hints / 2800 characters and contracts near context limits.
+- **Super Memory is on-demand by default** — ordinary turns no longer receive
+  memory automatically; bounded, relevant active hints are attached only after
+  matching file, search, edit, or shell tool calls. Deleted tombstones never
+  enter model context, while stale hints are limited to mutation warnings.
+- **Gateway-specific context limits are learned after overflow** — when a route
+  rejects a request below the model catalog's advertised window, the session
+  adopts the observed effective ceiling for subsequent context reporting and
+  compaction instead of continuing to use the inflated catalog denominator.
+- **Selective compaction keeps a refined working set** — selector previews span
+  old constraints and the current tail, recent working pairs are protected in
+  code, and collapsed tool exchanges retain bounded file/error evidence without
+  carrying their raw payloads forward. Rewrites remain threshold-driven to
+  preserve prompt-cache stability between compactions.
+
 ## [0.291.1] — 2026-07-19
 
 > The **explainable permissions and runtime hardening release**. Permission

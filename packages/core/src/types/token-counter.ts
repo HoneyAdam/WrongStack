@@ -7,6 +7,13 @@ export interface CacheStats {
   writeTokens: number;
   /** Hit ratio: cacheRead / (cacheRead + input). 0 when nothing cached. */
   hitRatio: number;
+  /**
+   * USD saved by cache reads: cacheRead tokens billed at the cache-read rate
+   * instead of the full input rate, summed across the session. 0 when pricing
+   * is unknown or nothing was cached. Cache-write premiums are NOT subtracted —
+   * this is the gross read discount, the figure users recognize as "saved".
+   */
+  savedUsd: number;
 }
 
 export interface TokenCounter {

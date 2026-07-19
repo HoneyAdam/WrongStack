@@ -347,7 +347,8 @@ are omitted instead of being sent to the provider.
       "preserve": false
     },
     "cache": {
-      "ttl": "1h"            // 5m | 1h
+      "ttl": "1h",           // 5m | 1h — Anthropic explicit-cache TTL
+      "geminiExplicit": false // opt-in Gemini server-side cachedContents (see below)
     },
     "parameters": {
       "topK": 40,
@@ -368,6 +369,26 @@ safe disable support.
 The TUI `/settings` picker and WebUI Settings panel expose the top-level
 reasoning and cache controls. Use `modelMatrix[*].modelRuntime` for
 role-specific subagent overrides.
+
+### Prompt caching across providers
+
+Caching is provider-agnostic. Each request carries a stable cache-partition key
+derived from the frozen system-prompt prefix, which each wire maps to its own
+mechanism:
+
+- **Anthropic** (`cacheControl: native`) — explicit `cache_control` breakpoints
+  (capped at Anthropic's 4-breakpoint limit) with the `cache.ttl` above.
+- **OpenAI / GitHub Copilot** (`cacheControl: auto`) — the key is sent as
+  `prompt_cache_key` so automatic prompt caching hits on load-balanced backends.
+- **DeepSeek** — automatic server-side caching needs no client key; nothing to set.
+- **Google Gemini** — *implicit* caching works automatically on a byte-stable
+  prefix (no setup). Set `cache.geminiExplicit: true` to also create a
+  server-side `cachedContents` resource for the system instruction + tool defs
+  and reference it by name each turn (bigger savings on large stable prefixes).
+  It is best-effort: any failure falls back to a normal inline request, so
+  enabling it can never break a call.
+
+Real cache-hit ratio (read/write tokens) is shown in `/context`.
 
 ---
 
@@ -1053,7 +1074,34 @@ Add `engine: "sqlite"` to the `superMemory.storage` section:
 
 ### Retrieval tuning
 
-The turn-context middleware blends two scoring signals to decide which memories to inject:
+By default, Super Memory waits for a relevant tool call and appends a bounded
+hint block to that tool result. It does not add memory to every ordinary turn.
+The task-aware Memory Injector enriches retrieval with live todo/Kanban state,
+expands direct matches through file/symbol/package/command relationships, and
+measures current context pressure before choosing its budget. Defaults are up
+to 8 diverse hints / 2800 characters at normal pressure, shrinking safely near
+the context ceiling. Set `superMemory.inject.taskAware: false` to use only the
+concrete tool path/query.
+Turn-level system-context injection is an explicit opt-in (default **off** in both
+the CLI and WebUI). It appends a query-dependent block to the system prompt every
+turn, which moves the provider's cache breakpoint and defeats prefix caching — so
+the default retrieval path is the contextual tool-result injection plus the
+on-demand `memory_*` tools, and turn-context is enabled only when you ask for it:
+
+```jsonc
+{
+  "superMemory": {
+    "inject": {
+      "turnContext": true
+    }
+  }
+}
+```
+
+Deleted records are retained as audit/recovery tombstones but are never eligible
+for automatic model context.
+
+When turn-context injection is enabled, its middleware blends two scoring signals to decide which active memories to inject:
 
 - **Metadata score** — weighted average of importance (×3), confidence (×2), and freshness (×1), always in [0, 1].
 - **Relevance score** — overlap coefficient (Szymkiewicz–Simpson) between query tokens and memory text tokens, in [0, 1].

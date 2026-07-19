@@ -102,6 +102,26 @@ describe('recovery strategies', () => {
     expect(compactor.compact).toHaveBeenCalled();
   });
 
+  it('learns a smaller session-local ceiling from a provider overflow', async () => {
+    const compactor: Compactor = {
+      compact: vi.fn(async () => ({ before: 647_000, after: 500_000, reductions: [] })),
+    } as never as Compactor;
+    const ctx = makeCtx({
+      lastRequestTokens: 647_000,
+      meta: {},
+      provider: {
+        id: 'gateway',
+        capabilities: { maxContext: 1_000_000 },
+      } as never,
+    });
+    const eh = new DefaultErrorHandler(buildRecoveryStrategies({ compactor }));
+
+    await eh.recover(provErr('context window exceeded', 400), ctx);
+
+    expect(ctx.meta['effectiveMaxContext']).toBe(655_192);
+    expect(ctx.meta['effectiveMaxContextSource']).toBe('provider_overflow');
+  });
+
   it('context_overflow returns null when compactor failed to shrink anything', async () => {
     const compactor: Compactor = {
       compact: vi.fn(async () => ({

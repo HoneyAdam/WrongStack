@@ -1,8 +1,9 @@
 import * as path from 'node:path';
 import type { Middleware } from '@wrongstack/core/kernel';
-import type { ToolCallPipelinePayload } from '@wrongstack/core';
+import type { EventBus, ToolCallPipelinePayload } from '@wrongstack/core';
 import { formatMemoryHintsDetailed } from '../retrieval/format.js';
 import { normalizeTextKey } from './turn-memory.js';
+import { MemoryInjectorAgent } from './memory-injector-agent.js';
 import type { SuperMemory } from '../types.js';
 import type { InjectionTracker } from './injection-tracker.js';
 
@@ -14,6 +15,8 @@ export interface SuperMemoryToolCallMiddlewareOptions {
   minScore?: number | undefined;
   repeatCooldownMs?: number | undefined;
   verifyOnMutation?: boolean | undefined;
+  /** Enrich retrieval with live todo/Kanban task state. Default: true. */
+  taskAware?: boolean | undefined;
   triggers?: Partial<Record<MemoryToolTrigger, boolean>> | undefined;
   /**
    * Shared registry of recently injected memories, used by the turn
@@ -22,6 +25,8 @@ export interface SuperMemoryToolCallMiddlewareOptions {
    * middleware could never match, silently dropping use signals.
    */
   tracker?: InjectionTracker | undefined;
+  /** Shared application bus used by TUI/WebUI observability. */
+  events?: EventBus | undefined;
 }
 
 export interface SuperMemoryRetrieverLike {
@@ -33,6 +38,12 @@ export interface SuperMemoryRetrieverLike {
     includeAudienceScoped?: boolean;
   }): Promise<SuperMemory[]>;
   searchSuper(query: string, opts?: { limit?: number; includeAudienceScoped?: boolean }): Promise<SuperMemory[]>;
+  findRelatedSuper?(memoryIds: string[], opts?: {
+    limit?: number;
+    maxDepth?: number;
+    includeStatuses?: SuperMemory['status'][];
+    includeAudienceScoped?: boolean;
+  }): Promise<SuperMemory[]>;
   verifyForPaths?(paths: string[], signal?: AbortSignal): Promise<unknown>;
   recordInjection?(memoryIds: string[], trigger: string, sessionId?: string): void | Promise<void>;
   recordUse?(memoryIds: string[], source: string, sessionId?: string): void | Promise<void>;
@@ -60,26 +71,38 @@ interface ExtractedTriggerContext {
   queryText: string;
 }
 
-const DEFAULT_MAX_HINTS = 4;
-const DEFAULT_MAX_CHARS = 1200;
+interface RetrievedMemory {
+  memory: SuperMemory;
+  /** 0..1 strength of the concrete tool/path/query/graph relationship. */
+  relationStrength: number;
+  /** Human-readable retrieval paths retained for activation observability. */
+  retrievalReasons: string[];
+}
+
+const DEFAULT_MAX_HINTS = 8;
+const DEFAULT_MAX_CHARS = 2800;
 const DEFAULT_REPEAT_COOLDOWN_MS = 30 * 60_000;
 
 export function createSuperMemoryToolCallMiddleware(
   opts: SuperMemoryToolCallMiddlewareOptions,
 ): Middleware<ToolCallPipelinePayload> {
   const seen = new Map<string, number>();
+  const injector = new MemoryInjectorAgent();
   return {
     name: 'super-memory.tool-result-injection',
     owner: 'super-memory',
     async handler(payload, next) {
       const nextPayload = await next(payload);
       if (opts.enabled === false) return nextPayload;
+      let attemptedTrigger: ExtractedTriggerContext | undefined;
+      let attemptedPlan: ReturnType<MemoryInjectorAgent['plan']> | undefined;
       try {
         if (nextPayload.result.is_error && nextPayload.toolUse.name !== 'bash') return nextPayload;
 
         const trigger = extractTrigger(nextPayload.toolUse.name, nextPayload.toolUse.input);
         if (!trigger) return nextPayload;
         if (opts.triggers?.[trigger.trigger] === false) return nextPayload;
+        attemptedTrigger = trigger;
         trigger.paths = resolveTriggerPaths(
           [...trigger.paths, ...extractResultPaths(nextPayload.result.content)],
           nextPayload.ctx,
@@ -98,12 +121,28 @@ export function createSuperMemoryToolCallMiddleware(
           trigger.queryText = `${trigger.queryText} ${nextPayload.result.content.slice(-2_000)}`;
         }
 
-        const memories = await retrieveTriggeredMemories(opts.memory, trigger, opts.maxHintsPerTool ?? DEFAULT_MAX_HINTS);
+        const plan = injector.plan({
+          ctx: nextPayload.ctx,
+          trigger: trigger.trigger,
+          toolQuery: trigger.queryText,
+          baseMaxHints: opts.maxHintsPerTool ?? DEFAULT_MAX_HINTS,
+          baseMaxChars: opts.maxCharsPerTool ?? DEFAULT_MAX_CHARS,
+          taskAware: opts.taskAware,
+        });
+        attemptedPlan = plan;
+        trigger.queryText = plan.queryText;
+        const maxHints = plan.maxHints;
+        const memories = await retrieveTriggeredMemories(opts.memory, trigger, maxHints);
         const minScore = opts.minScore ?? 0.65;
         const alreadyVisible = visibleContextText(nextPayload);
-        const eligible = dedupeByText(memories).filter((memory) =>
-          (normalizedInjectionScore(memory) >= minScore || memory.importance >= 0.95)
-          && !containsMemoryText(alreadyVisible, memory.text));
+        const deduped = dedupeRetrievedByText(memories);
+        const scoreEligible = deduped.filter(({ memory, relationStrength }) =>
+          contextualInjectionScore(memory, relationStrength) >= minScore || memory.importance >= 0.95);
+        const eligibleItems = scoreEligible
+          .filter(({ memory }) => !containsMemoryText(alreadyVisible, memory.text))
+          .sort((a, b) => contextualInjectionScore(b.memory, b.relationStrength)
+            - contextualInjectionScore(a.memory, a.relationStrength));
+        const eligible = eligibleItems.map((item) => item.memory);
         const sessionId = (nextPayload.ctx.session as { id?: string } | undefined)?.id;
         const fresh = applyCooldown(
           eligible,
@@ -111,16 +150,72 @@ export function createSuperMemoryToolCallMiddleware(
           opts.repeatCooldownMs ?? DEFAULT_REPEAT_COOLDOWN_MS,
           sessionId,
         );
-        if (fresh.length === 0) return nextPayload;
+        const rejectedBase = {
+          duplicate: memories.length - deduped.length,
+          belowScore: deduped.length - scoreEligible.length,
+          alreadyVisible: scoreEligible.length - eligible.length,
+          cooldown: eligible.length - fresh.length,
+          budget: 0,
+        };
+        if (fresh.length === 0) {
+          const measurement = {
+            candidates: memories.length,
+            eligible: eligible.length,
+            injected: 0,
+            injectedChars: 0,
+          };
+          injector.record(nextPayload.ctx, plan, measurement);
+          emitInjectorTrace(opts.events, {
+            nextPayload,
+            trigger,
+            plan,
+            outcome: 'empty',
+            candidates: memories.length,
+            eligible: eligible.length,
+            rejected: rejectedBase,
+            activated: [],
+            injected: [],
+            injectedChars: 0,
+          });
+          return nextPayload;
+        }
 
         const maxChars = availableHintChars(
           nextPayload,
-          opts.maxCharsPerTool ?? DEFAULT_MAX_CHARS,
+          plan.maxChars,
         );
-        const rendered = formatMemoryHintsDetailed(fresh.slice(0, opts.maxHintsPerTool ?? DEFAULT_MAX_HINTS), {
+        const selected = selectDiverseMemories(fresh, maxHints);
+        const rendered = formatMemoryHintsDetailed(selected, {
           maxChars,
+          heading: plan.taskSignals.length > 0
+            ? 'Super Memory: task-aware project knowledge (Memory Injector)'
+            : 'Super Memory: related project knowledge (Memory Injector)',
         });
-        if (!rendered.text || rendered.memoryIds.length === 0) return nextPayload;
+        if (!rendered.text || rendered.memoryIds.length === 0) {
+          const measurement = {
+            candidates: memories.length,
+            eligible: eligible.length,
+            injected: 0,
+            injectedChars: 0,
+          };
+          injector.record(nextPayload.ctx, plan, measurement);
+          emitInjectorTrace(opts.events, {
+            nextPayload,
+            trigger,
+            plan,
+            outcome: 'empty',
+            candidates: memories.length,
+            eligible: eligible.length,
+            rejected: { ...rejectedBase, budget: fresh.length },
+            activated: selected.map((memory) => {
+              const item = eligibleItems.find((candidate) => candidate.memory.id === memory.id);
+              return item ? toTraceMemory(item, plan) : undefined;
+            }).filter((item): item is InjectorTraceMemory => item !== undefined),
+            injected: [],
+            injectedChars: 0,
+          });
+          return nextPayload;
+        }
 
         const content = `${nextPayload.result.content.replace(/\s+$/, '')}\n\n${rendered.text}`;
         nextPayload.result.content = content;
@@ -132,19 +227,81 @@ export function createSuperMemoryToolCallMiddleware(
         for (const memoryId of rendered.memoryIds) seen.set(cooldownKey(memoryId, sessionId), now);
         pruneCooldowns(seen, now, opts.repeatCooldownMs ?? DEFAULT_REPEAT_COOLDOWN_MS);
         if (opts.tracker) {
-          const injectedById = new Map(fresh.map((memory) => [memory.id, memory]));
+          const injectedById = new Map(selected.map((memory) => [memory.id, memory]));
           for (const memoryId of rendered.memoryIds) {
             const memory = injectedById.get(memoryId);
             if (memory) opts.tracker.record(memoryId, memory.text, now);
           }
         }
-        await opts.memory.recordInjection?.(
-          rendered.memoryIds,
-          trigger.trigger,
-          sessionId,
+        let auditError: string | undefined;
+        try {
+          await opts.memory.recordInjection?.(
+            rendered.memoryIds,
+            trigger.trigger,
+            sessionId,
+          );
+        } catch (error) {
+          // The context mutation already happened. Preserve an accurate UI
+          // trace even if persisting the secondary injection audit failed.
+          auditError = error instanceof Error ? error.message : String(error);
+        }
+        const measurement = {
+          candidates: memories.length,
+          eligible: eligible.length,
+          injected: rendered.memoryIds.length,
+          injectedChars: rendered.text.length,
+        };
+        injector.record(nextPayload.ctx, plan, measurement);
+        const selectedById = new Map(
+          eligibleItems.map((item) => [item.memory.id, item]),
         );
+        emitInjectorTrace(opts.events, {
+          nextPayload,
+          trigger,
+          plan,
+          outcome: 'injected',
+          candidates: memories.length,
+          eligible: eligible.length,
+          rejected: {
+            ...rejectedBase,
+            budget: Math.max(0, fresh.length - rendered.memoryIds.length),
+          },
+          activated: selected.flatMap((memory) => {
+            const item = selectedById.get(memory.id);
+            return item ? [toTraceMemory(item, plan)] : [];
+          }),
+          injected: rendered.memoryIds.flatMap((id) => {
+            const item = selectedById.get(id);
+            return item ? [toTraceMemory(item, plan)] : [];
+          }),
+          injectedChars: rendered.text.length,
+          error: auditError,
+        });
         return nextPayload;
-      } catch {
+      } catch (error) {
+        if (attemptedTrigger) {
+          const fallbackPlan = attemptedPlan ?? injector.plan({
+            ctx: nextPayload.ctx,
+            trigger: attemptedTrigger.trigger,
+            toolQuery: attemptedTrigger.queryText,
+            baseMaxHints: opts.maxHintsPerTool ?? DEFAULT_MAX_HINTS,
+            baseMaxChars: opts.maxCharsPerTool ?? DEFAULT_MAX_CHARS,
+            taskAware: opts.taskAware,
+          });
+          emitInjectorTrace(opts.events, {
+            nextPayload,
+            trigger: attemptedTrigger,
+            plan: fallbackPlan,
+            outcome: 'error',
+            candidates: 0,
+            eligible: 0,
+            rejected: { duplicate: 0, belowScore: 0, alreadyVisible: 0, cooldown: 0, budget: 0 },
+            activated: [],
+            injected: [],
+            injectedChars: 0,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
         // Memory is advisory. Storage/retrieval failure must never turn a
         // successful filesystem or command tool call into an agent failure.
         return nextPayload;
@@ -153,39 +310,197 @@ export function createSuperMemoryToolCallMiddleware(
   };
 }
 
+interface InjectorTraceMemory {
+  id: string;
+  kind: string;
+  text: string;
+  score: number;
+  relationStrength: number;
+  anchor?: string | undefined;
+  anchors: string[];
+  tags: string[];
+  activationReasons: string[];
+  importance: number;
+  confidence: number;
+  freshness: number;
+  persistence: string;
+}
+
+interface InjectorTraceInput {
+  nextPayload: ToolCallPipelinePayload;
+  trigger: ExtractedTriggerContext;
+  plan: ReturnType<MemoryInjectorAgent['plan']>;
+  outcome: 'injected' | 'empty' | 'error';
+  candidates: number;
+  eligible: number;
+  rejected: {
+    duplicate: number;
+    belowScore: number;
+    alreadyVisible: number;
+    cooldown: number;
+    budget: number;
+  };
+  activated: InjectorTraceMemory[];
+  injected: InjectorTraceMemory[];
+  injectedChars: number;
+  error?: string | undefined;
+}
+
+let injectorTraceSequence = 0;
+
+function emitInjectorTrace(events: EventBus | undefined, input: InjectorTraceInput): void {
+  if (!events) return;
+  const sessionId = (input.nextPayload.ctx.session as { id?: string } | undefined)?.id;
+  // Super Memory is compiled against the published core declaration surface,
+  // which may lag the workspace's newly-added typed event by one build. Keep
+  // the runtime EventBus path (named + wildcard subscribers) while allowing
+  // independent package typechecks during that build boundary.
+  const emit = events.emit as unknown as (event: string, payload: unknown) => void;
+  emit.call(events, 'memory.injector_run', {
+    runId: `meminj_${Date.now()}_${++injectorTraceSequence}`,
+    at: new Date().toISOString(),
+    outcome: input.outcome,
+    trigger: input.trigger.trigger,
+    toolName: input.nextPayload.toolUse.name,
+    queryPreview: boundedText(input.plan.queryText, 240),
+    paths: input.trigger.paths.slice(0, 8),
+    taskSignals: input.plan.taskSignals.slice(0, 6).map((signal) => boundedText(signal, 160)),
+    contextPressure: Number(input.plan.contextPressure.toFixed(3)),
+    budget: { maxHints: input.plan.maxHints, maxChars: input.plan.maxChars },
+    candidates: input.candidates,
+    eligible: input.eligible,
+    rejected: input.rejected,
+    activated: input.activated,
+    injected: input.injected,
+    injectedChars: input.injectedChars,
+    error: input.error ? boundedText(input.error, 300) : undefined,
+    sessionId,
+  });
+}
+
+function toTraceMemory(
+  item: RetrievedMemory,
+  plan: ReturnType<MemoryInjectorAgent['plan']>,
+): InjectorTraceMemory {
+  const anchor = item.memory.anchors[0];
+  const query = plan.queryText.toLowerCase();
+  const taskText = plan.taskSignals.join(' ').toLowerCase();
+  const matchedTags = item.memory.tags.filter((tag) => query.includes(tag.toLowerCase())).slice(0, 6);
+  const taskTags = item.memory.tags.filter((tag) => taskText.includes(tag.toLowerCase())).slice(0, 4);
+  const activationReasons = [
+    ...item.retrievalReasons,
+    ...matchedTags.map((tag) => `tag:#${tag}`),
+    ...taskTags.map((tag) => `task:#${tag}`),
+  ];
+  return {
+    id: item.memory.id,
+    kind: item.memory.kind,
+    text: boundedText(item.memory.text, 180),
+    score: Number(contextualInjectionScore(item.memory, item.relationStrength).toFixed(3)),
+    relationStrength: Number(item.relationStrength.toFixed(3)),
+    anchor: anchor ? formatTraceAnchor(anchor) : undefined,
+    anchors: item.memory.anchors.slice(0, 5).map(formatTraceAnchor),
+    tags: item.memory.tags.slice(0, 8),
+    activationReasons: [...new Set(activationReasons)].slice(0, 8).map((reason) => boundedText(reason, 140)),
+    importance: Number(item.memory.importance.toFixed(3)),
+    confidence: Number(item.memory.confidence.toFixed(3)),
+    freshness: Number(item.memory.freshness.toFixed(3)),
+    persistence: item.memory.persistence ?? 'long_lived',
+  };
+}
+
+function formatTraceAnchor(anchor: SuperMemory['anchors'][number]): string {
+  if (anchor.symbol) return `${anchor.type}:${anchor.symbol}`;
+  if (anchor.path) return `${anchor.type}:${anchor.path}`;
+  if (anchor.command) return `${anchor.type}:${boundedText(anchor.command, 100)}`;
+  return anchor.type;
+}
+
+function boundedText(value: string, maxChars: number): string {
+  const text = value.replace(/\s+/g, ' ').trim();
+  return text.length > maxChars ? `${text.slice(0, Math.max(0, maxChars - 1))}…` : text;
+}
+
 async function retrieveTriggeredMemories(
   memory: SuperMemoryRetrieverLike,
   trigger: ExtractedTriggerContext,
   limit: number,
-): Promise<SuperMemory[]> {
+): Promise<RetrievedMemory[]> {
   // Path lookups and the lexical query lookup are independent reads — run
   // them concurrently instead of serially awaiting each path in turn.
   // Promise.all preserves the previous failure mode: any rejection rejects
   // the whole retrieve, which the handler's outer try/catch turns into
   // "no injection" (memory is advisory).
-  const pending: Array<Promise<SuperMemory[]>> = trigger.paths.map((p) =>
+  const candidateLimit = Math.max(limit * 2, limit);
+  const pending: Array<Promise<RetrievedMemory[]>> = trigger.paths.map((p) =>
     memory.retrieveForPath({
       path: p,
-      limit,
+      limit: candidateLimit,
       includeAncestors: true,
-      includeStatuses: isMutationTrigger(trigger.trigger) ? ['active', 'stale', 'deleted'] : ['active', 'deleted'],
+      // Stale records may warn immediately after a mutation/verification pass,
+      // but deleted records are tombstones and never belong in model context.
+      includeStatuses: isMutationTrigger(trigger.trigger) ? ['active', 'stale'] : ['active'],
       includeAudienceScoped: false,
-    }),
+    }).then((matches) => matches.map((item) => ({
+      memory: item,
+      relationStrength: 0.95,
+      retrievalReasons: ['anchor:path-match'],
+    }))),
   );
   if (trigger.queryText.trim()) {
     pending.push(memory.searchSuper(trigger.queryText, {
-      limit,
+      limit: candidateLimit,
       includeAudienceScoped: false,
-    }));
+    }).then((matches) => matches.map((item) => ({
+      memory: item,
+      relationStrength: 0.82,
+      retrievalReasons: ['query:tool+task'],
+    }))));
   }
-  const byId = new Map<string, SuperMemory>();
+  const byId = new Map<string, RetrievedMemory>();
   for (const matches of await Promise.all(pending)) {
-    for (const item of matches) byId.set(item.id, item);
+    for (const item of matches) {
+      const existing = byId.get(item.memory.id);
+      if (!existing) {
+        byId.set(item.memory.id, item);
+      } else {
+        byId.set(item.memory.id, {
+          memory: item.relationStrength > existing.relationStrength ? item.memory : existing.memory,
+          relationStrength: Math.max(item.relationStrength, existing.relationStrength),
+          retrievalReasons: [...new Set([...existing.retrievalReasons, ...item.retrievalReasons])],
+        });
+      }
+    }
+  }
+
+  // Expand only from concrete direct seeds. Graph traversal is bounded to
+  // three hops, enough for memory→symbol/file→package/directory→memory while
+  // avoiding a walk across the entire project graph.
+  if (memory.findRelatedSuper && byId.size > 0) {
+    const related = await memory.findRelatedSuper([...byId.keys()], {
+      limit: candidateLimit,
+      maxDepth: 3,
+      includeStatuses: isMutationTrigger(trigger.trigger) ? ['active', 'stale'] : ['active'],
+      includeAudienceScoped: false,
+    });
+    for (const item of related) {
+      if (!byId.has(item.id)) {
+        byId.set(item.id, {
+          memory: item,
+          relationStrength: 0.7,
+          retrievalReasons: ['graph:related-memory'],
+        });
+      }
+    }
   }
 
   return [...byId.values()]
-    .filter((item) => (item.status === 'active' || item.status === 'stale' || item.status === 'deleted') && item.contextPolicy !== 'never')
-    .sort((a, b) => scoreForInjection(b) - scoreForInjection(a));
+    .filter(({ memory: item }) =>
+      (item.status === 'active' || item.status === 'stale')
+      && item.contextPolicy !== 'never'
+      && item.kind !== 'memory_review')
+    .sort((a, b) => contextualInjectionScore(b.memory, b.relationStrength)
+      - contextualInjectionScore(a.memory, a.relationStrength));
 }
 
 function applyCooldown(
@@ -221,6 +536,27 @@ function scoreForInjection(memory: SuperMemory): number {
 
 function normalizedInjectionScore(memory: SuperMemory): number {
   return scoreForInjection(memory) / 6;
+}
+
+function contextualInjectionScore(memory: SuperMemory, relationStrength: number): number {
+  const metadata = normalizedInjectionScore(memory);
+  const persistence = memory.persistence ?? 'long_lived';
+  const persistenceBoost = persistence === 'permanent' ? 0.08 : persistence === 'long_lived' ? 0.04 : -0.08;
+  const durableKindBoost = durableMemoryKind(memory.kind) ? 0.04 : 0;
+  return Math.max(0, Math.min(1, metadata * 0.52 + relationStrength * 0.48 + persistenceBoost + durableKindBoost));
+}
+
+function durableMemoryKind(kind: SuperMemory['kind']): boolean {
+  return kind === 'fact'
+    || kind === 'decision'
+    || kind === 'convention'
+    || kind === 'warning'
+    || kind === 'anti_pattern'
+    || kind === 'workflow'
+    || kind === 'bug_root_cause'
+    || kind === 'file_note'
+    || kind === 'symbol_note'
+    || kind === 'command_note';
 }
 
 function isMutationTrigger(trigger: MemoryToolTrigger): boolean {
@@ -393,14 +729,40 @@ function containsMemoryText(haystack: string, memoryText: string): boolean {
   return haystack.includes(memoryText.toLowerCase());
 }
 
-function dedupeByText(memories: SuperMemory[]): SuperMemory[] {
+function dedupeRetrievedByText(memories: RetrievedMemory[]): RetrievedMemory[] {
   const seen = new Set<string>();
-  return memories.filter((memory) => {
+  return memories.filter(({ memory }) => {
     const key = normalizeTextKey(memory.text);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
+}
+
+/**
+ * Avoid spending the whole hint budget on one dense category (for example
+ * eight file_notes). First take at most three of each kind, then use any spare
+ * capacity for the remaining highest-ranked records.
+ */
+function selectDiverseMemories(memories: SuperMemory[], limit: number): SuperMemory[] {
+  const selected: SuperMemory[] = [];
+  const deferred: SuperMemory[] = [];
+  const byKind = new Map<SuperMemory['kind'], number>();
+  for (const memory of memories) {
+    const count = byKind.get(memory.kind) ?? 0;
+    if (count >= 3) {
+      deferred.push(memory);
+      continue;
+    }
+    selected.push(memory);
+    byKind.set(memory.kind, count + 1);
+    if (selected.length >= limit) return selected;
+  }
+  for (const memory of deferred) {
+    selected.push(memory);
+    if (selected.length >= limit) break;
+  }
+  return selected;
 }
 
 function availableHintChars(payload: ToolCallPipelinePayload, configured: number): number {

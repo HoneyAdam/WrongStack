@@ -62,6 +62,10 @@ export function createSuperMemoryTurnMiddleware(
             .join('\n');
           const seenText = new Set<string>();
           const eligible = memories.filter((memory) => {
+            // Treat the retriever as an untrusted boundary: even an alternate
+            // backend or test double must not put lifecycle history into the
+            // ordinary system prompt.
+            if (memory.status !== 'active' || memory.contextPolicy === 'never') return false;
             const textKey = normalizeTextKey(memory.text);
             if (seenText.has(textKey) || existingSystem.includes(textKey)) return false;
             const metadataScore = (memory.importance * 3 + memory.confidence * 2 + memory.freshness) / 6;

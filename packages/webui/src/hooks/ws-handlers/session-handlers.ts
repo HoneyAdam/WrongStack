@@ -415,7 +415,7 @@ export function handleContextCompacted(msg: WSServerMessage) {
   if (payload.repaired)
     summary += `; repaired ${payload.repaired.removedToolUses?.length ?? 0} tool_use, ${payload.repaired.removedToolResults?.length ?? 0} tool_result, ${payload.repaired.removedMessages} empty messages`;
   useChatStore.getState().addMessage({
-    role: 'assistant',
+    role: 'system',
     content: `🗜️ Context compacted: ${payload.before} → ${payload.after} tokens (saved ~${payload.saved}). ${summary}`,
   });
   useSessionStore.setState({ lastInputTokens: payload.after });

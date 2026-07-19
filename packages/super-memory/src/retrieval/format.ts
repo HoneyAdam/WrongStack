@@ -30,13 +30,20 @@ export function formatMemoryHintsDetailed(
   const memoryIds: string[] = [];
 
   for (const memory of memories) {
+    const persistence = memory.persistence ?? 'long_lived';
     const labels = [
       memory.kind,
+      persistence === 'permanent' ? 'permanent' : undefined,
       memory.importance >= 0.9 ? 'critical' : memory.importance >= 0.75 ? 'high' : undefined,
       memory.status !== 'active' ? memory.status : undefined,
     ].filter(Boolean);
     const anchor = formatPrimaryAnchor(memory);
-    const suffix = anchor ? ` (${anchor})` : '';
+    const tags = memory.tags.slice(0, 3);
+    const metadata = [
+      anchor ? `relation=${formatPrimaryRelation(memory)}` : undefined,
+      tags.length > 0 ? `tags=${tags.join(',')}` : undefined,
+    ].filter(Boolean);
+    const suffix = `${anchor ? ` (${anchor})` : ''}${metadata.length > 0 ? ` [${metadata.join('; ')}]` : ''}`;
     const prefix = `- [${labels.join('][')}] `;
     let line = `${prefix}${memory.text}${suffix}`;
     const currentLength = lines.join('\n').length;
@@ -65,4 +72,23 @@ function formatPrimaryAnchor(memory: SuperMemory): string {
   if (anchor.symbol) return anchor.symbol;
   if (anchor.command) return anchor.command;
   return '';
+}
+
+function formatPrimaryRelation(memory: SuperMemory): string {
+  const anchor = memory.anchors.find((item) => item.path || item.symbol || item.command);
+  if (!anchor) return 'related_to';
+  switch (anchor.type) {
+    case 'file':
+    case 'test':
+    case 'git':
+      return 'about_file';
+    case 'directory':
+      return 'about_directory';
+    case 'symbol':
+      return 'about_symbol';
+    case 'package':
+      return 'about_package';
+    case 'command':
+      return 'about_command';
+  }
 }

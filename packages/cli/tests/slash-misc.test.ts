@@ -1,9 +1,9 @@
+import { type Context, SlashCommandRegistry } from '@wrongstack/core';
 import { describe, expect, it, vi } from 'vitest';
 import { buildClearCommand } from '../src/slash-commands/clear.js';
 import { buildCompactCommand } from '../src/slash-commands/compact.js';
 import { buildHelpCommand } from '../src/slash-commands/help.js';
 import { buildDesktopCommand, buildWebuiCommand } from '../src/slash-commands/surfaces.js';
-import { SlashCommandRegistry, type Context } from '@wrongstack/core';
 
 function fakeCtx(): Context {
   const state = {
@@ -32,7 +32,7 @@ function fakeCtx(): Context {
 // ── /clear ───────────────────────────────────────────────────────────────────
 
 describe('buildClearCommand', () => {
-  it('wipes context state, memory store, session history, and calls onClear', async () => {
+  it('wipes context and session history, preserves memory, and calls onClear', async () => {
     const renderer = { write: vi.fn(), writeInfo: vi.fn(), clear: vi.fn() };
     const memoryStore = { clear: vi.fn().mockResolvedValue(undefined) };
     const onClear = vi.fn();
@@ -71,7 +71,8 @@ describe('buildClearCommand', () => {
     expect(onFleetKill).toHaveBeenCalledTimes(1);
     expect(interruptController.waitForIdle).toHaveBeenCalledTimes(1);
     expect(interruptController.waitForIdle.mock.invocationCallOrder[0]).toBeLessThan(
-      (ctx.state.replaceMessages as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0] ?? Infinity,
+      (ctx.state.replaceMessages as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0] ??
+        Infinity,
     );
     expect(ctx.state.replaceMessages).toHaveBeenCalledWith([]);
     expect(ctx.state.replaceTodos).toHaveBeenCalledWith([]);
@@ -81,7 +82,7 @@ describe('buildClearCommand', () => {
     expect(ctx.state.deleteMeta).toHaveBeenCalledWith('other');
     expect(ctx.session.clearSession).toHaveBeenCalled();
     expect(sessionStore.clearHistory).toHaveBeenCalledWith('test-session-id');
-    expect(memoryStore.clear).toHaveBeenCalled();
+    expect(memoryStore.clear).not.toHaveBeenCalled();
     expect(onClear).toHaveBeenCalled();
     expect(renderer.clear).toHaveBeenCalled();
     expect(res?.message ?? '').toContain('Session cleared');
@@ -150,7 +151,7 @@ describe('buildClearCommand — confirm before clearing an active session', () =
     expect(res?.message ?? '').toContain('cancelled');
   });
 
-  it('proceeds with the full reset when the user confirms "yes"', async () => {
+  it('proceeds with the session reset while preserving memory when the user confirms "yes"', async () => {
     const confirm = vi.fn().mockResolvedValue(true);
     const interruptController = {
       abortLeader: vi.fn(() => true),
@@ -168,7 +169,7 @@ describe('buildClearCommand — confirm before clearing an active session', () =
     expect(interruptController.resetSession).toHaveBeenCalledTimes(1);
     expect(interruptController.abortLeader).toHaveBeenCalledTimes(1);
     expect(ctx.state.replaceMessages).toHaveBeenCalledWith([]);
-    expect(opts.memoryStore.clear).toHaveBeenCalled();
+    expect(opts.memoryStore.clear).not.toHaveBeenCalled();
     expect(res?.message ?? '').toContain('Session cleared');
   });
 

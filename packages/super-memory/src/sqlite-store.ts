@@ -57,6 +57,7 @@ import {
   normalizeSources,
   normalizeTags,
   normalizeText,
+  scoreMemoryRelationship,
   validateRememberInput,
 } from './store-helpers.js';
 
@@ -269,6 +270,7 @@ export class SqliteSuperMemoryStore {
   readonly paths;
   private readonly projectRoot: string;
   private readonly now: () => Date;
+  private readonly events: SuperMemoryStoreOptions['events'];
   private traceId?: string | undefined;
   private db!: DatabaseSync;
   private initialized = false;
@@ -280,6 +282,7 @@ export class SqliteSuperMemoryStore {
     this.paths = resolveSuperMemoryPaths(this.projectRoot, opts.directory);
     this.traceId = opts.traceId;
     this.now = opts.now ?? (() => new Date());
+    this.events = opts.events;
   }
 
   withTraceId(traceId: string): this {
@@ -442,6 +445,10 @@ export class SqliteSuperMemoryStore {
             revision: existing.revision + 1,
           };
           this.upsertMemory(merged);
+          this.events?.emit(
+            'memory.merged',
+            this.eventPayload({ memoryId: merged.id, mergedIds: [] }),
+          );
           return merged;
         }
       }
@@ -470,6 +477,16 @@ export class SqliteSuperMemoryStore {
         updatedAt: nowIso,
       };
       this.upsertMemory(memory);
+      this.events?.emit(
+        'memory.accepted',
+        this.eventPayload({
+          memoryId: memory.id,
+          kind: memory.kind,
+          persistence: memory.persistence ?? 'long_lived',
+          confidence: memory.confidence,
+          freshness: memory.freshness,
+        }),
+      );
       return memory;
     });
   }
@@ -523,6 +540,29 @@ export class SqliteSuperMemoryStore {
         updatedAt: this.nowIso(),
       };
       this.upsertMemory(updated);
+      this.events?.emit(
+        'memory.updated',
+        this.eventPayload({
+          memoryId: updated.id,
+          status: updated.status,
+          kind: updated.kind,
+          persistence: updated.persistence ?? 'long_lived',
+          confidence: updated.confidence,
+          freshness: updated.freshness,
+        }),
+      );
+      if (existing.status !== 'deleted' && updated.status === 'deleted') {
+        this.events?.emit(
+          'memory.deleted',
+          this.eventPayload({
+            memoryId: updated.id,
+            reason: 'Memory status changed to deleted.',
+            persistence: updated.persistence ?? 'long_lived',
+            removedEdges: 0,
+            contextPolicy: updated.contextPolicy === 'never' ? ('never' as const) : ('eligible' as const),
+          }),
+        );
+      }
       return updated;
     });
   }
@@ -530,9 +570,26 @@ export class SqliteSuperMemoryStore {
   async deleteSuper(id: string, reason?: string): Promise<{ deleted: true; id: string }> {
     await this.initialize();
     await this.runMutation(() => {
+      const row = this.db.prepare('SELECT data FROM memories WHERE id = ?').get(id) as
+        | { data: string }
+        | undefined;
+      const memory = row ? this.rowToMemory(row) : undefined;
+      const edgeCount = this.db
+        .prepare('SELECT COUNT(*) AS n FROM edges WHERE from_node = ? OR to_node = ?')
+        .get(`mem:${id}`, `mem:${id}`) as { n: number };
       this.db.prepare('DELETE FROM memories WHERE id = ?').run(id);
       this.db.prepare('DELETE FROM edges WHERE from_node = ? OR to_node = ?').run(`mem:${id}`, `mem:${id}`);
       this.audit('memory.deleted', { memoryId: id, reason });
+      this.events?.emit(
+        'memory.deleted',
+        this.eventPayload({
+          memoryId: id,
+          reason: reason ?? 'Manually deleted via SQLite API.',
+          persistence: memory?.persistence ?? 'long_lived',
+          removedEdges: edgeCount.n,
+          contextPolicy: memory?.contextPolicy === 'never' ? ('never' as const) : ('eligible' as const),
+        }),
+      );
     });
     return { deleted: true, id };
   }
@@ -664,6 +721,51 @@ export class SqliteSuperMemoryStore {
       )
       .all(...rowParams as (string | number)[]) as Array<{ data: string }>;
     return rows.map((r) => this.rowToMemory(r));
+  }
+
+  /** SQLite equivalent of JSONL graph/metadata expansion. */
+  async findRelatedSuper(
+    memoryIds: string[],
+    opts: {
+      limit?: number;
+      maxDepth?: number;
+      includeStatuses?: SuperMemoryStatus[];
+      includeAudienceScoped?: boolean;
+    } = {},
+  ): Promise<SuperMemory[]> {
+    await this.initialize();
+    const statuses = opts.includeStatuses ?? ['active'];
+    const placeholders = statuses.map(() => '?').join(',');
+    const rows = this.db
+      .prepare(`SELECT data FROM memories WHERE status IN (${placeholders})`)
+      .all(...statuses) as Array<{ data: string }>;
+    const all = rows
+      .map((row) => this.rowToMemory(row))
+      .filter((memory) => memory.contextPolicy !== 'never')
+      .filter((memory) => opts.includeAudienceScoped !== false || !memory.audience);
+    const seedIds = new Set(memoryIds);
+    const seeds = all.filter((memory) => seedIds.has(memory.id));
+    if (seeds.length === 0) return [];
+
+    const graphRelatedIds = new Set<string>();
+    for (const edge of await this.traverseGraph(
+      seeds.map((memory) => `mem:${memory.id}`),
+      { maxDepth: opts.maxDepth ?? 3, limit: Math.max(100, (opts.limit ?? 20) * 20) },
+    )) {
+      for (const node of [edge.from, edge.to]) {
+        if (node.startsWith('mem:')) graphRelatedIds.add(node.slice(4));
+      }
+    }
+
+    return all
+      .filter((memory) => !seedIds.has(memory.id))
+      .map((memory) => ({ memory, score: scoreMemoryRelationship(memory, seeds, graphRelatedIds) }))
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score
+        || b.memory.importance - a.memory.importance
+        || b.memory.confidence - a.memory.confidence)
+      .slice(0, Math.max(1, Math.min(opts.limit ?? 20, 100)))
+      .map((item) => item.memory);
   }
 
   async retrieveForAudience(
@@ -845,6 +947,7 @@ export class SqliteSuperMemoryStore {
 
   async addGraphEdge(from: string, to: string, relation: MemoryGraphRelation, weight = 1): Promise<void> {
     await this.initialize();
+    const edgeId = `edge_${ulid()}`;
     this.db
       .prepare(
         `INSERT INTO edges (from_node, to_node, relation, weight, created_at)
@@ -852,6 +955,10 @@ export class SqliteSuperMemoryStore {
          ON CONFLICT(from_node, to_node, relation) DO UPDATE SET weight = weight + excluded.weight`,
       )
       .run(from, to, relation, weight, this.nowIso());
+    this.events?.emit(
+      'memory.graph_edge_added',
+      this.eventPayload({ edgeId, from, to, relation, weight }),
+    );
   }
 
   async traverseGraph(starts: string[], opts?: { maxDepth?: number; limit?: number }): Promise<MemoryGraphEdge[]> {
@@ -904,6 +1011,10 @@ export class SqliteSuperMemoryStore {
     this.db
       .prepare('INSERT INTO audit_log (event, at, trace_id, data) VALUES (?, ?, ?, ?)')
       .run(event, this.nowIso(), this.traceId ?? null, data ? JSON.stringify(data) : null);
+  }
+
+  private eventPayload<T extends object>(payload: T): T & { traceId?: string | undefined } {
+    return this.traceId ? { ...payload, traceId: this.traceId } : payload;
   }
 
   /**

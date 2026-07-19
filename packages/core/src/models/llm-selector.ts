@@ -1,11 +1,11 @@
 import { expectDefined } from '../utils/expect-defined.js';
 import { estimateMessageTokens, estimateTextTokens } from '../utils/token-estimate.js';
 import { isTextBlock } from '../types/blocks.js';
-import type { ContentBlock } from '../types/blocks.js';
 import type { Message } from '../types/messages.js';
 import type { Provider, Request } from '../types/provider.js';
 import type { MessageSelector, SelectorResult } from '../types/selector.js';
 import type { OneShotOrchestrator } from '../execution/one-shot-llm.js';
+import { buildCompactionPreview } from '../execution/compaction-core.js';
 import { readBundledInstructionText } from '../utils/instruction-file.js';
 export interface LLMSelectorOptions {
   /** Provider used for the selector LLM call. Required. */
@@ -43,33 +43,45 @@ const DEFAULT_SYSTEM_PROMPT = readBundledInstructionText('llm/llm-selector.md');
  * so long sessions don't silently truncate the selector's view of history.
  */
 function formatMessages(messages: Message[], maxTokens = 2048): string {
-  const lines: string[] = [];
-  let usedTokens = 0;
+  const previewChars = Math.max(
+    120,
+    Math.min(600, Math.floor((maxTokens * 3.2) / Math.max(1, messages.length))),
+  );
+  const lines: Array<{ index: number; text: string; tokens: number }> = [];
   for (let i = 0; i < messages.length; i++) {
     const m = expectDefined(messages[i]);
     const role = m.role.padEnd(10, ' ');
-    let text: string;
-    if (typeof m.content === 'string') {
-      text = m.content.slice(0, 500);
-    } else {
-      const content = m.content as ContentBlock[];
-      text = content
-        .filter(isTextBlock)
-        .map((b) => b.text)
-        .join(' ');
-      // Also capture tool names for context
-      const toolUses = content.filter((b) => b.type === 'tool_use');
-      if (toolUses.length > 0) {
-        text += ` [tools: ${toolUses.map((b) => (b as { name?: string }).name).filter(Boolean).join(', ')}]`;
-      }
-    }
-    const line = `[${i}][${role}]: ${text}`;
-    const lineTokens = estimateTextTokens(line);
-    if (usedTokens + lineTokens > maxTokens) break;
-    lines.push(line);
-    usedTokens += lineTokens;
+    const line = `[${i}][${role}]: ${buildCompactionPreview(m, previewChars)}`;
+    lines.push({ index: i, text: line, tokens: estimateTextTokens(line) });
   }
-  return lines.join('\n');
+
+  const total = lines.reduce((sum, line) => sum + line.tokens, 0);
+  if (total <= maxTokens) return lines.map((line) => line.text).join('\n');
+
+  // A selector must always see the live working tail. Fill the remainder from
+  // the oldest side so long histories retain both the original constraints
+  // and the current task, with an explicit marker for any omitted middle.
+  const recentCount = Math.min(8, lines.length);
+  const recentStart = lines.length - recentCount;
+  const tail: typeof lines = [];
+  let usedTokens = 0;
+  for (let i = lines.length - 1; i >= recentStart; i--) {
+    const line = expectDefined(lines[i]);
+    if (tail.length >= 2 && usedTokens + line.tokens > Math.floor(maxTokens * 0.45)) continue;
+    tail.unshift(line);
+    usedTokens += line.tokens;
+  }
+
+  const head: typeof lines = [];
+  for (let i = 0; i < recentStart; i++) {
+    const line = expectDefined(lines[i]);
+    if (usedTokens + line.tokens > maxTokens) break;
+    head.push(line);
+    usedTokens += line.tokens;
+  }
+  const omitted = Math.max(0, recentStart - head.length);
+  const marker = omitted > 0 ? [`[… ${omitted} middle message(s) omitted from selector preview …]`] : [];
+  return [...head.map((line) => line.text), ...marker, ...tail.map((line) => line.text)].join('\n');
 }
 
 /**

@@ -30,6 +30,39 @@ import { PROMPT as DEFAULT_PROMPT, LEADER_AFTER_TASK_PROMPT } from './modes/defa
 
 export const LAYER_1_IDENTITY = DEFAULT_PROMPT;
 
+/**
+ * The section of the system prompt a given TextBlock originated from. Used by
+ * `getContextBreakdown()` to attribute real token counts per category in the
+ * `/context` display.
+ */
+export type SystemBlockSource =
+  | 'identity' // layer1 — instructions/system.md
+  | 'tool-usage' // layer2 — tool prose summary
+  | 'environment' // layer3 — OS/git/date/skills-in-scope
+  | 'skills' // layer4 — Active Skills bodies (+ memory when injectMemory)
+  | 'mode' // layer5 mode prompt + mode-skill hint
+  | 'plan' // layer6 — active plan
+  | 'leader-after-task' // leader-only after-task affordances
+  | 'contributor' // plugin-contributed volatile blocks
+  | 'ledger' // volatile completed-work ledger (request-time)
+  | 'nextsteps'; // volatile next-steps gate (request-time)
+
+/**
+ * Side-table mapping each system-prompt TextBlock to the section it came from.
+ * Kept as a WeakMap rather than a field on TextBlock so the label never reaches
+ * the wire: the provider adapters spread blocks verbatim (Anthropic non-ttl
+ * `: b`, OpenAI `stripCacheControl` rest-spread), so any extra field would leak.
+ * Block identities survive `flattenSystemPromptRegions` into `ctx.systemPrompt`,
+ * so a later read of `ctx.systemPrompt` resolves the same entries.
+ */
+export const SYSTEM_BLOCK_SOURCE = new WeakMap<TextBlock, SystemBlockSource>();
+
+/** Tag a freshly-built block with its origin, returning the same reference. */
+function tagBlock(block: TextBlock, source: SystemBlockSource): TextBlock {
+  SYSTEM_BLOCK_SOURCE.set(block, source);
+  return block;
+}
+
 function shortSessionId(sessionId: string): string {
   const leaf = sessionId.split('/').pop() ?? sessionId;
   return leaf.length > 12 ? `${leaf.slice(0, 12)}…` : leaf;
@@ -298,26 +331,30 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     const layer6 = ctx.subagent ? '' : await this.buildActivePlan();
 
     const core: TextBlock[] = [
-      { type: 'text', text: layer1 },
-      { type: 'text', text: layer2 },
+      tagBlock({ type: 'text', text: layer1 }, 'identity'),
+      tagBlock({ type: 'text', text: layer2 }, 'tool-usage'),
     ];
-    const session: TextBlock[] = [{ type: 'text', text: layer3WithDir }];
+    const session: TextBlock[] = [
+      tagBlock({ type: 'text', text: layer3WithDir }, 'environment'),
+    ];
     const volatile: TextBlock[] = [];
 
     if (layer4.trim()) {
-      session.push({
-        type: 'text',
-        text: layer4,
-        cache_control: { type: 'ephemeral' },
-      });
+      session.push(
+        tagBlock(
+          { type: 'text', text: layer4, cache_control: { type: 'ephemeral' } },
+          'skills',
+        ),
+      );
     }
 
     if (layer5.trim()) {
-      session.push({
-        type: 'text',
-        text: layer5,
-        cache_control: { type: 'ephemeral' },
-      });
+      session.push(
+        tagBlock(
+          { type: 'text', text: layer5, cache_control: { type: 'ephemeral' } },
+          'mode',
+        ),
+      );
     }
 
     // Suggested skills for the active mode — helps the model know which
@@ -330,11 +367,16 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
           const loadedNames = new Set(skills.map((s) => s.name));
           const available = activeMode.suggestedSkills.filter((n) => loadedNames.has(n));
           if (available.length > 0) {
-            session.push({
-              type: 'text',
-              text: `Mode "${activeMode.id}" works best with these skills: ${available.join(', ')}. Their full instructions are in the Active Skills block above.`,
-              cache_control: { type: 'ephemeral' },
-            });
+            session.push(
+              tagBlock(
+                {
+                  type: 'text',
+                  text: `Mode "${activeMode.id}" works best with these skills: ${available.join(', ')}. Their full instructions are in the Active Skills block above.`,
+                  cache_control: { type: 'ephemeral' },
+                },
+                'mode',
+              ),
+            );
           }
         }
       } catch {
@@ -343,11 +385,12 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     }
 
     if (layer6.trim()) {
-      volatile.push({
-        type: 'text',
-        text: layer6,
-        cache_control: { type: 'ephemeral' },
-      });
+      volatile.push(
+        tagBlock(
+          { type: 'text', text: layer6, cache_control: { type: 'ephemeral' } },
+          'plan',
+        ),
+      );
     }
 
     // System prompt contributors — plugins inject ephemeral context here.
@@ -355,6 +398,7 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
       for (const c of this.opts.contributors) {
         try {
           const contributed = await c(ctx);
+          for (const b of contributed) tagBlock(b, 'contributor');
           volatile.push(...contributed);
         } catch {
           // Contributor errors are swallowed — a bad plugin shouldn't
@@ -370,10 +414,15 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     // specs/plans. Lives outside layer1 so the host keeps it in EVERY mode while
     // no subagent ever receives it.
     if (!ctx.subagent) {
-      session.push({
-        type: 'text',
-        text: instructions.system?.leaderAfterTask ?? LEADER_AFTER_TASK_PROMPT,
-      });
+      session.push(
+        tagBlock(
+          {
+            type: 'text',
+            text: instructions.system?.leaderAfterTask ?? LEADER_AFTER_TASK_PROMPT,
+          },
+          'leader-after-task',
+        ),
+      );
     }
 
     return { core, session, volatile };

@@ -9,17 +9,15 @@ export function buildClearCommand(opts: SlashCommandContext): SlashCommand {
     description: 'Reset the session and start a new one.',
     help: [
       'Usage:',
-      '  /clear                 Reset conversation AND clear persistent memory',
-      '  /clear --keep-memory   Reset the conversation but preserve memory entries',
+      '  /clear   Reset the conversation and start a new session',
       '',
       'Wipes everything in the current REPL state: messages, todos, read-file tracking,',
-      'file mtimes, meta. Memory store entries (all scopes) are cleared too unless',
-      '--keep-memory is passed. Chat history on disk is reset. The terminal is wiped.',
+      'file mtimes, meta, and chat history. Super Memory is durable and is always',
+      'preserved. Use explicit /memory commands to review or delete memory entries.',
+      'The terminal is wiped.',
       'Use this when you want a fresh conversation without restarting `wstack`.',
     ].join('\n'),
-    async run(args, ctx) {
-      const keepMemory = /(^|\s)--keep-memory(\s|$)|(^|\s)--keep-mem(\s|$)/.test(args);
-
+    async run(_args, ctx) {
       // When an operation is still in flight (leader run, autonomy loop, or a
       // subagent), clearing would abort it and discard its output. Confirm with
       // the user first so a stray `/clear` can't silently kill active work.
@@ -84,15 +82,10 @@ export function buildClearCommand(opts: SlashCommandContext): SlashCommand {
       if (opts.sessionStore) {
         await opts.sessionStore.clearHistory(ctx?.session.id ?? '');
       }
-      if (!keepMemory) {
-        await opts.memoryStore?.clear();
-      }
       opts.onClear?.();
       await opts.onNewSession?.();
       opts.renderer.clear();
-      const msg = keepMemory
-        ? 'Session cleared (context and history reset; memory preserved).'
-        : 'Session cleared (context, memory, and history reset).';
+      const msg = 'Session cleared (context and history reset; Super Memory preserved).';
       opts.renderer.writeInfo(msg);
       return { message: msg, metadata: { cleared: true } };
     },

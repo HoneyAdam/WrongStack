@@ -49,7 +49,11 @@ export function useQueueManager({
         for (const item of items) {
           dispatch({
             type: 'enqueue',
-            item: { displayText: item.displayText, blocks: item.blocks },
+            item: {
+              displayText: item.displayText,
+              blocks: item.blocks,
+              ...(item.shouldRefine !== undefined ? { shouldRefine: item.shouldRefine } : {}),
+            },
           });
         }
         dispatch({
@@ -71,9 +75,10 @@ export function useQueueManager({
   useEffect(() => {
     if (!queueStore) return;
     const raw = stateRef.current.queue.map(
-      ({ displayText, blocks }: { displayText: string; blocks: ContentBlock[] }) => ({
+      ({ displayText, blocks, shouldRefine }: { displayText: string; blocks: ContentBlock[]; shouldRefine?: boolean | undefined }) => ({
         displayText,
         blocks,
+        ...(shouldRefine !== undefined ? { shouldRefine } : {}),
       }),
     );
     queueStore.write(raw).catch(() => undefined);

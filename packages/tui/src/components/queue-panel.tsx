@@ -1,9 +1,9 @@
-import type { ContentBlock } from '@wrongstack/core';
 import { Box, Text, useInput } from '../ink.js';
 import type React from 'react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { theme } from '../theme.js';
 import { glyphs } from '../ui-glyphs.js';
+import type { QueueItem } from '../app-state.js';
 import {
   EmptyPanelState,
   KeyCap,
@@ -13,20 +13,26 @@ import {
   useMonitorSize,
 } from './monitor-shell.js';
 
-export interface QueueItem {
-  id: number;
-  displayText: string;
-  blocks: ContentBlock[];
-}
-
 /**
- * Compact queue panel. Shows pending messages with position numbers,
- * auto-truncated labels, and a "+N more" overflow indicator. Designed
- * to sit beside the chat area like the CompactTodosPanel.
+ * Interactive queue panel. Shows pending messages with position numbers,
+ * auto-truncated labels, selection cursor, and per-item action keys.
  */
-export function QueuePanel({ items }: { items: QueueItem[] }): React.ReactElement {
+export function QueuePanel({
+  items,
+  onDelete,
+  onClear,
+  onEdit,
+  onToggleRefine,
+}: {
+  items: QueueItem[];
+  onDelete?: ((position: number) => void) | undefined;
+  onClear?: (() => void) | undefined;
+  onEdit?: ((position: number) => void) | undefined;
+  onToggleRefine?: ((position: number) => void) | undefined;
+}): React.ReactElement {
   const size = useMonitorSize();
   const [selected, setSelected] = useState(0);
+  const [confirmClear, setConfirmClear] = useState(false);
   const maxVisible = Math.max(3, size.contentRows - 2);
   const window = panelWindow(items.length, selected, maxVisible);
   const visible = items.slice(window.start, window.end);
@@ -35,12 +41,40 @@ export function QueuePanel({ items }: { items: QueueItem[] }): React.ReactElemen
   useEffect(() => {
     setSelected((value) => Math.min(value, Math.max(0, items.length - 1)));
   }, [items.length]);
-  useInput((_input, key) => {
-    if (key.upArrow) setSelected((value) => Math.max(0, value - 1));
-    else if (key.downArrow) {
-      setSelected((value) => Math.min(Math.max(0, items.length - 1), value + 1));
-    }
-  });
+
+  useEffect(() => {
+    if (confirmClear && items.length === 0) setConfirmClear(false);
+  }, [items.length, confirmClear]);
+
+  const handler = useCallback(
+    (_input: string, key: { upArrow: boolean; downArrow: boolean; return: boolean }) => {
+      if (key.upArrow) setSelected((value) => Math.max(0, value - 1));
+      else if (key.downArrow) {
+        setSelected((value) => Math.min(Math.max(0, items.length - 1), value + 1));
+      } else if (_input === 'e' && items.length > 0) {
+        setConfirmClear(false); // any non-cancel action disarms the confirm flow
+        // 'e' for edit — restores selected item's text to the composer.
+        onEdit?.(selected);
+      } else if (_input === 'd' && items.length > 0) {
+        setConfirmClear(false); // any non-cancel action disarms the confirm flow
+        onDelete?.(selected);
+      } else if (_input === 'c') {
+        if (confirmClear && items.length > 0) {
+          onClear?.();
+          setConfirmClear(false);
+        } else if (items.length > 0) {
+          setConfirmClear(true);
+        }
+      } else if (_input === 'r' && items.length > 0) {
+        setConfirmClear(false); // any non-cancel action disarms the confirm flow
+        onToggleRefine?.(selected);
+      } else if (_input === 'x' && confirmClear) {
+        setConfirmClear(false);
+      }
+    },
+    [items.length, selected, confirmClear, onDelete, onClear, onEdit, onToggleRefine],
+  );
+  useInput(handler);
 
   return (
     <MonitorShell
@@ -55,9 +89,18 @@ export function QueuePanel({ items }: { items: QueueItem[] }): React.ReactElemen
       }
       footer={
         <Box gap={2}>
-          <KeyCap keyName="↑↓" label="inspect" color={theme.accent} />
+          <KeyCap keyName="↑↓" label="sel" color={theme.accent} />
+          <KeyCap keyName="d" label="del" color={theme.textMuted} />
+          <KeyCap keyName="e" label="edit" color={theme.textMuted} />
+          <KeyCap keyName="r" label="refine" color={theme.textMuted} />
+          {items.length > 0 ? (
+            <KeyCap keyName="c" label={confirmClear ? 'confirm' : 'clear'} color={confirmClear ? theme.warn : theme.textMuted} />
+          ) : null}
+          {confirmClear ? (
+            <Text color={theme.warn}> Clear all? (c=yes, x=cancel)</Text>
+          ) : null}
+          <Box flexGrow={1} />
           <KeyCap keyName="F7" label="close" color={theme.accent} />
-          <Text color={theme.textMuted}>/queue clear · /queue remove &lt;n&gt;</Text>
         </Box>
       }
     >
@@ -70,23 +113,32 @@ export function QueuePanel({ items }: { items: QueueItem[] }): React.ReactElemen
         />
       ) : (
         <Box flexDirection="column" marginTop={1}>
-          {visible.map((item, i) => (
-            <Box key={item.id} flexDirection="row" flexShrink={0} paddingX={1}>
-              <Text color={window.start + i === selected ? theme.accent : theme.textMuted} bold>
-                {window.start + i === selected ? '›' : ' '}{' '}
-                {String(window.start + i + 1).padStart(2)}
-              </Text>
-              <Text color={theme.textMuted}> {window.start + i === 0 ? 'NEXT' : 'WAIT'}</Text>
-              <Text color={window.start + i === selected ? theme.textPrimary : theme.textSecondary}>
-                {'  '}
-                {truncatePanelText(item.displayText, Math.max(12, size.contentWidth - 22))}
-              </Text>
-              <Box flexGrow={1} />
-              {item.blocks.length > 1 ? (
-                <Text color={theme.textMuted}>{item.blocks.length} blocks</Text>
-              ) : null}
-            </Box>
-          ))}
+          {visible.map((item, i) => {
+            const idx = window.start + i;
+            const isSelected = idx === selected;
+            return (
+              <Box key={item.id} flexDirection="row" flexShrink={0} paddingX={1}>
+                <Text color={isSelected ? theme.accent : theme.textMuted} bold>
+                  {isSelected ? '›' : ' '}{' '}
+                  {String(idx + 1).padStart(2)}
+                </Text>
+                <Text color={theme.textMuted}> {idx === 0 ? 'NEXT' : 'WAIT'}</Text>
+                <Text color={isSelected ? theme.textPrimary : theme.textSecondary}>
+                  {'  '}
+                  {truncatePanelText(item.displayText, Math.max(12, size.contentWidth - 36))}
+                </Text>
+                {item.shouldRefine ? (
+                  <Text color={theme.brandPrimary}> ✦</Text>
+                ) : (
+                  <Text color={theme.textMuted}> ·</Text>
+                )}
+                <Box flexGrow={1} />
+                {item.blocks.length > 1 ? (
+                  <Text color={theme.textMuted}>{item.blocks.length}B</Text>
+                ) : null}
+              </Box>
+            );
+          })}
           {overflow > 0 ? (
             <Text color={theme.textMuted}>
               {' '}

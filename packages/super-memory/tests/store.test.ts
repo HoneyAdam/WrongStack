@@ -1,11 +1,9 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { EventBus } from '@wrongstack/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  SuperMemoryStore,
-  createSuperMemoryToolCallMiddleware,
-} from '../src/index.js';
+import { createSuperMemoryToolCallMiddleware, SuperMemoryStore } from '../src/index.js';
 
 let tempDir: string;
 
@@ -18,6 +16,42 @@ afterEach(async () => {
 });
 
 describe('SuperMemoryStore', () => {
+  it('emits explicit entered and exited lifecycle events with durable metadata', async () => {
+    const events = new EventBus();
+    const accepted: Array<Record<string, unknown>> = [];
+    const deleted: Array<Record<string, unknown>> = [];
+    events.on('memory.accepted', (payload) => accepted.push(payload));
+    events.on('memory.deleted', (payload) => deleted.push(payload));
+    const store = new SuperMemoryStore({ projectRoot: tempDir, events });
+
+    const memory = await store.rememberSuper({
+      text: 'Lifecycle events remain observable without opening the JSONL audit log.',
+      kind: 'workflow',
+      persistence: 'long_lived',
+      confidence: 0.91,
+      freshness: 0.83,
+    });
+    await store.deleteSuperMemory(memory.id, 'Lifecycle test cleanup.', { force: true });
+
+    expect(accepted).toContainEqual(
+      expect.objectContaining({
+        memoryId: memory.id,
+        kind: 'workflow',
+        persistence: 'long_lived',
+        confidence: 0.91,
+        freshness: 0.83,
+      }),
+    );
+    expect(deleted).toContainEqual(
+      expect.objectContaining({
+        memoryId: memory.id,
+        reason: 'Lifecycle test cleanup.',
+        persistence: 'long_lived',
+        contextPolicy: 'eligible',
+      }),
+    );
+  });
+
   it('stores project-local JSONL memory and exposes the legacy MemoryStore list/search contract', async () => {
     const store = new SuperMemoryStore({ projectRoot: tempDir });
 
@@ -35,7 +69,10 @@ describe('SuperMemoryStore', () => {
     const found = await store.search('pnpm workspace', 'project-memory');
     expect(found).toHaveLength(1);
 
-    const raw = await fs.readFile(path.join(tempDir, '.wrongstack', 'memories', 'memories.jsonl'), 'utf8');
+    const raw = await fs.readFile(
+      path.join(tempDir, '.wrongstack', 'memories', 'memories.jsonl'),
+      'utf8',
+    );
     expect(raw).toContain('"recordType":"memory"');
   });
 
@@ -55,15 +92,45 @@ describe('SuperMemoryStore', () => {
       limit: 5,
     });
 
-    expect(direct.map((m) => m.text)).toContain('Session storage changes require lifecycle regression tests');
+    expect(direct.map((m) => m.text)).toContain(
+      'Session storage changes require lifecycle regression tests',
+    );
   });
 
   it('rejects obvious secrets', async () => {
     const store = new SuperMemoryStore({ projectRoot: tempDir });
 
+    await expect(store.remember('api_key = "abcdefghijklmnopqrstuvwxyz123456"')).rejects.toThrow(
+      /secret/i,
+    );
+  });
+
+  it('indexes Object.prototype-shaped tags and lexical terms safely', async () => {
+    const store = new SuperMemoryStore({ projectRoot: tempDir });
+
     await expect(
-      store.remember('api_key = "abcdefghijklmnopqrstuvwxyz123456"'),
-    ).rejects.toThrow(/secret/i);
+      store.rememberSuper({
+        text: 'constructor toString __proto__ are valid project vocabulary',
+        kind: 'fact',
+        tags: ['constructor', '__proto__'],
+      }),
+    ).resolves.toMatchObject({ status: 'active' });
+
+    const lexical = JSON.parse(
+      await fs.readFile(
+        path.join(tempDir, '.wrongstack', 'memories', 'indexes', 'lexical.json'),
+        'utf8',
+      ),
+    ) as Record<string, string[]>;
+    const tags = JSON.parse(
+      await fs.readFile(
+        path.join(tempDir, '.wrongstack', 'memories', 'indexes', 'by-tag.json'),
+        'utf8',
+      ),
+    ) as Record<string, string[]>;
+    expect(lexical['constructor']).toHaveLength(1);
+    expect(lexical['tostring']).toHaveLength(1);
+    expect(Reflect.get(tags, '__proto__')).toHaveLength(1);
   });
 });
 
@@ -124,7 +191,10 @@ describe('Super Memory tool-call middleware', () => {
 
   it('resolves relative tool paths from the active working directory and extracts patch targets', async () => {
     await fs.mkdir(path.join(tempDir, 'packages', 'demo'), { recursive: true });
-    await fs.writeFile(path.join(tempDir, 'packages', 'demo', 'source.ts'), 'export const value = 1;\n');
+    await fs.writeFile(
+      path.join(tempDir, 'packages', 'demo', 'source.ts'),
+      'export const value = 1;\n',
+    );
     const store = new SuperMemoryStore({ projectRoot: tempDir });
     await store.rememberSuper({
       text: 'Keep the demo source API stable.',
@@ -135,9 +205,23 @@ describe('Super Memory tool-call middleware', () => {
     const middleware = createSuperMemoryToolCallMiddleware({ memory: store, repeatCooldownMs: 0 });
 
     const readPayload = {
-      toolUse: { type: 'tool_use' as const, id: 'read-1', name: 'read', input: { path: 'source.ts' } },
-      result: { type: 'tool_result' as const, tool_use_id: 'read-1', name: 'read', content: 'file body' },
-      ctx: { projectRoot: tempDir, cwd: path.join(tempDir, 'packages', 'demo'), session: { id: 'cwd-session' } },
+      toolUse: {
+        type: 'tool_use' as const,
+        id: 'read-1',
+        name: 'read',
+        input: { path: 'source.ts' },
+      },
+      result: {
+        type: 'tool_result' as const,
+        tool_use_id: 'read-1',
+        name: 'read',
+        content: 'file body',
+      },
+      ctx: {
+        projectRoot: tempDir,
+        cwd: path.join(tempDir, 'packages', 'demo'),
+        session: { id: 'cwd-session' },
+      },
     };
     await middleware.handler(readPayload as never, async (value) => value);
     expect(readPayload.result.content).toContain('Keep the demo source API stable');
@@ -149,8 +233,17 @@ describe('Super Memory tool-call middleware', () => {
         name: 'patch',
         input: { patch: '--- a/source.ts\n+++ b/source.ts\n@@ -1 +1 @@\n-old\n+new\n' },
       },
-      result: { type: 'tool_result' as const, tool_use_id: 'patch-1', name: 'patch', content: 'patch applied' },
-      ctx: { projectRoot: tempDir, cwd: path.join(tempDir, 'packages', 'demo'), session: { id: 'patch-session' } },
+      result: {
+        type: 'tool_result' as const,
+        tool_use_id: 'patch-1',
+        name: 'patch',
+        content: 'patch applied',
+      },
+      ctx: {
+        projectRoot: tempDir,
+        cwd: path.join(tempDir, 'packages', 'demo'),
+        session: { id: 'patch-session' },
+      },
     };
     await middleware.handler(patchPayload as never, async (value) => value);
     expect(patchPayload.result.content).toContain('Keep the demo source API stable');
@@ -159,17 +252,33 @@ describe('Super Memory tool-call middleware', () => {
   it('fails open when advisory memory retrieval is unavailable', async () => {
     const middleware = createSuperMemoryToolCallMiddleware({
       memory: {
-        retrieveForPath: async () => { throw new Error('storage unavailable'); },
-        searchSuper: async () => { throw new Error('storage unavailable'); },
+        retrieveForPath: async () => {
+          throw new Error('storage unavailable');
+        },
+        searchSuper: async () => {
+          throw new Error('storage unavailable');
+        },
       },
     });
     const payload = {
-      toolUse: { type: 'tool_use' as const, id: 'read-fail-open', name: 'read', input: { path: 'source.ts' } },
-      result: { type: 'tool_result' as const, tool_use_id: 'read-fail-open', name: 'read', content: 'original tool result' },
+      toolUse: {
+        type: 'tool_use' as const,
+        id: 'read-fail-open',
+        name: 'read',
+        input: { path: 'source.ts' },
+      },
+      result: {
+        type: 'tool_result' as const,
+        tool_use_id: 'read-fail-open',
+        name: 'read',
+        content: 'original tool result',
+      },
       ctx: { projectRoot: tempDir, cwd: tempDir, session: { id: 'fail-open' } },
     };
 
-    await expect(middleware.handler(payload as never, async (value) => value)).resolves.toBe(payload);
+    await expect(middleware.handler(payload as never, async (value) => value)).resolves.toBe(
+      payload,
+    );
     expect(payload.result.content).toBe('original tool result');
   });
 
@@ -257,9 +366,9 @@ describe('Super Memory tool-call middleware', () => {
     });
 
     it('updateSuperMemory rejects empty text', async () => {
-      await expect(
-        store.updateSuperMemory(memoryId, { text: '' }),
-      ).rejects.toThrow('must not be empty');
+      await expect(store.updateSuperMemory(memoryId, { text: '' })).rejects.toThrow(
+        'must not be empty',
+      );
     });
 
     it('updateSuperMemory rejects invalid kind', async () => {
@@ -314,12 +423,15 @@ describe('Super Memory tool-call middleware', () => {
       // Directly append a same-revision deleted tombstone to the JSONL
       const paths = (store as unknown as { paths: { memoriesLog: string } }).paths;
       const fs = await import('node:fs');
-      fs.appendFileSync(paths.memoriesLog, JSON.stringify({
-        recordType: 'memory',
-        schemaVersion: 1,
-        op: 'delete',
-        memory: { ...mem, status: 'deleted' as const },
-      }) + '\n');
+      fs.appendFileSync(
+        paths.memoriesLog,
+        JSON.stringify({
+          recordType: 'memory',
+          schemaVersion: 1,
+          op: 'delete',
+          memory: { ...mem, status: 'deleted' as const },
+        }) + '\n',
+      );
       // Invalidate cache and reload
       (store as unknown as { loaded: unknown }).loaded = undefined;
       (store as unknown as { loadedLogSignature: unknown }).loadedLogSignature = undefined;
@@ -346,9 +458,14 @@ describe('Super Memory tool-call middleware', () => {
       // Read the raw file — after compaction, record count should equal unique ID count
       const fs = await import('node:fs');
       const paths = (store as unknown as { paths: { memoriesLog: string } }).paths;
-      const rawLines = fs.readFileSync(paths.memoriesLog, 'utf8').split('\n').filter((l: string) => l.trim());
+      const rawLines = fs
+        .readFileSync(paths.memoriesLog, 'utf8')
+        .split('\n')
+        .filter((l: string) => l.trim());
       const records = rawLines.map((l: string) => JSON.parse(l));
-      const memoryRecords = records.filter((r: { recordType?: string }) => r.recordType === 'memory');
+      const memoryRecords = records.filter(
+        (r: { recordType?: string }) => r.recordType === 'memory',
+      );
       const uniqueIds = new Set(memoryRecords.map((r: { memory: { id: string } }) => r.memory.id));
 
       // After compaction: one record per unique ID (no duplicates)
@@ -373,21 +490,31 @@ describe('Super Memory tool-call middleware', () => {
 
       const fs = await import('node:fs');
       const paths = (store as unknown as { paths: { memoriesLog: string } }).paths;
-      const rawLines = fs.readFileSync(paths.memoriesLog, 'utf8').split('\n').filter((l: string) => l.trim());
+      const rawLines = fs
+        .readFileSync(paths.memoriesLog, 'utf8')
+        .split('\n')
+        .filter((l: string) => l.trim());
       // Should still have the original seed + this record (no compaction)
       expect(rawLines.length).toBeGreaterThanOrEqual(2);
     });
 
-    it('keeps ordinary soft-deleted memory eligible for automatic LLM retrieval', async () => {
+    it('keeps ordinary soft-deleted memory out of automatic LLM retrieval', async () => {
       await store.deleteSuperMemory(memoryId, 'No longer shown as active', { force: true });
       const matches = await store.searchSuper('pnpm monorepo');
-      expect(matches).toEqual(expect.arrayContaining([
-        expect.objectContaining({ id: memoryId, status: 'deleted', contextPolicy: 'eligible' }),
-      ]));
+      expect(matches).toEqual([]);
+
+      // Tombstones remain explicitly queryable for audit/recovery workflows.
+      const history = await store.searchSuper('pnpm monorepo', { includeStatuses: ['deleted'] });
+      expect(history).toEqual(
+        expect.arrayContaining([expect.objectContaining({ id: memoryId, status: 'deleted' })]),
+      );
     });
 
     it('honors an explicit neverInject deletion as an absolute context ban', async () => {
-      await store.deleteSuperMemory(memoryId, 'Private; never send to a model', { force: true, neverInject: true });
+      await store.deleteSuperMemory(memoryId, 'Private; never send to a model', {
+        force: true,
+        neverInject: true,
+      });
       await expect(store.searchSuper('pnpm monorepo')).resolves.toEqual([]);
       const deleted = await store.getSuperMemory(memoryId);
       expect(deleted).toMatchObject({ status: 'deleted', contextPolicy: 'never' });
@@ -400,9 +527,7 @@ describe('Super Memory tool-call middleware', () => {
     });
 
     it('deleteSuperMemory rejects non-existent ID', async () => {
-      await expect(store.deleteSuperMemory('mem_nonexistent')).rejects.toThrow(
-        'not found',
-      );
+      await expect(store.deleteSuperMemory('mem_nonexistent')).rejects.toThrow('not found');
     });
 
     it('deleteSuperMemory cascade cleans supersedes references', async () => {
@@ -528,9 +653,17 @@ describe('Super Memory tool-call middleware', () => {
     });
 
     it('cascade handles supersedes chain: A→B→C, delete A', async () => {
-      const memC = await store.rememberSuper({ text: 'C: latest', kind: 'convention', tags: ['c'] });
+      const memC = await store.rememberSuper({
+        text: 'C: latest',
+        kind: 'convention',
+        tags: ['c'],
+      });
       const memB = await store.rememberSuper({ text: 'B: older', kind: 'convention', tags: ['b'] });
-      const memA = await store.rememberSuper({ text: 'A: oldest', kind: 'convention', tags: ['a'] });
+      const memA = await store.rememberSuper({
+        text: 'A: oldest',
+        kind: 'convention',
+        tags: ['a'],
+      });
 
       // Build chain: A supersedes nothing, B supersedes A, C supersedes B
       await store.updateSuperMemory(memB.id, { supersedes: [memA.id] });
@@ -631,8 +764,18 @@ describe('Super Memory tool-call middleware', () => {
     });
     const middleware = createSuperMemoryToolCallMiddleware({ memory: store });
     const payload = {
-      toolUse: { type: 'tool_use' as const, id: 'clone-1', name: 'read', input: { path: 'source.ts' } },
-      result: { type: 'tool_result' as const, tool_use_id: 'clone-1', name: 'read', content: 'original' },
+      toolUse: {
+        type: 'tool_use' as const,
+        id: 'clone-1',
+        name: 'read',
+        input: { path: 'source.ts' },
+      },
+      result: {
+        type: 'tool_result' as const,
+        tool_use_id: 'clone-1',
+        name: 'read',
+        content: 'original',
+      },
       ctx: { projectRoot: tempDir, cwd: tempDir, session: { id: 'clone-session' } },
     };
 
@@ -699,7 +842,9 @@ describe('SuperMemoryStore.listSuperPage', () => {
     expect(third.nextCursor).toBeNull();
 
     // No overlap across pages.
-    const seen = new Set([...first.memories, ...second.memories, ...third.memories].map((m) => m.id));
+    const seen = new Set(
+      [...first.memories, ...second.memories, ...third.memories].map((m) => m.id),
+    );
     expect(seen.size).toBe(5);
   });
 
@@ -719,6 +864,34 @@ describe('SuperMemoryStore.listSuperPage', () => {
 });
 
 describe('SuperMemoryStore.backfillRecoverable idempotency', () => {
+  it('can restrict recovery to an explicitly refined tombstone id set', async () => {
+    const store = new SuperMemoryStore({ projectRoot: tempDir });
+    const keep = await store.rememberSuper({
+      text: 'durable selected memory',
+      kind: 'decision',
+      anchors: [{ type: 'file', path: 'src/selected.ts' }],
+    });
+    const leaveDeleted = await store.rememberSuper({
+      text: 'temporary unselected memory',
+      kind: 'fact',
+      sources: [{ type: 'session', sessionId: 'test-session' }],
+    });
+    await store.deleteSuperMemory(keep.id, 'regression', { force: true });
+    await store.deleteSuperMemory(leaveDeleted.id, 'regression', { force: true });
+
+    const report = await store.backfillRecoverable({
+      dryRun: false,
+      filter: { ids: [keep.id] },
+    });
+
+    expect(report.recovered).toBe(1);
+    expect(report.byReason['filter_ids']).toBe(1);
+    expect((await store.getSuperMemory(leaveDeleted.id))?.status).toBe('deleted');
+    expect((await store.listSuper(['active'])).map((memory) => memory.text)).toContain(
+      'durable selected memory',
+    );
+  });
+
   it('does not re-recover an already-recovered tombstone on a second run', async () => {
     const store = new SuperMemoryStore({ projectRoot: tempDir });
     const m = await store.rememberSuper({
@@ -743,5 +916,81 @@ describe('SuperMemoryStore.backfillRecoverable idempotency', () => {
     const active = await store.listSuper(['active']);
     const recovered = active.filter((x) => x.text === 'valuable memory with provenance');
     expect(recovered).toHaveLength(1);
+  });
+});
+
+describe('SuperMemoryStore.findRelatedSuper', () => {
+  it('materializes bounded memory-to-memory edges with structural evidence', async () => {
+    const store = new SuperMemoryStore({ projectRoot: tempDir });
+    const first = await store.rememberSuper({
+      text: 'SessionStore owns refresh token rotation.',
+      kind: 'symbol_note',
+      tags: ['auth', 'session'],
+      anchors: [{ type: 'symbol', path: 'src/session.ts', symbol: 'SessionStore' }],
+    });
+    const second = await store.rememberSuper({
+      text: 'SessionStore changes require the auth integration tests.',
+      kind: 'command_note',
+      tags: ['auth', 'session', 'test'],
+      anchors: [
+        { type: 'symbol', path: 'src/session.ts', symbol: 'SessionStore' },
+        { type: 'command', command: 'pnpm test auth' },
+      ],
+    });
+
+    const edges = await store.graphFor(second.id, 1, 100);
+    const direct = edges.find(
+      (edge) =>
+        new Set([edge.from, edge.to]).has(`mem:${first.id}`) &&
+        new Set([edge.from, edge.to]).has(`mem:${second.id}`),
+    );
+    expect(direct?.relation).toBe('related_to');
+    expect(direct?.evidence).toEqual(
+      expect.arrayContaining(['tag:auth', 'symbol:src/session.ts#SessionStore']),
+    );
+
+    const rebuilt = await store.rebuildMemoryRelationships();
+    expect(rebuilt.examined).toBe(2);
+    expect(rebuilt.proposed).toBeGreaterThan(0);
+    expect(rebuilt.added).toBe(0); // idempotent: incremental creation already linked them
+  });
+
+  it('expands a direct symbol memory to durable package and command references', async () => {
+    const store = new SuperMemoryStore({ projectRoot: tempDir });
+    const symbol = await store.rememberSuper({
+      text: 'SessionStore owns refresh-token rotation.',
+      kind: 'symbol_note',
+      tags: ['auth', 'session'],
+      anchors: [{ type: 'symbol', path: 'packages/auth/src/session.ts', symbol: 'SessionStore' }],
+    });
+    const packageFact = await store.rememberSuper({
+      text: 'The auth package owns session lifecycle.',
+      kind: 'fact',
+      tags: ['auth'],
+      anchors: [{ type: 'package', path: 'packages/auth' }],
+      persistence: 'long_lived',
+    });
+    const command = await store.rememberSuper({
+      text: 'Run the auth package tests before changing session behavior.',
+      kind: 'command_note',
+      tags: ['auth', 'test'],
+      anchors: [
+        { type: 'package', path: 'packages/auth' },
+        { type: 'command', command: 'pnpm --filter @wrongstack/auth test' },
+      ],
+    });
+    await store.rememberSuper({
+      text: 'Unrelated renderer convention.',
+      kind: 'convention',
+      tags: ['ui'],
+      anchors: [{ type: 'package', path: 'packages/tui' }],
+    });
+
+    const related = await store.findRelatedSuper([symbol.id], { limit: 10 });
+    const ids = new Set(related.map((memory) => memory.id));
+
+    expect(ids.has(packageFact.id)).toBe(true);
+    expect(ids.has(command.id)).toBe(true);
+    expect(related.some((memory) => memory.text.includes('renderer'))).toBe(false);
   });
 });

@@ -8,6 +8,7 @@ import {
   buildRefinerContextSections,
   clearActiveKit,
   clearPersistedActiveKit,
+  type ContextWindowPolicy,
   DEFAULT_REFINER_RETRY_FEEDBACK,
   DefaultSessionRewinder,
   detectContinueIntent,
@@ -15,6 +16,7 @@ import {
   enhanceUserPrompt,
   expectDefined,
   formatTodosList,
+  getContextBreakdown,
   getDesignKitLoader,
   InputBuilder,
   isDesignStack,
@@ -41,6 +43,7 @@ import { routeImagesForModel } from '@wrongstack/runtime/vision';
 import { getIndexState, getProcessRegistry, onIndexStateChange } from '@wrongstack/tools';
 import { createAutoProceedLoopGuard } from '@wrongstack/tools/auto-proceed-loop-guard';
 import { startPromptRefinement } from './prompt-refinement-start.js';
+import { memoryLifecycleEntry } from './memory-lifecycle-entry.js';
 import React, {
   useCallback,
   useEffect,
@@ -1897,6 +1900,7 @@ export function App({
             ctxPct: s.leader.ctxPct,
             ctxTokens: s.leader.ctxTokens,
             ctxMaxTokens: s.leader.ctxMaxTokens,
+            cacheStats: tokenCounter?.cacheStats(),
           };
         },
         getUptime: () => {
@@ -1911,6 +1915,17 @@ export function App({
         terminalWidth: stdout.columns ?? 80,
         memoryStats: createContextMemoryStatsGetter(memoryStore),
         onPanelOpen,
+        getBreakdown: () => {
+          try {
+            return getContextBreakdown(agent.ctx);
+          } catch {
+            return null;
+          }
+        },
+        getPolicy: () => {
+          const p = (agent.ctx.meta as Record<string, unknown>)['contextWindowPolicy'];
+          return p && typeof p === 'object' ? (p as ContextWindowPolicy) : null;
+        },
       }),
     );
     // `/kanban` — open the project kanban panel, create a board, add a task,
@@ -3489,6 +3504,55 @@ export function App({
         },
       });
     });
+    // Use the pattern API at the workspace package boundary: the running core
+    // already emits this named event, while TUI may typecheck against the last
+    // built core declarations until the next full workspace build.
+    const offMemoryInjector = events.onPattern('memory.injector_run', (_event, payload) => {
+      const e = payload as {
+        outcome: 'injected' | 'empty' | 'error';
+        trigger: string;
+        candidates: number;
+        contextPressure: number;
+        injectedChars: number;
+        error?: string | undefined;
+        rejected: Record<'duplicate' | 'belowScore' | 'alreadyVisible' | 'cooldown' | 'budget', number>;
+        activated: Array<{
+          id: string;
+          kind: string;
+          text: string;
+          score: number;
+          relationStrength: number;
+          anchors: string[];
+          tags: string[];
+          activationReasons: string[];
+          importance: number;
+          confidence: number;
+          freshness: number;
+          persistence: string;
+        }>;
+        injected: Array<{ id: string }>;
+      };
+      dispatch({
+        type: 'addEntry',
+        entry: {
+          kind: 'memory-activation',
+          trigger: e.trigger,
+          outcome: e.outcome,
+          candidates: e.candidates,
+          contextPressure: e.contextPressure,
+          injectedChars: e.injectedChars,
+          activated: e.activated,
+          injectedIds: e.injected.map((memory) => memory.id),
+          rejected: e.rejected,
+          error: e.error,
+        },
+      });
+    });
+    const offMemoryLifecycle = events.onPattern('memory.*', (event, payload) => {
+      const lifecycle = memoryLifecycleEntry(event, payload as Record<string, unknown>);
+      if (!lifecycle) return;
+      dispatch({ type: 'addEntry', entry: { kind: 'memory-lifecycle', ...lifecycle } });
+    });
     return () => {
       offDelta();
       offThinking();
@@ -3508,6 +3572,8 @@ export function App({
       offMemoryStale();
       offMemoryContradicted();
       offMemoryHygiene();
+      offMemoryInjector();
+      offMemoryLifecycle();
       if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
     };
   }, [events, agent.ctx.todos]);
@@ -7365,7 +7431,16 @@ export function App({
                 initialBoardId={focusedBoardId ?? undefined}
               />
             ) : state.queuePanelOpen ? (
-              <QueuePanel items={state.queue} />
+              <QueuePanel
+                items={state.queue}
+                onDelete={(pos) => dispatch({ type: 'queueDelete', positions: [pos + 1] })}
+                onClear={() => dispatch({ type: 'queueClear' })}
+                onEdit={(pos) => {
+                  const item = state.queue[pos];
+                  if (item) setDraft(item.displayText, item.displayText.length);
+                }}
+                onToggleRefine={(pos) => dispatch({ type: 'queueToggleRefine', position: pos })}
+              />
             ) : state.processListOpen ? (
               <ProcessListMonitor />
             ) : state.cronMonitorOpen ? (

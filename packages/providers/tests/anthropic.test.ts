@@ -103,6 +103,38 @@ describe('AnthropicProvider', () => {
     expect(body?.['tools'] as unknown[]).toHaveLength(1);
   });
 
+  it('caps cache breakpoints to 4 on the wire and never mutates the caller system blocks', async () => {
+    let body: Record<string, unknown> | undefined;
+    const fetchImpl = vi.fn(async (_url: unknown, init: { body?: string } = {}) => {
+      body = JSON.parse(init.body ?? '{}');
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          content: [{ type: 'text', text: 'ok' }],
+          stop_reason: 'end_turn',
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }),
+        text: async () => '',
+      };
+    }) as never as typeof fetch;
+    const p = new AnthropicProvider({ apiKey: 'k', fetchImpl });
+    // Six ephemeral system markers — two over Anthropic's ceiling of 4.
+    const system = Array.from({ length: 6 }, (_, i) => ({
+      type: 'text' as const,
+      text: `block-${i}`,
+      cache_control: { type: 'ephemeral' as const },
+    }));
+    await p.complete(
+      { model: 'm', messages: [{ role: 'user', content: 'hi' }], maxTokens: 1, system },
+      { signal: new AbortController().signal },
+    );
+    const wire = body?.['system'] as Array<Record<string, unknown>>;
+    expect(wire.filter((b) => b['cache_control']).length).toBe(4);
+    // The caller's own blocks must be untouched (buildBody clones before capping).
+    expect(system.every((b) => b.cache_control?.type === 'ephemeral')).toBe(true);
+  });
+
   it('uses Bearer auth for non-Anthropic baseUrls (kimi-for-coding etc.)', async () => {
     const spy = vi.fn(async (_url: unknown, init?: { headers?: Record<string, string> }) => ({
       ok: true,

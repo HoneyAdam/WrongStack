@@ -14,6 +14,7 @@ import type { ModelsRegistry } from '../types/models-registry.js';
 import type {
   MCPRegistryView,
   MetricsSinkView,
+  Notifier,
   PluginAPI,
   PluginCapabilities,
   PluginDependency,
@@ -82,6 +83,12 @@ export interface PluginAPIInit {
    */
   mailbox?: Mailbox | undefined;
   /**
+   * Notification router for one-way channel delivery. Plugins that
+   * implement `NotificationChannel` register their channel here during
+   * `setup()`. Optional — minimal hosts/tests may omit it.
+   */
+  notifier?: Notifier | undefined;
+  /**
    * LLM wiring for `api.llm`. When provided, `DefaultPluginAPI` exposes a
    * `PluginLLM` that routes completions through the host's provider layer:
    *
@@ -141,6 +148,7 @@ export class DefaultPluginAPI implements PluginAPI {
   readonly log: Logger;
   readonly modelsRegistry: ModelsRegistry | undefined;
   readonly mailbox: Mailbox | undefined;
+  readonly notifier: Notifier | undefined;
   readonly llm: PluginLLM | undefined;
   private readonly configStore:
     | { watch(cb: (next: unknown, prev: unknown) => void): () => void }
@@ -163,6 +171,7 @@ export class DefaultPluginAPI implements PluginAPI {
     this.metrics = init.metricsSink ? scopedMetrics(init.metricsSink, owner) : noopMetrics;
     this.modelsRegistry = init.modelsRegistry;
     this.mailbox = init.mailbox;
+    this.notifier = init.notifier;
     // Live view of config.extensions: `/plugin llm <name> …` updates flow
     // through ConfigStore.update(), and api.llm should honour the new
     // per-plugin override WITHOUT a restart. When no ConfigStore is wired

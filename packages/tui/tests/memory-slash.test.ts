@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
 import type { MemoryEntry, MemoryScope, MemoryStore } from '@wrongstack/core';
+import { describe, expect, it, vi } from 'vitest';
 import { createMemorySlashCommand, type MemorySlashDeps } from '../src/memory-slash.js';
 
 /**
@@ -39,12 +39,19 @@ function fakeSuperMemoryStore(memories: SuperMemoryTestEntry[]) {
     consolidate: async () => {},
     clear: async () => {},
     search: async () => [],
-    withTraceId: () => ({} as MemoryStore),
+    withTraceId: () => ({}) as MemoryStore,
 
     // ── SuperMemory duck-type methods ──
     stats: async () => {
       const total = memories.length;
-      const byStatus: Record<string, number> = { active: 0, stale: 0, superseded: 0, contradicted: 0, archived: 0, deleted: 0 };
+      const byStatus: Record<string, number> = {
+        active: 0,
+        stale: 0,
+        superseded: 0,
+        contradicted: 0,
+        archived: 0,
+        deleted: 0,
+      };
       const byKind: Record<string, number> = {};
       for (const m of memories) {
         byStatus[m.status] = (byStatus[m.status] ?? 0) + 1;
@@ -56,10 +63,35 @@ function fakeSuperMemoryStore(memories: SuperMemoryTestEntry[]) {
     retrieveForPath: async (opts: { path: string }) =>
       memories.filter((m) => m.anchors?.some((a) => a.path?.includes(opts.path))).map(superEntry),
     searchSuper: async () => [],
-    rememberSuper: async (input: { text: string }) => superEntry({ id: 'mem_new', kind: 'fact', status: 'active', text: input.text, tags: [], createdAt: new Date('2026-07-14T12:00:00Z').toISOString() }),
-    updateSuperMemory: async (id: string) => superEntry({ id, kind: 'fact', status: 'active', text: 'updated', tags: [], createdAt: new Date('2026-07-14T12:00:00Z').toISOString() }),
+    rememberSuper: async (input: { text: string }) =>
+      superEntry({
+        id: 'mem_new',
+        kind: 'fact',
+        status: 'active',
+        text: input.text,
+        tags: [],
+        createdAt: new Date('2026-07-14T12:00:00Z').toISOString(),
+      }),
+    updateSuperMemory: async (id: string) =>
+      superEntry({
+        id,
+        kind: 'fact',
+        status: 'active',
+        text: 'updated',
+        tags: [],
+        createdAt: new Date('2026-07-14T12:00:00Z').toISOString(),
+      }),
     deleteSuperMemory: async () => {},
-    getSuperMemory: async (id: string) => superEntry({ id, kind: 'fact', status: 'active', text: 'x', tags: [], createdAt: new Date('2026-07-14T12:00:00Z').toISOString() }),
+    getSuperMemory: async (id: string) =>
+      superEntry({
+        id,
+        kind: 'fact',
+        status: 'active',
+        text: 'x',
+        tags: [],
+        createdAt: new Date('2026-07-14T12:00:00Z').toISOString(),
+      }),
+    graphFor: async () => [],
   };
 }
 
@@ -120,7 +152,13 @@ describe('/memory slash command', () => {
     it('lists entries from project-memory in rich format', async () => {
       const deps: MemorySlashDeps = {
         memoryStore: fakeMemoryStore({
-          'project-memory': [entry('A key design decision', { type: 'decision', priority: 'high', tags: ['design', 'arch'] })],
+          'project-memory': [
+            entry('A key design decision', {
+              type: 'decision',
+              priority: 'high',
+              tags: ['design', 'arch'],
+            }),
+          ],
         }),
       };
       const cmd = createMemorySlashCommand(deps);
@@ -140,7 +178,9 @@ describe('/memory slash command', () => {
     it('shows entries from all three scopes when no argument is given', async () => {
       const deps: MemorySlashDeps = {
         memoryStore: fakeMemoryStore({
-          'project-agents': [entry('Agent coordination fact', { scope: 'project-agents', tags: ['agents'] })],
+          'project-agents': [
+            entry('Agent coordination fact', { scope: 'project-agents', tags: ['agents'] }),
+          ],
           'project-memory': [entry('Project note', { scope: 'project-memory', tags: ['project'] })],
           'user-memory': [entry('Personal preference', { scope: 'user-memory', tags: ['user'] })],
         }),
@@ -170,7 +210,8 @@ describe('/memory slash command', () => {
     });
 
     it('truncates long text previews with ellipsis', async () => {
-      const longText = 'A very long memory entry that should be truncated because it exceeds the one hundred character preview limit in the output for the legacy rich entry renderer';
+      const longText =
+        'A very long memory entry that should be truncated because it exceeds the one hundred character preview limit in the output for the legacy rich entry renderer';
       const deps: MemorySlashDeps = {
         memoryStore: fakeMemoryStore({
           'project-memory': [entry(longText)],
@@ -214,7 +255,9 @@ describe('/memory slash command', () => {
 
     it('reports an error when memoryStore.list rejects', async () => {
       const brokenStore: MemoryStore = {
-        list: async () => { throw new Error('disk failure'); },
+        list: async () => {
+          throw new Error('disk failure');
+        },
         readAll: async () => '',
         read: async () => '',
         remember: async () => {},
@@ -273,9 +316,31 @@ describe('/memory slash command', () => {
 
   describe('super memory store', () => {
     const fixtMemories: SuperMemoryTestEntry[] = [
-      { id: 'mem_001', kind: 'decision', status: 'active', text: 'Use pnpm workspaces', tags: ['pnpm', 'monorepo'], createdAt: '2026-07-14T12:00:00Z' },
-      { id: 'mem_002', kind: 'convention', status: 'active', text: 'ESM-only modules', tags: ['esm', 'typescript'], createdAt: '2026-07-13T12:00:00Z', anchors: [{ type: 'file', path: 'src/config.ts' }] },
-      { id: 'mem_003', kind: 'fact', status: 'stale', text: 'Old node version requirement', tags: ['node'], createdAt: '2026-06-01T12:00:00Z' },
+      {
+        id: 'mem_001',
+        kind: 'decision',
+        status: 'active',
+        text: 'Use pnpm workspaces',
+        tags: ['pnpm', 'monorepo'],
+        createdAt: '2026-07-14T12:00:00Z',
+      },
+      {
+        id: 'mem_002',
+        kind: 'convention',
+        status: 'active',
+        text: 'ESM-only modules',
+        tags: ['esm', 'typescript'],
+        createdAt: '2026-07-13T12:00:00Z',
+        anchors: [{ type: 'file', path: 'src/config.ts' }],
+      },
+      {
+        id: 'mem_003',
+        kind: 'fact',
+        status: 'stale',
+        text: 'Old node version requirement',
+        tags: ['node'],
+        createdAt: '2026-06-01T12:00:00Z',
+      },
     ];
 
     it('shows supermemory stats panel', async () => {
@@ -328,6 +393,27 @@ describe('/memory slash command', () => {
       expect(out).toContain('mem_003');
     });
 
+    it('shows persisted graph edge evidence', async () => {
+      const store = fakeSuperMemoryStore(fixtMemories);
+      const graphFor = vi.fn(async () => [
+        {
+          from: 'mem:mem_001',
+          to: 'mem:mem_002',
+          relation: 'same_topic',
+          weight: 0.82,
+          evidence: ['tag:typescript', 'path:src/config.ts'],
+        },
+      ]);
+      (store as unknown as { graphFor: typeof graphFor }).graphFor = graphFor;
+      const cmd = createMemorySlashCommand({ memoryStore: store });
+
+      const out = await run(cmd, 'graph mem_001');
+
+      expect(graphFor).toHaveBeenCalledWith('mem_001', 2, 100);
+      expect(out).toContain('same_topic:0.82');
+      expect(out).toContain('why: tag:typescript, path:src/config.ts');
+    });
+
     it('returns empty message when no super memories exist', async () => {
       const store = fakeSuperMemoryStore([]);
       const cmd = createMemorySlashCommand({ memoryStore: store });
@@ -338,27 +424,55 @@ describe('/memory slash command', () => {
     it('remember subcommand forwards structured flags to rememberSuper', async () => {
       const store = fakeSuperMemoryStore([]);
       const rememberSuper = vi.fn(async (input: { text: string }) => ({
-        id: 'mem_new', kind: 'convention', status: 'active', text: input.text, tags: ['pnpm'],
-        createdAt: '', updatedAt: '', importance: 0.9, confidence: 0.8, anchors: [], sources: [],
+        id: 'mem_new',
+        kind: 'convention',
+        status: 'active',
+        text: input.text,
+        tags: ['pnpm'],
+        createdAt: '',
+        updatedAt: '',
+        importance: 0.9,
+        confidence: 0.8,
+        anchors: [],
+        sources: [],
       }));
       (store as unknown as { rememberSuper: typeof rememberSuper }).rememberSuper = rememberSuper;
       const cmd = createMemorySlashCommand({ memoryStore: store });
-      const out = await run(cmd, 'remember Project uses pnpm --kind convention --tag pnpm --importance 0.9');
-      expect(rememberSuper).toHaveBeenCalledWith(expect.objectContaining({
-        text: 'Project uses pnpm', kind: 'convention', tags: ['pnpm'], importance: 0.9,
-      }));
+      const out = await run(
+        cmd,
+        'remember Project uses pnpm --kind convention --tag pnpm --importance 0.9',
+      );
+      expect(rememberSuper).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: 'Project uses pnpm',
+          kind: 'convention',
+          tags: ['pnpm'],
+          importance: 0.9,
+        }),
+      );
       expect(out).toContain('Remembered');
     });
 
     it('update and delete subcommands dispatch by id', async () => {
       const store = fakeSuperMemoryStore([]);
       const updateSuperMemory = vi.fn(async (id: string) => ({
-        id, kind: 'fact', status: 'archived', text: 'x', tags: [], createdAt: '', updatedAt: '',
-        importance: 0.5, confidence: 0.8, anchors: [], sources: [],
+        id,
+        kind: 'fact',
+        status: 'archived',
+        text: 'x',
+        tags: [],
+        createdAt: '',
+        updatedAt: '',
+        importance: 0.5,
+        confidence: 0.8,
+        anchors: [],
+        sources: [],
       }));
       const deleteSuperMemory = vi.fn(async () => {});
-      (store as unknown as { updateSuperMemory: typeof updateSuperMemory }).updateSuperMemory = updateSuperMemory;
-      (store as unknown as { deleteSuperMemory: typeof deleteSuperMemory }).deleteSuperMemory = deleteSuperMemory;
+      (store as unknown as { updateSuperMemory: typeof updateSuperMemory }).updateSuperMemory =
+        updateSuperMemory;
+      (store as unknown as { deleteSuperMemory: typeof deleteSuperMemory }).deleteSuperMemory =
+        deleteSuperMemory;
       const cmd = createMemorySlashCommand({ memoryStore: store });
 
       await run(cmd, 'update mem_123 --status archived');
@@ -381,7 +495,9 @@ describe('/memory slash command', () => {
 
     it('handles supermemory store errors gracefully', async () => {
       const brokenStore: MemoryStore = {
-        list: async () => { throw new Error('broken'); },
+        list: async () => {
+          throw new Error('broken');
+        },
         readAll: async () => '',
         read: async () => '',
         remember: async () => {},
@@ -391,9 +507,15 @@ describe('/memory slash command', () => {
         search: async () => [],
         withTraceId: () => brokenStore,
         // Duck-type to supermemory but broken
-        stats: async () => { throw new Error('stats failure'); },
-        listSuper: async () => { throw new Error('list failure'); },
-        retrieveForPath: async () => { throw new Error('path failure'); },
+        stats: async () => {
+          throw new Error('stats failure');
+        },
+        listSuper: async () => {
+          throw new Error('list failure');
+        },
+        retrieveForPath: async () => {
+          throw new Error('path failure');
+        },
         searchSuper: async () => [],
       };
       const deps: MemorySlashDeps = { memoryStore: brokenStore };

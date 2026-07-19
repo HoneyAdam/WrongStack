@@ -8,7 +8,7 @@ import {
 import { SETTINGS_FIELD_COUNT } from '../src/components/settings-picker.js';
 import type { State } from '../src/app-state.js';
 
-function initial(over: Partial<State> = {}): State {
+export function initial(over: Partial<State> = {}): State {
   const state = {
     entries: [],
     buffer: '',
@@ -115,6 +115,19 @@ function initial(over: Partial<State> = {}): State {
     sddBoard: null,
     worktreeMonitorOpen: false,
     coordinator: { goals: [], timeline: [], knowledgeCount: 0, monitorOpen: false, healthy: false },
+    pluginPicker: { open: false, items: [], selected: 0, busy: false, hint: undefined },
+    mcpPicker: { open: false, items: [], selected: 0, busy: false, hint: undefined },
+    toolsPicker: { open: false, items: [], selected: 0, busy: false, hint: undefined, filter: undefined },
+    resumePicker: { open: false, sessions: [], selected: 0, busy: false, hint: undefined, error: undefined },
+    brainPanel: { open: false, log: [], settings: null, selected: 0, view: undefined, busy: false, hint: undefined },
+    authPanel: { open: false, view: 'list' as const, providers: [], presets: [], catalog: [], selected: 0, filter: '', busy: false, hint: '' },
+    shadowPanel: { open: false, running: false, model: '', intervalMs: 5000, activeId: null, hint: undefined },
+    helpPanel: { open: false, entries: [], filter: '', selected: 0, hint: undefined },
+    collabSession: null,
+    exitConfirm: null, slashConfirm: null, escConfirm: null, clearConfirm: null,
+    goalKanbanPanelOpen: false, goalKanbanBoard: null,
+    sddBoardMonitorOpen: false,
+    scrollOffset: 0, pendingNewLines: 0, totalLines: 0, viewportRows: 24,
     ...over,
   };
   return state as unknown as State;

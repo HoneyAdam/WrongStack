@@ -16,6 +16,21 @@ export interface AutonomyAgentStatus {
   detail?: string | undefined;
 }
 
+export interface MemoryActivationItem {
+  id: string;
+  kind: string;
+  text: string;
+  score: number;
+  relationStrength: number;
+  anchors: string[];
+  tags: string[];
+  activationReasons: string[];
+  importance: number;
+  confidence: number;
+  freshness: number;
+  persistence: string;
+}
+
 export type HistoryEntry =
   | { id: number; kind: 'user'; text: string; queued?: boolean | undefined; pasteContent?: string | undefined }
   | { id: number; kind: 'assistant'; text: string }
@@ -52,6 +67,26 @@ export type HistoryEntry =
   | { id: number; kind: 'warn'; text: string }
   | { id: number; kind: 'error'; text: string }
   | { id: number; kind: 'turn-summary'; text: string }
+  | {
+      id: number;
+      kind: 'memory-activation';
+      trigger: string;
+      outcome: 'injected' | 'empty' | 'error';
+      candidates: number;
+      contextPressure: number;
+      injectedChars: number;
+      activated: MemoryActivationItem[];
+      injectedIds: string[];
+      rejected: Record<'duplicate' | 'belowScore' | 'alreadyVisible' | 'cooldown' | 'budget', number>;
+      error?: string | undefined;
+    }
+  | {
+      id: number;
+      kind: 'memory-lifecycle';
+      action: 'entered' | 'updated' | 'merged' | 'recovered' | 'exited' | 'related' | 'state';
+      label: string;
+      detail?: string | undefined;
+    }
   | {
       id: number;
       kind: 'brain';

@@ -158,7 +158,11 @@ class ProviderBackedCompactor implements Compactor {
     }
 
     const policy = readPolicy(ctx);
-    const maxContext = provider.capabilities?.maxContext || undefined;
+    const learnedMax = ctx.meta?.['effectiveMaxContext'];
+    const maxContext =
+      typeof learnedMax === 'number' && Number.isFinite(learnedMax) && learnedMax > 0
+        ? Math.floor(learnedMax)
+        : provider.capabilities?.maxContext || undefined;
     const thresholds = policy?.thresholds;
     const common = {
       provider,

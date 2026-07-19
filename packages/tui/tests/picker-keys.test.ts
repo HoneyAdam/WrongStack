@@ -46,8 +46,13 @@ function baseState(overrides: Partial<State> = {}): State {
     designPicker: { open: false, kits: [], selected: 0, stack: 'web' },
     promptPicker: { open: false, all: [], categories: [], recentSlugs: [], catIndex: 0, selected: 0 },
     resumePicker: { open: false, sessions: [], selected: 0, busy: false },
-    settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0 },
+    settingsPicker: { open: false, field: 0, mode: 'off', delayMs: 0, thinkingWordEditing: false, thinkingWordDraft: '', filter: '' },
     pluginPicker: { open: false, items: [], selected: 0, busy: false },
+    mcpPicker: { open: false, items: [], selected: 0, busy: false },
+    toolsPicker: { open: false, items: [], selected: 0, busy: false, filter: undefined },
+    helpPanel: { open: false, entries: [], selected: 0, filter: '' },
+    brainPanel: { open: false, riskLevel: 'off', log: [], selected: 0, row: 0, busy: false, hint: undefined, view: 'log', settings: undefined },
+    shadowPanel: { open: false },
     fKeyPicker: { open: false, selected: 0 },
     picker: { open: false, query: '', matches: [], selected: 0 },
     slashPicker: { open: false, query: '', matches: [], selected: 0 },
@@ -268,5 +273,1377 @@ describe('usePickerKeys — model and mode flows', () => {
 
     expect(host.dispatch).toHaveBeenCalledWith({ type: 'modePickerClose' });
     expect(host.submit).toHaveBeenCalledWith('/mode review');
+  });
+
+  it('does nothing on empty mode picker Enter', () => {
+    const host = makeHost(
+      baseState({
+        modePicker: { open: true, modes: [], selected: 0 },
+      }),
+    );
+    host.dispatch.mockClear();
+
+    runPickerKey(host, '', key(), true);
+
+    expect(host.dispatch).not.toHaveBeenCalledWith({ type: 'modePickerClose' });
+  });
+
+  it('navigates model picker with arrow keys', () => {
+    const host = makeHost(
+      baseState({
+        modelPicker: {
+          open: true,
+          step: 'provider',
+          providerOptions: [{ id: 'openai', family: 'openai', models: ['gpt-4'] }],
+          modelOptions: [],
+          filteredOptions: [],
+          selected: 0,
+          searchQuery: '',
+        },
+      }),
+    );
+
+    runPickerKey(host, '', key({ upArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'modelPickerMove', delta: -1 });
+
+    host.dispatch.mockClear();
+    runPickerKey(host, '', key({ downArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'modelPickerMove', delta: 1 });
+  });
+
+  it('handles model picker escape - step model goes back, step provider closes', () => {
+    const host = makeHost(
+      baseState({
+        modelPicker: {
+          open: true,
+          step: 'model',
+          providerOptions: [],
+          modelOptions: ['gpt-4'],
+          filteredOptions: ['gpt-4'],
+          selected: 0,
+          searchQuery: '',
+          pickedProviderId: 'openai',
+        },
+      }),
+    );
+
+    runPickerKey(host, '', key({ escape: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'modelPickerBack' });
+
+    host.dispatch.mockClear();
+    // Provider step should close
+    const host2 = makeHost(
+      baseState({
+        modelPicker: {
+          open: true,
+          step: 'provider',
+          providerOptions: [],
+          modelOptions: [],
+          filteredOptions: [],
+          selected: 0,
+          searchQuery: '',
+        },
+      }),
+    );
+    runPickerKey(host2, '', key({ escape: true }), false);
+    expect(host2.dispatch).toHaveBeenCalledWith({ type: 'modelPickerClose' });
+  });
+
+  it('handles model picker search on model step', () => {
+    const host = makeHost(
+      baseState({
+        modelPicker: {
+          open: true,
+          step: 'model',
+          providerOptions: [],
+          modelOptions: ['gpt-4', 'gpt-4o'],
+          filteredOptions: ['gpt-4', 'gpt-4o'],
+          selected: 0,
+          searchQuery: '',
+          pickedProviderId: 'openai',
+        },
+      }),
+    );
+
+    runPickerKey(host, '4', key(), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'modelPickerSearch', query: '4' });
+  });
+
+  it('handles model picker backspace on model step (pop char or go back)', () => {
+    const host = makeHost(
+      baseState({
+        modelPicker: {
+          open: true,
+          step: 'model',
+          providerOptions: [],
+          modelOptions: ['gpt-4'],
+          filteredOptions: ['gpt-4'],
+          selected: 0,
+          searchQuery: 'g',
+          pickedProviderId: 'openai',
+        },
+      }),
+    );
+
+    // First backspace with searchQuery='g' pops the char (search becomes '')
+    runPickerKey(host, '', key({ backspace: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'modelPickerSearch', query: '' });
+  });
+
+  it('handles model picker wheel', () => {
+    const host = makeHost(
+      baseState({
+        modelPicker: {
+          open: true,
+          step: 'provider',
+          providerOptions: [{ id: 'openai', family: 'openai', models: ['gpt-4'] }],
+          modelOptions: [],
+          filteredOptions: [],
+          selected: 0,
+          searchQuery: '',
+        },
+      }),
+    );
+
+    // Wheel > 0 means scroll up → delta -1
+    runPickerKey(host, '', key({ mouse: { kind: 'wheel', wheel: 1 } }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'modelPickerMove', delta: -1 });
+
+    host.dispatch.mockClear();
+    // Wheel < 0 means scroll down → delta 1
+    runPickerKey(host, '', key({ mouse: { kind: 'wheel', wheel: -1 } }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'modelPickerMove', delta: 1 });
+  });
+
+  it('handles model picker with purpose pick on Enter', () => {
+    const onModelPicked = vi.fn();
+    const host = makeHost(
+      baseState({
+        modelPicker: {
+          open: true,
+          step: 'model',
+          providerOptions: [],
+          modelOptions: ['gpt-4o'],
+          filteredOptions: ['gpt-4o'],
+          selected: 0,
+          searchQuery: '',
+          pickedProviderId: 'openai',
+          purpose: 'pick',
+        },
+      }),
+      { onModelPicked },
+    );
+    host.dispatch.mockClear();
+    host.lastEnterAtRef.current = 0;
+
+    runPickerKey(host, '', key(), true);
+
+    expect(onModelPicked).toHaveBeenCalledWith('openai', 'gpt-4o');
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'modelPickerClose' });
+  });
+
+  it('handles model picker Enter with async switchProviderAndModel', () => {
+    const switchProviderAndModel = vi.fn().mockResolvedValue(null);
+    const host = makeHost(
+      baseState({
+        modelPicker: {
+          open: true,
+          step: 'model',
+          providerOptions: [],
+          modelOptions: ['gpt-4o'],
+          filteredOptions: ['gpt-4o'],
+          selected: 0,
+          searchQuery: '',
+          pickedProviderId: 'openai',
+        },
+      }),
+      { switchProviderAndModel },
+    );
+    host.dispatch.mockClear();
+    host.lastEnterAtRef.current = 0;
+
+    runPickerKey(host, '', key(), true);
+
+    expect(switchProviderAndModel).toHaveBeenCalledWith('openai', 'gpt-4o');
+  });
+
+  it('handles selected provider out of bounds on Enter', () => {
+    const host = makeHost(
+      baseState({
+        modelPicker: {
+          open: true,
+          step: 'provider',
+          providerOptions: [],
+          modelOptions: [],
+          filteredOptions: [],
+          selected: 999,
+          searchQuery: '',
+        },
+      }),
+    );
+    host.dispatch.mockClear();
+
+    runPickerKey(host, '', key(), true);
+
+    // No dispatch because opt is undefined
+    expect(host.dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'modelPickerPickProvider' }),
+    );
+  });
+});
+
+describe('usePickerKeys — auth panel', () => {
+  it('handles Ctrl+C in auth panel', () => {
+    const onAuthCtrlC = vi.fn();
+    const host = makeHost(
+      baseState({
+        authPanel: { open: true, view: 'list' },
+      }),
+      { onAuthCtrlC },
+    );
+
+    runPickerKey(host, 'c', key({ ctrl: true }), false);
+    expect(onAuthCtrlC).toHaveBeenCalled();
+  });
+
+  it('handles Ctrl+C with uppercase C', () => {
+    const onAuthCtrlC = vi.fn();
+    const host = makeHost(
+      baseState({
+        authPanel: { open: true, view: 'list' },
+      }),
+      { onAuthCtrlC },
+    );
+
+    runPickerKey(host, 'C', key({ ctrl: true }), false);
+    expect(onAuthCtrlC).toHaveBeenCalled();
+  });
+
+  it('handles auth panel input escape and submit', () => {
+    const onAuthPromptCancel = vi.fn();
+    const onAuthPromptSubmit = vi.fn();
+    const host = makeHost(
+      baseState({
+        authPanel: { open: true, input: { label: 'key', masked: true, draft: 'test' } },
+      }),
+      { onAuthPromptCancel, onAuthPromptSubmit },
+    );
+
+    runPickerKey(host, '', key({ escape: true }), false);
+    expect(onAuthPromptCancel).toHaveBeenCalled();
+
+    host.lastEnterAtRef.current = 0;
+    runPickerKey(host, '', key(), true);
+    expect(onAuthPromptSubmit).toHaveBeenCalled();
+  });
+
+  it('handles auth panel input backspace', () => {
+    const host = makeHost(
+      baseState({
+        authPanel: { open: true, input: { label: 'key', masked: true, draft: 'test' } },
+      }),
+    );
+
+    runPickerKey(host, '', key({ backspace: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'authPromptChange', draft: 'tes' });
+  });
+
+  it('handles auth panel input printable characters', () => {
+    const host = makeHost(
+      baseState({
+        authPanel: { open: true, input: { label: 'key', masked: true, draft: '' } },
+      }),
+    );
+
+    runPickerKey(host, 'hello', key(), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'authPromptChange', draft: 'hello' });
+  });
+
+  it('filters control characters from pasted input', () => {
+    const host = makeHost(
+      baseState({
+        authPanel: { open: true, input: { label: 'key', masked: true, draft: '' } },
+      }),
+    );
+
+    // Input with a newline (0x0a) that should be filtered
+    runPickerKey(host, 'key\n', key(), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'authPromptChange', draft: 'key' });
+  });
+
+  it('handles auth confirm y/n', () => {
+    const onAuthConfirm = vi.fn();
+    const host = makeHost(
+      baseState({
+        authPanel: { open: true, confirm: { question: 'Delete?', action: { kind: 'delete-key', providerId: 'p', label: 'k' } } },
+      }),
+      { onAuthConfirm },
+    );
+
+    runPickerKey(host, 'y', key(), false);
+    expect(onAuthConfirm).toHaveBeenCalledWith(true);
+
+    onAuthConfirm.mockClear();
+    runPickerKey(host, 'n', key(), false);
+    expect(onAuthConfirm).toHaveBeenCalledWith(false);
+
+    onAuthConfirm.mockClear();
+    runPickerKey(host, '', key({ escape: true }), false);
+    expect(onAuthConfirm).toHaveBeenCalledWith(false);
+  });
+
+  it('handles auth confirm with N uppercase', () => {
+    const onAuthConfirm = vi.fn();
+    const host = makeHost(
+      baseState({
+        authPanel: { open: true, confirm: { question: '?', action: { kind: 'delete-key', providerId: 'p', label: 'k' } } },
+      }),
+      { onAuthConfirm },
+    );
+
+    runPickerKey(host, 'N', key(), false);
+    expect(onAuthConfirm).toHaveBeenCalledWith(false);
+
+    onAuthConfirm.mockClear();
+    runPickerKey(host, 'Y', key(), false);
+    expect(onAuthConfirm).toHaveBeenCalledWith(true);
+  });
+
+  it('handles auth flow view escape and Enter', () => {
+    const onAuthFlowCancel = vi.fn();
+    const onAuthEnter = vi.fn();
+    const host = makeHost(
+      baseState({
+        authPanel: { open: true, view: 'flow', busy: false },
+      }),
+      { onAuthFlowCancel, onAuthEnter },
+    );
+
+    runPickerKey(host, '', key({ escape: true }), false);
+    expect(onAuthFlowCancel).toHaveBeenCalled();
+
+    host.lastEnterAtRef.current = 0;
+    runPickerKey(host, '', key(), true);
+    expect(onAuthEnter).toHaveBeenCalled();
+  });
+
+  it('handles auth panel escape back', () => {
+    const onAuthBack = vi.fn();
+    const host = makeHost(
+      baseState({
+        authPanel: { open: true, view: 'provider', providerId: 'openai' },
+      }),
+      { onAuthBack },
+    );
+
+    runPickerKey(host, '', key({ escape: true }), false);
+    expect(onAuthBack).toHaveBeenCalled();
+  });
+
+  it('handles auth panel navigation with arrows and wheel', () => {
+    const host = makeHost(
+      baseState({
+        authPanel: { open: true, view: 'list' },
+      }),
+    );
+
+    runPickerKey(host, '', key({ upArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'authMove', delta: -1 });
+
+    host.dispatch.mockClear();
+    runPickerKey(host, '', key({ downArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'authMove', delta: 1 });
+
+    // Wheel > 0 (scroll up) → delta -1
+    host.dispatch.mockClear();
+    runPickerKey(host, '', key({ mouse: { kind: 'wheel', wheel: 1 } }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'authMove', delta: -1 });
+
+    // Wheel < 0 (scroll down) → delta 1
+    host.dispatch.mockClear();
+    runPickerKey(host, '', key({ mouse: { kind: 'wheel', wheel: -1 } }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'authMove', delta: 1 });
+  });
+
+  it('handles auth panel Enter on list view', () => {
+    const onAuthEnter = vi.fn();
+    const host = makeHost(
+      baseState({
+        authPanel: { open: true, view: 'list' },
+      }),
+      { onAuthEnter },
+    );
+    host.lastEnterAtRef.current = 0;
+
+    runPickerKey(host, '', key(), true);
+    expect(onAuthEnter).toHaveBeenCalled();
+  });
+
+  it('handles auth catalog filter mode typing', () => {
+    const host = makeHost(
+      baseState({
+        authPanel: { open: true, view: 'catalog', filter: '' },
+      }),
+    );
+
+    runPickerKey(host, 'a', key(), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'authFilter', filter: 'a' });
+  });
+
+  it('handles auth catalog filter backspace', () => {
+    const host = makeHost(
+      baseState({
+        authPanel: { open: true, view: 'catalog', filter: 'ab' },
+      }),
+    );
+
+    runPickerKey(host, '', key({ backspace: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'authFilter', filter: 'a' });
+  });
+
+  it('handles auth provider view shortcuts u and d', () => {
+    const onAuthShortcut = vi.fn();
+    const host = makeHost(
+      baseState({
+        authPanel: { open: true, view: 'provider', providerId: 'openai' },
+      }),
+      { onAuthShortcut },
+    );
+
+    runPickerKey(host, 'u', key(), false);
+    expect(onAuthShortcut).toHaveBeenCalledWith('u');
+
+    onAuthShortcut.mockClear();
+    runPickerKey(host, 'd', key(), false);
+    expect(onAuthShortcut).toHaveBeenCalledWith('d');
+  });
+});
+
+describe('usePickerKeys — autonomy picker', () => {
+  it('navigates and selects autonomy picker on Enter', () => {
+    const switchAutonomy = vi.fn();
+    const host = makeHost(
+      baseState({
+        autonomyPicker: { open: true, options: [{ mode: 'auto', label: 'Auto' }], selected: 0 },
+      }),
+      { switchAutonomy },
+    );
+    host.lastEnterAtRef.current = 0;
+
+    runPickerKey(host, '', key({ downArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'autonomyPickerMove', delta: 1 });
+
+    host.dispatch.mockClear();
+    runPickerKey(host, '', key({ upArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'autonomyPickerMove', delta: -1 });
+
+    host.dispatch.mockClear();
+    // Wheel > 0 → scroll up → delta -1
+    runPickerKey(host, '', key({ mouse: { kind: 'wheel', wheel: 1 } }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'autonomyPickerMove', delta: -1 });
+
+    host.dispatch.mockClear();
+    runPickerKey(host, '', key({ escape: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'autonomyPickerClose' });
+
+    host.dispatch.mockClear();
+    runPickerKey(host, '', key(), true);
+    expect(switchAutonomy).toHaveBeenCalledWith('auto');
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'autonomyPickerClose' });
+  });
+
+  it('shows hint when autonomy switch returns error', () => {
+    const switchAutonomy = vi.fn().mockReturnValue('Error message');
+    const host = makeHost(
+      baseState({
+        autonomyPicker: { open: true, options: [{ mode: 'auto', label: 'Auto' }], selected: 0 },
+      }),
+      { switchAutonomy },
+    );
+    host.lastEnterAtRef.current = 0;
+
+    runPickerKey(host, '', key(), true);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'autonomyPickerHint', text: 'Error message' });
+  });
+
+  it('does nothing on autonomy picker Enter with no option', () => {
+    const switchAutonomy = vi.fn();
+    const host = makeHost(
+      baseState({
+        autonomyPicker: { open: true, options: [], selected: 0 },
+      }),
+      { switchAutonomy },
+    );
+
+    runPickerKey(host, '', key(), true);
+    expect(switchAutonomy).not.toHaveBeenCalled();
+  });
+});
+
+describe('usePickerKeys — design picker', () => {
+  it('navigates design picker and selects on Enter', () => {
+    const host = makeHost(
+      baseState({
+        designPicker: {
+          open: true,
+          kits: [{ id: 'modern', name: 'Modern' }],
+          selected: 0,
+          stack: 'web',
+        },
+      }),
+    );
+    host.lastEnterAtRef.current = 0;
+
+    runPickerKey(host, '', key({ downArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'designPickerMove', delta: 1 });
+
+    // Test left arrow separately (right arrow from 'web' goes to idx 1 = 'react-native')
+    runPickerKey(host, '', key({ leftArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'designPickerStack', stack: 'compose' });
+
+    host.dispatch.mockClear();
+    runPickerKey(host, '', key(), true);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'designPickerClose' });
+    expect(host.submit).toHaveBeenCalledWith('/design modern web');
+  });
+
+  it('submits nothing on design picker Enter with no kit', () => {
+    const host = makeHost(
+      baseState({
+        designPicker: {
+          open: true,
+          kits: [],
+          selected: 0,
+          stack: 'web',
+        },
+      }),
+    );
+    host.lastEnterAtRef.current = 0;
+
+    runPickerKey(host, '', key(), true);
+    expect(host.submit).not.toHaveBeenCalled();
+  });
+});
+
+describe('usePickerKeys — prompt picker', () => {
+  it('navigates prompt picker with arrows and category arrows', () => {
+    const onPromptPickerEnter = vi.fn();
+    const host = makeHost(
+      baseState({
+        promptPicker: { open: true, all: [], categories: [], recentSlugs: [], catIndex: 0, selected: 0 },
+      }),
+      { onPromptPickerEnter },
+    );
+    host.lastEnterAtRef.current = 0;
+
+    runPickerKey(host, '', key({ leftArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'promptPickerCategory', delta: -1 });
+
+    runPickerKey(host, '', key({ rightArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'promptPickerCategory', delta: 1 });
+
+    runPickerKey(host, '', key(), true);
+    expect(onPromptPickerEnter).toHaveBeenCalled();
+  });
+});
+
+describe('usePickerKeys — resume picker', () => {
+  it('navigates resume picker and calls onResumePickerEnter on Enter', () => {
+    const onResumePickerEnter = vi.fn().mockResolvedValue(undefined);
+    const host = makeHost(
+      baseState({
+        resumePicker: { open: true, sessions: [{ id: 's1', title: 'Session 1' }], selected: 0, busy: false },
+      }),
+      { onResumePickerEnter },
+    );
+    host.lastEnterAtRef.current = 0;
+
+    runPickerKey(host, '', key({ downArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'resumePickerMove', delta: 1 });
+
+    host.dispatch.mockClear();
+    runPickerKey(host, '', key({ escape: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'resumePickerClose' });
+
+    host.dispatch.mockClear();
+    // Wheel > 0 → scroll up → delta -1
+    runPickerKey(host, '', key({ mouse: { kind: 'wheel', wheel: 1 } }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'resumePickerMove', delta: -1 });
+
+    host.dispatch.mockClear();
+    runPickerKey(host, '', key(), true);
+    expect(onResumePickerEnter).toHaveBeenCalled();
+  });
+});
+
+describe('usePickerKeys — settings picker', () => {
+  it('handles thinking word editing escape and Enter', () => {
+    const host = makeHost(
+      baseState({
+        settingsPicker: { open: true, field: 0, mode: 'off', delayMs: 0, thinkingWordEditing: true, thinkingWordDraft: 'custom' },
+      }),
+    );
+
+    runPickerKey(host, '', key({ escape: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'settingsThinkingEditCancel' });
+
+    host.lastEnterAtRef.current = 0;
+    runPickerKey(host, '', key(), true);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'settingsThinkingEditCommit' });
+  });
+
+  it('handles thinking word editing backspace and typing', () => {
+    const host = makeHost(
+      baseState({
+        settingsPicker: { open: true, field: 0, mode: 'off', delayMs: 0, thinkingWordEditing: true, thinkingWordDraft: 'abc' },
+      }),
+    );
+
+    runPickerKey(host, '', key({ backspace: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'settingsThinkingEditChange', draft: 'ab' });
+
+    host.dispatch.mockClear();
+    runPickerKey(host, 'd', key(), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'settingsThinkingEditChange', draft: 'abcd' });
+  });
+
+  it('handles settings picker escape and ctrl+s to close', () => {
+    const host = makeHost(
+      baseState({
+        settingsPicker: { open: true, field: 0, mode: 'off', delayMs: 0 },
+      }),
+    );
+
+    runPickerKey(host, '', key({ escape: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'settingsClose' });
+
+    host.dispatch.mockClear();
+    runPickerKey(host, 's', key({ ctrl: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'settingsClose' });
+  });
+
+  it('handles settings picker ctrl+letter jump and slash filter', () => {
+    const host = makeHost(
+      baseState({
+        settingsPicker: { open: true, field: 0, mode: 'off', delayMs: 0, filter: '' },
+      }),
+    );
+
+    // Ctrl+B - should attempt field jump
+    runPickerKey(host, 'b', key({ ctrl: true }), false);
+
+    host.dispatch.mockClear();
+    // Slash starts filter mode (filter starts as '')
+    runPickerKey(host, '/', key(), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'settingsFilterSet', filter: '/' });
+  });
+
+  it('handles settings filter mode with escape, backspace, and typing', () => {
+    const host = makeHost(
+      baseState({
+        settingsPicker: { open: true, field: 0, mode: 'off', delayMs: 0, filter: 'test' },
+      }),
+    );
+
+    // Escape in filter mode is caught by the outer escape handler → settingsClose
+    runPickerKey(host, '', key({ escape: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'settingsClose' });
+
+    host.dispatch.mockClear();
+    // Backspace on filter with 'test' → 'tes'
+    const host2 = makeHost(
+      baseState({
+        settingsPicker: { open: true, field: 0, mode: 'off', delayMs: 0, filter: 'test' },
+      }),
+    );
+    runPickerKey(host2, '', key({ backspace: true }), false);
+    expect(host2.dispatch).toHaveBeenCalledWith({ type: 'settingsFilterSet', filter: 'tes' });
+
+    host2.dispatch.mockClear();
+    // Set filter to single char
+    const host3 = makeHost(
+      baseState({
+        settingsPicker: { open: true, field: 0, mode: 'off', delayMs: 0, filter: 't' },
+      }),
+    );
+    runPickerKey(host3, '', key({ backspace: true }), false);
+    expect(host3.dispatch).toHaveBeenCalledWith({ type: 'settingsFilterSet', filter: '' });
+
+    host3.dispatch.mockClear();
+    const host4 = makeHost(
+      baseState({
+        settingsPicker: { open: true, field: 0, mode: 'off', delayMs: 0, filter: 'te' },
+      }),
+    );
+    runPickerKey(host4, 's', key(), false);
+    expect(host4.dispatch).toHaveBeenCalledWith({ type: 'settingsFilterSet', filter: 'tes' });
+  });
+
+  it('handles settings arrow navigation and value change', () => {
+    const host = makeHost(
+      baseState({
+        settingsPicker: { open: true, field: 0, mode: 'off', delayMs: 0 },
+      }),
+    );
+
+    runPickerKey(host, '', key({ upArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'settingsFieldMove', delta: -1 });
+
+    runPickerKey(host, '', key({ downArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'settingsFieldMove', delta: 1 });
+
+    runPickerKey(host, '', key({ leftArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'settingsValueChange', delta: -1 });
+
+    runPickerKey(host, '', key({ rightArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'settingsValueChange', delta: 1 });
+
+    runPickerKey(host, '', key({ mouse: { kind: 'wheel', wheel: -1 } }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'settingsFieldMove', delta: -1 });
+  });
+
+  it('handles settings Enter calls onSettingsPickerEnter', () => {
+    const onSettingsPickerEnter = vi.fn();
+    const host = makeHost(
+      baseState({
+        settingsPicker: { open: true, field: 0, mode: 'off', delayMs: 0 },
+      }),
+      { onSettingsPickerEnter },
+    );
+    host.lastEnterAtRef.current = 0;
+
+    runPickerKey(host, '', key(), true);
+    expect(onSettingsPickerEnter).toHaveBeenCalled();
+  });
+});
+
+describe('usePickerKeys — plugin picker', () => {
+  it('navigates plugin picker and toggles on Enter/arrow', () => {
+    const onPluginPickerToggle = vi.fn();
+    const host = makeHost(
+      baseState({
+        pluginPicker: { open: true, items: [{ id: 'p1', name: 'Plugin 1', enabled: false }], selected: 0, busy: false },
+      }),
+      { onPluginPickerToggle },
+    );
+    host.lastEnterAtRef.current = 0;
+
+    runPickerKey(host, '', key({ leftArrow: true }), false);
+    expect(onPluginPickerToggle).toHaveBeenCalled();
+  });
+});
+
+describe('usePickerKeys — MCP picker', () => {
+  it('navigates MCP picker and handles r/R restart', () => {
+    const onMcpPickerRestart = vi.fn();
+    const onMcpPickerToggle = vi.fn();
+    const host = makeHost(
+      baseState({
+        mcpPicker: { open: true, items: [{ id: 'm1', name: 'MCP 1', enabled: true }], selected: 0, busy: false },
+      }),
+      { onMcpPickerRestart, onMcpPickerToggle },
+    );
+    host.lastEnterAtRef.current = 0;
+
+    runPickerKey(host, 'r', key(), false);
+    expect(onMcpPickerRestart).toHaveBeenCalled();
+
+    runPickerKey(host, 'R', key(), false);
+    expect(onMcpPickerRestart).toHaveBeenCalledTimes(2);
+
+    runPickerKey(host, '', key({ leftArrow: true }), false);
+    expect(onMcpPickerToggle).toHaveBeenCalled();
+  });
+});
+
+describe('usePickerKeys — tools picker', () => {
+  it('navigates tools picker and handles filter mode', () => {
+    const onToolsPickerToggle = vi.fn();
+    const host = makeHost(
+      baseState({
+        toolsPicker: { open: true, items: [{ name: 'tool1', enabled: true }], selected: 0, busy: false },
+      }),
+      { onToolsPickerToggle },
+    );
+    host.lastEnterAtRef.current = 0;
+
+    // Escape with filter clears it
+    const hostWithFilter = makeHost(
+      baseState({
+        toolsPicker: { open: true, items: [], selected: 0, busy: false, filter: 'search' },
+      }),
+    );
+    runPickerKey(hostWithFilter, '', key({ escape: true }), false);
+    expect(hostWithFilter.dispatch).toHaveBeenCalledWith({ type: 'toolsPickerFilter', filter: '' });
+
+    // Escape without filter closes
+    runPickerKey(host, '', key({ escape: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'toolsPickerClose' });
+
+    // Printable chars → filter
+    host.dispatch.mockClear();
+    runPickerKey(host, 'x', key(), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'toolsPickerFilter', filter: 'x' });
+
+    // Backspace on empty filter
+    host.dispatch.mockClear();
+    runPickerKey(host, '', key({ backspace: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'toolsPickerFilter', filter: '' });
+  });
+});
+
+describe('usePickerKeys — help panel', () => {
+  it('navigates help panel with arrows and filter', () => {
+    const onHelpPanelEnter = vi.fn();
+    const host = makeHost(
+      baseState({
+        helpPanel: { open: true, entries: [{ command: '/help', description: 'Help' }], selected: 0, filter: '' },
+      }),
+      { onHelpPanelEnter },
+    );
+    host.lastEnterAtRef.current = 0;
+
+    runPickerKey(host, '', key({ upArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'helpMove', delta: -1 });
+
+    runPickerKey(host, '', key({ downArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'helpMove', delta: 1 });
+
+    runPickerKey(host, '', key({ mouse: { kind: 'wheel', wheel: -1 } }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'helpMove', delta: -1 });
+
+    // Escape closes
+    runPickerKey(host, '', key({ escape: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'helpClose' });
+
+    // Typing filters
+    host.dispatch.mockClear();
+    runPickerKey(host, 't', key(), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'helpFilter', filter: 't' });
+
+    // Backspace with filter clears char
+    host.dispatch.mockClear();
+    const hostFiltered = makeHost(
+      baseState({
+        helpPanel: { open: true, entries: [{ command: '/help', description: 'Help' }], selected: 0, filter: 'ab' },
+      }),
+    );
+    runPickerKey(hostFiltered, '', key({ backspace: true }), false);
+    expect(hostFiltered.dispatch).toHaveBeenCalledWith({ type: 'helpFilter', filter: 'a' });
+  });
+});
+
+describe('usePickerKeys — brain panel', () => {
+  it('handles brain panel settings view navigation', () => {
+    const host = makeHost(
+      baseState({
+        brainPanel: { open: true, view: 'settings', row: 0, settings: { mode: 'interactive', riskLevel: 'medium', strategy: 'fallback', pool: ['gpt-4'], poolResolved: ['gpt-4'], usingSessionModel: false, councilEnabled: false, councilMinRisk: 'medium', voters: [], councilSeats: [], ledgerEnabled: false }, busy: false },
+      }),
+    );
+
+    runPickerKey(host, '', key({ escape: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'brainClose' });
+
+    runPickerKey(host, '', key({ tab: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'brainView', view: 'log' });
+
+    runPickerKey(host, '', key({ upArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'brainRowMove', delta: -1 });
+
+    runPickerKey(host, '', key({ downArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'brainRowMove', delta: 1 });
+  });
+
+  it('handles brain panel settings left/right adjust', () => {
+    const onBrainAdjust = vi.fn();
+    const host = makeHost(
+      baseState({
+        brainPanel: { open: true, view: 'settings', row: 0, settings: { mode: 'interactive', riskLevel: 'medium', strategy: 'fallback', pool: ['gpt-4'], poolResolved: ['gpt-4'], usingSessionModel: false, councilEnabled: false, councilMinRisk: 'medium', voters: [], councilSeats: [], ledgerEnabled: false }, busy: false },
+      }),
+      { onBrainAdjust },
+    );
+
+    runPickerKey(host, '', key({ leftArrow: true }), false);
+    expect(onBrainAdjust).toHaveBeenCalledWith(expect.objectContaining({ kind: 'mode' }), -1);
+
+    runPickerKey(host, '', key({ rightArrow: true }), false);
+    expect(onBrainAdjust).toHaveBeenCalledWith(expect.objectContaining({ kind: 'mode' }), 1);
+  });
+
+  it('handles brain panel Enter on settings row', () => {
+    const onBrainEnter = vi.fn();
+    const host = makeHost(
+      baseState({
+        brainPanel: { open: true, view: 'settings', row: 0, settings: { mode: 'interactive', riskLevel: 'medium', strategy: 'fallback', pool: ['gpt-4'], poolResolved: ['gpt-4'], usingSessionModel: false, councilEnabled: false, councilMinRisk: 'medium', voters: [], councilSeats: [], ledgerEnabled: false }, busy: false },
+      }),
+      { onBrainEnter },
+    );
+    host.lastEnterAtRef.current = 0;
+
+    runPickerKey(host, '', key(), true);
+    expect(onBrainEnter).toHaveBeenCalledWith(expect.objectContaining({ kind: 'mode' }));
+  });
+
+  it('handles brain panel delete on removable row', () => {
+    const onBrainDelete = vi.fn();
+    // Row 2 = poolModel(index=0) — supports delete
+    const host = makeHost(
+      baseState({
+        brainPanel: { open: true, view: 'settings', row: 2, settings: { mode: 'interactive', riskLevel: 'medium', strategy: 'fallback', pool: ['gpt-4'], poolResolved: ['gpt-4'], usingSessionModel: false, councilEnabled: false, councilMinRisk: 'medium', voters: [], councilSeats: [], ledgerEnabled: false }, busy: false },
+      }),
+      { onBrainDelete },
+    );
+
+    runPickerKey(host, 'd', key(), false);
+    expect(onBrainDelete).toHaveBeenCalled();
+  });
+
+  it('handles brain panel voter modifier keys', () => {
+    const onBrainVoterMod = vi.fn();
+    // Settings with council enabled, 1 voter, no pool
+    // Rows: mode(0), risk(1), poolAdd(2), timeout(3), humanTimeout(4),
+    //        councilToggle(5), councilMinRisk(6), voter(7), voterAdd(8), judge(9), ledgerToggle(10)
+    // Row 7 = voter(index=0)
+    const host = makeHost(
+      baseState({
+        brainPanel: { open: true, view: 'settings', row: 7, settings: { mode: 'interactive', riskLevel: 'medium', strategy: 'fallback', pool: [], poolResolved: [], usingSessionModel: false, councilEnabled: true, councilMinRisk: 'medium', voters: [{ label: 'Voter 1' }], councilSeats: ['Voter 1'], ledgerEnabled: false }, busy: false },
+      }),
+      { onBrainVoterMod },
+    );
+
+    runPickerKey(host, 'p', key(), false);
+    expect(onBrainVoterMod).toHaveBeenCalledWith(0, 'persona');
+
+    onBrainVoterMod.mockClear();
+    runPickerKey(host, 'v', key(), false);
+    expect(onBrainVoterMod).toHaveBeenCalledWith(0, 'veto');
+  });
+
+  it('handles brain panel log view navigation', () => {
+    const onBrainRiskChange = vi.fn();
+    const host = makeHost(
+      baseState({
+        brainPanel: { open: true, view: 'log', row: 0, settings: undefined, log: [{ kind: 'tool', question: 'Q?', outcome: 'Y', age: '30s' }], selected: 0 },
+      }),
+      { onBrainRiskChange },
+    );
+
+    runPickerKey(host, '', key({ escape: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'brainClose' });
+
+    runPickerKey(host, '', key({ upArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'brainMove', delta: -1 });
+
+    runPickerKey(host, '', key({ leftArrow: true }), false);
+    expect(onBrainRiskChange).toHaveBeenCalledWith(-1);
+
+    runPickerKey(host, '', key({ rightArrow: true }), false);
+    expect(onBrainRiskChange).toHaveBeenCalledWith(1);
+  });
+
+  it('handles brain panel log view tab back to settings', () => {
+    const host = makeHost(
+      baseState({
+        brainPanel: { open: true, view: 'log', row: 0, settings: { mode: 'interactive', riskLevel: 'medium', strategy: 'fallback', pool: [], poolResolved: [], usingSessionModel: false, councilEnabled: false, councilMinRisk: 'medium', voters: [], councilSeats: [], ledgerEnabled: false }, log: [], selected: 0, busy: false },
+      }),
+    );
+
+    runPickerKey(host, '', key({ tab: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'brainView', view: 'settings' });
+  });
+});
+
+describe('usePickerKeys — shadow panel', () => {
+  it('handles shadow panel s and t keys', () => {
+    const onShadowStart = vi.fn();
+    const onShadowStop = vi.fn();
+    const host = makeHost(
+      baseState({
+        shadowPanel: { open: true },
+      }),
+      { onShadowStart, onShadowStop },
+    );
+
+    runPickerKey(host, 's', key(), false);
+    expect(onShadowStart).toHaveBeenCalled();
+
+    runPickerKey(host, 'S', key(), false);
+    expect(onShadowStart).toHaveBeenCalledTimes(2);
+
+    runPickerKey(host, 't', key(), false);
+    expect(onShadowStop).toHaveBeenCalled();
+
+    runPickerKey(host, 'T', key(), false);
+    expect(onShadowStop).toHaveBeenCalledTimes(2);
+
+    runPickerKey(host, '', key({ escape: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'shadowClose' });
+  });
+});
+
+describe('usePickerKeys — statusline picker', () => {
+  it('navigates statusline picker with arrows and toggles on left/right', () => {
+    const host = makeHost(
+      baseState({
+        statuslinePicker: { open: true, field: 0, hiddenItems: [], visibleChips: [] },
+      }),
+    );
+
+    runPickerKey(host, '', key({ upArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'statuslineFieldMove', delta: -1 });
+
+    runPickerKey(host, '', key({ downArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'statuslineFieldMove', delta: 1 });
+
+    runPickerKey(host, '', key({ leftArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'statuslineToggle', item: 'autonomy' });
+
+    runPickerKey(host, '', key({ escape: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'statuslineClose' });
+  });
+});
+
+describe('usePickerKeys — project picker', () => {
+  it('navigates project picker with arrows, filter, and backspace', () => {
+    const onProjectPickerEnter = vi.fn().mockResolvedValue(undefined);
+    const host = makeHost(
+      baseState({
+        projectPicker: { open: true, allItems: [{ path: '/project1' }], items: [{ path: '/project1' }], selected: 0, filter: '' },
+      }),
+      { onProjectPickerEnter },
+    );
+    host.lastEnterAtRef.current = 0;
+
+    runPickerKey(host, '', key({ upArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'projectPickerMove', delta: -1 });
+
+    runPickerKey(host, '', key({ downArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'projectPickerMove', delta: 1 });
+
+    runPickerKey(host, 'x', key(), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'projectPickerFilter', filter: 'x' });
+
+    host.dispatch.mockClear();
+    const hostWithFilter = makeHost(
+      baseState({
+        projectPicker: { open: true, allItems: [{ path: '/p1' }], items: [{ path: '/p1' }], selected: 0, filter: 'xy' },
+      }),
+    );
+    runPickerKey(hostWithFilter, '', key({ backspace: true }), false);
+    expect(hostWithFilter.dispatch).toHaveBeenCalledWith({ type: 'projectPickerFilter', filter: 'x' });
+
+    // Enter
+    host.dispatch.mockClear();
+    runPickerKey(host, '', key(), true);
+    expect(onProjectPickerEnter).toHaveBeenCalled();
+  });
+
+  it('handles project picker escape with/without filter', () => {
+    const host = makeHost(
+      baseState({
+        projectPicker: { open: true, allItems: [], items: [], selected: 0, filter: 'search' },
+      }),
+    );
+
+    runPickerKey(host, '', key({ escape: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'projectPickerFilter', filter: '' });
+
+    host.dispatch.mockClear();
+    const hostNoFilter = makeHost(
+      baseState({
+        projectPicker: { open: true, allItems: [], items: [], selected: 0, filter: '' },
+      }),
+    );
+    runPickerKey(hostNoFilter, '', key({ escape: true }), false);
+    expect(hostNoFilter.dispatch).toHaveBeenCalledWith({ type: 'projectPickerClose' });
+  });
+});
+
+describe('usePickerKeys — sessions panel', () => {
+  it('navigates sessions panel with arrows, wheel and escape', () => {
+    const onSessionsPanelEnter = vi.fn().mockResolvedValue(undefined);
+    const host = makeHost(
+      baseState({
+        sessionsPanelOpen: true,
+      }),
+      { onSessionsPanelEnter },
+    );
+    host.lastEnterAtRef.current = 0;
+
+    runPickerKey(host, '', key({ upArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'sessionsPanelMove', delta: -1 });
+
+    runPickerKey(host, '', key({ downArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'sessionsPanelMove', delta: 1 });
+
+    runPickerKey(host, '', key({ mouse: { kind: 'wheel', wheel: -1 } }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'sessionsPanelMove', delta: -1 });
+
+    // Enter
+    runPickerKey(host, '', key(), true);
+    expect(onSessionsPanelEnter).toHaveBeenCalled();
+  });
+
+  it('handles sessions panel escape with/without resume confirm', () => {
+    const host = makeHost(
+      baseState({
+        sessionsPanelOpen: true,
+        sessionResumeConfirm: { sessionId: 's1' },
+      }),
+    );
+
+    runPickerKey(host, '', key({ escape: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'sessionResumeConfirmClear' });
+
+    host.dispatch.mockClear();
+    const hostNoConfirm = makeHost(
+      baseState({
+        sessionsPanelOpen: true,
+      }),
+    );
+    runPickerKey(hostNoConfirm, '', key({ escape: true }), false);
+    expect(hostNoConfirm.dispatch).toHaveBeenCalledWith({ type: 'toggleSessionsPanel' });
+  });
+});
+
+describe('usePickerKeys — slash picker', () => {
+  it('navigates slash picker with arrows, Enter, and Tab', () => {
+    const onSlashPickerEnter = vi.fn();
+    const onSlashPickerTab = vi.fn();
+    const host = makeHost(
+      baseState({
+        slashPicker: { open: true, query: '/', matches: ['/help'], selected: 0 },
+      }),
+      { onSlashPickerEnter, onSlashPickerTab },
+    );
+    host.lastEnterAtRef.current = 0;
+
+    runPickerKey(host, '', key({ upArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'slashPickerMove', delta: -1 });
+
+    runPickerKey(host, '', key({ downArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'slashPickerMove', delta: 1 });
+
+    runPickerKey(host, '', key({ escape: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'slashPickerClose' });
+
+    host.dispatch.mockClear();
+    runPickerKey(host, '', key({ tab: true }), false);
+    expect(onSlashPickerTab).toHaveBeenCalled();
+
+    host.dispatch.mockClear();
+    runPickerKey(host, '', key(), true);
+    expect(onSlashPickerEnter).toHaveBeenCalled();
+  });
+
+  it('returns false on slash picker with no matches and tab', () => {
+    const onSlashPickerTab = vi.fn();
+    const host = makeHost(
+      baseState({
+        slashPicker: { open: true, query: '/x', matches: [], selected: 0 },
+      }),
+      { onSlashPickerTab },
+    );
+
+    runPickerKey(host, '', key({ tab: true }), false);
+    expect(onSlashPickerTab).not.toHaveBeenCalled();
+  });
+});
+
+describe('usePickerKeys — F-key picker', () => {
+  it('navigates F-key picker with arrows and Enter', () => {
+    const onFKeyPickerEnter = vi.fn();
+    const host = makeHost(
+      baseState({
+        fKeyPicker: { open: true, selected: 0 },
+      }),
+      { onFKeyPickerEnter },
+    );
+    host.lastEnterAtRef.current = 0;
+
+    runPickerKey(host, '', key({ upArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'fKeyPickerMove', delta: -1 });
+
+    runPickerKey(host, '', key({ downArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'fKeyPickerMove', delta: 1 });
+
+    runPickerKey(host, '', key({ escape: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'fKeyPickerClose' });
+
+    runPickerKey(host, '', key(), true);
+    expect(onFKeyPickerEnter).toHaveBeenCalled();
+  });
+});
+
+describe('usePickerKeys — general picker', () => {
+  it('navigates general picker with arrows and mouse', () => {
+    const onPickerEnter = vi.fn().mockResolvedValue(undefined);
+    const host = makeHost(
+      baseState({
+        picker: { open: true, query: '', matches: [], selected: 0 },
+      }),
+      { onPickerEnter },
+    );
+    host.lastEnterAtRef.current = 0;
+
+    runPickerKey(host, '', key({ upArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'pickerMove', delta: -1 });
+
+    runPickerKey(host, '', key({ downArrow: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'pickerMove', delta: 1 });
+
+    runPickerKey(host, '', key({ mouse: { kind: 'wheel', wheel: 1 } }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'pickerMove', delta: 1 });
+
+    runPickerKey(host, '', key({ escape: true }), false);
+    expect(host.dispatch).toHaveBeenCalledWith({ type: 'pickerClose' });
+
+    runPickerKey(host, '', key(), true);
+    expect(onPickerEnter).toHaveBeenCalled();
+  });
+});
+
+describe('usePickerKeys — auth panel catalog filter with empty filter backspace', () => {
+  it('does not dispatch when backspace on empty auth catalog filter', () => {
+    const host = makeHost(
+      baseState({
+        authPanel: { open: true, view: 'catalog', filter: '' },
+      }),
+    );
+
+    runPickerKey(host, '', key({ backspace: true }), false);
+    // Backspace on empty filter length should still return true but not dispatch
+    expect(host.dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'authFilter' }),
+    );
+  });
+});
+
+describe('usePickerKeys — auth panel provider view non-u/d input', () => {
+  it('handles non-u/d input in provider view (just returns true)', () => {
+    const host = makeHost(
+      baseState({
+        authPanel: { open: true, view: 'provider', providerId: 'openai' },
+      }),
+    );
+
+    // Any key other than u/d in provider view should just return true
+    runPickerKey(host, 'x', key(), false);
+    // No dispatch should occur - just returns true
+    expect(host.dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'authMove' }),
+    );
+  });
+});
+
+describe('usePickerKeys — brain panel busy state guards', () => {
+  it('clamps out-of-bounds row to last valid row and adjusts it', () => {
+    const onBrainAdjust = vi.fn();
+    const onBrainEnter = vi.fn();
+    const host = makeHost(
+      baseState({
+        brainPanel: { open: true, view: 'settings', row: 999, settings: { mode: 'interactive', riskLevel: 'medium', strategy: 'fallback', pool: [], poolResolved: [], usingSessionModel: false, councilEnabled: false, councilMinRisk: 'medium', voters: [], councilSeats: [], ledgerEnabled: false }, busy: false },
+      }),
+      { onBrainAdjust, onBrainEnter },
+    );
+
+    // Row 999 gets clamped to last row (index 5 = ledgerToggle) which exists
+    runPickerKey(host, '', key({ leftArrow: true }), false);
+    expect(onBrainAdjust).toHaveBeenCalled();
+  });
+
+  it('does not handle left/right/enter when panel is busy', () => {
+    const onBrainAdjust = vi.fn();
+    const onBrainEnter = vi.fn();
+    const host = makeHost(
+      baseState({
+        brainPanel: { open: true, view: 'settings', row: 0, settings: { mode: 'interactive', riskLevel: 'medium', strategy: 'fallback', pool: [], poolResolved: [], usingSessionModel: false, councilEnabled: false, councilMinRisk: 'medium', voters: [], councilSeats: [], ledgerEnabled: false }, busy: true },
+      }),
+      { onBrainAdjust, onBrainEnter },
+    );
+
+    runPickerKey(host, '', key({ leftArrow: true }), false);
+    expect(onBrainAdjust).not.toHaveBeenCalled();
+
+    runPickerKey(host, '', key(), true);
+    expect(onBrainEnter).not.toHaveBeenCalled();
+  });
+});
+
+describe('usePickerKeys — debounced Enter double tap', () => {
+  it('blocks Enter within 50ms of previous Enter', () => {
+    const onAuthEnter = vi.fn();
+    const host = makeHost(
+      baseState({
+        authPanel: { open: true, view: 'list' },
+      }),
+      { onAuthEnter },
+    );
+    host.lastEnterAtRef.current = Date.now(); // Set to recent timestamp
+
+    runPickerKey(host, '', key(), true);
+    expect(onAuthEnter).not.toHaveBeenCalled(); // Debounced
+  });
+});
+
+describe('usePickerKeys — settings picker filter empty handling', () => {
+  it('does not enter filter mode on slash when filter already active', () => {
+    const host = makeHost(
+      baseState({
+        settingsPicker: { open: true, field: 0, mode: 'off', delayMs: 0, filter: 'already' },
+      }),
+    );
+
+    // dispatch should not be called because filter is already non-empty
+    // and the '/' case is only when filter === ''
+    runPickerKey(host, '/', key(), false);
+    // Shouldn't set filter to '/' + 'already'
+    expect(host.dispatch).not.toHaveBeenCalledWith({ type: 'settingsFilterSet', filter: '/already' });
+  });
+});
+
+describe('usePickerKeys — model picker async switch with error', () => {
+  it('handles async switchProviderAndModel error', () => {
+    const switchProviderAndModel = vi.fn().mockResolvedValue('Error message');
+    const host = makeHost(
+      baseState({
+        modelPicker: {
+          open: true,
+          step: 'model',
+          providerOptions: [],
+          modelOptions: ['gpt-4o'],
+          filteredOptions: ['gpt-4o'],
+          selected: 0,
+          searchQuery: '',
+          pickedProviderId: 'openai',
+        },
+      }),
+      { switchProviderAndModel },
+    );
+    host.dispatch.mockClear();
+    host.lastEnterAtRef.current = 0;
+
+    runPickerKey(host, '', key(), true);
+
+    // The async callback should dispatch modelPickerHint with the error
+    // Since it's async, we need to flush promises (but in a simple render test
+    // we verify the switchProviderAndModel was called)
+    expect(switchProviderAndModel).toHaveBeenCalledWith('openai', 'gpt-4o');
+  });
+});
+
+describe('usePickerKeys — settings picker ctrl+meta jump with shift', () => {
+  it('handles alt+shift modifier for field jump', () => {
+    const host = makeHost(
+      baseState({
+        settingsPicker: { open: true, field: 0, mode: 'off', delayMs: 0 },
+      }),
+    );
+
+    // Alt+Shift+letter (meta with shift)
+    runPickerKey(host, 'b', key({ ctrl: false, meta: true, shift: true }), false);
+    // Should attempt settingsFieldSet dispatch via the jump chords
+    // (might or might not find a chord depending on letter, but shouldn't crash)
+    expect(host.dispatch).toHaveBeenCalled();
   });
 });

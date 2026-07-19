@@ -127,6 +127,64 @@ function emitCompactionMetrics(event: string, metrics: CompactionMetrics): void 
 export const estimateMessages = estimateMessageTokens;
 
 /**
+ * Compact, information-dense representation of one message for selector and
+ * summarizer calls. Raw tool payloads are intentionally not copied wholesale:
+ * keep the tool name, status, paths, first error, and a short content sample.
+ * This lets the pruning model reason over the whole session instead of using
+ * its budget on the first large read/grep result it encounters.
+ */
+export function buildCompactionPreview(message: Message, maxChars = 600): string {
+  if (maxChars <= 0) return '';
+  if (typeof message.content === 'string') {
+    return truncatePreview(message.content, maxChars);
+  }
+
+  const parts: string[] = [];
+  for (const block of message.content) {
+    if (isTextBlock(block)) {
+      const text = truncatePreview(block.text, maxChars);
+      if (text) parts.push(text);
+      continue;
+    }
+    if (block.type === 'tool_use') {
+      const input = truncatePreview(safePreviewString(block.input), 220);
+      parts.push(`[tool_use: ${block.name}${input ? `; input=${input}` : ''}]`);
+      continue;
+    }
+    if (block.type === 'tool_result') {
+      const raw = safePreviewString(block.content);
+      const details: string[] = [block.is_error ? 'error' : 'ok'];
+      if (block.name) details.push(`tool=${block.name}`);
+      const files = extractPathHints(raw).slice(0, 5);
+      if (files.length > 0) details.push(`files=${files.join(', ')}`);
+      const error = firstErrorLine(raw);
+      if (error) details.push(`error=${error}`);
+      const sample = truncatePreview(raw, 260);
+      if (sample) details.push(`sample=${sample}`);
+      parts.push(`[tool_result: ${details.join('; ')}]`);
+      continue;
+    }
+    parts.push(`[${block.type}]`);
+  }
+  return truncatePreview(parts.join(' '), maxChars);
+}
+
+function safePreviewString(value: unknown): string {
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function truncatePreview(value: string, maxChars: number): string {
+  const compact = value.replace(WHITESPACE_COLLAPSE_PATTERN, ' ').trim();
+  if (compact.length <= maxChars) return compact;
+  return `${compact.slice(0, Math.max(0, maxChars - 1))}…`;
+}
+
+/**
  * Shared, pure compaction primitives.
  *
  * Before this module the three compactors (`HybridCompactor`,

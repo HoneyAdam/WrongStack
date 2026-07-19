@@ -11,11 +11,14 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useMemo } from 'react';
-import type { SuperMemoryAnchor, SuperMemoryEntry } from '@/types';
+import type { SuperMemoryAnchor, SuperMemoryEntry, SuperMemoryGraphEdge } from '@/types';
 
 interface MemoryGraphProps {
   centerMemory: SuperMemoryEntry;
   allMemories: SuperMemoryEntry[];
+  graphEdges: SuperMemoryGraphEdge[];
+  loading?: boolean;
+  error?: string | null;
 }
 
 interface MemoryNodeData extends Record<string, unknown> {
@@ -129,7 +132,25 @@ function missingMemory(id: string): SuperMemoryEntry {
   };
 }
 
-export function MemoryGraph({ centerMemory, allMemories }: MemoryGraphProps) {
+export function MemoryGraph({
+  centerMemory,
+  allMemories,
+  graphEdges,
+  loading = false,
+  error = null,
+}: MemoryGraphProps) {
+  const centerNode = `mem:${centerMemory.id}`;
+  const directMemoryEdges = useMemo(
+    () =>
+      graphEdges
+        .filter(
+          (edge) =>
+            (edge.from === centerNode && edge.to.startsWith('mem:')) ||
+            (edge.to === centerNode && edge.from.startsWith('mem:')),
+        )
+        .slice(0, 24),
+    [centerNode, graphEdges],
+  );
   const { nodes, edges } = useMemo(() => {
     const nextNodes: Node[] = [];
     const nextEdges: Edge[] = [];
@@ -144,14 +165,29 @@ export function MemoryGraph({ centerMemory, allMemories }: MemoryGraphProps) {
       data: { entry: centerMemory, center: true },
     });
 
-    const related: Array<{ id: string; relation: 'supersedes' | 'contradicts' | 'superseded by' }> =
-      [
-        ...(centerMemory.supersededBy
-          ? [{ id: centerMemory.supersededBy, relation: 'superseded by' as const }]
-          : []),
-        ...(centerMemory.supersedes ?? []).map((id) => ({ id, relation: 'supersedes' as const })),
-        ...(centerMemory.contradicts ?? []).map((id) => ({ id, relation: 'contradicts' as const })),
-      ];
+    const related: Array<{
+      id: string;
+      relation: string;
+      weight?: number;
+      evidence?: string[];
+    }> = [
+      ...(centerMemory.supersededBy
+        ? [{ id: centerMemory.supersededBy, relation: 'superseded by' as const }]
+        : []),
+      ...(centerMemory.supersedes ?? []).map((id) => ({ id, relation: 'supersedes' as const })),
+      ...(centerMemory.contradicts ?? []).map((id) => ({ id, relation: 'contradicts' as const })),
+    ];
+    for (const edge of directMemoryEdges) {
+      const otherNode = edge.from === centerNode ? edge.to : edge.from;
+      const id = otherNode.slice(4);
+      if (related.some((item) => item.id === id && item.relation === edge.relation)) continue;
+      related.push({
+        id,
+        relation: edge.relation,
+        weight: edge.weight,
+        evidence: edge.evidence,
+      });
+    }
 
     const startX = centerX - ((related.length - 1) * 220) / 2;
     related.forEach((item, index) => {
@@ -174,7 +210,9 @@ export function MemoryGraph({ centerMemory, allMemories }: MemoryGraphProps) {
         target,
         type: 'smoothstep',
         animated: !danger,
-        label: item.relation,
+        label:
+          item.weight === undefined ? item.relation : `${item.relation} ${item.weight.toFixed(2)}`,
+        data: { evidence: item.evidence ?? [] },
         style: {
           stroke: danger ? 'hsl(var(--destructive))' : 'hsl(var(--primary))',
           strokeWidth: 1.7,
@@ -210,9 +248,9 @@ export function MemoryGraph({ centerMemory, allMemories }: MemoryGraphProps) {
     });
 
     return { nodes: nextNodes, edges: nextEdges };
-  }, [allMemories, centerMemory]);
+  }, [allMemories, centerMemory, centerNode, directMemoryEdges]);
 
-  if (nodes.length <= 1) return null;
+  if (nodes.length <= 1 && !loading && !error) return null;
 
   return (
     <section
@@ -224,33 +262,56 @@ export function MemoryGraph({ centerMemory, allMemories }: MemoryGraphProps) {
           Relationship map
         </p>
         <span className="font-mono text-[10px] text-muted-foreground">
-          {nodes.length} nodes · {edges.length} edges
+          {loading ? 'loading real graph…' : `${nodes.length} nodes · ${edges.length} edges`}
         </span>
       </div>
-      <div className="h-[320px] w-full" aria-hidden="true">
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          fitView
-          fitViewOptions={{ padding: 0.24, maxZoom: 1.05 }}
-          minZoom={0.4}
-          maxZoom={1.5}
-          nodesConnectable={false}
-          elementsSelectable={false}
-          panOnScroll={false}
-          zoomOnScroll={false}
-          proOptions={{ hideAttribution: true }}
-        >
-          <Background
-            variant={BackgroundVariant.Dots}
-            gap={18}
-            size={1}
-            color="hsl(var(--muted-foreground) / 0.18)"
-          />
-          <Controls showInteractive={false} className="!border-border !bg-card !shadow-lg" />
-        </ReactFlow>
-      </div>
+      {error && (
+        <p className="border-b border-destructive/25 bg-destructive/5 px-3 py-2 text-[10px] text-destructive">
+          {error}
+        </p>
+      )}
+      {nodes.length > 1 && (
+        <div className="h-[320px] w-full" aria-hidden="true">
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            fitView
+            fitViewOptions={{ padding: 0.24, maxZoom: 1.05 }}
+            minZoom={0.4}
+            maxZoom={1.5}
+            nodesConnectable={false}
+            elementsSelectable={false}
+            panOnScroll={false}
+            zoomOnScroll={false}
+            proOptions={{ hideAttribution: true }}
+          >
+            <Background
+              variant={BackgroundVariant.Dots}
+              gap={18}
+              size={1}
+              color="hsl(var(--muted-foreground) / 0.18)"
+            />
+            <Controls showInteractive={false} className="!border-border !bg-card !shadow-lg" />
+          </ReactFlow>
+        </div>
+      )}
+      {directMemoryEdges.some((edge) => edge.evidence?.length) && (
+        <div className="grid gap-1 border-t border-border/70 bg-card/35 px-3 py-2">
+          {directMemoryEdges
+            .filter((edge) => edge.evidence?.length)
+            .slice(0, 12)
+            .map((edge) => {
+              const other = (edge.from === centerNode ? edge.to : edge.from).slice(4);
+              return (
+                <p key={edge.id} className="truncate font-mono text-[9px] text-muted-foreground">
+                  <span className="text-info">{edge.relation}</span> {compactId(other)} · why:{' '}
+                  {edge.evidence?.join(', ')}
+                </p>
+              );
+            })}
+        </div>
+      )}
     </section>
   );
 }

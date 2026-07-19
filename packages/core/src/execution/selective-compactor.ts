@@ -9,8 +9,10 @@ import { estimateRequestTokens } from '../utils/token-estimate.js';
 import { repairToolUseAdjacency } from '../utils/message-invariants.js';
 import { readBundledInstructionText } from '../utils/instruction-file.js';
 import {
+  buildCompactionPreview,
   eliseOldToolResults as coreEliseOldToolResults,
   estimateMessages,
+  findPreserveStart,
 } from './compaction-core.js';
 
 /**
@@ -198,16 +200,30 @@ export class SelectiveCompactor implements Compactor {
     // on a local copy and commit through `ctx.state.replaceMessages` at the
     // end so subscribers see a single state change for the whole rewrite.
     const messages = [...ctx.messages];
-    const sortedCollapsed = [...plan.collapsed].sort((a, b) => b.from - a.from);
+    // preserveK is configured as recent user/assistant pairs. The shared
+    // boundary helper counts individual messages, so convert pairs to a
+    // message count and enforce the live-tail invariant independently of the
+    // ranges returned by the selector.
+    const preserveStart = findPreserveStart(messages, this.preserveK * 2);
+    const sortedCollapsed = plan.collapsed
+      .map((range) => ({ ...range, to: Math.min(range.to, preserveStart - 1) }))
+      .filter((range) => range.from >= 0 && range.from <= range.to)
+      .sort((a, b) => b.from - a.from);
 
     for (const range of sortedCollapsed) {
       if (range.from < 0 || range.to >= messages.length || range.from > range.to) continue;
 
+      const toSummarize = messages.slice(range.from, range.to + 1);
       let summary = range.summary;
       if (!summary) {
-        const toSummarize = messages.slice(range.from, range.to + 1);
         summary = await this.summarizeRange(toSummarize, ctx);
       }
+
+      // The selector works from a compact overview. Preserve deterministic
+      // evidence from actual tool blocks so file paths and the first failure
+      // are not lost even when its prose summary omits them.
+      const toolEvidence = this.toolEvidence(toSummarize);
+      if (toolEvidence) summary = `${summary}\n[tool evidence] ${toolEvidence}`;
 
       const summaryMsg: Message = {
         role: 'system',
@@ -250,12 +266,20 @@ export class SelectiveCompactor implements Compactor {
   }
 
   private messagePreview(m: Message): string {
-    if (typeof m.content === 'string') return m.content.slice(0, 300);
-    return m.content
-      .filter(isTextBlock)
-      .map((b) => b.text)
-      .join(' ')
-      .slice(0, 300);
+    return buildCompactionPreview(m, 700);
+  }
+
+  private toolEvidence(messages: Message[]): string {
+    const evidence: string[] = [];
+    for (const message of messages) {
+      if (typeof message.content === 'string') continue;
+      if (!message.content.some((block) => block.type === 'tool_use' || block.type === 'tool_result')) continue;
+      const preview = buildCompactionPreview(message, 360);
+      if (preview) evidence.push(preview);
+      if (evidence.join(' ').length >= 1400) break;
+    }
+    const joined = evidence.join(' ');
+    return joined.length <= 1400 ? joined : `${joined.slice(0, 1399)}…`;
   }
 
   /**

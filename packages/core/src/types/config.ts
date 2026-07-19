@@ -31,6 +31,16 @@ export interface ModelRuntimeReasoningConfig {
  */
 export interface ModelRuntimeCacheConfig {
   ttl?: CacheTtl | undefined;
+  /**
+   * Opt-in explicit Gemini context caching. When true, the Google provider
+   * creates a server-side `cachedContents` resource for the stable system
+   * prefix (system instruction + tool defs) and references it by name instead
+   * of resending it every turn. Default false: Gemini's automatic *implicit*
+   * caching already covers a byte-stable prefix with no setup. Ignored by every
+   * non-Google provider. Any failure in the create flow falls back to the
+   * normal inline request, so enabling it can never break a request.
+   */
+  geminiExplicit?: boolean | undefined;
 }
 
 /**
@@ -721,13 +731,15 @@ export interface SuperMemoryConfig {
     | undefined;
   inject?:
     | {
-        /** Add relevant memory to ordinary turn-level context. Default: true. */
+        /** Add relevant memory to ordinary turn-level context. Default: false (opt-in). */
         turnContext?: boolean | undefined;
         /** Add relevant memory to read/tree/grep/bash/edit tool results. Default: true. */
         toolResults?: boolean | undefined;
-        /** Maximum hints appended to a single tool result. Default: 4. */
+        /** Enrich tool retrieval with live todo/Kanban task state and context-pressure budgeting. Default: true. */
+        taskAware?: boolean | undefined;
+        /** Maximum diverse, structurally related hints appended to a single tool result. Default: 8. */
         maxHintsPerTool?: number | undefined;
-        /** Maximum characters appended to a single tool result. Default: 1200. */
+        /** Maximum characters appended to a single tool result. Default: 2800. */
         maxCharsPerTool?: number | undefined;
         /** Maximum memories appended to ordinary turn context. Default: 8. */
         maxTurnMemories?: number | undefined;

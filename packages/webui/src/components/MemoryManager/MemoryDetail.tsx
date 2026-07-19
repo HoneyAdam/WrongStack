@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import type { SuperMemoryEntry } from '@/types';
+import type { SuperMemoryEntry, SuperMemoryGraphEdge } from '@/types';
 import { MemoryGraph } from './MemoryGraph';
 import {
   formatAudienceText,
@@ -34,6 +34,9 @@ export interface MemoryDetailProps {
   memory: SuperMemoryEntry;
   allMemories: SuperMemoryEntry[];
   relatedMemories: Array<{ relation: string; id: string }>;
+  graphEdges: SuperMemoryGraphEdge[];
+  graphLoading: boolean;
+  graphError: string | null;
   onClose: () => void;
   onOpenMemory: (id: string) => void;
   onEdit: () => void;
@@ -46,6 +49,9 @@ export function MemoryDetail({
   memory,
   allMemories,
   relatedMemories,
+  graphEdges,
+  graphLoading,
+  graphError,
   onClose,
   onOpenMemory,
   onEdit,
@@ -131,9 +137,17 @@ export function MemoryDetail({
               onOpenMemory={onOpenMemory}
             />
           )}
-          <MemoryGraph centerMemory={memory} allMemories={allMemories} />
+          <MemoryGraph
+            centerMemory={memory}
+            allMemories={allMemories}
+            graphEdges={graphEdges}
+            loading={graphLoading}
+            error={graphError}
+          />
           <MemoryMeta memory={memory} />
-          {memory.status === 'deleted' && <DeletedMemoryNotice contextPolicy={memory.contextPolicy} />}
+          {memory.status === 'deleted' && (
+            <DeletedMemoryNotice contextPolicy={memory.contextPolicy} />
+          )}
         </div>
       </div>
     </>

@@ -150,6 +150,8 @@ interface UIState {
   inspectorOpen: boolean;
   /** Active tab inside the global right inspector drawer. */
   inspectorTab: 'fleet' | 'agents' | 'sideEffects';
+  /** Agent ID to focus when opening the inspector on the agents tab. Cleared on read. */
+  inspectorFocusedAgentId: string | null;
   /** Process Monitor overlay — triggered by /kill slash command. */
   processMonitorOpen: boolean;
   /** Queue Panel overlay — triggered by /queue slash command. */
@@ -293,6 +295,7 @@ interface UIState {
   setAgentsMonitorOpen: (open: boolean) => void;
   setInspectorOpen: (open: boolean) => void;
   setInspectorTab: (tab: 'fleet' | 'agents' | 'sideEffects') => void;
+  setInspectorFocusedAgentId: (id: string | null) => void;
   toggleInspector: () => void;
 }
 
@@ -324,6 +327,8 @@ function homeNavigationStatePatch(
     cronJobsOpen: false,
     sideContextBreakdownOpen: false,
     inspectorOpen: false,
+    inspectorTab: 'fleet',
+    inspectorFocusedAgentId: null,
     terminalOpen: false,
     paletteOpen: false,
     shortcutsOpen: false,
@@ -372,6 +377,7 @@ export const useUIStore = create<UIState>()(
       agentsMonitorOpen: false,
       inspectorOpen: false,
       inspectorTab: 'fleet',
+      inspectorFocusedAgentId: null,
       processMonitorOpen: false,
       queuePanelOpen: false,
       cronJobsOpen: false,
@@ -493,6 +499,7 @@ export const useUIStore = create<UIState>()(
       setInspectorOpen: (open: boolean) =>
         set({ inspectorOpen: open, ...(open ? { dockSection: null } : {}) }),
       setInspectorTab: (tab: 'fleet' | 'agents' | 'sideEffects') => set({ inspectorTab: tab }),
+      setInspectorFocusedAgentId: (id: string | null) => set({ inspectorFocusedAgentId: id }),
       toggleInspector: () =>
         set((s) => ({
           inspectorOpen: !s.inspectorOpen,

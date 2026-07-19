@@ -1,0 +1,287 @@
+import { render } from 'ink-testing-library';
+import React from 'react';
+import { describe, expect, it } from 'vitest';
+import { ModelPicker, type ProviderOption } from '../src/components/model-picker.js';
+
+const providers: ProviderOption[] = [
+  { id: 'anthropic', family: 'claude', models: ['claude-3-5-sonnet', 'claude-3-opus'] },
+  { id: 'openai', family: 'gpt', models: ['gpt-4o', 'gpt-4o-mini'] },
+];
+
+describe('ModelPicker - step provider', () => {
+  it('renders step 1 title', () => {
+    const view = render(
+      React.createElement(ModelPicker, {
+        step: 'provider',
+        providerOptions: providers,
+        modelOptions: [],
+        filteredOptions: [],
+        selected: 0,
+      }),
+    );
+    const frame = view.lastFrame() ?? '';
+    expect(frame).toContain('Step 1/2');
+    expect(frame).toContain('Pick provider');
+    view.unmount();
+  });
+
+  it('renders all provider options', () => {
+    const view = render(
+      React.createElement(ModelPicker, {
+        step: 'provider',
+        providerOptions: providers,
+        modelOptions: [],
+        filteredOptions: [],
+        selected: 0,
+      }),
+    );
+    const frame = view.lastFrame() ?? '';
+    expect(frame).toContain('anthropic');
+    expect(frame).toContain('openai');
+    expect(frame).toContain('[claude]');
+    expect(frame).toContain('[gpt]');
+    expect(frame).toContain('2 models');
+    view.unmount();
+  });
+
+  it('shows empty provider message when none available', () => {
+    const view = render(
+      React.createElement(ModelPicker, {
+        step: 'provider',
+        providerOptions: [],
+        modelOptions: [],
+        filteredOptions: [],
+        selected: 0,
+      }),
+    );
+    const frame = view.lastFrame() ?? '';
+    expect(frame).toContain('no providers with keys');
+    view.unmount();
+  });
+
+  it('renders hint when provided', () => {
+    const view = render(
+      React.createElement(ModelPicker, {
+        step: 'provider',
+        providerOptions: providers,
+        modelOptions: [],
+        filteredOptions: [],
+        selected: 0,
+        hint: 'No API key configured',
+      }),
+    );
+    const frame = view.lastFrame() ?? '';
+    expect(frame).toContain('No API key configured');
+    view.unmount();
+  });
+
+  it('renders custom title label', () => {
+    const view = render(
+      React.createElement(ModelPicker, {
+        step: 'provider',
+        providerOptions: providers,
+        modelOptions: [],
+        filteredOptions: [],
+        selected: 0,
+        titleLabel: 'Add council voter',
+      }),
+    );
+    const frame = view.lastFrame() ?? '';
+    expect(frame).toContain('Add council voter');
+    view.unmount();
+  });
+
+  it('highlights selected provider', () => {
+    const view = render(
+      React.createElement(ModelPicker, {
+        step: 'provider',
+        providerOptions: providers,
+        modelOptions: [],
+        filteredOptions: [],
+        selected: 0,
+      }),
+    );
+    const frame = view.lastFrame() ?? '';
+    expect(frame).toContain('›');
+    view.unmount();
+  });
+});
+
+describe('ModelPicker - step model', () => {
+  const models = ['claude-3-5-sonnet', 'claude-3-opus', 'claude-3-haiku'];
+
+  it('renders step 2 title with provider ID', () => {
+    const view = render(
+      React.createElement(ModelPicker, {
+        step: 'model',
+        providerOptions: providers,
+        modelOptions: models,
+        filteredOptions: models,
+        selected: 0,
+        pickedProviderId: 'anthropic',
+      }),
+    );
+    const frame = view.lastFrame() ?? '';
+    expect(frame).toContain('Step 2/2');
+    expect(frame).toContain('Pick model');
+    expect(frame).toContain('anthropic');
+    view.unmount();
+  });
+
+  it('renders all model options', () => {
+    const view = render(
+      React.createElement(ModelPicker, {
+        step: 'model',
+        providerOptions: providers,
+        modelOptions: models,
+        filteredOptions: models,
+        selected: 0,
+        pickedProviderId: 'anthropic',
+      }),
+    );
+    const frame = view.lastFrame() ?? '';
+    expect(frame).toContain('claude-3-5-sonnet');
+    expect(frame).toContain('claude-3-opus');
+    expect(frame).toContain('claude-3-haiku');
+    view.unmount();
+  });
+
+  it('shows empty message when no models for provider', () => {
+    const view = render(
+      React.createElement(ModelPicker, {
+        step: 'model',
+        providerOptions: providers,
+        modelOptions: [],
+        filteredOptions: [],
+        selected: 0,
+        pickedProviderId: 'anthropic',
+      }),
+    );
+    const frame = view.lastFrame() ?? '';
+    expect(frame).toContain('no models known');
+    view.unmount();
+  });
+
+  it('shows search query hint when filtering', () => {
+    const view = render(
+      React.createElement(ModelPicker, {
+        step: 'model',
+        providerOptions: providers,
+        modelOptions: models,
+        filteredOptions: ['claude-3-haiku'],
+        selected: 0,
+        pickedProviderId: 'anthropic',
+        searchQuery: 'haiku',
+      }),
+    );
+    const frame = view.lastFrame() ?? '';
+    expect(frame).toContain('haiku');
+    expect(frame).toContain('1 match');
+    view.unmount();
+  });
+
+  it('shows no match message when search has no results', () => {
+    const view = render(
+      React.createElement(ModelPicker, {
+        step: 'model',
+        providerOptions: providers,
+        modelOptions: models,
+        filteredOptions: [],
+        selected: 0,
+        pickedProviderId: 'anthropic',
+        searchQuery: 'zzzzz',
+      }),
+    );
+    const frame = view.lastFrame() ?? '';
+    expect(frame).toContain('no models match');
+    view.unmount();
+  });
+
+  it('shows scroll indicators when many models', () => {
+    const manyModels = Array.from({ length: 25 }, (_, i) => `model-${i}`);
+    const view = render(
+      React.createElement(ModelPicker, {
+        step: 'model',
+        providerOptions: providers,
+        modelOptions: manyModels,
+        filteredOptions: manyModels,
+        selected: 20,
+        pickedProviderId: 'anthropic',
+      }),
+    );
+    const frame = view.lastFrame() ?? '';
+    expect(frame).toContain('▲');
+    view.unmount();
+  });
+
+  it('shows below indicator when more models below', () => {
+    const manyModels = Array.from({ length: 25 }, (_, i) => `model-${i}`);
+    const view = render(
+      React.createElement(ModelPicker, {
+        step: 'model',
+        providerOptions: providers,
+        modelOptions: manyModels,
+        filteredOptions: manyModels,
+        selected: 5,
+        pickedProviderId: 'anthropic',
+      }),
+    );
+    const frame = view.lastFrame() ?? '';
+    expect(frame).toContain('▼');
+    view.unmount();
+  });
+
+  it('renders hint when provided', () => {
+    const view = render(
+      React.createElement(ModelPicker, {
+        step: 'model',
+        providerOptions: providers,
+        modelOptions: models,
+        filteredOptions: models,
+        selected: 0,
+        pickedProviderId: 'anthropic',
+        hint: 'Model not available',
+      }),
+    );
+    const frame = view.lastFrame() ?? '';
+    expect(frame).toContain('Model not available');
+    view.unmount();
+  });
+
+  it('shows model count hint when no search and many models', () => {
+    const manyModels = Array.from({ length: 15 }, (_, i) => `model-${i}`);
+    const view = render(
+      React.createElement(ModelPicker, {
+        step: 'model',
+        providerOptions: providers,
+        modelOptions: manyModels,
+        filteredOptions: manyModels,
+        selected: 0,
+        pickedProviderId: 'anthropic',
+      }),
+    );
+    const frame = view.lastFrame() ?? '';
+    expect(frame).toContain('15 models');
+    view.unmount();
+  });
+});
+
+describe('getVisibleWindow', () => {
+  // Import the internal helper via component behavior
+  it('selects first model when selected=0', () => {
+    const models = Array.from({ length: 15 }, (_, i) => `m${i}`);
+    const view = render(
+      React.createElement(ModelPicker, {
+        step: 'model',
+        providerOptions: providers,
+        modelOptions: models,
+        filteredOptions: models,
+        selected: 0,
+        pickedProviderId: 'anthropic',
+      }),
+    );
+    const frame = view.lastFrame() ?? '';
+    expect(frame).toContain('› m0');
+    view.unmount();
+  });
+});

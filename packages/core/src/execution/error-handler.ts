@@ -36,6 +36,15 @@ export function buildRecoveryStrategies(opts?: {
         if (!(err instanceof ProviderError)) return null;
         if (err.kind !== 'context_overflow') return null;
 
+        // Catalog limits describe the native model, but gateways and
+        // subscription routes can enforce a smaller effective window. A
+        // provider overflow is authoritative evidence that the current
+        // denominator is too large. Learn a session-local ceiling from the
+        // rejected request so the context bar and subsequent compaction use
+        // the route's observed limit instead of continuing to advertise (for
+        // example) 1M while the gateway rejects around 650K.
+        learnEffectiveContextLimitFromOverflow(ctx);
+
         if (this.compactor) {
           try {
             const report = await this.compactor.compact(ctx, { aggressive: true });
@@ -199,6 +208,45 @@ export function buildRecoveryStrategies(opts?: {
       },
     },
   ];
+}
+
+/**
+ * Clamp a session's effective context ceiling after a provider-authoritative
+ * overflow. The rejected request proves that `input + output reserve` is at
+ * or beyond the route's real limit. This is intentionally session-local: it
+ * must not overwrite user config based on one transient provider route.
+ */
+export function learnEffectiveContextLimitFromOverflow(ctx: Context): number | undefined {
+  const inputTokens = positiveFinite(ctx.lastRequestTokens);
+  if (!inputTokens) return undefined;
+
+  const advertised =
+    positiveFinite(ctx.meta?.['effectiveMaxContext']) ??
+    positiveFinite(ctx.provider?.capabilities?.maxContext);
+  if (!advertised) return undefined;
+
+  const configuredOutputReserve = nonNegativeFinite(ctx.meta?.['contextOutputReserveTokens']);
+  const outputReserve = configuredOutputReserve ?? Math.floor(Math.min(8192, advertised * 0.08));
+  const observedCeiling = Math.max(1, Math.floor(inputTokens + outputReserve));
+  const learned = Math.min(advertised, observedCeiling);
+  if (learned >= advertised) return advertised;
+
+  ctx.meta ??= {};
+  ctx.meta['effectiveMaxContext'] = learned;
+  ctx.meta['effectiveMaxContextSource'] = 'provider_overflow';
+  return learned;
+}
+
+function positiveFinite(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : undefined;
+}
+
+function nonNegativeFinite(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : undefined;
 }
 
 export const DEFAULT_RECOVERY_STRATEGIES = buildRecoveryStrategies();

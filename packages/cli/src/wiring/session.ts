@@ -12,6 +12,7 @@ import {
   loadDirectorState,
   loadPlan,
   loadTodosCheckpoint,
+  ProviderCacheLedger,
   QueueStore,
   RecoveryLock,
   type SessionStore,
@@ -218,6 +219,15 @@ export async function setupSession(params: {
     storageDir: wpaths.projectDir,
     projectRoot,
   };
+  // Per-provider prompt-cache ledger — powers the /context per-provider cache
+  // breakdown once a session spans more than one provider (fallback / model
+  // switch). Subscribes to token.accounted; harmless when single-provider.
+  // disposed via the detachTodosCheckpoint chain on session shutdown.
+  let cacheLedger: ProviderCacheLedger | undefined;
+  if (eventsBus) {
+    cacheLedger = new ProviderCacheLedger(eventsBus);
+    context.meta['providerCacheLedger'] = cacheLedger;
+  }
   if (restoredMessages.length > 0) {
     // This snapshot is also the migration boundary for legacy transcripts:
     // after it, incremental message_* events can be authoritative without
@@ -269,6 +279,7 @@ export async function setupSession(params: {
   const detachSessionKanbanMirror = attachSessionKanbanMirror(context);
   const detachTodosCheckpoint = async () => {
     detachSessionKanbanMirror();
+    cacheLedger?.dispose();
     await detachTodosCheckpointOnly();
   };
 

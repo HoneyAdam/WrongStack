@@ -250,7 +250,40 @@ export function ChatInput({
   /** Send a user message through the agent. */
   function sendMsg(content: string) {
     if (isLoading) {
-      enqueue(content);
+      const images = pendingImagesRef.current;
+      // Before enqueuing, offer refinement. Call model.refine and
+      // store the pending text so handleModelRefineResult can open
+      // the RefinePanel for the user to approve or reject.
+      useChatStore.getState().setPendingRefinement(
+        content,
+        images.length > 0
+          ? images.map((img) => {
+              const comma = img.dataUrl.indexOf(',');
+              return {
+                data: comma >= 0 ? img.dataUrl.slice(comma + 1) : img.dataUrl,
+                mime: img.mediaType,
+              };
+            })
+          : [],
+      );
+      useChatStore.getState().setRefining(true);
+      if (refineModel) {
+        refineModel(content, { timeoutMs: 15_000 });
+        // Defensive timeout: if no model.refine_result arrives (dropped WS or
+        // unresponsive server), don't leave the "Refining…" indicator stuck.
+        // 30s = 2× the server timeout as a safety margin for latency/retries.
+        // handleModelRefineResult clears refining on arrival; this is a
+        // last-reset cleanup that is harmless if already cleared.
+        setTimeout(() => {
+          useChatStore.getState().setRefining(false);
+          useChatStore.getState().setPendingRefinement(null);
+        }, 30_000);
+      } else {
+        // No WS refine available — enqueue directly.
+        useChatStore.getState().setPendingRefinement(null);
+        useChatStore.getState().setRefining(false);
+        enqueue(content, 'queue', images.length > 0 ? images : undefined);
+      }
       return;
     }
     addMessage({ role: 'user', content });

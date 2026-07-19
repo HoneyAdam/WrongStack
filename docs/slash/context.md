@@ -4,14 +4,14 @@ Alias: `/ctx`.
 
 ## What it does
 
-Shows a live snapshot of the current context window: message counts, estimated tokens, effective context limit, tool call stats, todo counts, read files, and active context policy. Also has subcommands for switching context modes, setting session-local compaction limits/thresholds, and repairing orphan tool_use/tool_result blocks.
+Shows a live snapshot of the current context window: message counts, estimated tokens, effective context limit, tool call stats, todo counts, read files, and active context policy. It also prints a **real per-category token breakdown** — measured from the assembled request (`getContextBreakdown`), not guessed — so you can see exactly what fills the window: system prompt (split by section), tool definitions (builtin vs MCP), conversation history (text vs tool results), and the per-turn volatile blocks. Also has subcommands for switching context modes, setting session-local compaction limits/thresholds, and repairing orphan tool_use/tool_result blocks.
 
 ## Subcommands
 
 | Usage | Output |
 |---|---|
-| `/context` | Summary: messages, tokens, tool calls, todos, read files, active mode |
-| `/context detail` | Above + model, cwd, projectRoot, file mtimes, file list |
+| `/context` | Summary + breakdown (system / tools / history / volatile est. tokens and % of limit) + the 3 heaviest static system sections |
+| `/context detail` | Above + full per-section static audit, model, cwd, projectRoot, file mtimes, file list |
 | `/context repair` | Scan for orphan tool_use/tool_result blocks, remove them |
 | `/context limit` | Show the effective context window used by auto-compaction |
 | `/context limit <tokens>` | Set the effective context window for this session, e.g. `220k` or `220000` |
@@ -20,6 +20,7 @@ Shows a live snapshot of the current context window: message counts, estimated t
 | `/context thresholds <warn> <soft> <hard> --persist` | Set thresholds and persist them to config |
 | `/context mode` | List available context-window modes |
 | `/context mode <id>` | Switch to a named mode: `balanced`, `frugal`, `deep`, or `archival` |
+| `/context cache` | Prompt-cache report: session hit ratio, tokens read/written, USD saved, per-provider split, and the active provider's cache mechanism |
 
 ## What "repair" does
 
@@ -55,8 +56,14 @@ Example for an endpoint that starts rejecting requests around 256K tokens:
 
 For a persistent config-level setting, set `context.effectiveMaxContext` and optionally `context.warnThreshold`, `context.softThreshold`, and `context.hardThreshold` in config.
 
+## The breakdown (TUI dashboard + CLI)
+
+The token breakdown is computed by `getContextBreakdown(ctx)` (`packages/core/src/utils/context-breakdown.ts`). It attributes each system-prompt block to its origin section via a builder-side `SYSTEM_BLOCK_SOURCE` WeakMap, splits tool definitions into builtin vs MCP (by server), and separates conversation text from tool-result output. The TUI expanded view (`/context window`) renders the same measured numbers plus a threshold map and compaction box driven by the **active policy** thresholds — no hardcoded percentages.
+
 ## Code reference
 
 - `packages/cli/src/slash-commands/context.ts`
+- `packages/core/src/utils/context-breakdown.ts` — `getContextBreakdown()`
+- `packages/tui/src/context-slash.ts` — the expanded dashboard
 - `packages/core/src/execution/intelligent-compactor.ts` — `repairToolUseAdjacency()`
 - `packages/core/src/models/mode-store.ts` — context window modes

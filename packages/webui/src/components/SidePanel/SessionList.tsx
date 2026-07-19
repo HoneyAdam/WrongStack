@@ -830,17 +830,17 @@ export function SessionList({
                 </section>
               ))}
             </div>
+            <Pagination
+              page={page}
+              pageSize={pageSize}
+              totalItems={visibleEntries.length}
+              onPageChange={setPage}
+              compact={!workspace}
+              itemLabel="sessions"
+            />
           </div>
         )}
       </div>
-      <Pagination
-        page={page}
-        pageSize={pageSize}
-        totalItems={visibleEntries.length}
-        onPageChange={setPage}
-        compact={!workspace}
-        itemLabel="sessions"
-      />
     </div>
   );
 }

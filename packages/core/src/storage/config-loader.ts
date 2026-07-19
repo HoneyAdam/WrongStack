@@ -94,10 +94,14 @@ const BEHAVIOR_DEFAULTS: Omit<Config, 'provider' | 'model'> = {
       directory: '.wrongstack/memories',
     },
     inject: {
-      turnContext: true,
+      // Keep the ordinary turn prompt clean. Project memory is surfaced
+      // on-demand beside relevant tool results, where the path/query that
+      // caused retrieval is known and the hint can be independently capped.
+      turnContext: false,
       toolResults: true,
-      maxHintsPerTool: 4,
-      maxCharsPerTool: 1200,
+      taskAware: true,
+      maxHintsPerTool: 8,
+      maxCharsPerTool: 2800,
       maxTurnMemories: 8,
       maxCharsPerTurn: 2400,
       minScore: 0.65,

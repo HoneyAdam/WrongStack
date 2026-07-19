@@ -610,6 +610,11 @@
   }
 }
 
+/* ── count-transition: subtle stat-change highlight ───────────────── */
+.count-transition {
+  transition: color 0.3s ease, opacity 0.3s ease;
+}
+
 @media (prefers-reduced-motion: reduce) {
   /* Complete motion kill for users who opted out. Resetting `animation` alone
    * leaves transforms/filters/scroll-behavior still animated via keyframes or

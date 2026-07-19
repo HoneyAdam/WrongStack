@@ -1,5 +1,5 @@
 import type { MemoryEntry, MemoryScope, MemoryStore } from '@wrongstack/core';
-import { MEMORY_TYPE_LABELS, type MemoryType, type MemoryPriority } from '@wrongstack/core';
+import { MEMORY_TYPE_LABELS, type MemoryPriority, type MemoryType } from '@wrongstack/core';
 
 export interface MemorySlashDeps {
   memoryStore: MemoryStore;
@@ -138,12 +138,29 @@ interface UpdateSuperInput {
 interface SuperMemoryStoreLike {
   stats(): Promise<SuperMemoryStatsLike>;
   listSuper(statuses?: string[]): Promise<SuperMemoryLike[]>;
-  retrieveForPath(opts: { path: string; limit?: number; includeAncestors?: boolean }): Promise<SuperMemoryLike[]>;
+  retrieveForPath(opts: {
+    path: string;
+    limit?: number;
+    includeAncestors?: boolean;
+  }): Promise<SuperMemoryLike[]>;
   searchSuper(query: string, opts?: { limit?: number }): Promise<SuperMemoryLike[]>;
   rememberSuper(input: RememberSuperInput): Promise<SuperMemoryLike>;
   updateSuperMemory(id: string, patch: UpdateSuperInput): Promise<SuperMemoryLike>;
   deleteSuperMemory(id: string, reason?: string): Promise<void>;
   getSuperMemory(id: string): Promise<SuperMemoryLike | null>;
+  graphFor?(
+    query: string,
+    maxDepth?: number,
+    limit?: number,
+  ): Promise<
+    Array<{
+      from: string;
+      to: string;
+      relation: string;
+      weight: number;
+      evidence?: string[] | undefined;
+    }>
+  >;
 }
 
 function isSuperMemoryStore(store: MemoryStore): store is MemoryStore & SuperMemoryStoreLike {
@@ -242,19 +259,28 @@ function renderSuperMemoryStats(
   const deleted = stats.byStatus['deleted'] ?? 0;
   lines.push(
     `**Total:** ${stats.total} memories · ` +
-    `🟢 ${active} active · ` +
-    `🟡 ${stale} stale · ` +
-    `🔵 ${archived} archived · ` +
-    `⚫ ${deleted} deleted`,
+      `🟢 ${active} active · ` +
+      `🟡 ${stale} stale · ` +
+      `🔵 ${archived} archived · ` +
+      `⚫ ${deleted} deleted`,
   );
   lines.push(`**Graph edges:** ${stats.edges}`);
   lines.push('');
 
   // ── By kind (types) ──
   const kindOrder = [
-    'fact', 'decision', 'convention', 'preference',
-    'anti_pattern', 'warning', 'workflow', 'bug_root_cause',
-    'file_note', 'symbol_note', 'command_note', 'summary',
+    'fact',
+    'decision',
+    'convention',
+    'preference',
+    'anti_pattern',
+    'warning',
+    'workflow',
+    'bug_root_cause',
+    'file_note',
+    'symbol_note',
+    'command_note',
+    'summary',
   ];
   const kindRows: string[] = [];
   for (const kind of kindOrder) {
@@ -281,12 +307,8 @@ function renderSuperMemoryStats(
   if (tagCounts.size > 0) {
     lines.push('### 🏷️ Top tags');
     lines.push('');
-    const sorted = [...tagCounts.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 15);
-    const tagLine = sorted
-      .map(([tag, count]) => `\`${tag}\` ×${count}`)
-      .join('  ·  ');
+    const sorted = [...tagCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15);
+    const tagLine = sorted.map(([tag, count]) => `\`${tag}\` ×${count}`).join('  ·  ');
     lines.push(tagLine);
     lines.push('');
     lines.push('> Filter: `/memory --tag <tag>`  ·  `/memory --path <path>`');
@@ -305,10 +327,7 @@ function renderSuperMemoryStats(
   return lines;
 }
 
-function renderSuperMemoryEntries(
-  memories: SuperMemoryLike[],
-  compact?: boolean,
-): string[] {
+function renderSuperMemoryEntries(memories: SuperMemoryLike[], compact?: boolean): string[] {
   if (memories.length === 0) return [];
 
   const lines: string[] = [];
@@ -321,11 +340,14 @@ function renderSuperMemoryEntries(
     let idx = 0;
     for (const mem of memories) {
       idx++;
-      const tags = mem.tags.length > 0
-        ? mem.tags.slice(0, 3).join(', ') + (mem.tags.length > 3 ? '…' : '')
-        : '—';
+      const tags =
+        mem.tags.length > 0
+          ? mem.tags.slice(0, 3).join(', ') + (mem.tags.length > 3 ? '…' : '')
+          : '—';
       const preview = mem.text.replace(/\s+/g, ' ').trim().slice(0, 60);
-      lines.push(`| ${idx} | \`${mem.id.slice(0, 16)}…\` | ${mem.kind} | ${mem.status} | ${tags} | ${preview} |`);
+      lines.push(
+        `| ${idx} | \`${mem.id.slice(0, 16)}…\` | ${mem.kind} | ${mem.status} | ${tags} | ${preview} |`,
+      );
     }
   } else {
     // ── Rich per-entry cards ──
@@ -333,18 +355,20 @@ function renderSuperMemoryEntries(
     for (const mem of memories) {
       const kindEmoji = KIND_EMOJI[mem.kind] ?? '•';
       const statusIcon =
-        mem.status === 'active' ? '🟢'
-        : mem.status === 'stale' ? '🟡'
-        : mem.status === 'archived' ? '🔵'
-        : mem.status === 'deleted' ? '⚫'
-        : '⚪';
+        mem.status === 'active'
+          ? '🟢'
+          : mem.status === 'stale'
+            ? '🟡'
+            : mem.status === 'archived'
+              ? '🔵'
+              : mem.status === 'deleted'
+                ? '⚫'
+                : '⚪';
 
       const date = fmtDate(mem.createdAt);
       const recency = recencyLabel(daysAgo(mem.createdAt));
 
-      const textPreview = mem.text.length > 100
-        ? `${mem.text.slice(0, 98)}…`
-        : mem.text;
+      const textPreview = mem.text.length > 100 ? `${mem.text.slice(0, 98)}…` : mem.text;
 
       const badges: string[] = [];
       badges.push(`\`${mem.kind}\``);
@@ -442,9 +466,7 @@ function renderLegacySummary(stats: Stats): string[] {
   if (stats.tagCounts.size > 0) {
     lines.push('### 🏷️ Top tags');
     lines.push('');
-    const sorted = [...stats.tagCounts.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 15);
+    const sorted = [...stats.tagCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15);
     const tagLine = sorted.map(([tag, count]) => `\`${tag}\` ×${count}`).join('  ·  ');
     lines.push(tagLine);
     lines.push('');
@@ -498,7 +520,9 @@ function renderLegacyCompactList(entries: MemoryEntry[]): string[] {
     const date = fmtDate(e.ts);
     const type = e.type ? (MEMORY_TYPE_LABELS[e.type] ?? e.type) : '—';
     const prio = e.priority ?? '—';
-    const tags = e.tags?.length ? e.tags.slice(0, 3).join(', ') + (e.tags.length > 3 ? '…' : '') : '—';
+    const tags = e.tags?.length
+      ? e.tags.slice(0, 3).join(', ') + (e.tags.length > 3 ? '…' : '')
+      : '—';
     const preview = e.text.replace(/\s+/g, ' ').trim().slice(0, 60);
     lines.push(`| ${idx} | ${date} | ${type} | ${prio} | ${tags} | ${preview} |`);
   }
@@ -564,14 +588,40 @@ function parseArgs(raw: string): ParsedArgs {
 // not need a direct @wrongstack/super-memory dependency. Keep the flag set in
 // sync with the CLI command.
 
-const MEMORY_WRITE_SUBS = new Set(['remember', 'add', 'update', 'edit', 'delete', 'del', 'forget', 'rm']);
+const MEMORY_WRITE_SUBS = new Set([
+  'remember',
+  'add',
+  'update',
+  'edit',
+  'delete',
+  'del',
+  'forget',
+  'rm',
+]);
 
 const MEMORY_KIND_VALUES = [
-  'fact', 'decision', 'convention', 'preference', 'warning', 'anti_pattern',
-  'workflow', 'bug_root_cause', 'file_note', 'symbol_note', 'command_note', 'summary',
+  'fact',
+  'decision',
+  'convention',
+  'preference',
+  'warning',
+  'anti_pattern',
+  'workflow',
+  'bug_root_cause',
+  'file_note',
+  'symbol_note',
+  'command_note',
+  'summary',
 ];
 const MEMORY_SCOPE_VALUES = ['project', 'user', 'session', 'file', 'symbol'];
-const MEMORY_STATUS_VALUES = ['active', 'stale', 'superseded', 'contradicted', 'archived', 'deleted'];
+const MEMORY_STATUS_VALUES = [
+  'active',
+  'stale',
+  'superseded',
+  'contradicted',
+  'archived',
+  'deleted',
+];
 
 interface ParsedMemoryFlags {
   text: string;
@@ -594,9 +644,16 @@ function parseMemoryFlags(tokens: string[]): ParsedMemoryFlags {
   const errors: string[] = [];
   const out: ParsedMemoryFlags = { text: '', errors };
 
-  const csv = (value: string): string[] => value.split(',').map((p) => p.trim()).filter(Boolean);
+  const csv = (value: string): string[] =>
+    value
+      .split(',')
+      .map((p) => p.trim())
+      .filter(Boolean);
   const num = (name: string, value: string | undefined): number | undefined => {
-    if (value === undefined) { errors.push(`${name} needs a value between 0 and 1.`); return undefined; }
+    if (value === undefined) {
+      errors.push(`${name} needs a value between 0 and 1.`);
+      return undefined;
+    }
     const parsed = Number.parseFloat(value);
     if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
       errors.push(`${name} must be a number between 0 and 1 (got "${value}").`);
@@ -607,7 +664,10 @@ function parseMemoryFlags(tokens: string[]): ParsedMemoryFlags {
 
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i] ?? '';
-    if (!token.startsWith('--')) { words.push(token); continue; }
+    if (!token.startsWith('--')) {
+      words.push(token);
+      continue;
+    }
     const name = token.slice(2).toLowerCase();
     const nxt = tokens[i + 1];
     const value = nxt !== undefined && !nxt.startsWith('--') ? nxt : undefined;
@@ -636,9 +696,15 @@ function parseMemoryFlags(tokens: string[]): ParsedMemoryFlags {
         else errors.push('--anchor needs a file path.');
         break;
       case 'symbol': {
-        if (!value) { errors.push('--symbol needs a value like path#SymbolName.'); break; }
+        if (!value) {
+          errors.push('--symbol needs a value like path#SymbolName.');
+          break;
+        }
         const hash = value.lastIndexOf('#');
-        if (hash <= 0 || hash === value.length - 1) { errors.push('--symbol must be path#SymbolName.'); break; }
+        if (hash <= 0 || hash === value.length - 1) {
+          errors.push('--symbol must be path#SymbolName.');
+          break;
+        }
         anchors.push({ type: 'symbol', path: value.slice(0, hash), symbol: value.slice(hash + 1) });
         break;
       }
@@ -646,9 +712,15 @@ function parseMemoryFlags(tokens: string[]): ParsedMemoryFlags {
         if (value) anchors.push({ type: 'command', command: value });
         else errors.push('--command needs a value.');
         break;
-      case 'importance': out.importance = num('--importance', value); break;
-      case 'confidence': out.confidence = num('--confidence', value); break;
-      case 'freshness': out.freshness = num('--freshness', value); break;
+      case 'importance':
+        out.importance = num('--importance', value);
+        break;
+      case 'confidence':
+        out.confidence = num('--confidence', value);
+        break;
+      case 'freshness':
+        out.freshness = num('--freshness', value);
+        break;
       case 'supersedes':
         if (value) out.supersedes = [...(out.supersedes ?? []), ...csv(value)];
         else errors.push('--supersedes needs one or more memory ids.');
@@ -683,7 +755,10 @@ async function handleMemoryWrite(
   // remember has a legacy fallback; every other write op needs Super Memory.
   if (sub === 'remember' || sub === 'add') {
     if (rest.length === 0) {
-      return { message: 'Usage: /memory remember <text> [--kind k] [--scope s] [--tag a,b] [--anchor path] [--symbol path#Name] [--command cmd] [--importance 0..1] [--confidence 0..1] [--supersedes id,id] [--contradicts id,id]' };
+      return {
+        message:
+          'Usage: /memory remember <text> [--kind k] [--scope s] [--tag a,b] [--anchor path] [--symbol path#Name] [--command cmd] [--importance 0..1] [--confidence 0..1] [--supersedes id,id] [--contradicts id,id]',
+      };
     }
     if (!isSuperMemoryStore(store)) {
       const text = rest.join(' ').trim();
@@ -692,8 +767,10 @@ async function handleMemoryWrite(
       return { message: `Remembered: ${text}` };
     }
     const parsed = parseMemoryFlags(rest);
-    if (parsed.errors.length > 0) return { message: `Cannot remember:\n- ${parsed.errors.join('\n- ')}` };
-    if (!parsed.text) return { message: 'Nothing to remember — provide the memory text before/after the flags.' };
+    if (parsed.errors.length > 0)
+      return { message: `Cannot remember:\n- ${parsed.errors.join('\n- ')}` };
+    if (!parsed.text)
+      return { message: 'Nothing to remember — provide the memory text before/after the flags.' };
     try {
       const memory = await store.rememberSuper({
         text: parsed.text,
@@ -719,9 +796,14 @@ async function handleMemoryWrite(
 
   if (sub === 'update' || sub === 'edit') {
     const id = rest[0];
-    if (!id) return { message: 'Usage: /memory update <memory-id> [--text t] [--kind k] [--tag a,b] [--status active|stale|archived|deleted] [--importance 0..1] ...' };
+    if (!id)
+      return {
+        message:
+          'Usage: /memory update <memory-id> [--text t] [--kind k] [--tag a,b] [--status active|stale|archived|deleted] [--importance 0..1] ...',
+      };
     const parsed = parseMemoryFlags(rest.slice(1));
-    if (parsed.errors.length > 0) return { message: `Cannot update:\n- ${parsed.errors.join('\n- ')}` };
+    if (parsed.errors.length > 0)
+      return { message: `Cannot update:\n- ${parsed.errors.join('\n- ')}` };
     const patch: UpdateSuperInput = {
       ...(parsed.text && { text: parsed.text }),
       ...(parsed.kind && { kind: parsed.kind }),
@@ -735,11 +817,15 @@ async function handleMemoryWrite(
       ...(parsed.contradicts && { contradicts: parsed.contradicts }),
     };
     if (Object.keys(patch).length === 0) {
-      return { message: 'Nothing to update — pass at least one field (e.g. --text, --status, --tag).' };
+      return {
+        message: 'Nothing to update — pass at least one field (e.g. --text, --status, --tag).',
+      };
     }
     try {
       const memory = await store.updateSuperMemory(id, patch);
-      return { message: `Updated \`${memory.id}\` [${memory.kind}|${memory.status}] ${memory.text}` };
+      return {
+        message: `Updated \`${memory.id}\` [${memory.kind}|${memory.status}] ${memory.text}`,
+      };
     } catch (err) {
       return { message: `Could not update: ${memErr(err)}` };
     }
@@ -764,7 +850,12 @@ async function handleMemoryWrite(
   if (!query) return { message: 'Usage: /memory forget <query>' };
   try {
     const removed = await store.forget(query);
-    return { message: removed === 0 ? `No entries matched "${query}".` : `Forgot ${removed} entr${removed === 1 ? 'y' : 'ies'}.` };
+    return {
+      message:
+        removed === 0
+          ? `No entries matched "${query}".`
+          : `Forgot ${removed} entr${removed === 1 ? 'y' : 'ies'}.`,
+    };
   } catch (err) {
     return { message: `Could not forget: ${memErr(err)}` };
   }
@@ -785,6 +876,7 @@ export function createMemorySlashCommand(deps: MemorySlashDeps) {
       '  /memory remember <text> [--kind k] [--scope s] [--tag a,b] [--anchor path] [--importance 0..1]\n' +
       '  /memory update <id> [--text t] [--kind k] [--tag a,b] [--status s] ...\n' +
       '  /memory delete <id> [reason]\n' +
+      '  /memory graph <id|path|query> — show persisted relations, weights, and why evidence\n' +
       '  /memory forget <query>      — remove entries matching a substring\n' +
       '  /memory project-memory      — legacy: list only project memory\n' +
       '  /memory user-memory         — legacy: list only user memory\n' +
@@ -799,6 +891,25 @@ export function createMemorySlashCommand(deps: MemorySlashDeps) {
       if (MEMORY_WRITE_SUBS.has(sub)) {
         return handleMemoryWrite(store, sub, tokens.slice(1));
       }
+      if (sub === 'graph') {
+        const query = tokens.slice(1).join(' ').trim();
+        if (!query) return { message: 'Usage: /memory graph <memory-id|path|query>' };
+        if (!isSuperMemoryStore(store) || typeof store.graphFor !== 'function') {
+          return { message: '`/memory graph` requires the Super Memory graph backend.' };
+        }
+        const edges = await store.graphFor(query, 2, 100);
+        if (edges.length === 0) return { message: `No graph relationships matched "${query}".` };
+        return {
+          message: [
+            `## Memory Graph — ${query}`,
+            ...edges.map(
+              (edge) =>
+                `- ${edge.from} —[${edge.relation}:${edge.weight.toFixed(2)}]→ ${edge.to}` +
+                (edge.evidence?.length ? ` _(why: ${edge.evidence.join(', ')})_` : ''),
+            ),
+          ].join('\n'),
+        };
+      }
 
       const parsed = parseArgs(args);
 
@@ -806,10 +917,7 @@ export function createMemorySlashCommand(deps: MemorySlashDeps) {
         // ── SuperMemory path ──────────────────────────────────────────────
         if (isSuperMemoryStore(store)) {
           // Fetch stats and full list
-          const [stats, allMemories] = await Promise.all([
-            store.stats(),
-            store.listSuper(),
-          ]);
+          const [stats, allMemories] = await Promise.all([store.stats(), store.listSuper()]);
 
           if (allMemories.length === 0) {
             return { message: '🧠 Super Memory is empty.' };
@@ -828,7 +936,11 @@ export function createMemorySlashCommand(deps: MemorySlashDeps) {
 
           // Path filter — use retrieveForPath for path-based queries
           if (parsed.path) {
-            const pathMemories = await store.retrieveForPath({ path: parsed.path, limit: 200, includeAncestors: true });
+            const pathMemories = await store.retrieveForPath({
+              path: parsed.path,
+              limit: 200,
+              includeAncestors: true,
+            });
             const pathIds = new Set(pathMemories.map((m) => m.id));
             filteredMemories = filteredMemories.filter((m) => pathIds.has(m.id));
           }
@@ -850,8 +962,11 @@ export function createMemorySlashCommand(deps: MemorySlashDeps) {
           const filterDesc: string[] = [];
           if (parsed.tag) filterDesc.push(`tag="${parsed.tag}"`);
           if (parsed.path) filterDesc.push(`path="${parsed.path}"`);
-          const filterSuffix = filterDesc.length > 0 ? ` (filtered by ${filterDesc.join(', ')})` : '';
-          parts.push(`*${filteredMemories.length} of ${allMemories.length} Super Memory entr${filteredMemories.length === 1 ? 'y' : 'ies'}${filterSuffix}*`);
+          const filterSuffix =
+            filterDesc.length > 0 ? ` (filtered by ${filterDesc.join(', ')})` : '';
+          parts.push(
+            `*${filteredMemories.length} of ${allMemories.length} Super Memory entr${filteredMemories.length === 1 ? 'y' : 'ies'}${filterSuffix}*`,
+          );
 
           return { message: parts.join('\n') };
         }
@@ -878,7 +993,10 @@ export function createMemorySlashCommand(deps: MemorySlashDeps) {
 
         const allEntries = results.flatMap((r) => r.entries);
         if (allEntries.length === 0) {
-          return { message: '🧠 No memory entries found.\n\n> 💡 Enable **Super Memory** (`superMemory.enabled`) for structured memory with tags, paths, and graph relationships.' };
+          return {
+            message:
+              '🧠 No memory entries found.\n\n> 💡 Enable **Super Memory** (`superMemory.enabled`) for structured memory with tags, paths, and graph relationships.',
+          };
         }
 
         const parts: string[] = [];
@@ -897,15 +1015,21 @@ export function createMemorySlashCommand(deps: MemorySlashDeps) {
         parts.push(...renderLegacySummary(globalStats));
 
         // Legacy migration hint
-        parts.push('> 💡 **Super Memory** available — enables path anchoring, tags, graph, and structured queries.');
-        parts.push('> Enable `superMemory.enabled` in config, then run `/memory` for the full stats panel.');
+        parts.push(
+          '> 💡 **Super Memory** available — enables path anchoring, tags, graph, and structured queries.',
+        );
+        parts.push(
+          '> Enable `superMemory.enabled` in config, then run `/memory` for the full stats panel.',
+        );
         parts.push('');
 
         if (useCompact) {
           for (const { scope, entries } of results) {
             if (entries.length === 0) continue;
             const scopeFiltered = parsed.tag
-              ? entries.filter((e) => (e.tags ?? []).some((t) => t.toLowerCase() === (parsed.tag ?? '').toLowerCase()))
+              ? entries.filter((e) =>
+                  (e.tags ?? []).some((t) => t.toLowerCase() === (parsed.tag ?? '').toLowerCase()),
+                )
               : entries;
             if (scopeFiltered.length === 0) continue;
             parts.push('');
@@ -918,16 +1042,21 @@ export function createMemorySlashCommand(deps: MemorySlashDeps) {
           for (const { scope, entries } of results) {
             if (entries.length === 0) continue;
             const scopeFiltered = parsed.tag
-              ? entries.filter((e) => (e.tags ?? []).some((t) => t.toLowerCase() === (parsed.tag ?? '').toLowerCase()))
+              ? entries.filter((e) =>
+                  (e.tags ?? []).some((t) => t.toLowerCase() === (parsed.tag ?? '').toLowerCase()),
+                )
               : entries;
             if (scopeFiltered.length === 0) continue;
             parts.push(...renderLegacyScopeSection(scope, scopeFiltered));
           }
         }
 
-        const scopeSuffix = scopes.length === 1 ? `in **${SCOPE_LABEL[scopes[0]!]}**` : 'across all scopes';
+        const scopeSuffix =
+          scopes.length === 1 ? `in **${SCOPE_LABEL[scopes[0]!]}**` : 'across all scopes';
         const filterSuffix = parsed.tag ? ` (filtered by tag="${parsed.tag}")` : '';
-        parts.push(`*${filteredEntries.length} entr${filteredEntries.length === 1 ? 'y' : 'ies'} ${scopeSuffix}${filterSuffix}*`);
+        parts.push(
+          `*${filteredEntries.length} entr${filteredEntries.length === 1 ? 'y' : 'ies'} ${scopeSuffix}${filterSuffix}*`,
+        );
 
         return { message: parts.join('\n') };
       } catch (err) {

@@ -86,6 +86,7 @@ export {
 } from './wire-format.js';
 export { mistralWireFormat } from './presets/mistral.js';
 export { anthropicWireFormat } from './presets/anthropic.js';
+export { ANTHROPIC_MAX_BREAKPOINTS, capAnthropicCacheBreakpoints } from './cache-breakpoint-cap.js';
 export { openaiWireFormat } from './presets/openai.js';
 export { googleWireFormat } from './presets/google.js';
 export { ollamaWireFormat, vllmWireFormat, lmstudioWireFormat } from './presets/local-llm.js';

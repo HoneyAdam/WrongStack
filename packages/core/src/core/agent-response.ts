@@ -6,6 +6,7 @@
 
 import { isTextBlock, type TextBlock } from '../types/blocks.js';
 import type { Request, Response } from '../types/provider.js';
+import { deriveCachePrefixKey } from '../utils/cache-key.js';
 import {
   buildCompletedWorkLedgerBlock,
   markAssistantReferencedEvidence,
@@ -149,6 +150,10 @@ export function createAgentResponseHandler(a: AgentInternals): AgentResponseHand
       // absent — keeping the field optional at the wire layer is what
       // lets the catalog-driven ceiling reach the API untouched.
       maxTokens: a.ctx.provider.capabilities.maxOutput,
+      // Provider-agnostic cache-partition key from the stable prompt epoch.
+      // Wires that support prompt caching (OpenAI `prompt_cache_key`) read it;
+      // the config `ttl` is merged over this by the ModelRuntime middleware.
+      cache: { key: deriveCachePrefixKey(a.ctx.systemPrompt) },
     };
     return a.pipelines.request.run(baseReq);
   }

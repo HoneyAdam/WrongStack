@@ -20,6 +20,7 @@ function fakeCtx(overrides: Record<string, unknown> = {}): Context {
   const todos: unknown[] = [];
   return {
     messages,
+    tools: [],
     todos,
     readFiles: new Set<string>(),
     fileMtimes: new Map<string, number>(),
@@ -49,6 +50,31 @@ describe('buildContextCommand', () => {
     expect(renderer.writes.length).toBeGreaterThan(0);
   });
 
+  it('prints a cache-hit line when the token counter reports cached tokens', async () => {
+    const renderer = fakeRenderer();
+    const cmd = buildContextCommand({ renderer } as never);
+    const ctx = fakeCtx({
+      tokenCounter: {
+        cacheStats: () => ({ readTokens: 12_000, writeTokens: 3_000, hitRatio: 0.4, savedUsd: 0.34 }),
+      },
+    });
+    const res = await cmd.run('', ctx);
+    expect(res?.message).toContain('cache-hit: 40.0%');
+    expect(res?.message).toContain('read 12,000');
+    expect(res?.message).toContain('write 3,000');
+    expect(res?.message).toContain('saved ~$0.34');
+  });
+
+  it('omits the cache-hit line when nothing has been cached', async () => {
+    const renderer = fakeRenderer();
+    const cmd = buildContextCommand({ renderer } as never);
+    const ctx = fakeCtx({
+      tokenCounter: { cacheStats: () => ({ readTokens: 0, writeTokens: 0, hitRatio: 0 }) },
+    });
+    const res = await cmd.run('', ctx);
+    expect(res?.message).not.toContain('cache-hit');
+  });
+
   it('"detail" adds model/cwd/projectRoot/mtimes/file list when files present', async () => {
     const renderer = fakeRenderer();
     const cmd = buildContextCommand({ renderer } as never);
@@ -62,6 +88,44 @@ describe('buildContextCommand', () => {
     expect(res?.message).toContain('file mtimes:');
     expect(res?.message).toContain('file list:');
     expect(res?.message).toContain('/a/b.ts');
+  });
+
+  it('"cache" reports hit ratio, savings, mechanism, and per-provider split', async () => {
+    const renderer = fakeRenderer();
+    const cmd = buildContextCommand({ renderer } as never);
+    const ctx = fakeCtx({
+      provider: { id: 'openai', capabilities: { cacheControl: 'auto' } },
+      tokenCounter: {
+        cacheStats: () => ({ readTokens: 20_000, writeTokens: 1_000, hitRatio: 0.5, savedUsd: 0.42 }),
+      },
+      meta: {
+        providerCacheLedger: {
+          perProvider: () => [
+            { provider: 'openai', cacheRead: 15_000, cacheWrite: 800, hitRatio: 0.6 },
+            { provider: 'anthropic', cacheRead: 5_000, cacheWrite: 200, hitRatio: 0.3 },
+          ],
+        },
+      },
+    });
+    const res = await cmd.run('cache', ctx);
+    expect(res?.message).toContain('Prompt Cache Report');
+    expect(res?.message).toContain('hit ratio: 50.0%');
+    expect(res?.message).toContain('saved:     ~$0.42');
+    expect(res?.message).toContain('prompt_cache_key routing');
+    expect(res?.message).toContain('openai');
+    expect(res?.message).toContain('anthropic');
+  });
+
+  it('"cache" reports the Gemini mechanism from the provider id', async () => {
+    const renderer = fakeRenderer();
+    const cmd = buildContextCommand({ renderer } as never);
+    const ctx = fakeCtx({
+      provider: { id: 'google', capabilities: { cacheControl: 'none' } },
+      tokenCounter: { cacheStats: () => ({ readTokens: 0, writeTokens: 0, hitRatio: 0, savedUsd: 0 }) },
+    });
+    const res = await cmd.run('cache', ctx);
+    expect(res?.message).toContain('cachedContents');
+    expect(res?.message).toContain('No cached tokens yet');
   });
 
   it('"mode" lists all context modes', async () => {

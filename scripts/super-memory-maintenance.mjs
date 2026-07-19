@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 /**
  * One-time Super Memory maintenance: recover-then-purge.
  * ---------------------------------------------------------------------------
@@ -9,8 +10,9 @@
  *
  * This script runs the two safe, ordered steps:
  *
- *   1. BACKFILL  — for every recoverable deleted memory (has text + provenance),
- *      create a fresh ACTIVE version linked to the original via `supersedes`.
+ *   1. BACKFILL  — by default select a refined, canonical-deduplicated subset
+ *      of durable/high-signal deleted memory, then create fresh ACTIVE versions
+ *      linked to the originals via `supersedes`.
  *      The original tombstone stays deleted (immutable audit trail). This is
  *      how genuinely-useful memories come back.  [store.backfillRecoverable]
  *
@@ -36,6 +38,7 @@
  *   --project <path>     Project root containing .wrongstack/ (default: cwd)
  *   --purge-days <N>     Purge tombstones deleted more than N days ago (default: 30)
  *   --apply              Actually write changes (default: dry-run)
+ *   --all-recoverable    Disable refined selection and restore every eligible tombstone
  *   --no-backfill        Skip the recovery step (purge only)
  *   --no-purge           Skip the purge step (backfill only)
  *   -h, --help           Show this help
@@ -47,8 +50,8 @@
  *   node scripts/super-memory-maintenance.mjs --no-purge --apply   # recover only
  */
 
-import { createRequire } from 'node:module';
 import * as fs from 'node:fs';
+import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -62,18 +65,35 @@ function parseArgs(argv) {
     purgeDays: 30,
     apply: false,
     backfill: true,
+    refined: true,
     purge: true,
     help: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     switch (a) {
-      case '--project': opts.project = argv[++i]; break;
-      case '--purge-days': opts.purgeDays = Number(argv[++i]); break;
-      case '--apply': opts.apply = true; break;
-      case '--no-backfill': opts.backfill = false; break;
-      case '--no-purge': opts.purge = false; break;
-      case '-h': case '--help': opts.help = true; break;
+      case '--project':
+        opts.project = argv[++i];
+        break;
+      case '--purge-days':
+        opts.purgeDays = Number(argv[++i]);
+        break;
+      case '--apply':
+        opts.apply = true;
+        break;
+      case '--all-recoverable':
+        opts.refined = false;
+        break;
+      case '--no-backfill':
+        opts.backfill = false;
+        break;
+      case '--no-purge':
+        opts.purge = false;
+        break;
+      case '-h':
+      case '--help':
+        opts.help = true;
+        break;
       default:
         console.error(`Unknown argument: ${a}`);
         process.exit(2);
@@ -112,8 +132,8 @@ async function loadStoreCtor() {
   }
   console.error(
     '\nCould not load @wrongstack/super-memory from dist.\n' +
-    'Build it first:\n    pnpm --filter @wrongstack/super-memory build\n\n' +
-    `Underlying error: ${lastErr?.message ?? lastErr}`,
+      'Build it first:\n    pnpm --filter @wrongstack/super-memory build\n\n' +
+      `Underlying error: ${lastErr?.message ?? lastErr}`,
   );
   process.exit(1);
 }
@@ -122,9 +142,91 @@ function num(n) {
   return typeof n === 'number' && Number.isFinite(n) ? n : 0;
 }
 
+function canonicalMemoryText(text) {
+  return String(text ?? '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[.!?,;:]+$/u, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Pick useful long-lived records without blindly re-activating task chatter.
+ * The policy intentionally combines metadata quality with entity grounding:
+ * durable kinds survive at medium+ importance; facts need high importance;
+ * anchored records get a lower threshold because retrieval has a stable key.
+ */
+function selectRefinedRecoveryIds(memoriesLog) {
+  const latest = new Map();
+  for (const line of fs.readFileSync(memoriesLog, 'utf8').split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try {
+      const record = JSON.parse(line);
+      if (record?.recordType === 'memory' && record.memory?.id) {
+        latest.set(record.memory.id, record.memory);
+      }
+    } catch {
+      // The store will audit malformed records. Recovery selection ignores them.
+    }
+  }
+
+  const durableKinds = new Set([
+    'decision',
+    'convention',
+    'preference',
+    'warning',
+    'anti_pattern',
+    'workflow',
+    'bug_root_cause',
+    'file_note',
+    'symbol_note',
+    'command_note',
+  ]);
+  const activeText = new Set(
+    [...latest.values()]
+      .filter((memory) => memory.status === 'active')
+      .map((memory) => canonicalMemoryText(memory.text)),
+  );
+  const selectedByText = new Map();
+  for (const memory of latest.values()) {
+    if (memory.status !== 'deleted') continue;
+    if (['summary', 'memory_review'].includes(memory.kind)) continue;
+    if ((memory.persistence ?? 'long_lived') === 'short_lived') continue;
+    if (!memory.text?.trim()) continue;
+    const importance = Number(memory.importance) || 0;
+    const confidence = Number(memory.confidence) || 0;
+    const anchored = (memory.anchors?.length ?? 0) > 0;
+    const highSignal =
+      memory.persistence === 'permanent' ||
+      (durableKinds.has(memory.kind) && importance >= 0.55 && confidence >= 0.75) ||
+      (memory.kind === 'fact' && importance >= 0.8 && confidence >= 0.8) ||
+      (anchored && importance >= 0.4 && confidence >= 0.7);
+    if (!highSignal) continue;
+
+    const key = canonicalMemoryText(memory.text);
+    if (!key || activeText.has(key)) continue;
+    const existing = selectedByText.get(key);
+    if (
+      !existing ||
+      importance > existing.importance ||
+      (importance === existing.importance && confidence > existing.confidence) ||
+      (importance === existing.importance &&
+        confidence === existing.confidence &&
+        memory.updatedAt > existing.updatedAt)
+    ) {
+      selectedByText.set(key, memory);
+    }
+  }
+  return [...selectedByText.values()].map((memory) => memory.id);
+}
+
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
-  if (opts.help) { printHelp(); return; }
+  if (opts.help) {
+    printHelp();
+    return;
+  }
 
   if (!Number.isFinite(opts.purgeDays) || opts.purgeDays <= 0) {
     console.error('--purge-days must be a positive number.');
@@ -134,8 +236,10 @@ async function main() {
   const projectRoot = path.resolve(opts.project);
   const memoriesLog = path.join(projectRoot, '.wrongstack', 'memories', 'memories.jsonl');
   if (!fs.existsSync(memoriesLog)) {
-    console.error(`No JSONL memory store found at:\n  ${memoriesLog}\n` +
-      'Point --project at a directory containing .wrongstack/memories/memories.jsonl.');
+    console.error(
+      `No JSONL memory store found at:\n  ${memoriesLog}\n` +
+        'Point --project at a directory containing .wrongstack/memories/memories.jsonl.',
+    );
     process.exit(1);
   }
 
@@ -151,6 +255,9 @@ async function main() {
   console.log(`  Mode:       ${mode}`);
   console.log(`  Purge days: ${opts.purgeDays}`);
   console.log(`  Steps:      ${opts.backfill ? 'backfill' : '-'} → ${opts.purge ? 'purge' : '-'}`);
+  console.log(
+    `  Recovery:   ${opts.refined ? 'refined + canonical-deduplicated' : 'ALL recoverable'}`,
+  );
   console.log('');
 
   // ── Initial state ────────────────────────────────────────────────────────
@@ -179,8 +286,13 @@ async function main() {
 
   // ── Step 1: backfill recoverable ─────────────────────────────────────────
   if (opts.backfill) {
-    const report = await store.backfillRecoverable({ dryRun: !opts.apply });
+    const refinedIds = opts.refined ? selectRefinedRecoveryIds(memoriesLog) : undefined;
+    const report = await store.backfillRecoverable({
+      dryRun: !opts.apply,
+      ...(refinedIds ? { filter: { ids: refinedIds } } : {}),
+    });
     console.log('Step 1 — BACKFILL (recover recoverable deleted memories):');
+    if (refinedIds) console.log(`  refined set: ${refinedIds.length}`);
     console.log(`  examined:    ${report.examined}`);
     console.log(`  recoverable: ${report.recoverable}`);
     console.log(`  recovered:   ${report.recovered}${opts.apply ? '' : ' (would recover)'}`);
@@ -200,8 +312,12 @@ async function main() {
       // many tombstones WOULD be purged using the same predicate the store uses.
       const estimate = await estimatePurge(memoriesLog, opts.purgeDays);
       console.log('Step 2 — PURGE (physically drop old, unreferenced tombstones):');
-      console.log(`  eligible:  ${estimate.eligible} (deleted > ${opts.purgeDays}d, non-permanent, not recovered)`);
-      console.log(`  protected: ${estimate.permanent} permanent, ${estimate.referenced} recovered/referenced, ${estimate.tooRecent} too recent`);
+      console.log(
+        `  eligible:  ${estimate.eligible} (deleted > ${opts.purgeDays}d, non-permanent, not recovered)`,
+      );
+      console.log(
+        `  protected: ${estimate.permanent} permanent, ${estimate.referenced} recovered/referenced, ${estimate.tooRecent} too recent`,
+      );
       console.log('  (would purge on --apply)\n');
     } else {
       let report;
@@ -214,7 +330,7 @@ async function main() {
       if (typeof report.purgedDeleted !== 'number') {
         console.error(
           '\nThis build of @wrongstack/super-memory does not support purgeDeletedAfterDays.\n' +
-          'Rebuild it:  pnpm --filter @wrongstack/super-memory build\n',
+            'Rebuild it:  pnpm --filter @wrongstack/super-memory build\n',
         );
         process.exit(1);
       }
@@ -253,7 +369,11 @@ async function estimatePurge(memoriesLog, purgeDays) {
   const latest = new Map();
   for (const line of lines) {
     let rec;
-    try { rec = JSON.parse(line); } catch { continue; }
+    try {
+      rec = JSON.parse(line);
+    } catch {
+      continue;
+    }
     if (rec?.recordType !== 'memory' || !rec.memory?.id) continue;
     const m = rec.memory;
     const cur = latest.get(m.id);
@@ -269,13 +389,25 @@ async function estimatePurge(memoriesLog, purgeDays) {
     for (const id of m.supersedes ?? []) referenced.add(id);
   }
 
-  let eligible = 0, permanent = 0, referencedCount = 0, tooRecent = 0;
+  let eligible = 0,
+    permanent = 0,
+    referencedCount = 0,
+    tooRecent = 0;
   for (const [id, m] of latest) {
     if (m.status !== 'deleted') continue;
-    if ((m.persistence ?? 'long_lived') === 'permanent') { permanent++; continue; }
-    if (referenced.has(id)) { referencedCount++; continue; }
+    if ((m.persistence ?? 'long_lived') === 'permanent') {
+      permanent++;
+      continue;
+    }
+    if (referenced.has(id)) {
+      referencedCount++;
+      continue;
+    }
     const deletedAtMs = Date.parse(m.updatedAt);
-    if (Number.isNaN(deletedAtMs) || deletedAtMs > cutoffMs) { tooRecent++; continue; }
+    if (Number.isNaN(deletedAtMs) || deletedAtMs > cutoffMs) {
+      tooRecent++;
+      continue;
+    }
     eligible++;
   }
   return { eligible, permanent, referenced: referencedCount, tooRecent };

@@ -34,6 +34,7 @@ import { getWSClient } from '@/lib/ws-client';
 import { cn } from '@/lib/utils';
 import { useConfigStore, useFleetStore, useSessionStore, type SubagentView } from '@/stores';
 import { ContextBar, ContextFillBar } from '@/components/ContextBar';
+import { fmtTok } from '@/components/dashboard-primitives';
 import { Button } from '@/components/ui/button';
 import { useUIStore } from '@/stores';
 
@@ -85,13 +86,6 @@ function zoneFor(pct: number): ZoneConfig {
   return ZONES[0];
 }
 
-function fmtTok(n: number): string {
-  if (!Number.isFinite(n)) return '0';
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return n.toLocaleString();
-}
-
 function fmtDuration(startedAt: number | null): string {
   if (!startedAt) return '—';
   const elapsed = Date.now() - startedAt;
@@ -110,16 +104,44 @@ function SectionCard({
   icon: Icon,
   children,
   className,
+  accent,
 }: {
   title: string;
   icon: React.ElementType;
   children: React.ReactNode;
   className?: string;
+  accent?: 'default' | 'danger' | 'warning' | 'success';
 }) {
+  const accentColor =
+    accent === 'danger'
+      ? 'text-destructive'
+      : accent === 'warning'
+        ? 'text-warning'
+        : accent === 'success'
+          ? 'text-success'
+          : 'text-muted-foreground';
+  const accentBg =
+    accent === 'danger'
+      ? 'bg-destructive/5'
+      : accent === 'warning'
+        ? 'bg-warning/5'
+        : accent === 'success'
+          ? 'bg-success/5'
+          : '';
   return (
-    <div className={cn('rounded-lg border bg-card p-4 space-y-3', className)}>
-      <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-        <Icon className="h-4 w-4 text-muted-foreground" />
+    <div
+      className={cn(
+        'rounded-xl border bg-card/80 backdrop-blur-sm p-4 space-y-3',
+        'shadow-sm transition-shadow hover:shadow-md',
+        'ring-1 ring-border/40',
+        accentBg,
+        className,
+      )}
+    >
+      <div className="flex items-center gap-2 text-sm font-bold tracking-tight text-foreground">
+        <span className={cn('flex items-center justify-center h-6 w-6 rounded-lg', accentBg, accent !== 'default' && 'ring-1 ring-inset')}>
+          <Icon className={cn('h-3.5 w-3.5', accentColor)} />
+        </span>
         {title}
       </div>
       {children}
@@ -129,9 +151,9 @@ function SectionCard({
 
 function MetricRow({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
-    <div className="flex items-center justify-between text-xs">
+    <div className="flex items-center justify-between text-xs py-0.5">
       <span className="text-muted-foreground">{label}</span>
-      <span className={cn('tabular-nums font-mono font-medium', color ?? 'text-foreground')}>
+      <span className={cn('tabular-nums font-mono font-semibold px-1.5 py-0.5 rounded', color ?? 'text-foreground')}>
         {value}
       </span>
     </div>
@@ -148,15 +170,17 @@ function PressureSection({
   maxTokens: number;
 }) {
   const zone = zoneFor(pct);
+  const accent =
+    pct > 85 ? 'danger' : pct > 60 ? 'warning' : 'success';
 
   return (
-    <SectionCard title="Context Pressure" icon={Gauge}>
+    <SectionCard title="Context Pressure" icon={Gauge} accent={accent}>
       <div className="space-y-2">
         {/* Main pressure bar */}
         <div className="flex items-center gap-3">
           <span className="text-lg">{zone.emoji}</span>
           <div className="flex-1">
-            <ContextBar pct={Math.round(pct)} tokens={tokens} maxTokens={maxTokens} segments={10} />
+            <ContextBar pct={Math.round(pct)} tokens={tokens} maxTokens={maxTokens} segments={10} variant="iridescent" />
           </div>
         </div>
 

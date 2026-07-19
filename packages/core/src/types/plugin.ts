@@ -1,4 +1,6 @@
 import type { Mailbox } from '../coordination/mailbox-types.js';
+import type { Notifier } from '../notifications/notifier.js';
+export type { Notifier };
 import type { ToolCallPipelinePayload } from '../core/agent.js';
 import type { Context } from '../core/context.js';
 import type { ExtensionRegistry } from '../extension/registry.js';
@@ -228,6 +230,15 @@ export interface PluginAPI {
    * and gracefully no-op otherwise.
    */
   mailbox?: Mailbox | undefined;
+  /**
+   * The host's notification router — instantiated by the CLI/TUI/WebUI
+   * host as a `NotifierImpl`. Plugins that deliver one-way notifications
+   * (Telegram, Slack, webhook) register their `NotificationChannel` with
+   * this notifier during `setup()`. Optional — minimal hosts (tests, the
+   * LSP server) may omit it, and plugins must guard
+   * (`if (!api.notifier) …`).
+   */
+  notifier?: Notifier | undefined;
   /**
    * LLM access routed through the host's provider layer. Optional —
    * minimal hosts without a wired provider omit it; plugins must guard

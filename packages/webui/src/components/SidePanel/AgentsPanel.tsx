@@ -5,92 +5,138 @@
  * overlay (the old FlowSidebar wired the overlay but never the click).
  */
 
-import { Bot, LayoutGrid, Wrench } from 'lucide-react';
-import { useMemo } from 'react';
+import { Bot, CheckCircle2, LayoutGrid, ListFilter, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePagination } from '@/hooks/usePagination';
 import { cn } from '@/lib/utils';
 import type { SubagentView } from '@/stores';
-import { useFleetStore, useUIStore } from '@/stores';
+import { selectLeaderName, selectSortedAgentList, useFleetStore, useUIStore } from '@/stores';
 import { useAppTranslation } from '@/i18n';
 import { Pagination } from '@/components/ui/pagination';
+import { FleetSummaryBar } from '@/components/agents/FleetSummaryBar';
+import { AgentRosterCard } from '@/components/agents/AgentRosterCard';
 
-const STATUS_META: Record<SubagentView['status'], { led: string; label: string; pulse: boolean }> =
-  {
-    running: { led: 'text-success', label: 'running', pulse: true },
-    completed: { led: 'text-success', label: 'done', pulse: false },
-    failed: { led: 'text-destructive', label: 'failed', pulse: false },
-    timeout: { led: 'text-warning', label: 'timeout', pulse: false },
-    stopped: { led: 'text-muted-foreground', label: 'stopped', pulse: false },
-  };
+type AgentFilter = 'all' | 'running' | 'completed' | 'failed';
 
-function fmtCost(v: number): string {
-  if (v <= 0) return '$0';
-  if (v >= 0.01) return `$${v.toFixed(3)}`;
-  return `$${v.toFixed(4)}`;
-}
-
-function AgentRow({ agent, onClick }: { agent: SubagentView; onClick: () => void }) {
-  const meta = STATUS_META[agent.status];
-  const { t } = useAppTranslation();
-  const active = agent.status === 'running';
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'w-full text-left rounded-lg border px-2.5 py-2 transition-colors',
-        'hover:border-primary/40 hover:bg-primary/[0.04]',
-        active ? 'border-primary/30 bg-primary/[0.03]' : 'border-border/60 bg-card/40',
-      )}
-    >
-      <div className="flex items-center gap-1.5 min-w-0">
-        <span className={cn('led shrink-0', meta.led, meta.pulse && 'led-pulse')} />
-        <span className="truncate text-[11px] font-semibold" title={agent.name}>
-          {agent.name}
-        </span>
-        <span className="tabular ml-auto shrink-0 text-[10px] text-muted-foreground">
-          {agent.iteration}it
-        </span>
-      </div>
-      <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
-        {agent.model ? (
-          <span className="text-[10px] text-muted-foreground truncate font-mono">
-            {agent.model}
-          </span>
-        ) : (
-          <span className="text-[10px] text-muted-foreground italic">{t('activity:agents.pending')}</span>
-        )}
-        <span className="tabular ml-auto text-[10px] text-foreground/70">
-          {fmtCost(agent.costUsd)}
-        </span>
-      </div>
-      {(agent.currentTool || agent.lastTool) && (
-        <div className="flex items-center gap-1 mt-1 text-[10px] text-muted-foreground truncate">
-          <Wrench className={cn('h-2.5 w-2.5 shrink-0', active && 'animate-pulse text-primary')} />
-          <span className="truncate font-mono">{agent.currentTool ?? agent.lastTool}</span>
-        </div>
-      )}
-    </button>
-  );
-}
+const FILTER_OPTIONS: { value: AgentFilter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'running', label: 'Running' },
+  { value: 'completed', label: 'Done' },
+  { value: 'failed', label: 'Failed' },
+];
 
 export function AgentsPanel() {
-  const fleetAgents = useFleetStore((s) => s.agents);
+  const fleetList = useFleetStore(selectSortedAgentList);
+  const leaderId = useFleetStore((s) => s.leaderId);
+  const leaderName = useFleetStore(selectLeaderName);
+  const clearFinishedAgents = useFleetStore((s) => s.clearFinishedAgents);
   const { t } = useAppTranslation();
 
-  const fleetList = useMemo(() => {
-    const arr = Array.from(fleetAgents.values());
-    arr.sort((x, y) => {
-      const xa = x.status === 'running' ? 0 : 1;
-      const ya = y.status === 'running' ? 0 : 1;
-      if (xa !== ya) return xa - ya;
-      return x.startedAt - y.startedAt;
-    });
-    return arr;
-  }, [fleetAgents]);
+  const [filter, setFilter] = useState<AgentFilter>('all');
+  const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null);
+  const [focusedIndex, setFocusedIndex] = useState<number>(-1);
+  const rosterRef = useRef<HTMLDivElement>(null);
+  const [showHint, setShowHint] = useState(true);
 
-  const running = fleetList.filter((a) => a.status === 'running').length;
-  const agentPage = usePagination(fleetList, 12);
+  const filteredList = useMemo(() => {
+    if (filter === 'all') return fleetList;
+    return fleetList.filter((a) => {
+      if (filter === 'running') return a.status === 'running';
+      if (filter === 'completed') return a.status === 'completed';
+      if (filter === 'failed') return a.status === 'failed' || a.status === 'timeout';
+      return true;
+    });
+  }, [fleetList, filter]);
+
+  const agentPage = usePagination(filteredList, 12);
+
+  const hasFinished = fleetList.some(
+    (a) => a.status !== 'running',
+  );
+
+  const openFleetInspector = useCallback((agentId?: string) => {
+    const ui = useUIStore.getState();
+    if (agentId) {
+      ui.setInspectorFocusedAgentId(agentId);
+      ui.setInspectorTab('agents');
+    } else {
+      ui.setInspectorTab('fleet');
+    }
+    ui.setInspectorOpen(true);
+  }, []);
+
+  const toggleAgent = useCallback((id: string) => {
+    setExpandedAgentId((prev) => (prev === id ? null : id));
+  }, []);
+
+  // ── Keyboard navigation ─────────────────────────────────────────
+  const handleRosterKeyDown = useCallback((e: React.KeyboardEvent) => {
+    const page = agentPage.pageItems;
+    if (page.length === 0) return;
+
+    switch (e.key) {
+      case 'ArrowDown': {
+        e.preventDefault();
+        setFocusedIndex((prev) => {
+          const next = Math.min(prev + 1, page.length - 1);
+          setShowHint(false);
+          return next;
+        });
+        break;
+      }
+      case 'ArrowUp': {
+        e.preventDefault();
+        setFocusedIndex((prev) => {
+          const next = Math.max(prev - 1, 0);
+          setShowHint(false);
+          return next;
+        });
+        break;
+      }
+      case 'ArrowRight':
+        e.preventDefault();
+        if (agentPage.page < Math.ceil(agentPage.totalItems / agentPage.pageSize)) {
+          agentPage.setPage(agentPage.page + 1);
+          setFocusedIndex(0);
+        }
+        break;
+      case 'ArrowLeft':
+        e.preventDefault();
+        if (agentPage.page > 1) {
+          agentPage.setPage(agentPage.page - 1);
+          setFocusedIndex(0);
+        }
+        break;
+      case 'Enter':
+      case ' ':
+        e.preventDefault();
+        if (focusedIndex >= 0 && focusedIndex < page.length) {
+          toggleAgent(page[focusedIndex]!.id);
+        }
+        break;
+      case 'Escape':
+        e.preventDefault();
+        if (expandedAgentId) {
+          setExpandedAgentId(null);
+        }
+        break;
+    }
+  }, [agentPage, focusedIndex, toggleAgent, expandedAgentId]);
+
+  // Focus the card element when focusedIndex changes.
+  useEffect(() => {
+    if (focusedIndex >= 0 && rosterRef.current) {
+      const cards = rosterRef.current.querySelectorAll('[data-agent-card]');
+      const el = cards[focusedIndex] as HTMLElement | undefined;
+      el?.focus();
+    }
+  }, [focusedIndex, agentPage.page]);
+
+  // ── Empty states ──────────────────────────────────────────────────
+  // Three distinct states: no agents ever, filtered out, all finished.
+  const allFinished =
+    fleetList.length > 0 &&
+    fleetList.every((a) => a.status !== 'running');
 
   if (fleetList.length === 0) {
     return (
@@ -108,31 +154,136 @@ export function AgentsPanel() {
     );
   }
 
-  const openFleetInspector = () => {
-    const ui = useUIStore.getState();
-    ui.setInspectorTab('fleet');
-    ui.setInspectorOpen(true);
-  };
+  if (filteredList.length === 0 && filter !== 'all') {
+    return (
+      <>
+        <FleetSummaryBar leaderName={leaderName} />
+        <div className="flex min-h-0 flex-1 items-center justify-center bg-[hsl(var(--surface-2)/0.35)] p-3">
+          <div className="ws-surface flex max-w-[15rem] flex-col items-center gap-3 rounded-xl p-5 text-center text-muted-foreground">
+            <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground">
+              <ListFilter className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="text-sm font-semibold text-foreground">{t('activity:agents.emptyFilteredTitle')}</p>
+              <p className="mt-1 text-xs">{t('activity:agents.emptyFilteredHint')}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setFilter('all')}
+              className="h-7 rounded-md border border-border px-3 text-[11px] font-medium text-foreground hover:bg-accent transition-colors"
+            >
+              {t('activity:agents.emptyFilteredClear')}
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  if (allFinished && filter === 'all') {
+    return (
+      <>
+        <FleetSummaryBar leaderName={leaderName} />
+        <div className="flex min-h-0 flex-1 items-center justify-center bg-[hsl(var(--surface-2)/0.35)] p-3">
+          <div className="ws-surface flex max-w-[15rem] flex-col items-center gap-3 rounded-xl p-5 text-center text-muted-foreground">
+            <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-success/10 text-success">
+              <CheckCircle2 className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="text-sm font-semibold text-foreground">{t('activity:agents.emptyFinishedTitle')}</p>
+              <p className="mt-1 text-xs">{t('activity:agents.emptyFinishedHint')}</p>
+              <p className="mt-2 text-[11px] tabular-nums text-muted-foreground">
+                {t('activity:agents.emptyFinishedStats', {
+                  completed: fleetList.filter((a) => a.status === 'completed').length,
+                  failed: fleetList.filter((a) => a.status === 'failed' || a.status === 'timeout').length,
+                })}
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="shrink-0 border-t border-border/70 bg-card/75 px-3 py-2">
+          <button
+            type="button"
+            onClick={clearFinishedAgents}
+            className="w-full flex items-center justify-center gap-1.5 h-7 rounded-md border border-border text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          >
+            <Trash2 className="h-3 w-3" />
+            {t('activity:agents.clearFinished')}
+          </button>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
-      <div className="flex items-center gap-2 border-b border-border/70 bg-muted/20 px-3 py-2 text-[10px] text-muted-foreground">
-        <span className="font-semibold uppercase tracking-wider">Fleet</span>
-        <span className="ml-auto tabular-nums">
-          {running > 0 ? <>{t('activity:agents.runningCount', { count: running })} · </> : null}
-          {t('activity:agents.totalCount', { count: fleetList.length })}
-        </span>
+      <FleetSummaryBar leaderName={leaderName} />
+
+      {/* Toolbar: filter buttons + clear finished */}
+      <div className="flex items-center gap-1 border-b border-border/70 px-2 py-1 shrink-0">
+        {FILTER_OPTIONS.map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => setFilter(opt.value)}
+            aria-pressed={filter === opt.value}
+            className={cn(
+              'rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors',
+              filter === opt.value
+                ? 'bg-primary/10 text-primary'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
+            )}
+          >
+            {t(`activity:agents.filter${opt.value.charAt(0).toUpperCase() + opt.value.slice(1)}` as any)}
+          </button>
+        ))}
+        <span className="flex-1" />
+        {hasFinished && (
+          <button
+            type="button"
+            onClick={clearFinishedAgents}
+            aria-label={t('activity:agents.clearFinishedTitle')}
+            title={t('activity:agents.clearFinishedTitle')}
+            className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+          >
+            <Trash2 className="h-2.5 w-2.5" />
+            {t('activity:agents.clearFinished')}
+          </button>
+        )}
       </div>
-      <div className="min-h-0 min-w-0 flex-1 space-y-1.5 overflow-y-auto overscroll-contain bg-[hsl(var(--surface-2)/0.35)] p-2">
+
+      {/* Agent roster */}
+      <div
+        ref={rosterRef}
+        role="listbox"
+        aria-label="Agent roster"
+        aria-activedescendant={focusedIndex >= 0 ? `agent-card-${agentPage.pageItems[focusedIndex]?.id}` : undefined}
+        tabIndex={0}
+        onKeyDown={handleRosterKeyDown}
+        className="min-h-0 min-w-0 flex-1 space-y-1.5 overflow-y-auto overscroll-contain bg-[hsl(var(--surface-2)/0.35)] p-2"
+      >
+        {showHint && focusedIndex === -1 && (
+          <div className="text-[9px] text-muted-foreground/60 text-center py-1 italic select-none">
+            {t('activity:agents.rosterHint')}
+          </div>
+        )}
         {agentPage.pageItems.map((a) => (
-          <AgentRow key={a.id} agent={a} onClick={openFleetInspector} />
+          <AgentRosterCard
+            key={a.id}
+            agent={a}
+            isLeader={a.id === leaderId}
+            isExpanded={expandedAgentId === a.id}
+            isFocused={focusedIndex >= 0 && agentPage.pageItems[focusedIndex]?.id === a.id}
+            onToggle={() => toggleAgent(a.id)}
+            onOpenInspector={() => openFleetInspector(a.id)}
+          />
         ))}
       </div>
       <Pagination page={agentPage.page} pageSize={agentPage.pageSize} totalItems={agentPage.totalItems} onPageChange={agentPage.setPage} compact itemLabel="agents" />
       <div className="shrink-0 border-t border-border/70 bg-card/75 px-3 py-2">
         <button
           type="button"
-          onClick={openFleetInspector}
+          onClick={() => openFleetInspector()}
           className="w-full flex items-center justify-center gap-1.5 h-7 rounded-md border border-border text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
         >
           <LayoutGrid className="h-3 w-3" />

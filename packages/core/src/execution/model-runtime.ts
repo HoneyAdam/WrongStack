@@ -170,10 +170,10 @@ export function resolveCacheForRequest(
   settings: ModelRuntimeConfig,
   _warnings: string[],
 ): Request['cache'] {
-  const ttl = settings.cache?.ttl;
-  if (ttl === undefined) return undefined;
-  const out: RequestCacheControl = { ttl };
-  return out;
+  const out: RequestCacheControl = {};
+  if (settings.cache?.ttl !== undefined) out.ttl = settings.cache.ttl;
+  if (settings.cache?.geminiExplicit === true) out.geminiExplicit = true;
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 /**
@@ -254,7 +254,10 @@ export function applyModelRuntime(
     next.reasoning = resolved.reasoning;
   }
   if (resolved.cache !== undefined) {
-    next.cache = resolved.cache;
+    // Merge, not replace: a provider-agnostic cache `key` derived at
+    // request-build time (agent-response.ts) must survive the config-driven
+    // `ttl` overlay. When no cache config exists, `req.cache.key` is untouched.
+    next.cache = { ...next.cache, ...resolved.cache };
   }
   if (resolved.parameters !== undefined) {
     Object.assign(next, resolved.parameters);

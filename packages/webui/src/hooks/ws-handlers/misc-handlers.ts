@@ -16,6 +16,8 @@ import {
   useVizStore,
 } from '@/stores';
 import { useLocalPrefs } from '@/stores/local-prefs';
+import { useMemoryInjectorTraceStore } from '@/stores/memory-injector-store';
+import { useMemoryLifecycleStore } from '@/stores/memory-lifecycle-store';
 import type { WSServerMessage } from '@/types';
 
 function deriveGoalRunStatus(
@@ -260,6 +262,12 @@ export function handleMemoryEvent(msg: WSServerMessage) {
     color: '#a78bfa',
     flowGroup: 'memory',
   });
+  if (payload.event === 'memory.injector_run') {
+    useMemoryInjectorTraceStore.getState().pushTrace(
+      payload as unknown as import('@/stores/memory-injector-store').MemoryInjectorTrace,
+    );
+  }
+  useMemoryLifecycleStore.getState().pushEvent(payload);
   if (payload.event === 'memory.staled')
     toast.warn(`Memory became stale: ${String(payload['memoryId'] ?? '')}`);
   else if (payload.event === 'memory.contradicted')
@@ -351,6 +359,60 @@ export function handleModelRefineResult(msg: WSServerMessage) {
     refinedWith?: { provider: string; model: string } | undefined;
   };
   const refinePanel = useUIStore.getState().refinePanel;
+  const pendingRef = useChatStore.getState().pendingRefinement;
+
+  // Pre-queue refinement path: ChatInput offered refinement before enqueuing.
+  if (!refinePanel && pendingRef) {
+    useChatStore.getState().setRefining(false);
+    const original = pendingRef.text;
+    // Carry images from the refinement request so they aren't dropped when
+    // the message is enqueued. pendingRef.images uses { data, mime } format;
+    // convert to QueuedItem['images'] format for the queue.
+    const refImages = pendingRef.images?.length
+      ? pendingRef.images.map((img, i) => ({
+          id: `pr_${Date.now()}_${i}`,
+          dataUrl: `data:${img.mime};base64,${img.data}`,
+          mediaType: img.mime,
+          bytes: Math.round((img.data.length * 3) / 4),
+        }))
+      : undefined;
+
+    if (p.error) {
+      // Refinement failed — enqueue original as-is with images.
+      useChatStore.getState().setPendingRefinement(null);
+      useChatStore.getState().enqueue(original, 'queue', refImages);
+      return;
+    }
+
+    const refined = p.refined ?? '';
+    if (!refined || normalizedEqual(refined, original)) {
+      // No-op refinement — enqueue original with images.
+      useChatStore.getState().setPendingRefinement(null);
+      useChatStore.getState().enqueue(original, 'queue', refImages);
+      return;
+    }
+
+    // Show the RefinePanel for user approval.
+    // The resolve callback is a no-op here — the pre-queue path constructs
+    // the panel from scratch (no prior panel to spread from), and decisions
+    // are handled by the onDecision prop on the <RefinePanel> component
+    // rather than through the store's resolve slot.
+    useChatStore.getState().setPendingRefinement(null);
+    useUIStore.getState().setRefinePanel({
+      original,
+      refined,
+      english: p.english || refined,
+      status: 'ready',
+      ...(p.refinedWith
+        ? { provider: p.refinedWith.provider, model: p.refinedWith.model }
+        : {}),
+      error: undefined,
+      errorKind: undefined,
+      resolve: () => {},
+    });
+    return;
+  }
+
   if (!refinePanel) return;
   if (p.error) {
     // Auto-retry ONCE on a timeout with the server-suggested longer window —

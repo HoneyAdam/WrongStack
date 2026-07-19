@@ -193,6 +193,19 @@ describe('DefaultTokenCounter', () => {
     expect(cost.total).toBeCloseTo(0.056, 4);
   });
 
+  it('cacheStats.savedUsd is the gross read discount (input rate − cache-read rate)', () => {
+    const tc = new DefaultTokenCounter();
+    tc.accountWithModel({ input: 0, output: 0, cacheRead: 1_000_000 }, m1);
+    // 1M cacheRead × (3 − 0.3) per 1M = $2.70 saved vs the full input rate
+    expect(tc.cacheStats().savedUsd).toBeCloseTo(2.7, 4);
+  });
+
+  it('savedUsd stays 0 when pricing is unknown', () => {
+    const tc = new DefaultTokenCounter();
+    tc.account({ input: 0, output: 0, cacheRead: 1_000_000 });
+    expect(tc.cacheStats().savedUsd).toBe(0);
+  });
+
   it('prices Anthropic 1h cache writes at 2x input when no explicit 1h rate exists', () => {
     const tc = new DefaultTokenCounter();
     tc.accountWithModel({ input: 0, output: 0, cacheWrite1h: 1_000_000 }, m1);

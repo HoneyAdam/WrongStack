@@ -51,13 +51,22 @@ export const googleWireFormat = defineWireFormat<GoogleStreamState>({
       contents: messagesToGemini(req.messages),
       generationConfig: buildGenConfig(req, ctx),
     };
-    if (req.system && req.system.length > 0) {
-      body['systemInstruction'] = {
-        parts: req.system.map((b) => ({ text: b.text })),
-      };
-    }
-    if (req.tools && req.tools.length > 0) {
-      body['tools'] = [{ functionDeclarations: toolsToGemini(req.tools) }];
+    // Explicit caching: GoogleProvider.stream() resolved a cachedContents/*
+    // resource holding the system instruction + tool defs. Reference it by name
+    // and OMIT those fields from the live body — Gemini rejects a request that
+    // both references a cache and repeats its cached content.
+    const cachedContent = req.cache?.geminiCachedContentName;
+    if (cachedContent) {
+      body['cachedContent'] = cachedContent;
+    } else {
+      if (req.system && req.system.length > 0) {
+        body['systemInstruction'] = {
+          parts: req.system.map((b) => ({ text: b.text })),
+        };
+      }
+      if (req.tools && req.tools.length > 0) {
+        body['tools'] = [{ functionDeclarations: toolsToGemini(req.tools) }];
+      }
     }
     if (req.safetySettings && req.safetySettings.length > 0) {
       body['safetySettings'] = req.safetySettings;
@@ -171,7 +180,7 @@ function buildGenConfig(
   return cfg;
 }
 
-function toolsToGemini(tools: Tool[]): Array<Record<string, unknown>> {
+export function toolsToGemini(tools: Tool[]): Array<Record<string, unknown>> {
   return tools.map((t) => {
     const compact = compactToolDefinitionForWire(t);
     return {

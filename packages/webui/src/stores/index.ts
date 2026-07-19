@@ -30,7 +30,8 @@ export {
 } from './file-reference-store.js';
 export type { OpenFile, TreeNode } from './file-store.js';
 export { useFileStore } from './file-store.js';
-export { EMPTY_AGENT_TRANSCRIPT, useFleetStore } from './fleet-store.js';
+export { EMPTY_AGENT_TRANSCRIPT, selectFleetSummary, selectLeaderName, selectSortedAgentList, shallow, useFleetStore } from './fleet-store.js';
+export type { FleetSummary } from './fleet-store.js';
 export type { GitChangedFile, GitDiffContent } from './git-changes-store.js';
 export { useGitChangesStore } from './git-changes-store.js';
 export type { GitInfo } from './git-info-store.js';

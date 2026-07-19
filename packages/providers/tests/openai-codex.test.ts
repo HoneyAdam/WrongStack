@@ -112,6 +112,20 @@ describe('OpenAICodexProvider request shape', () => {
     expect(body.input).toEqual([{ role: 'user', content: [{ type: 'input_text', text: 'hi' }] }]);
   });
 
+  it('emits prompt_cache_key from req.cache.key (Responses cache routing)', async () => {
+    const captured: Captured = {};
+    const p = new OpenAICodexProvider({
+      credentials: { accessToken: fakeJwt('acc_99'), expiresAt: Date.now() + 3_600_000 },
+      fetchImpl: capturingFetch(COMPLETED_SSE, captured),
+    });
+    await p.complete(
+      { ...baseReq, cache: { key: 'ws-codexkey' } },
+      { signal: new AbortController().signal },
+    );
+    const body = JSON.parse(captured.init?.body ?? '{}');
+    expect(body.prompt_cache_key).toBe('ws-codexkey');
+  });
+
   it.each([
     'xhigh',
     'max',

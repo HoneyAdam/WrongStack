@@ -140,6 +140,13 @@ export interface PluginsWiringDeps {
    */
   mailbox?: import('@wrongstack/core').Mailbox | undefined;
   /**
+   * Notification router — instantiated as a `NotifierImpl` by the host.
+   * Plugins that deliver one-way notifications (Telegram, Slack, webhook)
+   * register their `NotificationChannel` with this notifier during setup().
+   * Optional — minimal hosts may omit.
+   */
+  notifier?: import('@wrongstack/core').Notifier | undefined;
+  /**
    * LLM wiring for `api.llm` — the host session's live provider, its
    * default model, and a factory for named-provider overrides. Optional —
    * minimal hosts omit it and plugins see `api.llm === undefined`.
@@ -460,6 +467,7 @@ export async function setupPlugins(params: PluginsWiringDeps): Promise<void> {
         hookRegistry,
         modelsRegistry,
         mailbox,
+        notifier: params.notifier,
         llm: params.llm,
         sessionWriter: {
           transcriptPath: sessionWriter.transcriptPath,

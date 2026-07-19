@@ -478,7 +478,7 @@ export function AudienceMemoryPanel() {
             </div>
           )}
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+          <div className="min-h-0 flex-1 overflow-y-auto px-3">
             {loading ? (
               <AudienceMemorySkeleton />
             ) : scoped.length === 0 ? (
@@ -512,15 +512,15 @@ export function AudienceMemoryPanel() {
                 ))}
               </ul>
             )}
+            <Pagination
+              page={memoryPage.page}
+              pageSize={memoryPage.pageSize}
+              totalItems={memoryPage.totalItems}
+              onPageChange={memoryPage.setPage}
+              compact
+              itemLabel="memories"
+            />
           </div>
-          <Pagination
-            page={memoryPage.page}
-            pageSize={memoryPage.pageSize}
-            totalItems={memoryPage.totalItems}
-            onPageChange={memoryPage.setPage}
-            compact
-            itemLabel="memories"
-          />
         </div>
       </section>
 

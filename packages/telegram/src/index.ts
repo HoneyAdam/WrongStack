@@ -1,7 +1,7 @@
 import type { Config, Logger, Plugin, PluginAPI, SlashCommand } from '@wrongstack/core';
 import { expectDefined } from '@wrongstack/core';
 import type { TelegramIncomingMessage } from './bot.js';
-import { TelegramBot, truncateForTelegram } from './bot.js';
+import { TelegramBot } from './bot.js';
 import { PLUGIN_NAME, readTelegramConfig, telegramConfigSchema } from './config.js';
 import type { SessionEndedLike, ToolExecutedLike } from './format.js';
 import { formatDelegateCompleted, formatSessionEnded, formatToolExecuted } from './format.js';
@@ -11,6 +11,7 @@ import { scrubTelegramOutboundText } from './security/outbound.js';
 import { tgChatIdCommand, tgHealthCommand, tgSendCommand } from './slash-commands/index.js';
 import { makeTelegramApproveTool } from './tools/telegram-approve.js';
 import { TelegramBotOutbound } from './bot-queue.js';
+import { TelegramNotificationChannel } from './notification-channel.js';
 import { makeTelegramReadTool } from './tools/telegram-read.js';
 import { makeTelegramSendTool } from './tools/telegram-send.js';
 
@@ -307,13 +308,36 @@ const plugin: Plugin = {
         registerCommand(api, command, cleanups);
       }
 
+      // ---- Notification channel ----
+      // The `TelegramNotificationChannel` is registered with the host's
+      // `Notifier` (api.notifier) when available, so the central router can
+      // route `"telegram"`-channel notifications directly. The in-plugin
+      // event handlers below still handle the "when to notify" logic; they
+      // send through the channel directly. Once the central Notifier router
+      // is fully built, these handlers move to the router entirely.
+      let notifyChannel: TelegramNotificationChannel | undefined;
+      if (runtimeCfg.notifyChatId !== undefined) {
+        notifyChannel = new TelegramNotificationChannel({
+          bot,
+          chatId: runtimeCfg.notifyChatId,
+          maxMessageLength: runtimeCfg.maxMessageLength,
+          log,
+        });
+        // Register with the host's Notifier so other subsystems can send
+        // notifications to the "telegram" channel without knowing Telegram.
+        api.notifier?.registerChannel(notifyChannel);
+      }
+
       // ---- Notification event handlers ----
       // Always subscribed; guard at event time against runtime flags so changes
       // take effect immediately without needing to restart the plugin.
+      // Delivery goes through `notifyChannel` (which wraps bot.sendMessage with
+      // scrubbing + truncation) rather than the outbound queue, because
+      // notifications are fire-and-forget and the queue is for manual sends.
 
       cleanups.push(
         api.events.on('session.ended', (event) => {
-          if (!runtimeCfg.notifyOnSessionEnd || !runtimeCfg.notifyChatId) return;
+          if (!runtimeCfg.notifyOnSessionEnd || !runtimeCfg.notifyChatId || !notifyChannel) return;
           const payload: SessionEndedLike = {
             id: scrubTelegramOutboundText(event.id),
             inputTokens: event.usage.input,
@@ -321,22 +345,21 @@ const plugin: Plugin = {
             cacheRead: event.usage.cacheRead,
             cacheWrite: event.usage.cacheWrite,
           };
-          const msg = truncateForTelegram(
-            scrubTelegramOutboundText(formatSessionEnded(payload)),
-            runtimeCfg.maxMessageLength,
-          );
-          outbound.enqueueNotification(expectDefined(runtimeCfg.notifyChatId), msg);
+          notifyChannel.deliver({
+            title: 'Session ended',
+            body: formatSessionEnded(payload),
+            level: 'info',
+            source: 'session.end',
+          }).then(r => {
+            if (!r.ok) log.warn(`session.ended notification delivery failed: ${r.error ?? 'unknown'}`);
+          });
         }),
       );
 
       cleanups.push(
         api.events.on('tool.executed', (event) => {
-          if (
-            !runtimeCfg.notifyChatId ||
-            runtimeCfg.longToolThresholdMs <= 0 ||
-            event.durationMs < runtimeCfg.longToolThresholdMs
-          )
-            return;
+          if (!runtimeCfg.notifyChatId || !notifyChannel || runtimeCfg.longToolThresholdMs <= 0) return;
+          if (event.durationMs < runtimeCfg.longToolThresholdMs) return;
           const payload: ToolExecutedLike = {
             name: event.name,
             ok: event.ok,
@@ -344,17 +367,20 @@ const plugin: Plugin = {
             output:
               event.output === undefined ? undefined : scrubTelegramOutboundText(event.output),
           };
-          const msg = truncateForTelegram(
-            scrubTelegramOutboundText(formatToolExecuted(payload)),
-            runtimeCfg.maxMessageLength,
-          );
-          outbound.enqueueNotification(expectDefined(runtimeCfg.notifyChatId), msg);
+          notifyChannel.deliver({
+            title: event.ok ? 'Tool completed' : 'Tool failed',
+            body: formatToolExecuted(payload),
+            level: event.ok ? 'info' : 'warning',
+            source: 'tool.exec',
+          }).then(r => {
+            if (!r.ok) log.warn(`tool.executed notification delivery failed: ${r.error ?? 'unknown'}`);
+          });
         }),
       );
 
       cleanups.push(
         api.events.on('delegate.completed', (event) => {
-          if (!runtimeCfg.notifyOnDelegate || !runtimeCfg.notifyChatId) return;
+          if (!runtimeCfg.notifyOnDelegate || !runtimeCfg.notifyChatId || !notifyChannel) return;
           const safeEvent = {
             ...event,
             target: scrubTelegramOutboundText(event.target),
@@ -363,11 +389,14 @@ const plugin: Plugin = {
               event.status === undefined ? undefined : scrubTelegramOutboundText(event.status),
             summary: scrubTelegramOutboundText(event.summary),
           };
-          const msg = truncateForTelegram(
-            scrubTelegramOutboundText(formatDelegateCompleted(safeEvent)),
-            runtimeCfg.maxMessageLength,
-          );
-          outbound.enqueueNotification(expectDefined(runtimeCfg.notifyChatId), msg);
+          notifyChannel.deliver({
+            title: `Delegate: ${safeEvent.target}`,
+            body: formatDelegateCompleted(safeEvent),
+            level: event.ok ? 'info' : 'warning',
+            source: 'delegate.completed',
+          }).then(r => {
+            if (!r.ok) log.warn(`delegate.completed notification delivery failed: ${r.error ?? 'unknown'}`);
+          });
         }),
       );
 
@@ -376,8 +405,9 @@ const plugin: Plugin = {
       // ConfigStore is updated (from CLI /settings, WebUI prefSync, /telegram-settings).
       // Update the mutable runtime refs so all handlers pick up the new values
       // on the next event — no restart needed.
-      const unlistenConfig = api.onConfigChange((next, _prev) => {
+      const unlistenConfig = api.onConfigChange((next, prev) => {
         const fresh = telegramFromConfig(next);
+        const was = telegramFromConfig(prev);
         runtimeCfg.notifyChatId = fresh.notifyChatId;
         runtimeCfg.allowedOutboundChats = fresh.allowedOutboundChats;
         runtimeCfg.allowedUserIds = fresh.allowedUserIds;
@@ -386,6 +416,19 @@ const plugin: Plugin = {
         runtimeCfg.notifyOnDelegate = fresh.notifyOnDelegate;
         runtimeCfg.longToolThresholdMs = fresh.longToolThresholdMs;
         runtimeCfg.maxMessageLength = fresh.maxMessageLength;
+        // When notifyChatId or maxMessageLength changes, rebuild the
+        // notification channel so it always reflects the live config.
+        if (fresh.notifyChatId !== was.notifyChatId || fresh.maxMessageLength !== was.maxMessageLength) {
+          notifyChannel =
+            fresh.notifyChatId !== undefined
+              ? new TelegramNotificationChannel({
+                  bot,
+                  chatId: fresh.notifyChatId,
+                  maxMessageLength: fresh.maxMessageLength,
+                  log,
+                })
+              : undefined;
+        }
         log.debug('Telegram notification settings updated from config', {
           notifyOnSessionEnd: runtimeCfg.notifyOnSessionEnd,
           notifyOnDelegate: runtimeCfg.notifyOnDelegate,
@@ -426,6 +469,8 @@ export default plugin;
 // Exposed for tests to inspect the queue without going through the API surface.
 export { teardownState };
 
-// Re-export the types consumers may want
+// Re-export the types and classes consumers may want
 export type { TelegramIncomingMessage } from './bot.js';
 export type { TelegramPluginConfig } from './config.js';
+export { TelegramNotificationChannel } from './notification-channel.js';
+export type { TelegramNotificationChannelOptions } from './notification-channel.js';
