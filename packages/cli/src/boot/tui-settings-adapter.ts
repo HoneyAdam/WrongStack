@@ -25,7 +25,7 @@ import {
   resolveFleetChatVerbosity,
 } from '@wrongstack/core';
 import { getProcessRegistry } from '@wrongstack/tools';
-import { deriveFsAccessPair, filterSafeForProject } from '../settings-menu.js';
+import { deriveFsAccessPair, filterSafeForProject, resolveActualTarget, resolvePersistPath } from '../settings-menu.js';
 import { normalizeTuiThinkingWord } from '../tui-thinking-word.js';
 import type { LiveSettingsInput } from '../execution.js';
 
@@ -227,19 +227,20 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
         s.showModelReasoning !== undefined
       ) {
         const configScope = s.configScope ?? configStore.get().configScope ?? 'global';
-        // Resolve the active profile: read from the live config and default
-        // to 'default' when unset (pre-migration or fresh install). Profile
-        // configs live at ~/.wrongstack/profiles/<name>/config.json; the thin
-        // bootstrap file at ~/.wrongstack/config.json holds only version +
-        // activeProfile.
-        const currentConfigForProfile = configStore.get();
-        const activeProfileName =
-          (currentConfigForProfile as { activeProfile?: string }).activeProfile ?? 'default';
-        const globalProfilePath = wpaths.profileConfig(activeProfileName);
-        const targetPath =
-          configScope === 'project' && wpaths.inProjectConfig
-            ? wpaths.inProjectConfig
-            : globalProfilePath;
+        // Delegate path resolution to the canonical resolver. This keeps
+        // the three-way routing (project → profile → bootstrap) consistent
+        // with the settings-menu.ts slash commands and the run-tui live-apply
+        // path; a future fourth target (e.g. org config) only needs one update.
+        const persistDeps = {
+          configStore,
+          globalConfigPath: wpaths.globalConfig,
+          profileConfigPath: wpaths.profileConfig(
+            (configStore.get() as { activeProfile?: string }).activeProfile ?? 'default',
+          ),
+          inProjectConfigPath: wpaths.inProjectConfig,
+          vault: noOpVault,
+        };
+        const targetPath = resolvePersistPath(persistDeps);
         let raw: string;
         try {
           raw = await fs.readFile(targetPath, 'utf8');
@@ -395,17 +396,21 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
           if (s.breakerAutoKillResetMs !== undefined) cb.autoKillResetMs = s.breakerAutoKillResetMs;
           decrypted.circuitBreaker = cb;
         }
+        // Re-resolve the target path after the mutation block: the mutator
+        // may have changed configScope (or another field the canonical
+        // resolveActualTarget checks), so the pre-mutation snapshot is stale.
+        const actualTarget = resolveActualTarget(persistDeps, decrypted as Record<string, unknown>, targetPath);
         // Only filter for project safety when writing to the in-project
         // config (.wrongstack/config.json). Both the global-profile config
         // (~/.wrongstack/profiles/<name>/config.json) and the bootstrap
         // global config (~/.wrongstack/config.json) store the full config.
-        const isProjectScope = configScope === 'project' && wpaths.inProjectConfig !== undefined;
-        const toWrite = isProjectScope ? filterSafeForProject(decrypted) : decrypted;
+        const isProjectTarget = actualTarget === wpaths.inProjectConfig;
+        const toWrite = isProjectTarget ? filterSafeForProject(decrypted) : decrypted;
         const encrypted = encryptConfigSecrets(toWrite, noOpVault);
-        if (isProjectScope) {
-          await fs.mkdir(path.dirname(targetPath), { recursive: true });
+        if (actualTarget !== wpaths.globalConfig) {
+          await fs.mkdir(path.dirname(actualTarget), { recursive: true });
         }
-        await atomicWrite(targetPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
+        await atomicWrite(actualTarget, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
 
         const currentConfig = configStore.get();
         const nextModelRuntime = {
