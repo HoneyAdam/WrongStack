@@ -44,6 +44,7 @@ import {
   resolveHqDataDir,
   toAlertMessage,
   isTokenExpired,
+  logHqAuthAudit,
   type HqToken,
   type MailboxHttpAccessDecision,
   watchHqAuthFile,
@@ -273,8 +274,43 @@ function startHqServerWithAuth(
   };
 
   const applyAuthFile = (next: typeof authFile): void => {
-    rawBrowserTokens = next.browserTokens ?? [];
-    rawClientTokens = next.clientTokens ?? [];
+    // Diff raw token lists against the previous reload to count tokens that
+    // were pruned this cycle because their wall-clock expiresAt had passed.
+    // The diff only counts tokens that were previously live (not already
+    // expired in the prior snapshot) and are now expired — so editing
+    // expiresAt in auth.json to a past timestamp fires a prune event on
+    // the next live-reload tick, even though the token is still listed.
+    const newBrowser = next.browserTokens ?? [];
+    const newClient = next.clientTokens ?? [];
+    const priorBrowserLive = new Set(rawBrowserTokens.filter((t) => !isTokenExpired(t)).map((t) => t.id));
+    const priorClientLive = new Set(rawClientTokens.filter((t) => !isTokenExpired(t)).map((t) => t.id));
+    const browserPruned = newBrowser.filter(
+      (t) => isTokenExpired(t) && priorBrowserLive.has(t.id),
+    );
+    const clientPruned = newClient.filter(
+      (t) => isTokenExpired(t) && priorClientLive.has(t.id),
+    );
+    rawBrowserTokens = newBrowser;
+    rawClientTokens = newClient;
+    // Best-effort audit: one aggregate entry per scope that had pruned
+    // tokens this reload. Swallows errors — a failed audit append must
+    // never roll back the auth-state reload.
+    if (browserPruned.length > 0) {
+      logHqAuthAudit(dataDir, {
+        kind: 'expired-prune',
+        scope: 'browser',
+        tokenId: '(aggregate)',
+        prunedCount: browserPruned.length,
+      });
+    }
+    if (clientPruned.length > 0) {
+      logHqAuthAudit(dataDir, {
+        kind: 'expired-prune',
+        scope: 'client',
+        tokenId: '(aggregate)',
+        prunedCount: clientPruned.length,
+      });
+    }
     mutableAuth.operatorPolicy = { ...DEFAULT_HQ_REDACTION_POLICY, ...(next.redactionPolicy ?? {}) };
     mutableAuth.operatorPolicyOverride = next.redactionPolicy;
     mutableAuth.browserTokens = new Set(filterLiveTokens(next.browserTokens).map((t) => t.token));
@@ -498,6 +534,7 @@ function startHqServerWithAuth(
       trustedPublicOrigins,
       mutableAuth,
       sessions,
+      loginAttempts,
       clients,
       browsers,
       eventLog,
