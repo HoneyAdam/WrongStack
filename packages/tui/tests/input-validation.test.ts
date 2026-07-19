@@ -14,7 +14,6 @@ import {
   MAX_ENTRY_TEXT_CHARS,
   MAX_BATCHED_ACTIONS,
   MAX_ACTION_STRING_FIELD,
-  MAX_HOST_STRING_FIELD,
 } from '../src/input-validation.js';
 
 // ── validateStdinFragment ───────────────────────────────────────────
@@ -248,10 +247,10 @@ describe('validateAction', () => {
     expect(validateAction({ type: 'scrollPage', dir: 'left' }).valid).toBe(false);
   });
 
-  it('validates setAutonomyMode', () => {
-    expect(validateAction({ type: 'setAutonomyMode', mode: 'off' }).valid).toBe(true);
-    expect(validateAction({ type: 'setAutonomyMode', mode: 'eternal' }).valid).toBe(true);
-    expect(validateAction({ type: 'setAutonomyMode', mode: 'manual' }).valid).toBe(false);
+  it('accepts current run-state and mid-run delivery actions', () => {
+    expect(validateAction({ type: 'status', status: 'running' }).valid).toBe(true);
+    expect(validateAction({ type: 'sendModePickerOpen', info: {} }).valid).toBe(true);
+    expect(validateAction({ type: 'enqueue', item: {} }).valid).toBe(true);
   });
 
   it('validates setFleetChat', () => {
@@ -314,15 +313,15 @@ describe('validateAction', () => {
 
   it('rejects actions with oversized string fields', () => {
     const long = 'x'.repeat(MAX_ACTION_STRING_FIELD + 1);
-    const result = validateAction({ type: 'setLiveModel', value: long });
+    const result = validateAction({ type: 'hint', text: long });
     expect(result.valid).toBe(false);
     if (!result.valid) expect(result.error).toContain('exceeds');
   });
 
-  it('validates setSendMode', () => {
-    expect(validateAction({ type: 'setSendMode', mode: 'queue' }).valid).toBe(true);
-    expect(validateAction({ type: 'setSendMode', mode: 'btw' }).valid).toBe(true);
-    expect(validateAction({ type: 'setSendMode', mode: 'email' }).valid).toBe(false);
+  it('accepts slash-menu and picker actions used by the input router', () => {
+    expect(validateAction({ type: 'statuslineOpen', hiddenItems: [] }).valid).toBe(true);
+    expect(validateAction({ type: 'settingsClose' }).valid).toBe(true);
+    expect(validateAction({ type: 'modelPickerPickProvider', providerId: 'openai', models: [] }).valid).toBe(true);
   });
 
   it('validates debugStreamStats', () => {
@@ -365,28 +364,27 @@ describe('validateAction', () => {
     expect(validateAction({ type: 'pickerMove', delta: -2 }).valid).toBe(false);
   });
 
-  it('validates setLiveModel value length', () => {
-    const long = 'anthropic/claude-sonnet-4-20250514-with-extra-suffix';
-    expect(long.length).toBeLessThan(MAX_HOST_STRING_FIELD); // sanity check
-    expect(validateAction({ type: 'setLiveModel', value: long }).valid).toBe(true);
+  it('accepts current picker search and hint actions', () => {
+    expect(validateAction({ type: 'modelPickerSearch', query: 'claude-sonnet' }).valid).toBe(true);
+    expect(validateAction({ type: 'statuslineHint', text: 'saved' }).valid).toBe(true);
   });
 
-  it('validates setEffectiveMaxContext range', () => {
-    expect(validateAction({ type: 'setEffectiveMaxContext', value: 200_000 }).valid).toBe(true);
-    expect(validateAction({ type: 'setEffectiveMaxContext', value: 0 }).valid).toBe(true);
-    expect(validateAction({ type: 'setEffectiveMaxContext', value: 10_000_001 }).valid).toBe(false);
-    expect(validateAction({ type: 'setEffectiveMaxContext', value: -1 }).valid).toBe(false);
+  it('accepts current input-history actions', () => {
+    expect(validateAction({ type: 'historyPush', text: '/model' }).valid).toBe(true);
+    expect(validateAction({ type: 'historyUp' }).valid).toBe(true);
+    expect(validateAction({ type: 'historyDown' }).valid).toBe(true);
   });
 
-  it('validates setThinkingWord length', () => {
-    expect(validateAction({ type: 'setThinkingWord', word: 'hmm' }).valid).toBe(true);
-    expect(validateAction({ type: 'setThinkingWord', word: 'x'.repeat(17) }).valid).toBe(false);
+  it('accepts current settings editor actions', () => {
+    expect(validateAction({ type: 'settingsFieldMove', delta: 1 }).valid).toBe(true);
+    expect(validateAction({ type: 'settingsValueChange', delta: -1 }).valid).toBe(true);
+    expect(validateAction({ type: 'settingsThinkingEditChange', draft: 'working' }).valid).toBe(true);
   });
 
-  it('validates setCapability with known fields only', () => {
-    expect(validateAction({ type: 'setCapability', capability: { colorDepth: 24 } }).valid).toBe(true);
-    expect(validateAction({ type: 'setCapability', capability: { colorDepth: 24, mouseProtocol: 'sgr' } }).valid).toBe(true);
-    expect(validateAction({ type: 'setCapability', capability: { unknownField: true } }).valid).toBe(false);
+  it('accepts current auth and help panel actions', () => {
+    expect(validateAction({ type: 'authOpen' }).valid).toBe(true);
+    expect(validateAction({ type: 'authFilter', filter: 'openai' }).valid).toBe(true);
+    expect(validateAction({ type: 'helpClose' }).valid).toBe(true);
   });
 
   it('validates worktree operations', () => {
@@ -396,10 +394,9 @@ describe('validateAction', () => {
     expect(validateAction({ type: 'worktreeRemove', handleId: '' }).valid).toBe(false);
   });
 
-  it('validates replaceEntry id', () => {
-    expect(validateAction({ type: 'replaceEntry', id: 5 }).valid).toBe(true);
-    expect(validateAction({ type: 'replaceEntry', id: -1 }).valid).toBe(false);
-    expect(validateAction({ type: 'replaceEntry', id: 0 }).valid).toBe(true);
+  it('rejects stale action names that are no longer reducer actions', () => {
+    expect(validateAction({ type: 'replaceEntry', id: 5 }).valid).toBe(false);
+    expect(validateAction({ type: 'setLiveModel', value: 'model' }).valid).toBe(false);
   });
 });
 

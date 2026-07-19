@@ -234,7 +234,7 @@ export function usePickerKeys(
           dispatch({ type: 'modelPickerMove', delta: 1 });
           return true;
         }
-        if (state.modelPicker.step === 'model' && input && !key.return && !key.backspace) {
+        if (state.modelPicker.step === 'model' && input && !isEnter && !key.backspace) {
           dispatch({ type: 'modelPickerSearch', query: state.modelPicker.searchQuery + input });
           return true;
         }

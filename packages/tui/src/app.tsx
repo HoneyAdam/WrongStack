@@ -40,6 +40,7 @@ import { toErrorMessage } from '@wrongstack/core/utils';
 import { routeImagesForModel } from '@wrongstack/runtime/vision';
 import { getIndexState, getProcessRegistry, onIndexStateChange } from '@wrongstack/tools';
 import { createAutoProceedLoopGuard } from '@wrongstack/tools/auto-proceed-loop-guard';
+import { startPromptRefinement } from './prompt-refinement-start.js';
 import React, {
   useCallback,
   useEffect,
@@ -95,7 +96,6 @@ import {
   inputContentWidth,
   type KeyEvent,
 } from './components/input.js';
-import { safeDispatch } from './input-validation.js';
 import { KanbanPanel } from './components/kanban-panel.js';
 import { KeyHintBar, type KeyHintContext } from './components/key-hint-bar.js';
 import { MailboxPanel } from './components/mailbox-panel.js';
@@ -550,20 +550,12 @@ export function App({
       initialFleetChat: fleetStreamController?.mode,
     }),
   );
-  // Wrap dispatch with input validation — every external action that reaches
-  // the reducer goes through the allow-list gate (see input-validation.ts).
-  // Invalid actions are silently rejected (logged) rather than crashing the
-  // session. useCallback keeps the wrapped reference stable across renders so
-  // all closures (effects, callbacks) capture the wrapped dispatch.
-  // The cast to safeDispatch's wide parameter type is intentional —
-  // validateAction re-validates every action from scratch at runtime.
-  // Returns void (safeDispatch's boolean is discarded to match React.Dispatch).
-  const dispatch = useCallback(
-    (action: Parameters<typeof rawDispatch>[0]): void => {
-      safeDispatch(action as Parameters<typeof safeDispatch>[0], rawDispatch as (action: Record<string, unknown>) => void);
-    },
-    [rawDispatch],
-  );
+  // Reducer actions created inside the React tree are already constrained by
+  // the Action discriminated union. Do not route them through the validator
+  // for untrusted external payloads: a stale runtime allow-list used to drop
+  // valid UI actions silently (status changes, slash panels, queueing, picker
+  // navigation) and made the entire composer appear frozen.
+  const dispatch = rawDispatch;
   // Board id captured by `/kanban use <boardId>` or the Goal → Kanban
   // bridge. The KanbanPanel reads it as `initialBoardId` so the panel
   // opens on the requested board rather than the session-tag fallback.
@@ -6084,23 +6076,38 @@ export function App({
       const ac = new AbortController();
       const baseTimeoutMs = 90_000;
 
-      // Capture the original text BEFORE clearDraft so the RefiningPanel
-      // preview still shows the user's message despite state.buffer emptying.
-      enhanceOriginalRef.current = trimmed;
-      // Clear the draft BEFORE the first async op so the input disappears
-      // immediately (not after buildRefinerContextSections completes, which
-      // can take 2-3s). The text was captured in `trimmed` above so it's safe.
-      // `enhanceBusy` is dispatched inside runAttempt() below — we do NOT
-      // dispatch it here because there are cancel/edit return paths before
-      // runAttempt runs that would never clear it, causing a soft-lock.
-      clearDraft();
-      enhanceAbortRef.current = ac;
-
-      const contextSections = await buildRefinerContextSections({
-        text: cleanText,
-        memoryStore,
-        context: agent.ctx,
+      // Refinement starts NOW, including memory/context preparation. Show the
+      // panel before the first await; previously the draft disappeared while
+      // buildRefinerContextSections ran for several seconds, leaving a blank
+      // composer with no indication that the submit had been accepted.
+      const contextSections = await startPromptRefinement({
+        original: trimmed,
+        controller: ac,
+        originalSlot: enhanceOriginalRef,
+        abortSlot: enhanceAbortRef,
+        setStartedAt: setEnhanceStartedAt,
+        setBusy: (on) => dispatch({ type: 'enhanceBusy', on }),
+        clearDraft,
+        prepareContext: () =>
+          buildRefinerContextSections({
+            text: cleanText,
+            memoryStore,
+            context: agent.ctx,
+          }),
+        fallbackContext: [],
       });
+
+      const restoreCancelledPreflight = (): boolean => {
+        if (!ac.signal.aborted) return false;
+        enhanceCancelledRef.current = false;
+        enhanceAbortRef.current = null;
+        dispatch({ type: 'enhanceBusy', on: false });
+        setEnhanceStartedAt(null);
+        setEnhanceDurationMs(null);
+        setDraft(trimmed, trimmed.length);
+        return true;
+      };
+      if (restoreCancelledPreflight()) return;
 
       type RefineOutcome = {
         result: { refined: string; english: string } | null;
@@ -6171,7 +6178,13 @@ export function App({
         const ref = parseModelRef(configuredRef);
         const targetProvider = ref.provider ?? agent.ctx.provider.id;
         if (ref.model) {
-          const built = await buildEnhancerProvider(targetProvider, ref.model);
+          let built: Provider | undefined;
+          try {
+            built = await buildEnhancerProvider(targetProvider, ref.model);
+          } catch {
+            // Best-effort route resolution: fall back to the active provider.
+            built = undefined;
+          }
           if (built) {
             initialProvider = built;
             initialModel = ref.model;
@@ -6180,6 +6193,7 @@ export function App({
           }
         }
       }
+      if (restoreCancelledPreflight()) return;
       let outcome = await runAttempt(
         initialProvider,
         initialModel,

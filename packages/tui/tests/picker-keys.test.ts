@@ -195,6 +195,28 @@ describe('usePickerKeys — model and mode flows', () => {
     expect(host.dispatch).toHaveBeenCalledWith({ type: 'modelPickerClose' });
   });
 
+  it('treats a CR/LF-normalized Enter as selection, not model-search text', () => {
+    const host = makeHost(
+      baseState({
+        modelPicker: {
+          open: true,
+          step: 'model',
+          providerOptions: [],
+          modelOptions: ['gpt-4o'],
+          filteredOptions: ['gpt-4o'],
+          selected: 0,
+          searchQuery: '',
+          pickedProviderId: 'openai',
+        },
+      }),
+    );
+
+    runPickerKey(host, '\r', key(), true);
+
+    expect(host.switchProviderAndModel).toHaveBeenCalledWith('openai', 'gpt-4o');
+    expect(host.dispatch).not.toHaveBeenCalledWith({ type: 'modelPickerSearch', query: '\r' });
+  });
+
   it('warns when manual model selection reduces the context window', () => {
     const host = makeHost(
       baseState({
