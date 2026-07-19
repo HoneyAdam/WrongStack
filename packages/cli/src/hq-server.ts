@@ -44,6 +44,7 @@ import {
   resolveHqDataDir,
   toAlertMessage,
   isTokenExpired,
+  hqAuthContentHash,
   logHqAuthAudit,
   type HqToken,
   type MailboxHttpAccessDecision,
@@ -297,13 +298,18 @@ function startHqServerWithAuth(
     rawClientTokens = newClient;
     // Best-effort audit: one aggregate entry per scope that had pruned
     // tokens this reload. Swallows errors — a failed audit append must
-    // never roll back the auth-state reload.
+    // never roll back the auth-state reload. The `contentHash` ties each
+    // entry to the on-disk state the operator just wrote (the live-reload
+    // path reads auth.json verbatim, so hashing `next` matches disk).
+    const hash = hqAuthContentHash(next);
+    const hashField = hash !== undefined ? { contentHash: hash } : {};
     if (browserPruned.length > 0) {
       logHqAuthAudit(dataDir, {
         kind: 'expired-prune',
         scope: 'browser',
         tokenId: '(aggregate)',
         prunedCount: browserPruned.length,
+        ...hashField,
       });
     }
     if (clientPruned.length > 0) {
@@ -312,6 +318,7 @@ function startHqServerWithAuth(
         scope: 'client',
         tokenId: '(aggregate)',
         prunedCount: clientPruned.length,
+        ...hashField,
       });
     }
     mutableAuth.operatorPolicy = { ...DEFAULT_HQ_REDACTION_POLICY, ...(next.redactionPolicy ?? {}) };
