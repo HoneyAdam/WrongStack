@@ -96,8 +96,8 @@ export function CockpitView(): React.ReactElement {
       .reverse()
       .map<CockpitAlertEntry>((alert) => ({
         severity: typeof alert.severity === 'string' ? alert.severity : 'info',
-        ruleId: 'live',
-        message: 'Live alert envelope received.',
+        ruleId: alert.type ?? 'hq.alert',
+        message: typeof alert.message === 'string' ? alert.message : 'Alert envelope received',
         timestamp: typeof alert.timestamp === 'string' ? alert.timestamp : new Date().toISOString(),
       }));
     const fromApi = [...apiActive, ...apiHistory]
