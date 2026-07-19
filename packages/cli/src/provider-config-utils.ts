@@ -147,12 +147,13 @@ export function nowIso(): string {
 export async function loadConfigProviders(
   configPath: string,
   vault: SecretVault,
-  opts?: { warn?: (msg: string) => void },
+  opts?: { warn?: (msg: string) => void; profileConfigPath?: string },
 ): Promise<Record<string, ProviderConfig>> {
   const warn = opts?.warn;
+  const targetPath = opts?.profileConfigPath ?? configPath;
   let raw: string;
   try {
-    raw = await fs.readFile(configPath, 'utf8');
+    raw = await fs.readFile(targetPath, 'utf8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
       warn?.(`Could not read ${configPath}: ${(err as Error).message}. Treating as empty.`);
@@ -179,7 +180,9 @@ export async function mutateConfigProviders(
   configPath: string,
   vault: SecretVault,
   mutator: (providers: Record<string, ProviderConfig>) => void,
+  profileConfigPath?: string,
 ): Promise<void> {
+  const targetPath = profileConfigPath ?? configPath;
   let raw: string;
   let fileExists = true;
   try {
@@ -189,7 +192,7 @@ export async function mutateConfigProviders(
       throw new FsError({
         message: `Refusing to mutate ${configPath}: ${(err as Error).message}`,
         code: 'FS_READ_FAILED',
-        path: configPath,
+        path: targetPath,
         context: { operation: 'mutateConfigProviders', phase: 'read' },
         cause: err,
       });
@@ -204,10 +207,10 @@ export async function mutateConfigProviders(
     if (fileExists) {
       throw new FsError({
         message:
-          `Refusing to overwrite corrupt config at ${configPath} ` +
+          `Refusing to overwrite corrupt config at ${targetPath} ` +
           `(${(err as Error).message}). Fix or move the file aside before retrying.`,
         code: 'FS_READ_FAILED',
-        path: configPath,
+        path: targetPath,
         context: { operation: 'mutateConfigProviders', phase: 'parse' },
         cause: err,
       });
