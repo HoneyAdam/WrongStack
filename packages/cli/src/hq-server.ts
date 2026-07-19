@@ -77,6 +77,7 @@ import {
   clearHqRuntimeMarker,
   writeHqStartupInfo,
 } from './hq-server/startup.js';
+import { resolveAuditActor } from './subcommands/handlers/hq.js';
 
 import type { ConnectedClient, TranscriptRing } from './hq-server/types.js';
 export type { ConnectedClient, TranscriptRing };
@@ -162,6 +163,7 @@ export async function startHqServer(options: HqServerOptions = {}): Promise<HqSe
   const port = options.port ?? DEFAULT_PORT;
   const dataDir = resolveHqDataDir(options.dataDir);
 
+  const actor = resolveAuditActor();
   const firstRunAuth = await ensureHqFirstRunAuthFile(dataDir, {
     warn: (msg: string) =>
       console.warn(
@@ -172,6 +174,7 @@ export async function startHqServer(options: HqServerOptions = {}): Promise<HqSe
           timestamp: new Date().toISOString(),
         }),
       ),
+    actor,
     ...(options.password !== undefined ? { password: options.password } : {}),
     ...(options.tokenTtlMs !== undefined ? { tokenTtlMs: options.tokenTtlMs } : {}),
   });

@@ -39,8 +39,12 @@ import * as os from 'node:os';
  * username (best-effort) with the hostname so an operator reviewing the
  * log can see "who minted this token" without parsing environment
  * variables. Never includes the token string.
+ *
+ * Shared by the `wstack hq token` create/revoke handlers and by
+ * `startHqServer`'s first-run bootstrap so every audit entry point
+ * produces the same actor shape.
  */
-function resolveAuditActor(): string {
+export function resolveAuditActor(): string {
   const user = (process.env.USERNAME ?? process.env.USER ?? '').toString();
   try {
     const host = os.hostname();
