@@ -80,12 +80,14 @@ export interface HqAuthAuditEntry {
    * SHA-256 hash (hex) of the redacted `auth.json` contents at the
    * moment of the event — lets an operator reviewing the audit log tie
    * an entry back to the exact on-disk state that produced it without
-   * the log ever holding derivable token material. Computed over a
-   * projection of the `HqAuthFile` with the raw token strings,
-   * `passwordHash`, and `cookieSecret` replaced by constant sentinels
-   * (so two files that differ only in secrets hash identically). Absent
-   * on entries emitted before the hash landed and when the file is
-   * unreadable at emit time.
+   * the log ever holding derivable token material. Computed by
+   * `hqAuthContentHash` over a projection of the `HqAuthFile` with the
+   * raw token strings, `passwordHash`, and `cookieSecret` replaced by
+   * the constant sentinel `HQ_AUTH_CONTENT_HASH_REDACTED` (exported
+   * from `@wrongstack/core`) — so two files that differ only in secrets
+   * hash identically. Absent on entries emitted before the hash landed
+   * and when the file is unreadable at emit time. Re-derivable from the
+   * current `auth.json` via `hqAuthContentHash(await readHqAuthFile(dir))`.
    */
   contentHash?: string;
 }
