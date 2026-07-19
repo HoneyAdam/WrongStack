@@ -398,7 +398,8 @@ async function tokenList(args: string[], deps: SubcommandDeps): Promise<number> 
   for (const t of tokens) {
     const masked = `${t.token.slice(0, 6)}…${t.token.slice(-4)} (${t.token.length} chars)`;
     const capabilities = t.capabilities === undefined ? 'legacy-unscoped' : t.capabilities.join(',') || 'none';
-    deps.renderer.write(`  ${t.id}  ${masked}  ${t.createdAt}${t.label ? `  "${t.label}"` : ''}  [${capabilities}]${t.lastUsedAt ? `  lastUsed ${t.lastUsedAt}` : ''}\n`);
+    const expires = t.expiresAt ?? '(never)';
+    deps.renderer.write(`  ${t.id}  ${masked}  ${t.createdAt}  expires ${expires}${t.label ? `  "${t.label}"` : ''}  [${capabilities}]${t.lastUsedAt ? `  lastUsed ${t.lastUsedAt}` : ''}\n`);
   }
   deps.renderer.write('\n');
   deps.renderer.write(`${scope === 'client' ? 'Clients' : 'Browsers'} must append ?token=<full-token> to /ws/${scope}.\n`);

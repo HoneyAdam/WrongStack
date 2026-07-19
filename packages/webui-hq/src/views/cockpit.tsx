@@ -6,7 +6,7 @@
  * fleet without bouncing between tabs.
  */
 
-import type { HqAlert } from '@wrongstack/core';
+import type { HqAlert, HqSnapshot } from '@wrongstack/core';
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
@@ -213,6 +213,13 @@ export function CockpitView(): React.ReactElement {
     },
   ];
 
+  const tokenStatsSection: CockpitSection = {
+    title: 'Auth Tokens',
+    view: 'settings',
+    cta: 'open settings',
+    body: <TokenStatsCard tokenStats={totals?.tokenStats} />,
+  };
+
   const alertSection: CockpitSection = {
     title: 'Alerts',
     view: 'alerts',
@@ -356,7 +363,7 @@ export function CockpitView(): React.ReactElement {
         </section>
       </div>
 
-      {[...fleetSections, alertSection, costSection].map((section) => (
+      {[...fleetSections, tokenStatsSection, alertSection, costSection].map((section) => (
         <div key={section.title} className="hq-card hq-cockpit-section">
           <div className="hq-row">
             <span className="hq-cockpit-section-title">
@@ -390,6 +397,40 @@ function Stat({
     <div className={'hq-stat' + (accent ? ` ${accent}` : '')}>
       <span className="hq-stat-num">{value}</span>
       <span className="hq-stat-label">{label}</span>
+    </div>
+  );
+}
+
+type TokenStats = NonNullable<HqSnapshot['totals']['tokenStats']>;
+
+function TokenStatsCard({ tokenStats }: { tokenStats: TokenStats | undefined }): React.ReactElement {
+  // Absent on older snapshots — additive field, default undefined. Show a
+  // neutral placeholder instead of zeros so the operator can tell "no data
+  // yet" apart from "zero tokens issued".
+  if (tokenStats === undefined) {
+    return (
+      <div className="hq-empty hq-cockpit-empty">
+        Token expiry stats unavailable on this HQ version.
+      </div>
+    );
+  }
+  const { browserTotal, clientTotal, expired, expiringSoon } = tokenStats;
+  const total = browserTotal + clientTotal;
+  return (
+    <div className="hq-cockpit-grid" role="group" aria-label="Auth token stats">
+      <Stat label="browser" value={browserTotal} />
+      <Stat label="client" value={clientTotal} />
+      <Stat label="total" value={total} />
+      <Stat
+        label="expired"
+        value={expired}
+        accent={expired > 0 ? 'error' : undefined}
+      />
+      <Stat
+        label="expiring soon"
+        value={expiringSoon}
+        accent={expiringSoon > 0 ? 'warn' : undefined}
+      />
     </div>
   );
 }

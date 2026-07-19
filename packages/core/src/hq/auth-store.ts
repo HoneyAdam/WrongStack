@@ -29,6 +29,7 @@ import * as path from 'node:path';
 import { atomicWrite } from '../utils/atomic-write.js';
 import { wstackGlobalRoot } from '../utils/wstack-paths.js';
 import type { HqAlertRuleConfig } from './alerts.js';
+import { logHqAuthAudit } from './auth-audit.js';
 import type { HqRedactionPolicy } from './protocol.js';
 
 /** Current auth-file schema version. Bump on breaking shape changes. */
@@ -294,6 +295,13 @@ export interface EnsureHqFirstRunAuthOptions {
    * later via `wstack hq token create` choose their own TTL.
    */
   tokenTtlMs?: number | undefined;
+  /**
+   * Optional `actor` string recorded in `auth-audit.jsonl` for the two
+   * `first-run` entries this function emits (one per minted token). The
+   * CLI fills this with `user@host`; when omitted the entry carries no
+   * `actor` field. Never contains the token string.
+   */
+  actor?: string | undefined;
 }
 
 export interface EnsureHqFirstRunAuthResult {
@@ -330,6 +338,20 @@ export async function ensureHqFirstRunAuthFile(
           cookieSecret: mintHqCookieSecret(),
         };
         await writeHqAuthFile(dataDir, authFile);
+        const actorField = opts.actor ? { actor: opts.actor } : {};
+        logHqAuthAudit(
+          dataDir,
+          {
+            kind: 'password-rotate',
+            scope: 'browser',
+            tokenId: '(password-rotation)',
+            ...actorField,
+          },
+          {
+            onError: (err) =>
+              opts.warn?.(`HQ password-rotate audit write failed: ${(err as Error).message}`),
+          },
+        );
         return { authFile: await readHqAuthFile(dataDir, opts), created: false };
       }
     }
@@ -364,6 +386,34 @@ export async function ensureHqFirstRunAuthFile(
     authFile.cookieSecret = mintHqCookieSecret();
   }
   await writeHqAuthFile(dataDir, authFile);
+
+  // Record both first-run mints in auth-audit.jsonl. Best-effort: a failed
+  // append must never roll back the fresh auth.json we just wrote. The two
+  // entries use the same `kind: 'first-run'` discriminator the audit
+  // schema reserves for this bootstrap path.
+  const actorField = opts.actor ? { actor: opts.actor } : {};
+  for (const [scope, token] of [
+    ['browser', browserToken],
+    ['client', clientToken],
+  ] as const) {
+    logHqAuthAudit(
+      dataDir,
+      {
+        kind: 'first-run',
+        scope,
+        tokenId: token.id,
+        ...(token.label ? { label: token.label } : {}),
+        capabilities: token.capabilities,
+        ...(token.expiresAt ? { expiresAt: token.expiresAt } : {}),
+        ...actorField,
+      },
+      {
+        onError: (err) =>
+          opts.warn?.(`HQ first-run audit write failed: ${(err as Error).message}`),
+      },
+    );
+  }
+
   return { authFile: await readHqAuthFile(dataDir, opts), created: true, browserToken, clientToken };
 }
 
