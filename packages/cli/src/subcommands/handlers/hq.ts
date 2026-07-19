@@ -27,10 +27,28 @@ import {
   mintHqToken,
   readHqAuthFile,
   resolveHqDataDir,
+  logHqAuthAudit,
   type HqToken,
 } from '@wrongstack/core';
 import type { HqServerHandle } from '../../hq-server.js';
 import type { SubcommandDeps, SubcommandHandler } from '../index.js';
+import * as os from 'node:os';
+
+/**
+ * Build a free-form actor string for the auth audit log. Combines the OS
+ * username (best-effort) with the hostname so an operator reviewing the
+ * log can see "who minted this token" without parsing environment
+ * variables. Never includes the token string.
+ */
+function resolveAuditActor(): string {
+  const user = (process.env.USERNAME ?? process.env.USER ?? '').toString();
+  try {
+    const host = os.hostname();
+    return user ? `${user}@${host}` : `cli@${host}`;
+  } catch {
+    return user ? `${user}@unknown` : 'cli';
+  }
+}
 
 function resolveDataDir(deps: SubcommandDeps): string {
   const override = typeof deps.flags?.['data-dir'] === 'string' ? deps.flags['data-dir'] : undefined;
@@ -290,6 +308,22 @@ async function tokenCreate(args: string[], deps: SubcommandDeps): Promise<number
     );
     const list = next[tokenField] ?? [];
     const token = expectDefined(list[list.length - 1]);
+    logHqAuthAudit(
+      dataDir,
+      {
+        kind: 'create',
+        scope,
+        tokenId: token.id,
+        ...(token.label ? { label: token.label } : {}),
+        ...(token.capabilities ? { capabilities: token.capabilities } : {}),
+        ...(token.expiresAt ? { expiresAt: token.expiresAt } : {}),
+        actor: resolveAuditActor(),
+      },
+      {
+        onError: (err) =>
+          deps.renderer.writeWarning(`(audit write failed: ${err.message})\n`),
+      },
+    );
     const endpoint = scope === 'client' ? '/ws/client' : '/ws/browser';
     deps.renderer.write(`Created ${scope} token.\n`);
     deps.renderer.write(`  id:         ${token.id}\n`);
@@ -418,6 +452,21 @@ async function tokenRevoke(args: string[], deps: SubcommandDeps): Promise<number
     return 1;
   }
   deps.renderer.write(`Revoked ${scope} token ${revoked.id}${revoked.label ? ` ("${revoked.label}")` : ''}.\n`);
+  logHqAuthAudit(
+    dataDir,
+    {
+      kind: 'revoke',
+      scope,
+      tokenId: revoked.id,
+      ...(revoked.label ? { label: revoked.label } : {}),
+      ...(revoked.capabilities ? { capabilities: revoked.capabilities } : {}),
+      actor: resolveAuditActor(),
+    },
+    {
+      onError: (err) =>
+        deps.renderer.writeWarning(`(audit write failed: ${err.message})\n`),
+    },
+  );
   return 0;
 }
 

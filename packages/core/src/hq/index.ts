@@ -1,4 +1,5 @@
 export * from './bridge-context.js';
+export * from './auth-audit.js';
 export * from './protocol.js';
 export * from './redaction.js';
 export * from './mailbox-mapper.js';
