@@ -42,6 +42,7 @@ import {
   MailboxHttpRateLimiter,
   resolveHqDataDir,
   toAlertMessage,
+  isTokenExpired,
   type HqToken,
   type MailboxHttpAccessDecision,
   watchHqAuthFile,
@@ -116,6 +117,17 @@ export interface HqServerOptions {
   allowInsecureOpen?: boolean;
   secureCookies?: boolean;
   requireBrowserAuth?: boolean;
+  /**
+   * Optional time-to-live (milliseconds) stamped on the first-run browser
+   * and client tokens minted on a brand-new HQ data directory. Existing
+   * auth.json files are not modified. When set, tokens carry an `expiresAt`
+   * and the server refuses them past that timestamp; default is no expiry.
+   *
+   * Useful for short-lived deployments (CI, ephemeral relays) where a leaked
+   * first-run token should not outlive the deployment window. Set via the
+   * `--hq-token-ttl-ms` CLI flag.
+   */
+  tokenTtlMs?: number;
 }
 
 export interface HqStartupConnectionInfo {
@@ -159,6 +171,7 @@ export async function startHqServer(options: HqServerOptions = {}): Promise<HqSe
         }),
       ),
     ...(options.password !== undefined ? { password: options.password } : {}),
+    ...(options.tokenTtlMs !== undefined ? { tokenTtlMs: options.tokenTtlMs } : {}),
   });
 
   if (
@@ -205,18 +218,30 @@ function startHqServerWithAuth(
   const authFile = firstRunAuth.authFile;
 
   // ── Mutable auth state ───────────────────────────────────────────────────
+  // Tokens are filtered for wall-clock expiry at load time so an expired
+  // token is structurally absent from the in-memory sets/maps — the HTTP
+  // and WS-upgrade auth paths then reject it without a separate code path.
+  // The live-reload watcher (applyAuthFile below) re-applies the same filter
+  // so editing `expiresAt` in auth.json takes effect without a restart.
+  const filterLiveTokens = <T extends { token: string; expiresAt?: string }>(list: T[] | undefined): T[] =>
+    (list ?? []).filter((t) => !isTokenExpired(t));
+
   const mutableAuth: HqRouterMutableAuth = {
     operatorPolicy: { ...DEFAULT_HQ_REDACTION_POLICY, ...(authFile.redactionPolicy ?? {}) },
     operatorPolicyOverride: authFile.redactionPolicy,
-    browserTokens: new Set((authFile.browserTokens ?? []).map((t) => t.token)),
-    clientTokens: new Set((authFile.clientTokens ?? []).map((t) => t.token)),
+    browserTokens: new Set(filterLiveTokens(authFile.browserTokens).map((t) => t.token)),
+    clientTokens: new Set(filterLiveTokens(authFile.clientTokens).map((t) => t.token)),
     browserTokenObjs: new Map(
-      (authFile.browserTokens ?? []).map((t) => [
+      filterLiveTokens(authFile.browserTokens).map((t) => [
         t.token,
-        { id: t.id, ...(t.capabilities !== undefined ? { capabilities: t.capabilities } : {}) },
+        {
+          id: t.id,
+          ...(t.capabilities !== undefined ? { capabilities: t.capabilities } : {}),
+          ...(t.expiresAt !== undefined ? { expiresAt: t.expiresAt } : {}),
+        },
       ]),
     ),
-    clientTokenObjs: new Map((authFile.clientTokens ?? []).map((token) => [token.token, token])),
+    clientTokenObjs: new Map(filterLiveTokens(authFile.clientTokens).map((token) => [token.token, token])),
     passwordHash: authFile.passwordHash,
     cookieSecret: authFile.cookieSecret,
     alertRules: authFile.alertRules,
@@ -225,16 +250,20 @@ function startHqServerWithAuth(
   const applyAuthFile = (next: typeof authFile): void => {
     mutableAuth.operatorPolicy = { ...DEFAULT_HQ_REDACTION_POLICY, ...(next.redactionPolicy ?? {}) };
     mutableAuth.operatorPolicyOverride = next.redactionPolicy;
-    mutableAuth.browserTokens = new Set((next.browserTokens ?? []).map((t) => t.token));
-    mutableAuth.clientTokens = new Set((next.clientTokens ?? []).map((t) => t.token));
+    mutableAuth.browserTokens = new Set(filterLiveTokens(next.browserTokens).map((t) => t.token));
+    mutableAuth.clientTokens = new Set(filterLiveTokens(next.clientTokens).map((t) => t.token));
     mutableAuth.browserTokenObjs = new Map(
-      (next.browserTokens ?? []).map((t) => [
+      filterLiveTokens(next.browserTokens).map((t) => [
         t.token,
-        { id: t.id, ...(t.capabilities !== undefined ? { capabilities: t.capabilities } : {}) },
+        {
+          id: t.id,
+          ...(t.capabilities !== undefined ? { capabilities: t.capabilities } : {}),
+          ...(t.expiresAt !== undefined ? { expiresAt: t.expiresAt } : {}),
+        },
       ]),
     );
     mutableAuth.clientTokenObjs = new Map(
-      (next.clientTokens ?? []).map((token: HqToken) => [token.token, token]),
+      filterLiveTokens(next.clientTokens).map((token: HqToken) => [token.token, token]),
     );
     mutableAuth.passwordHash = next.passwordHash;
     mutableAuth.cookieSecret = next.cookieSecret;

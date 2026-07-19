@@ -82,15 +82,50 @@ export interface HqToken {
    * granted.
    */
   capabilities?: string[];
+  /**
+   * Optional ISO timestamp after which the token is refused. When absent
+   * (the pre-TTL default), the token never expires. The HQ server rejects
+   * an expired token at both the HTTP and the WS-upgrade auth boundary,
+   * so TTL rotation is enforced even for long-lived browser sessions.
+   *
+   * The timestamp is wall-clock (`new Date().toISOString()`) — clock skew
+   * between the issuing HQ and the client just shifts the effective window
+   * slightly, which is acceptable for an operator-set rotation cadence.
+   */
+  expiresAt?: string;
+}
+
+/**
+ * True when a token has a wall-clock expiry that has already passed.
+ * Returns `false` when `expiresAt` is absent (the pre-TTL default).
+ *
+ * The check is fail-open for malformed values: an unparseable timestamp
+ * is treated as "no expiry" rather than "already expired", because the
+ * latter would lock the operator out of their own HQ on a bad file edit.
+ * Use {@link tokenHasCapability} at the auth boundary to also deny
+ * capabilities for expired tokens.
+ *
+ * @param at - epoch milliseconds; defaults to `Date.now()`. Exposed so
+ *   tests can inject a fixed clock.
+ */
+export function isTokenExpired(token: Pick<HqToken, 'expiresAt'> | undefined, at: number = Date.now()): boolean {
+  if (token === undefined) return false;
+  const expiresAt = token.expiresAt;
+  if (expiresAt === undefined) return false;
+  const parsed = Date.parse(expiresAt);
+  if (!Number.isFinite(parsed)) return false;
+  return at >= parsed;
 }
 
 /**
  * Check whether a token grants a capability. A token with no `capabilities`
  * field is unrestricted (backward-compat). Otherwise the capability must be
- * explicitly listed.
+ * explicitly listed. **Expired tokens are refused regardless of capability**
+ * — call this at the auth boundary so TTL rotation is enforced uniformly.
  */
 export function tokenHasCapability(token: HqToken | undefined, capability: string): boolean {
   if (token === undefined) return false;
+  if (isTokenExpired(token)) return false;
   if (token.capabilities === undefined) return true;
   return token.capabilities.includes(capability);
 }
@@ -250,6 +285,15 @@ export interface EnsureHqFirstRunAuthOptions {
   warn?: (msg: string) => void;
   /** Optional browser password login. Hashed with scrypt before storage. */
   password?: string;
+  /**
+   * Optional time-to-live (milliseconds) stamped on the first-run browser
+   * and client tokens. When set, both tokens carry an `expiresAt` and the
+   * HQ server will refuse them once it passes. Default: no expiry.
+   *
+   * Only affects tokens minted by THIS call (the first run). Tokens added
+   * later via `wstack hq token create` choose their own TTL.
+   */
+  tokenTtlMs?: number | undefined;
 }
 
 export interface EnsureHqFirstRunAuthResult {
@@ -301,8 +345,14 @@ export async function ensureHqFirstRunAuthFile(
   // mint an execution-capable client token explicitly when remote command
   // execution is required; a freshly started HQ must never grant it by
   // accident.
-  const browserToken = { ...mintHqToken('first-run browser'), capabilities: ['control.enqueue'] };
-  const clientToken = { ...mintHqToken('first-run client'), capabilities: ['telemetry.publish'] };
+  const browserToken = {
+    ...mintHqToken({ label: 'first-run browser', ttlMs: opts.tokenTtlMs }),
+    capabilities: ['control.enqueue'],
+  };
+  const clientToken = {
+    ...mintHqToken({ label: 'first-run client', ttlMs: opts.tokenTtlMs }),
+    capabilities: ['telemetry.publish'],
+  };
   const authFile: HqAuthFile = {
     version: HQ_AUTH_FILE_VERSION,
     updatedAt: new Date().toISOString(),
@@ -387,16 +437,40 @@ export function mintHqCookieSecret(): string {
 }
 
 /**
+ * Options for {@link mintHqToken}.
+ *
+ * - `label` — human-readable identifier persisted alongside the token.
+ * - `ttlMs` — when set, the token is stamped with `expiresAt = now + ttlMs`.
+ *   Absent (the default) means the token never expires, preserving the
+ *   pre-TTL contract.
+ * - `now` — epoch milliseconds override for deterministic tests.
+ */
+export interface MintHqTokenOptions {
+  label?: string | undefined;
+  ttlMs?: number | undefined;
+  now?: number | undefined;
+}
+
+/**
  * Mint a fresh token. Used for both browser and client tokens; the caller
  * decides which list to append to.
+ *
+ * Pass an options object to stamp an `expiresAt`; the bare-string overload
+ * (`mintHqToken('my-label')`) is preserved for backward-compat.
  */
-export function mintHqToken(label?: string): HqToken {
-  const now = new Date().toISOString();
+export function mintHqToken(labelOrOptions?: string | MintHqTokenOptions): HqToken {
+  const opts: MintHqTokenOptions =
+    typeof labelOrOptions === 'string' ? { label: labelOrOptions } : (labelOrOptions ?? {});
+  const at = opts.now ?? Date.now();
+  const createdAtIso = new Date(at).toISOString();
   return {
     id: randomUUID(),
     token: randomUUID().replace(/-/g, '') + randomUUID().replace(/-/g, ''),
-    ...(label ? { label } : {}),
-    createdAt: now,
+    createdAt: createdAtIso,
+    ...(opts.label ? { label: opts.label } : {}),
+    ...(opts.ttlMs !== undefined && Number.isFinite(opts.ttlMs) && opts.ttlMs > 0
+      ? { expiresAt: new Date(at + opts.ttlMs).toISOString() }
+      : {}),
   };
 }
 
