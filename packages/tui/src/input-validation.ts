@@ -142,6 +142,10 @@ export const ALLOWED_ACTION_TYPES = [
   'modelPickerOpen',
   'modelPickerMove',
   'modelPickerClose',
+  'modelPickerPickProvider',
+  'modelPickerBack',
+  'modelPickerSearch',
+  'modelPickerHint',
   'modelPickerSelect',
   'modelPickerSetProviders',
   'autonomyPickerOpen',
@@ -1396,6 +1400,10 @@ export function validateAction(action: {
     case 'slashPickerClose':
     case 'modelPickerOpen':
     case 'modelPickerClose':
+    case 'modelPickerPickProvider':
+    case 'modelPickerBack':
+    case 'modelPickerSearch':
+    case 'modelPickerHint':
     case 'autonomyPickerOpen':
     case 'autonomyPickerClose':
     case 'settingsPickerOpen':
