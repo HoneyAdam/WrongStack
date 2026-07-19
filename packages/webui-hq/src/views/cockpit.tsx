@@ -100,7 +100,7 @@ export function CockpitView(): React.ReactElement {
         message: typeof alert.message === 'string' ? alert.message : 'Alert envelope received',
         timestamp: typeof alert.timestamp === 'string' ? alert.timestamp : new Date().toISOString(),
       }));
-    const fromApi = [...apiActive, ...apiHistory]
+    const fromApi = [...(apiActive ?? []), ...(apiHistory ?? [])]
       .slice(-30)
       .reverse()
       .map<CockpitAlertEntry>((entry) => ({
@@ -303,8 +303,8 @@ export function CockpitView(): React.ReactElement {
           <span className="hq-pill">{totals?.activeSessions ?? 0} sessions</span>
           <span className="hq-pill">{totals?.activeAgents ?? 0} agents</span>
           <span className="hq-pill green">${(totals?.totalCostUsd ?? 0).toFixed(2)}</span>
-          {apiActive.length > 0 && (
-            <span className="hq-pill error">{apiActive.length} active alerts</span>
+          {(apiActive?.length ?? 0) > 0 && (
+            <span className="hq-pill error">{apiActive?.length ?? 0} active alerts</span>
           )}
           {alertsError !== null && <span className="hq-pill error">{alertsError}</span>}
           <button
