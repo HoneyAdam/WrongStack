@@ -50,14 +50,8 @@ export function hintsFor(ctx: KeyHintContext): Hint[] {
     }
     return hints;
   }
-  // Idle / chat.
-  const base: Hint[] = [{ key: '?', label: 'help' }];
-  if (ctx.managed) base.push({ key: 'PgUp/PgDn', label: 'scroll' });
-  base.push({ key: 'F3', label: 'agents' }, { key: '^C', label: 'stop' });
-  if (ctx.nextPanelHint) {
-    base.push({ key: ctx.nextPanelHint.key, label: ctx.nextPanelHint.label, discovery: true });
-  }
-  return base;
+  // Idle / chat — brand line instead of keybinding hints.
+  return [{ key: '', label: 'github.com/wrongstack/wrongstack' }];
 }
 
 /**
