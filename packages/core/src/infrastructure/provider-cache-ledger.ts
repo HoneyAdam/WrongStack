@@ -27,6 +27,13 @@ interface Accum {
  * snapshot and attributing the delta to the event's `provider`. This is exact
  * for the agent loop's sequential (awaited) provider calls; it does not assume
  * anything about pricing, so it works even when cost is unknown.
+ *
+ * **LIFECYCLE WARNING:** The constructor subscribes to `events.on('token.accounted', …)`,
+ * creating a permanent listener on the shared EventBus. The **caller MUST invoke
+ * `dispose()` on session teardown** (e.g. via the `detachTodosCheckpoint` chain
+ * in `packages/cli/src/wiring/session.ts`). Failure to do so leaks the listener
+ * across session restarts/resumes — every constructor invocation after the first
+ * adds a permanent listener that accumulates unboundedly.
  */
 export class ProviderCacheLedger {
   private readonly byProvider = new Map<string, Accum>();

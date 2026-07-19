@@ -42,6 +42,9 @@ function emptyCounters(): ChannelCounters {
 export class NotifierImpl implements Notifier {
   readonly #channels = new Map<string, NotificationChannel>();
   readonly #counters = new Map<string, ChannelCounters>();
+  /** Soft cap for #counters — prevents unbounded growth if channels are
+   *  repeatedly registered with distinct names. */
+  static readonly #MAX_COUNTERS = 100;
 
   // -----------------------------------------------------------------------
   // Lifecycle
@@ -65,14 +68,30 @@ export class NotifierImpl implements Notifier {
       this.#counters.set(name, counters);
 
       results.push(
-        channel.deliver(message).then((result) => {
-          if (result.ok) {
-            counters.delivered += 1;
-          } else {
+        channel.deliver(message).then(
+          (result) => {
+            if (result.ok) {
+              counters.delivered += 1;
+            } else {
+              counters.failed += 1;
+            }
+            return result;
+          },
+          (err: unknown) => {
+            // Channel threw instead of returning { ok: false, error: "…" }.
+            // Catch the rejection to prevent a single crashing channel from
+            // tearing down every parallel delivery in the same notify() call.
             counters.failed += 1;
-          }
-          return result;
-        }),
+            const error =
+              err instanceof Error ? err.message : 'unknown rejection';
+            return {
+              ok: false,
+              channel: name,
+              error: `threw: ${error}`,
+              deliveredAt: new Date().toISOString(),
+            } satisfies NotificationResult;
+          },
+        ),
       );
     }
 
@@ -82,6 +101,13 @@ export class NotifierImpl implements Notifier {
   registerChannel(channel: NotificationChannel): void {
     this.#channels.set(channel.name, channel);
     if (!this.#counters.has(channel.name)) {
+      // Evict oldest entry when at capacity to prevent unbounded growth.
+      if (this.#counters.size >= NotifierImpl.#MAX_COUNTERS) {
+        const oldest = this.#counters.keys().next();
+        if (!oldest.done && oldest.value !== undefined) {
+          this.#counters.delete(oldest.value);
+        }
+      }
       this.#counters.set(channel.name, emptyCounters());
     }
   }

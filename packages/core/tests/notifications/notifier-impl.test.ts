@@ -233,14 +233,25 @@ describe('NotifierImpl', () => {
       expect(results[0].error).toBe('HTTP 500');
     });
 
-    it('handles a channel whose deliver() throws (unexpected crash)', async () => {
+    it('catches a channel whose deliver() throws (unexpected crash)', async () => {
       const ch = crashingChannel('crashy', 'webhook');
       notifier.registerChannel(ch);
 
-      // The NotifierImpl does NOT catch deliver rejections — it propagates
-      // them through the Promise.all. The channel's own implementation
-      // should catch errors, but if it doesn't, the caller sees the rejection.
-      await expect(notifier.notify('crashy', SAMPLE_MSG)).rejects.toThrow('network unreachable');
+      // NotifierImpl catches deliver rejections and converts them to
+      // { ok: false, error: "threw: <msg>" } so a single crashing channel
+      // does not tear down every parallel delivery in the same notify() call.
+      const results = await notifier.notify('crashy', SAMPLE_MSG);
+      expect(results).toHaveLength(1);
+      expect(results[0].ok).toBe(false);
+      expect(results[0].error).toMatch(/^threw: /);
+      expect(results[0].channel).toBe('crashy');
+
+      // Counter should reflect the failure.
+      const counters = notifier.perChannelCounters();
+      expect(counters['crashy']).toBeDefined();
+      expect(counters['crashy'].attempted).toBe(1);
+      expect(counters['crashy'].delivered).toBe(0);
+      expect(counters['crashy'].failed).toBe(1);
     });
   });
 

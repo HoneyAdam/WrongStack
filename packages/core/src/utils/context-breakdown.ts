@@ -57,6 +57,12 @@ export interface ContextBreakdown {
   effectiveMaxContext: number;
   /** total / effectiveMaxContext — may exceed 1 before compaction fires. */
   usedPct: number;
+  /**
+   * Non-fatal build warnings encountered during breakdown computation.
+   * Empty when everything succeeded; populated when volatile blocks
+   * (ledger, nextsteps) threw during construction and were silently omitted.
+   */
+  warnings: string[];
 }
 
 const SYSTEM_BLOCK_SOURCES: readonly (SystemBlockSource | 'other')[] = [
@@ -90,10 +96,14 @@ function mcpServerOf(tool: Tool): string {
   return parts.length >= 3 && parts[0] === 'mcp' ? (parts[1] ?? 'mcp') : 'mcp';
 }
 
-function safeBuild(fn: () => TextBlock | undefined): TextBlock | undefined {
+function safeBuild(
+  fn: () => TextBlock | undefined,
+  warn: (e: unknown) => void = () => {},
+): TextBlock | undefined {
   try {
     return fn();
-  } catch {
+  } catch (e) {
+    warn(e);
     return undefined;
   }
 }
@@ -175,8 +185,13 @@ export function getContextBreakdown(ctx: Context): ContextBreakdown {
 
   // --- Volatile per-turn blocks: re-derived (they live in the request, not
   //     in ctx.systemPrompt) and tagged by construction. ---
-  const ledgerBlock = safeBuild(() => buildCompletedWorkLedgerBlock(ctx));
-  const nextstepsBlock = safeBuild(() => buildLiveNextStepsGateBlock(ctx));
+  const warnings: string[] = [];
+  const warn = (e: unknown) => {
+    const msg = e instanceof Error ? e.message : String(e);
+    warnings.push(msg);
+  };
+  const ledgerBlock = safeBuild(() => buildCompletedWorkLedgerBlock(ctx), warn);
+  const nextstepsBlock = safeBuild(() => buildLiveNextStepsGateBlock(ctx), warn);
   const ledger = ledgerBlock ? estimateTextTokens(ledgerBlock.text) : 0;
   const nextsteps = nextstepsBlock ? estimateTextTokens(nextstepsBlock.text) : 0;
 
@@ -205,5 +220,6 @@ export function getContextBreakdown(ctx: Context): ContextBreakdown {
     total,
     effectiveMaxContext,
     usedPct: effectiveMaxContext > 0 ? total / effectiveMaxContext : 0,
+    warnings,
   };
 }

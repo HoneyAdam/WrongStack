@@ -75,8 +75,7 @@ export async function findLatestProviderBackup(
   for (const entry of entries) {
     if (
       !entry.isFile() ||
-      !entry.name.startsWith('profiles-default-config-') ||
-      !entry.name.toLowerCase().endsWith('.json')
+      !/^profiles-default-config-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}\.json$/i.test(entry.name)
     ) {
       continue;
     }

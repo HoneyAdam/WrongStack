@@ -7,6 +7,8 @@ import {
   findLatestProviderBackup,
   maybeRestoreDefaultProfileFromBackup,
 } from '../src/boot/config-backup-recovery.js';
+import type { ReadlineInputReader } from '../src/input-reader.js';
+import type { TerminalRenderer } from '../src/renderer.js';
 
 describe('interactive config backup recovery', () => {
   let globalRoot: string;
@@ -77,17 +79,17 @@ describe('interactive config backup recovery', () => {
       ),
       JSON.stringify(saved, null, 2),
     );
-    const renderer = {
+    const renderer: Pick<TerminalRenderer, 'write' | 'writeWarning'> = {
       write: vi.fn(),
       writeWarning: vi.fn(),
     };
-    const reader = { readLine: vi.fn().mockResolvedValue('') };
+    const reader: Pick<ReadlineInputReader, 'readLine'> = { readLine: vi.fn().mockResolvedValue('') };
 
     const restored = await maybeRestoreDefaultProfileFromBackup({
       globalRoot,
       profilePath,
-      renderer: renderer as never,
-      reader: reader as never,
+      renderer,
+      reader,
     });
 
     expect(restored).toBe(true);
@@ -113,8 +115,8 @@ describe('interactive config backup recovery', () => {
     const restored = await maybeRestoreDefaultProfileFromBackup({
       globalRoot,
       profilePath,
-      renderer: { write: vi.fn(), writeWarning: vi.fn() } as never,
-      reader: reader as never,
+      renderer: { write: vi.fn(), writeWarning: vi.fn() } as Pick<TerminalRenderer, 'write' | 'writeWarning'>,
+      reader: reader as Pick<ReadlineInputReader, 'readLine'>,
     });
 
     expect(restored).toBe(false);
