@@ -4,6 +4,8 @@ import { isTextBlock } from '../types/blocks.js';
 import type { CompactReport, Compactor } from '../types/compactor.js';
 import type { Message } from '../types/messages.js';
 import type { Provider, Request } from '../types/provider.js';
+import type { Logger } from '../types/logger.js';
+import { noOpLogger } from '../infrastructure/logger.js';
 import type { OneShotOrchestrator } from './one-shot-llm.js';
 import { estimateRequestTokens } from '../utils/token-estimate.js';
 import { repairToolUseAdjacency } from '../utils/message-invariants.js';
@@ -20,6 +22,7 @@ import {
   eliseOldToolResults,
   estimateMessages,
   findSafeBoundary,
+  setCompactionDebugLogger,
 } from './compaction-core.js';
 
 /**
@@ -52,9 +55,11 @@ export interface IntelligentCompactorOptions {
   /**
    * OneShotOrchestrator for LLM-assisted summarization. When set,
    * `callSummarizer` uses it instead of the direct provider.complete()
-   * path, gaining fallback chain support and cheap-model defaulting.
+   * call, gaining fallback chain support and a cheap default model.
    */
   oneShotOrchestrator?: OneShotOrchestrator | undefined;
+  /** Structured logger. Defaults to noOpLogger (silent). */
+  logger?: Logger | undefined;
 }
 
 /**
@@ -81,6 +86,7 @@ export class IntelligentCompactor implements Compactor {
   private readonly summarizerPrompt: string;
   private readonly summarizerModel?: string | undefined;
   private readonly oneShotOrchestrator?: OneShotOrchestrator | undefined;
+  private readonly logger: Logger;
 
   constructor(opts: IntelligentCompactorOptions) {
     this.provider = opts.provider;
@@ -95,6 +101,8 @@ export class IntelligentCompactor implements Compactor {
       readBundledInstructionText('llm/intelligent-compactor-summarizer.md');
     this.summarizerModel = opts.summarizerModel;
     this.oneShotOrchestrator = opts.oneShotOrchestrator;
+    this.logger = opts.logger ?? noOpLogger;
+    setCompactionDebugLogger(this.logger);
   }
 
   async compact(ctx: Context, opts: { aggressive?: boolean | undefined } = {}): Promise<CompactReport> {
