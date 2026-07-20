@@ -294,6 +294,27 @@ export class DefaultBrainArbiter implements BrainArbiter {
       };
     }
 
+    // Blocked dependency explicitly resolved → continue. Mirrors the
+    // quickDecide heuristic in autonomy-brain.ts so headless hosts using
+    // DefaultBrainArbiter also benefit from the unblock-and-continue
+    // pattern. Requires the caller to have declared continue safe AND
+    // explicit resolution evidence in the context.
+    if (request.fallback === 'continue' && request.context) {
+      const q = request.question.toLowerCase();
+      const ctx = request.context.toLowerCase();
+      if (
+        q.includes('blocked') &&
+        !/\bor\b/.test(q) &&
+        /\b(?:resolved|fixed|completed|unblocked|available|done|merged|landed|shipped)\b/.test(ctx)
+      ) {
+        return {
+          type: 'answer',
+          text: 'Blocker resolved. Continue with the previously blocked work.',
+          rationale: 'Heuristic: blocking dependency explicitly resolved — resuming.',
+        };
+      }
+    }
+
     switch (request.fallback) {
       case 'deny':
         return {
