@@ -9,42 +9,31 @@ import {
 } from '../lib/queue-model.js';
 import { resolveRefineText, type RefineDecision, type RefineState } from '../lib/refine-model.js';
 import type { SimpleSocket } from '../lib/ws.js';
-import {
-  clearComposerDraft,
-  writeComposerDraft,
-} from '../lib/composer-draft.js';
-import type { ChatMessage, PendingConfirm, SessionInfo } from '../types.js';
+import { clearComposerDraft } from '../lib/composer-draft.js';
 
 export interface UseComposerActionsOptions {
   sessionIdRef: React.RefObject<string | null>;
   socketRef: React.RefObject<SimpleSocket | null>;
-  runningRef: React.RefObject<boolean>;
   draftRef: React.RefObject<string>;
   fileRefsRef: React.RefObject<string[]>;
   refineStateRef: React.RefObject<RefineState | null>;
-  prefsRef: React.RefObject<{ refinerProvider: string; refinerModel: string }>;
-  session: SessionInfo | null;
   draft: string;
   fileRefs: string[];
   running: boolean;
-  queue: QueuedItem[];
-  onChime: () => void;
-  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+  /** Caller-provided dispatch — the hook uses this inside submitWith and
+   *  refineDecision. This lets the caller keep its own refine-aware
+   *  startSend logic. */
+  startSend: (content: string, images?: { data: string; mime: string }[]) => void;
   setQueue: React.Dispatch<React.SetStateAction<QueuedItem[]>>;
-  setActivity: React.Dispatch<React.SetStateAction<string>>;
-  setRunning: React.Dispatch<React.SetStateAction<boolean>>;
-  setRefineState: React.Dispatch<React.SetStateAction<RefineState | null>>;
-  setPendingConfirm: React.Dispatch<React.SetStateAction<PendingConfirm | null>>;
   setDraft: React.Dispatch<React.SetStateAction<string>>;
   setFileRefs: React.Dispatch<React.SetStateAction<string[]>>;
   setAttachedImages: React.Dispatch<
     React.SetStateAction<{ id: string; data: string; mime: string; name: string }[]>
   >;
+  setRefineState: React.Dispatch<React.SetStateAction<RefineState | null>>;
 }
 
 export interface UseComposerActionsResult {
-  dispatchUserMessage: (content: string, images?: { data: string; mime: string }[]) => void;
-  startSend: (content: string, images?: { data: string; mime: string }[]) => void;
   submitWith: (mode: QueueMode) => void;
   refineDecision: (decision: RefineDecision) => void;
   refineRetry: () => void;
@@ -81,70 +70,19 @@ export function useComposerActions(options: UseComposerActionsOptions): UseCompo
   const {
     sessionIdRef,
     socketRef,
-    runningRef,
     draftRef,
     fileRefsRef,
     refineStateRef,
-    session,
     draft,
     fileRefs,
     running,
-    queue,
-    onChime,
-    setMessages,
+    startSend,
     setQueue,
-    setActivity,
-    setRunning,
-    setRefineState,
-    setPendingConfirm,
     setDraft,
     setFileRefs,
     setAttachedImages,
+    setRefineState,
   } = options;
-
-  const dispatchUserMessage = useCallback(
-    (content: string, images?: { data: string; mime: string }[]) => {
-      const sessionId = sessionIdRef.current;
-      if (!content || !sessionId) return;
-      setMessages((current) => [
-        ...current,
-        {
-          id: messageId('user'),
-          role: 'user',
-          text: content,
-          ...(images && images.length > 0 ? { images } : {}),
-          ts: new Date().toISOString(),
-        },
-      ]);
-      socketRef.current?.send('user_message', {
-        sessionId,
-        content,
-        ...(images && images.length > 0 ? { images } : {}),
-      });
-      onChime();
-    },
-    [sessionIdRef, socketRef, setMessages, onChime],
-  );
-
-  const startSend = useCallback(
-    (content: string, images?: { data: string; mime: string }[]) => {
-      const sessionId = sessionIdRef.current;
-      if (!sessionId) return;
-      // If a refine result is pending, dispatch it first.
-      const refineState = refineStateRef.current;
-      if (refineState) {
-        const text = resolveRefineText(refineState, 'keep');
-        if (text) {
-          socketRef.current?.send('user_message', { sessionId, content: text });
-        }
-        setRefineState(null);
-      }
-      setRunning(true);
-      setActivity('Working…');
-      dispatchUserMessage(content, images);
-    },
-    [sessionIdRef, refineStateRef, socketRef, setRefineState, setRunning, setActivity, dispatchUserMessage],
-  );
 
   const submitWith = useCallback(
     (mode: QueueMode) => {
@@ -233,7 +171,7 @@ export function useComposerActions(options: UseComposerActionsOptions): UseCompo
       if (!refineState) return;
       const text = resolveRefineText(refineState, decision);
       setRefineState(null);
-      if (text && decision !== 'discard') {
+      if (text && decision !== 'edit') {
         startSend(text);
       }
     },
@@ -244,7 +182,7 @@ export function useComposerActions(options: UseComposerActionsOptions): UseCompo
     const refineState = refineStateRef.current;
     if (!refineState) return;
     socketRef.current?.send('model.refine', {
-      text: refineState.originalText,
+      text: refineState.original,
     });
   }, [refineStateRef, socketRef]);
 
@@ -253,7 +191,7 @@ export function useComposerActions(options: UseComposerActionsOptions): UseCompo
       const slash = ref.indexOf('/');
       if (slash === -1) return;
       socketRef.current?.send('model.refine', {
-        text: refineStateRef.current?.originalText ?? '',
+        text: refineStateRef.current?.original ?? '',
         provider: ref.slice(0, slash),
         model: ref.slice(slash + 1),
         timeoutMs: 180_000,
@@ -267,8 +205,6 @@ export function useComposerActions(options: UseComposerActionsOptions): UseCompo
   }, [socketRef, sessionIdRef]);
 
   return {
-    dispatchUserMessage,
-    startSend,
     submitWith,
     refineDecision,
     refineRetry,
