@@ -89,7 +89,6 @@ describe('startStaticServe', () => {
     expect(createServer).toHaveBeenCalledWith({
       host: '127.0.0.1',
       distDir: '/resolved/dist',
-      wsPort: 3457,
       globalRoot: '/tmp/.wrongstack',
       onFleetPing: undefined,
       publicWsUrl: undefined,
@@ -135,7 +134,6 @@ describe('startStaticServe', () => {
     expect(createServer).toHaveBeenCalledWith({
       host: '127.0.0.1',
       distDir: '/resolved/dist',
-      wsPort: 3457,
       globalRoot: '/tmp/.wrongstack',
       onFleetPing: undefined,
       publicWsUrl: undefined,
@@ -164,7 +162,6 @@ describe('startStaticServe', () => {
     expect(createServer).toHaveBeenCalledWith({
       host: '127.0.0.1',
       distDir: '/resolved/dist',
-      wsPort: 3457,
       globalRoot: '/tmp/.wrongstack',
       onFleetPing: undefined,
       publicWsUrl: 'wss://wrongstack-ws.example.com',

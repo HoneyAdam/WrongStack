@@ -111,7 +111,6 @@ export function startStaticServe(
   const server = create({
     host: opts.host,
     distDir,
-    wsPort: opts.wsPort,
     globalRoot: opts.globalRoot,
     onFleetPing: opts.onFleetPing,
     onTechStackEvent: opts.onTechStackEvent,

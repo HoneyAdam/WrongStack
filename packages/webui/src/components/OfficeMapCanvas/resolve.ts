@@ -42,6 +42,16 @@ export interface ResolvedAgent {
   presenceSource: 'registry' | 'fleet';
 }
 
+/** How long a finished fleet agent stays visible on its leader's office. */
+export const FINISHED_AGENT_GRACE_MS = 15 * 60 * 1000;
+
+/** A fleet agent we still remember after its session finished, with the
+ *  timestamp we observed the terminal state. */
+export interface FinishedFleetAgent {
+  agent: SubagentView;
+  finishedAt: number;
+}
+
 /** A resolved client (one live session) with its agents. */
 export interface ResolvedClient {
   id: string; // `client-<pid|sessionId>`
@@ -62,9 +72,50 @@ export interface ResolvedClient {
   agents: ResolvedAgent[];
 }
 
-function sessionTail(sessionId: string): string {
-  const leaf = sessionId.split('/').filter(Boolean).pop() ?? sessionId;
+function sessionLeaf(sessionId: string | undefined): string | undefined {
+  if (!sessionId) return undefined;
+  return sessionId.split('/').filter(Boolean).pop() ?? sessionId;
+}
+
+function sessionTail(sessionId: string | undefined): string {
+  const leaf = sessionLeaf(sessionId) ?? sessionId ?? '';
   return leaf.length > 10 ? `…${leaf.slice(-8)}` : leaf;
+}
+
+/**
+ * Match a fleet-store `sessionId` to a resolved client. Sessions are stored
+ * dated (`YYYY-MM-DD/sess_abc`) but the fleet store and snapshot sometimes
+ * carry the bare leaf (`sess_abc`); compare the leaf so both forms match.
+ */
+function findSessionClient(
+  clients: ResolvedClient[],
+  sessionId: string | undefined,
+): ResolvedClient | undefined {
+  const leaf = sessionLeaf(sessionId);
+  if (!leaf) return undefined;
+  return clients.find((c) => sessionLeaf(c.sessionId) === leaf);
+}
+
+/** Build a `ResolvedAgent` from a fleet-store `SubagentView`. */
+function fleetAgentView(hostId: string, a: SubagentView): ResolvedAgent {
+  const status = mapAgentStatus(a.status);
+  return {
+    officeId: `${hostId}__agent-${a.id}`,
+    serverId: a.id,
+    name: a.name ?? a.id,
+    status,
+    iteration: a.iteration ?? 0,
+    toolCalls: a.toolCalls ?? 0,
+    costUsd: a.costUsd ?? 0,
+    tokensIn: a.tokensIn ?? 0,
+    tokensOut: a.tokensOut ?? 0,
+    ctxPct: a.ctxPct,
+    model: a.model,
+    currentTool: a.currentTool,
+    currentTask: a.description,
+    taskId: a.taskId,
+    presenceSource: 'fleet',
+  };
 }
 
 function executionSurface(clientType: string | undefined, type: ResolvedClient['type']): string {
@@ -77,11 +128,21 @@ function executionSurface(clientType: string | undefined, type: ResolvedClient['
  * Build the office client/agent model from the live cross-process snapshot,
  * preferring the richer local fleet-store data for the attached session's
  * agents and folding any not-yet-snapshotted local agents under a WebUI client.
+ *
+ * Recently finished fleet agents (within {@link FINISHED_AGENT_GRACE_MS}) are
+ * folded into their leader's office so the break-room seat lingers briefly
+ * after the backend reaps the agent from the live roster.
+ *
+ * @param recentlyFinished Retention map from {@link useRecentlyFinishedFleetAgents}.
+ * @param now Wall-clock instant captured in the same render as the retention
+ *   prune; keeps the `now - finishedAt` arithmetic consistent inside the memo.
  */
 export function resolveClients(
   liveSessions: LiveSession[],
   fleetAgents: Map<string, SubagentView>,
   mailboxAgents: MailboxAgent[] = [],
+  recentlyFinished: Map<string, FinishedFleetAgent> = new Map(),
+  now: number = Date.now(),
 ): ResolvedClient[] {
   const rendered = new Set<string>();
   const clients: ResolvedClient[] = [];
@@ -167,7 +228,7 @@ export function resolveClients(
   // session registry already proved exists. Registry/fleet state is the sole
   // authority for desks and offices.
   for (const mailbox of mailboxAgents.filter((agent) => agent.online)) {
-    const host = clients.find((client) => client.sessionId === mailbox.sessionId);
+    const host = findSessionClient(clients, mailbox.sessionId);
     if (!host) continue;
 
     const normalizedName = mailbox.name.trim().toLowerCase();
@@ -184,43 +245,53 @@ export function resolveClients(
     }
   }
 
-  // Local agents the 5s snapshot hasn't caught up to yet (attached session):
-  // attach them to a WebUI client so they appear immediately.
+  // Local fleet agents the 5s snapshot hasn't caught up to yet, plus any
+  // fleet subagent whose session exists but whose agent row is not yet in
+  // the snapshot. Attach each to its matching session's client office so it
+  // renders in the right room; only fall back to a synthetic WebUI client
+  // when no live session matches.
   const leftover = [...fleetAgents.values()].filter((a) => !rendered.has(a.id));
-  if (leftover.length > 0) {
-    let host = clients.find((c) => c.type === 'webui');
-    if (!host) {
-      host = {
-        id: 'client-self',
-        type: 'webui',
-        label: 'This WebUI',
-        sublabel: 'Web UI',
-        status: 'idle',
-        agents: [],
-      };
-      clients.push(host);
+  let fallbackHost: ResolvedClient | undefined;
+  const ensureFallbackHost = (): ResolvedClient => {
+    if (fallbackHost) return fallbackHost;
+    const existing = clients.find((c) => c.type === 'webui');
+    if (existing) {
+      fallbackHost = existing;
+      return existing;
     }
-    for (const a of leftover) {
-      const status = mapAgentStatus(a.status);
-      if (status === 'active' || status === 'streaming') host.status = 'active';
-      host.agents.push({
-        officeId: `${host.id}__agent-${a.id}`,
-        serverId: a.id,
-        name: a.name,
-        status,
-        iteration: a.iteration ?? 0,
-        toolCalls: a.toolCalls ?? 0,
-        costUsd: a.costUsd ?? 0,
-        tokensIn: a.tokensIn ?? 0,
-        tokensOut: a.tokensOut ?? 0,
-        ctxPct: a.ctxPct,
-        model: a.model,
-        currentTool: a.currentTool,
-        currentTask: a.description,
-        taskId: a.taskId,
-        presenceSource: 'fleet',
-      });
-    }
+    fallbackHost = {
+      id: 'client-self',
+      type: 'webui',
+      label: 'This WebUI',
+      sublabel: 'Web UI',
+      status: 'idle',
+      agents: [],
+    };
+    clients.push(fallbackHost);
+    return fallbackHost;
+  };
+
+  for (const a of leftover) {
+    const host = findSessionClient(clients, a.sessionId) ?? ensureFallbackHost();
+    const view = fleetAgentView(host.id, a);
+    // Don't resurrect a closing/stale/lost session (status 'offline') just
+    // because a snapshot-missed fleet agent reports itself as active.
+    if ((view.status === 'active' || view.status === 'streaming') && host.status !== 'offline')
+      host.status = 'active';
+    host.agents.push(view);
+    rendered.add(a.id);
+  }
+
+  // Recently-finished fleet agents linger on their leader's office for a
+  // short grace window so the break-room seat survives the backend reap.
+  // Retention is stricter than the live-leftover path: orphan entries whose
+  // sessionId matches no live client are silently dropped (no ghost office).
+  for (const [id, entry] of recentlyFinished) {
+    if (rendered.has(id)) continue;
+    if (now - entry.finishedAt > FINISHED_AGENT_GRACE_MS) continue;
+    const host = findSessionClient(clients, entry.agent.sessionId);
+    if (!host) continue;
+    host.agents.push(fleetAgentView(host.id, entry.agent));
   }
 
   // Never render a fully empty floor — show this WebUI as a connecting client.
