@@ -23,6 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`execFileSync` replaces `execSync`** in `cli-main.ts` — eliminates the
   shell-injection surface for the git-branch probe. Arguments are passed as
   an argv array, never parsed by a shell.
+- **Home-directory startup guard** — `wstack` now refuses to start when the
+  current working directory is the user's home directory (`%USERPROFILE%` on
+  Windows, `$HOME` on Linux/macOS). Instead of silently creating a `.git`
+  repo at the top of the filesystem and treating every file under it as
+  project state, it prints a red warning ("This is not a working directory")
+  and exits with code 1. Utility subcommands (`wstack auth`, `wstack version`,
+  etc.) are unaffected — they dispatch before the guard fires.
 
 ### Removed (BREAKING)
 - **`jsonArgumentsBuggy` option removed from the OpenAI tool-call adapter**
