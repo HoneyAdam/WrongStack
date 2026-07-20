@@ -1,7 +1,5 @@
 import {
   ArrowDown,
-  Bot,
-  ChevronDown,
   FolderCode,
   Moon,
   Settings,
@@ -23,6 +21,7 @@ import { FileExplorer } from './file-explorer.js';
 import { FinishedAgentsMenu } from './finished-agents-menu.js';
 import { useAgentRoster } from './hooks/use-agent-roster.js';
 import { useF5Resilience } from './hooks/use-f5-resilience.js';
+import { useModelCatalog } from './hooks/use-model-catalog.js';
 import { useSimpleSocket } from './hooks/use-simple-socket.js';
 import { useStatusNotice } from './hooks/use-status-notice.js';
 import { useTheme } from './hooks/use-theme.js';
@@ -37,7 +36,6 @@ import {
 } from './lib/file-mention.js';
 import type { MessageHandlerDeps } from './lib/message-handler.js';
 import { createMessageHandler } from './lib/message-handler.js';
-import { planModelSwitch } from './lib/model-switch.js';
 import { type AutonomyMode, DEFAULT_PREFS, type SimplePrefs } from './lib/prefs-model.js';
 import {
   enqueueFront,
@@ -65,6 +63,7 @@ import {
 } from './lib/worklist-store.js';
 import type { SimpleSocket } from './lib/ws.js';
 import { MemoryDrawer } from './memory-drawer.js';
+import { ModelSwitcher } from './model-switcher.js';
 import { PromptLibrary } from './prompt-library.js';
 import { SessionHealthPanel } from './session-health-panel.js';
 import { SessionSwitcher } from './session-switcher.js';
@@ -75,7 +74,6 @@ import type {
   ChatMessage,
   ContextInfo,
   FileEditMeta,
-  ModelDescriptor,
   PendingConfirm,
   SessionInfo,
   SimpleSessionSummary,
@@ -98,7 +96,7 @@ function messageId(prefix: string): string {
 }
 
 /** Check if a model id matches common vision-capable model patterns. */
-function isVisionModel(modelId: string): boolean {
+export function isVisionModel(modelId: string): boolean {
   const id = modelId.toLowerCase();
   return (
     id.includes('vision') ||
@@ -122,21 +120,12 @@ export function App() {
   const [sessions, setSessions] = useState<SimpleSessionSummary[]>([]);
   const [context, setContext] = useState<ContextInfo>(EMPTY_CONTEXT);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [models, setModels] = useState<Record<string, ModelDescriptor[]>>({});
   const [modes, setModes] = useState<AgentMode[]>([]);
   const [activeModeId, setActiveModeId] = useState('default');
   const [prefs, setPrefs] = useState<SimplePrefs>(DEFAULT_PREFS);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [queue, setQueue] = useState<QueuedItem[]>([]);
   const [refineState, setRefineState] = useState<RefineState | null>(null);
-  const [providerLabels, setProviderLabels] = useState<Record<string, string>>({});
-  const [pendingModelSwitch, setPendingModelSwitch] = useState<{
-    provider: string;
-    model: string;
-    modelName: string;
-    currentWindow: number;
-    nextWindow: number;
-  } | null>(null);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const [draft, setDraft] = useState('');
   const [fileRefs, setFileRefs] = useState<string[]>([]);
@@ -348,11 +337,6 @@ export function App() {
   }, [copiedMessageId]);
 
   /** Ask the server for a provider's model list, at most once per provider. */
-  const requestProviderModels = useCallback((providerId: string) => {
-    if (!providerId || requestedModelsRef.current.has(providerId)) return;
-    requestedModelsRef.current.add(providerId);
-    socketRef.current?.send('provider.models', { providerId });
-  }, []);
 
   const {
     setSubagents,
@@ -366,6 +350,26 @@ export function App() {
     activeAgent,
     leaderSelected,
   } = useAgentRoster({ running });
+
+  const {
+    setModels,
+    providerLabels,
+    setProviderLabels,
+    groupedModels,
+    selectedModel,
+    pendingModelSwitch,
+    selectModel,
+    confirmModelSwitch,
+    requestProviderModels,
+  } = useModelCatalog({
+    session,
+    contextMaxContext: context.maxContext,
+    running,
+    socketRef,
+    requestedModelsRef,
+  });
+
+  const visionSupported = isVisionModel(session?.model ?? '');
 
   const handlerDeps: MessageHandlerDeps = {
     prefsRef,
@@ -473,17 +477,10 @@ export function App() {
     return () => clearTimeout(timer);
   }, [fileMention]);
 
-  const groupedModels = useMemo(
-    () => Object.entries(models).filter(([, entries]) => entries.length > 0),
-    [models],
-  );
-
   const _currentSessionName = sessionDisplayName(
     sessions.find((item) => item.id === session?.id),
     session?.id,
   );
-  const selectedModel = session ? `${session.provider}\t${session.model}` : '';
-  const visionSupported = isVisionModel(session?.model ?? '');
   const load = Math.max(0, Math.min(1, context.load));
   const latestAssistantId = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index--) {
@@ -594,60 +591,6 @@ export function App() {
     if (running || !sessionIdRef.current || id === sessionIdRef.current) return;
     socketRef.current?.send('session.resume', { sessionId: sessionIdRef.current, id });
   };
-
-  /** Dropdown pick — switches immediately, or asks first when the new model's
-   *  context window is smaller than the current one. */
-  const selectModel = (provider: string, model: string) => {
-    if (!session) return;
-    const plan = planModelSwitch({
-      models,
-      currentProvider: session.provider,
-      currentModel: session.model,
-      sessionMaxContext: session.maxContext || context.maxContext,
-      nextProvider: provider,
-      nextModel: model,
-    });
-    if (plan.kind === 'noop') return;
-    if (plan.kind === 'warn') {
-      setPendingModelSwitch({
-        provider,
-        model,
-        modelName: plan.modelName,
-        currentWindow: plan.currentWindow,
-        nextWindow: plan.nextWindow,
-      });
-      return;
-    }
-    socketRef.current?.send('model.switch', { provider, model });
-  };
-
-  const confirmModelSwitch = () => {
-    if (!pendingModelSwitch) return;
-    socketRef.current?.send('model.switch', {
-      provider: pendingModelSwitch.provider,
-      model: pendingModelSwitch.model,
-    });
-    setPendingModelSwitch(null);
-  };
-
-  // The pending smaller-context warning is stale once the session moves on
-  // (switch confirmed elsewhere, session resumed) or a run starts.
-  useEffect(() => {
-    if (!pendingModelSwitch) return;
-    if (running) setPendingModelSwitch(null);
-  }, [pendingModelSwitch, running]);
-
-  useEffect(() => {
-    if (!pendingModelSwitch) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        setPendingModelSwitch(null);
-      }
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [pendingModelSwitch]);
 
   const submitWith = (mode: QueueMode) => {
     // ── Slash commands ──
@@ -841,54 +784,18 @@ export function App() {
           </div>
         </div>
 
-        <div className="model-control">
-          <Bot size={15} aria-hidden="true" />
-          <select
-            aria-label="Provider and model"
-            value={selectedModel}
-            disabled={!session || groupedModels.length === 0 || running}
-            onChange={(event) => {
-              const [provider = '', model = ''] = event.target.value.split('\t');
-              selectModel(provider, model);
-            }}
-          >
-            {groupedModels.length === 0 && <option value="">Loading models…</option>}
-            {groupedModels.map(([provider, entries]) => (
-              <optgroup key={provider} label={providerLabels[provider] ?? provider}>
-                {entries.map((item) => (
-                  <option key={`${provider}:${item.id}`} value={`${provider}\t${item.id}`}>
-                    {item.name}
-                    {item.contextWindow ? ` · ${compactTokens(item.contextWindow)}` : ''}
-                    {isVisionModel(item.id) ? ' 👁' : ''}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-          <ChevronDown size={14} className="select-chevron" aria-hidden="true" />
-          {pendingModelSwitch && (
-            <div
-              className="model-switch-warning"
-              role="alertdialog"
-              aria-label="Smaller context window warning"
-            >
-              <p>
-                <strong>{pendingModelSwitch.modelName}</strong> has a smaller context window (
-                {compactTokens(pendingModelSwitch.nextWindow)} vs current{' '}
-                {compactTokens(pendingModelSwitch.currentWindow)}). The session may need to compact
-                sooner.
-              </p>
-              <div className="model-switch-warning-actions">
-                <button type="button" className="model-switch-confirm" onClick={confirmModelSwitch}>
-                  SWITCH
-                </button>
-                <button type="button" onClick={() => setPendingModelSwitch(null)}>
-                  CANCEL
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+        <ModelSwitcher
+          selectedModel={selectedModel}
+          groupedModels={groupedModels}
+          providerLabels={providerLabels}
+          disabled={!session || groupedModels.length === 0 || running}
+          pendingModelSwitch={pendingModelSwitch}
+          onSelectModel={selectModel}
+          onConfirmSwitch={confirmModelSwitch}
+          onCancelSwitch={() => {
+            /* handled inside useModelCatalog via Escape effect */
+          }}
+        />
 
         <div className="topbar-right">
           <button
