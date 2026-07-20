@@ -60,8 +60,12 @@ export function buildCouncilVoterUserPrompt(
     `Seat id: ${seat.id}`,
     `Seat label: ${seat.label}`,
     `Persona id: ${seat.persona}`,
+    `Vote weight: ${seat.weight}`,
+    seat.veto ? 'Veto power: yes — your refusal unilaterally denies the proposal.' : '',
     '</seat-metadata>',
-  ].join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 /** Build the judge user prompt with seat outputs serialized as untrusted JSON. */

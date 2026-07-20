@@ -34,7 +34,14 @@ export const DEFAULT_COUNCIL_MAX_CONCURRENCY = 3;
 export const MAX_COUNCIL_CONCURRENCY = 8;
 
 export interface CouncilOrchestratorOptions {
-  caller: CouncilLLMCaller;
+  /**
+   * Shared LLM caller used for every seat and the judge when no per-seat
+   * caller is configured. Optional — supply `seatCaller` (per-seat callers)
+   * and/or `judgeCaller` (separate judge caller) to route votes to different
+   * providers. At least one of `caller`, `seatCaller`, or `judgeCaller`
+   * must be provided; the constructor throws otherwise.
+   */
+  caller?: CouncilLLMCaller | undefined;
   personas?: CouncilPersonaRegistry | undefined;
   profiles?: CouncilProfileRegistry | undefined;
   defaultProfile?: string | undefined;
@@ -83,7 +90,7 @@ interface UsageAccumulator {
 
 /** Provider-neutral Council runner backed by an injected one-shot LLM caller. */
 export class CouncilOrchestrator {
-  private readonly caller: CouncilLLMCaller;
+  private readonly caller: CouncilLLMCaller | undefined;
   private readonly personas: CouncilPersonaRegistry;
   private readonly profiles: CouncilProfileRegistry;
   private readonly defaultProfile: string | undefined;
@@ -94,6 +101,11 @@ export class CouncilOrchestrator {
   private readonly judgeCaller: CouncilLLMCaller | undefined;
 
   constructor(opts: CouncilOrchestratorOptions) {
+    if (!opts.caller && !opts.seatCaller && !opts.judgeCaller) {
+      throw new Error(
+        'CouncilOrchestrator: provide `caller`, `seatCaller`, or `judgeCaller`.',
+      );
+    }
     this.caller = opts.caller;
     this.personas = opts.personas ?? DEFAULT_COUNCIL_PERSONA_REGISTRY;
     this.profiles = opts.profiles ?? DEFAULT_COUNCIL_PROFILE_REGISTRY;
@@ -515,6 +527,23 @@ export class CouncilOrchestrator {
     return parseJudge(result.text, question, this.refusalOptionId);
   }
 
+  /**
+   * Resolve the effective LLM caller for a call. Voter seats use
+   * `seatCaller(seatIndex)` when wired. Judge seats (seatIndex undefined)
+   * use `judgeCaller` if set, otherwise `seatCaller(0)` if set, otherwise
+   * the shared `caller`.
+   */
+  private resolveCaller(seatIndex?: number): CouncilLLMCaller {
+    if (seatIndex !== undefined && this.seatCaller) {
+      return this.seatCaller(seatIndex);
+    }
+    if (this.judgeCaller) return this.judgeCaller;
+    if (this.seatCaller) return this.seatCaller(0);
+    // Shared caller — guaranteed present by the constructor invariant
+    // (at least one of `caller` / `seatCaller` / `judgeCaller` is required).
+    return this.caller as CouncilLLMCaller;
+  }
+
   private async safeCall(input: {
     system: string;
     userPrompt: string;
@@ -525,10 +554,7 @@ export class CouncilOrchestrator {
     usage: UsageAccumulator;
     seatIndex?: number | undefined;
   }): Promise<OneShotLLMResult> {
-    const effectiveCaller =
-      input.seatIndex !== undefined && this.seatCaller
-        ? this.seatCaller(input.seatIndex)
-        : this.judgeCaller ?? (this.seatCaller ? this.seatCaller(0) : this.caller);
+    const effectiveCaller = this.resolveCaller(input.seatIndex);
 
     const resolvedTarget = this.resolveCouncilTarget(input.target);
 

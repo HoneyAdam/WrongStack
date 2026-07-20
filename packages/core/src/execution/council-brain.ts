@@ -30,7 +30,11 @@ import type { CouncilLLMCaller, CouncilModelTarget, CouncilProfileConfig, Counci
 import type { OneShotLLMInput, OneShotLLMResult } from '../types/one-shot-llm.js';
 import type { Provider } from '../types/provider.js';
 
-export const COUNCIL_REFUSE_OPTION_ID = 'council_refuse';
+/**
+ * Refusal option id used by the Brain adapter. Re-exported from the
+ * orchestrator so both layers share a single source of truth.
+ */
+export { COUNCIL_REFUSAL_OPTION_ID as COUNCIL_REFUSE_OPTION_ID } from './council-orchestrator.js';
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
@@ -174,36 +178,13 @@ export function createCouncilBrainArbiter(opts: CouncilBrainOptions): BrainArbit
   };
 
   // ── Orchestrator with per-seat callers ───────────────────────────────
-  // Shared caller is unused when seatCaller is set, but required by the
-  // CouncilOrchestrator constructor. We provide a no-op fallback.
-  const noopCaller: CouncilLLMCaller = {
-    async call(): Promise<OneShotLLMResult> {
-      return {
-        text: '',
-        model: '',
-        provider: '',
-        tokens: { input: 0, output: 0, total: 0 },
-        durationMs: 0,
-        fromFallback: false,
-        error: 'Per-seat caller must be used.',
-      };
-    },
-  };
-
   const orchestrator = new CouncilOrchestrator({
-    caller: noopCaller,
     defaultProfile: 'brain-council-adapter',
     seatCaller,
     judgeCaller: opts.judge
       ? makeSeatCallerForVoter(opts.judge)
       : undefined,
   });
-
-  // ── Finish helpers ───────────────────────────────────────────────────
-
-  function finish(_request: BrainDecisionRequest, decision: BrainDecision): BrainDecision {
-    return decision;
-  }
 
   const abstain = (request: BrainDecisionRequest, why: string): BrainDecision => ({
     type: 'ask_human',
@@ -231,41 +212,38 @@ export function createCouncilBrainArbiter(opts: CouncilBrainOptions): BrainArbit
 
       // Handle failures and cancellations
       if (result.status === 'cancelled' || result.status === 'failed') {
-        return finish(
-          request,
-          abstain(request, result.reason ?? result.errors?.[0] ?? 'council error'),
-        );
+        return abstain(request, result.reason ?? result.errors?.[0] ?? 'council error');
       }
 
       if (result.status === 'abstained') {
-        return finish(request, abstain(request, result.reason ?? 'no consensus'));
+        return abstain(request, result.reason ?? 'no consensus');
       }
 
       if (result.status === 'denied') {
-        return finish(request, {
+        return {
           type: 'deny',
           reason: result.reason ?? `Council (${result.resolution})`,
-        });
+        };
       }
 
       // Decided
       if (request.options && request.options.length > 0) {
         // Option-bearing: pick the winning option
         const winningOption = request.options.find((o) => o.id === result.optionId);
-        return finish(request, {
+        return {
           type: 'answer',
           ...(winningOption ? { optionId: result.optionId } : {}),
           text: winningOption?.label ?? result.answer ?? 'Council decided.',
           rationale: result.reason ?? `Council (${result.resolution})`,
-        });
+        };
       }
 
       // Optionless: use the council's synthesized answer
-      return finish(request, {
+      return {
         type: 'answer',
         text: result.answer ?? 'Council decided.',
         rationale: result.reason ?? `Council (${result.resolution})`,
-      });
+      };
     },
   };
 }
