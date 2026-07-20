@@ -192,20 +192,15 @@ export const FLEET_CHAT_VERBOSITY_VALUES: readonly FleetChatVerbosity[] = ['off'
 
 /**
  * Resolve the effective fleet-chat verbosity from autonomy config.
- * An explicit `fleetChatVerbosity` wins; otherwise the legacy `streamFleet`
- * boolean is honored (`false` → 'off'); absence of both means 'off'.
- * `fleetChatVerbosity` must never be given a merge-time default — the
- * absence of the field is what lets legacy `streamFleet: false` configs
- * keep their intent.
+ * An explicit `fleetChatVerbosity` wins; absence means 'off'.
  */
 export function resolveFleetChatVerbosity(
-  autonomy?: Pick<AutonomyConfig, 'fleetChatVerbosity' | 'streamFleet'>,
+  autonomy?: Pick<AutonomyConfig, 'fleetChatVerbosity'>,
 ): FleetChatVerbosity {
   const explicit = autonomy?.fleetChatVerbosity;
   if (explicit && (FLEET_CHAT_VERBOSITY_VALUES as readonly string[]).includes(explicit)) {
     return explicit;
   }
-  if (autonomy?.streamFleet === false) return 'off';
   return 'off';
 }
 
@@ -875,11 +870,6 @@ export interface AutonomyConfig {
   terminalTitleAnimation?: boolean | undefined;
   /** Persisted YOLO preference mirrored into top-level config.yolo at runtime. Default: false. */
   yolo?: boolean | undefined;
-  /**
-   * @deprecated Mirror of `fleetChatVerbosity !== 'off'`, kept for readers that
-   * still expect a boolean (webui prefs). Writers must keep it in sync.
-   */
-  streamFleet?: boolean | undefined;
   /**
    * How much fleet/subagent activity is streamed into the main TUI chat.
    * - 'off': no subagent lines (failures/errors still surface); F2/F3 stay live.

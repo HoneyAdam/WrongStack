@@ -3,10 +3,6 @@ import type { FleetChatVerbosity } from '@wrongstack/core';
 import type { Action } from '../app-reducer.js';
 
 export interface FleetStreamController {
-  /** @deprecated Mirror of `mode !== 'off'` — kept for boolean-only callers. */
-  enabled: boolean;
-  /** @deprecated Maps to `setMode(enabled ? 'full' : 'off')`. */
-  setEnabled: (enabled: boolean) => void;
   /** Fleet-chat verbosity: off | compact | full. */
   mode: FleetChatVerbosity;
   setMode: (mode: FleetChatVerbosity) => void;
@@ -51,20 +47,12 @@ export function useTuiControllers({
   useEffect(() => {
     if (!fleetStreamController) return;
     fleetStreamController.mode = fleetChat;
-    fleetStreamController.enabled = fleetChat !== 'off';
     fleetStreamController.setMode = (mode: FleetChatVerbosity) => {
       dispatch({ type: 'setFleetChat', mode });
-    };
-    fleetStreamController.setEnabled = (enabled: boolean) => {
-      dispatch({ type: 'setFleetChat', mode: enabled ? 'full' : 'off' });
     };
     return () => {
       fleetStreamController.setMode = (mode: FleetChatVerbosity) => {
         fleetStreamController.mode = mode;
-        fleetStreamController.enabled = mode !== 'off';
-      };
-      fleetStreamController.setEnabled = (enabled: boolean) => {
-        fleetStreamController.setMode(enabled ? 'full' : 'off');
       };
     };
   }, [dispatch, fleetStreamController, fleetChat]);
@@ -72,7 +60,6 @@ export function useTuiControllers({
   useEffect(() => {
     if (fleetStreamController) {
       fleetStreamController.mode = fleetChat;
-      fleetStreamController.enabled = fleetChat !== 'off';
     }
   }, [fleetStreamController, fleetChat]);
 

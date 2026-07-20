@@ -132,9 +132,7 @@ export interface LiveSettingsInput {
   delayMs?: number | undefined;
   titleAnimation?: boolean | undefined;
   yolo?: boolean | undefined;
-  /** @deprecated Use fleetChatVerbosity; kept for boolean-only writers. */
-  streamFleet?: boolean | undefined;
-  /** Fleet-chat verbosity (off | full); persists with a mirrored streamFleet boolean. */
+  /** Fleet-chat verbosity (off | full). */
   fleetChatVerbosity?: FleetChatVerbosity | undefined;
   chime?: boolean | undefined;
   confirmExit?: boolean | undefined;

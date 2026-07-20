@@ -76,11 +76,11 @@ export function buildAgentsCommand(opts: SlashCommandContext): SlashCommand {
         return { message: 'Agents monitor hidden.' };
       }
       if (arg === 'stream on') {
-        opts.fleetStreamController?.setEnabled(true);
+        opts.fleetStreamController?.setMode('full');
         return { message: 'Agent stream enabled — subagent activity visible in history.' };
       }
       if (arg === 'stream off') {
-        opts.fleetStreamController?.setEnabled(false);
+        opts.fleetStreamController?.setMode('off');
         return { message: 'Agent stream disabled — subagent activity hidden from history.' };
       }
       // Empty/whitespace → summary; any other non-empty string → specific agent lookup

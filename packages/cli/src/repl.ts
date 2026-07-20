@@ -220,8 +220,6 @@ export interface ReplOptions {
   /** Controller for fleet stream (subagent output to history). */
   fleetStreamController?:
     | {
-        enabled: boolean;
-        setEnabled: (enabled: boolean) => void;
         mode: import('@wrongstack/core').FleetChatVerbosity;
         setMode: (mode: import('@wrongstack/core').FleetChatVerbosity) => void;
       }

@@ -109,7 +109,7 @@ function callSetup(overrides: Record<string, unknown> = {}): Promise<void> {
     provider: { id: 'p' } as never,
     model: 'm',
     multiAgentHost: fakeMultiAgentHost(),
-    fleetStreamController: { enabled: false, setEnabled: vi.fn() },
+    fleetStreamController: { mode: 'off', setMode: vi.fn() },
     compactor: { compact: vi.fn() },
     ...overrides,
   } as never);

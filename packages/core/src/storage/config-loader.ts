@@ -156,7 +156,7 @@ const BEHAVIOR_DEFAULTS: Omit<Config, 'provider' | 'model'> = {
     // Mirrored from the top-level yolo default so the autonomy subsystem
     // (which reads autonomy.yolo) stays consistent with config.yolo.
     yolo: false,
-    streamFleet: true,
+    fleetChatVerbosity: 'off',
     chime: false,
     confirmExit: true,
     mouseMode: false,
@@ -174,7 +174,7 @@ const BEHAVIOR_DEFAULTS: Omit<Config, 'provider' | 'model'> = {
     // silently omitted, and surfaced as a per-request warning. Users who
     // want a specific effort can opt in via `/settings` or the WebUI panel.
     reasoning: { mode: 'auto' },
-    cache: {},
+    cache: { ttl: '1h' },
   },
 };
 

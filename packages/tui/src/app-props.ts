@@ -533,8 +533,6 @@ export interface AppProps {
    */
   fleetStreamController?:
     | {
-        enabled: boolean;
-        setEnabled: (enabled: boolean) => void;
         mode: FleetChatVerbosity;
         setMode: (mode: FleetChatVerbosity) => void;
       }

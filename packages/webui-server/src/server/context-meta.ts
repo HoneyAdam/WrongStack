@@ -35,7 +35,7 @@ export function seedContextMeta(config: Config, context: { meta: Record<string, 
   meta['yolo'] = (autonomyCfg['yolo'] as boolean) ?? config.yolo ?? false;
   meta['chime'] = (autonomyCfg['chime'] as boolean) ?? false;
   meta['confirmExit'] = autonomyCfg['confirmExit'] !== false;
-  meta['streamFleet'] = autonomyCfg['streamFleet'] !== false;
+  meta['fleetChatVerbosity'] = (autonomyCfg['fleetChatVerbosity'] as string) ?? 'off';
   meta['enhanceEnabled'] = (autonomyCfg['enhance'] as boolean) ?? true;
   meta['enhanceDelayMs'] = (autonomyCfg['enhanceDelayMs'] as number) ?? 60_000;
   meta['enhanceLanguage'] = (autonomyCfg['enhanceLanguage'] as string) ?? 'original';

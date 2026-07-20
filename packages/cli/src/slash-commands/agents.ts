@@ -101,9 +101,8 @@ export function buildAgentsCommand(opts: SlashCommandContext): SlashCommand {
           }
           const mode = sub as FleetChatVerbosity;
           ctl?.setMode(mode);
-          // Persist so the choice survives restarts (mirror streamFleet for
-          // legacy boolean readers). Best-effort: config paths can be absent
-          // in embedded surfaces.
+          // Persist so the choice survives restarts. Best-effort:
+          // config paths can be absent in embedded surfaces.
           if (opts.configStore && opts.paths) {
             const activeProfile = opts.configStore.get().activeProfile ?? 'default';
             await persistAutonomySetting(

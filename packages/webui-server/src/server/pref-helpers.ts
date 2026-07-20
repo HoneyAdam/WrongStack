@@ -31,7 +31,6 @@ export const PREF_KEYS = [
   'maxIterations',
   'chime',
   'confirmExit',
-  'streamFleet',
   'nextPrediction',
   'enhanceEnabled',
   'enhanceDelayMs',
@@ -240,8 +239,8 @@ export async function persistPrefsToConfig(
       if (typeof payload['chime'] === 'boolean') setAutonomy('chime', payload['chime']);
       if (typeof payload['confirmExit'] === 'boolean')
         setAutonomy('confirmExit', payload['confirmExit']);
-      if (typeof payload['streamFleet'] === 'boolean')
-        setAutonomy('streamFleet', payload['streamFleet']);
+      if (typeof payload['fleetChatVerbosity'] === 'string')
+        setAutonomy('fleetChatVerbosity', payload['fleetChatVerbosity']);
       if (typeof payload['enhanceEnabled'] === 'boolean')
         setAutonomy('enhance', payload['enhanceEnabled']);
       if (typeof payload['enhanceDelayMs'] === 'number')

@@ -122,13 +122,12 @@ describe('/settings slash command', () => {
 
   // ── Stream-fleet (fleet-chat verbosity) ──
 
-  it('stream-fleet off persists the enum AND the mirrored boolean', async () => {
+  it('stream-fleet off persists the enum', async () => {
     const { ctx, globalConfig } = makeCtx();
     const res = await buildSettingsCommand(ctx).run!('stream-fleet off');
     expect(stripAnsi(res!.message!)).toContain('fleet chat → off');
     const written = JSON.parse(readFileSync(globalConfig, 'utf8'));
     expect(written.autonomy.fleetChatVerbosity).toBe('off');
-    expect(written.autonomy.streamFleet).toBe(false);
   });
 
   it('stream-fleet maps legacy "on" to full', async () => {
@@ -137,7 +136,6 @@ describe('/settings slash command', () => {
     expect(stripAnsi(res!.message!)).toContain('fleet chat → full');
     const written = JSON.parse(readFileSync(globalConfig, 'utf8'));
     expect(written.autonomy.fleetChatVerbosity).toBe('full');
-    expect(written.autonomy.streamFleet).toBe(true);
   });
 
   it('stream-fleet rejects invalid values without writing', async () => {

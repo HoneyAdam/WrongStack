@@ -22,10 +22,6 @@ import {
 // ─── Fleet stream controller ───────────────────────────────────────
 
 export interface FleetStreamController {
-  /** @deprecated Mirror of `mode !== 'off'` — kept for boolean-only callers. */
-  enabled: boolean;
-  /** @deprecated Maps to `setMode(enabled ? 'full' : 'off')`. */
-  setEnabled(enabled: boolean): void;
   /** Fleet-chat verbosity streamed into the main chat: off | full. */
   mode: FleetChatVerbosity;
   setMode(mode: FleetChatVerbosity): void;
@@ -33,14 +29,9 @@ export interface FleetStreamController {
 
 export function createFleetStreamController(initialMode: FleetChatVerbosity = 'off'): FleetStreamController {
   return {
-    enabled: initialMode !== 'off',
     mode: initialMode,
-    setEnabled(this: FleetStreamController, enabled: boolean) {
-      this.setMode(enabled ? 'full' : 'off');
-    },
     setMode(this: FleetStreamController, mode: FleetChatVerbosity) {
       this.mode = mode;
-      this.enabled = mode !== 'off';
     },
   };
 }

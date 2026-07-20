@@ -281,7 +281,6 @@ const BOOLEAN_PREF_KEYS = new Set([
   'yolo',
   'chime',
   'confirmExit',
-  'streamFleet',
   'nextPrediction',
   'titleAnimation',
   'enhanceEnabled',
