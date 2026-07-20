@@ -10,7 +10,7 @@
  *   - context.debug WS: detailed breakdown (system prompt, tools, messages)
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import {
   AlertTriangle,
@@ -21,7 +21,6 @@ import {
   Gauge,
   HardDrive,
   Layers,
-  MemoryStick,
   MessageSquare,
   RefreshCw,
   Sparkles,

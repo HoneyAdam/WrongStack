@@ -5,12 +5,10 @@ import {
   AlertTriangle,
   BarChart3,
   Code2,
-  FileText,
   MessageSquare,
   RefreshCw,
   Wrench,
   X,
-  Zap,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
@@ -46,15 +44,6 @@ function tokenColor(tokens: number, total: number): string {
   if (pct > 0.25) return 'text-warning';
   if (pct > 0.1) return 'text-info';
   return 'text-muted-foreground';
-}
-
-function tokenBg(tokens: number, total: number): string {
-  if (total <= 0) return 'bg-muted/20';
-  const pct = tokens / total;
-  if (pct > 0.5) return 'bg-destructive/10';
-  if (pct > 0.25) return 'bg-warning/10';
-  if (pct > 0.1) return 'bg-info/10';
-  return 'bg-muted/20';
 }
 
 /** A compact mini progress bar sized by the item's share of total tokens. */
@@ -107,8 +96,12 @@ export function ContextBreakdownModal({ open, onClose }: ContextBreakdownModalPr
 
     ws.send({ type: 'context.debug' }, { echoToChat: false });
 
+    let cancelled = false;
+
     const handler = (msg: { type: string; payload?: unknown }) => {
+      if (cancelled) return;
       if (msg.type === 'context.debug') {
+        cancelled = true;
         setData(msg.payload as ContextDebugPayload);
         setLoading(false);
       }
@@ -117,13 +110,15 @@ export function ContextBreakdownModal({ open, onClose }: ContextBreakdownModalPr
     const unsubscribe = ws.on('context.debug', handler);
 
     const timeout = setTimeout(() => {
-      if (loading) {
-        setLoading(false);
-        setError(i18n.t('activity:context.noData'));
-      }
+      if (cancelled) return;
+      cancelled = true;
+      setLoading(false);
+      setError(i18n.t('activity:context.noData'));
+      unsubscribe();
     }, 5000);
 
     return () => {
+      cancelled = true;
       clearTimeout(timeout);
       unsubscribe();
     };
