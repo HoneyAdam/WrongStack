@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **`jsonArgumentsBuggy` option removed from the OpenAI tool-call adapter**
+  (**BREAKING**) — `FromOpenAIOptions.jsonArgumentsBuggy`, the matching
+  conditional bug emulation in `from-openai.ts`, and the entry in
+  `openai-compatible.ts`'s `VALID_QUIRK_KEYS` are all gone. Providers that
+  previously passed `{ quirks: { jsonArgumentsBuggy: true } }` to emulate the
+  legacy OpenAI Realtime/Responses `arguments: "{}"` quirk now always receive
+  the raw `arguments` string untouched. Drop the key from provider configs or
+  the adapter will ignore it silently (no error). See
+  `docs/plans/breaking-changes-next-major.md` for the full rationale.
+
 ## [0.292.1] — 2026-07-20
 
 > The **fresh coordination and resilient fallback patch**. Mailbox HTTP clients
