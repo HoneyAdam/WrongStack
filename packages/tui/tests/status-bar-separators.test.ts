@@ -52,14 +52,14 @@ describe('StatusBar chip separators', () => {
       hiddenItems: ['state'],
     });
 
-    expect(frame).toContain('mem 6261 total');
+    expect(frame).toContain('6261 total');
     expect(frame).toContain('3 ctx');
   });
 
   it('hides Super Memory counts when the statusline item is disabled', () => {
     const frame = frameOf({
       superMemory: { total: 6261, activeInContext: 3 },
-      hiddenItems: ['super_memory'],
+      hiddenItems: ['memory_context'],
     });
 
     expect(frame).not.toContain('6261 total');

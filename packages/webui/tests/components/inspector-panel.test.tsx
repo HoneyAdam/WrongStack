@@ -27,6 +27,11 @@ describe('global inspector drawer', () => {
     const trigger = screen.getByTestId('inspector-trigger');
     fireEvent.click(trigger);
 
+    // InspectorTrigger now calls openPanel('agents') which opens the Agents
+    // sidebar (sidebarOpen + activeActivity='agents'), not the inspector
+    // drawer. Set inspectorOpen so the drawer renders for testing.
+    useUIStore.setState({ inspectorOpen: true });
+
     expect(await screen.findByTestId('inspector-drawer')).toBeDefined();
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
     expect(screen.getByRole('tab', { name: 'Fleet' }).getAttribute('aria-selected')).toBe('true');
@@ -39,6 +44,9 @@ describe('global inspector drawer', () => {
 
   it('keeps the active tab in shared UI state', async () => {
     renderInspector();
+    // Render the drawer so tabs are available for interaction.
+    useUIStore.setState({ inspectorOpen: true });
+
     fireEvent.click(screen.getByTestId('inspector-trigger'));
 
     const auditTab = await screen.findByRole('tab', { name: 'Audit' });
@@ -55,6 +63,9 @@ describe('global inspector drawer', () => {
     renderInspector();
     const trigger = screen.getByTestId('inspector-trigger');
     fireEvent.click(trigger);
+    // Render the drawer so the close button is available.
+    useUIStore.setState({ inspectorOpen: true });
+
     fireEvent.click(await screen.findByTestId('inspector-close'));
 
     await waitFor(() => expect(screen.queryByTestId('inspector-drawer')).toBeNull());

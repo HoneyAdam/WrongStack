@@ -13,9 +13,9 @@ import {
  * by index, so the array order must match the visual top-to-bottom order.
  */
 describe('STATUSLINE_ITEMS navigation order matches visual layout', () => {
-  it('has exactly 38 fields', () => {
-    expect(STATUSLINE_ITEMS.length).toBe(38);
-    expect(STATUSLINE_FIELD_COUNT).toBe(38);
+  it('has exactly 39 fields', () => {
+    expect(STATUSLINE_ITEMS.length).toBe(39);
+    expect(STATUSLINE_FIELD_COUNT).toBe(39);
   });
 
   it('follows line 1 → line 2 → line 3 order with no line 4 items', () => {
@@ -108,6 +108,7 @@ describe('STATUSLINE_ITEMS navigation order matches visual layout', () => {
       'index',
       'mailbox',
       'memory',
+      'memory_context',
       'mode',
       'model',
       'next_steps',

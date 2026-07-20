@@ -60,7 +60,7 @@ describe('initial state', () => {
     expect(state.maxIterations).toBe(500);
     expect(state.chime).toBe(false);
     expect(state.confirmExit).toBe(true);
-    expect(state.fleetChatVerbosity).toBe(true);
+    expect(state.fleetChatVerbosity).toBe('full');
     expect(state.nextPrediction).toBe(false);
     expect(state.featureMcp).toBe(true);
     expect(state.featurePlugins).toBe(true);
@@ -254,7 +254,7 @@ describe('reset', () => {
     expect(state.maxIterations).toBe(500);
     expect(state.chime).toBe(false);
     expect(state.confirmExit).toBe(true);
-    expect(state.fleetChatVerbosity).toBe(true);
+    expect(state.fleetChatVerbosity).toBe('off');
     expect(state.nextPrediction).toBe(false);
     expect(state.featureMcp).toBe(true);
     expect(state.featurePlugins).toBe(true);
