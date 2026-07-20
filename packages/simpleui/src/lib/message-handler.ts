@@ -20,22 +20,15 @@ import type {
   FileEditMeta,
   ModelDescriptor,
   PendingConfirm,
+  ServerMessage,
   SessionInfo,
   SimpleSessionSummary,
   SimpleSubagent,
   ToolCallInfo,
 } from '../types.js';
-import type { ServerMessage } from '../types.js';
-import type { WorklistStore } from './worklist-store.js';
-import type { RefineState, RefineResultPayload } from './refine-model.js';
-import type { StatusNoticeProjection } from './status-notice.js';
-import type { SimplePrefs } from './prefs-model.js';
-import type { FileMention } from './file-mention.js';
-import type { QueuedItem } from './queue-model.js';
-
 import {
-  LEADER_AGENT_ID,
   appendAgentTranscriptEntry,
+  LEADER_AGENT_ID,
   mergeSubagentSnapshot,
   parseAgentSessionReplays,
   projectAgentTimelineEntry,
@@ -43,16 +36,22 @@ import {
   stampAgentUpdates,
 } from './agent-model.js';
 import { contentToText, replayToMessages, updateSubagents } from './chat-model.js';
-import { parsePrefs } from './prefs-model.js';
-import { projectRefineResult } from './refine-model.js';
-import { projectStatusNotice } from './status-notice.js';
-import { parseSessionSummaries } from './session-model.js';
+import type { FileMention } from './file-mention.js';
 import {
   parseCatalogProviders,
   parseSavedProviderIds,
   providersNeedingModels,
 } from './model-switch.js';
+import type { SimplePrefs } from './prefs-model.js';
+import { parsePrefs } from './prefs-model.js';
+import type { QueuedItem } from './queue-model.js';
 import { dequeueItem } from './queue-model.js';
+import type { RefineResultPayload, RefineState } from './refine-model.js';
+import { projectRefineResult } from './refine-model.js';
+import { parseSessionSummaries } from './session-model.js';
+import type { StatusNoticeProjection } from './status-notice.js';
+import { projectStatusNotice } from './status-notice.js';
+import type { WorklistStore } from './worklist-store.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -78,7 +77,9 @@ export interface MessageHandlerDeps {
   runningRef: { current: boolean };
   refineStateRef: { current: RefineState | null };
   requestedModelsRef: { current: Set<string> };
-  socketRef: { current: { send: (type: string, payload?: Record<string, unknown>) => void } | null };
+  socketRef: {
+    current: { send: (type: string, payload?: Record<string, unknown>) => void } | null;
+  };
   stickToBottomRef: { current: boolean };
 
   // State setters
@@ -89,7 +90,7 @@ export interface MessageHandlerDeps {
   setSubagents: React.Dispatch<React.SetStateAction<SimpleSubagent[]>>;
   setAgentTranscripts: React.Dispatch<React.SetStateAction<Record<string, AgentTranscriptEntry[]>>>;
   setSession: React.Dispatch<React.SetStateAction<SessionInfo | null>>;
-  setSessionMenuOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  setSessionMenuOpen?: React.Dispatch<React.SetStateAction<boolean>>;
   setSessions: React.Dispatch<React.SetStateAction<SimpleSessionSummary[]>>;
   setContext: React.Dispatch<React.SetStateAction<ContextInfo>>;
   setModels: React.Dispatch<React.SetStateAction<Record<string, ModelDescriptor[]>>>;
@@ -109,7 +110,9 @@ export interface MessageHandlerDeps {
   setFileMatches: React.Dispatch<React.SetStateAction<string[]>>;
   setFilePickerIndex: React.Dispatch<React.SetStateAction<number>>;
   setFileSearching: React.Dispatch<React.SetStateAction<boolean>>;
-  setAttachedImages: React.Dispatch<React.SetStateAction<Array<{ id: string; data: string; mime: string; name: string }>>>;
+  setAttachedImages: React.Dispatch<
+    React.SetStateAction<Array<{ id: string; data: string; mime: string; name: string }>>
+  >;
   setCopiedMessageId: React.Dispatch<React.SetStateAction<string | null>>;
   setProviderLabels: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   setDiffFiles: React.Dispatch<React.SetStateAction<FileEditMeta[] | null>>;
@@ -277,7 +280,7 @@ export function createMessageHandler(deps: MessageHandlerDeps): ServerMessageHan
           setSessionStart(Date.now());
           setAttachedImages([]);
         }
-        setSessionMenuOpen(false);
+        setSessionMenuOpen?.(false);
         const replayUsage = payload['replayUsage'];
         const replayInput =
           replayUsage && typeof replayUsage === 'object'

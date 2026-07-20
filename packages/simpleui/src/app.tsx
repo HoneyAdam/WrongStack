@@ -1,12 +1,9 @@
 import {
   ArrowDown,
   Bot,
-  Check,
   ChevronDown,
   FolderCode,
-  History,
   Moon,
-  Plus,
   Settings,
   Sparkles,
   Sun,
@@ -24,19 +21,12 @@ import { FileChangesButton } from './file-changes-button.js';
 import { FileDiffPanel } from './file-diff-panel.js';
 import { FileExplorer } from './file-explorer.js';
 import { FinishedAgentsMenu } from './finished-agents-menu.js';
+import { useAgentRoster } from './hooks/use-agent-roster.js';
 import { useF5Resilience } from './hooks/use-f5-resilience.js';
 import { useSimpleSocket } from './hooks/use-simple-socket.js';
 import { useStatusNotice } from './hooks/use-status-notice.js';
 import { useTheme } from './hooks/use-theme.js';
-import {
-  buildAgentTabs,
-  canComposeForAgent,
-  LEADER_AGENT_ID,
-  partitionAgentTabs,
-  pruneAgents,
-  resetAgentNameCache,
-  resolveSelectedAgentId,
-} from './lib/agent-model.js';
+import { resetAgentNameCache } from './lib/agent-model.js';
 import { playChime } from './lib/chime.js';
 import { copyText } from './lib/clipboard.js';
 import { clearComposerDraft, readComposerDraft, writeComposerDraft } from './lib/composer-draft.js';
@@ -63,7 +53,7 @@ import {
   type RefineState,
   resolveRefineText,
 } from './lib/refine-model.js';
-import { relativeSessionTime, sessionDisplayName } from './lib/session-model.js';
+import { sessionDisplayName } from './lib/session-model.js';
 import { aggregateFileEdits } from './lib/timeline-model.js';
 import { agentTranscriptToToolCalls } from './lib/tool-model.js';
 import {
@@ -77,11 +67,11 @@ import type { SimpleSocket } from './lib/ws.js';
 import { MemoryDrawer } from './memory-drawer.js';
 import { PromptLibrary } from './prompt-library.js';
 import { SessionHealthPanel } from './session-health-panel.js';
+import { SessionSwitcher } from './session-switcher.js';
 import { SettingsPanel } from './settings-panel.js';
 import { ToolSidebar } from './tool-sidebar.js';
 import type {
   AgentMode,
-  AgentTranscriptEntry,
   ChatMessage,
   ContextInfo,
   FileEditMeta,
@@ -89,7 +79,6 @@ import type {
   PendingConfirm,
   SessionInfo,
   SimpleSessionSummary,
-  SimpleSubagent,
   ToolCallInfo,
 } from './types.js';
 
@@ -131,7 +120,6 @@ export function App() {
   const { theme, toggleTheme } = useTheme();
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [sessions, setSessions] = useState<SimpleSessionSummary[]>([]);
-  const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
   const [context, setContext] = useState<ContextInfo>(EMPTY_CONTEXT);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [models, setModels] = useState<Record<string, ModelDescriptor[]>>({});
@@ -149,11 +137,6 @@ export function App() {
     currentWindow: number;
     nextWindow: number;
   } | null>(null);
-  const [subagents, setSubagents] = useState<SimpleSubagent[]>([]);
-  const [selectedAgentId, setSelectedAgentId] = useState(LEADER_AGENT_ID);
-  const [agentTranscripts, setAgentTranscripts] = useState<Record<string, AgentTranscriptEntry[]>>(
-    {},
-  );
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const [draft, setDraft] = useState('');
   const [fileRefs, setFileRefs] = useState<string[]>([]);
@@ -180,7 +163,6 @@ export function App() {
   const requestedModelsRef = useRef<Set<string>>(new Set());
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const sessionMenuRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
   const draftRef = useRef('');
   const fileRefsRef = useRef<string[]>([]);
@@ -203,11 +185,9 @@ export function App() {
   const messagesRef = useRef<ChatMessage[]>([]);
   const diffFilesRef = useRef<FileEditMeta[] | null>(null);
   const settingsOpenRef = useRef(false);
-  const sessionMenuOpenRef = useRef(false);
   messagesRef.current = messages;
   diffFilesRef.current = diffFiles;
   settingsOpenRef.current = settingsOpen;
-  sessionMenuOpenRef.current = sessionMenuOpen;
 
   /** Send a message to the agent and reflect it locally. The single send
    *  path — the composer, the queue drain, and every refine decision all
@@ -297,11 +277,6 @@ export function App() {
           setRefineState(null);
           return;
         }
-        if (sessionMenuOpenRef.current) {
-          event.preventDefault();
-          setSessionMenuOpen(false);
-          return;
-        }
         return;
       }
 
@@ -351,17 +326,6 @@ export function App() {
     writeComposerDraft,
   });
 
-  useEffect(() => {
-    if (!sessionMenuOpen) return;
-    const closeOnOutsideClick = (event: PointerEvent) => {
-      if (!sessionMenuRef.current?.contains(event.target as Node)) setSessionMenuOpen(false);
-    };
-    document.addEventListener('pointerdown', closeOnOutsideClick);
-    return () => {
-      document.removeEventListener('pointerdown', closeOnOutsideClick);
-    };
-  }, [sessionMenuOpen]);
-
   // Global keyboard shortcuts
   useEffect(() => {
     const handleGlobalKey = (event: KeyboardEvent) => {
@@ -390,6 +354,19 @@ export function App() {
     socketRef.current?.send('provider.models', { providerId });
   }, []);
 
+  const {
+    setSubagents,
+    agentTranscripts,
+    setAgentTranscripts,
+    setSelectedAgentId,
+    agentTabs,
+    liveAgentTabs,
+    finishedAgentTabs,
+    activeAgentId,
+    activeAgent,
+    leaderSelected,
+  } = useAgentRoster({ running });
+
   const handlerDeps: MessageHandlerDeps = {
     prefsRef,
     draftRef,
@@ -410,7 +387,6 @@ export function App() {
     setSubagents,
     setAgentTranscripts,
     setSession,
-    setSessionMenuOpen,
     setSessions,
     setContext,
     setModels,
@@ -454,7 +430,6 @@ export function App() {
     sessionIdRef,
     socketRef,
     onDisconnect: () => {
-      setSessionMenuOpen(false);
       setFileMention(null);
       setFileMatches([]);
       setFileSearching(false);
@@ -502,31 +477,11 @@ export function App() {
     () => Object.entries(models).filter(([, entries]) => entries.length > 0),
     [models],
   );
-  const agentTabs = useMemo(() => buildAgentTabs(subagents, running), [running, subagents]);
-  const { active: liveAgentTabs, finished: finishedAgentTabs } = useMemo(
-    () => partitionAgentTabs(agentTabs),
-    [agentTabs],
-  );
-  const activeAgentId = resolveSelectedAgentId(selectedAgentId, agentTabs);
 
-  // Periodically prune idle/offline workers that have aged out so the strip and
-  // dropdown don't accumulate agents no longer worth viewing.
-  useEffect(() => {
-    if (subagents.length === 0) return;
-    const timer = setInterval(() => {
-      setSubagents((current) => {
-        const pruned = pruneAgents(current, Date.now());
-        return pruned.length === current.length ? current : pruned;
-      });
-    }, 15_000);
-    return () => clearInterval(timer);
-  }, [subagents.length]);
-  const leaderSelected = canComposeForAgent(activeAgentId);
-  const currentSessionSummary = useMemo(
-    () => sessions.find((item) => item.id === session?.id),
-    [session?.id, sessions],
+  const _currentSessionName = sessionDisplayName(
+    sessions.find((item) => item.id === session?.id),
+    session?.id,
   );
-  const currentSessionName = sessionDisplayName(currentSessionSummary, session?.id);
   const selectedModel = session ? `${session.provider}\t${session.model}` : '';
   const visionSupported = isVisionModel(session?.model ?? '');
   const load = Math.max(0, Math.min(1, context.load));
@@ -544,7 +499,6 @@ export function App() {
     [messages, prefs.showModelReasoning],
   );
 
-  const activeAgent = agentTabs.find((agent) => agent.id === activeAgentId) ?? agentTabs[0];
   const selectedToolCalls = useMemo(
     () =>
       leaderSelected
@@ -634,13 +588,11 @@ export function App() {
   const createSession = () => {
     if (running || !sessionIdRef.current) return;
     socketRef.current?.send('session.new', { sessionId: sessionIdRef.current });
-    setSessionMenuOpen(false);
   };
 
   const resumeSession = (id: string) => {
     if (running || !sessionIdRef.current || id === sessionIdRef.current) return;
     socketRef.current?.send('session.resume', { sessionId: sessionIdRef.current, id });
-    setSessionMenuOpen(false);
   };
 
   /** Dropdown pick — switches immediately, or asks first when the new model's
@@ -871,76 +823,21 @@ export function App() {
           </div>
           <div className="project-copy" title={session?.cwd}>
             <strong>{session?.projectName ?? 'WrongStack'}</strong>
-            <div className="session-switcher" ref={sessionMenuRef}>
-              <button
-                type="button"
-                className="session-trigger"
-                disabled={!session || running}
-                aria-expanded={sessionMenuOpen}
-                aria-haspopup="dialog"
-                onClick={() => {
-                  if (!sessionMenuOpen && sessionIdRef.current) {
-                    socketRef.current?.send('sessions.list', {
-                      sessionId: sessionIdRef.current,
-                      limit: 12,
-                    });
-                  }
-                  setSessionMenuOpen((open) => !open);
-                }}
-              >
-                <History size={11} aria-hidden="true" />
-                <span>{session ? currentSessionName : 'Connecting…'}</span>
-                <ChevronDown size={11} aria-hidden="true" />
-              </button>
-
-              {sessionMenuOpen && (
-                <section className="session-menu" role="dialog" aria-label="Recent sessions">
-                  <div className="session-menu-heading">
-                    <span>RECENT SESSIONS</span>
-                    <button type="button" disabled={running} onClick={createSession}>
-                      <Plus size={11} aria-hidden="true" />
-                      NEW
-                    </button>
-                  </div>
-                  <div className="session-menu-list">
-                    {sessions.length === 0 ? (
-                      <div className="session-menu-empty">No saved sessions yet</div>
-                    ) : (
-                      sessions.slice(0, 12).map((item) => {
-                        const active = item.isCurrent || item.id === session?.id;
-                        return (
-                          <button
-                            type="button"
-                            className={active ? 'active' : undefined}
-                            aria-current={active ? 'page' : undefined}
-                            disabled={active || running}
-                            key={item.id}
-                            onClick={() => resumeSession(item.id)}
-                          >
-                            <span className="session-menu-main">
-                              {active ? (
-                                <Check size={12} aria-hidden="true" />
-                              ) : (
-                                <History size={12} aria-hidden="true" />
-                              )}
-                              <span className="session-menu-copy">
-                                <b>{sessionDisplayName(item)}</b>
-                                <small>
-                                  {[item.provider, item.model].filter(Boolean).join(' · ')}
-                                </small>
-                              </span>
-                            </span>
-                            <time dateTime={item.startedAt}>
-                              {relativeSessionTime(item.startedAt)}
-                            </time>
-                          </button>
-                        );
-                      })
-                    )}
-                  </div>
-                </section>
-              )}
-            </div>
+            <SessionSwitcher
+              session={session}
+              sessions={sessions}
+              running={running}
+              onRefreshSessions={() => {
+                if (sessionIdRef.current) {
+                  socketRef.current?.send('sessions.list', {
+                    sessionId: sessionIdRef.current,
+                    limit: 12,
+                  });
+                }
+              }}
+              onCreateSession={createSession}
+              onResumeSession={resumeSession}
+            />
           </div>
         </div>
 
