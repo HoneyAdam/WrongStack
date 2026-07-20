@@ -10,24 +10,11 @@ describe('resolveFleetChatVerbosity', () => {
   it('explicit enum always wins', () => {
     expect(resolveFleetChatVerbosity({ fleetChatVerbosity: 'off' })).toBe('off');
     expect(resolveFleetChatVerbosity({ fleetChatVerbosity: 'full' })).toBe('full');
-    // …even against a contradicting legacy boolean.
-    expect(
-      resolveFleetChatVerbosity({ fleetChatVerbosity: 'full', streamFleet: false }),
-    ).toBe('full');
-    expect(
-      resolveFleetChatVerbosity({ fleetChatVerbosity: 'off', streamFleet: true }),
-    ).toBe('off');
   });
 
-  it('legacy streamFleet false maps to off; true returns off default', () => {
-    expect(resolveFleetChatVerbosity({ streamFleet: false })).toBe('off');
-    // streamFleet true is no longer a meaningful signal — off is the default.
-    expect(resolveFleetChatVerbosity({ streamFleet: true })).toBe('off');
-  });
-
-  it('falls through an invalid enum value to the legacy/default ladder', () => {
+  it('falls through an invalid enum value to off default', () => {
     expect(
-      resolveFleetChatVerbosity({ fleetChatVerbosity: 'loud' as never, streamFleet: false }),
+      resolveFleetChatVerbosity({ fleetChatVerbosity: 'loud' as never }),
     ).toBe('off');
     expect(resolveFleetChatVerbosity({ fleetChatVerbosity: '' as never })).toBe('off');
   });
