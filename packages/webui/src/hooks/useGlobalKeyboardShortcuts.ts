@@ -21,7 +21,7 @@ export interface UseGlobalKeyboardShortcutsOptions {
  * - Ctrl+1..0 / Ctrl+Shift+W — activity-panel jump shortcuts
  * - F1..F12 — TUI parity function keys
  * - Ctrl+F / Ctrl+/ — search / textarea focus
- * - Ctrl+L / Ctrl+N / Ctrl+E — context / session / export
+ * - Ctrl+L / Ctrl+N / Ctrl+E — clear chat / new session / export markdown
  * - Ctrl+Shift+{D,M,A,G} — compact mode, inspector, debug
  * - Esc — inspector collapse, run abort
  * - j/k / g/G — vim-style bubble navigation

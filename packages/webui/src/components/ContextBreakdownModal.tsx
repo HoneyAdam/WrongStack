@@ -70,18 +70,23 @@ export function ContextBreakdownModal({ open, onClose }: ContextBreakdownModalPr
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [animateIn, setAnimateIn] = useState(false);
+  // Increment to restart the debug-data fetch (refresh button).
+  const [refreshGen, setRefreshGen] = useState(0);
 
-  // Fetch debug data when modal opens
+  // Fetch debug data when modal opens or refresh is requested
   useEffect(() => {
     if (!open) {
       setData(null);
       setError(null);
       setAnimateIn(false);
+      setRefreshGen(0);
       return;
     }
 
-    // Stagger entrance animation
-    requestAnimationFrame(() => requestAnimationFrame(() => setAnimateIn(true)));
+    // Stagger entrance animation (only on open, not on refresh)
+    if (refreshGen === 0) {
+      requestAnimationFrame(() => requestAnimationFrame(() => setAnimateIn(true)));
+    }
 
     setLoading(true);
     setError(null);
@@ -122,7 +127,7 @@ export function ContextBreakdownModal({ open, onClose }: ContextBreakdownModalPr
       clearTimeout(timeout);
       unsubscribe();
     };
-  }, [open, wsUrl]);
+  }, [open, wsUrl, refreshGen]);
 
   // Close on Escape
   useEffect(() => {
@@ -178,12 +183,7 @@ export function ContextBreakdownModal({ open, onClose }: ContextBreakdownModalPr
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => {
-                setLoading(true);
-                setError(null);
-                const ws = getWSClient(wsUrl);
-                if (ws?.send) ws.send({ type: 'context.debug' }, { echoToChat: false });
-              }}
+              onClick={() => setRefreshGen((g) => g + 1)}
               className="p-1.5 rounded-md hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
               title="Refresh"
             >
