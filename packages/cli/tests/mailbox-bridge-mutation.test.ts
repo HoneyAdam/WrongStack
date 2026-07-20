@@ -303,7 +303,7 @@ describe('mailbox-bridge — staleness filter on query responses', () => {
       subject: 'stale',
       body: 'older than any plausible look-back window',
       priority: 'low',
-      timestamp: new Date(Date.now() - 24 * 60 * 60_000).toISOString(),
+      timestamp: new Date(now - 24 * 60 * 60_000).toISOString(),
       readBy: {},
       completed: false,
     };
