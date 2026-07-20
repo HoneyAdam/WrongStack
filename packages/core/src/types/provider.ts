@@ -341,7 +341,7 @@ const CONTEXT_OVERFLOW_RE =
 /** Content-policy refusals surfaced as HTTP errors (Azure/OpenAI `content_filter`, etc.). */
 const CONTENT_FILTER_RE = /content.(filter|policy|moderation)|safety (system|filter)/i;
 const QUOTA_EXHAUSTED_RE =
-  /(?:insufficient|exhausted|depleted|exceeded|no|not enough)[-_\s]*(?:quota|credit|balance)|(?:quota|credit|balance)[-_\s]*(?:exhausted|depleted|exceeded|insufficient)|billing[_\s-]*(?:hard[_\s-]*)?limit|payment required|spending limit|plan limit/i;
+  /(?:insufficient|exhausted|depleted|exceeded|no|not enough)[-_\s]*(?:quota|credit|balance)|(?:quota|credit|balance)[-_\s]*(?:exhausted|depleted|exceeded|insufficient)|billing[_\s-]*(?:hard[_\s-]*)?limit|payment required|spending limit|plan limit|usage[-_\s]*limit[-_\s]*(?:reached|exceeded)/i;
 
 /**
  * Classify a provider HTTP failure into the canonical taxonomy from its

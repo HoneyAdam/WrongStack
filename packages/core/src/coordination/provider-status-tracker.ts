@@ -722,7 +722,7 @@ function unpairKey(key: string): [string, string] {
 }
 
 const QUOTA_EXHAUSTED_RE =
-  /(?:insufficient|exhausted|depleted|exceeded|no|not enough)[-_\s]*(?:quota|credit|balance)|(?:quota|credit|balance)[-_\s]*(?:exhausted|depleted|exceeded|insufficient)|billing[_\s-]*(?:hard[_\s-]*)?limit|payment required|spending limit|plan limit/i;
+  /(?:insufficient|exhausted|depleted|exceeded|no|not enough)[-_\s]*(?:quota|credit|balance)|(?:quota|credit|balance)[-_\s]*(?:exhausted|depleted|exceeded|insufficient)|billing[_\s-]*(?:hard[_\s-]*)?limit|payment required|spending limit|plan limit|usage[-_\s]*limit[-_\s]*(?:reached|exceeded)/i;
 
 /** Distinguish an exhausted account/plan from an ordinary per-minute 429. */
 function isQuotaExhausted(kind: ProviderErrorKind, status: number, message: string): boolean {

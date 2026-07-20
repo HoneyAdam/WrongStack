@@ -19,8 +19,17 @@ export function parseProviderHttpError(
   headers?: HeadersLike,
 ): ProviderError {
   const body = parseBody(rawText);
-  const retryAfterMs = retryAfterMsFromHeaders(headers);
-  if (retryAfterMs !== undefined) body.retryAfterMs = retryAfterMs;
+  // Prefer an explicit Retry-After HTTP header (the authoritative wire signal).
+  const headerHint = retryAfterMsFromHeaders(headers);
+  if (headerHint !== undefined) body.retryAfterMs = headerHint;
+  // When no header was present, try to extract a reset time from the body
+  // message text. Many Chinese providers (Z.AI, MiniMax, Moonshot) embed
+  // "Your limit will reset at YYYY-MM-DD HH:mm:ss" in the JSON body instead
+  // of sending an HTTP Retry-After header.
+  if (body.retryAfterMs === undefined) {
+    const bodyHint = retryAfterMsFromBody(body);
+    if (bodyHint !== undefined) body.retryAfterMs = bodyHint;
+  }
   const kind = classifyProviderError(status, body);
   const message = `${providerId} HTTP ${status}`;
   return new ProviderError(message, status, isRetryableKind(kind), providerId, { body, kind });
@@ -110,6 +119,60 @@ function parseBody(rawText: string): ProviderErrorBody {
   if (reqId) body.requestId = reqId;
 
   return body;
+}
+
+/**
+ * Extract a retry-after duration from the provider's error body message text.
+ * Called when no HTTP Retry-After header was present. Many providers,
+ * particularly in the Chinese ecosystem (Z.AI, MiniMax, Moonshot), embed
+ * the reset time in the JSON body message instead of sending a standard
+ * `retry-after` header.
+ *
+ * Handles three patterns:
+ *  - "Your limit will reset at YYYY-MM-DD HH:mm:ss" — absolute date-time
+ *  - "Usage limit reached for X hour(s)" — relative duration from hours
+ *  - "retry after X seconds" / "retry_after X" — relative seconds
+ *
+ * Returns `undefined` when no well-formed hint is found so callers fall
+ * through to their exponential backoff schedule. Never throws.
+ */
+export function retryAfterMsFromBody(body: ProviderErrorBody): number | undefined {
+  const text = [body.message, body.raw].filter(Boolean).join('\n');
+  if (!text) return undefined;
+
+  // 1. Absolute date-time: "...reset at YYYY-MM-DD HH:mm:ss..."
+  const dateTimeRe =
+    /(?:reset|renew|available)(?:s|ed|s)?\s*(?:at|on)\s*(\d{4}[-/]\d{1,2}[-/]\d{1,2})[T\s](\d{1,2}:\d{2}(?::\d{2})?)/i;
+  const dateMatch = dateTimeRe.exec(text);
+  if (dateMatch) {
+    // Construct ISO 8601 from the matched parts. Use the first date
+    // found — the body is typically short enough that there's only one.
+    const iso = `${dateMatch[1]}T${dateMatch[2]}`;
+    const ms = Date.parse(iso);
+    if (!Number.isNaN(ms)) {
+      const delta = ms - Date.now();
+      if (delta > 0) return delta; // full reset duration, may be hours
+    }
+  }
+
+  // 2. Relative hours: "...reached for X hour(s)..."
+  const hoursRe =
+    /(?:usage|quota|rate|limit).{0,20}(?:reached|exceeded|exhausted).{0,20}(?:for|every|per)\s*(\d+)\s*hours?/i;
+  const hoursMatch = hoursRe.exec(text);
+  if (hoursMatch) {
+    const hours = Number.parseInt(hoursMatch[1], 10);
+    if (hours >= 1 && hours <= 24) return hours * 3_600_000;
+  }
+
+  // 3. Relative seconds: "retry after X seconds", "retry_after X"
+  const retryRe = /retry[_\s-]*(?:after|in)\s*(\d+)\s*(?:seconds?|secs?|s)?/i;
+  const retryMatch = retryRe.exec(text);
+  if (retryMatch) {
+    const secs = Number.parseInt(retryMatch[1], 10);
+    if (secs >= 1) return secs * 1_000;
+  }
+
+  return undefined;
 }
 
 function stringOf(v: unknown): string | undefined {
