@@ -5,7 +5,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — 0.293.0
+## [Unreleased]
+
+## [0.293.0] — 2026-07-20
 
 > **API stabilization patch.** Deprecated compatibility shims are removed,
 > the permission model is safe-by-default, structured logging replaces
@@ -62,14 +64,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `HookRunnerOptions.allowShell` (use `allowNonPolicy`) are all gone.
   None had any consumers in the codebase.
 
+### Added
+- **Alibaba Token Plan Personal Edition provider** — 11 models (Qwen, GLM,
+  DeepSeek, Wan2.7, HappyHorse) with drift-guard test coverage.
+- **WebUI OAuth device-flow experience** — provider sign-in shows device codes,
+  polls authorization state, reports progress and failures, and labels OAuth
+  provider types consistently across settings and supported locales.
+- **Richer context and memory inspection** — the WebUI replaces its inspector
+  with an agents sidebar, adds a fullscreen memory graph, and redesigns context
+  dashboards with detailed memory/token breakdowns. The TUI context panel and
+  status bar expose the same information with clearer layout and thresholds.
+
 ### Changed
+- **Modern token-saving tiers** — models with 128k-or-larger context windows use
+  minimal prompt trimming instead of the legacy aggressive tier, retaining full
+  capabilities while reducing recurring prompt overhead.
+- **Prompt-cache defaults are optimized** — stable identity, tool-usage, and
+  environment blocks carry cache markers; OpenAI prompt caching is enabled and
+  cache lifetime defaults to one hour.
 - **Structured Logger migration** — `console.*` calls in `phase-orchestrator`,
   `llm-selector`, `models-registry`, `selective-compactor`, `compaction-core`,
   and `compactor.ts` (HybridCompactor) + `intelligent-compactor.ts` now use the
   structured `Logger` interface. All three compactor classes wire
   `setCompactionDebugLogger(this.logger)` in their constructors.
-- **Alibaba Token Plan Personal Edition provider** — 11 models (Qwen, GLM,
-  DeepSeek, Wan2.7, HappyHorse) with drift-guard test coverage.
+- **TUI status presentation is calmer and denser** — memory context moves into
+  the dedicated fourth status line, utilization uses a five-level Catppuccin
+  progression, and the thinking-word animation uses a softer pastel palette.
+
+### Fixed
+- **Context visualization edge cases** — percentage bars are clamped, duplicate
+  status-section decoration is removed, and the WebUI context modal no longer
+  captures a stale timeout closure.
+- **All release surfaces aligned to `0.293.0`** — workspace manifests, apps,
+  README highlights, changelog data, migration docs, and website metadata now
+  identify the same current release.
 
 ## [0.292.1] — 2026-07-20
 

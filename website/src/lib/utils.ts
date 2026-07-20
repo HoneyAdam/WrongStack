@@ -307,6 +307,9 @@ export const changelog: ChangelogEntry[] = [
       'Prompt-cache optimizations: cache_control markers on identity/tool-usage/environment blocks, OpenAI promptCache enabled, cache TTL default 1h',
       'Structured Logger migration: phase-orchestrator, llm-selector, models-registry, and all three compactor classes now use structured logging',
       'Alibaba Token Plan Personal Edition provider with 11 models and drift-guard test coverage',
+      'WebUI OAuth device login adds polling and status feedback, while redesigned TUI/WebUI context panels expose richer token and memory details',
+      'WebUI adds an agents sidebar and fullscreen memory graph; interactive startup now refuses the user home directory to prevent accidental project initialization',
+      'All workspace manifests, apps, README release highlights, changelog data, migration docs, and website surfaces are aligned to 0.293.0',
     ],
   },
   {

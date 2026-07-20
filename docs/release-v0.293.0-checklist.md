@@ -18,15 +18,15 @@
 - [x] **Breaking changes plan:** `docs/plans/breaking-changes-next-major.md`
 - [x] **CHANGELOG.md:** `[0.293.0]` section with all breaking changes
 - [x] **System audit report:** `docs/reports/system-audit-2026-07-20.md`
+- [x] **Website update:** package metadata, homepage version, changelog data,
+  and JSON-LD all report `0.293.0`
 - [x] **Typecheck:** 12 packages clean (0 errors)
 - [x] **Tests:** 10,674 passed, 0 failed (18 skipped)
 
 ## ⏳ Before `pnpm release`
 
-- [ ] **Working tree must be clean** — 10+ files modified by concurrent agents (token-saving-tier, prompt-cache, OAuth login). These must be committed or stashed first.
 - [ ] **Run `pnpm release:check`** — full gate (audit + build + typecheck + test)
 - [ ] **Verify no `@deprecated` tags remain** in high-priority categories (3.1-3.5 cleared)
-- [ ] **Website update** — `website/src/data/content.ts` META.version, changelog array, JSON-LD
 
 ## 🚀 Release steps (maintainer)
 
@@ -38,7 +38,7 @@ git status
 pnpm release:check
 
 # 3. Bump version (all manifests + website)
-node scripts/bump-version.mjs 0.293.0
+node scripts/bump-version.mjs set 0.293.0
 
 # 4. Update remaining website surfaces
 #    - website/src/data/content.ts homepage version export
