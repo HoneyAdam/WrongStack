@@ -35,17 +35,6 @@ afterEach(async () => {
   await fs.rm(dir, { recursive: true, force: true });
 });
 
-describe('yolo-destructive toggles', () => {
-  it('sets and reads the destructive YOLO override (idempotent)', () => {
-    const p = new DefaultPermissionPolicy({ trustFile });
-    expect(p.getYoloDestructive()).toBe(false);
-    p.setYoloDestructive(true);
-    expect(p.getYoloDestructive()).toBe(true);
-    p.setYoloDestructive(true); // no-op when unchanged
-    expect(p.getYoloDestructive()).toBe(true);
-  });
-});
-
 describe('session soft deny / allow', () => {
   it('denyOnce blocks a tool+subject for the session', async () => {
     const p = new DefaultPermissionPolicy({ trustFile });
@@ -72,7 +61,6 @@ describe('yolo + confirmDestructive', () => {
   it('auto-approves a destructive-classified call with no prompt delegate', async () => {
     const p = new DefaultPermissionPolicy({ trustFile });
     p.setYolo(true);
-    p.setConfirmDestructive(true);
     const d = await p.evaluate(destructiveBash(), { command: 'rm -rf /' }, ctx());
     expect(d).toMatchObject({ permission: 'auto', source: 'yolo' });
   });
@@ -81,7 +69,6 @@ describe('yolo + confirmDestructive', () => {
     const delegate = vi.fn();
     const p = new DefaultPermissionPolicy({ trustFile, promptDelegate: delegate });
     p.setYolo(true);
-    p.setConfirmDestructive(true);
 
     delegate.mockResolvedValueOnce('always');
     expect(await p.evaluate(destructiveBash(), { command: 'rm -rf /etc' }, ctx())).toMatchObject({ permission: 'auto', source: 'yolo' });
@@ -203,7 +190,6 @@ describe('destructive detection — capability and legacy paths', () => {
   const yoloDestructive = () => {
     const p = new DefaultPermissionPolicy({ trustFile });
     p.setYolo(true);
-    p.setConfirmDestructive(true);
     return p;
   };
 

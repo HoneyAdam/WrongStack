@@ -200,20 +200,6 @@ describe('createDefaultContainer', () => {
     expect(c.has(TOKENS.PermissionPolicy)).toBe(true);
   });
 
-  it('passes permission yoloDestructive option to DefaultPermissionPolicy', () => {
-    const c = createDefaultContainer({
-      config: mockConfig,
-      wpaths: mockWpaths,
-      logger: mockLogger,
-      modelsRegistry: mockModels,
-      permission: { yolo: true, yoloDestructive: true },
-    });
-    const policy = c.resolve(TOKENS.PermissionPolicy);
-    expect(policy.getYoloDestructive?.()).toBe(true);
-    policy.setYoloDestructive?.(false);
-    expect(policy.getYoloDestructive?.()).toBe(false);
-  });
-
   it('passes bundledSkillsDir to DefaultSkillLoader', () => {
     const c = createDefaultContainer({
       config: mockConfig,

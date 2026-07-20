@@ -86,7 +86,6 @@ export const permissionsCmd: SubcommandHandler = async (args, deps) => {
   const policy = new DefaultPermissionPolicy({
     trustFile,
     yolo: (deps.flags?.['yolo'] as boolean) ?? false,
-    yoloDestructive: (deps.flags?.['yolo-destructive'] as boolean) ?? false,
   });
   await policy.reload();
 
