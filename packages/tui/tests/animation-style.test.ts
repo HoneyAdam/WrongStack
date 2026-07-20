@@ -331,7 +331,7 @@ describe('animation-style', () => {
     });
 
     it('produces pastel tones (not pure primaries)', () => {
-      // With saturation 0.7 and lightness 0.65, no component should be
+      // With saturation 0.45 and lightness 0.55, no component should be
       // at 0 or 255 — the colors are always soft pastel.
       for (let i = 0; i < 12; i++) {
         const [r, g, b] = parseRgb(rainbowColor(i, 0));

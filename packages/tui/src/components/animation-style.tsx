@@ -235,13 +235,14 @@ export function hslToHex(h: number, s: number, l: number): string {
 }
 
 /**
- * Saturation and lightness for the refined rainbow. Kept slightly
- * desaturated (0.7) and on the brighter side (0.65) so the gradient
- * reads as soft pastel — consistent with the Catppuccin Mocha palette
- * — rather than neon primary colors.
+ * Saturation and lightness for the refined rainbow. Lowered to 0.45 / 0.55
+ * so the full 360° hue sweep renders as Catppuccin Mocha-inspired soft
+ * pastels — muted dusty rose, sage, powder blue, lavender — rather than
+ * mid-saturation or vivid tones. The gradient reads as gentle rather than
+ * lively.
  */
-const RAINBOW_SATURATION = 0.7;
-const RAINBOW_LIGHTNESS = 0.65;
+const RAINBOW_SATURATION = 0.45;
+const RAINBOW_LIGHTNESS = 0.55;
 
 /**
  * Pick a smooth-rainbow color for glyph `charIndex` at animation `phase`
