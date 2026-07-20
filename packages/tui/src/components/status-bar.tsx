@@ -831,7 +831,7 @@ export function StatusBar({
     const left = records.filter((m) => m.state === 'exited').length;
     memoryDetailChips.push(
       <Text color={chipColor(theme.accent, isNoColor)} key="mem-label">
-        {isNoColor ? 'mem:' : `${glyphs.brain} `}
+        {isNoColor ? 'Memory ' : `Memory ${glyphs.brain} `}
       </Text>,
     );
     // Total records + active-in-context (moved from line 1)
