@@ -32,6 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   destructive ones) via the sole `yolo: boolean` toggle. The
   `DefaultPermissionPolicy.setYoloDestructive`/`getYoloDestructive`/
   `setConfirmDestructive`/`getConfirmDestructive` methods are also gone.
+- **Deprecated API aliases removed** (**BREAKING**) — `CodexRefreshedTokens`
+  (use `OAuthRefreshedTokens`), `setCodexTokenPersister` (use
+  `setOAuthTokenPersister`), `ProviderAvailability` (use `ProviderHealth`),
+  and `HookRunnerOptions.allowShell` (use `allowNonPolicy`) are all gone.
+  None had any consumers in the codebase.
 
 ## [0.292.1] — 2026-07-20
 

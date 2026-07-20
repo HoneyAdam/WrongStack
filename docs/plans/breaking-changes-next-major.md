@@ -70,32 +70,32 @@
 | `cli/tests/container-wiring.test.ts` | fixture fields | ✅ Kaldırıldı |
 | `cli/execution.ts:135` | (aynı boolean mirror) | — |
 
-### 3.3 OAuth / Token Aliases (2 tag — orta etki)
+### 3.3 OAuth / Token Aliases (2 tag — orta etki) ✅ TAMAMLANDI
 
-Codex→OAuth rename aliases.
+~~Codex→OAuth rename aliases.~~ **Commit:** `221cd7ba5`
 
-| Dosya | Tag | Yerine |
-|-------|-----|--------|
-| `providers/index.ts:169` | `CodexRefreshedTokens` type | `OAuthRefreshedTokens` |
-| `providers/index.ts:187` | `setCodexTokenPersister` | `setOAuthTokenPersister` |
+| Dosya | Tag | Durum |
+|-------|-----|-------|
+| `providers/index.ts:169` | `CodexRefreshedTokens` type | ✅ Kaldırıldı |
+| `providers/index.ts:187` | `setCodexTokenPersister` | ✅ Kaldırıldı |
 
-### 3.4 Import Path / Module Relocation (5 tag — orta etki)
+### 3.4 Import Path / Module Relocation (5 tag — orta etki) ✅ KISMI TAMAMLANDI
 
-| Dosya | Tag | Yerine |
-|-------|-----|--------|
-| `core/execution/compactor.ts:50` | `Compactor` import | `'../types/default-config.js'` |
-| `core/execution/compactor.ts:36` | `estimator` option | Token estimation centralized |
-| `tui/components/suggestions.ts:5` | Next-steps import shim | `@wrongstack/tools/next-steps` directly |
-| `core/core/fallback-profile-manager.ts:54` | `ProviderHealth` alias | `ProviderHealth` ( relocated) |
-| `core/storage/memory-graph-backend.ts:39` | Legacy backend | `SuperMemoryStore` from super-memory pkg |
+| Dosya | Tag | Durum |
+|-------|-----|-------|
+| `core/execution/compactor.ts:50` | `Compactor` re-export | ✅ Kaldırıldı (`221cd7ba5`) |
+| `core/execution/compactor.ts:36` | `estimator` option | ✅ Kaldırıldı (önceki commit) |
+| `core/core/fallback-profile-manager.ts:54` | `ProviderAvailability` alias | ✅ Kaldırıldı (`221cd7ba5`) |
+| `tui/components/suggestions.ts:5` | Next-steps import shim | ✅ Kaldırıldı (chimera-fix tarafından) |
+| `core/storage/memory-graph-backend.ts:39` | Legacy backend | Beklemede (SuperMemoryStore migration büyük scope) |
 
-### 3.5 Boolean→Enum Migrations (3 tag)
+### 3.5 Boolean→Enum Migrations (3 tag) ✅ KISMEN TAMAMLANDI
 
-| Dosya | Tag | Yerine |
-|-------|-----|--------|
-| `core/infrastructure/logger.ts:32` | `json` boolean | `format: 'json'` |
-| `core/hooks/runner.ts:35` | `allowShell` | `allowNonPolicy` |
-| `cli/subcommands/handlers/init.ts:5` | `wstack init` handler | `wstack auth` |
+| Dosya | Tag | Durum |
+|-------|-----|-------|
+| `core/infrastructure/logger.ts:32` | `pretty` boolean | ✅ Kaldırıldı (0 consumer) |
+| `core/hooks/runner.ts:35` | `allowShell` | ✅ Kaldırıldı (`221cd7ba5`) |
+| `cli/subcommands/handlers/init.ts:5` | `wstack init` handler | Beklemede (kullanıcıların alışkanlığı) |
 
 ### 3.6 No-op / Removed Functionality (5 tag — düşük etki)
 
@@ -129,9 +129,9 @@ Codex→OAuth rename aliases.
 |---------|----------|-----------|--------|
 | 🔴 High | Config/Boolean mirrors (3.1) | 6 | ✅ Tamamlandı — tüm paketlerden kaldırıldı |
 | 🔴 High | YOLO destructive (3.2) | 5 | ✅ Tamamlandı — no-op field'lar kaldırıldı |
-| 🟡 Medium | OAuth aliases (3.3) | 2 | Codex namespace tamamen kalkınca kaldır |
-| 🟡 Medium | Import path (3.4) | 5 | External consumers güncellendikçe kaldır |
-| 🟢 Low | Boolean→Enum (3.5) | 3 | Config migration gerekli |
+| 🟡 Medium | OAuth aliases (3.3) | 2 | ✅ Tamamlandı — alias'lar kaldırıldı |
+| 🟡 Medium | Import path (3.4) | 5 | 4/5 tamamlandı (memory-graph-backend beklemede) |
+| 🟢 Low | Boolean→Enum (3.5) | 3 | 2/3 tamamlandı (init handler beklemede) |
 | 🟢 Low | No-op/Removed (3.6) | 5 | Zaten no-op, güvenli kaldırma |
 | 🟢 Low | WebUI Legacy (3.7) | 3 | Client-side only, backward compat |
 | 🟢 Low | Kanban alias (3.8) | 1 | Tek fonksiyon |
@@ -146,7 +146,7 @@ Codex→OAuth rename aliases.
 - [x] CHANGELOG.md'ye breaking changes bölümü ekle (`jsonArgumentsBuggy` için)
 - [x] **3.1:** `fleetChat`/`streamFleet` boolean mirror'larını kaldır (`7cdf89ed0`, `f083ffeb7`)
 - [x] **3.2:** `yolo` boolean → `yoloDestructive` migration'ı tamamla (`92cf18856`)
-- [ ] **3.3-3.8:** Kalan deprecated API'leri major release sırasında kaldır
+- [x] **3.3-3.5:** OAuth aliases + ProviderAvailability + allowShell kaldırıldı (`221cd7ba5`); pretty boolean kaldırıldı
 - [ ] Migration guide yaz (kullanıcılar için)
 - [ ] Major version bump (semver)
 - [ ] npm publish öncesi tam test suite çalıştır
