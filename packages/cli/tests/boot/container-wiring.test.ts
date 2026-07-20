@@ -167,8 +167,6 @@ describe('wireContainer (PR 3 of #29)', () => {
       reader: makeReader(),
       renderer: makeRenderer(),
       modelsRegistry: makeModelsRegistry(),
-      yoloDestructive: true,
-      confirmDestructive: true,
     });
 
     expect(result).not.toBeInstanceOf(Promise);
