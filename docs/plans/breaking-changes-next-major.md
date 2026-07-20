@@ -6,28 +6,10 @@
 
 ---
 
-## 1. `jsonArgumentsBuggy` deprecated option kaldırılması
+## 1. ~~`jsonArgumentsBuggy` deprecated option kaldırılması~~ ✅ TAMAMLANDI
 
-**Dosyalar:**
-- `packages/providers/src/tool-format/from-openai.ts:21` — `FromOpenAIOptions.jsonArgumentsBuggy`
-- `packages/providers/src/openai-compatible.ts:20` — `CompatibilityQuirks.jsonArgumentsBuggy`
-- `packages/providers/src/openai-compatible.ts:41` — `VALID_QUIRK_KEYS` set üyesi
-- `packages/providers/src/openai.ts:35` — OpenAI provider options
-
-**Mevcut durum:**
-- Sanitizer fallback artık **koşulsuz** çalışıyor (strip → JSON5-style sanitize → truncation completion)
-- `jsonArgumentsBuggy` değeri **hiç okunmuyor** — sadece config validasyonu için tutuluyor
-- Mevcut config'lerde `jsonArgumentsBuggy: true` set eden kullanıcılar var olabilir
-
-**Kaldırma adımları:**
-1. `FromOpenAIOptions` interface'inden `jsonArgumentsBuggy` alanını sil
-2. `CompatibilityQuirks` interface'inden `jsonArgumentsBuggy` alanını sil
-3. `VALID_QUIRK_KEYS` set'inden `'jsonArgumentsBuggy'` girişini sil
-4. `openai.ts` options type'ından `jsonArgumentsBuggy` alanını sil
-5. Config migration: mevcut config'lerde `jsonArgumentsBuggy` varsa otomatik temizle (warn log ile)
-6. CHANGELOG'a breaking change notu ekle
-
-**Risk:** Düşük — option zaten ignore ediliyor, sadece type surface'ten kaldırılıyor.
+**Commit:** `c1a2139b5` (2026-07-20)
+**Durum:** Kaldırıldı — 3 dosya, 4 lokasyon temizlendi, 0 referans kaldı.
 
 ---
 
@@ -45,8 +27,8 @@
 
 ## Kontrol Listesi (Major Release Öncesi)
 
-- [ ] `jsonArgumentsBuggy` kaldırma adımlarını uygula
-- [ ] Config migration ekle (eski config'leri temizle)
+- [x] `jsonArgumentsBuggy` kaldırma adımlarını uygula (`c1a2139b5`)
+- [x] ~~Config migration ekle~~ (gerek yok — değer zaten ignore ediliyordu)
 - [ ] Tüm deprecated API'leri gözden geçir (`@deprecated` JSDoc tag'leri)
 - [ ] CHANGELOG.md'ye breaking changes bölümü ekle
 - [ ] Migration guide yaz (kullanıcılar için)
