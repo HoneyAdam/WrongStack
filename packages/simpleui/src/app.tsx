@@ -16,17 +16,18 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AgentChatPane } from './agent-chat-pane.js';
-import { FinishedAgentsMenu } from './finished-agents-menu.js';
+import { BrainPanel } from './brain-panel.js';
 import { ChatMessageList } from './chat-message-list.js';
 import { Composer } from './composer.js';
 import { ErrorBoundary } from './error-boundary.js';
-import { FileDiffPanel } from './file-diff-panel.js';
 import { FileChangesButton } from './file-changes-button.js';
-import { MemoryDrawer } from './memory-drawer.js';
+import { FileDiffPanel } from './file-diff-panel.js';
 import { FileExplorer } from './file-explorer.js';
-import { PromptLibrary } from './prompt-library.js';
-import { BrainPanel } from './brain-panel.js';
-import { SessionHealthPanel } from './session-health-panel.js';
+import { FinishedAgentsMenu } from './finished-agents-menu.js';
+import { useF5Resilience } from './hooks/use-f5-resilience.js';
+import { useSimpleSocket } from './hooks/use-simple-socket.js';
+import { useStatusNotice } from './hooks/use-status-notice.js';
+import { useTheme } from './hooks/use-theme.js';
 import {
   buildAgentTabs,
   canComposeForAgent,
@@ -36,44 +37,33 @@ import {
   resetAgentNameCache,
   resolveSelectedAgentId,
 } from './lib/agent-model.js';
-import { copyText } from './lib/clipboard.js';
 import { playChime } from './lib/chime.js';
+import { copyText } from './lib/clipboard.js';
 import { clearComposerDraft, readComposerDraft, writeComposerDraft } from './lib/composer-draft.js';
 import {
   composePromptWithFileReferences,
   type FileMention,
   removeFileMention,
 } from './lib/file-mention.js';
-import { createMessageHandler } from './lib/message-handler.js';
 import type { MessageHandlerDeps } from './lib/message-handler.js';
-import {
-  findModelContextWindow,
-  planModelSwitch,
-} from './lib/model-switch.js';
-import {
-  relativeSessionTime,
-  sessionDisplayName,
-} from './lib/session-model.js';
-import {
-  DEFAULT_PREFS,
-  type AutonomyMode,
-  type SimplePrefs,
-} from './lib/prefs-model.js';
+import { createMessageHandler } from './lib/message-handler.js';
+import { planModelSwitch } from './lib/model-switch.js';
+import { type AutonomyMode, DEFAULT_PREFS, type SimplePrefs } from './lib/prefs-model.js';
 import {
   enqueueFront,
   enqueueItem,
+  type QueuedItem,
+  type QueueMode,
   removeQueuedAt,
   resolveSendPlan,
-  type QueueMode,
-  type QueuedItem,
 } from './lib/queue-model.js';
 import {
   parseFallbackRef,
-  resolveRefineText,
   type RefineDecision,
   type RefineState,
+  resolveRefineText,
 } from './lib/refine-model.js';
-import type { StatusNoticeProjection } from './lib/status-notice.js';
+import { relativeSessionTime, sessionDisplayName } from './lib/session-model.js';
 import { aggregateFileEdits } from './lib/timeline-model.js';
 import { agentTranscriptToToolCalls } from './lib/tool-model.js';
 import {
@@ -83,19 +73,20 @@ import {
   type TodoStatus,
   type WorklistView,
 } from './lib/worklist-store.js';
-import { SimpleSocket } from './lib/ws.js';
+import type { SimpleSocket } from './lib/ws.js';
+import { MemoryDrawer } from './memory-drawer.js';
+import { PromptLibrary } from './prompt-library.js';
+import { SessionHealthPanel } from './session-health-panel.js';
 import { SettingsPanel } from './settings-panel.js';
 import { ToolSidebar } from './tool-sidebar.js';
 import type {
   AgentMode,
   AgentTranscriptEntry,
   ChatMessage,
-  ConnectionState,
   ContextInfo,
   FileEditMeta,
   ModelDescriptor,
   PendingConfirm,
-  ServerMessage,
   SessionInfo,
   SimpleSessionSummary,
   SimpleSubagent,
@@ -103,25 +94,8 @@ import type {
 } from './types.js';
 
 const EMPTY_CONTEXT: ContextInfo = { load: 0, tokens: 0, maxContext: 0 };
-const THEME_STORAGE_KEY = 'wrongstack.simpleui.theme';
 const REFINE_RETRY_FEEDBACK =
   'Make another pass that is sharper and more self-contained. Use the provided project memory, current session context, and recent conversation only to resolve references and preserve project vocabulary; keep the original scope unchanged.';
-
-type Theme = 'dark' | 'light';
-
-function initialTheme(): Theme {
-  try {
-    const saved = localStorage.getItem(THEME_STORAGE_KEY);
-    if (saved === 'dark' || saved === 'light') return saved;
-    return matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-  } catch {
-    return 'dark';
-  }
-}
-
-function finiteNumber(value: unknown, fallback = 0): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
 
 function compactTokens(value: number): string {
   if (!value) return '0';
@@ -154,8 +128,7 @@ function isVisionModel(modelId: string): boolean {
 }
 
 export function App() {
-  const [theme, setTheme] = useState<Theme>(initialTheme);
-  const [connection, setConnection] = useState<ConnectionState>('connecting');
+  const { theme, toggleTheme } = useTheme();
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [sessions, setSessions] = useState<SimpleSessionSummary[]>([]);
   const [sessionMenuOpen, setSessionMenuOpen] = useState(false);
@@ -193,7 +166,7 @@ export function App() {
   >([]);
   const [running, setRunning] = useState(false);
   const [activity, setActivity] = useState('');
-  const [notice, setNotice] = useState<(StatusNoticeProjection & { id: string }) | null>(null);
+  const { notice, showNotice: setNotice } = useStatusNotice();
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [toolCalls, setToolCalls] = useState<ToolCallInfo[]>([]);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
@@ -239,32 +212,35 @@ export function App() {
   /** Send a message to the agent and reflect it locally. The single send
    *  path — the composer, the queue drain, and every refine decision all
    *  funnel through here. */
-  const dispatchUserMessage = useCallback((content: string, images?: { data: string; mime: string }[]) => {
-    const sessionId = sessionIdRef.current;
-    if (!content || !sessionId) return;
-    stickToBottomRef.current = true;
-    setShowJumpToLatest(false);
-    setMessages((current) => [
-      ...current,
-      {
-        id: messageId('user'),
-        role: 'user',
-        text: content,
-        ...(images && images.length > 0 ? { images } : {}),
-      },
-    ]);
-    setRunning(true);
-    setToolCalls([]);
-    setActivity('Thinking');
-    const payload: Record<string, unknown> = {
-      sessionId,
-      id: messageId('prompt'),
-      content,
-      timestamp: Date.now(),
-    };
-    if (images && images.length > 0) payload['images'] = images;
-    socketRef.current?.send('user_message', payload);
-  }, []);
+  const dispatchUserMessage = useCallback(
+    (content: string, images?: { data: string; mime: string }[]) => {
+      const sessionId = sessionIdRef.current;
+      if (!content || !sessionId) return;
+      stickToBottomRef.current = true;
+      setShowJumpToLatest(false);
+      setMessages((current) => [
+        ...current,
+        {
+          id: messageId('user'),
+          role: 'user',
+          text: content,
+          ...(images && images.length > 0 ? { images } : {}),
+        },
+      ]);
+      setRunning(true);
+      setToolCalls([]);
+      setActivity('Thinking');
+      const payload: Record<string, unknown> = {
+        sessionId,
+        id: messageId('prompt'),
+        content,
+        timestamp: Date.now(),
+      };
+      if (images && images.length > 0) payload['images'] = images;
+      socketRef.current?.send('user_message', payload);
+    },
+    [],
+  );
 
   /** Open the refine round-trip, or send straight through when refine is off. */
   const startSend = useCallback(
@@ -279,10 +255,14 @@ export function App() {
         : undefined;
       const slash = profileRef?.indexOf('/') ?? -1;
       const displayedProvider = profileRef
-        ? slash > 0 ? profileRef.slice(0, slash) : active?.provider
+        ? slash > 0
+          ? profileRef.slice(0, slash)
+          : active?.provider
         : prefsRef.current.refinerProvider || active?.provider;
       const displayedModel = profileRef
-        ? slash > 0 ? profileRef.slice(slash + 1) : profileRef
+        ? slash > 0
+          ? profileRef.slice(slash + 1)
+          : profileRef
         : prefsRef.current.refinerModel || active?.model;
       setRefineState({
         original: content,
@@ -296,16 +276,6 @@ export function App() {
     },
     [dispatchUserMessage],
   );
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    document.documentElement.style.colorScheme = theme;
-    try {
-      localStorage.setItem(THEME_STORAGE_KEY, theme);
-    } catch {
-      // Theme persistence is best-effort in privacy-restricted browsers.
-    }
-  }, [theme]);
 
   // ── Global keyboard shortcuts ──────────────────────────────────
   useEffect(() => {
@@ -352,9 +322,7 @@ export function App() {
         !runningRef.current
       ) {
         event.preventDefault();
-        const lastUser = [...messagesRef.current]
-          .reverse()
-          .find((m) => m.role === 'user');
+        const lastUser = [...messagesRef.current].reverse().find((m) => m.role === 'user');
         if (lastUser) {
           setDraft(lastUser.text);
           // Move cursor to end on next frame so the textarea has updated.
@@ -373,20 +341,15 @@ export function App() {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [startSend]);
 
-  // ── Exit confirmation via browser beforeunload ─────────────────
-  useEffect(() => {
-    const onBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (prefsRef.current.confirmExit && runningRef.current) {
-        event.preventDefault();
-        // Modern browsers show a generic "Leave site?" dialog; the
-        // returnValue assignment is required by the spec even though
-        // the string is ignored.
-        event.returnValue = '';
-      }
-    };
-    window.addEventListener('beforeunload', onBeforeUnload);
-    return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, []);
+  // F5 / tab-close resilience: exit confirmation + draft flush.
+  useF5Resilience({
+    confirmExitRef: prefsRef,
+    runningRef,
+    sessionIdRef,
+    draftRef,
+    fileRefsRef,
+    writeComposerDraft,
+  });
 
   useEffect(() => {
     if (!sessionMenuOpen) return;
@@ -413,14 +376,6 @@ export function App() {
     document.addEventListener('keydown', handleGlobalKey);
     return () => document.removeEventListener('keydown', handleGlobalKey);
   }, []);
-
-  useEffect(() => {
-    if (!notice) return;
-    const timer = setTimeout(() => {
-      setNotice((current) => (current?.id === notice.id ? null : current));
-    }, 5_000);
-    return () => clearTimeout(timer);
-  }, [notice]);
 
   useEffect(() => {
     if (!copiedMessageId) return;
@@ -494,36 +449,17 @@ export function App() {
     [dispatchUserMessage, requestProviderModels, worklists],
   );
 
-  useEffect(() => {
-    const socket = new SimpleSocket({
-      onMessage: handleServerMessage,
-      onState: (state) => {
-        setConnection(state);
-        if (state === 'open') {
-          socket.send('providers.saved');
-          socket.send('providers.list');
-          // The server owns preference truth; seed from it rather than
-          // trusting whatever this tab last rendered.
-          socket.send('prefs.get');
-          socket.send('modes.list');
-          if (sessionIdRef.current) {
-            socket.send('sessions.list', { sessionId: sessionIdRef.current, limit: 12 });
-          }
-        } else {
-          setSessionMenuOpen(false);
-          setFileMention(null);
-          setFileMatches([]);
-          setFileSearching(false);
-        }
-      },
-    });
-    socketRef.current = socket;
-    void socket.connect();
-    return () => {
-      socketRef.current = null;
-      socket.close();
-    };
-  }, [handleServerMessage]);
+  const { connection } = useSimpleSocket({
+    onMessage: handleServerMessage,
+    sessionIdRef,
+    socketRef,
+    onDisconnect: () => {
+      setSessionMenuOpen(false);
+      setFileMention(null);
+      setFileMatches([]);
+      setFileSearching(false);
+    },
+  });
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -548,21 +484,6 @@ export function App() {
     }, 250);
     return () => clearTimeout(timer);
   }, [draft, fileRefs, session?.id]);
-
-  useEffect(() => {
-    const flushDraft = () => {
-      if (!sessionIdRef.current) return;
-      writeComposerDraft(sessionIdRef.current, {
-        text: draftRef.current,
-        fileRefs: fileRefsRef.current,
-      });
-    };
-    window.addEventListener('pagehide', flushDraft);
-    return () => {
-      window.removeEventListener('pagehide', flushDraft);
-      flushDraft();
-    };
-  }, []);
 
   useEffect(() => {
     if (!fileMention) {
@@ -619,8 +540,7 @@ export function App() {
 
   // Filter out thinking blocks when the user has disabled model reasoning display.
   const displayMessages = useMemo(
-    () =>
-      prefs.showModelReasoning ? messages : messages.filter((m) => m.role !== 'thinking'),
+    () => (prefs.showModelReasoning ? messages : messages.filter((m) => m.role !== 'thinking')),
     [messages, prefs.showModelReasoning],
   );
 
@@ -633,22 +553,16 @@ export function App() {
     [activeAgentId, agentTranscripts, leaderSelected, toolCalls],
   );
 
-  const fileEditSummary = useMemo(
-    () => aggregateFileEdits(toolCalls),
-    [toolCalls],
-  );
+  const fileEditSummary = useMemo(() => aggregateFileEdits(toolCalls), [toolCalls]);
 
   /** File edits with timestamps for the chat timeline widgets.
    *  One entry per file (deduplicated by path) with merged diffs, so
    *  edits to the same file in separate tool calls produce a single
    *  inline widget showing the total change. */
-  const fileEdits = useMemo(
-    () => {
-      const aggregate = aggregateFileEdits(toolCalls);
-      return aggregate.files.map((edit) => ({ edit, ts: '' }));
-    },
-    [toolCalls],
-  );
+  const fileEdits = useMemo(() => {
+    const aggregate = aggregateFileEdits(toolCalls);
+    return aggregate.files.map((edit) => ({ edit, ts: '' }));
+  }, [toolCalls]);
 
   const selectNextStep = (text: string) => {
     setDraft(text);
@@ -801,9 +715,10 @@ export function App() {
     if (!content || connection !== 'open' || !sessionIdRef.current || refineState) return;
 
     const plan = resolveSendPlan(mode, running);
-    const imgs = attachedImages.length > 0
-      ? attachedImages.map((i) => ({ data: i.data, mime: i.mime }))
-      : undefined;
+    const imgs =
+      attachedImages.length > 0
+        ? attachedImages.map((i) => ({ data: i.data, mime: i.mime }))
+        : undefined;
     clearComposerDraft(sessionIdRef.current);
     draftRef.current = '';
     fileRefsRef.current = [];
@@ -921,9 +836,12 @@ export function App() {
   const requestWorklist = useCallback((view: WorklistView) => {
     const sessionId = sessionIdRef.current;
     if (!sessionId) return;
-    socketRef.current?.send(view === 'todos' ? 'todos.get' : view === 'tasks' ? 'tasks.get' : 'plan.get', {
-      sessionId,
-    });
+    socketRef.current?.send(
+      view === 'todos' ? 'todos.get' : view === 'tasks' ? 'tasks.get' : 'plan.get',
+      {
+        sessionId,
+      },
+    );
   }, []);
 
   const updateTodoStatus = useCallback((id: string, status: TodoStatus) => {
@@ -1058,17 +976,13 @@ export function App() {
               aria-label="Smaller context window warning"
             >
               <p>
-                <strong>{pendingModelSwitch.modelName}</strong> has a smaller context window
-                ({compactTokens(pendingModelSwitch.nextWindow)} vs current{' '}
-                {compactTokens(pendingModelSwitch.currentWindow)}). The session may need to
-                compact sooner.
+                <strong>{pendingModelSwitch.modelName}</strong> has a smaller context window (
+                {compactTokens(pendingModelSwitch.nextWindow)} vs current{' '}
+                {compactTokens(pendingModelSwitch.currentWindow)}). The session may need to compact
+                sooner.
               </p>
               <div className="model-switch-warning-actions">
-                <button
-                  type="button"
-                  className="model-switch-confirm"
-                  onClick={confirmModelSwitch}
-                >
+                <button type="button" className="model-switch-confirm" onClick={confirmModelSwitch}>
                   SWITCH
                 </button>
                 <button type="button" onClick={() => setPendingModelSwitch(null)}>
@@ -1080,7 +994,7 @@ export function App() {
         </div>
 
         <div className="topbar-right">
-            <button
+          <button
             type="button"
             className="context-meter"
             title={`${context.tokens} / ${context.maxContext} tokens — Click to compact`}
@@ -1116,7 +1030,7 @@ export function App() {
           <button
             type="button"
             className="theme-toggle"
-            onClick={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
+            onClick={toggleTheme}
             aria-label={`Use ${theme === 'dark' ? 'light' : 'dark'} theme`}
             title={`Use ${theme === 'dark' ? 'light' : 'dark'} theme`}
           >
@@ -1133,9 +1047,13 @@ export function App() {
             <Settings size={15} />
           </button>
           <div className={`connection ${connection}`} title={`WebSocket: ${connection}`}>
-            <span className={`connection-ping-dot ${connection === 'open' ? 'good' : connection === 'connecting' ? 'poor' : 'bad'}`} />
+            <span
+              className={`connection-ping-dot ${connection === 'open' ? 'good' : connection === 'connecting' ? 'poor' : 'bad'}`}
+            />
             {connection === 'open' ? <Wifi size={15} /> : <WifiOff size={15} />}
-            <span>{connection === 'open' ? 'LIVE' : connection === 'connecting' ? '…' : 'OFF'}</span>
+            <span>
+              {connection === 'open' ? 'LIVE' : connection === 'connecting' ? '…' : 'OFF'}
+            </span>
           </div>
         </div>
       </header>
@@ -1164,7 +1082,9 @@ export function App() {
                   event.preventDefault();
                   const direction = event.key === 'ArrowRight' ? 1 : -1;
                   const next =
-                    liveAgentTabs[(index + direction + liveAgentTabs.length) % liveAgentTabs.length];
+                    liveAgentTabs[
+                      (index + direction + liveAgentTabs.length) % liveAgentTabs.length
+                    ];
                   if (!next) return;
                   setSelectedAgentId(next.id);
                   requestAnimationFrame(() =>
@@ -1260,7 +1180,12 @@ export function App() {
 
       <MemoryDrawer socketRef={socketRef} />
       <FileExplorer socketRef={socketRef} />
-      <PromptLibrary onRecall={(text) => { setDraft(text); textareaRef.current?.focus(); }} />
+      <PromptLibrary
+        onRecall={(text) => {
+          setDraft(text);
+          textareaRef.current?.focus();
+        }}
+      />
       <BrainPanel socketRef={socketRef} />
       <SessionHealthPanel context={context} messages={messages} sessionStart={sessionStart} />
 
@@ -1333,11 +1258,7 @@ export function App() {
       </ErrorBoundary>
 
       {diffFiles && (
-        <FileDiffPanel
-          files={diffFiles}
-          socketRef={socketRef}
-          onClose={() => setDiffFiles(null)}
-        />
+        <FileDiffPanel files={diffFiles} socketRef={socketRef} onClose={() => setDiffFiles(null)} />
       )}
     </div>
   );
