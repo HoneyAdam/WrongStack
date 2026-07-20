@@ -342,6 +342,10 @@ const CONTEXT_OVERFLOW_RE =
 const CONTENT_FILTER_RE = /content.(filter|policy|moderation)|safety (system|filter)/i;
 const QUOTA_EXHAUSTED_RE =
   /(?:insufficient|exhausted|depleted|exceeded|no|not enough)[-_\s]*(?:quota|credit|balance)|(?:quota|credit|balance)[-_\s]*(?:exhausted|depleted|exceeded|insufficient)|billing[_\s-]*(?:hard[_\s-]*)?limit|payment required|spending limit|plan limit|usage[-_\s]*limit[-_\s]*(?:reached|exceeded)/i;
+/** "rate limit exceeded" pattern — checked against body.message only, NOT the
+ *  raw JSON text, because OpenAI's `"code":"rate_limit_exceeded"` field would
+ *  produce a false positive in the combined-text regex. */
+const RATE_LIMIT_EXCEEDED_RE = /rate[-_\s]*limit[-_\s]*exceeded/i;
 
 /**
  * Classify a provider HTTP failure into the canonical taxonomy from its
@@ -360,6 +364,13 @@ export function classifyProviderError(
   if (status === 408) return 'timeout';
   if (status === 599) return 'stream_hang';
   if (status === 402 || QUOTA_EXHAUSTED_RE.test(text)) return 'quota_exhausted';
+  // Check body.message separately for "rate limit exceeded" — this pattern
+  // should NOT match against body.raw because OpenAI's error response
+  // includes `"code":"rate_limit_exceeded"` in the JSON, which would be a
+  // false positive (it's a transient burst, not a hard limit).
+  if (status === 429 && body?.message && RATE_LIMIT_EXCEEDED_RE.test(body.message)) {
+    return 'quota_exhausted';
+  }
   if (type === 'rate_limit_error' || status === 429) return 'rate_limit';
   if (type === 'overloaded_error' || status === 529) return 'overloaded';
   if (status >= 500) return 'server';
