@@ -14,12 +14,6 @@ export interface OpenAIChoice {
 
 export interface FromOpenAIOptions {
   /**
-   * Deprecated: the sanitizer fallback is now always attempted. Kept for
-   * backward compatibility; the value is ignored.
-   * TODO(breaking): remove in next major release.
-   */
-  jsonArgumentsBuggy?: boolean | undefined;
-  /**
    * Called when a tool call's `arguments` field can't be parsed even after
    * the sanitizer pass. Callers can use this to emit a structured event,
    * log it, or surface it in a UI. The block is still appended with

@@ -14,10 +14,8 @@ export interface CompatibilityQuirks {
    * @deprecated No-op. The shared `parseToolInput` repair ladder (fence
    * strip → JSON5-style sanitize → truncation completion) now runs
    * unconditionally for every string-based adapter, so buggy JSON arguments
-   * are repaired without opting in. Kept only so existing configs that set
-   * it keep validating; it is never consulted.
+   * are repaired without opting in.
    */
-  jsonArgumentsBuggy?: boolean | undefined;
   emptyToolCallContent?: 'null' | 'empty_string' | undefined;
   thinkingParam?: 'zai-glm' | 'kimi-toggle' | 'always-on' | undefined;
   /**
@@ -38,7 +36,6 @@ const VALID_QUIRK_KEYS = new Set<keyof CompatibilityQuirks>([
   'flattenContentToString',
   'preserveToolCallIds',
   'parallelToolsDisabled',
-  'jsonArgumentsBuggy',
   'emptyToolCallContent',
   'thinkingParam',
   'stripThinkTags',
