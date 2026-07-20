@@ -29,6 +29,7 @@
 
 import type { Provider } from '../types/provider.js';
 import type { BrainArbiter, BrainDecision, BrainDecisionRequest } from '../coordination/brain.js';
+import { COMPETING_ALTERNATIVE, isBlockedResolved } from '../coordination/brain-heuristics.js';
 import { readBundledInstructionText } from '../utils/instruction-file.js';
 import { safeParse } from '../utils/safe-json.js';
 
@@ -307,12 +308,7 @@ export function quickDecide(request: BrainDecisionRequest): BrainDecision | null
   // to have declared continue safe and no competing alternative in the
   // question. The context must contain an explicit resolution marker so
   // that "blocked by X" without evidence of resolution still reaches the LLM.
-  if (
-    q.includes('blocked') &&
-    request.fallback === 'continue' &&
-    !/\bor\b/.test(q) &&
-    /\b(?:resolved|fixed|completed|unblocked|available|done|merged|landed|shipped)\b/.test(ctx)
-  ) {
+  if (request.fallback === 'continue' && isBlockedResolved(q, ctx)) {
     return {
       type: 'answer',
       text: 'Blocker resolved. Continue with the previously blocked work.',
@@ -331,7 +327,7 @@ export function quickDecide(request: BrainDecisionRequest): BrainDecision | null
     request.fallback === 'continue' &&
     /\b(?:continue|proceed)\b/.test(q) &&
     !/\b(?:stop|abort|halt|cancel|pause|rollback)\b/.test(q) &&
-    !/\bor\b/.test(q)
+    !COMPETING_ALTERNATIVE.test(q)
   ) {
     return {
       type: 'answer',

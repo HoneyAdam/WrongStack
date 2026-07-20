@@ -8,6 +8,7 @@
  */
 
 import type { EventBus } from '../kernel/events.js';
+import { isBlockedResolved } from './brain-heuristics.js';
 
 export type BrainDecisionSource = 'goal' | 'director' | 'tool' | 'user' | 'system';
 
@@ -294,21 +295,14 @@ export class DefaultBrainArbiter implements BrainArbiter {
       };
     }
 
-    // Blocked dependency explicitly resolved → continue. Mirrors the
-    // quickDecide heuristic in autonomy-brain.ts so headless hosts using
-    // DefaultBrainArbiter also benefit from the unblock-and-continue
-    // pattern. Requires the caller to have declared continue safe AND
-    // explicit resolution evidence in the context. Skips option-bearing
+    // Blocked dependency explicitly resolved → continue. Uses the shared
+    // heuristic from brain-heuristics.ts (same pattern as quickDecide in
+    // autonomy-brain.ts). Requires the caller to have declared continue safe
+    // AND explicit resolution evidence in the context. Skips option-bearing
     // requests (options are control-plane input demanding a structured
     // choice, not a keyword guess — same discipline as quickDecide).
     if (!request.options?.length && request.fallback === 'continue' && request.context) {
-      const q = request.question.toLowerCase();
-      const ctx = request.context.toLowerCase();
-      if (
-        q.includes('blocked') &&
-        !/\bor\b/.test(q) &&
-        /\b(?:resolved|fixed|completed|unblocked|available|done|merged|landed|shipped)\b/.test(ctx)
-      ) {
+      if (isBlockedResolved(request.question.toLowerCase(), request.context.toLowerCase())) {
         return {
           type: 'answer',
           text: 'Blocker resolved. Continue with the previously blocked work.',
