@@ -2,6 +2,8 @@ import type { Context } from '../core/context.js';
 import type { CompactReport, Compactor } from '../types/compactor.js';
 import type { ContextWindowPolicy } from '../types/context-window.js';
 import type { Message } from '../types/messages.js';
+import type { Logger } from '../types/logger.js';
+import { noOpLogger } from '../infrastructure/logger.js';
 import { estimateRequestTokens } from '../utils/token-estimate.js';
 import { repairToolUseAdjacency } from '../utils/message-invariants.js';
 import {
@@ -16,6 +18,7 @@ import {
   eliseOldToolResults,
   estimateMessages,
   hasTextContent,
+  setCompactionDebugLogger,
 } from './compaction-core.js';
 
 export interface CompactorOptions {
@@ -35,6 +38,8 @@ export interface CompactorOptions {
    * monitor agree on one number. Kept only for backward-compatible call sites.
    */
   estimator?: (((text: string) => number)) | undefined;
+  /** Structured logger. Defaults to noOpLogger (silent). */
+  logger?: Logger | undefined;
 }
 
 /**
@@ -51,11 +56,14 @@ export class HybridCompactor implements Compactor {
   private readonly preserveK: number;
   private readonly eliseThreshold: number;
   private readonly smart: boolean;
+  private readonly logger: Logger;
 
   constructor(opts: CompactorOptions = {}) {
     this.preserveK = opts.preserveK ?? 5;
     this.eliseThreshold = opts.eliseThreshold ?? 2000;
     this.smart = opts.smart ?? false;
+    this.logger = opts.logger ?? noOpLogger;
+    setCompactionDebugLogger(this.logger);
   }
 
   async compact(ctx: Context, opts: { aggressive?: boolean | undefined } = {}): Promise<CompactReport> {
