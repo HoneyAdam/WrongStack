@@ -156,6 +156,12 @@ export class OneShotOrchestrator {
           .allowed
       )
         continue;
+      // Re-check availability right before attempting — a concurrent failure
+      // may have pushed this entry into the waiting room since the chain was
+      // filtered. Skipping here avoids a wasted provider call.
+      if (tracker && !tracker.isAvailable(entry.providerId, entry.model)) {
+        continue;
+      }
       if (entry.providerId === provider.id && entry.model === target.model) continue;
 
       let fbProvider: Provider;

@@ -463,6 +463,20 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
           const status = shouldFallback(lastErr);
           if (status === null) break; // not a fallback-worthy error
 
+          // Re-check tracker availability right before attempting this entry.
+          // The chain was computed from a snapshot of `isAvailable`, but an
+          // intervening failure — from a concurrent subagent, a prior entry
+          // in this loop, or a race with the one-shot LLM helper — may have
+          // pushed this (providerId, model) into the waiting room since then.
+          // A stale-chain call would waste time and burn rate-limit budget.
+          if (tracker && !tracker.isAvailable(entry.providerId, entry.model)) {
+            deps.logger?.warn(
+              `provider-status: "${entry.providerId}/${entry.model}" entered the waiting room` +
+                ` since the chain was computed — skipping`,
+            );
+            continue;
+          }
+
           const targetProviderId = entry.providerId;
           const targetModel = entry.model;
           if (targetProviderId === ctx_.provider.id && targetModel === ctx_.model) continue;
