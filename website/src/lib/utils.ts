@@ -296,9 +296,22 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
-    version: '0.292.1',
+    version: '0.293.0',
     date: '2026-07-20',
     latest: true,
+    tagline: 'API stabilization, safe-by-default permissions, and token-saving optimizations',
+    highlights: [
+      'ACP permission policy is safe-by-default: unknown callers get read-only, trusted paths explicitly opt into write/execute',
+      'Deprecated API surface removed: streamFleet boolean, yoloDestructive no-op fields, jsonArgumentsBuggy quirk, Codex/OAuth aliases, ProviderAvailability, allowShell',
+      'Modern token-saving tier: 128k+ models get minimal trimming instead of full prompt, saving ~7.9K tokens/turn at zero capability cost',
+      'Prompt-cache optimizations: cache_control markers on identity/tool-usage/environment blocks, OpenAI promptCache enabled, cache TTL default 1h',
+      'Structured Logger migration: phase-orchestrator, llm-selector, models-registry, and all three compactor classes now use structured logging',
+      'Alibaba Token Plan Personal Edition provider with 11 models and drift-guard test coverage',
+    ],
+  },
+  {
+    version: '0.292.1',
+    date: '2026-07-20',
     tagline: 'Fresh coordination, resilient fallback, and leaner browser interfaces',
     highlights: [
       'Mailbox query, check, and SSE routes use a one-hour host default with validated sinceMs overrides, full-history opt-in, and a seven-day ceiling',
