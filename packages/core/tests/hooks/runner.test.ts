@@ -169,10 +169,10 @@ describe('HookRunner — failures and gating', () => {
     await expect(runner.preToolUse('bash', {}, env)).resolves.toEqual({});
   });
 
-  it('skips shell hooks when allowShell is false', async () => {
+  it('skips shell hooks when allowNonPolicy is false', async () => {
     const reg = new HookRegistry();
     reg.registerShell('PreToolUse', { command: 'exit 2' });
-    const runner = new HookRunner({ registry: reg, allowShell: false });
+    const runner = new HookRunner({ registry: reg, allowNonPolicy: false });
     const r = await runner.preToolUse('bash', {}, env);
     expect(r.block).toBeUndefined();
   });
@@ -186,7 +186,7 @@ describe('HookRunner — failures and gating', () => {
       failurePolicy: 'closed',
       stage: 'validate',
     });
-    const runner = new HookRunner({ registry: reg, allowShell: false });
+    const runner = new HookRunner({ registry: reg, allowNonPolicy: false });
     const result = await runner.preToolUse('bash', {}, env);
     expect(result.block).toBe(true);
     expect(result.reason).toContain('mandatory-policy');

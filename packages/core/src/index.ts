@@ -331,7 +331,6 @@ export {
 export type {
   FallbackChain,
   FallbackChainEntry,
-  ProviderAvailability,
   ProviderHealth,
 } from './core/fallback-profile-manager.js';
 export { FallbackProfileManager } from './core/fallback-profile-manager.js';

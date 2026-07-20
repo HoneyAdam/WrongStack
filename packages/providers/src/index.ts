@@ -166,9 +166,6 @@ export interface OAuthRefreshedTokens {
   accountId?: string | undefined;
 }
 
-/** @deprecated use OAuthRefreshedTokens */
-export type CodexRefreshedTokens = OAuthRefreshedTokens;
-
 /**
  * Module-level hook so refreshed OAuth tokens (openai-codex, anthropic-oauth, …)
  * can be persisted back to the encrypted config WITHOUT threading a
@@ -183,9 +180,6 @@ export function setOAuthTokenPersister(
 ): void {
   _oauthPersist = fn;
 }
-
-/** @deprecated use setOAuthTokenPersister */
-export const setCodexTokenPersister = setOAuthTokenPersister;
 
 /**
  * Known openai-compatible provider ids with tuned wire-format presets.

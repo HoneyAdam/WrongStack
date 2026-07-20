@@ -51,9 +51,6 @@ export interface ProviderHealth {
   readonly usable: boolean;
 }
 
-/** @deprecated Use {@link ProviderHealth}. */
-export type ProviderAvailability = ProviderHealth;
-
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function hasText(value: unknown): value is string {

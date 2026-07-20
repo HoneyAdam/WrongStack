@@ -32,8 +32,6 @@ export interface HookRunnerOptions {
    * `policy: true` enforcement hooks still run.
    */
   allowNonPolicy?: boolean | undefined;
-  /** @deprecated Use `allowNonPolicy`; retained for API compatibility. */
-  allowShell?: boolean | undefined;
   /** Resolves the active session id for the `HookInput` payload. */
   sessionId?: (() => string) | undefined;
 }
@@ -256,7 +254,7 @@ export class HookRunner {
     payload: HookInput,
     env: HookRunEnv,
   ): Promise<AnyHookOutcome | null> {
-    const allowNonPolicy = this.opts.allowNonPolicy ?? this.opts.allowShell ?? true;
+    const allowNonPolicy = this.opts.allowNonPolicy ?? true;
     if (!allowNonPolicy && !entry.policy) return null;
 
     let result: HookExecutionResult;
