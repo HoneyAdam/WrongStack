@@ -816,24 +816,17 @@ export function StatusBar({
         ) : null}
       </Text>
     ) : null;
-  const superMemoryStatusChip =
-    superMemory && showChip('super_memory') ? (
-      <Text color={chipColor(theme.accent, isNoColor)}>
-        {isNoColor ? 'mem ' : `${glyphs.brain} mem `}
-        {superMemory.total} total
-        <Text dimColor={!isNoColor}> · </Text>
-        <Text color={chipColor(theme.success, isNoColor)}>{superMemory.activeInContext} ctx</Text>
-      </Text>
-    ) : null;
+  const superMemoryStatusChip = null;
 
   // ── Memory context detail line (4th row) ──────────────────────────────
   const memoryMonitor = memoryContextMonitor;
   const memorySummary = memoryMonitor?.latest;
-  const hasMemoryDetail = memorySummary != null && showChip('memory_context');
+  const hasMemoryDetail =
+    (memorySummary != null || superMemory != null) && showChip('memory_context');
   const memoryDetailChips: React.ReactElement[] = [];
-  if (hasMemoryDetail && memoryMonitor) {
-    const records = Object.values(memoryMonitor.memories);
-    const active = activeMemoryContextCount(memoryMonitor);
+  if (hasMemoryDetail) {
+    const records = memoryMonitor ? Object.values(memoryMonitor.memories) : [];
+    const active = memoryMonitor ? activeMemoryContextCount(memoryMonitor) : 0;
     const pending = records.filter((m) => m.state === 'injected').length;
     const left = records.filter((m) => m.state === 'exited').length;
     memoryDetailChips.push(
@@ -841,45 +834,58 @@ export function StatusBar({
         {isNoColor ? 'mem:' : `${glyphs.brain} `}
       </Text>,
     );
-    memoryDetailChips.push(
-      <Text key="matched">
-        {memorySummary.matched} matched
-        <Text dimColor={!isNoColor}> · </Text>
-        <Text color={chipColor(theme.success, isNoColor)}>{memorySummary.injected} inj</Text>
-        <Text dimColor={!isNoColor}> · </Text>
-        <Text color={chipColor(theme.warn, isNoColor)}>{memorySummary.filtered} filt</Text>
-        <Text dimColor={!isNoColor}> · </Text>
-        <Text color={chipColor(theme.accent, isNoColor)}>{active} actv</Text>
-        {pending > 0 ? (
-          <>
-            <Text dimColor={!isNoColor}> · </Text>
-            <Text color={chipColor(theme.accent, isNoColor)}>{pending} pend</Text>
-          </>
-        ) : null}
-        {left > 0 ? (
-          <>
-            <Text dimColor={!isNoColor}> · </Text>
-            <Text color={theme.textMuted}>{left} left</Text>
-          </>
-        ) : null}
-      </Text>,
-    );
-    memoryDetailChips.push(
-      <Text color={chipColor(theme.textMuted, isNoColor)} key="trigger">
-        {memorySummary.trigger.length > 25
-          ? `${memorySummary.trigger.slice(0, 22)}…`
-          : memorySummary.trigger}
-        <Text dimColor={!isNoColor}>
-          {' · ctx '}
-          {Math.round(memorySummary.contextPressure * 100)}%
-          {' · +'}
-          {memorySummary.injectedChars >= 1024
-            ? `${(memorySummary.injectedChars / 1024).toFixed(1)}K`
-            : memorySummary.injectedChars}
-          {' chars'}
-        </Text>
-      </Text>,
-    );
+    // Total records + active-in-context (moved from line 1)
+    if (superMemory) {
+      memoryDetailChips.push(
+        <Text key="total">
+          {superMemory.total} total
+          <Text dimColor={!isNoColor}> · </Text>
+          <Text color={chipColor(theme.success, isNoColor)}>{superMemory.activeInContext} ctx</Text>
+          {memorySummary != null ? <Text dimColor={!isNoColor}> · </Text> : null}
+        </Text>,
+      );
+    }
+    if (memorySummary != null) {
+      memoryDetailChips.push(
+        <Text key="matched">
+          {memorySummary.matched} matched
+          <Text dimColor={!isNoColor}> · </Text>
+          <Text color={chipColor(theme.success, isNoColor)}>{memorySummary.injected} inj</Text>
+          <Text dimColor={!isNoColor}> · </Text>
+          <Text color={chipColor(theme.warn, isNoColor)}>{memorySummary.filtered} filt</Text>
+          <Text dimColor={!isNoColor}> · </Text>
+          <Text color={chipColor(theme.accent, isNoColor)}>{active} actv</Text>
+          {pending > 0 ? (
+            <>
+              <Text dimColor={!isNoColor}> · </Text>
+              <Text color={chipColor(theme.accent, isNoColor)}>{pending} pend</Text>
+            </>
+          ) : null}
+          {left > 0 ? (
+            <>
+              <Text dimColor={!isNoColor}> · </Text>
+              <Text color={chipColor(theme.textMuted, isNoColor)}>{left} left</Text>
+            </>
+          ) : null}
+        </Text>,
+      );
+      memoryDetailChips.push(
+        <Text color={chipColor(theme.textMuted, isNoColor)} key="trigger">
+          {memorySummary.trigger.length > 25
+            ? `${memorySummary.trigger.slice(0, 22)}…`
+            : memorySummary.trigger}
+          <Text dimColor={!isNoColor}>
+            {' · ctx '}
+            {Math.round(memorySummary.contextPressure * 100)}%
+            {' · +'}
+            {memorySummary.injectedChars >= 1024
+              ? `${(memorySummary.injectedChars / 1024).toFixed(1)}K`
+              : memorySummary.injectedChars}
+            {' chars'}
+          </Text>
+        </Text>,
+      );
+    }
   }
 
   const primaryChips: React.ReactElement[] = [
