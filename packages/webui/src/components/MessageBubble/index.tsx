@@ -502,8 +502,12 @@ export const MessageBubble = memo(function MessageBubble({
           </span>
         )}
 
-        {/* Next steps — read from message.nextSteps (parsed at finalize time) */}
-        {nextSteps.length > 0 && (
+        {/* Next steps — read from message.nextSteps (parsed at finalize time).
+            Only show after the run completes (!isLoading) so the user can't
+            trigger "a run is already in progress" by clicking a suggestion
+            mid-run. The <nextsteps> XML is still stripped from content at
+            finalize time regardless of this gate. */}
+        {!isLoading && nextSteps.length > 0 && (
           <NextStepsBar
             steps={nextSteps}
             yoloMode={yolo}
