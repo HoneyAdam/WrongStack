@@ -1,6 +1,8 @@
 import type { Context } from '../core/context.js';
 import { LLMSelector } from '../models/llm-selector.js';
 import { isTextBlock } from '../types/blocks.js';
+import type { Logger } from '../types/logger.js';
+import { noOpLogger } from '../infrastructure/logger.js';
 import type { CompactReport, Compactor } from '../types/compactor.js';
 import type { Message } from '../types/messages.js';
 import type { Provider, Request } from '../types/provider.js';
@@ -47,6 +49,8 @@ export interface SelectiveCompactorOptions {
   selectorMaxOutputTokens?: number | undefined;
   /** Summarizer model for collapsed ranges (default: same as selectorModel). */
   summarizerModel?: string | undefined;
+  /** Structured logger. Defaults to noOpLogger (silent). */
+  logger?: Logger | undefined;
   /** Prompt for the summarizer sub-LLM. */
   summarizerPrompt?: string | undefined;
 }
@@ -71,6 +75,7 @@ export class SelectiveCompactor implements Compactor {
   private readonly eliseThreshold: number;
   private readonly summarizerModel: string | undefined;
   private readonly summarizerPrompt: string;
+  private readonly logger: Logger;
 
   constructor(opts: SelectiveCompactorOptions) {
     this.provider = opts.provider;
@@ -87,11 +92,12 @@ export class SelectiveCompactor implements Compactor {
     // sentinel to the provider — that yields a 400 in non-dev deployments
     // where the warning below is suppressed.
     this.summarizerModel = opts.summarizerModel ?? opts.selectorModel;
+    this.logger = opts.logger ?? noOpLogger;
     if (
       this.summarizerModel === undefined &&
       (process.env['NODE_ENV'] === 'development' || process.env['WRONGSTACK_DEBUG'] === '1')
     ) {
-      console.warn(
+      this.logger.warn(
         '[SelectiveCompactor] summarizerModel not set — will fall back to ctx.model at summarize time. Set `summarizerModel` explicitly to silence this warning.',
       );
     }
