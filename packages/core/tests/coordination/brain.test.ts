@@ -86,6 +86,149 @@ describe('DefaultBrainArbiter', () => {
       rationale: 'No safe Brain decision was available; request fallback is continue.',
     });
   });
+
+  describe('blocked-resolved heuristic', () => {
+    const blockedRequest = (overrides: Partial<BrainDecisionRequest> = {}) =>
+      request({
+        question: 'The build is blocked by a missing dependency',
+        context: 'The dependency has been resolved and merged',
+        fallback: 'continue',
+        risk: 'medium',
+        options: [],
+        ...overrides,
+      });
+
+    it('auto-continues when blocked question has resolution evidence in context', async () => {
+      const brain = new DefaultBrainArbiter();
+      const decision = await brain.decide(blockedRequest());
+
+      expect(decision).toEqual({
+        type: 'answer',
+        text: 'Blocker resolved. Continue with the previously blocked work.',
+        rationale: 'Heuristic: blocking dependency explicitly resolved — resuming.',
+      });
+    });
+
+    it('matches all resolution markers', async () => {
+      const brain = new DefaultBrainArbiter();
+      const markers = ['resolved', 'fixed', 'completed', 'unblocked', 'available', 'done', 'merged', 'landed', 'shipped'];
+
+      for (const marker of markers) {
+        const decision = await brain.decide(
+          blockedRequest({ context: `The dependency is now ${marker}` }),
+        );
+        expect(decision.type).toBe('answer');
+        if (decision.type === 'answer') {
+          expect(decision.text).toBe('Blocker resolved. Continue with the previously blocked work.');
+        }
+      }
+    });
+
+    it('does NOT fire when options are present (structured choice required)', async () => {
+      const brain = new DefaultBrainArbiter();
+      const decision = await brain.decide(
+        blockedRequest({
+          options: [
+            { id: 'continue', label: 'Continue', recommended: true, risk: 'low' },
+            { id: 'wait', label: 'Wait', risk: 'low' },
+          ],
+        }),
+      );
+
+      // Should fall through to low-risk auto-answer (recommended option), not the heuristic
+      expect(decision.type).toBe('answer');
+      if (decision.type === 'answer') {
+        expect(decision.optionId).toBe('continue');
+        expect(decision.rationale).toBe('Low-risk request with an explicit recommended option.');
+      }
+    });
+
+    it('does NOT fire when fallback is not continue', async () => {
+      const brain = new DefaultBrainArbiter();
+      const decision = await brain.decide(blockedRequest({ fallback: 'ask_human' }));
+
+      expect(decision.type).toBe('ask_human');
+    });
+
+    it('does NOT fire when context has no resolution marker', async () => {
+      const brain = new DefaultBrainArbiter();
+      const decision = await brain.decide(
+        blockedRequest({ context: 'The dependency is still being investigated' }),
+      );
+
+      // Falls through to the continue fallback
+      expect(decision).toEqual({
+        type: 'answer',
+        text: 'Continue with the caller default.',
+        rationale: 'No safe Brain decision was available; request fallback is continue.',
+      });
+    });
+
+    it('does NOT fire when question does not mention blocked', async () => {
+      const brain = new DefaultBrainArbiter();
+      const decision = await brain.decide(
+        blockedRequest({ question: 'Should we proceed with the deployment?' }),
+      );
+
+      expect(decision).toEqual({
+        type: 'answer',
+        text: 'Continue with the caller default.',
+        rationale: 'No safe Brain decision was available; request fallback is continue.',
+      });
+    });
+
+    it('does NOT fire when question contains competing alternative (or)', async () => {
+      const brain = new DefaultBrainArbiter();
+      const decision = await brain.decide(
+        blockedRequest({ question: 'Should we unblock and continue or wait for review?' }),
+      );
+
+      expect(decision).toEqual({
+        type: 'answer',
+        text: 'Continue with the caller default.',
+        rationale: 'No safe Brain decision was available; request fallback is continue.',
+      });
+    });
+
+    it('does NOT fire when context is undefined', async () => {
+      const brain = new DefaultBrainArbiter();
+      const decision = await brain.decide(blockedRequest({ context: undefined }));
+
+      expect(decision).toEqual({
+        type: 'answer',
+        text: 'Continue with the caller default.',
+        rationale: 'No safe Brain decision was available; request fallback is continue.',
+      });
+    });
+
+    it('does NOT match false positives like unresolved', async () => {
+      const brain = new DefaultBrainArbiter();
+      const decision = await brain.decide(
+        blockedRequest({ context: 'The issue remains unresolved and needs more work' }),
+      );
+
+      expect(decision).toEqual({
+        type: 'answer',
+        text: 'Continue with the caller default.',
+        rationale: 'No safe Brain decision was available; request fallback is continue.',
+      });
+    });
+
+    it('is case-insensitive for question and context', async () => {
+      const brain = new DefaultBrainArbiter();
+      const decision = await brain.decide(
+        blockedRequest({
+          question: 'THE BUILD IS BLOCKED BY A MISSING DEPENDENCY',
+          context: 'THE DEPENDENCY HAS BEEN RESOLVED AND MERGED',
+        }),
+      );
+
+      expect(decision.type).toBe('answer');
+      if (decision.type === 'answer') {
+        expect(decision.text).toBe('Blocker resolved. Continue with the previously blocked work.');
+      }
+    });
+  });
 });
 
 describe('ObservableBrainArbiter', () => {
