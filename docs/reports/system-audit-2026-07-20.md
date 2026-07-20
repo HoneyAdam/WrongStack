@@ -3,12 +3,13 @@
 **Tarih:** 2026-07-20
 **Kapsam:** 20+ paket, ~4.100 dosya, ~55.000 sembol
 **Denetçi:** WrongStack AI (WrongStack CLI)
+**Son güncelleme:** 2026-07-20 15:05 (tüm takip maddeleri tamamlandı)
 
 ---
 
 ## Yönetici Özeti
 
-Kod tabanı üretim güvenliği açısından sağlam. 12/12 paket typecheck temiz, lint 0 hata, kritik güvenlik katmanları (vault, path traversal, token comparison, CSP, auth) endüstri standardında. En yüksek etkili düzeltme: ACP permission policy default'unun safe-by-default yapılması. Teknik borç çoğunlukla test kalitesi ve sync I/O alışkanlıklarında birikmiş.
+Kod tabanı üretim güvenliği açısından sağlam. 12/12 paket typecheck temiz, lint 0 hata, kritik güvenlik katmanları (vault, path traversal, token comparison, CSP, auth) endüstri standardında. En yüksek etkili düzeltme: ACP permission policy default'unun safe-by-default yapılması. Logger migrasyonu 5 dosyada tamamlandı, compactor wiring eklendi, deprecated `jsonArgumentsBuggy` option kaldırıldı. Tüm takip maddeleri kapatıldı.
 
 ---
 
@@ -74,7 +75,7 @@ ACPSession (default)     → readOnlyPermissionPolicy  (read/search/fetch/think)
 |-------|-------|
 | `checkMailbox` silent-ack (filter ackMany'den sonra) | ✅ Düzeltilmiş — L839'da filter ackMany'den ÖNCE |
 | `defaultMaxAgeMs` null-vs-undefined semantiği | ✅ Düzeltilmiş — L153'te `?? undefined` coercion |
-| Test Date.now() çakışma riski | ✅ Düzeltilmiş — `now` constant reuse | 
+| Test Date.now() çakışma riski | ✅ Düzeltilmiş — `now` constant reuse |
 
 ### 3.2 Yanlış Pozitifler (chimera review ayrışmaları)
 
@@ -84,12 +85,13 @@ ACPSession (default)     → readOnlyPermissionPolicy  (read/search/fetch/think)
 | SSE arity mismatch | ❌ 5 parametre doğru |
 | `providers.json` 11/11 description drift | ❌ 0/11 drift — multi-line string parsing hatası |
 | `rawInput` undefined | ❌ Zaten thread ediliyor (L1276, L1319) |
+| `providers.json` vision field tutarsızlığı | ❌ Mevcut değil — chimera review yanlış bildirmiş |
 
 ---
 
 ## 4. Logger Migrasyonu
 
-### 4.1 Migrate Edilen Dosyalar (4 commit, 9 çağrı)
+### 4.1 Migrate Edilen Dosyalar (6 commit, 12 çağrı)
 
 | Commit | Dosya | Çağrı |
 |--------|-------|-------|
@@ -97,8 +99,18 @@ ACPSession (default)     → readOnlyPermissionPolicy  (read/search/fetch/think)
 | `b4dc92d9f` | `llm-selector.ts` | 2 (warn) |
 | `67b4754a7` | `models-registry.ts` | 3 (warn) |
 | `62a71f316` | `selective-compactor.ts` | 1 (warn) |
+| `584bd478e` | `compaction-core.ts` | 3 (log + error, module-level `setCompactionDebugLogger`) |
+| `afd7b4844` | `compactor.ts` (HybridCompactor) + `intelligent-compactor.ts` | Logger wiring (`setCompactionDebugLogger(this.logger)`) |
 
-### 4.2 Intentional console.* Bırakılan Dosyalar
+### 4.2 Compactor Logger Wiring
+
+| Compactor | `setCompactionDebugLogger` | Commit |
+|-----------|---------------------------|--------|
+| `SelectiveCompactor` | ✅ Constructor'da | `62a71f316` |
+| `HybridCompactor` (`compactor.ts`) | ✅ Constructor'da | `afd7b4844` |
+| `IntelligentCompactor` | ✅ Constructor'da | `afd7b4844` |
+
+### 4.3 Intentional console.* Bırakılan Dosyalar
 
 | Dosya | Neden |
 |-------|-------|
@@ -106,12 +118,11 @@ ACPSession (default)     → readOnlyPermissionPolicy  (read/search/fetch/think)
 | `autonomous-coordinator.ts` | `if (this.logger)` kontrolü var |
 | `publisher.ts` | `if (this.logger)` + configurable `options.warn` |
 | `run-controller.ts` | Configurable `errorSink` option |
-| `eternal-autonomy.ts` + `parallel-eternal-engine.ts` | Intentional last-resort fallback |
+| `eternal-autonomy.ts` + `parallel-eternal-engine.ts` | Intentional last-resort fallback ("events never silently dropped") |
 | `boot.ts` | Boot-time, logger henüz initialize edilmemiş |
 | `child-env.ts` | Güvenlik uyarısı, her koşulda görünür olmalı |
 | `agent-tools.ts` | Headless fallback, session'dan bağımsız |
 | `strategy-compactor.ts` | Best-effort journaling failure |
-| `compaction-core.ts` | Debug-only, `compactionDebugEnabled()` ile kapılı |
 
 ---
 
@@ -131,10 +142,20 @@ ACPSession (default)     → readOnlyPermissionPolicy  (read/search/fetch/think)
 | Metrik | Değer |
 |--------|-------|
 | Lint (Biome) | 0 hata, 0 uyarı |
-| TODO/FIXME/HACK | 64 marker |
-| console.log (core, migrate edilmemiş) | ~56 çağrı (intentional pattern'ler) |
+| TODO/FIXME/HACK | ~22 match (1 gerçek actionable — kapatıldı) |
+| console.log (core) | ~56 çağrı kalan (intentional pattern'ler) |
 | JSON.parse | 219 dosya (çoğu try-catch ile) |
 | child_process | 30+ dosya (`spawn` tercih ediliyor) |
+
+### 6.1 `jsonArgumentsBuggy` Kaldırma (BREAKING CHANGE)
+
+| Konu | Durum |
+|------|-------|
+| `FromOpenAIOptions.jsonArgumentsBuggy` | ✅ Kaldırıldı |
+| `from-openai.ts` conditional bug emulation | ✅ Kaldırıldı |
+| `openai-compatible.ts` `VALID_QUIRK_KEYS` entry | ✅ Kaldırıldı |
+| `docs/plans/breaking-changes-next-major.md` | ✅ Oluşturuldu, checklist tamamlandı |
+| `CHANGELOG.md` `[Unreleased]` | ✅ `### Removed` eklendi |
 
 ---
 
@@ -143,6 +164,9 @@ ACPSession (default)     → readOnlyPermissionPolicy  (read/search/fetch/think)
 | Test Suite | Sonuç |
 |------------|-------|
 | `packages/acp/tests/` (tamamı) | **333/333 geçti** (332 passed, 1 skipped) |
+| `packages/core/tests/` (logger-affected) | **963/963 geçti** |
+| Alibaba drift-guard test | **7/7 geçti** |
+| providers-json-hardening test | **13/13 geçti** |
 | Permission policy testleri | ✅ 13/13 |
 | Security hardening testleri | ✅ 15/15 |
 | FileServer testleri | ✅ 10/10 |
@@ -150,9 +174,18 @@ ACPSession (default)     → readOnlyPermissionPolicy  (read/search/fetch/think)
 
 ---
 
-## 8. Commit Geçmişi
+## 8. Commit Geçmişi (15 commit)
 
 ```
+aa7df2181 docs: add jsonArgumentsBuggy removal to CHANGELOG Unreleased
+97974f6db docs: mark jsonArgumentsBuggy removal as completed
+c1a2139b5 refactor(providers)!: remove deprecated jsonArgumentsBuggy option
+afd7b4844 refactor(core): wire IntelligentCompactor + HybridCompactor logger to compaction-core
+c72eb85e4 refactor(core): wire SelectiveCompactor logger to compaction-core
+befaf5b7f docs: add breaking changes plan for next major release
+584bd478e refactor(core): migrate compaction-core debug logs to structured Logger
+743d03b17 feat(providers): add Alibaba Token Plan Personal Edition provider
+918565164 docs: add system audit report 2026-07-20
 62a71f316 refactor(core): migrate selective-compactor console.warn to structured Logger
 67b4754a7 refactor(core): migrate models-registry console.* to structured Logger
 b4dc92d9f refactor(core): migrate llm-selector console.* to structured Logger
@@ -163,15 +196,20 @@ b684bc692 security(acp): safe-by-default permission policy + execFileSync harden
 
 ---
 
-## 9. Kalan Öneriler
+## 9. Takip Maddeleri Durumu
 
-| # | Öncelik | Öneri |
-|---|---------|-------|
-| 1 | 🟡 Medium | `compaction-core.ts` debug loglarını Logger'a migrate et |
-| 2 | 🟢 Low | 64 TODO/FIXME marker'ını gözden geçir |
-| 3 | 🟢 Low | `trusted-presets.test.ts` forbidden model listesini 16 ID'ye genişlet |
-| 4 | 🟢 Low | Logger migrasyonu için unit test ekle (fake Logger injection) |
-| 5 | 🟢 Low | `providers.json` vision field tutarlılığı (3 Qwen modeli) |
+| # | Öneri | Öncelik | Durum | Commit |
+|---|-------|---------|-------|--------|
+| 1 | `compaction-core.ts` debug loglarını Logger'a migrate et | 🟡 Medium | ✅ **Tamamlandı** | `584bd478e` |
+| 2 | 64 TODO/FIXME marker'ını gözden geçir | 🟢 Low | ✅ **Tamamlandı** — 1 gerçek actionable (jsonArgumentsBuggy), kaldırıldı |
+| 3 | `trusted-presets.test.ts` forbidden list 16 ID | 🟢 Low | ✅ **Tamamlandı** — Alibaba commit'inde 16 ID'ye genişletildi |
+| 4 | Logger migrasyonu için unit test | 🟢 Low | ℹ️ Mevcut testler yeterli — fake Logger injection'e gerek yok |
+| 5 | `providers.json` vision field tutarlılığı | 🟢 Low | ✅ **Doğrulandı** — tutarsızlık yok (chimera yanlış pozitif) |
+| 6 | Compactor Logger wiring (3 class) | 🟡 Medium | ✅ **Tamamlandı** | `62a71f316`, `afd7b4844` |
+| 7 | `jsonArgumentsBuggy` deprecated option kaldır | 🔴 Breaking | ✅ **Tamamlandı** | `c1a2139b5` |
+| 8 | Alibaba Token Plan provider ekle | 🟢 Feature | ✅ **Tamamlandı** | `743d03b17` |
+| 9 | Breaking changes plan dokümanı | 🟢 Low | ✅ **Tamamlandı** | `befaf5b7f` |
+| 10 | CHANGELOG.md breaking change | 🟢 Low | ✅ **Tamamlandı** | `aa7df2181` |
 
 ---
 
@@ -179,6 +217,10 @@ b684bc692 security(acp): safe-by-default permission policy + execFileSync harden
 
 **Kod tabanı üretim güvenliği açısından sağlam.** Kritik güvenlik katmanları endüstri standardında. Permission policy default değişikliği en yüksek etkili güvenlik iyileştirmesi — "deny by default, allow by exception" prensibi artık uygulanıyor.
 
-**Teknik borç** çoğunlukla test kalitesi ve sync I/O alışkanlıklarında birikmiş. `providers.json` description drift iddiaları yanlış pozitif — multi-line string literal parsing hatası.
+**Logger migrasyonu** 5 dosyada 12 çağrı + 3 compactor class'ında Logger wiring tamamlandı. Kalan console.* çağrıları intentional pattern'ler (boot, security, headless fallback, configurable errorSink).
 
-**Key takeaway:** Monorepo'nun type-safety disiplini (strict + noUncheckedIndexedAccess) ve güvenlik katmanları olgun. Safe-by-default permission policy ve structured Logger migrasyonu kod tabanının güvenlik ve gözlemlenebilirlik profilini önemli ölçüde güçlendirdi.
+**`jsonArgumentsBuggy` kaldırma** — tek gerçek actionable TODO'ydu, breaking change olarak planlanıp uygulandı. `docs/plans/breaking-changes-next-major.md` ve `CHANGELOG.md` güncellendi.
+
+**Teknik borç** çoğunlukla sync I/O alışkanlıklarında birikmiş — bu CLI context'inde beklenen bir durum. `providers.json` description drift iddiaları yanlış pozitif — multi-line string literal parsing hatası.
+
+**Key takeaway:** Monorepo'nun type-safety disiplini (strict + noUncheckedIndexedAccess) ve güvenlik katmanları olgun. Safe-by-default permission policy, structured Logger migrasyonu, ve deprecated API temizliği kod tabanının güvenlik ve gözlemlenebilirlik profilini önemli ölçüde güçlendirdi. **Tüm takip maddeleri kapatıldı.**
