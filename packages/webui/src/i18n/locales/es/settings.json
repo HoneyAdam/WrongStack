@@ -200,10 +200,14 @@
     "signedIn": "Sesión iniciada.",
     "signedInToast": "Sesión iniciada — {{provider}}",
     "signInFailed": "Inicio de sesión fallido",
-    "codexAccountCount_one": "{{count}} cuenta conectada",
-    "codexAccountCount_other": "{{count}} cuentas conectadas",
+    "accountCount_one": "{{count}} cuenta guardada",
+    "accountCount_other": "{{count}} cuentas guardadas",
     "active": "Activo",
-    "inactive": "Inactivo"
+    "inactive": "Inactivo",
+    "retry": "Reintentar",
+    "retryLogin": "Re-autenticar esta cuenta",
+    "newAccount": "Nueva cuenta",
+    "aliasPlaceholder": "ej. {{default}}"
   },
   "agent": {
     "modelHeading": "Modelo",

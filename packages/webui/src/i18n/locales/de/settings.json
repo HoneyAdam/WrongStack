@@ -200,10 +200,14 @@
     "signedIn": "Angemeldet.",
     "signedInToast": "Angemeldet — {{provider}}",
     "signInFailed": "Anmeldung fehlgeschlagen",
-    "codexAccountCount_one": "{{count}} Konto verbunden",
-    "codexAccountCount_other": "{{count}} Konten verbunden",
+    "accountCount_one": "{{count}} Konto gespeichert",
+    "accountCount_other": "{{count}} Konten gespeichert",
     "active": "Aktiv",
-    "inactive": "Inaktiv"
+    "inactive": "Inaktiv",
+    "retry": "Erneut",
+    "retryLogin": "Dieses Konto erneut authentifizieren",
+    "newAccount": "Neues Konto",
+    "aliasPlaceholder": "z.B. {{default}}"
   },
   "agent": {
     "modelHeading": "Modell",

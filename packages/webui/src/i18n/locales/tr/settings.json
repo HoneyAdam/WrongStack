@@ -200,10 +200,14 @@
     "signedIn": "Oturum açıldı.",
     "signedInToast": "Oturum açıldı — {{provider}}",
     "signInFailed": "Oturum açma başarısız",
-    "codexAccountCount_one": "{{count}} hesap bağlı",
-    "codexAccountCount_other": "{{count}} hesap bağlı",
+    "accountCount_one": "{{count}} hesap kayıtlı",
+    "accountCount_other": "{{count}} hesap kayıtlı",
     "active": "Aktif",
-    "inactive": "Pasif"
+    "inactive": "Pasif",
+    "retry": "Yeniden dene",
+    "retryLogin": "Bu hesabı yeniden doğrula",
+    "newAccount": "Yeni hesap",
+    "aliasPlaceholder": "örn. {{default}}"
   },
   "agent": {
     "modelHeading": "Model",

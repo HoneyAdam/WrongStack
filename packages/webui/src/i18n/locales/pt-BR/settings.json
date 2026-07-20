@@ -200,10 +200,14 @@
     "signedIn": "Conectado.",
     "signedInToast": "Conectado — {{provider}}",
     "signInFailed": "Login falhou",
-    "codexAccountCount_one": "{{count}} conta conectada",
-    "codexAccountCount_other": "{{count}} contas conectadas",
+    "accountCount_one": "{{count}} conta salva",
+    "accountCount_other": "{{count}} contas salvas",
     "active": "Ativo",
-    "inactive": "Inativo"
+    "inactive": "Inativo",
+    "retry": "Repetir",
+    "retryLogin": "Reautenticar esta conta",
+    "newAccount": "Nova conta",
+    "aliasPlaceholder": "ex. {{default}}"
   },
   "agent": {
     "modelHeading": "Modelo",

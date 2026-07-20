@@ -102,6 +102,8 @@ export const PREF_KEYS = [
   'autoReviewCascadeOn',
   // Per-plugin enable/disable map (parity with the embedded server).
   'pluginsEnabled',
+  // Fleet chat verbosity: off | full (migrated from streamFleet boolean).
+  'fleetChatVerbosity',
 ] as const;
 
 export interface PrefHelperDeps {

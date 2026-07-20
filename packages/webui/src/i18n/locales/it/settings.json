@@ -200,10 +200,14 @@
     "signedIn": "Accesso effettuato.",
     "signedInToast": "Accesso effettuato — {{provider}}",
     "signInFailed": "Accesso fallito",
-    "codexAccountCount_one": "{{count}} account collegato",
-    "codexAccountCount_other": "{{count}} account collegati",
+    "accountCount_one": "{{count}} account salvato",
+    "accountCount_other": "{{count}} account salvati",
     "active": "Attivo",
-    "inactive": "Inattivo"
+    "inactive": "Inattivo",
+    "retry": "Riprova",
+    "retryLogin": "Ri-autentica questo account",
+    "newAccount": "Nuovo account",
+    "aliasPlaceholder": "es. {{default}}"
   },
   "agent": {
     "modelHeading": "Modello",

@@ -370,6 +370,7 @@ const ENUM_PREF_KEYS: Record<string, Set<string>> = {
   // Chimera autoFix + auto-review cascade threshold
   chimeraAutoFix: new Set(['off', 'ask', 'auto']),
   autoReviewCascadeOn: new Set(['off', 'critical', 'high']),
+  fleetChatVerbosity: new Set(['off', 'full']),
 };
 
 function validateModelRuntimeValue(
