@@ -642,7 +642,6 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   const httpServer = startStaticServe({
     host,
     httpPort,
-    wsPort,
     globalRoot,
     distDir: opts.frontendDistDir,
     onFleetPing: () => {

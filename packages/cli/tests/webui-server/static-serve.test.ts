@@ -56,7 +56,6 @@ describe('startStaticServe', () => {
   const baseOpts = {
     host: '127.0.0.1',
     httpPort: 3456,
-    wsPort: 3457,
     globalRoot: '/tmp/.wrongstack',
   };
 

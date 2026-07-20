@@ -16,7 +16,7 @@ import { type CreateHttpServerOptions, createHttpServer } from '@wrongstack/webu
  * After this PR, the dist-resolution lives in
  * `webui-server/static-serve.ts` and the only thing
  * `runWebUI` does is call `startStaticServe({ host,
- * httpPort, wsPort, globalRoot })`. The function returns
+ * httpPort, globalRoot })`. The function returns
  * the listening `Server` and its real `port` (the OS
  * may reassign if the requested port was in use), or
  * `null` when the webui package is unbuilt.
@@ -34,7 +34,6 @@ export interface StaticServeHandle {
 export interface StaticServeOptions {
   host: string;
   httpPort: number;
-  wsPort: number;
   globalRoot: string;
   /** Explicit frontend build. Omitted for the regular @wrongstack/webui app. */
   distDir?: string | undefined;
