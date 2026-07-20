@@ -5,7 +5,6 @@ import {
   getTokenFromWsUrl,
   httpOriginForAuth,
   resolvePublicWsUrl,
-  resolveWsPort,
   stripTokenFromUrl,
 } from '../../src/lib/ws-client-utils.js';
 
@@ -32,49 +31,6 @@ describe('ws-client-utils', () => {
     });
   });
 
-  describe('resolveWsPort', () => {
-    let originalQuerySelector: typeof document.querySelector;
-
-    beforeEach(() => {
-      originalQuerySelector = document.querySelector.bind(document);
-    });
-
-    afterEach(() => {
-      document.querySelector = originalQuerySelector;
-    });
-
-    it('returns the port from a valid meta tag', () => {
-      vi.spyOn(document, 'querySelector').mockReturnValue({
-        getAttribute: () => '4096',
-      } as Element);
-      expect(resolveWsPort()).toBe(4096);
-    });
-
-    it('falls back to 3457 when meta tag is absent', () => {
-      vi.spyOn(document, 'querySelector').mockReturnValue(null);
-      expect(resolveWsPort()).toBe(3457);
-    });
-
-    it('falls back to 3457 when content is not a number', () => {
-      vi.spyOn(document, 'querySelector').mockReturnValue({
-        getAttribute: () => 'not-a-port',
-      } as Element);
-      expect(resolveWsPort()).toBe(3457);
-    });
-
-    it('falls back to 3457 when port is out of range', () => {
-      vi.spyOn(document, 'querySelector').mockReturnValue({
-        getAttribute: () => '0',
-      } as Element);
-      expect(resolveWsPort()).toBe(3457);
-
-      vi.spyOn(document, 'querySelector').mockReturnValue({
-        getAttribute: () => '99999',
-      } as Element);
-      expect(resolveWsPort()).toBe(3457);
-    });
-  });
-
   describe('defaultWsUrl', () => {
     const originalLocation = window.location;
 
@@ -91,7 +47,7 @@ describe('ws-client-utils', () => {
         writable: true,
       });
       vi.spyOn(document, 'querySelector').mockReturnValue(null);
-      expect(defaultWsUrl()).toBe('ws://127.0.0.1:3457');
+      expect(defaultWsUrl()).toBe('ws://127.0.0.1:3456');
     });
 
     it('returns loopback URL when on 127.0.0.1', () => {
@@ -99,7 +55,7 @@ describe('ws-client-utils', () => {
         value: { hostname: '127.0.0.1', port: '3456', protocol: 'http:', search: '' },
         writable: true,
       });
-      expect(defaultWsUrl()).toBe('ws://127.0.0.1:3457');
+      expect(defaultWsUrl()).toBe('ws://127.0.0.1:3456');
     });
 
     it('returns hostname-based URL for non-loopback hosts', () => {
@@ -107,7 +63,7 @@ describe('ws-client-utils', () => {
         value: { hostname: '192.168.1.100', port: '3456', protocol: 'http:', search: '' },
         writable: true,
       });
-      expect(defaultWsUrl()).toBe('ws://192.168.1.100:3457');
+      expect(defaultWsUrl()).toBe('ws://192.168.1.100:3456');
     });
 
     it('carries the page token into the initial WS URL', () => {
@@ -115,7 +71,7 @@ describe('ws-client-utils', () => {
         value: { hostname: '192.168.1.100', port: '3456', protocol: 'http:', search: '?token=abc 123' },
         writable: true,
       });
-      expect(defaultWsUrl()).toBe('ws://192.168.1.100:3457?token=abc%20123');
+      expect(defaultWsUrl()).toBe('ws://192.168.1.100:3456?token=abc%20123');
     });
 
     it('uses wss when the page is served over https', () => {
@@ -123,7 +79,7 @@ describe('ws-client-utils', () => {
         value: { hostname: 'wrongstack.example.com', port: '', protocol: 'https:', search: '' },
         writable: true,
       });
-      expect(defaultWsUrl()).toBe('wss://wrongstack.example.com:3457');
+      expect(defaultWsUrl()).toBe('wss://wrongstack.example.com');
     });
 
     it('prefers the injected public WebSocket URL', () => {

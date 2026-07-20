@@ -13,7 +13,6 @@ import {
   defaultWsUrl,
   httpOriginForAuth,
   resolvePublicWsUrl,
-  resolveWsPort,
 } from '../../src/lib/ws-client-utils';
 import type { WSServerMessage } from '../../src/types';
 
@@ -257,14 +256,14 @@ describe('defaultWsUrl edge cases', () => {
     vi.stubGlobal('window', {
       location: { hostname: '[::1]', port: '3456', protocol: 'http:', search: '' },
     });
-    expect(defaultWsUrl()).toBe('ws://127.0.0.1:3457');
+    expect(defaultWsUrl()).toBe('ws://127.0.0.1:3456');
   });
 
   it('handles ::1 (without brackets)', () => {
     vi.stubGlobal('window', {
       location: { hostname: '::1', port: '3456', protocol: 'http:', search: '' },
     });
-    expect(defaultWsUrl()).toBe('ws://127.0.0.1:3457');
+    expect(defaultWsUrl()).toBe('ws://127.0.0.1:3456');
   });
 });
 
@@ -290,17 +289,6 @@ describe('resolvePublicWsUrl edge cases', () => {
   it('returns null when document is undefined', () => {
     vi.stubGlobal('document', undefined);
     expect(resolvePublicWsUrl()).toBeNull();
-  });
-});
-
-describe('resolveWsPort edge cases', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('handles missing document', () => {
-    vi.stubGlobal('document', undefined);
-    expect(resolveWsPort()).toBe(3457);
   });
 });
 

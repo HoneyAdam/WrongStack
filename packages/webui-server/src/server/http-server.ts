@@ -73,14 +73,6 @@ export interface CreateHttpServerOptions {
   /** Resolved path to the directory containing the built React assets. */
   distDir: string;
   /**
-   * WS port — used by the WS-only fallback path (when the shared-port
-   * design is unavailable, e.g. when `distDir` is empty). On the
-   * shared-port happy path, the WS server attaches to the HTTP `Server`
-   * and this value is informational. Not referenced in the CSP (which
-   * uses `'self'` to cover same-origin WS upgrades on the shared port).
-   */
-  wsPort: number;
-  /**
    * Public WebSocket URL injected into the frontend. Use this behind tunnels or
    * reverse proxies where the browser-facing WS URL differs from host:wsPort.
    */
@@ -147,29 +139,6 @@ const MIME_TYPES: Record<string, string> = {
   '.png': 'image/png',
   '.ico': 'image/x-icon',
 };
-
-/**
- * Inject the live WS port into the served HTML so the frontend connects to
- * THIS instance's backend instead of a hardcoded default. Enables running
- * several WebUI instances simultaneously on different PORT/WS_PORT pairs
- * (e.g. one per project) — each instance serves HTML stamped with its own
- * WS port.
- *
- * A `<meta>` tag is used deliberately rather than an inline `<script>`: the
- * CSP sets `script-src 'self'`, which would block an inline script, but meta
- * tags are not subject to script-src. The frontend reads
- * `meta[name="wrongstack-ws-port"]` (see ws-client.ts `defaultWsUrl`).
- */
-export function injectWsPort(html: string, wsPort: number): string {
-  const tag = `<meta name="wrongstack-ws-port" content="${wsPort}" />`;
-  // Idempotent: never inject twice if the source HTML already carries one.
-  if (html.includes('name="wrongstack-ws-port"')) return html;
-  if (html.includes('</head>')) {
-    return html.replace('</head>', `  ${tag}\n  </head>`);
-  }
-  // No <head> (unexpected) — prepend so the tag is still in the document.
-  return `${tag}\n${html}`;
-}
 
 function escapeHtmlAttr(value: string): string {
   return value

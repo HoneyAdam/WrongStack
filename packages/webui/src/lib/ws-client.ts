@@ -1155,10 +1155,9 @@ let client: WrongStackWebSocketClient | null = null;
  * DNS dance entirely. For any other hostname (LAN IP, custom WS_HOST override)
  * we keep the page's hostname so things still "just work".
  *
- * The WS port is NOT hardcoded: the HTTP server stamps the live port into the
- * served HTML as `<meta name="wrongstack-ws-port">` (see http-server.ts), so
- * several WebUI instances can run on different PORT/WS_PORT pairs at once. We
- * fall back to 3457 only when the tag is absent (e.g. the vite dev server).
+ * The WS port matches the HTTP port (single-port design): the browser
+ * derives it from `window.location` rather than a separate meta tag, so
+ * several WebUI instances can run on different ports at once.
  */
 export function getWSClient(url?: string): WrongStackWebSocketClient {
   if (!client) {

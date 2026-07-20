@@ -157,17 +157,6 @@ export function stripTokenFromAddressBar(): void {
   }
 }
 
-const DEFAULT_WS_PORT = 3457;
-
-export function resolveWsPort(): number {
-  if (typeof document === 'undefined') return DEFAULT_WS_PORT;
-  const raw = document
-    .querySelector('meta[name="wrongstack-ws-port"]')
-    ?.getAttribute('content');
-  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
-  return Number.isFinite(parsed) && parsed > 0 && parsed < 65536 ? parsed : DEFAULT_WS_PORT;
-}
-
 export function resolvePublicWsUrl(): string | null {
   if (typeof document === 'undefined') return null;
   const raw = document
@@ -191,18 +180,21 @@ export function resolvePublicWsUrl(): string | null {
 export function defaultWsUrl(): string {
   const publicWsUrl = resolvePublicWsUrl();
   if (publicWsUrl) return publicWsUrl;
-  const port = resolveWsPort();
+  // Shared-port design: WS shares the HTTP port, so derive the WS URL
+  // from the page origin. No separate WS port or meta tag needed.
   if (typeof window === 'undefined' || !window.location?.hostname) {
-    return `ws://127.0.0.1:${port}`;
+    return 'ws://127.0.0.1:3456';
   }
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
   const host = window.location.hostname.toLowerCase();
+  const port = window.location.port;
   const token = getTokenFromPageUrl();
   const query = token ? `?token=${encodeURIComponent(token)}` : '';
-  if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1') {
-    return `${protocol}://127.0.0.1:${port}${query}`;
-  }
-  return `${protocol}://${window.location.hostname}:${port}${query}`;
+  // Use the page's own host and port (WS shares the HTTP port)
+  const hostPart = host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1'
+    ? '127.0.0.1'
+    : host;
+  return `${protocol}://${hostPart}${port ? `:${port}` : ''}${query}`;
 }
 
 /**

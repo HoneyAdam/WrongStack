@@ -105,19 +105,3 @@ describe('stripTokenFromAddressBar — no-op when window is undefined', () => {
     expect(() => stripTokenFromAddressBar()).not.toThrow();
   });
 });
-
-describe('resolveWsPort — SSR guard', () => {
-  beforeEach(() => {
-    vi.resetModules();
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it('returns default port 3457 when document is undefined', async () => {
-    vi.stubGlobal('document', undefined);
-    const { resolveWsPort } = await import('../../src/lib/ws-client-utils');
-    expect(resolveWsPort()).toBe(3457);
-  });
-});

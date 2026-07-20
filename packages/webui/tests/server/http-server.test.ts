@@ -18,7 +18,6 @@ import {
   createHttpServer,
   decodeSessionId,
   injectWsConfig,
-  injectWsPort,
   isInsideDist,
 } from '@wrongstack/webui-server';
 
@@ -39,7 +38,7 @@ beforeAll(async () => {
     '{"name":"test"}',
   );
 
-  server = createHttpServer({ host: '127.0.0.1', distDir, wsPort: 9999 });
+  server = createHttpServer({ host: '127.0.0.1', distDir });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const addr = server.address();
   if (!addr || typeof addr === 'string') throw new Error('bad listen address');
@@ -52,24 +51,24 @@ afterAll(async () => {
 });
 
 describe('buildCspHeader', () => {
-  it('embeds the WS port in connect-src and pins the policy', () => {
-    const csp = buildCspHeader(3457);
+  it('allows same-origin WebSocket upgrades and pins the policy', () => {
+    const csp = buildCspHeader();
     expect(csp).toContain("default-src 'self'");
-    expect(csp).toContain('ws://127.0.0.1:3457');
-    expect(csp).toContain('wss://127.0.0.1:3457');
-    expect(csp).not.toContain('[::1]');
+    expect(csp).toContain("connect-src 'self'");
+    expect(csp).not.toContain('ws://');
+    expect(csp).not.toContain('wss://');
     expect(csp).toContain("frame-ancestors 'none'");
   });
 
-  it('allows the request host for remote/tunnel access', () => {
-    const csp = buildCspHeader(3457, 'wrongstack.example.com');
-    expect(csp).toContain('ws://wrongstack.example.com:3457');
-    expect(csp).toContain('wss://wrongstack.example.com:3457');
+  it('allows an explicit public WebSocket URL for tunnel access', () => {
+    const csp = buildCspHeader('wss://wrongstack-ws.example.com/ws');
+    expect(csp).toContain('wss://wrongstack-ws.example.com');
   });
 
-  it('allows an explicit public WebSocket URL for tunnel access', () => {
-    const csp = buildCspHeader(3457, undefined, 'wss://wrongstack-ws.example.com/ws');
-    expect(csp).toContain('wss://wrongstack-ws.example.com');
+  it('ignores non-WebSocket public URLs', () => {
+    const csp = buildCspHeader('https://wrongstack.example.com');
+    expect(csp).toContain("connect-src 'self'");
+    expect(csp).not.toContain('https://wrongstack.example.com');
   });
 
   it('keeps script-src strict — no unsafe-inline and no per-extension hashes', () => {
@@ -79,7 +78,7 @@ describe('buildCspHeader', () => {
     // noise that blocks the extension, never the app — and their sha256 hashes
     // are per-extension + change on every update, so we deliberately do NOT
     // allow-list them here.
-    const csp = buildCspHeader(3457);
+    const csp = buildCspHeader();
     expect(csp).not.toMatch(/'sha256-/);
     // `style-src` keeps `'unsafe-inline'` for React's runtime style mutations,
     // so assert against the script directive only.
@@ -114,35 +113,12 @@ describe('decodeSessionId', () => {
   });
 });
 
-describe('injectWsPort', () => {
-  it('injects a meta tag before </head> when present', () => {
-    const out = injectWsPort('<html><head><title>x</title></head><body></body></html>', 3557);
-    expect(out).toContain('<meta name="wrongstack-ws-port" content="3557" />');
-    // Must land inside the head, before the closing tag.
-    expect(out.indexOf('wrongstack-ws-port')).toBeLessThan(out.indexOf('</head>'));
-  });
-
-  it('prepends the meta tag when there is no </head>', () => {
-    const out = injectWsPort('<!doctype html><title>x</title>', 3557);
-    expect(out).toContain('<meta name="wrongstack-ws-port" content="3557" />');
-    expect(out).toContain('<title>x</title>');
-  });
-
-  it('is idempotent — never injects twice', () => {
-    const once = injectWsPort('<head></head>', 3557);
-    const twice = injectWsPort(once, 9999);
-    expect(twice).toBe(once);
-    expect(twice.match(/wrongstack-ws-port/g)).toHaveLength(1);
-  });
-});
-
 describe('injectWsConfig', () => {
-  it('injects the live WS port and explicit public WS URL', () => {
+  it('injects an explicit public WS URL without a separate port tag', () => {
     const out = injectWsConfig('<html><head><title>x</title></head><body></body></html>', {
-      wsPort: 3557,
       publicWsUrl: 'wss://wrongstack-ws.example.com/socket?x=1&y="2"',
     });
-    expect(out).toContain('<meta name="wrongstack-ws-port" content="3557" />');
+    expect(out).not.toContain('wrongstack-ws-port');
     expect(out).toContain(
       '<meta name="wrongstack-ws-url" content="wss://wrongstack-ws.example.com/socket?x=1&amp;y=&quot;2&quot;" />',
     );
@@ -150,15 +126,15 @@ describe('injectWsConfig', () => {
 });
 
 describe('createHttpServer', () => {
-  it('serves index.html for / with the live WS port stamped in', async () => {
+  it('serves index.html for / with same-origin WS allowed', async () => {
     const res = await fetch(`${baseUrl}/`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('text/html');
-    expect(res.headers.get('content-security-policy')).toContain('ws://127.0.0.1:9999');
+    expect(res.headers.get('content-security-policy')).toContain("connect-src 'self'");
     const html = await res.text();
     expect(html).toContain('<title>root</title>');
-    // The frontend reads this to dial THIS instance's backend (multi-instance).
-    expect(html).toContain('<meta name="wrongstack-ws-port" content="9999" />');
+    // The frontend derives the shared WS endpoint from the page origin.
+    expect(html).not.toContain('wrongstack-ws-port');
   });
 
   it('serves .js with the right MIME type', async () => {
@@ -198,7 +174,7 @@ describe('createHttpServer', () => {
     expect(res.headers.get('content-type')).toBe('text/html');
     // SPA fallback must also include the CSP — the audit found an
     // unprotected deep-link window otherwise.
-    expect(res.headers.get('content-security-policy')).toContain('ws://127.0.0.1:9999');
+    expect(res.headers.get('content-security-policy')).toContain("connect-src 'self'");
   });
 
   it('requires token access on non-loopback binds and sets the auth cookie from ?token=', async () => {
@@ -206,7 +182,6 @@ describe('createHttpServer', () => {
     const protectedServer = createHttpServer({
       host: '0.0.0.0',
       distDir,
-      wsPort: 9997,
       apiToken: token,
     });
     await new Promise<void>((resolve) => protectedServer.listen(0, '127.0.0.1', resolve));
@@ -236,7 +211,6 @@ describe('createHttpServer', () => {
     const protectedServer = createHttpServer({
       host: '127.0.0.1',
       distDir,
-      wsPort: 9996,
       apiToken: token,
       requireToken: true,
     });
@@ -250,7 +224,7 @@ describe('createHttpServer', () => {
 
       const allowed = await fetch(`${protectedBase}/?token=${encodeURIComponent(token)}`);
       expect(allowed.status).toBe(200);
-      expect(await allowed.text()).toContain('<meta name="wrongstack-ws-port" content="9996" />');
+      expect(await allowed.text()).not.toContain('wrongstack-ws-port');
     } finally {
       await new Promise<void>((resolve) => protectedServer.close(() => resolve()));
     }
@@ -315,7 +289,7 @@ describe('GET /api/sessions/:id/events (watch stream)', () => {
         .join('\n') + '\n';
     await fs.writeFile(path.join(paths.projectSessions, `${sessionId}.jsonl`), lines);
 
-    evServer = createHttpServer({ host: '127.0.0.1', distDir, wsPort: 9998, globalRoot: gRoot });
+    evServer = createHttpServer({ host: '127.0.0.1', distDir, globalRoot: gRoot });
     await new Promise<void>((resolve) => evServer.listen(0, '127.0.0.1', resolve));
     const addr = evServer.address();
     if (!addr || typeof addr === 'string') throw new Error('bad listen address');

@@ -83,7 +83,6 @@ export {
   createHttpServer,
   decodeSessionId,
   injectWsConfig,
-  injectWsPort,
   isInsideDist,
 } from './http-server.js';
 export {

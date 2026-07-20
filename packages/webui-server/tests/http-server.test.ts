@@ -18,7 +18,6 @@ import {
   createHttpServer,
   decodeSessionId,
   injectWsConfig,
-  injectWsPort,
   isInsideDist,
 } from '@wrongstack/webui-server';
 
@@ -114,28 +113,6 @@ describe('decodeSessionId', () => {
     // A lone `%` makes decodeURIComponent throw; the helper must swallow it so
     // the caller still produces a clean 404 instead of a 500.
     expect(decodeSessionId('bad%')).toBe('bad%');
-  });
-});
-
-describe('injectWsPort', () => {
-  it('injects a meta tag before </head> when present', () => {
-    const out = injectWsPort('<html><head><title>x</title></head><body></body></html>', 3557);
-    expect(out).toContain('<meta name="wrongstack-ws-port" content="3557" />');
-    // Must land inside the head, before the closing tag.
-    expect(out.indexOf('wrongstack-ws-port')).toBeLessThan(out.indexOf('</head>'));
-  });
-
-  it('prepends the meta tag when there is no </head>', () => {
-    const out = injectWsPort('<!doctype html><title>x</title>', 3557);
-    expect(out).toContain('<meta name="wrongstack-ws-port" content="3557" />');
-    expect(out).toContain('<title>x</title>');
-  });
-
-  it('is idempotent — never injects twice', () => {
-    const once = injectWsPort('<head></head>', 3557);
-    const twice = injectWsPort(once, 9999);
-    expect(twice).toBe(once);
-    expect(twice.match(/wrongstack-ws-port/g)).toHaveLength(1);
   });
 });
 
