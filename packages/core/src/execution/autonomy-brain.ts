@@ -303,6 +303,23 @@ export function quickDecide(request: BrainDecisionRequest): BrainDecision | null
     };
   }
 
+  // Blocked dependency explicitly resolved → continue. Requires the caller
+  // to have declared continue safe and no competing alternative in the
+  // question. The context must contain an explicit resolution marker so
+  // that "blocked by X" without evidence of resolution still reaches the LLM.
+  if (
+    q.includes('blocked') &&
+    request.fallback === 'continue' &&
+    !/\bor\b/.test(q) &&
+    /\b(?:resolved|fixed|completed|unblocked|available|done|merged|landed|shipped)\b/.test(ctx)
+  ) {
+    return {
+      type: 'answer',
+      text: 'Blocker resolved. Continue with the previously blocked work.',
+      rationale: 'Heuristic: blocking dependency explicitly resolved — resuming.',
+    };
+  }
+
   // Goal complete verification → needs LLM evaluation
   if (q.includes('goal complete') || q.includes('mission complete')) {
     return null;

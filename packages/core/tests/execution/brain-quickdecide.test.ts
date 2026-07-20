@@ -144,6 +144,79 @@ describe('quickDecide — retry exhaustion heuristic', () => {
   });
 });
 
+describe('quickDecide — blocked-resolved heuristic', () => {
+  it('auto-continues when question mentions blocked and context has resolution marker', () => {
+    const d = quickDecide(
+      req({
+        question: 'Task is blocked by the auth dependency',
+        context: 'auth-service has been resolved and deployed',
+        fallback: 'continue',
+      }),
+    );
+    expect(d).not.toBeNull();
+    expect(d!.type).toBe('answer');
+    expect(d!.text).toContain('Blocker resolved');
+  });
+
+  it('matches all resolution markers', () => {
+    for (const marker of ['resolved', 'fixed', 'completed', 'unblocked', 'available', 'done', 'merged', 'landed', 'shipped']) {
+      const d = quickDecide(
+        req({
+          question: 'Work is blocked by upstream',
+          context: `the dependency is ${marker}`,
+          fallback: 'continue',
+        }),
+      );
+      expect(d).not.toBeNull();
+      expect(d!.type).toBe('answer');
+    }
+  });
+
+  it('does NOT fire without a resolution marker in context', () => {
+    const d = quickDecide(
+      req({
+        question: 'Task is blocked by the auth dependency',
+        context: 'auth-service is still being worked on',
+        fallback: 'continue',
+      }),
+    );
+    expect(d).toBeNull();
+  });
+
+  it('does NOT fire without blocked in the question', () => {
+    const d = quickDecide(
+      req({
+        question: 'What should we do about the dependency?',
+        context: 'dependency resolved',
+        fallback: 'continue',
+      }),
+    );
+    expect(d).toBeNull();
+  });
+
+  it('does NOT fire when fallback is not continue', () => {
+    const d = quickDecide(
+      req({
+        question: 'Task is blocked by dependency',
+        context: 'dependency resolved',
+        fallback: 'ask_human',
+      }),
+    );
+    expect(d).toBeNull();
+  });
+
+  it('does NOT fire when question contains "or" (alternative)', () => {
+    const d = quickDecide(
+      req({
+        question: 'Blocked task — continue or escalate?',
+        context: 'dependency resolved',
+        fallback: 'continue',
+      }),
+    );
+    expect(d).toBeNull();
+  });
+});
+
 describe('quickDecide — goal complete passthrough', () => {
   it('returns null for goal-complete questions (defers to LLM)', () => {
     const d = quickDecide(
