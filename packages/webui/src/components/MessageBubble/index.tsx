@@ -75,14 +75,26 @@ export const MessageBubble = memo(function MessageBubble({
   const localPrefs = useLocalPrefs();
   const { autonomy, yolo, showThinkingLogs } = localPrefs;
 
-  /** When model reasoning is turned off and the message has only a
-   *  thinking log (no visible content), suppress the empty "No content"
-   *  placeholder and the timestamp — there's nothing to show. */
-  const hideEmptyReasoning =
-    !showThinkingLogs && !!message.thinkingLog && !message.content && !message.streaming;
-
+  // ── Hooks (must precede early return — Rules of Hooks) ──
   const { canAutoSubmit, recordAutoSubmit, recordPrompt, capWarned } = useAutoSubmitStreak();
   const canAutoSubmitNow = canAutoSubmit();
+
+  useEffect(() => {
+    if (!message.thinkingLog || !searchOpen || searchActiveMessageId !== message.id) return;
+    const query = useUIStore.getState().searchQuery.trim().toLowerCase();
+    if (query && message.thinkingLog.text.toLowerCase().includes(query)) {
+      setThinkingExpanded(true);
+    }
+  }, [message.id, message.thinkingLog, searchActiveMessageId, searchOpen]);
+
+  /** When model reasoning is turned off and the message has only a
+   *  thinking log (no visible content), suppress the entire message
+   *  bubble — avatar, role label, content card, and timestamp.
+   *  Without this, the outer container div + avatar + empty card
+   *  remain visible even though the reasoning content is hidden. */
+  const hideEmptyReasoning =
+    !showThinkingLogs && !!message.thinkingLog && !message.content && !message.streaming;
+  if (hideEmptyReasoning) return null;
 
   /** Auto-submit callback for YOLO+auto mode countdown completion */
   const handleAutoSubmit = (text: string) => {
@@ -146,14 +158,6 @@ export const MessageBubble = memo(function MessageBubble({
    * field breaks that coupling.
    */
   const nextSteps = message.nextSteps?.steps ?? [];
-
-  useEffect(() => {
-    if (!message.thinkingLog || !searchOpen || searchActiveMessageId !== message.id) return;
-    const query = useUIStore.getState().searchQuery.trim().toLowerCase();
-    if (query && message.thinkingLog.text.toLowerCase().includes(query)) {
-      setThinkingExpanded(true);
-    }
-  }, [message.id, message.thinkingLog, searchActiveMessageId, searchOpen]);
 
   /** Attachments of a user message that can still be resent — only those
    *  whose data URL survived (persistence strips it, so after a refresh a

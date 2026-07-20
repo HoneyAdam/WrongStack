@@ -10,7 +10,7 @@
  *   - context.debug WS: detailed breakdown (system prompt, tools, messages)
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import {
   AlertTriangle,
@@ -21,8 +21,10 @@ import {
   Gauge,
   HardDrive,
   Layers,
+  MemoryStick,
   MessageSquare,
   RefreshCw,
+  Sparkles,
   Users,
   Wrench,
 } from 'lucide-react';
@@ -160,6 +162,110 @@ function MetricRow({ label, value, color }: { label: string; value: string; colo
   );
 }
 
+/** SVG donut gauge — animated ring with centered percentage. */
+function AnimatedDonutGauge({
+  pct,
+  size = 96,
+  strokeWidth = 10,
+}: {
+  pct: number;
+  size?: number;
+  strokeWidth?: number;
+}) {
+  const clamped = Math.max(0, Math.min(100, pct));
+  const r = (size - strokeWidth) / 2;
+  const circ = 2 * Math.PI * r;
+  const fillLen = (clamped / 100) * circ;
+  const zone = zoneFor(clamped);
+  const color = zone.hex;
+
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="drop-shadow-lg">
+      {/* Background track */}
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={r}
+        fill="none"
+        stroke="hsl(var(--muted))"
+        strokeWidth={strokeWidth}
+        opacity={0.3}
+      />
+      {/* Filled arc */}
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={r}
+        fill="none"
+        stroke={color}
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+        strokeDasharray={`${fillLen} ${circ - fillLen}`}
+        strokeDashoffset={0}
+        className="transition-all duration-1000 ease-out"
+        style={{ transformOrigin: 'center', transform: 'rotate(-90deg)' }}
+      />
+      {/* Center percentage */}
+      <circle cx={size / 2} cy={size / 2} r={r - strokeWidth / 2 + 2} fill="hsl(var(--card))" className="drop-shadow-sm" />
+      <text
+        x={size / 2}
+        y={size / 2}
+        textAnchor="middle"
+        dominantBaseline="central"
+        fill={color}
+        className="text-lg font-bold font-mono tabular-nums"
+        style={{ fontSize: size * 0.16 }}
+      >
+        {clamped.toFixed(0)}%
+      </text>
+    </svg>
+  );
+}
+
+/** Animated counter — counts from 0 to target on mount/change. */
+function AnimatedCounter({
+  value,
+  suffix = '',
+  duration = 800,
+}: {
+  value: number;
+  suffix?: string;
+  duration?: number;
+}) {
+  const [display, setDisplay] = useState(0);
+  const prevRef = useRef(0);
+  const rafRef = useRef<ReturnType<typeof requestAnimationFrame> | undefined>(undefined);
+
+  useEffect(() => {
+    const start = prevRef.current;
+    const startTime = performance.now();
+    const diff = value - start;
+
+    if (Math.abs(diff) < 1) {
+      setDisplay(value);
+      prevRef.current = value;
+      return;
+    }
+
+    const animate = (now: number) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(1, elapsed / duration);
+      // Ease-out cubic
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplay(Math.round(start + diff * eased));
+      if (progress < 1) {
+        rafRef.current = requestAnimationFrame(animate);
+      } else {
+        prevRef.current = value;
+      }
+    };
+    rafRef.current = requestAnimationFrame(animate);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [value, duration]);
+
+  return <>{display.toLocaleString()}{suffix}</>;
+}
+
 function PressureSection({
   pct,
   tokens,
@@ -175,48 +281,85 @@ function PressureSection({
 
   return (
     <SectionCard title="Context Pressure" icon={Gauge} accent={accent}>
-      <div className="space-y-2">
-        {/* Main pressure bar */}
-        <div className="flex items-center gap-3">
-          <span className="text-lg">{zone.emoji}</span>
-          <div className="flex-1">
-            <ContextBar pct={Math.round(pct)} tokens={tokens} maxTokens={maxTokens} segments={10} variant="iridescent" />
-          </div>
+      <div className="flex flex-col sm:flex-row items-center gap-4">
+        {/* Donut gauge */}
+        <div className={cn(
+          'shrink-0 transition-all duration-500',
+          pct > 85 && 'animate-[pulse_2s_ease-in-out_infinite] drop-shadow-[0_0_12px_-2px_rgba(239,68,68,0.35)]',
+        )}>
+          <AnimatedDonutGauge pct={pct} size={96} strokeWidth={10} />
         </div>
 
-        {/* Threshold axis */}
-        <div className="relative h-4 mt-1">
-          <div className="absolute inset-x-0 top-0 h-2 rounded-full overflow-hidden flex">
-            {ZONES.map((z) => {
-              const width = ((z.to - z.from) / 100) * 100;
-              return (
-                <div
-                  key={z.label}
-                  className="h-full first:rounded-l-full last:rounded-r-full opacity-60"
-                  style={{ width: `${width}%`, backgroundColor: z.hex }}
-                />
-              );
-            })}
+        <div className="flex-1 min-w-0 space-y-2 w-full">
+          {/* Iridescent bar */}
+          <div className="flex items-center gap-3">
+            <span className="text-xl">{zone.emoji}</span>
+            <div className="flex-1">
+              <ContextBar pct={Math.round(pct)} tokens={tokens} maxTokens={maxTokens} segments={10} variant="iridescent" />
+            </div>
           </div>
-          <div className="absolute top-3 text-[10px] text-muted-foreground flex w-full">
-            <span>0%</span>
-            <span className="ml-[56%]">soft</span>
-            <span className="ml-[12%]">hard</span>
-            <span className="ml-[8%]">max</span>
-            <span className="ml-auto">100%</span>
+
+          {/* Token counts with animation */}
+          <div className="grid grid-cols-3 gap-1 text-[10px] font-mono tabular-nums">
+            <div className="rounded bg-muted/30 px-2 py-1 text-center">
+              <span className="text-muted-foreground block text-[9px]">Used</span>
+              <span className={cn('font-bold', zone.color)}>
+                <AnimatedCounter value={tokens} />
+              </span>
+            </div>
+            <div className="rounded bg-muted/30 px-2 py-1 text-center">
+              <span className="text-muted-foreground block text-[9px]">Free</span>
+              <span className="font-bold text-muted-foreground/80">
+                <AnimatedCounter value={Math.max(0, maxTokens - tokens)} />
+              </span>
+            </div>
+            <div className="rounded bg-muted/30 px-2 py-1 text-center">
+              <span className="text-muted-foreground block text-[9px]">Capacity</span>
+              <span className="font-bold text-muted-foreground/80">
+                <AnimatedCounter value={maxTokens} />
+              </span>
+            </div>
           </div>
         </div>
+      </div>
 
-        {/* Current position marker */}
-        <div className="relative h-5 mt-1">
-          <div
-            className="absolute top-0 -translate-x-1/2 flex flex-col items-center"
-            style={{ left: `${Math.min(95, pct)}%` }}
-          >
-            <span className="text-[9px] font-mono text-foreground bg-card px-1 rounded border">
-              ◀ {(pct).toFixed(0)}%
-            </span>
-          </div>
+      {/* Threshold axis */}
+      <div className="relative h-4 mt-1">
+        <div className="absolute inset-x-0 top-0 h-2 rounded-full overflow-hidden flex">
+          {ZONES.map((z) => {
+            const width = ((z.to - z.from) / 100) * 100;
+            return (
+              <div
+                key={z.label}
+                className="h-full first:rounded-l-full last:rounded-r-full opacity-60"
+                style={{ width: `${width}%`, backgroundColor: z.hex }}
+              />
+            );
+          })}
+        </div>
+        <div className="absolute top-3 text-[10px] text-muted-foreground flex w-full">
+          <span>0%</span>
+          <span className="ml-[56%]">soft</span>
+          <span className="ml-[12%]">hard</span>
+          <span className="ml-[8%]">max</span>
+          <span className="ml-auto">100%</span>
+        </div>
+      </div>
+
+      {/* Current position marker */}
+      <div className="relative h-5 mt-1">
+        <div
+          className="absolute top-0 -translate-x-1/2 flex flex-col items-center transition-all duration-500"
+          style={{ left: `${Math.min(95, pct)}%` }}
+        >
+          <span className={cn(
+            'text-[9px] font-mono px-1.5 py-0.5 rounded border transition-colors',
+            zone.bg,
+            zone.text,
+            'border-current/30',
+          )}>
+            ◀ {pct.toFixed(0)}%
+          </span>
         </div>
       </div>
     </SectionCard>
@@ -355,25 +498,65 @@ function ThresholdSection({ pct }: { pct: number }) {
 
 function CompactionSection({ pct, maxTokens }: { pct: number; maxTokens: number }) {
   const recoveryEst = Math.round(maxTokens * 0.18);
+  const triggerAt = Math.round(maxTokens * 0.85);
   const needsCompact = pct > 65;
+  const compactPct = maxTokens > 0 ? (pct / 100) : 0;
 
   return (
-    <SectionCard title="Compaction Engine" icon={HardDrive}>
-      <div className="space-y-1 text-xs">
-        <MetricRow label="Strategy" value="hybrid (auto ✅)" color="text-green-500" />
+    <SectionCard title="Compaction Engine" icon={HardDrive} accent={needsCompact ? 'warning' : 'success'}>
+      <div className="space-y-2 text-xs">
+        <div className="flex items-center gap-2">
+          <span className="text-muted-foreground">Strategy</span>
+          <span className="font-semibold text-foreground/90">hybrid</span>
+          <span className="text-green-500 bg-green-500/10 px-1.5 rounded text-[9px] font-semibold">auto ✓</span>
+        </div>
+
+        {/* Visual trigger meter */}
+        <div className="space-y-0.5">
+          <div className="flex justify-between text-[9px] text-muted-foreground">
+            <span>Current</span>
+            <span>Trigger ({fmtTok(triggerAt)})</span>
+          </div>
+          <div className="relative h-2 w-full overflow-hidden rounded-full bg-muted/50 ring-1 ring-inset ring-border/20">
+            <span
+              className={cn(
+                'absolute inset-y-0 left-0 rounded-full transition-all duration-700',
+                needsCompact ? 'bg-warning' : 'bg-success',
+              )}
+              style={{ width: `${Math.max(2, compactPct * 100)}%` }}
+            />
+            {/* Trigger marker */}
+            <span
+              className="absolute top-0 bottom-0 w-0.5 bg-destructive/60"
+              style={{ left: '85%' }}
+            />
+          </div>
+          <div className="flex justify-between text-[9px] text-foreground/70">
+            <span>{fmtTok(Math.round(maxTokens * compactPct))}</span>
+            <span className="text-destructive/70">{fmtTok(triggerAt)}</span>
+          </div>
+        </div>
+
         <MetricRow
           label="Next trigger"
-          value={`${fmtTok(Math.round(maxTokens * 0.85))} (85%)`}
+          value={`${fmtTok(triggerAt)} (85%)`}
         />
-        <MetricRow
-          label="Est. recovery"
-          value={`~${fmtTok(recoveryEst)} (18% of window)`}
-        />
+        <div className="flex items-center justify-between text-xs py-0.5">
+          <span className="text-muted-foreground">Est. recovery</span>
+          <span className="tabular-nums font-mono font-semibold px-1.5 py-0.5 rounded text-success bg-success/10">
+            ~{fmtTok(recoveryEst)}
+          </span>
+        </div>
         <MetricRow
           label="Recommendation"
           value={needsCompact ? '⚠️ Compact now' : '✅ No compaction needed'}
           color={needsCompact ? 'text-yellow-500' : 'text-green-500'}
         />
+        {needsCompact && (
+          <div className="bg-warning/5 border border-warning/20 rounded p-2 text-[10px] text-warning/90 mt-1">
+            Context at {pct.toFixed(1)}% — compacting recovers ~{fmtTok(recoveryEst)} tokens.
+          </div>
+        )}
       </div>
     </SectionCard>
   );
@@ -593,8 +776,20 @@ export function ContextDashboard() {
   const iterText = iteration ? `${iteration.index} / ${iteration.max}` : '—';
   const zone = zoneFor(pct);
 
+  // Stagger entrance animation indices for section cards
+  const staggerDelay = (i: number) => ({
+    animation: `fadeInUp 0.4s ease-out ${i * 0.08}s both`,
+  });
+
   return (
     <div ref={useScrollPosition('context')} className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+      {/* Inject fadeInUp keyframes once */}
+      <style>{`
+        @keyframes fadeInUp {
+          from { opacity: 0; transform: translateY(12px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
       {/* Header bar */}
       <div className={cn('sticky top-0 z-10 flex items-center gap-3 px-4 py-2 border-b', zone.bg)}>
         <Button
@@ -608,6 +803,7 @@ export function ContextDashboard() {
         </Button>
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-lg">{zone.emoji}</span>
+          <Sparkles className="h-3.5 w-3.5 text-primary/60" />
           <h1 className="text-sm font-semibold">Context Dashboard</h1>
           <span className={cn('text-[10px] font-mono px-1.5 py-0.5 rounded-full', zone.bg, zone.text)}>
             {zone.label}
@@ -627,11 +823,11 @@ export function ContextDashboard() {
       {/* Dashboard grid */}
       <div className="p-4 space-y-4">
         {/* Top row: session + pressure */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4" style={staggerDelay(0)}>
           <div className="lg:col-span-2">
             <PressureSection pct={pct} tokens={lastInputTokens} maxTokens={maxContext} />
           </div>
-          <div>
+          <div style={staggerDelay(1)}>
             <SessionSection
               model={model}
               provider={provider}
@@ -645,34 +841,42 @@ export function ContextDashboard() {
         </div>
 
         {/* Middle row: composition + threshold + compaction */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4" style={staggerDelay(2)}>
           <CompositionSection data={debugData} loading={loading} />
           <ThresholdSection pct={pct} />
           <CompactionSection pct={pct} maxTokens={maxContext || 200_000} />
         </div>
 
         {/* Fleet footprint */}
-        <AgentFootprintSection agents={fleetAgents} />
+        <div style={staggerDelay(3)}>
+          <AgentFootprintSection agents={fleetAgents} />
+        </div>
 
-        <ContextMemoryMonitor />
-        <MemoryLifecycleTrace />
+        <div style={staggerDelay(4)}>
+          <ContextMemoryMonitor />
+        </div>
+        <div style={staggerDelay(5)}>
+          <MemoryLifecycleTrace />
+        </div>
 
         {/* Bottom row: metrics */}
-        <MetricsSection
-          tokens={lastInputTokens}
-          maxTokens={maxContext || 200_000}
-          pct={pct}
-          model={model}
-          provider={provider}
-          mode={mode}
-          uptime={uptime}
-          iteration={iterText}
-          contextMode={contextMode}
-        />
+        <div style={staggerDelay(6)}>
+          <MetricsSection
+            tokens={lastInputTokens}
+            maxTokens={maxContext || 200_000}
+            pct={pct}
+            model={model}
+            provider={provider}
+            mode={mode}
+            uptime={uptime}
+            iteration={iterText}
+            contextMode={contextMode}
+          />
+        </div>
 
         {/* Error banner */}
         {debugError && (
-          <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-xs text-destructive">
+          <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-xs text-destructive" style={staggerDelay(7)}>
             {debugError}
           </div>
         )}

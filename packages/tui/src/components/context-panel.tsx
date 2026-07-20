@@ -327,9 +327,6 @@ function ThresholdSection({
   const curVal = pct * 100;
   const activeZone = zoneFor(pct);
 
-  // Reuse the same bracket meter + tick axis as the Overview PRESSURE gauge so
-  // the two tabs read as one visual language (the old emoji+█ strip rendered
-  // ragged because emoji occupy an ambiguous cell width that breaks alignment).
   const barWidth = Math.min(40, Math.max(10, contentWidth - 14));
   const { axis, label } = renderAxis(pct, barWidth);
 
@@ -345,27 +342,33 @@ function ThresholdSection({
         ? `${(nextBoundary.from - curVal).toFixed(1)}% until ${nextBoundary.desc}`
         : 'in the final zone — compaction is overdue';
 
-  // Fixed-width ASCII columns (no emoji in the padded span) keep the table
-  // aligned; the zone state is carried by a single-cell colored ● instead.
   const LABEL_W = 9;
   const RANGE_W = 9;
+  const azClr = zoneColor(activeZone);
 
   return (
     <Box flexDirection="column" marginTop={1}>
       <SectionLabel>THRESHOLD MAP</SectionLabel>
+
+      {/* Compact visual bar with axis */}
       <Box marginTop={1}>
-        <Text color={zoneColor(activeZone)}>
+        <Text color={azClr}>
           {renderMeter(pct, barWidth)} {curVal.toFixed(1)}%
         </Text>
       </Box>
       <Text color={theme.textMuted}> {axis}</Text>
       <Text color={theme.textMuted}> {label}</Text>
 
+      {/* Zone table with mini sparkbars */}
       <Box flexDirection="column" marginTop={1}>
         {ZONES.map((z) => {
           const isActive = curVal >= z.from && curVal < z.to;
           const zColor = zoneColor(zoneFor((z.to - 0.01) / 100));
           const range = `${z.from}–${z.to}%`;
+          // Mini spark bar showing the zone span
+          const zoneSpan = z.to - z.from;
+          const fullWidth = 20;
+          const fillLen = Math.round((zoneSpan / 100) * fullWidth);
           return (
             <Box key={z.label}>
               <Text color={zColor}>{'●'}</Text>
@@ -376,18 +379,22 @@ function ThresholdSection({
               <Text color={theme.textMuted}>{range.padStart(RANGE_W)} </Text>
               <Text color={isActive ? theme.textSecondary : theme.textMuted}>
                 {'  '}
-                {z.desc}
+                {z.desc.padEnd(22)}
               </Text>
-              {isActive ? <Text color={zColor}>{'  ◀ now'}</Text> : null}
+              {/* Mini sparkline: filled+empty zones */}
+              <Text color={isActive ? zColor : theme.textMuted}>
+                {'█'.repeat(fillLen) + '░'.repeat(fullWidth - fillLen)}
+              </Text>
+              {isActive ? <Text color={zColor}>{' ◀'}</Text> : null}
             </Box>
           );
         })}
       </Box>
 
+      {/* Headroom line with emoji */}
       <Box marginTop={1}>
-        <Text color={theme.textMuted}>now </Text>
-        <Text color={zoneColor(activeZone)}>
-          {curVal.toFixed(1)}% {zoneLabel(pct)}
+        <Text color={azClr}>
+          {'◆'} {curVal.toFixed(1)}% {zoneLabel(pct)}
         </Text>
         <Text color={theme.textMuted}> · {headroom}</Text>
       </Box>
@@ -433,10 +440,10 @@ function AgentFootprintSection({
   const leaderPct = data.ctxPct;
   const fleet = data.fleetEntries.filter((e) => e.ctxPct != null);
 
-  const allAgents: Array<{ name: string; ctxPct: number }> = [];
+  const allAgents: Array<{ name: string; ctxPct: number; status?: string }> = [];
   if (leaderPct != null) allAgents.push({ name: 'LEADER', ctxPct: leaderPct });
   for (const e of fleet) {
-    if (e.ctxPct != null) allAgents.push({ name: e.name, ctxPct: e.ctxPct });
+    if (e.ctxPct != null) allAgents.push({ name: e.name, ctxPct: e.ctxPct, status: e.status });
   }
 
   if (allAgents.length === 0) {
@@ -448,7 +455,7 @@ function AgentFootprintSection({
     );
   }
 
-  const agentBarLen = Math.min(30, Math.max(8, contentWidth - 22));
+  const agentBarLen = Math.min(30, Math.max(8, contentWidth - 30));
 
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -460,14 +467,20 @@ function AgentFootprintSection({
         const aPct = `${(apct * 100).toFixed(0)}%`.padStart(4);
         const tag = a.name === 'LEADER' ? '👑' : '  ';
         const aBar = renderMeter(apct, agentBarLen);
+        // Mini sparkbar alongside the meter
+        const spark = tuiMiniBar(apct, 10);
         return (
           <Box key={a.name}>
             <Text>
               <Text>{tag} </Text>
               <Text color={theme.textSecondary}>{a.name.padEnd(14)}</Text>
               <Text color={aColor}>
-                {aEmoji} {aBar} {aPct}
+                {aEmoji} {aBar}
               </Text>
+              <Text> </Text>
+              <Text color={aColor}>{spark}</Text>
+              <Text> </Text>
+              <Text color={theme.textPrimary}>{aPct}</Text>
             </Text>
           </Box>
         );
@@ -490,70 +503,100 @@ function MetricsSection({ data }: { data: ContextPanelData }): React.ReactElemen
   const pct = data.ctxPct ?? (max > 0 ? used / max : 0);
   const free = max - used;
   const freePct = max > 0 ? ((free / max) * 100).toFixed(1) : '0.0';
-  const utilBar = renderMeter(pct, 20);
+  const utilBar20 = renderMeter(pct, 20);
+  const utilBar8 = renderMeter(pct, 8);
+  const zClr = zoneColor(zoneFor(pct));
 
   return (
     <Box flexDirection="column" marginTop={1}>
       <SectionLabel>TOKEN METRICS</SectionLabel>
+
+      {/* Compact three-column usage row */}
       <Box>
-        <Text color={theme.textMuted}>Used </Text>
-        <Text color={theme.textPrimary}>{used.toLocaleString('en-US')}</Text>
+        <Box flexGrow={1}>
+          <Text>
+            <Text color={theme.textMuted}>Used </Text>
+            <Text color={theme.textPrimary}>{used.toLocaleString('en-US')}</Text>
+          </Text>
+        </Box>
+        <Box flexGrow={1}>
+          <Text>
+            <Text color={theme.textMuted}>Free </Text>
+            <Text color={theme.textSecondary}>{free.toLocaleString('en-US')} ({freePct}%)</Text>
+          </Text>
+        </Box>
+        <Box>
+          <Text>
+            <Text color={theme.textMuted}>Cap </Text>
+            <Text color={theme.textPrimary}>{max.toLocaleString('en-US')}</Text>
+          </Text>
+        </Box>
       </Box>
-      <Box>
-        <Text color={theme.textMuted}>Free </Text>
-        <Text color={theme.textSecondary}>
-          {free.toLocaleString('en-US')} ({freePct}%)
-        </Text>
-      </Box>
-      <Box>
-        <Text color={theme.textMuted}>Capacity </Text>
-        <Text color={theme.textPrimary}>{max.toLocaleString('en-US')}</Text>
-      </Box>
+
+      {/* Utilization bar (wide) with zone color */}
       <Box>
         <Text color={theme.textMuted}>Utilization</Text>
         <Text> </Text>
-        <Text color={zoneColor(zoneFor(pct))}>{utilBar}</Text>
+        <Text color={zClr}>{utilBar20}</Text>
         <Text> </Text>
         <Text color={theme.textSecondary}>{(pct * 100).toFixed(1)}%</Text>
+        <Text> </Text>
+        <Text color={zClr}>{utilBar8}</Text>
       </Box>
+
       <Box>
-        <Text color={theme.textMuted}>Model </Text>
-        <Text color={theme.textPrimary}>{data.model}</Text>
-        <Text color={theme.textMuted}> · </Text>
-        <Text color={theme.textPrimary}>{data.provider}</Text>
-      </Box>
-      <Box>
-        <Text color={theme.textMuted}>Mode </Text>
-        <Text color={theme.textSecondary}>{data.mode}</Text>
-      </Box>
-      <Box>
-        <Text color={theme.textMuted}>Uptime </Text>
-        <Text color={theme.textSecondary}>{data.uptime}</Text>
+        <Text>
+          <Text color={theme.textMuted}>Model </Text>
+          <Text color={theme.textPrimary}>{data.model}</Text>
+          <Text color={theme.textMuted}> · </Text>
+          <Text color={theme.textPrimary}>{data.provider}</Text>
+          <Text color={theme.textMuted}> · Mode </Text>
+          <Text color={theme.textSecondary}>{data.mode}</Text>
+          <Text color={theme.textMuted}> · Uptime </Text>
+          <Text color={theme.textSecondary}>{data.uptime}</Text>
+        </Text>
       </Box>
     </Box>
   );
+}
+
+/** Renders a compact horizontal bar using block chars. */
+function tuiMiniBar(pct: number, width: number): string {
+  const filled = Math.round(pct * width);
+  const empty = width - filled;
+  return '█'.repeat(Math.max(0, filled)) + '░'.repeat(Math.max(0, empty));
 }
 
 function StatusSection({ data }: { data: ContextPanelData }): React.ReactElement {
   const pct = data.ctxPct ?? 0;
   const z = zoneFor(pct);
   const emoji = zoneEmoji(pct);
+  const zClr = zoneColor(z);
+  const used = data.ctxTokens ?? 0;
+  const max = data.ctxMaxTokens ?? 200_000;
+  const barWidth = 20;
+  const bar = tuiMiniBar(pct, barWidth);
 
   let verdict: string;
   if (pct > 0.85) {
-    verdict = `${emoji} CRITICAL — Context at ${(pct * 100).toFixed(1)}%. Consider compacting or a fresh session.`;
+    verdict = `CRITICAL — Consider compacting or a fresh session.`;
   } else if (pct > 0.65) {
-    verdict = `${emoji} WARNING  — Context at ${(pct * 100).toFixed(1)}%. Plan compaction soon.`;
+    verdict = `WARNING  — Plan compaction soon.`;
   } else if (pct > 0.45) {
-    verdict = `${emoji} MODERATE — Context at ${(pct * 100).toFixed(1)}%. Healthy, monitor as it grows.`;
+    verdict = `MODERATE — Healthy, monitor as it grows.`;
   } else {
-    verdict = `${emoji} HEALTHY  — Context at ${(pct * 100).toFixed(1)}%. Plenty of room for more conversation.`;
+    verdict = `HEALTHY  — Plenty of room for more conversation.`;
   }
 
   return (
     <Box flexDirection="column" marginTop={1}>
       <SectionLabel>STATUS</SectionLabel>
-      <Text color={zoneColor(z)}>{verdict}</Text>
+      <Box>
+        <Text color={zClr}>{emoji} {bar} {(pct * 100).toFixed(1)}%</Text>
+        <Text> </Text>
+        <Text color={theme.textMuted}>{used.toLocaleString('en-US')} / {max.toLocaleString('en-US')}</Text>
+      </Box>
+      <Text color={zClr}>{emoji} {verdict}</Text>
     </Box>
   );
 }
