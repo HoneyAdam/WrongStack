@@ -17,6 +17,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the raw `arguments` string untouched. Drop the key from provider configs or
   the adapter will ignore it silently (no error). See
   `docs/plans/breaking-changes-next-major.md` for the full rationale.
+- **`streamFleet` boolean removed; replaced by `fleetChatVerbosity` enum**
+  (**BREAKING**) — The `AutonomyConfig.streamFleet` boolean, the
+  `FleetStreamController.enabled`/`setEnabled` API, and the `LiveSettingsInput.streamFleet`
+  field are all gone across core, cli, tui, webui, and webui-server. Use
+  `fleetChatVerbosity: 'off' | 'full'` and `setMode()` instead. The WebUI
+  local-prefs store includes a v10 migration that maps legacy
+  `streamFleet: true → 'full'` and deletes the old key. `/settings stream-fleet`
+  and `/agents chat` slash commands now use the enum directly.
+- **`yoloDestructive`, `forceAllYolo`, and `confirmDestructive` removed**
+  (**BREAKING**) — These were no-op compatibility fields on
+  `PermissionPolicyOptions` and the runtime container's permission interface.
+  YOLO mode already auto-approves every non-denied tool call (including
+  destructive ones) via the sole `yolo: boolean` toggle. The
+  `DefaultPermissionPolicy.setYoloDestructive`/`getYoloDestructive`/
+  `setConfirmDestructive`/`getConfirmDestructive` methods are also gone.
 
 ## [0.292.1] — 2026-07-20
 
