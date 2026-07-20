@@ -201,7 +201,7 @@ describe('WebUI WebSocket payload validation', () => {
         maxConcurrent: 4,
         chime: false,
         confirmExit: true,
-        streamFleet: true,
+        fleetChatVerbosity: 'full',
         nextPrediction: false,
         titleAnimation: true,
         enhanceEnabled: true,

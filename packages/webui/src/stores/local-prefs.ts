@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { detectLocale } from '@/i18n/languages';
+import type { FleetChatVerbosity } from '@wrongstack/core';
 
 /**
  * Local preference store — persisted in localStorage.
@@ -23,8 +24,8 @@ export interface LocalPrefs {
   chime: boolean;
   /** Confirm before exit (Ctrl+C) */
   confirmExit: boolean;
-  /** Stream fleet events in realtime */
-  streamFleet: boolean;
+  /** Fleet-chat verbosity (off | full) */
+  fleetChatVerbosity: FleetChatVerbosity;
   /** Predict next steps after turn completes */
   nextPrediction: boolean;
   /** Global fallback model chain (entries: `model` or `provider/model`). */
@@ -192,7 +193,7 @@ const DEFAULTS: Omit<LocalPrefs, 'set' | 'reset'> = {
   maxIterations: 500,
   chime: false,
   confirmExit: true,
-  streamFleet: true,
+  fleetChatVerbosity: 'off',
   nextPrediction: false,
   fallbackModels: [],
   fallbackProfiles: {},
@@ -273,7 +274,14 @@ export const useLocalPrefs = create<LocalPrefs>()(
     }),
     {
       name: 'wrongstack-local-prefs',
-      version: 9,
+      version: 10,
+      // v10 (2026-07-20): streamFleet (boolean) renamed to fleetChatVerbosity
+      // ('off'|'full'). Map legacy true → 'full' (was the default), legacy false
+      // → 'off'. Clean up the old key from localStorage.
+      //
+      // v9 stored Chimera + auto-review settings (chimeraEnabled, chimeraProvider,
+      // …). Older stores get defaults via DEFAULTS spread; no explicit remap needed.
+      //
       // v1 stored option values that don't exist in core's config schema —
       // contextStrategy frugal/balanced/deep/archival (context-window modes,
       // a different setting) and auditLevel 'verbose'. Map them onto the
@@ -305,6 +313,20 @@ export const useLocalPrefs = create<LocalPrefs>()(
       migrate: (persisted) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const p = (persisted ?? {}) as any;
+
+        // v10: streamFleet (boolean) renamed to fleetChatVerbosity ('off'|'full').
+        // Map legacy true → 'full' (was the default), legacy false → 'off'.
+        if (typeof p.fleetChatVerbosity !== 'string') {
+          if (p.streamFleet === true) p.fleetChatVerbosity = 'full';
+          else if (p.streamFleet === false) p.fleetChatVerbosity = 'off';
+          else p.fleetChatVerbosity = 'off';
+          delete p.streamFleet;
+        }
+        // enum allow-list for the new field — reject any non-member value
+        if (p.fleetChatVerbosity !== 'off' && p.fleetChatVerbosity !== 'full') {
+          p.fleetChatVerbosity = 'off';
+        }
+
         const validStrategies = ['hybrid', 'intelligent', 'selective'];
         if (!validStrategies.includes(p.contextStrategy as string)) {
           p.contextStrategy = 'hybrid';

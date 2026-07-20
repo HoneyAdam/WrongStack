@@ -62,7 +62,7 @@ export const PREF_KEYS = [
   'maxIterations',
   'chime',
   'confirmExit',
-  'streamFleet',
+  'fleetChatVerbosity',
   'nextPrediction',
   'fallbackModels',
   'fallbackProfiles',
@@ -188,7 +188,7 @@ export async function seedConfigToMeta(opts: CliWebUIOptions): Promise<void> {
   meta['yolo'] = (autonomyCfg['yolo'] as boolean) ?? (cfg.yolo as boolean) ?? false;
   meta['chime'] = (autonomyCfg['chime'] as boolean) ?? false;
   meta['confirmExit'] = autonomyCfg['confirmExit'] !== false;
-  meta['streamFleet'] = autonomyCfg['streamFleet'] !== false;
+  meta['fleetChatVerbosity'] = (autonomyCfg['fleetChatVerbosity'] as string) ?? 'off';
   meta['enhanceEnabled'] = (autonomyCfg['enhance'] as boolean) ?? true;
   meta['enhanceDelayMs'] = (autonomyCfg['enhanceDelayMs'] as number) ?? 60_000;
   meta['enhanceLanguage'] = (autonomyCfg['enhanceLanguage'] as string) ?? 'original';
@@ -441,12 +441,8 @@ export function createPrefsSeeding(opts: CliWebUIOptions): PrefsSeeding {
       }
       if ('chime' in payload) autonomy['chime'] = payload['chime'];
       if ('confirmExit' in payload) autonomy['confirmExit'] = payload['confirmExit'];
-      if ('streamFleet' in payload) {
-        autonomy['streamFleet'] = payload['streamFleet'];
-        // Keep the TUI's fleetChatVerbosity enum in step: it wins over the
-        // boolean at resolve time, so a webui toggle would otherwise be
-        // silently overridden by a previously persisted enum value.
-        autonomy['fleetChatVerbosity'] = payload['streamFleet'] ? 'full' : 'off';
+      if ('fleetChatVerbosity' in payload) {
+        autonomy['fleetChatVerbosity'] = payload['fleetChatVerbosity'];
       }
       if ('enhanceEnabled' in payload) autonomy['enhance'] = payload['enhanceEnabled'];
       if ('enhanceDelayMs' in payload) autonomy['enhanceDelayMs'] = payload['enhanceDelayMs'];

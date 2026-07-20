@@ -115,7 +115,6 @@ export function buildAgentsCommand(opts: SlashCommandContext): SlashCommand {
               },
               (autonomy) => {
                 (autonomy as Record<string, unknown>).fleetChatVerbosity = mode;
-                (autonomy as Record<string, unknown>).streamFleet = mode !== 'off';
               },
             );
           }

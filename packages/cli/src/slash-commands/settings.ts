@@ -135,7 +135,7 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
       '',
       `  auto-proceed delay:          ${color.cyan(formatDelay(delay))}   ${color.dim('change: /settings delay <seconds>')}`,
       `  default autonomy mode:       ${color.cyan(mode)}   ${color.dim('change: /settings mode off|suggest|auto')}`,
-      `  fleet chat:                 ${color.cyan(resolveFleetChatVerbosity(au as { fleetChatVerbosity?: FleetChatVerbosity; streamFleet?: boolean } | undefined))}   ${color.dim('change: /settings stream-fleet off|full')}`,
+      `  fleet chat:                 ${color.cyan(resolveFleetChatVerbosity(au as { fleetChatVerbosity?: FleetChatVerbosity } | undefined))}   ${color.dim('change: /settings stream-fleet off|full')}`,
       `  completion chime:           ${au?.chime === true ? color.cyan('on') : color.dim('off')}   ${color.dim('change: /settings chime on|off')}`,
       `  confirm before exit:        ${au?.confirmExit !== false ? color.cyan('on') : color.dim('off')}   ${color.dim('change: /settings confirm-exit on|off')}`,
       `  launch hints:               ${hints ? color.cyan('on') : color.dim('off')}   ${color.dim('change: /settings hints on|off')}`,
@@ -830,8 +830,6 @@ export function buildSettingsCommand(opts: SlashCommandContext): SlashCommand {
           if (!mode) return { message: `${color.amber('Usage:')} /settings stream-fleet off|full (on = full)` };
           await persistAutonomySetting(persistDeps, (autonomy) => {
             (autonomy as Record<string, unknown>).fleetChatVerbosity = mode;
-            // Mirror for legacy boolean readers (webui prefs).
-            (autonomy as Record<string, unknown>).streamFleet = mode !== 'off';
           });
           opts.fleetStreamController?.setMode(mode);
           const desc =

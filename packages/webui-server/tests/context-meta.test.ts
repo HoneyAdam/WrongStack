@@ -91,16 +91,16 @@ describe('seedContextMeta', () => {
     expect(context.meta['confirmExit']).toBe(false);
   });
 
-  it('sets streamFleet default to true', () => {
+  it('sets fleetChatVerbosity default to full', () => {
     const context = { meta: {} };
     seedContextMeta(makeConfig(), context);
-    expect(context.meta['streamFleet']).toBe(true);
+    expect(context.meta['fleetChatVerbosity']).toBe('full');
   });
 
-  it('sets streamFleet to false when configured', () => {
+  it('sets fleetChatVerbosity to off when configured', () => {
     const context = { meta: {} };
-    seedContextMeta(makeConfig({ autonomy: { streamFleet: false } }), context);
-    expect(context.meta['streamFleet']).toBe(false);
+    seedContextMeta(makeConfig({ autonomy: { fleetChatVerbosity: 'off' } }), context);
+    expect(context.meta['fleetChatVerbosity']).toBe('off');
   });
 
   it('sets enhanceEnabled default to true', () => {

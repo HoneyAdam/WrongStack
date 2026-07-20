@@ -199,7 +199,11 @@
     "fetchingModels": "Modeller getiriliyor…",
     "signedIn": "Oturum açıldı.",
     "signedInToast": "Oturum açıldı — {{provider}}",
-    "signInFailed": "Oturum açma başarısız"
+    "signInFailed": "Oturum açma başarısız",
+    "codexAccountCount_one": "{{count}} hesap bağlı",
+    "codexAccountCount_other": "{{count}} hesap bağlı",
+    "active": "Aktif",
+    "inactive": "Pasif"
   },
   "agent": {
     "modelHeading": "Model",
@@ -305,8 +309,8 @@
     "chimeLabel": "Tamamlanmada ses",
     "chimeHint": "Bir ajan çalışması bittiğinde terminal zili.",
     "fleetHeading": "Filo ve Akış",
-    "streamFleetLabel": "Filo olaylarını akıt",
-    "streamFleetHint": "Filo panelinde canlı alt-ajan etkinliğini göster.",
+    "fleetChatVerbosityLabel": "Filo olaylarını akıt",
+    "fleetChatVerbosityHint": "Filo panelinde canlı alt-ajan etkinliğini göster.",
     "maxConcurrentLabel": "Maks eşzamanlı alt-ajan",
     "maxConcurrentHint": "Aynı anda çalışabilecek maks alt-ajan sayısı.",
     "nextPredictionLabel": "Sonraki adım tahmini",

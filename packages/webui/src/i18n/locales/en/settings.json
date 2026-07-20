@@ -199,7 +199,11 @@
     "fetchingModels": "Fetching models…",
     "signedIn": "Signed in.",
     "signedInToast": "Signed in — {{provider}}",
-    "signInFailed": "Sign-in failed"
+    "signInFailed": "Sign-in failed",
+    "codexAccountCount_one": "{{count}} account connected",
+    "codexAccountCount_other": "{{count}} accounts connected",
+    "active": "Active",
+    "inactive": "Inactive"
   },
   "agent": {
     "modelHeading": "Model",
@@ -305,8 +309,8 @@
     "chimeLabel": "Chime on completion",
     "chimeHint": "Terminal bell when an agent run finishes.",
     "fleetHeading": "Fleet & Streaming",
-    "streamFleetLabel": "Stream fleet events",
-    "streamFleetHint": "Show live subagent activity in the fleet panel.",
+    "fleetChatVerbosityLabel": "Stream fleet events",
+    "fleetChatVerbosityHint": "Show live subagent activity in the fleet panel.",
     "maxConcurrentLabel": "Max concurrent subagents",
     "maxConcurrentHint": "Maximum number of subagents that can run simultaneously.",
     "nextPredictionLabel": "Next-step prediction",

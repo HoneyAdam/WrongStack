@@ -199,7 +199,11 @@
     "fetchingModels": "Récupération des modèles…",
     "signedIn": "Connecté.",
     "signedInToast": "Connecté — {{provider}}",
-    "signInFailed": "Échec de la connexion"
+    "signInFailed": "Échec de la connexion",
+    "codexAccountCount_one": "{{count}} compte connecté",
+    "codexAccountCount_other": "{{count}} comptes connectés",
+    "active": "Actif",
+    "inactive": "Inactif"
   },
   "agent": {
     "modelHeading": "Modèle",
@@ -305,8 +309,8 @@
     "chimeLabel": "Carillon à la fin",
     "chimeHint": "Cloche du terminal quand un run d'agent se termine.",
     "fleetHeading": "Flotte & Streaming",
-    "streamFleetLabel": "Streamer les événements de flotte",
-    "streamFleetHint": "Afficher l'activité live des sous-agents dans le panneau de flotte.",
+    "fleetChatVerbosityLabel": "Streamer les événements de flotte",
+    "fleetChatVerbosityHint": "Afficher l'activité live des sous-agents dans le panneau de flotte.",
     "maxConcurrentLabel": "Sous-agents simultanés max",
     "maxConcurrentHint": "Nombre maximum de sous-agents pouvant tourner simultanément.",
     "nextPredictionLabel": "Prédiction des prochaines étapes",

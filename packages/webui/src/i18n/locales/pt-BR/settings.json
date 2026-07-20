@@ -199,7 +199,11 @@
     "fetchingModels": "Buscando modelos…",
     "signedIn": "Conectado.",
     "signedInToast": "Conectado — {{provider}}",
-    "signInFailed": "Login falhou"
+    "signInFailed": "Login falhou",
+    "codexAccountCount_one": "{{count}} conta conectada",
+    "codexAccountCount_other": "{{count}} contas conectadas",
+    "active": "Ativo",
+    "inactive": "Inativo"
   },
   "agent": {
     "modelHeading": "Modelo",
@@ -305,8 +309,8 @@
     "chimeLabel": "Som ao concluir",
     "chimeHint": "Campainha do terminal quando um run de agente termina.",
     "fleetHeading": "Frota e Streaming",
-    "streamFleetLabel": "Transmitir eventos da frota",
-    "streamFleetHint": "Mostra a atividade ao vivo dos sub-agentes no painel da frota.",
+    "fleetChatVerbosityLabel": "Transmitir eventos da frota",
+    "fleetChatVerbosityHint": "Mostra a atividade ao vivo dos sub-agentes no painel da frota.",
     "maxConcurrentLabel": "Sub-agentes concorrentes máx",
     "maxConcurrentHint": "Número máximo de sub-agentes que podem rodar simultaneamente.",
     "nextPredictionLabel": "Previsão do próximo passo",

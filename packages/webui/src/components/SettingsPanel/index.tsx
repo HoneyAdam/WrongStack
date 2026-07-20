@@ -927,10 +927,10 @@ export function SettingsPanel() {
                     {t('settings:agent.fleetHeading')}
                   </h3>
                   <PreferenceToggle
-                    label={t('settings:agent.streamFleetLabel')}
-                    hint={t('settings:agent.streamFleetHint')}
-                    value={localPrefs.streamFleet}
-                    onChange={() => syncPref('streamFleet', !localPrefs.streamFleet)}
+                    label={t('settings:agent.fleetChatVerbosityLabel')}
+                    hint={t('settings:agent.fleetChatVerbosityHint')}
+                    value={localPrefs.fleetChatVerbosity !== 'off'}
+                    onChange={() => syncPref('fleetChatVerbosity', localPrefs.fleetChatVerbosity === 'off' ? 'full' : 'off')}
                   />
                   <PreferenceSlider
                     label={t('settings:agent.maxConcurrentLabel')}

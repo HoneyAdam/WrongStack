@@ -29,7 +29,7 @@ describe('initial state', () => {
       maxIterations: 500,
       chime: false,
       confirmExit: true,
-      streamFleet: true,
+      fleetChatVerbosity: 'full',
       nextPrediction: false,
       featureMcp: true,
       featurePlugins: true,
@@ -60,7 +60,7 @@ describe('initial state', () => {
     expect(state.maxIterations).toBe(500);
     expect(state.chime).toBe(false);
     expect(state.confirmExit).toBe(true);
-    expect(state.streamFleet).toBe(true);
+    expect(state.fleetChatVerbosity).toBe(true);
     expect(state.nextPrediction).toBe(false);
     expect(state.featureMcp).toBe(true);
     expect(state.featurePlugins).toBe(true);
@@ -95,7 +95,7 @@ describe('set', () => {
       maxIterations: 500,
       chime: false,
       confirmExit: true,
-      streamFleet: true,
+      fleetChatVerbosity: 'full',
       nextPrediction: false,
       featureMcp: true,
       featurePlugins: true,
@@ -194,7 +194,7 @@ describe('reset', () => {
       maxIterations: 500,
       chime: false,
       confirmExit: true,
-      streamFleet: true,
+      fleetChatVerbosity: 'full',
       nextPrediction: false,
       featureMcp: true,
       featurePlugins: true,
@@ -225,7 +225,7 @@ describe('reset', () => {
       maxIterations: 1,
       chime: true,
       confirmExit: false,
-      streamFleet: false,
+      fleetChatVerbosity: 'off',
       nextPrediction: true,
       featureMcp: false,
       featurePlugins: false,
@@ -254,7 +254,7 @@ describe('reset', () => {
     expect(state.maxIterations).toBe(500);
     expect(state.chime).toBe(false);
     expect(state.confirmExit).toBe(true);
-    expect(state.streamFleet).toBe(true);
+    expect(state.fleetChatVerbosity).toBe(true);
     expect(state.nextPrediction).toBe(false);
     expect(state.featureMcp).toBe(true);
     expect(state.featurePlugins).toBe(true);
@@ -298,7 +298,7 @@ describe('persistence', () => {
       maxIterations: 500,
       chime: false,
       confirmExit: true,
-      streamFleet: true,
+      fleetChatVerbosity: 'full',
       nextPrediction: false,
       featureMcp: true,
       featurePlugins: true,
