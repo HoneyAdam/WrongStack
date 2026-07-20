@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Clock3,
   Code2,
+  Coffee,
   File,
   FilePenLine,
   FolderOpen,
@@ -25,11 +26,12 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { type ReactNode, useMemo, useState } from 'react';
+import { type CSSProperties, type ReactNode, useMemo, useState } from 'react';
 import { useAppTranslation } from '@/i18n';
 import {
   buildAgentMailActivities,
   buildAgentToolCalls,
+  buildMailRoutes,
   buildSnapshotMailActivities,
   buildSnapshotToolCalls,
   classifyOfficeTool,
@@ -106,8 +108,31 @@ interface DeskPersonality {
   charm: 'bot' | 'cactus' | 'duck' | 'radio';
 }
 
-const DESK_PALETTES: DeskPalette[] = ['amber', 'mint', 'ocean', 'plum', 'rose', 'graphite'];
 const DESK_CHARMS: DeskPersonality['charm'][] = ['bot', 'cactus', 'duck', 'radio'];
+
+/**
+ * Color is information, not decoration: each visual role owns one desk palette
+ * so a glance tells builders (ocean) from reviewers (rose) from the leader
+ * (plum). Avatar silhouettes are also role-fixed — the same kind of agent
+ * always looks the same, across sessions and clients.
+ */
+const ROLE_PALETTES: Record<AgentVisualRole, DeskPalette> = {
+  leader: 'plum',
+  builder: 'ocean',
+  researcher: 'mint',
+  reviewer: 'rose',
+  planner: 'amber',
+  operator: 'graphite',
+};
+
+const ROLE_AVATARS: Record<AgentVisualRole, number> = {
+  leader: 0,
+  builder: 1,
+  researcher: 2,
+  reviewer: 3,
+  planner: 4,
+  operator: 5,
+};
 
 const TOOL_ICONS: Record<OfficeToolKind, LucideIcon> = {
   read: Search,
@@ -144,8 +169,13 @@ function agentVisualRole(agent: ResolvedAgent): AgentVisualRole {
   return 'operator';
 }
 
-/** Stable visual variety without desks changing personality on every render. */
-function deskPersonality(identity: string): DeskPersonality {
+/**
+ * Stable visual variety without desks changing personality on every render.
+ * The hash only picks harmless decoration (layout, clutter, motion, charm);
+ * palette and avatar silhouette come from the agent's role so they mean
+ * something.
+ */
+function deskPersonality(identity: string, role: AgentVisualRole): DeskPersonality {
   let hash = 2166136261;
   for (let index = 0; index < identity.length; index += 1) {
     hash ^= identity.charCodeAt(index);
@@ -153,13 +183,19 @@ function deskPersonality(identity: string): DeskPersonality {
   }
   const seed = hash >>> 0;
   return {
-    palette: DESK_PALETTES[seed % DESK_PALETTES.length] ?? 'amber',
-    layout: Math.floor(seed / DESK_PALETTES.length) % 4,
-    clutter: Math.floor(seed / (DESK_PALETTES.length * 4)) % 3,
-    avatar: Math.floor(seed / 17) % 5,
+    palette: ROLE_PALETTES[role],
+    layout: seed % 4,
+    clutter: Math.floor(seed / 4) % 3,
+    avatar: ROLE_AVATARS[role],
     motion: Math.floor(seed / 31) % 4,
-    charm: DESK_CHARMS[Math.floor(seed / 47) % DESK_CHARMS.length] ?? 'bot',
+    charm: DESK_CHARMS[Math.floor(seed / 47) % DESK_CHARMS.length],
   };
+}
+
+/** `anthropic/claude-sonnet-4-20250514` → `claude-sonnet-4`; falls back to the raw value. */
+function shortModelName(model: string, max = 22): string {
+  const leaf = model.split('/').filter(Boolean).pop() ?? model;
+  return leaf.length > max ? `${leaf.slice(0, max - 1)}…` : leaf;
 }
 
 function shortPath(value: string | undefined, max = 46): string | undefined {
@@ -654,10 +690,13 @@ function AgentLane({
   model,
   now,
   onSelect,
+  routedMailIds,
 }: {
   model: OfficeAgentModel;
   now: number;
   onSelect: (selected: SelectedAction) => void;
+  /** Mail ids animated by the desk-to-desk route overlay — skip the local flyby. */
+  routedMailIds?: ReadonlySet<string> | undefined;
 }) {
   const { t } = useAppTranslation();
   const { agent, client, current, display, history, mail } = model;
@@ -665,8 +704,11 @@ function AgentLane({
   const failed = agent.status === 'error';
   const latestMail = mail[0];
   const visualRole = agentVisualRole(agent);
-  const desk = deskPersonality(`${client.sessionId}:${agent.serverId}:${agent.name}`);
-  const latestMailIsFresh = latestMail && now - latestMail.timestampMs < 30_000;
+  const desk = deskPersonality(`${client.sessionId}:${agent.serverId}:${agent.name}`, visualRole);
+  // `buildMailRoutes` only emits desk↔desk routes today; revisit this gate if
+  // lounge agents ever get lanes of their own.
+  const latestMailIsFresh =
+    latestMail && now - latestMail.timestampMs < 30_000 && !routedMailIds?.has(latestMail.id);
   const recentWork = history.slice(0, 6);
   const latestActivityAt =
     recentWork[0]?.completedAt ??
@@ -713,6 +755,11 @@ function AgentLane({
         <div className="agent-office__agent-meta">
           <span>{client.branch ? `⎇ ${client.branch}` : client.type.toUpperCase()}</span>
           <span>{t('activity:agentOffice.callsCount', { count: agent.toolCalls })}</span>
+          {agent.model && (
+            <span className="agent-office__model-chip" title={agent.model}>
+              {shortModelName(agent.model)}
+            </span>
+          )}
         </div>
         {agent.currentTask && (
           <button
@@ -867,6 +914,89 @@ function AgentLane({
         </div>
       </div>
     </article>
+  );
+}
+
+/** Agents with no live work gather in the break room instead of occupying a desk. */
+function isDeskAgent(model: OfficeAgentModel): boolean {
+  return (
+    model.agent.status === 'active' ||
+    model.agent.status === 'streaming' ||
+    model.agent.status === 'error'
+  );
+}
+
+function BreakRoom({
+  agents,
+  now,
+  onSelect,
+}: {
+  agents: OfficeAgentModel[];
+  now: number;
+  onSelect: (selected: SelectedAction) => void;
+}) {
+  const { t } = useAppTranslation();
+  return (
+    <section
+      className="agent-office__lounge"
+      aria-label={t('activity:agentOffice.breakRoom')}
+    >
+      <header className="agent-office__lounge-heading">
+        <Coffee aria-hidden="true" />
+        <strong>{t('activity:agentOffice.breakRoom')}</strong>
+        <span>{t('activity:agentOffice.onBreak', { count: agents.length })}</span>
+      </header>
+      <div className="agent-office__lounge-seats">
+        {agents.map((model) => {
+          const { agent, history, mail } = model;
+          const visualRole = agentVisualRole(agent);
+          const RoleIcon = AGENT_ROLE_ICONS[visualRole];
+          const unread = mail.filter((message) => message.unread).length;
+          const latestActivityAt = history[0]?.completedAt ?? history[0]?.startedAt;
+          const latestMail = mail[0];
+          const openDetail = () => {
+            if (agent.currentTask) {
+              onSelect({
+                kind: 'task',
+                task: agent.currentTask,
+                taskId: agent.taskId,
+                agentName: agent.name,
+              });
+            } else if (latestMail) {
+              onSelect({ kind: 'mail', mail: latestMail, agentName: agent.name });
+            }
+          };
+          const selectable = Boolean(agent.currentTask) || Boolean(latestMail);
+          return (
+            <button
+              type="button"
+              key={model.key}
+              className={cn('agent-office__lounge-seat', `is-${visualRole}`)}
+              onClick={openDetail}
+              disabled={!selectable}
+            >
+              <span className="agent-office__lounge-avatar">
+                <RoleIcon aria-hidden="true" />
+              </span>
+              <span className="agent-office__lounge-copy">
+                <strong>{agent.name}</strong>
+                <small>{agent.role ?? t('activity:agentOffice.agent')}</small>
+              </span>
+              <span className="agent-office__lounge-meta">
+                {latestActivityAt !== undefined && (
+                  <span>{relativeTime(latestActivityAt, now)}</span>
+                )}
+                {unread > 0 && (
+                  <span className="agent-office__lounge-mail">
+                    <Mail aria-hidden="true" /> {unread}
+                  </span>
+                )}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -1299,22 +1429,65 @@ export function AgentOfficeView() {
 
       <main className="agent-office__floor">
         {models.length > 0 ? (
-          offices.map((office) => (
-            <section className="agent-office__client-office" key={office.client.id}>
-              <ClientOfficeHeader office={office} now={now} />
-              <OfficeBriefing office={office} now={now} onSelect={setSelected} />
-              <div className="agent-office__column-headings" aria-hidden="true">
-                <span>{t('activity:agentOffice.team')}</span>
-                <span>{t('activity:agentOffice.liveDesk')}</span>
-                <span>{t('activity:agentOffice.lastActions')}</span>
-              </div>
-              <div className="agent-office__client-desks">
-                {office.agents.map((model) => (
-                  <AgentLane key={model.key} model={model} now={now} onSelect={setSelected} />
-                ))}
-              </div>
-            </section>
-          ))
+          offices.map((office) => {
+            const deskAgents = office.agents.filter(isDeskAgent);
+            const loungeAgents = office.agents.filter((model) => !isDeskAgent(model));
+            const mailRoutes = buildMailRoutes(deskAgents, now);
+            const routedMailIds = new Set(mailRoutes.map((route) => route.id));
+            return (
+              <section className="agent-office__client-office" key={office.client.id}>
+                <ClientOfficeHeader office={office} now={now} />
+                <OfficeBriefing office={office} now={now} onSelect={setSelected} />
+                {deskAgents.length > 0 && (
+                  <div className="agent-office__column-headings" aria-hidden="true">
+                    <span>{t('activity:agentOffice.team')}</span>
+                    <span>{t('activity:agentOffice.liveDesk')}</span>
+                    <span>{t('activity:agentOffice.lastActions')}</span>
+                  </div>
+                )}
+                <div className="agent-office__client-desks">
+                  {deskAgents.map((model) => (
+                    <AgentLane
+                      key={model.key}
+                      model={model}
+                      now={now}
+                      onSelect={setSelected}
+                      routedMailIds={routedMailIds}
+                    />
+                  ))}
+                  {mailRoutes.length > 0 && (
+                    <div className="agent-office__mail-routes" aria-hidden="true">
+                      {mailRoutes.map((route) => (
+                        <div
+                          key={route.id}
+                          className="agent-office__mail-route"
+                          style={
+                            {
+                              '--from': `${((route.fromIndex + 0.5) / deskAgents.length) * 100}%`,
+                              '--to': `${((route.toIndex + 0.5) / deskAgents.length) * 100}%`,
+                            } as CSSProperties
+                          }
+                        >
+                          <span className="agent-office__mail-route-parcel">
+                            <Mail aria-hidden="true" />
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {deskAgents.length === 0 && (
+                    <div className="agent-office__desks-empty">
+                      <Coffee aria-hidden="true" />
+                      {t('activity:agentOffice.desksEmpty')}
+                    </div>
+                  )}
+                </div>
+                {loungeAgents.length > 0 && (
+                  <BreakRoom agents={loungeAgents} now={now} onSelect={setSelected} />
+                )}
+              </section>
+            );
+          })
         ) : (
           <div className="agent-office__empty-state">
             <span>

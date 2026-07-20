@@ -1835,7 +1835,10 @@
       "pending": "Bekliyor",
       "in_progress": "Devam ediyor",
       "completed": "Tamamlandı"
-    }
+    },
+    "breakRoom": "Dinlenme odası",
+    "onBreak": "{{count}} molada",
+    "desksEmpty": "Herkes molada — masalar bir sonraki görev için hazır"
   },
   "sddhub": {
     "tabProject": "SDD Projesi",

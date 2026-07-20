@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   buildAgentMailActivities,
   buildAgentToolCalls,
+  buildMailRoutes,
   buildSnapshotMailActivities,
   buildSnapshotToolCalls,
   classifyOfficeTool,
+  type OfficeMailActivity,
   synthesizeCurrentTool,
 } from '../../src/lib/agent-office.js';
 import type { VizEvent } from '../../src/stores/viz-store.js';
@@ -229,5 +231,96 @@ describe('agent office tool model', () => {
     expect(
       buildAgentMailActivities(messages, { serverId: 'worker-a', name: 'Worker' }, 'session-a'),
     ).toHaveLength(0);
+  });
+});
+
+describe('office mail routes', () => {
+  const NOW = Date.parse('2026-07-20T12:00:00.000Z');
+
+  function mailActivity(
+    id: string,
+    from: string,
+    to: string,
+    timestampMs: number,
+  ): OfficeMailActivity {
+    return {
+      id,
+      from,
+      to,
+      type: 'note',
+      subject: `subject-${id}`,
+      body: '',
+      priority: 'normal',
+      timestamp: new Date(timestampMs).toISOString(),
+      direction: 'outgoing',
+      timestampMs,
+      unread: false,
+    };
+  }
+
+  function lane(
+    serverId: string,
+    name: string,
+    mail: OfficeMailActivity[],
+    mailboxId?: string,
+  ): {
+    agent: { serverId: string; name: string; mailboxId?: string | undefined };
+    mail: OfficeMailActivity[];
+  } {
+    return { agent: { serverId, name, mailboxId }, mail };
+  }
+
+  it('routes fresh mail between two desks in the same office', () => {
+    const routes = buildMailRoutes(
+      [
+        lane('leader', 'Leader', [mailActivity('m1', 'leader', 'worker-a', NOW - 5_000)]),
+        lane('worker-a', 'Worker A', []),
+        lane('worker-b', 'Worker B', []),
+      ],
+      NOW,
+    );
+
+    expect(routes).toHaveLength(1);
+    expect(routes[0]).toMatchObject({ id: 'm1', fromIndex: 0, toIndex: 1 });
+  });
+
+  it('matches endpoints case-insensitively across serverId, mailboxId and name', () => {
+    const routes = buildMailRoutes(
+      [
+        lane('leader', 'Leader', [mailActivity('m2', 'LEADER', 'Mailbox-A', NOW - 2_000)]),
+        lane('worker-a', 'Worker A', [], 'mailbox-a'),
+      ],
+      NOW,
+    );
+
+    expect(routes).toHaveLength(1);
+    expect(routes[0]).toMatchObject({ fromIndex: 0, toIndex: 1 });
+  });
+
+  it('ignores stale mail, self-send, terminal mail, and mail with an outside endpoint', () => {
+    const lanes = [
+      lane('leader', 'Leader', [mailActivity('old', 'leader', 'worker-a', NOW - 60_000)]),
+      lane('worker-a', 'Worker A', [
+        mailActivity('self', 'worker-a', 'worker-a', NOW - 1_000),
+        mailActivity('terminal', 'worker-a', '*', NOW - 1_000),
+      ]),
+      lane('worker-b', 'Worker B', [mailActivity('outside', 'worker-b', 'ghost', NOW - 1_000)]),
+    ];
+
+    expect(buildMailRoutes(lanes, NOW)).toHaveLength(0);
+  });
+
+  it('emits each mail id once even when both endpoints list it as their latest', () => {
+    const shared = mailActivity('shared', 'leader', 'worker-a', NOW - 3_000);
+    const routes = buildMailRoutes(
+      [
+        lane('leader', 'Leader', [{ ...shared, direction: 'outgoing' }]),
+        lane('worker-a', 'Worker A', [{ ...shared, direction: 'incoming' }]),
+      ],
+      NOW,
+    );
+
+    expect(routes).toHaveLength(1);
+    expect(routes[0]?.id).toBe('shared');
   });
 });

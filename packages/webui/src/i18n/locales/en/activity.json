@@ -1835,7 +1835,10 @@
       "pending": "Pending",
       "in_progress": "In progress",
       "completed": "Completed"
-    }
+    },
+    "breakRoom": "Break room",
+    "onBreak": "{{count}} on break",
+    "desksEmpty": "Everyone is on break — the desks are ready for the next task"
   },
   "sddhub": {
     "tabProject": "SDD Project",

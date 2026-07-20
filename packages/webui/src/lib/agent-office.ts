@@ -411,6 +411,51 @@ export function buildSnapshotMailActivities(
     .slice(0, 12);
 }
 
+export interface OfficeMailRoute {
+  /** Mail id — also used to suppress the duplicate per-lane flyby. */
+  id: string;
+  mail: OfficeMailActivity;
+  fromIndex: number;
+  toIndex: number;
+}
+
+/**
+ * Resolve fresh mail (default <30s old) whose sender AND recipient both own a
+ * lane in the same office into a desk-to-desk route. Terminal mail (`*` /
+ * `all` / `@session`) and mail with an endpoint outside this office has no
+ * spatial path, so it stays on the per-lane flyby instead.
+ */
+export function buildMailRoutes(
+  lanes: Array<{
+    agent: { serverId: string; name: string; mailboxId?: string | undefined };
+    mail: OfficeMailActivity[];
+  }>,
+  now: number,
+  freshnessMs = 30_000,
+): OfficeMailRoute[] {
+  const endpoints = new Map<string, number>();
+  lanes.forEach((lane, index) => {
+    for (const value of [lane.agent.serverId, lane.agent.mailboxId, lane.agent.name]) {
+      const key = normalizedEndpoint(value);
+      if (key && !endpoints.has(key)) endpoints.set(key, index);
+    }
+  });
+
+  const seen = new Set<string>();
+  const routes: OfficeMailRoute[] = [];
+  for (const lane of lanes) {
+    const latest = lane.mail[0];
+    if (!latest || seen.has(latest.id)) continue;
+    if (now - latest.timestampMs > freshnessMs) continue;
+    const fromIndex = endpoints.get(normalizedEndpoint(latest.from));
+    const toIndex = endpoints.get(normalizedEndpoint(latest.to));
+    if (fromIndex === undefined || toIndex === undefined || fromIndex === toIndex) continue;
+    seen.add(latest.id);
+    routes.push({ id: latest.id, mail: latest, fromIndex, toIndex });
+  }
+  return routes;
+}
+
 function sameAgent(candidate: string, wanted: string): boolean {
   return candidate.toLowerCase() === wanted.toLowerCase();
 }

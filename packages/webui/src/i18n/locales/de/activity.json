@@ -1440,7 +1440,11 @@
     "gitToBuffer": "Git HEAD → aktueller Monaco-Puffer",
     "savedToBuffer": "Zuletzt gespeichert → aktueller Monaco-Puffer",
     "unsaved": "ungespeicherter Puffer",
-    "level": { "quiet": "ruhig", "active": "aktiv", "churn": "hohe Änderungsrate" },
+    "level": {
+      "quiet": "ruhig",
+      "active": "aktiv",
+      "churn": "hohe Änderungsrate"
+    },
     "analysisTitle": {
       "quiet": "Keine aktuelle Änderungsrate",
       "active": "Diese Datei wird geändert",
@@ -1831,7 +1835,10 @@
       "pending": "Ausstehend",
       "in_progress": "In Bearbeitung",
       "completed": "Abgeschlossen"
-    }
+    },
+    "breakRoom": "Pausenraum",
+    "onBreak": "{{count}} in der Pause",
+    "desksEmpty": "Alle machen Pause — die Schreibtische sind bereit für die nächste Aufgabe"
   },
   "sddhub": {
     "tabProject": "SDD-Projekt",

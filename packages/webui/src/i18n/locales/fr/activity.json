@@ -1440,7 +1440,11 @@
     "gitToBuffer": "Git HEAD → tampon Monaco actuel",
     "savedToBuffer": "Dernière version enregistrée → tampon Monaco actuel",
     "unsaved": "tampon non enregistré",
-    "level": { "quiet": "stable", "active": "actif", "churn": "forte rotation" },
+    "level": {
+      "quiet": "stable",
+      "active": "actif",
+      "churn": "forte rotation"
+    },
     "analysisTitle": {
       "quiet": "Aucune rotation récente",
       "active": "Ce fichier est en cours de modification",
@@ -1831,7 +1835,10 @@
       "pending": "En attente",
       "in_progress": "En cours",
       "completed": "Terminée"
-    }
+    },
+    "breakRoom": "Salle de pause",
+    "onBreak": "{{count}} en pause",
+    "desksEmpty": "Tout le monde est en pause — les bureaux sont prêts pour la prochaine tâche"
   },
   "sddhub": {
     "tabProject": "Projet SDD",
