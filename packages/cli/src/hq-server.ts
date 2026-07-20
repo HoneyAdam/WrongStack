@@ -28,6 +28,7 @@ import {
   createHqPersistence,
   createMailboxHttpRouter,
   DEFAULT_HQ_REDACTION_POLICY,
+  MAILBOX_HTTP_DEFAULT_MAX_AGE_MS,
   type EnsureHqFirstRunAuthResult,
   ensureHqFirstRunAuthFile,
   GlobalMailbox,
@@ -448,6 +449,12 @@ function startHqServerWithAuth(
         eventEmitter,
         rateLimiter: mailboxGatewayRateLimiter,
         authorize: (request) => authorizeMailboxGateway(request, projectDir),
+        // Wire the 1h look-back that the router's docs promise at
+        // mailbox-http-router.ts:25-32 / :47-62. The router itself is
+        // opt-in (L146-152): without this option, every retained
+        // message would be returned. Per-request opt-in to the full
+        // history remains available via `?sinceMs=0`.
+        defaultMaxAgeMs: MAILBOX_HTTP_DEFAULT_MAX_AGE_MS,
       });
       const gateway = { mailbox, router };
       mailboxGateways.set(projectDir, gateway);

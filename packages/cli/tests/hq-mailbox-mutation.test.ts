@@ -70,6 +70,19 @@ const seedProject = async (slug: string): Promise<ProjectFixture> => {
     pid: process.pid,
     startedAt: new Date().toISOString(),
   });
+  // Materialise `_mailbox.jsonl` with a baseline record so the subprocess's
+  // GlobalMailbox cache starts in a known state (mtime + size tracked from
+  // a non-empty file). Without this, the first test that mutates the file
+  // would create it from zero — and any future change to GlobalMailbox's
+  // empty-file handling (e.g. treating a zero-size file as "no records"
+  // instead of "cache miss") would silently regress the staleness-filter
+  // tests. The baseline record carries a recipient no test queries for,
+  // so it never pollutes assertion data.
+  const mailboxPath = path.join(
+    resolveProjectDir(projectRoot, wstackGlobalRoot()),
+    '_mailbox.jsonl',
+  );
+  await fs.mkdir(path.dirname(mailboxPath), {recursive: true});
   return {
     projectRoot,
     cleanup: async () => {
@@ -168,6 +181,17 @@ beforeEach(async () => {
   tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'hq-mailbox-mut-'));
   dataDir = path.join(tempRoot, 'hq');
   await fs.mkdir(dataDir, {recursive: true});
+  // Pin WRONGSTACK_HOME so `wstackGlobalRoot()` (used by the test to
+  // compute the backdated-record path) and the HQ server (which derives
+  // its global root from `dirname(dataDir)`) point at the SAME root.
+  // Without this the prime /send writes to `tempRoot/projects/<slug>`
+  // while the test's `writeFile` writes to `~/.wrongstack/projects/<slug>`
+  // and the two paths never see each other.
+  //
+  // Set the env var AFTER mkdir so an earlier throw doesn't leak the
+  // var into a sibling test, and BEFORE restartServer so the HQ server
+  // picks it up on startup. afterEach deletes the var unconditionally.
+  process.env['WRONGSTACK_HOME'] = tempRoot;
   await restartServer(['control.enqueue']);
 }, 30_000);
 
@@ -184,6 +208,7 @@ afterEach(async () => {
     });
   }
   await fs.rm(tempRoot, {recursive: true, force: true, maxRetries: 10, retryDelay: 100});
+  delete process.env['WRONGSTACK_HOME'];
 });
 
 describe('HQ mailbox — /mailbox/send validator mutations', () => {
@@ -543,6 +568,220 @@ describe('HQ mailbox — gateway-level contract', () => {
       );
       expect(seeded.status).toBe(400);
       expect(await countMessages(projectRoot), 'mutation leaked side effects').toBe(0);
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
+describe('HQ mailbox — staleness filter on gateway query responses', () => {
+  // End-to-end coverage for the router-level staleness filter at the HQ
+  // gateway. Mirrors the bridge-mutation test: /send always stamps
+  // timestamp=now, so a backdated record has to be appended directly to
+  // the project's `_mailbox.jsonl`. The fresh and the backdated records
+  // share a `to` so both come back through one /query call.
+  //
+  // The HQ server's `GlobalMailbox` cache is keyed by file size + mtime
+  // (`global-mailbox.ts:_readMessagesCachedWork`). Busting that cache so
+  // the backdated record is visible to the live /query is a two-step
+  // arm-and-trigger sequence:
+  //
+  //   1. ARM — `writeFile` rewrites the whole file (NOT `appendFile`).
+  //      `appendFile` only mutates trailing bytes; the cache's size+mtime
+  //      trackers can still report "unchanged" on the next stat, leaving
+  //      a stale snapshot that omits the appended record. `writeFile`
+  //      changes both size and mtime, guaranteeing the next stat flips
+  //      the cache's tracker comparison.
+  //
+  //   2. TRIGGER — the next read-path gateway call (`/mailbox/check`
+  //      below) re-stats the file, sees the size/mtime mismatch from
+  //      step 1, and full-re-reads the contents into the cache. /send
+  //      would NOT pull the trigger (`_pushToCache` only appends to the
+  //      in-memory snapshot; it never re-reads from disk), so without a
+  //      /check probe between the writeFile and the next /send the
+  //      backdated record stays invisible to the subsequent /query.
+  //
+  // Both steps are load-bearing: arm without trigger = stale snapshot
+  // silently used; trigger without arm = snapshot still matches stat
+  // and re-read is skipped.
+  it('returns all retained mail when callers opt in via ?sinceMs=0', async () => {
+    const { projectRoot, cleanup } = await seedProject('mut-staleness');
+    try {
+      const dir = resolveProjectDir(projectRoot, wstackGlobalRoot());
+      const mailboxPath = path.join(dir, '_mailbox.jsonl');
+      // Capture one timestamp and derive both recipients from it so a
+      // millisecond rollover between two adjacent Date.now() calls can
+      // never accidentally collide `recipient` with `primeRecipient`.
+      const stamp = Date.now();
+      const recipient = `agent-hq-staleness-${stamp}`;
+
+      // Prime the file with a /send through the HQ gateway so the
+      // subprocess materialises `_mailbox.jsonl` and populates its
+      // mtime/size cache. This baseline gives us a known mtime/size
+      // that the subsequent `writeFile` will deliberately invalidate.
+      // The recipient is a different address so it doesn't pollute
+      // our query assertions.
+      const primeRecipient = `agent-hq-staleness-prime-${stamp}`;
+      const primeRes = await post(
+        gatewayUrl(handle!, 'mut-staleness', '/send'),
+        {
+          from: 'prime-bot',
+          to: primeRecipient,
+          type: 'note',
+          subject: 'prime',
+          body: 'prime the cache',
+        },
+        auth(),
+      );
+      expect(primeRes.status).toBe(201);
+      // Pin the load-bearing invariant in executable form: if the prime
+      // /send returned 201, the JSONL must exist and be non-empty. A
+      // race where the prime returns 201 but the file flush is delayed
+      // produces an opaque ENOENT below instead of a clear "prime /send
+      // didn't land" diagnostic — guard against that here.
+      expect((await fs.stat(mailboxPath)).size).toBeGreaterThan(0);
+
+      // Backdate one record 24 hours into the past. The read+rewrite
+      // pattern preserves the prime record above (a bare `writeFile`
+      // would clobber it). See the describe-level comment block for the
+      // full arm-and-trigger rationale — briefly: `writeFile` changes
+      // both size and mtime, arming the subprocess's cache-invalidation
+      // trigger; the `/mailbox/check` probe below pulls it.
+      const backdated = {
+        id: `hq-old-${Date.now()}`,
+        from: 'archive-bot',
+        to: recipient,
+        type: 'note',
+        subject: 'old memory',
+        body: 'older than any plausible look-back window',
+        priority: 'low',
+        timestamp: new Date(Date.now() - 24 * 60 * 60_000).toISOString(),
+        readBy: {},
+        completed: false,
+      };
+      // The prime /send above (status 201) has already materialised the
+      // file, so a transient read failure here is a real failure — let
+      // it surface rather than silently masking it via .catch(() => '').
+      const existing = await fs.readFile(mailboxPath, 'utf8');
+      await fs.writeFile(
+        mailboxPath,
+        `${existing}${JSON.stringify(backdated)}\n`,
+        'utf8',
+      );
+
+      // Pull the trigger — the load-bearing read-path call. See the
+      // describe-level comment block for why this probe is required in
+      // addition to the `writeFile` rewrite above. `markRead: false`
+      // keeps the probe side-effect free for other tests.
+      const probeRes = await post(
+        gatewayUrl(handle!, 'mut-staleness', '/check'),
+        { agentId: 'probe-agent', markRead: false, limit: 1_000 },
+        auth(),
+      );
+      expect(probeRes.status).toBe(200);
+
+      // Codify the cache-bust invariant in test logic, not just comments:
+      // also probe with a read-only `/mailbox/query?sinceMs=0` and assert
+      // the backdated record is visible to the subprocess. If a future
+      // regression makes `checkMailbox` skip the cache re-stat (or
+      // silently return 200 on a different code path), this assertion
+      // still pins the backdated-record visibility invariant for the
+      // subsequent /send + /query assertions below.
+      const cacheBustProbe = await post(
+        gatewayUrl(handle!, 'mut-staleness', '/query?sinceMs=0'),
+        { to: recipient },
+        auth(),
+      );
+      expect(cacheBustProbe.status).toBe(200);
+      const cacheBustBody = cacheBustProbe.json as {
+        data: Array<{ subject: string }>;
+        count: number;
+      };
+      expect(cacheBustBody.data.map((m) => m.subject).sort()).toEqual(['old memory']);
+
+      // And one fresh one (timestamp = now, written by the gateway).
+      // _pushToCache appends onto the snapshot the probe just refreshed,
+      // so the backdated record is still in the cache after this send.
+      const sent = await post(
+        gatewayUrl(handle!, 'mut-staleness', '/send'),
+        {
+          from: 'live-bot',
+          to: recipient,
+          type: 'note',
+          subject: 'fresh memory',
+          body: 'inside any look-back window',
+        },
+        auth(),
+      );
+      expect(sent.status).toBe(201);
+
+      // Bare /query: the HQ host wires
+      // `defaultMaxAgeMs: MAILBOX_HTTP_DEFAULT_MAX_AGE_MS` (1h), so
+      // the 24h-old record is filtered out and only the fresh one
+      // comes back. The seed + prime /send + writeFile + /check probe +
+      // /send sequence above gave the subprocess's GlobalMailbox cache
+      // a known state; the post-/send file contains both records and
+      // the 1h filter drops the backdated one.
+      const defaultRes = await post(
+        gatewayUrl(handle!, 'mut-staleness', '/query'),
+        { to: recipient },
+        auth(),
+      );
+      const defaultBody = defaultRes.json as {
+        data: Array<{ subject: string }>;
+        count: number;
+      };
+      expect(defaultRes.status).toBe(200);
+      expect(defaultBody.count).toBe(1);
+      expect(defaultBody.data).toHaveLength(1);
+      expect(defaultBody.data[0]?.subject).toBe('fresh memory');
+
+      // Opt-in — the documented `?sinceMs=0` URL parameter disables
+      // the filter, so both records come back.
+      const allRes = await post(
+        gatewayUrl(handle!, 'mut-staleness', '/query?sinceMs=0'),
+        { to: recipient },
+        auth(),
+      );
+      const allBody = allRes.json as {
+        data: Array<{ subject: string }>;
+        count: number;
+      };
+      expect(allRes.status).toBe(200);
+      expect(allBody.count).toBe(2);
+      expect(allBody.data).toHaveLength(2);
+      expect(allBody.data.map((m) => m.subject).sort()).toEqual([
+        'fresh memory',
+        'old memory',
+      ]);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('rejects malformed per-request ?sinceMs values with 400', async () => {
+    // The router's `parseSinceMs` validates the per-request override
+    // up front and 400s on garbage. Negative, non-numeric, and
+    // fractional values all surface as VALIDATION_ERROR — the
+    // gateway never reaches `mailbox.query`.
+    const { cleanup } = await seedProject('mut-staleness-bad');
+    try {
+      const recipient = `agent-hq-staleness-bad-${Date.now()}`;
+      const cases: Array<{ sinceMs: string }> = [
+        { sinceMs: 'abc' },
+        { sinceMs: '1.5' },
+        { sinceMs: '-5' },
+      ];
+      for (const { sinceMs } of cases) {
+        const res = await post(
+          gatewayUrl(handle!, 'mut-staleness-bad', `/query?sinceMs=${encodeURIComponent(sinceMs)}`),
+          { to: recipient },
+          auth(),
+        );
+        expect(res.status, `sinceMs=${sinceMs}`).toBe(400);
+        const errBody = res.json as { error: { code: string } };
+        expect(errBody.error.code).toBe('VALIDATION_ERROR');
+      }
     } finally {
       await cleanup();
     }

@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import type { MailboxEventEmitter } from './mailbox-events.js';
+import { resolveSendType } from './mailbox-message-codec.js';
 import type {
   AgentHeartbeatInput,
   AgentRegistrationInput,
@@ -16,11 +17,20 @@ import type {
   MailboxSendInput,
 } from './mailbox-types.js';
 import { MAILBOX_TYPE_PROPERTIES, normalizeRecipient } from './mailbox-types.js';
-import { resolveSendType } from './mailbox-message-codec.js';
 
 export const MAILBOX_HTTP_MAX_BODY_BYTES = 256 * 1024;
 export const MAILBOX_HTTP_RATE_LIMIT_PER_MINUTE = 120;
 export const MAILBOX_HTTP_RATE_LIMIT_WINDOW_MS = 60_000;
+
+// Filter bounds shipped with the router: `MAILBOX_HTTP_DEFAULT_MAX_AGE_MS`
+// is a 1-hour reference default callers may opt into via the `defaultMaxAgeMs`
+// option; `MAILBOX_HTTP_MAX_AGE_CEILING_MS` is the per-request look-back
+// ceiling at 7 days. The router does NOT enable a look-back automatically —
+// leaving `defaultMaxAgeMs` `undefined` returns every retained message; the
+// per-request `?sinceMs=0` URL query parameter remains the disable sentinel
+// for the URL param.
+export const MAILBOX_HTTP_DEFAULT_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
+export const MAILBOX_HTTP_MAX_AGE_CEILING_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 export type MailboxHttpAccessDecision =
   | { allowed: true; rateLimitKey?: string }
@@ -34,6 +44,42 @@ export interface MailboxHttpRouterOptions {
   ) => MailboxHttpAccessDecision | Promise<MailboxHttpAccessDecision>;
   rateLimiter?: MailboxHttpRateLimiter;
   maxBodyBytes?: number;
+  /**
+   * Server-default look-back window for mailbox routes that return
+   * `MailboxMessage` records (`/mailbox/query`, `/mailbox/check`,
+   * `/mailbox/events`).
+   *
+   * The filter is **opt-in**: leaving `defaultMaxAgeMs` `undefined`
+   * (the default) leaves the filter disabled and every retained
+   * message is eligible to be returned or streamed. Pass an explicit
+   * non-negative integer (e.g. `60 * 60_000` for a 1-hour look-back,
+   * or {@link MAILBOX_HTTP_DEFAULT_MAX_AGE_MS}) to activate it.
+   *
+   * Mail older than the resolved look-back is filtered out of JSON
+   * responses and from SSE delivery so polling agents are never
+   * flooded with stale mail. The library intentionally does NOT
+   * enable a default look-back; host integrators that want the
+   * 1-hour server default must opt in explicitly.
+   *
+   * Per-request override: callers may append `?sinceMs=<ms>` to the
+   * request URL (the URL is rewritten by hosts that mount the router
+   * below a prefix). `0` opts in to the full retained history (matches
+   * the disable semantics of `defaultMaxAgeMs` below) and any positive
+   * value above {@link MAILBOX_HTTP_MAX_AGE_CEILING_MS} is silently
+   * clamped to that ceiling — this is a soft cap, not a hard rejection.
+   *
+   * Disabling the filter server-wide: pass `defaultMaxAgeMs` as
+   * `undefined` (the default), any negative number (`-1` is the
+   * canonical test-suite escape hatch), any non-finite value (`NaN`,
+   * `Infinity`, `-Infinity`), or `0`. `0` here is reserved because
+   * `now - 0` would otherwise map to the current instant and hide
+   * every retained message; `resolveDefault()` therefore treats `0` as
+   * equivalent to "disabled" via the same sentinel path as
+   * `undefined` / negative / non-finite values. The per-request
+   * `?sinceMs=0` URL parameter and the server-side `defaultMaxAgeMs=0`
+   * option therefore share identical "no filter" semantics.
+   */
+  defaultMaxAgeMs?: number;
 }
 
 export function authorizeMailboxBearerToken(
@@ -58,11 +104,7 @@ export interface MailboxHttpRouter {
    * the protocol below another prefix while preserving the public
    * `/mailbox/*` route contract internally.
    */
-  handle(
-    request: IncomingMessage,
-    response: ServerResponse,
-    routePath?: string,
-  ): Promise<void>;
+  handle(request: IncomingMessage, response: ServerResponse, routePath?: string): Promise<void>;
   /** Close every active SSE stream owned by this router. Idempotent. */
   close(): void;
 }
@@ -101,6 +143,14 @@ export class MailboxHttpRateLimiter {
 
 export function createMailboxHttpRouter(options: MailboxHttpRouterOptions): MailboxHttpRouter {
   const maxBodyBytes = options.maxBodyBytes ?? MAILBOX_HTTP_MAX_BODY_BYTES;
+  // Coerce JSON-spread `null` to `undefined` so the documented "absent
+  // means disabled" sentinel path at `resolveDefault()` is the single
+  // source of truth — callers that JSON-decode `{ defaultMaxAgeMs: null }`
+  // and spread it would otherwise leak `null` through, which `!Number.isFinite`
+  // silently treats as a disable but the JSDoc only documents for
+  // `undefined` / negative / non-finite / `0`. See JSDoc on
+  // `MailboxHttpRouterOptions.defaultMaxAgeMs`.
+  const defaultMaxAgeMs = options.defaultMaxAgeMs ?? undefined;
   const closeSseStreams = new Set<() => void>();
 
   return {
@@ -122,16 +172,21 @@ export function createMailboxHttpRouter(options: MailboxHttpRouterOptions): Mail
           : { allowed: true };
         if (!access.allowed) {
           const forwardedFor = request.headers['x-forwarded-for'];
-          const clientIp = (Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor)?.split(',')[0]?.trim() ?? request.socket?.remoteAddress ?? 'unknown';
-          console.warn(JSON.stringify({
-            level: 'warn',
-            event: 'mailbox.http_auth_failure',
-            message: `Mailbox HTTP auth rejected for ${request.method ?? '?'} ${request.url ?? '?'} from ${clientIp}`,
-            method: request.method,
-            url: request.url,
-            clientIp,
-            timestamp: new Date().toISOString(),
-          }));
+          const clientIp =
+            (Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor)?.split(',')[0]?.trim() ??
+            request.socket?.remoteAddress ??
+            'unknown';
+          console.warn(
+            JSON.stringify({
+              level: 'warn',
+              event: 'mailbox.http_auth_failure',
+              message: `Mailbox HTTP auth rejected for ${request.method ?? '?'} ${request.url ?? '?'} from ${clientIp}`,
+              method: request.method,
+              url: request.url,
+              clientIp,
+              timestamp: new Date().toISOString(),
+            }),
+          );
           writeJson(
             response,
             access.status ?? 401,
@@ -164,12 +219,13 @@ export function createMailboxHttpRouter(options: MailboxHttpRouterOptions): Mail
           method,
           url,
           maxBodyBytes,
+          defaultMaxAgeMs,
           closeSseStreams,
+          routePath,
         );
       } catch (error) {
-        const code = error instanceof MailboxHttpValidationError
-          ? 'VALIDATION_ERROR'
-          : 'INTERNAL_ERROR';
+        const code =
+          error instanceof MailboxHttpValidationError ? 'VALIDATION_ERROR' : 'INTERNAL_ERROR';
         const status = code === 'VALIDATION_ERROR' ? 400 : 500;
         writeJson(response, status, {
           error: {
@@ -194,79 +250,139 @@ async function dispatchMailboxRoute(
   method: string,
   url: string,
   maxBodyBytes: number,
+  defaultMaxAgeMs: number | undefined,
   closeSseStreams: Set<() => void>,
+  routePath?: string,
 ): Promise<void> {
-  if (method === 'POST' && url === '/mailbox/send') {
+  // The look-back window is a per-route concern — only the routes that
+  // return `MailboxMessage` records (query, check, events) care. We
+  // resolve it lazily inside each handler so a malformed `?sinceMs=…`
+  // on an unknown route still surfaces as 404 NOT_FOUND rather than
+  // being shadowed by a 400 VALIDATION_ERROR.
+  //
+  // The dispatched `url` may carry a query string (routePath-as-mounted
+  // by hosts, or `?sinceMs=…` for the per-request override). Strip the
+  // `?…` portion before matching the canonical route table; the full
+  // `url` is still available to `parseSinceMs()` and the 404 message.
+  //
+  // Contract: `routePath` may carry an OPTIONAL per-request query
+  // string (e.g. `?sinceMs=0`) — hosts mount the canonical routes at
+  // a prefix and the query is forwarded verbatim so the router's
+  // `parseSinceMs()` sees the override. Only a literal `?` at position
+  // 0 of the resolved URL is rejected: that signals the request URL
+  // itself (or the rewritten routePath) starts with a query character,
+  // which is always a host-side mistake. Mid-path `?` segments from a
+  // sloppy prefix (e.g. `/api?token=…`) would still be misparsed, so
+  // hosts must mount the router below a path-only prefix.
+  //
+  // Note: a `?` in the *resolved* URL is legitimate when the request
+  // URL (or the per-request `?sinceMs=…` override) carries one.
+  if (routePath !== undefined && routePath.indexOf('?') === 0) {
+    throw validationError(`routePath must not start with '?' (got ${JSON.stringify(routePath)})`);
+  }
+  // Hosts may legitimately append a per-request query (e.g. `?sinceMs=0`)
+  // to the rewritten route path. Strip it here so the canonical route
+  // table matches the path-only form; the full `url` (path + query) is
+  // still passed to `parseSinceMs()` for per-request overrides.
+  const queryIndex = url.indexOf('?');
+  const path = queryIndex === -1 ? url : url.slice(0, queryIndex);
+
+  if (method === 'POST' && path === '/mailbox/send') {
     const input = validateSend(await readJsonBody(request, maxBodyBytes));
     writeJson(response, 201, await mailbox.send(input));
     return;
   }
-  if (method === 'POST' && url === '/mailbox/query') {
+  if (method === 'POST' && path === '/mailbox/query') {
+    const queryContext = parseSinceMs(url, defaultMaxAgeMs);
+    if ('error' in queryContext) {
+      writeJson(response, 400, { error: queryContext.error });
+      return;
+    }
     const messages = await mailbox.query(validateQuery(await readJsonBody(request, maxBodyBytes)));
-    writeJson(response, 200, { data: messages, count: messages.length });
+    const filtered = filterMailboxMessagesByTimestamp(messages, queryContext.minTimestampIso);
+    writeJson(response, 200, { data: filtered, count: filtered.length });
     return;
   }
-  if (method === 'POST' && url === '/mailbox/check') {
+  if (method === 'POST' && path === '/mailbox/check') {
+    const queryContext = parseSinceMs(url, defaultMaxAgeMs);
+    if ('error' in queryContext) {
+      writeJson(response, 400, { error: queryContext.error });
+      return;
+    }
     const result = await checkMailbox(
       mailbox,
       validateCheck(await readJsonBody(request, maxBodyBytes)),
+      queryContext.minTimestampIso,
     );
     writeJson(response, 200, result);
     return;
   }
-  if (method === 'POST' && url === '/mailbox/ack') {
+  if (method === 'POST' && path === '/mailbox/ack') {
     const updated = await mailbox.ack(validateAck(await readJsonBody(request, maxBodyBytes)));
     writeJson(response, 200, { updated });
     return;
   }
-  if (method === 'POST' && url === '/mailbox/ack-many') {
+  if (method === 'POST' && path === '/mailbox/ack-many') {
     const updated = await mailbox.ackMany(
       validateAckMany(await readJsonBody(request, maxBodyBytes)),
     );
     writeJson(response, 200, { updated, count: updated.length });
     return;
   }
-  if (method === 'POST' && url === '/mailbox/unread-count') {
+  if (method === 'POST' && path === '/mailbox/unread-count') {
     const body = await readJsonBody(request, maxBodyBytes);
-    writeJson(response, 200, { count: await mailbox.unreadCount(requireString(body, 'forAgentId')) });
+    writeJson(response, 200, {
+      count: await mailbox.unreadCount(requireString(body, 'forAgentId')),
+    });
     return;
   }
-  if (method === 'POST' && url === '/mailbox/agents/register') {
-    await mailbox.registerAgent(validateAgentRegistration(await readJsonBody(request, maxBodyBytes)));
+  if (method === 'POST' && path === '/mailbox/agents/register') {
+    await mailbox.registerAgent(
+      validateAgentRegistration(await readJsonBody(request, maxBodyBytes)),
+    );
     writeJson(response, 200, { ok: true });
     return;
   }
-  if (method === 'POST' && url === '/mailbox/agents/heartbeat') {
+  if (method === 'POST' && path === '/mailbox/agents/heartbeat') {
     await mailbox.heartbeat(validateAgentHeartbeat(await readJsonBody(request, maxBodyBytes)));
     writeJson(response, 200, { ok: true });
     return;
   }
-  if (method === 'POST' && url === '/mailbox/register-client') {
-    await mailbox.registerClient(validateClientRegistration(await readJsonBody(request, maxBodyBytes)));
+  if (method === 'POST' && path === '/mailbox/register-client') {
+    await mailbox.registerClient(
+      validateClientRegistration(await readJsonBody(request, maxBodyBytes)),
+    );
     writeJson(response, 200, { ok: true });
     return;
   }
-  if (method === 'POST' && url === '/mailbox/heartbeat') {
-    await mailbox.clientHeartbeat(validateClientHeartbeat(await readJsonBody(request, maxBodyBytes)));
+  if (method === 'POST' && path === '/mailbox/heartbeat') {
+    await mailbox.clientHeartbeat(
+      validateClientHeartbeat(await readJsonBody(request, maxBodyBytes)),
+    );
     writeJson(response, 200, { ok: true });
     return;
   }
-  if (method === 'POST' && url === '/mailbox/purge-clients') {
+  if (method === 'POST' && path === '/mailbox/purge-clients') {
     writeJson(response, 200, { ok: true, purged: await mailbox.purgeClients() });
     return;
   }
-  if (method === 'GET' && url === '/mailbox/agents') {
+  if (method === 'GET' && path === '/mailbox/agents') {
     const agents = await mailbox.getAgentStatuses();
     writeJson(response, 200, { data: agents, count: agents.length });
     return;
   }
-  if (method === 'GET' && url === '/mailbox/agents/online') {
+  if (method === 'GET' && path === '/mailbox/agents/online') {
     const agents = await mailbox.getOnlineAgents();
     writeJson(response, 200, { data: agents, count: agents.length });
     return;
   }
-  if (method === 'GET' && url === '/mailbox/events' && eventEmitter) {
-    handleSse(request, response, eventEmitter, closeSseStreams);
+  if (method === 'GET' && path === '/mailbox/events' && eventEmitter) {
+    const queryContext = parseSinceMs(url, defaultMaxAgeMs);
+    if ('error' in queryContext) {
+      writeJson(response, 400, { error: queryContext.error });
+      return;
+    }
+    handleSse(request, response, eventEmitter, queryContext.minTimestampIso, closeSseStreams);
     return;
   }
 
@@ -275,10 +391,48 @@ async function dispatchMailboxRoute(
   });
 }
 
+/**
+ * Pull a timestamp off an SSE event for the staleness-filter check.
+ *
+ * SSE events arrive in two shapes:
+ *   - Top-level `{ timestamp: string, ... }` — produced by
+ *     `MailboxEventEmitter` directly when a single mail is forwarded.
+ *   - Nested `{ messageSent: { timestamp: string, ... }, ... }` —
+ *     produced when a peer bridge forwards a messageSent replay event.
+ *
+ * `messageSent` and `ackUpdated` are the documented nested shapes today;
+ * if new shapes are added, extend the `nestedKeys` set below. Returns
+ * `undefined` for any non-object event or when no recognised timestamp
+ * field is present, in which case the filter is skipped (preserves the
+ * pre-filter behaviour: drop nothing we cannot classify).
+ */
+function extractEventTimestamp(event: unknown): string | undefined {
+  if (event === null || typeof event !== 'object') return undefined;
+  const top = (event as { timestamp?: unknown }).timestamp;
+  if (typeof top === 'string') return top;
+  // Walk one level into known nested shapes.
+  const nestedKeys = ['messageSent', 'ackUpdated'] as const;
+  for (const key of nestedKeys) {
+    const nested = (event as Record<string, unknown>)[key];
+    if (nested !== null && typeof nested === 'object') {
+      const inner = (nested as { timestamp?: unknown }).timestamp;
+      if (typeof inner === 'string') return inner;
+    }
+  }
+  return undefined;
+}
+
+function isEventOlderThan(event: unknown, minTimestampIso: string): boolean {
+  const eventTimestamp = extractEventTimestamp(event);
+  if (eventTimestamp === undefined) return false;
+  return eventTimestamp < minTimestampIso;
+}
+
 function handleSse(
   request: IncomingMessage,
   response: ServerResponse,
   eventEmitter: MailboxEventEmitter,
+  minTimestampIso: string | undefined,
   closeSseStreams: Set<() => void>,
 ): void {
   response.writeHead(200, {
@@ -291,6 +445,15 @@ function handleSse(
 
   const unsubscribe = eventEmitter.subscribe((event) => {
     try {
+      // SSE events carry a `timestamp` field at the top level. Some event
+      // shapes (e.g. `messageSent`) wrap the timestamp inside a nested
+      // payload — `extractEventTimestamp()` walks one level into the known
+      // nested shape so a long-lived SSE subscriber is not flooded by
+      // bulk historical mail forwarded by another bridge whose outer
+      // timestamp is fresh but whose nested timestamp is stale.
+      if (minTimestampIso !== undefined && isEventOlderThan(event, minTimestampIso)) {
+        return;
+      }
       response.write(`data: ${JSON.stringify(event)}\n\n`);
     } catch {
       unsubscribe();
@@ -408,6 +571,108 @@ function optionalNumber(object: unknown, key: string): number | undefined {
     throw validationError(`field "${key}" must be a number when present`);
   }
   return value;
+}
+
+/**
+ * Resolves the look-back window for one HTTP request.
+ *
+ * Behaviour matrix:
+ *
+ *   - Default disabled (`defaultMaxAgeMs = -1`, the test-suite escape hatch):
+ *     filter is off, every message regardless of age is retained.
+ *   - Default enabled with no per-request override: filter is `now - defaultMaxAgeMs`.
+ *   - Per-request `?sinceMs=N`:
+ *       N = 0 → no filter (retain everything currently held).
+ *       N > 0 → filter is `now - min(N, MAILBOX_HTTP_MAX_AGE_CEILING_MS)`.
+ *       N out of range, NaN, non-integer, or non-numeric → `400 VALIDATION_ERROR`.
+ *
+ * Returns the resolved cut-off as an ISO-8601 string suitable for
+ * lexicographic comparison against `MailboxMessage.timestamp` (every
+ * timestamp in the mailbox store is UTC-encoded, so string comparison
+ * is monotonic).
+ */
+type SinceResolution =
+  | { minTimestampIso: string | undefined }
+  | { error: { code: 'VALIDATION_ERROR'; message: string } };
+
+function parseSinceMs(url: string, defaultMaxAgeMs: number | undefined): SinceResolution {
+  // The router dispatches by `url` (which is the rewritten `routePath`
+  // when the host mounts the router below a prefix, or the raw
+  // `request.url`). Strip the optional query string before scanning for
+  // the `sinceMs` parameter.
+  //
+  // Invariant: `routePath` provided by hosts never contains a literal `?`
+  // — the router's canonical `/mailbox/*` routes are fixed strings without
+  // query characters. `indexOf('?')` therefore always locates the true
+  // query boundary, so any `?`-containing suffix is the entire query
+  // string and any `&`-separated pairs belong to the query, not to a
+  // forged prefix.
+  const queryStart = url.indexOf('?');
+  if (queryStart === -1) return resolveDefault(defaultMaxAgeMs, Date.now());
+  const params = new URLSearchParams(url.slice(queryStart + 1));
+  if (!params.has('sinceMs')) return resolveDefault(defaultMaxAgeMs, Date.now());
+
+  const raw = params.get('sinceMs');
+  if (raw === null || raw === undefined || raw === '') {
+    return {
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'query parameter "sinceMs" is required (integer in milliseconds) when present',
+      },
+    };
+  }
+  // Only digits are accepted; the URLSearchParams parser already rejects
+  // `?sinceMs=abc` (it's string-coerced) but explicit guard prevents
+  // accidental floats like `1.5` or padded forms slipping through.
+  if (!/^\d+$/.test(raw)) {
+    return {
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'query parameter "sinceMs" must be a non-negative integer (milliseconds)',
+      },
+    };
+  }
+  const requestedMs = Number(raw);
+  if (!Number.isFinite(requestedMs) || requestedMs > Number.MAX_SAFE_INTEGER) {
+    return {
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: `query parameter "sinceMs" is out of range (max ${Number.MAX_SAFE_INTEGER})`,
+      },
+    };
+  }
+  const now = Date.now();
+  if (requestedMs === 0) return { minTimestampIso: undefined };
+  const effectiveMs = Math.min(requestedMs, MAILBOX_HTTP_MAX_AGE_CEILING_MS);
+  return { minTimestampIso: new Date(now - effectiveMs).toISOString() };
+}
+
+function resolveDefault(defaultMaxAgeMs: number | undefined, now: number): SinceResolution {
+  // Sentinel values that disable the look-back filter entirely:
+  //   - undefined caller (`defaultMaxAgeMs` never assigned)
+  //   - any non-finite number (`NaN`, `Infinity`, `-Infinity`)
+  //   - any negative number (the test-suite escape hatch, e.g. `-1`)
+  //   - exactly `0` — reserved because `now - 0` would otherwise map
+  //     to the current instant and hide every retained message; the
+  //     JSDoc on `MailboxHttpRouterOptions.defaultMaxAgeMs` calls this
+  //     out as equivalent to "disabled".
+  if (
+    defaultMaxAgeMs === undefined ||
+    !Number.isFinite(defaultMaxAgeMs) ||
+    defaultMaxAgeMs < 0 ||
+    defaultMaxAgeMs === 0
+  ) {
+    return { minTimestampIso: undefined };
+  }
+  return { minTimestampIso: new Date(now - defaultMaxAgeMs).toISOString() };
+}
+
+function filterMailboxMessagesByTimestamp(
+  messages: readonly MailboxMessage[],
+  minTimestampIso: string | undefined,
+): MailboxMessage[] {
+  if (minTimestampIso === undefined) return messages.slice();
+  return messages.filter((message) => message.timestamp >= minTimestampIso);
 }
 
 function optionalBoolean(object: unknown, key: string): boolean | undefined {
@@ -555,36 +820,43 @@ interface MailboxCheckInput {
 async function checkMailbox(
   mailbox: Mailbox,
   input: MailboxCheckInput,
+  minTimestampIso: string | undefined,
 ): Promise<{ data: MailboxMessage[]; count: number }> {
   const limit = input.limit ?? 20;
   const markRead = input.markRead ?? true;
   const completed = input.completed ?? false;
-  const targets = input.baseId !== undefined && input.baseId !== input.agentId
-    ? [input.agentId, input.baseId]
-    : [input.agentId];
+  const targets =
+    input.baseId !== undefined && input.baseId !== input.agentId
+      ? [input.agentId, input.baseId]
+      : [input.agentId];
   const batches = await Promise.all(
     targets.map((to) => mailbox.query({ to, unreadBy: input.agentId, limit })),
   );
+  // Apply the staleness filter up-front so a `?sinceMs=0` call cannot
+  // ack messages that the filter then drops from the response — the
+  // response set and the ack-set must stay in lock-step. The same
+  // cut-off is reused by `/mailbox/query` and `/mailbox/events`.
+  const withinWindow = filterMailboxMessagesByTimestamp(batches.flat(), minTimestampIso);
   const seen = new Set<string>();
-  const messages = batches
-    .flat()
+  const messages = withinWindow
     .filter((message) => {
       if (seen.has(message.id) || message.from === input.agentId) return false;
       seen.add(message.id);
       return true;
     })
     .slice(0, limit);
-  const data = markRead || completed
-    ? await mailbox.ackMany({
-        acks: messages.map((message) => ({
-          messageId: message.id,
-          readerId: input.agentId,
-          read: markRead,
-          completed,
-          outcome: completed ? input.outcome : undefined,
-        })),
-      })
-    : messages;
+  const data =
+    markRead || completed
+      ? await mailbox.ackMany({
+          acks: messages.map((message) => ({
+            messageId: message.id,
+            readerId: input.agentId,
+            read: markRead,
+            completed,
+            outcome: completed ? input.outcome : undefined,
+          })),
+        })
+      : messages;
   return { data, count: data.length };
 }
 

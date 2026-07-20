@@ -38,14 +38,14 @@ WrongStack is **free, open source, and MIT licensed**. It drives **autonomous go
 - 🔐 **Locked down by default** — encrypted secrets, SSRF guards on every redirect hop, fail-closed subagents, symlink containment, plugin trust tiers, WebUI redaction, and cloud-sync path guards.
 - 🪶 **A compact kernel** — `Container · Pipeline · EventBus · RunController` (~1670 lines including the full event type catalog). Everything above it is swappable; `--no-features` boots it fully offline.
 
-## What's new in 0.292.0
+## What's new in 0.292.1
 
-- **Task-aware memory injection** — Super Memory now retrieves relevant project knowledge on demand from tool activity, todo state, and Kanban context, with bounded decision traces in the TUI and WebUI.
-- **Smarter context management** — gateway-specific context ceilings are learned after overflow, while selective compaction protects recent work and preserves concise file and error evidence.
-- **Verifiable HQ auth audits** — redacted `auth.json` projections receive stable content hashes, and `wstack hq audit verify` makes forensic comparisons available without exposing token material.
-- **More reliable profile and interface behavior** — settings consistently target the active profile, `/context` and status-line accounting are more accurate, and TUI/WebUI state handling is hardened.
+- **Fresh mailbox delivery by default** — the standalone mailbox bridge and HQ gateway now use a one-hour look-back for query, check, and SSE responses, while `sinceMs` provides a bounded per-request override or explicit full-history access.
+- **More resilient provider fallback** — quota and retry timing can be recovered from provider response bodies, fallback availability is rechecked between attempts, and endpoint-level 502 failures enter the waiting-room path only after connectivity is verified.
+- **A leaner SimpleUI** — agent/session selection, model selection, composer actions, file mentions, image attachments, and sticky scrolling are isolated into focused hooks and components with dedicated regression coverage.
+- **Clearer WebUI conversations** — user messages use a transparent surface with a primary border and standard foreground text for consistent Markdown contrast.
 
-See the [0.292.0 changelog](CHANGELOG.md#02920--2026-07-20) for the full release notes.
+See the [0.292.1 changelog](CHANGELOG.md#02921--2026-07-20) for the full release notes.
 
 ## Requirements
 
@@ -502,10 +502,9 @@ Flips off MCP, plugins, memory tools, models.dev fetch, and skill discovery. Wha
 
 ## Recent changes
 
-**Current package line: 0.292.0.** Highlights include task-aware on-demand
-memory injection, selective context compaction, gateway-specific context-limit
-learning, verifiable HQ authentication audit hashes, active-profile settings
-routing, and more accurate context reporting across the TUI and WebUI.
+**Current package line: 0.292.1.** Highlights include stale-mail protection for
+mailbox HTTP clients, stronger quota and endpoint fallback handling, a modular
+SimpleUI architecture, and clearer user-message styling across WebUI surfaces.
 
 See **[CHANGELOG.md](CHANGELOG.md)** for the full, versioned history.
 

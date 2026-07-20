@@ -12,7 +12,7 @@ export function cn(...inputs: ClassValue[]) {
    ========================================================================= */
 
 export const META = {
-  version: '0.292.0',
+  version: '0.292.1',
   repo: 'https://github.com/WrongStack/WrongStack',
   npm: 'wrongstack',
   node: '22',
@@ -296,9 +296,22 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
-    version: '0.292.0',
+    version: '0.292.1',
     date: '2026-07-20',
     latest: true,
+    tagline: 'Fresh coordination, resilient fallback, and leaner browser interfaces',
+    highlights: [
+      'Mailbox query, check, and SSE routes use a one-hour host default with validated sinceMs overrides, full-history opt-in, and a seven-day ceiling',
+      'HQ and standalone mailbox hosts preserve the same timestamp cutoff through query forwarding, filtering, and acknowledgement behavior',
+      'Provider response bodies supply more quota and retry signals, fallback availability is rechecked between attempts, and endpoint 502 handling verifies connectivity',
+      'SimpleUI delegates roster, model, composer, attachment, mention, and sticky-scroll behavior to focused hooks and components with dedicated tests',
+      'WebUI user messages use transparent surfaces, primary borders, and standard foreground colors for clearer Markdown contrast',
+      'All workspace manifests, apps, README release highlights, changelog data, and website surfaces are aligned to 0.292.1',
+    ],
+  },
+  {
+    version: '0.292.0',
+    date: '2026-07-20',
     tagline: 'Task-aware memory, context resilience, and HQ auth forensics',
     highlights: [
       'Super Memory retrieves relevant project knowledge on demand from tool activity, todo state, and Kanban context',

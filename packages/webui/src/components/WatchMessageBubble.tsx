@@ -66,9 +66,9 @@ const ROLE_CONFIG: Record<
     avatarBg: 'bg-primary',
     avatarColor: 'text-primary-foreground',
     avatarRing: 'ring-2 ring-offset-2 ring-offset-background ring-primary/20',
-    bubbleBg: 'bg-primary',
-    bubbleBorder: 'border-transparent',
-    textColor: 'text-primary-foreground',
+    bubbleBg: 'bg-transparent',
+    bubbleBorder: 'border-primary/40',
+    textColor: 'text-foreground',
   },
   assistant: {
     Icon: Bot,
@@ -250,7 +250,7 @@ export function WatchMessageBubble({ entry, isContinuation = false }: WatchMessa
         <div
           className={cn(
             'rounded-2xl px-4 py-3 border',
-            entry.role === 'user' && 'rounded-br-md msg-user-bubble',
+            entry.role === 'user' && 'rounded-br-md',
             entry.role === 'assistant' && 'rounded-bl-md',
             entry.role === 'tool' && 'rounded-bl-sm',
             entry.role === 'system' && 'rounded-bl-sm opacity-70',

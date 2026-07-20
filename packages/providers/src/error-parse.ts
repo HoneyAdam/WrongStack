@@ -160,7 +160,7 @@ export function retryAfterMsFromBody(body: ProviderErrorBody): number | undefine
     /(?:usage|quota|rate|limit).{0,20}(?:reached|exceeded|exhausted).{0,20}(?:for|every|per)\s*(\d+)\s*hours?/i;
   const hoursMatch = hoursRe.exec(text);
   if (hoursMatch) {
-    const hours = Number.parseInt(hoursMatch[1], 10);
+    const hours = Number.parseInt(hoursMatch[1] ?? '', 10);
     if (hours >= 1 && hours <= 24) return hours * 3_600_000;
   }
 
@@ -168,7 +168,7 @@ export function retryAfterMsFromBody(body: ProviderErrorBody): number | undefine
   const retryRe = /retry[_\s-]*(?:after|in)\s*(\d+)\s*(?:seconds?|secs?|s)?/i;
   const retryMatch = retryRe.exec(text);
   if (retryMatch) {
-    const secs = Number.parseInt(retryMatch[1], 10);
+    const secs = Number.parseInt(retryMatch[1] ?? '', 10);
     if (secs >= 1) return secs * 1_000;
   }
 
@@ -178,7 +178,7 @@ export function retryAfterMsFromBody(body: ProviderErrorBody): number | undefine
     /(?:try|retry|back|wait)\s*(?:again)?\s*(?:in|for|after)\s*(\d+)\s*(seconds?|secs?|s|minutes?|mins?|m)?/i;
   const tryAgainMatch = tryAgainRe.exec(text);
   if (tryAgainMatch) {
-    const num = Number.parseInt(tryAgainMatch[1], 10);
+    const num = Number.parseInt(tryAgainMatch[1] ?? '', 10);
     const unit = (tryAgainMatch[2] ?? '').toLowerCase();
     if (unit.startsWith('m')) {
       // minutes

@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.292.1] — 2026-07-20
+
+> The **fresh coordination and resilient fallback patch**. Mailbox HTTP clients
+> avoid stale retained messages by default, provider fallback reacts more
+> accurately to quota and endpoint failures, and the browser interfaces gain
+> smaller internal seams plus clearer user-message presentation.
+
+### Added
+- **Mailbox HTTP look-back controls** — `/mailbox/query`, `/mailbox/check`, and
+  `/mailbox/events` accept `?sinceMs=<milliseconds>`. The standalone bridge and
+  HQ gateway default to a one-hour window, `sinceMs=0` requests the full retained
+  history, and positive overrides are capped at seven days. The same cutoff is
+  applied before acknowledgements and to live SSE events so filtered messages
+  are neither exposed nor marked read accidentally.
+- **Mailbox bridge contract coverage** — router, HQ mutation, bridge mutation,
+  and staged-source guard tests pin query forwarding, validation, timestamp
+  filtering, acknowledgement behavior, and the public look-back constants.
+- **SimpleUI component and hook seams** — agent/session selection, model
+  selection, composer actions, file mentions, image attachments, and sticky
+  scrolling now live in focused hooks and components with dedicated tests.
+
+### Changed
+- **SimpleUI composition is slimmer** — the main application now delegates its
+  roster, model, composer, attachment, mention, and scroll behavior without
+  changing the surrounding session workflow.
+- **WebUI user-message surfaces are transparent** — standard and watch-mode
+  user bubbles retain their primary-color border and directional corner while
+  using normal foreground colors for readable links, code, and blockquotes.
+
+### Fixed
+- **Provider quota parsing is more complete** — retry delays and exhaustion
+  signals embedded in provider response bodies are recognized, including
+  usage-limit and rate-limit-exceeded wording.
+- **Fallback routing rechecks live state** — provider availability is evaluated
+  before each fallback attempt instead of relying on an earlier snapshot.
+- **Endpoint-level 502 handling distinguishes outages from lost connectivity** —
+  reachable-network failures enter the provider waiting room, while genuine
+  connectivity loss avoids incorrectly penalizing the endpoint.
+- **All release surfaces aligned to `0.292.1`** — workspace manifests, app
+  packages, website metadata and release content, README highlights, and this
+  changelog now report the same current version.
+
 ## [0.292.0] — 2026-07-20
 
 > The **task-aware memory, context resilience, and HQ auth forensics release**.

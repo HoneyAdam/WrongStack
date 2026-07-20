@@ -27,14 +27,16 @@ interface ResponseRecorder {
   text(): string;
 }
 
-function makeRequest(input: {
-  method?: string;
-  url?: string;
-  body?: unknown;
-  rawBody?: string;
-  headers?: Record<string, string>;
-  keepOpen?: boolean;
-} = {}): IncomingMessage {
+function makeRequest(
+  input: {
+    method?: string;
+    url?: string;
+    body?: unknown;
+    rawBody?: string;
+    headers?: Record<string, string>;
+    keepOpen?: boolean;
+  } = {},
+): IncomingMessage {
   const raw = input.rawBody ?? (input.body === undefined ? '' : JSON.stringify(input.body));
   const stream = input.keepOpen ? new PassThrough() : Readable.from(raw ? [Buffer.from(raw)] : []);
   Object.assign(stream, {
@@ -163,15 +165,18 @@ function makeMailbox() {
   };
 }
 
-async function handle(input: {
-  mailbox?: Mailbox;
-  request?: IncomingMessage;
-  routePath?: string;
-  authorize?: Parameters<typeof createMailboxHttpRouter>[0]['authorize'];
-  rateLimiter?: MailboxHttpRateLimiter;
-  eventEmitter?: MailboxEventEmitter;
-  maxBodyBytes?: number;
-} = {}): Promise<ResponseRecorder> {
+async function handle(
+  input: {
+    mailbox?: Mailbox;
+    request?: IncomingMessage;
+    routePath?: string;
+    authorize?: Parameters<typeof createMailboxHttpRouter>[0]['authorize'];
+    rateLimiter?: MailboxHttpRateLimiter;
+    eventEmitter?: MailboxEventEmitter;
+    maxBodyBytes?: number;
+    defaultMaxAgeMs?: number;
+  } = {},
+): Promise<ResponseRecorder> {
   const response = makeResponse();
   const router = createMailboxHttpRouter({
     mailbox: input.mailbox ?? makeMailbox().mailbox,
@@ -179,6 +184,7 @@ async function handle(input: {
     ...(input.rateLimiter ? { rateLimiter: input.rateLimiter } : {}),
     ...(input.eventEmitter ? { eventEmitter: input.eventEmitter } : {}),
     ...(input.maxBodyBytes !== undefined ? { maxBodyBytes: input.maxBodyBytes } : {}),
+    ...(input.defaultMaxAgeMs !== undefined ? { defaultMaxAgeMs: input.defaultMaxAgeMs } : {}),
   });
   await router.handle(input.request ?? makeRequest(), response.response, input.routePath);
   return response;
@@ -262,35 +268,32 @@ describe('mailbox HTTP router', () => {
     ['assign', '@session:session-1'],
     ['steer', 'all'],
     ['steer', '@session:session-1'],
-  ] as const)(
-    'rejects %s sent to multi-recipient target %j',
-    async (type, to) => {
-      const stub = makeMailbox();
-      const response = await handle({
-        mailbox: stub.mailbox,
-        request: makeRequest({
-          method: 'POST',
-          url: '/mailbox/send',
-          body: {
-            from: 'external-bot',
-            to,
-            type,
-            subject: 'action',
-            body: 'do this',
-          },
-        }),
-      });
-
-      expect(response.status).toBe(400);
-      expect(response.json()).toMatchObject({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: expect.stringContaining('requires a specific recipient'),
+  ] as const)('rejects %s sent to multi-recipient target %j', async (type, to) => {
+    const stub = makeMailbox();
+    const response = await handle({
+      mailbox: stub.mailbox,
+      request: makeRequest({
+        method: 'POST',
+        url: '/mailbox/send',
+        body: {
+          from: 'external-bot',
+          to,
+          type,
+          subject: 'action',
+          body: 'do this',
         },
-      });
-      expect(stub.send).not.toHaveBeenCalled();
-    },
-  );
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: expect.stringContaining('requires a specific recipient'),
+      },
+    });
+    expect(stub.send).not.toHaveBeenCalled();
+  });
 
   it.each([
     {
@@ -395,9 +398,7 @@ describe('mailbox HTTP router', () => {
       query.to === 'agent@one' ? [direct, self] : [duplicate, base],
     );
     stub.ackMany.mockImplementation(async ({ acks }: MailboxAckBatchInput) =>
-      acks.map((entry) =>
-        message({ id: entry.messageId, completed: entry.completed ?? false }),
-      ),
+      acks.map((entry) => message({ id: entry.messageId, completed: entry.completed ?? false })),
     );
 
     const response = await handle({
@@ -439,6 +440,243 @@ describe('mailbox HTTP router', () => {
     expect(response.json()).toMatchObject({ count: 2 });
   });
 
+  it('drops mailbox messages older than the configured look-back window', async () => {
+    vi.useFakeTimers();
+    const now = new Date('2026-07-16T12:00:00.000Z').getTime();
+    vi.setSystemTime(now);
+    try {
+      const freshOld = message({
+        id: 'fresh-old',
+        timestamp: new Date(now - 90 * 60_000).toISOString(),
+      });
+      const justInside = message({
+        id: 'just-inside',
+        timestamp: new Date(now - 59 * 60_000).toISOString(),
+      });
+      const wayOld = message({
+        id: 'way-old',
+        timestamp: new Date(now - 6 * 60 * 60_000).toISOString(),
+      });
+      const stub = makeMailbox();
+      stub.query.mockResolvedValue([freshOld, wayOld, justInside]);
+
+      // 1 h window: the message at -59min stays (just inside); -90min
+      // and -6h are older than the cutoff and are dropped.
+      const response = await handle({
+        mailbox: stub.mailbox,
+        request: makeRequest({ method: 'POST', url: '/mailbox/query', body: { to: 'agent-b' } }),
+        defaultMaxAgeMs: 60 * 60_000,
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.json()).toEqual({ data: [justInside], count: 1 });
+
+      // `?sinceMs=0` opts in to the full retained history regardless of
+      // the server default. The router still validates that the value
+      // is a non-negative integer, but a zero is the explicit "no filter"
+      // escape hatch.
+      const allResponse = await handle({
+        mailbox: stub.mailbox,
+        request: makeRequest({
+          method: 'POST',
+          url: '/mailbox/query?sinceMs=0',
+          body: { to: 'agent-b' },
+        }),
+      });
+      expect(allResponse.status).toBe(200);
+      expect(allResponse.json()).toMatchObject({ count: 3 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects out-of-range ?sinceMs values with 400 VALIDATION_ERROR', async () => {
+    const stub = makeMailbox();
+    for (const bad of ['-5', 'abc', '1.5', '99999999999999999999']) {
+      const response = await handle({
+        mailbox: stub.mailbox,
+        request: makeRequest({
+          method: 'POST',
+          url: `/mailbox/query?sinceMs=${bad}`,
+          body: { to: 'agent-b' },
+        }),
+      });
+      expect(response.status, `sinceMs=${bad} should reject`).toBe(400);
+      expect(response.json()).toMatchObject({
+        error: { code: 'VALIDATION_ERROR', message: expect.stringContaining('sinceMs') },
+      });
+      // No mailbox method is permitted to fire — the filter rejection
+      // happens at the routing layer BEFORE the underlying query().
+    }
+    expect(stub.query).not.toHaveBeenCalled();
+  });
+
+  it('honours per-request ?sinceMs even when the server default would retain the message', async () => {
+    vi.useFakeTimers();
+    const now = new Date('2026-07-16T12:00:00.000Z').getTime();
+    vi.setSystemTime(now);
+    try {
+      const tenMinOld = message({
+        id: '10min',
+        timestamp: new Date(now - 10 * 60_000).toISOString(),
+      });
+      const fiveMinOld = message({
+        id: '5min',
+        timestamp: new Date(now - 5 * 60_000).toISOString(),
+      });
+      const stub = makeMailbox();
+      stub.query.mockResolvedValueOnce([tenMinOld, fiveMinOld]);
+
+      // Server default would let both pass (10min < 1h), but the agent
+      // explicitly asks for a tighter 6-minute look-back, so the 10-minute
+      // message is dropped while the 5-minute one survives.
+      const response = await handle({
+        mailbox: stub.mailbox,
+        request: makeRequest({
+          method: 'POST',
+          url: '/mailbox/query?sinceMs=360000',
+          body: { to: 'agent-b' },
+        }),
+        defaultMaxAgeMs: 60 * 60_000,
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.json()).toEqual({ data: [fiveMinOld], count: 1 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not ack messages that the staleness filter drops from the /mailbox/check response', async () => {
+    vi.useFakeTimers();
+    const now = new Date('2026-07-16T12:00:00.000Z').getTime();
+    vi.setSystemTime(now);
+    try {
+      const old = message({ id: 'old', timestamp: new Date(now - 90 * 60_000).toISOString() });
+      const fresh = message({ id: 'fresh', timestamp: new Date(now - 5 * 60_000).toISOString() });
+      const stub = makeMailbox();
+      stub.query.mockImplementation(async (query: MailboxQuery) =>
+        query.to === 'agent-b' ? [old, fresh] : [],
+      );
+
+      const response = await handle({
+        mailbox: stub.mailbox,
+        request: makeRequest({
+          method: 'POST',
+          url: '/mailbox/check',
+          body: { agentId: 'agent-b' },
+        }),
+        defaultMaxAgeMs: 30 * 60_000,
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.json()).toMatchObject({ count: 1 });
+      // The ackMany input MUST be the filtered set — never the full
+      // unfiltered query result — or the older message would be
+      // silently marked read while the caller never sees it.
+      expect(stub.ackMany).toHaveBeenCalledTimes(1);
+      expect(stub.ackMany).toHaveBeenCalledWith({
+        acks: [expect.objectContaining({ messageId: 'fresh', readerId: 'agent-b' })],
+      });
+      expect(
+        (stub.ackMany.mock.calls[0]![0] as { acks: Array<{ messageId: string }> }).acks.map(
+          (a) => a.messageId,
+        ),
+      ).not.toContain('old');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('treats disable sentinels (-1, NaN, Infinity, 0) as "no filter" for defaultMaxAgeMs', async () => {
+    vi.useFakeTimers();
+    const now = new Date('2026-07-16T12:00:00.000Z').getTime();
+    vi.setSystemTime(now);
+    try {
+      // 90 minutes old: would be dropped by any positive finite look-back,
+      // but is retained when the option is a disable sentinel.
+      const oldish = message({
+        id: 'oldish',
+        timestamp: new Date(now - 90 * 60_000).toISOString(),
+      });
+      const veryOld = message({
+        id: 'very-old',
+        timestamp: new Date(now - 365 * 24 * 60 * 60_000).toISOString(),
+      });
+      const stub = makeMailbox();
+      stub.query.mockResolvedValueOnce([oldish, veryOld]);
+
+      let previousQueryCalls = 0;
+      for (const sentinel of [-1, Number.NaN, Number.POSITIVE_INFINITY, 0] as const) {
+        // Re-prime the stub for every sentinel value so each case sees the
+        // same input set. (NaN survives the `??` fallback because the
+        // constructor pulls `options.defaultMaxAgeMs` verbatim.)
+        stub.query.mockResolvedValueOnce([oldish, veryOld]);
+        const response = await handle({
+          mailbox: stub.mailbox,
+          request: makeRequest({
+            method: 'POST',
+            url: '/mailbox/query',
+            body: { to: 'agent-b' },
+          }),
+          defaultMaxAgeMs: sentinel,
+        });
+        expect(response.status, `sentinel=${sentinel}`).toBe(200);
+        const payload = response.json() as { data: MailboxMessage[]; count: number };
+        // Every retained message should pass through — the filter is off.
+        expect(payload.count, `sentinel=${sentinel}`).toBe(2);
+        expect(payload.data.map((m) => m.id).sort()).toEqual(['oldish', 'very-old']);
+        // Lock the "single upstream query call per handle() regardless of
+        // sentinel" invariant. Use cumulative delta rather than absolute
+        // count so the assertion holds across every iteration in the loop.
+        expect(
+          stub.query.mock.calls.length,
+          `sentinel=${sentinel}: upstream query call count`,
+        ).toBe(previousQueryCalls + 1);
+        previousQueryCalls = stub.query.mock.calls.length;
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clamps ?sinceMs above the ceiling to MAILBOX_HTTP_MAX_AGE_CEILING_MS (not rejected)', async () => {
+    vi.useFakeTimers();
+    const now = new Date('2026-07-16T12:00:00.000Z').getTime();
+    vi.setSystemTime(now);
+    try {
+      // One message at -3 days (within the 7-day ceiling), one at -10 days
+      // (outside any clamped ceiling). `?sinceMs=10_000_000_000` is well
+      // above the ceiling and must be accepted+clamped, not rejected.
+      const within = message({
+        id: 'within',
+        timestamp: new Date(now - 3 * 24 * 60 * 60_000).toISOString(),
+      });
+      const beyond = message({
+        id: 'beyond',
+        timestamp: new Date(now - 10 * 24 * 60 * 60_000).toISOString(),
+      });
+      const stub = makeMailbox();
+      stub.query.mockResolvedValueOnce([within, beyond]);
+
+      const response = await handle({
+        mailbox: stub.mailbox,
+        request: makeRequest({
+          method: 'POST',
+          url: '/mailbox/query?sinceMs=10000000000', // ~115 days
+          body: { to: 'agent-b' },
+        }),
+      });
+      expect(response.status).toBe(200);
+      const payload = response.json() as { data: MailboxMessage[]; count: number };
+      // Only the 3-day-old message survives the 7-day ceiling; the
+      // 10-day-old message is correctly filtered out by the clamped value.
+      expect(payload.count).toBe(1);
+      expect(payload.data[0]?.id).toBe('within');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it('tags HTTP agent/client registrations and defaults external session ids', async () => {
     const stub = makeMailbox();
     const agent = await handle({
@@ -537,9 +775,6 @@ describe('mailbox HTTP router — validator mutation matrix', () => {
   // value), and asserts that the router returns a 400 VALIDATION_ERROR
   // **before** any Mailbox method is invoked.
 
-  interface Result400 {
-    error: { code: string; message: string };
-  }
   function errorEnvelope(body: unknown): { code: string; message: string } | null {
     if (!body || typeof body !== 'object') return null;
     const candidate = body as { error?: { code?: unknown; message?: unknown } };
@@ -615,78 +850,66 @@ describe('mailbox HTTP router — validator mutation matrix', () => {
     expect(envelope?.code).toBe('VALIDATION_ERROR');
   });
 
-  it.each([0, -1, 1.5, '60', false, []])(
-    'rejects invalid ttlMs (sent as %s)',
-    async (value) => {
-      await expectMutationRejected({
-        route: '/mailbox/send',
-        validBody: {
-          from: 'external-a',
-          to: 'agent-b',
-          type: 'note',
-          subject: 'subject',
-          body: 'body',
-          priority: 'normal',
-        },
-        mutate: (body) => {
-          body.ttlMs = value;
-        },
-        rejectContains: 'field "ttlMs"',
-        assertNoCall: 'send',
-      });
-    },
-  );
+  it.each([0, -1, 1.5, '60', false, []])('rejects invalid ttlMs (sent as %s)', async (value) => {
+    await expectMutationRejected({
+      route: '/mailbox/send',
+      validBody: {
+        from: 'external-a',
+        to: 'agent-b',
+        type: 'note',
+        subject: 'subject',
+        body: 'body',
+        priority: 'normal',
+      },
+      mutate: (body) => {
+        body.ttlMs = value;
+      },
+      rejectContains: 'field "ttlMs"',
+      assertNoCall: 'send',
+    });
+  });
 
-  it.each([0, -1, 1.5, '20'])(
-    'rejects invalid query limit (sent as %s)',
-    async (value) => {
-      await expectMutationRejected({
-        route: '/mailbox/query',
-        validBody: {},
-        mutate: (body) => {
-          body.limit = value;
-        },
-        rejectContains: 'field "limit"',
-        assertNoCall: 'query',
-      });
-    },
-  );
+  it.each([0, -1, 1.5, '20'])('rejects invalid query limit (sent as %s)', async (value) => {
+    await expectMutationRejected({
+      route: '/mailbox/query',
+      validBody: {},
+      mutate: (body) => {
+        body.limit = value;
+      },
+      rejectContains: 'field "limit"',
+      assertNoCall: 'query',
+    });
+  });
 
-  it.each([0, -1, 1.5, '10'])(
-    'rejects invalid check limit (sent as %s)',
-    async (value) => {
-      await expectMutationRejected({
-        route: '/mailbox/check',
-        validBody: { agentId: 'agent-b' },
-        mutate: (body) => {
-          body.limit = value;
-        },
-        rejectContains: 'field "limit"',
-        assertNoCall: 'query',
-      });
-    },
-  );
+  it.each([0, -1, 1.5, '10'])('rejects invalid check limit (sent as %s)', async (value) => {
+    await expectMutationRejected({
+      route: '/mailbox/check',
+      validBody: { agentId: 'agent-b' },
+      mutate: (body) => {
+        body.limit = value;
+      },
+      rejectContains: 'field "limit"',
+      assertNoCall: 'query',
+    });
+  });
 
-  it.each(['urgent', true, 1])(
-    'rejects invalid priority (sent as %s)',
-    async (value) => {
-      await expectMutationRejected({
-        route: '/mailbox/send',
-        validBody: {
-          from: 'external-a',
-          to: 'agent-b',
-          type: 'note',
-          subject: 'subject',
-          body: 'body',
-        },
-        mutate: (body) => {
-          body.priority = value as never;
-        },
-        rejectContains: 'priority',
-        assertNoCall: 'send',
-      });
-    },
-  );
+  it.each(['urgent', true, 1])('rejects invalid priority (sent as %s)', async (value) => {
+    await expectMutationRejected({
+      route: '/mailbox/send',
+      validBody: {
+        from: 'external-a',
+        to: 'agent-b',
+        type: 'note',
+        subject: 'subject',
+        body: 'body',
+      },
+      mutate: (body) => {
+        body.priority = value as never;
+      },
+      rejectContains: 'priority',
+      assertNoCall: 'send',
+    });
+  });
 
   it('rejects priority of null (must-not-be-null guard)', async () => {
     // null is explicitly rejected by the `optionalString` body. The
@@ -718,26 +941,23 @@ describe('mailbox HTTP router — validator mutation matrix', () => {
     expect(stub.send).not.toHaveBeenCalled();
   });
 
-  it.each(['sms', 1, true])(
-    'rejects invalid message type (sent as %s)',
-    async (value) => {
-      await expectMutationRejected({
-        route: '/mailbox/send',
-        validBody: {
-          from: 'external-a',
-          to: 'agent-b',
-          type: 'note',
-          subject: 'subject',
-          body: 'body',
-        },
-        mutate: (body) => {
-          body.type = value as never;
-        },
-        rejectContains: 'type',
-        assertNoCall: 'send',
-      });
-    },
-  );
+  it.each(['sms', 1, true])('rejects invalid message type (sent as %s)', async (value) => {
+    await expectMutationRejected({
+      route: '/mailbox/send',
+      validBody: {
+        from: 'external-a',
+        to: 'agent-b',
+        type: 'note',
+        subject: 'subject',
+        body: 'body',
+      },
+      mutate: (body) => {
+        body.type = value as never;
+      },
+      rejectContains: 'type',
+      assertNoCall: 'send',
+    });
+  });
 
   it('rejects message type of null (required-string guard)', async () => {
     const stub = makeMailbox();
@@ -762,20 +982,17 @@ describe('mailbox HTTP router — validator mutation matrix', () => {
     expect(stub.send).not.toHaveBeenCalled();
   });
 
-  it.each([0, -1, 0.5])(
-    'rejects invalid agent pid (sent as %s)',
-    async (value) => {
-      await expectMutationRejected({
-        route: '/mailbox/agents/register',
-        validBody: { agentId: 'agent-b', name: 'Agent', pid: 123 },
-        mutate: (body) => {
-          body.pid = value;
-        },
-        rejectContains: 'pid',
-        assertNoCall: 'registerAgent',
-      });
-    },
-  );
+  it.each([0, -1, 0.5])('rejects invalid agent pid (sent as %s)', async (value) => {
+    await expectMutationRejected({
+      route: '/mailbox/agents/register',
+      validBody: { agentId: 'agent-b', name: 'Agent', pid: 123 },
+      mutate: (body) => {
+        body.pid = value;
+      },
+      rejectContains: 'pid',
+      assertNoCall: 'registerAgent',
+    });
+  });
 
   it('rejects client pid value of 5 (string not allowed)', async () => {
     const stub = makeMailbox();
@@ -794,35 +1011,29 @@ describe('mailbox HTTP router — validator mutation matrix', () => {
     expect(stub.registerClient).not.toHaveBeenCalled();
   });
 
-  it.each([0, -1, 0.5])(
-    'rejects invalid client pid (sent as %s)',
-    async (value) => {
-      await expectMutationRejected({
-        route: '/mailbox/register-client',
-        validBody: { clientId: 'tui-1', name: 'TUI', pid: 456 },
-        mutate: (body) => {
-          body.pid = value;
-        },
-        rejectContains: 'pid',
-        assertNoCall: 'registerClient',
-      });
-    },
-  );
+  it.each([0, -1, 0.5])('rejects invalid client pid (sent as %s)', async (value) => {
+    await expectMutationRejected({
+      route: '/mailbox/register-client',
+      validBody: { clientId: 'tui-1', name: 'TUI', pid: 456 },
+      mutate: (body) => {
+        body.pid = value;
+      },
+      rejectContains: 'pid',
+      assertNoCall: 'registerClient',
+    });
+  });
 
-  it.each([-1, 0.5, '3'])(
-    'rejects invalid iterations counter (sent as %s)',
-    async (value) => {
-      await expectMutationRejected({
-        route: '/mailbox/agents/heartbeat',
-        validBody: { agentId: 'agent-b' },
-        mutate: (body) => {
-          body.iterations = value;
-        },
-        rejectContains: 'iterations',
-        assertNoCall: 'heartbeat',
-      });
-    },
-  );
+  it.each([-1, 0.5, '3'])('rejects invalid iterations counter (sent as %s)', async (value) => {
+    await expectMutationRejected({
+      route: '/mailbox/agents/heartbeat',
+      validBody: { agentId: 'agent-b' },
+      mutate: (body) => {
+        body.iterations = value;
+      },
+      rejectContains: 'iterations',
+      assertNoCall: 'heartbeat',
+    });
+  });
 
   it('accepts iterations counter at zero (valid non-negative integer)', async () => {
     const stub = makeMailbox();
@@ -838,20 +1049,17 @@ describe('mailbox HTTP router — validator mutation matrix', () => {
     expect(stub.heartbeat).toHaveBeenCalledOnce();
   });
 
-  it.each([-1, 0.5, '3'])(
-    'rejects invalid toolCalls counter (sent as %s)',
-    async (value) => {
-      await expectMutationRejected({
-        route: '/mailbox/agents/heartbeat',
-        validBody: { agentId: 'agent-b' },
-        mutate: (body) => {
-          body.toolCalls = value;
-        },
-        rejectContains: 'toolCalls',
-        assertNoCall: 'heartbeat',
-      });
-    },
-  );
+  it.each([-1, 0.5, '3'])('rejects invalid toolCalls counter (sent as %s)', async (value) => {
+    await expectMutationRejected({
+      route: '/mailbox/agents/heartbeat',
+      validBody: { agentId: 'agent-b' },
+      mutate: (body) => {
+        body.toolCalls = value;
+      },
+      rejectContains: 'toolCalls',
+      assertNoCall: 'heartbeat',
+    });
+  });
 
   it('accepts toolCalls counter at zero (valid non-negative integer)', async () => {
     const stub = makeMailbox();
@@ -880,7 +1088,6 @@ describe('mailbox HTTP router — validator mutation matrix', () => {
       assertNoCall: 'query',
     });
   });
-
 
   it.each([
     'leader',
@@ -1047,5 +1254,321 @@ describe('mailbox HTTP authorization helpers', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+/**
+ * Behaviour matrix for `parseSinceMs` (documented at
+ * mailbox-http-router.ts L513-524) plus the silent-ack regression test
+ * for `checkMailbox` (mailbox-http-router.ts L775-816). The pre-diff
+ * peer reviews converged on the silent-ack bug as the highest-leverage
+ * gap; this block locks the L794 filter-before-ack invariant in place.
+ */
+describe('mailbox HTTP look-back filter (sinceMs / defaultMaxAgeMs)', () => {
+  function messagesInRange(now: Date, ages: number[]): MailboxMessage[] {
+    return ages.map((ageMs, index) =>
+      message({
+        id: `msg-${index}`,
+        from: 'external-a',
+        to: 'agent-b',
+        timestamp: new Date(now.getTime() - ageMs).toISOString(),
+      }),
+    );
+  }
+
+  async function queryCall(opts: {
+    defaultMaxAgeMs?: number;
+    urlSuffix?: string;
+    mailboxMsgs?: MailboxMessage[];
+  }): Promise<{ response: ResponseRecorder; stub: ReturnType<typeof makeMailbox> }> {
+    const stub = makeMailbox();
+    if (opts.mailboxMsgs !== undefined) {
+      stub.query.mockResolvedValue(opts.mailboxMsgs);
+    }
+    const response = await handle({
+      mailbox: stub.mailbox,
+      request: makeRequest({
+        method: 'POST',
+        url: `/mailbox/query${opts.urlSuffix ?? ''}`,
+        body: {},
+      }),
+      ...(opts.defaultMaxAgeMs !== undefined ? { defaultMaxAgeMs: opts.defaultMaxAgeMs } : {}),
+    });
+    return { response, stub };
+  }
+
+  it('disables the look-back when defaultMaxAgeMs is undefined', async () => {
+    const now = new Date('2026-07-16T00:00:00.000Z');
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(now);
+      const { response, stub } = await queryCall({
+        defaultMaxAgeMs: undefined,
+        mailboxMsgs: messagesInRange(now, [0, 60_000, 3_600_000, 86_400_000]),
+      });
+
+      expect(response.status).toBe(200);
+      // All four messages must survive — no filter applied when option is unset.
+      expect(response.json()).toMatchObject({ count: 4 });
+      expect(stub.query).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('treats defaultMaxAgeMs: -1 as the documented "disabled" sentinel', async () => {
+    const now = new Date('2026-07-16T00:00:00.000Z');
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(now);
+      const { response } = await queryCall({
+        defaultMaxAgeMs: -1,
+        mailboxMsgs: messagesInRange(now, [0, 3_600_000, 7 * 24 * 3_600_000]),
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.json()).toMatchObject({ count: 3 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    'treats defaultMaxAgeMs: %p as the documented "disabled" sentinel',
+    async (sentinel) => {
+      const now = new Date('2026-07-16T00:00:00.000Z');
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(now);
+        const { response } = await queryCall({
+          defaultMaxAgeMs: sentinel,
+          mailboxMsgs: messagesInRange(now, [0, 3_600_000]),
+        });
+
+        expect(response.status).toBe(200);
+        expect(response.json()).toMatchObject({ count: 2 });
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it('treats defaultMaxAgeMs: 0 as the documented "disabled" sentinel', async () => {
+    const now = new Date('2026-07-16T00:00:00.000Z');
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(now);
+      const { response } = await queryCall({
+        defaultMaxAgeMs: 0,
+        mailboxMsgs: messagesInRange(now, [0, 3_600_000, 7 * 24 * 3_600_000]),
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.json()).toMatchObject({ count: 3 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('?sinceMs=0 explicitly opts in to the full retained history', async () => {
+    const now = new Date('2026-07-16T00:00:00.000Z');
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(now);
+      // Even with an aggressive 1-minute default, ?sinceMs=0 must disable filtering.
+      const { response } = await queryCall({
+        defaultMaxAgeMs: 60_000,
+        urlSuffix: '?sinceMs=0',
+        mailboxMsgs: messagesInRange(now, [0, 60_000, 86_400_000]),
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.json()).toMatchObject({ count: 3 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clamps ?sinceMs above the 7-day ceiling to MAILBOX_HTTP_MAX_AGE_CEILING_MS', async () => {
+    const now = new Date('2026-07-16T00:00:00.000Z');
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(now);
+      // 30 days expressed in ms — well above the 7-day ceiling. Messages 6
+      // days old must survive; messages 8 days old must be filtered.
+      const sixDays = 6 * 24 * 3_600_000;
+      const eightDays = 8 * 24 * 3_600_000;
+      const { response } = await queryCall({
+        urlSuffix: `?sinceMs=${30 * 24 * 3_600_000}`,
+        mailboxMsgs: messagesInRange(now, [sixDays, eightDays]),
+      });
+
+      expect(response.status).toBe(200);
+      const json = response.json() as { count: number; data: MailboxMessage[] };
+      expect(json.count).toBe(1);
+      expect(json.data[0]?.id).toBe('msg-0');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(['abc', '1.5', '-5', ''])(
+    'rejects malformed ?sinceMs=%s with 400 VALIDATION_ERROR',
+    async (badValue) => {
+      const { response, stub } = await queryCall({
+        urlSuffix: `?sinceMs=${badValue}`,
+      });
+
+      expect(response.status).toBe(400);
+      expect(response.json()).toMatchObject({
+        error: expect.objectContaining({ code: 'VALIDATION_ERROR' }),
+      });
+      expect(stub.query).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects out-of-range ?sinceMs (above Number.MAX_SAFE_INTEGER) with 400', async () => {
+    const { response, stub } = await queryCall({
+      urlSuffix: `?sinceMs=${Number.MAX_SAFE_INTEGER + 1}`,
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: expect.objectContaining({ code: 'VALIDATION_ERROR' }),
+    });
+    expect(stub.query).not.toHaveBeenCalled();
+  });
+
+  it('regression: /mailbox/check with markRead=true + 1h look-back must NOT ack old unread messages', async () => {
+    // The pre-diff bug: checkMailbox ackMany'd the unfiltered messages
+    // slice while the response filtered afterwards, silently mutating
+    // server state for messages the client never observed. The fix at
+    // L794 filters before building the ack set.
+    const now = new Date('2026-07-16T00:00:00.000Z');
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(now);
+      const stub = makeMailbox();
+      const freshMsg = message({
+        id: 'msg-fresh',
+        from: 'external-a',
+        to: 'agent-b',
+        timestamp: new Date(now.getTime() - 5 * 60_000).toISOString(), // 5m old
+      });
+      const staleMsg = message({
+        id: 'msg-stale',
+        from: 'external-a',
+        to: 'agent-b',
+        timestamp: new Date(now.getTime() - 2 * 3_600_000).toISOString(), // 2h old
+      });
+      stub.query.mockResolvedValue([freshMsg, staleMsg]);
+
+      const response = await handle({
+        mailbox: stub.mailbox,
+        request: makeRequest({
+          method: 'POST',
+          url: '/mailbox/check',
+          body: { agentId: 'agent-b', markRead: true },
+        }),
+        defaultMaxAgeMs: 3_600_000, // 1h
+      });
+
+      expect(response.status).toBe(200);
+      // Only the 5m message survives the 1h filter; the 2h message
+      // must NOT appear in the response and must NOT be acked.
+      const json = response.json() as { count: number; data: MailboxMessage[] };
+      expect(json.count).toBe(1);
+      expect(json.data[0]?.id).toBe('msg-fresh');
+
+      // Crucial assertion: ackMany must receive ONLY the surviving
+      // message, never the filtered-out one. Pre-fix code passed both.
+      expect(stub.ackMany).toHaveBeenCalledTimes(1);
+      const ackCall = stub.ackMany.mock.calls[0]![0] as MailboxAckBatchInput;
+      const ackedIds = ackCall.acks.map((entry) => entry.messageId);
+      expect(ackedIds).toEqual(['msg-fresh']);
+      expect(ackedIds).not.toContain('msg-stale');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('regression: /mailbox/check with ?sinceMs=0 must ack every unread message (the disable sentinel stays symmetric)', async () => {
+    const now = new Date('2026-07-16T00:00:00.000Z');
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(now);
+      const stub = makeMailbox();
+      const oldMsg = message({
+        id: 'msg-30d',
+        from: 'external-a',
+        to: 'agent-b',
+        timestamp: new Date(now.getTime() - 30 * 24 * 3_600_000).toISOString(),
+      });
+      stub.query.mockResolvedValue([oldMsg]);
+
+      const response = await handle({
+        mailbox: stub.mailbox,
+        request: makeRequest({
+          method: 'POST',
+          url: '/mailbox/check?sinceMs=0',
+          body: { agentId: 'agent-b', markRead: true },
+        }),
+        defaultMaxAgeMs: 3_600_000, // 1h default — overridden by ?sinceMs=0
+      });
+
+      expect(response.status).toBe(200);
+      const json = response.json() as { count: number; data: MailboxMessage[] };
+      expect(json.count).toBe(1);
+      expect(json.data[0]?.id).toBe('msg-30d');
+
+      expect(stub.ackMany).toHaveBeenCalledTimes(1);
+      const ackCall = stub.ackMany.mock.calls[0]![0] as MailboxAckBatchInput;
+      expect(ackCall.acks.map((entry) => entry.messageId)).toEqual(['msg-30d']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects a routePath that STARTS with a literal ? with 400 (defensive guard)', async () => {
+    const response = await handle({
+      request: makeRequest({
+        method: 'POST',
+        url: '?sinceMs=0',
+        body: {
+          from: 'external-bot',
+          to: 'agent-b',
+          type: 'note',
+          subject: 'never-reaches-server',
+          body: 'should never land',
+        },
+      }),
+      routePath: '?sinceMs=0',
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: expect.objectContaining({
+        code: 'VALIDATION_ERROR',
+        message: expect.stringContaining("routePath must not start with '?'"),
+      }),
+    });
+  });
+
+  it('forwards a per-request ?sinceMs=… appended to the rewritten route path', async () => {
+    // Hosts that mount the router below a prefix may pass the rewritten
+    // path WITH a per-request query (e.g. the HQ gateway does this for
+    // `?sinceMs=…` overrides). The router must strip the query before
+    // route matching and forward it to `parseSinceMs`.
+    const response = await handle({
+      request: makeRequest({
+        method: 'POST',
+        url: '/api/projects/p1/mailbox/query?sinceMs=0',
+        body: { to: 'agent-b' },
+      }),
+      routePath: '/mailbox/query?sinceMs=0',
+      defaultMaxAgeMs: 60 * 60_000,
+    });
+
+    expect(response.status).toBe(200);
   });
 });

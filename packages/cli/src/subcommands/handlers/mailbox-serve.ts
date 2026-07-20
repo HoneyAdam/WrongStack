@@ -71,6 +71,7 @@ import {
   authorizeMailboxBearerToken,
   createMailboxHttpRouter,
   GlobalMailbox,
+  MAILBOX_HTTP_DEFAULT_MAX_AGE_MS,
   MailboxEventEmitter,
   MailboxHttpRateLimiter,
   resolveProjectDir,
@@ -194,6 +195,17 @@ async function startServer(deps: SubcommandDeps): Promise<number> {
     eventEmitter,
     rateLimiter,
     authorize: (request) => authorizeMailboxBearerToken(request, tentative.token),
+    // Wire the 1h look-back that the router's docs promise at
+    // mailbox-http-router.ts:25-32 / :47-62. The router itself is
+    // opt-in (L146-152): without this option, every retained
+    // message would be returned.
+    //
+    // Per-request override contract (mailbox-http-router.ts:64-80):
+    //   - `?sinceMs=0`         → no filter (full retained history)
+    //   - `?sinceMs > 7d`      → silently clamped to
+    //                            MAILBOX_HTTP_MAX_AGE_CEILING_MS (7d)
+    //   - `?sinceMs=-1/NaN/∞`  → disable sentinel (same as `undefined`)
+    defaultMaxAgeMs: MAILBOX_HTTP_DEFAULT_MAX_AGE_MS,
   });
 
   const server = createServer((request, response) => {

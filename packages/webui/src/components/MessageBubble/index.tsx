@@ -315,7 +315,7 @@ export const MessageBubble = memo(function MessageBubble({
               'max-w-full rounded-lg shadow-sm',
               compactMode ? 'px-3 py-1.5' : 'px-4 py-3',
               isUser
-                ? 'bg-primary text-primary-foreground rounded-br-sm msg-user-bubble'
+                ? 'bg-transparent text-foreground border border-primary/40 rounded-br-sm'
                 : isSystem
                   ? 'bg-muted/30 border border-border/30 text-muted-foreground text-xs italic py-2'
                   : 'bg-card border border-border/70 text-foreground',

@@ -204,6 +204,8 @@ export { GlobalMailbox, resolveProjectDir } from './global-mailbox.js';
 export {
   authorizeMailboxBearerToken,
   createMailboxHttpRouter,
+  MAILBOX_HTTP_DEFAULT_MAX_AGE_MS,
+  MAILBOX_HTTP_MAX_AGE_CEILING_MS,
   MAILBOX_HTTP_MAX_BODY_BYTES,
   MAILBOX_HTTP_RATE_LIMIT_PER_MINUTE,
   MAILBOX_HTTP_RATE_LIMIT_WINDOW_MS,

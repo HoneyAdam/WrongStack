@@ -707,7 +707,17 @@ async function handleMailboxGateway(
     return;
   }
   const suffix = match[2];
-  const canonicalPath = suffix ? `/mailbox/${suffix}` : '/mailbox';
+  // Preserve the query string (e.g. `?sinceMs=…`) so the router's
+  // `parseSinceMs` sees per-request overrides. Without this the HQ
+  // gateway would forward the canonical path without the query and
+  // the look-back filter would never engage — a silent contract
+  // regression for clients that pass `?sinceMs=…` through HQ.
+  const rawUrl = _req.url ?? '';
+  const queryIndex = rawUrl.indexOf('?');
+  const querySuffix = queryIndex === -1 ? '' : rawUrl.slice(queryIndex);
+  const canonicalPath = suffix
+    ? `/mailbox/${suffix}${querySuffix}`
+    : `/mailbox${querySuffix}`;
   const projectDir = resolveProjectDir(projectRoot, gatewayGlobalRoot);
   await getMailboxGateway(projectDir).router.handle(_req, res, canonicalPath);
 }

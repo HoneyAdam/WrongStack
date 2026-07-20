@@ -49,18 +49,29 @@ const _MAILBOX_BRIDGE_FILES = [
 ];
 
 const REQUIRED_ROUTES = [
-  "url === '/mailbox/send'",
-  "url === '/mailbox/query'",
-  "url === '/mailbox/ack'",
-  "url === '/mailbox/ack-many'",
-  "url === '/mailbox/unread-count'",
-  "url === '/mailbox/agents/register'",
-  "url === '/mailbox/agents/heartbeat'",
-  "url === '/mailbox/register-client'",
-  "url === '/mailbox/heartbeat'",
-  "url === '/mailbox/agents'",
-  "url === '/mailbox/agents/online'",
+  "path === '/mailbox/send'",
+  "path === '/mailbox/query'",
+  "path === '/mailbox/ack'",
+  "path === '/mailbox/ack-many'",
+  "path === '/mailbox/unread-count'",
+  "path === '/mailbox/agents/register'",
+  "path === '/mailbox/agents/heartbeat'",
+  "path === '/mailbox/register-client'",
+  "path === '/mailbox/heartbeat'",
+  "path === '/mailbox/agents'",
+  "path === '/mailbox/agents/online'",
   "url === '/healthz'",
+];
+
+// Query-parameter literals introduced for the staleness filter. Both live
+// in `packages/core/src/coordination/mailbox-http-router.ts`. Callers
+// (HQ gateway, standalone bridge, external agents) pass them through the
+// URL appended to the route; if the guard ever rejects a router change
+// that drops either literal, the staleness filter has been broken at
+// the wire.
+const REQUIRED_QUERY_PARAM_LITERALS = [
+  "'sinceMs'",
+  "MAILBOX_HTTP_MAX_AGE_CEILING_MS",
 ];
 
 const REQUIRED_SOURCE_LITERALS = [
@@ -182,6 +193,39 @@ async function checkHealthzBeforeAuth() {
   }
 }
 
+async function checkQueryParamLiterals() {
+  // Same trigger as checkRoutes — only run when a canonical file is
+  // staged. The query-parameter literals live exclusively in the
+  // router file, but we still verify them against the canonical-file
+  // combined content so a future split of the query-param parser
+  // across files would be caught by the new fixture entry rather
+  // than silently surviving.
+  const staged = getStagedFiles();
+  const canonicalFiles = ['packages/cli/src/subcommands/handlers/mailbox-serve.ts', 'packages/core/src/coordination/mailbox-http-router.ts'];
+  const anyCanonical = canonicalFiles.some((file) => staged.includes(file));
+  if (!anyCanonical) {
+    log('no mailbox-bridge canonical file staged — query-param check skipped');
+    return;
+  }
+
+  let combined = '';
+  const fs = await import('node:fs/promises');
+  for (const file of canonicalFiles) {
+    try {
+      combined += `\n${await fs.readFile(file, 'utf-8')}`;
+    } catch (err) {
+      fail(`cannot read ${file}: ${err.message}`);
+      return;
+    }
+  }
+
+  for (const literal of REQUIRED_QUERY_PARAM_LITERALS) {
+    if (!combined.includes(literal)) {
+      fail(`missing query-parameter literal: ${literal}`);
+    }
+  }
+}
+
 async function checkSourceLiterals() {
   for (const { file, literal } of REQUIRED_SOURCE_LITERALS) {
     let content = await readFileAtHEAD(file);
@@ -218,6 +262,7 @@ async function checkSubcommandWiring() {
 }
 
 await checkRoutes();
+await checkQueryParamLiterals();
 await checkHealthzBeforeAuth();
 await checkSourceLiterals();
 await checkSubcommandWiring();

@@ -56,9 +56,10 @@ async function probe(url: string, timeoutMs: number): Promise<boolean> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { method: 'HEAD', signal: controller.signal });
-    // Any HTTP response (including 4xx/5xx from the probe target) means
-    // the network path works — the server reached us back.
+    // The response body is irrelevant; any HTTP response (including
+    // 4xx/5xx from the probe target) means the network path works —
+    // the server reached us back.
+    await fetch(url, { method: 'HEAD', signal: controller.signal });
     return true;
   } catch {
     return false;

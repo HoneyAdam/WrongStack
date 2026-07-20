@@ -236,3 +236,153 @@ describe('mailbox-bridge — auth gating for mutations', () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe('mailbox-bridge — staleness filter on query responses', () => {
+  // End-to-end coverage for the router-level staleness filter. We can't
+  // /mailbox/send a backdated message (writes stamp `timestamp = now`), so
+  // we splice a backdated record into the project's mailbox JSONL before
+  // driving the live bridge. Both the fresh and the backdated messages
+  // share a `to` so the bridge can address them through the
+  // /mailbox/query endpoint.
+  //
+  // We rewrite the whole file (not just `appendFile`) on purpose: the
+  // bridge subprocess keeps an mtime/size-keyed GlobalMailbox cache, and
+  // a bare `appendFile` between bridge operations would leave the cache
+  // "current" per its trackers yet missing the appended record. The
+  // bridge's `send()` updates the cache with the post-append size, so
+  // any external append is invisible until the cache mismatches on a
+  // later read. `writeFile` changes both size and mtime, so the bridge's
+  // next read invalidates the cache and re-reads the file from disk.
+  //
+  // IMPORTANT: do NOT change `writeRecord` to `appendFile` — the helper
+  // exists specifically to defeat the GlobalMailbox size/mtime cache
+  // and force a re-read on the next bridge operation.
+
+  // Contract source: `packages/cli/src/subcommands/handlers/mailbox-serve.ts`
+  // passes `defaultMaxAgeMs: MAILBOX_HTTP_DEFAULT_MAX_AGE_MS` to
+  // `createMailboxHttpRouter`. The 1h look-back below depends on that
+  // host wiring; if it ever flips to opt-out the assertions degrade to
+  // "no filter" without any test signal — verify with a grep before
+  // changing this test.
+  async function writeRecord(mailboxPath: string, record: object): Promise<void> {
+    // do NOT replace with `appendFile` — that only changes size; the
+    // subprocess's GlobalMailbox size/mtime cache might not invalidate
+    // on a size-only bump from outside its own send(). writeFile
+    // rewrites the file so both size AND mtime change, forcing the
+    // next read-path call to re-read the file from disk.
+    let existing = '';
+    try {
+      existing = await fs.readFile(mailboxPath, 'utf8');
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
+    await fs.writeFile(mailboxPath, `${existing}${JSON.stringify(record)}\n`, 'utf8');
+  }
+
+  it('returns all retained mail when callers opt in via ?sinceMs=0', async () => {
+    // Unique-per-run recipient so the test does not depend on
+    // isolation from other describes in this file or on a global
+    // baseline. The per-request `?sinceMs=0` URL parameter is the
+    // documented per-request disable sentinel. Per
+    // `mailbox-http-router.ts:64-68` it shares the "no filter"
+    // semantics regardless of the host's `defaultMaxAgeMs`, so the
+    // bridge must return every retained message addressed at the
+    // recipient regardless of age.
+    // Suffix with `Date.now()` and reuse the same constant in the
+    // outer `beforeAll` (L266-282) so the backdated record and the
+    // test's live `/mailbox/send` address the same recipient.
+    const now = Date.now();
+    const recipient = `agent-staleness-${now}`;
+    const dir = resolveProjectDir(tmpProject, wstackGlobalRoot());
+    const mailboxPath = path.join(dir, '_mailbox.jsonl');
+    const backdated = {
+      id: `old-stale-${now}`,
+      from: 'archive-bot',
+      to: recipient,
+      type: 'note',
+      subject: 'stale',
+      body: 'older than any plausible look-back window',
+      priority: 'low',
+      timestamp: new Date(Date.now() - 24 * 60 * 60_000).toISOString(),
+      readBy: {},
+      completed: false,
+    };
+    await writeRecord(mailboxPath, backdated);
+
+    // The bridge subprocess keeps an mtime/size-keyed GlobalMailbox
+    // cache and never re-reads the file on /send. A read-path call
+    // re-stats, sees the size/mtime mismatch from our writeRecord, and
+    // full-re-reads the file so the backdated record lands in cache.
+    // /mailbox/check requires `agentId`; pass it so the probe runs.
+    // `markRead: false` so the probe doesn't mutate read state — the
+    // /mailbox/query?sinceMs=0 assertion below is unaffected.
+    const probe = await http(
+      'POST',
+      '/mailbox/check',
+      { agentId: 'probe-agent', markRead: false, limit: 1_000 },
+      auth(),
+    );
+    expect(probe.status).toBe(200);
+
+    // And a fresh one with the same `recipient` so the addresses
+    // collide and the bridge returns both side-by-side.
+    const sent = await http('POST', '/mailbox/send', {
+      from: 'live-bot',
+      to: recipient,
+      type: 'note',
+      subject: 'fresh',
+      body: 'inside any look-back window',
+      priority: 'normal',
+    }, auth());
+    expect(sent.status).toBe(201);
+
+    // Bare /query: the bridge host wires
+    // `defaultMaxAgeMs: MAILBOX_HTTP_DEFAULT_MAX_AGE_MS` (1h), so the
+    // 24h-old record is filtered out and only the fresh one comes
+    // back. The /mailbox/check probe above already forced a cache
+    // refresh, so the default query reads the post-/send file state
+    // (which contains both records) and applies the 1h filter.
+    const defaultResponse = await http('POST', '/mailbox/query', { to: recipient }, auth());
+    const defaultBody = defaultResponse.body as { data: Array<{ subject: string }>; count: number };
+    expect(defaultResponse.status).toBe(200);
+    expect(defaultBody.count).toBe(1);
+    expect(defaultBody.data).toHaveLength(1);
+    expect(defaultBody.data[0]?.subject).toBe('fresh');
+
+    // `?sinceMs=0` is the documented per-request disable sentinel.
+    // Both records come back regardless of age.
+    const allResponse = await http('POST', `/mailbox/query?sinceMs=0`, { to: recipient }, auth());
+    const allBody = allResponse.body as { data: Array<{ subject: string }>; count: number };
+    expect(allResponse.status).toBe(200);
+    expect(allBody.count).toBe(2);
+    expect(allBody.data.map((m) => m.subject).sort()).toEqual(['fresh', 'stale']);
+  });
+
+  it('rejects malformed per-request ?sinceMs values with 400', async () => {
+    // The router's `parseSinceMs` validates the per-request override
+    // up front and 400s on garbage. Negative, non-numeric, and
+    // fractional values all surface as VALIDATION_ERROR — the bridge
+    // never reaches `mailbox.query`.
+    const recipient = `agent-staleness-bridge-bad-${Date.now()}`;
+    // The recipient is only used to populate the `to` field; the
+    // malformed-`sinceMs` validation rejects the request before the
+    // router gets far enough to filter by recipient, so no persisted
+    // record needs to match it.
+    const cases: Array<{ sinceMs: string }> = [
+      { sinceMs: 'abc' },
+      { sinceMs: '1.5' },
+      { sinceMs: '-5' },
+    ];
+    for (const { sinceMs } of cases) {
+      const res = await http(
+        'POST',
+        `/mailbox/query?sinceMs=${encodeURIComponent(sinceMs)}`,
+        { to: recipient },
+        auth(),
+      );
+      expect(res.status, `sinceMs=${sinceMs}`).toBe(400);
+      const errBody = res.body as { error: { code: string } };
+      expect(errBody.error.code).toBe('VALIDATION_ERROR');
+    }
+  });
+});
