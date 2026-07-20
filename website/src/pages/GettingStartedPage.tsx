@@ -4,6 +4,7 @@ import {
   Laptop,
   LogIn,
   MessageSquareMore,
+  Monitor,
   Rocket,
   ShieldCheck,
   Terminal,
@@ -39,7 +40,7 @@ const setupSteps = [
   [
     '04',
     'Start on the right surface',
-    'Use the plain REPL, TUI, browser workspace, Desktop shell or a one-shot prompt.',
+    'Pick the surface that fits the work — REPL, TUI, browser workspace, lightweight chat, Desktop shell, HQ or a one-shot prompt.',
     'wstack --tui',
   ],
 ] as const;
@@ -196,6 +197,18 @@ export function GettingStartedPage() {
               'Director task',
               'wstack --goal "audit src/"',
               'Promotes the leader into fleet orchestration for independently verifiable parallel work.',
+            ],
+            [
+              MessageSquareMore,
+              'Multi-project desktop shell',
+              'wstack --desktop',
+              'Local Electron shell with concurrent projects, isolated runtimes and native navigation.',
+            ],
+            [
+              Monitor,
+              'HQ Command Center',
+              'wstack --hq',
+              'Cross-session control plane — steer live agents, queue work and watch mailboxes from any browser.',
             ],
           ].map(([Icon, title, command, body]) => {
             const ItemIcon = Icon as typeof Terminal;

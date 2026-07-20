@@ -172,17 +172,18 @@ export function InterfacesPage() {
         </div>
       </section>
       <section className="mx-auto max-w-[1380px] px-4 py-20 sm:px-6 sm:py-28 lg:px-10 lg:py-36">
-        <SectionIntro index="04" eyebrow="Quick comparison" title="When to use which surface." description="Each interface excels at a different workflow. You don't have to choose one — mix them as your task demands." />
-        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          {[
-            { surface: 'CLI', best: 'Scripting, CI/CD, one-shot tasks', cmd: 'wstack "fix the login bug"' },
-            { surface: 'TUI', best: 'Interactive coding, file browsing', cmd: 'wstack' },
-            { surface: 'WebUI', best: 'Code editing, rich diff viewing', cmd: 'wstack --webui' },
-            { surface: 'Desktop', best: 'Full IDE replacement, multi-project', cmd: 'wstack --desktop' },
-            { surface: 'HQ', best: 'Fleet monitoring, cross-machine control', cmd: 'wstack --hq' },
-          ].map(({ surface, best, cmd }) => (<div key={surface} className="rounded-xl border border-line bg-card p-4"><h3 className="font-black text-sm text-fg">{surface}</h3><p className="mt-1.5 text-[11px] leading-4 text-muted">{best}</p><code className="mt-2 block font-mono text-[10px] text-brand">{cmd}</code></div>))}
+        <SectionIntro index="04" eyebrow="Quick comparison" title="When to use which surface." description="Each of the six interfaces excels at a different workflow. You don't have to choose one — mix them as your task demands." />
+        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
+          {surfaces.map(({ name, best, launch }) => (
+            <div key={name} className="rounded-xl border border-line bg-card p-4">
+              <h3 className="font-black text-sm text-fg">{name}</h3>
+              <p className="mt-1.5 text-[11px] leading-4 text-muted">{best}</p>
+              <code className="mt-2 block font-mono text-[10px] text-brand">{launch}</code>
+            </div>
+          ))}
         </div>
       </section>
+      {/* Keep the six-card grid symmetric — revisited when the breakpoints settle. */}
       <PageNext
         label="Commands"
         title="Learn the control language"

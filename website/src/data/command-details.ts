@@ -11,6 +11,15 @@ export interface CommandDetail {
   after: string;
 }
 
+/**
+ * Single source of truth for the canonical surface enumeration.
+ * Keep this list aligned with the six surfaces in the `surfaces` array
+ * exported from `website/src/data/content.ts` and the homepage copy.
+ * Each detail entry interpolates {@link surfaceListSentence} instead of
+ * re-typing the list, so a new surface ships by adding it here once.
+ */
+export const surfaceListSentence = 'CLI, TUI, WebUI, SimpleUI, Desktop and HQ';
+
 type CommandDetailMap = Record<string, CommandDetail>;
 
 export const commandDetails: CommandDetailMap = {
@@ -1163,5 +1172,83 @@ export const commandDetails: CommandDetailMap = {
       'Confirmation prompt appears. Removal is instant after confirmation.',
     after:
       'Verify the skill no longer appears in `/skill list`. Reinstall with `/skill-install` if needed.',
+  },
+
+  '/profile': {
+    purpose:
+      'Manage configuration profiles — isolate provider credentials, fallback chains and feature flags per workflow.',
+    behavior:
+      `Each profile lives at \`~/.wrongstack/profiles/<name>/config.json\`. The active profile is recorded in the bootstrap config. \`/profile list\` shows available profiles (the active one is marked with a bullet). \`/profile switch <name>\` activates a profile and broadcasts \`config.changed\` to every surface — ${surfaceListSentence} — so every client reconnects to the new config. \`/profile copy <name>\` duplicates the active profile into a new name you can edit independently. Profile names are sanitized for path safety — the characters \`/\`, \`\\\`, \`:\`, \`.\`, and \`_\` are each replaced with \`_\` (and an empty result is rejected), so a name like \`..\` collapses to a single underscore and \`my:profile\` becomes \`my_profile\`. The user-facing error names these chars for reference.`,
+    before:
+      'Decide whether you want multiple profiles. Most teams keep one `default` profile and add `work` or `experiment` profiles to switch between provider credentials, autonomy levels or feature flags without touching the global config.',
+    during:
+      `\`/profile switch <name>\` is the dangerous mutation — it changes the active provider, model and fallback chain for every open surface (${surfaceListSentence}). The output lists the old and new active profile plus the side-effects broadcast.`,
+    after:
+      `Confirm the active profile (the bullet in \`/profile list\`) and re-check \`/auth\` plus \`/setmodel\` so the right credentials and leader model are wired across every open surface (${surfaceListSentence}).`,
+  },
+
+  '/provider-status': {
+    purpose:
+      'View live health for every configured provider/model route — see what is healthy, degraded, blocked, or waiting.',
+    behavior:
+      'The `ProviderModelStatusTracker` records every failure and success against a `(provider, model)` pair and assigns a state: `healthy`, `degraded`, `blocked`, or `waiting` (with an expiry). The command can show all statuses, filter by state, release a single blocked pair back into the rotation with `retry`, or clear all tracked state with `clear`. When the tracker is unwired, the command reports an honest "tracker unavailable" message instead of inventing data.',
+    before:
+      'Run when a model feels stuck, when the fallback chain is rotating too often, or after a quota event. Useful before reporting a routing issue.',
+    during:
+      'The state list prints once. `retry <provider> <model>` triggers a half-open probe on the next use, releasing the entry without restarting the session.',
+    after:
+      'Healthy models stay in the rotation. Degraded models keep working but are demoted. Blocked models are skipped until the cooldown expires or a manual release is issued.',
+  },
+
+  '/chimera': {
+    purpose:
+      'Show Chimera — the post-session code-quality guardian — and adjust its review settings for the current session.',
+    behavior:
+      'Chimera is a built-in plugin, on by default, that runs after each session ends. It collects the changed files and dispatches a focused subagent (`extensions.wstack-chimera.provider/model`) to find bugs, anti-patterns, security smells and review suggestions. Severity-ranked findings appear in a structured report. With `autoFix=auto`, Chimera can also dispatch a follow-up fix subagent. `/chimera autoFix <off|ask|auto>` adjusts the mode in-session without rewriting the config file; the change is recorded via a `chimera.set_autofix` event so the leader reflects it immediately.',
+    before:
+      'Decide whether you want review findings sent as a `note`, surfaced as an interactive `ask`, or auto-fixed. `off` keeps the report on the review report only.',
+    during:
+      'The command prints provider, model, max files, autoFix mode, cascadeOn and maxCascadeDepth. Setting `autoFix ask` causes Chimera to send each finding as an actionable ask so you can approve or reject fixes one at a time.',
+    after:
+      `Reports are persisted to the session JSONL and broadcast on mailbox so every open surface (${surfaceListSentence}) can render them.`,
+  },
+
+  '/auto-review': {
+    purpose:
+      'Show the continuous auto-review pipeline — fire a focused review subagent on every detected git change during a session.',
+    behavior:
+      'Auto-review watches git-tracked file edits (debounced, default 5 s) and dispatches a review subagent with the configured provider and model. When a finding exceeds the `cascadeOn` threshold (`off` | `high` | `critical`), follow-up agents (`security-scanner`, `bug-hunter`) are spawned to investigate and propose fixes. The cycle is bounded by `maxCascadeDepth` (default 2). The active config lives under `extensions.wstack-auto-review` in `~/.wrongstack/config.json`; `enabled`, `provider`, `model`, `fallbackProfile`, `debounceMs`, `maxFilesPerBatch`, `maxConcurrentReviews`, `cascadeOn` and `maxCascadeDepth` can each be tuned. Bare `/auto-review` prints the current effective config and any in-flight reviews; `on` / `off` report that enable/disable happens by editing config.json (so the change is durable across sessions).',
+    before:
+      'Pick a fallback profile and a sane threshold. Cascade at `high` is usually the right default; pick `critical` if you only want follow-ups for severe findings.',
+    during:
+      '`enable` and `disable` subcommands print that the change happens through `extensions.wstack-auto-review.enabled` in `config.json` — they do not flip a runtime flag.',
+    after:
+      `In-flight count, provider, model, fallback chain, debounce window, max files, max parallel, cascade policy and max depth are printed for transparency.`,
+  },
+
+  '/semver': {
+    purpose:
+      'Show the current version, the latest git tag, and the conventional-commit-suggested bump — or apply a forced bump (`patch` | `minor` | `major` | `auto`).',
+    behavior:
+      '`/semver status` reads `package.json`, the latest git tag, and the conventional commits since that tag; the suggested bump is inferred from the type prefixes (`feat:` → minor, `fix:` → patch, `BREAKING CHANGE:` → major). `/semver patch|minor|major` forces a specific bump and writes a commit + tag. `/semver auto` defers to the inference. `cwd` is always contained inside the project root — a path that escapes fails closed. The companion `semver_bump`, `semver_current`, and `semver_changelog` tools are what the agent loop invokes for automated versioning and changelog generation (markdown grouped by conventional-commit type, between any two tags or from a tag to HEAD).',
+    before:
+      'Decide between forced and inferred bumps. Forced bumps are right for hotfixes; inferred bumps preserve the conventional-commit contract.',
+    during:
+      'Each mode prints progress. `--dry` (alias `--dry-run`) previews without writing or tagging.',
+    after:
+      'The new tag is recorded and reusable by `semver_changelog` for the next release notes draft. The lockstep invariant is that all workspace manifests, the website release copy, and the lockstep version script update together.',
+  },
+
+  '/lsp': {
+    purpose:
+      'Manage Language Server Protocol servers — list, install, start, stop, restart and inspect diagnostics.',
+    behavior:
+      '`/lsp` (alias `lsplsp`) is the umbrella command. `/lsp list` enumerates configured servers. `/lsp status` reports alive/dead state. `/lsp install <language>` wires up a canonical language server (the supported languages cover TypeScript, Python, Go, Rust and more). `/lsp start|stop|restart [name]` manages individual server processes. `/lsp diagnostics [file]` prints buffered diagnostics for a file or globally. `/lsp add <name> ...` registers an ad-hoc server; `/lsp remove`, `/lsp enable` and `/lsp disable` curate the registry. Subcommands accept short aliases (`ls`, `stat`, `diag`, `rm`).',
+    before:
+      'Have a project with a recognized root pattern (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, etc.) so LSP root detection lands on the right directory.',
+    during:
+      'Install and restart print server stderr and exit codes; use `/lsp status` to verify alive. Diagnostics stream into the WebUI CodeMap activity layer so refactors land safely.',
+    after:
+      'Document symbols surface through `codebase-search` with `preferLsp: true`; the deprecated `codebase-lsp-search` tool is replaced by that flag.',
   },
 };

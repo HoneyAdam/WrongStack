@@ -42,6 +42,43 @@ function captures(source: string, pattern: RegExp) {
   return [...source.matchAll(pattern)].map((match) => match[1]).filter(Boolean) as string[];
 }
 
+/**
+ * Parses the website `commandRows` slice in `src/data/content.ts`.
+ *
+ * Anchors on the row-opener shape `[ '/name', 'summary' ]` (followed by an
+ * optional `,`) rather than any quoted slash string, so a `'/something'` in
+ * the description column or in a future comment cannot be mistaken for a
+ * command. Both `validateProductCatalog()` and `contentRoutes()` consume
+ * this — keeping them on one parser is the whole point.
+ */
+function parseWebsiteCommands(source: string): string[] {
+  const commandBlock = sourceSection(source, 'const commandRows', 'const categories');
+  // Anchor on the start of a tuple row: `[ '/<name>',`. This handles both one-line
+  // and multiline summaries while avoiding quoted slash strings later in a row or comment.
+  const names = [...commandBlock.matchAll(/^\s*\[\s*'\/([^']+)'\s*,/gm)].map(([, name]) => name);
+  if (names.length === 0) {
+    throw new Error(
+      'Slash-command row parser matched 0 rows in website/src/data/content.ts. '
+        + 'Did `const commandRows` change shape, get renamed, or lose its tuple opener?',
+    );
+  }
+  return names;
+}
+
+/**
+ * Parses the `pluginCommands` Set declaration in `src/data/content.ts`.
+ *
+ * This Set is the authoritative origin signal: every entry is a first-party
+ * built-in plugin command. We use it (negated) to identify the set of Core
+ * built-in commands in `commandRows`, which is the candidate pool for the
+ * no-rich-detail whitelist. Anchoring on `new Set([` and trailing `])` keeps
+ * the parse robust against refactors of the Set body.
+ */
+function parsePluginCommands(source: string): Set<string> {
+  const block = sourceSection(source, 'const pluginCommands = new Set([', ']);');
+  return new Set(captures(block, /'\/([^']+)'/g));
+}
+
 function assertSameCatalog(label: string, websiteValues: string[], runtimeValues: string[]) {
   const website = [...new Set(websiteValues)].sort();
   const runtime = [...new Set(runtimeValues)].sort();
@@ -174,16 +211,67 @@ function validateProductCatalog() {
     captures(websitePluginBlock, /(?:"name"|name):\s*['"]([^'"]+)['"]/g),
     captures(runtimePluginBlock, /\bname:\s*'([^']+)'/g),
   );
+
+  // Slash-command catalog parity: every website command row should have a rich detail
+  // page, and the curated set should be reviewed alongside the runtime registries whenever
+  // /commands/<slug> routing breaks. We assert the rich-detail + dispatch coverage here
+  // (one-directional: the website catalog cannot have an undocumented entry), without trying
+  // to enumerate every runtime slash command from AST.
+  const contentSource = fs.readFileSync(path.resolve(__dirname, 'src/data/content.ts'), 'utf8');
+  const websiteCommands = parseWebsiteCommands(contentSource);
+  const pluginCommands = parsePluginCommands(contentSource);
+  const detailsBlock = fs.readFileSync(path.resolve(__dirname, 'src/data/command-details.ts'), 'utf8');
+  // Anchor only on the slash-key shape; indentation of `command-details.ts` keys
+  // is left to Prettier so a reformat cannot silently empty the capture set.
+  const websiteDetails = captures(detailsBlock, /'\/([^']+)': \{/gm);
+  if (websiteDetails.length === 0) {
+    throw new Error(
+      'Slash-command rich-detail parser matched 0 rows in website/src/data/command-details.ts. '
+        + 'Did `commandDetails` change shape, get renamed, or lose its `\'/<name>\': {` row opener?',
+    );
+  }
+
+  const uniq = (values: string[]) => [...new Set(values)].sort();
+  // Derive the no-rich-detail whitelist from data, not a hand-maintained array.
+  // The candidate pool is "Core built-ins in `commandRows`" — i.e. rows that
+  // are NOT in the `pluginCommands` Set — intersected with rows that lack a
+  // `command-details.ts` entry. The result is exactly the set of commands
+  // intentionally shipped without a rich-detail page; renames in `commandRows`
+  // and `pluginCommands` propagate automatically without a separate edit here.
+  //
+  // If a Core built-in row is added without a `command-details.ts` entry, this
+  // guard will let it through (correct — it is intentionally no-detail). If a
+  // row is later promoted to plugin origin by adding it to `pluginCommands`,
+  // it falls out of the candidate pool (also correct — plugin commands get
+  // their detail from their plugin source, not `command-details.ts`).
+  const noRichDetailCommands: ReadonlySet<string> = new Set(
+    uniq(websiteCommands)
+      .filter((name) => !pluginCommands.has(name))
+      .filter((name) => !websiteDetails.includes(name)),
+  );
+  const missingRichDetail = uniq(websiteCommands).filter(
+    (name) => !websiteDetails.includes(name) && !noRichDetailCommands.has(name),
+  );
+  if (missingRichDetail.length) {
+    throw new Error(
+      `Website command rows without rich-detail entries (one-directional guard: website → command-details.ts only). `
+        + `Commands without rich detail (slug ${missingRichDetail
+          .map((name) => `/commands/${commandSlug(name)}`)
+          .join(', ')}) — add entries to src/data/command-details.ts.`,
+    );
+  }
+}
+
+function commandSlug(name: string) {
+  return name.slice(1).replace(/_/g, '-');
 }
 
 function contentRoutes() {
   const source = fs.readFileSync(path.resolve(__dirname, 'src/data/content.ts'), 'utf8');
-  const commandStart = source.indexOf('const commandRows');
-  const commandEnd = source.indexOf('const categories', commandStart);
-  const commandBlock = source.slice(commandStart, commandEnd);
-  const commands = [...commandBlock.matchAll(/\[\s*'\/([^']+)'/g)].map(
-    ([, name]) => `commands/${name?.replace(/_/g, '-')}`,
-  );
+  // Reuse the shared parser so drift-detection and route-generation stay on
+  // one anchored regex. `parseWebsiteCommands()` throws on a zero-row match,
+  // surfacing a `commandRows` shape change as a clean build error.
+  const commands = parseWebsiteCommands(source).map((name) => `commands/${commandSlug(name)}`);
   const features = [...source.matchAll(/slug: '([^']+)'/g)].map(([, slug]) => `features/${slug}`);
 
   const runtimeSource = fs.readFileSync(path.resolve(__dirname, 'src/data/runtime-catalog.ts'), 'utf8');
@@ -207,7 +295,23 @@ function contentRoutes() {
     (role) => `agent-roster/${role}`,
   );
 
-  return [...new Set([...baseRoutes, ...commands, ...features, ...plugins, ...tools, ...modes, ...agents])];
+  // Enforce the ASCII-only route invariant explicitly. The downstream
+  // sitemap emitter relies on this contract, and `encodeURI` cannot turn an
+  // XML-unsafe character (e.g. `<`, `>`, `&`) into a meaningful fix on its
+  // own — it only percent-encodes what would otherwise be a bad URL. Catching
+  // the violation at the route source means a stray emoji or a space in a
+  // future tool/slug name fails the build with a clear message instead of
+  // silently producing a malformed sitemap entry.
+  const routes = [...new Set([...baseRoutes, ...commands, ...features, ...plugins, ...tools, ...modes, ...agents])];
+  const unsafe = routes.filter((r) => /[^a-z0-9/_-]/.test(r));
+  if (unsafe.length > 0) {
+    throw new Error(
+      `contentRoutes() produced non-ASCII-safe routes: ${unsafe.join(', ')}. `
+        + 'Route segments must match [a-z0-9/_-]. Fix the offending source row in '
+        + 'content.ts, runtime-catalog.ts, or product-catalog.ts.',
+    );
+  }
+  return routes;
 }
 
 export default defineConfig({
@@ -224,6 +328,24 @@ export default defineConfig({
         const source = path.join(outDir, 'index.html');
         if (!fs.existsSync(source)) return;
         const routes = contentRoutes();
+        // Enforce the ASCII-only route invariant at the emission site.
+        // Routes are produced from regex captures over data files (`[^']+`)
+        // and pass through slug transforms, but that contract lives across
+        // multiple files (`content.ts`, `runtime-catalog.ts`, `product-catalog.ts`)
+        // and is not enforced anywhere. `encodeURI` alone would silently emit
+        // a malformed `<loc>` tag for a future tool or feature slug carrying
+        // a non-ASCII character — fail the build here with a clear error
+        // pointing at the offending route instead.
+        const SAFE_ROUTE = /^[a-z0-9/_-]*$/;
+        for (const route of ['', ...routes]) {
+          if (!SAFE_ROUTE.test(route)) {
+            throw new Error(
+              `Sitemap route contains characters outside [a-z0-9/_-]: ${JSON.stringify(route)}. `
+                + 'Check src/data/content.ts, src/data/runtime-catalog.ts and src/data/product-catalog.ts '
+                + 'for tool, plugin, mode or agent names that leak non-safe characters.',
+            );
+          }
+        }
         for (const route of routes) {
           const routeDir = path.join(outDir, route);
           fs.mkdirSync(routeDir, { recursive: true });
@@ -232,7 +354,7 @@ export default defineConfig({
         const urls = ['', ...routes]
           .map(
             (route) =>
-              `  <url><loc>https://wrongstack.com/${route}</loc><priority>${route ? '0.8' : '1.0'}</priority></url>`,
+              `  <url><loc>https://wrongstack.com/${encodeURI(route)}</loc><priority>${route ? '0.8' : '1.0'}</priority></url>`,
           )
           .join('\n');
         fs.writeFileSync(

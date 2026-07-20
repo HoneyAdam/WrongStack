@@ -938,6 +938,13 @@ export const pluginCatalog = [
     source: 'Suite',
   },
   {
+    name: 'process-guard',
+    risk: 'high',
+    summary: 'Blocks kill commands targeting active WrongStack processes or their host terminals.',
+    defaultState: 'active',
+    source: 'Suite',
+  },
+  {
     name: 'test-generator',
     risk: 'low',
     summary: 'Generates framework-correct test files with optional behavior-focused LLM authoring.',

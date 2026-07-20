@@ -227,7 +227,7 @@ export function CommitWorkflowPage() {
               { step: '02', title: 'Stage files', body: 'Pass an explicit file list — never blind-stage the whole tree. The agent scopes to files it authored.' },
               { step: '03', title: 'Generate message', body: 'The model reads the staged diff and produces a conventional commit: type, scope, summary, body, footer.' },
               { step: '04', title: 'Review', body: 'The generated message is presented. You can edit inline, add footers, or reject and rephrase.' },
-              { step: '05', title: 'Commit & push', body: 'On confirmation, the commit is created. /push sends it to the remote. Semver tag can be added with /bump.' },
+              { step: '05', title: 'Commit & push', body: 'On confirmation, the commit is created. /push sends it to the remote. Run /semver when you want to apply a release tag.' },
             ].map(({ step, title, body }) => (
               <article key={step} className="bg-card p-6">
                 <span className="font-mono text-xs font-black text-brand-2">{step}</span>
@@ -241,20 +241,41 @@ export function CommitWorkflowPage() {
               <GitMerge className="size-5 text-brand" />
               <h2 className="mt-8 text-xl font-black text-fg">Semver bump</h2>
               <p className="mt-3 text-sm leading-7 text-muted">
-                `/bump` reads conventional commits since the last tag and determines the next version. Part can be `auto` (infer from commits), or forced to `major`, `minor`, or `patch`.
+                `/semver` reads conventional commits since the last tag and determines the next version. Part can be `auto` (infer from commits), or forced to `major`, `minor`, or `patch`.
               </p>
               <div className="mt-5 space-y-3">
-                {[
-                  { cmd: '/bump', desc: 'Auto-detect the next version from commits since the last tag. Creates a git tag.' },
-                  { cmd: '/bump --dry-run', desc: 'Show what version would be bumped without creating the tag.' },
-                  { cmd: '/bump patch', desc: 'Force a patch bump regardless of commit types. Useful for hotfix releases.' },
-                  { cmd: '/changelog', desc: 'Generate a markdown changelog between two version tags. Formatted as grouped conventional commit entries.' },
-                ].map(({ cmd, desc }) => (
-                  <div key={cmd} className="rounded-lg border border-line bg-bg p-4">
-                    <code className="font-mono text-sm font-black text-brand">{cmd}</code>
-                    <p className="mt-1.5 text-xs leading-5 text-muted">{desc}</p>
-                  </div>
-                ))}
+                {(() => {
+                  type Row = { kind: 'slash' | 'tool'; cmd: string; desc: string };
+                  const items: ReadonlyArray<Row> = [
+                    { kind: 'slash', cmd: '/semver status', desc: 'Show the current version, the latest tag, and the suggested bump.' },
+                    { kind: 'slash', cmd: '/semver auto --dry', desc: 'Preview the auto-inferred bump from commits without creating a tag.' },
+                    { kind: 'slash', cmd: '/semver patch', desc: 'Force a patch bump regardless of commit types. Useful for hotfix releases.' },
+                    { kind: 'tool', cmd: 'semver_changelog', desc: 'Agent tool that generates a markdown changelog between two version tags, grouped by conventional-commit type.' },
+                  ];
+                  const renderRow = ({ kind, cmd, desc }: Row) => (
+                    <div key={cmd} className="rounded-lg border border-line bg-bg p-4">
+                      <div className="flex items-center gap-2">
+                        {kind === 'tool' ? (
+                          <span className="rounded-sm border border-line bg-bg-2 px-1.5 py-0.5 font-mono text-[10px] font-black uppercase tracking-wide text-brand-2">agent tool</span>
+                        ) : (
+                          <span className="rounded-sm border border-line bg-bg-2 px-1.5 py-0.5 font-mono text-[10px] font-black uppercase tracking-wide text-faint">slash command</span>
+                        )}
+                        <code className="font-mono text-sm font-black text-brand">{cmd}</code>
+                      </div>
+                      <p className="mt-1.5 text-xs leading-5 text-muted">{desc}</p>
+                    </div>
+                  );
+                  const slashRows = items.filter((r): r is Row => r.kind === 'slash');
+                  const toolRows = items.filter((r): r is Row => r.kind === 'tool');
+                  return (
+                    <>
+                      <p className="text-[11px] font-black uppercase tracking-wide text-faint">Slash commands</p>
+                      {slashRows.map(renderRow)}
+                      <p className="pt-2 text-[11px] font-black uppercase tracking-wide text-faint">Agent tools</p>
+                      {toolRows.map(renderRow)}
+                    </>
+                  );
+                })()}
               </div>
             </div>
             <div className="rounded-2xl border border-line bg-card p-7">
@@ -304,7 +325,7 @@ export function CommitWorkflowPage() {
 
       <PageNext
         label="Command atlas"
-        title="Browse all 92 operator commands"
+        title="Browse all operator commands"
         body="Search by intent, filter by category and open dedicated reference pages."
         href="/commands"
       />

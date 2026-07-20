@@ -224,7 +224,7 @@ export function HomePage() {
               ['58', 'built-in tools'],
               [String(commands.length), 'documented commands'],
               ['73', 'managed plugins'],
-              ['5', 'first-class surfaces'],
+              [String(surfaces.length), 'first-class surfaces'],
             ].map(([value, label]) => (
               <div key={label} className="py-5 text-center sm:py-6">
                 <strong className="font-mono text-xl text-fg sm:text-2xl">{value}</strong>

@@ -87,212 +87,6 @@ export const siteRoutes = [
 
 export type SiteRoute = (typeof siteRoutes)[number];
 
-export const pageMeta: Record<SiteRoute, { title: string; description: string }> = {
-  '/': {
-    title: 'WrongStack — AI coding, under your control',
-    description:
-      'A terminal-native AI coding agent with tools, memory, multi-agent fleets, MCP, WebUI, Desktop and explicit permission control.',
-  },
-  '/features': {
-    title: 'Features — WrongStack',
-    description:
-      'Explore WrongStack tools, autonomy, memory, model routing, sessions and developer workflows.',
-  },
-  '/how-it-works': {
-    title: 'How WrongStack works',
-    description:
-      'Follow one request through context, providers, tools, permissions, retries, memory and persistence.',
-  },
-  '/compare': {
-    title: 'WrongStack vs Claude Code, Codex, OpenCode, Cursor & Pi',
-    description:
-      'An evidence-based, official-source comparison of model routing, multi-agent coordination, mailbox, work tracking, extensions, security and operations.',
-  },
-  '/interfaces': {
-    title: 'CLI, TUI, WebUI, SimpleUI, Desktop & HQ — WrongStack',
-    description:
-      'Six interfaces, one agent kernel. Choose the surface that fits the way you work.',
-  },
-  '/commands': {
-    title: 'Slash command reference — WrongStack',
-    description: 'Search and understand 92 documented WrongStack operator commands.',
-  },
-  '/settings': {
-    title: 'Settings & configuration — WrongStack',
-    description:
-      'Configure providers, models, tools, context, fleets, sessions and security safely.',
-  },
-  '/architecture': {
-    title: 'Architecture — WrongStack',
-    description:
-      'Understand the kernel, package boundaries, execution pipeline, recovery and persistence model.',
-  },
-  '/ecosystem': {
-    title: 'MCP, skills, plugins & hooks — WrongStack',
-    description:
-      'Extend WrongStack with MCP servers, reusable skills, plugins, prompts and lifecycle hooks.',
-  },
-  '/security': {
-    title: 'Security model — WrongStack',
-    description:
-      'Permissions, encrypted secrets, network boundaries, project config safety and audit trails.',
-  },
-  '/getting-started': {
-    title: 'Getting started — WrongStack',
-    description:
-      'Install WrongStack, choose authentication, initialize a project and run your first safe coding session.',
-  },
-  '/workflows': {
-    title: 'Workflows — WrongStack',
-    description:
-      'Choose between goals, SDD, Goal, BTW, collaboration, ensemble and review workflows.',
-  },
-  '/fleet': {
-    title: 'Fleet & Brain — WrongStack',
-    description:
-      'Understand Director orchestration, specialist agents, budgets, supervision and Brain-governed decisions.',
-  },
-  '/modes': {
-    title: 'Session modes — WrongStack',
-    description:
-      'Compare all 19 built-in WrongStack persona modes, from token-saving lite passes to deep specialist workflows.',
-  },
-  '/agent-roster': {
-    title: 'Agent roster — WrongStack',
-    description:
-      'Explore 50 selectable phase roles, the separate Shadow operational role (51 built-ins total), and five optional ACP roles.',
-  },
-  '/mailbox': {
-    title: 'Global Mailbox — WrongStack',
-    description:
-      'Understand typed cross-agent communication, identities, aliases, heartbeats, message lifecycle and the project mailbox bridge.',
-  },
-  '/memory': {
-    title: 'Memory & sessions — WrongStack',
-    description:
-      'Learn how session logs, Super Memory, checkpoints, compaction, replay and recovery preserve continuity.',
-  },
-  '/providers': {
-    title: 'Providers & model routing — WrongStack',
-    description:
-      'Configure API-key and subscription providers, model routing, fallback chains and runtime reasoning controls.',
-  },
-  '/coding-plans': {
-    title: 'Connect ChatGPT, OpenCode, MiniMax, Z.AI & Kimi — WrongStack',
-    description:
-      'Connect WrongStack with ChatGPT Codex sign-in or dedicated OpenCode, MiniMax, Z.AI and Kimi coding-plan API keys.',
-  },
-  '/mcp': {
-    title: 'MCP guide — WrongStack',
-    description: 'Connect, secure and operate MCP servers over stdio, SSE and streamable HTTP.',
-  },
-  '/tools': {
-    title: '58 built-in tools — WrongStack',
-    description:
-      'Explore every built-in WrongStack tool, its permission level, mutability, execution contract and token-saving tier.',
-  },
-  '/plugins': {
-    title: '73 managed plugins — WrongStack',
-    description:
-      'Search all managed first-party WrongStack plugins by source, default state and operational risk.',
-  },
-  '/troubleshooting': {
-    title: 'Troubleshooting — WrongStack',
-    description:
-      'Diagnose provider, context, tool, MCP, session, plugin and terminal issues methodically.',
-  },
-  '/brand': {
-    title: 'Brand guidelines — WrongStack',
-    description:
-      'Download the WrongStack logo and use the canonical colors, typography, naming and voice guidelines.',
-  },
-  '/created-by': {
-    title: 'Created by Ersin KOÇ — WrongStack',
-    description:
-      'Meet WrongStack creator Ersin KOÇ and explore AGEZT, OwnPilot and the wider open-source project workshop.',
-  },
-  '/super-memory': {
-    title: 'Super Memory — WrongStack',
-    description:
-      'Persistent, structured knowledge that the agent remembers across sessions. Scopes, types, relevance scoring, graph edges, and auto-injection.',
-  },
-  '/design-studio': {
-    title: 'Design Studio — WrongStack',
-    description:
-      '48+ curated design kits. Pin one, materialize CSS tokens, and the agent builds themed, accessible UI.',
-  },
-  '/skills': {
-    title: 'Skills — WrongStack',
-    description:
-      'Installable packages of instructions that auto-activate on trigger words. Teach the agent new capabilities.',
-  },
-  '/prompts': {
-    title: 'Prompts library — WrongStack',
-    description:
-      'Reusable prompt templates across bundled, user, and project layers. Variables, favorites, and AI-assisted authoring.',
-  },
-  '/sdd': {
-    title: 'SDD workflow — WrongStack',
-    description:
-      'Spec-Driven Development: plan, implement, and verify in structured phases with review between each step.',
-  },
-  '/shadow-agent': {
-    title: 'Shadow Agent — WrongStack',
-    description:
-      'Background fleet monitor that detects stuck agents, spike tasks, and anomalies on a cron schedule.',
-  },
-  '/acp': {
-    title: 'ACP — WrongStack',
-    description:
-      'Drive external coding agents (Claude Code, Codex CLI, Gemini CLI) from WrongStack using their existing logins.',
-  },
-  '/supervisor': {
-    title: 'Fleet Supervisor — WrongStack',
-    description:
-      'Brain-gated safety layer that approves or blocks fleet actions against risk thresholds.',
-  },
-  '/goal': {
-    title: 'Goal — WrongStack',
-    description:
-      'Fully autonomous phased workflows with git worktree isolation and checkpoint rollback.',
-  },
-  '/ensemble': {
-    title: 'Ensemble — WrongStack',
-    description:
-      'Fan one task to multiple ACP agents simultaneously. Compare independent results side by side.',
-  },
-  '/hq': {
-    title: 'HQ Command Center — WrongStack',
-    description:
-      'Web-based fleet control panel. Monitor status, send steer prompts, and queue work from a browser.',
-  },
-  '/telegram': {
-    title: 'Telegram integration — WrongStack',
-    description:
-      'Push notifications, interactive approval prompts, and remote commands through Telegram.',
-  },
-  '/collab': {
-    title: 'Collab debugging — WrongStack',
-    description:
-      'BugHunter, RefactorPlanner, and Critic run in parallel and produce a structured verdict.',
-  },
-  '/sync': {
-    title: 'GitHub Sync — WrongStack',
-    description:
-      'Sync settings, skills, prompts, and memory across machines through a GitHub repository.',
-  },
-  '/checkpoints': {
-    title: 'Checkpoints — WrongStack',
-    description:
-      'File state snapshots before risky edits. Roll back to the last known-good state.',
-  },
-  '/commit-workflow': {
-    title: 'Commit workflow — WrongStack',
-    description:
-      'Auto-generated conventional commits from your diff. Stage, review, and commit with one command.',
-  },
-};
-
 export const primaryNav = [
   { href: '/features', label: 'Features' },
   { href: '/how-it-works', label: 'How it works' },
@@ -627,7 +421,7 @@ export const homeJourneys = [
   {
     index: '03',
     title: 'Find the right command',
-    body: 'Search 92 documented commands by workflow, session, agent, configuration or developer task.',
+    body: 'Search all documented commands by workflow, session, agent, configuration or developer task.',
     href: '/commands',
     link: 'Open command atlas',
   },
@@ -948,11 +742,7 @@ export const primaryFeatureStories = featureStories.slice(0, 6);
 export const systemSpotlightStories = featureStories.slice(14);
 
 export const capabilityIndex = [
-  [
-    'Agent workflow',
-    'Goals, todos, plans, SDD, Goal, BTW, prompt enhancement',
-    'agent-workflow',
-  ],
+  ['Agent workflow', 'Goals, todos, plans, SDD, Goal, BTW, prompt enhancement', 'agent-workflow'],
   [
     'Code intelligence',
     'Grep, glob, tree, codebase index, LSP bridge, Monaco completion',
@@ -1189,7 +979,7 @@ const commandRows: Array<[string, string]> = [
   ['/delegate', 'Hand a bounded task to a specialist role.'],
   ['/fleet', 'Inspect fleet status, budgets, logs, streams, retries and workers.'],
   ['/sdd', 'Run the Spec-Driven Development workflow.'],
-  ['/btw', 'Ask a quick side question without derailing the main task.'],
+  ['/btw', 'Ask a quick side question without derailing the current task.'],
   ['/next', 'Toggle automatic next-task prediction.'],
   ['/suggest', 'Generate context-aware next actions, with a fast heuristic mode.'],
   ['/enhance', 'Refine a prompt before it is sent to the agent.'],
@@ -1244,7 +1034,228 @@ const commandRows: Array<[string, string]> = [
   ['/skill-update', 'Update installed skills.'],
   ['/skill-uninstall', 'Remove an installed skill.'],
   ['/plan', 'Manage the per-session strategic plan board.'],
+  ['/profile', 'Manage configuration profiles in ~/.wrongstack/profiles/<name>.'],
+  [
+    '/provider-status',
+    'View live health of configured provider/model routes (healthy/degraded/blocked).',
+  ],
+  ['/chimera', 'Show the Chimera post-session code-quality guardian status and configuration.'],
+  ['/auto-review', 'Show the continuous auto-review pipeline status and configuration.'],
+  ['/semver', 'Show the current version or bump it (patch/minor/major/auto).'],
+  ['/lsp', 'Manage LSP servers: list, install, start, stop, restart, show diagnostics.'],
 ];
+
+/**
+ * Total entries in commandRows. Single source of truth for marketing
+ * copy and home-page stats so future command additions cannot drift.
+ * Declared after `commandRows` so `commandRows.length` is safe to read
+ * without triggering a temporal-dead-zone ReferenceError.
+ */
+export const COMMAND_COUNT = commandRows.length;
+
+export const pageMeta: Record<SiteRoute, { title: string; description: string }> = {
+  '/': {
+    title: 'WrongStack — AI coding, under your control',
+    description:
+      'A terminal-native AI coding agent with tools, memory, multi-agent fleets, MCP, WebUI, Desktop and explicit permission control.',
+  },
+  '/features': {
+    title: 'Features — WrongStack',
+    description:
+      'Explore WrongStack tools, autonomy, memory, model routing, sessions and developer workflows.',
+  },
+  '/how-it-works': {
+    title: 'How WrongStack works',
+    description:
+      'Follow one request through context, providers, tools, permissions, retries, memory and persistence.',
+  },
+  '/compare': {
+    title: 'WrongStack vs Claude Code, Codex, OpenCode, Cursor & Pi',
+    description:
+      'An evidence-based, official-source comparison of model routing, multi-agent coordination, mailbox, work tracking, extensions, security and operations.',
+  },
+  '/interfaces': {
+    title: 'CLI, TUI, WebUI, SimpleUI, Desktop & HQ — WrongStack',
+    description: 'Six interfaces, one agent kernel. Choose the surface that fits the way you work.',
+  },
+  '/commands': {
+    title: 'Slash command reference — WrongStack',
+    description: `Search and understand ${COMMAND_COUNT} documented WrongStack operator commands.`,
+  },
+  '/settings': {
+    title: 'Settings & configuration — WrongStack',
+    description:
+      'Configure providers, models, tools, context, fleets, sessions and security safely.',
+  },
+  '/architecture': {
+    title: 'Architecture — WrongStack',
+    description:
+      'Understand the kernel, package boundaries, execution pipeline, recovery and persistence model.',
+  },
+  '/ecosystem': {
+    title: 'MCP, skills, plugins & hooks — WrongStack',
+    description:
+      'Extend WrongStack with MCP servers, reusable skills, plugins, prompts and lifecycle hooks.',
+  },
+  '/security': {
+    title: 'Security model — WrongStack',
+    description:
+      'Permissions, encrypted secrets, network boundaries, project config safety and audit trails.',
+  },
+  '/getting-started': {
+    title: 'Getting started — WrongStack',
+    description:
+      'Install WrongStack, choose authentication, initialize a project and run your first safe coding session.',
+  },
+  '/workflows': {
+    title: 'Workflows — WrongStack',
+    description:
+      'Choose between goals, SDD, Goal, BTW, collaboration, ensemble and review workflows.',
+  },
+  '/fleet': {
+    title: 'Fleet & Brain — WrongStack',
+    description:
+      'Understand Director orchestration, specialist agents, budgets, supervision and Brain-governed decisions.',
+  },
+  '/modes': {
+    title: 'Session modes — WrongStack',
+    description:
+      'Compare all 19 built-in WrongStack persona modes, from token-saving lite passes to deep specialist workflows.',
+  },
+  '/agent-roster': {
+    title: 'Agent roster — WrongStack',
+    description:
+      'Explore 50 selectable phase roles, the separate Shadow operational role (51 built-ins total), and five optional ACP roles.',
+  },
+  '/mailbox': {
+    title: 'Global Mailbox — WrongStack',
+    description:
+      'Understand typed cross-agent communication, identities, aliases, heartbeats, message lifecycle and the project mailbox bridge.',
+  },
+  '/memory': {
+    title: 'Memory & sessions — WrongStack',
+    description:
+      'Learn how session logs, Super Memory, checkpoints, compaction, replay and recovery preserve continuity.',
+  },
+  '/providers': {
+    title: 'Providers & model routing — WrongStack',
+    description:
+      'Configure API-key and subscription providers, model routing, fallback chains and runtime reasoning controls.',
+  },
+  '/coding-plans': {
+    title: 'Connect ChatGPT, OpenCode, MiniMax, Z.AI & Kimi — WrongStack',
+    description:
+      'Connect WrongStack with ChatGPT Codex sign-in or dedicated OpenCode, MiniMax, Z.AI and Kimi coding-plan API keys.',
+  },
+  '/mcp': {
+    title: 'MCP guide — WrongStack',
+    description: 'Connect, secure and operate MCP servers over stdio, SSE and streamable HTTP.',
+  },
+  '/tools': {
+    title: '58 built-in tools — WrongStack',
+    description:
+      'Explore every built-in WrongStack tool, its permission level, mutability, execution contract and token-saving tier.',
+  },
+  '/plugins': {
+    title: '73 managed plugins — WrongStack',
+    description:
+      'Search all managed first-party WrongStack plugins by source, default state and operational risk.',
+  },
+  '/troubleshooting': {
+    title: 'Troubleshooting — WrongStack',
+    description:
+      'Diagnose provider, context, tool, MCP, session, plugin and terminal issues methodically.',
+  },
+  '/brand': {
+    title: 'Brand guidelines — WrongStack',
+    description:
+      'Download the WrongStack logo and use the canonical colors, typography, naming and voice guidelines.',
+  },
+  '/created-by': {
+    title: 'Created by Ersin KOÇ — WrongStack',
+    description:
+      'Meet WrongStack creator Ersin KOÇ and explore AGEZT, OwnPilot and the wider open-source project workshop.',
+  },
+  '/super-memory': {
+    title: 'Super Memory — WrongStack',
+    description:
+      'Persistent, structured knowledge that the agent remembers across sessions. Scopes, types, relevance scoring, graph edges, and auto-injection.',
+  },
+  '/design-studio': {
+    title: 'Design Studio — WrongStack',
+    description:
+      '48+ curated design kits. Pin one, materialize CSS tokens, and the agent builds themed, accessible UI.',
+  },
+  '/skills': {
+    title: 'Skills — WrongStack',
+    description:
+      'Installable packages of instructions that auto-activate on trigger words. Teach the agent new capabilities.',
+  },
+  '/prompts': {
+    title: 'Prompts library — WrongStack',
+    description:
+      'Reusable prompt templates across bundled, user, and project layers. Variables, favorites, and AI-assisted authoring.',
+  },
+  '/sdd': {
+    title: 'SDD workflow — WrongStack',
+    description:
+      'Spec-Driven Development: plan, implement, and verify in structured phases with review between each step.',
+  },
+  '/shadow-agent': {
+    title: 'Shadow Agent — WrongStack',
+    description:
+      'Background fleet monitor that detects stuck agents, spike tasks, and anomalies on a cron schedule.',
+  },
+  '/acp': {
+    title: 'ACP — WrongStack',
+    description:
+      'Drive external coding agents (Claude Code, Codex CLI, Gemini CLI) from WrongStack using their existing logins.',
+  },
+  '/supervisor': {
+    title: 'Fleet Supervisor — WrongStack',
+    description:
+      'Brain-gated safety layer that approves or blocks fleet actions against risk thresholds.',
+  },
+  '/goal': {
+    title: 'Goal — WrongStack',
+    description:
+      'Fully autonomous phased workflows with git worktree isolation and checkpoint rollback.',
+  },
+  '/ensemble': {
+    title: 'Ensemble — WrongStack',
+    description:
+      'Fan one task to multiple ACP agents simultaneously. Compare independent results side by side.',
+  },
+  '/hq': {
+    title: 'HQ Command Center — WrongStack',
+    description:
+      'Web-based fleet control panel. Monitor status, send steer prompts, and queue work from a browser.',
+  },
+  '/telegram': {
+    title: 'Telegram integration — WrongStack',
+    description:
+      'Push notifications, interactive approval prompts, and remote commands through Telegram.',
+  },
+  '/collab': {
+    title: 'Collab debugging — WrongStack',
+    description:
+      'BugHunter, RefactorPlanner, and Critic run in parallel and produce a structured verdict.',
+  },
+  '/sync': {
+    title: 'GitHub Sync — WrongStack',
+    description:
+      'Sync settings, skills, prompts, and memory across machines through a GitHub repository.',
+  },
+  '/checkpoints': {
+    title: 'Checkpoints — WrongStack',
+    description: 'File state snapshots before risky edits. Roll back to the last known-good state.',
+  },
+  '/commit-workflow': {
+    title: 'Commit workflow — WrongStack',
+    description:
+      'Auto-generated conventional commits from your diff. Stage, review, and commit with one command.',
+  },
+};
 
 const categories: Record<Exclude<CommandCategory, 'All'>, string[]> = {
   Workflow: [
@@ -1310,6 +1321,8 @@ const categories: Record<Exclude<CommandCategory, 'All'>, string[]> = {
     '/f',
     '/mouse',
     '/design',
+    '/profile',
+    '/provider-status',
   ],
   Developer: [
     '/dev',
@@ -1326,6 +1339,10 @@ const categories: Record<Exclude<CommandCategory, 'All'>, string[]> = {
     '/gitid',
     '/doctor',
     '/tuneup',
+    '/chimera',
+    '/auto-review',
+    '/semver',
+    '/lsp',
   ],
   Ecosystem: [
     '/help',
@@ -1433,6 +1450,29 @@ const featuredUsage: Record<string, { usage: string[]; note?: string }> = {
     usage: ['/tuneup', '/tuneup fix', '/tuneup deep'],
     note: 'The --power path is the only tune-up mode that changes autonomy, YOLO or Director defaults.',
   },
+  '/profile': {
+    usage: ['/profile', '/profile list', '/profile switch <name>', '/profile copy <name>'],
+  },
+  '/provider-status': {
+    usage: [
+      '/provider-status',
+      '/provider-status waiting',
+      '/provider-status degraded',
+      '/provider-status retry <provider> <model>',
+    ],
+  },
+  '/chimera': {
+    usage: ['/chimera', '/chimera autoFix ask'],
+  },
+  '/auto-review': {
+    usage: ['/auto-review', '/auto-review on', '/auto-review off'],
+  },
+  '/semver': {
+    usage: ['/semver status', '/semver patch', '/semver minor', '/semver auto --dry'],
+  },
+  '/lsp': {
+    usage: ['/lsp list', '/lsp install <language>', '/lsp start <name>', '/lsp diagnostics [file]'],
+  },
 };
 
 const pluginCommands = new Set([
@@ -1447,6 +1487,10 @@ const pluginCommands = new Set([
   '/skill-import',
   '/skill-update',
   '/skill-uninstall',
+  '/chimera',
+  '/auto-review',
+  '/semver',
+  '/lsp',
 ]);
 
 export const commands: CommandEntry[] = commandRows.map(([name, summary]) => {
@@ -1766,6 +1810,7 @@ export const installCommand = 'npm install -g wrongstack';
 export const repoUrl = 'https://github.com/WrongStack/WrongStack';
 export const docsUrl = `${repoUrl}/tree/main/docs`;
 export const version = '0.292.0';
+
 export const nodeVersion = '22.19+';
 export const license = 'MIT';
 
