@@ -43,7 +43,8 @@ export type StatuslineItem =
   | 'mailbox'
   | 'enhance'
   | 'debug_stream'
-  | 'next_steps';
+  | 'next_steps'
+  | 'memory_context';
 
 /**
  * Metadata for a temporarily-visible chip (one that appeared due to data,
@@ -126,6 +127,7 @@ const ITEM_DESCRIPTIONS: Record<StatuslineItem, string> = {
   enhance: 'Prompt-enhance countdown',
   debug_stream: 'Stream debug telemetry',
   next_steps: 'Next-step auto-submit countdown',
+  memory_context: 'Memory context detail line (matched/injected/filtered/active counts)',
 };
 
 /**
@@ -177,6 +179,7 @@ export const ITEM_LINE: Record<StatuslineItem, number> = {
   fleet: 3,
   fleet_agents: 3,
   mailbox: 3,
+  memory_context: 3,
   next_steps: 3,
   plan: 3,
   tasks: 3,
@@ -236,6 +239,7 @@ export const STATUSLINE_ITEMS: StatuslineItem[] = [
   'fleet',
   'fleet_agents',
   'mailbox',
+  'memory_context',
   'next_steps',
   'plan',
   'tasks',

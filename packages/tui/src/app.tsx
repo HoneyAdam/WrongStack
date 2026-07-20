@@ -100,7 +100,6 @@ import {
 import { KanbanPanel } from './components/kanban-panel.js';
 import { KeyHintBar, type KeyHintContext } from './components/key-hint-bar.js';
 import { MailboxPanel } from './components/mailbox-panel.js';
-import { MemoryContextWidget } from './components/memory-context-widget.js';
 import { McpPicker } from './components/mcp-picker.js';
 import { ModePicker } from './components/mode-picker.js';
 import { ModelPicker } from './components/model-picker.js';
@@ -7411,6 +7410,7 @@ export function App({
                   ? undefined
                   : { total: memoryRecordTotal, activeInContext: activeMemoryInContext }
               }
+              memoryContextMonitor={memoryContextMonitor}
               contextStrategy={getSettings ? getSettings().contextStrategy : undefined}
               brain={state.brain}
               projectName={projectName}
@@ -7448,7 +7448,6 @@ export function App({
               sideEffectCount={agent.ctx.sideEffects?.length ?? 0}
             />
           </Box>
-          <MemoryContextWidget state={memoryContextMonitor} />
           {/* Mailbox panel — toggled via /mailbox slash command */}
           <MailboxPanel
             messages={mailboxMessages}

@@ -15,6 +15,10 @@ import { PowerlineRail } from './powerline-rail.js';
 import type { StatuslineMode } from './settings-picker.js';
 import { BrainChip, EternalStageChip, ThinkingChip } from './status-bar-chips.js';
 import type { ChipMeta, StatuslineItem } from './statusline-picker.js';
+import {
+  activeMemoryContextCount,
+  type MemoryContextMonitorState,
+} from '../memory-context-monitor.js';
 
 // ─── Stream chip expiration helpers ─────────────────────────────────────────
 
@@ -418,6 +422,8 @@ export interface StatusBarProps {
   estimatedContextTokens?: number | undefined;
   /** All Super Memory records plus the exact count present in the latest provider request. */
   superMemory?: { total: number; activeInContext: number } | undefined;
+  /** Memory context monitor state — renders a compact 4th line with matched/injected/filtered/ctx counts (gated by `memory_context` chip key). */
+  memoryContextMonitor?: MemoryContextMonitorState | undefined;
   /**
    * Context compaction strategy. When provided alongside `context`, renders
    * the strategy label (e.g. "hybrid", "intelligent", "selective") next to
@@ -582,6 +588,7 @@ export function StatusBar({
   context,
   estimatedContextTokens,
   superMemory,
+  memoryContextMonitor,
   contextStrategy,
   hiddenItems,
   mode = 'detailed',
@@ -818,6 +825,62 @@ export function StatusBar({
         <Text color={chipColor(theme.success, isNoColor)}>{superMemory.activeInContext} ctx</Text>
       </Text>
     ) : null;
+
+  // ── Memory context detail line (4th row) ──────────────────────────────
+  const memoryMonitor = memoryContextMonitor;
+  const memorySummary = memoryMonitor?.latest;
+  const hasMemoryDetail = memorySummary != null && showChip('memory_context');
+  const memoryDetailChips: React.ReactElement[] = [];
+  if (hasMemoryDetail && memoryMonitor) {
+    const records = Object.values(memoryMonitor.memories);
+    const active = activeMemoryContextCount(memoryMonitor);
+    const pending = records.filter((m) => m.state === 'injected').length;
+    const left = records.filter((m) => m.state === 'exited').length;
+    memoryDetailChips.push(
+      <Text color={chipColor(theme.accent, isNoColor)} key="mem-label">
+        {isNoColor ? 'mem:' : `${glyphs.brain} `}
+      </Text>,
+    );
+    memoryDetailChips.push(
+      <Text key="matched">
+        {memorySummary.matched} matched
+        <Text dimColor={!isNoColor}> · </Text>
+        <Text color={chipColor(theme.success, isNoColor)}>{memorySummary.injected} inj</Text>
+        <Text dimColor={!isNoColor}> · </Text>
+        <Text color={chipColor(theme.warn, isNoColor)}>{memorySummary.filtered} filt</Text>
+        <Text dimColor={!isNoColor}> · </Text>
+        <Text color={chipColor(theme.accent, isNoColor)}>{active} actv</Text>
+        {pending > 0 ? (
+          <>
+            <Text dimColor={!isNoColor}> · </Text>
+            <Text color={chipColor(theme.accent, isNoColor)}>{pending} pend</Text>
+          </>
+        ) : null}
+        {left > 0 ? (
+          <>
+            <Text dimColor={!isNoColor}> · </Text>
+            <Text color={theme.textMuted}>{left} left</Text>
+          </>
+        ) : null}
+      </Text>,
+    );
+    memoryDetailChips.push(
+      <Text color={chipColor(theme.textMuted, isNoColor)} key="trigger">
+        {memorySummary.trigger.length > 25
+          ? `${memorySummary.trigger.slice(0, 22)}…`
+          : memorySummary.trigger}
+        <Text dimColor={!isNoColor}>
+          {' · ctx '}
+          {Math.round(memorySummary.contextPressure * 100)}%
+          {' · +'}
+          {memorySummary.injectedChars >= 1024
+            ? `${(memorySummary.injectedChars / 1024).toFixed(1)}K`
+            : memorySummary.injectedChars}
+          {' chars'}
+        </Text>
+      </Text>,
+    );
+  }
 
   const primaryChips: React.ReactElement[] = [
     // Combined context bar: meter · tokens · cost
@@ -1399,6 +1462,19 @@ export function StatusBar({
           budget={Math.max(12, termWidth)}
           monochrome={isNoColor}
           fillBg={LINE_BG_COLORS[2]}
+        />
+      ) : null}
+
+      {/* Line 4 — Memory context detail: matched, injected, filtered, active,
+          pending, left, trigger, ctx pressure, injected chars.
+          Rendered as a single background-colored row when memory data exists,
+          replacing the old 4-line bordered MemoryContextWidget. */}
+      {hasMemoryDetail ? (
+        <PowerlineRail
+          segments={memoryDetailChips}
+          budget={Math.max(12, termWidth)}
+          monochrome={isNoColor}
+          fillBg={LINE_BG_COLORS[3]}
         />
       ) : null}
     </Box>
