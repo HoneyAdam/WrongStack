@@ -270,7 +270,7 @@ export function formatDecisionSummary(
  * itself declared continue the safe fallback AND the question offers no
  * alternative — "Should we continue or stop?" must reach the LLM.
  */
-function quickDecide(request: BrainDecisionRequest): BrainDecision | null {
+export function quickDecide(request: BrainDecisionRequest): BrainDecision | null {
   if (request.options?.length) return null;
 
   const q = request.question.toLowerCase();
