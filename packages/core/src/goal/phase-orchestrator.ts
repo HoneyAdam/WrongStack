@@ -1,4 +1,6 @@
 import type { EventBus } from '../kernel/events.js';
+import type { Logger } from '../types/logger.js';
+import { noOpLogger } from '../infrastructure/logger.js';
 import { DefaultTaskStore, TaskTracker } from '../tasking/index.js';
 import type { TaskNode } from '../types/task-graph.js';
 import { toErrorMessage } from '../utils/error.js';
@@ -17,6 +19,8 @@ import type {
 export interface PhaseOrchestratorOptions extends GoalOptions {
   graph: PhaseGraph;
   ctx: PhaseExecutionContext;
+  /** Structured logger. Defaults to noOpLogger (silent). */
+  logger?: Logger | undefined;
 }
 
 type NormalizedGoalOptions = Omit<
@@ -67,6 +71,7 @@ export class PhaseOrchestrator {
 
   // ── Git-worktree isolation (optional) ──────────────────────────────────────
   private readonly worktrees?: WorktreeManager | undefined;
+  private readonly logger: Logger;
   /** Per-phase worktree handles, keyed by phase id. */
   private readonly phaseWorktrees = new Map<string, WorktreeHandle>();
   /** Serializes all merges back to the base branch (one at a time). */
@@ -79,6 +84,7 @@ export class PhaseOrchestrator {
     this.ctx = opts.ctx;
     this.events = opts.events ?? this.createNoopEventBus();
     this.worktrees = opts.worktrees;
+    this.logger = opts.logger ?? noOpLogger;
     this.opts = {
       maxConcurrentPhases: opts.maxConcurrentPhases ?? 1,
       maxConcurrentTasks: opts.maxConcurrentTasks ?? 2,
@@ -168,12 +174,7 @@ export class PhaseOrchestrator {
     await Promise.allSettled([...this.phaseMergePromise.values()]);
     await this.mergeQueue.catch((err) => {
       const msg = toErrorMessage(err);
-      console.warn(JSON.stringify({
-        level: 'warn',
-        event: 'orchestrator.merge_queue_failed',
-        message: msg,
-        timestamp: new Date().toISOString(),
-      }));
+      this.logger.warn(msg, { event: 'orchestrator.merge_queue_failed' });
     });
   }
 
@@ -187,12 +188,7 @@ export class PhaseOrchestrator {
     this.paused = false;
     this.tick().catch((err) => {
       const msg = toErrorMessage(err);
-      console.error(JSON.stringify({
-        level: 'error',
-        event: 'orchestrator.tick_failed',
-        message: msg,
-        timestamp: new Date().toISOString(),
-      }));
+      this.logger.error(msg, { event: 'orchestrator.tick_failed' });
     });
   }
 
@@ -472,13 +468,7 @@ export class PhaseOrchestrator {
           // fires if it throws unexpectedly. Keep the queue alive (a failed
           // merge must not poison the chain) and correct the graph state.
           const msg = toErrorMessage(err);
-          console.error(JSON.stringify({
-            level: 'error',
-            event: 'orchestrator.merge_failed',
-            phaseId: phase.id,
-            message: msg,
-            timestamp: new Date().toISOString(),
-          }));
+          this.logger.error(msg, { event: 'orchestrator.merge_failed', phaseId: phase.id });
           this.markPhaseMergeFailed(phase, msg);
         });
       await this.mergeQueue;
