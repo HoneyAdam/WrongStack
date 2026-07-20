@@ -12,6 +12,8 @@ export interface UseStickyScrollResult {
   scrollRef: React.RefObject<HTMLDivElement | null>;
   /** True when the user has scrolled up past the threshold. */
   showJumpToLatest: boolean;
+  /** Exposed for the message handler (session.start resets this). */
+  setShowJumpToLatest: React.Dispatch<React.SetStateAction<boolean>>;
   /** Scroll to the bottom. */
   jumpToLatest: () => void;
   /** Attach to the container's onScroll. */
@@ -75,6 +77,7 @@ export function useStickyScroll(options: UseStickyScrollOptions): UseStickyScrol
   return {
     scrollRef,
     showJumpToLatest,
+    setShowJumpToLatest,
     jumpToLatest,
     onScroll,
     stickToBottomRef,

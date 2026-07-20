@@ -27,6 +27,7 @@ import { useImageAttachments } from './hooks/use-image-attachments.js';
 import { useModelCatalog } from './hooks/use-model-catalog.js';
 import { useSimpleSocket } from './hooks/use-simple-socket.js';
 import { useStatusNotice } from './hooks/use-status-notice.js';
+import { useStickyScroll } from './hooks/use-sticky-scroll.js';
 import { useTheme } from './hooks/use-theme.js';
 import { resetAgentNameCache } from './lib/agent-model.js';
 import { playChime } from './lib/chime.js';
@@ -137,7 +138,6 @@ export function App() {
   const { notice, showNotice: setNotice } = useStatusNotice();
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [toolCalls, setToolCalls] = useState<ToolCallInfo[]>([]);
-  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [worklists] = useState(createWorklistStore);
   const [diffFiles, setDiffFiles] = useState<FileEditMeta[] | null>(null);
   const [sessionStart, setSessionStart] = useState<number | null>(null);
@@ -146,9 +146,7 @@ export function App() {
   const activeModelRef = useRef<{ provider: string; model: string } | null>(null);
   /** Provider ids already asked for their model list — catalog + saved overlap. */
   const requestedModelsRef = useRef<Set<string>>(new Set());
-  const scrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const stickToBottomRef = useRef(true);
   const draftRef = useRef('');
   const fileRefsRef = useRef<string[]>([]);
   const runningRef = useRef(false);
@@ -181,8 +179,6 @@ export function App() {
     (content: string, images?: { data: string; mime: string }[]) => {
       const sessionId = sessionIdRef.current;
       if (!content || !sessionId) return;
-      stickToBottomRef.current = true;
-      setShowJumpToLatest(false);
       setMessages((current) => [
         ...current,
         {
@@ -387,6 +383,15 @@ export function App() {
   } = useImageAttachments();
 
   const {
+    scrollRef,
+    showJumpToLatest,
+    setShowJumpToLatest,
+    jumpToLatest,
+    onScroll: onScrollSticky,
+    stickToBottomRef,
+  } = useStickyScroll({ messages, activity, pendingConfirm });
+
+  const {
     submitWith,
     refineDecision,
     refineRetry,
@@ -479,15 +484,6 @@ export function App() {
   });
 
   useEffect(() => {
-    const element = scrollRef.current;
-    if (!element || !stickToBottomRef.current) return;
-    const frame = requestAnimationFrame(() => {
-      element.scrollTo({ top: element.scrollHeight, behavior: 'auto' });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [messages, activity, pendingConfirm]);
-
-  useEffect(() => {
     const element = textareaRef.current;
     if (!element) return;
     element.style.height = '0px';
@@ -555,15 +551,6 @@ export function App() {
       text: 'Could not copy response',
       tone: 'error',
     });
-  };
-
-  const jumpToLatest = () => {
-    stickToBottomRef.current = true;
-    setShowJumpToLatest(false);
-    const element = scrollRef.current;
-    if (!element) return;
-    const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    element.scrollTo({ top: element.scrollHeight, behavior: reducedMotion ? 'auto' : 'smooth' });
   };
 
   const selectFile = (path: string) => {
@@ -808,13 +795,7 @@ export function App() {
           aria-labelledby="agent-tab-leader"
           hidden={!leaderSelected}
           ref={scrollRef}
-          onScroll={(event) => {
-            const element = event.currentTarget;
-            const nearBottom =
-              element.scrollHeight - element.scrollTop - element.clientHeight <= 120;
-            stickToBottomRef.current = nearBottom;
-            setShowJumpToLatest(!nearBottom);
-          }}
+          onScroll={onScrollSticky}
         >
           <ChatMessageList
             messages={displayMessages}
