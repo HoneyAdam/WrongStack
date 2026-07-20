@@ -64,7 +64,7 @@ beforeAll(async () => {
     JSON.stringify({ [SESSION_ID]: entry }),
   );
 
-  server = createHttpServer({ host: '127.0.0.1', distDir, wsPort: 9998, globalRoot });
+  server = createHttpServer({ host: '127.0.0.1', distDir, globalRoot });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const addr = server.address();
   if (!addr || typeof addr === 'string') throw new Error('bad listen address');
