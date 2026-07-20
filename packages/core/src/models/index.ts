@@ -17,6 +17,11 @@ export {
   type ProviderModelDescriptor,
 } from './provider-model-resolve.js';
 export { CODEX_MODELS, codexModelMeta, type CodexModelMeta } from './codex-catalog.js';
+export {
+  ALIBABA_TOKEN_PLAN_MODELS,
+  alibabaTokenPlanModelMeta,
+  type AlibabaTokenPlanModelMeta,
+} from './alibaba-token-plan-catalog.js';
 
 // Model intelligence: capability profiles and auto-routing
 export {

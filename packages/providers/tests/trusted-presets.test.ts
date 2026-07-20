@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
+// Import directly from source to avoid esbuild tree-shaking dropping the
+// brand-new export from the @wrongstack/core dist bundle. Once
+// ALIBABA_TOKEN_PLAN_MODELS has at least one consumer inside the core
+// package, this can switch back to `from '@wrongstack/core'`.
+import { ALIBABA_TOKEN_PLAN_MODELS } from '../../core/src/models/alibaba-token-plan-catalog.js';
 import {
-  TRUSTED_PROVIDER_PRESETS,
   buildProviderConfigFromPreset,
   getTrustedProviderPreset,
   isTrustedProviderId,
   listTrustedProviderPresetIds,
   resolvePresetForAlias,
+  TRUSTED_PROVIDER_PRESETS,
 } from '../src/index.js';
 
 /**
@@ -24,6 +29,7 @@ describe('TRUSTED_PROVIDER_PRESETS', () => {
   it('contains all product-scoped and general-purpose presets', () => {
     const ids = listTrustedProviderPresetIds().sort();
     expect(ids).toEqual([
+      'alibaba-token-plan',
       'deepseek',
       'groq',
       'kimi-for-coding',
@@ -86,6 +92,50 @@ describe('TRUSTED_PROVIDER_PRESETS', () => {
     expect(preset!.models).toContain('MiniMax-M3');
     expect(preset!.usage).toBe('subscription-interactive');
   });
+
+  it('Alibaba Token Plan preset points at Model Studio with Personal Edition models only', () => {
+    const preset = TRUSTED_PROVIDER_PRESETS['alibaba-token-plan'];
+    expect(preset).toBeDefined();
+    expect(preset!.family).toBe('openai-compatible');
+    expect(preset!.baseUrl).toBe('https://dashscope.aliyuncs.com/compatible-mode/v1');
+    expect(preset!.envVars).toEqual(['ALIBABA_API_KEY', 'DASHSCOPE_API_KEY']);
+    // Must contain all 11 Personal Edition models
+    expect(preset!.models).toHaveLength(11);
+    expect(preset!.models).toContain('qwen3.8-max-preview');
+    expect(preset!.models).toContain('qwen3.7-max');
+    expect(preset!.models).toContain('qwen3.7-plus');
+    expect(preset!.models).toContain('qwen3.6-flash');
+    expect(preset!.models).toContain('glm-5.2');
+    expect(preset!.models).toContain('deepseek-v4-pro');
+    expect(preset!.models).toContain('wan2.7-image');
+    expect(preset!.models).toContain('wan2.7-image-pro');
+    expect(preset!.models).toContain('happyhorse-1.1-t2v');
+    expect(preset!.models).toContain('happyhorse-1.1-i2v');
+    expect(preset!.models).toContain('happyhorse-1.1-r2v');
+    // Must NOT contain Team Edition or pay-per-use models
+    expect(preset!.models).not.toContain('deepseek-v4-flash');
+    expect(preset!.models).not.toContain('deepseek-v3.2');
+    expect(preset!.models).not.toContain('qwen3.6-plus');
+    expect(preset!.models).not.toContain('qwen-image-2.0');
+    expect(preset!.models).not.toContain('qwen-image-2.0-pro');
+    expect(preset!.models).not.toContain('kimi-k2.7-code');
+    expect(preset!.models).not.toContain('kimi-k2.6');
+    expect(preset!.models).not.toContain('kimi-k2.5');
+    expect(preset!.models).not.toContain('glm-5.1');
+    expect(preset!.models).not.toContain('glm-5');
+    expect(preset!.models).not.toContain('MiniMax-M2.5');
+    expect(preset!.models).not.toContain('qwen3-max');
+    expect(preset!.models).not.toContain('qwen3-coder-plus');
+    expect(preset!.models).not.toContain('qwen3-coder-flash');
+    expect(preset!.models).not.toContain('qwen-long');
+    expect(preset!.models).not.toContain('qwen3-math-plus');
+    // Order is significant — first entry is the recommended default (current), matching ALIBABA_TOKEN_PLAN_MODELS[0]
+    expect(preset!.models[0]).toBe('qwen3.8-max-preview');
+    expect(preset!.usage).toBe('subscription-interactive');
+    // Drift guard: preset.models must match the ALIBABA_TOKEN_PLAN_MODELS catalog exactly
+    const floorModelIds = ALIBABA_TOKEN_PLAN_MODELS.map((m) => m.id).sort();
+    expect([...preset!.models].sort()).toEqual(floorModelIds);
+  });
 });
 
 describe('getTrustedProviderPreset / isTrustedProviderId', () => {
@@ -104,6 +154,7 @@ describe('getTrustedProviderPreset / isTrustedProviderId', () => {
 
 describe('resolvePresetForAlias', () => {
   it('matches the canonical id exactly', () => {
+    expect(resolvePresetForAlias('alibaba-token-plan')?.id).toBe('alibaba-token-plan');
     expect(resolvePresetForAlias('deepseek')?.id).toBe('deepseek');
     expect(resolvePresetForAlias('groq')?.id).toBe('groq');
     expect(resolvePresetForAlias('kimi-for-coding')?.id).toBe('kimi-for-coding');
@@ -119,6 +170,8 @@ describe('resolvePresetForAlias', () => {
     expect(resolvePresetForAlias('kimi-for-coding-team-eu')?.id).toBe('kimi-for-coding');
     expect(resolvePresetForAlias('moonshotai-prod')?.id).toBe('moonshotai');
     expect(resolvePresetForAlias('zai-staging')?.id).toBe('zai');
+    expect(resolvePresetForAlias('alibaba-token-plan-work')?.id).toBe('alibaba-token-plan');
+    expect(resolvePresetForAlias('alibaba-token-plan-team-eu')?.id).toBe('alibaba-token-plan');
   });
 
   it('does NOT match short prefixes that would steal the canonical id', () => {

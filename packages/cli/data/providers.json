@@ -13,12 +13,29 @@
           "default": "enabled",
           "disableSupported": false,
           "effortSupported": true,
-          "effortLevels": ["low", "medium", "high", "xhigh", "max"],
+          "effortLevels": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "preserveThinking": "unsupported"
         },
         "tool_call": true,
-        "modalities": { "input": ["text", "image"], "output": ["text"] },
-        "limit": { "context": 1050000, "output": 128000 }
+        "modalities": {
+          "input": [
+            "text",
+            "image"
+          ],
+          "output": [
+            "text"
+          ]
+        },
+        "limit": {
+          "context": 1050000,
+          "output": 128000
+        }
       },
       "gpt-5.5": {
         "id": "gpt-5.5",
@@ -26,8 +43,19 @@
         "description": "Frontier model for complex coding, research, and real-world work.",
         "reasoning": true,
         "tool_call": true,
-        "modalities": { "input": ["text", "image"], "output": ["text"] },
-        "limit": { "context": 1050000, "output": 128000 }
+        "modalities": {
+          "input": [
+            "text",
+            "image"
+          ],
+          "output": [
+            "text"
+          ]
+        },
+        "limit": {
+          "context": 1050000,
+          "output": 128000
+        }
       },
       "gpt-5.6-terra": {
         "id": "gpt-5.6-terra",
@@ -38,12 +66,29 @@
           "default": "enabled",
           "disableSupported": false,
           "effortSupported": true,
-          "effortLevels": ["low", "medium", "high", "xhigh", "max"],
+          "effortLevels": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "preserveThinking": "unsupported"
         },
         "tool_call": true,
-        "modalities": { "input": ["text", "image"], "output": ["text"] },
-        "limit": { "context": 1050000, "output": 128000 }
+        "modalities": {
+          "input": [
+            "text",
+            "image"
+          ],
+          "output": [
+            "text"
+          ]
+        },
+        "limit": {
+          "context": 1050000,
+          "output": 128000
+        }
       },
       "gpt-5.6-luna": {
         "id": "gpt-5.6-luna",
@@ -54,12 +99,29 @@
           "default": "enabled",
           "disableSupported": false,
           "effortSupported": true,
-          "effortLevels": ["low", "medium", "high", "xhigh", "max"],
+          "effortLevels": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "preserveThinking": "unsupported"
         },
         "tool_call": true,
-        "modalities": { "input": ["text", "image"], "output": ["text"] },
-        "limit": { "context": 1050000, "output": 128000 }
+        "modalities": {
+          "input": [
+            "text",
+            "image"
+          ],
+          "output": [
+            "text"
+          ]
+        },
+        "limit": {
+          "context": 1050000,
+          "output": 128000
+        }
       },
       "gpt-5.4": {
         "id": "gpt-5.4",
@@ -67,8 +129,19 @@
         "description": "Strong model for everyday coding.",
         "reasoning": true,
         "tool_call": true,
-        "modalities": { "input": ["text", "image"], "output": ["text"] },
-        "limit": { "context": 1050000, "output": 128000 }
+        "modalities": {
+          "input": [
+            "text",
+            "image"
+          ],
+          "output": [
+            "text"
+          ]
+        },
+        "limit": {
+          "context": 1050000,
+          "output": 128000
+        }
       },
       "gpt-5.4-mini": {
         "id": "gpt-5.4-mini",
@@ -76,8 +149,19 @@
         "description": "Small, fast, and cost-efficient model for simpler coding tasks.",
         "reasoning": true,
         "tool_call": true,
-        "modalities": { "input": ["text", "image"], "output": ["text"] },
-        "limit": { "context": 400000, "output": 128000 }
+        "modalities": {
+          "input": [
+            "text",
+            "image"
+          ],
+          "output": [
+            "text"
+          ]
+        },
+        "limit": {
+          "context": 400000,
+          "output": 128000
+        }
       },
       "gpt-5.3-codex-spark": {
         "id": "gpt-5.3-codex-spark",
@@ -85,9 +169,254 @@
         "description": "Ultra-fast coding model.",
         "reasoning": true,
         "tool_call": true,
-        "modalities": { "input": ["text"], "output": ["text"] },
-        "limit": { "context": 128000, "output": 32000 }
+        "modalities": {
+          "input": [
+            "text"
+          ],
+          "output": [
+            "text"
+          ]
+        },
+        "limit": {
+          "context": 128000,
+          "output": 32000
+        }
       }
     }
+  },
+  "alibaba-token-plan": {
+    "id": "alibaba-token-plan",
+    "name": "Alibaba Token Plan (Personal Edition)",
+    "doc": "https://www.alibabacloud.com/help/en/model-studio/token-plan-personal-overview",
+    "models": {
+      "qwen3.8-max-preview": {
+        "id": "qwen3.8-max-preview",
+        "name": "Qwen3.8 Max Preview",
+        "description": "2.4T-parameter multimodal reasoning — text, image, video, documents. 10% Credits rate during preview. Night discount (22:00-08:00 UTC+8).",
+        "reasoning": true,
+        "tool_call": true,
+        "modalities": {
+          "input": [
+            "text",
+            "image"
+          ],
+          "output": [
+            "text"
+          ]
+        },
+        "limit": {
+          "context": 1000000,
+          "output": 65536
+        }
+      },
+      "qwen3.7-max": {
+        "id": "qwen3.7-max",
+        "name": "Qwen3.7 Max",
+        "description": "Top-tier pure-text reasoning model — strongest in the Qwen3.7 series. 1M context, thinking mode, function calling.",
+        "reasoning": true,
+        "tool_call": true,
+        "modalities": {
+          "input": [
+            "text"
+          ],
+          "output": [
+            "text"
+          ]
+        },
+        "limit": {
+          "context": 1000000,
+          "output": 65536
+        }
+      },
+      "qwen3.7-plus": {
+        "id": "qwen3.7-plus",
+        "name": "Qwen3.7 Plus",
+        "description": "Balanced flagship — reasoning, visual understanding, text generation. 1M context, built-in tools.",
+        "reasoning": true,
+        "tool_call": true,
+        "modalities": {
+          "input": [
+            "text",
+            "image"
+          ],
+          "output": [
+            "text"
+          ]
+        },
+        "limit": {
+          "context": 1000000,
+          "output": 65536
+        }
+      },
+      "qwen3.6-flash": {
+        "id": "qwen3.6-flash",
+        "name": "Qwen3.6 Flash",
+        "description": "Cost-effective reasoning model — vision + text, 1M context, same context length as flagship at lower cost.",
+        "reasoning": true,
+        "tool_call": true,
+        "modalities": {
+          "input": [
+            "text",
+            "image"
+          ],
+          "output": [
+            "text"
+          ]
+        },
+        "limit": {
+          "context": 1000000,
+          "output": 65536
+        }
+      },
+      "glm-5.2": {
+        "id": "glm-5.2",
+        "name": "GLM-5.2",
+        "description": "Zhipu AI flagship text-generation model — reasoning, text, 198K context, function calling, structured output.",
+        "reasoning": true,
+        "tool_call": true,
+        "modalities": {
+          "input": [
+            "text"
+          ],
+          "output": [
+            "text"
+          ]
+        },
+        "limit": {
+          "context": 198000,
+          "output": 65536
+        }
+      },
+      "deepseek-v4-pro": {
+        "id": "deepseek-v4-pro",
+        "name": "DeepSeek V4 Pro",
+        "description": "Frontier reasoning + text generation model. 1M context, always-thinking mode.",
+        "reasoning": true,
+        "tool_call": true,
+        "modalities": {
+          "input": [
+            "text"
+          ],
+          "output": [
+            "text"
+          ]
+        },
+        "limit": {
+          "context": 1000000,
+          "output": 65536
+        }
+      },
+      "wan2.7-image": {
+        "id": "wan2.7-image",
+        "name": "Wan2.7 Image",
+        "description": "Text-to-image generation model by Wanx.",
+        "reasoning": false,
+        "modalities": {
+          "input": [
+            "text"
+          ],
+          "output": [
+            "image"
+          ]
+        }
+      },
+      "wan2.7-image-pro": {
+        "id": "wan2.7-image-pro",
+        "name": "Wan2.7 Image Pro",
+        "description": "Higher-quality text-to-image generation model by Wanx.",
+        "reasoning": false,
+        "modalities": {
+          "input": [
+            "text"
+          ],
+          "output": [
+            "image"
+          ]
+        }
+      },
+      "happyhorse-1.1-t2v": {
+        "id": "happyhorse-1.1-t2v",
+        "name": "HappyHorse 1.1 T2V",
+        "description": "Text-to-video generation model by HappyHorse.",
+        "reasoning": false,
+        "modalities": {
+          "input": [
+            "text"
+          ],
+          "output": [
+            "video"
+          ]
+        }
+      },
+      "happyhorse-1.1-i2v": {
+        "id": "happyhorse-1.1-i2v",
+        "name": "HappyHorse 1.1 I2V",
+        "description": "Image-to-video generation model by HappyHorse.",
+        "reasoning": false,
+        "modalities": {
+          "input": [
+            "text",
+            "image"
+          ],
+          "output": [
+            "video"
+          ]
+        }
+      },
+      "happyhorse-1.1-r2v": {
+        "id": "happyhorse-1.1-r2v",
+        "name": "HappyHorse 1.1 R2V",
+        "description": "Reference-to-video generation model by HappyHorse.",
+        "reasoning": false,
+        "modalities": {
+          "input": [
+            "text",
+            "image"
+          ],
+          "output": [
+            "video"
+          ]
+        }
+      }
+    }
+  },
+  "_removeProviders": [
+    "anthropic",
+    "google",
+    "mistral",
+    "openrouter",
+    "perplexity",
+    "groq",
+    "xai",
+    "cerebras",
+    "togetherai",
+    "deepinfra",
+    "fireworks",
+    "replicate",
+    "cohere",
+    "ai21",
+    "huggingface",
+    "together",
+    "novita",
+    "lepton",
+    "sambanova",
+    "watsonx"
+  ],
+  "_removeModels": {
+    "openai": [
+      "gpt-4o-mini",
+      "gpt-4o",
+      "gpt-4",
+      "gpt-4-turbo",
+      "o1",
+      "o1-mini",
+      "o3-mini"
+    ],
+    "deepseek": [
+      "deepseek-chat",
+      "deepseek-reasoner",
+      "deepseek-v3.2",
+      "deepseek-v4-flash"
+    ]
   }
 }

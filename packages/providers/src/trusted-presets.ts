@@ -293,6 +293,147 @@ export const TRUSTED_PROVIDER_PRESETS: Readonly<
     usage: 'metered-api',
     docsUrl: 'https://docs.perplexity.ai/',
   },
+
+  /**
+   * Alibaba Cloud Model Studio Token Plan (Personal Edition) — monthly
+   * Credits-based subscription for individual developers. Covers Qwen,
+   * DeepSeek, GLM, Wanx, and HappyHorse models across text, vision,
+   * image, and video generation. Singapore region only.
+   * https://www.alibabacloud.com/help/en/model-studio/token-plan-personal-overview
+   *
+   * The models.dev catalog reports the FULL Alibaba Model Studio inventory
+   * (100+ models across pay-per-use, legacy, Team Edition, and Personal
+   * Edition). This preset is the exact-string allowlist for the Personal
+   * Edition — DO NOT add models from the broader catalog without verifying
+   * they are in the Token Plan docs table.
+   */
+  'alibaba-token-plan': {
+    id: 'alibaba-token-plan',
+    name: 'Alibaba Token Plan (Personal Edition)',
+    family: 'openai-compatible',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    envVars: ['ALIBABA_API_KEY', 'DASHSCOPE_API_KEY'],
+    // Exact-string allowlist — Personal Edition only. NO deepseek-v4-flash,
+    // NO qwen3.6-plus, NO Kimi models, NO MiniMax-M2.5, NO qwen-image-2.0,
+    // NO glm-5.1/glm-5, NO qwen3-coder-*, NO qwen-long.
+    // Order is significant — first entry is the recommended default (`current`),
+    // matching `ALIBABA_TOKEN_PLAN_MODELS[0]`.
+    models: [
+      'qwen3.8-max-preview',
+      'qwen3.7-max',
+      'qwen3.7-plus',
+      'qwen3.6-flash',
+      'glm-5.2',
+      'deepseek-v4-pro',
+      'wan2.7-image',
+      'wan2.7-image-pro',
+      'happyhorse-1.1-t2v',
+      'happyhorse-1.1-i2v',
+      'happyhorse-1.1-r2v',
+    ],
+    // Per-model structured definitions with context sizes and capabilities.
+    // This is required — comma-separated model IDs alone are insufficient;
+    // downstream consumers need maxContext/maxOutput for routing decisions.
+    customModels: {
+      'qwen3.8-max-preview': {
+        capabilities: {
+          tools: true, vision: true, reasoning: true,
+          streaming: true, systemPrompt: true, jsonMode: true,
+          promptCache: true, parallelTools: true,
+          maxContext: 1_000_000, maxOutput: 65_536,
+          cacheControl: 'auto',
+        },
+      },
+      'qwen3.7-max': {
+        capabilities: {
+          tools: true, vision: false, reasoning: true,
+          streaming: true, systemPrompt: true, jsonMode: true,
+          promptCache: true, parallelTools: true,
+          maxContext: 1_000_000, maxOutput: 65_536,
+          cacheControl: 'auto',
+        },
+      },
+      'qwen3.7-plus': {
+        capabilities: {
+          tools: true, vision: true, reasoning: true,
+          streaming: true, systemPrompt: true, jsonMode: true,
+          promptCache: true, parallelTools: true,
+          maxContext: 1_000_000, maxOutput: 65_536,
+          cacheControl: 'auto',
+        },
+      },
+      'qwen3.6-flash': {
+        capabilities: {
+          tools: true, vision: true, reasoning: true,
+          streaming: true, systemPrompt: true, jsonMode: true,
+          promptCache: true, parallelTools: true,
+          maxContext: 1_000_000, maxOutput: 65_536,
+          cacheControl: 'auto',
+        },
+      },
+      'glm-5.2': {
+        capabilities: {
+          tools: true, vision: false, reasoning: true,
+          streaming: true, systemPrompt: true, jsonMode: true,
+          promptCache: true, parallelTools: true,
+          maxContext: 198_000, maxOutput: 65_536,
+          cacheControl: 'auto',
+        },
+      },
+      'deepseek-v4-pro': {
+        capabilities: {
+          tools: true, vision: false, reasoning: true,
+          streaming: true, systemPrompt: true, jsonMode: false,
+          promptCache: true, parallelTools: true,
+          maxContext: 1_000_000, maxOutput: 65_536,
+          cacheControl: 'auto',
+        },
+      },
+      'wan2.7-image': {
+        capabilities: {
+          tools: false, vision: true, reasoning: false,
+          streaming: true, systemPrompt: false, jsonMode: false,
+          promptCache: false, parallelTools: false,
+          maxContext: 0, cacheControl: 'none',
+        },
+      },
+      'wan2.7-image-pro': {
+        capabilities: {
+          tools: false, vision: true, reasoning: false,
+          streaming: true, systemPrompt: false, jsonMode: false,
+          promptCache: false, parallelTools: false,
+          maxContext: 0, cacheControl: 'none',
+        },
+      },
+      'happyhorse-1.1-t2v': {
+        capabilities: {
+          tools: false, vision: true, reasoning: false,
+          streaming: true, systemPrompt: false, jsonMode: false,
+          promptCache: false, parallelTools: false,
+          maxContext: 0, cacheControl: 'none',
+        },
+      },
+      'happyhorse-1.1-i2v': {
+        capabilities: {
+          tools: false, vision: true, reasoning: false,
+          streaming: true, systemPrompt: false, jsonMode: false,
+          promptCache: false, parallelTools: false,
+          maxContext: 0, cacheControl: 'none',
+        },
+      },
+      'happyhorse-1.1-r2v': {
+        capabilities: {
+          tools: false, vision: true, reasoning: false,
+          streaming: true, systemPrompt: false, jsonMode: false,
+          promptCache: false, parallelTools: false,
+          maxContext: 0, cacheControl: 'none',
+        },
+      },
+    },
+    usage: 'subscription-interactive',
+    docsUrl:
+      'https://www.alibabacloud.com/help/en/model-studio/token-plan-personal-overview',
+  },
 };
 
 const PRESET_IDS = Object.keys(TRUSTED_PROVIDER_PRESETS);

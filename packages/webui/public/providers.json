@@ -133,5 +133,15 @@
       "reward": "Support the project by signing up with this referral link",
       "url": "https://opencode.ai/go?ref=6VZAER87H4"
     }
+  },
+  {
+    "id": "alibaba-token-plan",
+    "name": "Alibaba Token Plan",
+    "description": "Monthly Credits subscription for Qwen3.8 Max Preview, Qwen3.7, DeepSeek V4 Pro, GLM-5.2, Wanx image, and HappyHorse video models — one plan for text, vision, image, video.",
+    "icon": "☁️",
+    "color": "from-orange-500/20 to-orange-500/5 border-orange-500/30 hover:border-orange-500/50",
+    "keyPlaceholder": "sk-...",
+    "docsUrl": "https://www.alibabacloud.com/help/en/model-studio/token-plan-personal-overview",
+    "family": "openai-compatible"
   }
 ]

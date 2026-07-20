@@ -4,10 +4,23 @@ import type {
   ModelsDevPayload,
 } from '../types/models-registry.js';
 
+// Magic keys in the overlay payload that signal deletions rather than additions.
+const REMOVE_PROVIDERS_KEY = '_removeProviders';
+const REMOVE_MODELS_KEY = '_removeModels';
+
 /**
  * Deep-merge a curated `overlay` payload on top of a `base` payload (both in
  * the models.dev `api.json` shape). The overlay always wins: it can add
  * providers/models the base lacks and override fields the base gets wrong.
+ *
+ * NEW: The overlay also supports two magic keys for removal:
+ *
+ *   `_removeProviders` (string[])  — provider ids to DELETE from the result.
+ *   `_removeModels` (Record<string, string[]>) — per-provider model ids to
+ *     delete from that provider's model list.
+ *
+ * Removals are applied AFTER the merge pass so the overlay can add and then
+ * selectively strip away unwanted entries from the base catalog.
  *
  * Precedence rules:
  *  - Provider present in both → scalar fields (`name`, `npm`, `api`, `env`,
@@ -25,14 +38,39 @@ export function mergeModelsPayload(
   base: ModelsDevPayload,
   overlay: ModelsDevPayload,
 ): ModelsDevPayload {
+  // Step 1: extract removal directives before the merge loop
+  const removeProviders: string[] = Array.isArray(overlay[REMOVE_PROVIDERS_KEY])
+    ? (overlay[REMOVE_PROVIDERS_KEY] as string[])
+    : [];
+  const removeModels: Record<string, string[]> =
+    overlay[REMOVE_MODELS_KEY] && typeof overlay[REMOVE_MODELS_KEY] === 'object'
+      ? (overlay[REMOVE_MODELS_KEY] as unknown as Record<string, string[]>)
+      : {};
+
+  // Step 2: conventional deep-merge (add/override only)
   const out: ModelsDevPayload = {};
   for (const [id, provider] of Object.entries(base)) {
     out[id] = cloneProvider(provider);
   }
   for (const [id, ovProvider] of Object.entries(overlay)) {
+    // Skip magic keys
+    if (id === REMOVE_PROVIDERS_KEY || id === REMOVE_MODELS_KEY) continue;
     const existing = out[id];
     out[id] = existing ? mergeProvider(existing, ovProvider) : cloneProvider(ovProvider);
   }
+
+  // Step 3: apply removals
+  for (const providerId of removeProviders) {
+    delete out[providerId];
+  }
+  for (const [providerId, modelIds] of Object.entries(removeModels)) {
+    const provider = out[providerId];
+    if (!provider || !provider.models) continue;
+    for (const modelId of modelIds) {
+      delete provider.models[modelId];
+    }
+  }
+
   return out;
 }
 
