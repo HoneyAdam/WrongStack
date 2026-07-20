@@ -1,6 +1,7 @@
 import type { ContentBlock, ToolResultBlock, ToolUseBlock } from '../types/blocks.js';
 import { isTextBlock } from '../types/blocks.js';
 import type { Message } from '../types/messages.js';
+import type { Logger } from '../types/logger.js';
 import { repairToolUseAdjacency } from '../utils/message-invariants.js';
 import {
   computeMessageTokens,
@@ -111,32 +112,45 @@ function compactionDebugEnabled(): boolean {
   return process.env['NODE_ENV'] === 'development' || process.env['WRONGSTACK_DEBUG'] === '1';
 }
 
+/**
+ * Module-level debug logger for compaction instrumentation. Set by
+ * compactor classes that have a Logger instance; falls back to
+ * console.log/error when unset (preserves existing debug output).
+ */
+let _debugLogger: Logger | undefined;
+
+/** Set the module-level compaction debug logger (called by compactor constructors). */
+export function setCompactionDebugLogger(logger: Logger | undefined): void {
+  _debugLogger = logger;
+}
+
 /** Emit compaction instrumentation as a structured log event (debug-only). */
 function emitCompactionMetrics(event: string, metrics: CompactionMetrics): void {
   if (!compactionDebugEnabled()) return;
-  console.log(
-    JSON.stringify({
-      level: 'debug',
-      event,
-      messageCount: metrics.messageCount,
-      preserveStart: metrics.preserveStart,
-      fastPathIterations: metrics.fastPathIterations,
-      fastPathInnerIterations: metrics.fastPathInnerIterations,
-      // Ratios — anything > 2.0 indicates the inner loop is running more than expected
-      fastPathInnerPerOuter:
-        metrics.fastPathIterations > 0
-          ? metrics.fastPathInnerIterations / metrics.fastPathIterations
-          : 0,
-      fullPassIterations: metrics.fullPassIterations,
-      fullPassInnerIterations: metrics.fullPassInnerIterations,
-      fullPassInnerPerOuter:
-        metrics.fullPassIterations > 0
-          ? metrics.fullPassInnerIterations / metrics.fullPassIterations
-          : 0,
-      tokensSaved: metrics.tokensSaved,
-      changed: metrics.changed,
-    }),
-  );
+  const ctx = {
+    event,
+    messageCount: metrics.messageCount,
+    preserveStart: metrics.preserveStart,
+    fastPathIterations: metrics.fastPathIterations,
+    fastPathInnerIterations: metrics.fastPathInnerIterations,
+    fastPathInnerPerOuter:
+      metrics.fastPathIterations > 0
+        ? metrics.fastPathInnerIterations / metrics.fastPathIterations
+        : 0,
+    fullPassIterations: metrics.fullPassIterations,
+    fullPassInnerIterations: metrics.fullPassInnerIterations,
+    fullPassInnerPerOuter:
+      metrics.fullPassIterations > 0
+        ? metrics.fullPassInnerIterations / metrics.fullPassIterations
+        : 0,
+    tokensSaved: metrics.tokensSaved,
+    changed: metrics.changed,
+  };
+  if (_debugLogger) {
+    _debugLogger.debug(`compaction: ${event}`, ctx);
+  } else {
+    console.log(JSON.stringify({ level: 'debug', ...ctx }));
+  }
 }
 
 /**
@@ -212,19 +226,21 @@ export function findPreserveStart(messages: readonly Message[], preserveK: numbe
   }
 
   if (compactionDebugEnabled()) {
-    console.log(
-      JSON.stringify({
-        level: 'debug',
-        event: 'compaction.find_preserve_start.ended',
-        messageCount: messages.length,
-        preserveK,
-        preserveStart,
-        pairRepairIterations,
-        pairRepairInnerIterations,
-        pairRepairInnerPerOuter:
-          pairRepairIterations > 0 ? pairRepairInnerIterations / pairRepairIterations : 0,
-      }),
-    );
+    const ctx = {
+      event: 'compaction.find_preserve_start.ended',
+      messageCount: messages.length,
+      preserveK,
+      preserveStart,
+      pairRepairIterations,
+      pairRepairInnerIterations,
+      pairRepairInnerPerOuter:
+        pairRepairIterations > 0 ? pairRepairInnerIterations / pairRepairIterations : 0,
+    };
+    if (_debugLogger) {
+      _debugLogger.debug('compaction: find_preserve_start.ended', ctx);
+    } else {
+      console.log(JSON.stringify({ level: 'debug', ...ctx }));
+    }
   }
 
   return preserveStart;
@@ -415,16 +431,18 @@ export function eliseOldToolResults(
 
       if (ratio > 10) {
         // Defensive assertion: never expected in practice
-        console.error(
-          JSON.stringify({
-            level: 'error',
-            event: 'compaction.elision.regression',
-            message: `fullPassInnerPerOuter=${ratio.toFixed(2)} exceeds threshold 10 — possible O(n·m) regression`,
-            messageCount: messages.length,
-            fullPassIterations,
-            fullPassInnerIterations,
-          }),
-        );
+        const ctx = {
+          event: 'compaction.elision.regression',
+          message: `fullPassInnerPerOuter=${ratio.toFixed(2)} exceeds threshold 10 — possible O(n·m) regression`,
+          messageCount: messages.length,
+          fullPassIterations,
+          fullPassInnerIterations,
+        };
+        if (_debugLogger) {
+          _debugLogger.error(`compaction: elision.regression — ratio ${ratio.toFixed(2)}`, ctx);
+        } else {
+          console.error(JSON.stringify({ level: 'error', ...ctx }));
+        }
       }
     }
   }
