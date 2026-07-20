@@ -20,7 +20,10 @@ import { FileDiffPanel } from './file-diff-panel.js';
 import { FileExplorer } from './file-explorer.js';
 import { FinishedAgentsMenu } from './finished-agents-menu.js';
 import { useAgentRoster } from './hooks/use-agent-roster.js';
+import { useComposerActions } from './hooks/use-composer-actions.js';
 import { useF5Resilience } from './hooks/use-f5-resilience.js';
+import { useFileMention } from './hooks/use-file-mention.js';
+import { useImageAttachments } from './hooks/use-image-attachments.js';
 import { useModelCatalog } from './hooks/use-model-catalog.js';
 import { useSimpleSocket } from './hooks/use-simple-socket.js';
 import { useStatusNotice } from './hooks/use-status-notice.js';
@@ -129,13 +132,6 @@ export function App() {
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const [draft, setDraft] = useState('');
   const [fileRefs, setFileRefs] = useState<string[]>([]);
-  const [fileMention, setFileMention] = useState<FileMention | null>(null);
-  const [fileMatches, setFileMatches] = useState<string[]>([]);
-  const [filePickerIndex, setFilePickerIndex] = useState(0);
-  const [fileSearching, setFileSearching] = useState(false);
-  const [attachedImages, setAttachedImages] = useState<
-    { id: string; data: string; mime: string; name: string }[]
-  >([]);
   const [running, setRunning] = useState(false);
   const [activity, setActivity] = useState('');
   const { notice, showNotice: setNotice } = useStatusNotice();
@@ -371,6 +367,48 @@ export function App() {
 
   const visionSupported = isVisionModel(session?.model ?? '');
 
+  const {
+    fileMention,
+    setFileMention,
+    fileMatches,
+    setFileMatches,
+    filePickerIndex,
+    setFilePickerIndex,
+    fileSearching,
+    setFileSearching,
+    selectFile: selectFileRaw,
+  } = useFileMention({ socketRef });
+
+  const {
+    attachedImages,
+    attachImages,
+    removeImage,
+    setAttachedImages,
+  } = useImageAttachments();
+
+  const {
+    submitWith,
+    refineDecision,
+    refineRetry,
+    refineRetryFallback,
+    abort,
+  } = useComposerActions({
+    sessionIdRef,
+    socketRef,
+    draftRef,
+    fileRefsRef,
+    refineStateRef,
+    draft,
+    fileRefs,
+    running,
+    startSend,
+    setQueue,
+    setDraft,
+    setFileRefs,
+    setAttachedImages,
+    setRefineState,
+  });
+
   const handlerDeps: MessageHandlerDeps = {
     prefsRef,
     draftRef,
@@ -464,19 +502,6 @@ export function App() {
     return () => clearTimeout(timer);
   }, [draft, fileRefs, session?.id]);
 
-  useEffect(() => {
-    if (!fileMention) {
-      setFileSearching(false);
-      return;
-    }
-    setFileSearching(true);
-    setFilePickerIndex(0);
-    const timer = setTimeout(() => {
-      socketRef.current?.send('files.list', { query: fileMention.query, limit: 12 });
-    }, 80);
-    return () => clearTimeout(timer);
-  }, [fileMention]);
-
   const _currentSessionName = sessionDisplayName(
     sessions.find((item) => item.id === session?.id),
     session?.id,
@@ -555,33 +580,6 @@ export function App() {
     });
   };
 
-  const attachImages = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.multiple = true;
-    input.onchange = () => {
-      const files = input.files;
-      if (!files) return;
-      for (const file of Array.from(files)) {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const data = reader.result as string;
-          setAttachedImages((prev) => [
-            ...prev,
-            { id: messageId('img'), data, mime: file.type, name: file.name },
-          ]);
-        };
-        reader.readAsDataURL(file);
-      }
-    };
-    input.click();
-  };
-
-  const removeAttachedImage = (id: string) => {
-    setAttachedImages((prev) => prev.filter((img) => img.id !== id));
-  };
-
   const createSession = () => {
     if (running || !sessionIdRef.current) return;
     socketRef.current?.send('session.new', { sessionId: sessionIdRef.current });
@@ -590,110 +588,6 @@ export function App() {
   const resumeSession = (id: string) => {
     if (running || !sessionIdRef.current || id === sessionIdRef.current) return;
     socketRef.current?.send('session.resume', { sessionId: sessionIdRef.current, id });
-  };
-
-  const submitWith = (mode: QueueMode) => {
-    // ── Slash commands ──
-    if (draft.trim() === '/clear' && sessionIdRef.current) {
-      clearComposerDraft(sessionIdRef.current);
-      draftRef.current = '';
-      fileRefsRef.current = [];
-      setDraft('');
-      setFileRefs([]);
-      setFileMention(null);
-      socketRef.current?.send('session.new', { sessionId: sessionIdRef.current });
-      return;
-    }
-
-    const content = composePromptWithFileReferences(draft, fileRefs);
-    // The refine panel owns the pending text; a second submit would race it.
-    if (!content || connection !== 'open' || !sessionIdRef.current || refineState) return;
-
-    const plan = resolveSendPlan(mode, running);
-    const imgs =
-      attachedImages.length > 0
-        ? attachedImages.map((i) => ({ data: i.data, mime: i.mime }))
-        : undefined;
-    clearComposerDraft(sessionIdRef.current);
-    draftRef.current = '';
-    fileRefsRef.current = [];
-    setDraft('');
-    setFileRefs([]);
-    setFileMention(null);
-    setAttachedImages([]);
-
-    if (plan === 'send') {
-      startSend(content, imgs);
-      return;
-    }
-
-    const item: QueuedItem = { id: messageId('queued'), text: content, mode, addedAt: Date.now() };
-    if (plan === 'abort-then-enqueue-front') {
-      // Stop the in-flight run, then let that run's run.result drain this
-      // from the head of the queue. Sending inline here would race the very
-      // run.result the abort triggers.
-      socketRef.current?.send('abort', { sessionId: sessionIdRef.current });
-      setQueue((current) => enqueueFront(current, item));
-      setNotice({ id: messageId('notice'), text: 'Steering the run…', tone: 'info' });
-      return;
-    }
-    setQueue((current) => enqueueItem(current, item));
-    setNotice({
-      id: messageId('notice'),
-      text: mode === 'queue' ? 'Queued for after this run' : 'Added to the run',
-      tone: 'info',
-    });
-  };
-
-  const refineDecision = (decision: RefineDecision) => {
-    const state = refineState;
-    if (!state) return;
-    const text = resolveRefineText(state, decision);
-    setRefineState(null);
-    if (text === null) {
-      // `edit` hands the text back to the composer instead of sending.
-      setDraft(state.original);
-      requestAnimationFrame(() => textareaRef.current?.focus());
-      return;
-    }
-    dispatchUserMessage(text);
-  };
-
-  const refineRetry = () => {
-    const state = refineState;
-    if (!state) return;
-    // A manual retry re-arms the one automatic post-timeout retry.
-    setRefineState({
-      ...state,
-      status: 'refining',
-      error: undefined,
-      errorKind: undefined,
-      retried: false,
-    });
-    socketRef.current?.send('model.refine', {
-      text: state.original,
-      ...((state.status ?? 'ready') === 'ready'
-        ? {
-            previousRefined: state.refined,
-            previousEnglish: state.english,
-            retryFeedback: REFINE_RETRY_FEEDBACK,
-          }
-        : {}),
-    });
-  };
-
-  const refineRetryFallback = (ref: string) => {
-    const state = refineState;
-    if (!state) return;
-    const target = parseFallbackRef(ref);
-    if (!target) return;
-    setRefineState({ ...state, status: 'refining', retried: true });
-    socketRef.current?.send('model.refine', {
-      text: state.original,
-      timeoutMs: 180_000,
-      provider: target.provider,
-      model: target.model,
-    });
   };
 
   const updatePrefs = (patch: Partial<SimplePrefs>) => {
@@ -721,11 +615,6 @@ export function App() {
       decision,
     });
     setPendingConfirm(null);
-  };
-
-  const abort = () => {
-    socketRef.current?.send('abort', { sessionId: sessionIdRef.current ?? undefined });
-    setActivity('Stopping');
   };
 
   const requestWorklist = useCallback((view: WorklistView) => {
@@ -1040,7 +929,7 @@ export function App() {
               onRefineRetryFallback={refineRetryFallback}
               attachedImages={attachedImages}
               onAttachImages={attachImages}
-              onRemoveImage={removeAttachedImage}
+              onRemoveImage={removeImage}
               visionSupported={visionSupported}
             />
           </footer>
