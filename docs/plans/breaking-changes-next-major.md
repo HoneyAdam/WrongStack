@@ -29,18 +29,26 @@
 
 29 `@deprecated` tag bulundu. Kategorik analiz:
 
-### 3.1 Configuration / Boolean Mirror Pattern (6 tag — yüksek etki)
+### 3.1 Configuration / Boolean Mirror Pattern (6 tag — yüksek etki) ✅ TAMAMLANDI
 
-Boolean-only caller'lar için tutulan mirror field'lar. Next major'da kaldırılmalı.
+~~Boolean-only caller'lar için tutulan mirror field'lar. Next major'da kaldırılmalı.~~
 
-| Dosya | Tag | Yerine |
-|-------|-----|--------|
-| `core/types/config.ts:879` | `fleetChat` (boolean) | `fleetChatVerbosity !== 'off'` |
-| `cli/execution.ts:135` | `streamFleet` (boolean) | `fleetChatVerbosity` |
-| `cli/wiring/controllers.ts:25` | `FleetStreamController.enabled` | `mode !== 'off'` |
-| `cli/wiring/controllers.ts:27` | `FleetStreamController.setEnabled()` | `setMode(enabled ? 'full' : 'off')` |
-| `tui/hooks/use-tui-controllers.ts:6` | `FleetStreamController.enabled` | `mode !== 'off'` (TUI mirror) |
-| `tui/hooks/use-tui-controllers.ts:8` | `FleetStreamController.setEnabled()` | `setMode(enabled ? 'full' : 'off')` (TUI mirror) |
+**Commit'ler:** `7cdf89ed0` (core+cli+tui+webui-server), `f083ffeb7` (webui client)
+
+`streamFleet` boolean ve `FleetStreamController.enabled`/`setEnabled` API tüm paketlerden kaldırıldı. WebUI local-prefs store'a persist v10 migration eklendi (legacy `streamFleet: true` → `'full'`). 6 paket typecheck temiz: core, cli, tui, webui, webui-server, providers.
+
+| Dosya | Tag | Durum |
+|-------|-----|-------|
+| `core/types/config.ts` | `streamFleet` field | ✅ Kaldırıldı |
+| `cli/execution.ts` | `streamFleet` in LiveSettingsInput | ✅ Kaldırıldı |
+| `cli/wiring/controllers.ts` | `FleetStreamController.enabled`/`setEnabled` | ✅ Kaldırıldı |
+| `tui/hooks/use-tui-controllers.ts` | `FleetStreamController.enabled`/`setEnabled` | ✅ Kaldırıldı |
+| `tui/app-props.ts` + `run-tui.ts` | Inline structural type | ✅ Kaldırıldı |
+| `webui/src/stores/local-prefs.ts` | `streamFleet: boolean` | ✅ → `fleetChatVerbosity: FleetChatVerbosity` |
+| `webui/src/components/SettingsPanel/index.tsx` | `localPrefs.streamFleet` | ✅ → `fleetChatVerbosity` |
+| 7 locale `settings.json` | `streamFleetLabel`/`streamFleetHint` | ✅ → `fleetChatVerbosityLabel`/`fleetChatVerbosityHint` |
+| `cli/webui-server/prefs-seeding.ts` | Key list + meta + write | ✅ Güncellendi |
+| `cli/slash-commands/agents.ts` + `settings.ts` | streamFleet mirror write | ✅ Kaldırıldı |
 
 ### 3.2 YOLO Destructive Migration (5 tag — yüksek etki)
 
@@ -111,7 +119,7 @@ Codex→OAuth rename aliases.
 
 | Öncelik | Kategori | Tag sayısı | Aksiyon |
 |---------|----------|-----------|--------|
-| 🔴 High | Config/Boolean mirrors (3.1) | 6 | WebUI prefs + CLI callers migrate edildikten sonra kaldır |
+| 🔴 High | Config/Boolean mirrors (3.1) | 6 | ✅ Tamamlandı — tüm paketlerden kaldırıldı |
 | 🔴 High | YOLO destructive (3.2) | 5 | Tüm `yolo` boolean callers `yoloDestructive`'a migrate edilmeli |
 | 🟡 Medium | OAuth aliases (3.3) | 2 | Codex namespace tamamen kalkınca kaldır |
 | 🟡 Medium | Import path (3.4) | 5 | External consumers güncellendikçe kaldır |
@@ -128,7 +136,7 @@ Codex→OAuth rename aliases.
 - [x] ~~Config migration ekle~~ (gerek yok — değer zaten ignore ediliyordu)
 - [x] Tüm deprecated API'leri gözden geçir (`@deprecated` JSDoc tag'leri) — 29 tag bulundu, kategorize edildi
 - [x] CHANGELOG.md'ye breaking changes bölümü ekle (`jsonArgumentsBuggy` için)
-- [ ] **3.1:** `fleetChat`/`streamFleet` boolean mirror'larını kaldır (WebUI prefs migration)
+- [x] **3.1:** `fleetChat`/`streamFleet` boolean mirror'larını kaldır (`7cdf89ed0`, `f083ffeb7`)
 - [ ] **3.2:** `yolo` boolean → `yoloDestructive` migration'ı tamamla
 - [ ] **3.3-3.8:** Kalan deprecated API'leri major release sırasında kaldır
 - [ ] Migration guide yaz (kullanıcılar için)
