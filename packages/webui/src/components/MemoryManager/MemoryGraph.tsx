@@ -10,8 +10,12 @@ import {
   ReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useMemo } from 'react';
+import { Expand } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import type { SuperMemoryAnchor, SuperMemoryEntry, SuperMemoryGraphEdge } from '@/types';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { cn } from '@/lib/utils';
 
 interface MemoryGraphProps {
   centerMemory: SuperMemoryEntry;
@@ -132,6 +136,44 @@ function missingMemory(id: string): SuperMemoryEntry {
   };
 }
 
+/** Shared ReactFlow canvas — used inline (small) and in the full-screen modal. */
+function GraphCanvas({
+  nodes,
+  edges,
+  className,
+}: {
+  nodes: Node[];
+  edges: Edge[];
+  className?: string;
+}) {
+  return (
+    <div className={cn('w-full', className)}>
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        fitView
+        fitViewOptions={{ padding: 0.24, maxZoom: 1.05 }}
+        minZoom={0.4}
+        maxZoom={1.5}
+        nodesConnectable={false}
+        elementsSelectable={false}
+        panOnScroll={false}
+        zoomOnScroll={false}
+        proOptions={{ hideAttribution: true }}
+      >
+        <Background
+          variant={BackgroundVariant.Dots}
+          gap={18}
+          size={1}
+          color="hsl(var(--muted-foreground) / 0.18)"
+        />
+        <Controls showInteractive={false} className="!border-border !bg-card !shadow-lg" />
+      </ReactFlow>
+    </div>
+  );
+}
+
 export function MemoryGraph({
   centerMemory,
   allMemories,
@@ -139,6 +181,7 @@ export function MemoryGraph({
   loading = false,
   error = null,
 }: MemoryGraphProps) {
+  const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const centerNode = `mem:${centerMemory.id}`;
   const directMemoryEdges = useMemo(
     () =>
@@ -258,9 +301,23 @@ export function MemoryGraph({
       aria-label="Memory relationship graph"
     >
       <div className="flex items-center justify-between border-b border-border/70 bg-card/55 px-3 py-2">
-        <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-          Relationship map
-        </p>
+        <div className="flex items-center gap-2">
+          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+            Relationship map
+          </p>
+          {nodes.length > 1 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setFullscreenOpen(true)}
+              className="h-6 gap-1 px-2 text-[9px] font-bold uppercase tracking-[0.12em]"
+              aria-label="Open full screen graph"
+            >
+              <Expand className="size-3" />
+              Open full screen
+            </Button>
+          )}
+        </div>
         <span className="font-mono text-[10px] text-muted-foreground">
           {loading ? 'loading real graph…' : `${nodes.length} nodes · ${edges.length} edges`}
         </span>
@@ -271,30 +328,7 @@ export function MemoryGraph({
         </p>
       )}
       {nodes.length > 1 && (
-        <div className="h-[320px] w-full" aria-hidden="true">
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            fitView
-            fitViewOptions={{ padding: 0.24, maxZoom: 1.05 }}
-            minZoom={0.4}
-            maxZoom={1.5}
-            nodesConnectable={false}
-            elementsSelectable={false}
-            panOnScroll={false}
-            zoomOnScroll={false}
-            proOptions={{ hideAttribution: true }}
-          >
-            <Background
-              variant={BackgroundVariant.Dots}
-              gap={18}
-              size={1}
-              color="hsl(var(--muted-foreground) / 0.18)"
-            />
-            <Controls showInteractive={false} className="!border-border !bg-card !shadow-lg" />
-          </ReactFlow>
-        </div>
+        <GraphCanvas nodes={nodes} edges={edges} className="h-[320px]" />
       )}
       {directMemoryEdges.some((edge) => edge.evidence?.length) && (
         <div className="grid gap-1 border-t border-border/70 bg-card/35 px-3 py-2">
@@ -311,6 +345,32 @@ export function MemoryGraph({
               );
             })}
         </div>
+      )}
+
+      {fullscreenOpen && (
+        <Dialog open={fullscreenOpen} onOpenChange={setFullscreenOpen}>
+          <DialogContent
+            className="flex max-h-[90dvh] max-w-[90vw] flex-col p-0"
+            showCloseButton={false}
+          >
+            <div className="flex items-center justify-between border-b border-border/70 bg-card/55 px-4 py-3">
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                Relationship map — {centerMemory.id}
+              </p>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setFullscreenOpen(false)}
+                className="h-7 gap-1 px-2 text-[10px]"
+              >
+                Close
+              </Button>
+            </div>
+            <div className="min-h-0 flex-1 px-4 pb-4">
+              <GraphCanvas nodes={nodes} edges={edges} className="h-[65vh]" />
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
     </section>
   );

@@ -19,6 +19,7 @@ import {
 } from '@/components/ui';
 import { useAppTranslation } from '@/i18n';
 import { cn } from '@/lib/utils';
+import { openPanel } from '@/components/activity-bar/nav';
 import type { FleetTimelineEvent, SubagentView } from '@/stores';
 import { useFleetStore, useSideEffectStore, useUIStore } from '@/stores';
 import { AgentCard } from './AgentsMonitor';
@@ -66,31 +67,30 @@ function sortFleet(
  * avoids making the App root re-render for every fleet/audit counter update. */
 export function InspectorTrigger(): React.ReactElement {
   const { t } = useAppTranslation();
-  const inspectorOpen = useUIStore((s) => s.inspectorOpen);
-  const setInspectorOpen = useUIStore((s) => s.setInspectorOpen);
+  const sidebarOpen = useUIStore((s) => s.sidebarOpen);
+  const activeActivity = useUIStore((s) => s.activeActivity);
+  const agentsSidebarActive = sidebarOpen && activeActivity === 'agents';
   const runningCount = useFleetStore(
     (s) => Array.from(s.agents.values()).filter((agent) => agent.status === 'running').length,
   );
-  const sideEffectCount = useSideEffectStore((s) => s.sideEffects.length);
-  const badge = runningCount + sideEffectCount;
+  const badge = runningCount;
 
   return (
     <button
       type="button"
       data-testid="inspector-trigger"
-      aria-expanded={inspectorOpen}
-      aria-controls="workbench-inspector"
-      onClick={() => setInspectorOpen(!inspectorOpen)}
+      aria-expanded={agentsSidebarActive}
+      onClick={() => openPanel('agents')}
       className={cn(
         'relative inline-flex h-8 items-center gap-1.5 rounded-md border px-2 text-xs transition-colors',
-        inspectorOpen
+        agentsSidebarActive
           ? 'border-primary/40 bg-primary/10 text-primary'
           : 'border-border/70 bg-background/60 text-muted-foreground hover:bg-accent/60 hover:text-foreground',
       )}
-      title={inspectorOpen ? t('activity:inspector.hidePanel') : t('activity:inspector.showPanel')}
+      title={t('activity:inspector.showPanel')}
     >
-      <PanelRightOpen className="h-3.5 w-3.5" />
-      <span className="hidden lg:inline">{t('activity:inspector.label')}</span>
+      <Bot className="h-3.5 w-3.5" />
+      <span className="hidden lg:inline">{t('activity:nav.agents')}</span>
       {badge > 0 ? (
         <span className="min-w-4 bg-primary/15 px-1 text-[10px] font-semibold tabular-nums text-primary">
           {badge > 99 ? '99+' : badge}
