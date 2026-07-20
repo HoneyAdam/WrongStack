@@ -77,14 +77,15 @@ describe('normalizeTokenSavingTier', () => {
 });
 
 describe('resolveTokenSavingTier (window-based auto-tier for the prompt)', () => {
-  it("expands 'auto' from the context window (conservative thresholds)", () => {
+  it("expands 'auto' from the context window (modern thresholds)", () => {
     expect(resolveTokenSavingTier('auto', 8_000)).toBe('medium'); // <32k
     expect(resolveTokenSavingTier('auto', 31_999)).toBe('medium');
-    expect(resolveTokenSavingTier('auto', 32_000)).toBe('light'); // <96k
-    expect(resolveTokenSavingTier('auto', 64_000)).toBe('light');
-    expect(resolveTokenSavingTier('auto', 96_000)).toBe('off'); // ≥96k → full
-    expect(resolveTokenSavingTier('auto', 200_000)).toBe('off');
-    expect(resolveTokenSavingTier('auto', 1_000_000)).toBe('off');
+    expect(resolveTokenSavingTier('auto', 32_000)).toBe('light'); // <128k
+    expect(resolveTokenSavingTier('auto', 96_000)).toBe('light');
+    expect(resolveTokenSavingTier('auto', 127_999)).toBe('light');
+    expect(resolveTokenSavingTier('auto', 128_000)).toBe('minimal'); // ≥128k
+    expect(resolveTokenSavingTier('auto', 200_000)).toBe('minimal');
+    expect(resolveTokenSavingTier('auto', 1_000_000)).toBe('minimal');
   });
 
   it("'auto' with an unknown/zero window → 'off' (never guess a lean prompt)", () => {

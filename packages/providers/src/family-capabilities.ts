@@ -26,7 +26,7 @@ export const CAPABILITIES_BY_FAMILY: Record<WireFamily, Capabilities> = {
     parallelTools: true,
     vision: true,
     streaming: true,
-    promptCache: false,
+    promptCache: true,
     systemPrompt: true,
     jsonMode: true,
     reasoning: false,

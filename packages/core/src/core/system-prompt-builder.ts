@@ -334,11 +334,20 @@ export class DefaultSystemPromptBuilder implements SystemPromptBuilder {
     const layer6 = ctx.subagent ? '' : await this.buildActivePlan();
 
     const core: TextBlock[] = [
-      tagBlock({ type: 'text', text: layer1 }, 'identity'),
-      tagBlock({ type: 'text', text: layer2 }, 'tool-usage'),
+      tagBlock(
+        { type: 'text', text: layer1, cache_control: { type: 'ephemeral' } },
+        'identity',
+      ),
+      tagBlock(
+        { type: 'text', text: layer2, cache_control: { type: 'ephemeral' } },
+        'tool-usage',
+      ),
     ];
     const session: TextBlock[] = [
-      tagBlock({ type: 'text', text: layer3WithDir }, 'environment'),
+      tagBlock(
+        { type: 'text', text: layer3WithDir, cache_control: { type: 'ephemeral' } },
+        'environment',
+      ),
     ];
     const volatile: TextBlock[] = [];
 

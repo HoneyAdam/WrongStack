@@ -157,11 +157,13 @@ export function normalizeTokenSavingTier(val?: TokenSavingTier | boolean): Concr
  * pressure-driven tier). It re-resolves only on `/model` switch, which busts the
  * cache anyway.
  *
- * Conservative thresholds (small windows only; large windows keep the full
- * prompt so nothing changes for the common 200k+/1M case):
- *   - `< 32k`  → `'medium'`  (identity + tool prose is a big fraction — trim it)
- *   - `< 96k`  → `'light'`
- *   - `>= 96k` → `'off'`     (room to spare; favour cache stability + capability)
+ * Modern threshold mapping — the system prompt (~12K tokens) is roughly the same
+ * size regardless of context window; paying full price for it on every turn when
+ * there is abundant headroom is wasteful. The tiers apply minimal trimming first,
+ * escalating only when the window is genuinely tight:
+ *   - `< 32k`     → `'medium'`  (tiny window: identity + tool prose is a big fraction)
+ *   - `< 128k`    → `'light'`   (tight window: GPT-4 base class models)
+ *   - `>= 128k`   → `'minimal'` (modern models: GPT-4o, Sonnet, DeepSeek, Qwen 3, Gemini 1M, Qwen 1M)
  *   - unknown window → `'off'` (never guess a lean prompt without evidence)
  *
  * Explicit concrete tiers (a user who set `'medium'`, `'off'`, …) are always
@@ -176,8 +178,8 @@ export function resolveTokenSavingTier(
       return 'off';
     }
     if (maxContext < 32_000) return 'medium';
-    if (maxContext < 96_000) return 'light';
-    return 'off';
+    if (maxContext < 128_000) return 'light';
+    return 'minimal';
   }
   return normalizeTokenSavingTier(val);
 }
