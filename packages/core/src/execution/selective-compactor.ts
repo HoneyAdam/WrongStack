@@ -21,6 +21,7 @@ import {
   eliseOldToolResults as coreEliseOldToolResults,
   estimateMessages,
   findPreserveStart,
+  setCompactionDebugLogger,
 } from './compaction-core.js';
 
 /**
@@ -93,6 +94,10 @@ export class SelectiveCompactor implements Compactor {
     // where the warning below is suppressed.
     this.summarizerModel = opts.summarizerModel ?? opts.selectorModel;
     this.logger = opts.logger ?? noOpLogger;
+    // Wire the module-level compaction debug logger so instrumentation
+    // in compaction-core.ts (emitCompactionMetrics, findPreserveStart,
+    // eliseOldToolResults) uses structured logging when available.
+    setCompactionDebugLogger(this.logger);
     if (
       this.summarizerModel === undefined &&
       (process.env['NODE_ENV'] === 'development' || process.env['WRONGSTACK_DEBUG'] === '1')
