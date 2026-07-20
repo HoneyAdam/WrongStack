@@ -14,36 +14,24 @@ describe('CLI wiring controllers', () => {
   it('keeps fleet stream and agents monitor state mutable through their shared controllers', () => {
     const stream = createFleetStreamController();
     const agents = createAgentsMonitorController();
-    stream.setEnabled(false);
+    stream.setMode('off');
     agents.setVisible(true);
-    expect(stream.enabled).toBe(false);
+    expect(stream.mode).toBe('off');
     expect(agents.visible).toBe(true);
   });
 
-  it('fleet stream controller: setMode drives mode and mirrors the boolean', () => {
+  it('fleet stream controller: setMode drives mode', () => {
     const stream = createFleetStreamController();
     expect(stream.mode).toBe('off'); // default
-    expect(stream.enabled).toBe(false);
     stream.setMode('off');
     expect(stream.mode).toBe('off');
-    expect(stream.enabled).toBe(false);
     stream.setMode('full');
     expect(stream.mode).toBe('full');
-    expect(stream.enabled).toBe(true);
-  });
-
-  it('fleet stream controller: legacy setEnabled maps to full/off', () => {
-    const stream = createFleetStreamController();
-    stream.setEnabled(true);
-    expect(stream.mode).toBe('full');
-    stream.setEnabled(false);
-    expect(stream.mode).toBe('off');
   });
 
   it('fleet stream controller: seeds from the persisted mode', () => {
     const stream = createFleetStreamController('off');
     expect(stream.mode).toBe('off');
-    expect(stream.enabled).toBe(false);
   });
 
   it('seeds and updates enhance state from config', () => {

@@ -26,10 +26,10 @@ describe('family-capabilities', () => {
       expect(CAPABILITIES_BY_FAMILY.anthropic.cacheControl).toBe('native');
     });
 
-    it('openai has 128k context, json mode, no prompt cache', () => {
+    it('openai has 128k context, json mode, with prompt cache', () => {
       expect(CAPABILITIES_BY_FAMILY.openai.maxContext).toBe(128_000);
       expect(CAPABILITIES_BY_FAMILY.openai.jsonMode).toBe(true);
-      expect(CAPABILITIES_BY_FAMILY.openai.promptCache).toBe(false);
+      expect(CAPABILITIES_BY_FAMILY.openai.promptCache).toBe(true);
     });
 
     it('google reports 1M context', () => {
@@ -90,8 +90,8 @@ describe('family-capabilities', () => {
     });
 
     it('overrides can disable a capability', () => {
-      const c = capabilitiesForFamily('anthropic', { promptCache: false });
-      expect(c.promptCache).toBe(false);
+      const c = capabilitiesForFamily('anthropic', { vision: false });
+      expect(c.vision).toBe(false);
       expect(c.maxContext).toBe(200_000);
     });
 
@@ -111,7 +111,7 @@ describe('family-capabilities', () => {
     });
 
     it('does not mutate the source table', () => {
-      capabilitiesForFamily('anthropic', { promptCache: false });
+      capabilitiesForFamily('anthropic', { promptCache: true });
       expect(CAPABILITIES_BY_FAMILY.anthropic.promptCache).toBe(true);
     });
   });

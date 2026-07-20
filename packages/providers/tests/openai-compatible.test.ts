@@ -35,7 +35,7 @@ describe('isCompatibilityQuirks', () => {
     expect(isCompatibilityQuirks({ flattenContentToString: true })).toBe(true);
     expect(isCompatibilityQuirks({ preserveToolCallIds: false })).toBe(true);
     expect(isCompatibilityQuirks({ parallelToolsDisabled: true })).toBe(true);
-    expect(isCompatibilityQuirks({ jsonArgumentsBuggy: true })).toBe(true);
+    expect(isCompatibilityQuirks({  })).toBe(true);
     expect(isCompatibilityQuirks({ stripThinkTags: false })).toBe(true);
   });
 

@@ -28,6 +28,7 @@ vi.mock('@wrongstack/acp', () => ({
   runAcpBench: (...a: unknown[]) => runAcpBench(...a),
   renderAcpBenchText: (...a: unknown[]) => renderAcpBenchText(...a),
   probeAcpAgents: (...a: unknown[]) => probeAcpAgents(...a),
+  defaultPermissionPolicy: { evaluate: () => ({ permission: 'auto' }) },
   EnsembleRegistry: class {
     list = ensembleList;
   },

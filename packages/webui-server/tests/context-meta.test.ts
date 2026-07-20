@@ -91,10 +91,10 @@ describe('seedContextMeta', () => {
     expect(context.meta['confirmExit']).toBe(false);
   });
 
-  it('sets fleetChatVerbosity default to full', () => {
+  it('sets fleetChatVerbosity default to off', () => {
     const context = { meta: {} };
     seedContextMeta(makeConfig(), context);
-    expect(context.meta['fleetChatVerbosity']).toBe('full');
+    expect(context.meta['fleetChatVerbosity']).toBe('off');
   });
 
   it('sets fleetChatVerbosity to off when configured', () => {
