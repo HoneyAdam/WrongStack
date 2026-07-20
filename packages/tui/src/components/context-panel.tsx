@@ -560,9 +560,10 @@ function MetricsSection({ data }: { data: ContextPanelData }): React.ReactElemen
   );
 }
 
-/** Renders a compact horizontal bar using block chars. */
+/** Renders a compact horizontal bar using block chars. Clamps pct to [0,1]. */
 function tuiMiniBar(pct: number, width: number): string {
-  const filled = Math.round(pct * width);
+  const clamped = Math.max(0, Math.min(1, pct));
+  const filled = Math.round(clamped * width);
   const empty = width - filled;
   return '█'.repeat(Math.max(0, filled)) + '░'.repeat(Math.max(0, empty));
 }
@@ -592,7 +593,7 @@ function StatusSection({ data }: { data: ContextPanelData }): React.ReactElement
     <Box flexDirection="column" marginTop={1}>
       <SectionLabel>STATUS</SectionLabel>
       <Box>
-        <Text color={zClr}>{emoji} {bar} {(pct * 100).toFixed(1)}%</Text>
+        <Text color={zClr}>{bar} {(pct * 100).toFixed(1)}%</Text>
         <Text> </Text>
         <Text color={theme.textMuted}>{used.toLocaleString('en-US')} / {max.toLocaleString('en-US')}</Text>
       </Box>
