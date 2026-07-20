@@ -276,8 +276,10 @@ function quickDecide(request: BrainDecisionRequest): BrainDecision | null {
   const q = request.question.toLowerCase();
   const ctx = request.context?.toLowerCase() ?? '';
 
-  // Deadlock with failed tasks → skip and continue
-  if (q.includes('deadlock') && ctx.includes('failed')) {
+  // Deadlock with failed tasks → skip and continue. The context must mention
+  // "failed" anchored to a work-unit noun (task, step, job, …) so that
+  // incidental mentions like "login failed" don't trigger the fast path.
+  if (q.includes('deadlock') && /\bfailed\s+(?:task|step|job|build|test|phase|stage|item|unit)s?\b/.test(ctx)) {
     return {
       type: 'answer',
       text: 'Skip deadlocked tasks and continue with remaining work. Failed tasks will be reported in the final summary.',
