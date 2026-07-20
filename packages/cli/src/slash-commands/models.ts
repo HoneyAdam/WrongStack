@@ -14,8 +14,7 @@ import {
 import { parseSubcommand, unknownSubcommand } from './helpers.js';
 import type { SlashCommandContext } from './index.js';
 
-async function patchGlobalConfig(
-  _globalConfigPath: string,
+async function patchProfileConfig(
   mutate: (cfg: Record<string, unknown>) => void,
   profileConfigPath: string,
 ): Promise<Record<string, unknown>> {
@@ -200,7 +199,6 @@ export function buildModelsCommand(opts: SlashCommandContext): SlashCommand {
       }
 
       const config = opts.configStore.get();
-      const globalConfigPath = opts.paths.globalConfig;
       const profileConfigPath = opts.paths.profileConfig(
         (config as { activeProfile?: string }).activeProfile ?? 'default',
       );
@@ -247,7 +245,7 @@ export function buildModelsCommand(opts: SlashCommandContext): SlashCommand {
 
           const existingModels = (config.models ?? {}) as Record<string, CustomModelDefinition>;
           const existed = modelId in existingModels;
-          const decrypted = await patchGlobalConfig(globalConfigPath, (cfg) => {
+          const decrypted = await patchProfileConfig((cfg) => {
             const models = { ...((cfg.models as Record<string, CustomModelDefinition>) ?? {}) };
             models[modelId] = {
               ...models[modelId],
@@ -279,7 +277,7 @@ export function buildModelsCommand(opts: SlashCommandContext): SlashCommand {
               message: `${color.amber('Not found')}: custom model "${modelId}" is not defined.`,
             };
           }
-          const decrypted = await patchGlobalConfig(globalConfigPath, (cfg) => {
+          const decrypted = await patchProfileConfig((cfg) => {
             const models = { ...((cfg.models as Record<string, CustomModelDefinition>) ?? {}) };
             delete models[modelId];
             cfg.models = models;

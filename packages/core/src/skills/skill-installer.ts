@@ -16,11 +16,11 @@ import type {
   SkillRegistryAdapter,
 } from './registry/registry-adapter.js';
 export interface SkillInstallerOptions {
-  /** Path to the manifest file (~/.wrongstack/installed-skills.json) */
+  /** Path to the profile manifest file (profiles/<name>/installed-skills.json) */
   manifestPath: string;
   /** Path to project-level skills dir (<project>/.wrongstack/skills/) */
   projectSkillsDir: string;
-  /** Path to user-global skills dir (~/.wrongstack/skills/) */
+  /** Path to profile skills dir (~/.wrongstack/profiles/<name>/skills/) */
   globalSkillsDir: string;
   /** Current project hash (for manifest tracking) */
   projectHash: string;

@@ -83,7 +83,7 @@ export function SettingsPage() {
           <div className="rounded-2xl border border-line bg-ink p-5 text-zinc-300 sm:p-7">
             <div className="flex items-center justify-between border-b border-white/10 pb-4">
               <span className="font-mono text-xs font-black uppercase tracking-[0.16em] text-zinc-500">
-                ~/.wrongstack/config.json
+                ~/.wrongstack/profiles/&lt;name&gt;/config.json
               </span>
               <span className="size-2 rounded-full bg-emerald-400" />
             </div>

@@ -67,7 +67,6 @@ async function setup(opts: { catalog?: Partial<ResolvedProvider>[]; preExisting?
   const host = createAuthPanelHost({
     vault,
     modelsRegistry: makeModelsRegistry(opts.catalog ?? []),
-    globalConfigPath: rootConfigPath,
     profileConfigPath: configPath,
   });
   return { host, configPath, rootConfigPath };

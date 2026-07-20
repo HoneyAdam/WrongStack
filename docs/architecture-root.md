@@ -493,10 +493,11 @@ Important files and directories:
 
 | Path | Purpose |
 |---|---|
-| `~/.wrongstack/config.json` | Global config. |
+| `~/.wrongstack/config.json` | Bootstrap pointer (`version` + `activeProfile`). |
+| `~/.wrongstack/profiles/<name>/config.json` | Profile-scoped user settings. |
 | `~/.wrongstack/.key` | AES-256-GCM vault key, created lazily. |
-| `~/.wrongstack/memory.md` | User-global memory. |
-| `~/.wrongstack/skills/` | User-global skills. |
+| `~/.wrongstack/profiles/<name>/memory.md` | Profile memory. |
+| `~/.wrongstack/profiles/<name>/skills/` | Profile skills. |
 | `~/.wrongstack/projects/<hash>/` | Per-project state. |
 | `~/.wrongstack/projects/<hash>/sessions/<date>/sess_<ULID>.jsonl` | Append-only session event log. |
 | `~/.wrongstack/projects/<hash>/sessions/<date>/sess_<ULID>.summary.json` | Fast session listing manifest. |

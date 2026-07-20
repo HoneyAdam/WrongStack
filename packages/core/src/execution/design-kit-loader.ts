@@ -136,7 +136,7 @@ function narrowStackSections(body: string, stack?: DesignStack): string {
 export interface DesignKitLoaderOptions {
   /** <project>/.wrongstack/design-kits */
   inProjectDir: string;
-  /** ~/.wrongstack/design-kits */
+  /** ~/.wrongstack/profiles/<name>/design-kits */
   globalDir: string;
   /** Bundled kits shipped with @wrongstack/core (packages/core/design-kits). */
   bundledDir?: string | undefined;
@@ -145,7 +145,7 @@ export interface DesignKitLoaderOptions {
 /**
  * Discovery order (highest priority first; later layers are shadowed by name):
  *   1. Project-committed:  <project>/.wrongstack/design-kits/
- *   2. User-global:        ~/.wrongstack/design-kits/
+ *   2. User profile:       ~/.wrongstack/profiles/<name>/design-kits/
  *   3. Bundled with build: packages/core/design-kits/
  *
  * The `_foundations` directory is a reserved kit id holding the mandatory

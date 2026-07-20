@@ -3,7 +3,7 @@
 WrongStack's durable system instructions are file-backed and layered:
 
 1. Bundled defaults: `packages/core/instructions/`
-2. User-global overrides: `~/.wrongstack/instructions/`
+2. Active-profile overrides: `~/.wrongstack/profiles/<name>/instructions/`
 3. Project overrides: `<project>/.wrongstack/instructions/`
 4. Explicit `DefaultSystemPromptBuilder` `instructionPaths.files`
 5. In-memory `instructionBundle` overrides
@@ -85,7 +85,7 @@ and keywords in code; the long role instructions live in Markdown.
 Agent prompt override lookup checks:
 
 1. `WRONGSTACK_AGENT_INSTRUCTIONS_DIR`
-2. `~/.wrongstack/instructions/agents`
+2. `~/.wrongstack/profiles/<name>/instructions/agents`
 3. bundled `packages/core/instructions/agents`
 
 ## Mode And Helper Prompts

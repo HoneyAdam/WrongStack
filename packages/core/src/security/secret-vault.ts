@@ -450,7 +450,7 @@ export class DefaultSecretVault implements RotatableSecretVault {
 export { decryptConfigSecrets, encryptConfigSecrets, isSecretField } from './config-secrets.js';
 
 /**
- * Re-write `~/.wrongstack/config.json` (or any path) with all secret-bearing
+ * Re-write a profile config (or any path) with all secret-bearing
  * fields encrypted. Used by the `wstack auth` subcommand.
  */
 export async function rewriteConfigEncrypted(

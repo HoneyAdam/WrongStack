@@ -43,7 +43,7 @@ extend/deny negotiation and never flips autonomy mode.
 
 ## Configuration
 
-`~/.wrongstack/config.json` → `fleet.supervisor` (the whole `fleet` key is
+active profile config → `fleet.supervisor` (the whole `fleet` key is
 **deny-listed for in-project config** — a repo-committed
 `.wrongstack/config.json` cannot enable or tune supervision):
 

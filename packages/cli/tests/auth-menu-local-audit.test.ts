@@ -113,7 +113,6 @@ async function setupDeps(opts: SetupOpts = {}): Promise<{
     reader: makeReader(),
     modelsRegistry: makeModelsRegistry(),
     vault,
-    globalConfigPath: configPath,
     profileConfigPath: configPath,
   };
   return { deps, configPath, tmpDir, sink };

@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from 'node:fs';
-import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveWstackPaths } from '../../utils/wstack-paths.js';
 
 /**
  * Cache of resolved prompt text, keyed by `<envDir>\0<id>`. Prompt files do
@@ -41,8 +41,8 @@ export function agentPrompt(id: string): string {
 }
 
 function agentPromptDirCandidates(envDir: string): string[] {
-  const globalRoot = process.env['WRONGSTACK_HOME'] || path.join(os.homedir(), '.wrongstack');
-  const candKey = `${envDir}\u0000${globalRoot}`;
+  const profileInstructions = resolveWstackPaths({ projectRoot: process.cwd() }).globalInstructions;
+  const candKey = `${envDir}\u0000${profileInstructions}`;
   const cached = candidateCache.get(candKey);
   if (cached !== undefined) return cached;
 
@@ -50,7 +50,7 @@ function agentPromptDirCandidates(envDir: string): string[] {
   const explicitDir = envDir || undefined;
   const candidates = [
     ...(explicitDir ? [path.resolve(explicitDir)] : []),
-    path.join(globalRoot, 'instructions', 'agents'),
+    path.join(profileInstructions, 'agents'),
     path.resolve(here, '../../../../instructions/agents'),
     path.resolve(here, '../../../instructions/agents'),
     path.resolve(here, '../../instructions/agents'),

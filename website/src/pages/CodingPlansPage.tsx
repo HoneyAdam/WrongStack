@@ -407,7 +407,9 @@ export function CodingPlansPage() {
               <div className="flex items-center gap-2 font-mono text-xs font-black uppercase tracking-[0.15em] text-zinc-500">
                 <Route className="size-3.5 text-brand-2" /> Multi-provider routing
               </div>
-              <span className="font-mono text-xs text-zinc-600">~/.wrongstack/config.json</span>
+              <span className="font-mono text-xs text-zinc-600">
+                ~/.wrongstack/profiles/&lt;name&gt;/config.json
+              </span>
             </div>
             <div className="p-6 sm:p-8">
               <h2 className="text-3xl font-black tracking-[-0.035em]">

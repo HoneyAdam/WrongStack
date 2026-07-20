@@ -34,24 +34,26 @@ describe('DefaultSkillLoader', () => {
   let tmp: string;
   let projectRoot: string;
   let globalRoot: string;
+  let profileSkills: string;
   let bundled: string;
 
   beforeEach(async () => {
     tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-skills-'));
     projectRoot = path.join(tmp, 'proj');
     globalRoot = path.join(tmp, 'global');
+    profileSkills = path.join(globalRoot, 'profiles', 'default', 'skills');
     bundled = path.join(tmp, 'bundled');
     await fs.mkdir(path.join(projectRoot, '.wrongstack', 'skills', 'alpha'), { recursive: true });
-    await fs.mkdir(path.join(globalRoot, 'skills', 'beta'), { recursive: true });
-    await fs.mkdir(path.join(globalRoot, 'skills', 'malformed'), { recursive: true });
+    await fs.mkdir(path.join(profileSkills, 'beta'), { recursive: true });
+    await fs.mkdir(path.join(profileSkills, 'malformed'), { recursive: true });
     await fs.mkdir(path.join(bundled, 'alpha'), { recursive: true });
     await fs.mkdir(path.join(bundled, 'gamma'), { recursive: true });
     await fs.writeFile(
       path.join(projectRoot, '.wrongstack', 'skills', 'alpha', 'SKILL.md'),
       SKILL_A,
     );
-    await fs.writeFile(path.join(globalRoot, 'skills', 'beta', 'SKILL.md'), SKILL_B);
-    await fs.writeFile(path.join(globalRoot, 'skills', 'malformed', 'SKILL.md'), SKILL_BAD);
+    await fs.writeFile(path.join(profileSkills, 'beta', 'SKILL.md'), SKILL_B);
+    await fs.writeFile(path.join(profileSkills, 'malformed', 'SKILL.md'), SKILL_BAD);
     await fs.writeFile(
       path.join(bundled, 'alpha', 'SKILL.md'),
       `---\nname: alpha\ndescription: bundled alpha (shadowed)\n---\n`,
@@ -81,7 +83,7 @@ describe('DefaultSkillLoader', () => {
   });
 
   it('skips entries missing name/description', async () => {
-    await fs.writeFile(path.join(globalRoot, 'skills', 'malformed', 'SKILL.md'), SKILL_NONAME);
+    await fs.writeFile(path.join(profileSkills, 'malformed', 'SKILL.md'), SKILL_NONAME);
     const paths = resolveWstackPaths({ projectRoot, globalRoot, userHome: tmp });
     const loader = new DefaultSkillLoader({ paths });
     const list = await loader.list();

@@ -108,7 +108,6 @@ export function buildAgentsCommand(opts: SlashCommandContext): SlashCommand {
             await persistAutonomySetting(
               {
                 configStore: opts.configStore,
-                globalConfigPath: opts.paths.globalConfig,
                 profileConfigPath: opts.paths.profileConfig(activeProfile),
                 inProjectConfigPath: opts.paths.inProjectConfig,
                 vault: noOpVault,

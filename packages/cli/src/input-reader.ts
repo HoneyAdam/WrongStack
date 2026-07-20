@@ -4,10 +4,10 @@ import * as readline from 'node:readline';
 import {
   type InputReader,
   type PromptOption,
+  resolveWstackPaths,
   setOutputLineGuard,
   setRawMode,
   writeOut,
-  wstackGlobalRoot,
 } from '@wrongstack/core';
 
 export interface ReadlineInputReaderOptions {
@@ -23,7 +23,8 @@ export class ReadlineInputReader implements InputReader {
   private suppressNextHistory = false;
 
   constructor(opts: ReadlineInputReaderOptions = {}) {
-    this.historyFile = opts.historyFile ?? path.join(wstackGlobalRoot(), 'history');
+    this.historyFile =
+      opts.historyFile ?? resolveWstackPaths({ projectRoot: process.cwd() }).historyFile;
   }
 
   private async loadHistory(): Promise<void> {

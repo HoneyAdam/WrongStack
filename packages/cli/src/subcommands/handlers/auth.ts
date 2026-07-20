@@ -24,7 +24,6 @@ export const authCmd: SubcommandHandler = async (args, deps) => {
     reader: deps.reader,
     modelsRegistry: deps.modelsRegistry,
     vault: deps.vault,
-    globalConfigPath: profileConfigPath,
     profileConfigPath,
   };
 
@@ -97,7 +96,7 @@ export const authCmd: SubcommandHandler = async (args, deps) => {
 async function runAuthList(deps: AuthMenuDeps): Promise<number> {
   let providers: Record<string, unknown>;
   try {
-    providers = await loadConfigProviders(deps.globalConfigPath, deps.vault);
+    providers = await loadConfigProviders(deps.profileConfigPath, deps.vault);
   } catch (err) {
     deps.renderer.writeError(`Could not read config: ${(err as Error).message}`);
     return 1;
@@ -165,7 +164,7 @@ async function runAuthList(deps: AuthMenuDeps): Promise<number> {
 async function runAuthStatus(deps: AuthMenuDeps, providerId: string): Promise<number> {
   let providers: Record<string, unknown>;
   try {
-    providers = await loadConfigProviders(deps.globalConfigPath, deps.vault);
+    providers = await loadConfigProviders(deps.profileConfigPath, deps.vault);
   } catch (err) {
     deps.renderer.writeError(`Could not read config: ${(err as Error).message}`);
     return 1;
@@ -231,7 +230,7 @@ async function runAuthStatus(deps: AuthMenuDeps, providerId: string): Promise<nu
 
 /** Quick removal of a provider without the interactive menu. */
 async function runAuthRemove(deps: AuthMenuDeps, providerId: string): Promise<number> {
-  const providers = await loadConfigProviders(deps.globalConfigPath, deps.vault);
+  const providers = await loadConfigProviders(deps.profileConfigPath, deps.vault);
   if (!providers[providerId]) {
     deps.renderer.writeError(`Provider "${providerId}" not found.`);
     return 1;
@@ -253,7 +252,7 @@ async function runAuthRemove(deps: AuthMenuDeps, providerId: string): Promise<nu
   }
 
   try {
-    await mutateConfigProviders(deps.globalConfigPath, deps.vault, (all) => {
+    await mutateConfigProviders(deps.profileConfigPath, deps.vault, (all) => {
       delete all[providerId];
     });
     deps.renderer.write(`  ${color.green('✓')} Removed ${color.bold(providerId)}.\n`);

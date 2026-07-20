@@ -25,7 +25,6 @@ describe('profile persistence routing', () => {
 
   function deps(scope: 'global' | 'project' = 'global') {
     return {
-      globalConfigPath: root,
       profileConfigPath: profile,
       inProjectConfigPath: project,
       configStore: { get: () => ({ configScope: scope }) },

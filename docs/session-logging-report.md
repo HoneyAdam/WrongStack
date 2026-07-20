@@ -126,7 +126,7 @@ The EventBus exposes a parallel set of in-memory events for live consumers (TUI,
 |----------|-------------|
 | Session JSONL | `~/.wrongstack/projects/<hash>/sessions/<date>/sess_<ULID>.jsonl` |
 | Tool Audit | `~/.wrongstack/projects/<hash>/sessions/<date>/sess_<ULID>.audit.jsonl` |
-| Config | `~/.wrongstack/config.json` |
+| Active profile config | `~/.wrongstack/profiles/<name>/config.json` |
 
 ---
 

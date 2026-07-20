@@ -471,7 +471,8 @@ export const execTool: Tool<ExecInput, ExecOutput> = {
         stdout: '',
         stderr:
           `Command "${cmd}" not in allowlist. ` +
-          `Add it to your ~/.wrongstack/config.json under "tools": { "exec": { "allow": ["${cmd}"] } }, ` +
+          `Add it to your active profile config (~/.wrongstack/profiles/<name>/config.json) ` +
+          `under "tools": { "exec": { "allow": ["${cmd}"] } }, ` +
           `or use the bash tool for one-off arbitrary commands.`,
         exitCode: 1,
         truncated: false,

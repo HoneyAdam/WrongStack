@@ -222,10 +222,10 @@ Logs are written to `~/.wrongstack/logs/wrongstack.log` by default.
 
 | What to reset | How |
 |---|---|
-| Config | `rm ~/.wrongstack/config.json` then `wstack auth` |
+| Active profile config | Remove `~/.wrongstack/profiles/<name>/config.json`, then run `wstack auth` |
 | Trust rules | `rm ~/.wrongstack/projects/<hash>/trust.json` |
 | Sessions | `rm ~/.wrongstack/projects/<hash>/sessions/*.jsonl` |
-| Memory | `rm ~/.wrongstack/memory.md` and/or `<project>/.wrongstack/memory.md` |
+| Memory | Remove `~/.wrongstack/profiles/<name>/memory.md` and/or `<project>/.wrongstack/memory.md` |
 | MCP cache | `rm ~/.wrongstack/cache/models.dev.json` |
 | Everything | `rm -rf ~/.wrongstack` then `wstack auth` |
 

@@ -282,7 +282,7 @@ export async function addKeyForProvider(
   const apiKey = await readKeyInput(deps, `API key for ${providerId}/${label}`);
   if (!apiKey) return false;
 
-  await mutateConfigProviders(deps.globalConfigPath, deps.vault, (all) => {
+  await mutateConfigProviders(deps.profileConfigPath, deps.vault, (all) => {
     const existingProv: ProviderConfig = all[providerId] ?? {
       type: providerId,
       ...template,

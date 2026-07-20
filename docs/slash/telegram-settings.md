@@ -2,7 +2,7 @@
 
 Controls which agent events the Telegram plugin reports, and its polling /
 target-chat settings. Values persist to `extensions.telegram` in the global
-config (`~/.wrongstack/config.json`) and apply **immediately** — the plugin
+config (the active profile config) and apply **immediately** — the plugin
 watches config changes, no restart needed.
 
 Alias: `/tg-settings`.

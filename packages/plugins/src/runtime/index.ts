@@ -431,9 +431,13 @@ export async function probeRunner(
  * This is the canonical sandbox check that every file-mutating or
  * file-reading plugin should call before touching a path supplied
  * by tool input. It replaces 27 identical copies across plugins.
+ *
+ * Performance: caches `process.cwd()` per call to avoid redundant
+ * syscalls when checking multiple paths in the same tick.
  */
 export function withinProject(p: string): boolean {
-  return withinProjectPath(process.cwd(), p) || relative(process.cwd(), p) === '.';
+  const cwd = process.cwd();
+  return withinProjectPath(cwd, p) || relative(cwd, p) === '.';
 }
 
 /**
@@ -479,6 +483,9 @@ const DEFAULT_EXCLUDE_DIRS = ['node_modules', 'dist', '.git', 'coverage'];
  *
  * Shared by 6+ plugin source-scan tools that previously duplicated
  * this implementation identically.
+ *
+ * Determinism: returns files in sorted order (locale-aware) so
+ * scan results are reproducible across platforms and file systems.
  */
 export function collectSourceFiles(root: string, opts: CollectOptions): string[] {
   const files: string[] = [];
@@ -490,6 +497,7 @@ export function collectSourceFiles(root: string, opts: CollectOptions): string[]
   }
   if (!s.isDirectory()) return files;
   const exclude = opts.excludeDirs ?? DEFAULT_EXCLUDE_DIRS;
+  const excludeSet = new Set(exclude); // O(1) lookup instead of O(n) includes()
 
   function walk(dir: string, depth: number) {
     if (opts.maxDepth !== undefined && depth > opts.maxDepth) return;
@@ -499,8 +507,10 @@ export function collectSourceFiles(root: string, opts: CollectOptions): string[]
     } catch {
       return;
     }
+    // Sort entries for deterministic traversal order across platforms.
+    entries.sort();
     for (const entry of entries) {
-      if (exclude.includes(entry)) continue;
+      if (excludeSet.has(entry)) continue;
       const full = resolve(dir, entry);
       let st;
       try {
@@ -517,6 +527,65 @@ export function collectSourceFiles(root: string, opts: CollectOptions): string[]
   }
 
   walk(root, 0);
+  return files;
+}
+
+/**
+ * Async version of `collectSourceFiles` for non-blocking file collection.
+ * Uses `fs.promises` to avoid blocking the event loop on large directory trees.
+ *
+ * Performance: prefer this in hooks and tools that run on every write/edit
+ * (e.g., dead-code-detector, duplicate-code-detector) to keep the agent loop
+ * responsive during large scans.
+ */
+export async function collectSourceFilesAsync(
+  root: string,
+  opts: CollectOptions,
+): Promise<string[]> {
+  const { readdir, stat } = await import('node:fs/promises');
+  const files: string[] = [];
+  
+  try {
+    const s = await stat(root);
+    if (s.isFile()) {
+      if (matchesExtension(root, opts.extensions)) files.push(root);
+      return files;
+    }
+    if (!s.isDirectory()) return files;
+  } catch {
+    return files;
+  }
+
+  const exclude = opts.excludeDirs ?? DEFAULT_EXCLUDE_DIRS;
+  const excludeSet = new Set(exclude);
+
+  async function walk(dir: string, depth: number): Promise<void> {
+    if (opts.maxDepth !== undefined && depth > opts.maxDepth) return;
+    let entries: string[];
+    try {
+      entries = await readdir(dir);
+    } catch {
+      return;
+    }
+    entries.sort(); // deterministic order
+    for (const entry of entries) {
+      if (excludeSet.has(entry)) continue;
+      const full = resolve(dir, entry);
+      let st;
+      try {
+        st = await stat(full);
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) {
+        await walk(full, depth + 1);
+      } else if (st.isFile() && matchesExtension(full, opts.extensions)) {
+        files.push(full);
+      }
+    }
+  }
+
+  await walk(root, 0);
   return files;
 }
 

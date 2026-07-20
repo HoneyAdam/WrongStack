@@ -46,6 +46,6 @@ With a mode argument it applies the bump:
   config and applies without a restart. `/semver status` shows the active
   default.
 - Plugin config (`tagPrefix`, `autoTag`, `defaultPart`, …) lives under the
-  `semver-bump` key in `~/.wrongstack/config.json` extensions.
+  `semver-bump` key in the active profile config's extensions.
 - The plugin also registers the read-only `semver_current` and
   `semver_changelog` tools.

@@ -360,7 +360,7 @@ export interface SlashCommandContext {
   createProvider?:
     | ((providerId: string) => import('@wrongstack/core').Provider | undefined)
     | undefined;
-  /** StatusBar visibility config — loaded from ~/.wrongstack/statusline.json */
+  /** StatusBar visibility config — loaded from the active profile/statusline.json */
   statuslineConfig?: {
     get: () => Promise<import('./statusline.js').StatuslineConfig>;
     set: (cfg: import('./statusline.js').StatuslineConfig) => Promise<void>;
@@ -373,7 +373,7 @@ export interface SlashCommandContext {
   setStatuslineHiddenItems?: (items: import('./statusline.js').StatuslineConfigKey[]) => void;
   /**
    * Atomically updates the in-memory hidden items list AND persists to
-   * ~/.wrongstack/statusline.json. Used by the TUI's statusline picker.
+   * Active profile/statusline.json. Used by the TUI's statusline picker.
    */
   saveStatuslineHiddenItems?: (
     items: import('./statusline.js').StatuslineConfigKey[],

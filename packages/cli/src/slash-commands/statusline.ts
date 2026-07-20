@@ -1,7 +1,13 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { atomicWrite, ERROR_CODES, FsError, type SlashCommand } from '@wrongstack/core';
+import {
+  atomicWrite,
+  ERROR_CODES,
+  FsError,
+  resolveWstackPaths,
+  type SlashCommand,
+} from '@wrongstack/core';
 import { toErrorMessage } from '@wrongstack/core/utils';
 
 const CONFIG_ENV = 'WRONGSTACK_STATUSLINE_CONFIG';
@@ -126,15 +132,15 @@ export const STATUSLINE_CONFIG_KEYS: StatuslineConfigKey[] = [
 ];
 
 function resolveConfigPath(): string {
-  // os.homedir() (USERPROFILE on Windows) is the canonical home resolver used
-  // across the codebase. Falling back to `process.env.HOME ?? ''` alone breaks
-  // on native Windows (PowerShell's $HOME is not an env var), where it would
-  // resolve to a cwd-relative `.wrongstack/statusline.json`. HOME is still
-  // honored first so the env-overriding tests keep working.
-  return (
-    process.env[CONFIG_ENV] ??
-    path.join(process.env.HOME ?? os.homedir(), '.wrongstack', 'statusline.json')
-  );
+  const override = process.env[CONFIG_ENV];
+  if (override) return override;
+  const paths = resolveWstackPaths({
+    projectRoot: process.cwd(),
+    ...(process.env['WRONGSTACK_HOME']
+      ? {}
+      : { userHome: process.env.HOME ?? os.homedir() }),
+  });
+  return paths.profileStatuslineConfig(paths.profileName);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -291,7 +297,7 @@ export function buildStatuslineCommand(deps: StatuslineCommandDeps): SlashComman
       'Available items:',
       ...ALL_CONFIG_KEYS.map((k) => `  ${k.padEnd(12)} ${ITEM_DESCRIPTIONS[k]}`),
       '',
-      'Persistent across sessions (saved to ~/.wrongstack/statusline.json).',
+      'Persistent across sessions (saved to ~/.wrongstack/profiles/<active>/statusline.json).',
     ].join('\n'),
     async run(args: string) {
       const cfg = await deps.getConfig();

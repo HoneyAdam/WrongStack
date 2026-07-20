@@ -296,7 +296,7 @@ export interface WebuiCallbacks {
     providerId?: string,
     providerCfg?: ProviderConfig | undefined,
   ) => Promise<void>;
-  /** Unified, serialized, decrypt→mutate→encrypt→write helper for globalConfigPath. */
+  /** Unified, serialized helper for active-profile config mutations. */
   updateGlobalConfig: (
     mutate: (config: Record<string, unknown>) => void,
     errorLabel: string,
@@ -335,7 +335,6 @@ export function buildRoutes(
 ): AllRoutes {
   // ---- Provider/Key management helpers (extracted to provider-handlers.ts) ----
   const providerHandlers = createProviderHandlers({
-    globalConfigPath: deps.globalConfigPath,
     profileConfigPath: deps.profileConfigPath,
     vault: deps.vault,
     getConfigWriteLock: state.getConfigWriteLock,

@@ -221,7 +221,6 @@ export function buildTelegramSetupCommand(opts: SlashCommandContext): SlashComma
         await persistTelegramConfig(
           {
             configStore: opts.configStore,
-            globalConfigPath: opts.paths.globalConfig,
             profileConfigPath: activeProfileConfigPath(opts.paths, opts.configStore.get()),
             vault: opts.vault,
           },

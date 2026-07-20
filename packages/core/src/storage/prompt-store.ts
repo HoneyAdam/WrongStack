@@ -105,7 +105,7 @@ function normalizeVariables(v: unknown): PromptVariable[] | undefined {
 
 /**
  * DefaultPromptStore — file-per-prompt JSON in a single directory (the global
- * `~/.wrongstack/prompts` by default, or a layer dir the loader passes in).
+ * the active profile's `prompts` directory by default, or a layer dir the loader passes in).
  * Reads tolerate legacy v1 files via `migratePromptEntry`; writes always emit
  * the current v2 schema.
  */

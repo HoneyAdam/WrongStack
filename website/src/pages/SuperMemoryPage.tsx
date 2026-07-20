@@ -61,7 +61,7 @@ export function SuperMemoryPage() {
             {
               icon: BrainCircuit,
               label: 'User memory',
-              path: '~/.wrongstack/memory.md',
+              path: '~/.wrongstack/profiles/<name>/memory.md',
               body: 'Global personal memory shared across all your projects. Store your coding style, tool preferences, and personal conventions once — every project benefits.',
               tag: 'global',
             },

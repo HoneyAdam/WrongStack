@@ -128,6 +128,7 @@ describe('DefaultBrainArbiter', () => {
       const brain = new DefaultBrainArbiter();
       const decision = await brain.decide(
         blockedRequest({
+          risk: 'low',
           options: [
             { id: 'continue', label: 'Continue', recommended: true, risk: 'low' },
             { id: 'wait', label: 'Wait', risk: 'low' },

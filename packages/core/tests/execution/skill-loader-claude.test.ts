@@ -37,7 +37,10 @@ describe('DefaultSkillLoader — foreign (.claude) + extra dirs', () => {
   it('discovers project + user .claude skills with distinct sources', async () => {
     await writeSkill(path.join(projectRoot, '.wrongstack', 'skills'), 'ws-proj');
     await writeSkill(path.join(projectRoot, '.claude', 'skills'), 'claude-proj');
-    await writeSkill(path.join(userHome, '.wrongstack', 'skills'), 'ws-user');
+    await writeSkill(
+      path.join(userHome, '.wrongstack', 'profiles', 'default', 'skills'),
+      'ws-user',
+    );
     await writeSkill(path.join(userHome, '.claude', 'skills'), 'claude-user');
 
     const paths = resolveWstackPaths({ projectRoot, userHome });

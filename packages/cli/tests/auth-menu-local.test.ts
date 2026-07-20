@@ -88,7 +88,6 @@ async function setupDeps(opts: {
     reader: makeReader(opts.lines ?? [], opts.secrets ?? []),
     modelsRegistry: makeModelsRegistry(),
     vault,
-    globalConfigPath: configPath,
     profileConfigPath: configPath,
   };
   return { deps, configPath, tmpDir };

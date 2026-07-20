@@ -16,15 +16,17 @@ import * as path from 'node:path';
 export interface WstackPaths {
   /** ~/.wrongstack — global root. */
   globalRoot: string;
+  /** Active profile name resolved from the bootstrap config. */
+  profileName: string;
+  /** ~/.wrongstack/profiles/<activeProfile> — active user-profile root. */
+  profileDir: string;
   /** Absolute project root. */
   projectRoot: string;
   /** Home directory (~) — base for foreign tool state (~/.codex, ~/.agents, …). */
   homeDir: string;
   /**
-   * ~/.wrongstack — directory for user-global stateful config files
-   * (mode.json, theme.json, …). Currently an alias for `globalRoot`;
-   * separate name lets us split out per-OS XDG_CONFIG_HOME later
-   * without rewriting callers.
+   * ~/.wrongstack/profiles/<activeProfile> — directory for profile-scoped
+   * user state (mode.json, statusline.json, custom-context-modes.json, …).
    */
   configDir: string;
   /** ~/.wrongstack/config.json — bootstrap config (activeProfile + version). */
@@ -49,19 +51,19 @@ export interface WstackPaths {
   profileUpdateCache: (name: string) => string;
   /** ~/.wrongstack/.key — 32 random bytes, mode 0600, AES-GCM key for the secret vault. */
   secretsKey: string;
-  /** ~/.wrongstack/memory.md — user-global memory. */
+  /** ~/.wrongstack/profiles/<activeProfile>/memory.md — profile memory. */
   globalMemory: string;
-  /** ~/.wrongstack/skills — user-global skills. */
+  /** ~/.wrongstack/profiles/<activeProfile>/skills — profile skills. */
   globalSkills: string;
   /** ~/.claude/skills — user-global skills from foreign coding agents (Claude Code, Codex, …). Read-only. */
   globalClaudeSkills: string;
-  /** ~/.wrongstack/design-kits — user-global Design Studio kits. */
+  /** ~/.wrongstack/profiles/<activeProfile>/design-kits — profile Design Studio kits. */
   globalDesignKits: string;
-  /** ~/.wrongstack/prompts — user-global prompt library. */
+  /** ~/.wrongstack/profiles/<activeProfile>/prompts — profile prompt library. */
   globalPrompts: string;
-  /** ~/.wrongstack/instructions — user-global system instruction overrides. */
+  /** ~/.wrongstack/profiles/<activeProfile>/instructions — profile instruction overrides. */
   globalInstructions: string;
-  /** ~/.wrongstack/prompt-usage.json — per-slug insert counts (recent/popular). */
+  /** ~/.wrongstack/profiles/<activeProfile>/prompt-usage.json — prompt usage. */
   promptUsage: string;
   /** ~/.wrongstack/cache — fetched data (models.dev, etc.). */
   cacheDir: string;
@@ -75,7 +77,7 @@ export interface WstackPaths {
    * gitignoring. `~/.wrongstack/projects/<hash>/codebase-index`.
    */
   projectCodebaseIndex: string;
-  /** ~/.wrongstack/history — REPL line history. */
+  /** ~/.wrongstack/profiles/<activeProfile>/history — REPL line history. */
   historyFile: string;
   /** ~/.wrongstack/logs/wrongstack.log */
   logFile: string;
@@ -128,7 +130,7 @@ export interface WstackPaths {
   projectAutophase: string;
   /** ~/.wrongstack/projects/<hash>/sdd-boards — live SDD board snapshots + JSONL event logs */
   projectSddBoards: string;
-  /** ~/.wrongstack/sync.json — CloudSync configuration */
+  /** ~/.wrongstack/profiles/<activeProfile>/sync.json — CloudSync configuration */
   syncConfig: string;
   /** ~/.wrongstack/config-history — timestamped backups on every config write */
   configHistoryDir: string;
@@ -210,6 +212,29 @@ export interface WstackPathOptions {
   projectRoot: string;
   /** Override the global root (e.g. for tests). Default: `${userHome}/.wrongstack`. */
   globalRoot?: string | undefined;
+  /** Explicit profile override. Otherwise read from the root bootstrap config. */
+  profileName?: string | undefined;
+}
+
+/** Make an untrusted profile name safe for use as one path segment. */
+export function safeProfileName(name: string | undefined): string {
+  const safe = (name ?? '').replace(/[/\\:]/g, '_').replace(/\.\./g, '_').trim();
+  return safe || 'default';
+}
+
+/**
+ * Resolve the selected profile from ~/.wrongstack/config.json. The root file
+ * is bootstrap metadata only; a missing/corrupt bootstrap selects `default`.
+ */
+export function activeProfileName(globalRoot: string): string {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(path.join(globalRoot, 'config.json'), 'utf8')) as {
+      activeProfile?: unknown;
+    };
+    return safeProfileName(typeof parsed.activeProfile === 'string' ? parsed.activeProfile : undefined);
+  } catch {
+    return 'default';
+  }
 }
 
 /**
@@ -240,48 +265,47 @@ export function resolveWstackPaths(opts: WstackPathOptions): WstackPaths {
   // Claude skills live in their real home, but tests pass `userHome` to keep
   // both `.wrongstack` and `.claude` under a temp dir.
   const homeDir = opts.userHome ?? os.homedir();
+  const profileName = safeProfileName(opts.profileName ?? activeProfileName(globalRoot));
+  const profileDir = path.join(globalRoot, 'profiles', profileName);
   const hash = projectHash(opts.projectRoot);
   const slug = projectSlug(opts.projectRoot);
   const projectDir = path.join(globalRoot, 'projects', slug);
   return {
     globalRoot,
+    profileName,
+    profileDir,
     projectRoot: opts.projectRoot,
     homeDir,
-    configDir: globalRoot,
+    configDir: profileDir,
     globalConfig: path.join(globalRoot, 'config.json'),
     profilesDir: path.join(globalRoot, 'profiles'),
     profileConfig: (name: string) => {
-      const safe = name.replace(/[/\\:]/g, '_').replace(/\.\./g, '_');
-      return path.join(globalRoot, 'profiles', safe || 'default', 'config.json');
+      return path.join(globalRoot, 'profiles', safeProfileName(name), 'config.json');
     },
     profileStatuslineConfig: (name: string) => {
-      const safe = name.replace(/[/\\:]/g, '_').replace(/\.\./g, '_');
-      return path.join(globalRoot, 'profiles', safe || 'default', 'statusline.json');
+      return path.join(globalRoot, 'profiles', safeProfileName(name), 'statusline.json');
     },
     profileModeConfig: (name: string) => {
-      const safe = name.replace(/[/\\:]/g, '_').replace(/\.\./g, '_');
-      return path.join(globalRoot, 'profiles', safe || 'default', 'mode.json');
+      return path.join(globalRoot, 'profiles', safeProfileName(name), 'mode.json');
     },
     profileProviderStatus: (name: string) => {
-      const safe = name.replace(/[/\\:]/g, '_').replace(/\.\./g, '_');
-      return path.join(globalRoot, 'profiles', safe || 'default', 'provider-status.json');
+      return path.join(globalRoot, 'profiles', safeProfileName(name), 'provider-status.json');
     },
     profileUpdateCache: (name: string) => {
-      const safe = name.replace(/[/\\:]/g, '_').replace(/\.\./g, '_');
-      return path.join(globalRoot, 'profiles', safe || 'default', 'update-cache.json');
+      return path.join(globalRoot, 'profiles', safeProfileName(name), 'update-cache.json');
     },
     secretsKey: path.join(globalRoot, '.key'),
-    globalMemory: path.join(globalRoot, 'memory.md'),
-    globalSkills: path.join(globalRoot, 'skills'),
+    globalMemory: path.join(profileDir, 'memory.md'),
+    globalSkills: path.join(profileDir, 'skills'),
     globalClaudeSkills: path.join(homeDir, '.claude', 'skills'),
-    globalDesignKits: path.join(globalRoot, 'design-kits'),
-    globalPrompts: path.join(globalRoot, 'prompts'),
-    globalInstructions: path.join(globalRoot, 'instructions'),
-    promptUsage: path.join(globalRoot, 'prompt-usage.json'),
+    globalDesignKits: path.join(profileDir, 'design-kits'),
+    globalPrompts: path.join(profileDir, 'prompts'),
+    globalInstructions: path.join(profileDir, 'instructions'),
+    promptUsage: path.join(profileDir, 'prompt-usage.json'),
     cacheDir: path.join(globalRoot, 'cache'),
     modelsCache: path.join(globalRoot, 'cache', 'models.dev.json'),
     modelsOverlayCache: path.join(globalRoot, 'cache', 'models-overlay.json'),
-    historyFile: path.join(globalRoot, 'history'),
+    historyFile: path.join(profileDir, 'history'),
     logFile: path.join(globalRoot, 'logs', 'wrongstack.log'),
     projectDir,
     projectCodebaseIndex: path.join(projectDir, 'codebase-index'),
@@ -308,7 +332,7 @@ export function resolveWstackPaths(opts: WstackPathOptions): WstackPaths {
     projectPlan: path.join(projectDir, 'plan.json'),
     projectAutophase: path.join(projectDir, 'autophase'),
     projectSddBoards: path.join(projectDir, 'sdd-boards'),
-    syncConfig: path.join(globalRoot, 'sync.json'),
+    syncConfig: path.join(profileDir, 'sync.json'),
     configHistoryDir: path.join(globalRoot, 'config-history'),
     projectStatus: (projectHash: string) => path.join(globalRoot, 'projects', projectHash, 'status.json'),
   };

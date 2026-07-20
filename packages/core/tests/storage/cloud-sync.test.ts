@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import type { WstackPaths } from '../../src/utils/wstack-paths.js';
-import type { SyncConfig } from '../../src/types/config.js';
+import type { SyncCategory, SyncConfig } from '../../src/types/config.js';
 import { CloudSync } from '../../src/storage/cloud-sync.js';
 
 const mockSyncConfig: SyncConfig = {
@@ -14,6 +14,9 @@ const mockSyncConfig: SyncConfig = {
 
 const mockPaths: WstackPaths = {
   globalRoot: '',
+  profileName: 'default',
+  profileDir: '',
+  configDir: '',
   globalConfig: '',
   globalSkills: '',
   globalPrompts: '',
@@ -27,8 +30,10 @@ const mockPaths: WstackPaths = {
 async function withTempDir(fn: (dir: string) => Promise<void>) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cloudsync-test-'));
   try {
+    mockPaths.configDir = dir;
     await fn(dir);
   } finally {
+    mockPaths.configDir = '';
     await fs.rm(dir, { recursive: true, force: true });
   }
 }
@@ -48,6 +53,36 @@ describe('CloudSync', () => {
 
         await sync.status();
         expect(getConfig).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it('resolves the settings category to the active profile, not the root bootstrap', async () => {
+      await withTempDir(async (dir) => {
+        const bootstrapPath = path.join(dir, 'config.json');
+        const profilePath = path.join(dir, 'profiles', 'work', 'config.json');
+        await fs.mkdir(path.dirname(profilePath), { recursive: true });
+        await fs.writeFile(bootstrapPath, JSON.stringify({ version: 1, activeProfile: 'work' }));
+        await fs.writeFile(profilePath, JSON.stringify({ provider: 'anthropic' }));
+        const paths = {
+          ...mockPaths,
+          globalRoot: dir,
+          globalConfig: bootstrapPath,
+          profileConfig: (name: string) => path.join(dir, 'profiles', name, 'config.json'),
+        } as WstackPaths;
+        const sync = new CloudSync(paths, () => mockSyncConfig, vi.fn(), () => profilePath);
+
+        const tree = await (
+          sync as unknown as {
+            buildLocalTree(categories: SyncCategory[]): Promise<{
+              treeEntries: Array<{ path: string; content: string; mode: string }>;
+            }>;
+          }
+        ).buildLocalTree(['settings']);
+
+        expect(tree.treeEntries).toEqual([
+          { path: 'data/settings', content: JSON.stringify({ provider: 'anthropic' }), mode: '100644' },
+        ]);
+        expect(tree.treeEntries[0]?.content).not.toContain('activeProfile');
       });
     });
   });

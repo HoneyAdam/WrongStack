@@ -17,7 +17,7 @@ describe('runWebUI redaction', () => {
 
   it('redacts secrets from tool event input/output before broadcasting to WebSocket clients', async () => {
     const port = nextPort();
-    const httpPort = nextPort();
+    const httpPort = port; // single-port design: HTTP and WS share one listener
     const events = new EventBus();
     // Port resolution made startup async, so wait for the server to report
     // it's listening before connecting (the old immediate-connect was racy).

@@ -2,9 +2,9 @@
 
 ## What It Does
 
-`/doctor` diagnoses the persisted config files — the global
-`~/.wrongstack/config.json` and, when present, the per-project config — and
-`/doctor fix` repairs everything that can be fixed deterministically.
+`/doctor` diagnoses the persisted config files — the active profile config
+and, when present, the per-project config — and `/doctor fix` repairs everything
+that can be fixed deterministically.
 
 Bare `/doctor` is strictly read-only: it prints a findings list (errors,
 warnings, which ones are auto-fixable) and touches nothing.

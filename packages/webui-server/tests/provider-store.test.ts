@@ -43,7 +43,7 @@ describe('provider-store', () => {
 
   describe('createProviderStore', () => {
     const deps = {
-      globalConfigPath: '/fake/config.json',
+      profileConfigPath: '/fake/profiles/default/config.json',
       vault: {} as any,
     };
 

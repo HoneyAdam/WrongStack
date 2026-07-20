@@ -12,7 +12,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { wstackGlobalRoot } from '@wrongstack/core/utils';
 import { applySchema } from './schema.js';
 import type {
   DeliveryOutbox,
@@ -41,14 +41,7 @@ export class TechStackStore {
   constructor(options: StoreOptions) {
     this.dbPath =
       options.dbPath ??
-      join(
-        homedir(),
-        '.wrongstack',
-        'projects',
-        options.projectSlug,
-        'techstack',
-        'techstack.db',
-      );
+      join(wstackGlobalRoot(), 'projects', options.projectSlug, 'techstack', 'techstack.db');
 
     // Ensure parent directory exists
     const dir = this.dbPath.slice(0, this.dbPath.lastIndexOf('\\'));

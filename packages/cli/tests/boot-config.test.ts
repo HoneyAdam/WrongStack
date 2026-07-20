@@ -101,6 +101,42 @@ describe('bootConfig', () => {
     });
   });
 
+  it('scopes user files to a non-default active profile and migrates legacy root state', async () => {
+    const projectDir = await mkTempDir('wstack-boot-profile-state-');
+    const wsDir = path.join(homeDir, '.wrongstack');
+    const profileDir = path.join(wsDir, 'profiles', 'work');
+    await fs.mkdir(path.join(wsDir, 'skills', 'demo'), { recursive: true });
+    await fs.mkdir(profileDir, { recursive: true });
+    await fs.writeFile(
+      path.join(wsDir, 'config.json'),
+      JSON.stringify({ version: 1, activeProfile: 'work' }),
+    );
+    await fs.writeFile(path.join(profileDir, 'config.json'), '{}');
+    await fs.writeFile(path.join(wsDir, 'memory.md'), 'legacy memory');
+    await fs.writeFile(path.join(wsDir, 'history'), '/help');
+    await fs.writeFile(path.join(wsDir, 'skills', 'demo', 'SKILL.md'), '# demo');
+    await fs.writeFile(
+      path.join(wsDir, 'sync.json'),
+      JSON.stringify({ enabled: false, repo: 'owner/repo', categories: ['memory'] }),
+    );
+
+    const result = await bootConfig({ cwd: projectDir });
+    const paths = result.paths.wpaths;
+
+    expect(paths.profileName).toBe('work');
+    expect(paths.configDir).toBe(profileDir);
+    expect(paths.globalMemory).toBe(path.join(profileDir, 'memory.md'));
+    expect(paths.globalSkills).toBe(path.join(profileDir, 'skills'));
+    expect(paths.historyFile).toBe(path.join(profileDir, 'history'));
+    expect(paths.syncConfig).toBe(path.join(profileDir, 'sync.json'));
+    expect(await fs.readFile(paths.globalMemory, 'utf8')).toBe('legacy memory');
+    expect(await fs.readFile(paths.historyFile, 'utf8')).toBe('/help');
+    expect(await fs.readFile(path.join(paths.globalSkills, 'demo', 'SKILL.md'), 'utf8')).toBe(
+      '# demo',
+    );
+    expect(result.config.sync?.repo).toBe('owner/repo');
+  });
+
   it('CLI provider/model flags override file defaults', async () => {
     const projectDir = await mkTempDir('wstack-boot-flags-');
     const result = await bootConfig({
@@ -164,7 +200,7 @@ describe('bootConfig', () => {
   it('merges sync.json into config without mutating the frozen Config', async () => {
     // Regression: load() returns a frozen Config. Merging sync state by
     // direct assignment threw "Cannot add property sync, object is not
-    // extensible" once ~/.wrongstack/sync.json existed (post `/sync enable`).
+    // extensible" once the active profile's sync.json existed (post `/sync enable`).
     const projectDir = await mkTempDir('wstack-boot-sync-');
     const wsDir = path.join(homeDir, '.wrongstack');
     await fs.mkdir(wsDir, { recursive: true });

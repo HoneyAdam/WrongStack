@@ -12,7 +12,7 @@
  */
 import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
-import { wstackGlobalRoot } from '@wrongstack/core/utils';
+import { resolveWstackPaths } from '@wrongstack/core/utils';
 import {
   app,
   BaseWindow,
@@ -40,7 +40,12 @@ import type {
 import { DesktopAgentBridge } from './agent-bridge.js';
 import { IPC } from './ipc.js';
 import { getMainLocale, setMainLocale, tMain } from './i18n-main.js';
-import { desktopConfigPaths, readUiLocale, writeUiLocale } from './desktop-config-io.js';
+import {
+  desktopConfigPaths,
+  readUiLocale,
+  resolveActiveProfileConfigPath,
+  writeUiLocale,
+} from './desktop-config-io.js';
 import {
   DesktopRuntimeManager,
   preloadPath,
@@ -84,7 +89,14 @@ initMacOS();
 if (process.platform === 'win32') {
   app.setAppUserModelId('com.wrongstack.desktop');
 }
-app.setPath('userData', path.join(wstackGlobalRoot(), 'desktop', 'electron-profile'));
+app.setPath(
+  'userData',
+  path.join(
+    resolveWstackPaths({ projectRoot: process.cwd() }).configDir,
+    'desktop',
+    'electron-profile',
+  ),
+);
 
 // ============================================================================
 // Application State
@@ -1115,8 +1127,9 @@ async function boot(): Promise<void> {
   });
 
   let lastWatchedLocale: string | undefined;
+  const activeProfileConfigPath = await resolveActiveProfileConfigPath();
   watchProviderConfig(
-    desktopConfigPaths.globalConfigPath,
+    activeProfileConfigPath,
     desktopConfigPaths.vault,
     (snapshot) => {
       const updated = snapshot.uiLocale;

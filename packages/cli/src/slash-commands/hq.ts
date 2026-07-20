@@ -73,7 +73,6 @@ export function buildHqCommand(opts: SlashCommandContext): SlashCommand {
       }
       const persistDeps = {
         configStore: opts.configStore,
-        globalConfigPath: opts.paths.globalConfig,
         profileConfigPath: activeProfileConfigPath(opts.paths, opts.configStore.get()),
         inProjectConfigPath: opts.paths.inProjectConfig,
         vault: noOpVault,

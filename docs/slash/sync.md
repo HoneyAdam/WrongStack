@@ -20,7 +20,7 @@ data categories to a GitHub repository using a personal access token.
 Without explicit categories, `/sync enable` enables all categories from
 `ALL_SYNC_CATEGORIES`.
 
-The GitHub token is written to `~/.wrongstack/sync.json` via `atomicWrite`; when
+The GitHub token is written to `~/.wrongstack/profiles/<name>/sync.json` via `atomicWrite`; when
 a vault is available, it is encrypted before persistence.
 
 ## Code Reference

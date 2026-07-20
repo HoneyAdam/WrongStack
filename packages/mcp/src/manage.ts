@@ -13,7 +13,7 @@
  * Callers translate those results into whatever their surface needs.
  *
  * MCP records live in two places:
- *   - persistent : `~/.wrongstack/config.json` → `mcpServers`
+ *   - persistent : active profile `config.json` → `mcpServers`
  *   - live state : the in-process {@link MCPRegistry}
  */
 import { randomBytes } from 'node:crypto';
@@ -75,7 +75,7 @@ export interface McpOpResult {
 }
 
 export interface McpManageDeps {
-  /** Absolute path to the global config.json that owns `mcpServers`. */
+  /** Absolute path to the active profile config.json that owns `mcpServers`. */
   configPath: string;
   /** Live registry for runtime start/stop/restart. */
   registry: MCPRegistry;

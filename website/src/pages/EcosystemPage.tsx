@@ -123,7 +123,7 @@ export function EcosystemPage() {
               {[
                 '.wrongstack/skills/',
                 '.claude/skills/ + supported foreign agents',
-                '~/.wrongstack/skills/',
+                '~/.wrongstack/profiles/<name>/skills/',
                 '~/.claude/skills/ + foreign agents',
                 'user-configured extraDirs',
                 '25 bundled core skills',
@@ -148,7 +148,7 @@ export function EcosystemPage() {
             <div className="mt-6 space-y-2">
               {[
                 '<project>/.wrongstack/prompts/',
-                '~/.wrongstack/prompts/',
+                '~/.wrongstack/profiles/<name>/prompts/',
                 'packages/core/data/prompts/',
               ].map((path, index) => (
                 <div

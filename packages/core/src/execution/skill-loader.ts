@@ -84,7 +84,7 @@ export interface SkillLoaderOptions {
  *   1. Project-committed:   <project>/.wrongstack/skills/
  *   2. Project foreign:     <project>/.claude/skills/      (opt-out)
  *   3. Project foreign:     <project>/.{codex,cursor,agents,…}/skills/
- *   4. User-global:         ~/.wrongstack/skills/
+ *   4. User profile:        ~/.wrongstack/profiles/<name>/skills/
  *   5. User foreign:        ~/.claude/skills/              (opt-out)
  *   6. User foreign:        ~/.{codex,cursor,agents,…}/skills/
  *   7. Extra dirs:          config.skills.extraDirs         (user config only)

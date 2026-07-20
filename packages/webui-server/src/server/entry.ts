@@ -1,9 +1,8 @@
 // Server entry point for standalone WebUI.
-// Bind defaults: 127.0.0.1:3457 (loopback only). Override with --host /
-// WEBUI_HOST / WS_HOST and --ws-port / WS_PORT. HTTP frontend defaults to 3456 (override with
-// --port / PORT). Run several instances on
-// different PORT/WS_PORT pairs — `wstack --webui --list` shows which are open for which
-// project (registry: ~/.wrongstack/webui-instances.json).
+// Bind default: 127.0.0.1:3456 (loopback only; HTTP frontend + WS upgrades
+// share this port). Override with --host / WEBUI_HOST and --port / PORT.
+// Run several instances on different ports — `wstack --webui --list` shows
+// which are open for which project (registry: ~/.wrongstack/webui-instances.json).
 import { ToolValidationError } from '@wrongstack/core';
 import { startWebUI } from './index.js';
 import { formatInstances, listInstances } from './instance-registry.js';
@@ -51,7 +50,6 @@ function printHelp(): void {
 Options:
   --host <host>             Bind host/interface (default: 127.0.0.1)
   --port <port>             HTTP frontend port (default: 3456)
-  --ws-port <port>          WebSocket backend port (default: 3457)
   --dist-dir <dir>          Path to the built WebUI frontend assets (default: resolve @wrongstack/webui)
   --token <token>           Fixed access token/password (default: random per process)
   --public-url <url>        Browser-facing HTTP URL for tunnels/proxies
@@ -84,9 +82,8 @@ if (argv.includes('--help') || argv.includes('-h')) {
       process.exit(1);
     });
 } else {
-  let wsPort: number;
-  let httpPort: number;
   let wsHost: string;
+  let httpPort: number;
   let accessToken: string | undefined;
   let publicUrl: string | undefined;
   let publicWsUrl: string | undefined;
@@ -102,7 +99,6 @@ if (argv.includes('--help') || argv.includes('-h')) {
       3456,
       '--port',
     );
-    wsPort = parsePort(readArg(['--ws-port']) ?? process.env['WS_PORT'], 3457, '--ws-port');
     accessToken =
       readArg(['--token', '--auth-token']) ??
       process.env['WEBUI_TOKEN'] ??
@@ -118,10 +114,9 @@ if (argv.includes('--help') || argv.includes('-h')) {
     argv.includes('--open') || argv.includes('-o') || process.env['WEBUI_OPEN'] === '1';
   const requireToken = argv.includes('--require-token') || envFlag('WEBUI_REQUIRE_TOKEN');
 
-  console.log(`[WebUI] Starting standalone server on ${wsHost} (http:${httpPort}, ws:${wsPort})...`);
+  console.log(`[WebUI] Starting standalone server on ${wsHost} (http:${httpPort})...`);
 
   startWebUI({
-    wsPort,
     wsHost,
     httpPort,
     accessToken,

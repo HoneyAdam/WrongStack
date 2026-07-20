@@ -95,7 +95,7 @@ Non-blocking — works under both the plain REPL and the Ink TUI.
 
 1. Prompt for API key (masked input, paste-safe)
 2. Encrypt with `DefaultSecretVault` using `~/.wrongstack/.key`
-3. Write atomically to `~/.wrongstack/config.json` under `providers.<id>`
+3. Write atomically to the active profile config under `providers.<id>`
 
 Keys are encrypted at rest using AES-256-GCM. The vault intentionally does not defeat a determined local attacker who can read both the config file and the key file — that level of secrecy needs the OS keychain.
 

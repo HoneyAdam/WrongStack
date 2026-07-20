@@ -36,6 +36,7 @@ export interface RegisterWebuiInstanceParams {
   surface: SurfaceKind;
   host: string;
   httpPort: number;
+  /** WebSocket backend port. Now always equals httpPort (single-port design). */
   wsPort: number;
   /** Browser-facing public URL when served through a tunnel/proxy. */
   publicUrl?: string | undefined;

@@ -22,7 +22,7 @@ async function readJson(p: string): Promise<Record<string, unknown>> {
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'cfg-hist-'));
   homeFn = () => tmp;
-  await fs.mkdir(path.join(tmp, '.wrongstack'), { recursive: true });
+  await fs.mkdir(path.join(tmp, '.wrongstack', 'profiles', 'default'), { recursive: true });
 });
 
 afterEach(async () => {
@@ -30,8 +30,9 @@ afterEach(async () => {
 });
 
 const wsRoot = () => path.join(tmp, '.wrongstack');
-const cfgPath = () => path.join(wsRoot(), 'config.json');
-const lastPath = () => path.join(wsRoot(), 'config.json.last');
+const profileRoot = () => path.join(wsRoot(), 'profiles', 'default');
+const cfgPath = () => path.join(profileRoot(), 'config.json');
+const lastPath = () => path.join(profileRoot(), 'config.json.last');
 
 describe('backupCurrent', () => {
   it('is a no-op when config.json does not exist', async () => {
@@ -44,7 +45,7 @@ describe('backupCurrent', () => {
     await backupCurrent(homeFn);
     const last = await readJson(lastPath());
     expect(last).toEqual({ provider: 'a' });
-    const baks = (await fs.readdir(wsRoot())).filter(
+    const baks = (await fs.readdir(profileRoot())).filter(
       (f) => f.startsWith('config.json.') && f.endsWith('.bak'),
     );
     expect(baks.length).toBeGreaterThanOrEqual(1);
@@ -55,12 +56,12 @@ describe('backupCurrent', () => {
     // Pre-seed 12 valid bak files (all timestamped)
     for (let i = 1; i <= 12; i++) {
       await fs.writeFile(
-        path.join(wsRoot(), `config.json.${1700000000000 + i * 1000}.bak`),
+        path.join(profileRoot(), `config.json.${1700000000000 + i * 1000}.bak`),
         JSON.stringify({ v: i }),
       );
     }
     await backupCurrent(homeFn);
-    const remaining = (await fs.readdir(wsRoot())).filter(
+    const remaining = (await fs.readdir(profileRoot())).filter(
       (f) => f.startsWith('config.json.') && f.endsWith('.bak'),
     );
     expect(remaining.length).toBeLessThanOrEqual(10);
@@ -70,7 +71,7 @@ describe('backupCurrent', () => {
     await fs.writeFile(cfgPath(), JSON.stringify({ v: 1 }));
     // Plant an unprotected non-bak file with config.json prefix. Naming
     // breaks the bak suffix invariant, so the cleanup must skip it.
-    const fake = path.join(wsRoot(), 'config.json.evil');
+    const fake = path.join(profileRoot(), 'config.json.evil');
     await fs.writeFile(fake, 'not a bak');
     await backupCurrent(homeFn);
     // safeDelete sees ".evil" suffix, which fails the "endsWith('.bak')" guard,
@@ -202,14 +203,14 @@ describe('appendHistory + listHistory + getHistoryEntry', () => {
     expect(list[0]?.description).toBe(`entry ${MAX_CONFIG_HISTORY_ENTRIES + 4}`);
     expect(list.at(-1)?.description).toBe('entry 5');
 
-    const entryDir = path.join(wsRoot(), 'config.history', 'entries');
+    const entryDir = path.join(profileRoot(), 'config.history', 'entries');
     const files = (await fs.readdir(entryDir)).filter((fileName) => fileName.endsWith('.json'));
     expect(files).toHaveLength(MAX_CONFIG_HISTORY_ENTRIES);
     expect(files.some((fileName) => fileName.includes('entry'))).toBe(false);
   });
 
   it('removes orphaned history entry files while appending', async () => {
-    const entryDir = path.join(wsRoot(), 'config.history', 'entries');
+    const entryDir = path.join(profileRoot(), 'config.history', 'entries');
     await fs.mkdir(entryDir, { recursive: true });
     await fs.writeFile(path.join(entryDir, 'orphan.json'), '{}');
 

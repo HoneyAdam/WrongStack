@@ -348,6 +348,11 @@ func formatType(t ast.Expr) string {
 }
 `;
 
+// Cache the temp script path so we don't rewrite the parser script on every
+// file. The script is identical for every invocation — writing it once per
+// process (like py-parser does) eliminates mkdtemp + writeFile + rm per file.
+let _cachedGoScriptPath: string | null = null;
+
 async function syncGoParse(
   filePath: string,
   content: string,
@@ -358,10 +363,17 @@ async function syncGoParse(
   // second package file ("named files must all be in one directory") and
   // refuses *_test.go outright. Reading from stdin sidesteps both, and lets
   // us parse the in-memory content without touching disk.
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-go-parse-'));
   try {
-    const scriptPath = path.join(tmpDir, 'parse.go');
-    await fs.writeFile(scriptPath, GO_PARSE_SCRIPT, 'utf8');
+    // Local `let` so TypeScript's CFA narrows to `string` after the guard.
+    // Module-scope `_cachedGoScriptPath` stays `string | null` because TS
+    // can't prove no concurrent mutation between the check and the use.
+    let scriptPath = _cachedGoScriptPath;
+    if (!scriptPath) {
+      const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-go-parse-'));
+      scriptPath = path.join(tmpDir, 'parse.go');
+      await fs.writeFile(scriptPath, GO_PARSE_SCRIPT, 'utf8');
+      _cachedGoScriptPath = scriptPath;
+    }
 
     // argv-array form (no shell): avoids any quoting/metachar issues in the
     // temp script path. The target source is fed via stdin, not as an arg.
@@ -442,7 +454,5 @@ async function syncGoParse(
     return { file: filePath, lang, symbols, mtimeMs: Date.now() };
   } catch {
     return { file: filePath, lang, symbols: [], mtimeMs: Date.now() };
-  } finally {
-    await fs.rm(tmpDir, { recursive: true, force: true });
   }
 }

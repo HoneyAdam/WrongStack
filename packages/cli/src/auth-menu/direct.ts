@@ -66,7 +66,7 @@ export async function runAuthDirect(
   const apiKey = await readKeyInput(deps, `API key for ${providerId}/${label}`);
   if (!apiKey) return 1;
 
-  await mutateConfigProviders(deps.globalConfigPath, deps.vault, (all) => {
+  await mutateConfigProviders(deps.profileConfigPath, deps.vault, (all) => {
     const p = all[providerId] ?? { type: providerId };
     if (!p.type) p.type = providerId;
     if (!p.family && opts.family) p.family = opts.family;

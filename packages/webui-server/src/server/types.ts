@@ -29,8 +29,6 @@ export interface WebUIOptions {
   /** HTTP frontend port. */
   httpPort?: number | undefined;
   webuiPort?: number | undefined;
-  /** WebSocket backend port. */
-  wsPort?: number | undefined;
   /** Host/interface to bind. */
   wsHost?: string | undefined;
   /** Fixed access token/password. Defaults to WEBUI_TOKEN or random per process. */

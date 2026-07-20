@@ -2,7 +2,7 @@
 
 ## What it does
 
-Views or changes two things, both persisted to `~/.wrongstack/config.json`:
+Views or changes two things, both persisted to the active profile config:
 
 1. **Leader model** — the model the main agent runs (`config.provider` / `config.model`).
 2. **Model matrix** (`config.modelMatrix`) — a map from a **catalog role**, a **phase**, or the `*` default to a specific model/runtime override. Subagents spawned for those tasks run the matched model instead of the leader's, and may also use their own reasoning settings.

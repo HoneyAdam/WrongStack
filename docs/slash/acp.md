@@ -84,7 +84,7 @@ agent and see which truly respond.
 
 If an agent is detected but `probe` shows it failing, its catalog entry needs a
 different ACP entry command. Override it in your **user** config
-(`~/.wrongstack/config.json`) — never in a repo-committed config, where it is
+(the active profile config) — never in a repo-committed config, where it is
 stripped as an arbitrary-command-exec risk:
 
 ```json

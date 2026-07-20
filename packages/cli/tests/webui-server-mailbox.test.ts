@@ -35,7 +35,7 @@ afterEach(async () => {
 describe('runWebUI mailbox operations', () => {
   it('mailbox.clear sends mailbox.cleared response', async () => {
     const wsPort = nextPort();
-    const httpPort = nextPort();
+    const httpPort = wsPort; // single-port design: HTTP and WS share one listener
     let signalReady: (() => void) | undefined;
     const listening = new Promise<void>((r) => { signalReady = r; });
 
@@ -71,7 +71,7 @@ describe('runWebUI mailbox operations', () => {
 
   it('mailbox.clear returns error when no project root is available', async () => {
     const wsPort = nextPort();
-    const httpPort = nextPort();
+    const httpPort = wsPort; // single-port design: HTTP and WS share one listener
     let signalReady: (() => void) | undefined;
     const listening = new Promise<void>((r) => { signalReady = r; });
 
@@ -102,7 +102,7 @@ describe('runWebUI mailbox operations', () => {
 
   it('mailbox.clear actually clears messages from the mailbox', async () => {
     const wsPort = nextPort();
-    const httpPort = nextPort();
+    const httpPort = wsPort; // single-port design: HTTP and WS share one listener
     let signalReady: (() => void) | undefined;
     const listening = new Promise<void>((r) => { signalReady = r; });
 

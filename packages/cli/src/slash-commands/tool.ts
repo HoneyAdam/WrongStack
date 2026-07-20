@@ -136,7 +136,6 @@ export function buildToolCommand(opts: SlashCommandContext): SlashCommand {
     await persistConfigSetting(
       {
         configStore: opts.configStore,
-        globalConfigPath: opts.paths.globalConfig,
         profileConfigPath: activeProfileConfigPath(opts.paths, opts.configStore.get()),
         inProjectConfigPath: opts.paths.inProjectConfig,
         vault: noOpVault,
@@ -179,7 +178,6 @@ export function buildToolCommand(opts: SlashCommandContext): SlashCommand {
     return persistConfigSetting(
       {
         configStore: opts.configStore,
-        globalConfigPath: opts.paths.globalConfig,
         profileConfigPath: activeProfileConfigPath(opts.paths, opts.configStore.get()),
         inProjectConfigPath: opts.paths.inProjectConfig,
         vault: noOpVault,

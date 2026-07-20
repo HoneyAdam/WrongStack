@@ -56,7 +56,7 @@ on exhaustion the surface default is used.
 ## Summary gate
 
 After a successful run, the chosen mode + port are persisted to
-`~/.wrongstack/config.json`:
+the active `~/.wrongstack/profiles/<name>/config.json`:
 
 ```json
 {

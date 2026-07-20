@@ -29,7 +29,7 @@ at an HQ on **another machine**; disable entirely with `/hq off`.
 
 ## Notes
 
-- Settings persist to `~/.wrongstack/config.json` (global scope) under `hq`.
+- Settings persist to the active profile config (user scope) under `hq`.
 - `/hq set` changes attach on the **next session start** — an already-running
   session keeps its current connection. (Auto-discovery is different: a running
   session in discovery mode attaches live when a local HQ appears or repoints.)

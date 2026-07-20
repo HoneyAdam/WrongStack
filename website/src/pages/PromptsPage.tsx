@@ -11,7 +11,7 @@ export function PromptsPage() {
         <div className="mt-12 grid gap-px overflow-hidden rounded-2xl border border-line bg-line lg:grid-cols-3">
           {[
             { icon: Library, title: 'Bundled', body: '50+ prompts ship with WrongStack. Code review templates, refactoring checklists, architecture decision records, debugging workflows. Always available.' },
-            { icon: Layers3, title: 'User', body: 'Store personal prompts in ~/.wrongstack/prompts. They follow you across every project. Perfect for your coding style and workflow preferences.' },
+            { icon: Layers3, title: 'Profile', body: 'Store prompts in ~/.wrongstack/profiles/<name>/prompts. They follow the active profile across projects.' },
             { icon: FileText, title: 'Project', body: 'Project prompts live in .wrongstack/prompts. Share team conventions, onboarding guides, and repo-specific workflows via version control.' },
           ].map(({ icon: Icon, title, body }) => (
             <article key={title} className="bg-card p-7">

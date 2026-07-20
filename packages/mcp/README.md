@@ -13,7 +13,7 @@ Connect any [Model Context Protocol](https://modelcontextprotocol.io) server to 
 ## Quick Start
 
 ```json
-// ~/.wrongstack/config.json
+// ~/.wrongstack/profiles/<name>/config.json
 {
   "mcpServers": {
     "filesystem": {

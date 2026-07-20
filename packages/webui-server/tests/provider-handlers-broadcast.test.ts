@@ -26,7 +26,7 @@ function makeHandlers() {
   const clients = new Map<WebSocket, never>();
   const broadcast = vi.fn();
   const handlers = createProviderHandlers({
-    globalConfigPath: '/tmp/config.json',
+    profileConfigPath: '/tmp/profiles/default/config.json',
     vault: {} as SecretVault,
     getConfigWriteLock: () => Promise.resolve(),
     setConfigWriteLock: vi.fn(),

@@ -52,7 +52,7 @@ describe('createAutonomyBrain — risk gate', () => {
 describe('createAutonomyBrain — heuristics (quickDecide)', () => {
   it('skips deadlocked tasks blocked by failed dependencies', async () => {
     const brain = createAutonomyBrain({ provider: fakeProvider('x'), model: 'm' });
-    const d = await brain.decide(req({ question: 'deadlock detected', context: 'tasks failed' }));
+    const d = await brain.decide(req({ question: 'deadlock detected', context: 'failed tasks' }));
     expect(d).toMatchObject({ type: 'answer' });
     if (d.type === 'answer') expect(d.text).toContain('Skip deadlocked');
   });

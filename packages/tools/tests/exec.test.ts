@@ -60,6 +60,8 @@ describe('execTool', () => {
     const result = await execTool.execute({ command: 'definitely-not-wstack' }, ctx, makeOpts());
     expect(result.allowed).toBe(false);
     expect(result.stderr).toContain('not in allowlist');
+    expect(result.stderr).toContain('~/.wrongstack/profiles/<name>/config.json');
+    expect(result.stderr).not.toContain('your ~/.wrongstack/config.json');
   });
 
   it('allows commands present in the allowlist', async () => {

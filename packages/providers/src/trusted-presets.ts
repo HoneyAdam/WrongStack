@@ -492,6 +492,48 @@ export function buildProviderConfigFromPreset(preset: TrustedProviderPreset): Pr
 }
 
 /**
+ * Repair stale preset metadata on an existing exact-canonical provider.
+ * Credentials and user-owned fields are preserved. A provider with a base URL
+ * different from the preset is treated as an explicit custom gateway, so its
+ * family/models/env vars/quirks are not rewritten. Aliases are also excluded.
+ */
+export function rehydrateCanonicalProviderConfig(
+  providerId: string,
+  dest: ProviderConfig,
+): boolean {
+  const preset = TRUSTED_PROVIDER_PRESETS[providerId];
+  if (!preset || providerId !== preset.id) return false;
+
+  const template = buildProviderConfigFromPreset(preset);
+  const hasCustomEndpoint = dest.baseUrl !== undefined && dest.baseUrl !== preset.baseUrl;
+  const protocolWasStale = dest.type !== preset.id || dest.family !== preset.family;
+
+  dest.type = preset.id;
+  if (hasCustomEndpoint) return true;
+
+  dest.family = preset.family;
+  if (dest.baseUrl === undefined) dest.baseUrl = template.baseUrl;
+  if (!dest.envVars || dest.envVars.length === 0) dest.envVars = template.envVars;
+
+  if (protocolWasStale || !dest.models || dest.models.length === 0) {
+    const customIds = Object.keys(dest.customModels ?? {});
+    const presetModels = template.models ?? [];
+    dest.models = [...presetModels, ...customIds.filter((id) => !presetModels.includes(id))];
+    if (dest.model !== undefined && !dest.models.includes(dest.model)) {
+      dest.model = dest.models[0];
+    }
+  }
+
+  if (template.customModels && (!dest.customModels || Object.keys(dest.customModels).length === 0)) {
+    dest.customModels = template.customModels;
+  }
+  if (template.quirks) {
+    dest.quirks = { ...template.quirks, ...(dest.quirks ?? {}) };
+  }
+  return true;
+}
+
+/**
  * Resolve a user-supplied alias against the trusted preset table. Returns
  * the preset when the alias matches a canonical id exactly or when the
  * alias follows the `<id>-<customSuffix>` convention (so a user can save

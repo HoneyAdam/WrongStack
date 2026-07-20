@@ -6,7 +6,7 @@
 
 The refiner is **context-aware**: the recent conversation (the last few user/assistant text turns) is passed to it as read-only context, so follow-up messages that reference earlier work — *"do the same for the other file"*, *"make it red instead"*, *"now write tests for that"* — are resolved into self-contained instructions rather than refined blind. The conversation is supplied as context only; the refiner rewrites **only your latest message**.
 
-It is **on by default** and persisted to `~/.wrongstack/config.json` (`autonomy.enhance`).
+It is **on by default** and persisted to the active profile config (`autonomy.enhance`).
 
 ## Usage
 

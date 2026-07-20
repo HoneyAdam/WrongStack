@@ -128,7 +128,7 @@ Skills live under these paths (priority order, first-seen wins by name):
 
 1. **Project**: `<project>/.wrongstack/skills/<name>/`
 2. **Project foreign**: `<project>/.claude/skills/<name>/`, `<project>/.{codex,cursor,agents,…}/skills/<name>/`
-3. **User global**: `~/.wrongstack/skills/<name>/`
+3. **User profile**: `~/.wrongstack/profiles/<profile>/skills/<name>/`
 4. **User foreign**: `~/.claude/skills/<name>/`, `~/.{codex,cursor,agents,…}/skills/<name>/`
 5. **Bundled**: `packages/core/skills/<name>/` (read-only, core team)
 

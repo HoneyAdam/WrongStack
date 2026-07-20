@@ -683,6 +683,20 @@ export interface PluginConfig {
 }
 
 /**
+ * Human-owned policy for the LLM-facing `plugin_manager` tool.
+ * This is deliberately separate from `PluginConfig.enabled`: ordinary
+ * `/plugin` commands remain available to the user even when the LLM is not
+ * allowed to change a plugin's boot state.
+ */
+export interface PluginManagerConfig {
+  /**
+   * Plugin names/aliases that `plugin_manager` may discover and use but may
+   * not enable or disable. Use `"*"` to block all LLM plugin-state changes.
+   */
+  locked?: string[] | undefined;
+}
+
+/**
  * Optional subsystems that the CLI can boot without. The core flow
  * (provider + agent loop + bundled tools + session) always works; these
  * just add capabilities. `--no-features` flips all of these off, which
@@ -1514,6 +1528,8 @@ export interface Config {
    */
   hooks?: Partial<Record<HookEvent, ConfiguredHook[]>>;
   plugins?: (string | PluginConfig)[] | undefined;
+  /** Human-owned enable/disable guard for the LLM-facing plugin manager. */
+  pluginManager?: PluginManagerConfig | undefined;
   log: LogConfig;
   features: FeaturesConfig;
   /** Project-local structured memory, graph-ready anchors, retrieval, and hygiene. */
@@ -1627,9 +1643,9 @@ export interface ConfigLoader {
     cliFlags?: Partial<Config> | undefined;
     cwd?: string | undefined;
   }): Promise<Config>;
-  /** Load and decrypt the sync config from ~/.wrongstack/sync.json. */
+  /** Load and decrypt sync config from the active profile's sync.json. */
   loadSyncConfig(): Promise<SyncConfig | null>;
-  /** Persist sync config to ~/.wrongstack/sync.json with encrypted token. */
+  /** Persist sync config to the active profile's sync.json with encrypted token. */
   persistSyncConfig(cfg: SyncConfig): Promise<void>;
 }
 

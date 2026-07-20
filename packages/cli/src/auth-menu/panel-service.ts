@@ -49,8 +49,6 @@ import type { AuthMenuDeps } from './types.js';
 export interface AuthPanelServiceDeps {
   vault: SecretVault;
   modelsRegistry: ModelsRegistry;
-  /** Root bootstrap path, retained only for callers that need the global root. */
-  globalConfigPath: string;
   /** The sole config file read or written by auth operations. */
   profileConfigPath: string;
   secretScrubber?: SecretScrubber | undefined;
@@ -98,7 +96,6 @@ function flowDeps(base: AuthPanelServiceDeps, io: AuthFlowIo): AuthMenuDeps {
     },
     modelsRegistry: base.modelsRegistry,
     vault: base.vault,
-    globalConfigPath: base.profileConfigPath,
     profileConfigPath: base.profileConfigPath,
     secretScrubber: base.secretScrubber,
   };

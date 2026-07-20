@@ -356,7 +356,7 @@ export async function createPreContextServices(
   const skillLoader = config.features.skills ? new DefaultSkillLoader({ paths: wpaths }) : undefined;
   const skillInstaller = config.features.skills
     ? new SkillInstaller({
-        manifestPath: path.join(wpaths.globalRoot, 'installed-skills.json'),
+        manifestPath: path.join(wpaths.configDir, 'installed-skills.json'),
         projectSkillsDir: wpaths.inProjectSkills,
         globalSkillsDir: wpaths.globalSkills,
         projectHash: wpaths.projectHash,

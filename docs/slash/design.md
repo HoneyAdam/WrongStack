@@ -99,7 +99,7 @@ preview — it's styled entirely from the token snapshots.)
 Drop a kit folder next to the bundled ones — discovery order (first wins):
 
 1. `<project>/.wrongstack/design-kits/<id>/` (committed, shared with your team)
-2. `~/.wrongstack/design-kits/<id>/` (user-global)
+2. `~/.wrongstack/profiles/<name>/design-kits/<id>/` (profile)
 3. bundled (`@wrongstack/core/design-kits/`)
 
 Each kit folder contains:

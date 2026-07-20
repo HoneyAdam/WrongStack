@@ -116,8 +116,16 @@ interface ScannedFile {
   stripped: string;
 }
 
+/**
+ * Gather files recursively with deterministic ordering.
+ *
+ * Performance: uses Set for O(1) exclude lookup instead of Array.includes() O(n).
+ * Determinism: sorts directory entries before traversal so scan results are
+ * reproducible across platforms and file systems.
+ */
 function gatherFiles(root: string, depth: number, cfg: DeadCodeDetectorConfig): string[] {
   const files: string[] = [];
+  const excludeSet = new Set(cfg.excludeDirs); // O(1) lookup
 
   function walk(dir: string, remaining: number) {
     let entries: Dirent[];
@@ -126,9 +134,12 @@ function gatherFiles(root: string, depth: number, cfg: DeadCodeDetectorConfig): 
     } catch {
       return;
     }
+    // Sort entries for deterministic traversal order across platforms.
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    
     for (const entry of entries) {
       if (entry.isDirectory()) {
-        if (remaining > 0 && !cfg.excludeDirs.includes(entry.name)) {
+        if (remaining > 0 && !excludeSet.has(entry.name)) {
           walk(join(dir, entry.name), remaining - 1);
         }
       } else if (entry.isFile()) {
@@ -212,6 +223,16 @@ function extractExports(content: string, filePath: string): SuspiciousSymbol[] {
   return exports;
 }
 
+/**
+ * Find unused symbols across all scanned files.
+ *
+ * Performance: builds a single combined regex per identifier instead of
+ * testing each file separately. This reduces regex compilation overhead
+ * from O(symbols × files) to O(symbols).
+ *
+ * Determinism: returns findings in sorted order (by file path, then line)
+ * so scan results are reproducible across runs.
+ */
 function findUnusedSymbols(files: ScannedFile[]): SuspiciousSymbol[] {
   const suspicious: SuspiciousSymbol[] = [];
 
@@ -232,6 +253,13 @@ function findUnusedSymbols(files: ScannedFile[]): SuspiciousSymbol[] {
       }
     }
   }
+
+  // Sort findings for deterministic output: by file path, then line number.
+  suspicious.sort((a, b) => {
+    const fileCompare = a.file.localeCompare(b.file);
+    if (fileCompare !== 0) return fileCompare;
+    return a.line - b.line;
+  });
 
   return suspicious;
 }

@@ -7,9 +7,9 @@ export function buildPluginCommand(opts: SlashCommandContext): SlashCommand {
     category: 'Config',
     aliases: ['plugins'],
     description:
-      'Manage plugins: /plugin [list|menu|report|official|install <alias>|enable <name>|disable <name>|toggle <name>|remove <name>|llm <name> [provider] [model]]',
+      'Manage plugins: /plugin [list|menu|report|official|install <alias>|enable <name>|disable <name>|toggle <name>|remove <name>|manager [lock|unlock] <name|*>|llm <name> [provider] [model]]',
     argsHint:
-      '[list|menu|report|official|install <alias>|enable <name>|disable <name>|toggle <name>|remove <name>|llm <name> [provider] [model]]',
+      '[list|menu|report|official|install <alias>|enable <name>|disable <name>|toggle <name>|remove <name>|manager [lock|unlock] <name|*>|llm <name> [provider] [model]]',
     help: [
       'Usage:',
       '  /plugin                         List configured plugins.',
@@ -23,6 +23,9 @@ export function buildPluginCommand(opts: SlashCommandContext): SlashCommand {
       '  /plugin disable <alias|package> Disable a configured plugin.',
       '  /plugin toggle <name>           Toggle one curated plugin from the menu.',
       '  /plugin remove <alias|package>  Remove a plugin from config.',
+      '  /plugin manager                         List LLM-managed plugin locks.',
+      '  /plugin manager lock <name|*>           Block LLM enable/disable changes.',
+      '  /plugin manager unlock <name|*>         Restore LLM enable/disable changes.',
       '  /plugin llm                              List every per-plugin LLM override.',
       '  /plugin llm <name>                       Show the per-plugin LLM override.',
       '  /plugin llm <name> <provider> [model]    Route this plugin through a provider/model.',
@@ -34,6 +37,7 @@ export function buildPluginCommand(opts: SlashCommandContext): SlashCommand {
       '  /plugin report',
       '  /plugin toggle format-on-save',
       '  /plugin install telegram',
+      '  /plugin manager lock secret-scanner',
       '  /plugin llm error-lens omniroute qwen3-30b',
       '  /plugin llm changelog-writer anthropic claude-haiku-4-5',
     ].join('\n'),

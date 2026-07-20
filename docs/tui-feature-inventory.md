@@ -135,7 +135,7 @@ Last updated: 2026-06-26
 
 ### Settings Picker (Ctrl+S)
 - **Fields**: mode, autoProceedDelayMs, titleAnimation, yolo, streamFleet, chime, confirmExit, nextPrediction, feature toggles (MCP, Plugins, Memory, Skills, ModelsRegistry, Token Saving, filesystem access), tools (maxIterations, autoProceedMaxIterations, refine countdown, refine toggle/language, indexOnStart, thinkingWord display), model runtime (reasoning mode/effort/preserve, cache TTL), context (autoCompact, strategy, mode), fleet maxConcurrent, logLevel, auditLevel, debugStream, statuslineMode, configScope
-- **Persistence**: global `~/.wrongstack/config.json` or project `<project>/.wrongstack/config.json`, matching the visible config-scope row.
+- **Persistence**: active profile `~/.wrongstack/profiles/<name>/config.json` or project `<project>/.wrongstack/config.json`, matching the visible config-scope row.
 - **Keyboard**: ↑/↓ changes the selected row; ←/→ changes only the selected row and autosaves.
 
 ### Checkpoint Timeline (rewind)

@@ -330,7 +330,7 @@ async function saveCopilotTokens(
     tokenType: 'bearer',
   };
   try {
-    await mutateConfigProviders(deps.globalConfigPath, deps.vault, (all) => {
+    await mutateConfigProviders(deps.profileConfigPath, deps.vault, (all) => {
       const existing = all[providerId];
       const p: ProviderConfig = existing ? { ...existing } : { type: providerId };
       p.family = 'github-copilot';

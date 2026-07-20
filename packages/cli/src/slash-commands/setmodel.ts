@@ -116,12 +116,11 @@ function fmtEntry(e: ModelMatrixEntry): string {
 }
 
 /**
- * Read the global config, apply `mutate`, write it back atomically, and
+ * Read the active profile config, apply `mutate`, write it back atomically, and
  * mirror the change into the in-memory config store. Pure I/O — safe under
  * both the plain REPL and the Ink TUI.
  */
-async function patchGlobalConfig(
-  _globalConfigPath: string,
+async function patchProfileConfig(
   mutate: (cfg: Record<string, unknown>) => void,
   profileConfigPath: string,
 ): Promise<Record<string, unknown>> {
@@ -287,7 +286,6 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
 
       const config = opts.configStore.get();
       const keyed = keyedProviderIds(config);
-      const globalConfigPath = opts.paths.globalConfig;
       const profileConfigPath = opts.paths.profileConfig(
         (config as { activeProfile?: string }).activeProfile ?? 'default',
       );
@@ -492,7 +490,7 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
                 message: `${color.red('Provider not available')}: "${provider}". Keyed: ${keyed.join(', ') || '(none)'}. ${color.dim('/setmodel list')}`,
               };
             }
-            const decrypted = await patchGlobalConfig(globalConfigPath, (cfg) => {
+            const decrypted = await patchProfileConfig((cfg) => {
               cfg.provider = provider;
               cfg.model = parsed.model;
               cfg.fallbackModels = chain.slice(1);
@@ -516,7 +514,7 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
               message: `${color.red('Provider not available')}: "${provider}". Keyed: ${keyed.join(', ') || '(none)'}. ${color.dim('/setmodel list')}`,
             };
           }
-          const decrypted = await patchGlobalConfig(globalConfigPath, (cfg) => {
+          const decrypted = await patchProfileConfig((cfg) => {
             cfg.provider = provider;
             cfg.model = model;
           }, profileConfigPath);
@@ -577,7 +575,7 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
             }
           }
 
-          const decrypted = await patchGlobalConfig(globalConfigPath, (cfg) => {
+          const decrypted = await patchProfileConfig((cfg) => {
             const matrix = { ...((cfg.modelMatrix as Record<string, ModelMatrixEntry>) ?? {}) };
             const entry = { ...(matrix[key] ?? {}) } as ModelMatrixEntry;
             const modelRuntime = { ...(entry.modelRuntime ?? {}) };
@@ -621,7 +619,7 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
               message: `${color.red('Provider not available')}: "${parsed.provider}". Keyed: ${keyed.join(', ') || '(none)'}.`,
             };
           }
-          const decrypted = await patchGlobalConfig(globalConfigPath, (cfg) => {
+          const decrypted = await patchProfileConfig((cfg) => {
             const matrix = { ...((cfg.modelMatrix as Record<string, ModelMatrixEntry>) ?? {}) };
             const previousRuntime = matrix[key]?.modelRuntime;
             matrix[key] = parsed.fallbackProfile && !parsed.model
@@ -653,7 +651,7 @@ export function buildSetModelCommand(opts: SlashCommandContext): SlashCommand {
           if (!(key in existing)) {
             return { message: `${color.amber('No matrix entry')} for "${key}".` };
           }
-          const decrypted = await patchGlobalConfig(globalConfigPath, (cfg) => {
+          const decrypted = await patchProfileConfig((cfg) => {
             const matrix = { ...((cfg.modelMatrix as Record<string, ModelMatrixEntry>) ?? {}) };
             delete matrix[key];
             cfg.modelMatrix = matrix;

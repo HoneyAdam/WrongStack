@@ -8,12 +8,13 @@ WrongStack uses a layered configuration system. Settings are merged from multipl
 
 | Layer | Path | Purpose |
 |---|---|---|
-| Global | `~/.wrongstack/config.json` | Developer-level defaults (provider, keys, features) |
+| Bootstrap | `~/.wrongstack/config.json` | `version` and `activeProfile` only |
+| Active profile | `~/.wrongstack/profiles/<name>/config.json` | Developer-level defaults (provider, keys, features) |
 | Project-private | `~/.wrongstack/projects/<slug>/config.local.json` | Project overrides outside the repo (not committed) |
 | In-project | `<project>/.wrongstack/config.json` | Repo-local safe preferences only; unsafe fields are stripped before merge |
 | CLI flags | `--provider`, `--model`, `--yolo`, `--no-yolo`, etc. | Session-scoped overrides |
 
-**Precedence** (highest wins): CLI flags → extra config sources → env vars → in-project → project-private → global → built-in defaults.
+**Precedence** (highest wins): CLI flags → extra config sources → env vars → in-project → project-private → active profile → bootstrap metadata → built-in defaults.
 
 ---
 
@@ -673,7 +674,28 @@ worker reusable until `idleTimeoutMs` expires. A value of `0` retires idle
 workers on the next event-loop turn.
 
 **Security:** `fleet` is stripped from in-project config. Configure this under
-`~/.wrongstack/config.json` or the project-private `config.local.json`.
+the active profile config or the project-private `config.local.json`.
+
+---
+
+## `pluginManager` — LLM plugin-state policy
+
+```jsonc
+{
+  "pluginManager": {
+    "locked": ["secret-scanner", "branch-guard"]
+  }
+}
+```
+
+Entries in `locked` remain visible and usable to the model, but the
+`plugin_manager` tool cannot enable or disable them. Use `"*"` to lock every
+plugin. Manage the list with `/plugin manager lock <name|*>` and
+`/plugin manager unlock <name|*>`.
+
+This is a human-owned trust setting: it affects only the LLM-facing manager,
+not ordinary `/plugin` commands, and is stripped from repository-committed
+project config. Store it in the active profile or private `config.local.json`.
 
 ---
 
@@ -727,7 +749,7 @@ When unset, git's own configuration applies (default behavior). Manage at runtim
 /gitid clear
 ```
 
-**Security:** `git` is on the in-project config deny list — a repo-committed `.wrongstack/config.json` cannot set it (commit-identity spoofing). Only `~/.wrongstack/config.json` is honoured.
+**Security:** `git` is on the in-project config deny list — a repo-committed `.wrongstack/config.json` cannot set it (commit-identity spoofing). Only the trusted active profile config is honoured.
 
 ---
 
@@ -807,7 +829,7 @@ The `exec` tool — the safer, structured alternative to `bash` — only runs co
 Extend or trim the list in config:
 
 ```jsonc
-// ~/.wrongstack/config.json
+// ~/.wrongstack/profiles/<name>/config.json
 {
   "tools": {
     "exec": {
@@ -819,7 +841,7 @@ Extend or trim the list in config:
 ```
 
 **Security:**
-- `allow` **expands** what the agent may execute, so it is honored **only from the trusted user config** (`~/.wrongstack/config.json`). The config loader strips `tools.exec.allow` from the untrusted, repo-committed `<project>/.wrongstack/config.json` (with a `config.in_project_unsafe_fields_ignored` warning naming `tools.exec.allow`).
+- `allow` **expands** what the agent may execute, so it is honored **only from trusted config** (the active profile or project-private config). The config loader strips `tools.exec.allow` from the untrusted, repo-committed `<project>/.wrongstack/config.json` (with a `config.in_project_unsafe_fields_ignored` warning naming `tools.exec.allow`).
 - `deny` only ever **removes** commands, so it is honored from any source (in-project repo config included).
 - Per-argument hard-blocking is deliberately narrow: clear destructive / project-escape patterns (`rm -rf /`, unsafe `rm` targets, `git --exec=`, `git -C`, `git -c`, `find -exec`, publishing/deploying subcommands, `docker push`, …) are blocked, but normal development commands such as `pnpm run test`, `pnpm dlx ...`, `npx ...`, `node -e ...`, `python -m ...`, and `docker build` are allowed. `cwd` is confined to the project, args are passed as a clean array (no shell parsing), and every `exec` call is still gated by the `confirm` permission. For anything outside the allowlist, the model falls back to `bash`.
 
@@ -861,7 +883,7 @@ The current rule set is documented in `packages/tools/src/_danger-detect.ts`. St
 **Bypassing a rule:**
 
 ```jsonc
-// ~/.wrongstack/config.json
+// ~/.wrongstack/profiles/<name>/config.json
 {
   "tools": {
     "exec": {
@@ -880,7 +902,7 @@ Each entry is a stable rule id from the table above. A matched rule whose id is 
 **Security:**
 
 - `tools.exec.danger` (and the whole object) is **stripped from in-project repo config** the same way `tools.exec.allow` is. The boot path that already strips `allow` was extended in PR 3 to also strip `danger`. A repo cannot silently disarm safety checks for anyone who clones it.
-- Only trusted config sources (user-global `~/.wrongstack/config.json`, system, CLI) can set bypass lists. The strip emits a `config.in_project_unsafe_fields_ignored` warning naming `tools.exec.danger`.
+- Only trusted config sources (active profile, project-private config, system, CLI) can set bypass lists. The strip emits a `config.in_project_unsafe_fields_ignored` warning naming `tools.exec.danger`.
 - **Unknown bypass ids are silently ignored** — forward-compat. If a future version adds a rule id, a config that references it before the upgrade simply has no effect for that id.
 
 **Auto-detection signals.** A command is routed to PowerShell if it contains any of these unambiguous patterns:

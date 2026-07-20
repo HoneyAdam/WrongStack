@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 import type { SlashCommand, WstackPaths } from '@wrongstack/core';
 import { atomicWrite, color } from '@wrongstack/core';
-import { readJsonObjectFile, writeJsonObjectFile } from '@wrongstack/core/utils';
+import { readJsonObjectFile } from '@wrongstack/core/utils';
 import type { SlashCommandContext } from './index.js';
 
 /** Characters that are stripped from profile names to prevent path traversal. */
@@ -46,7 +46,8 @@ export function buildProfileCommand(opts: SlashCommandContext): SlashCommand {
       '',
       'Profiles store all your settings (provider, model, fallbacks, features, etc.)',
       'in ~/.wrongstack/profiles/<name>/config.json.',
-      'Use /profile switch to change the active profile between sessions.',
+      'A successful /profile switch closes the current session so every service',
+      'restarts against the newly selected profile.',
     ].join('\n'),
     async run(args) {
       if (!wpaths || !configStore) {
@@ -69,7 +70,7 @@ export function buildProfileCommand(opts: SlashCommandContext): SlashCommand {
 
       // ── switch <name> ────────────────────────────────────────────────────
       if (sub === 'switch') {
-        return switchProfile(wpaths, configStore, rest, activeProfile, renderer);
+        return switchProfile(wpaths, rest, renderer);
       }
 
       // ── copy <name> ──────────────────────────────────────────────────────
@@ -140,11 +141,9 @@ async function listProfiles(
 
 async function switchProfile(
   wpaths: WstackPaths,
-  configStore: { get: () => { activeProfile?: string | undefined }; update: (p: Record<string, unknown>) => void },
   nameArg: string,
-  _activeProfile: string,
   renderer: { write: (msg: string) => void; writeWarning: (msg: string) => void },
-): Promise<{ message: string }> {
+): Promise<{ message: string; exit?: boolean }> {
   const safe = sanitizeProfileName(nameArg);
   if (!safe) {
     const msg = formatNameError(nameArg);
@@ -180,22 +179,11 @@ async function switchProfile(
     return { message: msg };
   }
 
-  // Mirror into the in-memory ConfigStore so the change applies immediately.
-  try {
-    configStore.update({ ...profileData, activeProfile: safe } as Record<string, unknown>);
-  } catch (err) {
-    // ConfigStore may reject invalid fields; the bootstrap is already updated
-    // so the change persists across restart even if runtime update fails.
-    renderer.writeWarning(
-      `Profile switched on disk but runtime update failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-
   const msg =
     `${color.green('✓')} Switched to profile "${color.bold(safe)}"\n` +
-    `  ${color.dim('Settings from this profile are now active.')}`;
+    `  ${color.dim('Closing this session; restart WrongStack to activate it.')}`;
   renderer.write(msg);
-  return { message: msg };
+  return { message: msg, exit: true };
 }
 
 // ─── copy ────────────────────────────────────────────────────────────────────
@@ -223,32 +211,28 @@ async function copyProfile(
     return { message: msg };
   }
 
-  // Destination must not already exist.
+  // Destination profile directory must not already exist. Profiles own more
+  // than config.json (memory, skills, prompts, modes, history, sync state), so
+  // copying only the config would create a partial profile.
   const destPath = wpaths.profileConfig(safe);
-  const { jsonObjectFileExists } = await import('@wrongstack/core/utils');
-  if (await jsonObjectFileExists(destPath)) {
+  const srcDir = path.dirname(srcPath);
+  const destDir = path.dirname(destPath);
+  const { access, cp } = await import('node:fs/promises');
+  try {
+    await access(destDir);
     const msg = `Profile "${safe}" already exists. Use a different name.`;
     renderer.writeWarning(msg);
     return { message: msg };
+  } catch {
+    // Missing destination is expected.
   }
 
-  // Create destination directory.
-  const { mkdir } = await import('node:fs/promises');
+  // Clone the complete profile tree.
   try {
-    await mkdir(path.dirname(destPath), { recursive: true });
+    await cp(srcDir, destDir, { recursive: true, errorOnExist: true, force: false });
   } catch (err) {
     const msg =
-      `${color.red('✗')} Failed to create profile directory: ${err instanceof Error ? err.message : String(err)}`;
-    renderer.writeWarning(msg);
-    return { message: msg };
-  }
-
-  // Write the config copy.
-  try {
-    await writeJsonObjectFile(destPath, srcConfig);
-  } catch (err) {
-    const msg =
-      `${color.red('✗')} Failed to write profile config: ${err instanceof Error ? err.message : String(err)}`;
+      `${color.red('✗')} Failed to copy profile: ${err instanceof Error ? err.message : String(err)}`;
     renderer.writeWarning(msg);
     return { message: msg };
   }

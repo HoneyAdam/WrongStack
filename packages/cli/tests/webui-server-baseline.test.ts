@@ -160,14 +160,13 @@ describe('runWebUI boot shape (PR 0 of #30)', () => {
     try {
       await listening;
       expect(listeningInfo).toBeDefined();
-      // We don't pin a specific port: findFreePort
-      // increments on collision. The contract is
-      // "loopback bind, port non-zero, http and ws
-      // distinct".
+      // Shared-port design: HTTP and WS ride the same listener.
+      // We assert the loopback bind + a single non-zero port, and that
+      // wsPort === httpPort (single-port invariant).
       expect(listeningInfo!.host).toBe('127.0.0.1');
       expect(listeningInfo!.wsPort).toBeGreaterThan(0);
       expect(listeningInfo!.httpPort).toBeGreaterThan(0);
-      expect(listeningInfo!.wsPort).not.toBe(listeningInfo!.httpPort);
+      expect(listeningInfo!.wsPort).toBe(listeningInfo!.httpPort);
     } finally {
       process.emit('SIGINT');
       await serverDone;

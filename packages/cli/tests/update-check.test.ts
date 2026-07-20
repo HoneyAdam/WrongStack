@@ -163,9 +163,16 @@ describe('update-check', () => {
     });
 
     it('forceRefresh bypasses fresh cache and marks stale fallback as failed', async () => {
-      await fs.mkdir(path.join(userHome, '.wrongstack'), { recursive: true });
+      const cacheFile = path.join(
+        userHome,
+        '.wrongstack',
+        'profiles',
+        'default',
+        'update-cache.json',
+      );
+      await fs.mkdir(path.dirname(cacheFile), { recursive: true });
       await fs.writeFile(
-        path.join(userHome, '.wrongstack', 'update-cache.json'),
+        cacheFile,
         JSON.stringify({
           timestamp: Date.now(),
           latestVersion: '1.0.0',
@@ -183,9 +190,16 @@ describe('update-check', () => {
     });
 
     it('ignores malformed cache data without throwing', async () => {
-      await fs.mkdir(path.join(userHome, '.wrongstack'), { recursive: true });
+      const cacheFile = path.join(
+        userHome,
+        '.wrongstack',
+        'profiles',
+        'default',
+        'update-cache.json',
+      );
+      await fs.mkdir(path.dirname(cacheFile), { recursive: true });
       await fs.writeFile(
-        path.join(userHome, '.wrongstack', 'update-cache.json'),
+        cacheFile,
         JSON.stringify({ timestamp: 'tomorrow', latestVersion: {} }),
       );
       vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')));

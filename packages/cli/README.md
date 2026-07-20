@@ -46,8 +46,8 @@ prints a four-option launch menu and waits for a numeric choice:
 
 If you previously picked a mode, the menu shows a one-line summary and a
 single `Continue with these? [Y/n/q]` confirmation instead of re-asking
-the same question. The chosen mode + port are persisted to
-`~/.wrongstack/config.json` (`launch.menuChoice`) so the next launch can
+the same question. The chosen mode + port are persisted to the active
+profile config (`launch.menuChoice`) so the next launch can
 offer the summary gate.
 
 The menu is automatically skipped when:
@@ -157,10 +157,12 @@ exported from `@wrongstack/core/coordination`.
 ## Configuration
 
 ```
-~/.wrongstack/config.json            global config (provider, model defaults, features)
+~/.wrongstack/config.json            bootstrap pointer (version + activeProfile)
+~/.wrongstack/profiles/<name>/        profile-scoped settings and state
+  config.json                         provider, model, tools, and feature settings
 ~/.wrongstack/.key                   AES-256-GCM secret-vault key (mode 0600)
-~/.wrongstack/memory.md              user-global memory
-~/.wrongstack/skills/                user-global skills
+~/.wrongstack/profiles/<name>/memory.md  profile memory
+~/.wrongstack/profiles/<name>/skills/    profile skills
 ~/.wrongstack/projects/<hash>/       per-project state
   memory.md                          project memory (auto-gitignored)
   sessions/                          per-session artifacts

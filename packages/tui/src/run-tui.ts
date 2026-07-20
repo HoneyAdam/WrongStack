@@ -346,7 +346,7 @@ export interface RunTuiOptions {
   setStatuslineHiddenItems: (items: StatuslineItem[]) => void;
   /**
    * Atomically updates in-memory state AND persists to
-   * ~/.wrongstack/statusline.json. Used by the statusline picker to
+   * Active profile/statusline.json. Used by the statusline picker to
    * make each toggle immediately durable.
    */
   saveStatuslineHiddenItems: (items: StatuslineItem[]) => Promise<void>;

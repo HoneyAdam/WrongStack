@@ -194,7 +194,7 @@ Multi-PR follow-ups live as `docs/issues/YYYY-MM-DD-<slug>.md` — the in-repo e
 
 ## Skill system
 
-Skills are `SKILL.md` files (agentskills.io: YAML frontmatter `name`/`description` + markdown body) loaded by `DefaultSkillLoader` (`execution/skill-loader.ts`, `TOKENS.SkillLoader`). Discovery priority, first-seen wins by name: project `.wrongstack/skills/` → project `.claude/skills/` → project foreign dirs (`.{codex,cursor,agents,gemini,qwen,trae,windsurf}/skills/`; cursor: `skills-cursor`) → `~/.wrongstack/skills/` → `~/.claude/skills/` → same foreign set under `~` → `config.skills.extraDirs` (user config only) → `packages/core/skills/` (bundled). Foreign layers read-only; dedup by name; frontmatter via shared `skills/frontmatter.ts` (`validateSkillName`); symlinks followed.
+Skills are `SKILL.md` files (agentskills.io: YAML frontmatter `name`/`description` + markdown body) loaded by `DefaultSkillLoader` (`execution/skill-loader.ts`, `TOKENS.SkillLoader`). Discovery priority, first-seen wins by name: project `.wrongstack/skills/` → project `.claude/skills/` → project foreign dirs (`.{codex,cursor,agents,gemini,qwen,trae,windsurf}/skills/`; cursor: `skills-cursor`) → active profile `~/.wrongstack/profiles/<name>/skills/` → `~/.claude/skills/` → same foreign set under `~` → `config.skills.extraDirs` (profile config only) → `packages/core/skills/` (bundled). Foreign layers read-only; dedup by name; frontmatter via shared `skills/frontmatter.ts` (`validateSkillName`); symlinks followed.
 
 **Injection:** `DefaultSystemPromptBuilder` injects skill bodies. Mode `'progressive'` injects only a name+trigger manifest + a `skill` tool (`tools/src/skill.ts`) loading body + resources on demand; default `'eager'` injects all bodies bounded by `eagerMaxChars` (default 24000, highest-priority first; overflow → manifest + tool).
 
@@ -204,13 +204,13 @@ Skills are `SKILL.md` files (agentskills.io: YAML frontmatter `name`/`descriptio
 
 ## Prompt library
 
-`DefaultPromptLoader` (`execution/prompt-loader.ts`, `TOKENS.PromptLoader`), three layers deduped by `slug` (higher shadows lower): `<project>/.wrongstack/prompts/` → `~/.wrongstack/prompts/` → `packages/core/data/prompts/` (bundled read-only, built by `scripts/build-prompts.mjs`). `PromptEntry` is v2; v1 upgrades lazily on read (`migratePromptEntry`). Favoriting/editing a builtin **copies it down** to the user layer (`forkedFrom:<slug>`) — bundled dataset never mutated. `renderPrompt(entry, values)` fills `{{variable}}` placeholders. Surfaced via the `wstack-prompts` plugin (`/prompt`, `/prompts`, `/prompt-gen`).
+`DefaultPromptLoader` (`execution/prompt-loader.ts`, `TOKENS.PromptLoader`), three layers deduped by `slug` (higher shadows lower): `<project>/.wrongstack/prompts/` → active profile `~/.wrongstack/profiles/<name>/prompts/` → `packages/core/data/prompts/` (bundled read-only, built by `scripts/build-prompts.mjs`). `PromptEntry` is v2; v1 upgrades lazily on read (`migratePromptEntry`). Favoriting/editing a builtin **copies it down** to the profile layer (`forkedFrom:<slug>`) — bundled dataset never mutated. `renderPrompt(entry, values)` fills `{{variable}}` placeholders. Surfaced via the `wstack-prompts` plugin (`/prompt`, `/prompts`, `/prompt-gen`).
 
 ## Domain knowledge
 
 - **IDs are ULIDs** not UUIDs (`ulid.ts` in core)
 - **`tool.executed` events** are truncated before session-log write (threshold configurable)
-- **Secret encryption** — API keys in `~/.wrongstack/config.json` encrypted per-machine (`~/.wrongstack/.key`, `DefaultSecretVault`)
+- **Secret encryption** — API keys in active profile configs are encrypted per-machine (`~/.wrongstack/.key`, `DefaultSecretVault`)
 - **`runText`** — a slash command returning `{ runText: "..." }` makes the REPL inject that text as the next user turn (`/goal`, `/sdd`, `/autonomy` steering)
 
 ## Verification checklist

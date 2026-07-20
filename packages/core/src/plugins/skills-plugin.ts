@@ -104,7 +104,7 @@ function makeInstaller(
 ): SkillInstaller {
   const paths = resolveWstackPaths({ projectRoot });
   return new SkillInstaller({
-    manifestPath: path.join(paths.globalRoot, 'installed-skills.json'),
+    manifestPath: path.join(paths.configDir, 'installed-skills.json'),
     projectSkillsDir: paths.inProjectSkills,
     globalSkillsDir: paths.globalSkills,
     projectHash: paths.projectHash,
@@ -158,7 +158,7 @@ export function buildSkillGeneratorCommand(skillLoader?: SkillLoader): SlashComm
       "  /skill-gen view <name>            Show a skill's body (read-only)",
       '  /skill-gen edit <name>            Open a skill in $EDITOR/$VISUAL',
       '',
-      'Skeletons are written to .wrongstack/skills/<name>/SKILL.md (--global: ~/.wrongstack/skills/).',
+      'Skeletons are written to .wrongstack/skills/<name>/SKILL.md (--global: active profile/skills/).',
       'The interactive wizard reads the bundled `skill-creator` skill and guides you step by step.',
     ].join('\n'),
     async run(args: string, ctx: Context) {

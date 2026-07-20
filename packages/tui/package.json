@@ -1,6 +1,6 @@
 {
   "name": "@wrongstack/tui",
-  "version": "0.293.0",
+  "version": "0.295.0",
   "license": "MIT",
   "description": "WrongStack terminal UI: Ink-based interactive renderer with history, pickers, and slash menus.",
   "repository": {
@@ -43,9 +43,14 @@
     "react": "^19.2.7"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^26.0.1",
     "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
     "ink-testing-library": "^4.0.0",
+    "jsdom": "^29.1.1",
+    "react-dom": "^19.2.7",
     "typescript": "^7.0.2"
   },
   "publishConfig": {

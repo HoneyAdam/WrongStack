@@ -138,8 +138,19 @@ const DEFAULTS: LoopBreakerConfig = {
   ignoreTools: [],
 };
 
+/**
+ * Tool name set for O(1) lookup instead of Array.includes() O(n).
+ *
+ * Performance: converts the ignoreTools array to a Set at config read time
+ * so the hook's per-tool name check is O(1) instead of O(n).
+ */
+let ignoreToolsSet = new Set(DEFAULTS.ignoreTools);
+
 function readConfig(raw: unknown): LoopBreakerConfig {
-  if (!raw || typeof raw !== 'object') return { ...DEFAULTS };
+  if (!raw || typeof raw !== 'object') {
+    ignoreToolsSet = new Set(DEFAULTS.ignoreTools);
+    return { ...DEFAULTS };
+  }
   const r = raw as Record<string, unknown>;
   const warnAfter =
     typeof r['warnAfter'] === 'number' && r['warnAfter'] >= 2 ? r['warnAfter'] : DEFAULTS.warnAfter;
@@ -147,6 +158,13 @@ function readConfig(raw: unknown): LoopBreakerConfig {
     typeof r['blockAfter'] === 'number' && r['blockAfter'] > warnAfter
       ? r['blockAfter']
       : Math.max(DEFAULTS.blockAfter, warnAfter + 1);
+  const ignoreTools = Array.isArray(r['ignoreTools'])
+    ? r['ignoreTools'].filter((t): t is string => typeof t === 'string')
+    : [];
+
+  // Update the module-scope Set for O(1) lookup in the hook.
+  ignoreToolsSet = new Set(ignoreTools);
+
   return {
     enabled: r['enabled'] !== false,
     mode: r['mode'] === 'warn' ? 'warn' : 'block',
@@ -176,9 +194,7 @@ function readConfig(raw: unknown): LoopBreakerConfig {
       typeof r['repeatedErrorBlockAfter'] === 'number' && r['repeatedErrorBlockAfter'] >= 0
         ? Math.floor(r['repeatedErrorBlockAfter'])
         : DEFAULTS.repeatedErrorBlockAfter,
-    ignoreTools: Array.isArray(r['ignoreTools'])
-      ? r['ignoreTools'].filter((t): t is string => typeof t === 'string')
-      : [],
+    ignoreTools,
   };
 }
 
@@ -396,7 +412,8 @@ const plugin: Plugin = {
     const hook = (input: { toolName?: string | undefined; toolInput?: unknown }) => {
       if (!cfg.enabled) return;
       const toolName = input.toolName ?? 'unknown';
-      if (cfg.ignoreTools.includes(toolName)) return;
+      // Performance: uses Set.has() for O(1) lookup instead of Array.includes() O(n).
+      if (ignoreToolsSet.has(toolName)) return;
       state.invocations += 1;
 
       if (state.pendingBlockReason && cfg.mode === 'block') {
@@ -485,7 +502,8 @@ const plugin: Plugin = {
     ) => {
       if (!cfg.enabled) return;
       const toolName = input.toolName ?? 'unknown';
-      if (cfg.ignoreTools.includes(toolName)) return;
+      // Performance: uses Set.has() for O(1) lookup instead of Array.includes() O(n).
+      if (ignoreToolsSet.has(toolName)) return;
       state.postInvocations += 1;
 
       if (input.toolResult?.isError) {

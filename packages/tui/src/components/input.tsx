@@ -326,6 +326,11 @@ export const Input = memo(function Input({
       if (key.ctrl && (input === 'c' || input === 'C')) {
         onKey(input, key as KeyEvent);
       }
+      // Forward Ctrl+V even while disabled so the app-level handler can
+      // show "input locked" feedback instead of silently swallowing the paste.
+      if (key.ctrl && (input === 'v' || input === 'V')) {
+        onKey(input, key as KeyEvent);
+      }
       return;
     }
     // Drop mouse reports that leaked through Ink as text. With mouse tracking on,

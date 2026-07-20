@@ -1,4 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
+import * as path from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
 
 const mockLoadSaved = vi.hoisted(() => vi.fn());
 const mockSaveProviders = vi.hoisted(() => vi.fn());
@@ -8,9 +9,19 @@ vi.mock('../src/server/provider-config-io.js', () => ({
   saveProviders: mockSaveProviders,
 }));
 
-import { createProviderConfigIO } from '../src/server/provider-config-standalone.js';
+import {
+  createProviderConfigIO,
+  vaultKeyFileForConfigPath,
+} from '../src/server/provider-config-standalone.js';
 
 describe('provider-config-standalone', () => {
+  it('uses the shared root vault key for profile configs', () => {
+    const profileConfig = path.join('/tmp', '.wrongstack', 'profiles', 'work', 'config.json');
+    expect(vaultKeyFileForConfigPath(profileConfig)).toBe(
+      path.join('/tmp', '.wrongstack', '.key'),
+    );
+  });
+
   describe('createProviderConfigIO', () => {
     it('returns load/save functions that delegate to provider-config-io', () => {
       const io = createProviderConfigIO('/tmp/.wrongstack/config.json');

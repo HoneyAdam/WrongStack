@@ -38,6 +38,7 @@ export {
   getTrustedProviderPreset,
   isTrustedProviderId,
   listTrustedProviderPresetIds,
+  rehydrateCanonicalProviderConfig,
   resolvePresetForAlias,
   type TrustedProviderPreset,
 } from './trusted-presets.js';

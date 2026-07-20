@@ -15,6 +15,7 @@ import {
   canonicalProjectRoot,
   type WstackPaths,
   resolveWstackPaths,
+  safeProfileName,
 } from './utils/wstack-paths.js';
 
 /**
@@ -38,7 +39,7 @@ export interface BootConfigOptions {
    */
   appLabel?: string | undefined;
   /**
-   * Load `~/.wrongstack/sync.json` and merge it into `config.sync` so the
+   * Load the active profile's `sync.json` and merge it into `config.sync` so the
    * ConfigStore starts with the correct CloudSync state. Default `true`.
    */
   loadSyncConfig?: boolean | undefined;
@@ -119,9 +120,8 @@ export async function bootConfig(options: BootConfigOptions = {}): Promise<BootC
   await migrateLegacyConfig(wpaths);
 
   // ═════════════════════════════════════════════════════════════════════
-  // Profile-file migration: copy statusline.json, mode.json,
-  // provider-status.json, and update-cache.json from the global root into
-  // the active profile's directory if they don't exist there yet.
+  // Profile-state migration: copy all legacy user-owned files/directories
+  // from the global root into the active profile if missing there.
   // ═════════════════════════════════════════════════════════════════════
   await migrateProfileFiles(wpaths);
 
@@ -148,11 +148,10 @@ export async function bootConfig(options: BootConfigOptions = {}): Promise<BootC
   // config loads; migration is best-effort and the warning it would emit
   // (permission errors on restrictFilePermissions) is the same one the
   // main logger would surface on the next boot.
-  // Also migrate secrets in the default profile config (other profiles
-  // will be migrated on first load via ensureProfileConfig).
+  // Also migrate secrets in the selected profile config.
   // Defensive: profileConfig may not be available in test mocks.
   const bootstrapProfilePath =
-    typeof wpaths.profileConfig === 'function' ? wpaths.profileConfig('default') : null;
+    typeof wpaths.profileConfig === 'function' ? wpaths.profileConfig(wpaths.profileName) : null;
   const secretFiles = [wpaths.projectLocalConfig].filter(Boolean) as string[];
   if (bootstrapProfilePath) secretFiles.push(bootstrapProfilePath);
   for (const file of secretFiles) {
@@ -209,7 +208,7 @@ export async function bootConfig(options: BootConfigOptions = {}): Promise<BootC
     }
   }
 
-  // Load and decrypt sync config from ~/.wrongstack/sync.json and merge it into
+  // Load and decrypt sync config from the active profile and merge it into
   // the main config so ConfigStore starts with the correct sync state.
   // `load()` returns a frozen Config, so rebuild a new frozen object rather
   // than mutating in place (a direct assignment throws "Cannot add property
@@ -323,10 +322,11 @@ async function migrateLegacyConfig(wpaths: WstackPaths): Promise<void> {
     return;
   }
 
-  const activeProfile =
+  const activeProfile = safeProfileName(
     typeof result.value['activeProfile'] === 'string'
       ? result.value['activeProfile']
-      : 'default';
+      : undefined,
+  );
   const profileFp = wpaths.profileConfig(activeProfile);
 
   // File existence, not content, is the boundary. Never recover settings from
@@ -356,8 +356,8 @@ async function migrateLegacyConfig(wpaths: WstackPaths): Promise<void> {
   }
 }
 
-/** Pairs of (global source, profile destination) that need migration. */
-const PROFILE_FILE_PAIRS: ReadonlyArray<{
+/** Pairs of (legacy root source, profile destination) that need migration. */
+const PROFILE_STATE_PAIRS: ReadonlyArray<{
   globalSrc: (wpaths: WstackPaths) => string;
   profileDst: (wpaths: WstackPaths, name: string) => string;
 }> = [
@@ -377,15 +377,57 @@ const PROFILE_FILE_PAIRS: ReadonlyArray<{
     globalSrc: (w) => path.join(w.globalRoot, 'update-cache.json'),
     profileDst: (w, n) => w.profileUpdateCache(n),
   },
+  {
+    globalSrc: (w) => path.join(w.globalRoot, 'memory.md'),
+    profileDst: (w, n) => path.join(w.profilesDir, n, 'memory.md'),
+  },
+  {
+    globalSrc: (w) => path.join(w.globalRoot, 'history'),
+    profileDst: (w, n) => path.join(w.profilesDir, n, 'history'),
+  },
+  {
+    globalSrc: (w) => path.join(w.globalRoot, 'sync.json'),
+    profileDst: (w, n) => path.join(w.profilesDir, n, 'sync.json'),
+  },
+  {
+    globalSrc: (w) => path.join(w.globalRoot, 'sync-state.json'),
+    profileDst: (w, n) => path.join(w.profilesDir, n, 'sync-state.json'),
+  },
+  {
+    globalSrc: (w) => path.join(w.globalRoot, 'prompt-usage.json'),
+    profileDst: (w, n) => path.join(w.profilesDir, n, 'prompt-usage.json'),
+  },
+  {
+    globalSrc: (w) => path.join(w.globalRoot, 'custom-context-modes.json'),
+    profileDst: (w, n) => path.join(w.profilesDir, n, 'custom-context-modes.json'),
+  },
+  {
+    globalSrc: (w) => path.join(w.globalRoot, 'desktop.json'),
+    profileDst: (w, n) => path.join(w.profilesDir, n, 'desktop.json'),
+  },
+  {
+    globalSrc: (w) => path.join(w.globalRoot, 'installed-skills.json'),
+    profileDst: (w, n) => path.join(w.profilesDir, n, 'installed-skills.json'),
+  },
+  ...[
+    'skills',
+    'prompts',
+    'instructions',
+    'design-kits',
+    'desktop',
+    'settings',
+  ].map((directory) => ({
+    globalSrc: (w: WstackPaths) => path.join(w.globalRoot, directory),
+    profileDst: (w: WstackPaths, n: string) => path.join(w.profilesDir, n, directory),
+  })),
 ];
 
 /**
- * Migrate profile-scoped files (statusline.json, mode.json,
- * provider-status.json, update-cache.json) from the global root into the
- * active profile's directory. Runs after migrateLegacyConfig() so the
+ * Migrate legacy profile-owned files and directories from the global root
+ * into the active profile's directory. Runs after migrateLegacyConfig() so the
  * active profile name is resolved from the now-migrated root bootstrap.
  *
- * For each file: if it exists in the profile directory, it's left untouched
+ * For each entry: if it exists in the profile directory, it's left untouched
  * (idempotent). If it's missing in the profile but exists at the global root,
  * it's copied into the profile. If neither exists, silently skipped.
  * Best-effort: failures never block boot.
@@ -393,12 +435,12 @@ const PROFILE_FILE_PAIRS: ReadonlyArray<{
 async function migrateProfileFiles(wpaths: WstackPaths): Promise<void> {
   // Read the active profile name from the bootstrap (already migrated by
   // migrateLegacyConfig above). Default to 'default' if unset.
-  let profileName = 'default';
+  let profileName = wpaths.profileName;
   try {
     const raw = await fs.readFile(wpaths.globalConfig, 'utf8');
     const parsed = safeParse<Record<string, unknown>>(raw);
     if (parsed.ok && parsed.value && typeof parsed.value.activeProfile === 'string') {
-      profileName = parsed.value.activeProfile;
+      profileName = safeProfileName(parsed.value.activeProfile);
     }
   } catch {
     // best-effort — default profile
@@ -411,29 +453,47 @@ async function migrateProfileFiles(wpaths: WstackPaths): Promise<void> {
     return;
   }
 
-  for (const pair of PROFILE_FILE_PAIRS) {
+  for (const pair of PROFILE_STATE_PAIRS) {
     const src = pair.globalSrc(wpaths);
     const dst = pair.profileDst(wpaths, profileName);
 
-    // Skip if the profile already has this file (idempotent).
+    // Confirm the global source exists and capture its type.
+    let srcIsDir: boolean;
     try {
-      await fs.access(dst);
-      continue; // profile file already exists
+      srcIsDir = (await fs.stat(src)).isDirectory();
     } catch {
-      // doesn't exist — proceed to check global source
+      continue; // no global source — nothing to migrate
     }
 
-    // If the global source doesn't exist, nothing to do.
+    // Skip if the profile already has this entry with the matching type
+    // (idempotent). A type mismatch indicates corrupt partial state left by
+    // a botched earlier migration (e.g. a file where a directory belongs);
+    // remove the wrong-typed stub so the copy below can recover the tree.
     try {
-      await fs.access(src);
-    } catch {
-      continue;
+      const dstStat = await fs.stat(dst);
+      if (dstStat.isDirectory() === srcIsDir) {
+        continue; // already migrated with the correct type
+      }
+      await fs.rm(dst, { recursive: true, force: true });
+    } catch (err) {
+      // Only proceed to copy when dst genuinely doesn't exist (ENOENT).
+      // Other errors (EACCES, EMFILE, …) mean we can't safely determine
+      // dst state — skip this entry rather than risk a broken copy.
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT') {
+        writeErr(`migrateProfileFiles: skipping ${dst} (stat error: ${code ?? 'unknown'})\n`);
+        continue;
+      }
     }
 
-    // Copy the global file into the profile directory.
+    // Copy the global file/directory into the profile directory.
     try {
-      const content = await fs.readFile(src, 'utf8');
-      await fs.writeFile(dst, content, { mode: 0o600, encoding: 'utf8' });
+      if (srcIsDir) {
+        await fs.cp(src, dst, { recursive: true, errorOnExist: false, force: false });
+      } else {
+        const content = await fs.readFile(src);
+        await fs.writeFile(dst, content, { mode: 0o600 });
+      }
     } catch {
       // best-effort — never block boot
     }

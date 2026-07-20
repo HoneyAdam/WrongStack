@@ -143,7 +143,7 @@ api.providers.register(myLlmFactory);
 ```
 
 User config picks the provider up via `providers.my-llm` in
-`~/.wrongstack/config.json`:
+the active `~/.wrongstack/profiles/<name>/config.json`:
 
 ```json
 {

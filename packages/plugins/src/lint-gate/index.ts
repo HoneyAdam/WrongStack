@@ -111,6 +111,10 @@ function readConfig(raw: unknown): LintGateConfig {
 /**
  * Detect which linter is available. "auto" tries biome first, then eslint.
  * Returns the linter command + args prefix, or null if neither is found.
+ *
+ * Performance: caches the detection result per cwd so repeated hook
+ * invocations don't re-probe the filesystem. The cache is invalidated
+ * on setup() reload.
  */
 interface CommandResult {
   stdout: string;
@@ -129,6 +133,14 @@ const LINTER_PACKAGES = {
   biome: '@biomejs/biome',
   eslint: 'eslint',
 } as const;
+
+/**
+ * Module-scope cache for linter detection results. Keyed by cwd.
+ * Cleared on setup() to ensure fresh detection after config changes.
+ *
+ * @internal
+ */
+const linterCache = new Map<string, ResolvedLinter | null>();
 
 function isInside(parent: string, candidate: string): boolean {
   const rel = relative(parent, candidate);
@@ -198,6 +210,11 @@ function runCommand(
 }
 
 async function detectLinter(requested: Linter, cwd: string): Promise<ResolvedLinter | null> {
+  // Check cache first — avoids redundant filesystem probes on every hook call.
+  const cacheKey = `${requested}:${cwd}`;
+  const cached = linterCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
   const candidates: Array<'biome' | 'eslint'> =
     requested === 'auto' ? ['biome', 'eslint'] : [requested];
 
@@ -205,8 +222,13 @@ async function detectLinter(requested: Linter, cwd: string): Promise<ResolvedLin
     const linter = resolveLocalLinter(name, cwd);
     if (!linter) continue;
     const probe = await runCommand(linter.cmd, [linter.args[0]!, '--version'], 5_000, cwd);
-    if (!probe.error) return linter;
+    if (!probe.error) {
+      linterCache.set(cacheKey, linter);
+      return linter;
+    }
   }
+  
+  linterCache.set(cacheKey, null);
   return null;
 }
 
@@ -415,6 +437,9 @@ const plugin: Plugin = {
     state.linterErrorCount = 0;
     state.hookUnregister = null;
     state.lastResult = null;
+    
+    // Clear linter detection cache to ensure fresh detection after config changes.
+    linterCache.clear();
 
     const cfg = readConfig(api.config.extensions?.['lint-gate']);
     const cwd = resolve(api.config.cwd ?? process.cwd());

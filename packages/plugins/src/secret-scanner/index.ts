@@ -113,9 +113,20 @@ const BASE_PATTERNS: Pattern[] = [
 let PATTERNS: Pattern[] = [...BASE_PATTERNS];
 
 /**
+ * Cache key for the current pattern set. Used to detect when patterns
+ * have changed and COMBINED_REGEX needs rebuilding.
+ *
+ * @internal
+ */
+let patternCacheKey = '';
+
+/**
  * Combined single-pass regex. Each alternative is a capturing group so
  * the matcher callback can identify which pattern fired (only one group
  * is non-undefined at match time). Rebuilt whenever PATTERNS changes.
+ *
+ * Performance: cached at module scope so setup() doesn't rebuild it
+ * on every reload when patterns haven't changed.
  *
  * @internal
  */
@@ -152,9 +163,18 @@ const RE_DOS_TIMEOUT_MS = 100;
  * source is wrapped in a capturing group so findMatches/redactInput
  * can identify which one fired.
  *
+ * Performance: only rebuilds when the pattern set has actually changed
+ * (detected via patternCacheKey comparison). Avoids expensive regex
+ * compilation on every setup() reload when patterns are unchanged.
+ *
  * @internal
  */
 function buildCombinedRegex(patterns: Pattern[]): RegExp {
+  const newCacheKey = JSON.stringify(patterns.map((p) => p.type));
+  if (newCacheKey === patternCacheKey && COMBINED_REGEX) {
+    return COMBINED_REGEX;
+  }
+  patternCacheKey = newCacheKey;
   return new RegExp(patterns.map((p) => `(${p.regex.source})`).join('|'), 'g');
 }
 
@@ -194,6 +214,9 @@ const state = {
  * Find every pattern that fires on `text`. Returns the list of matched
  * `type` ids (deduped). The combined regex is one pass; the capture
  * group index maps back to the pattern via the parallel PATTERNS array.
+ *
+ * Determinism: returns matched types in sorted order so scan results
+ * are reproducible across runs.
  */
 function findMatches(text: string): string[] {
   if (!text) return [];
@@ -231,7 +254,8 @@ function findMatches(text: string): string[] {
       COMBINED_REGEX.lastIndex += 1;
     }
   }
-  return Array.from(found);
+  // Return sorted for deterministic output across runs.
+  return Array.from(found).sort();
 }
 
 /**

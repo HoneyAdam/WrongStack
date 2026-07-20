@@ -47,6 +47,7 @@ describe('diagnoseConfig', () => {
       agents: {},
       fleet: { enabled: false },
       git: { identity: { name: 'x', email: 'x@x' } },
+      pluginManager: { locked: ['secret-scanner'] },
     });
     const unknownKeys = report.findings.filter((f) => f.problem.includes('unknown key'));
     expect(unknownKeys).toHaveLength(0);
@@ -91,6 +92,17 @@ describe('diagnoseConfig', () => {
     const plugins = report.fixed['plugins'] as unknown[];
     expect(plugins).toHaveLength(2);
     expect((plugins[1] as Record<string, unknown>)['enabled']).toBe(false);
+  });
+
+  it('validates and repairs plugin-manager locks without removing the policy', () => {
+    const report = diagnoseConfig({
+      pluginManager: { locked: [' secret-scanner ', '', 42, 'secret-scanner', '*'] },
+    });
+
+    expect(report.fixed['pluginManager']).toEqual({ locked: ['secret-scanner', '*'] });
+    expect(report.findings).toContainEqual(
+      expect.objectContaining({ path: 'pluginManager.locked', severity: 'error' }),
+    );
   });
 
   it('removes non-object extensions entries', () => {

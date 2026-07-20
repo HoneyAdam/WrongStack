@@ -28,7 +28,7 @@ import { backupConfigFile } from '../utils/config-backup.js';
 import { type DeepMergeOptions, deepMerge as deepMergeCore } from '../utils/deep-merge.js';
 import { toErrorMessage } from '../utils/error.js';
 import { safeParse } from '../utils/safe-json.js';
-import type { WstackPaths } from '../utils/wstack-paths.js';
+import { safeProfileName, type WstackPaths } from '../utils/wstack-paths.js';
 
 /**
  * Surface the OS error code (EACCES, ENOSPC, …) alongside the message in
@@ -336,7 +336,6 @@ type PartialConfig = Partial<Config> & {
  */
 const IN_PROJECT_ALLOWED_KEYS: ReadonlySet<string> = new Set([
   'version',
-  'activeProfile',
   'model',
   'cwd',
   'context',
@@ -377,6 +376,9 @@ const IN_PROJECT_ALLOWED_KEYS: ReadonlySet<string> = new Set([
  *
  *   - `provider`     — set provider id to a custom / evil implementation →
  *                      intercepts every prompt and response.
+ *   - `activeProfile` — only the trusted root bootstrap may select a profile;
+ *                       accepting it here makes later writes target a profile
+ *                       whose settings were never loaded.
  *   - `apiKey`       — overrides the user's API key with attacker-controlled
  *                      value, exfiltrating prompts to the attacker.
  *   - `baseUrl`      — redirects the provider endpoint so the user's real
@@ -387,6 +389,8 @@ const IN_PROJECT_ALLOWED_KEYS: ReadonlySet<string> = new Set([
  *   - `hooks`        — shell command arrays attached to lifecycle events.
  *   - `plugins`      — npm package names dynamically loaded into the agent
  *                      process at boot.
+ *   - `pluginManager` — controls which plugin boot states the LLM may mutate;
+ *                       a repository must not weaken or replace this user policy.
  *   - `sync`         — carries `githubToken` (credential) and the repo
  *                      the user's sync push targets.
  *   - `yolo`         — flips off every permission confirmation prompt so a
@@ -403,6 +407,10 @@ const IN_PROJECT_ALLOWED_KEYS: ReadonlySet<string> = new Set([
  *                      to have authored the user's commits.
  */
 const KNOWN_DENIED_IN_PROJECT: ReadonlyArray<{ key: string; reason: string }> = [
+  {
+    key: 'activeProfile',
+    reason: 'Only the trusted root bootstrap may select the active profile.',
+  },
   { key: 'provider', reason: 'Provider id override; can intercept prompts/responses.' },
   { key: 'apiKey', reason: 'Overrides user API key; exfiltrates prompts.' },
   { key: 'baseUrl', reason: 'Redirects provider endpoint; leaks real API key.' },
@@ -410,6 +418,10 @@ const KNOWN_DENIED_IN_PROJECT: ReadonlyArray<{ key: string; reason: string }> = 
   { key: 'mcpServers', reason: 'Arbitrary command/args/env spawned at boot (RCE).' },
   { key: 'hooks', reason: 'Shell command arrays on lifecycle events (RCE).' },
   { key: 'plugins', reason: 'Dynamic npm package load at boot (RCE).' },
+  {
+    key: 'pluginManager',
+    reason: 'Controls which plugin boot states the LLM may mutate; user-owned trust policy.',
+  },
   { key: 'sync', reason: 'Carries githubToken credential and target repo.' },
   { key: 'yolo', reason: 'Disables all permission confirmation prompts.' },
   { key: 'extensions', reason: 'Per-plugin config can carry command/credential fields.' },
@@ -469,6 +481,7 @@ const KNOWN_CONFIG_TOP_LEVEL_KEYS: ReadonlySet<string> = new Set([
   'fallbackAuto',
   'hooks',
   'plugins',
+  'pluginManager',
   'log',
   'features',
   'superMemory',
@@ -853,15 +866,16 @@ export class DefaultConfigLoader implements ConfigLoader {
         ? { version: (bootstrap as { version: number }).version }
         : {}),
       ...(typeof (bootstrap as { activeProfile?: unknown }).activeProfile === 'string'
-        ? { activeProfile: (bootstrap as { activeProfile: string }).activeProfile }
+        ? { activeProfile: safeProfileName((bootstrap as { activeProfile: string }).activeProfile) }
         : {}),
     } as PartialConfig;
     cfg = deepMerge(cfg, bootstrapMetadata);
 
     // Layer 2b: active profile config.
     // Extract the active profile name from the bootstrap config (default: 'default').
-    const profileName =
-      (bootstrap as { activeProfile?: string | undefined }).activeProfile ?? 'default';
+    const profileName = safeProfileName(
+      (bootstrap as { activeProfile?: string | undefined }).activeProfile,
+    );
     const profileCfg = await this.readJson(this.paths.profileConfig(profileName));
     if (Object.keys(profileCfg).length > 0) {
       // Bootstrap metadata is authoritative only in the root config. Ignore
@@ -872,7 +886,13 @@ export class DefaultConfigLoader implements ConfigLoader {
       cfg = deepMerge(cfg, profileSettings as PartialConfig);
     }
 
-    cfg = deepMerge(cfg, local);
+    // Bootstrap metadata is authoritative only in the root config. A stale
+    // project-private override must not make later persistence target a
+    // different profile than the one whose settings were loaded above.
+    const localSettings = { ...local } as Record<string, unknown>;
+    delete localSettings['version'];
+    delete localSettings['activeProfile'];
+    cfg = deepMerge(cfg, localSettings as PartialConfig);
 
     // The in-project config is repo-committed and therefore attacker-
     // controllable. Strip credential/endpoint/code-execution fields before
@@ -1020,8 +1040,8 @@ export class DefaultConfigLoader implements ConfigLoader {
         // Leave it intact so load() can surface the version error to the user.
         if (parsed['version'] !== undefined && parsed['version'] !== 1) return;
 
-        const profileName =
-          (parsed as { activeProfile?: string | undefined }).activeProfile ?? 'default';
+        const rawProfileName = (parsed as { activeProfile?: string | undefined }).activeProfile;
+        const profileName = safeProfileName(rawProfileName);
         const profileFp = this.paths.profileConfig(profileName);
 
         // Run before trimming so a genuinely legacy flat config can be moved
@@ -1042,7 +1062,7 @@ export class DefaultConfigLoader implements ConfigLoader {
           needsBootstrapWrite = true;
         }
         // If activeProfile is missing from the existing parsed config, flag it.
-        if (parsed.activeProfile === undefined) {
+        if (parsed.activeProfile === undefined || parsed.activeProfile !== profileName) {
           needsBootstrapWrite = true;
         }
         // If the bootstrap has extra keys beyond version+activeProfile, trim it.
@@ -1168,7 +1188,7 @@ export class DefaultConfigLoader implements ConfigLoader {
   }
 
   /**
-   * Persist a sync config to ~/.wrongstack/sync.json, with the token encrypted
+   * Persist sync config to the active profile's sync.json, with the token encrypted
    * by the vault (if provided). The file is isolated from the main config
    * hierarchy to prevent accidental commits.
    */
@@ -1209,7 +1229,7 @@ export class DefaultConfigLoader implements ConfigLoader {
   }
 
   /**
-   * Read ~/.wrongstack/sync.json (encrypted GitHub token storage) and decrypt
+   * Read the active profile's sync.json (encrypted GitHub token storage) and decrypt
    * the token if a vault is available. Returns null if the file doesn't exist.
    * This is separate from main config loading because sync.json is intentionally
    * isolated — it should never be part of project-local or env-driven config.

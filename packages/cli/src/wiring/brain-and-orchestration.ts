@@ -215,7 +215,6 @@ export function setupBrainAndOrchestration(
       persistConfigSetting(
         {
           configStore,
-          globalConfigPath: wpaths.globalConfig,
           profileConfigPath,
           vault,
           forceGlobal: true,

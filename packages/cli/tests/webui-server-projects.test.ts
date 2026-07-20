@@ -41,7 +41,7 @@ afterEach(async () => {
 describe('runWebUI projects.select', () => {
   it('switches the server to the selected project in-process', async () => {
     const wsPort = nextPort();
-    const httpPort = nextPort();
+    const httpPort = wsPort; // single-port design: HTTP and WS share one listener
     let signalReady: (() => void) | undefined;
     const listening = new Promise<void>((r) => { signalReady = r; });
 
@@ -122,7 +122,7 @@ describe('runWebUI projects.select', () => {
 
   it('projects.add registers a folder; working_dir.set stays inside the root', async () => {
     const wsPort = nextPort();
-    const httpPort = nextPort();
+    const httpPort = wsPort; // single-port design: HTTP and WS share one listener
     let signalReady: (() => void) | undefined;
     const listening = new Promise<void>((r) => { signalReady = r; });
 

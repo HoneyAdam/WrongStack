@@ -184,6 +184,9 @@ function readCostTrackerConfig(raw: Record<string, unknown> | undefined): CostTr
  * 4. **Default** — `DEFAULT_PRICING` (input=$5, output=$15 per 1M),
  *    used when none of the above recognize the model name.
  *
+ * Performance: caches the lowercased model key to avoid redundant
+ * `.toLowerCase()` calls on repeated requests with the same model.
+ *
  * @param model - The provider-reported model identifier (e.g. `'gpt-4o'`,
  *   `'custom-model'`). Case-insensitive — lowercased internally.
  * @param promptTokens - Number of input/prompt tokens consumed.
@@ -205,8 +208,16 @@ function readCostTrackerConfig(raw: Record<string, unknown> | undefined): CostTr
  *
  * @public
  */
+const modelKeyCache = new Map<string, string>();
+
 function estimateCost(model: string, promptTokens: number, completionTokens: number): number {
-  const key = model.toLowerCase();
+  // Cache the lowercased key to avoid redundant .toLowerCase() calls.
+  let key = modelKeyCache.get(model);
+  if (!key) {
+    key = model.toLowerCase();
+    modelKeyCache.set(model, key);
+  }
+  
   const pricing =
     pricingOverrides[key] ?? bundledFromRegistry[key] ?? PRICING[key] ?? DEFAULT_PRICING;
   const inputCost = (promptTokens / 1_000_000) * pricing.input;
@@ -274,6 +285,9 @@ const plugin: Plugin = {
     for (const k of Object.keys(bundledFromRegistry)) {
       delete bundledFromRegistry[k];
     }
+    // Clear model key cache to ensure fresh lowercasing after config changes.
+    modelKeyCache.clear();
+    
     lastCost.usd = 0;
     lastCost.model = null;
     lastCost.at = null;
@@ -593,6 +607,9 @@ const plugin: Plugin = {
     for (const k of Object.keys(bundledFromRegistry)) {
       delete bundledFromRegistry[k];
     }
+    // Clear model key cache.
+    modelKeyCache.clear();
+    
     const finalLast = { ...lastCost };
     lastCost.usd = 0;
     lastCost.model = null;

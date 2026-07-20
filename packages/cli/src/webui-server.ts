@@ -171,7 +171,7 @@ export interface CliWebUIOptions {
   events: EventBus;
   statusTracker?: import('@wrongstack/core/coordination').ProviderModelStatusTracker | undefined;
   session: SessionWriter;
-  /** WebSocket backend port. Defaults to 3457 (auto-advances if taken). */
+  /** HTTP port (WS shares it — single-port design). Defaults to 3456. */
   port?: number | undefined;
   /** Host/interface to bind HTTP and WS servers. Defaults to 127.0.0.1. */
   host?: string | undefined;
@@ -342,23 +342,26 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   const requireToken = opts.requireToken ?? envFlag('WEBUI_REQUIRE_TOKEN');
   const surface = opts.surface ?? 'webui';
   const surfaceDefaults =
-    surface === 'simpleui' ? { http: 3466, ws: 3467 } : { http: 3456, ws: 3457 };
-  const requestedWsPort = opts.port ?? surfaceDefaults.ws;
-  const requestedHttpPort = opts.httpPort ?? surfaceDefaults.http;
+    surface === 'simpleui' ? { http: 3466 } : { http: 3456 };
+  const requestedHttpPort = opts.httpPort ?? opts.port ?? surfaceDefaults.http;
   // Auto-advance past busy ports (unless WEBUI_STRICT_PORT) so this works
-  // alongside other WebUI instances. HTTP resolved first → tidy adjacent pairs.
+  // alongside other WebUI instances. WS shares the HTTP port (single-port
+  // design), so only one port is resolved.
   const strictPort =
     process.env['WEBUI_STRICT_PORT'] === '1' || process.env['WEBUI_STRICT_PORT'] === 'true';
   let httpPort = requestedHttpPort;
-  let wsPort = requestedWsPort;
   if (!strictPort) {
     httpPort = await findFreePort(host, requestedHttpPort);
-    wsPort = await findFreePort(host, requestedWsPort, { exclude: new Set([httpPort]) });
   }
-  const port = wsPort; // existing WS code below refers to `port`
+  const wsPort = httpPort; // shared port — kept for onListening/announce compat
   const globalRoot = opts.globalConfigPath
     ? path.dirname(opts.globalConfigPath)
     : wstackGlobalRoot();
+  // Keep older embedders/tests that only provide globalConfigPath working.
+  // The CLI supplies profileConfigPath, but treating it as the sole source
+  // caused startup to reject before the HTTP/WS server could report errors.
+  const profileConfigPath = opts.profileConfigPath ?? opts.globalConfigPath ?? path.join(globalRoot, 'config.json');
+  opts.profileConfigPath = profileConfigPath;
   // Per-connection message rate limit. OFF by default — this is a local,
   // single-user tool and the limit (which counted pings/list calls too) was
   // tripping during normal use. Opt back in by setting WEBUI_RATE_LIMIT to a
@@ -380,12 +383,12 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   // socket's run. Both are kept in sync.
   const abortControllers = new Map<WebSocket, AbortController>();
 
-  // Custom context modes — file-backed (~/.wrongstack/custom-context-modes.json),
-  // shared with the standalone server. Lazily loaded on first mode operation.
+  const profileDir = path.dirname(profileConfigPath);
+  // Custom context modes are profile-scoped and shared with the standalone server.
   let customModeStoreP: Promise<CustomModeStore> | null = null;
   const getCustomModeStore = (): Promise<CustomModeStore> => {
     customModeStoreP ??= (async () => {
-      const store = createCustomModeStore(globalRoot);
+      const store = createCustomModeStore(profileDir);
       await store.load();
       return store;
     })();
@@ -622,13 +625,6 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     publicUrl,
   });
 
-  // 20 MiB to leave headroom for image attachments (base64-inflated) in
-  // user_message payloads. Keep in sync with webui-server's WS_MAX_PAYLOAD —
-  // both servers speak the same protocol and must accept the same messages.
-  const wss = new WebSocketServer({ port, host, maxPayload: 20 * 1024 * 1024 });
-
-  console.log(`[WebUI] WebSocket server starting on ws://${host}:${port}`);
-
   // Serve the React frontend over HTTP so `wrongstack --webui` is a one-command
   // launch (open the printed URL) instead of only a WS bridge. The dist
   // discovery + HTTP server bring-up live in
@@ -659,6 +655,22 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     apiToken: wsToken,
     requireToken,
   });
+
+  // 20 MiB to leave headroom for image attachments (base64-inflated) in
+  // user_message payloads. Keep in sync with webui-server's WS_MAX_PAYLOAD —
+  // both servers speak the same protocol and must accept the same messages.
+  //
+  // Single-port design: when the HTTP server is available, the WS server
+  // attaches to it via { server: httpServer } so a single listen() binds
+  // both the HTTP frontend and the WS upgrade handler on the same port.
+  // When the frontend isn't built (httpServer === null), fall back to a
+  // standalone WS listener on the same port.
+  const wss = httpServer
+    ? new WebSocketServer({ server: httpServer.server, maxPayload: 20 * 1024 * 1024 })
+    : new WebSocketServer({ port: httpPort, host, maxPayload: 20 * 1024 * 1024 });
+
+  console.log(`[WebUI] WebSocket server starting on ws://${host}:${httpPort}`);
+
   if (httpServer) {
     announceWebuiReady({
       surface,
@@ -747,7 +759,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   // them here is safe even though they're defined further down.
   const wsHandlerCtx: WsHandlerContext = {
     providerStore: createProviderConfigStore(
-      opts.profileConfigPath,
+      profileConfigPath,
       // Use the in-memory merged config providers so the WebUI sees the
       // same provider list the agent uses. Without this, providers stored
       // only in the project-local config (config.local.json) would be
@@ -770,7 +782,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   //
   // Watches the ACTIVE PROFILE config (~/.wrongstack/profiles/<name>/config.json)
   // where all user settings, providers, and routing configs live.
-  const watchConfigPath = opts.profileConfigPath;
+  const watchConfigPath = profileConfigPath;
   let credentialWatcherClose: (() => void) | undefined;
   if (watchConfigPath && process.env['WRONGSTACK_DISABLE_CONFIG_WATCH'] !== '1') {
     let lastActiveCfg = JSON.stringify(
@@ -922,13 +934,10 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     skillLoader: opts.skillLoader,
     skillInstaller: opts.skillLoader
       ? new SkillInstaller({
-          manifestPath: path.join(
-            skillsPaths?.globalRoot ?? wstackGlobalRoot(),
-            'installed-skills.json',
-          ),
+          manifestPath: path.join(skillsPaths?.configDir ?? profileDir, 'installed-skills.json'),
           projectSkillsDir:
             skillsPaths?.inProjectSkills ?? path.join(skillsProjectRoot, '.wrongstack', 'skills'),
-          globalSkillsDir: skillsPaths?.globalSkills ?? path.join(wstackGlobalRoot(), 'skills'),
+          globalSkillsDir: skillsPaths?.globalSkills ?? path.join(profileDir, 'skills'),
           projectHash: skillsPaths?.projectHash ?? '',
           skillLoader: opts.skillLoader,
         })
@@ -942,7 +951,9 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   // standalone server. Absent promptLoader ⇒ handlers respond "unavailable".
   const promptsCtx: PromptsContext = {
     promptLoader: opts.promptLoader,
-    promptUsage: new PromptUsageStore(path.join(wstackGlobalRoot(), 'prompt-usage.json')),
+    promptUsage: new PromptUsageStore(
+      skillsPaths?.promptUsage ?? path.join(profileDir, 'prompt-usage.json'),
+    ),
   };
 
   // Design Studio context — same project root, live agent ctx so design.use
@@ -963,7 +974,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   const agentConfigCtx: AgentConfigContext = {
     agent: opts.agent,
     modeStore: opts.modeStore,
-    globalConfigPath: opts.profileConfigPath,
+    globalConfigPath: profileConfigPath,
     buildSessionStart: (overrides) => buildSessionStartPayload(overrides),
     modelsRegistry: opts.modelsRegistry,
     memoryStore: opts.memoryStore,
@@ -1085,7 +1096,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
 
   const stopped = new Promise<void>((resolve) => {
     wss.on('listening', () => {
-      console.log(`[WebUI] WebSocket server running on ws://${host}:${port}`);
+      console.log(`[WebUI] WebSocket server running on ws://${host}:${httpPort}`);
       setupEvents();
       opts.onListening?.({ httpPort, wsPort, host, url: accessUrl });
 

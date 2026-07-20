@@ -106,8 +106,8 @@ export async function startWebUI(
    *  `working_dir.set` WS message. Must always stay inside projectRoot. */
   let workingDir = projectRoot;
 
-  // Serialize concurrent config writes to prevent races between model.switch
-  // and key.add/key.update handlers that both read-modify-write globalConfigPath.
+  // Serialize concurrent profile-config writes to prevent races between
+  // model.switch and key.add/key.update handlers.
   // Held in a mutable object so the pref-helpers (./pref-helpers.ts, Phase 1c)
   // can update the lock in place — TypeScript flattens Promise<Promise<void>>,
   // so we can't return the new lock from an async helper.
@@ -122,7 +122,7 @@ export async function startWebUI(
   // instead of the thin root bootstrap (~/.wrongstack/config.json).
   const activeProfile = (config as { activeProfile?: string | undefined }).activeProfile ?? 'default';
   const profileConfigPath = wpaths.profileConfig(activeProfile);
-  const prefHelperDeps: PrefHelperDeps = { globalConfigPath, profileConfigPath, vault, logger };
+  const prefHelperDeps: PrefHelperDeps = { profileConfigPath, vault, logger };
   const updateGlobalConfig = async (
     mutate: (cfg: Record<string, unknown>) => void,
     errorLabel: string,

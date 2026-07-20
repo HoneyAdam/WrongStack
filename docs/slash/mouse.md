@@ -46,7 +46,7 @@ Resolution order at launch: `--mouse` → saved setting → `WRONGSTACK_MOUSE`.
 
 ## Notes
 
-- The setting persists to the `autonomy` section of `~/.wrongstack/config.json`,
+- The setting persists to the `autonomy` section of the active profile config,
   so a `/mouse on` survives restarts.
 - Overlays/pickers already enable mouse tracking on their own while open
   (wheel-to-select, click-to-confirm); full mouse mode keeps that behavior and

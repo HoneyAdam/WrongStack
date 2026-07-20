@@ -40,7 +40,9 @@ type AuthMenuDeps = import('../src/auth-menu/index.js').AuthMenuDeps;
  * loop — that's an integration test best done by hand. Here we pin:
  *
  *  1. `runAuthDirect` (the scripted one-shot) writes encrypted keys to
- *     the right config shape.
+ *     the active-profile config (`deps.profileConfigPath`),
+ *     honouring the "Provider credentials never use the root
+ *     bootstrap" invariant.
  *  2. Catalog-driven defaults (family/baseUrl/envVars) are pulled when
  *     the provider exists in models.dev.
  *  3. Missing family + missing catalog entry fails with exit 1.
@@ -111,7 +113,6 @@ async function setupDeps(opts: {
     reader: makeReader(opts.scripted?.lines ?? [], opts.scripted?.secrets ?? []),
     modelsRegistry: makeModelsRegistry(opts.catalog ?? {}),
     vault,
-    globalConfigPath: configPath,
     profileConfigPath: configPath,
   };
   return { deps, configPath, tmpDir };
@@ -585,7 +586,7 @@ describe('runAuthMenu', () => {
   });
 
   it('refuses to clobber a config file with non-ENOENT read error', async () => {
-    // Point globalConfigPath at a directory — reading it returns EISDIR,
+    // Point profileConfigPath at a directory — reading it returns EISDIR,
     // which is not ENOENT. The mutator throws to refuse overwriting.
     const tmpDir = await mkTempDir();
     const dirAsConfig = path.join(tmpDir, 'cfg-as-dir');
@@ -598,7 +599,6 @@ describe('runAuthMenu', () => {
         myprov: { id: 'myprov', name: 'My', family: 'openai', envVars: [], models: [] } as ResolvedProvider,
       }),
       vault,
-      globalConfigPath: dirAsConfig,
       profileConfigPath: dirAsConfig,
     };
     await expect(runAuthDirect(deps, { providerId: 'myprov' })).rejects.toThrow(
@@ -618,7 +618,6 @@ describe('runAuthMenu', () => {
         myprov: { id: 'myprov', name: 'My', family: 'openai', envVars: [], models: [] } as ResolvedProvider,
       }),
       vault,
-      globalConfigPath: configPath,
       profileConfigPath: configPath,
     };
     await expect(runAuthDirect(deps, { providerId: 'myprov' })).rejects.toThrow(

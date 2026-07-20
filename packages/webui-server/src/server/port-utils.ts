@@ -34,9 +34,9 @@ import { ToolValidationError } from '@wrongstack/core';
  * when both surfaces run multiple instances in the same project.
  */
 export const SURFACE_DEFAULT_PORTS = {
-  webui:   { http: 3456, ws: 3457 },
-  simpleui: { http: 3466, ws: 3467 },
-} as const satisfies Record<string, { http: number; ws: number }>;
+  webui:   { http: 3456 },
+  simpleui: { http: 3466 },
+} as const satisfies Record<string, { http: number }>;
 
 export type SurfaceKind = keyof typeof SURFACE_DEFAULT_PORTS;
 
@@ -46,14 +46,12 @@ export function surfaceLabel(surface: SurfaceKind): string {
 }
 
 /**
- * Return the surface-specific default port pair (HTTP + WS).
- * Freezes the returned object so callers can't mutate the constant table.
+ * Return the surface-specific default HTTP port.
  */
 export function getSurfaceDefaultPorts(surface: SurfaceKind): {
   http: number;
-  ws: number;
 } {
-  return { ...SURFACE_DEFAULT_PORTS[surface] };
+  return { http: SURFACE_DEFAULT_PORTS[surface].http };
 }
 
 /** Resolve true when `port` can be bound on `host`, false on EADDRINUSE/EACCES. */

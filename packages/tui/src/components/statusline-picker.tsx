@@ -348,7 +348,7 @@ export function StatuslinePicker({
           <KeyCap keyName="←→" label="toggle" color={theme.accent} />
           <KeyCap keyName="Esc" label="close" color={theme.error} />
           {size.columns >= 100 ? (
-            <Text color={theme.textMuted}>saved to ~/.wrongstack/statusline.json</Text>
+            <Text color={theme.textMuted}>saved to the active profile/statusline.json</Text>
           ) : null}
         </Box>
       }

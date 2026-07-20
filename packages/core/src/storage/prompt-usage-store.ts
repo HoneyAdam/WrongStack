@@ -14,7 +14,7 @@ interface RawUsageFile {
 
 /**
  * Tracks how often each prompt is inserted, keyed by slug, in a single JSON
- * file (`~/.wrongstack/prompt-usage.json`). Kept SEPARATE from the prompt
+ * file (`profiles/<name>/prompt-usage.json`). Kept SEPARATE from the prompt
  * entries so usage can be recorded for read-only builtin prompts without
  * copy-on-writing them into the user layer. Surfaces "recent / most-used"
  * views and a gentle search-ranking boost.

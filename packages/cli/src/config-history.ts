@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import os from 'node:os';
 import * as path from 'node:path';
-import { atomicWrite, ERROR_CODES, FsError, writeErr } from '@wrongstack/core';
+import { atomicWrite, ERROR_CODES, FsError, resolveWstackPaths, writeErr } from '@wrongstack/core';
 import { isSecretField } from '@wrongstack/core/security';
 import { toErrorMessage } from '@wrongstack/core/utils';
 
@@ -179,70 +179,90 @@ function diffSummary(oldCfg: Record<string, unknown>, newCfg: Record<string, unk
 type HomeDirFn = () => string;
 const defaultHomeDir: HomeDirFn = () => os.homedir();
 
-function historyDir(homeFn: HomeDirFn = defaultHomeDir): string {
-  return path.join(homeFn(), '.wrongstack', 'config.history', 'entries');
+function activeProfileConfigPath(homeFn: HomeDirFn): string {
+  const paths =
+    homeFn === defaultHomeDir
+      ? resolveWstackPaths({ projectRoot: process.cwd() })
+      : resolveWstackPaths({ projectRoot: process.cwd(), userHome: homeFn() });
+  return paths.profileConfig(paths.profileName);
 }
 
-function historyIndexPath(homeFn: HomeDirFn = defaultHomeDir): string {
-  return path.join(homeFn(), '.wrongstack', 'config.history', 'index.json');
+function historyDir(homeFn: HomeDirFn = defaultHomeDir, targetConfigPath?: string): string {
+  return path.join(path.dirname(configPath(homeFn, targetConfigPath)), 'config.history', 'entries');
 }
 
-// NOTE: config.json is the canonical path (defined in wstack-paths.ts).
-// backupCurrent() and restore*() all operate on config.json.
+function historyIndexPath(homeFn: HomeDirFn = defaultHomeDir, targetConfigPath?: string): string {
+  return path.join(path.dirname(configPath(homeFn, targetConfigPath)), 'config.history', 'index.json');
+}
+
 function configPath(homeFn: HomeDirFn = defaultHomeDir, targetConfigPath?: string): string {
-  return targetConfigPath ?? path.join(homeFn(), '.wrongstack', 'config.json');
+  return targetConfigPath ?? activeProfileConfigPath(homeFn);
 }
 
 function backupLastPath(homeFn: HomeDirFn = defaultHomeDir, targetConfigPath?: string): string {
-  return targetConfigPath ? `${targetConfigPath}.last` : path.join(homeFn(), '.wrongstack', 'config.json.last');
+  return `${configPath(homeFn, targetConfigPath)}.last`;
 }
 
 function entryId(ts: string): string {
   return `${ts.replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`;
 }
 
-async function ensureHistoryDir(homeFn: HomeDirFn = defaultHomeDir): Promise<void> {
+async function ensureHistoryDir(
+  homeFn: HomeDirFn = defaultHomeDir,
+  targetConfigPath?: string,
+): Promise<void> {
   try {
-    await fs.mkdir(historyDir(homeFn), { recursive: true });
+    await fs.mkdir(historyDir(homeFn, targetConfigPath), { recursive: true });
   } catch (err) {
     throw new FsError({
       message: toErrorMessage(err),
       code: ERROR_CODES.FS_MKDIR_FAILED,
-      path: historyDir(homeFn),
+      path: historyDir(homeFn, targetConfigPath),
       cause: err,
     });
   }
 }
 
-async function readIndex(homeFn: HomeDirFn = defaultHomeDir): Promise<HistoryIndex> {
+async function readIndex(
+  homeFn: HomeDirFn = defaultHomeDir,
+  targetConfigPath?: string,
+): Promise<HistoryIndex> {
   try {
-    const raw = await fs.readFile(historyIndexPath(homeFn), 'utf8');
+    const raw = await fs.readFile(historyIndexPath(homeFn, targetConfigPath), 'utf8');
     return JSON.parse(raw) as HistoryIndex;
   } catch {
     return { version: 1, entries: [] };
   }
 }
 
-async function writeIndex(idx: HistoryIndex, homeFn: HomeDirFn = defaultHomeDir): Promise<void> {
-  await ensureHistoryDir(homeFn);
+async function writeIndex(
+  idx: HistoryIndex,
+  homeFn: HomeDirFn = defaultHomeDir,
+  targetConfigPath?: string,
+): Promise<void> {
+  await ensureHistoryDir(homeFn, targetConfigPath);
   // atomicWrite: torn write here would wipe the entire config-history
   // index, hiding the user's prior backups behind a "no history" UI.
   try {
-    await atomicWrite(historyIndexPath(homeFn), JSON.stringify(idx, null, 2));
+    await atomicWrite(historyIndexPath(homeFn, targetConfigPath), JSON.stringify(idx, null, 2));
   } catch (err) {
     throw new FsError({
       message: toErrorMessage(err),
       code: ERROR_CODES.FS_ATOMIC_WRITE_FAILED,
-      path: historyIndexPath(homeFn),
+      path: historyIndexPath(homeFn, targetConfigPath),
       cause: err,
     });
   }
 }
 
-async function pruneHistoryEntries(idx: HistoryIndex, homeFn: HomeDirFn = defaultHomeDir): Promise<void> {
+async function pruneHistoryEntries(
+  idx: HistoryIndex,
+  homeFn: HomeDirFn = defaultHomeDir,
+  targetConfigPath?: string,
+): Promise<void> {
   const removed = idx.entries.splice(MAX_CONFIG_HISTORY_ENTRIES);
   const keep = new Set(idx.entries.map((entry) => `${entry.id}.json`));
-  const dir = historyDir(homeFn);
+  const dir = historyDir(homeFn, targetConfigPath);
 
   for (const entry of removed) {
     try {
@@ -341,11 +361,12 @@ export async function appendHistory(
   newCfg: Record<string, unknown>,
   description: string,
   homeFn: HomeDirFn = defaultHomeDir,
+  targetConfigPath?: string,
 ): Promise<string> {
   const timestamp = new Date().toISOString();
   const id = entryId(timestamp);
 
-  await ensureHistoryDir(homeFn);
+  await ensureHistoryDir(homeFn, targetConfigPath);
 
   const entry: HistoryEntry = {
     id,
@@ -357,7 +378,7 @@ export async function appendHistory(
 
   try {
     await fs.writeFile(
-      path.join(historyDir(homeFn), `${id}.json`),
+      path.join(historyDir(homeFn, targetConfigPath), `${id}.json`),
       JSON.stringify(entry, null, 2),
       'utf8',
     );
@@ -365,15 +386,15 @@ export async function appendHistory(
     throw new FsError({
       message: toErrorMessage(err),
       code: ERROR_CODES.FS_WRITE_FAILED,
-      path: path.join(historyDir(homeFn), `${id}.json`),
+      path: path.join(historyDir(homeFn, targetConfigPath), `${id}.json`),
       cause: err,
     });
   }
 
-  const idx = await readIndex(homeFn);
+  const idx = await readIndex(homeFn, targetConfigPath);
   idx.entries.unshift({ id, timestamp, description });
-  await pruneHistoryEntries(idx, homeFn);
-  await writeIndex(idx, homeFn);
+  await pruneHistoryEntries(idx, homeFn, targetConfigPath);
+  await writeIndex(idx, homeFn, targetConfigPath);
 
   return id;
 }
@@ -383,8 +404,9 @@ export async function appendHistory(
  */
 export async function listHistory(
   homeFn: HomeDirFn = defaultHomeDir,
+  targetConfigPath?: string,
 ): Promise<HistoryIndex['entries']> {
-  const idx = await readIndex(homeFn);
+  const idx = await readIndex(homeFn, targetConfigPath);
   return idx.entries;
 }
 
@@ -394,9 +416,13 @@ export async function listHistory(
 export async function getHistoryEntry(
   id: string,
   homeFn: HomeDirFn = defaultHomeDir,
+  targetConfigPath?: string,
 ): Promise<HistoryEntry | null> {
   try {
-    const raw = await fs.readFile(path.join(historyDir(homeFn), `${id}.json`), 'utf8');
+    const raw = await fs.readFile(
+      path.join(historyDir(homeFn, targetConfigPath), `${id}.json`),
+      'utf8',
+    );
     return JSON.parse(raw) as HistoryEntry;
   } catch {
     return null;
@@ -411,7 +437,7 @@ export async function restoreFromHistory(
   homeFn: HomeDirFn = defaultHomeDir,
   targetConfigPath?: string,
 ): Promise<{ ok: boolean; backupId: string | null; error?: string | undefined }> {
-  const entry = await getHistoryEntry(id, homeFn);
+  const entry = await getHistoryEntry(id, homeFn, targetConfigPath);
   if (!entry) return { ok: false, backupId: null, error: 'History entry not found' };
 
   // Ownership guard — refuse to write config.json if the calling process
@@ -446,6 +472,7 @@ export async function restoreFromHistory(
     entry.snapshotMasked as Record<string, unknown>,
     `Restored from history ${id}`,
     homeFn,
+    targetConfigPath,
   );
 
   return { ok: true, backupId };
@@ -492,7 +519,7 @@ export async function restoreLast(
     return { ok: false, error: String(err) };
   }
 
-  await appendHistory(oldCfg, lastCfg, 'Restored from config.json.last', homeFn);
+  await appendHistory(oldCfg, lastCfg, 'Restored from config.json.last', homeFn, targetConfigPath);
 
   return { ok: true };
 }

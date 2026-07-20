@@ -23,6 +23,7 @@ describe('config-history', () => {
 
   // homeFn that returns our temp dir — inject into all API calls
   const home = () => tmp;
+  const profileDir = () => path.join(tmp, '.wrongstack', 'profiles', 'default');
 
   // ─────────────────────────────────────────────────────────────── appendHistory
 
@@ -82,7 +83,7 @@ describe('config-history', () => {
       const id = await appendHistory({}, newCfg, 'Set openai', home);
 
       // Write a different current config
-      const cfgDir = path.join(tmp, '.wrongstack');
+      const cfgDir = profileDir();
       await fs.mkdir(cfgDir, { recursive: true });
       const cfgPath = path.join(cfgDir, 'config.json');
       await fs.writeFile(cfgPath, JSON.stringify({ provider: 'anthropic' }));
@@ -108,7 +109,7 @@ describe('config-history', () => {
 
   describe('restoreLast()', () => {
     it('restores from config.json.last', async () => {
-      const cfgDir = path.join(tmp, '.wrongstack');
+      const cfgDir = profileDir();
       await fs.mkdir(cfgDir, { recursive: true });
       const cfgPath = path.join(cfgDir, 'config.json');
       const lastPath = path.join(cfgDir, 'config.json.last');
@@ -125,7 +126,7 @@ describe('config-history', () => {
     });
 
     it('returns error when no .last backup exists', async () => {
-      const cfgDir = path.join(tmp, '.wrongstack');
+      const cfgDir = profileDir();
       await fs.mkdir(cfgDir, { recursive: true });
       await fs.writeFile(path.join(cfgDir, 'config.json'), '{}');
 

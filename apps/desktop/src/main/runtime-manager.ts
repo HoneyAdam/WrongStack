@@ -9,7 +9,13 @@ import * as net from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { atomicWrite, projectSlug, toErrorMessage, wstackGlobalRoot } from '@wrongstack/core/utils';
+import {
+  atomicWrite,
+  projectSlug,
+  resolveWstackPaths,
+  toErrorMessage,
+  wstackGlobalRoot,
+} from '@wrongstack/core/utils';
 import type {
   DesktopProjectEntry,
   DesktopRuntimeKind,
@@ -57,7 +63,10 @@ const MIN_WINDOW_HEIGHT = 520;
 
 export class DesktopRuntimeManager extends EventEmitter {
   private readonly runtimes = new Map<string, RuntimeInternal>();
-  private readonly stateFile = path.join(wstackGlobalRoot(), 'desktop.json');
+  private readonly stateFile = path.join(
+    resolveWstackPaths({ projectRoot: process.cwd() }).configDir,
+    'desktop.json',
+  );
   private recentProjects: DesktopProjectEntry[] = [];
   private registeredProjects: DesktopProjectEntry[] = [];
   private restoreProjectSessions: DesktopProjectSessionState[] = [];
@@ -960,13 +969,11 @@ export function webuiPreloadPath(): string {
 }
 
 /**
- * Filesystem root for the built-in "Global Settings" workspace.
+ * Filesystem root for the built-in profile settings workspace.
  *
  * The desktop shell opens this directory as a `global-settings` runtime so the
- * user can edit provider/config state without an actual project checkout. It
- * lives under the WrongStack global root next to `desktop.json` and
- * `projects.json`.
+ * user can edit provider/config state without an actual project checkout.
  */
 export function desktopSettingsWorkspaceRoot(): string {
-  return path.join(wstackGlobalRoot(), 'settings');
+  return path.join(resolveWstackPaths({ projectRoot: process.cwd() }).configDir, 'settings');
 }

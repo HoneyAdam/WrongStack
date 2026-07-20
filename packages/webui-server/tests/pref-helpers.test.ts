@@ -31,7 +31,6 @@ describe('WebUI preference persistence helpers', () => {
     );
     warn = vi.fn();
     deps = {
-      globalConfigPath: rootConfigPath,
       profileConfigPath: configPath,
       vault: noOpVault,
       logger: { warn },

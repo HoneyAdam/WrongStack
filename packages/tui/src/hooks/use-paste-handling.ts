@@ -123,8 +123,12 @@ export function usePasteHandling({
 
   // Ctrl+V → read text from the system clipboard and insert it. In raw mode the
   // terminal hands Ctrl+V to us as a control byte instead of doing a native
-  // paste, and we never enable bracketed-paste mode, so without this nothing
-  // happens. Route through commitPaste so long/multi-line content collapses to a
+  // paste. Bracketed-paste mode IS enabled (run-tui.ts writes \x1b[?2004h at
+  // startup), so most terminals wrap pastes in \x1b[200~...\x1b[201~ markers
+  // handled by the accumulator in app.tsx. This Ctrl+V path is the fallback for
+  // terminals that intercept Ctrl+V for their own native paste (sending the raw
+  // content without markers) or don't support bracketed paste mode at all.
+  // Route through commitPaste so long/multi-line content collapses to a
   // [pasted #N] chip exactly like a bracketed paste would.
   const pasteClipboardText = async (): Promise<void> => {
     try {

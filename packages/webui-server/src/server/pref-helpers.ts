@@ -107,8 +107,6 @@ export const PREF_KEYS = [
 ] as const;
 
 export interface PrefHelperDeps {
-  /** Root bootstrap path. Never a settings mutation target. */
-  globalConfigPath: string;
   /** Path to the active profile config; the sole settings mutation target. */
   profileConfigPath: string;
   vault: SecretVault;

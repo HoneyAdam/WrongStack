@@ -4,6 +4,9 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DefaultSkillLoader, resolveWstackPaths } from '../../src/index.js';
 
+const profileSkills = (globalRoot: string) =>
+  path.join(globalRoot, 'profiles', 'default', 'skills');
+
 // ---------------------------------------------------------------------------
 // parseDescriptionFromText — no direct export, tested via listEntries
 // ---------------------------------------------------------------------------
@@ -24,7 +27,7 @@ describe('skill description parsing', () => {
 
   it('extracts trigger from first sentence and scope from parenthetical', async () => {
     const desc = 'Covers profanity, spam, hate speech. Use this skill for moderation.';
-    const dir = path.join(globalRoot, 'skills', 'moderate');
+    const dir = path.join(profileSkills(globalRoot), 'moderate');
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(
       path.join(dir, 'SKILL.md'),
@@ -42,7 +45,7 @@ describe('skill description parsing', () => {
 
   it('uses full description as trigger when no period separator exists', async () => {
     const desc = 'the alpha skill spans multiple lines';
-    const dir = path.join(globalRoot, 'skills', 'alpha');
+    const dir = path.join(profileSkills(globalRoot), 'alpha');
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(
       path.join(dir, 'SKILL.md'),
@@ -57,7 +60,7 @@ describe('skill description parsing', () => {
 
   it('extracts scope with · and • bullet separators as commas', async () => {
     const desc = 'Formatting tool. Covers indent • spacing • line-breaks';
-    const dir = path.join(globalRoot, 'skills', 'fmt');
+    const dir = path.join(profileSkills(globalRoot), 'fmt');
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(
       path.join(dir, 'SKILL.md'),
@@ -72,7 +75,7 @@ describe('skill description parsing', () => {
 
   it('uses first line as trigger when description has no period', async () => {
     const desc = 'Quick math helper\nfor basic arithmetic';
-    const dir = path.join(globalRoot, 'skills', 'math');
+    const dir = path.join(profileSkills(globalRoot), 'math');
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(
       path.join(dir, 'SKILL.md'),
@@ -108,7 +111,7 @@ describe('DefaultSkillLoader — extra', () => {
 
   describe('readBody caching', () => {
     it('returns cached body on repeated call', async () => {
-      const skillDir = path.join(globalRoot, 'skills', 'cacheme');
+      const skillDir = path.join(profileSkills(globalRoot), 'cacheme');
       await fs.mkdir(skillDir, { recursive: true });
       await fs.writeFile(
         path.join(skillDir, 'SKILL.md'),
@@ -129,7 +132,7 @@ describe('DefaultSkillLoader — extra', () => {
 
   describe('invalidateCache', () => {
     it('clears all caches so next list re-reads disk', async () => {
-      const alphaDir = path.join(globalRoot, 'skills', 'alpha');
+      const alphaDir = path.join(profileSkills(globalRoot), 'alpha');
       await fs.mkdir(alphaDir, { recursive: true });
       await fs.writeFile(
         path.join(alphaDir, 'SKILL.md'),
@@ -142,7 +145,7 @@ describe('DefaultSkillLoader — extra', () => {
       expect(list1).toHaveLength(1);
 
       // Add a new skill on disk
-      const betaDir = path.join(globalRoot, 'skills', 'beta');
+      const betaDir = path.join(profileSkills(globalRoot), 'beta');
       await fs.mkdir(betaDir, { recursive: true });
       await fs.writeFile(
         path.join(betaDir, 'SKILL.md'),
@@ -160,7 +163,7 @@ describe('DefaultSkillLoader — extra', () => {
     });
 
     it('clears bodyCache on invalidation', async () => {
-      const alphaDir = path.join(globalRoot, 'skills', 'alpha');
+      const alphaDir = path.join(profileSkills(globalRoot), 'alpha');
       await fs.mkdir(alphaDir, { recursive: true });
       await fs.writeFile(
         path.join(alphaDir, 'SKILL.md'),
@@ -180,7 +183,7 @@ describe('DefaultSkillLoader — extra', () => {
 
   describe('readSaveBody', () => {
     it('returns hand-crafted SKILL.save.md when it exists', async () => {
-      const alphaDir = path.join(globalRoot, 'skills', 'alpha');
+      const alphaDir = path.join(profileSkills(globalRoot), 'alpha');
       await fs.mkdir(alphaDir, { recursive: true });
       await fs.writeFile(
         path.join(alphaDir, 'SKILL.md'),
@@ -194,7 +197,7 @@ describe('DefaultSkillLoader — extra', () => {
     });
 
     it('auto-compacts from full body when no SKILL.save.md exists', async () => {
-      const alphaDir = path.join(globalRoot, 'skills', 'alpha');
+      const alphaDir = path.join(profileSkills(globalRoot), 'alpha');
       await fs.mkdir(alphaDir, { recursive: true });
       await fs.writeFile(
         path.join(alphaDir, 'SKILL.md'),
@@ -209,7 +212,7 @@ describe('DefaultSkillLoader — extra', () => {
     });
 
     it('returns first 300 chars when no Overview or Rules sections exist', async () => {
-      const alphaDir = path.join(globalRoot, 'skills', 'alpha');
+      const alphaDir = path.join(profileSkills(globalRoot), 'alpha');
       await fs.mkdir(alphaDir, { recursive: true });
       await fs.writeFile(
         path.join(alphaDir, 'SKILL.md'),
@@ -223,7 +226,7 @@ describe('DefaultSkillLoader — extra', () => {
     });
 
     it('caches save body and returns cached version', async () => {
-      const alphaDir = path.join(globalRoot, 'skills', 'alpha');
+      const alphaDir = path.join(profileSkills(globalRoot), 'alpha');
       await fs.mkdir(alphaDir, { recursive: true });
       await fs.writeFile(
         path.join(alphaDir, 'SKILL.md'),
@@ -244,7 +247,7 @@ describe('DefaultSkillLoader — extra', () => {
 
   describe('case-insensitive find', () => {
     it('finds skill by case-insensitive name', async () => {
-      const alphaDir = path.join(globalRoot, 'skills', 'alphaskill');
+      const alphaDir = path.join(profileSkills(globalRoot), 'alphaskill');
       await fs.mkdir(alphaDir, { recursive: true });
       await fs.writeFile(
         path.join(alphaDir, 'SKILL.md'),
@@ -260,7 +263,7 @@ describe('DefaultSkillLoader — extra', () => {
 
   describe('listEntries caching', () => {
     it('caches entries after first call', async () => {
-      const alphaDir = path.join(globalRoot, 'skills', 'alpha');
+      const alphaDir = path.join(profileSkills(globalRoot), 'alpha');
       await fs.mkdir(alphaDir, { recursive: true });
       await fs.writeFile(
         path.join(alphaDir, 'SKILL.md'),
@@ -272,7 +275,7 @@ describe('DefaultSkillLoader — extra', () => {
       expect(entries1).toHaveLength(1);
 
       // Add another skill
-      const betaDir = path.join(globalRoot, 'skills', 'beta');
+      const betaDir = path.join(profileSkills(globalRoot), 'beta');
       await fs.mkdir(betaDir, { recursive: true });
       await fs.writeFile(
         path.join(betaDir, 'SKILL.md'),
@@ -311,7 +314,7 @@ describe('DefaultSkillLoader — extra', () => {
 
   describe('malformed skill entries', () => {
     it('skips directories without SKILL.md', async () => {
-      const noSkillDir = path.join(globalRoot, 'skills', 'noskill');
+      const noSkillDir = path.join(profileSkills(globalRoot), 'noskill');
       await fs.mkdir(noSkillDir, { recursive: true });
       // No SKILL.md inside
       const paths = resolveWstackPaths({ projectRoot, globalRoot, userHome: tmp });
@@ -321,7 +324,7 @@ describe('DefaultSkillLoader — extra', () => {
     });
 
     it('skips entries with invalid name format', async () => {
-      const badNameDir = path.join(globalRoot, 'skills', 'bad-name-skill');
+      const badNameDir = path.join(profileSkills(globalRoot), 'bad-name-skill');
       await fs.mkdir(badNameDir, { recursive: true });
       await fs.writeFile(
         path.join(badNameDir, 'SKILL.md'),

@@ -3,7 +3,7 @@
  * No react-i18next (the desktop shell is pure DOM manipulation).
  *
  * The display language is sourced from the SHARED machine config
- * (`~/.wrongstack/config.json` → `Config.uiLocale`): the main process reads it
+ * (`~/.wrongstack/profiles/<name>/config.json` → `Config.uiLocale`): the main process reads it
  * at boot and pushes it here over the `desktop:locale-changed` IPC channel
  * (and re-pushes on any cross-process config change). localStorage is kept
  * only as a fast-boot cache so the first paint isn't blank; it is reconciled

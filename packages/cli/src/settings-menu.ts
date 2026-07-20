@@ -19,7 +19,6 @@ export interface SettingsMenuDeps {
   renderer: TerminalRenderer;
   reader: ReadlineInputReader;
   configStore: ConfigStore;
-  globalConfigPath: string;
   profileConfigPath: string;
   vault: SecretVault;
 }
@@ -198,8 +197,6 @@ async function showDefaults(deps: SettingsMenuDeps): Promise<void> {
  *  (the TUI, headless runs, the arg-driven `/settings` slash command). */
 export interface PersistSettingDeps {
   configStore: ConfigStore;
-  /** Path to the global bootstrap config (~/.wrongstack/config.json). Never a settings target. */
-  globalConfigPath: string;
   /** Path to the active profile config (~/.wrongstack/profiles/<name>/config.json). */
   profileConfigPath: string;
   /** Per-project config path (<project>/.wrongstack/config.json).

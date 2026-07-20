@@ -1,6 +1,6 @@
 /**
  * Config doctor — deterministic diagnosis and auto-repair for the standard
- * config file (~/.wrongstack/config.json and the per-project config).
+ * config files (the active profile config and the per-project config).
  *
  * Pure module: `diagnoseConfig` never touches the filesystem. The /doctor
  * slash command owns file IO, backups, and persistence so the engine stays
@@ -71,6 +71,7 @@ const KNOWN_TOP_LEVEL_KEYS = [
   'fallbackAuto',
   'hooks',
   'plugins',
+  'pluginManager',
   'log',
   'features',
   'superMemory',
@@ -374,7 +375,50 @@ export function diagnoseConfig(
     }
   }
 
-  // ── 9. extensions (plugin config sections) ───────────────────────────
+  // ── 9. pluginManager (human-owned LLM control policy) ────────────────
+  if ('pluginManager' in fixed) {
+    if (!isPlainObject(fixed['pluginManager'])) {
+      findings.push({
+        path: 'pluginManager',
+        problem: `expected object, got ${JSON.stringify(fixed['pluginManager'])}`,
+        severity: 'error',
+        fix: 'removed',
+      });
+      delete fixed['pluginManager'];
+    } else {
+      const manager = fixed['pluginManager'];
+      if ('locked' in manager && !Array.isArray(manager['locked'])) {
+        findings.push({
+          path: 'pluginManager.locked',
+          problem: `expected an array of plugin names, got ${JSON.stringify(manager['locked'])}`,
+          severity: 'error',
+          fix: 'removed',
+        });
+        delete manager['locked'];
+      } else if (Array.isArray(manager['locked'])) {
+        const locked = manager['locked'];
+        const cleaned = [
+          ...new Set(
+            locked
+              .filter((entry): entry is string => typeof entry === 'string')
+              .map((entry) => entry.trim())
+              .filter(Boolean),
+          ),
+        ];
+        if (cleaned.length !== locked.length || cleaned.some((entry, i) => entry !== locked[i])) {
+          findings.push({
+            path: 'pluginManager.locked',
+            problem: 'expected unique, non-empty plugin-name strings',
+            severity: 'error',
+            fix: 'removed invalid and duplicate entries',
+          });
+          manager['locked'] = cleaned;
+        }
+      }
+    }
+  }
+
+  // ── 10. extensions (plugin config sections) ──────────────────────────
   if ('extensions' in fixed) {
     if (!isPlainObject(fixed['extensions'])) {
       findings.push({

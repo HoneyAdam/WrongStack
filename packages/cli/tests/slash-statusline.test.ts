@@ -16,12 +16,19 @@ import {
 let tmp: string;
 let prevHome: string | undefined;
 let prevEnv: string | undefined;
+let prevWrongstackHome: string | undefined;
+
+function profileDir(): string {
+  return path.join(tmp, '.wrongstack', 'profiles', 'default');
+}
 
 beforeEach(async () => {
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'sl-test-'));
   prevHome = process.env.HOME;
   prevEnv = process.env.WRONGSTACK_STATUSLINE_CONFIG;
+  prevWrongstackHome = process.env.WRONGSTACK_HOME;
   process.env.HOME = tmp;
+  delete process.env.WRONGSTACK_HOME;
   delete process.env.WRONGSTACK_STATUSLINE_CONFIG;
 });
 
@@ -30,6 +37,8 @@ afterEach(async () => {
   else process.env.HOME = prevHome;
   if (prevEnv === undefined) delete process.env.WRONGSTACK_STATUSLINE_CONFIG;
   else process.env.WRONGSTACK_STATUSLINE_CONFIG = prevEnv;
+  if (prevWrongstackHome === undefined) delete process.env.WRONGSTACK_HOME;
+  else process.env.WRONGSTACK_HOME = prevWrongstackHome;
   await fs.rm(tmp, { recursive: true, force: true });
 });
 
@@ -46,7 +55,7 @@ describe('loadStatuslineConfig', () => {
   });
 
   it('returns DEFAULTS merged with user overrides', async () => {
-    const dir = path.join(tmp, '.wrongstack');
+    const dir = profileDir();
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(
       path.join(dir, 'statusline.json'),
@@ -59,7 +68,7 @@ describe('loadStatuslineConfig', () => {
   });
 
   it('returns DEFAULTS on malformed JSON', async () => {
-    const dir = path.join(tmp, '.wrongstack');
+    const dir = profileDir();
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(path.join(dir, 'statusline.json'), '{not json');
     const cfg = await loadStatuslineConfig();
@@ -73,13 +82,37 @@ describe('loadStatuslineConfig', () => {
     const cfg = await loadStatuslineConfig();
     expect(cfg.fleet).toBe(false);
   });
+
+  it('honors WRONGSTACK_HOME over HOME for config resolution', async () => {
+    const wstackHome = await fs.mkdtemp(path.join(os.tmpdir(), 'sl-wshome-'));
+    const prevWsHome = process.env.WRONGSTACK_HOME;
+    try {
+      process.env.WRONGSTACK_HOME = wstackHome;
+      // Write config under the WRONGSTACK_HOME profile dir, NOT under HOME/tmp
+      const dir = path.join(wstackHome, 'profiles', 'default');
+      await fs.mkdir(dir, { recursive: true });
+      await fs.writeFile(
+        path.join(dir, 'statusline.json'),
+        JSON.stringify({ fleet: false, cost: false }),
+      );
+      const cfg = await loadStatuslineConfig();
+      // If WRONGSTACK_HOME were ignored, we'd get DEFAULTS (all true) from the
+      // empty HOME-based path. The overrides prove the env var took precedence.
+      expect(cfg.fleet).toBe(false);
+      expect(cfg.cost).toBe(false);
+    } finally {
+      if (prevWsHome === undefined) delete process.env.WRONGSTACK_HOME;
+      else process.env.WRONGSTACK_HOME = prevWsHome;
+      await fs.rm(wstackHome, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('ensureStatuslineConfig', () => {
   it('writes all default settings when no file is present', async () => {
     const cfg = await ensureStatuslineConfig();
     const written = JSON.parse(
-      await fs.readFile(path.join(tmp, '.wrongstack', 'statusline.json'), 'utf8'),
+      await fs.readFile(path.join(profileDir(), 'statusline.json'), 'utf8'),
     );
 
     expect(cfg).toEqual(DEFAULTS);
@@ -88,7 +121,7 @@ describe('ensureStatuslineConfig', () => {
   });
 
   it('persists missing default keys for old partial config files', async () => {
-    const dir = path.join(tmp, '.wrongstack');
+    const dir = profileDir();
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(path.join(dir, 'statusline.json'), JSON.stringify({ git: false }));
 
@@ -107,13 +140,13 @@ describe('saveStatuslineConfig', () => {
   it('writes the config atomically to the resolved path', async () => {
     await saveStatuslineConfig({ todos: false, plan: true });
     const written = JSON.parse(
-      await fs.readFile(path.join(tmp, '.wrongstack', 'statusline.json'), 'utf8'),
+      await fs.readFile(path.join(profileDir(), 'statusline.json'), 'utf8'),
     );
     expect(written).toEqual({ todos: false, plan: true });
   });
 
   it('creates parent directory if missing', async () => {
-    const dir = path.join(tmp, '.wrongstack');
+    const dir = profileDir();
     // Directory does not exist yet — save must mkdir -p.
     await saveStatuslineConfig({ cost: false });
     const stat = await fs.stat(dir);

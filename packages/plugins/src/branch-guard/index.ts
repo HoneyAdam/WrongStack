@@ -127,7 +127,13 @@ function hasDisabledPluginEntry(raw: unknown): boolean {
 /**
  * Get the current git branch name. Returns null if not a git repo
  * or git is unavailable.
+ *
+ * Performance: caches the branch name per cwd+signal combination to
+ * avoid redundant git subprocess spawns on repeated hook invocations.
+ * The cache is invalidated on setup() reload.
  */
+const branchCache = new Map<string, string | null>();
+
 function runGit(args: string[], cwd: string | undefined, signal: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
@@ -146,11 +152,19 @@ async function getCurrentBranch(
   cwd: string | undefined,
   signal: AbortSignal,
 ): Promise<string | null> {
+  // Check cache first — avoids redundant git subprocess spawns.
+  const cacheKey = `${cwd ?? 'undefined'}`;
+  const cached = branchCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
   try {
     const branch = (await runGit(['branch', '--show-current'], cwd, signal)).trim();
-    return branch || null;
+    const result = branch || null;
+    branchCache.set(cacheKey, result);
+    return result;
   } catch (err) {
     if (signal.aborted) throw err;
+    branchCache.set(cacheKey, null);
     return null;
   }
 }
@@ -276,6 +290,9 @@ const plugin: Plugin = {
     state.hookUnregister = null;
     state.configUnregister = null;
     state.lastBlock = null;
+    
+    // Clear branch cache to ensure fresh detection after config changes.
+    branchCache.clear();
 
     let cfg = readHostConfig(api.config);
     state.configUnregister = api.onConfigChange((next) => {

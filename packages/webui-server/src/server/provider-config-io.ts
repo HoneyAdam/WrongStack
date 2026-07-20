@@ -1,5 +1,5 @@
 /**
- * Shared config I/O helpers for the `providers` map inside the global config.
+ * Shared config I/O helpers for the `providers` map inside a profile config.
  *
  * Extracted from both `packages/webui/src/server/index.ts` and
  * `packages/cli/src/webui-server.ts` so the CLI's `--webui` mode doesn't
@@ -12,7 +12,7 @@ import { ConfigError, type ProviderConfig, type SecretVault, atomicWrite } from 
 import { decryptConfigSecrets, encryptConfigSecrets } from '@wrongstack/core/security';
 
 /**
- * Read the `providers` section from the global config, decrypting
+ * Read the `providers` section from a profile config, decrypting
  * secret-bearing fields. Returns an empty record when the config file
  * doesn't exist or has no `providers` key.
  */

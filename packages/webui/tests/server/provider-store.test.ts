@@ -81,7 +81,7 @@ describe('ProviderStore', () => {
   });
 
   const makeStore = (): ProviderStore =>
-    createProviderStore({ globalConfigPath: '/test/config.json', vault: mockVault });
+    createProviderStore({ profileConfigPath: '/test/profiles/default/config.json', vault: mockVault });
 
   describe('normalizeKeys', () => {
     it('returns apiKeys array as-is (shallow copy)', () => {

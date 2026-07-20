@@ -20,17 +20,22 @@ let paths: WstackPaths;
 
 beforeEach(async () => {
   dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cloudsync-http-'));
-  await fs.mkdir(path.join(dir, 'prompts', 'sub'), { recursive: true });
-  await fs.writeFile(path.join(dir, 'prompts', 'p.json'), '{"title":"x"}');
-  await fs.writeFile(path.join(dir, 'prompts', 'sub', 'nested.json'), '{"n":1}'); // → walkDir recursion
+  const profileDir = path.join(dir, 'profiles', 'default');
+  await fs.mkdir(path.join(profileDir, 'prompts', 'sub'), { recursive: true });
+  await fs.writeFile(path.join(profileDir, 'prompts', 'p.json'), '{"title":"x"}');
+  await fs.writeFile(path.join(profileDir, 'prompts', 'sub', 'nested.json'), '{"n":1}'); // → walkDir recursion
   await fs.writeFile(path.join(dir, 'config.json'), '{"setting":true}');
+  await fs.writeFile(path.join(profileDir, 'config.json'), '{"setting":true}');
   paths = {
     globalRoot: dir,
+    profileName: 'default',
+    profileDir,
+    configDir: profileDir,
     globalConfig: path.join(dir, 'config.json'),
-    globalSkills: path.join(dir, 'skills'),
-    globalPrompts: path.join(dir, 'prompts'),
-    globalMemory: path.join(dir, 'memory'),
-    historyFile: path.join(dir, 'history.jsonl'),
+    globalSkills: path.join(profileDir, 'skills'),
+    globalPrompts: path.join(profileDir, 'prompts'),
+    globalMemory: path.join(profileDir, 'memory'),
+    historyFile: path.join(profileDir, 'history.jsonl'),
     sessionDir: '', logsDir: '', pluginsDir: '',
   } as WstackPaths;
 });
@@ -75,7 +80,9 @@ describe('CloudSync.push via real githubFetch', () => {
     expect(res.ok).toBe(true);
     expect(res.message).toContain('Pushed');
     // state file written with the commit sha
-    const state = JSON.parse(await fs.readFile(path.join(dir, 'sync-state.json'), 'utf8'));
+    const state = JSON.parse(
+      await fs.readFile(path.join(paths.configDir, 'sync-state.json'), 'utf8'),
+    );
     expect(state.sha).toBe('commit-sha');
   });
 
@@ -127,7 +134,7 @@ describe('CloudSync.pull via real githubFetch', () => {
     ]);
     const res = await make(cfg({ categories: ['prompts'] })).pull('tok');
     expect(res.ok).toBe(true);
-    expect(JSON.parse(await fs.readFile(path.join(dir, 'prompts', 'p.json'), 'utf8'))).toEqual({ pulled: true });
+    expect(JSON.parse(await fs.readFile(path.join(paths.globalPrompts, 'p.json'), 'utf8'))).toEqual({ pulled: true });
   });
 
   it('returns not-enabled when disabled', async () => {
@@ -156,7 +163,14 @@ describe('CloudSync.pull via real githubFetch', () => {
   it('writes a file-backed category directly when the remote path has no subpath', async () => {
     stubPull([{ path: 'data/settings', sha: 'b1', type: 'blob' }]);
     await make(cfg({ categories: ['settings'] })).pull('tok');
-    expect(JSON.parse(await fs.readFile(path.join(dir, 'config.json'), 'utf8'))).toEqual({ pulled: true });
+    expect(
+      JSON.parse(
+        await fs.readFile(path.join(dir, 'profiles', 'default', 'config.json'), 'utf8'),
+      ),
+    ).toEqual({ pulled: true });
+    expect(JSON.parse(await fs.readFile(path.join(dir, 'config.json'), 'utf8'))).toEqual({
+      setting: true,
+    });
   });
 
   it('rejects a nested remote path for a file-backed category', async () => {

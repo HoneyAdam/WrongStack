@@ -9,6 +9,7 @@ import {
   getTrustedProviderPreset,
   isTrustedProviderId,
   listTrustedProviderPresetIds,
+  rehydrateCanonicalProviderConfig,
   resolvePresetForAlias,
   TRUSTED_PROVIDER_PRESETS,
 } from '../src/index.js';
@@ -227,3 +228,106 @@ describe('buildProviderConfigFromPreset', () => {
     expect(cfg.quirks).toBeUndefined();
   });
 });
+/**
+ * Regression guard for the Kimi 401/403 root cause: stale `family: anthropic`
+ * + non-preset `k3` model on an already-saved canonical provider. The setup
+ * flow sends `key.add` (not `provider.add`), so the only hook available
+ * for repair is the upsert path -> must call rehydrateCanonicalProviderConfig
+ * on existing entries. User-owned custom endpoints must remain untouched.
+ */
+describe('rehydrateCanonicalProviderConfig', () => {
+  function kimiPreset() {
+    const preset = TRUSTED_PROVIDER_PRESETS['kimi-for-coding'];
+    if (!preset) throw new Error('kimi-for-coding preset missing');
+    return preset;
+  }
+
+  it('returns false and leaves the provider alone when the id is unknown', () => {
+    const dest: any = { type: 'anthropic', family: 'anthropic', apiKey: 'sk' };
+    expect(rehydrateCanonicalProviderConfig('not-a-preset', dest)).toBe(false);
+    expect(dest).toEqual({ type: 'anthropic', family: 'anthropic', apiKey: 'sk' });
+  });
+
+  it('returns false for an alias id (canonical ids only)', () => {
+    const dest: any = { type: 'kimi-for-coding', family: 'openai-compatible' };
+    expect(rehydrateCanonicalProviderConfig('kimi-for-coding-work', dest)).toBe(false);
+  });
+
+  it('repairs the stale Kimi record (legacy anthropic + k3 model)', () => {
+    const preset = kimiPreset();
+    const dest: any = {
+      type: 'anthropic',
+      family: 'anthropic',
+      baseUrl: undefined,
+      envVars: ['KIMI_API_KEY'],
+      models: ['k3'],
+      model: 'k3',
+      quirks: { thinkingParam: 'kimi-toggle' },
+      apiKey: 'sk-kimi-secret',
+    };
+
+    expect(rehydrateCanonicalProviderConfig('kimi-for-coding', dest)).toBe(true);
+    expect(dest.type).toBe('kimi-for-coding');
+    expect(dest.family).toBe(preset.family); // openai-compatible, not anthropic
+    expect(dest.baseUrl).toBe(preset.baseUrl);
+    expect(dest.envVars).toEqual(preset.envVars);
+    expect(dest.models).toEqual(preset.models);
+    expect(dest.models).not.toContain('k3');
+    expect(dest.model).toBe(preset.models[0]);
+    expect(dest.quirks).toEqual({ thinkingParam: 'kimi-toggle' });
+    // Credentials are user-owned and must not be touched.
+    expect(dest.apiKey).toBe('sk-kimi-secret');
+  });
+
+  it('fills missing base URL / envVars without overwriting user values', () => {
+    const preset = kimiPreset();
+    const dest: any = {
+      type: 'kimi-for-coding',
+      family: 'openai-compatible',
+      baseUrl: undefined,
+      envVars: [],
+      models: ['custom-fine-tune'],
+    };
+    rehydrateCanonicalProviderConfig('kimi-for-coding', dest);
+    expect(dest.baseUrl).toBe(preset.baseUrl);
+    expect(dest.envVars).toEqual(preset.envVars);
+    expect(dest.models).toEqual(['custom-fine-tune']); // user allowlist preserved
+  });
+
+  it('preserves user-owned fields when baseUrl diverges from the preset', () => {
+    const preset = kimiPreset();
+    const dest: any = {
+      type: 'kimi-for-coding',
+      family: 'anthropic',
+      baseUrl: 'https://internal.kimi-proxy.example/v1',
+      envVars: ['INTERNAL_TOKEN'],
+      models: ['internal-fine-tune'],
+      quirks: { thinkingParam: 'custom-quirk' },
+    };
+
+    rehydrateCanonicalProviderConfig('kimi-for-coding', dest);
+
+    // Custom gateway: protocol / models / env vars / quirks are user-owned.
+    expect(dest.family).toBe('anthropic');
+    expect(dest.envVars).toEqual(['INTERNAL_TOKEN']);
+    expect(dest.models).toEqual(['internal-fine-tune']);
+    expect(dest.quirks).toEqual({ thinkingParam: 'custom-quirk' });
+    // type is forced to canonical id so the registry can resolve.
+    expect(dest.type).toBe('kimi-for-coding');
+    // Custom baseUrl never overwritten.
+    expect(dest.baseUrl).toBe('https://internal.kimi-proxy.example/v1');
+    expect(preset.baseUrl).toBe('https://api.kimi.com/coding/v1'); // sanity
+  });
+
+  it('merges quirks with user overrides winning', () => {
+    const preset = kimiPreset();
+    const dest: any = { type: 'kimi-for-coding', family: 'openai-compatible' };
+    dest.quirks = { thinkingParam: 'user-choice', extra: 1 };
+    rehydrateCanonicalProviderConfig('kimi-for-coding', dest);
+    expect(dest.quirks).toEqual({ thinkingParam: 'user-choice', extra: 1 });
+    dest.quirks = undefined;
+    rehydrateCanonicalProviderConfig('kimi-for-coding', dest);
+    expect(dest.quirks).toEqual(preset.quirks);
+  });
+});
+

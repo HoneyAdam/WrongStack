@@ -225,6 +225,46 @@ describe('plugin management', () => {
     expect(result.message).toContain('risk=custom');
   });
 
+  it('locks and unlocks a plugin against LLM manager state changes', async () => {
+    await fs.writeFile(configPath, JSON.stringify({ features: { plugins: true } }));
+
+    const locked = await runPluginManagementCommand(['manager', 'lock', 'secret-scanner'], {
+      config: config(),
+      configPath,
+    });
+
+    expect(locked.code).toBe(0);
+    expect(locked.restartRequired).toBeUndefined();
+    expect(locked.patch?.pluginManager).toEqual({ locked: ['secret-scanner'] });
+    await expect(readConfig()).resolves.toMatchObject({
+      pluginManager: { locked: ['secret-scanner'] },
+    });
+
+    const unlocked = await runPluginManagementCommand(['manager', 'unlock', 'secret-scanner'], {
+      config: config({ pluginManager: { locked: ['secret-scanner'] } }),
+      configPath,
+    });
+
+    expect(unlocked.patch?.pluginManager).toEqual({ locked: [] });
+    await expect(readConfig()).resolves.toMatchObject({ pluginManager: { locked: [] } });
+  });
+
+  it('supports wildcard and canonical official aliases in LLM manager policy', async () => {
+    await fs.writeFile(configPath, JSON.stringify({}));
+
+    const telegram = await runPluginManagementCommand(['manager', 'lock', '@wrongstack/telegram'], {
+      config: config(),
+      configPath,
+    });
+    expect(telegram.patch?.pluginManager?.locked).toEqual(['telegram']);
+
+    const all = await runPluginManagementCommand(['manager', 'lock', '*'], {
+      config: config({ pluginManager: { locked: ['telegram'] } }),
+      configPath,
+    });
+    expect(all.patch?.pluginManager?.locked).toEqual(['telegram', '*']);
+  });
+
   it('uses the audit report as the non-interactive menu fallback', async () => {
     const result = await runPluginManagementCommand(['menu'], {
       config: config(),

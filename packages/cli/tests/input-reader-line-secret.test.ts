@@ -11,7 +11,7 @@
  *    and the post-Enter raw-mode restore.
  *
  * Every reader is constructed with a throwaway temp `historyFile` so the tests
- * never read or clobber the developer's real `~/.wrongstack/history`.
+ * never read or clobber the developer's real profile history.
  */
 import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs/promises';

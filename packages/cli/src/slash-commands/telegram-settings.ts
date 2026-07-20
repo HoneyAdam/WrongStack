@@ -90,7 +90,6 @@ export function buildTelegramSettingsCommand(opts: SlashCommandContext): SlashCo
 
       const persistDeps = {
         configStore: opts.configStore,
-        globalConfigPath: opts.paths.globalConfig,
         profileConfigPath: activeProfileConfigPath(opts.paths, opts.configStore.get()),
         vault: opts.vault,
       };

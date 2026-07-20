@@ -1,6 +1,7 @@
 import { expectDefined } from '@wrongstack/core';
 import {
   buildProviderConfigFromPreset,
+  rehydrateCanonicalProviderConfig,
   resolvePresetForAlias,
 } from '@wrongstack/providers';
 /**
@@ -119,6 +120,11 @@ export function upsertKey(
     existing = { type: providerId };
     const presetId = hydratePresetConfig(providerId, existing);
     if (presetId) existing.type = presetId;
+  } else {
+    // Setup cards use key.upsert for already-saved providers. Repair stale
+    // canonical preset metadata here without touching credentials or a
+    // user-owned custom endpoint.
+    rehydrateCanonicalProviderConfig(providerId, existing);
   }
   const keys = normalizeKeys(existing);
   const idx = keys.findIndex((k) => k.label === label);

@@ -377,7 +377,7 @@ async function applyActions(
   await atomicWrite(file, JSON.stringify(parsed, null, 2));
   try {
     const homeFn = () => path.dirname(path.dirname(file));
-    await appendHistory(JSON.parse(raw), parsed, 'tuneup auto-fix', homeFn);
+    await appendHistory(JSON.parse(raw), parsed, 'tuneup auto-fix', homeFn, file);
   } catch {
     // history is best-effort
   }

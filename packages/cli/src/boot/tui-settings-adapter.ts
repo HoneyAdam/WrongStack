@@ -237,7 +237,6 @@ export function createSettingsAdapter(ctx: SettingsAdapterContext): SettingsAdap
         const activeProfileName = (cfg as { activeProfile?: string }).activeProfile ?? 'default';
         const persistDeps = {
           configStore,
-          globalConfigPath: wpaths.globalConfig,
           profileConfigPath: wpaths.profileConfig(activeProfileName),
           inProjectConfigPath: wpaths.inProjectConfig,
           vault: noOpVault,

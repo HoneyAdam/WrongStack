@@ -23,7 +23,7 @@ export interface PromptLoaderOptions {
  *
  * Discovery order (higher priority shadows lower by slug):
  *   1. Project-committed:  <project>/.wrongstack/prompts/   (writable, source 'project')
- *   2. User-global:        ~/.wrongstack/prompts/           (writable, source 'user'/'synced')
+ *   2. User profile:       ~/.wrongstack/profiles/<name>/prompts/ (writable, source 'user'/'synced')
  *   3. Bundled with build:  <core>/data/prompts/prompts/**  (read-only, source 'builtin')
  *
  * Writes go to the user layer by default (or the project layer when

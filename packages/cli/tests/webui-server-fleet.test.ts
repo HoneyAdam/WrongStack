@@ -34,7 +34,7 @@ describe('runWebUI subagent fleet bridge', () => {
 
   it('flattens subagent.* host events into a kind-tagged subagent.event stream', async () => {
     const port = nextPort();
-    const httpPort = nextPort();
+    const httpPort = port; // single-port design: HTTP and WS share one listener
     const events = new EventBus();
     let signalReady: (() => void) | undefined;
     const listening = new Promise<void>((r) => {

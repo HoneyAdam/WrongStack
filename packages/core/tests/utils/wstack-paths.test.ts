@@ -70,11 +70,47 @@ describe('wstack-paths', () => {
       projectRoot: '/work/x',
     });
     expect(paths.globalRoot).toBe(path.join('/home/dev', '.wrongstack'));
-    expect(paths.globalSkills).toBe(path.join('/home/dev', '.wrongstack', 'skills'));
+    expect(paths.profileName).toBe('default');
+    expect(paths.profileDir).toBe(
+      path.join('/home/dev', '.wrongstack', 'profiles', 'default'),
+    );
+    expect(paths.globalSkills).toBe(
+      path.join('/home/dev', '.wrongstack', 'profiles', 'default', 'skills'),
+    );
     expect(paths.inProjectSkills).toBe(path.join('/work/x', '.wrongstack', 'skills'));
     expect(paths.modelsCache).toContain('cache');
     expect(paths.projectDir).toContain('projects');
     expect(paths.projectDir).toContain(paths.projectSlug);
+  });
+
+  it('resolves every user-owned path under the active profile bootstrap', async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'wstack-profile-paths-'));
+    const globalRoot = path.join(tmp, '.wrongstack');
+    try {
+      await fs.mkdir(globalRoot, { recursive: true });
+      await fs.writeFile(
+        path.join(globalRoot, 'config.json'),
+        JSON.stringify({ version: 1, activeProfile: 'work' }),
+      );
+      const paths = resolveWstackPaths({ projectRoot: path.join(tmp, 'project'), globalRoot });
+      const profileDir = path.join(globalRoot, 'profiles', 'work');
+
+      expect(paths.profileName).toBe('work');
+      expect(paths.configDir).toBe(profileDir);
+      expect(paths.globalMemory).toBe(path.join(profileDir, 'memory.md'));
+      expect(paths.globalSkills).toBe(path.join(profileDir, 'skills'));
+      expect(paths.globalDesignKits).toBe(path.join(profileDir, 'design-kits'));
+      expect(paths.globalPrompts).toBe(path.join(profileDir, 'prompts'));
+      expect(paths.globalInstructions).toBe(path.join(profileDir, 'instructions'));
+      expect(paths.promptUsage).toBe(path.join(profileDir, 'prompt-usage.json'));
+      expect(paths.historyFile).toBe(path.join(profileDir, 'history'));
+      expect(paths.syncConfig).toBe(path.join(profileDir, 'sync.json'));
+      expect(paths.secretsKey).toBe(path.join(globalRoot, '.key'));
+      expect(paths.modelsCache).toBe(path.join(globalRoot, 'cache', 'models.dev.json'));
+      expect(paths.projectDir).toContain(path.join(globalRoot, 'projects'));
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
   });
 
   it('only AGENTS.md and skills are project-local', () => {

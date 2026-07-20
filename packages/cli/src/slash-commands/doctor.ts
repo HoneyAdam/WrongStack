@@ -221,7 +221,13 @@ export function buildDoctorCommand(opts: SlashCommandContext): SlashCommand {
               // convention so the change shows up in config-history and takes
               // effect without a restart.
               const homeFn = () => path.dirname(path.dirname(target.file));
-              await appendHistory(parsed, report.fixed, 'config doctor auto-fix', homeFn);
+              await appendHistory(
+                parsed,
+                report.fixed,
+                'config doctor auto-fix',
+                homeFn,
+                target.file,
+              );
             } catch {
               // history is best-effort
             }

@@ -8,7 +8,8 @@ export type FirstRunAuthGateChoice = 'continue' | 'settings' | 'quit';
 
 export interface FirstRunAuthGateDeps {
   config: Config;
-  globalConfigPath: string;
+  /** Active profile settings file; the root config is bootstrap metadata only. */
+  profileConfigPath: string;
   vault: SecretVault;
   renderer: TerminalRenderer;
   reader: ReadlineInputReader;
@@ -16,7 +17,8 @@ export interface FirstRunAuthGateDeps {
 
 export async function hasAnyAuthRecord(deps: {
   config: Config;
-  globalConfigPath: string;
+  /** Active profile settings file; the root config is bootstrap metadata only. */
+  profileConfigPath: string;
   vault: SecretVault;
 }): Promise<boolean> {
   if (typeof deps.config.apiKey === 'string' && deps.config.apiKey.length > 0) return true;
@@ -25,7 +27,7 @@ export async function hasAnyAuthRecord(deps: {
     if (cfg && normalizeKeys(cfg).length > 0) return true;
   }
 
-  const providers = await loadConfigProviders(deps.globalConfigPath, deps.vault);
+  const providers = await loadConfigProviders(deps.profileConfigPath, deps.vault);
   return Object.values(providers).some((cfg) => normalizeKeys(cfg).length > 0);
 }
 

@@ -56,7 +56,7 @@ Views and interactions:
 
 All secrets stay CLI-side: the panel receives only masked key material, and
 prompt input flows directly into the encrypted config
-(`~/.wrongstack/config.json` via the secret vault).
+(the active profile config via the secret vault).
 
 ## Examples
 

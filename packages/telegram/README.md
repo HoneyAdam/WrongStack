@@ -52,7 +52,7 @@ you to open a credential-bearing Bot API URL.
 ### 4. Configure manually (optional)
 
 The setup command writes this configuration securely. For custom hosts, the
-equivalent shape in `~/.wrongstack/config.json` or `.wrongstack/config.json` is:
+equivalent shape in the active `~/.wrongstack/profiles/<name>/config.json` is:
 
 ```jsonc
 {

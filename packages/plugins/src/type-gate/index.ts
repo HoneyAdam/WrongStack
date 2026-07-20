@@ -97,9 +97,27 @@ const DEFAULTS: TypeGateConfig = {
   runOnChange: ['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts'],
 };
 
+/**
+ * Extension set for O(1) lookup instead of Array.includes() O(n).
+ *
+ * Performance: converts the runOnChange array to a Set at config read time
+ * so the hook's per-file extension check is O(1) instead of O(n).
+ */
+let runOnChangeSet = new Set(DEFAULTS.runOnChange);
+
 function readConfig(raw: unknown): TypeGateConfig {
-  if (!raw || typeof raw !== 'object') return { ...DEFAULTS };
+  if (!raw || typeof raw !== 'object') {
+    runOnChangeSet = new Set(DEFAULTS.runOnChange);
+    return { ...DEFAULTS };
+  }
   const r = raw as Record<string, unknown>;
+  const runOnChange = Array.isArray(r['runOnChange'])
+    ? (r['runOnChange'] as unknown[]).filter((x): x is string => typeof x === 'string')
+    : DEFAULTS.runOnChange;
+
+  // Update the module-scope Set for O(1) lookup in the hook.
+  runOnChangeSet = new Set(runOnChange);
+
   return {
     enabled: r['enabled'] === true,
     command: typeof r['command'] === 'string' ? r['command'] : DEFAULTS.command,
@@ -113,9 +131,7 @@ function readConfig(raw: unknown): TypeGateConfig {
       typeof r['maxErrors'] === 'number' && r['maxErrors'] >= 1 && r['maxErrors'] <= 50
         ? r['maxErrors']
         : DEFAULTS.maxErrors,
-    runOnChange: Array.isArray(r['runOnChange'])
-      ? (r['runOnChange'] as unknown[]).filter((x): x is string => typeof x === 'string')
-      : DEFAULTS.runOnChange,
+    runOnChange,
   };
 }
 
@@ -325,7 +341,8 @@ const plugin: Plugin = {
       const ext = sourcePath.includes('.')
         ? sourcePath.slice(sourcePath.lastIndexOf('.')).toLowerCase()
         : '';
-      if (!cfg.runOnChange.includes(ext)) {
+      // Performance: uses Set.has() for O(1) lookup instead of Array.includes() O(n).
+      if (!runOnChangeSet.has(ext)) {
         state.skippedCount += 1;
         return;
       }

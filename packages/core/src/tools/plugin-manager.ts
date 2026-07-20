@@ -1,0 +1,437 @@
+import type { ToolRegistry } from '../registry/tool-registry.js';
+import { ToolCapabilities } from '../security/capabilities.js';
+import type { Config, PluginConfig } from '../types/config.js';
+import type { JSONSchema, Tool } from '../types/tool.js';
+import { validateAgainstSchema } from '../utils/json-schema-validate.js';
+
+export const PLUGIN_MANAGER_TOOL_NAME = 'plugin_manager';
+
+export interface PluginManagerCatalogEntry {
+  name: string;
+  description: string;
+  risk: 'low' | 'medium' | 'high';
+  defaultState: 'active' | 'inactive';
+  canDisable: boolean;
+  /** Alternative config/discovery names, such as an official package specifier. */
+  aliases?: readonly string[] | undefined;
+}
+
+export interface PluginManagerMutationResult {
+  ok: boolean;
+  message: string;
+  restartRequired?: boolean | undefined;
+}
+
+export interface CreatePluginManagerToolOptions {
+  /** Re-read on every call so config changes made during the session are visible. */
+  getConfig: () => Config;
+  /** Built-in/official discovery catalog supplied by the host. */
+  catalog: readonly PluginManagerCatalogEntry[];
+  /** Live registry used to discover and invoke tools registered by loaded plugins. */
+  toolRegistry: ToolRegistry;
+  /** Persist an enable/disable decision in the host's active config. */
+  setEnabled: (plugin: string, enabled: boolean) => Promise<PluginManagerMutationResult>;
+}
+
+interface PluginManagerInput {
+  action: 'list' | 'search' | 'describe' | 'enable' | 'disable' | 'use';
+  plugin?: string | undefined;
+  query?: string | undefined;
+  state?: 'all' | 'enabled' | 'disabled' | undefined;
+  tool?: string | undefined;
+  input?: Record<string, unknown> | undefined;
+}
+
+interface PluginToolView {
+  name: string;
+  description: string;
+  inputSchema: JSONSchema;
+  permission: 'auto' | 'confirm' | 'deny';
+  enabled: boolean;
+}
+
+interface PluginView {
+  name: string;
+  description: string;
+  risk: 'low' | 'medium' | 'high' | 'custom';
+  enabled: boolean;
+  stateSource: 'config' | 'default' | 'feature_flag';
+  canDisable: boolean;
+  managerControl: 'allowed' | 'locked';
+  aliases: string[];
+  callableNow: boolean;
+  tools: PluginToolView[];
+}
+
+const INPUT_SCHEMA: JSONSchema = {
+  type: 'object',
+  properties: {
+    action: {
+      type: 'string',
+      enum: ['list', 'search', 'describe', 'enable', 'disable', 'use'],
+      description:
+        'Operation. list: inventory with optional state filter. search: find plugins by need/query. describe: inspect one plugin, managerControl, callableNow, and full tool schemas. enable/disable: persist boot state (often restartRequired). use: inspect or invoke a tool from a plugin already loaded in this session.',
+    },
+    plugin: {
+      type: 'string',
+      description:
+        'Plugin name or unambiguous alias. Required for describe, enable, disable, and use.',
+    },
+    query: {
+      type: 'string',
+      description:
+        'Free-text query over plugin names, aliases, descriptions, and registered tool metadata. Required for search.',
+    },
+    state: {
+      type: 'string',
+      enum: ['all', 'enabled', 'disabled'],
+      description:
+        'Optional list/search filter. enabled/disabled means effective boot state, not whether plugin code can be hot-loaded in the current session. Defaults to all.',
+    },
+    tool: {
+      type: 'string',
+      description:
+        'Registered plugin tool to invoke when action="use". Omit to receive the available tool schemas first.',
+    },
+    input: {
+      type: 'object',
+      description:
+        'Exact JSON input for the selected plugin tool when action="use". Read the schema returned by describe or use-without-tool first; do not guess fields.',
+      properties: {},
+      additionalProperties: true,
+    },
+  },
+  required: ['action'],
+  additionalProperties: false,
+};
+
+const USAGE_HINT = [
+  'Always discover before mutating: never enable a guessed plugin name.',
+  'Workflow: (1) search with a capability/need query, or list with an optional state filter;',
+  '(2) describe the chosen plugin and inspect enabled, managerControl, callableNow, and tools[].inputSchema;',
+  '(3) if disabled, enable only when managerControl="allowed"—never work around "locked"; when restartRequired=true, tell the user the plugin cannot be used until WrongStack restarts;',
+  '(4) call use with only plugin to refresh/inspect callable tool schemas;',
+  '(5) call use again with the exact tool name and schema-valid input.',
+  'Examples: search={"action":"search","query":"release notes"}; describe={"action":"describe","plugin":"release-notes-generator"}; inspect-use={"action":"use","plugin":"release-notes-generator"}; invoke-use={"action":"use","plugin":"release-notes-generator","tool":"generate_release_notes","input":{"to":"HEAD"}}.',
+  'use works only for tools loaded now. If the result is needs_direct_call, call the returned tool directly so its confirm/deny/destructive policy runs.',
+  'disable also normally affects the next boot, not already-loaded code.',
+].join(' ');
+
+export function createPluginManagerTool(opts: CreatePluginManagerToolOptions): Tool {
+  return {
+    name: PLUGIN_MANAGER_TOOL_NAME,
+    description:
+      'Manage WrongStack plugins through a guarded discovery-first workflow. Search the host catalog, inspect effective state and live plugin-owned tool schemas, persist allowed enable/disable changes, and invoke tools from plugins already loaded in this session. This does not install arbitrary packages or bypass plugin/tool permissions.',
+    usageHint: USAGE_HINT,
+    selection: {
+      doNotUseWhen:
+        'installing a new npm package, editing plugin-specific options, changing per-plugin LLM routing, or bypassing a managerControl lock/tool permission',
+    },
+    category: 'Config',
+    inputSchema: INPUT_SCHEMA,
+    permission: 'auto',
+    mutating: true,
+    riskTier: 'standard',
+    subjectKey: 'plugin',
+    capabilities: [
+      ToolCapabilities.TOOL_META,
+      ToolCapabilities.TOOL_MUTATE_ANY,
+      ToolCapabilities.CONFIG_MUTATE,
+    ],
+    icon: 'settings',
+    validate(input) {
+      const value = input as PluginManagerInput;
+      const errors: string[] = [];
+      if (value.action === 'search' && !value.query?.trim()) {
+        errors.push('query is required when action="search"');
+      }
+      if (
+        ['describe', 'enable', 'disable', 'use'].includes(value.action) &&
+        !value.plugin?.trim()
+      ) {
+        errors.push(`plugin is required when action="${value.action}"`);
+      }
+      if (value.action === 'use' && value.tool && value.input === undefined) {
+        errors.push('input is required when action="use" includes a tool');
+      }
+      return errors;
+    },
+    async execute(rawInput, ctx, executeOpts) {
+      const input = rawInput as PluginManagerInput;
+      const views = buildPluginViews(opts);
+
+      if (input.action === 'list' || input.action === 'search') {
+        const needle = input.action === 'search' ? input.query!.trim().toLowerCase() : '';
+        const state = input.state ?? 'all';
+        const matches = views.filter((view) => {
+          if (state !== 'all' && view.enabled !== (state === 'enabled')) return false;
+          if (!needle) return true;
+          const haystack = [
+            view.name,
+            ...view.aliases,
+            view.description,
+            ...view.tools.flatMap((tool) => [tool.name, tool.description]),
+          ]
+            .join('\n')
+            .toLowerCase();
+          return haystack.includes(needle);
+        });
+        return {
+          status: 'ok',
+          action: input.action,
+          count: matches.length,
+          plugins: matches.map(compactView),
+        };
+      }
+
+      const resolved = resolvePlugin(input.plugin!, views);
+      if ('error' in resolved) return { status: 'error', message: resolved.error };
+      const plugin = resolved.plugin;
+
+      if (input.action === 'describe') {
+        return { status: 'ok', action: 'describe', plugin };
+      }
+
+      if (input.action === 'enable' || input.action === 'disable') {
+        const enabled = input.action === 'enable';
+        if (plugin.managerControl === 'locked') {
+          return {
+            status: 'error',
+            code: 'plugin_manager_locked',
+            message:
+              `Plugin "${plugin.name}" is locked against LLM enable/disable changes. ` +
+              'Only the user can change it with /plugin or update pluginManager.locked.',
+          };
+        }
+        if (!enabled && !plugin.canDisable) {
+          return {
+            status: 'error',
+            message: `Plugin "${plugin.name}" is locked and cannot be disabled.`,
+          };
+        }
+        if (plugin.enabled === enabled && plugin.stateSource !== 'feature_flag') {
+          return {
+            status: 'ok',
+            action: input.action,
+            changed: false,
+            restartRequired: false,
+            message: `Plugin "${plugin.name}" is already ${enabled ? 'enabled' : 'disabled'}.`,
+          };
+        }
+        const result = await opts.setEnabled(plugin.name, enabled);
+        return {
+          status: result.ok ? 'ok' : 'error',
+          action: input.action,
+          changed: result.ok,
+          restartRequired: result.restartRequired ?? result.ok,
+          message: result.message,
+        };
+      }
+
+      if (!plugin.enabled) {
+        return {
+          status: 'error',
+          message: `Plugin "${plugin.name}" is disabled. Enable it first; newly enabled plugins become callable after restart.`,
+        };
+      }
+      if (!input.tool) {
+        return {
+          status: 'ok',
+          action: 'use',
+          ready: plugin.callableNow,
+          message: plugin.callableNow
+            ? `Choose one of the loaded tools registered by "${plugin.name}".`
+            : `Plugin "${plugin.name}" has no callable tool loaded in this session. It may be hook/command-only or require a restart/configuration.`,
+          plugin,
+        };
+      }
+
+      const selected = plugin.tools.find((tool) => tool.name === input.tool);
+      if (!selected) {
+        return {
+          status: 'error',
+          message: `Tool "${input.tool}" is not registered by plugin "${plugin.name}" in this session.`,
+          availableTools: plugin.tools.map((tool) => tool.name),
+        };
+      }
+      if (!selected.enabled) {
+        return {
+          status: 'error',
+          message: `Tool "${selected.name}" is registered but disabled by the tool configuration.`,
+        };
+      }
+
+      const tool = opts.toolRegistry.get(selected.name);
+      if (!tool || !ownerMatches(opts.toolRegistry.ownerOf(selected.name), plugin)) {
+        return {
+          status: 'error',
+          message: `Tool "${selected.name}" is no longer available from "${plugin.name}".`,
+        };
+      }
+      if (tool.permission !== 'auto' || tool.riskTier === 'destructive') {
+        return {
+          status: 'needs_direct_call',
+          message:
+            `Tool "${tool.name}" requires the normal permission path (${tool.permission}, risk=${tool.riskTier ?? 'standard'}). ` +
+            'Call it directly so WrongStack can apply its own approval and policy checks.',
+          directCall: { tool: tool.name, input: input.input ?? {}, inputSchema: tool.inputSchema },
+        };
+      }
+
+      const nestedInput = input.input ?? {};
+      const validation = validateAgainstSchema(nestedInput, tool.inputSchema);
+      if (!validation.ok) {
+        return {
+          status: 'error',
+          message: `Invalid input for plugin tool "${tool.name}".`,
+          errors: validation.errors,
+          inputSchema: tool.inputSchema,
+        };
+      }
+      const crossFieldErrors = tool.validate?.(nestedInput) ?? [];
+      if (crossFieldErrors.length > 0) {
+        return {
+          status: 'error',
+          message: `Invalid input for plugin tool "${tool.name}".`,
+          errors: crossFieldErrors,
+          inputSchema: tool.inputSchema,
+        };
+      }
+
+      const result = await tool.execute(nestedInput, ctx, executeOpts);
+      return { status: 'ok', action: 'use', plugin: plugin.name, tool: tool.name, result };
+    },
+  };
+}
+
+function buildPluginViews(opts: CreatePluginManagerToolOptions): PluginView[] {
+  const config = opts.getConfig();
+  const configured = config.plugins ?? [];
+  const catalog = [...opts.catalog];
+  const knownNames = new Set(catalog.flatMap((entry) => [entry.name, ...(entry.aliases ?? [])]));
+
+  for (const item of configured) {
+    const name = pluginConfigName(item);
+    if (!knownNames.has(name)) {
+      catalog.push({
+        name,
+        description: 'User-configured plugin (not present in the built-in discovery catalog).',
+        risk: 'medium',
+        defaultState: 'inactive',
+        canDisable: true,
+      });
+      knownNames.add(name);
+    }
+  }
+
+  return catalog
+    .map((entry): PluginView => {
+      const aliases = [...(entry.aliases ?? [])];
+      const names = new Set([entry.name, ...aliases]);
+      const configuredEntry = configured.find((item) => names.has(pluginConfigName(item)));
+      const globallyDisabled = config.features?.plugins === false;
+      const enabled = globallyDisabled
+        ? false
+        : configuredEntry === undefined
+          ? entry.defaultState === 'active'
+          : typeof configuredEntry === 'string' || configuredEntry.enabled !== false;
+      const stateSource = globallyDisabled
+        ? 'feature_flag'
+        : configuredEntry === undefined
+          ? 'default'
+          : 'config';
+      const tools = pluginTools(opts.toolRegistry, entry.name, aliases);
+      const managerControl = isManagerLocked(config, entry.name, aliases) ? 'locked' : 'allowed';
+      return {
+        name: entry.name,
+        description: entry.description,
+        risk: entry.risk,
+        enabled,
+        stateSource,
+        canDisable: entry.canDisable,
+        managerControl,
+        aliases,
+        callableNow: enabled && tools.some((tool) => tool.enabled),
+        tools,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function isManagerLocked(config: Config, name: string, aliases: readonly string[]): boolean {
+  const locked = new Set(
+    (config.pluginManager?.locked ?? []).map((entry) => entry.trim().toLowerCase()),
+  );
+  if (locked.has('*')) return true;
+  return [name, ...aliases].some((entry) => locked.has(entry.toLowerCase()));
+}
+
+function pluginTools(
+  registry: ToolRegistry,
+  name: string,
+  aliases: readonly string[],
+): PluginToolView[] {
+  const plugin = { name, aliases };
+  const active = registry
+    .listWithOwner()
+    .filter(({ owner }) => ownerMatches(owner, plugin))
+    .map(({ tool }) => toolView(tool, true));
+  const disabled = registry
+    .listDisabled()
+    .filter(({ owner }) => ownerMatches(owner, plugin))
+    .map(({ tool }) => toolView(tool, false));
+  return [...active, ...disabled].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function toolView(tool: Tool, enabled: boolean): PluginToolView {
+  return {
+    name: tool.name,
+    description: tool.description,
+    inputSchema: tool.inputSchema,
+    permission: tool.permission,
+    enabled,
+  };
+}
+
+function ownerMatches(
+  owner: string | undefined,
+  plugin: { name: string; aliases: readonly string[] },
+): boolean {
+  if (!owner) return false;
+  const names = new Set([plugin.name, ...plugin.aliases]);
+  const segments = owner.split('+');
+  return segments.length > 0 && segments.every((segment) => names.has(segment));
+}
+
+function resolvePlugin(
+  input: string,
+  views: PluginView[],
+): { plugin: PluginView } | { error: string } {
+  const needle = input.trim().toLowerCase();
+  const exact = views.find(
+    (view) =>
+      view.name.toLowerCase() === needle ||
+      view.aliases.some((alias) => alias.toLowerCase() === needle),
+  );
+  if (exact) return { plugin: exact };
+  const partial = views.filter(
+    (view) =>
+      view.name.toLowerCase().includes(needle) ||
+      view.aliases.some((alias) => alias.toLowerCase().includes(needle)),
+  );
+  if (partial.length === 1) return { plugin: partial[0]! };
+  if (partial.length > 1) {
+    return {
+      error: `Plugin name "${input}" is ambiguous. Matches: ${partial.map((view) => view.name).join(', ')}.`,
+    };
+  }
+  return { error: `Plugin "${input}" was not found. Use plugin_manager search first.` };
+}
+
+function compactView(view: PluginView): Omit<PluginView, 'tools'> & { tools: string[] } {
+  return { ...view, tools: view.tools.map((tool) => tool.name) };
+}
+
+function pluginConfigName(item: string | PluginConfig): string {
+  return typeof item === 'string' ? item : item.name;
+}

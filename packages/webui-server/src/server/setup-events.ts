@@ -1125,9 +1125,9 @@ export function setupEvents(deps: SetupEventsDeps): () => void {
   // ── File watcher for external status.json changes ──
   // Watches ~/.wrongstack/projects/<hash>/status.json files for external tool changes.
   // Uses project hash filtering and debouncing to handle rapid writes efficiently.
-  if (wpaths?.projectStatus && wpaths.configDir) {
+  if (wpaths?.projectStatus && wpaths.globalRoot) {
     // projectsDir = ~/.wrongstack/projects/
-    const projectsDir = path.join(wpaths.configDir, 'projects');
+    const projectsDir = path.join(wpaths.globalRoot, 'projects');
 
     // Track known project hashes (populated from incoming client.status events)
     const knownProjectHashes = new Set<string>();

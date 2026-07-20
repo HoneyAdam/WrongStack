@@ -88,9 +88,19 @@ const DEFAULTS: SecurityHotspotConfig = {
   scanOnChange: ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.py', '.java', '.go', '.rb', '.php'],
 };
 
+// Module-scope cache, rebuilt by readConfig() for O(1) lookup in the PostToolUse hook.
+let scanOnChangeSet = new Set(DEFAULTS.scanOnChange);
+
 function readConfig(raw: unknown): SecurityHotspotConfig {
-  if (!raw || typeof raw !== 'object') return { ...DEFAULTS };
+  if (!raw || typeof raw !== 'object') {
+    scanOnChangeSet = new Set(DEFAULTS.scanOnChange);
+    return { ...DEFAULTS };
+  }
   const r = raw as Record<string, unknown>;
+  const scanOnChange = Array.isArray(r['scanOnChange'])
+    ? (r['scanOnChange'] as unknown[]).filter((x): x is string => typeof x === 'string')
+    : DEFAULTS.scanOnChange;
+  scanOnChangeSet = new Set(scanOnChange);
   return {
     enabled: r['enabled'] === true,
     severity: r['severity'] === 'block' ? 'block' : DEFAULTS.severity,
@@ -98,9 +108,7 @@ function readConfig(raw: unknown): SecurityHotspotConfig {
       typeof r['maxFindings'] === 'number' && r['maxFindings'] >= 1 && r['maxFindings'] <= 100
         ? r['maxFindings']
         : DEFAULTS.maxFindings,
-    scanOnChange: Array.isArray(r['scanOnChange'])
-      ? (r['scanOnChange'] as unknown[]).filter((x): x is string => typeof x === 'string')
-      : DEFAULTS.scanOnChange,
+    scanOnChange,
   };
 }
 
@@ -356,7 +364,8 @@ const plugin: Plugin = {
       const ext = sourcePath.includes('.')
         ? sourcePath.slice(sourcePath.lastIndexOf('.')).toLowerCase()
         : '';
-      if (!cfg.scanOnChange.includes(ext)) {
+      // Performance: uses Set.has() for O(1) lookup instead of Array.includes() O(n).
+      if (!scanOnChangeSet.has(ext)) {
         state.skippedCount += 1;
         return;
       }

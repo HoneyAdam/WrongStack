@@ -1,7 +1,5 @@
 import type { ServerMessage } from '../types.js';
 
-const DEFAULT_WS_PORT = 3457;
-
 function pageToken(): string | null {
   try {
     return new URLSearchParams(window.location.search).get('token');
@@ -10,7 +8,7 @@ function pageToken(): string | null {
   }
 }
 
-function configuredWsUrl(): URL | null {
+function configuredWsUrl(): string | null {
   const raw = document
     .querySelector('meta[name="wrongstack-ws-url"]')
     ?.getAttribute('content')
@@ -21,27 +19,23 @@ function configuredWsUrl(): URL | null {
     if (url.protocol !== 'ws:' && url.protocol !== 'wss:') return null;
     const token = pageToken();
     if (token && !url.searchParams.has('token')) url.searchParams.set('token', token);
-    return url;
+    return url.toString();
   } catch {
     return null;
   }
 }
 
-function wsPort(): number {
-  const raw = document.querySelector('meta[name="wrongstack-ws-port"]')?.getAttribute('content');
-  const port = raw ? Number.parseInt(raw, 10) : DEFAULT_WS_PORT;
-  return Number.isInteger(port) && port > 0 && port < 65536 ? port : DEFAULT_WS_PORT;
-}
-
 function defaultWsUrl(): URL {
   const configured = configuredWsUrl();
-  if (configured) return configured;
+  if (configured) return new URL(configured);
+  // Shared-port design: WS shares the HTTP port, so derive the WS URL
+  // from the page origin. No separate WS port or meta tag needed.
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const loopback = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(
-    window.location.hostname.toLowerCase(),
-  );
-  const host = loopback ? '127.0.0.1' : window.location.hostname;
-  const url = new URL(`${protocol}//${host}:${wsPort()}`);
+  const host = window.location.hostname.toLowerCase();
+  const port = window.location.port;
+  const loopback = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(host);
+  const hostPart = loopback ? '127.0.0.1' : host;
+  const url = new URL(`${protocol}//${hostPart}${port ? `:${port}` : ''}`);
   const token = pageToken();
   if (token) url.searchParams.set('token', token);
   return url;

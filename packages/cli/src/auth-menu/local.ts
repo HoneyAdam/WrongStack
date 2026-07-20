@@ -270,7 +270,7 @@ export async function runAuthLocal(
   }
 
   try {
-    await mutateConfigProviders(deps.globalConfigPath, deps.vault, (all) => {
+    await mutateConfigProviders(deps.profileConfigPath, deps.vault, (all) => {
       const p = all[chosen.id] ?? { type: chosen.id };
       if (!p.type) p.type = chosen.id;
       // Wire family is always openai-compatible for these three.

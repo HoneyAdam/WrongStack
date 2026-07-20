@@ -16,11 +16,9 @@ import { fileURLToPath } from 'node:url';
 import type { Config, ModelsRegistry } from '@wrongstack/core';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { verifyClient as verifyWsClient } from './ws-auth.js';
-import { buildWebUIAccessUrl, envFlag, errMessage, resolveAuthToken } from './ws-utils.js';
+import { envFlag, resolveAuthToken } from './ws-utils.js';
 import { findFreePort } from './port-utils.js';
-import { openBrowser } from './open-browser.js';
 import { createHttpServer } from './http-server.js';
-import { registerInstance } from './instance-registry.js';
 import { registerShutdownHandlers } from './lifecycle.js';
 import { setupEvents, type FileWatcherMetrics } from './setup-events.js';
 import { getCostRates } from './usage-cost.js';
@@ -32,7 +30,6 @@ import { toErrorMessage } from '@wrongstack/core/utils';
 
 interface ResolvedPorts {
   wsHost: string;
-  wsPort: number;
   httpPort: number;
   publicUrl: string | undefined;
   publicWsUrl: string | undefined;
@@ -40,13 +37,13 @@ interface ResolvedPorts {
 }
 
 /**
- * Resolve bind host, HTTP/WS ports, public URLs, and the token-required flag
- * from CLI opts + env vars. Auto-advances past taken ports unless
- * `WEBUI_STRICT_PORT` is set.
+ * Resolve bind host, HTTP port, public URLs, and the token-required flag
+ * from CLI opts + env vars. The WS server shares the HTTP port (single
+ * port design), so only one port is resolved. Auto-advances past taken
+ * ports unless `WEBUI_STRICT_PORT` is set.
  */
 export async function resolvePorts(opts: {
   surface?: 'webui' | 'simpleui' | undefined;
-  wsPort?: number | undefined;
   wsHost?: string | undefined;
   httpPort?: number | undefined;
   webuiPort?: number | undefined;
@@ -57,9 +54,8 @@ export async function resolvePorts(opts: {
 }): Promise<ResolvedPorts> {
   const surface = opts.surface ?? 'webui';
   const surfaceDefaults = surface === 'simpleui'
-    ? { http: 3466, ws: 3467 }
-    : { http: 3456, ws: 3457 };
-  const requestedWsPort = opts.wsPort ?? surfaceDefaults.ws;
+    ? { http: 3466 }
+    : { http: 3456 };
   const wsHost = opts.wsHost ?? process.env['WEBUI_HOST'] ?? process.env['WS_HOST'] ?? '127.0.0.1';
   const requestedHttpPort =
     opts.httpPort ?? opts.webuiPort ?? opts.port ??
@@ -70,19 +66,14 @@ export async function resolvePorts(opts: {
 
   const strictPort =
     process.env['WEBUI_STRICT_PORT'] === '1' || process.env['WEBUI_STRICT_PORT'] === 'true';
-  let wsPort = requestedWsPort;
   let httpPort = requestedHttpPort;
   if (!strictPort) {
     httpPort = await findFreePort(wsHost, requestedHttpPort);
-    wsPort = await findFreePort(wsHost, requestedWsPort, { exclude: new Set([httpPort]) });
     if (httpPort !== requestedHttpPort) {
       console.warn(JSON.stringify({ level: 'warn', event: 'webui.port_reassigned', protocol: 'HTTP', requested: requestedHttpPort, assigned: httpPort, timestamp: new Date().toISOString() }));
     }
-    if (wsPort !== requestedWsPort) {
-      console.warn(JSON.stringify({ level: 'warn', event: 'webui.port_reassigned', protocol: 'WS', requested: requestedWsPort, assigned: wsPort, timestamp: new Date().toISOString() }));
-    }
   }
-  return { wsHost, wsPort, httpPort, publicUrl, publicWsUrl, requireToken };
+  return { wsHost, httpPort, publicUrl, publicWsUrl, requireToken };
 }
 
 // ── Session start payload ───────────────────────────────────────────────
@@ -185,10 +176,14 @@ interface WsServerResult {
 }
 
 /**
- * Create the primary (+ optional IPv6 secondary) WebSocket servers with
- * CSWSH token auth. Returns the servers + the shared clients map.
+ * Attach a WebSocket server to an HTTP server (shared-port design).
+ * Creates the primary WS server attached to the given HTTP server.
+ * IPv6 loopback coverage is provided by the HTTP server's dual-stack
+ * listen (see start-webui.ts); no separate WS secondary is created.
+ * Returns the WS server, the resolved auth token, and the clients map.
  */
 export function createWsServers(
+  httpServer: import('node:http').Server,
   ports: ResolvedPorts,
   accessToken: string | undefined,
 ): WsServerResult {
@@ -222,7 +217,7 @@ export function createWsServers(
   // maxPayload — both servers speak the same protocol.
   const WS_MAX_PAYLOAD = 20 * 1024 * 1024;
   const wssPrimary = new WebSocketServer({
-    port: ports.wsPort, host: ports.wsHost, verifyClient, maxPayload: WS_MAX_PAYLOAD,
+    server: httpServer, verifyClient, maxPayload: WS_MAX_PAYLOAD,
     // Send a ping every 15s to keep idle connections alive. Without this,
     // network equipment (routers, proxies, NAT gateways) may drop idle TCP
     // connections, causing the browser to see a close event and show the
@@ -235,18 +230,12 @@ export function createWsServers(
     // client can reconnect cleanly rather than hanging indefinitely.
     pingTimeout: 5_000,
   } as ConstructorParameters<typeof WebSocketServer>[0]);
-  const wssSecondary = ports.wsHost === '127.0.0.1'
-    ? new WebSocketServer({
-        port: ports.wsPort, host: '::1', verifyClient, maxPayload: WS_MAX_PAYLOAD,
-        pingInterval: 15_000,
-        pingTimeout: 5_000,
-      } as ConstructorParameters<typeof WebSocketServer>[0])
-    : null;
+  // IPv6 loopback secondary: when binding to 127.0.0.1, we also listen on
+  // [::1] so Chrome/Edge on Windows (which resolve localhost to IPv6 first)
+  // can connect without ECONNREFUSED. The HTTP server handles this via
+  // dual-stack listen — see start-webui.ts.
+  const wssSecondary = null;
   const clients = new Map<WebSocket, ConnectedClient>();
-  console.log(
-    `[WebUI] WebSocket server running on ws://${ports.wsHost}:${ports.wsPort}` +
-      (wssSecondary ? ` (and ws://[::1]:${ports.wsPort})` : ''),
-  );
   return { wssPrimary, wssSecondary, wsToken, clients };
 }
 
@@ -261,7 +250,7 @@ export function armEvents(
   wssPrimary: WebSocketServer,
   wssSecondary: WebSocketServer | null,
   wsHost: string,
-  wsPort: number,
+  httpPort: number,
   setupInput: Parameters<typeof setupEvents>[0],
   watcherMetrics: FileWatcherMetrics,
 ): { arm: (label: string) => void; getDispose: () => (() => void) | null; getFleetBroadcast: () => (() => Promise<void>) | null } {
@@ -276,12 +265,12 @@ export function armEvents(
     disposeEvents = setupEvents({ ...setupInput, watcherMetrics, onFleetBroadcaster: (fn) => { fleetBroadcast = fn; } });
   };
 
-  wssPrimary.on('listening', () => arm(`${wsHost}:${wsPort}`));
+  wssPrimary.on('listening', () => arm(`${wsHost}:${httpPort}`));
   wssPrimary.on('error', (err) => {
     console.error(JSON.stringify({ level: 'error', event: 'webui.ws_server_error', host: wsHost, message: toErrorMessage(err), timestamp: new Date().toISOString() }));
   });
   if (wssSecondary) {
-    wssSecondary.on('listening', () => arm(`::1:${wsPort}`));
+    wssSecondary.on('listening', () => arm(`::1:${httpPort}`));
     wssSecondary.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code === 'EAFNOSUPPORT' || err.code === 'EADDRNOTAVAIL') {
         console.warn(JSON.stringify({ level: 'warn', event: 'webui.ipv6_unavailable', code: err.code, message: err.message, timestamp: new Date().toISOString() }));
@@ -328,7 +317,6 @@ function resolveWebuiDistDir(fromUrl: string, explicitDistDir?: string | undefin
 export function startHttpServer(opts: {
   wsHost: string;
   httpPort: number;
-  wsPort: number;
   wsToken: string;
   publicWsUrl: string | undefined;
   publicUrl: string | undefined;
@@ -349,7 +337,6 @@ export function startHttpServer(opts: {
   const httpServer = createHttpServer({
     host: opts.wsHost,
     distDir: resolveWebuiDistDir(import.meta.url, opts.distDir),
-    wsPort: opts.wsPort,
     publicWsUrl: opts.publicWsUrl,
     globalRoot: opts.globalRoot,
     apiToken: opts.wsToken,
@@ -359,16 +346,6 @@ export function startHttpServer(opts: {
     onTechStackEvent: opts.onTechStackEvent,
     getLlm: opts.getLlm,
     projectRoot: opts.projectRoot,
-  });
-  const registryBaseDir = path.dirname(opts.globalConfigPath);
-  httpServer.listen(opts.httpPort, opts.wsHost, () => {
-    const openUrl = buildWebUIAccessUrl({ host: opts.wsHost, port: opts.httpPort, token: opts.wsToken, publicUrl: opts.publicUrl });
-    console.log(`[WebUI] HTTP server running on ${openUrl}`);
-    if (opts.openBrowser) openBrowser(openUrl);
-    void registerInstance(
-      { pid: process.pid, surface: 'webui', httpPort: opts.httpPort, wsPort: opts.wsPort, host: opts.wsHost, projectRoot: opts.projectRoot, projectName: path.basename(opts.projectRoot) || opts.projectRoot, startedAt: new Date().toISOString(), url: buildWebUIAccessUrl({ host: opts.wsHost, port: opts.httpPort, publicUrl: opts.publicUrl }) },
-      registryBaseDir,
-    ).catch((err) => console.warn(JSON.stringify({ level: 'warn', event: 'webui.instance_record_failed', message: errMessage(err), timestamp: new Date().toISOString() })));
   });
   return httpServer;
 }

@@ -373,7 +373,7 @@ const helpTable: Record<string, PerSubcommandHelp> = {
       'Plugins extend the agent with custom tool packs (e.g. GitHub, ' +
       'Playwright, project-local helpers).',
     usage:
-      'wstack plugin [list|status|report|menu|official|add|install|toggle|remove|enable|disable] [...]',
+      'wstack plugin [list|status|report|menu|official|add|install|toggle|remove|enable|disable|manager] [...]',
     subcommands: [
       { name: 'list', description: 'List installed plugins (alias: status).' },
       { name: 'report', description: 'Show effective state, risk, and lock/toggle policy.' },
@@ -384,6 +384,10 @@ const helpTable: Record<string, PerSubcommandHelp> = {
       { name: 'remove <id>', description: 'Remove an installed plugin (aliases: rm, uninstall).' },
       { name: 'enable <id>', description: 'Re-enable a previously-disabled plugin.' },
       { name: 'disable <id>', description: 'Temporarily disable a plugin without removing it.' },
+      {
+        name: 'manager [lock|unlock] <id|*>',
+        description: 'Control whether the LLM may enable/disable individual plugins.',
+      },
     ],
     seeAlso: 'wstack mcp (MCP servers are registered as tool plugins)',
   },

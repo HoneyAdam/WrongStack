@@ -896,7 +896,7 @@ export function SkillDetailView({ className }: { className?: string }) {
             <p className="text-sm">{uninstallConfirmSkill && t('activity:skillDetail.uninstallConfirm', { name: uninstallConfirmSkill.name })}</p>
             <p className="text-xs text-muted-foreground">
               {uninstallConfirmSkill && t('activity:skillDetail.uninstallRemovePath', {
-                path: uninstallConfirmSkill.source === 'user' ? '~/.wrongstack/skills' : '.wrongstack/skills',
+                path: uninstallConfirmSkill.path,
               })}
             </p>
           </div>

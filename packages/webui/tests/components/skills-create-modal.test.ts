@@ -228,7 +228,7 @@ describe('validateCreateForm — modal submit button state', () => {
 
 function computeSkillPath(scope: 'project' | 'global', name: string): string {
   if (scope === 'global') {
-    return `~/.wrongstack/skills/${name}/SKILL.md`;
+    return `~/.wrongstack/profiles/default/skills/${name}/SKILL.md`;
   }
   return `.wrongstack/skills/${name}/SKILL.md`;
 }
@@ -239,7 +239,9 @@ describe('computeSkillPath — skill file path preview', () => {
   });
 
   it('returns a global-scoped path', () => {
-    expect(computeSkillPath('global', 'bug-hunter')).toBe('~/.wrongstack/skills/bug-hunter/SKILL.md');
+    expect(computeSkillPath('global', 'bug-hunter')).toBe(
+      '~/.wrongstack/profiles/default/skills/bug-hunter/SKILL.md',
+    );
   });
 
   it('handles kebab-case names with slashes', () => {

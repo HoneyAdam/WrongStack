@@ -1011,7 +1011,7 @@ export const commandDetails: CommandDetailMap = {
     purpose:
       'Manage the layered project, user, and bundled prompt library — organize reusable prompt templates.',
     behavior:
-      'WrongStack maintains a layered prompt library: bundled (shipped with WrongStack), user (~/.wrongstack/prompts), and project (.wrongstack/prompts). `/prompts` lists all prompts with their source layer. Prompts can be searched, favorited, and inserted into the agent context. Layers merge by slug; user overrides project, project overrides bundled.',
+      'WrongStack maintains a layered prompt library: bundled (shipped with WrongStack), active profile (~/.wrongstack/profiles/<name>/prompts), and project (.wrongstack/prompts). `/prompts` lists all prompts with their source layer. Prompts can be searched, favorited, and inserted into the agent context. Layers merge by slug; profile overrides project, project overrides bundled.',
     before: 'No preparation needed. Browse prompts to see what templates are available.',
     during: 'The prompt list shows slugs, titles, source layers, and favorite status.',
     after:
@@ -1217,7 +1217,7 @@ export const commandDetails: CommandDetailMap = {
     purpose:
       'Show the continuous auto-review pipeline — fire a focused review subagent on every detected git change during a session.',
     behavior:
-      'Auto-review watches git-tracked file edits (debounced, default 5 s) and dispatches a review subagent with the configured provider and model. When a finding exceeds the `cascadeOn` threshold (`off` | `high` | `critical`), follow-up agents (`security-scanner`, `bug-hunter`) are spawned to investigate and propose fixes. The cycle is bounded by `maxCascadeDepth` (default 2). The active config lives under `extensions.wstack-auto-review` in `~/.wrongstack/config.json`; `enabled`, `provider`, `model`, `fallbackProfile`, `debounceMs`, `maxFilesPerBatch`, `maxConcurrentReviews`, `cascadeOn` and `maxCascadeDepth` can each be tuned. Bare `/auto-review` prints the current effective config and any in-flight reviews; `on` / `off` report that enable/disable happens by editing config.json (so the change is durable across sessions).',
+      'Auto-review watches git-tracked file edits (debounced, default 5 s) and dispatches a review subagent with the configured provider and model. When a finding exceeds the `cascadeOn` threshold (`off` | `high` | `critical`), follow-up agents (`security-scanner`, `bug-hunter`) are spawned to investigate and propose fixes. The cycle is bounded by `maxCascadeDepth` (default 2). The active config lives under `extensions.wstack-auto-review` in the active profile config; `enabled`, `provider`, `model`, `fallbackProfile`, `debounceMs`, `maxFilesPerBatch`, `maxConcurrentReviews`, `cascadeOn` and `maxCascadeDepth` can each be tuned. Bare `/auto-review` prints the current effective config and any in-flight reviews; `on` / `off` report that enable/disable happens by editing config.json (so the change is durable across sessions).',
     before:
       'Pick a fallback profile and a sane threshold. Cascade at `high` is usually the right default; pick `critical` if you only want follow-ups for severe findings.',
     during:

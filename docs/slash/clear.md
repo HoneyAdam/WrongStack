@@ -19,8 +19,8 @@ Wipes all session state — messages, todos, read-file tracking, file mtimes, an
 
 ## What does NOT get wiped
 
-- `~/.wrongstack/memory.md` (user-global memory) — only the session-scoped memory store is cleared
-- `~/.wrongstack/config.json`
+- `~/.wrongstack/profiles/<name>/memory.md` (profile memory) — only the session-scoped memory store is cleared
+- `~/.wrongstack/config.json` bootstrap or the active profile config
 - `.wrongstack/AGENTS.md`
 - Git state, plugin config, provider credentials
 

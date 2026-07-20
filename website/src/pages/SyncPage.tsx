@@ -101,7 +101,7 @@ export function SyncPage() {
                 step: '04',
                 icon: History,
                 title: 'Record state',
-                body: 'The remote commit SHA and a local revision hash are written to `~/.wrongstack/sync-state.json`. Next push/pull uses these as the base for comparison.',
+                body: 'The remote commit SHA and a local revision hash are written to `~/.wrongstack/profiles/<name>/sync-state.json`. Next push/pull uses these as the base for comparison.',
               },
             ].map(({ step, icon: Icon, title, body }) => (
               <article key={step} className="bg-card p-7">
@@ -168,7 +168,7 @@ export function SyncPage() {
               <div className="mt-5 space-y-3">
                 {[
                   { label: 'Encrypted at rest', body: 'When SecretVault is available, the token is encrypted before writing to disk. The field name "githubToken" matches the vault pattern for auto-decryption on load.' },
-                  { label: 'Separate config file', body: 'Token stored in `~/.wrongstack/sync.json` — separate from main config.json to prevent accidental commits to public repos.' },
+                  { label: 'Separate config file', body: 'Token stored in `~/.wrongstack/profiles/<name>/sync.json` — separate from main config.json to prevent accidental commits to public repos.' },
                   { label: 'Atomic write', body: 'sync.json is written via atomicWrite (tmp + rename). A crash during write never produces a half-written or corrupted credential file.' },
                   { label: 'Owner-only permissions', body: 'Written with mode 0o600. No group or world read access. The file is invisible to other users on shared hosts.' },
                 ].map(({ label, body }) => (

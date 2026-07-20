@@ -52,7 +52,7 @@ by [mastra-ai/skills-api](https://github.com/mastra-ai/skills-api), indexing
 the fallback install path but does not contribute search results.
 
 Point at a self-hosted skills-api instance via `config.skills.registryUrl`
-(in `~/.wrongstack/config.json` — **not** the repo-committed `.wrongstack/config.json`,
+(in the active profile config — **not** the repo-committed `.wrongstack/config.json`,
 which is stripped because the parsed response flows into the prompt):
 
 ```json

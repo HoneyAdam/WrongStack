@@ -4586,7 +4586,7 @@ export function App({
           const full = pasteAccumRef.current;
           pasteAccumRef.current = null;
           if (full) void commitPaste(full);
-        }, 250);
+        }, 500);
         return;
       }
     }
@@ -5446,6 +5446,15 @@ export function App({
     // so we read the clipboard ourselves. Must run before the `key.ctrl` bail
     // below, which would otherwise swallow it.
     if (key.ctrl && input === 'v') {
+      // When the input is disabled (agent working, confirm panel open, etc.),
+      // show feedback instead of silently swallowing the paste attempt.
+      if (state.status === 'running' || state.status === 'streaming' || state.status === 'aborting') {
+        dispatch({
+          type: 'addEntry',
+          entry: { kind: 'info', text: 'Input locked — wait for the agent to finish before pasting.' },
+        });
+        return;
+      }
       await pasteClipboardText();
       return;
     }

@@ -49,7 +49,7 @@ The CLI (plain REPL) doesn't ship a runtime model picker — restart with
 ## Custom endpoint (Ollama, local)
 
 ```jsonc
-// ~/.wrongstack/config.json
+// ~/.wrongstack/profiles/<name>/config.json
 {
   "providers": {
     "ollama": {

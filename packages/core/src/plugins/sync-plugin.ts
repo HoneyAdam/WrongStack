@@ -58,6 +58,10 @@ export function createSyncPlugin(opts?: SyncPluginOptions): Plugin {
         async (cfg) => {
           configStore?.update({ sync: cfg } as Parameters<ConfigStore['update']>[0]);
         },
+        () => {
+          const activeProfile = configStore?.get().activeProfile ?? 'default';
+          return paths.profileConfig(activeProfile);
+        },
       );
 
       void cloud.loadState();
@@ -123,7 +127,7 @@ function buildSyncCommand(
             lastSyncedAt: undefined as string | undefined,
           };
 
-          // Persist to ~/.wrongstack/sync.json (separate from main config.json
+          // Persist to the active profile's sync.json (separate from config.json
           // to avoid accidental commits). Use atomicWrite so a crash never
           // produces a half-written token file.
           if (syncConfigPath) {

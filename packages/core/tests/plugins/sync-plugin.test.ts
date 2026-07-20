@@ -35,7 +35,14 @@ function build(cfgGet: CfgGetter = () => ({}), apiConfig: Record<string, unknown
   const configStore = { get: vi.fn(cfgGet), update: vi.fn() };
   const vault = { encrypt: vi.fn((t: string) => `enc:${t}`) };
   const api = { config: apiConfig, slashCommands: { register: (c: SlashCommand) => registered.push(c), unregister: vi.fn() }, log: { info: vi.fn(), warn } } as never;
-  const opts = withOpts ? { paths: { syncConfig: path.join(tmp, 'sync.json') } as never, configStore: configStore as never, vault } : undefined;
+  const opts = withOpts ? {
+    paths: {
+      syncConfig: path.join(tmp, 'sync.json'),
+      profileConfig: (name: string) => path.join(tmp, 'profiles', name, 'config.json'),
+    } as never,
+    configStore: configStore as never,
+    vault,
+  } : undefined;
   const plugin = createSyncPlugin(opts);
   plugin.setup!(api);
   return { cmd: registered[0], configStore, vault, warn, registered, plugin, api };
@@ -79,11 +86,13 @@ describe('createSyncPlugin lifecycle', () => {
 
   it('wires the config getter/setter callbacks into CloudSync', async () => {
     const sync = { enabled: true, repo: 'r', githubToken: 't', categories: [] };
-    const { configStore } = build(() => ({ sync }));
+    const { configStore } = build(() => ({ activeProfile: 'work', sync }));
     const call = (CloudSync as never as { mock: { calls: unknown[][] } }).mock.calls.at(-1)!;
     const getCfg = call[1] as () => unknown;
     const setCfg = call[2] as (c: unknown) => Promise<void>;
+    const getSettingsPath = call[3] as () => string;
     expect(getCfg()).toBe(sync); // getter returns config.sync
+    expect(getSettingsPath()).toBe(path.join(tmp, 'profiles', 'work', 'config.json'));
     await setCfg({ enabled: false });
     expect(configStore.update).toHaveBeenCalledWith(expect.objectContaining({ sync: { enabled: false } }));
   });

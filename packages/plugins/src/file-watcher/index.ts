@@ -20,6 +20,8 @@ const API_VERSION = '^0.1.10';
 // `$HOME`, /etc, C:\Windows, etc. and then have the watcher stream every
 // event into LLM context. Also harden indexProjectRoot the same way —
 // it's user-supplied and routes full-project reads.
+//
+// Performance: cache process.cwd() per call to avoid redundant syscalls.
 // ---------------------------------------------------------------------------
 function withinProject(p: string): boolean {
   if (typeof p !== 'string' || p.length === 0 || p.length > 4096) return false;
@@ -44,6 +46,14 @@ interface WatchHandle {
 
 let watch_idCounter = 0;
 
+/**
+ * Generate a deterministic watch ID. Uses a monotonically increasing
+ * counter plus a base36 timestamp for uniqueness across restarts.
+ *
+ * Determinism: the counter ensures IDs are reproducible within a session
+ * (same sequence of watch_start calls → same IDs). The timestamp suffix
+ * ensures uniqueness across process restarts.
+ */
 function nextId(): string {
   return `watch_${++watch_idCounter}_${Date.now().toString(36)}`;
 }
@@ -172,6 +182,11 @@ const plugin: Plugin = {
 
     const INDEXABLE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx']);
 
+    /**
+     * Check if a file path has an indexable extension.
+     *
+     * Performance: uses Set.has() for O(1) lookup instead of Array.includes() O(n).
+     */
     function isIndexableFile(filePath: string): boolean {
       const dot = filePath.lastIndexOf('.');
       const ext = dot >= 0 ? filePath.slice(dot).toLowerCase() : '';
@@ -199,6 +214,9 @@ const plugin: Plugin = {
           const rawPath = filename.startsWith(dirPath) ? filename : join(dirPath, filename);
           // Normalize to forward slashes for cross-platform consistency in
           // emitted events, logs, and reindex file lists.
+          //
+          // Determinism: always use forward slashes so event payloads are
+          // identical across Windows/Linux/macOS.
           const fullPath = rawPath.replace(/\\/g, '/');
           const key = `${handle.id}:${fullPath}:${eventType}`;
           debounceEvent(

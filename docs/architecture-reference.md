@@ -903,7 +903,7 @@ latest). `rebuildIndex()` rescans all sessions on disk for recovery.
 files: Record<MemoryScope, string> = {
   'project-agents': '<project>/.wrongstack/AGENTS.md',       // committed, shared
   'project-memory': '~/.wrongstack/projects/<hash>/memory.md', // per-project
-  'user-memory':    '~/.wrongstack/memory.md',                // global, personal
+  'user-memory':    '~/.wrongstack/profiles/<name>/memory.md', // profile, personal
 };
 ```
 
@@ -996,7 +996,7 @@ files to `<project>/.wrongstack/memory-persist/` so they survive cleanup.
 
 ```
 1. Project-committed:  <project>/.wrongstack/skills/<name>/SKILL.md
-2. User-global:        ~/.wrongstack/skills/<name>/SKILL.md
+2. Active profile:     ~/.wrongstack/profiles/<name>/skills/<skill>/SKILL.md
 3. Bundled:            packages/core/skills/<name>/SKILL.md
 ```
 

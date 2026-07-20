@@ -482,7 +482,7 @@ export async function saveToGlobalConfig(
 
     // Backup before writing — best-effort (never blocks save)
     try {
-      await backupCurrent(homeFn);
+      await backupCurrent(homeFn, configPath);
     } catch (err) {
       console.warn(
         JSON.stringify({
@@ -503,6 +503,7 @@ export async function saveToGlobalConfig(
         existing,
         `Provider/model changed: ${oldCfg.provider ?? '(none)'} → ${provider}, ${oldCfg.model ?? '(none)'} → ${model}`,
         homeFn,
+        configPath,
       );
     } catch {
       // best-effort

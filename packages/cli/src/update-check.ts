@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { FetchError } from '@wrongstack/core';
+import { FetchError, resolveWstackPaths } from '@wrongstack/core';
 
 export interface UpdateInfo {
   current: string;
@@ -23,7 +23,11 @@ function npmRegistryUrl(packageName: UpdatePackageName): string {
 
 /** Cache file path — homeFn is injectable for testing */
 export function cachePath(homeFn: HomeDirFn = defaultHomeDir): string {
-  return path.join(homeFn(), '.wrongstack', 'update-cache.json');
+  const paths =
+    homeFn === defaultHomeDir
+      ? resolveWstackPaths({ projectRoot: process.cwd() })
+      : resolveWstackPaths({ projectRoot: process.cwd(), userHome: homeFn() });
+  return paths.profileUpdateCache(paths.profileName);
 }
 
 /** 24-hour TTL */

@@ -1,6 +1,6 @@
 # /models - Custom Model Definitions
 
-Manages user-defined model metadata persisted in `~/.wrongstack/config.json`.
+Manages user-defined model metadata persisted in the active profile config.
 This is separate from `/setmodel`: `/models` defines model capabilities, while
 `/setmodel` chooses which provider/model the leader or subagents should use.
 

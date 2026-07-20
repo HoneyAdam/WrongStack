@@ -49,7 +49,7 @@ These let text-only models work with screenshots via tools like
 
 ## Custom stdio server
 
-Append to `~/.wrongstack/config.json` manually:
+Append to the active `~/.wrongstack/profiles/<name>/config.json` manually:
 
 ```jsonc
 {

@@ -22,9 +22,8 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { WebSocket } from 'ws';
 import type { SkillLoader } from '@wrongstack/core';
-import { atomicWrite } from '@wrongstack/core';
+import { atomicWrite, resolveWstackPaths } from '@wrongstack/core';
 import type { SkillInstaller } from '@wrongstack/core/skills';
-import { wstackGlobalRoot } from '@wrongstack/core/utils';
 import { send, errMessage } from './ws-utils.js';
 import { validateSkillsCreatePayload, validateSkillsEditPayload } from './ws-payload-validation.js';
 import { createZipBuffer, type ZipEntryInput } from './zip.js';
@@ -38,7 +37,7 @@ export interface SkillsContext {
   projectRoot: string;
   /** Project skills directory, normally `<project>/.wrongstack/skills`. */
   projectSkillsDir?: string | undefined;
-  /** User-global skills directory, normally `~/.wrongstack/skills`. */
+  /** Profile skills directory, normally `~/.wrongstack/profiles/<name>/skills`. */
   globalSkillsDir?: string | undefined;
 }
 
@@ -284,7 +283,7 @@ export async function handleSkillsCreate(
     const targetDir =
       createPayload.scope === 'global'
         ? path.join(
-            ctx.globalSkillsDir ?? path.join(wstackGlobalRoot(), 'skills'),
+            ctx.globalSkillsDir ?? resolveWstackPaths({ projectRoot: ctx.projectRoot }).globalSkills,
             createPayload.name.trim(),
           )
         : path.join(

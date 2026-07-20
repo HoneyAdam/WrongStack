@@ -34,7 +34,6 @@ export interface AuthMenuDeps {
   reader: AuthMenuReader;
   modelsRegistry: ModelsRegistry;
   vault: SecretVault;
-  globalConfigPath: string;
   /** Active profile config path. Provider credentials never use the root bootstrap. */
   profileConfigPath: string;
   /**

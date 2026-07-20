@@ -60,7 +60,7 @@ nothing itself — the plan is for you to approve.
   (power), `fallbackAuto`, `adaptiveConcurrency.enabled`, `skills.mode`,
   `tools.exec.allow`, and slow-hook `timeoutMs`. Everything else is advisory or
   handed to the agent.
-- Writes target the **global** `~/.wrongstack/config.json` (never the untrusted
+- Writes target the **active profile** config (never the untrusted
   in-project config — `tools.exec.allow` is a trusted-source-only field), and are
   preceded by a backup (`config.json.last` + a timestamped `.bak`). The change is
   mirrored into the in-memory config store and `/config-history`, so it takes

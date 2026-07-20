@@ -772,7 +772,7 @@ When neither `WRONGSTACK_HQ_URL` nor a config `hq.url` is set,
 
 ### Config-file integration
 
-The `hq` block in `~/.wrongstack/config.json` (`hq.url`, `hq.token`,
+The `hq` block in the active profile config (`hq.url`, `hq.token`,
 `hq.enabled`, `hq.rawContent`, `hq.projectAlias`, `hq.dataDir`) is consumed
 by `resolveHqConfig()`; env vars override the config file. The `/hq` slash
 command writes this block (see [`/hq`](../slash/hq.md)).

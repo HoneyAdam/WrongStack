@@ -34,7 +34,7 @@ export interface PromptRegistryManifest {
   prompts: PromptRegistryRef[];
 }
 
-/** One entry recorded in `~/.wrongstack/installed-prompts.json`. */
+/** One entry recorded in `<profile>/installed-prompts.json`. */
 export interface InstalledPromptEntry {
   slug: string;
   /** The registry/source this prompt was pulled from. */

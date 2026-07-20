@@ -753,6 +753,13 @@ export {
   createOneShotLLMTool,
   ONE_SHOT_LLM_TOOL_NAME,
 } from './tools/one-shot-llm-tool.js';
+export {
+  type CreatePluginManagerToolOptions,
+  createPluginManagerTool,
+  PLUGIN_MANAGER_TOOL_NAME,
+  type PluginManagerCatalogEntry,
+  type PluginManagerMutationResult,
+} from './tools/plugin-manager.js';
 export type { Compactor, CompactReport } from './types/compactor.js';
 export {
   CONTEXT_WINDOW_MODES,

@@ -5,7 +5,7 @@ import { atomicWrite, ensureDir } from '../utils/atomic-write.js';
 
 /**
  * Tracks prompts pulled from a remote registry, persisted to
- * `~/.wrongstack/installed-prompts.json`. Mirrors `SkillManifestStore`. The
+ * `<profile>/installed-prompts.json`. Mirrors `SkillManifestStore`. The
  * manifest is the source of truth for "what have I synced and at what version",
  * enabling a future `pull --favorites` / update flow.
  */

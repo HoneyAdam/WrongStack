@@ -3,7 +3,8 @@
  * Uses mock filesystem to test config read/write cycle.
  * Tests the full encrypt → write → read → decrypt round-trip.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as path from 'node:path';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ============================================================================
 // Mocks
@@ -50,9 +51,15 @@ vi.mock('node:fs/promises', () => ({
     if (content === undefined) throw new Error('ENOENT: file not found');
     return content;
   }),
+  mkdir: vi.fn(async () => undefined),
 }));
 
-import { readUiLocale, writeUiLocale, desktopConfigPaths } from '../src/main/desktop-config-io.js';
+import {
+  desktopConfigPaths,
+  readUiLocale,
+  resolveActiveProfileConfigPath,
+  writeUiLocale,
+} from '../src/main/desktop-config-io.js';
 
 // ============================================================================
 // Test Setup
@@ -73,36 +80,48 @@ describe('readUiLocale', () => {
   });
 
   it('should return undefined when config file is empty', async () => {
-    mockFileStore.set(desktopConfigPaths.globalConfigPath, '{}');
+    mockFileStore.set(desktopConfigPaths.profileConfigPath, '{}');
     const result = await readUiLocale();
     expect(result).toBeUndefined();
   });
 
   it('should read locale from config', async () => {
     const config = JSON.stringify({ uiLocale: 'tr' });
-    mockFileStore.set(desktopConfigPaths.globalConfigPath, config);
+    mockFileStore.set(desktopConfigPaths.profileConfigPath, config);
     const result = await readUiLocale();
     expect(result).toBe('tr');
   });
 
+  it('should resolve and read the profile selected by the root bootstrap', async () => {
+    mockFileStore.set(
+      desktopConfigPaths.bootstrapConfigPath,
+      JSON.stringify({ version: 1, activeProfile: 'work' }),
+    );
+    const workProfile = path.join('/mock/wstack/root', 'profiles', 'work', 'config.json');
+    mockFileStore.set(workProfile, JSON.stringify({ uiLocale: 'tr' }));
+
+    expect(await resolveActiveProfileConfigPath()).toBe(workProfile);
+    expect(await readUiLocale()).toBe('tr');
+  });
+
   it('should read different locale values', async () => {
-    mockFileStore.set(desktopConfigPaths.globalConfigPath, JSON.stringify({ uiLocale: 'de' }));
+    mockFileStore.set(desktopConfigPaths.profileConfigPath, JSON.stringify({ uiLocale: 'de' }));
     expect(await readUiLocale()).toBe('de');
-    mockFileStore.set(desktopConfigPaths.globalConfigPath, JSON.stringify({ uiLocale: 'fr' }));
+    mockFileStore.set(desktopConfigPaths.profileConfigPath, JSON.stringify({ uiLocale: 'fr' }));
     expect(await readUiLocale()).toBe('fr');
-    mockFileStore.set(desktopConfigPaths.globalConfigPath, JSON.stringify({ uiLocale: 'pt-BR' }));
+    mockFileStore.set(desktopConfigPaths.profileConfigPath, JSON.stringify({ uiLocale: 'pt-BR' }));
     expect(await readUiLocale()).toBe('pt-BR');
   });
 
   it('should return undefined when locale is empty string', async () => {
-    mockFileStore.set(desktopConfigPaths.globalConfigPath, JSON.stringify({ uiLocale: '' }));
+    mockFileStore.set(desktopConfigPaths.profileConfigPath, JSON.stringify({ uiLocale: '' }));
     const result = await readUiLocale();
     expect(result).toBeUndefined();
   });
 
   it('should return undefined when locale is not a string', async () => {
     mockFileStore.set(
-      desktopConfigPaths.globalConfigPath,
+      desktopConfigPaths.profileConfigPath,
       JSON.stringify({ uiLocale: 42 }),
     );
     const result = await readUiLocale();
@@ -110,7 +129,7 @@ describe('readUiLocale', () => {
   });
 
   it('should return undefined when config has invalid JSON', async () => {
-    mockFileStore.set(desktopConfigPaths.globalConfigPath, '{invalid json}');
+    mockFileStore.set(desktopConfigPaths.profileConfigPath, '{invalid json}');
     const result = await readUiLocale();
     expect(result).toBeUndefined();
   });
@@ -120,7 +139,7 @@ describe('readUiLocale', () => {
       __encrypted__secret: 'some-encrypted-value',
       uiLocale: 'fr',
     });
-    mockFileStore.set(desktopConfigPaths.globalConfigPath, encryptedConfig);
+    mockFileStore.set(desktopConfigPaths.profileConfigPath, encryptedConfig);
     const result = await readUiLocale();
     expect(result).toBe('fr');
   });
@@ -133,7 +152,7 @@ describe('readUiLocale', () => {
 describe('writeUiLocale', () => {
   it('should write locale to new config file', async () => {
     await writeUiLocale('tr');
-    const stored = mockFileStore.get(desktopConfigPaths.globalConfigPath);
+    const stored = mockFileStore.get(desktopConfigPaths.profileConfigPath);
     expect(stored).toBeDefined();
     const parsed = JSON.parse(stored!);
     expect(parsed.uiLocale).toBe('tr');
@@ -141,36 +160,55 @@ describe('writeUiLocale', () => {
 
   it('should update locale in existing config', async () => {
     mockFileStore.set(
-      desktopConfigPaths.globalConfigPath,
+      desktopConfigPaths.profileConfigPath,
       JSON.stringify({ uiLocale: 'en', someKey: 'value' }),
     );
     await writeUiLocale('de');
-    const stored = mockFileStore.get(desktopConfigPaths.globalConfigPath);
+    const stored = mockFileStore.get(desktopConfigPaths.profileConfigPath);
     const parsed = JSON.parse(stored!);
     expect(parsed.uiLocale).toBe('de');
     expect(parsed.someKey).toBe('value');
   });
 
+  it('should write to the profile selected by the root bootstrap', async () => {
+    mockFileStore.set(
+      desktopConfigPaths.bootstrapConfigPath,
+      JSON.stringify({ version: 1, activeProfile: 'work' }),
+    );
+    const workProfile = path.join('/mock/wstack/root', 'profiles', 'work', 'config.json');
+    mockFileStore.set(workProfile, JSON.stringify({ uiLocale: 'en', provider: 'openai' }));
+
+    await writeUiLocale('de');
+
+    expect(JSON.parse(mockFileStore.get(workProfile)!)).toEqual({
+      uiLocale: 'de',
+      provider: 'openai',
+    });
+    expect(mockFileStore.get(desktopConfigPaths.bootstrapConfigPath)).toBe(
+      JSON.stringify({ version: 1, activeProfile: 'work' }),
+    );
+  });
+
   it('should handle missing original config gracefully', async () => {
     // No mockFileStore entry - simulates first-time write
     await writeUiLocale('fr');
-    const stored = mockFileStore.get(desktopConfigPaths.globalConfigPath);
+    const stored = mockFileStore.get(desktopConfigPaths.profileConfigPath);
     expect(stored).toBeDefined();
     const parsed = JSON.parse(stored!);
     expect(parsed.uiLocale).toBe('fr');
   });
 
   it('should not clobber corrupt config', async () => {
-    mockFileStore.set(desktopConfigPaths.globalConfigPath, '{corrupt}');
+    mockFileStore.set(desktopConfigPaths.profileConfigPath, '{corrupt}');
     await writeUiLocale('fr');
-    const stored = mockFileStore.get(desktopConfigPaths.globalConfigPath);
+    const stored = mockFileStore.get(desktopConfigPaths.profileConfigPath);
     // Should still be the corrupt content
     expect(stored).toBe('{corrupt}');
   });
 
   it('should preserve existing fields when updating locale', async () => {
     mockFileStore.set(
-      desktopConfigPaths.globalConfigPath,
+      desktopConfigPaths.profileConfigPath,
       JSON.stringify({
         uiLocale: 'en',
         theme: 'dark',
@@ -179,7 +217,7 @@ describe('writeUiLocale', () => {
       }),
     );
     await writeUiLocale('tr');
-    const stored = mockFileStore.get(desktopConfigPaths.globalConfigPath);
+    const stored = mockFileStore.get(desktopConfigPaths.profileConfigPath);
     const parsed = JSON.parse(stored!);
     expect(parsed.uiLocale).toBe('tr');
     expect(parsed.theme).toBe('dark');
@@ -217,7 +255,7 @@ describe('Config round-trip', () => {
     await writeUiLocale('tr');
     expect(await readUiLocale()).toBe('tr');
     // Write empty object (simulating clearing locale)
-    mockFileStore.set(desktopConfigPaths.globalConfigPath, JSON.stringify({}));
+    mockFileStore.set(desktopConfigPaths.profileConfigPath, JSON.stringify({}));
     expect(await readUiLocale()).toBeUndefined();
   });
 });
@@ -227,9 +265,9 @@ describe('Config round-trip', () => {
 // ============================================================================
 
 describe('desktopConfigPaths', () => {
-  it('should define globalConfigPath', () => {
-    expect(desktopConfigPaths.globalConfigPath).toBeDefined();
-    expect(typeof desktopConfigPaths.globalConfigPath).toBe('string');
+  it('should define profileConfigPath', () => {
+    expect(desktopConfigPaths.profileConfigPath).toBeDefined();
+    expect(typeof desktopConfigPaths.profileConfigPath).toBe('string');
   });
 
   it('should define vault', () => {

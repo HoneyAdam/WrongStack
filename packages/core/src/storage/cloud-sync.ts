@@ -31,13 +31,21 @@ interface SyncStateFile {
 export class CloudSync {
   private readonly statePath: string;
   private state: SyncStateFile | null = null;
+  private readonly getSettingsConfigPath: () => string;
 
   constructor(
     private readonly paths: WstackPaths,
     private readonly getConfig: () => SyncConfig | null,
     private readonly setConfig: (c: SyncConfig) => Promise<void>,
+    getSettingsConfigPath?: (() => string) | undefined,
   ) {
-    this.statePath = path.join(paths.globalRoot, 'sync-state.json');
+    this.statePath = path.join(paths.configDir, 'sync-state.json');
+    // Settings belong to the resolved profile. `configDir` is already pinned
+    // to that profile, so narrow embedders do not need to implement the named
+    // profile resolver and can never silently jump to `default`.
+    this.getSettingsConfigPath =
+      getSettingsConfigPath ??
+      (() => path.join(this.paths.configDir, 'config.json'));
   }
 
   // ── Public API ─────────────────────────────────────────────────────
@@ -361,7 +369,7 @@ export class CloudSync {
 
   private categoryToPath(cat: SyncCategory): string | null {
     switch (cat) {
-      case 'settings': return this.paths.globalConfig;
+      case 'settings': return this.getSettingsConfigPath();
       case 'skills':   return this.paths.globalSkills;
       case 'prompts':  return this.paths.globalPrompts;
       case 'memory':   return this.paths.globalMemory;

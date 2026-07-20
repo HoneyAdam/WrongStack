@@ -35,7 +35,7 @@
 
 ## Persistence
 
-Config is saved to `~/.wrongstack/statusline.json` via the `statuslineConfig` callbacks in `SlashCommandContext`.
+Config is saved to `~/.wrongstack/profiles/<name>/statusline.json` via the `statuslineConfig` callbacks in `SlashCommandContext`.
 
 ## Code reference
 

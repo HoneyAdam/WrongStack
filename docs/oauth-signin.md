@@ -41,7 +41,7 @@ select like any other.
 - **Self-refreshing tokens.** Access tokens refresh automatically near expiry and
   once on a `401`; rotated tokens are written back to config transparently.
 - **Encrypted at rest.** The access/refresh tokens are stored in
-  `~/.wrongstack/config.json` under the provider entry, encrypted with your
+  the active profile config under `providers.<id>`, encrypted with your
   per-machine key (`~/.wrongstack/.key`, AES-256-GCM) like every other secret.
 - **Client fidelity.** Each provider sends the User-Agent / beta / app headers of
   the corresponding official client so the subscription backend accepts the
@@ -147,7 +147,7 @@ natively, and the legacy `context-1m-2025-08-07` beta was retired on
 
 ## Token storage, refresh & sign-out
 
-- Tokens live under `providers.<id>` in `~/.wrongstack/config.json`, encrypted.
+- Tokens live under `providers.<id>` in the active profile config, encrypted.
   The entry records `authMethod: "oauth"`, the access token (as `apiKey`), the
   `refreshToken`, and `expiresAt`.
 - Refresh is automatic — near expiry before a request, and once on a `401`. The

@@ -1,5 +1,10 @@
 import * as fs from 'node:fs/promises';
-import { atomicWrite, type Config, type PluginConfig } from '@wrongstack/core';
+import {
+  atomicWrite,
+  type Config,
+  type PluginConfig,
+  type PluginManagerConfig,
+} from '@wrongstack/core';
 
 export const OFFICIAL_PLUGINS = [
   {
@@ -555,6 +560,7 @@ export interface PluginManagementResult {
   patch?: {
     plugins?: (string | PluginConfig)[] | undefined;
     features?: Record<string, unknown>;
+    pluginManager?: PluginManagerConfig | undefined;
     /**
      * Full replacement `extensions` map (patchConfig is a SHALLOW merge,
      * so per-plugin llm overrides must ship the whole merged object).
@@ -635,12 +641,82 @@ export async function runPluginManagementCommand(
     }
     return togglePlugin(resolvePluginToggleSpecifier(spec), deps);
   }
+  if (sub === 'manager') {
+    return runPluginManagerPolicyCommand(args.slice(1), deps);
+  }
   if (sub === 'llm') {
     return runPluginLlmCommand(args.slice(1), deps);
   }
   return errorResult(
-    `Unknown plugin subcommand: ${sub}\nUsage: wstack plugin [list|status|report|menu|official|add|install|remove|enable|disable|toggle|llm]`,
+    `Unknown plugin subcommand: ${sub}\nUsage: wstack plugin [list|status|report|menu|official|add|install|remove|enable|disable|toggle|manager|llm]`,
   );
+}
+
+const PLUGIN_MANAGER_POLICY_USAGE = [
+  'Usage:',
+  '  wstack plugin manager                         List plugins locked against LLM state changes.',
+  '  wstack plugin manager lock <plugin|*>         Prevent plugin_manager from enabling/disabling it.',
+  '  wstack plugin manager unlock <plugin|*>       Restore plugin_manager enable/disable access.',
+  '',
+  'This policy affects only the LLM-facing plugin_manager tool. Human /plugin and',
+  'wstack plugin enable/disable commands remain available.',
+].join('\n');
+
+async function runPluginManagerPolicyCommand(
+  args: string[],
+  deps: PluginManagementDeps,
+): Promise<PluginManagementResult> {
+  const action = args[0] ?? 'list';
+  if (action === 'list') {
+    const locked = deps.config.pluginManager?.locked ?? [];
+    return {
+      code: 0,
+      level: 'output',
+      message:
+        locked.length === 0
+          ? 'LLM plugin-manager policy: no plugins are locked.'
+          : `LLM plugin-manager policy — locked (${locked.length}):\n${locked.map((name) => `  ${name}`).join('\n')}`,
+    };
+  }
+
+  if (action !== 'lock' && action !== 'unlock') {
+    return errorResult(PLUGIN_MANAGER_POLICY_USAGE);
+  }
+  const rawName = args[1];
+  if (!rawName) return errorResult(PLUGIN_MANAGER_POLICY_USAGE);
+  const name = rawName === '*' ? '*' : resolvePluginToggleSpecifier(rawName);
+
+  const existing = await readConfig(deps.configPath);
+  const filePolicy = isRecord(existing.pluginManager) ? existing.pluginManager : undefined;
+  const current = Array.isArray(filePolicy?.['locked'])
+    ? filePolicy['locked'].filter((entry): entry is string => typeof entry === 'string')
+    : [...(deps.config.pluginManager?.locked ?? [])];
+  const canonical = canonicalPolicyName(name);
+  const next =
+    action === 'lock'
+      ? current.some((entry) => canonicalPolicyName(entry) === canonical)
+        ? current
+        : [...current, name]
+      : current.filter((entry) => canonicalPolicyName(entry) !== canonical);
+
+  const pluginManager: PluginManagerConfig = { locked: next };
+  existing.pluginManager = { ...(filePolicy ?? {}), ...pluginManager };
+  await atomicWrite(deps.configPath, JSON.stringify(existing, null, 2), { mode: 0o600 });
+
+  return {
+    code: 0,
+    level: 'info',
+    message:
+      action === 'lock'
+        ? `Locked "${name}" against LLM enable/disable changes. Human plugin commands still work.`
+        : `Unlocked "${name}" for LLM enable/disable changes.`,
+    patch: { pluginManager },
+  };
+}
+
+function canonicalPolicyName(name: string): string {
+  if (name === '*') return name;
+  return resolvePluginToggleSpecifier(name).trim().toLowerCase();
 }
 
 const PLUGIN_LLM_USAGE = [

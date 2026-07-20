@@ -36,7 +36,13 @@ export { detectLang } from './ts-parser.js';
 
 // ─── Native parser (syn) ─────────────────────────────────────────────────────
 
+// Cache the native-parser availability check so we don't spawn `rustc` and
+// `cargo metadata` on every file. The result is constant for the process
+// lifetime — the toolchain either exists or it doesn't.
+let _nativeParserAvailable: boolean | null = null;
+
 function checkNativeParser(): boolean {
+  if (_nativeParserAvailable !== null) return _nativeParserAvailable;
   try {
     execFileSync('rustc', ['--version'], { stdio: 'pipe', windowsHide: true });
     // Check if our syn-parser crate is available. argv-array form (no shell)
@@ -55,13 +61,14 @@ function checkNativeParser(): boolean {
         ],
         { stdio: 'pipe', windowsHide: true },
       );
-      return true;
+      _nativeParserAvailable = true;
     } catch {
-      return false;
+      _nativeParserAvailable = false;
     }
   } catch {
-    return false;
+    _nativeParserAvailable = false;
   }
+  return _nativeParserAvailable;
 }
 
 async function tryNativeParse(file: string, content: string): Promise<FileSymbols | null> {

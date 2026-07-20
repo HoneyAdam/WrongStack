@@ -5,13 +5,14 @@ import { atomicWrite } from '@wrongstack/core';
 import type { DefaultSecretVault } from '@wrongstack/core';
 import type { ProviderApiKey, ProviderConfig } from '@wrongstack/core';
 export interface ProviderStoreDeps {
-  globalConfigPath: string;
+  /** Active profile config path. */
+  profileConfigPath: string;
   vault: DefaultSecretVault;
 }
 
 /**
  * Serializes concurrent config writes to prevent races between model.switch
- * and key.add/key.update handlers that both read-modify-write globalConfigPath.
+ * and key.add/key.update handlers that both mutate the profile config.
  */
 export function createConfigWriteLock() {
   let lock: Promise<void> = Promise.resolve();
@@ -35,12 +36,12 @@ export interface ProviderStore {
 }
 
 export function createProviderStore(deps: ProviderStoreDeps): ProviderStore {
-  const { globalConfigPath, vault } = deps;
+  const { profileConfigPath, vault } = deps;
   const configWriteLock = createConfigWriteLock();
 
   async function loadSavedProviders(): Promise<Record<string, ProviderConfig>> {
     try {
-      const raw = await fs.readFile(globalConfigPath, 'utf8');
+      const raw = await fs.readFile(profileConfigPath, 'utf8');
       const parsed = JSON.parse(raw) as { providers?: Record<string, ProviderConfig> };
       if (!parsed.providers) return {};
       return decryptConfigSecrets(parsed.providers, vault);
@@ -55,14 +56,14 @@ export function createProviderStore(deps: ProviderStoreDeps): ProviderStore {
       await prev;
       let parsed: Record<string, unknown>;
       try {
-        const raw = await fs.readFile(globalConfigPath, 'utf8');
+        const raw = await fs.readFile(profileConfigPath, 'utf8');
         parsed = JSON.parse(raw) as Record<string, unknown>;
       } catch {
         parsed = {};
       }
       parsed['providers'] = providers;
       const encrypted = encryptConfigSecrets(parsed, vault);
-      await atomicWrite(globalConfigPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
+      await atomicWrite(profileConfigPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
     } finally {
       release();
     }

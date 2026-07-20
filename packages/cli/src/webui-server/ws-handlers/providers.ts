@@ -2,6 +2,7 @@ import type { ProviderConfig } from '@wrongstack/core';
 import { DefaultSecretScrubber, resolveProviderModelList } from '@wrongstack/core';
 import {
   buildProviderConfigFromPreset,
+  rehydrateCanonicalProviderConfig,
   resolvePresetForAlias,
 } from '@wrongstack/providers';
 import { probeLocalLlm } from '@wrongstack/runtime/probe';
@@ -241,6 +242,10 @@ export async function handleKeyUpsert(
       existing = { type: providerId };
       const presetId = hydrateTrustedPreset(providerId, existing);
       if (presetId) existing.type = presetId;
+    } else {
+      // Existing setup cards send key.add. Rehydrate exact canonical ids so
+      // stale wire families/model aliases cannot make a fresh key unusable.
+      rehydrateCanonicalProviderConfig(providerId, existing);
     }
     const keys = normalizeKeys(existing);
 

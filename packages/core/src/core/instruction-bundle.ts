@@ -17,7 +17,7 @@ export interface InstructionBundle {
 export interface InstructionBundlePaths {
   /** Bundled instruction directory. Defaults to `<@wrongstack/core>/instructions`. */
   bundledDir?: string | undefined;
-  /** User-global override directory, e.g. `~/.wrongstack/instructions`. */
+  /** Profile override directory, e.g. `~/.wrongstack/profiles/<name>/instructions`. */
   globalDir?: string | undefined;
   /** Project override directory, e.g. `<project>/.wrongstack/instructions`. */
   projectDir?: string | undefined;

@@ -72,7 +72,6 @@ export function buildEnhanceCommand(opts: SlashCommandContext): SlashCommand {
           await persistAutonomySetting(
             {
               configStore: opts.configStore,
-              globalConfigPath: opts.paths.globalConfig,
               profileConfigPath: opts.paths.profileConfig(activeProfile),
               vault: noOpVault,
             },

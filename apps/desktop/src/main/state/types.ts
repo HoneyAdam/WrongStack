@@ -82,8 +82,9 @@ interface IConfigIo {
   readUiLocale(): Promise<string | undefined>;
   writeUiLocale(code: string): Promise<void>;
   readonly desktopConfigPaths: {
-    globalConfigPath: string;
-    vault: import('@wrongstack/core').SecretVault;
+    readonly bootstrapConfigPath: string;
+    readonly profileConfigPath: string;
+    readonly vault: import('@wrongstack/core').SecretVault;
   };
 }
 

@@ -4,6 +4,7 @@ import type React from 'react';
 import { isValidElement, useEffect, useMemo, useRef, useState } from 'react';
 import type { GitInfo } from '../git-info.js';
 import type { HeapSample } from '../heap-watchdog.js';
+import { useChipStalenessGuard, computeTokenFingerprint } from '../hooks/use-chip-staleness-guard.js';
 import { useTokenCounterRefresh } from '../hooks/use-token-counter-refresh.js';
 import { Box, Text, useStdout } from '../ink.js';
 import { displayWidth } from '../terminal-width.js';
@@ -656,6 +657,27 @@ export function StatusBar({
   }, [state]);
   const spinner = expectDefined(SPINNER_FRAMES[spinnerIdx]);
 
+  // ── Chip staleness guard ──────────────────────────────────────────────────
+  // Detects when a chip fails to refresh (animation frozen, data source stale,
+  // subscription dropped) and forces a re-render to recover.
+  const tokenFingerprint = computeTokenFingerprint(
+    displayTokens.input,
+    displayTokens.output,
+    cost?.total,
+  );
+  const stalenessGuard = useChipStalenessGuard({
+    agentState: state,
+    spinnerPhase: spinnerIdx,
+    tokenFingerprint,
+    contextRatio: context && context.max > 0 ? context.used / context.max : undefined,
+    tokenSubscriptionActive: events != null,
+  });
+  // `stalenessGuard.renderNonce` is consumed as a `key` on the chip-rail
+  // <Box> containers in both return paths below (minimum-mode and full-mode).
+  // When the hook detects staleness it bumps the nonce internally, React sees
+  // a new key, unmounts the stale subtree, and remounts a fresh one — forcing
+  // every chip to re-render from scratch. See use-chip-staleness-guard.ts:42-43.
+
   // ── Todos auto-clear ─────────────────────────────────────────────────────
   // When all todos are completed (no pending/in-progress), the todos chip
   // auto-hides after TODOS_CLEAR_DELAY_MS so the status bar doesn't linger on
@@ -1163,7 +1185,7 @@ export function StatusBar({
 
   if (mode === 'minimum') {
     return (
-      <Box flexDirection="column" paddingX={1}>
+      <Box key={`sb-${stalenessGuard.renderNonce}`} flexDirection="column" paddingX={1}>
         <PowerlineRail
           segments={minimumChips}
           budget={Math.max(12, termWidth)}
@@ -1175,7 +1197,7 @@ export function StatusBar({
   }
 
   return (
-    <Box flexDirection="column" paddingX={0}>
+    <Box key={`sb-${stalenessGuard.renderNonce}`} flexDirection="column" paddingX={0}>
       {/* Line 1 — Runtime + mode chips: YOLO, autonomy, project/workdir,
           provider/model, context, tokens, cost, queue, processes, hint, index,
           breaker, state, elapsed */}

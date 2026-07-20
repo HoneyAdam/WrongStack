@@ -353,7 +353,8 @@ export function describeAgent(id: string): {
 
 /**
  * Per-agent ACP invocation overrides, sourced from the user's
- * `~/.wrongstack/config.json` (`config.acp.agents`). Lets a user point an
+ * active profile config (`~/.wrongstack/profiles/<name>/config.json`,
+ * `config.acp.agents`). Lets a user point an
  * agent id at the correct ACP entry — e.g. the Zed Claude-Code adapter —
  * without a code change. NEVER honoured from in-project config (it is an
  * arbitrary-command exec surface); see `config-loader.ts`.

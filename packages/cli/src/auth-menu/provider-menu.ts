@@ -75,7 +75,7 @@ async function dispatchAction(
     );
     if (answer === null) return 'continue'; // cancelled
     if (answer) {
-      await mutateConfigProviders(deps.globalConfigPath, deps.vault, (all) => {
+      await mutateConfigProviders(deps.profileConfigPath, deps.vault, (all) => {
         delete all[providerId];
       }, deps.profileConfigPath);
       deps.renderer.write(`  ${color.green('✓')} Removed ${providerId}.\n`);
@@ -90,7 +90,7 @@ async function dispatchAction(
     const target = expectDefined(keys[arg - 1]);
     const newKey = await readKeyInput(deps, `New key for ${target.label}`);
     if (!newKey) return 'continue';
-    await mutateConfigProviders(deps.globalConfigPath, deps.vault, (all) => {
+    await mutateConfigProviders(deps.profileConfigPath, deps.vault, (all) => {
       const p = all[providerId];
       if (!p) return;
       const list = normalizeKeys(p).map((k) =>
@@ -112,7 +112,7 @@ async function dispatchAction(
     );
     if (answer === null) return 'continue'; // cancelled
     if (!answer) return 'continue'; // declined
-    await mutateConfigProviders(deps.globalConfigPath, deps.vault, (all) => {
+    await mutateConfigProviders(deps.profileConfigPath, deps.vault, (all) => {
       const p = all[providerId];
       if (!p) return;
       const list = normalizeKeys(p).filter((k) => k.label !== target.label);
@@ -129,7 +129,7 @@ async function dispatchAction(
   if (verb === 's' || verb === 'set' || verb === 'active') {
     if (!validKeyIndex(arg, keys.length, deps, 's')) return 'continue';
     const target = expectDefined(keys[arg - 1]);
-    await mutateConfigProviders(deps.globalConfigPath, deps.vault, (all) => {
+    await mutateConfigProviders(deps.profileConfigPath, deps.vault, (all) => {
       const p = all[providerId];
       if (!p) return;
       const list = normalizeKeys(p);
@@ -156,14 +156,14 @@ async function dispatchAction(
         );
         return 'continue';
       }
-      await mutateConfigProviders(deps.globalConfigPath, deps.vault, (all) => {
+      await mutateConfigProviders(deps.profileConfigPath, deps.vault, (all) => {
         const p = all[providerId];
         if (!p) return;
         p.family = validated;
       }, deps.profileConfigPath);
       deps.renderer.write(`  ${color.green('✓')} family → ${validated}\n`);
     } else {
-      await mutateConfigProviders(deps.globalConfigPath, deps.vault, (all) => {
+      await mutateConfigProviders(deps.profileConfigPath, deps.vault, (all) => {
         const p = all[providerId];
         if (!p) return;
         delete p.family;
@@ -184,7 +184,7 @@ async function dispatchAction(
         `  ${color.amber('?')} Base URL ${color.dim(`(empty = unset, current: ${current || 'unset'})`)}: `,
       )
     ).trim();
-    await mutateConfigProviders(deps.globalConfigPath, deps.vault, (all) => {
+      await mutateConfigProviders(deps.profileConfigPath, deps.vault, (all) => {
       const p = all[providerId];
       if (!p) return;
       if (ans === '') delete p.baseUrl;
@@ -208,7 +208,7 @@ async function dispatchAction(
           .map((s) => s.trim())
           .filter(Boolean)
       : [];
-    await mutateConfigProviders(deps.globalConfigPath, deps.vault, (all) => {
+    await mutateConfigProviders(deps.profileConfigPath, deps.vault, (all) => {
       const p = all[providerId];
       if (!p) return;
       if (list.length === 0) delete p.models;

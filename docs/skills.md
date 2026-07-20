@@ -60,7 +60,7 @@ Skills are discovered at boot across the layers below. The first layer with a gi
 | 1 (highest) | `<project>/.wrongstack/skills/` | Per-project, committed to git | Repo-specific conventions, build system quirks, team standards |
 | 2 | `<project>/.claude/skills/` | Per-project, foreign (read-only) | Skills authored for Claude Code |
 | 3 | `<project>/.{codex,cursor,agents,gemini,qwen,trae,windsurf}/skills/` | Per-project, foreign (read-only) | Skills authored for other coding agents (Cursor uses `skills-cursor`) |
-| 4 | `~/.wrongstack/skills/` | Per-user, not committed | Personal preferences, cross-project habits |
+| 4 | `~/.wrongstack/profiles/<name>/skills/` | Per-profile, not committed | Profile-specific preferences and habits |
 | 5 | `~/.claude/skills/` | Per-user, foreign (read-only) | Your Claude Code user-level skills |
 | 6 | `~/.{codex,cursor,agents,gemini,qwen,trae,windsurf}/skills/` | Per-user, foreign (read-only) | Your skills in other coding agents |
 | 7 | `config.skills.extraDirs` | User-config only | Any extra directory (stripped from in-project config) |
@@ -125,7 +125,7 @@ The `skill` tool also handles **bundled resources** (tier 3) — scripts, refere
 Use the `skill` tool (not `read`) for skill resources: it works for foreign skills that live outside the project root (`~/.claude/skills/…`, `~/.cursor/skills-cursor/…`), which a project-root-restricted `read` tool may refuse.
 
 ```jsonc
-// ~/.wrongstack/config.json
+// ~/.wrongstack/profiles/<name>/config.json
 { "skills": { "mode": "progressive" } }
 ```
 
@@ -188,7 +188,7 @@ A skill is a passive Markdown file. A **roster role** is a TypeScript subagent d
 | | Skill | Roster role |
 |---|---|---|
 | What it is | `SKILL.md` with YAML frontmatter | TypeScript `SubagentConfig` object |
-| Where it lives | `packages/core/skills/<name>/SKILL.md` (or `~/.wrongstack/skills/`, `<project>/.wrongstack/skills/`) | `packages/core/src/coordination/fleet.ts` (or related agent modules) |
+| Where it lives | `packages/core/skills/<name>/SKILL.md` (or `~/.wrongstack/profiles/<name>/skills/`, `<project>/.wrongstack/skills/`) | `packages/core/src/coordination/fleet.ts` (or related agent modules) |
 | How it reaches the agent | Injected into the system prompt via `DefaultSkillLoader` when `DefaultSystemPromptBuilder` builds the prompt | Spawned via `spawn_subagent { role: '<id>' }` and runs in its own context/budget |
 | Who maintains it | Humans (with AI assistance via `/skill-gen`) | WrongStack core team — compiled into the binary |
 | Listed in `/skill` | Yes | No |
@@ -351,7 +351,7 @@ flagged with ⚠ and warrant a review before installing.
 ```
 
 To point at a self-hosted skills-api instance, set `config.skills.registryUrl`
-in `~/.wrongstack/config.json`. This field is **stripped from repo-committed
+in the active profile config. This field is **stripped from repo-committed
 config** (`<project>/.wrongstack/config.json`) because the parsed registry
 response flows into the prompt — a repo-controlled URL would be an
 SSRF / prompt-injection vector.
@@ -362,7 +362,7 @@ SSRF / prompt-injection vector.
 /skill-install octocat/react-pro              # GitHub, default branch
 /skill-install octocat/react-pro@v2.0.0       # GitHub, specific ref
 /skill-install skills.sh:octocat/react-pro    # registry-resolved
-/skill-install octocat/react-pro --global     # → ~/.wrongstack/skills/
+/skill-install octocat/react-pro --global     # → ~/.wrongstack/profiles/<name>/skills/
 ```
 
 **Private repos:** set `GITHUB_TOKEN` (or `GH_TOKEN`) in your environment. The

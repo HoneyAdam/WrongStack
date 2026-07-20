@@ -6,7 +6,7 @@ import * as path from 'node:path';
  * Custom context modes — user-defined presets that are loaded from disk,
  * merged with the built-in modes, and managed via WebSocket CRUD handlers.
  *
- * Stored in: ~/.wrongstack/custom-context-modes.json
+ * Stored in: ~/.wrongstack/profiles/<name>/custom-context-modes.json
  * Format: { "modes": ContextWindowMode[] }
  */
 

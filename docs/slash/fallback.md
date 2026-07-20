@@ -40,7 +40,7 @@ Turn it off with `/fallback auto off` to use **only** an explicit
 ## Persistence
 
 Both the explicit chain (`fallbackModels`) and the toggle (`fallbackAuto`) are
-written to `~/.wrongstack/config.json`. Changes take effect immediately — the
+written to the active profile config. Changes take effect immediately — the
 effective chain is recomputed on every turn, so there's no need to restart.
 The WebUI Settings panel edits the same fields.
 

@@ -25,9 +25,8 @@ Alias: `/mcp-servers`.
 
 ## Surfaces
 
-MCP servers can be managed from every surface, all backed by the **same**
-`~/.wrongstack/config.json` → `mcpServers` and the **same** in-process
-`MCPRegistry`:
+MCP servers can be managed from every surface, all backed by the active profile
+config (`mcpServers` key) and the **same** in-process `MCPRegistry`:
 
 - **REPL / TUI** — the `/mcp` command above (`mcp-utils.ts`).
 - **WebUI** — Settings → MCP panel in `wstack --webui`. Add/remove/enable/

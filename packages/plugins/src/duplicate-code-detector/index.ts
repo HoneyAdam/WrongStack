@@ -105,9 +105,27 @@ const DEFAULTS: DuplicateCodeDetectorConfig = {
   maxFindings: 5,
 };
 
+/**
+ * Extension set for O(1) lookup instead of Array.includes() O(n).
+ *
+ * Performance: converts the extensions array to a Set at config read time
+ * so the hook's per-file extension check is O(1) instead of O(n).
+ */
+let extensionsSet = new Set(DEFAULTS.extensions);
+
 function readConfig(raw: unknown): DuplicateCodeDetectorConfig {
-  if (!raw || typeof raw !== 'object') return { ...DEFAULTS };
+  if (!raw || typeof raw !== 'object') {
+    extensionsSet = new Set(DEFAULTS.extensions);
+    return { ...DEFAULTS };
+  }
   const r = raw as Record<string, unknown>;
+  const extensions = Array.isArray(r['extensions'])
+    ? (r['extensions'] as unknown[]).filter((x): x is string => typeof x === 'string')
+    : DEFAULTS.extensions;
+  
+  // Update the module-scope Set for O(1) lookup in the hook.
+  extensionsSet = new Set(extensions);
+  
   return {
     enabled: r['enabled'] === true,
     minLines:
@@ -118,9 +136,7 @@ function readConfig(raw: unknown): DuplicateCodeDetectorConfig {
       typeof r['threshold'] === 'number' && r['threshold'] > 0 && r['threshold'] <= 1
         ? r['threshold']
         : DEFAULTS.threshold,
-    extensions: Array.isArray(r['extensions'])
-      ? (r['extensions'] as unknown[]).filter((x): x is string => typeof x === 'string')
-      : DEFAULTS.extensions,
+    extensions,
     excludeDirs: Array.isArray(r['excludeDirs'])
       ? (r['excludeDirs'] as unknown[]).filter((x): x is string => typeof x === 'string')
       : DEFAULTS.excludeDirs,
@@ -350,7 +366,8 @@ const plugin: Plugin = {
       const ext = sourcePath.includes('.')
         ? sourcePath.slice(sourcePath.lastIndexOf('.')).toLowerCase()
         : '';
-      if (!cfg.extensions.includes(ext)) return;
+      // Performance: uses Set.has() for O(1) lookup instead of Array.includes() O(n).
+      if (!extensionsSet.has(ext)) return;
 
       state.hookInvocationCount += 1;
 

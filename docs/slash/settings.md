@@ -32,7 +32,7 @@ command is argument-driven so it works in both the plain REPL and the Ink TUI.
 | `/settings defaults` | Show built-in defaults |
 
 Settings are persisted to the active config scope: global
-`~/.wrongstack/config.json`, or project `<project>/.wrongstack/config.json`.
+the active `~/.wrongstack/profiles/<name>/config.json`, or project `<project>/.wrongstack/config.json`.
 
 The reasoning/cache rows are top-level defaults (`config.modelRuntime`) for the
 leader/default request path. Use `/setmodel reasoning ...` or WebUI Settings ->

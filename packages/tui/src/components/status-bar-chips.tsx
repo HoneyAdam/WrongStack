@@ -162,10 +162,8 @@ export function ThinkingChip({
 }): React.ReactElement {
   const live: AnimationStyle = style === 'cycle' ? styleForCycleTick(cycleTick) : style;
   if (live === 'rainbow') {
-    // Smooth HSL sinusoidal hue sweep — replaces the old discrete 12-stop
-    // HUE_WHEEL lookup that snapped between fixed colors. Each glyph's hue
-    // is computed from its position + the animation phase, producing a
-    // gradient band that glides smoothly across the text.
+    // A single Catppuccin gradient translates left-to-right across the label.
+    // Adjacent palette stops are blended so the movement stays continuous.
     const chars = Array.from(text);
     return (
       <Text bold>

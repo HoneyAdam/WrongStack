@@ -36,6 +36,7 @@ import {
   createCouncilTool,
   createFallbackManageTools,
   createOneShotLLMTool,
+  createPluginManagerTool,
   EternalAutonomyEngine,
   expectDefined,
   FLEET_ROSTER,
@@ -240,7 +241,7 @@ export async function main(argv: string[]): Promise<number> {
 
   // Register fallback/provider/model management tools (LLM-accessible).
   // These tools read config from the in-memory store and persist changes
-    // to the active profile config file, mirroring updates back to the store.
+  // to the active profile config file, mirroring updates back to the store.
   const stdinInteractive = process.stdin.isTTY;
   const fallbackManageTools = createFallbackManageTools({
     getConfig: () => configStore.get(),
@@ -270,6 +271,50 @@ export async function main(argv: string[]): Promise<number> {
       : {}),
   });
   for (const tool of fallbackManageTools) toolRegistry.register(tool);
+
+  // Give the leader a single tool-calling surface for discovering and managing
+  // plugins. Config mutations reuse the same implementation as `/plugin`, while
+  // live tool discovery comes from the registry after plugin setup completes.
+  toolRegistry.register(
+    createPluginManagerTool({
+      getConfig: () => configStore.get(),
+      catalog: PLUGIN_AUDIT_ENTRIES.map((entry) => {
+        const aliases = [
+          ...(entry.name.startsWith('@wrongstack/') ? [] : [`@wrongstack/plugins/${entry.name}`]),
+          ...(entry.name === '@wrongstack/plug-lsp' ? ['lsp'] : []),
+          ...(entry.name === 'telegram' ? ['@wrongstack/telegram'] : []),
+        ];
+        return {
+          name: entry.name,
+          description: entry.summary,
+          risk: entry.risk,
+          defaultState: entry.defaultState,
+          canDisable: entry.canDisable,
+          ...(aliases.length > 0 ? { aliases } : {}),
+        };
+      }),
+      toolRegistry,
+      // Invariant: runPluginManagementCommand writes the mutated config to disk
+      // AND returns a `patch` for every enabling/disabling branch, so re-applying
+      // the patch here keeps configStore in sync with the persisted file. Unlike
+      // createFallbackManageTools.updateConfig above, no defensive re-read is
+      // needed as long as this contract holds for future mutation branches.
+      setEnabled: async (plugin, enabled) => {
+        const result = await runPluginManagementCommand([enabled ? 'enable' : 'disable', plugin], {
+          config: configStore.get(),
+          configPath: profileConfigPath,
+        });
+        if (result.patch) {
+          configStore.update(result.patch as never as Partial<Config>);
+        }
+        return {
+          ok: result.code === 0,
+          message: result.message,
+          restartRequired: result.restartRequired === true,
+        };
+      },
+    }),
+  );
 
   // Metrics wiring — extracted to wiring/metrics.ts
   const { metricsSink, healthRegistry, metricsStatus } = (() => {
@@ -599,7 +644,7 @@ export async function main(argv: string[]): Promise<number> {
   // immediately so fallback chains filter blocked models even before the
   // first agent run.
   const statusTracker = new ProviderModelStatusTracker({ events });
-  const providerStatusFile = path.join(wpaths.globalRoot, 'provider-status.json');
+  const providerStatusFile = wpaths.profileProviderStatus(wpaths.profileName);
   try {
     const savedStatus = JSON.parse(await fs.readFile(providerStatusFile, 'utf8')) as unknown;
     const restored = statusTracker.restoreSnapshot(savedStatus);
@@ -2173,7 +2218,6 @@ export async function main(argv: string[]): Promise<number> {
         authHost: createAuthPanelHost({
           vault,
           modelsRegistry,
-          globalConfigPath: wpaths.globalConfig,
           profileConfigPath,
         }),
         onPanelOpen,

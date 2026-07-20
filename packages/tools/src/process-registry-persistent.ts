@@ -15,11 +15,12 @@
 import * as fs from 'node:fs/promises';
 // Note: fsSync imported for potential future use with synchronous file operations
 import * as os from 'node:os';
+import { wstackGlobalRoot } from '@wrongstack/core/utils';
 import * as path from 'node:path';
 import type { ChildProcess } from 'node:child_process';
 import { getProcessRegistry, type ProcessRegistryImpl } from './process-registry.js';
 
-const REGISTRY_FILE = '.wrongstack/process-registry.json';
+const REGISTRY_FILE = 'process-registry.json';
 
 function toErrorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -41,7 +42,7 @@ function emitStructuredLog(level: 'debug' | 'info' | 'warn' | 'error', event: st
 }
 const HEARTBEAT_INTERVAL_MS = 5_000;
 const STALE_THRESHOLD_MS = 30_000;
-const LOCKFILE = '.wrongstack/.process-registry.lock';
+const LOCKFILE = '.process-registry.lock';
 
 export interface PersistentProcessEntry {
   pid: number;
@@ -200,9 +201,9 @@ export class PersistentProcessRegistry {
 
   constructor(baseRegistry?: ProcessRegistryImpl) {
     this.instanceId = generateInstanceId();
-    const homeDir = os.homedir();
-    this.registryPath = path.join(homeDir, REGISTRY_FILE);
-    this.lockPath = path.join(homeDir, LOCKFILE);
+    const globalRoot = wstackGlobalRoot();
+    this.registryPath = path.join(globalRoot, REGISTRY_FILE);
+    this.lockPath = path.join(globalRoot, LOCKFILE);
     this.baseRegistry = baseRegistry ?? getProcessRegistry();
 
     // Ensure the .wrongstack directory exists
