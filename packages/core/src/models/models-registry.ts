@@ -8,6 +8,8 @@ import type {
   ResolvedProvider,
   WireFamily,
 } from '../types/models-registry.js';
+import type { Logger } from '../types/logger.js';
+import { noOpLogger } from '../infrastructure/logger.js';
 import { atomicWrite } from '../utils/atomic-write.js';
 import { toErrorMessage } from '../utils/error.js';
 import { mergeModelsPayload } from '../utils/merge-models-payload.js';
@@ -60,6 +62,12 @@ export interface DefaultModelsRegistryOptions {
   overlayFile?: string | undefined;
   /** Cache file for the fetched `overlayUrl`. Defaults next to `cacheFile`. */
   overlayCacheFile?: string | undefined;
+  /**
+   * Structured logger. Defaults to noOpLogger (silent).
+   * Callers pass a Logger to capture operator-visible diagnostics (cache
+   * fallback warnings, overlay unavailability, etc.).
+   */
+  logger?: Logger | undefined;
 }
 
 /**
@@ -130,6 +138,7 @@ export class DefaultModelsRegistry implements ModelsRegistry {
   private readonly overlayUrl?: string | undefined;
   private readonly overlayFile?: string | undefined;
   private readonly overlayCacheFile?: string | undefined;
+  private readonly logger: Logger;
 
   constructor(opts: DefaultModelsRegistryOptions) {
     this.cacheFile = opts.cacheFile;
@@ -149,6 +158,7 @@ export class DefaultModelsRegistry implements ModelsRegistry {
       (opts.overlayUrl
         ? path.join(path.dirname(opts.cacheFile), 'models-overlay-cache.json')
         : undefined);
+    this.logger = opts.logger ?? noOpLogger;
   }
 
   async load(opts: { force?: boolean | undefined } = {}): Promise<ModelsDevPayload> {
@@ -211,19 +221,19 @@ export class DefaultModelsRegistry implements ModelsRegistry {
       if (cached && this.isWithinMaxStaleAge(cached.fetchedAt)) {
         this.fetchedAt = new Date(cached.fetchedAt);
         const ageSeconds = Math.floor((Date.now() - this.fetchedAt.getTime()) / 1000);
-        // eslint-disable-next-line no-console -- user-visible operator warning
-        console.warn(
+        this.logger.warn(
           `ModelsRegistry: models.dev unavailable (${toErrorMessage(err)}); ` +
             `using stale cache from ${formatAge(ageSeconds)} ago. Run \`wstack models refresh\` to retry.`,
+          { event: 'models_registry.stale_cache_fallback' },
         );
         return cached.payload;
       }
       if (overlayAvailable) {
-        // eslint-disable-next-line no-console -- one-line operator warning
-        console.warn(
+        this.logger.warn(
           `ModelsRegistry: models.dev unavailable (${toErrorMessage(
             err,
           )}); serving curated overlay only.`,
+          { event: 'models_registry.overlay_only_fallback' },
         );
         return {};
       }
@@ -328,9 +338,9 @@ export class DefaultModelsRegistry implements ModelsRegistry {
       const cached = await this.readCacheAt(this.overlayCacheFile);
       if (cached && this.isWithinMaxStaleAge(cached.fetchedAt)) {
         const ageSeconds = Math.floor((Date.now() - new Date(cached.fetchedAt).getTime()) / 1000);
-        // eslint-disable-next-line no-console -- operator-visible warning
-        console.warn(
+        this.logger.warn(
           `ModelsRegistry: overlay unavailable; using stale overlay from ${formatAge(ageSeconds)} ago.`,
+          { event: 'models_registry.overlay_stale_fallback', ageSeconds },
         );
         return cached.payload;
       }
