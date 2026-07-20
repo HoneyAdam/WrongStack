@@ -172,6 +172,23 @@ export function retryAfterMsFromBody(body: ProviderErrorBody): number | undefine
     if (secs >= 1) return secs * 1_000;
   }
 
+  // 4. Common in 502 / gateway responses: "try again in X seconds",
+  //    "please retry in X seconds", "back in X seconds/minutes"
+  const tryAgainRe =
+    /(?:try|retry|back|wait)\s*(?:again)?\s*(?:in|for|after)\s*(\d+)\s*(seconds?|secs?|s|minutes?|mins?|m)?/i;
+  const tryAgainMatch = tryAgainRe.exec(text);
+  if (tryAgainMatch) {
+    const num = Number.parseInt(tryAgainMatch[1], 10);
+    const unit = (tryAgainMatch[2] ?? '').toLowerCase();
+    if (unit.startsWith('m')) {
+      // minutes
+      if (num >= 1 && num <= 60) return num * 60_000;
+    } else {
+      // seconds (default)
+      if (num >= 1 && num <= 300) return num * 1_000;
+    }
+  }
+
   return undefined;
 }
 

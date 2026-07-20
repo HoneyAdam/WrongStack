@@ -299,13 +299,23 @@ export class ProviderModelStatusTracker {
     // out through subagents, so quarantine this model on the first response.
     const quotaExhausted = kind === 'quota_exhausted' || isQuotaExhausted(kind, status, message);
 
+    // API endpoint unreachable (502 with connection-refused / upstream-down
+    // message) is equally non-transient: the provider's upstream is offline
+    // and retrying will fail until it comes back. Block immediately instead
+    // of exhausting the failure-threshold chain.
+    const endpointUnreachable = isEndpointUnreachable(kind, status, message);
+
     if (quotaExhausted) {
       newState = 'blocked';
       reason = 'quota_exhausted';
       s.stateExpiresAt = now + this.cfg.quotaBlockDurationMs;
+    } else if (endpointUnreachable) {
+      newState = 'blocked';
+      reason = 'endpoint_unreachable';
+      s.stateExpiresAt = now + this.cfg.quotaBlockDurationMs;
     }
 
-    if (!quotaExhausted && s.state === 'healthy') {
+    if (!quotaExhausted && !endpointUnreachable && s.state === 'healthy') {
       // healthy → degraded (consecutive failures >= threshold)
       if (s.consecutiveFailures >= this.cfg.degradedAfterFailures) {
         newState = 'degraded';
@@ -314,7 +324,7 @@ export class ProviderModelStatusTracker {
       }
     }
 
-    if (!quotaExhausted && (s.state === 'degraded' || s.state === 'healthy')) {
+    if (!quotaExhausted && !endpointUnreachable && (s.state === 'degraded' || s.state === 'healthy')) {
       // → blocked (rate-limit threshold or consecutive failures threshold)
       if (s.rateLimitHits >= this.cfg.blockAfterRateLimitHits) {
         newState = 'blocked';
@@ -735,6 +745,28 @@ function isQuotaExhausted(kind: ProviderErrorKind, status: number, message: stri
   )
     return false;
   return QUOTA_EXHAUSTED_RE.test(message);
+}
+
+/**
+ * Messages that indicate the provider's API endpoint is unreachable rather
+ * than merely overloaded or transiently failing. Common in 502 Bad Gateway
+ * responses when Cloudflare / AWS / Kong cannot reach the upstream service.
+ *
+ * Unlike a transient 503 or 504, an unreachable endpoint often signals a
+ * longer-lasting outage (deployment roll, DNS propagation, upstream crash).
+ * The tracker treats these like quota exhaustion — block on first hit
+ * instead of burning through the failure-threshold chain.
+ */
+const ENDPOINT_UNREACHABLE_RE =
+  /(?:upstream|origin|backend|endpoint)[-_\s]*(?:unreachable|refused|connect(?:ion)?[-_\s]*(?:refused|error|fail)|unavailable|down|timeout)|no[-_\s]*(?:healthy|valid)[-_\s]*upstream|cannot[-_\s]*connect|connection[-_\s]*(?:refused|reset|closed|timed?[-_\s]out)/i;
+
+function isEndpointUnreachable(kind: ProviderErrorKind, status: number, message: string): boolean {
+  // Only match gateway errors and network-level failures. Normal 5xx without
+  // an unreachable message are transient server errors, not endpoint-down.
+  if (status !== 502 && status !== 503 && status !== 0) return false;
+  if (kind !== 'server' && kind !== 'network' && kind !== 'overloaded' && kind !== 'timeout')
+    return false;
+  return ENDPOINT_UNREACHABLE_RE.test(message);
 }
 
 function safeCount(value: unknown): number {

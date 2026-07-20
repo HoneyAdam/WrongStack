@@ -3,6 +3,7 @@ export * from './atomic-write.js';
 export * from './child-env.js';
 export * from './color.js';
 export * from './config-backup.js';
+export { checkConnectivity, resetConnectivityCache } from './connectivity.js';
 export { deriveCachePrefixKey } from './cache-key.js';
 export * from './config-json.js';
 export { type ContextBreakdown, getContextBreakdown } from './context-breakdown.js';
