@@ -61,7 +61,6 @@ describe('runWebUI frontend serving', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('text/html');
     const html = await res.text();
-    expect(html).toContain(`<meta name="wrongstack-ws-port" content="${info!.wsPort}"`);
     expect(html.toLowerCase()).toContain('<!doctype html>');
   });
 });
