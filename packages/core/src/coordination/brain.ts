@@ -298,8 +298,10 @@ export class DefaultBrainArbiter implements BrainArbiter {
     // quickDecide heuristic in autonomy-brain.ts so headless hosts using
     // DefaultBrainArbiter also benefit from the unblock-and-continue
     // pattern. Requires the caller to have declared continue safe AND
-    // explicit resolution evidence in the context.
-    if (request.fallback === 'continue' && request.context) {
+    // explicit resolution evidence in the context. Skips option-bearing
+    // requests (options are control-plane input demanding a structured
+    // choice, not a keyword guess — same discipline as quickDecide).
+    if (!request.options?.length && request.fallback === 'continue' && request.context) {
       const q = request.question.toLowerCase();
       const ctx = request.context.toLowerCase();
       if (
