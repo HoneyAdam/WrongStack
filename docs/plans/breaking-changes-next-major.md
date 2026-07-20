@@ -50,16 +50,24 @@
 | `cli/webui-server/prefs-seeding.ts` | Key list + meta + write | ✅ Güncellendi |
 | `cli/slash-commands/agents.ts` + `settings.ts` | streamFleet mirror write | ✅ Kaldırıldı |
 
-### 3.2 YOLO Destructive Migration (5 tag — yüksek etki)
+### 3.2 YOLO Destructive Migration (5 tag — yüksek etki) ✅ TAMAMLANDI
 
-`yolo` boolean → `yoloDestructive` migration. `security/permission-policy.ts`'de 3 + `runtime/container.ts` + `cli` callers.
+~~`yolo` boolean → `yoloDestructive` migration. `security/permission-policy.ts`'de 3 + `runtime/container.ts` + `cli` callers.~~
 
-| Dosya | Tag | Yerine |
-|-------|-----|--------|
-| `core/security/permission-policy.ts:124` | `yolo` (boolean, CLI compat) | `yoloDestructive` |
-| `core/security/permission-policy.ts:128` | `yolo` field | `yoloDestructive` |
-| `core/security/permission-policy.ts:131` | `yoloConfirmDestructive` | Kaldırıldı (destructive confirmation YOLO'da disabled) |
-| `runtime/container.ts:45` | `forceAllYolo` | `yoloDestructive` |
+**Commit:** `92cf18856` (2026-07-20)
+
+`yoloDestructive`, `forceAllYolo`, ve `confirmDestructive` no-op field'ları `PermissionPolicyOptions`'tan, `DefaultPermissionPolicy` class'ından (field + getter/setter), ve `runtime/container.ts` permission interface'inden kaldırıldı. Bu field'lar zaten hiçbir davranışı etkilemiyordu — YOLO mode `this.yolo` ile her şeyi auto-approve ediyor.
+
+| Dosya | Tag | Durum |
+|-------|-----|-------|
+| `core/security/permission-policy.ts` | `yoloDestructive` field + interface | ✅ Kaldırıldı |
+| `core/security/permission-policy.ts` | `forceAllYolo` fallback | ✅ Kaldırıldı |
+| `core/security/permission-policy.ts` | `confirmDestructive` field + getter/setter | ✅ Kaldırıldı |
+| `runtime/container.ts` | permission interface 3 field | ✅ Kaldırıldı |
+| `cli/boot/container-wiring.ts` | deps + pass-through | ✅ Kaldırıldı |
+| `cli/cli-context.ts` | flag → deps mapping | ✅ Kaldırıldı |
+| `core/tests/permission-policy.test.ts` | setConfirmDestructive test | ✅ Kaldırıldı (no-op test) |
+| `cli/tests/container-wiring.test.ts` | fixture fields | ✅ Kaldırıldı |
 | `cli/execution.ts:135` | (aynı boolean mirror) | — |
 
 ### 3.3 OAuth / Token Aliases (2 tag — orta etki)
@@ -120,7 +128,7 @@ Codex→OAuth rename aliases.
 | Öncelik | Kategori | Tag sayısı | Aksiyon |
 |---------|----------|-----------|--------|
 | 🔴 High | Config/Boolean mirrors (3.1) | 6 | ✅ Tamamlandı — tüm paketlerden kaldırıldı |
-| 🔴 High | YOLO destructive (3.2) | 5 | Tüm `yolo` boolean callers `yoloDestructive`'a migrate edilmeli |
+| 🔴 High | YOLO destructive (3.2) | 5 | ✅ Tamamlandı — no-op field'lar kaldırıldı |
 | 🟡 Medium | OAuth aliases (3.3) | 2 | Codex namespace tamamen kalkınca kaldır |
 | 🟡 Medium | Import path (3.4) | 5 | External consumers güncellendikçe kaldır |
 | 🟢 Low | Boolean→Enum (3.5) | 3 | Config migration gerekli |
@@ -137,7 +145,7 @@ Codex→OAuth rename aliases.
 - [x] Tüm deprecated API'leri gözden geçir (`@deprecated` JSDoc tag'leri) — 29 tag bulundu, kategorize edildi
 - [x] CHANGELOG.md'ye breaking changes bölümü ekle (`jsonArgumentsBuggy` için)
 - [x] **3.1:** `fleetChat`/`streamFleet` boolean mirror'larını kaldır (`7cdf89ed0`, `f083ffeb7`)
-- [ ] **3.2:** `yolo` boolean → `yoloDestructive` migration'ı tamamla
+- [x] **3.2:** `yolo` boolean → `yoloDestructive` migration'ı tamamla (`92cf18856`)
 - [ ] **3.3-3.8:** Kalan deprecated API'leri major release sırasında kaldır
 - [ ] Migration guide yaz (kullanıcılar için)
 - [ ] Major version bump (semver)
