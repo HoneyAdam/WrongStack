@@ -7,7 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Removed
+## [1.0.0] — 2026-07-20
+
+> The **first stable release**. WrongStack's API surface is declared stable:
+> deprecated compatibility shims are removed, the permission model is
+> safe-by-default, structured logging replaces ad-hoc `console.*` calls, and
+> the OpenAI tool-call adapter no longer emulates legacy bugs. See
+> [`docs/migration/v1.0.0.md`](docs/migration/v1.0.0.md) for the full
+> migration guide.
+
+### Security
+- **ACP permission policy is now safe-by-default** — `ACPSession` defaults to
+  `readOnlyPermissionPolicy` instead of auto-approving everything. Trusted
+  paths (Director, `/acp` slash, `wstack acp spawn/parallel`) explicitly opt
+  into `defaultPermissionPolicy`. New or unknown callers get read-only by
+  default ("deny by default, allow by exception").
+- **`execFileSync` replaces `execSync`** in `cli-main.ts` — eliminates the
+  shell-injection surface for the git-branch probe. Arguments are passed as
+  an argv array, never parsed by a shell.
+
+### Removed (BREAKING)
 - **`jsonArgumentsBuggy` option removed from the OpenAI tool-call adapter**
   (**BREAKING**) — `FromOpenAIOptions.jsonArgumentsBuggy`, the matching
   conditional bug emulation in `from-openai.ts`, and the entry in
@@ -37,6 +56,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `setOAuthTokenPersister`), `ProviderAvailability` (use `ProviderHealth`),
   and `HookRunnerOptions.allowShell` (use `allowNonPolicy`) are all gone.
   None had any consumers in the codebase.
+
+### Changed
+- **Structured Logger migration** — `console.*` calls in `phase-orchestrator`,
+  `llm-selector`, `models-registry`, `selective-compactor`, `compaction-core`,
+  and `compactor.ts` (HybridCompactor) + `intelligent-compactor.ts` now use the
+  structured `Logger` interface. All three compactor classes wire
+  `setCompactionDebugLogger(this.logger)` in their constructors.
+- **Alibaba Token Plan Personal Edition provider** — 11 models (Qwen, GLM,
+  DeepSeek, Wan2.7, HappyHorse) with drift-guard test coverage.
 
 ## [0.292.1] — 2026-07-20
 
