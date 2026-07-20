@@ -120,18 +120,6 @@ function shellCommandReadsSensitivePath(command: string): boolean {
 export interface PermissionPolicyOptions {
   trustFile: string;
   yolo?: boolean | undefined;
-  /**
-   * @deprecated Kept for CLI compatibility only. YOLO now auto-approves
-   *   every non-denied tool call, including destructive-classified calls.
-   */
-  yoloDestructive?: boolean | undefined;
-  /** @deprecated Use `yoloDestructive`. */
-  forceAllYolo?: boolean | undefined;
-  /**
-   * @deprecated Destructive confirmation is disabled in YOLO mode.
-   * Kept for compatibility with older callers.
-   */
-  confirmDestructive?: boolean | undefined;
   promptDelegate?: (
     tool: Tool,
     input: unknown,
@@ -145,9 +133,6 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
   private loaded = false;
   private readonly trustFile: string;
   private yolo: boolean;
-  private yoloDestructive: boolean;
-  /** Deprecated compatibility flag; no longer gates YOLO calls. */
-  private confirmDestructive: boolean;
   /**
    * Session-scoped "soft deny" map. When the user presses 'n' (block once),
    * the tool+pattern is added here. If the LLM retries in the same session,
@@ -201,8 +186,6 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
   constructor(opts: PermissionPolicyOptions) {
     this.trustFile = opts.trustFile;
     this.yolo = opts.yolo ?? false;
-    this.yoloDestructive = opts.yoloDestructive ?? opts.forceAllYolo ?? false;
-    this.confirmDestructive = opts.confirmDestructive ?? false;
     this.promptDelegate = opts.promptDelegate;
   }
 
@@ -225,28 +208,6 @@ export class DefaultPermissionPolicy implements PermissionPolicy {
   /** Check whether YOLO mode is currently active. */
   getYolo(): boolean {
     return this.yolo;
-  }
-
-  /** Toggle the destructive YOLO override at runtime. */
-  setYoloDestructive(enabled: boolean): void {
-    if (this.yoloDestructive !== enabled) this._evalCache.clear();
-    this.yoloDestructive = enabled;
-  }
-
-  /** Check whether the destructive YOLO override is active. */
-  getYoloDestructive(): boolean {
-    return this.yoloDestructive;
-  }
-
-  /** Toggle deprecated destructive confirmation compatibility flag. */
-  setConfirmDestructive(enabled: boolean): void {
-    if (this.confirmDestructive !== enabled) this._evalCache.clear();
-    this.confirmDestructive = enabled;
-  }
-
-  /** Check deprecated destructive confirmation compatibility flag. */
-  getConfirmDestructive(): boolean {
-    return this.confirmDestructive;
   }
 
   /** Read-only diagnostics for policy inspector/editor surfaces. */

@@ -53,8 +53,6 @@ interface WireContainerDeps {
   reader: Parameters<typeof makePromptDelegate>[0];
   renderer: Renderer;
   modelsRegistry: ModelsRegistry;
-  yoloDestructive: boolean;
-  confirmDestructive: boolean;
 }
 
 /**
@@ -87,8 +85,6 @@ export function wireContainer(deps: WireContainerDeps): {
     events,
     permission: {
       yolo: deps.config.yolo,
-      yoloDestructive: deps.yoloDestructive,
-      confirmDestructive: deps.confirmDestructive,
       promptDelegate: makePromptDelegate(deps.reader) as NonNullable<NonNullable<Parameters<typeof createDefaultContainer>[0]['permission']>['promptDelegate']>,
     },
     compactor: {

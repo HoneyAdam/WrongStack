@@ -41,11 +41,6 @@ export interface CreateContainerOptions {
   events?: EventBus | undefined;
   permission?: {
     yolo?: boolean | undefined;
-    yoloDestructive?: boolean | undefined;
-    /** @deprecated Use `yoloDestructive`. */
-    forceAllYolo?: boolean | undefined;
-    /** Deprecated compatibility flag; YOLO no longer prompts by destructiveness. */
-    confirmDestructive?: boolean | undefined;
     promptDelegate?: (
       tool: Tool,
       input: unknown,
@@ -204,8 +199,6 @@ export function createDefaultContainer(opts: CreateContainerOptions): Container 
     const policyOptions: ConstructorParameters<typeof DefaultPermissionPolicy>[0] = {
       trustFile: wpaths.projectTrust,
       yolo: opts.permission?.yolo ?? false,
-      yoloDestructive: opts.permission?.yoloDestructive ?? opts.permission?.forceAllYolo ?? false,
-      confirmDestructive: opts.permission?.confirmDestructive ?? false,
     };
     if (opts.permission?.promptDelegate !== undefined) {
       policyOptions.promptDelegate = opts.permission.promptDelegate;

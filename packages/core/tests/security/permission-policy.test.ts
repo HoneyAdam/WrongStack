@@ -274,7 +274,7 @@ describe('DefaultPermissionPolicy', () => {
     });
 
     it('yolo + yoloDestructive still auto-approves destructive operations', async () => {
-      const p = new DefaultPermissionPolicy({ trustFile, yolo: true, yoloDestructive: true });
+      const p = new DefaultPermissionPolicy({ trustFile, yolo: true });
       const d = await p.evaluate(
         tool('bash', 'confirm', 'destructive'),
         { command: 'rm -rf /' },
@@ -285,7 +285,7 @@ describe('DefaultPermissionPolicy', () => {
     });
 
     it('yolo + confirmDestructive still auto-approves destructive operations', async () => {
-      const p = new DefaultPermissionPolicy({ trustFile, yolo: true, confirmDestructive: true });
+      const p = new DefaultPermissionPolicy({ trustFile, yolo: true });
       const d = await p.evaluate(
         tool('bash', 'confirm', 'destructive'),
         { command: 'rm -rf /' },
@@ -295,33 +295,11 @@ describe('DefaultPermissionPolicy', () => {
       expect(d.source).toBe('yolo');
     });
 
-    it('setConfirmDestructive is a compatibility flag; YOLO still auto-approves', async () => {
-      const p = new DefaultPermissionPolicy({ trustFile, yolo: true });
-      expect(p.getConfirmDestructive()).toBe(false);
-      p.setConfirmDestructive(true);
-      expect(p.getConfirmDestructive()).toBe(true);
-      const d = await p.evaluate(
-        tool('bash', 'confirm', 'destructive'),
-        { command: 'rm -rf /' },
-        { projectRoot: process.cwd() } as Context,
-      );
-      expect(d.permission).toBe('auto');
-      p.setConfirmDestructive(false);
-      expect(p.getConfirmDestructive()).toBe(false);
-      const d2 = await p.evaluate(
-        tool('bash', 'confirm', 'destructive'),
-        { command: 'rm -rf /' },
-        {} as Context,
-      );
-      expect(d2.permission).toBe('auto');
-    });
-
     it('confirmDestructive + promptDelegate does not intercept YOLO calls', async () => {
       const delegate = vi.fn(async () => 'always' as const);
       const p = new DefaultPermissionPolicy({
         trustFile,
         yolo: true,
-        confirmDestructive: true,
         promptDelegate: delegate,
       });
       const d = await p.evaluate(
@@ -335,7 +313,7 @@ describe('DefaultPermissionPolicy', () => {
     });
 
     it('yolo source appears when confirmDestructive is active', async () => {
-      const p = new DefaultPermissionPolicy({ trustFile, yolo: true, confirmDestructive: true });
+      const p = new DefaultPermissionPolicy({ trustFile, yolo: true });
       const d = await p.evaluate(
         tool('bash', 'confirm', 'destructive'),
         { command: 'rm -rf /' },
@@ -367,7 +345,7 @@ describe('DefaultPermissionPolicy', () => {
 
   describe('capability-based destructive gating', () => {
     it('yolo + confirmDestructive auto-approves a shell.arbitrary tool running a catastrophic command', async () => {
-      const p = new DefaultPermissionPolicy({ trustFile, yolo: true, confirmDestructive: true });
+      const p = new DefaultPermissionPolicy({ trustFile, yolo: true });
       const d = await p.evaluate(
         tool('bash', 'confirm', 'destructive', true, ['shell.arbitrary']),
         { command: 'rm -rf /' },
@@ -378,7 +356,7 @@ describe('DefaultPermissionPolicy', () => {
     });
 
     it('yolo + confirmDestructive auto-approves an fs.write tool targeting a path outside the project', async () => {
-      const p = new DefaultPermissionPolicy({ trustFile, yolo: true, confirmDestructive: true });
+      const p = new DefaultPermissionPolicy({ trustFile, yolo: true });
       const d = await p.evaluate(
         tool('write', 'confirm', 'destructive', true, ['fs.write']),
         { path: '../../../outside.ts' },
@@ -389,7 +367,7 @@ describe('DefaultPermissionPolicy', () => {
     });
 
     it('yolo + confirmDestructive allows an in-project fs.write even with the capability', async () => {
-      const p = new DefaultPermissionPolicy({ trustFile, yolo: true, confirmDestructive: true });
+      const p = new DefaultPermissionPolicy({ trustFile, yolo: true });
       const d = await p.evaluate(
         tool('write', 'confirm', 'destructive', true, ['fs.write']),
         { path: 'src/a.ts' },

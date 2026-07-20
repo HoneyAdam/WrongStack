@@ -203,9 +203,6 @@ export async function initializeCli(argv: string[]): Promise<CliContext | number
     reader,
     renderer,
     modelsRegistry,
-    yoloDestructive: (ctx.flags as Record<string, boolean | string | undefined>)['yolo-destructive'] === true ||
-      (ctx.flags as Record<string, boolean | string | undefined>)['force-all-yolo'] === true,
-    confirmDestructive: false,
   });
 
   // Replay / record mode.

@@ -104,8 +104,6 @@ describe('wireContainer (PR 3 of #29)', () => {
       reader: makeReader(),
       renderer: makeRenderer(),
       modelsRegistry: makeModelsRegistry(),
-      yoloDestructive: false,
-      confirmDestructive: false,
     });
 
     expect(pathResolver).toBeDefined();
@@ -124,8 +122,6 @@ describe('wireContainer (PR 3 of #29)', () => {
       reader: makeReader(),
       renderer: makeRenderer(),
       modelsRegistry: makeModelsRegistry(),
-      yoloDestructive: false,
-      confirmDestructive: false,
     });
 
     // Subscribe + publish; if the bus had no logger attached
@@ -152,8 +148,6 @@ describe('wireContainer (PR 3 of #29)', () => {
       reader: makeReader(),
       renderer: makeRenderer(),
       modelsRegistry: makeModelsRegistry(),
-      yoloDestructive: false,
-      confirmDestructive: false,
     });
 
     const tokens = capturedBinds.map((b) => b.token);
