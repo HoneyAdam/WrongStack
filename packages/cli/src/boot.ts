@@ -182,6 +182,25 @@ function resolveBundledPromptsDir(): string | undefined {
 }
 
 /**
+ * Determine whether a directory is the user's home directory. Used by the
+ * startup guard to refuse launching wstack in `~` — where it would risk
+ * creating a `.git` repo at the top of the user's filesystem.
+ *
+ * Resolves both paths so trailing slashes and relative segments are
+ * normalized before the comparison. Case is compared as-is (matches
+ * `os.homedir()` and `process.cwd()` output on every platform). Symlinks
+ * are NOT followed: the common case (`cwd === os.homedir()` literally) is
+ * what this guard targets.
+ *
+ * Exported for testing — the call site in {@link boot} performs the actual
+ * warning + exit.
+ */
+export function isHomeDirectory(cwd: string, userHome: string): boolean {
+  if (!cwd || !userHome) return false;
+  return path.resolve(cwd) === path.resolve(userHome);
+}
+
+/**
  * Determine whether the first-run YOLO disclosure notice should be printed
  * to stderr. Exported for testing.
  *
@@ -354,6 +373,21 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
     });
     await reader.close();
     return code;
+  }
+
+  // Safety guard: refuse to start when the current working directory is the
+  // user's home directory. Running wstack in ~ risks creating a .git repo at
+  // the top of the user's filesystem and treating every file under it as
+  // project state. Utility subcommands (auth, version, etc.) were already
+  // dispatched above and are not affected; this guard covers only session
+  // launches (interactive, --webui, --no-interactive, quick, single-shot).
+  if (isHomeDirectory(cwd, userHome)) {
+    writeErr(
+      `\n  ${color.red(color.bold('⚠ This is not a working directory.'))}\n` +
+        `  ${color.red('Please open wstack in a project folder.')}\n\n`,
+    );
+    await reader.close();
+    return 1;
   }
 
   // Background update check is handled in preflight.ts → applyPrintUpdateNotice(),
