@@ -67,6 +67,7 @@ import {
 import type { VizEvent } from '@/stores/viz-store';
 import { AgentTranscript } from './AgentTranscript';
 import { feedColor, resolveClients } from './OfficeMapCanvas/resolve.js';
+import { useRecentlyFinishedFleetAgents } from './OfficeMapCanvas/use-recently-finished.js';
 import {
   agentFanPos,
   CENTER_X,
@@ -338,12 +339,20 @@ export function OfficeMapCanvas() {
   const mailboxMessages = useMailboxStore((s) => s.messages);
   const mailboxAgents = useMailboxStore((s) => s.agents);
   const session = useSessionStore((s) => s.session);
+  const recentlyFinished = useRecentlyFinishedFleetAgents(fleetAgents);
 
   // Resolve the client/agent model once per snapshot/fleet change so the build
   // effect and the viz-overlay id-maps share a single source of truth.
   const clients = useMemo(
-    () => resolveClients(liveSessions, fleetAgents, mailboxAgents),
-    [liveSessions, fleetAgents, mailboxAgents],
+    () =>
+      resolveClients(
+        liveSessions,
+        fleetAgents,
+        mailboxAgents,
+        recentlyFinished.map,
+        recentlyFinished.now,
+      ),
+    [liveSessions, fleetAgents, mailboxAgents, recentlyFinished],
   );
 
   // Display preferences (driven from OfficeMapSettingsPanel in the secondary panel).

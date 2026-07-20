@@ -51,6 +51,7 @@ import {
 import type { LiveTodoItem } from '@/stores/monitor-store';
 import type { ResolvedAgent, ResolvedClient } from './OfficeMapCanvas/resolve.js';
 import { resolveClients } from './OfficeMapCanvas/resolve.js';
+import { useRecentlyFinishedFleetAgents } from './OfficeMapCanvas/use-recently-finished.js';
 import './AgentOfficeView.css';
 
 interface OfficeAgentModel {
@@ -1326,11 +1327,19 @@ export function AgentOfficeView() {
   const mailboxMessages = useMailboxStore((state) => state.messages);
   const toolEvents = useVizStore((state) => state.toolEvents);
   const projectNameFromSession = useSessionStore((state) => state.projectName);
+  const recentlyFinished = useRecentlyFinishedFleetAgents(fleetAgents);
   const [selected, setSelected] = useState<SelectedAction | null>(null);
 
   const clients = useMemo(
-    () => resolveClients(liveSessions, fleetAgents, mailboxAgents),
-    [liveSessions, fleetAgents, mailboxAgents],
+    () =>
+      resolveClients(
+        liveSessions,
+        fleetAgents,
+        mailboxAgents,
+        recentlyFinished.map,
+        recentlyFinished.now,
+      ),
+    [liveSessions, fleetAgents, mailboxAgents, recentlyFinished],
   );
 
   const models = useMemo<OfficeAgentModel[]>(

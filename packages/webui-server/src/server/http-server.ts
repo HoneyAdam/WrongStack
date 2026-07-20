@@ -10,12 +10,15 @@
  *   `%2e%2e%2f` escapes (the `URL` constructor decodes percent-encoding
  *   before we see the path). We re-`resolve` the candidate and verify it
  *   stays under `distDir`.
- * - **CSP**: `connect-src` uses explicit loopback addresses for the WS
- *   server (not bare `ws:` / `wss:`) so a malicious page script cannot
- *   dial an attacker-controlled WebSocket. Combined with the
- *   cookie-based WS auth delivery (`/ws-auth` → `Set-Cookie: ws_token=
- *   …; HttpOnly; SameSite=Strict; Path=/`), this prevents cross-origin
- *   WS abuse.
+ * - **CSP**: `connect-src` uses `'self'` to cover same-origin WS upgrades
+ *   on the shared HTTP+WS port (no explicit `ws:` / `wss:` entries).
+ *   This blocks cross-origin WebSocket abuse — a malicious page script
+ *   can only open WS connections back to its own origin. Combined with
+ *   the cookie-based WS auth delivery (`/ws-auth` → `Set-Cookie:
+ *   ws_token=…; HttpOnly; SameSite=Strict; Path=/`), this prevents
+ *   cross-origin WS abuse. When `publicWsUrl` is configured, that
+ *   single origin is added to `connect-src` to allow tunnels/reverse
+ *   proxies.
  * - **Access auth**: on non-loopback binds, all HTTP routes require the same
  *   shared token as the WS upgrade, accepted via `?token=...`, `X-WS-Token`,
  *   or the `ws_token` HttpOnly cookie. This protects the React UI and the
@@ -30,6 +33,16 @@ import * as http from 'node:http';
 import * as path from 'node:path';
 import * as v8 from 'node:v8';
 import {
+  handleCodemapFiles,
+  handleCodemapPackages,
+  handleCodemapSymbols,
+} from './codemap-handlers.js';
+import {
+  handleApiAnalyticsGet,
+  handleApiAnalyticsPost,
+  handleApiAnalyticsSummary,
+} from './http-server/analytics-handler.js';
+import {
   handleApiFleetBroadcast,
   handleApiSessionAgents,
   handleApiSessionEvents,
@@ -38,29 +51,19 @@ import {
   handleApiSessionMessage,
   handleApiSessions,
 } from './http-server/api-handlers.js';
-import {
-  handleApiAnalyticsGet,
-  handleApiAnalyticsPost,
-  handleApiAnalyticsSummary,
-} from './http-server/analytics-handler.js';
-import {
-  handleCodemapFiles,
-  handleCodemapPackages,
-  handleCodemapSymbols,
-} from './codemap-handlers.js';
+import { generateProjectSlug } from './projects-manifest.js';
+import type { FileWatcherMetrics } from './setup-events.js';
 import {
   handleTechStackAnalyze,
   handleTechStackCancel,
+  handleTechStackDependencyResearch,
   handleTechStackInventory,
   handleTechStackJobStatus,
-  handleTechStackDependencyResearch,
   handleTechStackReport,
   handleTechStackSnapshot,
   type TechStackEvent,
 } from './techstack-handlers.js';
-import { generateProjectSlug } from './projects-manifest.js';
 import { extractTokenFromCookie, isLoopbackBind, tokenMatches } from './ws-auth.js';
-import type { FileWatcherMetrics } from './setup-events.js';
 
 export interface CreateHttpServerOptions {
   /** Port to listen on. Defaults to 3456 (or the `PORT` env var). */
@@ -70,8 +73,11 @@ export interface CreateHttpServerOptions {
   /** Resolved path to the directory containing the built React assets. */
   distDir: string;
   /**
-   * WS port — appears in the CSP `connect-src` directive so the browser
-   * is allowed to open a WebSocket back to the local server.
+   * WS port — used by the WS-only fallback path (when the shared-port
+   * design is unavailable, e.g. when `distDir` is empty). On the
+   * shared-port happy path, the WS server attaches to the HTTP `Server`
+   * and this value is informational. Not referenced in the CSP (which
+   * uses `'self'` to cover same-origin WS upgrades on the shared port).
    */
   wsPort: number;
   /**
@@ -173,11 +179,10 @@ function escapeHtmlAttr(value: string): string {
     .replace(/>/g, '&gt;');
 }
 
-export function injectWsConfig(
-  html: string,
-  opts: { wsPort: number; publicWsUrl?: string | undefined },
-): string {
-  const out = injectWsPort(html, opts.wsPort);
+export function injectWsConfig(html: string, opts: { publicWsUrl?: string | undefined }): string {
+  // The WebSocket now shares the HTTP server port, so the frontend derives
+  // the WS URL from the page origin. No wrongstack-ws-port meta tag needed.
+  const out = html;
   if (!opts.publicWsUrl || out.includes('name="wrongstack-ws-url"')) return out;
   const tag = `<meta name="wrongstack-ws-url" content="${escapeHtmlAttr(opts.publicWsUrl)}" />`;
   if (out.includes('</head>')) {
@@ -200,16 +205,6 @@ function requestToken(req: http.IncomingMessage, url: URL): string | undefined {
     firstHeader(req.headers['x-ws-token']) ??
     extractTokenFromCookie(req.headers.cookie)
   );
-}
-
-function requestHostForCsp(hostHeader: string | string[] | undefined): string | undefined {
-  const raw = firstHeader(hostHeader)?.trim();
-  if (!raw) return undefined;
-  try {
-    return new URL(`http://${raw}`).hostname;
-  } catch {
-    return undefined;
-  }
 }
 
 function formatCspHostname(hostname: string): string {
@@ -249,22 +244,11 @@ function cspSourceFromUrl(rawUrl: string): string | undefined {
  */
 const EXTRA_SCRIPT_SOURCES: readonly string[] = ["'wasm-unsafe-eval'"];
 
-/** Build the Content-Security-Policy value for the given WS port. */
-export function buildCspHeader(
-  wsPort: number,
-  requestHost?: string | undefined,
-  publicWsUrl?: string | undefined,
-): string {
-  const connect = new Set([
-    "'self'",
-    `ws://127.0.0.1:${wsPort}`,
-    `wss://127.0.0.1:${wsPort}`,
-  ]);
-  if (requestHost && requestHost !== '127.0.0.1' && requestHost !== '::1' && requestHost !== '[::1]') {
-    const host = formatCspHostname(requestHost);
-    connect.add(`ws://${host}:${wsPort}`);
-    connect.add(`wss://${host}:${wsPort}`);
-  }
+/** Build the Content-Security-Policy value. The WebSocket now shares the HTTP
+ * server port, so `'self'` covers same-origin WS — explicit ws:// entries are
+ * no longer needed. */
+export function buildCspHeader(publicWsUrl?: string | undefined): string {
+  const connect = new Set(["'self'"]);
   const publicWsSource = publicWsUrl ? cspSourceFromUrl(publicWsUrl) : undefined;
   if (publicWsSource) connect.add(publicWsSource);
   const scriptSrc = ["'self'", ...EXTRA_SCRIPT_SOURCES].join(' ');
@@ -325,23 +309,22 @@ export function decodeSessionId(segment: string): string {
 export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
   const port = opts.port ?? Number.parseInt(process.env['PORT'] ?? '3456', 10);
   const distDir = path.resolve(opts.distDir);
-  const wsPort = opts.wsPort;
   // Loopback bind: no HTTP token required (mirrors WS loopback-bootstrap).
   // LAN bind: caller MUST supply a token; fail closed if it is absent.
   const requireAccessToken = Boolean(opts.requireToken) || !isLoopbackBind(opts.host);
-  let techStackRuntime:
-    | Promise<{
-        store: import('@wrongstack/techstack').TechStackStore;
-        engine: import('@wrongstack/techstack').TechStackEngine;
-        runningJobs: Map<string, AbortController>;
-      }>
-    | null = null;
+  let techStackRuntime: Promise<{
+    store: import('@wrongstack/techstack').TechStackStore;
+    engine: import('@wrongstack/techstack').TechStackEngine;
+    runningJobs: Map<string, AbortController>;
+  }> | null = null;
   const getTechStackRuntime = async () => {
     if (!opts.projectRoot) throw new Error('Project root not configured');
-    techStackRuntime ??= import('@wrongstack/techstack').then(({ TechStackEngine, TechStackStore }) => {
-      const store = new TechStackStore({ projectSlug: generateProjectSlug(opts.projectRoot!) });
-      return { store, engine: new TechStackEngine(store), runningJobs: new Map() };
-    });
+    techStackRuntime ??= import('@wrongstack/techstack').then(
+      ({ TechStackEngine, TechStackStore }) => {
+        const store = new TechStackStore({ projectSlug: generateProjectSlug(opts.projectRoot!) });
+        return { store, engine: new TechStackEngine(store), runningJobs: new Map() };
+      },
+    );
     return techStackRuntime;
   };
 
@@ -580,10 +563,14 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
           return;
         }
         const pkg = url.searchParams.get('package') ?? '';
-        handleCodemapFiles(res, {
-          projectRoot: opts.projectRoot,
-          ...(opts.indexDir ? { indexDir: opts.indexDir } : {}),
-        }, pkg);
+        handleCodemapFiles(
+          res,
+          {
+            projectRoot: opts.projectRoot,
+            ...(opts.indexDir ? { indexDir: opts.indexDir } : {}),
+          },
+          pkg,
+        );
         return;
       }
 
@@ -599,10 +586,14 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
           return;
         }
         const file = url.searchParams.get('file') ?? '';
-        handleCodemapSymbols(res, {
-          projectRoot: opts.projectRoot,
-          ...(opts.indexDir ? { indexDir: opts.indexDir } : {}),
-        }, file);
+        handleCodemapSymbols(
+          res,
+          {
+            projectRoot: opts.projectRoot,
+            ...(opts.indexDir ? { indexDir: opts.indexDir } : {}),
+          },
+          file,
+        );
         return;
       }
 
@@ -668,10 +659,12 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
           }
         } catch (error) {
           res.writeHead(503, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({
-            error: 'TechStack store unavailable',
-            detail: error instanceof Error ? error.message : String(error),
-          }));
+          res.end(
+            JSON.stringify({
+              error: 'TechStack store unavailable',
+              detail: error instanceof Error ? error.message : String(error),
+            }),
+          );
           return;
         }
       }
@@ -687,9 +680,10 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
         }
         if (opts.watcherMetrics) {
           // Update computed fields before returning
-          const avgDelay = opts.watcherMetrics.broadcastsSent > 0
-            ? opts.watcherMetrics.totalDebounceDelayMs / opts.watcherMetrics.broadcastsSent
-            : 0;
+          const avgDelay =
+            opts.watcherMetrics.broadcastsSent > 0
+              ? opts.watcherMetrics.totalDebounceDelayMs / opts.watcherMetrics.broadcastsSent
+              : 0;
           const response = {
             ...opts.watcherMetrics,
             averageDebounceDelayMs: avgDelay,
@@ -759,16 +753,12 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
 
       if (ext === '.html') {
         if (!shouldSetAuthCookie) res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader(
-          'Content-Security-Policy',
-          buildCspHeader(wsPort, requestHostForCsp(req.headers.host), opts.publicWsUrl),
-        );
-        // Stamp the live WS port into the HTML so the frontend dials this
-        // instance's backend (not the hardcoded default) — required for
-        // running multiple WebUI instances on different ports.
+        res.setHeader('Content-Security-Policy', buildCspHeader(opts.publicWsUrl));
+        // The frontend derives the WebSocket URL from the page origin since
+        // WS now shares the HTTP server port. No WS-port injection needed.
         const html = await fs.readFile(resolvedPath, 'utf8');
         res.writeHead(200);
-        res.end(injectWsConfig(html, { wsPort, publicWsUrl: opts.publicWsUrl }));
+        res.end(injectWsConfig(html, { publicWsUrl: opts.publicWsUrl }));
         return;
       }
 
@@ -785,13 +775,9 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
             'X-Content-Type-Options': 'nosniff',
             'X-Frame-Options': 'DENY',
             'Referrer-Policy': 'strict-origin-when-cross-origin',
-            'Content-Security-Policy': buildCspHeader(
-              wsPort,
-              requestHostForCsp(req.headers.host),
-              opts.publicWsUrl,
-            ),
+            'Content-Security-Policy': buildCspHeader(opts.publicWsUrl),
           });
-          res.end(injectWsConfig(html, { wsPort, publicWsUrl: opts.publicWsUrl }));
+          res.end(injectWsConfig(html, { publicWsUrl: opts.publicWsUrl }));
         } catch {
           res.writeHead(404);
           res.end('Not found');
@@ -804,11 +790,13 @@ export function createHttpServer(opts: CreateHttpServerOptions): http.Server {
   });
 
   server.once('close', () => {
-    void techStackRuntime?.then(({ store, runningJobs }) => {
-      for (const controller of runningJobs.values()) controller.abort();
-      runningJobs.clear();
-      store.close();
-    }).catch(() => undefined);
+    void techStackRuntime
+      ?.then(({ store, runningJobs }) => {
+        for (const controller of runningJobs.values()) controller.abort();
+        runningJobs.clear();
+        store.close();
+      })
+      .catch(() => undefined);
   });
   return server;
 }
