@@ -33,7 +33,7 @@ import {
 } from '../types/acp-v1.js';
 import { FileServer, FsError } from './file-server.js';
 import {
-  defaultPermissionPolicy,
+  readOnlyPermissionPolicy,
   type PermissionPolicy,
 } from './permission.js';
 import { TerminalServer } from './terminal-server.js';
@@ -218,7 +218,7 @@ export class ACPSession {
       termOpts.outputByteLimit = opts.terminalOutputByteLimit;
     }
     this.terminalServer = new TerminalServer(termOpts);
-    this.permissionPolicy = opts.permissionPolicy ?? defaultPermissionPolicy;
+    this.permissionPolicy = opts.permissionPolicy ?? readOnlyPermissionPolicy;
   }
 
   // ──────────────────────────────────────────────────────────────────────
@@ -1214,11 +1214,12 @@ export class ACPSession {
    * closing the gap where the agent simply skips the voluntary permission
    * request and sends the privileged callback directly.
    *
-   * Uses the session's permission policy. The default policy
-   * (`defaultPermissionPolicy`) auto-approves everything — this is correct
-   * for trusted local agents (CLI `acp spawn`, Director fan-out). For
-   * untrusted/remote agents, the host should inject
-   * `readOnlyPermissionPolicy` or an interactive policy.
+   * Uses the session's permission policy. The default
+   * (`readOnlyPermissionPolicy`) auto-approves only side-effect-free tool
+   * calls (read/search/fetch/think) and rejects everything else — this is
+   * the safe-by-default posture. For trusted local agents (CLI `acp spawn`,
+   * Director fan-out), inject `defaultPermissionPolicy` to grant
+   * write/execute access.
    *
    * Returns true if the callback is authorized, false if denied.
    */
@@ -1226,6 +1227,7 @@ export class ACPSession {
     toolCallId: string;
     title: string;
     kind: import('../types/acp-v1.js').ToolKind;
+    rawInput?: Record<string, unknown>;
   }): Promise<boolean> {
     try {
       const outcome = await this.permissionPolicy({
@@ -1235,6 +1237,7 @@ export class ACPSession {
           title: partial.title,
           kind: partial.kind,
           status: 'pending',
+          ...(partial.rawInput ? { rawInput: partial.rawInput } : {}),
         },
         options: [
           { optionId: 'allow', name: 'Allow', kind: 'allow_once' },
@@ -1270,6 +1273,7 @@ export class ACPSession {
         toolCallId: `acp-fs-write-${id}`,
         title: `Write file: ${params.path}`,
         kind: 'edit',
+        rawInput: { path: params.path, sessionId: params.sessionId },
       });
       if (!allowed) {
         await this.sendErrorResponse(id, -32602, 'filesystem write denied by permission policy');
@@ -1312,6 +1316,7 @@ export class ACPSession {
             toolCallId: `acp-terminal-create-${id}`,
             title: `Run command: ${String(params.command ?? '')} ${(Array.isArray(params.args) ? params.args : []).join(' ')}`.trim(),
             kind: 'execute',
+            rawInput: { command: params.command, args: params.args, cwd: params.cwd, sessionId: params.sessionId },
           });
           if (!allowed) {
             await this.sendErrorResponse(id, -32602, 'terminal create denied by permission policy');

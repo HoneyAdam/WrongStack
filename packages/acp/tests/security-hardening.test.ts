@@ -20,7 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FileServer } from '../src/client/file-server.js';
 import { TerminalServer } from '../src/client/terminal-server.js';
 import { ACPSession, textContent } from '../src/client/acp-session.js';
-import { readOnlyPermissionPolicy } from '../src/client/permission.js';
+import { defaultPermissionPolicy, readOnlyPermissionPolicy } from '../src/client/permission.js';
 import type { ACPMessage } from '../src/types/acp-messages.js';
 
 // ── Symlink-aware containment ─────────────────────────────────────────────
@@ -345,8 +345,8 @@ describe('ACPSession callback authorization gate', () => {
     await session.close();
   });
 
-  it('allows terminal/create under default (auto-approve) policy', async () => {
-    const session = await startSession();
+  it('allows terminal/create under explicit auto-approve policy', async () => {
+    const session = await startSession({ permissionPolicy: defaultPermissionPolicy });
     const t = lastTransport();
 
     const id = 301;

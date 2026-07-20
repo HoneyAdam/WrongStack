@@ -1,6 +1,7 @@
 import {
   type ACPProgressEvent,
   type AcpAgentCommandOverrides,
+  defaultPermissionPolicy,
   EnsembleRegistry,
   probeAcpAgents,
   renderAcpBenchText,
@@ -329,6 +330,7 @@ async function runSingle(
       task,
       cwd: opts.cwd,
       projectRoot: opts.projectRoot,
+      permissionPolicy: defaultPermissionPolicy,
       onProgress: (event) => {
         const line = formatProgress(event);
         if (line) opts.renderer.writeInfo(`  ${line}\n`);

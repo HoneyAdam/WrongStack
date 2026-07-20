@@ -80,7 +80,10 @@ const READ_ONLY_KINDS = new Set(['read', 'search', 'fetch', 'think']);
  * the Director fan-out) work without a human in the loop. Interactive
  * surfaces (TUI/WebUI) MUST inject a policy that surfaces the request to
  * the user — pass `permissionPolicy` to `ACPSession` / the subagent runner.
- * For untrusted agents prefer {@link readOnlyPermissionPolicy}.
+ *
+ * NOTE: This is NO LONGER the default for `ACPSession` — the session now
+ * defaults to {@link readOnlyPermissionPolicy} (safe-by-default). Pass this
+ * policy explicitly when the agent is trusted and needs write/execute access.
  */
 export const defaultPermissionPolicy: PermissionPolicy = async (req) => {
   if (req.signal.aborted) return { outcome: 'cancelled' };
@@ -90,8 +93,9 @@ export const defaultPermissionPolicy: PermissionPolicy = async (req) => {
 /**
  * Safe-by-default policy: auto-approve only side-effect-free tool calls
  * (read/search/fetch/think); reject anything that would write files or
- * run commands. Use this when driving an untrusted external agent and no
- * interactive surface is available to ask the user.
+ * run commands. This is the DEFAULT policy for `ACPSession` when no
+ * `permissionPolicy` is provided. Pass {@link defaultPermissionPolicy}
+ * explicitly when the agent is trusted and needs write/execute access.
  */
 export const readOnlyPermissionPolicy: PermissionPolicy = async (req) => {
   if (req.signal.aborted) return { outcome: 'cancelled' };

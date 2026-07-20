@@ -14,6 +14,7 @@
 import {
   type ACPProgressEvent,
   type AcpAgentCommandOverrides,
+  defaultPermissionPolicy,
   EnsembleRegistry,
   probeAcpAgents,
   renderAcpBenchText,
@@ -398,6 +399,7 @@ async function spawnACPAgent(args: string[], deps: SubcommandDeps): Promise<numb
       role: subagentId,
       task,
       signal: ac.signal,
+      permissionPolicy: defaultPermissionPolicy,
       onProgress: (event) => {
         const line = formatProgress(event);
         if (line) deps.renderer.writeInfo(`  ${line}\n`);

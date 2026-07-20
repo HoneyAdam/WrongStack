@@ -33,6 +33,7 @@ import {
   type ACPSubagentRunnerOptions,
 } from './acp-subagent-runner.js';
 import type { ACPProgressEvent } from '../client/acp-session.js';
+import { defaultPermissionPolicy } from '../client/permission.js';
 
 /** Live per-agent progress callback for an ensemble run. */
 export type EnsembleProgressHandler = (
@@ -209,6 +210,9 @@ async function runOne(
     const { runner, stop } = await makeACPSubagentRunnerWithStop({
       ...cmd,
       timeoutMs,
+      // CLI /acp parallel and Director fan-out are trusted local agents — grant write/execute access.
+      // The session default is read-only for untrusted agents (acp-session.ts:221).
+      permissionPolicy: defaultPermissionPolicy,
       ...(onProgress ? { onProgress: (event) => onProgress(agentId, event) } : {}),
     });
     try {

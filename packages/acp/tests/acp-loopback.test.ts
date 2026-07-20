@@ -23,6 +23,7 @@ import { ACPProtocolHandler, type RunTurn } from '../src/agent/protocol-handler.
 import type { ACPClientTransport } from '../src/agent/stdio-transport.js';
 import { WsBridgeTransport } from '../src/agent/ws-bridge-transport.js';
 import { ACPSession } from '../src/client/acp-session.js';
+import { defaultPermissionPolicy } from '../src/client/permission.js';
 import type { ACPMessage } from '../src/types/acp-messages.js';
 
 /** JSON round-trip so branded types / undefined fields behave like the wire. */
@@ -109,6 +110,7 @@ describe('ACP client ↔ server loopback', () => {
       command: 'loopback',
       projectRoot,
       timeoutMs: 10_000,
+      permissionPolicy: defaultPermissionPolicy,
     });
 
     // Sanity: the real handshake completed over the loopback.

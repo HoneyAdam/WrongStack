@@ -15,6 +15,7 @@ import * as path from 'node:path';
 
 import type { ACPMessage } from '../src/types/acp-messages.js';
 import { ACPSession, ACPSessionError, textContent } from '../src/client/acp-session.js';
+import { defaultPermissionPolicy } from '../src/client/permission.js';
 
 const hoisted = vi.hoisted(() => ({ instances: [] as FakeTransport[] }));
 
@@ -358,7 +359,7 @@ describe('ACPSession', () => {
   });
 
   it('runs a terminal end-to-end (create → output → wait_for_exit)', async () => {
-    const session = await startSession();
+    const session = await startSession(undefined, { permissionPolicy: defaultPermissionPolicy });
     const t = lastTransport();
 
     const createId = 100;

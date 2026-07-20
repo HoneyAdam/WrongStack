@@ -405,8 +405,8 @@ export async function main(argv: string[]): Promise<number> {
     // Detect current git branch (best-effort, non-blocking)
     let gitBranch: string | undefined;
     try {
-      const { execSync } = await import('node:child_process');
-      gitBranch = execSync('git rev-parse --abbrev-ref HEAD', {
+      const { execFileSync } = await import('node:child_process');
+      gitBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
         cwd: projectRoot,
         timeout: 3000,
         stdio: ['ignore', 'pipe', 'ignore'],

@@ -5,7 +5,7 @@ import * as path from 'node:path';
  * factory is created lazily on the first `/spawn` so users who never use
  * subagents don't pay the construction cost.
  */
-import { ACP_AGENT_COMMANDS, findAgentDescriptor, makeACPSubagentRunner } from '@wrongstack/acp';
+import { ACP_AGENT_COMMANDS, defaultPermissionPolicy, findAgentDescriptor, makeACPSubagentRunner } from '@wrongstack/acp';
 import type { BrainArbiter, SubagentRunner, TextBlock } from '@wrongstack/core';
 import {
   AdaptiveConcurrencyController,
@@ -1418,7 +1418,9 @@ export class MultiAgentHost {
       const oldest = this.acpRunnerAccessOrder.shift();
       if (oldest) this.acpRunnerCache.delete(oldest);
     }
-    const p = makeACPSubagentRunner(cmd);
+    // CLI /spawn and Director fan-out are trusted local agents — grant write/execute access.
+    // The session default is read-only for untrusted agents (acp-session.ts:221).
+    const p = makeACPSubagentRunner({ ...cmd, permissionPolicy: defaultPermissionPolicy });
     this.acpRunnerCache.set(subagentId, p);
     this.acpRunnerAccessOrder.push(subagentId);
     return p;
