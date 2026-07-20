@@ -61,12 +61,12 @@ import {
 import type { FileWatcherMetrics } from './setup-events.js';
 import {
   broadcast,
+  resolveAuthToken,
 } from './ws-utils.js';
 import type { WebUIOptions } from './types.js';
 
 export async function startWebUI(
   opts: WebUIOptions & {
-    wsPort?: number | undefined;
     wsHost?: string | undefined;
     httpPort?: number | undefined;
     accessToken?: string | undefined;
@@ -83,7 +83,7 @@ export async function startWebUI(
   ensureSessionShell();
 
   const ports = await resolvePorts(opts);
-  const { wsHost, wsPort, httpPort, publicUrl, publicWsUrl, requireToken } = ports;
+  const { wsHost, httpPort, publicUrl, publicWsUrl, requireToken } = ports;
 
   console.log('[WebUI] Starting backend services...');
 
@@ -273,20 +273,46 @@ export async function startWebUI(
     modelsRegistry,
   });
 
-  // WebSocket server(s).
-  //
-  // When the user keeps the default loopback bind (127.0.0.1), we ALSO open a
-  // second listener on ::1 (IPv6 loopback). Reason: Chrome/Edge on Windows
-  // resolve `localhost` to `[::1]` before `127.0.0.1`, so a single v4-only
-  // bind causes "ws disconnect hep" — clients hammer the v6 socket, get
-  // ECONNREFUSED, fall back to v4 inconsistently. Listening on both v4 and v6
-  // loopback keeps the connection scope "this machine only" while removing
-  // the resolution-order coin flip.
-  //
-  // When the user explicitly sets WS_HOST (e.g. 0.0.0.0 or a LAN IP), we
-  // respect that choice exactly and don't add a second listener.
-  const wsResult = createWsServers(ports, opts.accessToken);
-  const { wssPrimary, wssSecondary, wsToken, clients } = wsResult;
+  const watcherMetricsRef: FileWatcherMetrics = {
+    fileChangesDetected: 0,
+    filesProcessed: 0,
+    broadcastsSent: 0,
+    debounceResets: 0,
+    totalDebounceDelayMs: 0,
+    activeProjects: 0,
+    averageDebounceDelayMs: 0,
+    watcherActive: false,
+  };
+
+  // Resolve the auth token once so the HTTP /ws-auth cookie and the WS
+  // verifyClient share the SAME token. When opts.accessToken is undefined
+  // (common) and no WEBUI_TOKEN env var is set, resolveAuthToken() generates
+  // a fresh randomBytes token on EACH call — without this hoist the HTTP
+  // server's cookie (tokenA) and the WS verifyClient (tokenB) would diverge,
+  // locking browsers out of the WS upgrade when requireToken is active.
+  const accessToken = resolveAuthToken(opts.accessToken);
+  const httpServer = startHttpServer({
+    wsHost, httpPort, wsToken: accessToken, publicWsUrl, publicUrl, requireToken,
+    globalRoot: wpaths.globalRoot, globalConfigPath, projectRoot,
+    openBrowser: !!opts.open, watcherMetrics: watcherMetricsRef,
+    onFleetPing: () => { void eventArming.getFleetBroadcast()?.(); },
+    onTechStackEvent: (event) => broadcast(clients, event),
+    // Read through `context` on every call rather than capturing: the running
+    // loop swaps provider/model when the user switches (same live source the
+    // completion handler reads).
+    getLlm: () =>
+      context.provider && context.model
+        ? { provider: context.provider, model: context.model }
+        : undefined,
+    distDir: opts.distDir,
+  });
+
+  const wsResult = createWsServers(
+    httpServer,
+    ports,
+    accessToken,
+  );
+  const { wssPrimary, wssSecondary, clients } = wsResult;
 
   // Subscribe to working directory changes from the CLI.
   context.onWorkingDirChanged((newDir) => {
@@ -312,23 +338,35 @@ export async function startWebUI(
   const sessionLogging = resolveSessionLoggingConfig(config as never as Parameters<typeof resolveSessionLoggingConfig>[0]);
   const sessionBridge = createSessionEventBridge(() => context.session ?? session, sessionLogging.auditLevel, { sampling: sessionLogging.sampling });
 
-  // watcherMetrics — shared by setupEvents (via armEvents) and the HTTP
-  // /debug/watcher-metrics endpoint. Defined early so armEvents can read it.
-  const watcherMetricsRef: FileWatcherMetrics = {
-    fileChangesDetected: 0,
-    filesProcessed: 0,
-    broadcastsSent: 0,
-    debounceResets: 0,
-    totalDebounceDelayMs: 0,
-    activeProjects: 0,
-    averageDebounceDelayMs: 0,
-    watcherActive: false,
-  };
-
   // Event arming + WS error handlers live in ./server-runtime.ts (Phase 1e).
-  const eventArming = armEvents(wssPrimary, wssSecondary, wsHost, wsPort, {
+  // The WS server's 'listening' event fires when the shared HTTP server
+  // starts listening below.
+  const eventArming = armEvents(wssPrimary, wssSecondary, wsHost, httpPort, {
     events, broadcast, clients, config, context, pendingConfirms, globalConfigPath, sessionBridge, wpaths,
   }, watcherMetricsRef);
+
+  // Start the shared HTTP+WebSocket server. The WS server is attached to this
+  // HTTP server via {server: httpServer}, so a single listen() binds both the
+  // HTTP frontend and the WS upgrade handler on the same port.
+  httpServer.listen(httpPort, wsHost, () => {
+    console.log(`[WebUI] HTTP server running on http://${wsHost}:${httpPort}`);
+  });
+
+  // When bound to the IPv4 loopback, also listen on the IPv6 loopback [::1].
+  // Chrome/Edge on Windows resolve `localhost` to [::1] before 127.0.0.1, so
+  // a v4-only bind causes ECONNREFUSED. The WS upgrade handler rides both
+  // listeners via the {server: httpServer} attach above. Best-effort: systems
+  // without IPv6 (or with net.ipv6.bindv6only conflicts) raise EAFNOSUPPORT /
+  // EADDRNOTAVAIL, which we swallow silently.
+  if (wsHost === '127.0.0.1') {
+    httpServer.listen(httpPort, '::1', () => {
+      console.log(`[WebUI] HTTP server running on http://[::1]:${httpPort}`);
+    }).on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code !== 'EAFNOSUPPORT' && err.code !== 'EADDRNOTAVAIL' && err.code !== 'EADDRINUSE') {
+        throw err;
+      }
+    });
+  }
 
   // ── Project manifest helpers ──────────────────────────────────────────
 
@@ -448,7 +486,7 @@ export async function startWebUI(
     requireToken,
     publicUrl,
     publicWsUrl,
-    wsPort,
+    wsPort: httpPort,
     httpPort,
     wssPrimary,
     wssSecondary,
@@ -613,22 +651,6 @@ export async function startWebUI(
   // shared auth token the HTTP API requires when bound to a non-loopback
   // host (LAN exposure). Loopback binds skip the token check, mirroring
   // the WS verifyClient loopback-bootstrap policy.
-
-  const httpServer = startHttpServer({
-    wsHost, httpPort, wsPort, wsToken, publicWsUrl, publicUrl, requireToken,
-    globalRoot: wpaths.globalRoot, globalConfigPath, projectRoot,
-    openBrowser: !!opts.open, watcherMetrics: watcherMetricsRef,
-    onFleetPing: () => { void eventArming.getFleetBroadcast()?.(); },
-    onTechStackEvent: (event) => broadcast(clients, event),
-    // Read through `context` on every call rather than capturing: the running
-    // loop swaps provider/model when the user switches (same live source the
-    // completion handler reads).
-    getLlm: () =>
-      context.provider && context.model
-        ? { provider: context.provider, model: context.model }
-        : undefined,
-    distDir: opts.distDir,
-  });
 
   registerShutdown({
     flushSession: async () => {
