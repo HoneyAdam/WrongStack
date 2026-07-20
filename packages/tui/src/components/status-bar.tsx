@@ -7,7 +7,7 @@ import type { HeapSample } from '../heap-watchdog.js';
 import { useTokenCounterRefresh } from '../hooks/use-token-counter-refresh.js';
 import { Box, Text, useStdout } from '../ink.js';
 import { displayWidth } from '../terminal-width.js';
-import { theme } from '../theme.js';
+import { pastel, theme } from '../theme.js';
 import { normalizeTuiThinkingWord } from '../thinking-word.js';
 import { glyphs } from '../ui-glyphs.js';
 import { type AnimationStyle, CYCLE_TICK_INTERVAL_MS } from './animation-style.js';
@@ -888,13 +888,7 @@ export function StatusBar({
     (showChip('context') || showChip('tokens') || showChip('cost'))
       ? (() => {
           const ratio = context ? Math.min(context.used / context.max, 1) : 0;
-          const barColor = isNoColor
-            ? undefined
-            : ratio < 0.6
-              ? theme.success
-              : ratio < 0.75
-                ? theme.warn
-                : theme.error;
+          const barColor = isNoColor ? undefined : contextBarColor(ratio);
           const hasTokens = showTokenDisplay && showChip('tokens');
           const hasCost = cost && cost.total > 0 && showChip('cost');
           const segments: string[] = [];
@@ -1030,13 +1024,7 @@ export function StatusBar({
     (context || showTokenDisplay) && showChip('context')
       ? (() => {
           const ratio = context ? Math.min(context.used / context.max, 1) : 0;
-          const c = context
-            ? ratio < 0.6
-              ? theme.success
-              : ratio < 0.75
-                ? theme.warn
-                : theme.error
-            : theme.textSecondary;
+          const c = context ? contextBarColor(ratio) : theme.textSecondary;
           const hasTokens = showTokenDisplay && showChip('tokens');
           return (
             <Text>
@@ -1597,6 +1585,25 @@ export function renderProgress(ratio: number, width: number): string {
 // Sub-cell-precise meter: each cell is 1/8 resolution via Unicode block
 // fractions, so the bar grows smoothly token-by-token instead of jumping a
 // whole cell. Empty track stays '░'. Total width is always `width` chars.
+
+/**
+ * Pick a Catppuccin Mocha color for the context meter bar based on the
+ * usage ratio. Uses a 5-level progression that follows the Catppuccin
+ * palette spectrum from cool (low usage) → warm (moderate) → hot (high):
+ *
+ *   `< 25%`  teal/cyan   (`accent`)   — cool, spacious
+ *   `< 50%`  green       (`success`)  — comfortable
+ *   `< 65%`  peach       (`pastel`)   — warm, filling
+ *   `< 80%`  yellow      (`warn`)     — caution
+ *   `>= 80%` red         (`error`)    — urgent
+ */
+export function contextBarColor(ratio: number): string {
+  if (ratio < 0.25) return theme.accent;
+  if (ratio < 0.50) return theme.success;
+  if (ratio < 0.65) return pastel.peach;
+  if (ratio < 0.80) return theme.warn;
+  return theme.error;
+}
 
 /**
  * Bracket-style context meter, e.g. `[00o.......]`.
