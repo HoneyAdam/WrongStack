@@ -1,6 +1,8 @@
 import { expectDefined } from '../utils/expect-defined.js';
 import { estimateMessageTokens, estimateTextTokens } from '../utils/token-estimate.js';
 import { isTextBlock } from '../types/blocks.js';
+import type { Logger } from '../types/logger.js';
+import { noOpLogger } from '../infrastructure/logger.js';
 import type { Message } from '../types/messages.js';
 import type { Provider, Request } from '../types/provider.js';
 import type { MessageSelector, SelectorResult } from '../types/selector.js';
@@ -33,6 +35,8 @@ export interface LLMSelectorOptions {
    * instead of direct provider.complete(), gaining fallback chain support.
    */
   oneShotOrchestrator?: OneShotOrchestrator | undefined;
+  /** Structured logger. Defaults to noOpLogger (silent). */
+  logger?: Logger | undefined;
 }
 
 const DEFAULT_SYSTEM_PROMPT = readBundledInstructionText('llm/llm-selector.md');
@@ -96,15 +100,17 @@ export class LLMSelector implements MessageSelector {
   private readonly systemPrompt: string;
   private readonly maxOutputTokens: number;
   private readonly oneShotOrchestrator?: OneShotOrchestrator | undefined;
+  private readonly logger: Logger;
 
   constructor(opts: LLMSelectorOptions) {
     this.provider = opts.provider;
     this.model = opts.model ?? 'unknown';
+    this.logger = opts.logger ?? noOpLogger;
     if (
       this.model === 'unknown' &&
       (process.env['NODE_ENV'] === 'development' || process.env['WRONGSTACK_DEBUG'] === '1')
     ) {
-      console.warn(
+      this.logger.warn(
         '[LLMSelector] model not set — selector will use the provider default. Set `model` explicitly in LLMSelectorOptions to silence this warning.',
       );
     }
@@ -166,14 +172,9 @@ export class LLMSelector implements MessageSelector {
       }
     } catch (err) {
       if (err instanceof Error) {
-        console.warn(
-          JSON.stringify({
-            level: 'warn',
-            event: 'llm_selector.call_failed',
-            message: `selector call failed, using recency fallback: ${err.message}`,
-            timestamp: new Date().toISOString(),
-          }),
-        );
+        this.logger.warn(`selector call failed, using recency fallback: ${err.message}`, {
+          event: 'llm_selector.call_failed',
+        });
       }
       return this.fallbackSelect(messages, effectiveBudget);
     } finally {
