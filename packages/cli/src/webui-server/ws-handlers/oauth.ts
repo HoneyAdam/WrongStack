@@ -31,6 +31,8 @@ type OAuthPhase =
 
 /** One in-flight session per kind, process-wide (single-user embedded server). */
 const oauthSessions = new Map<OAuthKind, OAuthSession>();
+/** Custom providerId override per kind (set when the user requests a specific alias). */
+const customProviderIds = new Map<OAuthKind, string>();
 
 function sendStatus(
   ctx: WsHandlerContext,
@@ -42,10 +44,15 @@ function sendStatus(
   ctx.send(ws, { type: 'auth.oauth.status', payload: { kind, phase, ...extra } });
 }
 
-async function persistOutcome(ctx: WsHandlerContext, outcome: OAuthLoginOutcome): Promise<void> {
+async function persistOutcome(
+  ctx: WsHandlerContext,
+  outcome: OAuthLoginOutcome,
+  customProviderId?: string,
+): Promise<void> {
   const providers = await ctx.providerStore.load();
-  const existing = providers[outcome.providerId];
-  const p: ProviderConfig = existing ? { ...existing } : { type: outcome.providerId };
+  const providerId = customProviderId ?? outcome.providerId;
+  const existing = providers[providerId];
+  const p: ProviderConfig = existing ? { ...existing } : { type: providerId };
   p.family = outcome.family as ProviderConfig['family'];
   if (!p.baseUrl) p.baseUrl = outcome.baseUrl;
   p.models = [...outcome.models];
@@ -53,7 +60,7 @@ async function persistOutcome(ctx: WsHandlerContext, outcome: OAuthLoginOutcome)
   keys.push(outcome.apiKey);
   writeKeysBack(p, keys);
   p.activeKey = outcome.apiKey.label;
-  providers[outcome.providerId] = p;
+  providers[providerId] = p;
   await ctx.providerStore.save(providers);
   broadcastSaved(ctx, providers);
 }
@@ -63,16 +70,17 @@ async function finish(
   ws: WebSocket,
   kind: OAuthKind,
   outcome: OAuthLoginOutcome | null,
+  customProviderId?: string,
 ): Promise<void> {
   if (!outcome) {
     sendStatus(ctx, ws, kind, 'error', { message: 'Sign-in cancelled or timed out.' });
     return;
   }
-  sendStatus(ctx, ws, kind, 'fetching_models', { providerId: outcome.providerId });
-  await persistOutcome(ctx, outcome);
+  sendStatus(ctx, ws, kind, 'fetching_models', { providerId: customProviderId ?? outcome.providerId });
+  await persistOutcome(ctx, outcome, customProviderId);
   sendStatus(ctx, ws, kind, 'success', {
-    providerId: outcome.providerId,
-    message: `Signed in — saved as ${outcome.providerId} (${outcome.models.length} models).`,
+    providerId: customProviderId ?? outcome.providerId,
+    message: `Signed in — saved as ${customProviderId ?? outcome.providerId} (${outcome.models.length} models).`,
   });
 }
 
@@ -80,12 +88,20 @@ export async function handleOAuthStart(
   ctx: WsHandlerContext,
   ws: WebSocket,
   kind: OAuthKind,
+  customProviderId?: string,
 ): Promise<void> {
   try {
     oauthSessions.get(kind)?.close();
     oauthSessions.delete(kind);
 
     const session = await beginOAuthLogin(kind, { modelsRegistry: ctx.modelsRegistry });
+    // Override the providerId when the user requested a specific alias
+    if (customProviderId) {
+      (session as { providerId: string }).providerId = customProviderId;
+      customProviderIds.set(kind, customProviderId);
+    } else {
+      customProviderIds.delete(kind);
+    }
     oauthSessions.set(kind, session);
 
     if (kind === 'copilot') {
@@ -108,7 +124,7 @@ export async function handleOAuthStart(
       void (async () => {
         try {
           const outcome = await session.waitForCompletion();
-          await finish(ctx, ws, kind, outcome);
+          await finish(ctx, ws, kind, outcome, customProviderIds.get(kind));
         } catch (err) {
           sendStatus(ctx, ws, kind, 'error', { message: toErrorMessage(err) });
         } finally {
@@ -137,7 +153,7 @@ export async function handleOAuthCode(
   try {
     sendStatus(ctx, ws, kind, 'exchanging', { providerId: session.providerId });
     const outcome = await session.completeWithCode(input);
-    await finish(ctx, ws, kind, outcome);
+    await finish(ctx, ws, kind, outcome, customProviderIds.get(kind));
   } catch (err) {
     sendStatus(ctx, ws, kind, 'error', { message: toErrorMessage(err) });
   } finally {

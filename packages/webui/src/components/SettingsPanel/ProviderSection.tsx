@@ -268,7 +268,20 @@ export function ProviderSection({
           <Key className="h-4 w-4 text-muted-foreground" />
           {t('settings:provider.subscriptionHeading')}
         </h3>
-        <OAuthLoginSection ws={ws} />
+        <OAuthLoginSection
+          ws={ws}
+          savedByKind={{
+            chatgpt: savedProviders
+              .filter((sp) => sp.id === 'openai-codex' || sp.id.startsWith('openai-codex-'))
+              .map((sp) => ({ id: sp.id, hasActiveKey: sp.apiKeys.some((k) => k.isActive) })),
+            claude: savedProviders
+              .filter((sp) => sp.id === 'anthropic-oauth' || sp.id.startsWith('anthropic-oauth-'))
+              .map((sp) => ({ id: sp.id, hasActiveKey: sp.apiKeys.some((k) => k.isActive) })),
+            copilot: savedProviders
+              .filter((sp) => sp.id === 'github-copilot')
+              .map((sp) => ({ id: sp.id, hasActiveKey: sp.apiKeys.some((k) => k.isActive) })),
+          }}
+        />
       </div>
 
       <div className="pt-2 border-t">

@@ -466,7 +466,8 @@ export function createMessageRouter(deps: MessageRouterDeps): MessageRouter {
     // ── Subscription OAuth login (ChatGPT / Claude / Copilot) ──
     'auth.oauth.start': (msg, ws) => {
       const kind = oauthKindOf(msg);
-      if (kind) void handleOAuthStart(wsHandlerCtx, ws, kind);
+      const providerId = ((msg as { payload?: { providerId?: unknown } }).payload?.providerId) as string | undefined;
+      if (kind) void handleOAuthStart(wsHandlerCtx, ws, kind, typeof providerId === 'string' ? providerId : undefined);
     },
     'auth.oauth.code': (msg, ws) => {
       const kind = oauthKindOf(msg);

@@ -656,8 +656,11 @@ export class WrongStackWebSocketClient {
   // ---- Subscription OAuth login (ChatGPT / Claude / Copilot) ----
 
   /** Begin a subscription sign-in; progress arrives as `auth.oauth.status`. */
-  startOAuth(kind: 'chatgpt' | 'claude' | 'copilot') {
-    this.send({ type: 'auth.oauth.start', payload: { kind } });
+  startOAuth(kind: 'chatgpt' | 'claude' | 'copilot', providerId?: string) {
+    this.send({
+      type: 'auth.oauth.start',
+      payload: providerId ? { kind, providerId } : { kind },
+    });
   }
 
   /** Manual-paste fallback for loopback flows (port busy / remote browser). */

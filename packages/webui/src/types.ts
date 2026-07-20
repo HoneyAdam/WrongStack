@@ -1849,7 +1849,7 @@ export type WSClientMessageCore =
       };
     }
   | { type: 'provider.probe'; payload: { providerId: string; timeoutMs?: number | undefined } }
-  | { type: 'auth.oauth.start'; payload: { kind: OAuthKind } }
+  | { type: 'auth.oauth.start'; payload: { kind: OAuthKind; providerId?: string | undefined } }
   | { type: 'auth.oauth.code'; payload: { kind: OAuthKind; input: string } }
   | { type: 'auth.oauth.cancel'; payload: { kind: OAuthKind } }
   | { type: 'tools.list' }
