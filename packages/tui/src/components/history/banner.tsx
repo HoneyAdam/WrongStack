@@ -3,7 +3,7 @@ import { Box, Text } from '../../ink.js';
 import type { HistoryEntry } from './types.js';
 import { shortenPath } from './utils.js';
 import { mixHex } from '../animation-style.js';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { AutonomyAgentStatus } from './types.js';
 
 // Canonical palette from website/public/wrongstack.svg. The mark itself keeps
@@ -46,18 +46,28 @@ const PINK_SLIDE_FRAMES: readonly number[] = Object.freeze([
   1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
 ]);
 
-function BrandMark({ pinkCol = PINK_HOME }: { pinkCol?: number }): React.ReactElement {
-  // Build rows dynamically based on the animated pink column position.
-  const row0 = Array.from({ length: MARK_COLS }, (_, i) =>
+// Static top row — orange blocks with a gap at the pink's home column.
+// Never depends on animation state, so it lives at module scope.
+const ROW0_HOME: ReadonlyArray<string | null> = Object.freeze(
+  Array.from({ length: MARK_COLS }, (_, i) =>
     i === PINK_HOME ? null : STACK_ORANGE,
+  ),
+);
+
+function BrandMark({ pinkCol = PINK_HOME }: { pinkCol?: number }): React.ReactElement {
+  // Only rebuild the dynamic rows when pinkCol actually changes.
+  const rows = useMemo(
+    () => [
+      ROW0_HOME,
+      Array.from({ length: MARK_COLS }, (_, i) =>
+        i === pinkCol ? SIGNAL_PINK : STACK_ORANGE,
+      ),
+      Array.from({ length: MARK_COLS }, (_, i) =>
+        i === pinkCol ? SIGNAL_PINK : null,
+      ),
+    ],
+    [pinkCol],
   );
-  const row1 = Array.from({ length: MARK_COLS }, (_, i) =>
-    i === pinkCol ? SIGNAL_PINK : STACK_ORANGE,
-  );
-  const row2 = Array.from({ length: MARK_COLS }, (_, i) =>
-    i === pinkCol ? SIGNAL_PINK : null,
-  );
-  const rows = [row0, row1, row2];
 
   return (
     <Box flexDirection="column" alignItems="center">
