@@ -40,6 +40,7 @@ function baseState(overrides: Partial<State> = {}): State {
       filteredOptions: [],
       selected: 0,
       searchQuery: '',
+      purpose: 'switch',
     },
     modePicker: { open: false, modes: [], selected: 0 },
     autonomyPicker: { open: false, options: [], selected: 0 },
@@ -72,7 +73,7 @@ function baseState(overrides: Partial<State> = {}): State {
     goalRun: null,
     rewindOverlay: null,
     ...overrides,
-  } as unknown as State;
+  };
 }
 
 function makeHost(state: State, overrides: Partial<PickerKeysHost> = {}): PickerKeysHost & {
@@ -83,12 +84,12 @@ function makeHost(state: State, overrides: Partial<PickerKeysHost> = {}): Picker
   setLiveModel: ReturnType<typeof vi.fn>;
   setActiveMaxContext: ReturnType<typeof vi.fn>;
 } {
-  const dispatch = vi.fn();
-  const submit = vi.fn();
+  const dispatch = vi.fn<() => void>();
+  const submit = vi.fn<() => void>();
   const switchProviderAndModel = vi.fn().mockReturnValue(null);
-  const setLiveProvider = vi.fn();
-  const setLiveModel = vi.fn();
-  const setActiveMaxContext = vi.fn();
+  const setLiveProvider = vi.fn<() => void>();
+  const setLiveModel = vi.fn<() => void>();
+  const setActiveMaxContext = vi.fn<() => void>();
   return {
     state,
     dispatch,
@@ -101,12 +102,12 @@ function makeHost(state: State, overrides: Partial<PickerKeysHost> = {}): Picker
     getAgentCtxMaxContext: () => 200_000,
     activeMaxContext: 200_000,
     currentContextTokens: 0,
-    switchAutonomy: vi.fn(),
+    switchAutonomy: vi.fn<() => void>(),
     submit,
-    onAuthEnter: vi.fn(),
-    onAuthBack: vi.fn(),
-    onAuthShortcut: vi.fn(),
-    onAuthPromptSubmit: vi.fn(),
+    onAuthEnter: vi.fn<() => void>(),
+    onAuthBack: vi.fn<() => void>(),
+    onAuthShortcut: vi.fn<() => void>(),
+    onAuthPromptSubmit: vi.fn<() => void>(),
     onAuthPromptCancel: vi.fn(),
     onAuthConfirm: vi.fn(),
     onAuthFlowCancel: vi.fn(),
@@ -122,6 +123,13 @@ function makeHost(state: State, overrides: Partial<PickerKeysHost> = {}): Picker
     onPickerEnter: vi.fn(),
     onSlashPickerTab: vi.fn(),
     ...overrides,
+  } as unknown as PickerKeysHost & {
+    dispatch: ReturnType<typeof vi.fn>;
+    submit: ReturnType<typeof vi.fn>;
+    switchProviderAndModel: ReturnType<typeof vi.fn>;
+    setLiveProvider: ReturnType<typeof vi.fn>;
+    setLiveModel: ReturnType<typeof vi.fn>;
+    setActiveMaxContext: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -153,6 +161,7 @@ describe('usePickerKeys — model and mode flows', () => {
           filteredOptions: [],
           selected: 0,
           searchQuery: '',
+        purpose: 'switch',
         },
       }),
     );
@@ -178,6 +187,7 @@ describe('usePickerKeys — model and mode flows', () => {
           selected: 0,
           searchQuery: 'o',
           pickedProviderId: 'openai',
+        purpose: 'switch',
         },
       }),
     );
@@ -212,6 +222,7 @@ describe('usePickerKeys — model and mode flows', () => {
           selected: 0,
           searchQuery: '',
           pickedProviderId: 'openai',
+        purpose: 'switch',
         },
       }),
     );
@@ -234,6 +245,7 @@ describe('usePickerKeys — model and mode flows', () => {
           selected: 0,
           searchQuery: '',
           pickedProviderId: 'openai',
+        purpose: 'switch',
         },
       }),
       {
@@ -256,8 +268,8 @@ describe('usePickerKeys — model and mode flows', () => {
 
   it('closes the mode picker and submits /mode <id> on Enter', () => {
     const modes: ModeOption[] = [
-      { id: 'default', name: 'Default', description: 'Balanced', isActive: false },
-      { id: 'review', name: 'Review', description: 'Review-oriented', isActive: true },
+      { id: 'default', family: 'balanced', name: 'Default', description: 'Balanced', isActive: false },
+      { id: 'review', family: 'deep', name: 'Review', description: 'Review-oriented', isActive: true },
     ];
     const host = makeHost(
       baseState({
@@ -299,6 +311,7 @@ describe('usePickerKeys — model and mode flows', () => {
           filteredOptions: [],
           selected: 0,
           searchQuery: '',
+        purpose: 'switch',
         },
       }),
     );
@@ -323,6 +336,7 @@ describe('usePickerKeys — model and mode flows', () => {
           selected: 0,
           searchQuery: '',
           pickedProviderId: 'openai',
+        purpose: 'switch',
         },
       }),
     );
@@ -342,6 +356,7 @@ describe('usePickerKeys — model and mode flows', () => {
           filteredOptions: [],
           selected: 0,
           searchQuery: '',
+        purpose: 'switch',
         },
       }),
     );
@@ -361,6 +376,7 @@ describe('usePickerKeys — model and mode flows', () => {
           selected: 0,
           searchQuery: '',
           pickedProviderId: 'openai',
+        purpose: 'switch',
         },
       }),
     );
@@ -381,6 +397,7 @@ describe('usePickerKeys — model and mode flows', () => {
           selected: 0,
           searchQuery: 'g',
           pickedProviderId: 'openai',
+        purpose: 'switch',
         },
       }),
     );
@@ -401,17 +418,18 @@ describe('usePickerKeys — model and mode flows', () => {
           filteredOptions: [],
           selected: 0,
           searchQuery: '',
+        purpose: 'switch',
         },
       }),
     );
 
     // Wheel > 0 means scroll up → delta -1
-    runPickerKey(host, '', key({ mouse: { kind: 'wheel', wheel: 1 } }), false);
+    runPickerKey(host, '', key({ mouse: { kind: 'wheel', button: 'none', x: 1, y: 1, wheel: 1, shift: false, meta: false, ctrl: false, motion: false } }), false);
     expect(host.dispatch).toHaveBeenCalledWith({ type: 'modelPickerMove', delta: -1 });
 
     host.dispatch.mockClear();
     // Wheel < 0 means scroll down → delta 1
-    runPickerKey(host, '', key({ mouse: { kind: 'wheel', wheel: -1 } }), false);
+    runPickerKey(host, '', key({ mouse: { kind: 'wheel', button: 'none', x: 1, y: 1, wheel: -1, shift: false, meta: false, ctrl: false, motion: false } }), false);
     expect(host.dispatch).toHaveBeenCalledWith({ type: 'modelPickerMove', delta: 1 });
   });
 
@@ -455,6 +473,7 @@ describe('usePickerKeys — model and mode flows', () => {
           selected: 0,
           searchQuery: '',
           pickedProviderId: 'openai',
+        purpose: 'switch',
         },
       }),
       { switchProviderAndModel },
@@ -478,6 +497,7 @@ describe('usePickerKeys — model and mode flows', () => {
           filteredOptions: [],
           selected: 999,
           searchQuery: '',
+        purpose: 'switch',
         },
       }),
     );
@@ -656,12 +676,12 @@ describe('usePickerKeys — auth panel', () => {
 
     // Wheel > 0 (scroll up) → delta -1
     host.dispatch.mockClear();
-    runPickerKey(host, '', key({ mouse: { kind: 'wheel', wheel: 1 } }), false);
+    runPickerKey(host, '', key({ mouse: { kind: 'wheel', button: 'none', x: 1, y: 1, wheel: 1, shift: false, meta: false, ctrl: false, motion: false } }), false);
     expect(host.dispatch).toHaveBeenCalledWith({ type: 'authMove', delta: -1 });
 
     // Wheel < 0 (scroll down) → delta 1
     host.dispatch.mockClear();
-    runPickerKey(host, '', key({ mouse: { kind: 'wheel', wheel: -1 } }), false);
+    runPickerKey(host, '', key({ mouse: { kind: 'wheel', button: 'none', x: 1, y: 1, wheel: -1, shift: false, meta: false, ctrl: false, motion: false } }), false);
     expect(host.dispatch).toHaveBeenCalledWith({ type: 'authMove', delta: 1 });
   });
 
@@ -739,7 +759,7 @@ describe('usePickerKeys — autonomy picker', () => {
 
     host.dispatch.mockClear();
     // Wheel > 0 → scroll up → delta -1
-    runPickerKey(host, '', key({ mouse: { kind: 'wheel', wheel: 1 } }), false);
+    runPickerKey(host, '', key({ mouse: { kind: 'wheel', button: 'none', x: 1, y: 1, wheel: 1, shift: false, meta: false, ctrl: false, motion: false } }), false);
     expect(host.dispatch).toHaveBeenCalledWith({ type: 'autonomyPickerMove', delta: -1 });
 
     host.dispatch.mockClear();
@@ -867,7 +887,7 @@ describe('usePickerKeys — resume picker', () => {
 
     host.dispatch.mockClear();
     // Wheel > 0 → scroll up → delta -1
-    runPickerKey(host, '', key({ mouse: { kind: 'wheel', wheel: 1 } }), false);
+    runPickerKey(host, '', key({ mouse: { kind: 'wheel', button: 'none', x: 1, y: 1, wheel: 1, shift: false, meta: false, ctrl: false, motion: false } }), false);
     expect(host.dispatch).toHaveBeenCalledWith({ type: 'resumePickerMove', delta: -1 });
 
     host.dispatch.mockClear();
@@ -998,7 +1018,7 @@ describe('usePickerKeys — settings picker', () => {
     runPickerKey(host, '', key({ rightArrow: true }), false);
     expect(host.dispatch).toHaveBeenCalledWith({ type: 'settingsValueChange', delta: 1 });
 
-    runPickerKey(host, '', key({ mouse: { kind: 'wheel', wheel: -1 } }), false);
+    runPickerKey(host, '', key({ mouse: { kind: 'wheel', button: 'none', x: 1, y: 1, wheel: 1, shift: false, meta: false, ctrl: false, motion: false } }), false);
     expect(host.dispatch).toHaveBeenCalledWith({ type: 'settingsFieldMove', delta: -1 });
   });
 
@@ -1109,7 +1129,7 @@ describe('usePickerKeys — help panel', () => {
     runPickerKey(host, '', key({ downArrow: true }), false);
     expect(host.dispatch).toHaveBeenCalledWith({ type: 'helpMove', delta: 1 });
 
-    runPickerKey(host, '', key({ mouse: { kind: 'wheel', wheel: -1 } }), false);
+    runPickerKey(host, '', key({ mouse: { kind: 'wheel', button: 'none', x: 1, y: 1, wheel: 1, shift: false, meta: false, ctrl: false, motion: false } }), false);
     expect(host.dispatch).toHaveBeenCalledWith({ type: 'helpMove', delta: -1 });
 
     // Escape closes
@@ -1376,7 +1396,7 @@ describe('usePickerKeys — sessions panel', () => {
     runPickerKey(host, '', key({ downArrow: true }), false);
     expect(host.dispatch).toHaveBeenCalledWith({ type: 'sessionsPanelMove', delta: 1 });
 
-    runPickerKey(host, '', key({ mouse: { kind: 'wheel', wheel: -1 } }), false);
+    runPickerKey(host, '', key({ mouse: { kind: 'wheel', button: 'none', x: 1, y: 1, wheel: 1, shift: false, meta: false, ctrl: false, motion: false } }), false);
     expect(host.dispatch).toHaveBeenCalledWith({ type: 'sessionsPanelMove', delta: -1 });
 
     // Enter
@@ -1492,7 +1512,7 @@ describe('usePickerKeys — general picker', () => {
     runPickerKey(host, '', key({ downArrow: true }), false);
     expect(host.dispatch).toHaveBeenCalledWith({ type: 'pickerMove', delta: 1 });
 
-    runPickerKey(host, '', key({ mouse: { kind: 'wheel', wheel: 1 } }), false);
+    runPickerKey(host, '', key({ mouse: { kind: 'wheel', button: 'none', x: 1, y: 1, wheel: -1, shift: false, meta: false, ctrl: false, motion: false } }), false);
     expect(host.dispatch).toHaveBeenCalledWith({ type: 'pickerMove', delta: 1 });
 
     runPickerKey(host, '', key({ escape: true }), false);
@@ -1616,6 +1636,7 @@ describe('usePickerKeys — model picker async switch with error', () => {
           selected: 0,
           searchQuery: '',
           pickedProviderId: 'openai',
+        purpose: 'switch',
         },
       }),
       { switchProviderAndModel },
