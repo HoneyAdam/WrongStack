@@ -1216,6 +1216,8 @@ export class SqliteSuperMemoryStore {
       // The physical purge is JSONL-only; SQLite ignores purgeDeletedAfterDays.
       purgedDeleted: 0,
       verified: verified.length,
+      // SQLite does not run the JSONL store's SimHash near-dedup pass.
+      transitiveMerges: 0,
     };
     this.audit('memory.hygiene_completed', { details: report as unknown as Record<string, unknown> });
     return report;
