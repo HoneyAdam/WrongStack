@@ -92,7 +92,7 @@ describe('EternalStageChip', () => {
     const { lastFrame, unmount } = render(
       React.createElement(EternalStageChip, {
         stage: { phase: 'idle', ms: 0 },
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('idle');
@@ -103,7 +103,7 @@ describe('EternalStageChip', () => {
     const { lastFrame, unmount } = render(
       React.createElement(EternalStageChip, {
         stage: { phase: 'decide', reason: 'analyzing context', ms: 0 },
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('decide');
@@ -115,7 +115,7 @@ describe('EternalStageChip', () => {
     const { lastFrame, unmount } = render(
       React.createElement(EternalStageChip, {
         stage: { phase: 'execute', task: 'fix-bug', ms: 0 },
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('execute');
@@ -127,7 +127,7 @@ describe('EternalStageChip', () => {
     const { lastFrame, unmount } = render(
       React.createElement(EternalStageChip, {
         stage: { phase: 'execute', ms: 0 },
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('execute');
@@ -138,7 +138,7 @@ describe('EternalStageChip', () => {
     const { lastFrame, unmount } = render(
       React.createElement(EternalStageChip, {
         stage: { phase: 'reflect', status: 'success', ms: 0 },
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('reflect');
@@ -150,7 +150,7 @@ describe('EternalStageChip', () => {
     const { lastFrame, unmount } = render(
       React.createElement(EternalStageChip, {
         stage: { phase: 'reflect', status: 'failure', ms: 0 },
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('reflect');
@@ -162,7 +162,7 @@ describe('EternalStageChip', () => {
     const { lastFrame, unmount } = render(
       React.createElement(EternalStageChip, {
         stage: { phase: 'reflect', status: 'unknown' as any, ms: 0 },
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('reflect');
@@ -174,7 +174,7 @@ describe('EternalStageChip', () => {
     const { lastFrame, unmount } = render(
       React.createElement(EternalStageChip, {
         stage: { phase: 'decompose', ms: 0 },
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('decompose');
@@ -185,7 +185,7 @@ describe('EternalStageChip', () => {
     const { lastFrame, unmount } = render(
       React.createElement(EternalStageChip, {
         stage: { phase: 'fanout', slots: 4, ms: 0 },
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('fanout');
@@ -197,7 +197,7 @@ describe('EternalStageChip', () => {
     const { lastFrame, unmount } = render(
       React.createElement(EternalStageChip, {
         stage: { phase: 'await', taskIds: ['t1', 't2', 't3'], ms: 0 },
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('await');
@@ -209,7 +209,7 @@ describe('EternalStageChip', () => {
     const { lastFrame, unmount } = render(
       React.createElement(EternalStageChip, {
         stage: { phase: 'aggregate', successCount: 5, total: 8, goalComplete: true, ms: 0 },
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('aggregate');
@@ -221,7 +221,7 @@ describe('EternalStageChip', () => {
     const { lastFrame, unmount } = render(
       React.createElement(EternalStageChip, {
         stage: { phase: 'aggregate', successCount: 2, total: 10, goalComplete: false, ms: 0 },
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('aggregate');
@@ -233,7 +233,7 @@ describe('EternalStageChip', () => {
     const { lastFrame, unmount } = render(
       React.createElement(EternalStageChip, {
         stage: { phase: 'sleep', ms: 5000 },
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('sleep');
@@ -245,7 +245,7 @@ describe('EternalStageChip', () => {
     const { lastFrame, unmount } = render(
       React.createElement(EternalStageChip, {
         stage: { phase: 'paused', ms: 0 },
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('paused');
@@ -256,7 +256,7 @@ describe('EternalStageChip', () => {
     const { lastFrame, unmount } = render(
       React.createElement(EternalStageChip, {
         stage: { phase: 'stopped', ms: 0 },
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('stopped');
@@ -267,7 +267,7 @@ describe('EternalStageChip', () => {
     const { lastFrame, unmount } = render(
       React.createElement(EternalStageChip, {
         stage: { phase: 'error', message: 'Something broke', ms: 0 },
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('error');
@@ -279,7 +279,7 @@ describe('EternalStageChip', () => {
     const { lastFrame, unmount } = render(
       React.createElement(EternalStageChip, {
         stage: { phase: 'unknown_phase' as any, ms: 0 },
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('unknown');
@@ -291,7 +291,7 @@ describe('EternalStageChip', () => {
       React.createElement(EternalStageChip, {
         stage: { phase: 'decide', reason: 'test', ms: 0 },
         monochrome: true,
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('decide: test');
@@ -303,7 +303,7 @@ describe('EternalStageChip', () => {
       React.createElement(EternalStageChip, {
         stage: { phase: 'sleep', ms: 30000 },
         monochrome: true,
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('sleep 30s');
@@ -315,7 +315,7 @@ describe('EternalStageChip', () => {
       React.createElement(EternalStageChip, {
         stage: { phase: 'idle', ms: 0 },
         monochrome: true,
-      }),
+      } as never),
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('idle');
