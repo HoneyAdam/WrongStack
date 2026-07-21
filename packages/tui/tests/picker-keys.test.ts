@@ -1600,10 +1600,19 @@ describe('usePickerKeys — debounced Enter double tap', () => {
       }),
       { onAuthEnter },
     );
-    host.lastEnterAtRef.current = Date.now(); // Set to recent timestamp
+    // Pin the clock. The handler runs inside an Ink render, which on a loaded
+    // machine takes longer than the 50ms debounce window — reading the real
+    // clock made this assertion depend on render latency rather than on the
+    // debounce logic, so it failed intermittently.
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    try {
+      host.lastEnterAtRef.current = Date.now();
 
-    runPickerKey(host, '', key(), true);
-    expect(onAuthEnter).not.toHaveBeenCalled(); // Debounced
+      runPickerKey(host, '', key(), true);
+      expect(onAuthEnter).not.toHaveBeenCalled(); // Debounced
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 });
 
