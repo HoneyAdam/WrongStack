@@ -68,6 +68,14 @@ vi.mock('node:fs', () => ({
   statSync: vi.fn(mockStatSync),
 }));
 
+vi.mock('node:fs/promises', () => ({
+  readFile: vi.fn(async (p: string, encoding?: string) => mockReadFileSync(p, encoding)),
+  readdir: vi.fn(async (p: string, options?: { withFileTypes?: boolean }) =>
+    mockReaddirSync(p, options),
+  ),
+  stat: vi.fn(async (p: string) => mockStatSync(p)),
+}));
+
 const plugin = (await import('../src/code-metrics')).default;
 
 // ---------------------------------------------------------------------------
@@ -107,10 +115,10 @@ function getTool(api: MockApi, name: string): (input: unknown) => Promise<unknow
 
 type HookResult = { decision?: string; reason?: string; additionalContext?: string } | undefined;
 
-function getHook(api: MockApi): (input: unknown) => HookResult {
+function getHook(api: MockApi): (input: unknown) => Promise<HookResult> {
   const call = api.registerHook.mock.calls[0];
   if (!call) throw new Error('hook not registered');
-  return (call as unknown[])[2] as (input: unknown) => HookResult;
+  return (call as unknown[])[2] as (input: unknown) => Promise<HookResult>;
 }
 
 function setFilesystem(files: Record<string, string>) {
@@ -295,7 +303,7 @@ describe('PostToolUse hook behavior', () => {
     const api = makeApi();
     plugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: 'src/feature.ts', content: 'x' },
       toolResult: { content: 'ok', isError: false },
@@ -313,7 +321,7 @@ describe('PostToolUse hook behavior', () => {
     const api = makeApi();
     plugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: 'src/feature.ts', content: 'x' },
       toolResult: { content: 'error', isError: true },
@@ -325,7 +333,7 @@ describe('PostToolUse hook behavior', () => {
     const api = makeApi();
     plugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: 'README.md', content: '# hello' },
       toolResult: { content: 'ok', isError: false },
@@ -337,7 +345,7 @@ describe('PostToolUse hook behavior', () => {
     const api = makeApi();
     plugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: '/etc/evil.ts', content: 'x' },
       toolResult: { content: 'ok', isError: false },

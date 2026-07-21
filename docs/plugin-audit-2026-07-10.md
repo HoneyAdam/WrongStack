@@ -13,6 +13,11 @@ bir yükleme boşluğu ve bir komut enjeksiyonu açığı giderildi
 > yüzeyi yerine export haritasını doğruluyor. Aşağıdaki maddeler denetim anının
 > tarihsel kaydıdır.
 
+> **2026-07-21 composition update:** The no-op `wstack-security` plugin was
+> retired. Security operations now have one production route through the CLI
+> adapter into `@wrongstack/security-scanner`; references below describe the
+> historical audit snapshot, not the current plugin catalog.
+
 ---
 
 ## Özet

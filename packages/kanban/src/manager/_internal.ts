@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { normalizeKanbanBoundaryPolicy } from '../boundary.js';
-import { appendKanbanEvent, listBoardSummaries, mutateBoard } from '../storage.js';
+import { appendKanbanEvent, mutateBoard } from '../storage.js';
 import type { TaskEdge, TaskGraph, TaskNode, TaskStatus, TaskType } from '../types/task-graph.js';
 import {
   type AssignKanbanTaskInput,
@@ -24,9 +24,10 @@ import {
   type KanbanTaskStatus,
   type UpdateKanbanTaskInput,
 } from '../types.js';
-import { getBoard } from './boards.js';
-import { areDependenciesMet } from './dependencies.js';
-import type { CreateKanbanBoardFromTaskGraphOptions } from './task-graph-bridge.js';
+import { areDependenciesMet } from './task-readiness.js';
+import { findTask } from './task-lookup.js';
+export { findTask } from './task-lookup.js';
+import type { CreateKanbanBoardFromTaskGraphOptions } from './task-graph-contracts.js';
 
 export function isAssignmentHeartbeatDue(
   assignment: KanbanAgentAssignment,
@@ -98,23 +99,6 @@ export function msUntilExpiry(leaseExpiresAt: string, nowIso: string): number {
 export function later(a: string | undefined, b: string): string {
   if (a === undefined) return b;
   return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
-}
-
-export async function collectBoardsForHealth(
-  projectRoot: string,
-  boardId: string | undefined,
-): Promise<KanbanBoard[]> {
-  if (boardId !== undefined) {
-    const board = await getBoard(projectRoot, boardId);
-    return board ? [board] : [];
-  }
-  const summaries = await listBoardSummaries(projectRoot);
-  const out: KanbanBoard[] = [];
-  for (const summary of summaries) {
-    const board = await getBoard(projectRoot, summary.id);
-    if (board) out.push(board);
-  }
-  return out;
 }
 
 export function normalizeColumns(columns: KanbanColumn[] | undefined): KanbanColumn[] {
@@ -551,21 +535,6 @@ export function matchesKanbanSearch(
   return [task.title, task.description, task.assignedAgent, task.assignee, ...(task.labels ?? [])]
     .filter(Boolean)
     .some((value) => String(value).toLowerCase().includes(query));
-}
-
-export function findTask(board: KanbanBoard, taskId: string): KanbanTask | undefined {
-  const exact = board.tasks.find((task) => task.id === taskId);
-  if (exact) return exact;
-  const matches = board.tasks.filter((task) => task.id.startsWith(taskId));
-  if (matches.length > 1) {
-    throw new Error(
-      `Ambiguous kanban task id "${taskId}": ${matches
-        .slice(0, 5)
-        .map((task) => task.id)
-        .join(', ')}`,
-    );
-  }
-  return matches[0];
 }
 
 export function resolveTaskRefs(board: KanbanBoard, taskRefs: readonly string[]): KanbanTask[] {

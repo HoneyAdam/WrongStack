@@ -2,6 +2,7 @@
 // These are the internal types used by the server-side code
 
 import type { WebSocket } from 'ws';
+import type { TrustBoundary } from '@wrongstack/core/security';
 import type {
   Agent,
   ConfigStore,
@@ -13,17 +14,21 @@ import type {
   ToolRegistry,
 } from '@wrongstack/core';
 
+/** Compatibility envelope; new boundaries should decode to CanonicalServerMessage. */
 export interface WSServerMessage {
   type: string;
   payload: unknown;
 }
 
+/** Compatibility envelope; new boundaries should decode to CanonicalClientMessage. */
 export interface WSClientMessage {
   type: string;
   payload?: unknown | undefined;
 }
 
 export interface WebUIOptions {
+  /** Policy authority for terminal/process/native-shell actions. */
+  trustBoundary?: TrustBoundary | undefined;
   /** HTTP frontend port. Prefer `httpPort`; `port` is kept for compatibility. */
   port?: number | undefined;
   /** HTTP frontend port. */

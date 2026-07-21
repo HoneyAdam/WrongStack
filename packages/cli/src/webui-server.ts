@@ -20,13 +20,9 @@
  *   webui-server/lifecycle.ts          — instance registry, ready banner +
  *                                        open-browser, SIGINT/SIGTERM
  *                                        graceful shutdown (PR 7)
- *   webui-server/ws-handlers/          — every `handleMessage` case, one
- *                                        topic file per group, each threaded
- *                                        through a per-group context that
- *                                        extends the small `WsCommon` base
- *                                        (PR 5 + 5b–5k):
- *       providers · brain · introspection · worklist · agent-config ·
- *       prefs · projects · context · process · sessions · connection
+ *   @wrongstack/webui-server           — canonical message dispatcher,
+ *                                        route families, and embedded-host
+ *                                        capability adapters
  *   webui-server/stream-coalescer.ts   — server-side coalescing of
  *                                        text/thinking deltas + tool
  *                                        progress (PR 9)
@@ -46,7 +42,7 @@
  * message shapes. Everything else is internal to the run.
  */
 import { existsSync } from 'node:fs';
-import { createRequire } from 'node:module';
+import { createRequire, findPackageJSON } from 'node:module';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -73,6 +69,7 @@ import {
   watchProviderConfig,
   wstackGlobalRoot,
 } from '@wrongstack/core';
+import { createCompatibilityTrustBoundary, type TrustBoundary } from '@wrongstack/core/security';
 import { SkillInstaller } from '@wrongstack/core/skills';
 import { toErrorMessage } from '@wrongstack/core/utils/error';
 import type { MCPRegistry } from '@wrongstack/mcp';
@@ -80,12 +77,24 @@ import { makeProviderFromConfig } from '@wrongstack/providers';
 import {
   buildSddWizardDeps,
   buildWebUIAccessUrl,
+  type BrainHandlerContext,
+  createEmbeddedMessageRouter,
+  createEmbeddedProviderOperations,
+  type EmbeddedAgentConfigContext,
+  type EmbeddedConversationContext,
+  type EmbeddedProjectContext,
+  type EmbeddedProviderContext,
+  type EmbeddedSessionContext,
   type CustomModeStore,
   createCustomModeStore,
+  createMailboxRouteHandlers,
   type DesignContext,
   envFlag,
   findFreePort,
   GoalWebSocketHandler,
+  type IntrospectionRouteContext,
+  type PendingConfirm,
+  type PrefsHandlerContext,
   type PromptsContext,
   resolveAuthToken,
   SddBoardWebSocketHandler,
@@ -97,11 +106,19 @@ import {
 } from '@wrongstack/webui-server';
 import { WebSocket, WebSocketServer } from 'ws';
 import { createWebuiClientRegistration } from './webui-server/client-registration.js';
+import type {
+  WSClientMessage as EmbeddedWSClientMessage,
+  WSServerMessage as EmbeddedWSServerMessage,
+} from './webui-server/contracts.js';
+export type WSClientMessage = EmbeddedWSClientMessage;
+export type WSServerMessage = EmbeddedWSServerMessage;
+
 import {
   type ConnectedClient,
   createConnectionHandler,
 } from './webui-server/connection-handler.js';
 import { createKanbanRunMirror } from './webui-server/kanban-run-mirror.js';
+import { createCliKanbanHostRoutes } from './webui-server/kanban-host-adapter.js';
 import { createKanbanSupervisor } from './webui-server/kanban-supervisor.js';
 import {
   announceWebuiReady,
@@ -114,45 +131,17 @@ import {
 // directly, so we adapt that to the Logger interface expected by the handler.
 // PR 1 of Issue #30: extracted to `./webui-server/logger-shim.js`.
 import { consoleLogger } from './webui-server/logger-shim.js';
-import { createMessageRouter } from './webui-server/message-router.js';
 // PR 8 of Issue #30: extracted to `./webui-server/prefs-seeding.js`.
 import { createPrefsSeeding, seedConfigToMeta } from './webui-server/prefs-seeding.js';
-import { createProviderConfigStore, getVault } from './webui-server/provider-config.js';
+import {
+  createProviderConfigStore,
+  getVault,
+  loadSavedProviders,
+} from './webui-server/provider-config.js';
 import { createSessionStartPayloadBuilder } from './webui-server/session-start-payload.js';
-import { startSessionStatusPoll } from './webui-server/session-status-poll.js';
 import { createSetupEvents } from './webui-server/setup-events.js';
 import { startStaticServe } from './webui-server/static-serve.js';
 import { createStreamCoalescer } from './webui-server/stream-coalescer.js';
-import {
-  type AgentConfigContext,
-  type BrainHandlerContext,
-  broadcastSaved,
-  type ConnectionContext,
-  type ContextHandlerContext,
-  type IntrospectionContext,
-  type MailboxContext,
-  type PendingConfirm,
-  type PrefsContext,
-  type ProjectsContext,
-  type SessionsContext,
-  type WorklistContext,
-  type WsCommon,
-  type WsHandlerContext,
-} from './webui-server/ws-handlers/index.js';
-
-// Re-export types from webui for type checking
-// At runtime, the actual types are resolved via workspace resolution
-
-// WSServerMessage and WSClientMessage types (mirrors packages/webui/src/types.ts)
-export interface WSServerMessage {
-  type: string;
-  payload: unknown;
-}
-
-export interface WSClientMessage {
-  type: string;
-  payload?: unknown | undefined;
-}
 
 /**
  * CLI-shaped webui options. Distinct from the standalone
@@ -167,6 +156,8 @@ export interface WSClientMessage {
  * was a real source of confusion when reading this file).
  */
 export interface CliWebUIOptions {
+  /** Policy authority for privileged WebUI actions. */
+  trustBoundary?: TrustBoundary | undefined;
   agent: Agent;
   events: EventBus;
   statusTracker?: import('@wrongstack/core/coordination').ProviderModelStatusTracker | undefined;
@@ -336,13 +327,15 @@ export interface CliWebUIOptions {
 // of Issue #30) — imported below alongside createConnectionHandler.
 
 export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
+  const trustBoundary =
+    opts.trustBoundary ??
+    createCompatibilityTrustBoundary({ policyId: 'cli-webui-trusted-host-compat-v1' });
   const host = opts.host ?? process.env['WEBUI_HOST'] ?? process.env['WS_HOST'] ?? '127.0.0.1';
   const publicUrl = opts.publicUrl ?? process.env['WEBUI_PUBLIC_URL'];
   const publicWsUrl = opts.publicWsUrl ?? process.env['WEBUI_PUBLIC_WS_URL'];
   const requireToken = opts.requireToken ?? envFlag('WEBUI_REQUIRE_TOKEN');
   const surface = opts.surface ?? 'webui';
-  const surfaceDefaults =
-    surface === 'simpleui' ? { http: 3466 } : { http: 3456 };
+  const surfaceDefaults = surface === 'simpleui' ? { http: 3466 } : { http: 3456 };
   const requestedHttpPort = opts.httpPort ?? opts.port ?? surfaceDefaults.http;
   // Auto-advance past busy ports (unless WEBUI_STRICT_PORT) so this works
   // alongside other WebUI instances. WS shares the HTTP port (single-port
@@ -360,8 +353,8 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   // Keep older embedders/tests that only provide globalConfigPath working.
   // The CLI supplies profileConfigPath, but treating it as the sole source
   // caused startup to reject before the HTTP/WS server could report errors.
-  const profileConfigPath = opts.profileConfigPath ?? opts.globalConfigPath ?? path.join(globalRoot, 'config.json');
-  opts.profileConfigPath = profileConfigPath;
+  const profileConfigPath =
+    opts.profileConfigPath ?? opts.globalConfigPath ?? path.join(globalRoot, 'config.json');
   // Per-connection message rate limit. OFF by default — this is a local,
   // single-user tool and the limit (which counted pings/list calls too) was
   // tripping during normal use. Opt back in by setting WEBUI_RATE_LIMIT to a
@@ -508,6 +501,8 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     () => (opts.agent.ctx as Context).cwd ?? opts.projectRoot ?? process.cwd(),
     consoleLogger,
     loadNodePtyViaWebui as ConstructorParameters<typeof TerminalWebSocketHandler>[2],
+    undefined,
+    trustBoundary,
   );
 
   // Specs handler — FORGE-style dependency board over the shared per-project
@@ -635,11 +630,18 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   // Captured from the status block below so `POST /api/fleet/ping` can trigger
   // an immediate fleet re-broadcast (push-on-write from a TUI/REPL).
   let fleetBroadcastCli: (() => Promise<void>) | null = null;
-  const httpServer = startStaticServe({
+  const httpServer = await startStaticServe({
     host,
     httpPort,
     globalRoot,
     distDir: opts.frontendDistDir,
+    ensureDistDeps: {
+      resolvePackageJson: (id) => {
+        const packageJson = findPackageJSON(id, import.meta.url);
+        if (!packageJson) throw new Error(`Package not found: ${id}`);
+        return packageJson;
+      },
+    },
     onFleetPing: () => {
       void fleetBroadcastCli?.();
     },
@@ -654,6 +656,10 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     publicWsUrl,
     apiToken: wsToken,
     requireToken,
+    // SimpleUI only: defer listen until after the WebSocketServer is
+    // attached, so a WS upgrade request cannot arrive between listen()
+    // and the WS handler registration.
+    deferListen: surface === 'simpleui',
   });
 
   // 20 MiB to leave headroom for image attachments (base64-inflated) in
@@ -665,9 +671,34 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   // both the HTTP frontend and the WS upgrade handler on the same port.
   // When the frontend isn't built (httpServer === null), fall back to a
   // standalone WS listener on the same port.
+  //
+  // For SimpleUI, deferListen suppressed the internal listen() so we call
+  // it here after creating the WSS — preventing the WS upgrade race.
   const wss = httpServer
     ? new WebSocketServer({ server: httpServer.server, maxPayload: 20 * 1024 * 1024 })
     : new WebSocketServer({ port: httpPort, host, maxPayload: 20 * 1024 * 1024 });
+
+  // SimpleUI: start listening now that the WS handler is registered.
+  // Await with an error handler so EADDRINUSE (race between findFreePort
+  // and this listen) propagates as a rejected promise instead of a silent
+  // crash — the caller's .catch handler (dispatch-webui.ts:349) reports
+  // the error gracefully.
+  if (httpServer && surface === 'simpleui') {
+    await new Promise<void>((resolveListen, rejectListen) => {
+      httpServer.server.listen(httpPort, host, () => resolveListen());
+      httpServer.server.once('error', rejectListen);
+    });
+    // Persistent error handler for post-listen async errors (e.g. during
+    // shutdown) that the one-shot 'error' listener above wouldn't catch.
+    // The wss.on('error', …) handler below only covers WebSocket-level
+    // errors — the underlying http server needs its own listener.
+    httpServer.server.on('error', (err: Error) => {
+      consoleLogger.error('http_server_error', {
+        message: err.message,
+        port: httpPort,
+      });
+    });
+  }
 
   console.log(`[WebUI] WebSocket server starting on ws://${host}:${httpPort}`);
 
@@ -752,12 +783,16 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     secretScrubber,
     getClients: () => clients,
     eventUnsubscribers,
+    globalConfigPath: path.join(globalRoot, 'config.json'),
+    onFleetBroadcaster: (fn) => {
+      fleetBroadcastCli = fn;
+    },
   });
 
   // Shared state for the extracted ws-handler groups (PR 5 of #30).
   // `send`/`broadcast` are hoisted function declarations, so capturing
   // them here is safe even though they're defined further down.
-  const wsHandlerCtx: WsHandlerContext = {
+  const wsHandlerCtx: EmbeddedProviderContext = {
     providerStore: createProviderConfigStore(
       profileConfigPath,
       // Use the in-memory merged config providers so the WebUI sees the
@@ -772,6 +807,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     broadcast,
     log: (m) => console.log(m),
   };
+  const embeddedProviderOperations = createEmbeddedProviderOperations(wsHandlerCtx);
 
   // Hot-reload provider credentials when config.json changes on disk (another
   // terminal's `wstack auth`, a provider panel in a different window, or a
@@ -836,7 +872,7 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
             ...(snapshot.fallbackAuto !== undefined ? { fallbackAuto: snapshot.fallbackAuto } : {}),
           } as never);
         }
-        broadcastSaved(wsHandlerCtx, snapshot.providers);
+        embeddedProviderOperations.broadcastSaved(snapshot.providers);
 
         // Display language live-propagation: when another surface writes
         // Config.uiLocale (desktop shell, standalone WebUI, or another
@@ -901,21 +937,27 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
         : undefined),
     getSessionId: currentSessionId,
     send,
-    broadcast,
-    log: (m) => console.log(m),
   };
 
-  const introspectionCtx: IntrospectionContext = {
+  const introspectionConfigStore = opts.agent.container?.safeResolve?.(TOKENS.ConfigStore);
+  const introspectionCtx: IntrospectionRouteContext = {
     agent: opts.agent,
-    skillLoader: opts.skillLoader,
     modelsRegistry: opts.modelsRegistry,
-    projectRoot: opts.projectRoot,
-    sessionId: opts.session.id,
-    sessionStartedAt,
-    configStore: opts.agent.container?.safeResolve?.(TOKENS.ConfigStore),
+    configStore: introspectionConfigStore,
+    getConfig: () => {
+      const cfg = introspectionConfigStore?.get() ?? opts.appConfig;
+      if (!cfg)
+        throw new Error(
+          'Introspection route requires a config but neither ConfigStore nor opts.appConfig is available',
+        );
+      return cfg;
+    },
+    getProjectRoot: () =>
+      opts.projectRoot ?? (opts.agent.ctx as { projectRoot?: string }).projectRoot ?? '',
+    getSessionId: currentSessionId,
+    getSessionStartedAt: () => sessionStartedAt,
+    getModeId: () => opts.modeId ?? 'default',
     send,
-    broadcast,
-    log: (m) => console.log(m),
   };
 
   // Shared skills handlers context. The CLI passes its own skillLoader; the
@@ -960,21 +1002,13 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   // pins the active kit for the next turn.
   const designCtx: DesignContext = {
     projectRoot: skillsProjectRoot,
-    agentMeta: opts.agent.ctx as unknown as { meta: Record<string, unknown> },
+    agentMeta: opts.agent.ctx,
   };
 
-  const worklistCtx: WorklistContext = {
-    agent: opts.agent,
-    sessionId: opts.session.id,
-    send,
-    broadcast,
-    log: (m) => console.log(m),
-  };
-
-  const agentConfigCtx: AgentConfigContext = {
+  const agentConfigCtx: EmbeddedAgentConfigContext = {
     agent: opts.agent,
     modeStore: opts.modeStore,
-    globalConfigPath: profileConfigPath,
+    loadSavedProviders: () => loadSavedProviders(profileConfigPath),
     buildSessionStart: (overrides) => buildSessionStartPayload(overrides),
     modelsRegistry: opts.modelsRegistry,
     memoryStore: opts.memoryStore,
@@ -986,22 +1020,21 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     log: (m) => console.log(m),
   };
 
-  const prefsCtx: PrefsContext = {
-    agent: opts.agent,
-    prefSnapshot,
-    persistPrefs,
-    onYoloSwitch: opts.onYoloSwitch,
-    onAutonomySwitch: opts.onAutonomySwitch,
+  const prefsCtx: PrefsHandlerContext = {
+    meta: opts.agent.ctx.meta,
+    snapshot: prefSnapshot,
+    persist: persistPrefs,
+    setYolo: opts.onYoloSwitch,
+    setAutonomy: opts.onAutonomySwitch,
     pendingConfirms,
     configStore: opts.agent.container?.safeResolve?.(TOKENS.ConfigStore),
     send,
     broadcast,
-    log: (m) => console.log(m),
   };
 
   // Project add/select are disabled in WebUI; `opts` remains shared because
   // projects.list and working_dir.set still read the live project root/config.
-  const projectsCtx: ProjectsContext = {
+  const projectsCtx: EmbeddedProjectContext = {
     opts,
     abortControllers,
     abortLegacyRun: () => {
@@ -1016,33 +1049,21 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     log: (m) => console.log(m),
   };
 
-  const contextHandlerCtx: ContextHandlerContext = {
-    agent: opts.agent,
-    buildSessionStart: (overrides) => buildSessionStartPayload(overrides),
-    getCustomModeStore,
-    send,
-    broadcast,
-    log: (m) => console.log(m),
-  };
-
-  // Bare messaging surface for handler groups that need no run-loop state.
-  const wsCommon: WsCommon = { send, broadcast, log: (m) => console.log(m) };
-
-  // Bare mailbox context for the mailbox ws-handlers (PR 8 of Issue #30).
-  const mailboxCtx: MailboxContext = {
-    agent: opts.agent as MailboxContext['agent'],
-    globalConfigPath: opts.globalConfigPath ?? '',
+  const mailboxRoutes = createMailboxRouteHandlers({
+    getProjectRoot: () =>
+      opts.projectRoot ??
+      (opts.agent.ctx as { projectRoot?: string | undefined }).projectRoot ??
+      '',
+    getGlobalRoot: () => (opts.globalConfigPath ? path.dirname(opts.globalConfigPath) : ''),
     events: opts.events,
-    send: send as unknown as (ws: unknown, msg: Record<string, unknown>) => void,
-    broadcast: broadcast as unknown as (msg: Record<string, unknown>) => void,
-    log: (m: string) => console.log(m),
-  };
+  });
 
   // `opts` is passed by reference so the session handlers read live
   // agent.ctx.session / opts.sessionStore at call time.
-  const sessionsCtx: SessionsContext = {
+  const sessionsCtx: EmbeddedSessionContext = {
     opts,
     buildSessionStart: (overrides) => buildSessionStartPayload(overrides),
+    getCustomModeStore,
     send,
     broadcast,
     log: (m) => console.log(m),
@@ -1051,8 +1072,8 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
   // Connection-level cases (user_message/abort/ping/tool.confirm_result).
   // `opts` is by reference so `user_message` runs the live agent; the two
   // maps are the SAME instances the connection/close handlers mutate.
-  const connectionCtx: ConnectionContext = {
-    opts,
+  const connectionCtx: EmbeddedConversationContext = {
+    agent: opts.agent,
     abortControllers,
     pendingConfirms,
     send,
@@ -1060,38 +1081,41 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
     log: (m) => console.log(m),
   };
   // ── Message router ──────────────────────────────────────────────────
-  // Declarative route table + prefix fallback for delegated handlers. PR 15
-  // of Issue #30: extracted to `./webui-server/message-router.ts`.
-  const handleMessage = createMessageRouter({
+  // Canonical route-family dispatcher with CLI host capabilities.
+  const kanbanHostRoutes = createCliKanbanHostRoutes({
     opts,
+    send,
+    goalHandler,
+    ...(kanbanSupervisor ? { kanbanSupervisor } : {}),
+  });
+  const handleMessage = createEmbeddedMessageRouter({
+    trustBoundary,
+    opts,
+    logger: consoleLogger,
     send,
     sendResult,
     sessionPayload,
     currentSessionId,
     shutdown,
-    wsHandlerCtx,
+    providerCtx: wsHandlerCtx,
     brainCtx,
     introspectionCtx,
     skillsCtx,
     promptsCtx,
     designCtx,
-    worklistCtx,
     agentConfigCtx,
     prefsCtx,
-    projectsCtx,
-    contextHandlerCtx,
-    wsCommon,
-    mailboxCtx,
-    sessionsCtx,
-    connectionCtx,
+    projectCtx: projectsCtx,
+    mailboxRoutes,
+    sessionCtx: sessionsCtx,
+    conversationCtx: connectionCtx,
     goalHandler,
     specsHandler,
     sddBoardHandler,
     sddWizardHandler,
     worktreeHandler,
     terminalHandler,
-    kanbanRunMirror: kanbanRunMirror ?? undefined,
-    kanbanSupervisor: kanbanSupervisor ?? undefined,
+    kanbanHostRoutes,
   });
 
   const stopped = new Promise<void>((resolve) => {
@@ -1099,24 +1123,6 @@ export async function runWebUI(opts: CliWebUIOptions): Promise<void> {
       console.log(`[WebUI] WebSocket server running on ws://${host}:${httpPort}`);
       setupEvents();
       opts.onListening?.({ httpPort, wsPort, host, url: accessUrl });
-
-      // ── Live session status poll ──────────────────────────────────
-      // Cross-process SessionRegistry → sessions.status_update broadcasts
-      // (5s fallback poll + fs.watch push). PR 13 of Issue #30: extracted
-      // to `./webui-server/session-status-poll.ts`.
-      if (globalRoot) {
-        startSessionStatusPoll({
-          globalRoot,
-          projectRoot:
-            opts.projectRoot ??
-            (opts.agent.ctx as { projectRoot?: string | undefined }).projectRoot,
-          broadcast,
-          eventUnsubscribers,
-          onBroadcastReady: (fn) => {
-            fleetBroadcastCli = fn;
-          },
-        });
-      }
     });
 
     // WebSocket connection handler — per-tab error handling, auth, client

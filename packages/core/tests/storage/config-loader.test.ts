@@ -101,6 +101,7 @@ describe('DefaultConfigLoader', () => {
         maxConcurrent: 12,
         autonomy: { defaultMode: 'auto' },
         modelRuntime: { parameters: { user: 'kept' } },
+        superMemory: { storage: { directory: 'custom-memory', engine: 'jsonl' } },
       }),
     );
 
@@ -112,6 +113,8 @@ describe('DefaultConfigLoader', () => {
     expect(cfg.autonomy?.autoProceedDelayMs).toBe(45_000);
     expect(cfg.modelRuntime?.parameters?.user).toBe('kept');
     expect(cfg.modelRuntime?.reasoning?.effort).toBeUndefined();
+    expect(cfg.superMemory?.storage?.directory).toBe('custom-memory');
+    expect((cfg.superMemory?.storage as Record<string, unknown>)['engine']).toBeUndefined();
 
     // User settings are migrated to the profile config
     const written = JSON.parse(await fs.readFile(profileCfgPath, 'utf8'));
@@ -122,6 +125,8 @@ describe('DefaultConfigLoader', () => {
     expect(written.autonomy.autoProceedDelayMs).toBe(45_000);
     expect(written.modelRuntime.parameters.user).toBe('kept');
     expect(written.modelRuntime.reasoning.effort).toBeUndefined();
+    expect(written.superMemory.storage.directory).toBe('custom-memory');
+    expect(written.superMemory.storage.engine).toBeUndefined();
   });
 
   it('does not persist env or CLI identity overrides when seeding defaults', async () => {

@@ -69,6 +69,9 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
 
+      - name: Test-inclusive TypeScript ratchet
+        run: pnpm check:test-types
+
   build:
     name: Build (esbuild + tsc declarations)
     runs-on: ubuntu-latest
@@ -86,10 +89,31 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Assert clean artifact lineage
+        run: pnpm check:clean-dist
+
       # Topological build via the centralized driver.
       # ESBuild for JS bundles, native tsc --emitDeclarationOnly for types.
       - name: Build
         run: pnpm build
+
+      - name: Verify package contracts
+        run: node scripts/check-package-contracts.mjs
+
+      - name: Write artifact lineage manifest
+        run: pnpm write:build-manifest
+
+      - name: Upload verified build lineage
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4
+        with:
+          name: wrongstack-build-${{ github.sha }}
+          path: |
+            .reports/build-artifact-manifest.json
+            packages/*/dist
+            apps/*/dist
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
 
   test:
     name: Test (Vitest)
@@ -107,6 +131,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Architecture and runtime-test inventory
+        run: pnpm check:architecture && pnpm check:test-inventory && pnpm check:test-skips
 
       # The root vitest run excludes webui (jsdom/globals environment)
       # and hq-dashboard (jsdom via forks pool) — those have their own
@@ -139,6 +166,7 @@ jobs:
   # -----------------------------------------------------------------
   e2e:
     name: E2E (Playwright)
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -154,8 +182,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build
-        run: pnpm build
+      - name: Download verified build lineage
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: wrongstack-build-${{ github.sha }}
+          path: .
+
+      - name: Verify artifact lineage
+        run: pnpm check:build-manifest
 
       # Playwright browsers are cached to avoid re-downloading on every run.
       - name: Cache Playwright browsers
@@ -186,6 +220,7 @@ jobs:
   # -----------------------------------------------------------------
   tui-smoke:
     name: TUI Smoke (non-TTY)
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -201,8 +236,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build
-        run: pnpm build
+      - name: Download verified build lineage
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: wrongstack-build-${{ github.sha }}
+          path: .
+
+      - name: Verify artifact lineage
+        run: pnpm check:build-manifest
 
       - name: Run TUI smoke test
         run: |

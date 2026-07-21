@@ -158,6 +158,9 @@ importers:
       '@wrongstack/sdd':
         specifier: workspace:*
         version: link:../sdd
+      '@wrongstack/security-scanner':
+        specifier: workspace:*
+        version: link:../security-scanner
       '@wrongstack/simpleui':
         specifier: workspace:*
         version: link:../simpleui
@@ -309,6 +312,9 @@ importers:
       '@wrongstack/super-memory':
         specifier: workspace:*
         version: link:../super-memory
+      '@wrongstack/tools':
+        specifier: workspace:*
+        version: link:../tools
     devDependencies:
       '@types/node':
         specifier: ^26.1.1
@@ -354,6 +360,9 @@ importers:
       '@wrongstack/tools':
         specifier: workspace:*
         version: link:../tools
+      '@wrongstack/webui-server':
+        specifier: workspace:*
+        version: link:../webui-server
       lucide-react:
         specifier: ^1.25.0
         version: 1.25.0(react@19.2.7)
@@ -563,6 +572,9 @@ importers:
       '@wrongstack/kanban':
         specifier: workspace:*
         version: link:../kanban
+      '@wrongstack/providers':
+        specifier: workspace:*
+        version: link:../providers
       '@wrongstack/tools':
         specifier: workspace:*
         version: link:../tools
@@ -703,6 +715,9 @@ importers:
       '@wrongstack/tools':
         specifier: workspace:*
         version: link:../tools
+      '@wrongstack/webui-server':
+        specifier: workspace:*
+        version: link:../webui-server
       '@xyflow/react':
         specifier: ^12.11.2
         version: 12.11.2(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)

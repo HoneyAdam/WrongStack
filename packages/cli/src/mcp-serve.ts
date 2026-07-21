@@ -14,6 +14,7 @@ import {
   AutoApprovePermissionPolicy,
   Context,
   DefaultSecretScrubber,
+  normalizeTokenSavingTier,
   type PermissionPolicy,
   type Provider,
   type SessionWriter,
@@ -31,7 +32,7 @@ import {
   serveHttp,
   serveStdio,
 } from '@wrongstack/mcp';
-import { builtinToolsPack } from '@wrongstack/tools';
+import { registerBuiltinToolTier } from '@wrongstack/tools/tool-tier';
 import type { SubcommandDeps } from './subcommands/index.js';
 
 /** `--yolo` policy: auto-approve everything (inherits the rest of the contract). */
@@ -258,7 +259,10 @@ export async function serveMcpStdio(deps: SubcommandDeps): Promise<number> {
   let registry = deps.toolRegistry as ToolRegistry | undefined;
   if (!registry) {
     registry = new ToolRegistry();
-    registry.registerAllOrThrow([...(builtinToolsPack.tools ?? [])], builtinToolsPack.name);
+    registerBuiltinToolTier({
+      registry,
+      tier: normalizeTokenSavingTier(deps.config.features.tokenSavingMode),
+    });
   }
 
   const controller = new AbortController();

@@ -35,6 +35,7 @@ import {
   uniqueStrings,
 } from './_internal.js';
 import { searchKanban } from './serialization.js';
+export { areDependenciesMet } from './task-readiness.js';
 
 export async function addDependency(
   projectRoot: string,
@@ -309,15 +310,6 @@ export async function listReadyTasks(
 ): Promise<KanbanSearchResult[]> {
   const results = await searchKanban(projectRoot, { ...input, readyOnly: true });
   return input.limit && input.limit > 0 ? results.slice(0, input.limit) : results;
-}
-
-export function areDependenciesMet(board: KanbanBoard, taskId: string): boolean {
-  const task = findTask(board, taskId);
-  if (!task?.dependsOn?.length) return true;
-  return task.dependsOn.every((depId) => {
-    const depTask = board.tasks.find((candidate) => candidate.id === depId);
-    return depTask?.status === 'completed';
-  });
 }
 
 export function findBlockedTasks(board: KanbanBoard, taskId: string): KanbanTask[] {

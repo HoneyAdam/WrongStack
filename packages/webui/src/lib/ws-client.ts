@@ -1,4 +1,19 @@
 import { safeId } from '@/lib/utils';
+import {
+  createSurfaceConnectionState,
+  decodeProtocolFrame,
+  decodeProtocolMessage,
+  DEFAULT_SURFACE_CONNECTION_CONFIG,
+  enqueueBounded,
+  markConnectionActivity,
+  markConnectionConnecting,
+  markConnectionOpen,
+  negotiateProtocol,
+  planConnectionReconnect,
+  resetConnection,
+  stopConnection,
+  type SurfaceConnectionState,
+} from '@wrongstack/webui-server/protocol';
 import type {
   WSClientMessage,
   WSCompletionRequest,
@@ -75,9 +90,7 @@ export class WrongStackWebSocketClient {
   private ws: WebSocket | null = null;
   private url: string;
   private handlers: Map<string, Set<EventHandler>> = new Map();
-  private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
-  private reconnectDelay = 1000;
   private shouldReconnect = true;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private connectPromise: Promise<void> | null = null;
@@ -87,6 +100,7 @@ export class WrongStackWebSocketClient {
    *  late). */
   private socketGeneration = 0;
   private messageQueue: WSClientMessage[] = [];
+  private connectionState: SurfaceConnectionState = createSurfaceConnectionState();
   // Cap on the offline-queue depth. Past this, send() drops the OLDEST
   // queued message before appending the new one (FIFO drop). Bounds
   // memory under long disconnects and prevents stale commands from
@@ -104,9 +118,14 @@ export class WrongStackWebSocketClient {
   private currentStatus: WsStatus = { state: 'connecting' };
   private suppressedChatEchoes = new Map<string, number[]>();
   private protocolCapabilities = new Set<string>();
+  private protocolVersion: number | null = null;
 
   supportsCapability(capability: string): boolean {
     return this.protocolCapabilities.has(capability);
+  }
+
+  get negotiatedProtocolVersion(): number | null {
+    return this.protocolVersion;
   }
 
   onStatus(fn: (s: WsStatus) => void): () => void {
@@ -219,6 +238,7 @@ export class WrongStackWebSocketClient {
     // the URL on subsequent reconnects. Idempotent — the cookie is
     // refreshed only when absent.
     await this.ensureAuthCookie();
+    this.connectionState = markConnectionConnecting(this.connectionState);
 
     return new Promise((resolve, reject) => {
       if (this.ws?.readyState === WebSocket.OPEN) {
@@ -278,7 +298,7 @@ export class WrongStackWebSocketClient {
           if (this.socketGeneration !== gen) return; // stale socket
           clearTimeout(connectTimeout);
           established = true;
-          this.reconnectAttempts = 0;
+          this.connectionState = markConnectionOpen(this.connectionState);
           this.lastErrorText = undefined;
           this.setStatus({ state: 'open' });
           this.flushMessageQueue();
@@ -287,15 +307,17 @@ export class WrongStackWebSocketClient {
 
         ws.onmessage = (event) => {
           if (this.socketGeneration !== gen) return; // stale socket
-          try {
-            const msg = JSON.parse(event.data) as WSServerMessage;
-            this.handleMessage(msg);
-          } catch (err) {
+          this.connectionState = markConnectionActivity(this.connectionState);
+          const decoded = decodeProtocolFrame(String(event.data), 'server');
+          if (decoded.ok) {
+            this.handleMessage(decoded.message as WSServerMessage);
+          } else {
             console.error(
               JSON.stringify({
                 level: 'error',
-                event: 'ws_client.message_parse_failed',
-                message: err instanceof Error ? err.message : String(err),
+                event: 'ws_client.message_rejected',
+                code: decoded.issue.code,
+                message: decoded.issue.message,
                 timestamp: new Date().toISOString(),
               }),
             );
@@ -354,19 +376,27 @@ export class WrongStackWebSocketClient {
   }
 
   private attemptReconnect() {
-    if (!this.shouldReconnect || this.reconnectAttempts >= this.maxReconnectAttempts) {
+    if (!this.shouldReconnect) {
+      this.connectionState = stopConnection(this.connectionState);
       this.reconnectTimer = null;
       this.setStatus({ state: 'closed', error: this.lastErrorText ?? 'Disconnected' });
       return;
     }
-
-    this.reconnectAttempts++;
-    const delay = Math.min(this.reconnectDelay * 2 ** (this.reconnectAttempts - 1), 30000);
-    const nextRetryAt = Date.now() + delay;
+    const reconnect = planConnectionReconnect(this.connectionState, {
+      ...DEFAULT_SURFACE_CONNECTION_CONFIG,
+      maxReconnectAttempts: this.maxReconnectAttempts,
+      queueLimit: WrongStackWebSocketClient.MAX_QUEUED_MESSAGES,
+    });
+    this.connectionState = reconnect.state;
+    if (!reconnect.plan) {
+      this.reconnectTimer = null;
+      this.setStatus({ state: 'closed', error: this.lastErrorText ?? 'Disconnected' });
+      return;
+    }
     this.setStatus({
       state: 'reconnecting',
-      attempt: this.reconnectAttempts,
-      nextRetryAt,
+      attempt: reconnect.plan.attempt,
+      nextRetryAt: reconnect.plan.retryAt,
       lastError: this.lastErrorText,
     });
 
@@ -386,7 +416,7 @@ export class WrongStackWebSocketClient {
           );
         }
       }
-    }, delay);
+    }, reconnect.plan.delayMs);
   }
 
   /** Force an immediate reconnect attempt, bypassing the backoff timer. */
@@ -396,7 +426,7 @@ export class WrongStackWebSocketClient {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    this.reconnectAttempts = 0;
+    this.connectionState = resetConnection(this.connectionState);
     void this.connect().catch((err) =>
       console.warn(
         JSON.stringify({
@@ -438,9 +468,15 @@ export class WrongStackWebSocketClient {
       // client-side persistence of the token (no sessionStorage,
       // no localStorage) — every reconnect re-derives it from
       // the URL or relies on the cookie. See ws-auth.ts.
-      const payload = msg.payload as { sessionId: string; protocolCapabilities?: string[] };
+      const payload = msg.payload as {
+        sessionId: string;
+        protocolVersion?: number;
+        protocolCapabilities?: string[];
+      };
+      const negotiation = negotiateProtocol(payload);
       this.sessionId = payload.sessionId;
-      this.protocolCapabilities = new Set(payload.protocolCapabilities ?? []);
+      this.protocolVersion = negotiation.version;
+      this.protocolCapabilities = new Set(negotiation.capabilities);
     }
 
     this.emit(msg);
@@ -468,6 +504,19 @@ export class WrongStackWebSocketClient {
   }
 
   send(message: WSClientMessage, options: WSSendOptions = {}) {
+    const decoded = decodeProtocolMessage(message, 'client');
+    if (!decoded.ok) {
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          event: 'ws_client.outbound_message_rejected',
+          code: decoded.issue.code,
+          message: decoded.issue.message,
+          timestamp: new Date().toISOString(),
+        }),
+      );
+      return;
+    }
     if (options.echoToChat === false) {
       const responseType = CHAT_ECHO_RESPONSE_BY_REQUEST[message.type];
       if (responseType) {
@@ -484,26 +533,28 @@ export class WrongStackWebSocketClient {
       streamCoalescer.dropAll();
     }
     if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(message));
+      this.ws.send(JSON.stringify(decoded.message));
     } else {
       // FIFO-drop oldest when full. Keeps the queue bounded under
       // long disconnects and ensures the most recent user intent is
       // preserved (vs. a flood of stale earlier messages on reconnect).
-      if (this.messageQueue.length >= WrongStackWebSocketClient.MAX_QUEUED_MESSAGES) {
-        const dropped = this.messageQueue.shift();
-        if (dropped) {
+      const queued = enqueueBounded(
+        this.messageQueue,
+        message,
+        WrongStackWebSocketClient.MAX_QUEUED_MESSAGES,
+      );
+      if (queued.dropped) {
           console.warn(
             JSON.stringify({
               level: 'warn',
               event: 'ws_client.message_queue_full',
               cap: WrongStackWebSocketClient.MAX_QUEUED_MESSAGES,
-              droppedType: dropped.type,
+              droppedType: queued.dropped.type,
               timestamp: new Date().toISOString(),
             }),
           );
-        }
       }
-      this.messageQueue.push(message);
+      this.messageQueue = queued.queue;
     }
   }
 
@@ -1114,6 +1165,7 @@ export class WrongStackWebSocketClient {
 
   disconnect() {
     this.shouldReconnect = false;
+    this.connectionState = stopConnection(this.connectionState);
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

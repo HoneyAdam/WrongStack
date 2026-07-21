@@ -4,20 +4,18 @@ import {
   clearPlan,
   deriveTodosFromPlanItem,
   emptyPlan,
+  emptyTaskFile,
   formatPlan,
   formatPlanTemplates,
   getPlanTemplate,
   listPlanTemplates,
   loadPlan,
-  mutatePlan,
-  removePlanItem,
-  setPlanItemStatus,
-  type PlanFile,
-} from '@wrongstack/core/storage';
-import {
-  emptyTaskFile,
   loadTasks,
+  mutatePlan,
+  type PlanFile,
+  removePlanItem,
   saveTasks,
+  setPlanItemStatus,
   type TaskFile,
 } from '@wrongstack/core/storage';
 import { formatTaskList, formatTodosList } from '@wrongstack/core/utils';

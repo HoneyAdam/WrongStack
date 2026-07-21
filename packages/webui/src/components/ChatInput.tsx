@@ -1176,7 +1176,7 @@ export function ChatInput({
                   : t('chat:inputPlaceholder')
             }
             className={cn(
-              'flex min-h-[64px] w-full resize-none overflow-y-hidden rounded-lg border border-input bg-card/80 px-4 py-3 pr-12 shadow-sm sm:min-h-[44px]',
+              'flex min-h-[64px] w-full resize-none overflow-y-auto rounded-lg border border-input bg-card/80 px-4 py-3 pr-12 shadow-sm sm:min-h-[44px]',
               'text-sm ring-offset-background placeholder:text-muted-foreground',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
               'disabled:cursor-not-allowed disabled:opacity-50',

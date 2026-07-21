@@ -1,15 +1,10 @@
 import { readFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { PROVIDER_DEFINITIONS } from '@wrongstack/providers/definitions';
 import { describe, expect, it } from 'vitest';
 
 // ── Known knowns: which files hold provider metadata ──────────────────
-const CLI_PROVIDERS_PATH = fileURLToPath(
-  new URL('../data/providers.json', import.meta.url),
-);
-const ALIBABA_CATALOG_PATH = fileURLToPath(
-  new URL('../../core/src/models/alibaba-token-plan-catalog.ts', import.meta.url),
-);
+const CLI_PROVIDERS_PATH = fileURLToPath(new URL('../data/providers.json', import.meta.url));
 const WEBUI_PROVIDERS_PATH = fileURLToPath(
   new URL('../../webui/public/providers.json', import.meta.url),
 );
@@ -45,19 +40,6 @@ type ProvidersJson = Record<string, ProviderEntry>;
 function loadCliProviders(): ProvidersJson {
   return JSON.parse(readFileSync(CLI_PROVIDERS_PATH, 'utf8'));
 }
-
-function fileHash(filePath: string): string {
-  const content = readFileSync(filePath, 'utf8');
-  return createHash('sha256').update(content).digest('hex');
-}
-
-// Known-good hashes (snapshot). These record the last-known-correct state.
-// If the hash changes AND the file is NOT a targeted git commit, an external
-// edit has occurred. Run `git log --oneline -1 <path>` to verify intent.
-const BASELINE_HASHES: Record<string, string> = {
-  // Set when the alibaba-token-plan block was verified 2026-07-20
-  // [CLI_PROVIDERS_PATH]: '<will-be-set-on-first-run>',
-};
 
 describe('providers.json hardening — schema validation', () => {
   // ────────────────────────────────────────────────────────────────
@@ -108,10 +90,9 @@ describe('providers.json hardening — schema validation', () => {
         if (outputModality === 'image' || outputModality === 'video') continue;
         // Text models MUST have limit.context
         expect(model.limit, `${providerId}.models.${key} — text model missing limit`).toBeDefined();
-        expect(
-          model.limit!.context,
-          `${providerId}.models.${key}.limit.context`,
-        ).toBeGreaterThan(0);
+        expect(model.limit!.context, `${providerId}.models.${key}.limit.context`).toBeGreaterThan(
+          0,
+        );
       }
     }
   });
@@ -130,42 +111,16 @@ describe('providers.json hardening — schema validation', () => {
   });
 
   // ────────────────────────────────────────────────────────────────
-  // 2. HASH-BASED EXTERNAL-EDIT DETECTION
+  // 2. CROSS-SURFACE COVERAGE
   // ────────────────────────────────────────────────────────────────
 
-  it('CLI providers.json hash matches baseline — no out-of-band edits', () => {
-    const hash = fileHash(CLI_PROVIDERS_PATH);
-    const baseline = BASELINE_HASHES[CLI_PROVIDERS_PATH];
-    if (!baseline) {
-      // First run: establish baseline. Subsequent runs enforce it.
-      expect(true).toBe(true);
-      return;
+  it('every curated CLI provider id exists in the canonical registry', () => {
+    const data = loadCliProviders();
+    for (const id of Object.keys(data)) {
+      if (id.startsWith('_')) continue;
+      expect(PROVIDER_DEFINITIONS[id], `provider ${id}`).toBeDefined();
     }
-    expect(hash, [
-      `CLI providers.json hash changed from ${baseline.slice(0, 12)} to ${hash.slice(0, 12)}.`,
-      'This may indicate an out-of-band edit that desynchronized the overlay',
-      'from the canonical catalog. Run `git diff packages/cli/data/providers.json`',
-      'to review changes, then update BASELINE_HASHES in this file.',
-    ].join('\n')).toBe(baseline);
   });
-
-  it('alibaba-token-plan catalog file hash matches baseline — no out-of-band edits', () => {
-    const hash = fileHash(ALIBABA_CATALOG_PATH);
-    const baseline = BASELINE_HASHES[ALIBABA_CATALOG_PATH];
-    if (!baseline) {
-      expect(true).toBe(true);
-      return;
-    }
-    expect(hash, [
-      `Alibaba catalog file hash changed from ${baseline?.slice(0, 12)} to ${hash.slice(0, 12)}.`,
-      'If this was an intentional edit, update BASELINE_HASHES in this file',
-      'and re-verify the overlay drift-guard tests pass.',
-    ].join('\n')).toBe(baseline);
-  });
-
-  // ────────────────────────────────────────────────────────────────
-  // 3. CROSS-SURFACE COVERAGE
-  // ────────────────────────────────────────────────────────────────
 
   it('WebUI providers.json is loadable and has required provider fields', () => {
     const content = readFileSync(WEBUI_PROVIDERS_PATH, 'utf8');
@@ -196,27 +151,20 @@ describe('providers.json hardening — schema validation', () => {
   });
 
   // ────────────────────────────────────────────────────────────────
-  // 4. REMOVAL SUPPORT (_removeProviders / _removeModels)
+  // 3. REMOVAL SUPPORT (_removeProviders / _removeModels)
   // ────────────────────────────────────────────────────────────────
 
   it('CLI providers.json has a _removeProviders array', () => {
-    const data = loadCliProviders();
     // _removeProviders is at the top level but not a provider entry
     // We need to read the raw JSON to access it
-    const raw = JSON.parse(readFileSync(CLI_PROVIDERS_PATH, 'utf8')) as Record<
-      string,
-      unknown
-    >;
+    const raw = JSON.parse(readFileSync(CLI_PROVIDERS_PATH, 'utf8')) as Record<string, unknown>;
     const removeProviders = raw['_removeProviders'];
     expect(Array.isArray(removeProviders)).toBe(true);
     expect((removeProviders as string[]).length).toBeGreaterThan(0);
   });
 
   it('CLI providers.json has a _removeModels object', () => {
-    const raw = JSON.parse(readFileSync(CLI_PROVIDERS_PATH, 'utf8')) as Record<
-      string,
-      unknown
-    >;
+    const raw = JSON.parse(readFileSync(CLI_PROVIDERS_PATH, 'utf8')) as Record<string, unknown>;
     const removeModels = raw['_removeModels'];
     expect(removeModels).toBeDefined();
     expect(typeof removeModels).toBe('object');
@@ -224,10 +172,7 @@ describe('providers.json hardening — schema validation', () => {
   });
 
   it('_removeProviders does not overlap with curated providers', () => {
-    const raw = JSON.parse(readFileSync(CLI_PROVIDERS_PATH, 'utf8')) as Record<
-      string,
-      unknown
-    >;
+    const raw = JSON.parse(readFileSync(CLI_PROVIDERS_PATH, 'utf8')) as Record<string, unknown>;
     const removeProviders = new Set(raw['_removeProviders'] as string[] | undefined);
     const curatedProviders = new Set(Object.keys(loadCliProviders()));
     // A provider in both _removeProviders AND the curated list would be
@@ -238,13 +183,10 @@ describe('providers.json hardening — schema validation', () => {
   });
 
   it('_removeModels targets only providers that exist in models.dev', () => {
-    const raw = JSON.parse(readFileSync(CLI_PROVIDERS_PATH, 'utf8')) as Record<
-      string,
-      unknown
-    >;
+    const raw = JSON.parse(readFileSync(CLI_PROVIDERS_PATH, 'utf8')) as Record<string, unknown>;
     const removeModels = raw['_removeModels'] as Record<string, string[]> | undefined;
     expect(removeModels).toBeDefined();
-    for (const [providerId, modelIds] of Object.entries(removeModels!)) {
+    for (const modelIds of Object.values(removeModels!)) {
       expect(Array.isArray(modelIds)).toBe(true);
       expect(modelIds.length).toBeGreaterThan(0);
       for (const modelId of modelIds) {

@@ -11,6 +11,7 @@
 import * as path from 'node:path';
 import type { Context, ModelsRegistry } from '@wrongstack/core';
 import { DEFAULT_CONTEXT_WINDOW_MODE_ID } from '@wrongstack/core';
+import { protocolAdvertisement } from '@wrongstack/webui-server/protocol';
 import { getCostRates } from './cost-helpers.js';
 
 /** The slice of `CliWebUIOptions` the payload builder actually reads. */
@@ -93,7 +94,7 @@ export function createSessionStartPayloadBuilder(
       cacheReadCost,
       lastInputTokens,
       providerStatuses: deps.statusTracker?.getAllStatuses() ?? [],
-      protocolCapabilities: ['chronicle.query', 'chronicle.facet', 'chronicle.graph'],
+      ...protocolAdvertisement(),
       ...overrides,
     };
   };

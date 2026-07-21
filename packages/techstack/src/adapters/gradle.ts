@@ -1,11 +1,11 @@
 /** Gradle dependency inventory for Groovy/Kotlin DSL and dependency locking. */
 
-import { readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { DependencyObservation, DependencyScope, EcosystemId, Evidence, Workspace } from '../types.js';
 import { buildPurl } from '../registry/purl.js';
 import {
-  fileExists,
+  fileExistsAsync,
   lockfileEvidence,
   manifestEvidence,
   resolveIn,
@@ -105,14 +105,14 @@ export class GradleAdapter implements EcosystemAdapter {
   async inventory(workspace: Workspace, options: InventoryOptions): Promise<readonly DependencyObservation[]> {
     const root = workspaceRoot(workspace, options);
     const manifestPath = workspace.manifests.find((path) => /build\.gradle(?:\.kts)?$/.test(path))
-      ?? (fileExists(join(root, 'build.gradle.kts')) ? join(root, 'build.gradle.kts') : join(root, 'build.gradle'));
-    if (!fileExists(resolveIn(root, manifestPath))) return [];
+      ?? (await fileExistsAsync(join(root, 'build.gradle.kts')) ? join(root, 'build.gradle.kts') : join(root, 'build.gradle'));
+    if (!(await fileExistsAsync(resolveIn(root, manifestPath)))) return [];
 
     const catalogPath = join(root, 'gradle', 'libs.versions.toml');
-    const catalog = fileExists(catalogPath) ? parseVersionCatalog(readFileSync(catalogPath, 'utf8')) : new Map<string, string>();
-    const direct = parseGradleManifest(readFileSync(resolveIn(root, manifestPath), 'utf8'), catalog);
+    const catalog = await fileExistsAsync(catalogPath) ? parseVersionCatalog(await readFile(catalogPath, 'utf8')) : new Map<string, string>();
+    const direct = parseGradleManifest(await readFile(resolveIn(root, manifestPath), 'utf8'), catalog);
     const lockPath = workspace.lockfiles.find((path) => path.endsWith('gradle.lockfile')) ?? join(root, 'gradle.lockfile');
-    const locked = fileExists(resolveIn(root, lockPath)) ? parseGradleLock(readFileSync(resolveIn(root, lockPath), 'utf8')) : new Map<string, string>();
+    const locked = await fileExistsAsync(resolveIn(root, lockPath)) ? parseGradleLock(await readFile(resolveIn(root, lockPath), 'utf8')) : new Map<string, string>();
     const manifestEv = manifestEvidence(resolveIn(root, manifestPath));
     const lockEv = locked.size > 0 ? lockfileEvidence(resolveIn(root, lockPath)) : undefined;
     const observations: DependencyObservation[] = [];

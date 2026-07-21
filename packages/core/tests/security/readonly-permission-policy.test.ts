@@ -3,7 +3,8 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ReadOnlyPermissionPolicy } from '../../src/security/readonly-permission-policy.js';
 import { ToolCapabilities } from '../../src/security/capabilities.js';
-import type { Context, Tool } from '../../src/types/index.js';
+import type { Context } from '../../src/core/context.js';
+import type { Tool } from '../../src/types/index.js';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -17,6 +18,7 @@ function tool(
     description: name,
     inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
     permission,
+    mutating: capabilities?.includes(ToolCapabilities.FS_WRITE) ?? false,
     capabilities,
     async execute() {
       return 'ok';
@@ -67,12 +69,10 @@ const ALLOW_INNER = {
 };
 
 let projectRoot: string;
-let tempDir: string;
 
 describe('ReadOnlyPermissionPolicy', () => {
   beforeEach(() => {
     projectRoot = path.resolve(os.tmpdir(), 'wstack-ro-test');
-    tempDir = path.join(projectRoot, '.temp_files');
   });
 
   afterEach(() => {

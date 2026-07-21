@@ -1,19 +1,11 @@
-import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import * as os from 'node:os';
-import {
-  Container,
-  TOKENS,
-  ToolRegistry,
-  type Config,
-  type WstackPaths,
-} from '@wrongstack/core';
+import * as path from 'node:path';
+import { type Config, Container, TOKENS, ToolRegistry, type WstackPaths } from '@wrongstack/core';
+import { selectBuiltinToolsForTier } from '@wrongstack/tools/tool-tier';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setupTools } from '../src/wiring/tools.js';
 import { makeFakeMemoryStore } from './fake-memory-store.js';
-import {
-  setupTools,
-  getToolsForTier,
-} from '../src/wiring/tools.js';
 
 let tmp: string;
 
@@ -202,8 +194,9 @@ describe('setupTools', () => {
       container: makeContainer() as never,
     });
     expect(result.promptBuilder).toBeDefined();
-    expect((modelsRegistry as { getModel: ReturnType<typeof vi.fn> }).getModel)
-      .toHaveBeenCalledWith('p', 'm');
+    expect(
+      (modelsRegistry as { getModel: ReturnType<typeof vi.fn> }).getModel,
+    ).toHaveBeenCalledWith('p', 'm');
   });
 
   it('persists active mode preselection when set on modeStore', async () => {
@@ -232,7 +225,7 @@ describe('setupTools', () => {
   });
 });
 
-describe('getToolsForTier', () => {
+describe('selectBuiltinToolsForTier', () => {
   // Minimal fake tool factory to make lightweight tool arrays for testing.
   const mkTool = (name: string): Tool => ({
     name,
@@ -250,26 +243,36 @@ describe('getToolsForTier', () => {
 
   it("'off' returns all provided tools", () => {
     const tools = namedTools(['read', 'write', 'grep', 'bash', 'replace', 'exec']);
-    const result = getToolsForTier('off', tools);
+    const result = selectBuiltinToolsForTier('off', tools);
     expect(result).toHaveLength(6);
     expect(result.map((t) => t.name)).toEqual(['read', 'write', 'grep', 'bash', 'replace', 'exec']);
   });
 
   it("'off' with empty array returns empty", () => {
-    expect(getToolsForTier('off', [])).toHaveLength(0);
+    expect(selectBuiltinToolsForTier('off', [])).toHaveLength(0);
   });
 
   it("'minimal' returns only TIER1-equivalent tools (13)", () => {
     // TIER1 keeps the complete codebase-index lifecycle available so minimal
     // mode does not force broad grep/glob exploration.
     const tier1Names = [
-      'read', 'write', 'edit',
-      'codebase-stats', 'codebase-search', 'codebase-index',
-      'bash', 'grep', 'glob', 'diff', 'patch', 'json', 'search',
+      'read',
+      'write',
+      'edit',
+      'codebase-stats',
+      'codebase-search',
+      'codebase-index',
+      'bash',
+      'grep',
+      'glob',
+      'diff',
+      'patch',
+      'json',
+      'search',
     ];
     // 'off' returns everything so we can verify filtering
     const allTools = namedTools([...tier1Names, 'replace', 'exec', 'fetch', 'git', 'tree', 'lint']);
-    const result = getToolsForTier('minimal', allTools);
+    const result = selectBuiltinToolsForTier('minimal', allTools);
     expect(result).toHaveLength(13);
     for (const name of tier1Names) {
       expect(result.some((t) => t.name === name)).toBe(true);
@@ -279,26 +282,61 @@ describe('getToolsForTier', () => {
 
   it("'light' returns same tool set as 'minimal' (guidance differs, tool set does not)", () => {
     const tier1Names = [
-      'read', 'write', 'edit',
-      'codebase-stats', 'codebase-search', 'codebase-index',
-      'bash', 'grep', 'glob', 'diff', 'patch', 'json', 'search',
+      'read',
+      'write',
+      'edit',
+      'codebase-stats',
+      'codebase-search',
+      'codebase-index',
+      'bash',
+      'grep',
+      'glob',
+      'diff',
+      'patch',
+      'json',
+      'search',
     ];
     const allTools = namedTools([...tier1Names, 'replace', 'exec']);
-    const minimal = getToolsForTier('minimal', allTools);
-    const light = getToolsForTier('light', allTools);
+    const minimal = selectBuiltinToolsForTier('minimal', allTools);
+    const light = selectBuiltinToolsForTier('light', allTools);
     expect(minimal).toHaveLength(light.length);
     expect(minimal.map((t) => t.name).sort()).toEqual(light.map((t) => t.name).sort());
   });
 
   it("'medium' includes TIER1 + TIER2", () => {
     const tier1 = [
-      'read', 'write', 'edit',
-      'codebase-stats', 'codebase-search', 'codebase-index',
-      'bash', 'grep', 'glob', 'diff', 'patch', 'json', 'search',
+      'read',
+      'write',
+      'edit',
+      'codebase-stats',
+      'codebase-search',
+      'codebase-index',
+      'bash',
+      'grep',
+      'glob',
+      'diff',
+      'patch',
+      'json',
+      'search',
     ];
-    const tier2 = ['replace', 'exec', 'fetch', 'git', 'tree', 'lint', 'format', 'typecheck', 'test', 'todo', 'plan', 'task', 'install', 'audit'];
+    const tier2 = [
+      'replace',
+      'exec',
+      'fetch',
+      'git',
+      'tree',
+      'lint',
+      'format',
+      'typecheck',
+      'test',
+      'todo',
+      'plan',
+      'task',
+      'install',
+      'audit',
+    ];
     const allTools = namedTools([...tier1, ...tier2, 'outdated', 'logs']);
-    const result = getToolsForTier('medium', allTools);
+    const result = selectBuiltinToolsForTier('medium', allTools);
     expect(result).toHaveLength(27); // 13 + 14
     for (const name of [...tier1, ...tier2]) {
       expect(result.some((t) => t.name === name)).toBe(true);
@@ -311,11 +349,26 @@ describe('getToolsForTier', () => {
     // NOTE: namedTools() uses substring/grep matching so the count assertion is
     // unreliable (e.g. 'exec' matches bashTool too). Only verify exclusion behavior.
     const allToolNames = [
-      'read', 'write', 'edit', 'replace', 'exec', 'fetch', 'search',
-      'todo', 'plan', 'task', 'git', 'install', 'audit',
-      'outdated', 'logs', 'document', 'scaffold', 'setWorkingDir',
+      'read',
+      'write',
+      'edit',
+      'replace',
+      'exec',
+      'fetch',
+      'search',
+      'todo',
+      'plan',
+      'task',
+      'git',
+      'install',
+      'audit',
+      'outdated',
+      'logs',
+      'document',
+      'scaffold',
+      'setWorkingDir',
     ];
-    const result = getToolsForTier('aggressive', namedTools(allToolNames));
+    const result = selectBuiltinToolsForTier('aggressive', namedTools(allToolNames));
     // Verify exclusions: 'task' (in TIER2) and 'setWorkingDir' (in TIER3) must be absent
     expect(result.some((t) => t.name === 'task')).toBe(false);
     expect(result.some((t) => t.name === 'setWorkingDir')).toBe(false);
@@ -337,12 +390,10 @@ describe('getToolsForTier', () => {
         'codebase-search',
         'codebase-index',
       ]);
-      const names = getToolsForTier(tier, tools).map((tool) => tool.name);
-      expect(names).toEqual(expect.arrayContaining([
-        'codebase-stats',
-        'codebase-search',
-        'codebase-index',
-      ]));
+      const names = selectBuiltinToolsForTier(tier, tools).map((tool) => tool.name);
+      expect(names).toEqual(
+        expect.arrayContaining(['codebase-stats', 'codebase-search', 'codebase-index']),
+      );
     },
   );
 });

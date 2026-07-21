@@ -9,12 +9,19 @@
 // Manual entries reject on overflow (caller sees the error), per the P1.4
 // acceptance criterion "manual sends are never silently dropped".
 // Notification entries are dropped on overflow per the same criterion.
+//
+// Rate limiting: each chat gets a token bucket that paces sends according
+// to Telegram's per-chat rate limits. The default policy (0.33 tokens/s,
+// burst 4) is conservative for group chats while permitting short notification
+// bursts to drain immediately; private chats use a higher rate (30 tokens/s,
+// burst 5) when the chat type is known.
 // ---------------------------------------------------------------------------
 
 import type { Logger } from '@wrongstack/core';
 import type { TelegramApiMessage } from './api-client.js';
 import type { TelegramBot, TelegramBotResponse } from './bot.js';
 import { OutboundQueue, type OutboundEntry } from './outbound-queue.js';
+import { createTokenBucket, type TokenBucket } from './rate-limiter.js';
 
 export interface BotOutboundOptions {
   readonly bot: TelegramBot;
@@ -24,29 +31,73 @@ export interface BotOutboundOptions {
   readonly maxPerChat?: number;
   /** Optional override; defaults to 4 concurrent sends. */
   readonly maxConcurrency?: number;
+  /**
+   * Live getter for tokens per second on the per-chat rate limiter.
+   * Default: 0.33 (≈20 messages/minute, safe for groups).
+   * Private chats can safely use 30.
+   * Passed as a getter so config hot-reload takes effect on the next new
+   * bucket (existing buckets retain their captured parameters for the
+   * queue lifetime, which is the intended lifetime of the bot).
+   */
+  readonly getRateLimitTokensPerSecond?: (() => number) | undefined;
+  /**
+   * Live getter for maximum burst size on the per-chat rate limiter.
+   * Default: 4. Read lazily per new-bucket creation so config
+   * hot-reload propagates without queue rebuild.
+   */
+  readonly getRateLimitBurst?: (() => number) | undefined;
 }
 
 export class TelegramBotOutbound {
   readonly #queue: OutboundQueue;
   readonly #bot: TelegramBot;
   readonly #log: Logger;
+  readonly #buckets = new Map<string, TokenBucket>();
+  readonly #getRateTokensPerSecond: () => number;
+  readonly #getRateBurst: () => number;
   #stopped = false;
 
   constructor(opts: BotOutboundOptions) {
     this.#bot = opts.bot;
     this.#log = opts.log;
+    this.#getRateTokensPerSecond = opts.getRateLimitTokensPerSecond ?? (() => 0.33);
+    this.#getRateBurst = opts.getRateLimitBurst ?? (() => 4);
     this.#queue = new OutboundQueue({
       maxPerChat: opts.maxPerChat,
       maxConcurrency: opts.maxConcurrency,
-      send: (chatId, text) =>
-        this.#bot.sendMessage(chatId, text).then((res) => {
-          if (!res.ok) {
-            throw new Error(`Telegram outbound send returned ok=false for chat ${chatId}`);
-          }
-          return res;
-        }),
+      send: (chatId, text) => this.#rateLimitedSend(chatId, text),
       log: opts.log,
     });
+  }
+
+  /** Per-chat rate-limited send: waits for a token, then delegates to the bot.
+   * Rate-limit values are resolved lazily when a new bucket is created via
+   * the constructor getters so a live config change applies to subsequent
+   * chats without rebuilding the queue. */
+  async #rateLimitedSend(
+    chatId: string | number,
+    text: string,
+  ): Promise<TelegramBotResponse<TelegramApiMessage>> {
+    const key = String(chatId);
+    let bucket = this.#buckets.get(key);
+    if (!bucket) {
+      bucket = createTokenBucket({
+        tokensPerSecond: this.#getRateTokensPerSecond(),
+        burst: this.#getRateBurst(),
+      });
+      this.#buckets.set(key, bucket);
+    }
+
+    // Wait up to 5s for a token slot; if timeout, proceed anyway so the
+    // queue doesn't stall. Telegram will return 429 if we're still over the
+    // limit, and the api-client's retry logic will handle it.
+    await bucket.waitForToken(5_000);
+
+    const res = await this.#bot.sendMessage(chatId, text);
+    if (!res.ok) {
+      throw new Error(`Telegram outbound send returned ok=false for chat ${chatId}`);
+    }
+    return res;
   }
 
   /** Manual send (telegram_send tool, /telegram:send): never silently dropped. */

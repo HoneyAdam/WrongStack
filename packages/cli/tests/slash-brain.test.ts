@@ -197,7 +197,13 @@ describe('/brain slash command', () => {
           judgeMaxTokens: undefined,
           seats: [],
         },
-        ledger: { enabled: true, autoDenyAfterFailures: undefined, path: 'C:/x/brain-ledger.jsonl' },
+        ledger: {
+          enabled: true,
+          autoDenyAfterFailures: undefined,
+          path: 'C:/x/brain-ledger.jsonl',
+          maxMemoryEntries: undefined,
+          interventionRetryWindowMs: undefined,
+        },
         rules: [],
         ruleErrors: [],
         heuristics: {
@@ -388,9 +394,9 @@ describe('/brain slash command', () => {
   });
 
   describe('deterministic + quality subcommands', () => {
-    const makeRt = (over = {}) => {
-      const patches = [];
-      const snapshot = {
+    const makeRt = (over: Partial<BrainConfigSnapshot> = {}) => {
+      const patches: BrainConfigPatch[] = [];
+      const snapshot: BrainConfigSnapshot = {
         mode: 'headless',
         maxAutoRisk: 'high',
         models: [],
@@ -411,7 +417,13 @@ describe('/brain slash command', () => {
           judgeMaxTokens: undefined,
           seats: [],
         },
-        ledger: { enabled: true, autoDenyAfterFailures: undefined, path: 'C:/x/l.jsonl' },
+        ledger: {
+          enabled: true,
+          autoDenyAfterFailures: undefined,
+          path: 'C:/x/l.jsonl',
+          maxMemoryEntries: undefined,
+          interventionRetryWindowMs: undefined,
+        },
         rules: [],
         ruleErrors: [],
         heuristics: {
@@ -434,14 +446,14 @@ describe('/brain slash command', () => {
         usingSessionModel: true,
         ...over,
       };
-      const runtime = {
+      const runtime: BrainRuntime = {
         arbiter: { decide: vi.fn() },
         getMode: () => snapshot.mode,
         getMaxAutoRisk: () => snapshot.maxAutoRisk,
         getHumanTimeoutMs: () => snapshot.humanTimeoutMs,
         getSnapshot: () => snapshot,
         getConfig: () => ({}),
-        apply: (patch) => {
+        apply: (patch: BrainConfigPatch) => {
           patches.push(patch);
           return { snapshot, persisted: Promise.resolve({ ok: true }) };
         },
@@ -453,7 +465,7 @@ describe('/brain slash command', () => {
       const { runtime } = makeRt();
       const ctx = makeCtx({ brainRuntime: runtime });
       const res = await buildBrainCommand(ctx).run!('heuristics');
-      const msg = stripAnsi(res.message);
+      const msg = stripAnsi(res?.message ?? '');
       for (const name of ['lowrisk', 'blocked', 'deadlock', 'retry', 'continue']) {
         expect(msg).toContain(name);
       }
@@ -471,13 +483,13 @@ describe('/brain slash command', () => {
       const ctx = makeCtx({ brainRuntime: runtime });
       const res = await buildBrainCommand(ctx).run!('heuristics bogus on');
       expect(patches).toEqual([]);
-      expect(stripAnsi(res.message)).toContain('Usage:');
+      expect(stripAnsi(res?.message ?? '')).toContain('Usage:');
     });
 
     it('/brain llm shows the quality gate', async () => {
       const { runtime } = makeRt();
       const ctx = makeCtx({ brainRuntime: runtime });
-      const msg = stripAnsi((await buildBrainCommand(ctx).run!('llm')).message);
+      const msg = stripAnsi((await buildBrainCommand(ctx).run!('llm'))?.message ?? '');
       expect(msg).toContain('maxTokens');
       expect(msg).toContain('denyIsTerminal');
     });
@@ -510,7 +522,7 @@ describe('/brain slash command', () => {
       const ctx = makeCtx({ brainRuntime: runtime });
       const res = await buildBrainCommand(ctx).run!('trace on');
       expect(patches).toEqual([{ trace: { enabled: true } }]);
-      expect(stripAnsi(res.message)).toContain('disk');
+      expect(stripAnsi(res?.message ?? '')).toContain('disk');
     });
 
     it('/brain trace content validates the mode', async () => {
@@ -519,14 +531,16 @@ describe('/brain slash command', () => {
       await cmd.run!('trace content redacted');
       const bad = await cmd.run!('trace content loud');
       expect(patches).toEqual([{ trace: { content: 'redacted' } }]);
-      expect(stripAnsi(bad.message)).toContain('Usage:');
+      expect(stripAnsi(bad?.message ?? '')).toContain('Usage:');
     });
 
     it('/brain cache reports the hit rate', async () => {
       const { runtime } = makeRt({
         cache: { enabled: true, ttlMs: 1000, maxEntries: 10, hits: 3, misses: 1, size: 2 },
       });
-      const msg = stripAnsi((await buildBrainCommand(makeCtx({ brainRuntime: runtime })).run!('cache')).message);
+      const msg = stripAnsi(
+        (await buildBrainCommand(makeCtx({ brainRuntime: runtime })).run!('cache'))?.message ?? '',
+      );
       expect(msg).toContain('75% hit rate');
     });
 
@@ -542,7 +556,7 @@ describe('/brain slash command', () => {
       const { runtime, patches } = makeRt();
       const res = await buildBrainCommand(makeCtx({ brainRuntime: runtime })).run!('monitor policy observe');
       expect(patches).toEqual([{ monitor: { policy: 'observe' } }]);
-      expect(stripAnsi(res.message)).toContain('next session');
+      expect(stripAnsi(res?.message ?? '')).toContain('next session');
     });
 
     it('/brain rules surfaces compile errors alongside the table', async () => {
@@ -550,7 +564,9 @@ describe('/brain slash command', () => {
         rules: [{ id: 'ok', when: {}, then: { action: 'deny' } }],
         ruleErrors: ['broken: invalid question pattern'],
       });
-      const msg = stripAnsi((await buildBrainCommand(makeCtx({ brainRuntime: runtime })).run!('rules')).message);
+      const msg = stripAnsi(
+        (await buildBrainCommand(makeCtx({ brainRuntime: runtime })).run!('rules'))?.message ?? '',
+      );
       expect(msg).toContain('ok');
       expect(msg).toContain('broken');
     });
@@ -565,13 +581,16 @@ describe('/brain slash command', () => {
       const { runtime } = makeRt();
       const ctx = makeCtx({
         brainRuntime: runtime,
-        getBrainLog: () => [
-          { at: 1, kind: 'answered', question: 'a', tier: 'rule' },
-          { at: 2, kind: 'answered', question: 'b', tier: 'heuristic' },
-          { at: 3, kind: 'answered', question: 'c', tier: 'llm' },
-        ],
+        getBrainLog: () => {
+          const log = [
+            { at: 1, kind: 'answered', question: 'a', outcome: 'allow', tier: 'rule' },
+            { at: 2, kind: 'answered', question: 'b', outcome: 'allow', tier: 'heuristic' },
+            { at: 3, kind: 'answered', question: 'c', outcome: 'allow', tier: 'llm' },
+          ];
+          return log;
+        },
       });
-      const msg = stripAnsi((await buildBrainCommand(ctx).run!('stats')).message);
+      const msg = stripAnsi((await buildBrainCommand(ctx).run!('stats'))?.message ?? '');
       expect(msg).toContain('deterministic');
       expect(msg).toContain('model-backed');
       // 2 of 3 decided without a provider call.
@@ -581,7 +600,7 @@ describe('/brain slash command', () => {
     it('/brain stats copes with an empty log', async () => {
       const { runtime } = makeRt();
       const ctx = makeCtx({ brainRuntime: runtime, getBrainLog: () => [] });
-      const msg = stripAnsi((await buildBrainCommand(ctx).run!('stats')).message);
+      const msg = stripAnsi((await buildBrainCommand(ctx).run!('stats'))?.message ?? '');
       expect(msg).toContain('No decisions recorded');
     });
 
@@ -592,7 +611,7 @@ describe('/brain slash command', () => {
         expect(cmd.help).toContain(name);
       }
       const res = await cmd.run!('definitely-not-a-subcommand');
-      expect(stripAnsi(res.message)).toContain('stats');
+      expect(stripAnsi(res?.message ?? '')).toContain('stats');
     });
   });
 });

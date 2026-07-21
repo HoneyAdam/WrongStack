@@ -1,10 +1,10 @@
 # ACP v1 Compliance Report — @wrongstack/acp
 
 **Reviewed:** 2026-07-15
-**Package version:** 0.287.0
+**Package version:** 0.295.0
 **Specification:** Agent Client Protocol v1
-**Official SDK:** `@agentclientprotocol/sdk` ^1.0.0 (re-exported for its WS/SSE
-types; the live client/server paths are a self-contained hand-rolled
+**Official SDK:** `@agentclientprotocol/sdk` ^1.2.1 (re-exported only through
+`@wrongstack/acp/sdk`; live client/server paths remain a self-contained
 JSON-RPC implementation, not the SDK runtime).
 
 > **Read this first — two kinds of "compliance".** The tables below distinguish
@@ -253,5 +253,6 @@ that needs a real ACP client to validate end-to-end:
   `AcpServer`/`AgentApp` runtime would be a no-gain rewrite of tested code.
   Only SSE remains SDK-types-only (no command instantiates it).
 - **Legacy draft types (`acp-messages.ts` / `tool-translator.ts`).** Predate
-  the v1 rewrite (`tools/call`, `progress` content) and are unused by the live
-  v1 code path; kept for the transport's `ACPMessage` alias and backward compat.
+  the v1 rewrite (`tools/call`, `progress` content). They remain an internal
+  transport compatibility alias and are publicly isolated under the deprecated
+  `@wrongstack/acp/legacy` entry point; the root exports stable v1 contracts.

@@ -9,8 +9,8 @@ import { toErrorMessage } from '@wrongstack/core/utils';
  * - semver_changelog: Generate a changelog between two versions
  */
 import type { Plugin } from '@wrongstack/core';
-import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { access, readFile, readdir, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 const API_VERSION = '^0.1.10';
 
@@ -57,32 +57,45 @@ interface ConventionalCommit {
   breaking: boolean;
 }
 
-function runGit(args: string[], cwd?: string): string {
-  try {
-    return execFileSync('git', args, {
+function runCommand(command: string, args: string[], cwd?: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, {
       encoding: 'utf-8',
       cwd,
-      stdio: ['pipe', 'pipe', 'pipe'],
       timeout: 30_000,
       windowsHide: true,
-    }).trim();
+    }, (err, stdout, stderr) => {
+      if (!err) {
+        resolve(stdout.trim());
+        return;
+      }
+      const failure = err as Error & { code?: number | string; status?: number };
+      reject(Object.assign(failure, { stderr: stderr || undefined }));
+    });
+  });
+}
+
+async function runGit(args: string[], cwd?: string): Promise<string> {
+  try {
+    return await runCommand('git', args, cwd);
   } catch (err: unknown) {
     const e = err as {
+      code?: number | string | undefined;
       message?: string | undefined;
-      stderr?: string | undefined;
       status?: number | undefined;
+      stderr?: string | undefined;
     };
-    if (e.status === 128) throw new Error('Not a git repository');
-    /* v8 ignore next -- execFileSync errors always carry .message; the stderr/String fallbacks are defensive. */
+    if (e.status === 128 || e.code === 128) throw new Error('Not a git repository');
+    /* v8 ignore next -- child process errors carry .message; the stderr/String fallbacks are defensive. */
     throw new Error(`git failed: ${e.message ?? e.stderr ?? String(err)}`);
   }
 }
 
-function getPackageJson(cwd?: string): { version: string } | null {
+async function getPackageJson(cwd?: string): Promise<{ version: string } | null> {
   const path = cwd ? `${cwd}/package.json` : 'package.json';
-  if (!existsSync(path)) return null;
   try {
-    return JSON.parse(readFileSync(path, 'utf-8'));
+    await access(path);
+    return JSON.parse(await readFile(path, 'utf-8'));
   } catch {
     return null;
   }
@@ -93,17 +106,21 @@ function getPackageJson(cwd?: string): { version: string } | null {
  * workspace packages under packages/* and apps/* (mirrors
  * scripts/bump-version.mjs). Single-package repos degrade to just the root.
  */
-function collectManifests(root: string): string[] {
+async function collectManifests(root: string): Promise<string[]> {
   const paths: string[] = [];
   const rootPkg = join(root, 'package.json');
-  if (existsSync(rootPkg)) paths.push(rootPkg);
+  try {
+    await access(rootPkg);
+    paths.push(rootPkg);
+  } catch { /* absent */ }
   for (const group of ['packages', 'apps']) {
     const groupDir = join(root, group);
-    if (!existsSync(groupDir)) continue;
-    for (const entry of readdirSync(groupDir, { withFileTypes: true })) {
+    let entries;
+    try { entries = await readdir(groupDir, { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       const candidate = join(groupDir, entry.name, 'package.json');
-      if (existsSync(candidate)) paths.push(candidate);
+      try { await access(candidate); paths.push(candidate); } catch { /* absent */ }
     }
   }
   return paths;
@@ -151,9 +168,9 @@ export function parseConventional(subject: string): Omit<ConventionalCommit, 'ha
   };
 }
 
-function getRecentCommits(sinceTag?: string, cwd?: string): ConventionalCommit[] {
+async function getRecentCommits(sinceTag?: string, cwd?: string): Promise<ConventionalCommit[]> {
   const range = sinceTag ? `${sinceTag}..HEAD` : '-30';
-  const output = runGit(['log', range, '--format=%H %s'], cwd);
+  const output = await runGit(['log', range, '--format=%H %s'], cwd);
 
   if (!output) return [];
 
@@ -303,7 +320,7 @@ const plugin: Plugin = {
       }
       cwd = safeCwd;
       // Get current version
-      const pkg = getPackageJson(cwd);
+      const pkg = await getPackageJson(cwd);
       if (!pkg) {
         return { ok: false, error: 'No package.json found' };
       }
@@ -318,14 +335,14 @@ const plugin: Plugin = {
         // Find last tag
         let lastTag: string | undefined;
         try {
-          const tagsOutput = runGit(['describe', '--tags', '--abbrev=0'], cwd);
+          const tagsOutput = await runGit(['describe', '--tags', '--abbrev=0'], cwd);
           lastTag = tagsOutput || undefined;
         } catch {
           // No tags yet — use empty commit list
         }
 
         try {
-          commits = getRecentCommits(lastTag, cwd);
+          commits = await getRecentCommits(lastTag, cwd);
         } catch (err: unknown) {
           /* v8 ignore next -- getRecentCommits only throws Error; the String(err) branch is defensive. */
           const msg = toErrorMessage(err);
@@ -357,36 +374,33 @@ const plugin: Plugin = {
       //    to it so the plugin can never drift from the repo's convention.
       const root = cwd ?? process.cwd();
       const bumpScript = join(root, 'scripts', 'bump-version.mjs');
-      const changed: string[] = collectManifests(root);
-      if (existsSync(bumpScript)) {
+      const changed: string[] = await collectManifests(root);
+      let hasBumpScript = true;
+      try { await access(bumpScript); } catch { hasBumpScript = false; }
+      if (hasBumpScript) {
         try {
-          execFileSync(process.execPath, [bumpScript, 'set', newVersion], {
-            cwd: root,
-            stdio: ['pipe', 'pipe', 'pipe'],
-            timeout: 30_000,
-            windowsHide: true,
-          });
+          await runCommand(process.execPath, [bumpScript, 'set', newVersion], root);
         } catch (err: unknown) {
-          /* v8 ignore next -- execFileSync only throws Error; the String(err) branch is defensive. */
+          /* v8 ignore next -- child process failures are Errors; the String(err) branch is defensive. */
           const msg = toErrorMessage(err);
           return { ok: false, error: `bump script failed: ${msg}` };
         }
         for (const rel of ['package.json', 'package-lock.json', 'src/lib/utils.ts', 'index.html']) {
           const p = join(root, 'website', rel);
-          if (existsSync(p)) changed.push(p);
+          try { await access(p); changed.push(p); } catch { /* absent */ }
         }
       } else {
         for (const manifest of changed) {
-          const pkgData = JSON.parse(readFileSync(manifest, 'utf-8'));
+          const pkgData = JSON.parse(await readFile(manifest, 'utf-8'));
           pkgData.version = newVersion;
-          writeFileSync(manifest, JSON.stringify(pkgData, null, 2) + '\n', 'utf-8');
+          await writeFile(manifest, JSON.stringify(pkgData, null, 2) + '\n', 'utf-8');
         }
       }
 
       // 2. Git commit the version bump (stage only the files we touched)
       try {
-        runGit(['add', '--', ...changed], cwd);
-        runGit(['commit', '-m', `chore: bump version to ${newVersion}`], cwd);
+        await runGit(['add', '--', ...changed], cwd);
+        await runGit(['commit', '-m', `chore: bump version to ${newVersion}`], cwd);
       } catch {
         // commit might fail if nothing changed, that's OK
       }
@@ -394,7 +408,7 @@ const plugin: Plugin = {
       // 3. Create git tag
       if (autoTag) {
         try {
-          runGit(['tag', '-a', `${tagPrefix}${newVersion}`, '-m', `Release ${newVersion}`], cwd);
+          await runGit(['tag', '-a', `${tagPrefix}${newVersion}`, '-m', `Release ${newVersion}`], cwd);
         } catch {
           // tag might already exist
         }
@@ -487,18 +501,18 @@ const plugin: Plugin = {
         const cwd = ctx?.cwd;
 
         if (mode === 'status') {
-          const pkg = getPackageJson(cwd);
+          const pkg = await getPackageJson(cwd);
           if (!pkg) return { message: 'No package.json found' };
           let lastTag: string | undefined;
           try {
-            lastTag = runGit(['describe', '--tags', '--abbrev=0'], cwd) || undefined;
+            lastTag = (await runGit(['describe', '--tags', '--abbrev=0'], cwd)) || undefined;
           } catch {
             // not a git repo or no tags yet
           }
           let suggestion: BumpType = 'patch';
           let commitCount = 0;
           try {
-            const commits = getRecentCommits(lastTag, cwd);
+            const commits = await getRecentCommits(lastTag, cwd);
             commitCount = commits.length;
             suggestion = determineBump(commits);
           } catch {
@@ -552,17 +566,20 @@ const plugin: Plugin = {
           return { ok: false, error: 'cwd must stay within the current project directory' };
         }
 
-        const pkg = getPackageJson(safeCwd);
+        const pkg = await getPackageJson(safeCwd);
         const currentVersion = pkg?.version ?? 'unknown';
 
         let latestTag: string | null = null;
         let commitsSinceTag = 0;
         try {
-          const tagsOutput = runGit(['describe', '--tags', '--abbrev=0'], safeCwd);
+          const tagsOutput = await runGit(['describe', '--tags', '--abbrev=0'], safeCwd);
           latestTag = tagsOutput || null;
 
           if (latestTag) {
-            const countOutput = runGit(['rev-list', '--count', `${latestTag}..HEAD`], safeCwd);
+            const countOutput = await runGit(
+              ['rev-list', '--count', `${latestTag}..HEAD`],
+              safeCwd,
+            );
             commitsSinceTag = Number.parseInt(countOutput, 10) || 0;
           }
         } catch {
@@ -611,7 +628,10 @@ const plugin: Plugin = {
 
         let commits: ConventionalCommit[];
         try {
-          const output = runGit(['log', range === to ? '-30' : range, '--format=%H %s'], safeCwd);
+          const output = await runGit(
+            ['log', range === to ? '-30' : range, '--format=%H %s'],
+            safeCwd,
+          );
           commits = output
             .split('\n')
             .filter(Boolean)
@@ -653,8 +673,8 @@ const plugin: Plugin = {
 
   teardown(api) {
     // H1 pattern: zero counters on unload. semver-bump has no
-    // file handles, timers, or watches — every git command runs
-    // synchronously and completes before the tool returns. The
+    // file handles, timers, or watches — every git command is awaited
+    // before the tool returns. The
     // unload log preserves per-session invocation counts so
     // operators can see how many bumps/changelogs/queries the
     // session performed.

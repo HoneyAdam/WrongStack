@@ -16,6 +16,7 @@
 // closure dependency is added.
 
 import type { WebSocket } from 'ws';
+import { handlePrefsGet, handlePrefsUpdate, type PrefsHandlerContext } from './prefs-handlers.js';
 import type { WSClientMessage } from './types.js';
 
 export interface PrefsRouteHandlers {
@@ -28,6 +29,13 @@ export interface PrefsRouteHandlers {
    * logger.level), then broadcast the full current snapshot to all clients.
    */
   updatePrefs: (ws: WebSocket, payload: Record<string, unknown>) => Promise<void>;
+}
+
+export function createPrefsRouteHandlers(ctx: PrefsHandlerContext): PrefsRouteHandlers {
+  return {
+    getPrefs: async (ws) => handlePrefsGet(ctx, ws),
+    updatePrefs: async (ws, payload) => handlePrefsUpdate(ctx, ws, payload),
+  };
 }
 
 /**

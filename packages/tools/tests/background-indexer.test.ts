@@ -69,10 +69,21 @@ describe('enqueueReindex (debounce)', () => {
     expect(runIndexerMock.mock.calls[0]?.[1]).toMatchObject({ files: ['/proj/a.ts'] });
   });
 
-  it('reindexes distinct files separately', async () => {
+  it('batches distinct files whose debounce expires in the same turn', async () => {
     vi.useFakeTimers();
     enqueueReindex({ projectRoot: '/proj', files: ['/proj/a.ts'], debounceMs: 20 });
     enqueueReindex({ projectRoot: '/proj', files: ['/proj/b.ts'], debounceMs: 20 });
+    await vi.advanceTimersByTimeAsync(30);
+    expect(runIndexerMock).toHaveBeenCalledTimes(1);
+    expect(runIndexerMock.mock.calls[0]?.[1]).toMatchObject({
+      files: ['/proj/a.ts', '/proj/b.ts'],
+    });
+  });
+
+  it('keeps different project indexes in separate batches', async () => {
+    vi.useFakeTimers();
+    enqueueReindex({ projectRoot: '/proj-a', files: ['/proj-a/a.ts'], debounceMs: 20 });
+    enqueueReindex({ projectRoot: '/proj-b', files: ['/proj-b/b.ts'], debounceMs: 20 });
     await vi.advanceTimersByTimeAsync(30);
     expect(runIndexerMock).toHaveBeenCalledTimes(2);
   });

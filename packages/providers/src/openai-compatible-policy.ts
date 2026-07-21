@@ -1,4 +1,5 @@
 import type { ReasoningEffort, Request } from '@wrongstack/core';
+import { resolveProviderDefinition } from './provider-definitions.js';
 
 /**
  * Apply contracts that look OpenAI-compatible at the transport level but use
@@ -11,32 +12,33 @@ export function applyOpenAICompatiblePolicy(
   req: Request,
   providerId: string,
 ): void {
-  if (providerId === 'openrouter') {
+  const policy = resolveProviderDefinition(providerId)?.requestPolicy;
+  if (policy === 'openrouter') {
     applyOpenRouter(body, req);
     return;
   }
-  if (providerId === 'deepseek') {
+  if (policy === 'deepseek') {
     applyDeepSeek(body, req);
     return;
   }
-  if (providerId === 'moonshotai' || providerId === 'kimi-for-coding') {
+  if (policy === 'kimi') {
     applyKimi(body, req);
     return;
   }
-  if (providerId === 'zai' || providerId === 'zai-coding-plan') {
+  if (policy === 'zai') {
     applyZai(body, req);
     return;
   }
-  if (providerId.startsWith('alibaba')) {
+  if (policy === 'alibaba') {
     applyAlibaba(body, req);
     return;
   }
-  if (providerId === 'xai') {
+  if (policy === 'xai') {
     applyXai(body, req);
     return;
   }
-  if (providerId === 'groq') applyGroq(body, req);
-  else if (providerId === 'perplexity') applyPerplexity(body, req);
+  if (policy === 'groq') applyGroq(body, req);
+  else if (policy === 'perplexity') applyPerplexity(body, req);
 }
 
 function applyOpenRouter(body: Record<string, unknown>, req: Request): void {

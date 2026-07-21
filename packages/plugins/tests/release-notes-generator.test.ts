@@ -5,18 +5,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // ---------------------------------------------------------------------------
 
 let mockGitOutput = '';
+const mockExecFile = vi.fn((
+  _file: string,
+  args: string[],
+  _options: unknown,
+  callback: (error: Error | null, stdout: string, stderr: string) => void,
+) => {
+  let output: string;
+  if (args[0] === 'describe') output = 'v1.0.0\n';
+  else if (args[0] === 'rev-parse') {
+    const ref = args.at(-1) ?? '';
+    output = ref.startsWith('HEAD') || ref.startsWith('--help')
+      ? `${'b'.repeat(40)}\n`
+      : `${'a'.repeat(40)}\n`;
+  } else output = mockGitOutput;
+  callback(null, output, '');
+  return {};
+});
 
 vi.mock('node:child_process', () => ({
-  execFileSync: vi.fn((_file: string, args: string[]) => {
-    if (args[0] === 'describe') return 'v1.0.0\n';
-    if (args[0] === 'rev-parse') {
-      const ref = args.at(-1) ?? '';
-      return ref.startsWith('HEAD') || ref.startsWith('--help')
-        ? `${'b'.repeat(40)}\n`
-        : `${'a'.repeat(40)}\n`;
-    }
-    return mockGitOutput;
-  }),
+  execFile: mockExecFile,
 }));
 
 const plugin = (await import('../src/release-notes-generator')).default;
@@ -177,7 +185,7 @@ describe('generate_release_notes tool', () => {
   });
 
   it('passes malicious-looking refs as inert argv and logs only resolved commit ids', async () => {
-    const { execFileSync } = await import('node:child_process');
+    const { execFile } = await import('node:child_process');
     const from = 'v1.0.0; echo injected';
     const to = '--help && calc.exe';
 
@@ -187,19 +195,21 @@ describe('generate_release_notes tool', () => {
     const result = (await generate({ from, to })) as { ok: boolean };
 
     expect(result.ok).toBe(true);
-    expect(execFileSync).toHaveBeenNthCalledWith(
+    expect(execFile).toHaveBeenNthCalledWith(
       1,
       'git',
       ['rev-parse', '--verify', '--end-of-options', `${to}^{commit}`],
       expect.objectContaining({ shell: false }),
+      expect.any(Function),
     );
-    expect(execFileSync).toHaveBeenNthCalledWith(
+    expect(execFile).toHaveBeenNthCalledWith(
       2,
       'git',
       ['rev-parse', '--verify', '--end-of-options', `${from}^{commit}`],
       expect.objectContaining({ shell: false }),
+      expect.any(Function),
     );
-    expect(execFileSync).toHaveBeenNthCalledWith(
+    expect(execFile).toHaveBeenNthCalledWith(
       3,
       'git',
       [
@@ -209,12 +219,21 @@ describe('generate_release_notes tool', () => {
         `${'a'.repeat(40)}..${'b'.repeat(40)}`,
       ],
       expect.objectContaining({ shell: false }),
+      expect.any(Function),
     );
   });
 
   it('rejects malformed output from revision resolution before git log runs', async () => {
-    const { execFileSync } = await import('node:child_process');
-    vi.mocked(execFileSync).mockReturnValueOnce('not-a-commit\n');
+    const { execFile } = await import('node:child_process');
+    vi.mocked(execFile).mockImplementationOnce(((
+      _file: string,
+      _args: string[],
+      _options: unknown,
+      callback: (error: Error | null, stdout: string, stderr: string) => void,
+    ) => {
+      callback(null, 'not-a-commit\n', '');
+      return {};
+    }) as never);
 
     const api = makeApi();
     plugin.setup(api as never);
@@ -226,7 +245,7 @@ describe('generate_release_notes tool', () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain('invalid commit id');
-    expect(vi.mocked(execFileSync).mock.calls).toHaveLength(1);
+    expect(vi.mocked(execFile).mock.calls).toHaveLength(1);
   });
 
   it('enabled:false disables the tool', async () => {
@@ -239,10 +258,16 @@ describe('generate_release_notes tool', () => {
   });
 
   it('surfaces git errors gracefully', async () => {
-    const { execFileSync } = await import('node:child_process');
-    vi.mocked(execFileSync).mockImplementationOnce(() => {
-      throw new Error('git exploded');
-    });
+    const { execFile } = await import('node:child_process');
+    vi.mocked(execFile).mockImplementationOnce(((
+      _file: string,
+      _args: string[],
+      _options: unknown,
+      callback: (error: Error | null, stdout: string, stderr: string) => void,
+    ) => {
+      callback(new Error('git exploded'), '', '');
+      return {};
+    }) as never);
 
     const api = makeApi();
     plugin.setup(api as never);

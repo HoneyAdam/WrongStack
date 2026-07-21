@@ -87,7 +87,7 @@ interface SuperMemoryStoreLike {
   deleteSuperMemory(
     id: string,
     reason?: string,
-    options?: { neverInject?: boolean },
+    options?: { force?: boolean; neverInject?: boolean },
   ): Promise<void>;
   rememberSuper(input: {
     text: string;
@@ -515,8 +515,8 @@ export async function handleSuperMemoryDelete(
   }
   try {
     if (neverInject === true)
-      await memoryStore.deleteSuperMemory(id, reason, { neverInject: true });
-    else await memoryStore.deleteSuperMemory(id, reason);
+      await memoryStore.deleteSuperMemory(id, reason, { force: true, neverInject: true });
+    else await memoryStore.deleteSuperMemory(id, reason, { force: true });
     send(ws, {
       type: 'memory.super.delete',
       payload: { success: true, message: `Deleted memory "${id}".` },

@@ -78,6 +78,12 @@ export interface TelegramBotOptions {
   /** Max messages to buffer for the agent to read. Default: 50. */
   bufferSize: number;
   log: Logger;
+  /**
+   * Resolved on every outbound send so live `parseMode` config changes
+   * (via `api.onConfigChange`) take effect without restarting the plugin.
+   * Empty string or `undefined` → plain text. See `TelegramPluginConfig.parseMode`.
+   */
+  getParseMode?: () => '' | 'HTML' | 'MarkdownV2' | undefined;
   /** Called for each incoming message that passes allowlist checks. */
   onMessage(msg: TelegramIncomingMessage): void;
   /**
@@ -128,6 +134,7 @@ export class TelegramBot {
   /** Single-poller election across wstack instances sharing this token. */
   private readonly lock?: PollLock | undefined;
   private readonly standbyRetryMs: number;
+  private readonly getParseMode?: (() => '' | 'HTML' | 'MarkdownV2' | undefined) | undefined;
   private standbyTimer: ReturnType<typeof setTimeout> | null = null;
   private standbyAnnounced = false;
 
@@ -151,6 +158,7 @@ export class TelegramBot {
     this.offsetStore = opts.offsetStore;
     this.lock = opts.lock;
     this.standbyRetryMs = opts.standbyRetryMs ?? 15_000;
+    this.getParseMode = opts.getParseMode;
     if (this.lock) {
       this.lock.onLost = () => this.handleLockLost();
     }
@@ -303,6 +311,7 @@ export class TelegramBot {
         const timeout = AbortSignal.timeout(10_000);
         const result = await this.api.sendMessage(chatId, text, {
           signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+          parseMode: this.getParseMode?.(),
         });
         return { ok: true, result };
       } catch (err) {
@@ -346,6 +355,7 @@ export class TelegramBot {
         const timeout = AbortSignal.timeout(10_000);
         const result = await this.api.sendMessageWithKeyboard(chatId, text, buttons, {
           signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+          parseMode: this.getParseMode?.(),
         });
         return { ok: true, result };
       } catch (err) {

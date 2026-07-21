@@ -1,4 +1,4 @@
-import { toErrorMessage } from '../utils/index.js';
+import { toErrorMessage } from '../utils/error.js';
 
 /**
  * WrongStack error hierarchy.

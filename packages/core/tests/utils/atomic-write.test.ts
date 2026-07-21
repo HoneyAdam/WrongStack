@@ -126,6 +126,14 @@ describe('withFileLock — structured FsError on timeout', () => {
     await fs.rm(lockDir, { recursive: true, force: true });
   });
 
+  it('creates a missing parent directory before entering the critical section', async () => {
+    const target = path.join(lockDir, 'nested', 'deep', 'locked.json');
+    await withFileLock(target, async () => {
+      await fs.writeFile(target, 'protected');
+    });
+    await expect(fs.readFile(target, 'utf8')).resolves.toBe('protected');
+  });
+
   it('throws FsError(FS_ATOMIC_WRITE_FAILED) when the lock cannot be acquired', async () => {
     const target = path.join(lockDir, 'locked.json');
     // Hold the lock in this caller's own process by holding a write handle

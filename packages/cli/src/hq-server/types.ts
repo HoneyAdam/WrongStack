@@ -7,6 +7,7 @@
 import type { WebSocket } from 'ws';
 import type {
   HqClientCapability,
+  HqAlertRuleConfig,
   HqClientRecord,
   HqEventEnvelope,
   HqFleetSnapshotPayload,
@@ -86,6 +87,18 @@ export interface ConnectedClient {
   mcpSnapshots: Map<string, HqMcpServerHealth[]>;
   /** Pending outbound commands (Phase 3 — control plane). */
   commandQueue: HqQueuedCommand[];
+}
+
+export interface HqRouterMutableAuth {
+  operatorPolicy: HqRedactionPolicy;
+  operatorPolicyOverride: Partial<HqRedactionPolicy> | undefined;
+  browserTokens: Set<string>;
+  clientTokens: Set<string>;
+  browserTokenObjs: Map<string, { id: string; capabilities?: string[] }>;
+  clientTokenObjs: Map<string, HqToken>;
+  passwordHash?: string | undefined;
+  cookieSecret?: string | undefined;
+  alertRules: HqAlertRuleConfig | undefined;
 }
 
 // ── Transcript ring buffer ─────────────────────────────────────────────────

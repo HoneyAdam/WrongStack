@@ -27,9 +27,9 @@ describe('ensureSimpleUiDistDir', () => {
   const manifest = path.join('C:', 'workspace', 'packages', 'simpleui', 'package.json');
   const pkgDir = path.dirname(manifest);
 
-  it('returns immediately when dist already exists (no build triggered)', () => {
+  it('returns immediately when dist already exists (no build triggered)', async () => {
     const runBuild = vi.fn();
-    const result = ensureSimpleUiDistDir({
+    const result = await ensureSimpleUiDistDir({
       resolvePackageJson: () => manifest,
       exists: () => true,
       runBuild,
@@ -38,9 +38,9 @@ describe('ensureSimpleUiDistDir', () => {
     expect(runBuild).not.toHaveBeenCalled();
   });
 
-  it('auto-builds when dist is missing, then resolves', () => {
+  it('auto-builds when dist is missing, then resolves', async () => {
     let built = false;
-    const result = ensureSimpleUiDistDir({
+    const result = await ensureSimpleUiDistDir({
       resolvePackageJson: () => manifest,
       exists: (file: string) => {
         // After the build "runs", index.html exists.
@@ -54,10 +54,10 @@ describe('ensureSimpleUiDistDir', () => {
     expect(built).toBe(true);
   });
 
-  it('passes the workspace root to runBuild', () => {
+  it('passes the workspace root to runBuild', async () => {
     let receivedCwd: string | undefined;
     let built = false;
-    ensureSimpleUiDistDir({
+    await ensureSimpleUiDistDir({
       resolvePackageJson: () => manifest,
       exists: (file: string) => {
         if (file.endsWith('index.html')) return built;
@@ -69,34 +69,34 @@ describe('ensureSimpleUiDistDir', () => {
     expect(receivedCwd).toBe('C:\\my-root');
   });
 
-  it('throws a descriptive error when the build itself fails', () => {
-    expect(() =>
+  it('throws a descriptive error when the build itself fails', async () => {
+    await expect(
       ensureSimpleUiDistDir({
         resolvePackageJson: () => manifest,
         exists: () => false,
         runBuild: () => { throw new Error('pnpm not found'); },
         findWorkspaceRoot: () => 'C:\\workspace',
       }),
-    ).toThrow('SimpleUI auto-build failed');
+    ).rejects.toThrow('SimpleUI auto-build failed');
   });
 
-  it('throws the original error when dist is still missing after build', () => {
-    expect(() =>
+  it('throws the original error when dist is still missing after build', async () => {
+    await expect(
       ensureSimpleUiDistDir({
         resolvePackageJson: () => manifest,
         exists: () => false, // build "succeeds" but dist still missing
         runBuild: () => {},
         findWorkspaceRoot: () => 'C:\\workspace',
       }),
-    ).toThrow('SimpleUI frontend is not built');
+    ).rejects.toThrow('SimpleUI frontend is not built');
   });
 
-  it('throws when the package itself cannot be resolved', () => {
-    expect(() =>
+  it('throws when the package itself cannot be resolved', async () => {
+    await expect(
       ensureSimpleUiDistDir({
         resolvePackageJson: () => { throw new Error('not found'); },
         exists: () => false,
       }),
-    ).toThrow('SimpleUI package could not be resolved');
+    ).rejects.toThrow('SimpleUI package could not be resolved');
   });
 });

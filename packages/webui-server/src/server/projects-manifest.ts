@@ -6,7 +6,7 @@
  */
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { projectSlug } from '@wrongstack/core';
+import { ConfigError, projectSlug, withFileLock } from '@wrongstack/core';
 
 export interface ProjectEntry {
   name: string;
@@ -60,4 +60,47 @@ export async function ensureProjectDataDir(
   const dir = path.join(base, 'projects', slug);
   await fs.mkdir(dir, { recursive: true });
   return dir;
+}
+
+/** Register or refresh a project with a serialized read-modify-write. */
+export async function touchProjectInManifest(
+  options: {
+    projectRoot: string;
+    workingDir?: string | undefined;
+    name?: string | undefined;
+  },
+  globalConfigPath: string,
+): Promise<ProjectEntry> {
+  const root = path.resolve(options.projectRoot);
+  const file = projectsJsonPath(globalConfigPath);
+  let entry: ProjectEntry | undefined;
+  await withFileLock(file, async () => {
+    const manifest = await loadManifest(globalConfigPath);
+    const now = new Date().toISOString();
+    entry = manifest.projects.find((candidate) => path.resolve(candidate.root) === root);
+    if (entry) {
+      entry.lastSeen = now;
+      if (options.workingDir) entry.lastWorkingDir = path.resolve(options.workingDir);
+    } else {
+      entry = {
+        name: options.name ?? path.basename(root),
+        root,
+        slug: generateProjectSlug(root),
+        createdAt: now,
+        lastSeen: now,
+        lastWorkingDir: options.workingDir ? path.resolve(options.workingDir) : undefined,
+      };
+      manifest.projects.push(entry);
+    }
+    await saveManifest(manifest, globalConfigPath);
+  });
+  if (!entry) {
+    throw new ConfigError({
+      message: 'touchProjectInManifest: entry not resolved',
+      code: 'CONFIG_INVALID',
+      context: { phase: 'manifest-resolve' },
+    });
+  }
+  await ensureProjectDataDir(entry.slug, globalConfigPath);
+  return entry;
 }

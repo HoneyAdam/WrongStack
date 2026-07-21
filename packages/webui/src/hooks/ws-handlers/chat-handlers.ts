@@ -1,11 +1,13 @@
 import { expectDefined } from '@wrongstack/core';
+import { parseNextSteps } from '@wrongstack/tools/next-steps';
+import { projectChatMessage, projectToolMessage } from '@wrongstack/webui-server/protocol';
 import { toWireImages } from '@/components/ChatInput/image-attachments';
 import { toast } from '@/components/Toaster';
 import { playCompletionChime, playPermissionChime } from '@/lib/chime';
 import { setFaviconStatus } from '@/lib/favicon';
 import { ensureNotificationPermission, notifyIfHidden } from '@/lib/notify';
-import { getWSClient } from '@/lib/ws-client';
 import { streamCoalescer } from '@/lib/stream-coalescer';
+import { getWSClient } from '@/lib/ws-client';
 import { isActiveSessionMessage, pipeViz, safePayload } from '@/lib/ws-client-utils';
 import { useChatStore, useConfigStore, useSessionStore, useUIStore } from '@/stores';
 import { useLocalPrefs } from '@/stores/local-prefs';
@@ -37,7 +39,9 @@ export function handleIterationStarted(msg: WSServerMessage) {
   if (!isActiveSessionMessage(msg)) return;
   pipeViz(msg);
   const payload = msg.payload as { index: number; maxIterations?: number | undefined };
-  useSessionStore.getState().setIteration({ index: payload.index, max: payload.maxIterations ?? 0 });
+  useSessionStore
+    .getState()
+    .setIteration({ index: payload.index, max: payload.maxIterations ?? 0 });
   useChatStore.getState().setLoading(true);
   if (typeof document !== 'undefined' && document.hidden) setFaviconStatus('running');
   if (useChatStore.getState().runStart === null) {
@@ -53,11 +57,8 @@ export function handleTextDelta(msg: WSServerMessage) {
   // has no visible effect on the cinematic view (it scrolls past faster
   // than any frame budget). Iteration/tool/run-result events still pipe
   // through, so viz reflects the structural shape of the run.
-  const payload = safePayload<{ text: string; messageId: string }>(msg, {
-    text: 'string',
-    messageId: 'string',
-  });
-  if (!payload) return;
+  const payload = projectChatMessage(msg);
+  if (payload?.kind !== 'text-delta') return;
   streamCoalescer.flush('__thinking__');
   useChatStore.getState().clearThinking();
   let id = useChatStore.getState().currentAssistantMessageId;
@@ -73,8 +74,8 @@ export function handleTextDelta(msg: WSServerMessage) {
 export function handleThinkingDelta(msg: WSServerMessage) {
   if (!isActiveSessionMessage(msg)) return;
   // Per-token viz push removed (same reasoning as handleTextDelta).
-  const payload = msg.payload as { text: string };
-  if (!payload.text) return;
+  const payload = projectChatMessage(msg);
+  if (payload?.kind !== 'thinking-delta') return;
   streamCoalescer.push('__thinking__', payload.text, (_k, text) =>
     useChatStore.getState().appendThinking(text),
   );
@@ -83,27 +84,44 @@ export function handleThinkingDelta(msg: WSServerMessage) {
 export function handleToolStarted(msg: WSServerMessage) {
   if (!isActiveSessionMessage(msg)) return;
   pipeViz(msg);
-  const payload = msg.payload as { id: string; name: string; input?: unknown | undefined; messageId: string };
+  const payload = projectToolMessage(msg);
+  if (payload?.kind !== 'started') return;
   const existingId = useChatStore.getState().getToolMessageId(payload.id);
-  if (existingId) { useChatStore.getState().setCurrentToolId(existingId); return; }
+  if (existingId) {
+    useChatStore.getState().setCurrentToolId(existingId);
+    return;
+  }
   streamCoalescer.flushAll();
   useChatStore.getState().clearThinking();
   const assistantId = useChatStore.getState().currentAssistantMessageId;
   if (assistantId) useChatStore.getState().finalizeMessage(assistantId);
   useChatStore.getState().setCurrentAssistantMessage(null);
-  const id = useChatStore.getState().addMessage({ role: 'tool', content: '', toolName: payload.name, toolInput: payload.input, toolUseId: payload.id });
+  const id = useChatStore.getState().addMessage({
+    role: 'tool',
+    content: '',
+    toolName: payload.name,
+    toolInput: payload.input,
+    toolUseId: payload.id,
+  });
   useChatStore.getState().setCurrentToolId(id);
-  useChatStore.getState().addExecution({ id: payload.id, name: payload.name, input: payload.input, ok: true, startedAt: Date.now() });
+  useChatStore.getState().addExecution({
+    id: payload.id,
+    name: payload.name,
+    input: payload.input,
+    ok: true,
+    startedAt: Date.now(),
+  });
 }
 
 export function handleToolProgress(msg: WSServerMessage) {
   if (!isActiveSessionMessage(msg)) return;
-  const payload = msg.payload as { id: string; name: string; event: { type: string; text?: string | undefined } };
-  const text = (payload.event?.text ?? '').trim();
+  const payload = projectToolMessage(msg);
+  if (payload?.kind !== 'progress') return;
+  const text = payload.text;
   if (!text) return;
   const ownerId = useChatStore.getState().getToolMessageId(payload.id);
   if (!ownerId) return;
-  const prefix = payload.event?.type === 'warning' ? '⚠ ' : '';
+  const prefix = payload.eventType === 'warning' ? '⚠ ' : '';
   streamCoalescer.push(ownerId, `${prefix}${text}\n`, (_oid, buffered) =>
     useChatStore.getState().appendToolProgressLinesByUseId(
       payload.id,
@@ -115,7 +133,8 @@ export function handleToolProgress(msg: WSServerMessage) {
 export function handleToolExecuted(msg: WSServerMessage) {
   if (!isActiveSessionMessage(msg)) return;
   pipeViz(msg);
-  const payload = msg.payload as { id?: string | undefined; name: string; durationMs: number; ok: boolean; input?: unknown | undefined; output?: string | undefined };
+  const payload = projectToolMessage(msg);
+  if (payload?.kind !== 'executed') return;
   const { currentToolId } = useChatStore.getState();
   const ownerId = payload.id ? useChatStore.getState().getToolMessageId(payload.id) : currentToolId;
   if (ownerId) {
@@ -127,7 +146,13 @@ export function handleToolExecuted(msg: WSServerMessage) {
     }
     useChatStore.getState().updateMessage(ownerId, { toolDurationMs: payload.durationMs });
   }
-  if (payload.id) useChatStore.getState().updateExecution(payload.id, { completedAt: Date.now(), durationMs: payload.durationMs, output: payload.output, ok: payload.ok });
+  if (payload.id)
+    useChatStore.getState().updateExecution(payload.id, {
+      completedAt: Date.now(),
+      durationMs: payload.durationMs,
+      output: payload.output,
+      ok: payload.ok,
+    });
   if (currentToolId && ownerId === currentToolId) useChatStore.getState().setCurrentToolId(null);
 }
 
@@ -156,10 +181,18 @@ export function handleToolConfirmNeeded(msg: WSServerMessage) {
     riskTier: payload.riskTier,
     boundaryReason: payload.boundaryReason,
   });
-  try { playPermissionChime(); } catch { /* audio policy */ }
+  try {
+    playPermissionChime();
+  } catch {
+    /* audio policy */
+  }
   void ensureNotificationPermission();
   const label = useSessionStore.getState().projectName || 'Agent';
-  notifyIfHidden(`${label} needs approval`, `Tool "${payload.toolName}" is waiting for your decision.`, 'agent-confirm');
+  notifyIfHidden(
+    `${label} needs approval`,
+    `Tool "${payload.toolName}" is waiting for your decision.`,
+    'agent-confirm',
+  );
   if (typeof document !== 'undefined' && document.hidden) setFaviconStatus('attention');
 }
 
@@ -170,11 +203,7 @@ export function handleRunResult(msg: WSServerMessage) {
     iterations?: number;
     finalText?: string;
     error?: { code?: string; message: string; recoverable: boolean };
-  }>(
-    msg,
-    { status: 'string' },
-    { iterations: 'number', finalText: 'string', error: 'object' },
-  );
+  }>(msg, { status: 'string' }, { iterations: 'number', finalText: 'string', error: 'object' });
   if (!payload) return;
   // iterations is optional on the wire (some server builds omit it on
   // early-exit paths); default to 1 so downstream math + copy stays sane.
@@ -191,22 +220,42 @@ export function handleRunResult(msg: WSServerMessage) {
   const finalText = payload.status === 'done' ? payload.finalText?.trim() : undefined;
   if (streamingId) {
     const streamed = useChatStore.getState().messages.find((m) => m.id === streamingId);
-    useChatStore.getState().updateMessage(streamingId, { content: streamed?.content?.trim() ? streamed.content : (finalText ?? streamed?.content ?? ''), streaming: false });
+    useChatStore.getState().updateMessage(streamingId, {
+      content: streamed?.content?.trim()
+        ? streamed.content
+        : (finalText ?? streamed?.content ?? ''),
+    });
+    useChatStore.getState().finalizeMessage(streamingId);
   } else if (finalText) {
     // Defensive fallback: a run may complete with finalText even if the live
     // text_delta/provider.response path failed to create a visible assistant
-    // bubble. Preserve the user-facing reply so next steps can render.
+    // bubble. provider.response normally finalized the reply first, though,
+    // so compare against both the raw final text and its visible (nextsteps-
+    // stripped) form before adding anything. Otherwise the same reply lands
+    // twice, with the fallback copy still exposing the raw XML block.
     const runStart = useChatStore.getState().runStart;
-    const hasSameFinalText = useChatStore
-      .getState()
-      .messages.some(
-        (m) =>
-          m.role === 'assistant' &&
-          (!runStart || m.timestamp >= runStart.at) &&
-          m.content.trim() === finalText,
-      );
+    const visibleFinalText = parseNextSteps(finalText).stripped.trim();
+    const messages = useChatStore.getState().messages;
+    let lastRunAssistant: (typeof messages)[number] | undefined;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const candidate = messages[i];
+      if (
+        candidate?.role === 'assistant' &&
+        (!runStart || candidate.timestamp >= runStart.at)
+      ) {
+        lastRunAssistant = candidate;
+        break;
+      }
+    }
+    const existingContent = lastRunAssistant?.content.trim();
+    const hasSameFinalText =
+      existingContent !== undefined &&
+      (existingContent === finalText || existingContent === visibleFinalText);
     if (!hasSameFinalText) {
-      useChatStore.getState().addMessage({ role: 'assistant', content: finalText });
+      const messageId = useChatStore
+        .getState()
+        .addMessage({ role: 'assistant', content: finalText });
+      useChatStore.getState().finalizeMessage(messageId);
     }
   }
   useChatStore.getState().setCurrentAssistantMessage(null);
@@ -224,24 +273,43 @@ export function handleRunResult(msg: WSServerMessage) {
     }
     if (lastAssistantIdx !== -1) {
       const sessionCost = useSessionStore.getState().cost;
-      useChatStore.getState().updateMessage(all[lastAssistantIdx]?.id, { runSummary: { iterations, tools: toolCount, durationMs: Date.now() - runStart.at, costDelta: Math.max(0, sessionCost - runStart.cost) } });
+      useChatStore.getState().updateMessage(all[lastAssistantIdx]?.id, {
+        runSummary: {
+          iterations,
+          tools: toolCount,
+          durationMs: Date.now() - runStart.at,
+          costDelta: Math.max(0, sessionCost - runStart.cost),
+        },
+      });
     }
   }
   useChatStore.getState().setRunStart(null);
   if (payload.status !== 'done' && payload.error) {
-    useChatStore.getState().addMessage({ role: 'assistant', content: `Error: ${payload.error.message}`, isError: true });
+    useChatStore
+      .getState()
+      .addMessage({ role: 'assistant', content: `Error: ${payload.error.message}`, isError: true });
     toast.error(`Run ended: ${payload.error.message}`);
-    notifyIfHidden(`${useSessionStore.getState().projectName || 'Agent'} run failed`, payload.error.message);
+    notifyIfHidden(
+      `${useSessionStore.getState().projectName || 'Agent'} run failed`,
+      payload.error.message,
+    );
     if (typeof document !== 'undefined' && document.hidden) setFaviconStatus('error');
   } else if (payload.status === 'done') {
     if (typeof document !== 'undefined' && document.hidden) {
       toast.success(`Run completed in ${iterations} iteration${iterations === 1 ? '' : 's'}`);
-      notifyIfHidden(`${useSessionStore.getState().projectName || 'Agent'} run finished`, `Completed in ${iterations} iteration${iterations === 1 ? '' : 's'}.`);
+      notifyIfHidden(
+        `${useSessionStore.getState().projectName || 'Agent'} run finished`,
+        `Completed in ${iterations} iteration${iterations === 1 ? '' : 's'}.`,
+      );
       setFaviconStatus('ready');
     }
     void ensureNotificationPermission();
     if (useConfigStore.getState().soundOnComplete) {
-      try { playCompletionChime(); } catch { /* audio policy */ }
+      try {
+        playCompletionChime();
+      } catch {
+        /* audio policy */
+      }
     }
   }
   const next = useChatStore.getState().dequeue();

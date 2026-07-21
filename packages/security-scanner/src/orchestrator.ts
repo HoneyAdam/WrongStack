@@ -7,10 +7,19 @@ import type { GeneratedSkill } from './skill-generator.js';
 import type { ScanResult, Finding } from './scanner.js';
 import type { ReportOptions } from './report-generator.js';
 import type { Context, Provider, Request } from '@wrongstack/core';
-import { ProviderError, atomicWrite, sanitizeJsonString, readBundledInstructionText, renderInstructionTemplate, ConfigError } from '@wrongstack/core';
+import {
+  ProviderError,
+  atomicWrite,
+  sanitizeJsonString,
+  readBundledInstructionText,
+  renderInstructionTemplate,
+  ConfigError,
+} from '@wrongstack/core';
 import { NETWORK_ERR_RE, type RetryPolicy, type ErrorHandler } from './_compat-types.js';
+import { DEFAULT_EXCLUDE_PATTERNS, gatherFiles } from './file-gathering.js';
+import { extractJsonBlock } from './json-extractor.js';
 import { readFile, readdir, mkdir } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
 export interface SecurityScannerOptions {
   projectRoot: string;
   scanOptions?: {
@@ -18,6 +27,9 @@ export interface SecurityScannerOptions {
     includeSecrets?: boolean | undefined;
     includeInjection?: boolean | undefined;
     includeConfig?: boolean | undefined;
+    includeDependencies?: boolean | undefined;
+    llmBatchSize?: number | undefined;
+    fileConcurrency?: number | undefined;
   };
   reportOptions?: Partial<ReportOptions> | undefined;
   skipGitignore?: boolean | undefined;
@@ -37,7 +49,10 @@ export interface SecurityScannerOptions {
 }
 
 /** Accepts a full Context or just the provider+model needed for LLM calls. */
-export type SecurityScannerContext = Context | { provider: Provider; model?: string | undefined };
+export type SecurityScannerContext =
+  | Context
+  | Provider
+  | { provider: Provider; model?: string | undefined };
 
 export interface FullScanResult {
   detectionResult: Awaited<ReturnType<typeof defaultTechStackDetector.detect>>;
@@ -135,7 +150,14 @@ export class SecurityScannerOrchestrator {
    * Accepts a full Context (active agent run) or just provider+model (pre-agent session).
    */
   async run(ctx: SecurityScannerContext, options: SecurityScannerOptions): Promise<FullScanResult> {
-    const { projectRoot, reportOptions, skipGitignore, model: explicitModel, signal: externalSignal, timeoutMs } = options;
+    const {
+      projectRoot,
+      reportOptions,
+      skipGitignore,
+      model: explicitModel,
+      signal: externalSignal,
+      timeoutMs,
+    } = options;
     const provider = 'provider' in ctx && ctx.provider ? ctx.provider : (ctx as never as Provider);
     const model = explicitModel ?? ('model' in ctx ? ctx.model : undefined);
 
@@ -143,9 +165,7 @@ export class SecurityScannerOrchestrator {
     // and the optional timeout deadline. All LLM calls and retry backoff
     // sleeps honour this controller.
     const abortController = new AbortController();
-    const timeoutId = timeoutMs
-      ? setTimeout(() => abortController.abort(), timeoutMs)
-      : undefined;
+    const timeoutId = timeoutMs ? setTimeout(() => abortController.abort(), timeoutMs) : undefined;
     if (externalSignal) {
       if (externalSignal.aborted) {
         abortController.abort();
@@ -170,7 +190,13 @@ export class SecurityScannerOrchestrator {
     const techStack = expectDefined(detectionResult.detectedStacks[0]);
 
     // Step 2: Generate project-specific security skill via LLM
-    const generatedSkill = await this.generateSkillLLM(provider, model, projectRoot, techStack, abortController);
+    const generatedSkill = await this.generateSkillLLM(
+      provider,
+      model,
+      projectRoot,
+      techStack,
+      abortController,
+    );
 
     // Step 3: Scan code using LLM
     const scanResult = await this.scanWithLLM(
@@ -269,10 +295,9 @@ export class SecurityScannerOrchestrator {
         .join('');
 
       // Parse JSON from response
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const sanitized =
-          sanitizeJsonString(expectDefined(jsonMatch[0])) || expectDefined(jsonMatch[0]);
+      const jsonBlock = extractJsonBlock(text, 'object');
+      if (jsonBlock) {
+        const sanitized = sanitizeJsonString(jsonBlock) || jsonBlock;
         const skillData = JSON.parse(sanitized);
         return {
           name: skillData.name || `security-scanner-${techStack.stack}`,
@@ -330,10 +355,26 @@ export class SecurityScannerOrchestrator {
     );
 
     // Process files in batches to avoid overwhelming the LLM
-    const batchSize = 10;
+    const configuredBatchSize = options.scanOptions?.llmBatchSize ?? 10;
+    const batchSize = Number.isFinite(configuredBatchSize)
+      ? Math.max(1, Math.floor(configuredBatchSize))
+      : 10;
+    const configuredConcurrency = options.scanOptions?.fileConcurrency ?? 10;
+    const fileConcurrency = Number.isFinite(configuredConcurrency)
+      ? Math.max(1, Math.floor(configuredConcurrency))
+      : 10;
     for (let i = 0; i < files.length; i += batchSize) {
       const batch = files.slice(i, i + batchSize);
-      const batchFindings = await this.scanFileBatchLLM(provider, model, batch, skill, techStack, abortController);
+      const batchFindings = await this.scanFileBatchLLM(
+        provider,
+        model,
+        projectRoot,
+        batch,
+        skill,
+        techStack,
+        fileConcurrency,
+        abortController,
+      );
       if (abortController.signal.aborted) break;
       findings.push(...batchFindings);
       scannedFiles += batch.length;
@@ -369,19 +410,24 @@ export class SecurityScannerOrchestrator {
   private async scanFileBatchLLM(
     provider: Provider,
     model: string | undefined,
+    projectRoot: string,
     files: string[],
     skill: GeneratedSkill,
     _techStack: TechStackInfo,
+    fileConcurrency: number,
     abortController: AbortController,
   ): Promise<Finding[]> {
     const fileContents: string[] = [];
-    for (const file of files) {
-      try {
-        const content = await readFile(file, 'utf-8');
-        const relativePath = relative(process.cwd(), file);
-        fileContents.push(`\n=== ${relativePath} ===\n${content.slice(0, 2000)}`);
-      } catch {
-        // Skip files we can't read
+    for (let index = 0; index < files.length; index += fileConcurrency) {
+      const readResults = await Promise.allSettled(
+        files.slice(index, index + fileConcurrency).map(async (file) => {
+          const content = await readFile(file, 'utf-8');
+          const relativePath = relative(projectRoot, file).replace(/\\/g, '/');
+          return `\n=== ${relativePath} ===\n${content.slice(0, 2000)}`;
+        }),
+      );
+      for (const result of readResults) {
+        if (result.status === 'fulfilled') fileContents.push(result.value);
       }
     }
 
@@ -413,10 +459,9 @@ export class SecurityScannerOrchestrator {
         .map((b) => b.text)
         .join('');
 
-      const jsonMatch = text.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        const sanitized =
-          sanitizeJsonString(expectDefined(jsonMatch[0])) || expectDefined(jsonMatch[0]);
+      const jsonBlock = extractJsonBlock(text, 'array');
+      if (jsonBlock) {
+        const sanitized = sanitizeJsonString(jsonBlock) || jsonBlock;
         const parsed = JSON.parse(sanitized) as Array<{
           file: string;
           line?: number | undefined;
@@ -428,19 +473,34 @@ export class SecurityScannerOrchestrator {
           remediation: string;
         }>;
 
-        return parsed.map((item, idx) => ({
-          id: `llm-finding-${idx}-${Date.now()}`,
-          severity: item.severity,
-          category: (item.category as Finding['category']) || 'injection',
-          title: item.title,
-          description: item.description,
-          file: item.file,
-          line: item.line,
-          snippet: item.snippet,
-          remediation: item.remediation,
-          patternId: 'llm-analysis',
-          confidence: 'high' as const,
-        }));
+        return parsed.map((item, idx) => {
+          const normalizedFile = (
+            isAbsolute(item.file) ? relative(projectRoot, item.file) : item.file
+          ).replace(/\\/g, '/');
+          const validCategories: Finding['category'][] = [
+            'secrets',
+            'injection',
+            'config',
+            'dependency',
+            'filesystem',
+          ];
+          const category = validCategories.includes(item.category as Finding['category'])
+            ? (item.category as Finding['category'])
+            : 'injection';
+          return {
+            id: `llm-analysis-${normalizedFile}-${item.line ?? 0}-${idx}`,
+            severity: item.severity,
+            category,
+            title: item.title,
+            description: item.description,
+            file: normalizedFile,
+            line: item.line,
+            snippet: item.snippet,
+            remediation: item.remediation,
+            patternId: 'llm-analysis',
+            confidence: 'high' as const,
+          };
+        });
       }
     } catch (err) {
       console.error(
@@ -648,58 +708,22 @@ ${i + 1}. [${f.severity.toUpperCase()}] ${f.title}
    */
   private async gatherFiles(
     root: string,
-    _patterns: string[],
+    patterns: string[],
     depth: 'quick' | 'standard' | 'deep',
   ): Promise<string[]> {
-    const files: string[] = [];
     const maxDepth = depth === 'quick' ? 2 : depth === 'deep' ? 20 : 5;
-    const extensions = ['.ts', '.js', '.jsx', '.tsx', '.py', '.go', '.java', '.cs', '.rs'];
-
-    await this.gatherFilesRecursive(root, files, extensions, 0, maxDepth);
-    return files;
-  }
-
-  private async gatherFilesRecursive(
-    dir: string,
-    files: string[],
-    extensions: string[],
-    currentDepth: number,
-    maxDepth: number,
-  ): Promise<void> {
-    if (currentDepth > maxDepth) return;
-
-    try {
-      const entries = await readdir(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          const name = entry.name;
-          if (
-            name === 'node_modules' ||
-            name === 'dist' ||
-            name === 'build' ||
-            name === '.git' ||
-            name === 'coverage' ||
-            name.startsWith('.')
-          )
-            continue;
-
-          await this.gatherFilesRecursive(
-            join(dir, entry.name),
-            files,
-            extensions,
-            currentDepth + 1,
-            maxDepth,
-          );
-        } else if (entry.isFile()) {
-          const ext = entry.name.lastIndexOf('.');
-          if (ext > 0 && extensions.includes(entry.name.slice(ext))) {
-            files.push(join(dir, entry.name));
-          }
-        }
-      }
-    } catch {
-      // Skip inaccessible directories
-    }
+    const extensions = patterns.flatMap((pattern) => {
+      const match = pattern.match(/\.[a-z0-9]+$/i);
+      return match ? [match[0].toLowerCase()] : [];
+    });
+    const fallbackExtensions = ['.ts', '.js', '.jsx', '.tsx', '.py', '.go', '.java', '.cs', '.rs'];
+    return gatherFiles({
+      root,
+      extensions: extensions.length > 0 ? [...new Set(extensions)] : fallbackExtensions,
+      maxDepth,
+      excludePatterns: DEFAULT_EXCLUDE_PATTERNS,
+      excludeHidden: true,
+    });
   }
 
   /**
@@ -722,6 +746,8 @@ ${i + 1}. [${f.severity.toUpperCase()}] ${f.title}
           fileExtensions: ['.ts', '.js', '.env'],
           falsePositiveMarkers: [],
           remediation: 'Use environment variables',
+          category: 'secrets',
+          confidence: 'medium',
         },
       ],
       metadata: {

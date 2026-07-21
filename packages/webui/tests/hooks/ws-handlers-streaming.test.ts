@@ -240,6 +240,41 @@ describe('streaming pipeline: text_delta → coalescer → chat-store', () => {
     expect(messages[0]?.content).toBe('Final response.');
   });
 
+  it('does not append a raw duplicate when run.result repeats finalized next steps', () => {
+    const finalText =
+      'Final response.\n\n<nextsteps>\n1. Run the focused tests\n2. Review the diff\n</nextsteps>';
+
+    handleProviderResponse({
+      type: 'provider.response',
+      payload: {
+        sessionId: 'sess_stream',
+        content: [{ type: 'text', text: finalText }],
+        usage: { input: 8, output: 12, cacheRead: 0, cacheWrite: 0 },
+        stopReason: 'end_turn',
+        messageId: 'current',
+      },
+    } as unknown as WSServerMessage);
+
+    handleRunResult({
+      type: 'run.result',
+      payload: {
+        status: 'done',
+        iterations: 1,
+        sessionId: 'sess_stream',
+        finalText,
+      },
+    } as unknown as WSServerMessage);
+
+    const messages = useChatStore.getState().messages;
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.content).toBe('Final response.');
+    expect(messages[0]?.content).not.toContain('<nextsteps>');
+    expect(messages[0]?.nextSteps?.steps.map((step) => step.text)).toEqual([
+      'Run the focused tests',
+      'Review the diff',
+    ]);
+  });
+
   it('falls back to run.result finalText when no streamed assistant message exists', () => {
     handleRunResult({
       type: 'run.result',
@@ -255,8 +290,9 @@ describe('streaming pipeline: text_delta → coalescer → chat-store', () => {
     const messages = useChatStore.getState().messages;
     expect(messages.length).toBe(1);
     expect(messages[0]?.role).toBe('assistant');
-    expect(messages[0]?.content).toContain('Recovered assistant reply');
-    expect(messages[0]?.content).toContain('<nextsteps>');
+    expect(messages[0]?.content).toBe('Recovered assistant reply');
+    expect(messages[0]?.content).not.toContain('<nextsteps>');
+    expect(messages[0]?.nextSteps?.steps[0]?.text).toBe('Continue investigating');
   });
 
   it('ignores deltas for a non-active session', async () => {

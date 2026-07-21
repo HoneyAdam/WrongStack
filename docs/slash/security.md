@@ -1,64 +1,35 @@
-# /security — Security diagnostics
+# /security — Security scanner
 
-Interactive security checks for the current project: dependency audit,
-bug-hunter scan dispatch, and a secret-redaction dry run.
+The CLI command is a thin adapter over `@wrongstack/security-scanner`. It runs
+the real source scanner, dependency audit, report reader, and secret-redaction
+diagnostic for the current project.
 
 ## Subcommands
 
 | Command | Effect |
 |---|---|
-| `/security audit-deps` | Run `pnpm audit --json` in the project and print a severity summary (critical/high/moderate/low + total). |
-| `/security scan` | Print dispatch instructions for a `bug-hunter` subagent scan of the cwd. |
-| `/security redact-test` | Run `DefaultSecretScrubber` over a sample payload with known secret shapes and report exactly which fields were redacted. |
-| `/security help` | Usage help (also the default with no subcommand). |
+| `/security scan [--depth ...] [--format ...]` | Run the LLM-assisted source security pipeline and write a report. |
+| `/security audit` | Run the package-manager audit, then run the source scan when an LLM provider is active. |
+| `/security audit-deps` | Run only the detected npm/pnpm/yarn dependency audit. |
+| `/security report [id]` | List or read reports under `<project>/security-reports`. |
+| `/security redact-test` | Exercise the production secret scrubber with synthetic values; output contains field names only. |
+| `/security help` | Show usage help. |
 
-Append `--json` to any subcommand for stable machine-readable output and
-slash-command metadata at `metadata.security`.
+`scan` requires an active LLM provider. `audit-deps` remains useful without
+one. Supported scan depths are `quick`, `standard`, and `deep`; report formats
+are `markdown`, `json`, and `html`.
 
-## audit-deps
-
-Spawns `pnpm audit` with a 60 s timeout. A non-zero pnpm exit is normal when
-vulnerabilities exist — the summary is parsed from the JSON output either
-way.
-
-## scan
-
-Slash commands are a synchronous UI surface and cannot host a subagent
-themselves, so `scan` prints how to dispatch the `bug-hunter` role from a
-director-capable surface. In the TUI, run `/director` first if needed, then use
-`/delegate --role=bug-hunter "Run a security scan of the current project"` or
-`/fleet dispatch Run a security scan of the current project`. HQ can start the
-same role from Control → Spawn role → `bug-hunter`. Findings stream on the
-FleetBus as `bug.found` events and land in the audit log.
-
-## redact-test
-
-Proves the log-redaction pipeline works end-to-end: the sample contains API
-keys, tokens, connection strings with passwords, and bearer JWTs, plus
-non-sensitive fields. The output lists each redacted field with its
-before/after value and counts the fields that passed through unchanged. If
-nothing is redacted, the scrubber is not wired correctly — that is called
-out explicitly.
-
-The JSON form contains only redacted field paths and counts; it never includes
-the synthetic before-values used by the human-readable demonstration.
-
-## Structured output
-
-- `audit-deps --json` returns exit status, clean state, and severity counts.
-- `scan --json` returns portable CLI, fleet, and HQ dispatch instructions
-  without the project path.
-- `redact-test --json` returns redacted/unchanged field paths and counts without
-  secret-shaped values.
-- Unknown subcommands return `ok: false` with a stable error code.
+Append `--json` for stable CLI adapter output in `metadata.security`.
 
 ## Examples
 
-```
-/security audit-deps
+```text
+/security scan --depth deep --format html
+/security audit
 /security audit-deps --json
-/security redact-test
+/security report
+/security redact-test --json
 ```
 
-See also: `/audit` (side-effect trail), `/delegate`, `/fleet dispatch`, and
-SECURITY.md for the project's security policy.
+The former `wstack-security` no-op plugin was retired. There is one production
+command path: CLI adapter → `@wrongstack/security-scanner`.

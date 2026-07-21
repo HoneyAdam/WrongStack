@@ -1,28 +1,16 @@
-/**
- * Mode route handlers — extracted from the startWebUI closure in index.ts.
- * Mirrors createProviderHandlers: a factory that closes the handler bodies over
- * an explicit context object instead of the giant startWebUI scope. The one
- * piece of outer mutable state (the `modeId` let) is threaded in as a setter so
- * the factory stays a pure function of its context.
- */
-import type { WebSocket } from 'ws';
-import {
-  type Context,
-  DefaultSystemPromptBuilder,
-  resolveWstackPaths,
-  type MemoryStore,
-  type DefaultModeStore,
-  type SkillLoader,
-  type ToolRegistry,
-  ToolValidationError,
+import type {
+  Context,
+  DefaultModeStore,
+  MemoryStore,
+  SkillLoader,
+  ToolRegistry,
 } from '@wrongstack/core';
+import { DefaultSystemPromptBuilder, resolveWstackPaths } from '@wrongstack/core';
+import type { WebSocket } from 'ws';
+import { createModeRouteHandlers } from './mode-routes.js';
 import type { ConnectedClient } from './types.js';
-import type { ModeRouteHandlers } from './mode-routes.js';
-import { broadcast, errMessage, send, sendResult } from './ws-utils.js';
-import { validateModeSwitchPayload } from './ws-payload-validation.js';
+import { broadcast, send } from './ws-utils.js';
 
-/** The rich payload startWebUI's sessionStartPayload() resolves to. Matches the
- *  WSSessionStart wire shape; broadcast() accepts it for a 'session.start' msg. */
 type SessionStartPayload = {
   sessionId: string;
   model: string;
@@ -52,100 +40,47 @@ export interface ModeHandlersContext {
   projectRoot: string;
   globalRoot: string;
   clients: Map<WebSocket, ConnectedClient>;
-  /** Update the outer `modeId` binding on a successful switch. */
   setModeId: (id: string) => void;
-  /** Rebuilds the rich session.start payload broadcast after a mode switch. */
   sessionStartPayload: () => Promise<SessionStartPayload>;
 }
 
-export function createModeHandlers(ctx: ModeHandlersContext): ModeRouteHandlers {
-  return {
-    listModes: async (ws) => {
-      try {
-        const modes = await ctx.modeStore.listModes();
-        const active = await ctx.modeStore.getActiveMode();
-        send(ws, {
-          type: 'modes.list',
-          payload: {
-            modes: modes.map((m) => ({
-              id: m.id,
-              name: m.name,
-              description: m.description,
-              isActive: m.id === (active?.id ?? 'default'),
-            })),
-            activeId: active?.id ?? 'default',
-          },
-        });
-      } catch (err) {
-        send(ws, {
-          type: 'modes.list',
-          payload: {
-            modes: [],
-            activeId: 'default',
-            error: errMessage(err),
-          },
-        });
-      }
+export function createModeHandlers(context: ModeHandlersContext) {
+  return createModeRouteHandlers({
+    modeStore: context.modeStore,
+    getSession: () => context.context.session,
+    applyModeId: context.setModeId,
+    send,
+    afterSwitch: async (id) => {
+      const modePrompt =
+        id === 'default' ? '' : ((await context.modeStore.getMode(id))?.prompt ?? '');
+      const paths = resolveWstackPaths({
+        projectRoot: context.projectRoot,
+        globalRoot: context.globalRoot,
+      });
+      const builder = new DefaultSystemPromptBuilder({
+        memoryStore: context.memoryStore,
+        injectMemory: false,
+        skillLoader: context.skillLoader,
+        modeStore: context.modeStore,
+        modeId: id,
+        modePrompt,
+        modelCapabilities: context.modelCapabilities,
+        instructionPaths: {
+          globalDir: paths.globalInstructions,
+          projectDir: paths.inProjectInstructions,
+        },
+      });
+      context.context.systemPrompt = await builder.build({
+        cwd: context.projectRoot,
+        projectRoot: context.projectRoot,
+        tools: context.toolRegistry.list(),
+        provider: context.config.provider,
+        model: context.config.model,
+      });
+      broadcast(context.clients, {
+        type: 'session.start',
+        payload: { ...(await context.sessionStartPayload()) },
+      });
     },
-    switchMode: async (ws, msg) => {
-      const parsed = validateModeSwitchPayload(msg.payload);
-      if (!parsed.ok) {
-        sendResult(ws, false, parsed.message);
-        return;
-      }
-      const { id } = parsed.value;
-      try {
-        const prev = await ctx.modeStore.getActiveMode();
-        if (id === 'default') {
-          await ctx.modeStore.setActiveMode(null);
-        } else {
-          const found = await ctx.modeStore.getMode(id);
-          if (!found) {
-            throw new ToolValidationError({ message: `Unknown mode "${id}"`, field: 'modeId' });
-          }
-          await ctx.modeStore.setActiveMode(id);
-        }
-        ctx.setModeId(id);
-        // Persist the switch marker so a resumed session replays it. Best-effort.
-        const fromMode = prev?.id ?? 'default';
-        if (ctx.context.session && fromMode !== id) {
-          void ctx.context.session
-            .append({ type: 'mode_changed', ts: new Date().toISOString(), from: fromMode, to: id })
-            .catch(() => {
-              /* best-effort */
-            });
-        }
-        const modePrompt = id === 'default' ? '' : ((await ctx.modeStore.getMode(id))?.prompt ?? '');
-        const paths = resolveWstackPaths({ projectRoot: ctx.projectRoot, globalRoot: ctx.globalRoot });
-        const freshBuilder = new DefaultSystemPromptBuilder({
-          memoryStore: ctx.memoryStore,
-          // Single injection channel: Super Memory turn middleware, not a static section.
-          injectMemory: false,
-          skillLoader: ctx.skillLoader,
-          modeStore: ctx.modeStore,
-          modeId: id,
-          modePrompt,
-          modelCapabilities: ctx.modelCapabilities,
-          instructionPaths: {
-            globalDir: paths.globalInstructions,
-            projectDir: paths.inProjectInstructions,
-          },
-        });
-        ctx.context.systemPrompt = await freshBuilder.build({
-          cwd: ctx.projectRoot,
-          projectRoot: ctx.projectRoot,
-          tools: ctx.toolRegistry.list(),
-          provider: ctx.config.provider,
-          model: ctx.config.model,
-        });
-        sendResult(ws, true, `Switched to mode "${id}"`);
-        broadcast(ctx.clients, {
-          type: 'session.start',
-          payload: { ...(await ctx.sessionStartPayload()) },
-        });
-      } catch (err) {
-        sendResult(ws, false, errMessage(err));
-      }
-    },
-  };
+  });
 }

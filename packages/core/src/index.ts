@@ -682,6 +682,17 @@ export {
 } from './notifications/index.js';
 export { DefaultPluginAPI, definePlugin, type PluginAPIInit } from './plugin/api.js';
 export {
+  diffPluginConfig,
+  type PluginConfigChange,
+  type PluginConfigSource,
+  redactPluginConfig,
+  type ResolvedPluginConfig,
+  type ResolvePluginConfigInput,
+  resolvePluginConfig,
+  resolvePluginManifestConfig,
+  validatePluginConfigMetadata,
+} from './plugin/config.js';
+export {
   KERNEL_API_VERSION,
   type LoadPluginsOptions,
   type PluginHostHandle,
@@ -708,7 +719,6 @@ export {
   resolveChimeraConfig,
 } from './plugins/chimera-plugin.js';
 export { createPromptsPlugin } from './plugins/prompts-plugin.js';
-export { createSecurityPlugin } from './plugins/security-plugin.js';
 export { createSkillsPlugin } from './plugins/skills-plugin.js';
 export { createSyncPlugin } from './plugins/sync-plugin.js';
 export * from './prompts/index.js';

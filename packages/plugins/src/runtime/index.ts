@@ -561,25 +561,19 @@ export async function collectSourceFilesAsync(
 
   async function walk(dir: string, depth: number): Promise<void> {
     if (opts.maxDepth !== undefined && depth > opts.maxDepth) return;
-    let entries: string[];
+    let entries;
     try {
-      entries = await readdir(dir);
+      entries = await readdir(dir, { withFileTypes: true });
     } catch {
       return;
     }
-    entries.sort(); // deterministic order
+    entries.sort((a, b) => a.name.localeCompare(b.name)); // deterministic order
     for (const entry of entries) {
-      if (excludeSet.has(entry)) continue;
-      const full = resolve(dir, entry);
-      let st;
-      try {
-        st = await stat(full);
-      } catch {
-        continue;
-      }
-      if (st.isDirectory()) {
+      if (excludeSet.has(entry.name)) continue;
+      const full = resolve(dir, entry.name);
+      if (entry.isDirectory()) {
         await walk(full, depth + 1);
-      } else if (st.isFile() && matchesExtension(full, opts.extensions)) {
+      } else if (entry.isFile() && matchesExtension(full, opts.extensions)) {
         files.push(full);
       }
     }

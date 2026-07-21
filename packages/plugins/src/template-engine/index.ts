@@ -8,6 +8,7 @@
  * - template_list: List all saved templates
  */
 import type { Plugin } from '@wrongstack/core';
+import { readFile, writeFile } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
 
 const API_VERSION = '^0.1.10';
@@ -210,8 +211,7 @@ const plugin: Plugin = {
         if (output_path) {
           const pathError = validateRelativeTemplatePath('output_path', output_path);
           if (pathError) return { ok: false, error: pathError };
-          const { writeFileSync } = await import('node:fs');
-          writeFileSync(output_path, result, 'utf-8');
+          await writeFile(output_path, result, 'utf-8');
           return {
             ok: true,
             output_path,
@@ -269,8 +269,7 @@ const plugin: Plugin = {
 
         let content: string;
         try {
-          const { readFileSync } = await import('node:fs');
-          content = readFileSync(template_path, 'utf-8');
+          content = await readFile(template_path, 'utf-8');
         } catch (err: unknown) {
           return { ok: false, error: `Could not read template file: ${err}` };
         }
@@ -289,8 +288,7 @@ const plugin: Plugin = {
         if (output_path) {
           const pathError = validateRelativeTemplatePath('output_path', output_path);
           if (pathError) return { ok: false, error: pathError };
-          const { writeFileSync } = await import('node:fs');
-          writeFileSync(output_path, result, 'utf-8');
+          await writeFile(output_path, result, 'utf-8');
           return {
             ok: true,
             template_path,

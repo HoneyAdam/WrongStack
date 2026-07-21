@@ -1,7 +1,7 @@
 {
   "name": "@wrongstack/plugins",
   "version": "0.295.0",
-  "description": "Official WrongStack plugin collection — 64 focused, single-purpose plugins for code quality, security, observability, planning, and agent coordination",
+  "description": "Official WrongStack collection of focused plugins for code quality, security, observability, planning, and agent coordination",
   "license": "MIT",
   "author": "ECOSTACK TECHNOLOGY OÜ",
   "type": "module",
@@ -12,21 +12,21 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./manifest": {
+      "types": "./dist/manifest.d.ts",
+      "import": "./dist/manifest.js"
+    },
+    "./factories": {
+      "types": "./dist/factories.d.ts",
+      "import": "./dist/factories.js"
+    },
+    "./audit": {
+      "types": "./dist/audit.d.ts",
+      "import": "./dist/audit.js"
+    },
     "./agent-handoff": {
       "types": "./dist/agent-handoff.d.ts",
       "import": "./dist/agent-handoff.js"
-    },
-    "./auto-doc": {
-      "types": "./dist/auto-doc.d.ts",
-      "import": "./dist/auto-doc.js"
-    },
-    "./git-autocommit": {
-      "types": "./dist/git-autocommit.d.ts",
-      "import": "./dist/git-autocommit.js"
-    },
-    "./shell-check": {
-      "types": "./dist/shell-check.d.ts",
-      "import": "./dist/shell-check.js"
     },
     "./cost-tracker": {
       "types": "./dist/cost-tracker.d.ts",
@@ -35,6 +35,18 @@
     "./file-watcher": {
       "types": "./dist/file-watcher.d.ts",
       "import": "./dist/file-watcher.js"
+    },
+    "./git-autocommit": {
+      "types": "./dist/git-autocommit.d.ts",
+      "import": "./dist/git-autocommit.js"
+    },
+    "./auto-doc": {
+      "types": "./dist/auto-doc.d.ts",
+      "import": "./dist/auto-doc.js"
+    },
+    "./shell-check": {
+      "types": "./dist/shell-check.d.ts",
+      "import": "./dist/shell-check.js"
     },
     "./cron": {
       "types": "./dist/cron.d.ts",
@@ -87,6 +99,10 @@
     "./import-organizer": {
       "types": "./dist/import-organizer.d.ts",
       "import": "./dist/import-organizer.js"
+    },
+    "./knowledge-graph": {
+      "types": "./dist/knowledge-graph.d.ts",
+      "import": "./dist/knowledge-graph.js"
     },
     "./todo-listener": {
       "types": "./dist/todo-listener.d.ts",
@@ -144,10 +160,6 @@
       "types": "./dist/injection-shield.d.ts",
       "import": "./dist/injection-shield.js"
     },
-    "./knowledge-graph": {
-      "types": "./dist/knowledge-graph.d.ts",
-      "import": "./dist/knowledge-graph.js"
-    },
     "./llm-cache": {
       "types": "./dist/llm-cache.d.ts",
       "import": "./dist/llm-cache.js"
@@ -156,21 +168,17 @@
       "types": "./dist/model-router.d.ts",
       "import": "./dist/model-router.js"
     },
-    "./prompt-firewall": {
-      "types": "./dist/prompt-firewall.d.ts",
-      "import": "./dist/prompt-firewall.js"
-    },
     "./pr-drafter": {
       "types": "./dist/pr-drafter.d.ts",
       "import": "./dist/pr-drafter.js"
     },
+    "./prompt-firewall": {
+      "types": "./dist/prompt-firewall.d.ts",
+      "import": "./dist/prompt-firewall.js"
+    },
     "./auto-escalate": {
       "types": "./dist/auto-escalate.d.ts",
       "import": "./dist/auto-escalate.js"
-    },
-    "./token-throttle": {
-      "types": "./dist/token-throttle.d.ts",
-      "import": "./dist/token-throttle.js"
     },
     "./test-coverage-gate": {
       "types": "./dist/test-coverage-gate.d.ts",
@@ -180,21 +188,13 @@
       "types": "./dist/type-gate.d.ts",
       "import": "./dist/type-gate.js"
     },
+    "./token-throttle": {
+      "types": "./dist/token-throttle.d.ts",
+      "import": "./dist/token-throttle.js"
+    },
     "./plugin-stack-observer": {
       "types": "./dist/plugin-stack-observer.d.ts",
       "import": "./dist/plugin-stack-observer.js"
-    },
-    "./accessibility-auditor": {
-      "types": "./dist/accessibility-auditor.d.ts",
-      "import": "./dist/accessibility-auditor.js"
-    },
-    "./api-compatibility-gate": {
-      "types": "./dist/api-compatibility-gate.d.ts",
-      "import": "./dist/api-compatibility-gate.js"
-    },
-    "./auto-i18n-extractor": {
-      "types": "./dist/auto-i18n-extractor.d.ts",
-      "import": "./dist/auto-i18n-extractor.js"
     },
     "./dead-code-detector": {
       "types": "./dist/dead-code-detector.d.ts",
@@ -204,57 +204,65 @@
       "types": "./dist/dependency-vulnerability-gate.d.ts",
       "import": "./dist/dependency-vulnerability-gate.js"
     },
-    "./doc-sync-guard": {
-      "types": "./dist/doc-sync-guard.d.ts",
-      "import": "./dist/doc-sync-guard.js"
-    },
-    "./license-audit-gate": {
-      "types": "./dist/license-audit-gate.d.ts",
-      "import": "./dist/license-audit-gate.js"
-    },
     "./migration-planner": {
       "types": "./dist/migration-planner.d.ts",
       "import": "./dist/migration-planner.js"
-    },
-    "./performance-regression-gate": {
-      "types": "./dist/performance-regression-gate.d.ts",
-      "import": "./dist/performance-regression-gate.js"
-    },
-    "./schema-evolution-guard": {
-      "types": "./dist/schema-evolution-guard.d.ts",
-      "import": "./dist/schema-evolution-guard.js"
-    },
-    "./security-hotspot-scanner": {
-      "types": "./dist/security-hotspot-scanner.d.ts",
-      "import": "./dist/security-hotspot-scanner.js"
     },
     "./semantic-search-indexer": {
       "types": "./dist/semantic-search-indexer.d.ts",
       "import": "./dist/semantic-search-indexer.js"
     },
+    "./auto-i18n-extractor": {
+      "types": "./dist/auto-i18n-extractor.d.ts",
+      "import": "./dist/auto-i18n-extractor.js"
+    },
+    "./doc-sync-guard": {
+      "types": "./dist/doc-sync-guard.d.ts",
+      "import": "./dist/doc-sync-guard.js"
+    },
+    "./api-compatibility-gate": {
+      "types": "./dist/api-compatibility-gate.d.ts",
+      "import": "./dist/api-compatibility-gate.js"
+    },
+    "./performance-regression-gate": {
+      "types": "./dist/performance-regression-gate.d.ts",
+      "import": "./dist/performance-regression-gate.js"
+    },
     "./test-flake-detector": {
       "types": "./dist/test-flake-detector.d.ts",
       "import": "./dist/test-flake-detector.js"
     },
-    "./code-metrics": {
-      "types": "./dist/code-metrics.d.ts",
-      "import": "./dist/code-metrics.js"
+    "./schema-evolution-guard": {
+      "types": "./dist/schema-evolution-guard.d.ts",
+      "import": "./dist/schema-evolution-guard.js"
+    },
+    "./license-audit-gate": {
+      "types": "./dist/license-audit-gate.d.ts",
+      "import": "./dist/license-audit-gate.js"
+    },
+    "./accessibility-auditor": {
+      "types": "./dist/accessibility-auditor.d.ts",
+      "import": "./dist/accessibility-auditor.js"
+    },
+    "./security-hotspot-scanner": {
+      "types": "./dist/security-hotspot-scanner.d.ts",
+      "import": "./dist/security-hotspot-scanner.js"
     },
     "./duplicate-code-detector": {
       "types": "./dist/duplicate-code-detector.d.ts",
       "import": "./dist/duplicate-code-detector.js"
     },
-    "./feature-flag-tracker": {
-      "types": "./dist/feature-flag-tracker.d.ts",
-      "import": "./dist/feature-flag-tracker.js"
-    },
-    "./interface-contract-guard": {
-      "types": "./dist/interface-contract-guard.d.ts",
-      "import": "./dist/interface-contract-guard.js"
+    "./code-metrics": {
+      "types": "./dist/code-metrics.d.ts",
+      "import": "./dist/code-metrics.js"
     },
     "./refactor-suggester": {
       "types": "./dist/refactor-suggester.d.ts",
       "import": "./dist/refactor-suggester.js"
+    },
+    "./test-generator": {
+      "types": "./dist/test-generator.d.ts",
+      "import": "./dist/test-generator.js"
     },
     "./release-notes-generator": {
       "types": "./dist/release-notes-generator.d.ts",
@@ -264,9 +272,13 @@
       "types": "./dist/smart-rename.d.ts",
       "import": "./dist/smart-rename.js"
     },
-    "./test-generator": {
-      "types": "./dist/test-generator.d.ts",
-      "import": "./dist/test-generator.js"
+    "./feature-flag-tracker": {
+      "types": "./dist/feature-flag-tracker.d.ts",
+      "import": "./dist/feature-flag-tracker.js"
+    },
+    "./interface-contract-guard": {
+      "types": "./dist/interface-contract-guard.d.ts",
+      "import": "./dist/interface-contract-guard.js"
     },
     "./runtime": {
       "types": "./dist/runtime.d.ts",

@@ -69,6 +69,7 @@ const toolEntries = entryMap([
   'src/builtin.ts',
   'src/browser/index.ts',
   'src/pack.ts',
+  'src/tool-tier.ts',
   'src/read.ts',
   'src/write.ts',
   'src/edit.ts',
@@ -143,6 +144,8 @@ const profiles = {
       client: 'src/client/index.ts',
       agent: 'src/agent/index.ts',
       sdk: 'src/sdk.ts',
+      v1: 'src/v1.ts',
+      legacy: 'src/legacy.ts',
       'wrongstack-acp-agent': 'src/agent/wrongstack-acp-agent.ts',
     },
     workspaceExternal: true,
@@ -166,7 +169,7 @@ const profiles = {
     sourcemap: false,
   },
   '@wrongstack/providers': {
-    entries: entryMap(['src/index.ts', 'src/oauth/index.ts']),
+    entries: entryMap(['src/index.ts', 'src/oauth/index.ts', 'src/provider-definitions.ts']),
     external: ['@wrongstack/core'],
   },
   '@wrongstack/runtime': {
@@ -177,8 +180,9 @@ const profiles = {
       vision: 'src/vision.ts',
       clipboard: 'src/clipboard.ts',
       probe: 'src/local-llm-probe.ts',
+      'tool-registration': 'src/tool-registration.ts',
     },
-    external: ['@wrongstack/core'],
+    external: ['@wrongstack/core', '@wrongstack/super-memory', '@wrongstack/tools'],
   },
   '@wrongstack/sdd': standard(['@wrongstack/core']),
   '@wrongstack/security-scanner': standard(['@wrongstack/core']),
@@ -202,6 +206,7 @@ const profiles = {
   '@wrongstack/webui-server': {
     entries: {
       index: 'src/index.ts',
+      'protocol/index': 'src/protocol/index.ts',
       'server/entry': 'src/server/entry.ts',
       'server/handlers': 'src/server/handlers/index.ts',
     },

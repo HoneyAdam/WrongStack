@@ -12,6 +12,12 @@
  *   );
  */
 
+import {
+  projectChatMessage,
+  projectFleetMessage,
+  projectSessionMessage,
+  projectToolMessage,
+} from '@wrongstack/webui-server/protocol';
 import type {
   AgentMode,
   AgentTranscriptEntry,
@@ -199,13 +205,13 @@ export function createMessageHandler(deps: MessageHandlerDeps): ServerMessageHan
     }
     switch (message.type) {
       case 'session.start': {
-        const id = typeof payload['sessionId'] === 'string' ? payload['sessionId'] : '';
-        const provider = typeof payload['provider'] === 'string' ? payload['provider'] : '';
-        const model = typeof payload['model'] === 'string' ? payload['model'] : '';
-        const maxContext = finiteNumber(payload['maxContext']);
+        const sessionProjection = projectSessionMessage(message);
+        if (!sessionProjection) break;
+        const { id, provider, model, maxContext, projectName, cwd, replayMessages, replayUsage } =
+          sessionProjection;
         const previousId = sessionIdRef.current;
         const switchedSession = Boolean(previousId && id && previousId !== id);
-        const resetSessionState = switchedSession || payload['reset'] === true;
+        const resetSessionState = switchedSession || sessionProjection.reset;
         if (switchedSession && previousId) {
           writeComposerDraft(previousId, {
             text: draftRef.current,
@@ -223,9 +229,8 @@ export function createMessageHandler(deps: MessageHandlerDeps): ServerMessageHan
           id,
           provider,
           model,
-          projectName:
-            typeof payload['projectName'] === 'string' ? payload['projectName'] : 'Project',
-          cwd: typeof payload['cwd'] === 'string' ? payload['cwd'] : '',
+          projectName,
+          cwd,
           maxContext,
         });
         setModels((current) => ({
@@ -234,8 +239,8 @@ export function createMessageHandler(deps: MessageHandlerDeps): ServerMessageHan
             ? current[provider]
             : [{ id: model, name: model }, ...(current[provider] ?? [])].filter((item) => item.id),
         }));
-        if (Array.isArray(payload['replayMessages'])) {
-          setMessages(replayToMessages(payload['replayMessages']));
+        if (replayMessages) {
+          setMessages(replayToMessages(replayMessages));
         } else if (resetSessionState) {
           setMessages([]);
         }
@@ -262,7 +267,7 @@ export function createMessageHandler(deps: MessageHandlerDeps): ServerMessageHan
           setDraft(savedDraft.text);
           setFileRefs(savedDraft.fileRefs);
           setFileMention(null);
-        } else if (payload['reset'] === true) {
+        } else if (sessionProjection.reset) {
           clearComposerDraft(id);
           draftRef.current = '';
           fileRefsRef.current = [];
@@ -281,11 +286,7 @@ export function createMessageHandler(deps: MessageHandlerDeps): ServerMessageHan
           setAttachedImages([]);
         }
         setSessionMenuOpen?.(false);
-        const replayUsage = payload['replayUsage'];
-        const replayInput =
-          replayUsage && typeof replayUsage === 'object'
-            ? finiteNumber((replayUsage as Record<string, unknown>)['input'])
-            : 0;
+        const replayInput = replayUsage ? finiteNumber(replayUsage['input']) : 0;
         setContext((current) => ({
           load: resetSessionState
             ? maxContext > 0
@@ -371,8 +372,9 @@ export function createMessageHandler(deps: MessageHandlerDeps): ServerMessageHan
         break;
       }
       case 'provider.thinking_delta': {
-        const text = typeof payload['text'] === 'string' ? payload['text'] : '';
-        if (!text) break;
+        const projection = projectChatMessage(message);
+        if (projection?.kind !== 'thinking-delta') break;
+        const { text } = projection;
         setRunning(true);
         setActivity('Thinking');
         setMessages((current) => {
@@ -392,8 +394,9 @@ export function createMessageHandler(deps: MessageHandlerDeps): ServerMessageHan
         break;
       }
       case 'provider.text_delta': {
-        const text = typeof payload['text'] === 'string' ? payload['text'] : '';
-        if (!text) break;
+        const projection = projectChatMessage(message);
+        if (projection?.kind !== 'text-delta') break;
+        const { text } = projection;
         setRunning(true);
         setActivity('Responding');
         setMessages((current) => {
@@ -414,7 +417,9 @@ export function createMessageHandler(deps: MessageHandlerDeps): ServerMessageHan
         break;
       }
       case 'provider.response': {
-        const responseText = contentToText(payload['content']).trim();
+        const projection = projectChatMessage(message);
+        if (projection?.kind !== 'response') break;
+        const responseText = contentToText(projection.content).trim();
         setMessages((current) => {
           const last = current.at(-1);
           if (last?.role === 'assistant' && last.streaming) {
@@ -456,29 +461,28 @@ export function createMessageHandler(deps: MessageHandlerDeps): ServerMessageHan
         setActivity('Thinking');
         break;
       case 'tool.started': {
-        const name = typeof payload['name'] === 'string' ? payload['name'] : 'tool';
-        const id = typeof payload['id'] === 'string' ? payload['id'] : `${name}-${Date.now()}`;
+        const projection = projectToolMessage(message);
+        if (projection?.kind !== 'started') break;
+        const { name, id } = projection;
         setRunning(true);
         setActivity(`Running ${name}`);
         setToolCalls((current) => [
           ...current,
-          { id, name, input: payload['input'], status: 'running', ts: new Date().toISOString() },
+          { id, name, input: projection.input, status: 'running', ts: new Date().toISOString() },
         ]);
         break;
       }
       case 'tool.progress': {
-        const event = payload['event'];
-        const text =
-          event && typeof event === 'object'
-            ? (event as Record<string, unknown>)['text']
-            : undefined;
-        if (typeof text === 'string' && text.trim())
-          setActivity(text.trim().split('\n')[0] ?? 'Working');
+        const projection = projectToolMessage(message);
+        if (projection?.kind === 'progress' && projection.text)
+          setActivity(projection.text.split('\n')[0] ?? 'Working');
         break;
       }
       case 'tool.executed': {
-        const execId = typeof payload['id'] === 'string' ? payload['id'] : '';
-        const execName = typeof payload['name'] === 'string' ? payload['name'] : '';
+        const projection = projectToolMessage(message);
+        if (projection?.kind !== 'executed') break;
+        const execId = projection.id;
+        const execName = projection.name;
         setActivity('Thinking');
         if (execId || execName) {
           setToolCalls((current) =>
@@ -489,11 +493,10 @@ export function createMessageHandler(deps: MessageHandlerDeps): ServerMessageHan
               ) {
                 return {
                   ...tc,
-                  status: payload['ok'] === false ? 'error' : 'done',
-                  output: typeof payload['output'] === 'string' ? payload['output'] : undefined,
-                  durationMs:
-                    typeof payload['durationMs'] === 'number' ? payload['durationMs'] : undefined,
-                  ok: payload['ok'] !== false,
+                  status: projection.ok ? 'done' : 'error',
+                  output: projection.output,
+                  durationMs: projection.durationMs,
+                  ok: projection.ok,
                 };
               }
               return tc;
@@ -599,9 +602,8 @@ export function createMessageHandler(deps: MessageHandlerDeps): ServerMessageHan
         }
         break;
       case 'coordinator.stats': {
-        const statuses = Array.isArray(payload['subagentStatuses'])
-          ? payload['subagentStatuses']
-          : [];
+        const fleet = projectFleetMessage(message);
+        const statuses = fleet?.kind === 'coordinator' ? fleet.agents : [];
         const snapshot = statuses.flatMap((entry) => {
           if (!entry || typeof entry !== 'object') return [];
           const item = entry as Record<string, unknown>;

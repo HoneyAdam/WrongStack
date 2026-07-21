@@ -1,6 +1,6 @@
 import { ChevronDown } from 'lucide-react';
-import { isVisionModel } from './app.js';
 import type { PendingModelSwitch } from './hooks/use-model-catalog.js';
+import { isVisionModel } from './lib/model-capabilities.js';
 import type { ModelDescriptor } from './types.js';
 
 export interface ModelSwitcherProps {

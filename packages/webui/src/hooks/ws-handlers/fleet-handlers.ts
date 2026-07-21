@@ -1,6 +1,7 @@
-import type { LiveSession } from '@/stores/monitor-store';
+import { projectFleetMessage } from '@wrongstack/webui-server/protocol';
 import type { SubagentEvent } from '@/stores';
 import { useFleetStore, useMonitorStore, useWorktreeStore } from '@/stores';
+import type { LiveSession } from '@/stores/monitor-store';
 import { useVizStore, wsToVizEvent } from '@/stores/viz-store';
 import type { WorktreeHandleView, WorktreeOrphanView, WSServerMessage } from '@/types';
 import { queryMailbox } from './files-mailbox-handlers.js';
@@ -26,7 +27,13 @@ export function handleWorktreeCleanupResult(msg: WSServerMessage) {
 }
 
 export function handleWorktreeMergeResult(msg: WSServerMessage) {
-  const p = msg.payload as { ok: boolean; branch: string; conflict?: boolean; conflictFiles?: string[]; reason?: string };
+  const p = msg.payload as {
+    ok: boolean;
+    branch: string;
+    conflict?: boolean;
+    conflictFiles?: string[];
+    reason?: string;
+  };
   useWorktreeStore.getState().setMergeResult({ ...p, at: Date.now() });
 }
 
@@ -45,15 +52,18 @@ export function handleSubagentEvent(msg: WSServerMessage) {
 }
 
 export function handleFleetConcurrency(msg: WSServerMessage) {
-  const p = msg.payload as { fleetConcurrency: number; fleetConcurrencyMax: number };
+  const p = projectFleetMessage(msg);
+  if (p?.kind !== 'concurrency') return;
   useFleetStore.setState({
-    fleetConcurrency: p.fleetConcurrency,
-    fleetConcurrencyMax: p.fleetConcurrencyMax,
+    fleetConcurrency: p.active,
+    fleetConcurrencyMax: p.maximum,
   });
 }
 
 export function handleClientStatusUpdate(msg: WSServerMessage) {
-  const payload = msg.payload as {
+  const projection = projectFleetMessage(msg);
+  if (projection?.kind !== 'client-status') return;
+  const payload = projection.status as {
     clientType?: string;
     clientId?: string;
     agentCount?: number;
@@ -83,8 +93,9 @@ export function handleClientStatusUpdate(msg: WSServerMessage) {
 }
 
 export function handleSessionsStatusUpdate(msg: WSServerMessage) {
-  const payload = msg.payload as { sessions?: LiveSession[] } | undefined;
-  useMonitorStore.getState().setLiveSessions(payload?.sessions ?? []);
+  const projection = projectFleetMessage(msg);
+  if (projection?.kind !== 'sessions') return;
+  useMonitorStore.getState().setLiveSessions(projection.sessions as LiveSession[]);
 
   // Throttle viz-store updates to at most once per second. The fleet snapshot
   // event triggers a full node/edge rebuild in the AgentFlow visualization,

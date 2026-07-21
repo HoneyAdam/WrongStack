@@ -7,8 +7,20 @@ export function isPathInside(root: string, target: string): boolean {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
-export async function resolveWorkingDirInsideProject(projectRoot: string, inputPath: string): Promise<string> {
+export async function resolveWorkingDirInsideProject(
+  projectRoot: string,
+  inputPath: string,
+): Promise<string> {
   const resolved = path.resolve(projectRoot, inputPath);
+
+  // Reject lexical escapes before touching the target so callers receive a
+  // containment error even when the escaped path does not exist.
+  if (!isPathInside(path.resolve(projectRoot), resolved)) {
+    throw new ToolValidationError({
+      message: `Path must stay inside the project root: ${projectRoot}`,
+      field: 'path',
+    });
+  }
 
   let stat;
   try {

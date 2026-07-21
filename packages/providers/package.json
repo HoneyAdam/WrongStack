@@ -23,6 +23,10 @@
     "./oauth": {
       "types": "./dist/oauth/index.d.ts",
       "import": "./dist/oauth/index.js"
+    },
+    "./definitions": {
+      "types": "./dist/provider-definitions.d.ts",
+      "import": "./dist/provider-definitions.js"
     }
   },
   "files": [

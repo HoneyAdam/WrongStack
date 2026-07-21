@@ -1,0 +1,44 @@
+# Architecture Health Registry
+
+This directory contains machine-readable inputs for WrongStack architecture verification.
+
+- `registry.json` defines the implementation scope, Core source-area classifications, and test-project ownership.
+- `exceptions.json` contains temporary, owned, expiring architecture exceptions.
+
+Run:
+
+```bash
+pnpm check:architecture
+pnpm check:test-inventory
+pnpm check:test-skips
+pnpm check:test-types
+pnpm check:build-manifest
+pnpm report:architecture
+```
+
+`check:architecture` fails for workspace cycles, unclassified Core areas, test files without exactly one runtime-test owner, unowned module cycles, expired exceptions, and stale exceptions.
+
+`report:architecture` writes the current JSON and Markdown evidence to `docs/reports/`. Generated evidence must be updated in the same PR that intentionally changes the architecture baseline.
+
+`check:test-types` executes every package `tsconfig.test.json`. Existing diagnostic identities and occurrence counts are recorded per package under `test-typecheck-baseline/`; a new diagnostic or an increased occurrence count fails, while resolved debt is reported without requiring a baseline rewrite. Diagnostic identities use the first 64 bits of SHA-256 over the normalized project/file/code/message tuple.
+
+`check:test-inventory` compares the registry with Vitest's actual file collection for every runtime project. `check:test-skips` ratchets all reviewed `skip`, `skipIf`, `runIf`, conditional skip, and runtime-skip declarations against `test-skip-budget.json`; adding, changing, or resolving one requires an explicit budget review.
+
+`check:build-manifest` verifies that all in-scope `dist` files match the SHA-256 lineage written by `write:build-manifest`. CI additionally runs `check:clean-dist` before the build and reuses the verified artifact in downstream jobs.
+
+Website is excluded from the implementation program by the 2026-07-21 scope decision.
+
+## Exception requirements
+
+Every exception must have:
+
+- a stable ID;
+- a supported rule kind;
+- exact scope/members;
+- an owner;
+- a concrete reason;
+- introduction and review dates;
+- a removal condition;
+- a canonical task ID.
+
+An exception is not a permanent allowance. Expired and stale records fail verification.

@@ -794,8 +794,6 @@ export interface SuperMemoryConfig {
         projectLocal?: boolean | undefined;
         /** Project-relative directory. Default: ".wrongstack/memories". */
         directory?: string | undefined;
-        /** Storage engine: 'jsonl' (default, append-only JSONL) or 'sqlite' (indexed + FTS5 search, auto-migrates from JSONL). */
-        engine?: 'jsonl' | 'sqlite' | undefined;
       }
     | undefined;
   inject?:

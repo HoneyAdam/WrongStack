@@ -41,7 +41,7 @@
 
 import { randomBytes } from 'node:crypto';
 import * as fsp from 'node:fs/promises';
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { isPidAlive } from '../utils/pid.js';
@@ -264,7 +264,7 @@ async function readLockForInspection(lockPath: string): Promise<LockInspection> 
     await fsp.unlink(lockPath).catch(() => undefined);
     return { kind: 'absent' };
   }
-  if (!isProcessAlive(parsed.pid)) {
+  if (!(await isProcessAlive(parsed.pid))) {
     // Dead PID — keep the data so callers (acquireOrJoin) can bump
     // generation off it; the caller decides whether to unlink. The
     // owning bridge is gone, so recovery is a fresh spawn.
@@ -354,7 +354,7 @@ async function atomicWriteJson(targetPath: string, value: unknown): Promise<void
  * True iff `pid` is alive. POSIX: process.kill(pid, 0) throws ESRCH
  * for dead processes. Windows: use tasklist to look the pid up.
  */
-function isProcessAlive(pid: number): boolean {
+async function isProcessAlive(pid: number): Promise<boolean> {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   if (pid === process.pid) return true;
   // win32: tasklist is AUTHORITATIVE here and must run first. `process.kill`
@@ -362,20 +362,30 @@ function isProcessAlive(pid: number): boolean {
   // decides whether a lock may be broken — a false "alive" wedges every
   // subsequent boot into `unhealthy` with no bridge. Prefer the subprocess.
   if (os.platform() === 'win32') {
-    try {
-      const out = execFileSync('tasklist', ['/FI', `PID eq ${pid}`, '/NH', '/FO', 'CSV'], {
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-      // tasklist prints the header even with /NH; if the pid exists,
-      // it includes a row with the pid somewhere.
-      // Match the PID as the first quoted field in a CSV row:
-      // "name","PID","session","mem"
-      const match = /(?:^|\n)"[^"]*","(\d+)"/.exec(out);
-      return match !== null && match[1] === String(pid);
-    } catch {
-      return false;
-    }
+    return new Promise((resolve) => {
+      execFile(
+        'tasklist',
+        ['/FI', `PID eq ${pid}`, '/NH', '/FO', 'CSV'],
+        {
+          encoding: 'utf-8',
+          windowsHide: true,
+          timeout: 3000,
+          maxBuffer: 256 * 1024,
+        },
+        (error, out) => {
+          if (error) {
+            resolve(false);
+            return;
+          }
+          // tasklist prints the header even with /NH; if the pid exists,
+          // it includes a row with the pid somewhere.
+          // Match the PID as the first quoted field in a CSV row:
+          // "name","PID","session","mem"
+          const match = /(?:^|\n)"[^"]*","(\d+)"/.exec(out);
+          resolve(match !== null && match[1] === String(pid));
+        },
+      );
+    });
   }
   // POSIX: the shared probe, which reports EPERM ("alive, not ours to
   // signal") as alive rather than dead.

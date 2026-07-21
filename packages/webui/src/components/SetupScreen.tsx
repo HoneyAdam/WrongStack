@@ -41,6 +41,10 @@ import {
 import { cn } from '@/lib/utils';
 import { useAppTranslation, i18n } from '@/i18n';
 import { LOCAL_PRESET_FAMILY, LOCAL_SERVER_PRESETS } from './SettingsPanel/local-presets';
+import {
+  projectPopularProviderCatalog,
+  type PopularProviderProjection,
+} from '@wrongstack/providers/definitions';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -102,164 +106,9 @@ interface SavedProvider {
 
 // ── Popular Provider (loaded from JSON) ───────────────────────────────────────
 
-interface PopularProvider {
-  id: string;
-  name: string;
-  description: string;
-  icon: string; // emoji or text icon
-  color: string; // tailwind classes
-  keyPlaceholder: string;
-  docsUrl?: string;
-  family: string;
-  referral?: {
-    code: string;
-    reward: string;
-    url: string;
-  };
-}
+type PopularProvider = Omit<PopularProviderProjection, 'family'> & { family: string };
 
-const DEFAULT_POPULAR_PROVIDERS: PopularProvider[] = [
-  {
-    id: 'openai',
-    name: 'OpenAI',
-    description: 'GPT, o-series, and Codex models',
-    icon: '🤖',
-    color: 'from-success/12 to-success/5 border-success/30 hover:border-success/50',
-    keyPlaceholder: 'sk-...',
-    docsUrl: 'https://platform.openai.com/api-keys',
-    family: 'openai',
-  },
-  {
-    id: 'anthropic',
-    name: 'Anthropic',
-    description: 'Claude model access',
-    icon: '🧠',
-    color: 'from-warning/12 to-warning/5 border-warning/30 hover:border-warning/50',
-    keyPlaceholder: 'sk-ant-...',
-    docsUrl: 'https://console.anthropic.com/settings/keys',
-    family: 'anthropic',
-  },
-  {
-    id: 'google',
-    name: 'Google',
-    description: 'Gemini Pro, Flash, and Nano',
-    icon: '✨',
-    color: 'from-info/12 to-info/5 border-info/30 hover:border-info/50',
-    keyPlaceholder: 'AIza...',
-    docsUrl: 'https://aistudio.google.com/apikey',
-    family: 'google',
-  },
-  {
-    id: 'mistral',
-    name: 'Mistral AI',
-    description: 'Mistral Large, Codestral, and Ministral — open-weight frontier models.',
-    icon: '🌬️',
-    color: 'from-info/12 to-info/5 border-info/30 hover:border-info/50',
-    keyPlaceholder: 'Vz8d...',
-    docsUrl: 'https://console.mistral.ai/api-keys/',
-    family: 'openai-compatible',
-  },
-  {
-    id: 'deepseek',
-    name: 'DeepSeek',
-    description: 'High-performance reasoning at low cost',
-    icon: '🐋',
-    color: 'from-primary/12 to-primary/5 border-primary/30 hover:border-primary/50',
-    keyPlaceholder: 'sk-...',
-    docsUrl: 'https://platform.deepseek.com/api_keys',
-    family: 'openai-compatible',
-  },
-  {
-    id: 'openrouter',
-    name: 'OpenRouter',
-    description: 'All models via one key',
-    icon: '🔀',
-    color: 'from-primary/12 to-primary/5 border-primary/30 hover:border-primary/50',
-    keyPlaceholder: 'sk-or-...',
-    docsUrl: 'https://openrouter.ai/keys',
-    family: 'openai-compatible',
-  },
-  {
-    id: 'groq',
-    name: 'GroqCloud',
-    description: 'Ultra-fast inference via LPU hardware — Llama, Mixtral, Gemma, and Qwen models.',
-    icon: '⚡',
-    color: 'from-warning/12 to-warning/5 border-warning/30 hover:border-warning/50',
-    keyPlaceholder: 'gsk_...',
-    docsUrl: 'https://console.groq.com/keys',
-    family: 'openai-compatible',
-  },
-  {
-    id: 'perplexity',
-    name: 'Perplexity Sonar',
-    description: 'Web-augmented chat models with built-in search and citations.',
-    icon: '🔍',
-    color: 'from-info/12 to-info/5 border-info/30 hover:border-info/50',
-    keyPlaceholder: 'pplx-...',
-    docsUrl: 'https://docs.perplexity.ai/guides/getting-started',
-    family: 'openai-compatible',
-  },
-  {
-    id: 'minimax',
-    name: 'MiniMax Token Plan',
-    description: 'Subscribe to one plan and unlock the latest models, including frontier coding capabilities, 1M ultra-long context, and native multimodality.',
-    icon: '🔮',
-    color: 'from-destructive/10 to-destructive/5 border-destructive/25 hover:border-destructive/45',
-    keyPlaceholder: 'eyJ...',
-    docsUrl: 'https://platform.minimax.io/subscribe/token-plan',
-    family: 'openai-compatible',
-  },
-  {
-    id: 'kimi-for-coding',
-    name: 'Kimi Code',
-    description: 'Personal interactive coding with the Kimi Code subscription key. Generate the API key at kimi.com/code/console.',
-    icon: '🌙',
-    color: 'from-info/12 to-info/5 border-info/30 hover:border-info/50',
-    keyPlaceholder: 'sk-...',
-    docsUrl: 'https://www.kimi.com/code/docs/en/third-party-tools/other-coding-agents.html',
-    family: 'openai-compatible',
-  },
-  {
-    id: 'moonshotai',
-    name: 'Moonshot Platform (Metered)',
-    description: 'Metered Moonshot Platform API — pay-as-you-go for automation, background work, and commercial use.',
-    icon: '🌑',
-    color: 'from-info/12 to-info/5 border-info/30 hover:border-info/50',
-    keyPlaceholder: 'sk-...',
-    docsUrl: 'https://platform.kimi.ai/docs/api/overview',
-    family: 'openai-compatible',
-  },
-  {
-    id: 'zai-coding-plan',
-    name: 'Z.AI Coding Plan',
-    description: 'Use your Z.AI Coding Plan subscription. Generate an API key from your Z.AI dashboard.',
-    icon: '🔷',
-    color: 'from-primary/12 to-primary/5 border-primary/30 hover:border-primary/50',
-    keyPlaceholder: '...',
-    docsUrl: 'https://docs.z.ai/guides/overview/quick-start',
-    family: 'openai-compatible',
-  },
-  {
-    id: 'zai',
-    name: 'Z.AI API (Metered)',
-    description: 'Pay-as-you-go Z.AI GLM access for automation and commercial use.',
-    icon: '🔷',
-    color: 'from-primary/12 to-primary/5 border-primary/30 hover:border-primary/50',
-    keyPlaceholder: '...',
-    docsUrl: 'https://docs.z.ai/guides/overview/quick-start',
-    family: 'openai-compatible',
-  },
-  {
-    id: 'opencode-go',
-    name: 'OpenCode Go',
-    description: 'Global hosted API for 75+ LLM providers — stable access from US, EU, and Singapore',
-    icon: '🌍',
-    color: 'from-success/12 to-success/5 border-success/30 hover:border-success/50',
-    keyPlaceholder: 'oc-...',
-    docsUrl: 'https://opencode.ai/go?ref=6VZAER87H4',
-    family: 'openai-compatible',
-  },
-];
+const DEFAULT_POPULAR_PROVIDERS: PopularProvider[] = projectPopularProviderCatalog();
 
 /** Load popular providers from a remote JSON source (e.g. GitHub raw).
  *  Falls back to the built-in defaults if the fetch fails. */

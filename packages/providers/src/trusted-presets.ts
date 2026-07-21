@@ -20,8 +20,8 @@
  * (omniroute, LiteLLM, etc.) still rely on user-supplied baseUrl/models.
  */
 
-import type { CustomModelDefinition, ProviderConfig, WireFamily } from '@wrongstack/core';
-import type { CompatibilityQuirks } from './openai-compatible.js';
+import type { ProviderConfig } from '@wrongstack/core';
+import type { ProviderDefinition } from './provider-definition-types.js';
 
 /**
  * One trusted preset. `id` is the canonical provider id used in
@@ -33,7 +33,7 @@ import type { CompatibilityQuirks } from './openai-compatible.js';
  * `docsUrl` and `usage` are UI hints surfaced by setup cards and the TUI
  * auth menu — they do not change runtime behaviour.
  */
-export interface TrustedProviderPreset {
+export interface TrustedProviderPreset extends ProviderDefinition {
   /** Canonical provider id (also the user-visible alias in WrongStack). */
   id: string;
   /** Display name for the setup card / auth-menu row. */
@@ -44,7 +44,7 @@ export interface TrustedProviderPreset {
    * OpenAI-compatible (Bearer + Chat Completions shape). Use `'anthropic'`
    * for Anthropic-Messages-compatible proxies.
    */
-  family: WireFamily;
+  family: ProviderDefinition['family'];
   /** Default base URL; required so users only ever paste the key. */
   baseUrl: string;
   /** Env var names to probe for the API key. */
@@ -56,13 +56,9 @@ export interface TrustedProviderPreset {
    * `models` so the WebUI model list can render reasoning/maxContext
    * without consulting the network catalog. Optional.
    */
-  customModels?: Record<string, CustomModelDefinition>;
-  /** OpenAI-compatible wire quirks — defaults already validated. */
-  quirks?: CompatibilityQuirks;
   /** Human-facing usage class — guides future access controls. */
-  usage?: 'metered-api' | 'subscription-interactive' | 'subscription-team';
-  /** Public docs URL surfaced in the setup card. */
-  docsUrl?: string;
+  usage: Exclude<ProviderDefinition['usage'], 'local'>;
+  catalog: NonNullable<ProviderDefinition['catalog']>;
 }
 
 /**
@@ -110,6 +106,14 @@ export const TRUSTED_PROVIDER_PRESETS: Readonly<
     ],
     usage: 'metered-api',
     docsUrl: 'https://openrouter.ai/docs/quickstart',
+    autoDiscover: true,
+    requestPolicy: 'openrouter',
+    catalog: {
+      description: 'All models via one key',
+      icon: '🔀',
+      color: 'from-primary/12 to-primary/5 border-primary/30 hover:border-primary/50',
+      keyPlaceholder: 'sk-or-...',
+    },
   },
 
   /**
@@ -133,6 +137,14 @@ export const TRUSTED_PROVIDER_PRESETS: Readonly<
     quirks: { thinkingParam: 'kimi-toggle' },
     usage: 'subscription-interactive',
     docsUrl: 'https://www.kimi.com/code/docs/en/third-party-tools/other-coding-agents.html',
+    requestPolicy: 'kimi',
+    catalog: {
+      description:
+        'Personal interactive coding with the Kimi Code subscription key. Generate the API key at kimi.com/code/console.',
+      icon: '🌙',
+      color: 'from-info/12 to-info/5 border-info/30 hover:border-info/50',
+      keyPlaceholder: 'sk-...',
+    },
   },
 
   /**
@@ -154,6 +166,14 @@ export const TRUSTED_PROVIDER_PRESETS: Readonly<
     quirks: { thinkingParam: 'always-on' },
     usage: 'metered-api',
     docsUrl: 'https://platform.kimi.ai/docs/api/overview',
+    requestPolicy: 'kimi',
+    catalog: {
+      description:
+        'Metered Moonshot Platform API — pay-as-you-go for automation, background work, and commercial use.',
+      icon: '🌑',
+      color: 'from-info/12 to-info/5 border-info/30 hover:border-info/50',
+      keyPlaceholder: 'sk-...',
+    },
   },
 
   /**
@@ -174,6 +194,14 @@ export const TRUSTED_PROVIDER_PRESETS: Readonly<
     quirks: { thinkingParam: 'zai-glm' },
     usage: 'subscription-interactive',
     docsUrl: 'https://docs.z.ai/devpack/quick-start',
+    requestPolicy: 'zai',
+    catalog: {
+      description:
+        'Use your Z.AI Coding Plan subscription. Generate an API key from your Z.AI dashboard.',
+      icon: '🔷',
+      color: 'from-primary/12 to-primary/5 border-primary/30 hover:border-primary/50',
+      keyPlaceholder: '...',
+    },
   },
 
   /**
@@ -192,6 +220,18 @@ export const TRUSTED_PROVIDER_PRESETS: Readonly<
     quirks: { thinkingParam: 'zai-glm' },
     usage: 'metered-api',
     docsUrl: 'https://docs.z.ai/guides/overview/quick-start',
+    requestPolicy: 'zai',
+    catalog: {
+      description: 'Pay-as-you-go Z.AI GLM access for automation and commercial use.',
+      icon: '🔷',
+      color: 'from-primary/12 to-primary/5 border-primary/30 hover:border-primary/50',
+      keyPlaceholder: '...',
+      referral: {
+        code: 'JQZ7TPPRA6',
+        reward: 'Limited-time deal for GLM Coding Plan subscription',
+        url: 'https://z.ai/subscribe?ic=JQZ7TPPRA6',
+      },
+    },
   },
 
   /**
@@ -209,6 +249,20 @@ export const TRUSTED_PROVIDER_PRESETS: Readonly<
     models: ['MiniMax-M3', 'MiniMax-M2.7', 'MiniMax-M2.5', 'MiniMax-M2'],
     usage: 'subscription-interactive',
     docsUrl: 'https://platform.minimax.io/docs/api-reference/text-chat-openai',
+    catalog: {
+      description:
+        'Subscribe to one plan and unlock frontier coding, 1M context, and native multimodality.',
+      icon: '🔮',
+      color:
+        'from-destructive/10 to-destructive/5 border-destructive/25 hover:border-destructive/45',
+      keyPlaceholder: 'eyJ...',
+      referral: {
+        code: 'JrA4R9QAEn',
+        reward:
+          'Friends get 10% off + Builder benefits. Referrers earn 10% cashback + community perks.',
+        url: 'https://platform.minimax.io/subscribe/token-plan?code=JrA4R9QAEn&source=link',
+      },
+    },
   },
 
   /**
@@ -228,6 +282,12 @@ export const TRUSTED_PROVIDER_PRESETS: Readonly<
     models: ['mistral-large-latest', 'codestral-latest', 'ministral-8b-latest'],
     usage: 'metered-api',
     docsUrl: 'https://docs.mistral.ai/',
+    catalog: {
+      description: 'Mistral Large, Codestral, and Ministral — open-weight frontier models.',
+      icon: '🌬️',
+      color: 'from-info/12 to-info/5 border-info/30 hover:border-info/50',
+      keyPlaceholder: 'Vz8d...',
+    },
   },
 
   /**
@@ -251,6 +311,13 @@ export const TRUSTED_PROVIDER_PRESETS: Readonly<
     models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
     usage: 'metered-api',
     docsUrl: 'https://api-docs.deepseek.com/',
+    requestPolicy: 'deepseek',
+    catalog: {
+      description: 'High-performance reasoning at low cost',
+      icon: '🐋',
+      color: 'from-primary/12 to-primary/5 border-primary/30 hover:border-primary/50',
+      keyPlaceholder: 'sk-...',
+    },
   },
 
   /**
@@ -274,6 +341,14 @@ export const TRUSTED_PROVIDER_PRESETS: Readonly<
     ],
     usage: 'metered-api',
     docsUrl: 'https://console.groq.com/docs/api-reference',
+    requestPolicy: 'groq',
+    catalog: {
+      description:
+        'Ultra-fast inference via LPU hardware — Llama, Mixtral, Gemma, and Qwen models.',
+      icon: '⚡',
+      color: 'from-warning/12 to-warning/5 border-warning/30 hover:border-warning/50',
+      keyPlaceholder: 'gsk_...',
+    },
   },
 
   /**
@@ -292,6 +367,13 @@ export const TRUSTED_PROVIDER_PRESETS: Readonly<
     models: ['sonar-pro', 'sonar', 'sonar-reasoning-pro', 'sonar-reasoning'],
     usage: 'metered-api',
     docsUrl: 'https://docs.perplexity.ai/',
+    requestPolicy: 'perplexity',
+    catalog: {
+      description: 'Web-augmented chat models with built-in search and citations.',
+      icon: '🔍',
+      color: 'from-info/12 to-info/5 border-info/30 hover:border-info/50',
+      keyPlaceholder: 'pplx-...',
+    },
   },
 
   /**
@@ -433,6 +515,14 @@ export const TRUSTED_PROVIDER_PRESETS: Readonly<
     usage: 'subscription-interactive',
     docsUrl:
       'https://www.alibabacloud.com/help/en/model-studio/token-plan-personal-overview',
+    requestPolicy: 'alibaba',
+    catalog: {
+      description:
+        'Monthly Credits subscription for Qwen, DeepSeek, GLM, Wanx image, and HappyHorse video models.',
+      icon: '☁️',
+      color: 'from-warning/12 to-warning/5 border-warning/30 hover:border-warning/50',
+      keyPlaceholder: 'sk-...',
+    },
   },
 };
 

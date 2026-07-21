@@ -41,6 +41,28 @@ export type ChronicleSignalFamily = 'llm'|'agent'|'tool'|'file'|'memory'|'task'|
 export type ChronicleFacet = 'eventType' | 'outcome' | 'projectId' | 'sessionId' |
   'agentId' | 'taskId' | 'providerId' | 'modelId' | 'resourceKind' | 'resourcePath' | 'toolCallId';
 export interface ChronicleFacetValue { value: string; count: number }
+export type ChronicleFacetResults = Partial<Record<ChronicleFacet, ChronicleFacetValue[]>>;
+
+/**
+ * The complete set of valid {@link ChronicleFacet} values. Shared by both
+ * the CLI-embedded and standalone WebUI message routers so they can validate
+ * `chronicle.facet` / `chronicle.facets` payloads against a single source of
+ * truth — if `ChronicleFacet` grows a member, this set is the only place
+ * that needs updating.
+ */
+export const CHRONICLE_FACET_FIELDS: ReadonlySet<ChronicleFacet> = new Set<ChronicleFacet>([
+  'eventType',
+  'outcome',
+  'projectId',
+  'sessionId',
+  'agentId',
+  'taskId',
+  'providerId',
+  'modelId',
+  'resourceKind',
+  'resourcePath',
+  'toolCallId',
+]);
 export type ChronicleRelationKind = 'parent_span' | 'trace' | 'tool_call' | 'logical_request' |
   'attempt' | 'decision' | 'network_request' | 'prompt_manifest' | 'resource_lineage';
 export interface ChronicleGraphEdge { from: string; to: string; kind: ChronicleRelationKind; confidence: 'explicit' | 'correlated' | 'inferred' }
@@ -185,13 +207,21 @@ export class ChronicleQueryEngine {
     };
   }
 
-  /** Stream all partitions and compute facet value counts. */
-  async facet(field: ChronicleFacet, query: ChronicleQuery = {}, limit = 100): Promise<ChronicleFacetValue[]> {
-    const counts = new Map<string, number>();
+  /** Stream all partitions once and compute value counts for every requested facet. */
+  async facets(
+    fields: readonly ChronicleFacet[],
+    query: ChronicleQuery = {},
+    limit = 100,
+  ): Promise<ChronicleFacetResults> {
+    const uniqueFields = [...new Set(fields)];
+    if (uniqueFields.length === 0) return {};
+    const counts = new Map(uniqueFields.map((field) => [field, new Map<string, number>()]));
+    const snapshotFiles = await captureSnapshot(this.partitionFiles);
     let invalidLines = 0;
-    for (const file of this.partitionFiles) {
+    for (const snapshotFile of snapshotFiles) {
       try {
-        for await (const line of streamLines(file)) {
+        if (snapshotFile.size === 0) continue;
+        for await (const line of streamLines(snapshotFile.file, snapshotFile.size)) {
           if (!line.trim()) continue;
           let event: ChronicleEvent;
           try {
@@ -199,16 +229,28 @@ export class ChronicleQueryEngine {
             if (!isChronicleEvent(event)) { invalidLines++; continue; }
           } catch { invalidLines++; continue; }
           if (!matches(event, query)) continue;
-          const value = facetValue(event, field);
-          if (value !== undefined) counts.set(value, (counts.get(value) ?? 0) + 1);
+          for (const field of uniqueFields) {
+            const value = facetValue(event, field);
+            const fieldCounts = counts.get(field)!;
+            if (value !== undefined) fieldCounts.set(value, (fieldCounts.get(value) ?? 0) + 1);
+          }
         }
       } catch { /* skip unreadable */ }
     }
     this.diagnostics.invalidLines = invalidLines;
-    return [...counts]
-      .map(([value, count]) => ({ value, count }))
-      .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
-      .slice(0, Math.max(0, limit));
+    const result: ChronicleFacetResults = {};
+    for (const field of uniqueFields) {
+      result[field] = [...counts.get(field)!]
+        .map(([value, count]) => ({ value, count }))
+        .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
+        .slice(0, Math.max(0, limit));
+    }
+    return result;
+  }
+
+  /** Stream all partitions and compute one facet's value counts. */
+  async facet(field: ChronicleFacet, query: ChronicleQuery = {}, limit = 100): Promise<ChronicleFacetValue[]> {
+    return (await this.facets([field], query, limit))[field] ?? [];
   }
 
   /** Expand explicit and typed correlation edges; temporal proximity alone never creates causality. */

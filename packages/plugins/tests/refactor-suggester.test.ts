@@ -12,7 +12,7 @@ function normalizePath(p: string): string {
   return p.replace(/\\/g, '/');
 }
 
-function mockReaddirSync(p: string, options?: { withFileTimes?: boolean }) {
+function mockReaddirSync(p: string, options?: { withFileTypes?: boolean }) {
   const dir = normalizePath(p).replace(/\/$/, '') || '/';
   const entries: { name: string; isDirectory: () => boolean; isFile: () => boolean }[] = [];
   for (const [path, entry] of Object.entries(mockFs)) {
@@ -27,7 +27,7 @@ function mockReaddirSync(p: string, options?: { withFileTimes?: boolean }) {
       });
     }
   }
-  if (options?.withFileTimes) return entries;
+  if (options?.withFileTypes) return entries;
   return entries.map((e) => e.name);
 }
 
@@ -68,6 +68,14 @@ vi.mock('node:fs', () => ({
   statSync: vi.fn(mockStatSync),
 }));
 
+vi.mock('node:fs/promises', () => ({
+  readFile: vi.fn(async (p: string, encoding?: string) => mockReadFileSync(p, encoding)),
+  readdir: vi.fn(async (p: string, options?: { withFileTypes?: boolean }) =>
+    mockReaddirSync(p, options),
+  ),
+  stat: vi.fn(async (p: string) => mockStatSync(p)),
+}));
+
 const plugin = (await import('../src/refactor-suggester')).default;
 
 // ---------------------------------------------------------------------------
@@ -106,10 +114,10 @@ function getTool(api: MockApi, name: string): (input: unknown) => Promise<unknow
 
 type HookResult = { decision?: string; reason?: string; additionalContext?: string } | undefined;
 
-function getHook(api: MockApi): (input: unknown) => HookResult {
+function getHook(api: MockApi): (input: unknown) => Promise<HookResult> {
   const call = api.registerHook.mock.calls[0];
   if (!call) throw new Error('hook not registered');
-  return (call as unknown[])[2] as (input: unknown) => HookResult;
+  return (call as unknown[])[2] as (input: unknown) => Promise<HookResult>;
 }
 
 function setFilesystem(files: Record<string, string>) {
@@ -286,7 +294,7 @@ describe('PostToolUse hook behavior', () => {
     const api = makeApi({ enabled: true });
     plugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: 'src/feature.ts', content: 'x' },
       toolResult: { content: 'ok', isError: false },
@@ -304,7 +312,7 @@ describe('PostToolUse hook behavior', () => {
     const api = makeApi({ enabled: true });
     plugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'edit',
       toolInput: { path: 'src/clean.ts', old_string: 'x', new_string: 'y' },
       toolResult: { content: 'ok', isError: false },
@@ -316,7 +324,7 @@ describe('PostToolUse hook behavior', () => {
     const api = makeApi({ enabled: true });
     plugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: 'README.md', content: '# hello' },
       toolResult: { content: 'ok', isError: false },
@@ -332,7 +340,7 @@ describe('PostToolUse hook behavior', () => {
     const api = makeApi({ enabled: true });
     plugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: 'src/smelly.ts', content: 'x' },
       toolResult: { content: 'error', isError: true },

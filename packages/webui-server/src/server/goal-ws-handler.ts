@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import type { WebSocket } from 'ws';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import {
@@ -12,6 +11,7 @@ import {
   type PhaseTemplate,
 } from '@wrongstack/core';
 import type { Agent, Context, EventBus, Logger } from '@wrongstack/core';
+import { gitStdout, isGitWorkTree } from './git-process.js';
 
 /**
  * Derive a short, single-line heading from a (possibly multi-paragraph) goal
@@ -30,32 +30,20 @@ function deriveTitle(goal: string): string {
   return trimmed || 'Goal';
 }
 
-function isGitRepo(cwd: string): boolean {
-  try {
-    const r = spawnSync('git', ['rev-parse', '--is-inside-work-tree'], { cwd, encoding: 'utf8', windowsHide: true });
-    return r.status === 0 && r.stdout.trim() === 'true';
-  } catch {
-    return false;
-  }
-}
-
 /**
  * List the commits on `branch` since `baseSha` (oldest → newest, the order they
  * landed). Used by `goal.revert` to feed WorktreeManager.revertCommits,
  * which reverses them. Returns [] on any git error.
  */
-function commitsSince(cwd: string, baseSha: string, branch: string): string[] {
-  try {
-    const r = spawnSync('git', ['log', '--reverse', '--format=%H', `${baseSha}..${branch}`], {
-      cwd,
-      encoding: 'utf8',
-      windowsHide: true,
-    });
-    if (r.status !== 0) return [];
-    return r.stdout.split('\n').map((s) => s.trim()).filter(Boolean);
-  } catch {
-    return [];
-  }
+async function commitsSince(cwd: string, baseSha: string, branch: string): Promise<string[]> {
+  const output = await gitStdout(cwd, [
+    'log',
+    '--reverse',
+    '--format=%H',
+    `${baseSha}..${branch}`,
+  ]);
+  if (output === null) return [];
+  return output.split('\n').map((s) => s.trim()).filter(Boolean);
 }
 
 interface WSClient {
@@ -292,7 +280,7 @@ export class GoalWebSocketHandler {
       this.events &&
       this.projectRoot &&
       useWorktrees &&
-      isGitRepo(this.projectRoot)
+      await isGitWorkTree(this.projectRoot)
     ) {
       this.worktrees = new WorktreeManager({
         projectRoot: this.projectRoot,
@@ -421,7 +409,7 @@ export class GoalWebSocketHandler {
       return;
     }
     await this.worktrees.cleanupAllManaged().catch(() => undefined);
-    const shas = commitsSince(this.projectRoot, this.runBase.sha, this.runBase.branch);
+    const shas = await commitsSince(this.projectRoot, this.runBase.sha, this.runBase.branch);
     const res = await this.worktrees.revertCommits(this.runBase.branch, shas);
     this.broadcast({ type: 'goal.reverted', payload: res });
     if (res.ok) {

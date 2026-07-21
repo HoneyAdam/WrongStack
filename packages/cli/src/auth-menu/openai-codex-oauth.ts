@@ -24,9 +24,12 @@
  * credential; this module replaces them.
  */
 
-import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { createServer, type Server } from 'node:http';
+import {
+  type LoopbackServer,
+  openBrowser,
+  startLoopbackServer as startSharedLoopbackServer,
+} from './loopback-server.js';
 import {
   CODEX_MODELS,
   color,
@@ -63,6 +66,23 @@ const ORIGINATOR = 'wrongstack';
 export const CODEX_PROVIDER_ID = 'openai-codex';
 /** Default ChatGPT backend base. The wire family appends `/codex/responses`. */
 export const CODEX_BASE_URL = 'https://chatgpt.com/backend-api';
+
+/**
+ * Codex-specific compatibility wrapper retained for callers that imported the
+ * helper from this module before the shared OAuth loopback server extraction.
+ */
+export function startLoopbackServer(
+  expectedState: string,
+  signal?: AbortSignal,
+): Promise<LoopbackServer> {
+  return startSharedLoopbackServer(
+    expectedState,
+    [REDIRECT_PORT, FALLBACK_REDIRECT_PORT],
+    signal,
+    REDIRECT_PATH,
+    REDIRECT_HOST,
+  );
+}
 
 /**
  * Fallback model list used when BOTH the live backend AND the models.dev
@@ -374,185 +394,8 @@ export async function refreshCodexToken(
 }
 
 // ── Loopback callback server ────────────────────────────────────────────────
-
-const ESCAPE_HTML: Record<string, string> = {
-  '&': '&amp;',
-  '<': '&lt;',
-  '>': '&gt;',
-  '"': '&quot;',
-  "'": '&#39;',
-};
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (ch) => ESCAPE_HTML[ch] ?? ch);
-}
-
-function callbackHtml(ok: boolean, message: string): string {
-  const heading = ok ? 'Authentication successful' : 'Authentication failed';
-  return (
-    `<!doctype html><html lang="en"><head><meta charset="utf-8"/>` +
-    `<title>${escapeHtml(heading)}</title><style>body{margin:0;min-height:100vh;display:flex;` +
-    `align-items:center;justify-content:center;background:#09090b;color:#fafafa;` +
-    `font-family:ui-sans-serif,system-ui,sans-serif;text-align:center}` +
-    `h1{font-size:26px;margin:0 0 8px}p{color:#a1a1aa}</style></head><body><main>` +
-    `<h1>${escapeHtml(heading)}</h1><p>${escapeHtml(message)}</p></main></body></html>`
-  );
-}
-
-interface LoopbackServer {
-  /** Resolves with the authorization code, or null if cancelled/failed to bind. */
-  waitForCode(): Promise<string | null>;
-  close(): void;
-  /** True when the server bound to a registered callback port; false means all ports were busy. */
-  readonly bound: boolean;
-  /** The actual callback port, matching the authorize URL and token exchange redirect_uri. */
-  readonly port: number;
-}
-
-/**
- * Start the loopback server. Resolves once it is listening (or has failed to
- * bind, in which case `bound` is false and the caller falls back to manual
- * paste).
- *
- * When `signal` aborts (e.g. the user pressed Ctrl+C), the pending
- * `waitForCode()` promise resolves to `null` and the underlying HTTP server is
- * torn down — without this, the caller's `await waitForCode()` would never
- * settle and the terminal would hang with no way out.
- */
-export function startLoopbackServer(
-  state: string,
-  signal?: AbortSignal,
-): Promise<LoopbackServer> {
-  let resolveCode: (v: string | null) => void = () => {};
-  const codePromise = new Promise<string | null>((resolve) => {
-    let settled = false;
-    resolveCode = (v) => {
-      if (settled) return;
-      settled = true;
-      resolve(v);
-    };
-  });
-
-  const server: Server = createServer((req, res) => {
-    let url: URL;
-    try {
-      url = new URL(req.url ?? '', `http://${REDIRECT_HOST}`);
-    } catch {
-      res.statusCode = 400;
-      res.end();
-      return;
-    }
-    if (url.pathname !== REDIRECT_PATH) {
-      res.statusCode = 404;
-      res.setHeader('content-type', 'text/html; charset=utf-8');
-      res.end(callbackHtml(false, 'Callback route not found.'));
-      return;
-    }
-    res.setHeader('content-type', 'text/html; charset=utf-8');
-    const err = url.searchParams.get('error');
-    if (err) {
-      res.statusCode = 400;
-      res.end(callbackHtml(false, `Authorization error: ${err}`));
-      resolveCode(null);
-      return;
-    }
-    if (url.searchParams.get('state') !== state) {
-      res.statusCode = 400;
-      res.end(callbackHtml(false, 'State mismatch — please restart the login.'));
-      resolveCode(null);
-      return;
-    }
-    const code = url.searchParams.get('code');
-    if (!code) {
-      res.statusCode = 400;
-      res.end(callbackHtml(false, 'Missing authorization code.'));
-      return;
-    }
-    res.statusCode = 200;
-    res.end(callbackHtml(true, 'You can close this window and return to the terminal.'));
-    resolveCode(code);
-  });
-
-  // Abort (Ctrl+C) → unblock the pending wait and close the server so the
-  // login flow can return promptly instead of hanging on the loopback await.
-  const onAbort = (): void => {
-    resolveCode(null);
-    try {
-      server.close();
-    } catch {
-      /* ignore */
-    }
-  };
-  if (signal) {
-    if (signal.aborted) onAbort();
-    else signal.addEventListener('abort', onAbort, { once: true });
-  }
-
-  return new Promise<LoopbackServer>((resolve) => {
-    const ports = [REDIRECT_PORT, FALLBACK_REDIRECT_PORT];
-    let index = 0;
-
-    const close = (): void => {
-      resolveCode(null);
-      try {
-        server.close();
-      } catch {
-        /* ignore */
-      }
-    };
-
-    const fail = (): void => {
-      resolveCode(null);
-      resolve({
-        bound: false,
-        port: REDIRECT_PORT,
-        waitForCode: () => Promise.resolve(null),
-        close,
-      });
-    };
-
-    server.on('error', () => {
-      index += 1;
-      const nextPort = ports[index];
-      if (nextPort !== undefined) {
-        server.listen(nextPort, REDIRECT_HOST);
-        return;
-      }
-      // All registered callback ports are busy / unavailable — signal manual fallback.
-      fail();
-    });
-    server.on('listening', () => {
-      const address = server.address();
-      const port = typeof address === 'object' && address ? address.port : ports[index] ?? REDIRECT_PORT;
-      resolve({
-        bound: true,
-        port,
-        waitForCode: () => codePromise,
-        close,
-      });
-    });
-    server.listen(ports[index] ?? REDIRECT_PORT, REDIRECT_HOST);
-  });
-}
-
-// ── Browser opener (best-effort, windowsHide; never throws) ─────────────────
-
-function openBrowser(url: string): void {
-  try {
-    const platform = process.platform;
-    const { command, args } =
-      platform === 'win32'
-        ? { command: 'cmd', args: ['/c', 'start', '', url] }
-        : platform === 'darwin'
-          ? { command: 'open', args: [url] }
-          : { command: 'xdg-open', args: [url] };
-    const child = spawn(command, args, { stdio: 'ignore', windowsHide: true });
-    child.on('error', () => {});
-    child.unref();
-  } catch {
-    // URL is always printed — best-effort only.
-  }
-}
+// Loopback server, browser opener, and callback HTML are now in
+// `./loopback-server.js` — imported at the top of this file.
 
 // ── Manual paste fallback ───────────────────────────────────────────────────
 
@@ -669,14 +512,14 @@ export async function runCodexOAuthLogin(
   let code: string | undefined;
   try {
     if (server.bound) {
-      const got = await server.waitForCode();
+      const callback = await server.waitForCode();
       // Ctrl+C while waiting on the loopback → cancel now rather than dropping
       // into the manual-paste prompt (which would block again).
       if (ac.signal.aborted) {
         deps.renderer.write(color.dim('  Cancelled.\n'));
         return 1;
       }
-      if (got) code = got;
+      if (callback) code = callback.code;
     }
 
     // Manual paste fallback (port busy, or browser couldn't redirect back).

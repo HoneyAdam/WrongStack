@@ -15,7 +15,7 @@ import {
 // ── Mocks ────────────────────────────────────────────────────────────────
 // `os.platform()` is mocked so we can drive BOTH the win32 (tasklist) and
 // POSIX (process.kill) branches of isProcessAlive deterministically from one
-// test file. `node:child_process.execFileSync` is mocked so the win32 branch
+// test file. `node:child_process.execFile` is mocked so the win32 branch
 // never spawns a real `tasklist`. fetch is stubbed for probeHealthz.
 
 const { platformRef, tasklist } = vi.hoisted(() => ({
@@ -33,14 +33,24 @@ vi.mock('node:child_process', async (orig) => {
   const actual = (await orig()) as typeof import('node:child_process');
   return {
     ...actual,
-    execFileSync: vi.fn(((cmd: string, args: string[]) => {
-      if (cmd !== 'tasklist') return (actual.execFileSync as never)(cmd, args);
-      if (tasklist.shouldThrow) throw new Error('tasklist boom');
+    execFile: vi.fn(((
+      cmd: string,
+      args: string[],
+      _options: unknown,
+      callback: (error: Error | null, stdout: string, stderr: string) => void,
+    ) => {
+      if (cmd !== 'tasklist') return (actual.execFile as never)(cmd, args, _options, callback);
+      if (tasklist.shouldThrow) {
+        callback(new Error('tasklist boom'), '', '');
+        return {};
+      }
       const m = /PID eq (\d+)/.exec(args[1] ?? '');
       const pid = m ? Number(m[1]) : 0;
-      return tasklist.alivePids.has(pid)
+      const stdout = tasklist.alivePids.has(pid)
         ? `"proc","${pid}"\r\n`
         : 'INFO: No tasks are running which match the specified criteria.';
+      callback(null, stdout, '');
+      return {};
     }) as never),
   };
 });

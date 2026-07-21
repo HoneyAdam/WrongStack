@@ -26,6 +26,7 @@ export { wireProviderStreamsToChronicle, type ChronicleStreamAdapterOptions } fr
 export { createChroniclePromptManifest, type ChroniclePromptManifest } from './prompt-manifest.js';
 export { wireRollupsToChronicle, type ChronicleRollupAdapterOptions } from './rollup-adapter.js';
 export {
+  CHRONICLE_FACET_FIELDS,
   ChronicleQueryEngine,
   type ChronicleSummary,
   type ChronicleSignalFamily,

@@ -7,13 +7,6 @@ import type { PendingModelSwitch } from '../src/hooks/use-model-catalog.js';
 import { ModelSwitcher } from '../src/model-switcher.js';
 import type { ModelDescriptor } from '../src/types.js';
 
-// isVisionModel is imported from app.js inside model-switcher.tsx. We mock it
-// so the test never depends on the real regex.
-vi.mock('../src/app.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/app.js')>();
-  return { ...actual, isVisionModel: (id: string) => id.includes('vision') };
-});
-
 const roots: Root[] = [];
 
 function makeModels(): [string, ModelDescriptor[]][] {

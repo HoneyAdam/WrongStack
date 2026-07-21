@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-// Mock execSync + execFileSync before importing the plugin. The plugin
-// switched from execSync string templates to execFileSync argv to defeat
+// Mock execSync + execFile before importing the plugin. The plugin
+// switched from execSync string templates to execFile argv to defeat
 // shell-injection; tests must cover both surfaces.
 const mockExecSync = vi.fn((cmd: string): string => {
   if (cmd.includes('ls-files')) return 'src/test.ts\n';
@@ -17,7 +17,7 @@ const mockExecSync = vi.fn((cmd: string): string => {
   return '';
 });
 
-const mockExecFileSync = vi.fn((_cmd: string, args: string[]): string => {
+const mockExecFileSync = vi.fn((_cmd: string, args: string[], _options?: unknown): string => {
   const joined = args.join(' ');
   if (joined.includes('ls-files')) return 'src/test.ts\n';
   if (joined.includes('--no-index')) {
@@ -28,10 +28,24 @@ const mockExecFileSync = vi.fn((_cmd: string, args: string[]): string => {
   }
   return 'diff --git a/src/test.ts b/src/test.ts\n-old code\n+new code\n';
 });
+const mockExecFile = vi.fn((
+  cmd: string,
+  args: string[],
+  options: unknown,
+  callback: (error: Error | null, stdout: string, stderr: string) => void,
+) => {
+  try {
+    callback(null, mockExecFileSync(cmd, args, options), '');
+  } catch (error) {
+    const failure = error as Error & { stdout?: string; stderr?: string };
+    callback(failure, failure.stdout ?? '', failure.stderr ?? '');
+  }
+  return {};
+});
 
 vi.mock('node:child_process', () => ({
   execSync: mockExecSync,
-  execFileSync: mockExecFileSync,
+  execFile: mockExecFile,
 }));
 
 const diffSummaryPlugin = (await import('../src/diff-summary')).default;
@@ -68,7 +82,7 @@ function makeApi(overrides: { extensions?: Record<string, unknown> } = {}): Mock
   };
 }
 
-function getHook(api: MockApi): (input: unknown) => { additionalContext?: string } | void {
+function getHook(api: MockApi): (input: unknown) => Promise<{ additionalContext?: string } | void> {
   const call = api.registerHook.mock.calls[0];
   if (!call) throw new Error('hook not registered');
   return (call as unknown[])[2] as ReturnType<typeof getHook>;
@@ -99,11 +113,11 @@ describe('diff-summary plugin', () => {
 });
 
 describe('hook behavior', () => {
-  it('injects diff context after a successful write', () => {
+  it('injects diff context after a successful write', async () => {
     const api = makeApi();
     diffSummaryPlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: 'src/test.ts', content: 'new code' },
       toolResult: { content: 'wrote 5 lines', isError: false },
@@ -112,11 +126,11 @@ describe('hook behavior', () => {
     expect(result?.additionalContext).toContain('src/test.ts');
   });
 
-  it('injects diff context after a successful edit', () => {
+  it('injects diff context after a successful edit', async () => {
     const api = makeApi();
     diffSummaryPlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'edit',
       toolInput: { path: 'src/test.ts', old_string: 'old', new_string: 'new' },
       toolResult: { content: 'edited', isError: false },
@@ -124,11 +138,11 @@ describe('hook behavior', () => {
     expect(result?.additionalContext).toContain('diff-summary');
   });
 
-  it('stays silent when the tool errored', () => {
+  it('stays silent when the tool errored', async () => {
     const api = makeApi();
     diffSummaryPlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: 'src/test.ts', content: 'x' },
       toolResult: { content: 'error', isError: true },
@@ -136,11 +150,11 @@ describe('hook behavior', () => {
     expect(result).toBeUndefined();
   });
 
-  it('stays silent when mode=off', () => {
+  it('stays silent when mode=off', async () => {
     const api = makeApi({ extensions: { 'diff-summary': { mode: 'off' } } });
     diffSummaryPlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: 'src/test.ts', content: 'x' },
       toolResult: { content: 'ok', isError: false },
@@ -148,11 +162,11 @@ describe('hook behavior', () => {
     expect(result).toBeUndefined();
   });
 
-  it('stays silent when path is missing', () => {
+  it('stays silent when path is missing', async () => {
     const api = makeApi();
     diffSummaryPlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { content: 'x' },
       toolResult: { content: 'ok', isError: false },
@@ -162,11 +176,11 @@ describe('hook behavior', () => {
 });
 
 describe('stat mode', () => {
-  it('injects only stat summary in stat mode', () => {
+  it('injects only stat summary in stat mode', async () => {
     const api = makeApi({ extensions: { 'diff-summary': { mode: 'stat' } } });
     diffSummaryPlugin.setup(api as never);
     const hook = getHook(api);
-    const result = hook({
+    const result = await hook({
       toolName: 'edit',
       toolInput: { path: 'src/test.ts', old_string: 'a', new_string: 'b' },
       toolResult: { content: 'ok', isError: false },
@@ -209,16 +223,16 @@ describe('config parsing', () => {
 });
 
 describe('includeContext in git diff command', () => {
-  it('passes -U0 when includeContext=0', () => {
+  it('passes -U0 when includeContext=0', async () => {
     const api = makeApi({ extensions: { 'diff-summary': { includeContext: 0 } } });
     diffSummaryPlugin.setup(api as never);
     const hook = getHook(api);
-    hook({
+    await hook({
       toolName: 'write',
       toolInput: { path: 'src/test.ts', content: 'x' },
       toolResult: { content: 'ok', isError: false },
     });
-    // Plugin uses execFileSync argv-form; verify the -U0 flag passed through.
+    // Plugin uses execFile argv-form; verify the -U0 flag passed through.
     const diffCall = mockExecFileSync.mock.calls.find(
       (c: unknown[]) =>
         Array.isArray(c[1]) &&
@@ -229,11 +243,11 @@ describe('includeContext in git diff command', () => {
     expect((diffCall![1] as string[]).some((a) => a === '-U0')).toBe(true);
   });
 
-  it('passes -U5 when includeContext=5', () => {
+  it('passes -U5 when includeContext=5', async () => {
     const api = makeApi({ extensions: { 'diff-summary': { includeContext: 5 } } });
     diffSummaryPlugin.setup(api as never);
     const hook = getHook(api);
-    hook({
+    await hook({
       toolName: 'write',
       toolInput: { path: 'src/test.ts', content: 'x' },
       toolResult: { content: 'ok', isError: false },
@@ -248,11 +262,11 @@ describe('includeContext in git diff command', () => {
     expect((diffCall![1] as string[]).some((a) => a === '-U5')).toBe(true);
   });
 
-  it('passes -U3 by default', () => {
+  it('passes -U3 by default', async () => {
     const api = makeApi();
     diffSummaryPlugin.setup(api as never);
     const hook = getHook(api);
-    hook({
+    await hook({
       toolName: 'write',
       toolInput: { path: 'src/test.ts', content: 'x' },
       toolResult: { content: 'ok', isError: false },
@@ -269,12 +283,12 @@ describe('includeContext in git diff command', () => {
 });
 
 describe('sandbox', () => {
-  it('does not invoke git when the file path is outside the project root', () => {
+  it('does not invoke git when the file path is outside the project root', async () => {
     const api = makeApi();
     diffSummaryPlugin.setup(api as never);
     const hook = getHook(api);
     const outside = process.platform === 'win32' ? 'C:\\Windows\\System32\\evil.ts' : '/etc/passwd';
-    const result = hook({
+    const result = await hook({
       toolName: 'write',
       toolInput: { path: outside, content: 'x' },
       toolResult: { content: 'ok', isError: false },
@@ -286,12 +300,12 @@ describe('sandbox', () => {
     expect(mockExecFileSync).not.toHaveBeenCalled();
   });
 
-  it('does not invoke git when the path traverses out of the project root', () => {
+  it('does not invoke git when the path traverses out of the project root', async () => {
     const api = makeApi();
     diffSummaryPlugin.setup(api as never);
     const hook = getHook(api);
     const escapedPath = '../../escape.ts';
-    hook({
+    await hook({
       toolName: 'write',
       toolInput: { path: escapedPath, content: 'x' },
       toolResult: { content: 'ok', isError: false },
@@ -316,7 +330,7 @@ describe('teardown + H1 pattern', () => {
     const api = makeApi();
     diffSummaryPlugin.setup(api as never);
     const hook = getHook(api);
-    hook({
+    await hook({
       toolName: 'write',
       toolInput: { path: 'src/test.ts', content: 'x' },
       toolResult: { content: 'ok', isError: false },
@@ -351,14 +365,14 @@ describe('per-path throttle + content-hash dedupe', () => {
     diffSummaryPlugin.setup(api as never);
     const hook = getHook(api);
 
-    hook({
+    await hook({
       toolName: 'write',
       toolInput: { path: 'src/a.ts', content: 'hello' },
       toolResult: { content: 'ok', isError: false },
     });
     const firstDiffCalls = diffCallsCount();
 
-    hook({
+    await hook({
       toolName: 'write',
       toolInput: { path: 'src/a.ts', content: 'world' },
       toolResult: { content: 'ok', isError: false },
@@ -376,13 +390,13 @@ describe('per-path throttle + content-hash dedupe', () => {
     diffSummaryPlugin.setup(api as never);
     const hook = getHook(api);
 
-    hook({
+    await hook({
       toolName: 'write',
       toolInput: { path: 'src/a.ts', content: 'hello' },
       toolResult: { content: 'ok', isError: false },
     });
     const afterFirst = diffCallsCount();
-    hook({
+    await hook({
       toolName: 'write',
       toolInput: { path: 'src/b.ts', content: 'world' },
       toolResult: { content: 'ok', isError: false },
@@ -396,7 +410,7 @@ describe('per-path throttle + content-hash dedupe', () => {
     const hook = getHook(api);
 
     // Different paths so the throttle does not interfere
-    hook({
+    await hook({
       toolName: 'edit',
       toolInput: { path: 'src/a.ts', old_string: 'a', new_string: 'X' },
       toolResult: { content: 'ok', isError: false },
@@ -405,7 +419,7 @@ describe('per-path throttle + content-hash dedupe', () => {
 
     // Same new_string, different path: hash dedupe should NOT fire
     // (memo is per-path).
-    hook({
+    await hook({
       toolName: 'edit',
       toolInput: { path: 'src/b.ts', old_string: 'a', new_string: 'X' },
       toolResult: { content: 'ok', isError: false },
@@ -413,7 +427,7 @@ describe('per-path throttle + content-hash dedupe', () => {
     expect(diffCallsCount()).toBe(firstDiff + 1);
 
     // Same path, same new_string: dedupe MUST fire.
-    hook({
+    await hook({
       toolName: 'edit',
       toolInput: { path: 'src/a.ts', old_string: 'a', new_string: 'X' },
       toolResult: { content: 'ok', isError: false },
@@ -432,13 +446,13 @@ describe('per-path throttle + content-hash dedupe', () => {
     diffSummaryPlugin.setup(api as never);
     const hook = getHook(api);
 
-    hook({
+    await hook({
       toolName: 'edit',
       toolInput: { path: 'src/a.ts', old_string: 'a', new_string: 'X' },
       toolResult: { content: 'ok', isError: false },
     });
     const baseline = diffCallsCount();
-    hook({
+    await hook({
       toolName: 'edit',
       toolInput: { path: 'src/a.ts', old_string: 'a', new_string: 'Y' },
       toolResult: { content: 'ok', isError: false },
@@ -453,13 +467,13 @@ describe('per-path throttle + content-hash dedupe', () => {
     diffSummaryPlugin.setup(api as never);
     const hook = getHook(api);
 
-    hook({
+    await hook({
       toolName: 'edit',
       toolInput: { path: 'src/a.ts', old_string: 'a', new_string: 'X' },
       toolResult: { content: 'ok', isError: false },
     });
     const baseline = diffCallsCount();
-    hook({
+    await hook({
       toolName: 'edit',
       toolInput: { path: 'src/a.ts', old_string: 'a', new_string: 'X' },
       toolResult: { content: 'ok', isError: false },
@@ -477,13 +491,13 @@ describe('per-path throttle + content-hash dedupe', () => {
     diffSummaryPlugin.setup(api as never);
     const hook = getHook(api);
 
-    hook({
+    await hook({
       toolName: 'edit',
       toolInput: { path: 'src/a.ts', old_string: 'a', new_string: 'X' },
       toolResult: { content: 'ok', isError: false },
     });
     // Same path, same new_string, within throttle window.
-    hook({
+    await hook({
       toolName: 'edit',
       toolInput: { path: 'src/a.ts', old_string: 'a', new_string: 'X' },
       toolResult: { content: 'ok', isError: false },
@@ -501,7 +515,7 @@ describe('per-path throttle + content-hash dedupe', () => {
     diffSummaryPlugin.setup(api as never);
     const hook = getHook(api);
 
-    hook({
+    await hook({
       toolName: 'write',
       toolInput: { path: 'src/a.ts', content: 'hello' },
       toolResult: { content: 'ok', isError: false },
@@ -513,7 +527,7 @@ describe('per-path throttle + content-hash dedupe', () => {
     // the hook must run git diff again.
     const hook2 = getHook(api);
     const beforeCalls = diffCallsCount();
-    hook2({
+    await hook2({
       toolName: 'write',
       toolInput: { path: 'src/a.ts', content: 'hello' },
       toolResult: { content: 'ok', isError: false },

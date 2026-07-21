@@ -57,6 +57,10 @@ export const TELEGRAM_MANIFEST = {
     'singleInstanceLock',
     'outboundQueuePerChat',
     'outboundQueueConcurrency',
+    'allowGroupApprovals',
+    'rateLimitTokensPerSecond',
+    'rateLimitBurst',
+    'parseMode',
   ],
 } as const;
 

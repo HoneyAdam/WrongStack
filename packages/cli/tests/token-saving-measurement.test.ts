@@ -2,17 +2,12 @@ import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  Container,
-  type Config,
-  TOKENS,
-  ToolRegistry,
-  type WstackPaths,
-} from '@wrongstack/core';
-import { makeFakeMemoryStore } from './fake-memory-store.js';
-import { setupTools, getToolsForTier } from '../src/wiring/tools.js';
+import { type Config, Container, TOKENS, ToolRegistry, type WstackPaths } from '@wrongstack/core';
 import { builtinToolsPack } from '@wrongstack/tools';
+import { selectBuiltinToolsForTier } from '@wrongstack/tools/tool-tier';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { setupTools } from '../src/wiring/tools.js';
+import { makeFakeMemoryStore } from './fake-memory-store.js';
 
 /**
  * MEASUREMENT TEST — empirical token-count audit of `tokenSavingMode` tiers.
@@ -162,9 +157,15 @@ describe('token-saving measurement (empirical)', () => {
 
     // Print a clear table.
     /* eslint-disable no-console */
-    console.log('\n┌─────────────┬─────────┬────────────┬────────────┬────────────┬──────────────┬──────────────┐');
-    console.log('│ Tier        │ Tools   │ Prompt ch. │ Tok (3.5c) │ Tok (4.0c) │ Δ chars      │ Δ tok (3.5c) │');
-    console.log('├─────────────┼─────────┼────────────┼────────────┼────────────┼──────────────┼──────────────┤');
+    console.log(
+      '\n┌─────────────┬─────────┬────────────┬────────────┬────────────┬──────────────┬──────────────┐',
+    );
+    console.log(
+      '│ Tier        │ Tools   │ Prompt ch. │ Tok (3.5c) │ Tok (4.0c) │ Δ chars      │ Δ tok (3.5c) │',
+    );
+    console.log(
+      '├─────────────┼─────────┼────────────┼────────────┼────────────┼──────────────┼──────────────┤',
+    );
     for (const r of results) {
       const t = r.tier.padEnd(11);
       const tc = String(r.toolCount).padStart(7);
@@ -175,7 +176,9 @@ describe('token-saving measurement (empirical)', () => {
       const dt = (r.deltaTokens35VsOff >= 0 ? '+' : '') + String(r.deltaTokens35VsOff).padStart(11);
       console.log(`│ ${t} │ ${tc} │ ${pc} │ ${t35} │ ${t40} │ ${dc} │ ${dt} │`);
     }
-    console.log('└─────────────┴─────────┴────────────┴────────────┴────────────┴──────────────┴──────────────┘');
+    console.log(
+      '└─────────────┴─────────┴────────────┴────────────┴────────────┴──────────────┴──────────────┘',
+    );
     /* eslint-enable no-console */
 
     // Tool counts per tier (sanity check).
@@ -201,32 +204,45 @@ describe('token-saving measurement (empirical)', () => {
     expect(aggressiveDelta).toBeLessThanOrEqual(-500);
   });
 
-  it('cross-checks getToolsForTier counts against the real builtinTools array', () => {
+  it('cross-checks canonical tier counts against the real builtinTools array', () => {
     const allTools = builtinToolsPack.tools ?? [];
     const allNames = allTools.map((t) => t.name).sort();
     // Sanity: this codebase has grown beyond the original 36 tools. Whatever
-    // the current number, getToolsForTier must respect the TIER1/2/3 split.
+    // the current number, canonical selection must respect the TIER1/2/3 split.
     const tier1 = allTools.filter((t) =>
       [
-        'read', 'write', 'edit',
-        'codebase-stats', 'codebase-search', 'codebase-index',
-        'bash', 'grep', 'glob',
-        'diff', 'patch', 'json', 'search',
+        'read',
+        'write',
+        'edit',
+        'codebase-stats',
+        'codebase-search',
+        'codebase-index',
+        'bash',
+        'grep',
+        'glob',
+        'diff',
+        'patch',
+        'json',
+        'search',
       ].includes(t.name),
     );
-    expect(getToolsForTier('minimal', allTools)).toHaveLength(tier1.length);
-    expect(getToolsForTier('light', allTools)).toHaveLength(tier1.length);
+    expect(selectBuiltinToolsForTier('minimal', allTools)).toHaveLength(tier1.length);
+    expect(selectBuiltinToolsForTier('light', allTools)).toHaveLength(tier1.length);
     // The medium tier includes TIER1 + TIER2; we don't pin the absolute count
     // (it grows as new tools are added) but it must be >= tier1 and > off's count - 1
     // (off minus TIER3-only tools).
     const off = allTools.length;
-    const medium = getToolsForTier('medium', allTools).length;
-    const aggressive = getToolsForTier('aggressive', allTools).length;
+    const medium = selectBuiltinToolsForTier('medium', allTools).length;
+    const aggressive = selectBuiltinToolsForTier('aggressive', allTools).length;
     expect(medium).toBeGreaterThanOrEqual(tier1.length);
     expect(medium).toBeLessThan(off); // off has more tools (includes TIER3)
     expect(aggressive).toBeGreaterThanOrEqual(medium);
     expect(aggressive).toBeLessThan(off + 1); // never exceeds off by more than tier3-excluded
     // Check that 'off' returns the full list verbatim
-    expect(getToolsForTier('off', allTools).map((t) => t.name).sort()).toEqual(allNames);
+    expect(
+      selectBuiltinToolsForTier('off', allTools)
+        .map((t) => t.name)
+        .sort(),
+    ).toEqual(allNames);
   });
 });

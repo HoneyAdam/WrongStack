@@ -1,5 +1,10 @@
+import { createCompatibilityTrustBoundary, type TrustBoundary } from '@wrongstack/core/security';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WebSocket } from 'ws';
+
+// Allow-all boundary for killAll tests (which use 'critical' risk, now denied
+// by default from remote-client actors). kill (high) is still allowed by default.
+const allowBoundary = createCompatibilityTrustBoundary({ denyCriticalRiskRemoteClient: false });
 
 // Mock the registry the handlers reach via dynamic `@wrongstack/tools` import.
 const registry = vi.hoisted(() => ({
@@ -37,7 +42,14 @@ describe('process WebSocket handlers', () => {
   describe('handleProcessList', () => {
     it('projects the registry list into the wire shape', async () => {
       registry.list.mockReturnValue([
-        { pid: 10, command: 'bash -c x', name: 'bash', startedAt: 5, killed: false, protected: true },
+        {
+          pid: 10,
+          command: 'bash -c x',
+          name: 'bash',
+          startedAt: 5,
+          killed: false,
+          protected: true,
+        },
         { pid: 11, command: 'rg foo', name: 'grep', startedAt: 6, killed: true, protected: false },
       ]);
       const ws = createMockWs();
@@ -47,8 +59,22 @@ describe('process WebSocket handlers', () => {
         type: 'process.list',
         payload: {
           processes: [
-            { pid: 10, command: 'bash -c x', tool: 'bash', startedAt: 5, status: 'running', protected: true },
-            { pid: 11, command: 'rg foo', tool: 'grep', startedAt: 6, status: 'killed', protected: false },
+            {
+              pid: 10,
+              command: 'bash -c x',
+              tool: 'bash',
+              startedAt: 5,
+              status: 'running',
+              protected: true,
+            },
+            {
+              pid: 11,
+              command: 'rg foo',
+              tool: 'grep',
+              startedAt: 6,
+              status: 'killed',
+              protected: false,
+            },
           ],
         },
       });
@@ -75,7 +101,7 @@ describe('process WebSocket handlers', () => {
     it('refuses to kill a protected process', async () => {
       registry.get.mockReturnValue({ protected: true });
       const ws = createMockWs();
-      await handleProcessKill(ws, { pid: 42 });
+      await handleProcessKill(ws, { pid: 42 }, allowBoundary);
       expect(registry.kill).not.toHaveBeenCalled();
       expect(ws.sent[0]?.payload.success).toBe(false);
       expect(String(ws.sent[0]?.payload.message)).toContain('protected');
@@ -84,16 +110,36 @@ describe('process WebSocket handlers', () => {
     it('kills an unprotected process', async () => {
       registry.get.mockReturnValue({ protected: false });
       const ws = createMockWs();
-      await handleProcessKill(ws, { pid: 42 });
+      await handleProcessKill(ws, { pid: 42 }, allowBoundary);
       expect(registry.kill).toHaveBeenCalledWith(42);
       expect(ws.sent[0]?.payload.success).toBe(true);
+    });
+
+    it('routes termination through TrustBoundary before touching the registry', async () => {
+      const evaluate = vi.fn(async () => ({ kind: 'deny' as const, reason: 'policy denied' }));
+      const boundary: TrustBoundary = { evaluate };
+      registry.get.mockReturnValue({ protected: false });
+      const ws = createMockWs();
+
+      await handleProcessKill(ws, { pid: 42 }, boundary);
+
+      expect(registry.kill).not.toHaveBeenCalled();
+      expect(evaluate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          surface: 'webui',
+          capability: 'process.terminate',
+          subject: { kind: 'process', id: '42', attributes: { operation: 'kill' } },
+          risk: 'high',
+        }),
+      );
+      expect(String(ws.sent[0]?.payload.message)).toContain('policy denied');
     });
   });
 
   describe('handleProcessKillAll', () => {
     it('kills all and confirms', async () => {
       const ws = createMockWs();
-      await handleProcessKillAll(ws);
+      await handleProcessKillAll(ws, allowBoundary);
       expect(registry.killAll).toHaveBeenCalledOnce();
       expect(ws.sent[0]?.payload.success).toBe(true);
     });

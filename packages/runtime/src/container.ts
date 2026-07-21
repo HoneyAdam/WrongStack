@@ -26,7 +26,7 @@ import {
 import { buildRecoveryStrategies } from '@wrongstack/core/execution';
 import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import { getSessionRegistry } from '@wrongstack/core/storage';
-import { SuperMemoryStore, SqliteSuperMemoryStore, isSqliteAvailable } from '@wrongstack/super-memory';
+import { SqliteSuperMemoryStore, isSqliteAvailable } from '@wrongstack/super-memory';
 import type { MemoryStore } from '@wrongstack/core';
 
 export interface CreateContainerOptions {
@@ -135,29 +135,20 @@ export function createDefaultContainer(opts: CreateContainerOptions): Container 
   // session-end hygiene (see wiring/super-memory.ts). This guarantees "one memory
   // system, no other" across TUI, slash commands, agent tools, and WebUI.
   //
-  // When `superMemory.storage.engine === 'sqlite'`, the store uses the SQLite
-  // backend (indexed + FTS5 search, auto-migrates from JSONL on first open).
-  // If node:sqlite is unavailable, falls back to JSONL with a warning.
-  // Otherwise the JSONL backend is used.
-  const wantSqlite = config.superMemory?.storage?.engine === 'sqlite';
-  const useSqlite = wantSqlite && isSqliteAvailable();
-  if (wantSqlite && !useSqlite) {
-    logger.warn(
-      'Super Memory: SQLite engine requested but node:sqlite is unavailable in this runtime. ' +
-        'Falling back to JSONL backend. (SQLite requires Node >= 22.5.)',
+  // SQLite is the sole production backend. Legacy JSONL data is imported by
+  // SqliteSuperMemoryStore on first open, but JSONL can no longer be selected
+  // as a writable runtime backend.
+  if (!isSqliteAvailable()) {
+    throw new Error(
+      'Super Memory requires Node built-in SQLite (node:sqlite; Node >= 22.5). ' +
+        'The JSONL compatibility fallback has been removed.',
     );
   }
-  const memoryStore = useSqlite
-    ? new SqliteSuperMemoryStore({
-        projectRoot: wpaths.projectRoot,
-        directory: config.superMemory?.storage?.directory,
-        events: opts.events,
-      })
-    : new SuperMemoryStore({
-        projectRoot: wpaths.projectRoot,
-        directory: config.superMemory?.storage?.directory,
-        events: opts.events,
-      });
+  const memoryStore = new SqliteSuperMemoryStore({
+    projectRoot: wpaths.projectRoot,
+    directory: config.superMemory?.storage?.directory,
+    events: opts.events,
+  });
   container.bind(TOKENS.MemoryStore, () => memoryStore as unknown as MemoryStore);
 
   const skillLoader = new DefaultSkillLoader({

@@ -26,21 +26,19 @@ describe('/security command contract', () => {
     expect(JSON.parse(result!.message!)).toEqual({
       ok: true,
       action: 'help',
-      subcommands: ['audit-deps', 'scan', 'redact-test', 'help'],
+      subcommands: ['scan', 'audit', 'audit-deps', 'report', 'redact-test', 'help'],
     });
   });
 
-  it('returns scan dispatch options without exposing the project path', async () => {
+  it('routes scan to the real backend and reports missing provider without exposing project path', async () => {
     const result = await buildSecurityCommand(makeOptions()).run('scan --json', undefined);
     const payload = JSON.parse(result!.message!);
     expect(payload).toMatchObject({
-      ok: true,
+      ok: false,
       action: 'scan',
-      dispatch: {
-        role: 'bug-hunter',
-        hq: 'HQ Control → Spawn role → bug-hunter',
-      },
+      error: { code: 'security_command_failed' },
     });
+    expect(payload.error.message).toContain('requires an active LLM provider');
     expect(result!.message).not.toContain('C:/private/project');
     expect(result!.metadata?.['security']).toEqual(payload);
   });

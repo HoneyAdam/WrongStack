@@ -1,7 +1,7 @@
 # @wrongstack/plugins
 
 First-party plugin collection for [WrongStack](https://github.com/WrongStack/WrongStack).
-Sixty-three focused, single-purpose plugins ship in this package. Passive,
+Sixty-four focused, single-purpose plugins ship in this package. Passive,
 broadly applicable diagnostics and bounded safety checks load automatically;
 plugins with automatic mutation, policy enforcement, network egress, background
 work, or provider-call semantic changes are opt-in.
@@ -15,79 +15,15 @@ exports a default `Plugin` object. The host's plugin loader
 `ToolRegistry` and may also register **hooks** (e.g.
 `secret-scanner` registers `PreToolUse` + `PostToolUse` hooks).
 
-Plugins are loaded lazily by `packages/cli/src/wiring/plugins.ts`
-under the `BUILTIN_PLUGIN_FACTORIES` array. The canonical default is
-`PLUGIN_AUDIT_ENTRIES.defaultState`: list an inactive plugin with
+Official plugins are loaded lazily through factories generated from the typed
+manifest. The canonical default is each manifest entry's `audit.defaultState`:
+list an inactive plugin with
 `{ name: '<plugin>', enabled: true }` to opt in, or list an active plugin with
 `enabled: false` to opt out.
 
 ## Plugin catalog
 
-| # | Plugin | Tools | Hooks | Notes |
-|---|---|---|---|---|
-| 1 | [`auto-doc`](./src/auto-doc) | `auto_doc` | — | JSDoc/TSDoc generation with `dry_run` preview |
-| 2 | [`git-autocommit`](./src/git-autocommit) | `git_autocommit` | — | AI-written conventional commits; warns on simultaneous worktrees |
-| 3 | [`shell-check`](./src/shell-check) | `shellcheck` | — | Runs `shellcheck` on files or directories |
-| 4 | [`cost-tracker`](./src/cost-tracker) | `cost_summary`, `cost_reset`, `cost_export` | — | Tracks per-model token usage and estimated USD cost |
-| 5 | [`file-watcher`](./src/file-watcher) | `watch_start`, `watch_stop`, `watch_list` | — | Watches project files and emits debounced change events |
-| 6 | [`cron`](./src/cron) | `cron_schedule`, `cron_list`, `cron_cancel` | — | Schedules recurring in-session actions |
-| 7 | [`template-engine`](./src/template-engine) | `template_expand`, `template_render`, `template_create`, `template_list` | — | Expands templates with variables, conditionals, and loops |
-| 8 | [`semver-bump`](./src/semver-bump) | `semver_bump`, `semver_current`, `semver_changelog` | — | Infers version bumps and changelogs from conventional commits |
-| 9 | [`secret-scanner`](./src/secret-scanner) | `secret_scanner_status`, `secret_scanner_test` | `PreToolUse` + `PostToolUse` | Blocks/redacts input secrets and warns on output leaks |
-| 10 | [`todo-tracker`](./src/todo-tracker) | `todo_tracker_*` | — | Persistent project-scoped backlog that survives sessions |
-| 11 | [`token-budget`](./src/token-budget) | `token_budget_status` | `Stop` + `PostToolUse` | Tracks token use and can warn/stop at configured limits |
-| 12 | [`lint-gate`](./src/lint-gate) | `lint_gate_status` | `PreToolUse` | Lints would-be write/edit content before mutation |
-| 13 | [`branch-guard`](./src/branch-guard) | `branch_guard_status` | `PreToolUse` | Opt-in protected-branch policy for commits, pushes, and merges |
-| 14 | [`diff-summary`](./src/diff-summary) | `diff_summary_status` | `PostToolUse` | Injects compact git diff context after write/edit |
-| 15 | [`commit-validator`](./src/commit-validator) | `commit_validator_status` | `PreToolUse` | Opt-in conventional-commit policy |
-| 16 | [`format-on-save`](./src/format-on-save) | `format_on_save_status` | `PostToolUse` | Runs formatter after write/edit |
-| 17 | [`test-runner-gate`](./src/test-runner-gate) | `test_gate_status` | `PostToolUse` | Runs relevant tests after source edits |
-| 18 | [`import-organizer`](./src/import-organizer) | `import_organizer_status` | `PostToolUse` | Organizes imports and applies safe fixes after write/edit |
-| 19 | [`todo-listener`](./src/todo-listener) | `todo_listener_status` | `PostToolUse` | Broadcasts todo status changes to the project mailbox |
-| 20 | [`session-recap`](./src/session-recap) | `session_recap_status` | `Stop` | Posts a compact session recap to the project mailbox |
-| 21 | [`spec-linker`](./src/spec-linker) | `spec_linker_status` | `PreToolUse` + `PostToolUse` | Detects unlinked plugin references in markdown docs |
-| 22 | [`loop-breaker`](./src/loop-breaker) | `loop_breaker_status` | `PreToolUse` | Detects repeated tool-call loops and oscillations |
-| 23 | [`path-guard`](./src/path-guard) | `path_guard_status` | `PreToolUse` | Opt-in protected-path policy for writes and destructive commands |
-| 24 | [`context-pins`](./src/context-pins) | `pin_add`, `pin_remove`, `pin_list` | System prompt contributor | Persists short pinned facts across compaction/session boundaries |
-| 25 | [`checkpoint`](./src/checkpoint) | `checkpoint_create`, `checkpoint_list`, `checkpoint_restore` | `PreToolUse` | Opt-in in-memory snapshots of pre-edit file contents |
-| 26 | [`error-lens`](./src/error-lens) | `error_lens_history` | `PostToolUse` | Summarizes failed tool output and repeated failure patterns |
-| 27 | [`dep-guard`](./src/dep-guard) | `dep_guard_status` | `PreToolUse` | Supervises dependency installs for deny-list and supply-chain warnings |
-| 28 | [`config-validator`](./src/config-validator) | `config_validator_status` | `PostToolUse` | Validates edited JSON/JSONC/YAML/TOML config files |
-| 29 | [`notify-hub`](./src/notify-hub) | `notify_send`, `notify_hub_status` | `Stop` + event subscriptions | Sends session/tool notifications to a configured webhook |
-| 30 | [`changelog-writer`](./src/changelog-writer) | `changelog_add`, `changelog_preview`, `changelog_write` | — | Collects and writes Keep-a-Changelog entries |
-| 31 | [`injection-shield`](./src/injection-shield) | `injection_shield_status` | `PostToolUse` | Warns when tool output contains prompt-injection patterns |
-| 32 | [`llm-cache`](./src/llm-cache) | `llm_cache_status`, `llm_cache_clear` | Provider runner wrapper | Opt-in cache for deterministic provider requests |
-| 33 | [`model-router`](./src/model-router) | `model_router_status` | Provider runner wrapper | Opt-in routing of provider calls by declarative rules |
-| 34 | [`prompt-firewall`](./src/prompt-firewall) | `prompt_firewall_status` | Provider runner wrapper | Opt-in provider-wire prompt/secret scanning and redaction/blocking |
-| 35 | [`auto-escalate`](./src/auto-escalate) | `auto_escalate_status` | `onError` extension | Opt-in retry/escalation ladder for transient provider errors |
-| 36 | [`token-throttle`](./src/token-throttle) | `token_throttle_status` | Provider runner wrapper | Opt-in rolling-window token throttling for provider calls |
-| 37 | [`type-gate`](./src/type-gate) | `type_gate_status` | `PostToolUse` | Runs `tsc --noEmit` after `write`/`edit` to catch type regressions |
-| 38 | [`test-coverage-gate`](./src/test-coverage-gate) | `coverage_gate_status` | `PostToolUse` | Detects test-coverage regressions after source-file edits |
-| 39 | [`pr-drafter`](./src/pr-drafter) | `pr_draft` | `Stop` + event subscriptions | Drafts a pull-request description from session commits/files/diff |
-| 40 | [`agent-handoff`](./src/agent-handoff) | `handoff_note`, `handoff_status` | `subagent.done` event listener | Opt-in mailbox publication of subagent results |
-| 41 | [`knowledge-graph`](./src/knowledge-graph) | `kg_add_fact`, `kg_query`, `kg_remove_fact`, `kg_status` | System prompt contributor | Persistent structured (subject, relation, object) project facts |
-| 42 | [`dead-code-detector`](./src/dead-code-detector) | `dead_code_scan` | `PostToolUse` | Regex-based scan for exported identifiers that appear unused |
-| 43 | [`dependency-vulnerability-gate`](./src/dependency-vulnerability-gate) | `dependency_audit_status` | `PostToolUse` | Opt-in blocking `npm/pnpm audit` after installs |
-| 44 | [`migration-planner`](./src/migration-planner) | `migration_plan`, `migration_status` | `PostToolUse` | Evidence-backed checklists + optional `api.llm` risk/verification analysis |
-| 45 | [`semantic-search-indexer`](./src/semantic-search-indexer) | `semantic_search`, `semantic_index_status` | — | Lightweight keyword index over project source files |
-| 46 | [`auto-i18n-extractor`](./src/auto-i18n-extractor) | `i18n_extract`, `i18n_status` | `PostToolUse` | Detects hardcoded user-facing strings and suggests i18n keys |
-| 47 | [`doc-sync-guard`](./src/doc-sync-guard) | `doc_sync_status` | `PostToolUse` | Warns when README/docs edits omit recently changed source files |
-| 48 | [`api-compatibility-gate`](./src/api-compatibility-gate) | `api_compat_status` | `PostToolUse` | Detects removed exports in entry-point files as breaking changes |
-| 49 | [`performance-regression-gate`](./src/performance-regression-gate) | `perf_regression_status` | — | Compares benchmark results and reports regressions |
-| 50 | [`test-flake-detector`](./src/test-flake-detector) | `flake_detect`, `flake_status` | — | Runs a test command N times to identify flaky tests |
-| 51 | [`schema-evolution-guard`](./src/schema-evolution-guard) | `schema_evolution_status` | `PostToolUse` | Detects destructive patterns in DB/API schema files |
-| 52 | [`license-audit-gate`](./src/license-audit-gate) | `license_audit_status` | `PostToolUse` | Audits newly added dependency licenses against an allowlist |
-| 53 | [`accessibility-auditor`](./src/accessibility-auditor) | `a11y_audit`, `a11y_status` | `PostToolUse` | Audits UI files for missing alt, labels, button text, duplicate ids |
-| 54 | [`security-hotspot-scanner`](./src/security-hotspot-scanner) | `security_hotspot_scan`, `security_hotspot_status` | `PostToolUse` | Scans source for security anti-patterns after writes/edits |
-| 55 | [`duplicate-code-detector`](./src/duplicate-code-detector) | `detect_duplicate_code`, `duplicate_code_status` | `PostToolUse` | Detects duplicate/similar code blocks using normalized-line fingerprints |
-| 56 | [`code-metrics`](./src/code-metrics) | `measure_code_metrics`, `metrics_status` | `PostToolUse` | Computes LOC, comment ratio, function count, and approximate cyclomatic complexity |
-| 57 | [`refactor-suggester`](./src/refactor-suggester) | `suggest_refactors`, `refactor_status` | `PostToolUse` | Flags long functions, deep nesting, many parameters, magic numbers, console.log |
-| 58 | [`test-generator`](./src/test-generator) | `generate_unit_tests` | — | Framework-correct skeletons + optional behavior-focused `api.llm` tests |
-| 59 | [`release-notes-generator`](./src/release-notes-generator) | `generate_release_notes` | — | Traceable notes + optional hash-preserving `api.llm` polish |
-| 60 | [`smart-rename`](./src/smart-rename) | `smart_rename` | — | Whole-word symbol rename with preview and optional apply |
-| 61 | [`feature-flag-tracker`](./src/feature-flag-tracker) | `scan_feature_flags`, `feature_flag_status` | `PostToolUse` | Scans source files for feature-flag usage and reports flag inventory |
-| 62 | [`interface-contract-guard`](./src/interface-contract-guard) | `check_interface_contracts`, `interface_contract_status` | `PostToolUse` | Warns when TypeScript interfaces change or lack implementers |
-| 63 | [`plugin-stack-observer`](./src/plugin-stack-observer) | `plugin_stack_status` | Event listener + optional system prompt contributor | Reports active provider-runner wrappers in registration order |
+Plugin identity, import paths, versions, API ranges, and descriptions are generated from the typed manifest in [`PLUGIN_CATALOG.md`](./PLUGIN_CATALOG.md). Run `pnpm plugins:manifest:write` after changing the manifest.
 
 ### Removed plugins (use built-in tools instead)
 
@@ -702,7 +638,7 @@ context. Increase `includeTranscriptTail` for more history.
 Two hooks working together:
 
 **PostToolUse** (always active when the plugin is enabled):
-scans markdown files for *unlinked* references to one of the 63
+scans markdown files for *unlinked* references to one of the manifest-listed
 known plugins and surfaces them to the LLM via
 `additionalContext`. The plugin does NOT modify the file — it
 only injects a low-noise context block listing the unlinked
@@ -726,7 +662,7 @@ the PostToolUse context tells the LLM what to fix.
 
 **Detection rules** (both hooks):
 - Source matches `config.fileGlobs` (default: `**/*.md`, `**/*.mdx`)
-- The reference matches one of the 63 known plugin names
+- The reference matches one of the manifest-listed plugin names
   (case-insensitive)
 - It is NOT already wrapped in a markdown link `[name](...)` or
   inline code `` `name` ``

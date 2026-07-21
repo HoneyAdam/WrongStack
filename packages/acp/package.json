@@ -36,6 +36,14 @@
     "./sdk": {
       "import": "./dist/sdk.js",
       "types": "./dist/sdk.d.ts"
+    },
+    "./v1": {
+      "import": "./dist/v1.js",
+      "types": "./dist/v1.d.ts"
+    },
+    "./legacy": {
+      "import": "./dist/legacy.js",
+      "types": "./dist/legacy.d.ts"
     }
   },
   "files": [

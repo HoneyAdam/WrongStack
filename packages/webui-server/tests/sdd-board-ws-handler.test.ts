@@ -1,10 +1,10 @@
-import { afterEach, describe, expect, it } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { EventBus } from '@wrongstack/core';
 import type { SddBoardSnapshot } from '@wrongstack/sdd';
-import { SddBoardWebSocketHandler } from '@wrongstack/webui-server';
+import { afterEach, describe, expect, it } from 'vitest';
+import { SddBoardWebSocketHandler } from '../src/index.js';
 
 /** Minimal ws stub capturing sent JSON messages. */
 function fakeWs() {
@@ -57,6 +57,25 @@ function lifecyclePaths(root: string, boardsDir: string) {
 }
 
 describe('SddBoardWebSocketHandler — lifecycle', () => {
+  it('polls standalone board storage only while clients are connected', async () => {
+    const root = await tmpDir();
+    const listeners = new Map<string, () => void>();
+    const ws = {
+      readyState: 1,
+      send: () => undefined,
+      on: (event: string, listener: () => void) => listeners.set(event, listener),
+    } as never;
+    const handler = new SddBoardWebSocketHandler(path.join(root, 'sdd-boards'));
+    const internal = handler as unknown as { poll: ReturnType<typeof setInterval> | null };
+
+    expect(internal.poll).toBeNull();
+    handler.addClient(ws);
+    expect(internal.poll).not.toBeNull();
+    listeners.get('close')?.();
+    expect(internal.poll).toBeNull();
+    handler.dispose();
+  });
+
   it('applies cleanup_worktrees from disk and broadcasts a lifecycle_result', async () => {
     const root = await tmpDir();
     const boardsDir = path.join(root, 'sdd-boards');

@@ -1,10 +1,11 @@
 import { mkdtempSync } from 'node:fs';
+import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { TaskGraph, TaskNode } from '@wrongstack/core/types/task-graph.js';
 import { afterAll, describe, expect, it } from 'vitest';
 import { buildBoardSnapshot, buildBoardTasks } from '../src/board-types.js';
 import { SddBoardStore } from '../src/sdd-board-store.js';
-import type { TaskGraph, TaskNode } from '@wrongstack/core/types/task-graph.js';
 
 function node(id: string, over: Partial<TaskNode> = {}): TaskNode {
   return {
@@ -130,6 +131,29 @@ describe('SddBoardStore', () => {
     expect(latest?.runId).toBe('run-1');
   });
 
+  it('invalidates a cached index after another store updates it', async () => {
+    const cacheDir = join(dir, 'index-cache');
+    const writer = new SddBoardStore({ baseDir: cacheDir });
+    const reader = new SddBoardStore({ baseDir: cacheDir });
+    await writer.saveSnapshot(
+      buildBoardSnapshot(
+        chainGraph(),
+        { runId: 'cache-1', specId: 's1', status: 'running', startedAt: 1, wave: 0 },
+        10,
+      ),
+    );
+    expect((await reader.latest())?.runId).toBe('cache-1');
+
+    await writer.saveSnapshot(
+      buildBoardSnapshot(
+        chainGraph(),
+        { runId: 'cache-2', specId: 's2', status: 'running', startedAt: 2, wave: 0 },
+        20,
+      ),
+    );
+    expect((await reader.latest())?.runId).toBe('cache-2');
+  });
+
   it('appends + drains the control queue', async () => {
     await store.appendControl('run-1', { ts: 1, type: 'pause' });
     await store.appendControl('run-1', { ts: 2, type: 'retry', payload: { taskId: 'c' } });
@@ -139,7 +163,54 @@ describe('SddBoardStore', () => {
     expect(await store.drainControl('run-1')).toEqual([]);
   });
 
+  it('does not rewrite an already-empty control queue', async () => {
+    await store.appendControl('empty-queue', { ts: 1, type: 'pause' });
+    await store.drainControl('empty-queue');
+    const controlPath = store.controlPath('empty-queue');
+    const before = await fs.stat(controlPath);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(await store.drainControl('empty-queue')).toEqual([]);
+    const after = await fs.stat(controlPath);
+    expect(after.mtimeMs).toBe(before.mtimeMs);
+  });
+
+  it('serializes concurrent control appends and drains each batch once', async () => {
+    await Promise.all(
+      Array.from({ length: 30 }, (_, index) =>
+        store.appendControl('concurrent-control', { ts: index, type: `command-${index}` }),
+      ),
+    );
+    const drains = await Promise.all([
+      store.drainControl('concurrent-control'),
+      store.drainControl('concurrent-control'),
+    ]);
+    expect(drains.map((commands) => commands.length).sort((a, b) => a - b)).toEqual([0, 30]);
+  });
+
   it('appendEvent never throws', async () => {
     await expect(store.appendEvent('run-1', { ts: 1, type: 'sdd.task.started' })).resolves.toBeUndefined();
+  });
+
+  it('bounds event logs by compacting a valid JSONL tail', async () => {
+    const bounded = new SddBoardStore({
+      baseDir: dir,
+      eventMaxBytes: 1024,
+      eventKeepBytes: 512,
+      eventSizeCheckEvery: 1,
+    });
+    for (let index = 0; index < 40; index++) {
+      await bounded.appendEvent('bounded', {
+        ts: index,
+        type: 'sdd.task.updated',
+        payload: { text: 'x'.repeat(120) },
+      });
+    }
+
+    const eventPath = bounded.eventsPath('bounded');
+    expect((await fs.stat(eventPath)).size).toBeLessThanOrEqual(1024);
+    const lines = (await fs.readFile(eventPath, 'utf8')).trim().split('\n').filter(Boolean);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.every((line) => JSON.parse(line))).toBe(true);
   });
 });

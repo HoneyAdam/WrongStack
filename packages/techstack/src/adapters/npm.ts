@@ -9,7 +9,7 @@
  * @see docs/specs/techstack-sdd.md §6 Tier A
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { access, readFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import type {
   DependencyObservation,
@@ -62,7 +62,7 @@ interface PackageJson {
  * looking only in the workspace directory finds nothing for every package but
  * the root, and every dependency ends up with no resolved version.
  */
-function detectLockfile(workspaceDir: string, stopAt?: string): LockfileInfo {
+async function detectLockfile(workspaceDir: string, stopAt?: string): Promise<LockfileInfo> {
   const candidates: Array<{ file: string; kind: LockfileKind }> = [
     { file: 'pnpm-lock.yaml', kind: 'pnpm' },
     { file: 'package-lock.json', kind: 'npm' },
@@ -76,7 +76,10 @@ function detectLockfile(workspaceDir: string, stopAt?: string): LockfileInfo {
   for (;;) {
     for (const c of candidates) {
       const candidate = join(dir, c.file);
-      if (existsSync(candidate)) return { kind: c.kind, path: candidate };
+      try {
+        await access(candidate);
+        return { kind: c.kind, path: candidate };
+      } catch { /* absent */ }
     }
     if (ceiling && dir === ceiling) break;
     const parent = dirname(dir);
@@ -307,7 +310,7 @@ export class NpmAdapter implements EcosystemAdapter {
     let pkg: PackageJson;
     let manifestContent: string;
     try {
-      manifestContent = readFileSync(manifestPath, 'utf-8');
+      manifestContent = await readFile(manifestPath, 'utf-8');
       pkg = JSON.parse(manifestContent) as PackageJson;
     } catch {
       return []; // Can't read manifest — no dependencies
@@ -316,13 +319,13 @@ export class NpmAdapter implements EcosystemAdapter {
     const manifestEv = manifestEvidence(manifestPath);
 
     // Read lockfile for resolved versions
-    const lockInfo = detectLockfile(root, options.projectRoot);
+    const lockInfo = await detectLockfile(root, options.projectRoot);
     const resolvedVersions = new Map<string, string>();
     const allLockVersions = new Map<string, string>();
     let lockEv: Evidence | undefined;
     if (lockInfo.kind === 'pnpm') {
       try {
-        const lockContent = readFileSync(lockInfo.path, 'utf-8');
+        const lockContent = await readFile(lockInfo.path, 'utf-8');
         // The importer key is this workspace's path relative to the lockfile,
         // POSIX-style; the root workspace is `.`.
         const importerPath =
@@ -336,7 +339,7 @@ export class NpmAdapter implements EcosystemAdapter {
       }
     } else if (lockInfo.kind === 'npm') {
       try {
-        const lockContent = readFileSync(lockInfo.path, 'utf-8');
+        const lockContent = await readFile(lockInfo.path, 'utf-8');
         const parsed = parseNpmLockVersions(lockContent);
         for (const [k, v] of parsed) resolvedVersions.set(k, v);
         for (const [k, v] of parsed) allLockVersions.set(k, v);

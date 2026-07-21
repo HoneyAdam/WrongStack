@@ -224,6 +224,8 @@ export interface TelegramApiClientOptions {
 
 export interface TelegramRequestOptions {
   signal?: AbortSignal | undefined;
+  /** Optional parse_mode override for this call. */
+  parseMode?: '' | 'HTML' | 'MarkdownV2' | undefined;
 }
 
 export interface TelegramGetUpdatesOptions extends TelegramRequestOptions {
@@ -318,12 +320,14 @@ export class TelegramApiClient {
     text: string,
     opts?: TelegramRequestOptions,
   ): Promise<TelegramApiMessage> {
+    const body: Record<string, unknown> = {
+      chat_id: String(chatId),
+      text,
+      disable_web_page_preview: true,
+    };
+    if (opts?.parseMode) body.parse_mode = opts.parseMode;
     return this.request<TelegramApiMessage>('sendMessage', {
-      body: {
-        chat_id: String(chatId),
-        text,
-        disable_web_page_preview: true,
-      },
+      body,
       signal: composedSignal(opts?.signal),
     });
   }
@@ -334,20 +338,22 @@ export class TelegramApiClient {
     buttons: readonly TelegramInlineKeyboardButton[],
     opts?: TelegramRequestOptions,
   ): Promise<TelegramApiMessage> {
-    return this.request<TelegramApiMessage>('sendMessage', {
-      body: {
-        chat_id: String(chatId),
-        text,
-        disable_web_page_preview: true,
-        reply_markup: {
-          inline_keyboard: [
-            buttons.map((button) => ({
-              text: button.text,
-              callback_data: button.callback_data,
-            })),
-          ],
-        },
+    const body: Record<string, unknown> = {
+      chat_id: String(chatId),
+      text,
+      disable_web_page_preview: true,
+      reply_markup: {
+        inline_keyboard: [
+          buttons.map((button) => ({
+            text: button.text,
+            callback_data: button.callback_data,
+          })),
+        ],
       },
+    };
+    if (opts?.parseMode) body.parse_mode = opts.parseMode;
+    return this.request<TelegramApiMessage>('sendMessage', {
+      body,
       signal: composedSignal(opts?.signal),
     });
   }

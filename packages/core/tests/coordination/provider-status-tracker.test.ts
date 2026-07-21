@@ -377,7 +377,9 @@ describe('ProviderModelStatusTracker', () => {
     fastTracker.recordFailure('test', 'model-a', 'rate_limit', 429, 'rl');
     fastTracker.recordFailure('test', 'model-a', 'rate_limit', 429, 'rl');
 
-    strictEqual(fastTracker.isBlocked('test', 'model-a'), true);
+    // Assert the recorded transition without consulting the wall clock: with
+    // a 1 ms cooldown, a busy parallel test worker may already be past expiry.
+    strictEqual(fastTracker.getStatus('test', 'model-a')?.state, 'blocked');
 
     // Wait for cooldown to expire
     return new Promise<void>((resolve) => {

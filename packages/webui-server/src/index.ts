@@ -12,3 +12,4 @@
  * import from this file (the package root) for forward-compat.
  */
 export * from './server/index.js';
+export * from './protocol/index.js';

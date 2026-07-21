@@ -19,13 +19,17 @@
  *
  * No behaviour change.
  */
-import * as path from 'node:path';
+
 import { createRequire } from 'node:module';
+import * as path from 'node:path';
 import type { Config, Logger, MemoryStore } from '@wrongstack/core';
-import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
 import {
   type AgentStatusTracker,
   AnnotationsStore,
+  type ConfigStore,
+  type Container,
+  Context,
+  configureChildEnvGitIdentity,
   DEFAULT_SESSION_PRUNE_DAYS,
   DefaultModelsRegistry,
   DefaultModeStore,
@@ -36,66 +40,48 @@ import {
   DefaultSystemPromptBuilder,
   EventBus,
   GlobalMailbox,
+  getSessionRegistry,
+  type ModelsRegistry,
+  makeFleetStatusTool,
+  makeMailboxTool,
+  makeMailInboxTool,
+  makeMailSendTool,
+  normalizeTokenSavingTier,
   PromptUsageStore,
+  type Provider,
   ProviderRegistry,
+  resolveContextWindowPolicy,
+  type SecretVault,
+  type SessionStore,
   SkillInstaller,
   TOKENS,
   ToolRegistry,
-  Context,
-  applyToolDescriptionModes,
-  applyToolResultRenderModes,
-  configureChildEnvGitIdentity,
-  getSessionRegistry,
-  resolveContextWindowPolicy,
-  makeMailboxTool,
-  makeMailInboxTool,
-  makeFleetStatusTool,
-  makeMailSendTool,
-  type Container,
-  type ConfigStore,
-  type ModelsRegistry,
-  type Provider,
-  type SecretVault,
-  type SessionStore,
 } from '@wrongstack/core';
+import { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
+import type { WstackPaths } from '@wrongstack/core/utils';
+import { sessionScopedPath, toErrorMessage } from '@wrongstack/core/utils';
 import {
-  createSuperMemoryTools,
-  type SuperMemoryServiceLike,
-} from '@wrongstack/super-memory';
-import {
+  createVaultBackedMcpAuthorizationProviderFactory,
   MCPAuthorizationManager,
   MCPRegistry,
   MCPVaultTokenStore,
-  createVaultBackedMcpAuthorizationProviderFactory,
 } from '@wrongstack/mcp';
 import { buildProviderFactoriesFromRegistry } from '@wrongstack/providers';
 import { createDefaultContainer } from '@wrongstack/runtime';
-import {
-  builtinToolsPack,
-  configureDangerBypass,
-  configureExecPolicy,
-  forgetTool,
-  relatedMemoryTool,
-  rememberTool,
-  searchMemoryTool,
-} from '@wrongstack/tools';
-import {
-  attachSessionKanbanMirror,
-  hydrateSessionKanban,
-} from '@wrongstack/tools/session-kanban';
-import type { WstackPaths } from '@wrongstack/core/utils';
-import { sessionScopedPath, toErrorMessage } from '@wrongstack/core/utils';
-import type { WebUIOptions } from './types.js';
+import { registerCanonicalHostTools } from '@wrongstack/runtime/tool-registration';
+import { configureDangerBypass, configureExecPolicy } from '@wrongstack/tools';
+import { attachSessionKanbanMirror, hydrateSessionKanban } from '@wrongstack/tools/session-kanban';
+import { seedContextMeta } from './context-meta.js';
 import type { CustomModeStore } from './custom-context-modes.js';
 import { createCustomModeStore } from './custom-context-modes.js';
-import { resolveSetupProvider } from './setup-screen.js';
-import { seedContextMeta } from './context-meta.js';
-import { resolveProviderModelMetadata } from './model-catalog.js';
 import { discoverAndMergeWebuiProviders } from './model-auto-discovery.js';
+import { resolveProviderModelMetadata } from './model-catalog.js';
+import { resolveSetupProvider } from './setup-screen.js';
 import {
   createStandaloneSessionIdentityLifecycle,
   type StandaloneSessionIdentityLifecycle,
 } from './standalone-session-identity.js';
+import type { WebUIOptions } from './types.js';
 
 const GITHUB_PROVIDERS_OVERLAY_URL =
   'https://raw.githubusercontent.com/WrongStack/WrongStack/main/packages/cli/data/providers.json';
@@ -193,44 +179,42 @@ export async function createPreContextServices(
   // ── Provider registry ──
   const providerRegistry = new ProviderRegistry();
   try {
-    const factories = await buildProviderFactoriesFromRegistry({ registry: modelsRegistry, log: logger });
+    const factories = await buildProviderFactoriesFromRegistry({
+      registry: modelsRegistry,
+      log: logger,
+    });
     for (const f of factories) providerRegistry.register(f);
     console.log('[WebUI] Provider registry loaded:', providerRegistry.list().length, 'providers');
   } catch (err) {
-    console.warn(JSON.stringify({ level: 'warn', event: 'webui.provider_registry_load_failed', message: toErrorMessage(err), timestamp: new Date().toISOString() }));
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        event: 'webui.provider_registry_load_failed',
+        message: toErrorMessage(err),
+        timestamp: new Date().toISOString(),
+      }),
+    );
   }
 
   // ── Tool registry (+ memory + mailbox tools) ──
-  const toolRegistry =
-    opts.services?.toolRegistry ??
-    (() => {
-      const r = new ToolRegistry();
-      r.registerAllOrThrow([...(builtinToolsPack.tools ?? [])], builtinToolsPack.name);
-      return r;
-    })();
+  const toolRegistry = opts.services?.toolRegistry ?? new ToolRegistry();
   const memoryStore = container.resolve<MemoryStore>(TOKENS.MemoryStore);
-  if (config.features.memory) {
-    // Super Memory owns the ENTIRE memory tool surface — remember/forget (full
-    // structured args) + memory_update/memory_delete + memory_search/
-    // memory_graph/memory_for_file/... reads. No legacy duplicates
-    // (search_memory/find_related_memories) when super is active. The legacy
-    // flat tools are only a fallback for a non-super store.
-    // Keep in sync with boot/tool-registry.ts and wiring/tools.ts in the CLI.
-    if (isSuperMemoryService(memoryStore)) {
-      for (const tool of createSuperMemoryTools(memoryStore)) toolRegistry.register(tool);
-    } else {
-      toolRegistry.register(rememberTool(memoryStore));
-      toolRegistry.register(forgetTool(memoryStore));
-      toolRegistry.register(searchMemoryTool(memoryStore));
-      toolRegistry.register(relatedMemoryTool(memoryStore));
-    }
+  if (!opts.services?.toolRegistry) {
+    registerCanonicalHostTools({
+      registry: toolRegistry,
+      tier: normalizeTokenSavingTier(config.features.tokenSavingMode),
+      memory: { enabled: config.features.memory, store: memoryStore },
+      coordinationTools: [
+        makeMailboxTool({ projectDir: wpaths.projectDir, events }),
+        makeMailSendTool({ projectDir: wpaths.projectDir, events }),
+        makeMailInboxTool({ projectDir: wpaths.projectDir, events }),
+        makeFleetStatusTool({ projectDir: wpaths.projectDir, events }),
+      ],
+      descriptionMode: config.tools?.descriptionMode,
+      resultRenderMode: config.tools?.resultRenderMode,
+      disabledTools: config.tools?.disabledTools,
+    });
   }
-  toolRegistry.register(makeMailboxTool({ projectDir: wpaths.projectDir, events }));
-  toolRegistry.register(makeMailSendTool({ projectDir: wpaths.projectDir, events }));
-  toolRegistry.register(makeMailInboxTool({ projectDir: wpaths.projectDir, events }));
-  toolRegistry.register(makeFleetStatusTool({ projectDir: wpaths.projectDir, events }));
-  applyToolDescriptionModes(toolRegistry, config.tools?.descriptionMode);
-  applyToolResultRenderModes(toolRegistry, config.tools?.resultRenderMode);
   configureExecPolicy(config.tools?.exec ?? {});
   configureDangerBypass(config.tools?.exec?.danger ?? {});
   // Commit identity for every git-touching child process. Trusted-config-only:
@@ -287,13 +271,21 @@ export async function createPreContextServices(
       },
     });
   if (!opts.services?.session) {
-    sessionStore.prune(DEFAULT_SESSION_PRUNE_DAYS).then((count) => {
-      if (count > 0) logger.info(`Pruned ${count} old session${count === 1 ? '' : 's'}.`);
-    }).catch(() => undefined);
+    sessionStore
+      .prune(DEFAULT_SESSION_PRUNE_DAYS)
+      .then((count) => {
+        if (count > 0) logger.info(`Pruned ${count} old session${count === 1 ? '' : 's'}.`);
+      })
+      .catch(() => undefined);
   }
   const sessionReader = new DefaultSessionReader({ store: sessionStore });
   const annotationsStore = new AnnotationsStore({ dir: wpaths.projectSessions, events });
-  const session = await sessionStore.create({ id: '', title: '', model: config.model, provider: config.provider });
+  const session = await sessionStore.create({
+    id: '',
+    title: '',
+    model: config.model,
+    provider: config.provider,
+  });
   const sessionStartedAt = Date.now();
   console.log('[WebUI] Session created:', session.id);
 
@@ -338,7 +330,11 @@ export async function createPreContextServices(
   // ── Custom context modes ──
   const customModeStore = createCustomModeStore(wpaths.configDir);
   await customModeStore.load();
-  console.log('[WebUI] Custom context modes loaded:', customModeStore.list().filter((m) => (m as { custom?: boolean }).custom).length, 'custom');
+  console.log(
+    '[WebUI] Custom context modes loaded:',
+    customModeStore.list().filter((m) => (m as { custom?: boolean }).custom).length,
+    'custom',
+  );
 
   // ── Model capabilities ref ──
   const resolvedModel = await resolveProviderModelMetadata(
@@ -348,12 +344,21 @@ export async function createPreContextServices(
     config.providers?.[config.provider],
   );
   const modelCapabilities = resolvedModel?.capabilities
-    ? { maxContextTokens: resolvedModel.capabilities.maxContext, supportsTools: resolvedModel.capabilities.tools, supportsVision: resolvedModel.capabilities.vision, supportsReasoning: resolvedModel.capabilities.reasoning }
+    ? {
+        maxContextTokens: resolvedModel.capabilities.maxContext,
+        supportsTools: resolvedModel.capabilities.tools,
+        supportsVision: resolvedModel.capabilities.vision,
+        supportsReasoning: resolvedModel.capabilities.reasoning,
+      }
     : undefined;
-  const modelCapabilitiesRef: { current: typeof modelCapabilities } = { current: modelCapabilities };
+  const modelCapabilitiesRef: { current: typeof modelCapabilities } = {
+    current: modelCapabilities,
+  };
 
   // ── Skill loader/installer ──
-  const skillLoader = config.features.skills ? new DefaultSkillLoader({ paths: wpaths }) : undefined;
+  const skillLoader = config.features.skills
+    ? new DefaultSkillLoader({ paths: wpaths })
+    : undefined;
   const skillInstaller = config.features.skills
     ? new SkillInstaller({
         manifestPath: path.join(wpaths.configDir, 'installed-skills.json'),
@@ -370,13 +375,19 @@ export async function createPreContextServices(
     ? (() => {
         try {
           const req = createRequire(import.meta.url);
-          return path.join(path.dirname(req.resolve('@wrongstack/core/package.json')), 'data', 'prompts');
+          return path.join(
+            path.dirname(req.resolve('@wrongstack/core/package.json')),
+            'data',
+            'prompts',
+          );
         } catch {
           return undefined;
         }
       })()
     : undefined;
-  const promptLoader = promptsEnabled ? new DefaultPromptLoader({ paths: wpaths, bundledDir: bundledPromptsDir }) : undefined;
+  const promptLoader = promptsEnabled
+    ? new DefaultPromptLoader({ paths: wpaths, bundledDir: bundledPromptsDir })
+    : undefined;
   const promptUsage = new PromptUsageStore(wpaths.promptUsage);
   const promptsCtx = { promptLoader, promptUsage };
 
@@ -386,9 +397,15 @@ export async function createPreContextServices(
     // Super Memory's turn middleware is the single memory-injection channel;
     // don't also inject a static memory section here (avoids double injection).
     injectMemory: false,
-    skillLoader, modeStore, modeId, modePrompt,
+    skillLoader,
+    modeStore,
+    modeId,
+    modePrompt,
     modelCapabilities: () => modelCapabilitiesRef.current,
-    instructionPaths: { globalDir: wpaths.globalInstructions, projectDir: wpaths.inProjectInstructions },
+    instructionPaths: {
+      globalDir: wpaths.globalInstructions,
+      projectDir: wpaths.inProjectInstructions,
+    },
   });
   if (container.has(TOKENS.SystemPromptBuilder)) {
     container.override(TOKENS.SystemPromptBuilder, () => systemPromptBuilder, { owner: 'webui' });
@@ -405,8 +422,12 @@ export async function createPreContextServices(
     /* Non-fatal — mailbox errors should not block prompt building */
   }
   const systemPrompt = await systemPromptBuilder.build({
-    cwd: projectRoot, projectRoot, tools: toolRegistry.list(),
-    provider: config.provider, model: config.model, onlineAgents,
+    cwd: projectRoot,
+    projectRoot,
+    tools: toolRegistry.list(),
+    provider: config.provider,
+    model: config.model,
+    onlineAgents,
   });
 
   // ── Provider resolution ──
@@ -416,8 +437,14 @@ export async function createPreContextServices(
 
   // ── Context ──
   context = new Context({
-    systemPrompt, provider, session, signal: new AbortController().signal,
-    tokenCounter, cwd: workingDir, projectRoot, model: config.model,
+    systemPrompt,
+    provider,
+    session,
+    signal: new AbortController().signal,
+    tokenCounter,
+    cwd: workingDir,
+    projectRoot,
+    model: config.model,
   });
   const initialContextPolicy = resolveContextWindowPolicy(config.context);
   context.meta['contextWindowMode'] = initialContextPolicy.id;
@@ -435,20 +462,31 @@ export async function createPreContextServices(
   seedContextMeta(config, context);
 
   return {
-    modelsRegistry, container, configStore, providerRegistry, toolRegistry,
-    memoryStore, events, mcpRegistry, sessionStore, sessionReader, annotationsStore,
-    session, sessionStartedAt, statusTracker, sessionIdentity, tokenCounter, modeStore, modeId,
-    customModeStore, skillLoader, skillInstaller, promptsCtx, modelCapabilitiesRef,
-    provider, context, needsSetup,
+    modelsRegistry,
+    container,
+    configStore,
+    providerRegistry,
+    toolRegistry,
+    memoryStore,
+    events,
+    mcpRegistry,
+    sessionStore,
+    sessionReader,
+    annotationsStore,
+    session,
+    sessionStartedAt,
+    statusTracker,
+    sessionIdentity,
+    tokenCounter,
+    modeStore,
+    modeId,
+    customModeStore,
+    skillLoader,
+    skillInstaller,
+    promptsCtx,
+    modelCapabilitiesRef,
+    provider,
+    context,
+    needsSetup,
   };
-}
-
-function isSuperMemoryService(memoryStore: MemoryStore): memoryStore is SuperMemoryServiceLike {
-  const value = memoryStore as unknown as Record<string, unknown>;
-  return typeof value['retrieveForPath'] === 'function'
-    && typeof value['searchSuper'] === 'function'
-    && typeof value['graphFor'] === 'function'
-    && typeof value['verify'] === 'function'
-    && typeof value['hygiene'] === 'function'
-    && typeof value['listCandidates'] === 'function';
 }

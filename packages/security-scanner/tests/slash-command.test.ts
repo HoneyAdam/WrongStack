@@ -1,14 +1,20 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import * as os from 'node:os';
+import * as path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const orchestratorMocks = vi.hoisted(() => ({
+  run: vi.fn(),
+}));
+const packageAuditMocks = vi.hoisted(() => ({
   run: vi.fn(),
 }));
 
 vi.mock('../src/orchestrator.js', () => ({
   defaultOrchestrator: { run: orchestratorMocks.run },
+}));
+vi.mock('../src/package-audit.js', () => ({
+  defaultPackageAuditRunner: { run: packageAuditMocks.run },
 }));
 
 import { createSecuritySlashCommand } from '../src/slash-command.js';
@@ -18,6 +24,16 @@ let tmp: string;
 
 beforeEach(async () => {
   orchestratorMocks.run.mockReset();
+  packageAuditMocks.run.mockReset();
+  packageAuditMocks.run.mockResolvedValue({
+    packageManager: 'npm',
+    command: 'npm audit --json',
+    vulnerabilities: [],
+    summary: { critical: 0, high: 0, moderate: 0, low: 0, info: 0, total: 0 },
+    exitCode: 0,
+    success: true,
+    skipped: false,
+  });
   tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'sec-slash-'));
   prevCwd = process.cwd();
   process.chdir(tmp);
@@ -109,7 +125,11 @@ describe('createSecuritySlashCommand', () => {
 
     it('parses --depth and --format flags', async () => {
       orchestratorMocks.run.mockResolvedValue({
-        scanResult: { summary: { critical: 0, high: 0, medium: 0, low: 0, total: 0 }, scannedFiles: 0, scanDurationMs: 0 },
+        scanResult: {
+          summary: { critical: 0, high: 0, medium: 0, low: 0, total: 0 },
+          scannedFiles: 0,
+          scanDurationMs: 0,
+        },
         detectionResult: { detectedStacks: [] },
         synthesizedReport: 'x',
         reportPath: '',
@@ -127,7 +147,11 @@ describe('createSecuritySlashCommand', () => {
 
     it('uses default depth/format when not specified', async () => {
       orchestratorMocks.run.mockResolvedValue({
-        scanResult: { summary: { critical: 0, high: 0, medium: 0, low: 0, total: 0 }, scannedFiles: 0, scanDurationMs: 0 },
+        scanResult: {
+          summary: { critical: 0, high: 0, medium: 0, low: 0, total: 0 },
+          scannedFiles: 0,
+          scanDurationMs: 0,
+        },
         detectionResult: { detectedStacks: [] },
         synthesizedReport: 'x',
         reportPath: '',
@@ -155,10 +179,22 @@ describe('createSecuritySlashCommand', () => {
   // ── /security audit ────────────────────────────────────────────────────────
 
   describe('audit', () => {
-    it('errors without provider configured', async () => {
+    it('runs dependency-only audit without invoking the source scanner', async () => {
+      const cmd = createSecuritySlashCommand();
+      const res = await cmd.run('audit-deps', fakeCtx());
+      expect(res?.message).toContain('Dependency Audit Complete');
+      expect(res?.metadata?.packageAudit).toBeDefined();
+      expect(packageAuditMocks.run).toHaveBeenCalledWith(tmp);
+      expect(orchestratorMocks.run).not.toHaveBeenCalled();
+    });
+
+    it('still runs dependency audit without a provider', async () => {
       const cmd = createSecuritySlashCommand();
       const res = await cmd.run('audit', withoutProvider());
-      expect(res?.message).toContain('requires an active LLM provider');
+      expect(res?.message).toContain('No known dependency vulnerabilities');
+      expect(res?.message).toContain('Source security scan skipped');
+      expect(packageAuditMocks.run).toHaveBeenCalledWith(tmp);
+      expect(orchestratorMocks.run).not.toHaveBeenCalled();
     });
 
     it('uses synthesizedReport when available', async () => {
@@ -182,10 +218,27 @@ describe('createSecuritySlashCommand', () => {
       });
       const cmd = createSecuritySlashCommand();
       const res = await cmd.run('audit', fakeCtx());
-      expect(res?.message).toContain('No known vulnerabilities');
+      expect(res?.message).toContain('No known dependency vulnerabilities');
     });
 
     it('falls back to built-in audit summary with issues found', async () => {
+      packageAuditMocks.run.mockResolvedValue({
+        packageManager: 'pnpm',
+        command: 'pnpm audit --json',
+        vulnerabilities: [
+          {
+            name: 'lodash',
+            severity: 'critical',
+            via: ['prototype pollution'],
+            fixAvailable: true,
+          },
+          { name: 'minimist', severity: 'high', via: ['parser issue'], fixAvailable: false },
+        ],
+        summary: { critical: 1, high: 2, moderate: 0, low: 0, info: 0, total: 3 },
+        exitCode: 1,
+        success: true,
+        skipped: false,
+      });
       orchestratorMocks.run.mockResolvedValue({
         scanResult: { summary: { critical: 1, high: 2, medium: 5, low: 10 } },
         detectionResult: { detectedStacks: [{ stack: 'node' }] },
@@ -194,14 +247,43 @@ describe('createSecuritySlashCommand', () => {
       });
       const cmd = createSecuritySlashCommand();
       const res = await cmd.run('audit', fakeCtx());
-      expect(res?.message).toContain('3 vulnerabilities need attention');
+      expect(res?.message).toContain('3 dependency vulnerabilities need attention');
+      expect(res?.message).toContain('lodash');
+      expect(res?.metadata?.packageAudit).toEqual(
+        expect.objectContaining({ packageManager: 'pnpm' }),
+      );
     });
 
-    it('catches orchestrator errors', async () => {
+    it('preserves dependency results when the source scan fails', async () => {
       orchestratorMocks.run.mockRejectedValue('plain');
       const cmd = createSecuritySlashCommand();
       const res = await cmd.run('audit', fakeCtx());
-      expect(res?.message).toContain('Audit failed');
+      expect(res?.message).toContain('No known dependency vulnerabilities');
+      expect(res?.message).toContain('Source security scan failed: plain');
+      expect(res?.metadata?.packageAudit).toBeDefined();
+    });
+
+    it('reports unexpected dependency runner failures', async () => {
+      packageAuditMocks.run.mockRejectedValue(new Error('spawn exploded'));
+      const cmd = createSecuritySlashCommand();
+      const res = await cmd.run('audit', fakeCtx());
+      expect(res?.message).toContain('Dependency audit failed');
+      expect(res?.message).toContain('spawn exploded');
+      expect(orchestratorMocks.run).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('redact-test', () => {
+    it('returns field names and never returns synthetic secret values', async () => {
+      const cmd = createSecuritySlashCommand();
+      const res = await cmd.run('redact-test', fakeCtx());
+      expect(res?.message).toContain('Secret Redaction Diagnostic');
+      expect(res?.metadata?.redactedCount).toBeGreaterThan(0);
+      expect(res?.metadata?.redactedFields).toEqual(
+        expect.arrayContaining([expect.stringMatching(/^\$\./)]),
+      );
+      expect(res?.message).not.toContain('sk-1234567890');
+      expect(res?.message).not.toContain('p4ssw0rd');
     });
   });
 

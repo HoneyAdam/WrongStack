@@ -2,7 +2,7 @@
   "name": "@wrongstack/super-memory",
   "version": "0.295.0",
   "license": "MIT",
-  "description": "WrongStack Super Memory: project-local JSONL memory, graph-ready anchors, retrieval, and hygiene primitives.",
+  "description": "WrongStack Super Memory: project-local SQLite memory, graph-ready anchors, retrieval, and hygiene primitives.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/WrongStack/WrongStack.git",

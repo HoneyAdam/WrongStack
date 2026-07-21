@@ -1,10 +1,7 @@
-import { readdir } from 'node:fs/promises';
-import type {
-  DetectionResult,
-  PackageManager,
-  TechStack,
-  TechStackInfo,
-} from './types.js';
+import { readFile, readdir } from 'node:fs/promises';
+import { join } from 'node:path';
+import { parseNodeDependencies } from './manifest-parser.js';
+import type { DetectionResult, PackageManager, TechStack, TechStackInfo } from './types.js';
 
 type SignatureMatcher = (files: string[], dirs: string[]) => boolean;
 
@@ -167,11 +164,14 @@ const MONOREPO_INDICATORS: Record<string, string[]> = {
 };
 
 export class TechStackDetector {
-  private cachedResults: Map<string, DetectionResult> = new Map();
+  private cachedResults = new Map<string, { result: DetectionResult; timestamp: number }>();
+
+  constructor(private readonly cacheTTL = 30_000) {}
 
   async detect(projectRoot: string): Promise<DetectionResult> {
     const cached = this.cachedResults.get(projectRoot);
-    if (cached) return cached;
+    if (cached && Date.now() - cached.timestamp < this.cacheTTL) return cached.result;
+    if (cached) this.cachedResults.delete(projectRoot);
 
     const result: DetectionResult = {
       timestamp: new Date().toISOString(),
@@ -193,6 +193,8 @@ export class TechStackDetector {
         // First match wins per stack type (don't detect multiple PMs for the same stack)
         if (detectedStacks.has(signature.stack)) continue;
         detectedStacks.add(signature.stack);
+        detected.projectPath = projectRoot;
+        detected.dependencies = await this.readDependencies(projectRoot, detected);
         result.detectedStacks.push(detected);
       }
     }
@@ -203,14 +205,28 @@ export class TechStackDetector {
       result.workspaceConfigs = this.findWorkspaceConfigs(result.detectedStacks, dirs, files);
     }
 
-    this.cachedResults.set(projectRoot, result);
+    this.cachedResults.set(projectRoot, { result, timestamp: Date.now() });
     return result;
+  }
+
+  private async readDependencies(
+    projectRoot: string,
+    techStack: TechStackInfo,
+  ): Promise<TechStackInfo['dependencies']> {
+    if (techStack.stack !== 'nodejs' || techStack.manifestFile !== 'package.json') return [];
+    try {
+      return parseNodeDependencies(
+        await readFile(join(projectRoot, techStack.manifestFile), 'utf-8'),
+      );
+    } catch {
+      return [];
+    }
   }
 
   private matchSignature(
     signature: StackSignature,
     files: string[],
-    _dirs: string[]
+    _dirs: string[],
   ): TechStackInfo | null {
     // Check manifest file exists (this is the primary signal)
     const manifestMatch = this.findMatchingManifest(signature.manifestFiles, files);

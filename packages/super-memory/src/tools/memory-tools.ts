@@ -1,89 +1,38 @@
-import type { MemoryScope, MemoryStore, Tool } from '@wrongstack/core';
+import type { MemoryScope, Tool } from '@wrongstack/core';
+import type { SuperMemoryServiceLike } from '../service-contract.js';
 import type {
+  FindMemoriesForFileResponse,
   MemoryAnchor,
   MemoryAudienceSelector,
-  CandidateDecision,
-  CreateCandidateInput,
-  MemoryCandidate,
-  MemoryCandidateResolution,
   MemoryGraphEdge,
   MemoryVerificationResult,
   PersistenceClass,
-  RememberSuperMemoryInput,
   SuperMemory,
   SuperMemoryBackfillFilter,
-  SuperMemoryBackfillOptions,
   SuperMemoryBackfillReport,
   SuperMemoryHygieneOptions,
   SuperMemoryHygieneReport,
   SuperMemoryKind,
   SuperMemoryScope,
-  SuperMemoryStatus,
-  FindMemoriesForFileOptions,
-  FindMemoriesForFileResponse,
   UpdateSuperMemoryInput,
 } from '../types.js';
-
-const KIND_VALUES: SuperMemoryKind[] = [
-  'fact', 'decision', 'convention', 'preference', 'warning', 'anti_pattern',
-  'workflow', 'bug_root_cause', 'file_note', 'symbol_note', 'command_note', 'summary',
-];
-const SCOPE_VALUES: SuperMemoryScope[] = ['project', 'user', 'session', 'file', 'symbol'];
-const STATUS_VALUES: SuperMemoryStatus[] = [
-  'active', 'stale', 'superseded', 'contradicted', 'archived', 'deleted',
-];
-const ANCHOR_TYPE_VALUES: MemoryAnchor['type'][] = [
-  'file', 'directory', 'symbol', 'package', 'command', 'test', 'git',
-];
-const LEGACY_SCOPE_VALUES: MemoryScope[] = ['project-agents', 'project-memory', 'user-memory'];
-
-export interface SuperMemoryServiceLike extends MemoryStore {
-  retrieveForPath(opts: {
-    path: string;
-    limit?: number;
-    includeAncestors?: boolean;
-    includeStatuses?: SuperMemory['status'][];
-  }): Promise<SuperMemory[]>;
-  searchSuper(query: string, opts?: { limit?: number; includeStatuses?: SuperMemory['status'][] }): Promise<SuperMemory[]>;
-  retrieveForAudience?(context: { role?: string; taskType?: string; mode?: string }, limit?: number): Promise<SuperMemory[]>;
-  graphFor(query: string, maxDepth?: number, limit?: number): Promise<MemoryGraphEdge[]>;
-  verify(memoryId?: string, signal?: AbortSignal): Promise<MemoryVerificationResult[]>;
-  hygiene(options?: SuperMemoryHygieneOptions, signal?: AbortSignal): Promise<SuperMemoryHygieneReport>;
-  listCandidates(includeResolved?: boolean): Promise<MemoryCandidate[]>;
-  createCandidate(input: CreateCandidateInput): Promise<MemoryCandidate>;
-  resolveCandidate(candidateId: string, decision: CandidateDecision, reason?: string): Promise<MemoryCandidateResolution | undefined>;
-  acceptCandidate(candidateId: string): Promise<SuperMemory | undefined>;
-  rejectCandidate(candidateId: string, reason: string): Promise<boolean>;
-  rememberSuper(input: RememberSuperMemoryInput): Promise<SuperMemory>;
-  updateSuperMemory(id: string, patch: UpdateSuperMemoryInput): Promise<SuperMemory>;
-  deleteSuperMemory(id: string, reason?: string, options?: { force?: boolean; neverInject?: boolean }): Promise<void>;
-  /**
-   * Restore a `deleted` memory to `active`. Superseded memories return the
-   * head of their version chain (no-op write). Throws if the id is unknown.
-   */
-  recoverSuperMemory(id: string, reason?: string): Promise<SuperMemory>;
-  /**
-   * Scan `status='deleted'` records and create fresh active versions for
-   * the ones that pass the recoverability filter. Default `dryRun: true`.
-   * Used by users/LLMs to undo a hygiene-driven deletion from a prior
-   * session (legacy records from before the redesigned contract).
-   */
-  backfillRecoverable(options?: SuperMemoryBackfillOptions): Promise<SuperMemoryBackfillReport>;
-  /**
-   * File-drawer query: returns primary / symbol / related buckets with
-   * `matchedVia`, `matchStrength`, and `pendingReview` metadata.
-   * Read-only — opening a file in the editor must never mutate memory.
-   */
-  findMemoriesForFile(
-    filePath: string,
-    options?: FindMemoriesForFileOptions,
-  ): Promise<FindMemoriesForFileResponse>;
-  getSuperMemory(id: string): Promise<SuperMemory | null>;
-}
+import { memoryCandidatesTool } from './memory-candidates-tool.js';
+import {
+  anchorsSchema,
+  audienceSchema,
+  enumSchema,
+  KIND_VALUES,
+  LEGACY_SCOPE_VALUES,
+  numberSchema,
+  objectSchema,
+  SCOPE_VALUES,
+  STATUS_VALUES,
+  stringArraySchema,
+  stringSchema,
+} from './tool-schema-helpers.js';
 
 export function createSuperMemoryTools(memory: SuperMemoryServiceLike): Tool[] {
   return [
-    // Read surface (indices 0-6 — kept first for positional test stability).
     memoryForFileTool(memory),
     memoryForPathTool(memory),
     memorySearchTool(memory),
@@ -91,8 +40,6 @@ export function createSuperMemoryTools(memory: SuperMemoryServiceLike): Tool[] {
     memoryVerifyTool(memory),
     memoryHygieneTool(memory),
     memoryCandidatesTool(memory),
-    // Write surface — the single, structured way to persist/update/delete
-    // project knowledge. Replaces the legacy `remember`/`forget` tools.
     memoryRememberTool(memory),
     memoryForgetTool(memory),
     memoryUpdateTool(memory),
@@ -117,7 +64,14 @@ interface RememberToolInput {
   supersedes?: string[] | undefined;
   contradicts?: string[] | undefined;
   /** Legacy back-compat — mapped to `kind`/`importance` by rememberSuper. */
-  type?: 'fact' | 'decision' | 'convention' | 'preference' | 'reference' | 'anti_pattern' | undefined;
+  type?:
+    | 'fact'
+    | 'decision'
+    | 'convention'
+    | 'preference'
+    | 'reference'
+    | 'anti_pattern'
+    | undefined;
   priority?: 'critical' | 'high' | 'medium' | 'low' | undefined;
 }
 
@@ -161,36 +115,62 @@ function memoryRememberTool(memory: SuperMemoryServiceLike): Tool<RememberToolIn
     timeoutMs: 2_000,
     capabilities: ['memory.write'],
     icon: 'settings',
-    inputSchema: objectSchema({
-      text: { type: 'string', minLength: 1, description: 'The fact or note to remember. Concise and factual.' },
-      kind: enumSchema(KIND_VALUES, 'Category — the most specific kind that fits.'),
-      scope: enumSchema(SCOPE_VALUES, 'project (shared, default), user (personal), session, file, or symbol.'),
-      tags: stringArraySchema('Hashtag-style tags for grouping and search (omit the #).'),
-      anchors: anchorsSchema(),
-      audience: audienceSchema(),
-      no_auto_audience: { type: 'boolean', description: 'Set to true to prevent auto-scoping from your agent role/mode. Creates a general project memory even when called from a subagent.' },
-      importance: numberSchema(0, 1),
-      confidence: numberSchema(0, 1),
-      persistence: enumSchema(['permanent', 'long_lived', 'short_lived'], 'Retention class. Prefer long_lived; permanent is only for explicit invariants.'),
-      supersedes: stringArraySchema('Memory ids this replaces (they become superseded).'),
-      contradicts: stringArraySchema('Memory ids this contradicts.'),
-      type: { type: 'string', enum: ['fact', 'decision', 'convention', 'preference', 'reference', 'anti_pattern'], description: 'Legacy category (optional; prefer `kind`).' },
-      priority: { type: 'string', enum: ['critical', 'high', 'medium', 'low'], description: 'Legacy priority (optional; prefer `importance`).' },
-    }, ['text']),
+    inputSchema: objectSchema(
+      {
+        text: {
+          type: 'string',
+          minLength: 1,
+          description: 'The fact or note to remember. Concise and factual.',
+        },
+        kind: enumSchema(KIND_VALUES, 'Category — the most specific kind that fits.'),
+        scope: enumSchema(
+          SCOPE_VALUES,
+          'project (shared, default), user (personal), session, file, or symbol.',
+        ),
+        tags: stringArraySchema('Hashtag-style tags for grouping and search (omit the #).'),
+        anchors: anchorsSchema(),
+        audience: audienceSchema(),
+        no_auto_audience: {
+          type: 'boolean',
+          description:
+            'Set to true to prevent auto-scoping from your agent role/mode. Creates a general project memory even when called from a subagent.',
+        },
+        importance: numberSchema(0, 1),
+        confidence: numberSchema(0, 1),
+        persistence: enumSchema(
+          ['permanent', 'long_lived', 'short_lived'],
+          'Retention class. Prefer long_lived; permanent is only for explicit invariants.',
+        ),
+        supersedes: stringArraySchema('Memory ids this replaces (they become superseded).'),
+        contradicts: stringArraySchema('Memory ids this contradicts.'),
+        type: {
+          type: 'string',
+          enum: ['fact', 'decision', 'convention', 'preference', 'reference', 'anti_pattern'],
+          description: 'Legacy category (optional; prefer `kind`).',
+        },
+        priority: {
+          type: 'string',
+          enum: ['critical', 'high', 'medium', 'low'],
+          description: 'Legacy priority (optional; prefer `importance`).',
+        },
+      },
+      ['text'],
+    ),
     async execute(input, ctx, opts) {
       opts.signal.throwIfAborted();
-      const detectedRole = typeof ctx?.meta?.['agentRole'] === 'string'
-        ? ctx.meta['agentRole'] as string
-        : undefined;
-      const detectedMode = typeof ctx?.meta?.['mode'] === 'string'
-        ? ctx.meta['mode'] as string
-        : undefined;
-      const autoAudience = !input.audience && !input.no_auto_audience && (detectedRole || detectedMode)
-        ? {
-            ...(detectedRole ? { roles: [detectedRole] } : {}),
-            ...(detectedMode ? { modes: [detectedMode] } : {}),
-          }
-        : input.audience;
+      const detectedRole =
+        typeof ctx?.meta?.['agentRole'] === 'string'
+          ? (ctx.meta['agentRole'] as string)
+          : undefined;
+      const detectedMode =
+        typeof ctx?.meta?.['mode'] === 'string' ? (ctx.meta['mode'] as string) : undefined;
+      const autoAudience =
+        !input.audience && !input.no_auto_audience && (detectedRole || detectedMode)
+          ? {
+              ...(detectedRole ? { roles: [detectedRole] } : {}),
+              ...(detectedMode ? { modes: [detectedMode] } : {}),
+            }
+          : input.audience;
       return memory.rememberSuper({
         text: input.text,
         kind: input.kind,
@@ -210,11 +190,14 @@ function memoryRememberTool(memory: SuperMemoryServiceLike): Tool<RememberToolIn
   };
 }
 
-function memoryForgetTool(memory: SuperMemoryServiceLike): Tool<{ query: string; scope?: MemoryScope }, { removed: number; scope: MemoryScope }> {
+function memoryForgetTool(
+  memory: SuperMemoryServiceLike,
+): Tool<{ query: string; scope?: MemoryScope }, { removed: number; scope: MemoryScope }> {
   return {
     name: 'forget',
     category: 'Session',
-    description: 'Remove memory entries whose text/tag/anchor matches the query (case-insensitive). Prefer `memory_delete` when you have a specific memory id.',
+    description:
+      'Remove memory entries whose text/tag/anchor matches the query (case-insensitive). Prefer `memory_delete` when you have a specific memory id.',
     usageHint:
       'This soft-deletes matching memories in the chosen scope.\n' +
       '- Provide a reasonably specific `query` to avoid deleting unrelated memories.\n' +
@@ -225,10 +208,16 @@ function memoryForgetTool(memory: SuperMemoryServiceLike): Tool<{ query: string;
     timeoutMs: 2_000,
     capabilities: ['memory.delete'],
     icon: 'settings',
-    inputSchema: objectSchema({
-      query: { type: 'string', minLength: 1, description: 'Substring/tag/id to match.' },
-      scope: enumSchema(LEGACY_SCOPE_VALUES, 'Which scope to search. Defaults to project-memory.'),
-    }, ['query']),
+    inputSchema: objectSchema(
+      {
+        query: { type: 'string', minLength: 1, description: 'Substring/tag/id to match.' },
+        scope: enumSchema(
+          LEGACY_SCOPE_VALUES,
+          'Which scope to search. Defaults to project-memory.',
+        ),
+      },
+      ['query'],
+    ),
     async execute(input, _ctx, opts) {
       opts.signal.throwIfAborted();
       const scope: MemoryScope = input.scope ?? 'project-memory';
@@ -238,11 +227,14 @@ function memoryForgetTool(memory: SuperMemoryServiceLike): Tool<{ query: string;
   };
 }
 
-function memoryUpdateTool(memory: SuperMemoryServiceLike): Tool<{ id: string } & UpdateSuperMemoryInput, SuperMemory> {
+function memoryUpdateTool(
+  memory: SuperMemoryServiceLike,
+): Tool<{ id: string } & UpdateSuperMemoryInput, SuperMemory> {
   return {
     name: 'memory_update',
     category: 'Session',
-    description: 'Update a single Super Memory entry by id — edit text, tags, kind, anchors, importance/confidence, status, or relationships.',
+    description:
+      'Update a single Super Memory entry by id — edit text, tags, kind, anchors, importance/confidence, status, or relationships.',
     usageHint:
       'Refine or re-scope an existing memory instead of creating a near-duplicate.\n' +
       '- Find the id via `memory_search` or `memory_for_file`.\n' +
@@ -253,21 +245,28 @@ function memoryUpdateTool(memory: SuperMemoryServiceLike): Tool<{ id: string } &
     timeoutMs: 2_000,
     capabilities: ['memory.write'],
     icon: 'settings',
-    inputSchema: objectSchema({
-      id: { type: 'string', minLength: 1, description: 'The memory id to update.' },
-      text: { type: 'string', minLength: 1, description: 'Replacement text.' },
-      tags: stringArraySchema('Replacement tags (omit the #).'),
-      kind: enumSchema(KIND_VALUES, 'New kind.'),
-      anchors: anchorsSchema(),
-      audience: audienceSchema(),
-      importance: numberSchema(0, 1),
-      confidence: numberSchema(0, 1),
-      freshness: numberSchema(0, 1),
-      status: enumSchema(STATUS_VALUES, 'New lifecycle status.'),
-      supersedes: stringArraySchema('Memory ids this replaces.'),
-      contradicts: stringArraySchema('Memory ids this contradicts.'),
-      force: { type: 'boolean', description: 'Override the permanent-memory guard when setting status to "deleted". The override is audit-logged.' },
-    }, ['id']),
+    inputSchema: objectSchema(
+      {
+        id: { type: 'string', minLength: 1, description: 'The memory id to update.' },
+        text: { type: 'string', minLength: 1, description: 'Replacement text.' },
+        tags: stringArraySchema('Replacement tags (omit the #).'),
+        kind: enumSchema(KIND_VALUES, 'New kind.'),
+        anchors: anchorsSchema(),
+        audience: audienceSchema(),
+        importance: numberSchema(0, 1),
+        confidence: numberSchema(0, 1),
+        freshness: numberSchema(0, 1),
+        status: enumSchema(STATUS_VALUES, 'New lifecycle status.'),
+        supersedes: stringArraySchema('Memory ids this replaces.'),
+        contradicts: stringArraySchema('Memory ids this contradicts.'),
+        force: {
+          type: 'boolean',
+          description:
+            'Override the permanent-memory guard when setting status to "deleted". The override is audit-logged.',
+        },
+      },
+      ['id'],
+    ),
     validate(input) {
       const { id, ...patch } = input;
       if (!id) return ['id is required'];
@@ -284,11 +283,17 @@ function memoryUpdateTool(memory: SuperMemoryServiceLike): Tool<{ id: string } &
   };
 }
 
-function memoryDeleteTool(memory: SuperMemoryServiceLike): Tool<{ id: string; reason?: string; force?: boolean; neverInject?: boolean }, { deleted: true; id: string }> {
+function memoryDeleteTool(
+  memory: SuperMemoryServiceLike,
+): Tool<
+  { id: string; reason?: string; force?: boolean; neverInject?: boolean },
+  { deleted: true; id: string }
+> {
   return {
     name: 'memory_delete',
     category: 'Session',
-    description: 'Delete one Super Memory entry by id (soft-delete with graph/relationship cascade cleanup). Requires force: true — all deletions are audited and need explicit authorization.',
+    description:
+      'Delete one Super Memory entry by id (soft-delete with graph/relationship cascade cleanup). Requires force: true — all deletions are audited and need explicit authorization.',
     usageHint:
       'Exact, single-entry removal by id — safer than substring `forget`.\n' +
       '- Find the id via `memory_search`. Provide a short `reason` for the audit log.\n' +
@@ -301,22 +306,38 @@ function memoryDeleteTool(memory: SuperMemoryServiceLike): Tool<{ id: string; re
     timeoutMs: 2_000,
     capabilities: ['memory.delete'],
     icon: 'settings',
-    inputSchema: objectSchema({
-      id: { type: 'string', minLength: 1, description: 'The memory id to delete.' },
-      reason: stringSchema('Reason recorded in the audit log.'),
-      force: { type: 'boolean', description: 'Required for ALL deletions — authorizes the removal and is recorded in the audit log.' },
-      neverInject: { type: 'boolean', description: 'Absolute privacy/safety ban: this memory must never enter LLM context. Normal deletion remains context-eligible historical evidence.' },
-    }, ['id', 'force']),
+    inputSchema: objectSchema(
+      {
+        id: { type: 'string', minLength: 1, description: 'The memory id to delete.' },
+        reason: stringSchema('Reason recorded in the audit log.'),
+        force: {
+          type: 'boolean',
+          description:
+            'Required for ALL deletions — authorizes the removal and is recorded in the audit log.',
+        },
+        neverInject: {
+          type: 'boolean',
+          description:
+            'Absolute privacy/safety ban: this memory must never enter LLM context. Normal deletion remains context-eligible historical evidence.',
+        },
+      },
+      ['id', 'force'],
+    ),
     validate(input) {
       if (!input.id) return ['id is required'];
       if (input.force !== true) {
-        return ['force: true is required to delete any memory. This prevents accidental or autonomous deletions. Pass force: true to authorize; the override is audit-logged. For non-destructive review, use memory_candidates({ action: "propose" }) instead.'];
+        return [
+          'force: true is required to delete any memory. This prevents accidental or autonomous deletions. Pass force: true to authorize; the override is audit-logged. For non-destructive review, use memory_candidates({ action: "propose" }) instead.',
+        ];
       }
       return [];
     },
     async execute(input, _ctx, opts) {
       opts.signal.throwIfAborted();
-      await memory.deleteSuperMemory(input.id, input.reason, { force: true, ...(input.neverInject === true ? { neverInject: true } : {}) });
+      await memory.deleteSuperMemory(input.id, input.reason, {
+        force: true,
+        ...(input.neverInject === true ? { neverInject: true } : {}),
+      });
       return { deleted: true, id: input.id };
     },
   };
@@ -331,11 +352,14 @@ interface RecoverToolOutput {
   noop: boolean;
 }
 
-function memoryRecoverTool(memory: SuperMemoryServiceLike): Tool<{ id: string; reason?: string }, RecoverToolOutput> {
+function memoryRecoverTool(
+  memory: SuperMemoryServiceLike,
+): Tool<{ id: string; reason?: string }, RecoverToolOutput> {
   return {
     name: 'memory_recover',
     category: 'Session',
-    description: 'Restore a deleted Super Memory entry to active status. Superseded entries resolve to the head of their version chain (no-op write).',
+    description:
+      'Restore a deleted Super Memory entry to active status. Superseded entries resolve to the head of their version chain (no-op write).',
     usageHint:
       'Use after a `deleted` entry has been surfaced by `memory_search` with `includeStatuses: ["deleted"]`, ' +
       'or from the MemoryManager "↺ Recover" button. Idempotent: already-active or superseded entries return `noop: true`.\n' +
@@ -347,10 +371,13 @@ function memoryRecoverTool(memory: SuperMemoryServiceLike): Tool<{ id: string; r
     timeoutMs: 2_000,
     capabilities: ['memory.recover'],
     icon: 'settings',
-    inputSchema: objectSchema({
-      id: { type: 'string', minLength: 1, description: 'The memory id to recover.' },
-      reason: stringSchema('Reason recorded in the audit log.'),
-    }, ['id']),
+    inputSchema: objectSchema(
+      {
+        id: { type: 'string', minLength: 1, description: 'The memory id to recover.' },
+        reason: stringSchema('Reason recorded in the audit log.'),
+      },
+      ['id'],
+    ),
     async execute(input, _ctx, opts) {
       opts.signal.throwIfAborted();
       // Read pre-call status: only `deleted` → `active` is a real write.
@@ -381,7 +408,8 @@ function memoryBackfillRecoverableTool(
   return {
     name: 'memory_backfill_recoverable',
     category: 'Session',
-    description: 'Find status="deleted" memories that are still recoverable and either preview them (default) or restore them as fresh active versions.',
+    description:
+      'Find status="deleted" memories that are still recoverable and either preview them (default) or restore them as fresh active versions.',
     usageHint:
       'Use when you want to undo legacy hygiene-driven deletions. Default is `dryRun: true` — the tool returns a report without writing anything.\n' +
       '- Pass `--apply` (or `apply: false`) to actually create fresh active versions for each recoverable memory. The original `deleted` records are preserved (audit trail); a new active version is created and linked via `supersedes`.\n' +
@@ -393,31 +421,48 @@ function memoryBackfillRecoverableTool(
     timeoutMs: 5_000,
     capabilities: ['memory.backfill'],
     icon: 'search',
-    inputSchema: objectSchema({
-      filter: {
-        type: 'object',
-        description: 'Optional filter — see schema for fields. Empty/missing means "no filter".',
-        properties: {
-          kinds: {
-            type: 'array',
-            items: { type: 'string', enum: KIND_VALUES },
-            description: 'Only consider memories with one of these kinds.',
+    inputSchema: objectSchema(
+      {
+        filter: {
+          type: 'object',
+          description: 'Optional filter — see schema for fields. Empty/missing means "no filter".',
+          properties: {
+            kinds: {
+              type: 'array',
+              items: { type: 'string', enum: KIND_VALUES },
+              description: 'Only consider memories with one of these kinds.',
+            },
+            scopes: {
+              type: 'array',
+              items: { type: 'string', enum: SCOPE_VALUES },
+              description: 'Only consider memories with one of these scopes.',
+            },
+            updatedAfter: stringSchema(
+              'ISO-8601 cutoff: only memories with updatedAt >= this are considered.',
+            ),
+            updatedBefore: stringSchema(
+              'ISO-8601 cutoff: only memories with updatedAt <= this are considered.',
+            ),
+            requireText: {
+              type: 'boolean',
+              description: 'Default true. Set false to also consider empty-text records.',
+            },
+            requireProvenance: {
+              type: 'boolean',
+              description:
+                'Default true. Set false to consider records with neither sources nor anchors.',
+            },
           },
-          scopes: {
-            type: 'array',
-            items: { type: 'string', enum: SCOPE_VALUES },
-            description: 'Only consider memories with one of these scopes.',
-          },
-          updatedAfter: stringSchema('ISO-8601 cutoff: only memories with updatedAt >= this are considered.'),
-          updatedBefore: stringSchema('ISO-8601 cutoff: only memories with updatedAt <= this are considered.'),
-          requireText: { type: 'boolean', description: 'Default true. Set false to also consider empty-text records.' },
-          requireProvenance: { type: 'boolean', description: 'Default true. Set false to consider records with neither sources nor anchors.' },
+          additionalProperties: false,
         },
-        additionalProperties: false,
+        apply: {
+          type: 'boolean',
+          description: 'Default false (dry-run). Set true to actually create new active versions.',
+        },
+        reason: stringSchema('Optional reason recorded in the audit log.'),
       },
-      apply: { type: 'boolean', description: 'Default false (dry-run). Set true to actually create new active versions.' },
-      reason: stringSchema('Optional reason recorded in the audit log.'),
-    }, []),
+      [],
+    ),
     async execute(input, _ctx, opts) {
       opts.signal.throwIfAborted();
       // `--apply` semantics: the CLI surfaces the flag as `apply: true`,
@@ -444,9 +489,7 @@ function memoryBackfillRecoverableTool(
  * user sees the most relevant notes pinned when their caret lands on a
  * function/class.
  */
-function memoryForFileTool(
-  memory: SuperMemoryServiceLike,
-): Tool<
+function memoryForFileTool(memory: SuperMemoryServiceLike): Tool<
   {
     path: string;
     /** Optional cursor line — symbol anchors overlapping get a strength boost. */
@@ -495,8 +538,7 @@ function memoryForFileTool(
         limit: { ...numberSchema(1, 200), description: 'Per-bucket cap. Default 50.' },
         showSuperseded: {
           type: 'boolean',
-          description:
-            'Default true. Set false to hide superseded memories (use for compact UI).',
+          description: 'Default true. Set false to hide superseded memories (use for compact UI).',
         },
         showDeleted: {
           type: 'boolean',
@@ -524,12 +566,20 @@ function memoryForFileTool(
   };
 }
 
-function memoryForPathTool(memory: SuperMemoryServiceLike): Tool<{ path: string; limit?: number }, SuperMemory[]> {
+function memoryForPathTool(
+  memory: SuperMemoryServiceLike,
+): Tool<{ path: string; limit?: number }, SuperMemory[]> {
   return {
     name: 'memory_for_path',
     category: 'Inspect',
     description: 'Retrieve project knowledge for a path and its ancestor directories.',
-    inputSchema: objectSchema({ path: stringSchema('Project-relative file or directory path.'), limit: numberSchema(1, 50) }, ['path']),
+    inputSchema: objectSchema(
+      {
+        path: stringSchema('Project-relative file or directory path.'),
+        limit: numberSchema(1, 50),
+      },
+      ['path'],
+    ),
     permission: 'auto',
     mutating: false,
     riskTier: 'safe',
@@ -537,21 +587,30 @@ function memoryForPathTool(memory: SuperMemoryServiceLike): Tool<{ path: string;
     icon: 'search',
     async execute(input, _ctx, opts) {
       opts.signal.throwIfAborted();
-      return memory.retrieveForPath({ path: input.path, limit: input.limit ?? 20, includeAncestors: true });
+      return memory.retrieveForPath({
+        path: input.path,
+        limit: input.limit ?? 20,
+        includeAncestors: true,
+      });
     },
   };
 }
 
-function memorySearchTool(memory: SuperMemoryServiceLike): Tool<{ query: string; limit?: number; include_stale?: boolean }, SuperMemory[]> {
+function memorySearchTool(
+  memory: SuperMemoryServiceLike,
+): Tool<{ query: string; limit?: number; include_stale?: boolean }, SuperMemory[]> {
   return {
     name: 'memory_search',
     category: 'Inspect',
     description: 'Search structured project memory using lexical, tag, path, and anchor signals.',
-    inputSchema: objectSchema({
-      query: stringSchema('Search text, symbol, tag, command, or path.'),
-      limit: numberSchema(1, 100),
-      include_stale: { type: 'boolean' },
-    }, ['query']),
+    inputSchema: objectSchema(
+      {
+        query: stringSchema('Search text, symbol, tag, command, or path.'),
+        limit: numberSchema(1, 100),
+        include_stale: { type: 'boolean' },
+      },
+      ['query'],
+    ),
     permission: 'auto',
     mutating: false,
     riskTier: 'safe',
@@ -567,16 +626,21 @@ function memorySearchTool(memory: SuperMemoryServiceLike): Tool<{ query: string;
   };
 }
 
-function memoryGraphTool(memory: SuperMemoryServiceLike): Tool<{ query: string; depth?: number; limit?: number }, MemoryGraphEdge[]> {
+function memoryGraphTool(
+  memory: SuperMemoryServiceLike,
+): Tool<{ query: string; depth?: number; limit?: number }, MemoryGraphEdge[]> {
   return {
     name: 'memory_graph',
     category: 'Inspect',
     description: 'Traverse relationships between memories, files, symbols, commands, and sessions.',
-    inputSchema: objectSchema({
-      query: stringSchema('A memory id, graph node, path, symbol, or search query.'),
-      depth: numberSchema(1, 6),
-      limit: numberSchema(1, 500),
-    }, ['query']),
+    inputSchema: objectSchema(
+      {
+        query: stringSchema('A memory id, graph node, path, symbol, or search query.'),
+        depth: numberSchema(1, 6),
+        limit: numberSchema(1, 500),
+      },
+      ['query'],
+    ),
     permission: 'auto',
     mutating: false,
     riskTier: 'safe',
@@ -589,12 +653,17 @@ function memoryGraphTool(memory: SuperMemoryServiceLike): Tool<{ query: string; 
   };
 }
 
-function memoryVerifyTool(memory: SuperMemoryServiceLike): Tool<{ memory_id?: string }, MemoryVerificationResult[]> {
+function memoryVerifyTool(
+  memory: SuperMemoryServiceLike,
+): Tool<{ memory_id?: string }, MemoryVerificationResult[]> {
   return {
     name: 'memory_verify',
     category: 'Session',
-    description: 'Verify file, directory, symbol, content-hash, and git-blob anchors and update stale state.',
-    inputSchema: objectSchema({ memory_id: stringSchema('Optional memory id; omit to verify all.') }),
+    description:
+      'Verify file, directory, symbol, content-hash, and git-blob anchors and update stale state.',
+    inputSchema: objectSchema({
+      memory_id: stringSchema('Optional memory id; omit to verify all.'),
+    }),
     permission: 'confirm',
     mutating: true,
     riskTier: 'standard',
@@ -607,11 +676,14 @@ function memoryVerifyTool(memory: SuperMemoryServiceLike): Tool<{ memory_id?: st
   };
 }
 
-function memoryHygieneTool(memory: SuperMemoryServiceLike): Tool<SuperMemoryHygieneOptions, SuperMemoryHygieneReport> {
+function memoryHygieneTool(
+  memory: SuperMemoryServiceLike,
+): Tool<SuperMemoryHygieneOptions, SuperMemoryHygieneReport> {
   return {
     name: 'memory_hygiene',
     category: 'Session',
-    description: 'Deduplicate, verify anchors, mark stale, supersede old versions, and surface review candidates for deletion or archival. Never auto-deletes live memories — those decisions belong to the user or agent. The optional, opt-in purgeDeletedAfterDays physically compacts ALREADY-deleted tombstones older than N days out of the JSONL log (never touches active or permanent memories).',
+    description:
+      'Deduplicate, verify anchors, mark stale, supersede old versions, and surface review candidates for deletion or archival. Never auto-deletes live memories — those decisions belong to the user or agent. The optional, opt-in purgeDeletedAfterDays physically compacts ALREADY-deleted tombstones older than N days out of the JSONL log (never touches active or permanent memories).',
     inputSchema: objectSchema({
       retentionDays: numberSchema(0, 3650),
       archiveLowConfidenceAfterDays: numberSchema(0, 3650),
@@ -630,141 +702,6 @@ function memoryHygieneTool(memory: SuperMemoryServiceLike): Tool<SuperMemoryHygi
     async execute(input, _ctx, opts) {
       opts.signal.throwIfAborted();
       return memory.hygiene(input, opts.signal);
-    },
-  };
-}
-
-function memoryCandidatesTool(memory: SuperMemoryServiceLike): Tool<{
-  action?: 'list' | 'accept' | 'reject' | 'propose' | 'resolve';
-  candidate_id?: string;
-  reason?: string;
-  include_resolved?: boolean;
-  text?: string;
-  kind?: SuperMemoryKind;
-  scope?: SuperMemoryScope;
-  tags?: string[];
-  importance?: number;
-  confidence?: number;
-  suggested_action?: 'delete' | 'archive' | 'investigate';
-  memory_id?: string;
-  decision?: CandidateDecision;
-}, MemoryCandidate[] | MemoryCandidate | MemoryCandidateResolution | SuperMemory | { rejected: boolean } | undefined> {
-  return {
-    name: 'memory_candidates',
-    category: 'Session',
-    description: 'List, accept, reject, propose, or resolve memory candidates. Proposing files a non-destructive review suggestion into the ReviewQueue; resolving applies the review decision (delete/archive/keep) to the proposal\'s TARGET memory — the preferred decision path over raw memory_delete calls.',
-    inputSchema: objectSchema({
-      action: { type: 'string', enum: ['list', 'accept', 'reject', 'propose', 'resolve'] },
-      candidate_id: stringSchema('Required for accept, reject, or resolve.'),
-      reason: stringSchema('Reason for rejection, the review reason for propose, or the resolution note for resolve.'),
-      include_resolved: { type: 'boolean' },
-      text: stringSchema('Candidate text (required for propose).'),
-      kind: enumSchema(KIND_VALUES, 'Memory kind for propose.'),
-      scope: enumSchema(SCOPE_VALUES, 'Scope for propose.'),
-      tags: stringArraySchema('Extra tags for propose.'),
-      importance: numberSchema(0, 1),
-      confidence: numberSchema(0, 1),
-      suggested_action: { type: 'string', enum: ['delete', 'archive', 'investigate'], description: 'Review action suggested for propose.' },
-      memory_id: stringSchema('Id of the memory this proposal targets (propose).'),
-      decision: { type: 'string', enum: ['delete', 'archive', 'keep'], description: 'Review decision to apply to the target memory (required for resolve).' },
-    }),
-    permission: 'confirm',
-    mutating: true,
-    riskTier: 'standard',
-    capabilities: ['memory.read', 'memory.write'],
-    icon: 'settings',
-    validate(input) {
-      if ((input.action === 'accept' || input.action === 'reject') && !input.candidate_id) {
-        return ['candidate_id is required for accept or reject'];
-      }
-      if (input.action === 'resolve') {
-        if (!input.candidate_id) return ['candidate_id is required for resolve'];
-        if (!input.decision) return ['decision is required for resolve (delete|archive|keep)'];
-      }
-      if (input.action === 'propose' && !input.text?.trim()) {
-        return ['text is required for propose'];
-      }
-      return [];
-    },
-    async execute(input, _ctx, opts) {
-      opts.signal.throwIfAborted();
-      if (input.action === 'accept') return memory.acceptCandidate(input.candidate_id!);
-      if (input.action === 'reject') return { rejected: await memory.rejectCandidate(input.candidate_id!, input.reason ?? 'Rejected by user or agent.') };
-      if (input.action === 'resolve') {
-        return memory.resolveCandidate(input.candidate_id!, input.decision!, input.reason);
-      }
-      if (input.action === 'propose') {
-        // Review metadata rides on tags — the same convention hygiene uses,
-        // so the ReviewQueue renders agent proposals like hygiene proposals.
-        const tags = [
-          ...(input.tags ?? []),
-          ...(input.reason ? [`review:${input.reason}`] : []),
-          ...(input.suggested_action ? [`suggested:${input.suggested_action}`] : []),
-          ...(input.memory_id ? [`source:${input.memory_id}`] : []),
-        ];
-        return memory.createCandidate({
-          text: input.text!,
-          ...(input.kind ? { kind: input.kind } : {}),
-          ...(input.scope ? { scope: input.scope } : {}),
-          tags,
-          ...(input.importance !== undefined ? { importance: input.importance } : {}),
-          ...(input.confidence !== undefined ? { confidence: input.confidence } : {}),
-          ...(input.memory_id ? { targetMemoryId: input.memory_id } : {}),
-          ...(input.reason ? { reviewReason: input.reason } : {}),
-        });
-      }
-      return memory.listCandidates(input.include_resolved ?? false);
-    },
-  };
-}
-
-function objectSchema(properties: Record<string, Record<string, unknown>>, required?: string[]) {
-  return { type: 'object', properties, ...(required ? { required } : {}), additionalProperties: false };
-}
-
-function stringSchema(description: string) {
-  return { type: 'string', minLength: 1, description };
-}
-
-function numberSchema(minimum: number, maximum: number) {
-  return { type: 'number', minimum, maximum };
-}
-
-function enumSchema(values: readonly string[], description: string) {
-  return { type: 'string', enum: [...values], description };
-}
-
-function stringArraySchema(description: string) {
-  return { type: 'array', items: { type: 'string' }, description };
-}
-
-function audienceSchema() {
-  return {
-    type: 'object',
-    description: 'Optional automatic-injection audience. Values are stable project role/task/mode ids.',
-    properties: {
-      roles: stringArraySchema('Agent role ids, for example reviewer, refactor-planner, or git.'),
-      taskTypes: stringArraySchema('Task classifications such as review, refactor, or bugfix.'),
-      modes: stringArraySchema('Runtime mode ids.'),
-    },
-    additionalProperties: false,
-  };
-}
-
-function anchorsSchema() {
-  return {
-    type: 'array',
-    description: 'Bind this memory to concrete code locations so it can be verified and auto-surfaced.',
-    items: {
-      type: 'object',
-      properties: {
-        type: enumSchema(ANCHOR_TYPE_VALUES, 'Anchor kind.'),
-        path: stringSchema('Project-relative path (required for file/directory/package/test/git).'),
-        symbol: stringSchema('Symbol name (required for symbol anchors).'),
-        command: stringSchema('Shell command (required for command anchors).'),
-      },
-      required: ['type'],
-      additionalProperties: false,
     },
   };
 }

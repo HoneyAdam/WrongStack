@@ -40,6 +40,10 @@ describe('Telegram manifest parity', () => {
       'singleInstanceLock',
       'outboundQueuePerChat',
       'outboundQueueConcurrency',
+      'allowGroupApprovals',
+      'rateLimitTokensPerSecond',
+      'rateLimitBurst',
+      'parseMode',
     ] satisfies Array<keyof TelegramPluginConfig>);
 
     const manifestKeys = new Set<string>(TELEGRAM_MANIFEST.configFields);

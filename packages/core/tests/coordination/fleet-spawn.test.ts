@@ -44,8 +44,10 @@ function makeHost(overrides: Partial<DirectorFleetHost> = {}): DirectorFleetHost
     subagentMeta: new Map(),
     taskDescriptions: new Map(),
     taskOwners: new Map(),
+    taskWorktrees: new Map(),
+    extendTotals: new Map(),
     priceLookups: new Map(),
-    _usedNicknames: new Set(),
+    usedNicknames: new Set(),
     appendSessionEvent: vi.fn(async () => {}),
     scheduleManifest: vi.fn(),
     resolveMaxContext: vi.fn(() => 100_000),
@@ -126,7 +128,7 @@ describe('fleet-spawn spawn()', () => {
     const config = cfg({ name: 'adhoc' });
     await fleetSpawn.spawn(host, config);
     expect(config.name).not.toBe('adhoc'); // upgraded to a memorable nickname
-    expect(host._usedNicknames.size).toBe(1);
+    expect(host.usedNicknames.size).toBe(1);
   });
 
   it('keeps an explicit, non-default name untouched', async () => {
@@ -134,7 +136,7 @@ describe('fleet-spawn spawn()', () => {
     const config = cfg({ name: 'Reviewer', role: 'reviewer' });
     await fleetSpawn.spawn(host, config);
     expect(config.name).toBe('Reviewer');
-    expect(host._usedNicknames.size).toBe(0);
+    expect(host.usedNicknames.size).toBe(0);
   });
 
   it('enforces inline spawn-depth, spawn-count, cost and context caps', async () => {
@@ -315,13 +317,13 @@ describe('fleet-spawn terminate/terminateAll/remove()', () => {
     // seed a spawned subagent so the bridge + manifest exist
     await fleetSpawn.spawn(host, cfg({ name: 'Ada' }));
     host.manifestEntries.set('sub-Ada', { name: 'Einstein (Bug Hunter)' });
-    host._usedNicknames.add('einstein');
+    host.usedNicknames.add('einstein');
     await fleetSpawn.remove(host, 'sub-Ada');
     expect(host.coordinator.remove).toHaveBeenCalledWith('sub-Ada');
     expect(host.usage.removeSubagent).toHaveBeenCalledWith('sub-Ada');
     expect(host.subagentBridges.has('sub-Ada')).toBe(false);
     expect(host.manifestEntries.has('sub-Ada')).toBe(false);
-    expect(host._usedNicknames.has('einstein')).toBe(false);
+    expect(host.usedNicknames.has('einstein')).toBe(false);
   });
 
   it('removes a subagent with no bridge and no nameable manifest entry', async () => {

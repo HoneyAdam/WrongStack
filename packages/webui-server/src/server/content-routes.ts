@@ -1,0 +1,135 @@
+import type { WebSocket } from 'ws';
+import {
+  type DesignContext,
+  handleDesignList,
+  handleDesignMaterialize,
+  handleDesignSet,
+  handleDesignState,
+  handleDesignUse,
+  handleDesignVerify,
+} from './design-handlers.js';
+import {
+  handleFilesList,
+  handleFilesRead,
+  handleFilesTree,
+  handleFilesWrite,
+} from './file-handlers.js';
+import {
+  handlePromptsContent,
+  handlePromptsCreate,
+  handlePromptsFavorite,
+  handlePromptsList,
+  handlePromptsRecent,
+  handlePromptsSearch,
+  handlePromptsUsed,
+  type PromptsContext,
+} from './prompts-handlers.js';
+import {
+  handleSkillsContent,
+  handleSkillsCreate,
+  handleSkillsEdit,
+  handleSkillsExport,
+  handleSkillsInstall,
+  handleSkillsList,
+  handleSkillsUninstall,
+  handleSkillsUpdate,
+  type SkillsContext,
+} from './skills-handlers.js';
+import type { WSClientMessage } from './types.js';
+
+export interface ContentRouteContext {
+  getProjectRoot: () => string;
+  getSkillsContext: () => SkillsContext;
+  getPromptsContext: () => PromptsContext;
+  getDesignContext: () => DesignContext;
+  onFileWritten?: ((filePath: string) => void) | undefined;
+}
+
+/** Canonical file/skill/prompt/design routing shared by every WebUI host. */
+export async function handleContentRoute(
+  ctx: ContentRouteContext,
+  ws: WebSocket,
+  message: WSClientMessage,
+): Promise<boolean> {
+  switch (message.type) {
+    case 'files.list':
+      await handleFilesList(ws, message, ctx.getProjectRoot());
+      return true;
+    case 'files.tree':
+      await handleFilesTree(ws, message, ctx.getProjectRoot());
+      return true;
+    case 'files.read':
+      await handleFilesRead(ws, message, ctx.getProjectRoot());
+      return true;
+    case 'files.write':
+      await handleFilesWrite(ws, message, ctx.getProjectRoot(), {
+        onWritten: ctx.onFileWritten,
+      });
+      return true;
+    case 'skills.list':
+      await handleSkillsList(ws, ctx.getSkillsContext());
+      return true;
+    case 'skills.content':
+      await handleSkillsContent(ws, ctx.getSkillsContext(), message);
+      return true;
+    case 'skills.install':
+      await handleSkillsInstall(ws, ctx.getSkillsContext(), message);
+      return true;
+    case 'skills.uninstall':
+      await handleSkillsUninstall(ws, ctx.getSkillsContext(), message);
+      return true;
+    case 'skills.update':
+      await handleSkillsUpdate(ws, ctx.getSkillsContext(), message);
+      return true;
+    case 'skills.create':
+      await handleSkillsCreate(ws, ctx.getSkillsContext(), message);
+      return true;
+    case 'skills.edit':
+      await handleSkillsEdit(ws, ctx.getSkillsContext(), message);
+      return true;
+    case 'skills.export':
+      await handleSkillsExport(ws, ctx.getSkillsContext());
+      return true;
+    case 'prompts.list':
+      await handlePromptsList(ws, ctx.getPromptsContext());
+      return true;
+    case 'prompts.search':
+      await handlePromptsSearch(ws, ctx.getPromptsContext(), message);
+      return true;
+    case 'prompts.content':
+      await handlePromptsContent(ws, ctx.getPromptsContext(), message);
+      return true;
+    case 'prompts.favorite':
+      await handlePromptsFavorite(ws, ctx.getPromptsContext(), message);
+      return true;
+    case 'prompts.create':
+      await handlePromptsCreate(ws, ctx.getPromptsContext(), message);
+      return true;
+    case 'prompts.used':
+      await handlePromptsUsed(ws, ctx.getPromptsContext(), message);
+      return true;
+    case 'prompts.recent':
+      await handlePromptsRecent(ws, ctx.getPromptsContext());
+      return true;
+    case 'design.list':
+      await handleDesignList(ws, ctx.getDesignContext());
+      return true;
+    case 'design.use':
+      await handleDesignUse(ws, ctx.getDesignContext(), message);
+      return true;
+    case 'design.state':
+      await handleDesignState(ws, ctx.getDesignContext());
+      return true;
+    case 'design.set':
+      await handleDesignSet(ws, ctx.getDesignContext(), message);
+      return true;
+    case 'design.materialize':
+      await handleDesignMaterialize(ws, ctx.getDesignContext(), message);
+      return true;
+    case 'design.verify':
+      await handleDesignVerify(ws, ctx.getDesignContext());
+      return true;
+    default:
+      return false;
+  }
+}

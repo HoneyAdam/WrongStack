@@ -8,7 +8,7 @@ import { expectDefined } from '@wrongstack/core';
  * The regex fallback extracts: fn, struct, enum, trait, impl, type, const, static, mod
  */
 
-import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { resolveWin32Command } from '../_win32-resolve.js';
@@ -23,7 +23,7 @@ export async function parseSymbols(opts: {
   const { file, content, lang } = opts;
 
   // Try native parser first, fall back to regex
-  const nativeAvailable = checkNativeParser();
+  const nativeAvailable = await checkNativeParser();
   if (nativeAvailable) {
     const result = await tryNativeParse(file, content);
     if (result) return result;
@@ -39,17 +39,25 @@ export { detectLang } from './ts-parser.js';
 // Cache the native-parser availability check so we don't spawn `rustc` and
 // `cargo metadata` on every file. The result is constant for the process
 // lifetime — the toolchain either exists or it doesn't.
-let _nativeParserAvailable: boolean | null = null;
+let nativeParserAvailability: Promise<boolean> | undefined;
 
-function checkNativeParser(): boolean {
-  if (_nativeParserAvailable !== null) return _nativeParserAvailable;
-  try {
-    execFileSync('rustc', ['--version'], { stdio: 'pipe', windowsHide: true });
-    // Check if our syn-parser crate is available. argv-array form (no shell)
-    // so a cwd path containing spaces or shell metacharacters can't break out.
-    const toolsDir = path.join(process.cwd(), 'tools');
+function probe(command: string, args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, { timeout: 10_000, windowsHide: true }, (error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+}
+
+function checkNativeParser(): Promise<boolean> {
+  nativeParserAvailability ??= (async () => {
     try {
-      execFileSync(
+      await probe('rustc', ['--version']);
+      // Check if our syn-parser crate is available. argv-array form (no shell)
+      // so a cwd path containing spaces or shell metacharacters can't break out.
+      const toolsDir = path.join(process.cwd(), 'tools');
+      await probe(
         'cargo',
         [
           'metadata',
@@ -59,16 +67,13 @@ function checkNativeParser(): boolean {
           '--manifest-path',
           path.join(toolsDir, 'Cargo.toml'),
         ],
-        { stdio: 'pipe', windowsHide: true },
       );
-      _nativeParserAvailable = true;
+      return true;
     } catch {
-      _nativeParserAvailable = false;
+      return false;
     }
-  } catch {
-    _nativeParserAvailable = false;
-  }
-  return _nativeParserAvailable;
+  })();
+  return nativeParserAvailability;
 }
 
 async function tryNativeParse(file: string, content: string): Promise<FileSymbols | null> {

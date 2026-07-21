@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { normalizeKanbanBoundaryPolicy } from './boundary.js';
 import {
   CURRENT_KANBAN_VERSION,
   DEFAULT_COLUMNS,
@@ -9,7 +10,6 @@ import {
   type KanbanBoardSummary,
   type KanbanEvent,
 } from './types.js';
-import { normalizeKanbanBoundaryPolicy } from './boundary.js';
 import { atomicWrite, withFileLock } from './utils/atomic-write.js';
 
 const KANBANS_DIR = 'kanbans';
@@ -141,6 +141,13 @@ export const EVENT_LOG_MAX_ENTRIES = 10_000;
  */
 export const EVENT_LOG_TRIM_TO = 5_000;
 
+interface KanbanEventLogState {
+  size: number;
+  lineCount?: number;
+}
+
+const eventLogState = new Map<string, KanbanEventLogState>();
+
 export async function appendKanbanEvent(
   projectRoot: string,
   boardId: string,
@@ -149,10 +156,10 @@ export async function appendKanbanEvent(
   const filePath = getKanbanEventsPath(projectRoot, boardId);
   await withFileLock(filePath, async () => {
     await fs.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.appendFile(filePath, `${JSON.stringify(event)}\n`, 'utf8');
+    const line = `${JSON.stringify(event)}\n`;
+    await fs.appendFile(filePath, line, 'utf8');
     // Trim the event log to prevent unbounded growth (best-effort).
-    // The size pre-check avoids reading the full file on every append.
-    await trimKanbanEventLog(filePath);
+    await trimKanbanEventLog(filePath, Buffer.byteLength(line));
   });
 }
 
@@ -162,18 +169,40 @@ export async function appendKanbanEvent(
  * EVENT_LOG_TRIM_TO entries. A failure here must never break event
  * recording — the catch handler ensures that.
  */
-async function trimKanbanEventLog(filePath: string): Promise<void> {
+async function trimKanbanEventLog(filePath: string, appendedBytes: number): Promise<void> {
   try {
     const stat = await fs.stat(filePath);
-    // Quick heuristic: files under 512 KB are unlikely to exceed 10K JSON lines.
-    // Avoids reading the full file on every append for quiet boards.
-    if (stat.size < 512_000) return;
-    const raw = await fs.readFile(filePath, 'utf8');
-    const lines = raw.split(/\r?\n/).filter(Boolean);
-    if (lines.length <= EVENT_LOG_MAX_ENTRIES) return;
+    const cached = eventLogState.get(filePath);
+    let lines: string[] | undefined;
+    let lineCount: number | undefined;
+    if (cached?.lineCount !== undefined && stat.size === cached.size + appendedBytes) {
+      lineCount = cached.lineCount + 1;
+    } else if (stat.size >= 512_000) {
+      const raw = await fs.readFile(filePath, 'utf8');
+      lines = raw.split(/\r?\n/).filter(Boolean);
+      lineCount = lines.length;
+    }
+
+    if (lineCount === undefined || lineCount <= EVENT_LOG_MAX_ENTRIES) {
+      eventLogState.set(filePath, {
+        size: stat.size,
+        ...(lineCount !== undefined ? { lineCount } : {}),
+      });
+      return;
+    }
+    if (!lines) {
+      const raw = await fs.readFile(filePath, 'utf8');
+      lines = raw.split(/\r?\n/).filter(Boolean);
+    }
     const trimmed = lines.slice(-EVENT_LOG_TRIM_TO);
-    await atomicWrite(filePath, `${trimmed.join('\n')}\n`, { encoding: 'utf8' });
+    const body = `${trimmed.join('\n')}\n`;
+    await atomicWrite(filePath, body, { encoding: 'utf8' });
+    eventLogState.set(filePath, {
+      size: Buffer.byteLength(body),
+      lineCount: trimmed.length,
+    });
   } catch {
+    eventLogState.delete(filePath);
     // Best-effort only: log-space management must never interrupt event recording.
   }
 }
@@ -205,6 +234,7 @@ export async function deleteBoard(projectRoot: string, boardRef: string): Promis
       await fs.unlink(filePath);
       try {
         await fs.unlink(getKanbanEventsPath(projectRoot, boardId));
+        eventLogState.delete(getKanbanEventsPath(projectRoot, boardId));
       } catch (eventsErr) {
         if (!isEnoent(eventsErr)) throw eventsErr;
       }

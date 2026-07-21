@@ -3,7 +3,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it, beforeEach } from 'vitest';
 import { SecurityScanner } from '../src/scanner.js';
-import type { GeneratedSkill, TechStackInfo, SecurityPattern } from '../src/types.js';
+import type { GeneratedSkill } from '../src/skill-generator.js';
+import type { TechStackInfo, SecurityPattern } from '../src/types.js';
 
 describe('SecurityScanner', () => {
   let scanner: SecurityScanner;

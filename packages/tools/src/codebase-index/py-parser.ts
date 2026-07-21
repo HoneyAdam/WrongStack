@@ -7,7 +7,7 @@
  * Extracts: class, function, async function, const, var, import, import_from
  */
 
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -242,33 +242,49 @@ print(json.dumps([s.to_dict() for s in syms]))
  *
  * Windows: walks PATHEXT via `resolveWin32Command` (handles .exe/.cmd/.bat).
  *          A match means a real file on disk — return it immediately.
- * macOS / Linux: `resolveWin32Command` is a pass-through. We verify each
- *          candidate with `spawnSync --version` — the only reliable way to
- *          check that a binary actually exists on PATH. Cost is a single
- *          short-lived process per lookup, cached for the process lifetime.
+ * macOS / Linux: `resolveWin32Command` is a pass-through. We asynchronously
+ *          verify each candidate with `--version`, cached for the process lifetime.
  *
  * Candidates in priority order:
  *   Windows:  python3 → python → py (Python launcher)
  *   Unix:     python3 → python
  */
-function resolvePython(): string | null {
+async function resolvePython(): Promise<string | null> {
 	const candidates = process.platform === 'win32'
 		? ['python3', 'python', 'py']
 		: ['python3', 'python'];
 	for (const name of candidates) {
 		const resolved = resolveWin32Command(name);
-		// On Windows: verify with spawnSync even if resolveWin32Command found a
+		// On Windows: verify even if resolveWin32Command found a
 		// file — the WindowsApps redirector stub (python3.exe) passes the
 		// accessSync check but exits with code 9009 (app not found).
-		const result = spawnSync(resolved, ['--version'], {
-			stdio: 'pipe',
-			timeout: 5_000,
-		});
-		if (result.error) continue; // ENOENT or similar — try next
-		if (result.status !== 0) continue; // binary exists but broken (e.g. Windows Store stub)
+		if (!(await commandIsAvailable(resolved))) continue;
 		return resolved;
 	}
 	return null;
+}
+
+function commandIsAvailable(command: string): Promise<boolean> {
+	return new Promise((resolve) => {
+		let settled = false;
+		const proc = spawn(command, ['--version'], {
+			stdio: 'ignore',
+			windowsHide: true,
+		});
+		const finish = (available: boolean) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			resolve(available);
+		};
+		const timer = setTimeout(() => {
+			proc.kill('SIGKILL');
+			finish(false);
+		}, 5_000);
+		timer.unref?.();
+		proc.once('error', () => finish(false));
+		proc.once('close', (code) => finish(code === 0));
+	});
 }
 
 /**
@@ -333,7 +349,7 @@ function spawnPyParser(
 // Cache the temp script path + resolved Python binary so we don't rewrite
 // or re-resolve on every file.
 let _cachedScriptPath: string | null = null;
-let _cachedPyBinary: string | null = null;
+let cachedPyBinary: Promise<string | null> | undefined;
 
 async function syncPyParse(filePath: string, content: string, lang: SymbolLang): Promise<FileSymbols> {
 	try {
@@ -349,15 +365,14 @@ async function syncPyParse(filePath: string, content: string, lang: SymbolLang):
 		}
 
 		// Resolve Python binary once (expensive: walks PATH on Windows).
-		if (!_cachedPyBinary) {
-			_cachedPyBinary = resolvePython();
-			if (!_cachedPyBinary) return { file: filePath, lang, symbols: [], mtimeMs: Date.now() };
-		}
+		cachedPyBinary ??= resolvePython();
+		const pyBinary = await cachedPyBinary;
+		if (!pyBinary) return { file: filePath, lang, symbols: [], mtimeMs: Date.now() };
 
 		// argv-array form: no shell, so a hostile filename cannot inject commands.
 		// Content is piped via stdin — avoids a second file read in the child.
 		const { code, stdout } = await spawnPyParser(
-			_cachedPyBinary,
+			pyBinary,
 			_cachedScriptPath,
 			filePath,
 			content,

@@ -35,21 +35,6 @@ describe('barrel modules (import coverage)', () => {
     expect(mod.resolveIndexThreshold).toBeDefined();
   });
 
-  it('webui-server/ws-handlers/index.ts re-exports symbols', async () => {
-    const mod = await import('../src/webui-server/ws-handlers/index.js');
-    expect(mod.handleModelRefine).toBeDefined();
-    expect(mod.handleUserMessage).toBeDefined();
-    expect(mod.handleContextClear).toBeDefined();
-    expect(mod.handleDiagGet).toBeDefined();
-    expect(mod.handleAutonomySwitch).toBeDefined();
-    expect(mod.handleProcessKill).toBeDefined();
-    expect(mod.handleProviderAdd).toBeDefined();
-    expect(mod.handleOAuthStart).toBeDefined();
-    expect(mod.handleSessionNew).toBeDefined();
-    expect(mod.handlePlanGet).toBeDefined();
-    expect(mod.getMailbox).toBeDefined();
-  });
-
   it('short-circuit-flags.ts exports help/version handler', async () => {
     const mod = await import('../src/boot/short-circuit-flags.js');
     expect(mod.handleHelpVersionShortCircuit).toBeDefined();

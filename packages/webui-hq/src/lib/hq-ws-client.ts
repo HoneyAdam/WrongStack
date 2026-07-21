@@ -24,6 +24,17 @@ export interface HqWsClientOptions {
 }
 
 import type { HqBrowserMessage, HqEventEnvelope, HqSnapshot } from '@wrongstack/core';
+import {
+  createSurfaceConnectionState,
+  DEFAULT_SURFACE_CONNECTION_CONFIG,
+  isConnectionHeartbeatTimedOut,
+  markConnectionActivity,
+  markConnectionConnecting,
+  markConnectionOpen,
+  planConnectionReconnect,
+  type SurfaceConnectionState,
+  stopConnection,
+} from '@wrongstack/webui-server/protocol';
 import { resolveHqToken } from './auth.js';
 
 const DEFAULT_HEARTBEAT_INTERVAL = 25_000;
@@ -35,6 +46,7 @@ export class HqWsClient {
   private handlers = new Set<Handler>();
   private stateHandlers = new Set<StateHandler>();
   private reconnectAttempt = 0;
+  private connectionState: SurfaceConnectionState = createSurfaceConnectionState();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private lastMessageAt = 0;
@@ -82,6 +94,7 @@ export class HqWsClient {
 
   connect(): void {
     if (this.stopped || this.ws !== null) return;
+    this.connectionState = markConnectionConnecting(this.connectionState);
     this.emitState('connecting');
 
     let ws: WebSocket;
@@ -95,7 +108,9 @@ export class HqWsClient {
 
     ws.onopen = () => {
       this.reconnectAttempt = 0;
+      this.connectionState = markConnectionOpen(this.connectionState);
       this.lastMessageAt = Date.now();
+      this.connectionState = markConnectionActivity(this.connectionState, this.lastMessageAt);
       this.emitState('connected');
       this.startHeartbeat();
     };
@@ -124,6 +139,7 @@ export class HqWsClient {
 
   close(): void {
     this.stopped = true;
+    this.connectionState = stopConnection(this.connectionState);
     this.stopHeartbeat();
     if (this.reconnectTimer !== null) {
       clearTimeout(this.reconnectTimer);
@@ -160,20 +176,25 @@ export class HqWsClient {
 
   private scheduleReconnect(): void {
     if (this.stopped || this.reconnectTimer !== null) return;
-    if (this.reconnectAttempt >= this.maxRetries) {
+    const reconnect = planConnectionReconnect(this.connectionState, {
+      ...DEFAULT_SURFACE_CONNECTION_CONFIG,
+      maxReconnectAttempts: this.maxRetries,
+      maxBackoffMs: this.maxBackoffMs,
+      heartbeatIntervalMs: this.heartbeatIntervalMs,
+      heartbeatTimeoutMs: this.heartbeatTimeoutMs,
+      jitterRatio: 0.5,
+    });
+    this.connectionState = reconnect.state;
+    this.reconnectAttempt = reconnect.state.reconnectAttempt;
+    if (!reconnect.plan) {
       this.emitState('disconnected');
       return;
     }
-    // Exponential backoff with jitter: 1s, 2s, 4s, 8s, 16s, then capped
-    const base = 1000 * 2 ** Math.min(this.reconnectAttempt, 4);
-    const jitter = base * (0.5 + Math.random() * 0.5); // 50-100% of base
-    const delay = Math.min(jitter, this.maxBackoffMs);
-    this.reconnectAttempt++;
     this.emitState('reconnecting');
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
-    }, delay);
+    }, reconnect.plan.delayMs);
   }
 
   // ── Heartbeat ──────────────────────────────────────────────────────────
@@ -181,8 +202,11 @@ export class HqWsClient {
   /** True when the heartbeat has detected a silent dropout. Exposed for tests. */
   get isHeartbeatTimedOut(): boolean {
     if (this.ws === null) return true;
-    const elapsed = Date.now() - this.lastMessageAt;
-    return elapsed > this.heartbeatIntervalMs + this.heartbeatTimeoutMs;
+    return isConnectionHeartbeatTimedOut(this.connectionState, {
+      ...DEFAULT_SURFACE_CONNECTION_CONFIG,
+      heartbeatIntervalMs: this.heartbeatIntervalMs,
+      heartbeatTimeoutMs: this.heartbeatTimeoutMs,
+    });
   }
 
   private startHeartbeat(): void {

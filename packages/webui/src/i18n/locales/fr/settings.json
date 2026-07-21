@@ -401,7 +401,6 @@
     "pluginChimera": "Chimera — post-session code review",
     "pluginSkills": "Skills — skill library & authoring",
     "pluginPrompts": "Prompts — prompt library & gen",
-    "pluginSecurity": "Security — scanning orchestrator",
     "pluginCostTracker": "Cost Tracker — token & cost tracking",
     "pluginTelegram": "Telegram — notification bot",
     "pluginKnowledgeGraph": "Knowledge Graph — persistent facts",

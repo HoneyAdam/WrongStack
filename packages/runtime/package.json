@@ -40,6 +40,10 @@
       "types": "./dist/probe.d.ts",
       "import": "./dist/probe.js"
     },
+    "./tool-registration": {
+      "types": "./dist/tool-registration.d.ts",
+      "import": "./dist/tool-registration.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -53,7 +57,8 @@
   },
   "dependencies": {
     "@wrongstack/core": "workspace:*",
-    "@wrongstack/super-memory": "workspace:*"
+    "@wrongstack/super-memory": "workspace:*",
+    "@wrongstack/tools": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",

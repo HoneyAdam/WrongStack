@@ -1,27 +1,41 @@
-// ── Shared Worklist Handlers ─────────────────────────────────────────────────
-// Extracted from standalone server (packages/webui/src/server/index.ts) and CLI
-// embedded server (packages/cli/src/webui-server/). Both servers use these
-// handlers for todos, tasks, and plan operations. Keep them in sync.
-//
-// Message types handled here:
-//   todos.get | todos.clear | todos.remove | todo.update
-//   tasks.get | task.update
-//   plan.get | plan.template_use | plan.item.update
-// ─────────────────────────────────────────────────────────────────────────────
-
+import {
+  addPlanItem,
+  emptyPlan,
+  getPlanTemplate,
+  loadPlan,
+  loadTasks,
+  mutatePlan,
+  mutateTasks,
+  savePlan,
+  setPlanItemStatus,
+  type TodoItem,
+} from '@wrongstack/core';
 import type { WebSocket } from 'ws';
-import type { TodoItem } from '@wrongstack/core';
+import type { WSServerMessage } from '../types.js';
 import { validatePlanTemplateUsePayload } from '../ws-payload-validation.js';
 
-// ── Shared result helper ───────────────────────────────────────────────────────
+export interface WorklistContext {
+  context: {
+    todos: TodoItem[];
+    meta: Record<string, unknown>;
+    session: { id: string } | null;
+  };
+  send: (ws: WebSocket, msg: WSServerMessage) => void;
+  broadcast: (msg: WSServerMessage) => void;
+  replaceTodos?: ((todos: TodoItem[]) => void) | undefined;
+}
 
-function sendResult(
-  ws: WebSocket,
-  ctx: WorklistContext,
-  ok: boolean,
-  message: string,
-): void {
-  ctx.send(ws, { type: ok ? 'ok' : 'error', message });
+export interface WorklistMessage {
+  type: string;
+  payload?: unknown;
+}
+
+function sendResult(ctx: WorklistContext, ws: WebSocket, success: boolean, message: string): void {
+  ctx.send(ws, { type: 'key.operation_result', payload: { success, message } });
+}
+
+function currentSessionId(ctx: WorklistContext): string {
+  return ctx.context.session?.id ?? '';
 }
 
 function sessionPayload<T extends Record<string, unknown>>(
@@ -29,98 +43,100 @@ function sessionPayload<T extends Record<string, unknown>>(
   payload: T,
 ): T & { sessionId: string } {
   const provided = payload['sessionId'];
-  const fallback = ctx.context.session?.id ?? '';
-  const sessionId = typeof provided === 'string' && provided.length > 0 ? provided : fallback;
+  const sessionId =
+    typeof provided === 'string' && provided.length > 0 ? provided : currentSessionId(ctx);
   return { ...payload, sessionId };
 }
 
-// ── Context interface ─────────────────────────────────────────────────────────
-// Both servers satisfy this with their own local state.
-
-export interface WorklistContext {
-  context: {
-    todos: TodoItem[];
-    meta: Record<string, unknown>;
-    session: { id: string } | null;
-    state?: unknown;
-  };
-  send: (ws: WebSocket, msg: object) => void;
-  broadcast: (msg: object) => void;
-  /**
-   * Optional mutator for in-memory todo state. Servers that manage live
-   * agent state (e.g. the CLI embedded server) provide this so handlers
-   * can update the agent's todo list directly. Standalone server may omit.
-   */
-  replaceTodos?: (todos: TodoItem[]) => void;
+function planPathOf(ctx: WorklistContext): string | undefined {
+  const value = ctx.context.meta['plan.path'];
+  return typeof value === 'string' && value ? value : undefined;
 }
 
-// ── Todos ─────────────────────────────────────────────────────────────────────
+function taskPathOf(ctx: WorklistContext): string | undefined {
+  const value = ctx.context.meta['task.path'];
+  return typeof value === 'string' && value ? value : undefined;
+}
 
 export function handleTodosGet(ctx: WorklistContext, ws: WebSocket): void {
-  ctx.send(ws, { type: 'todos.updated', payload: sessionPayload(ctx, { todos: ctx.context.todos }) });
+  ctx.send(ws, {
+    type: 'todos.updated',
+    payload: sessionPayload(ctx, { todos: [...ctx.context.todos] }),
+  });
 }
 
 export function handleTodosClear(ctx: WorklistContext, ws: WebSocket): void {
   ctx.replaceTodos?.([]);
-  ctx.broadcast({ type: 'todos.cleared', payload: sessionPayload(ctx, {}) });
-  sendResult(ws, ctx, true, 'Todo board cleared.');
+  sendResult(ctx, ws, true, 'Todos cleared');
+  ctx.broadcast({ type: 'todos.updated', payload: sessionPayload(ctx, { todos: [] }) });
 }
 
 export function handleTodosRemove(
   ctx: WorklistContext,
   ws: WebSocket,
-  payload: { id?: string; index?: number } | undefined,
+  payload: { id?: string | undefined; index?: number | undefined } | undefined,
 ): void {
-  if (!payload || (payload.id === undefined && payload.index === undefined)) {
-    sendResult(ws, ctx, false, 'todos.remove requires id or index.');
+  if (!payload) {
+    sendResult(ctx, ws, false, 'Missing id or index');
     return;
   }
-  const next =
-    payload.id !== undefined
-      ? ctx.context.todos.filter((t) => t.id !== payload.id)
-      : ctx.context.todos.filter((_, i) => i !== (payload.index as number));
+  const todos = ctx.context.todos;
+  let targetIndex = -1;
+  if (typeof payload.id === 'string') {
+    targetIndex = todos.findIndex((todo) => todo.id === payload.id);
+  } else if (typeof payload.index === 'number' && payload.index > 0) {
+    targetIndex = payload.index - 1;
+  }
+  const removed = todos[targetIndex];
+  if (targetIndex < 0 || !removed) {
+    sendResult(ctx, ws, false, 'Todo not found');
+    return;
+  }
+  const next = [...todos.slice(0, targetIndex), ...todos.slice(targetIndex + 1)];
   ctx.replaceTodos?.(next);
+  sendResult(ctx, ws, true, `Removed: ${removed.content}`);
   ctx.broadcast({ type: 'todos.updated', payload: sessionPayload(ctx, { todos: next }) });
-  sendResult(ws, ctx, true, 'Todo item removed.');
 }
 
 export function handleTodoUpdate(
   ctx: WorklistContext,
   ws: WebSocket,
-  payload: { id: string; status?: TodoItem['status']; activeForm?: string },
+  payload: { id: string; status?: TodoItem['status'] | undefined; activeForm?: string | undefined },
 ): void {
-  const todo = ctx.context.todos.find((t) => t.id === payload.id);
-  if (!todo) {
-    sendResult(ws, ctx, false, `No todo with id "${payload.id}".`);
+  const index = ctx.context.todos.findIndex((todo) => todo.id === payload.id);
+  const existing = ctx.context.todos[index];
+  if (index === -1 || !existing) {
+    sendResult(ctx, ws, false, 'Todo not found');
     return;
   }
-  const next = ctx.context.todos.map((t) =>
-    t.id === payload.id
-      ? { ...t, ...(payload.status !== undefined && { status: payload.status }), ...(payload.activeForm !== undefined && { activeForm: payload.activeForm }) }
-      : t,
-  );
+  const next = [...ctx.context.todos];
+  next[index] = {
+    ...existing,
+    status: payload.status ?? existing.status,
+    activeForm: payload.activeForm !== undefined ? payload.activeForm : existing.activeForm,
+  };
   ctx.replaceTodos?.(next);
+  sendResult(ctx, ws, true, `Todo "${existing.content}" updated`);
   ctx.broadcast({ type: 'todos.updated', payload: sessionPayload(ctx, { todos: next }) });
-  sendResult(ws, ctx, true, `Todo "${todo.content}" updated.`);
 }
 
-// ── Tasks ─────────────────────────────────────────────────────────────────────
-
 export async function handleTasksGet(ctx: WorklistContext, ws: WebSocket): Promise<void> {
-  const taskPath = ctx.context.meta['task.path'];
-  if (typeof taskPath === 'string' && taskPath) {
-    try {
-      const { loadTasks } = await import('@wrongstack/core');
-      const file = await loadTasks(taskPath);
-      ctx.send(ws, { type: 'tasks.updated', payload: sessionPayload(ctx, { tasks: file?.tasks ?? [] }) });
-    } catch {
-      ctx.send(ws, { type: 'tasks.updated', payload: sessionPayload(ctx, { tasks: [] }) });
-    }
-  } else {
+  const taskPath = taskPathOf(ctx);
+  if (!taskPath) {
     ctx.send(ws, {
       type: 'tasks.updated',
       payload: sessionPayload(ctx, { tasks: [], error: 'Task storage not configured.' }),
     });
+    return;
+  }
+  try {
+    const file = await loadTasks(taskPath);
+    ctx.send(ws, {
+      type: 'tasks.updated',
+      payload: sessionPayload(ctx, { tasks: file?.tasks ?? [] }),
+    });
+  } catch {
+    ctx.send(ws, { type: 'tasks.updated', payload: sessionPayload(ctx, { tasks: [] }) });
   }
 }
 
@@ -132,104 +148,91 @@ export async function handleTaskUpdate(
     status: 'pending' | 'in_progress' | 'blocked' | 'failed' | 'review' | 'completed';
   },
 ): Promise<void> {
-  const taskPath = ctx.context.meta['task.path'];
-  if (typeof taskPath !== 'string' || !taskPath) {
-    sendResult(ws, ctx, false, 'Task storage is not configured for this session.');
+  const taskPath = taskPathOf(ctx);
+  if (!taskPath) {
+    sendResult(ctx, ws, false, 'Task storage not configured.');
     return;
   }
   try {
-    const { loadTasks, saveTasks } = await import('@wrongstack/core');
-    const file = await loadTasks(taskPath);
-    if (!file) {
-      sendResult(ws, ctx, false, 'No task file found.');
-      return;
-    }
-    const idx = file.tasks.findIndex((t) => t.id === payload.id);
-    if (idx === -1) {
-      sendResult(ws, ctx, false, `Task "${payload.id}" not found.`);
-      return;
-    }
-    const existing = file.tasks[idx];
-    if (!existing) {
-      // noUncheckedIndexedAccess: array access can be undefined. We just
-      // confirmed idx is in-range via findIndex, but the type system needs
-      // the explicit guard.
-      sendResult(ws, ctx, false, `Task "${payload.id}" not found.`);
-      return;
-    }
-    file.tasks[idx] = { ...existing, status: payload.status };
-    await saveTasks(taskPath, file);
-    ctx.broadcast({ type: 'tasks.updated', payload: sessionPayload(ctx, { tasks: file.tasks }) });
-    sendResult(ws, ctx, true, `Task "${payload.id}" marked ${payload.status}.`);
-  } catch (err) {
-    sendResult(ws, ctx, false, String(err));
+    const file = await mutateTasks(taskPath, currentSessionId(ctx), async (tasks) => {
+      const task = tasks.tasks.find((candidate) => candidate.id === payload.id);
+      if (!task) return tasks;
+      task.status = payload.status;
+      task.updatedAt = new Date().toISOString();
+      return tasks;
+    });
+    sendResult(ctx, ws, true, `Task status updated to "${payload.status}".`);
+    ctx.broadcast({
+      type: 'tasks.updated',
+      payload: sessionPayload(ctx, { tasks: file.tasks }),
+    });
+  } catch (error) {
+    sendResult(ctx, ws, false, error instanceof Error ? error.message : String(error));
   }
 }
 
-// ── Plan ───────────────────────────────────────────────────────────────────────
-
 export async function handlePlanGet(ctx: WorklistContext, ws: WebSocket): Promise<void> {
-  const planPath = ctx.context.meta['plan.path'];
-  const sessionId = ctx.context.session?.id ?? '';
-  if (typeof planPath === 'string' && planPath) {
-    try {
-      const { loadPlan } = await import('@wrongstack/core');
-      const plan = await loadPlan(planPath);
-      ctx.send(ws, {
-        type: 'plan.updated',
-        payload: sessionPayload(ctx, {
-          plan: plan ?? {
-            version: 1,
-            sessionId,
-            updatedAt: new Date().toISOString(),
-            items: [],
-          },
-        }),
-      });
-    } catch {
-      ctx.send(ws, {
-        type: 'plan.updated',
-        payload: sessionPayload(ctx, {
-          plan: {
-            version: 1,
-            sessionId,
-            updatedAt: new Date().toISOString(),
-            items: [],
-          },
-        }),
-      });
-    }
-  } else {
+  const planPath = planPathOf(ctx);
+  const emptySnapshot = () => ({
+    version: 1,
+    sessionId: currentSessionId(ctx),
+    updatedAt: new Date().toISOString(),
+    items: [],
+  });
+  if (!planPath) {
     ctx.send(ws, {
       type: 'plan.updated',
-      payload: sessionPayload(ctx, { plan: null, error: 'Plan storage is not configured for this session.' }),
+      payload: sessionPayload(ctx, {
+        plan: null,
+        error: 'Plan storage is not configured for this session.',
+      }),
+    });
+    return;
+  }
+  try {
+    const plan = await loadPlan(planPath);
+    ctx.send(ws, {
+      type: 'plan.updated',
+      payload: sessionPayload(ctx, { plan: plan ?? emptySnapshot() }),
+    });
+  } catch {
+    ctx.send(ws, {
+      type: 'plan.updated',
+      payload: sessionPayload(ctx, { plan: emptySnapshot() }),
     });
   }
 }
 
-export async function handlePlanTemplateUse(ctx: WorklistContext, ws: WebSocket, template: string): Promise<void> {
-  const planPath = ctx.context.meta['plan.path'];
-  const sessionId = ctx.context.session?.id ?? '';
-  if (typeof planPath !== 'string' || !planPath) {
-    sendResult(ws, ctx, false, 'Plan storage is not configured for this session.');
+export async function handlePlanTemplateUse(
+  ctx: WorklistContext,
+  ws: WebSocket,
+  template: string,
+): Promise<void> {
+  const planPath = planPathOf(ctx);
+  if (!planPath) {
+    sendResult(ctx, ws, false, 'Plan storage is not configured for this session.');
     return;
   }
   try {
-    const { getPlanTemplate, loadPlan, savePlan, emptyPlan, addPlanItem } = await import('@wrongstack/core');
-    const tpl = getPlanTemplate(template);
-    if (!tpl) {
-      sendResult(ws, ctx, false, `Unknown template "${template}".`);
+    const templateDefinition = getPlanTemplate(template);
+    if (!templateDefinition) {
+      sendResult(ctx, ws, false, `Unknown template "${template}".`);
       return;
     }
-    let plan = (await loadPlan(planPath)) ?? emptyPlan(sessionId);
-    for (const item of tpl.items) {
+    let plan = (await loadPlan(planPath)) ?? emptyPlan(currentSessionId(ctx));
+    for (const item of templateDefinition.items) {
       ({ plan } = addPlanItem(plan, item.title, item.details));
     }
     await savePlan(planPath, plan);
-    sendResult(ws, ctx, true, `Applied template "${tpl.name}" — ${tpl.items.length} items added.`);
+    sendResult(
+      ctx,
+      ws,
+      true,
+      `Applied template "${templateDefinition.name}" — ${templateDefinition.items.length} items added.`,
+    );
     ctx.broadcast({ type: 'plan.updated', payload: sessionPayload(ctx, { plan }) });
-  } catch (err) {
-    sendResult(ws, ctx, false, String(err));
+  } catch (error) {
+    sendResult(ctx, ws, false, error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -238,50 +241,36 @@ export async function handlePlanItemUpdate(
   ws: WebSocket,
   payload: { target: string; status: 'open' | 'in_progress' | 'done' },
 ): Promise<void> {
-  const planPath = ctx.context.meta['plan.path'];
-  const sessionId = ctx.context.session?.id ?? '';
-  if (typeof planPath !== 'string' || !planPath) {
-    sendResult(ws, ctx, false, 'Plan storage is not configured for this session.');
+  const planPath = planPathOf(ctx);
+  if (!planPath) {
+    sendResult(ctx, ws, false, 'Plan storage is not configured for this session.');
     return;
   }
   try {
-    const { mutatePlan, setPlanItemStatus } = await import('@wrongstack/core');
     let changed = false;
-    const plan = await mutatePlan(planPath, sessionId, async (p) => {
-      const before = p.updatedAt;
-      const updated = setPlanItemStatus(p, payload.target, payload.status);
-      changed = updated.updatedAt !== before;
-      return updated;
+    const plan = await mutatePlan(planPath, currentSessionId(ctx), async (currentPlan) => {
+      const before = currentPlan.updatedAt;
+      const next = setPlanItemStatus(currentPlan, payload.target, payload.status);
+      changed = next.updatedAt !== before;
+      return next;
     });
     if (!changed) {
-      sendResult(ws, ctx, false, `No plan item matched "${payload.target}".`);
+      sendResult(ctx, ws, false, `No plan item matched "${payload.target}".`);
       return;
     }
-    sendResult(ws, ctx, true, `Plan item status updated to "${payload.status}".`);
+    sendResult(ctx, ws, true, `Plan item status updated to "${payload.status}".`);
     ctx.broadcast({ type: 'plan.updated', payload: sessionPayload(ctx, { plan }) });
-  } catch (err) {
-    sendResult(ws, ctx, false, String(err));
+  } catch (error) {
+    sendResult(ctx, ws, false, error instanceof Error ? error.message : String(error));
   }
-}
-
-// ── Dispatcher ──────────────────────────────────────────────────────────────────
-// Single entry point for the nine worklist message types, so the host server's
-// switch delegates one grouped case here instead of repeating the per-type
-// `makeWorklistContext()` boilerplate. Unknown types are a no-op (the caller
-// only routes worklist types to this function).
-
-/** Loosely-typed worklist WS message — payload shapes are narrowed per case. */
-export interface WorklistMessage {
-  type: string;
-  payload?: unknown;
 }
 
 export async function handleWorklistMessage(
   ctx: WorklistContext,
   ws: WebSocket,
-  msg: WorklistMessage,
+  message: WorklistMessage,
 ): Promise<void> {
-  switch (msg.type) {
+  switch (message.type) {
     case 'todos.get':
       handleTodosGet(ctx, ws);
       return;
@@ -289,13 +278,17 @@ export async function handleWorklistMessage(
       handleTodosClear(ctx, ws);
       return;
     case 'todos.remove':
-      handleTodosRemove(ctx, ws, msg.payload as { id?: string; index?: number } | undefined);
+      handleTodosRemove(ctx, ws, message.payload as { id?: string; index?: number } | undefined);
       return;
     case 'todo.update':
       handleTodoUpdate(
         ctx,
         ws,
-        msg.payload as { id: string; status?: TodoItem['status']; activeForm?: string },
+        message.payload as {
+          id: string;
+          status?: TodoItem['status'];
+          activeForm?: string;
+        },
       );
       return;
     case 'tasks.get':
@@ -305,7 +298,7 @@ export async function handleWorklistMessage(
       await handleTaskUpdate(
         ctx,
         ws,
-        msg.payload as {
+        message.payload as {
           id: string;
           status: 'pending' | 'in_progress' | 'blocked' | 'failed' | 'review' | 'completed';
         },
@@ -315,9 +308,9 @@ export async function handleWorklistMessage(
       await handlePlanGet(ctx, ws);
       return;
     case 'plan.template_use': {
-      const parsed = validatePlanTemplateUsePayload(msg.payload);
+      const parsed = validatePlanTemplateUsePayload(message.payload);
       if (!parsed.ok) {
-        sendResult(ws, ctx, false, parsed.message);
+        sendResult(ctx, ws, false, parsed.message);
         return;
       }
       await handlePlanTemplateUse(ctx, ws, parsed.value.template);
@@ -327,8 +320,7 @@ export async function handleWorklistMessage(
       await handlePlanItemUpdate(
         ctx,
         ws,
-        msg.payload as { target: string; status: 'open' | 'in_progress' | 'done' },
+        message.payload as { target: string; status: 'open' | 'in_progress' | 'done' },
       );
-      return;
   }
 }

@@ -55,8 +55,11 @@ export function makeTelegramApproveTool(opts: {
   getAllowedOutboundChatIds?(): readonly TelegramChatId[];
   /** Immutable Telegram user IDs permitted to resolve an approval. */
   getAllowedUserIds?(): readonly TelegramChatId[];
-  /** Group approvals stay denied unless both this and explicit user IDs are configured. */
-  allowGroupApprovals?: boolean | undefined;
+  /**
+   * Group approvals stay denied unless both this and explicit user IDs are
+   * configured. Resolved on every call for live config updates.
+   */
+  getAllowGroupApprovals?(): boolean;
   maxMessageLength: number;
   log: Logger;
 }): Tool<TelegramApproveInput, TelegramApproveOutput> {
@@ -104,7 +107,7 @@ export function makeTelegramApproveTool(opts: {
       const timeoutMs = Math.min(Math.max(input.timeout_ms ?? 60_000, 1000), 600_000);
       const configuredUserIds = opts.getAllowedUserIds?.().map(String) ?? [];
       const isGroup = String(chatId).startsWith('-');
-      if (isGroup && (opts.allowGroupApprovals !== true || configuredUserIds.length === 0)) {
+      if (isGroup && (opts.getAllowGroupApprovals?.() !== true || configuredUserIds.length === 0)) {
         throw new Error('Telegram group approvals require explicit per-user configuration.');
       }
       const expectedUserIds = configuredUserIds.length > 0 ? configuredUserIds : [String(chatId)];
@@ -134,7 +137,7 @@ export function makeTelegramApproveTool(opts: {
         sessionId: ctx?.session.id ?? 'unknown-session',
         expectedChatId: chatId,
         expectedUserIds,
-        allowGroup: isGroup && opts.allowGroupApprovals === true,
+        allowGroup: isGroup && opts.getAllowGroupApprovals?.() === true,
         expiresAt: Date.now() + timeoutMs,
         signal: toolOpts?.signal,
       });

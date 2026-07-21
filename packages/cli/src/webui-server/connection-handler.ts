@@ -1,29 +1,21 @@
-/**
- * WebSocket connection handler for the CLI WebUI bridge.
- *
- * One `wss.on('connection', ...)` per browser tab: per-socket error
- * handling (attached first, before any awaited work — an oversized inbound
- * frame or other socket-level error must never crash the process), auth via
- * the shared `verifyClient` policy, client registration (map entry + the
- * per-panel WS handlers), per-connection rate limiting, message dispatch,
- * close cleanup, and the initial `session.start` push.
- *
- * PR 14 of Issue #30: extracted from `webui-server.ts`.
- */
 import type { IncomingMessage } from 'node:http';
 import type { Message, Usage } from '@wrongstack/core';
 import type {
   GoalWebSocketHandler,
+  PendingConfirm,
   SddBoardWebSocketHandler,
   SddWizardWebSocketHandler,
   SpecsWebSocketHandler,
   TerminalWebSocketHandler,
   WorktreeWebSocketHandler,
 } from '@wrongstack/webui-server';
-import { verifyClient as verifyWsClient } from '@wrongstack/webui-server';
+import {
+  createConnectionLifecycle,
+  verifyClient as verifyWsClient,
+} from '@wrongstack/webui-server';
+import { decodeProtocolFrame } from '@wrongstack/webui-server/protocol';
 import type { WebSocket } from 'ws';
-import { resolveAllPendingConfirms, type PendingConfirm } from './ws-handlers/index.js';
-import type { WSClientMessage, WSServerMessage } from '../webui-server.js';
+import type { WSClientMessage, WSServerMessage } from './contracts.js';
 
 export interface ConnectedClient {
   ws: WebSocket;
@@ -31,14 +23,6 @@ export interface ConnectedClient {
 }
 
 const REPLAY_MESSAGE_CAP = 2_000;
-
-/**
- * How long to wait after the LAST client disconnects before auto-denying
- * pending permission confirms. A browser refresh drops the client count to
- * zero for a moment — draining immediately would deny a prompt the user is
- * about to see again (pending confirms are replayed on connect).
- */
-const CONFIRM_DRAIN_GRACE_MS = 30_000;
 
 export interface ConnectionHandlerDeps {
   host: string;
@@ -54,7 +38,6 @@ export interface ConnectionHandlerDeps {
   sddWizardHandler: SddWizardWebSocketHandler | null;
   worktreeHandler: WorktreeWebSocketHandler;
   terminalHandler: TerminalWebSocketHandler;
-  /** 0 = disabled (default; this is a local, single-user tool). */
   rateLimitMax: number;
   send: (ws: WebSocket, msg: WSServerMessage) => void;
   sessionPayload: <T extends Record<string, unknown>>(payload: T) => T & { sessionId: string };
@@ -65,17 +48,9 @@ export interface ConnectionHandlerDeps {
     overrides?: Record<string, unknown>,
     needsSetup?: boolean,
   ) => Promise<Record<string, unknown>>;
-  /**
-   * Load the visible chat transcript for a reconnecting browser tab. This
-   * should read the session log when available; `context.messages` is only a
-   * fallback because it is the model working set and can be compacted.
-   */
-  loadReplay?: (() => Promise<{ messages: Message[]; usage?: Usage | undefined } | null>) | undefined;
-  /**
-   * Read-only worker transcript snapshot for browser refresh/resume. Async
-   * because a resumed process has an empty ring and must read the transcripts
-   * back from disk.
-   */
+  loadReplay?:
+    | (() => Promise<{ messages: Message[]; usage?: Usage | undefined } | null>)
+    | undefined;
   loadAgentSessions?:
     | (() => Promise<import('@wrongstack/core/coordination').AgentVirtualSession[]>)
     | undefined;
@@ -85,195 +60,98 @@ export interface ConnectionHandlerDeps {
 export function createConnectionHandler(
   deps: ConnectionHandlerDeps,
 ): (ws: WebSocket, req: IncomingMessage) => Promise<void> {
-  // Grace timer for draining pending confirms once the last client is gone.
-  let confirmDrainTimer: ReturnType<typeof setTimeout> | null = null;
-  return async function handleConnection(ws: WebSocket, req: IncomingMessage): Promise<void> {
-    // Per-connection error handler, attached FIRST (before any awaited
-    // work or even the auth check). Without it, a socket-level error —
-    // most notably an oversized inbound frame (the `ws` receiver throws
-    // `RangeError: Max payload size exceeded`, close 1009, once a client
-    // sends more than `maxPayload`) — is emitted as an unhandled 'error'
-    // on this socket and crashes the whole process. `wss.on('error')`
-    // only catches SERVER-level errors, not per-connection ones.
-    ws.on('error', (err) => {
-      console.warn(
-        JSON.stringify({
-          level: 'warn',
-          event: 'webui_server.client_socket_error',
-          message: err instanceof Error ? err.message : String(err),
-          timestamp: new Date().toISOString(),
-        }),
-      );
-    });
+  const clientHandlers = [
+    deps.goalHandler,
+    deps.specsHandler,
+    deps.sddBoardHandler,
+    ...(deps.sddWizardHandler ? [deps.sddWizardHandler] : []),
+    deps.worktreeHandler,
+    deps.terminalHandler,
+  ];
 
-    // --- Auth: DNS-rebinding guard + token (cookie or URL) + loopback
-    // bootstrap. Delegated to the shared `verifyClient` (ws-auth.ts) so the
-    // embedded server enforces the SAME policy as the standalone one — most
-    // importantly the HttpOnly `ws_token` cookie set by `/ws-auth`, and a
-    // SINGLE token (`wsToken`).
+  return createConnectionLifecycle<ConnectedClient, IncomingMessage, WSClientMessage>({
+    clients: deps.clients,
+    pendingConfirms: deps.pendingConfirms,
+    // ── Auth trust model ────────────────────────────────────────────────
+    // Three layered defenses (see verifyClient in @wrongstack/webui-server/ws-auth):
+    //   1. DNS-rebinding guard (Host header must be loopback on loopback bind)
+    //   2. Shared-token auth via Cookie (ws_token) or URL query param (?token=)
+    //   3. Loopback bootstrap: when requireToken=false (default) AND the server
+    //      is bound to a loopback interface, browser clients bypass token auth
+    //      entirely — the Origin header being http://localhost is sufficient.
     //
-    // This used to be an inline check that (a) validated `?token=` against a
-    // SECOND, unrelated `authToken` (never the `wsToken` that lands in the
-    // URL / cookie / `/api/*`), and (b) ignored the cookie entirely. On
-    // loopback the origin bootstrap masked the mismatch, but the cookie path
-    // was dead and a LAN bind (`WS_HOST=0.0.0.0`) could never authenticate.
-    const ok = verifyWsClient({
-      origin: req.headers.origin,
-      url: req.url ?? '/',
-      hostHeader: req.headers.host,
-      remoteAddress: req.socket.remoteAddress,
-      cookieHeader: req.headers.cookie,
-      wsHost: deps.host,
-      expectedToken: deps.wsToken,
-      requireToken: deps.requireToken,
-      allowedHostnames: deps.publicHostnames,
-      allowBrowserUrlToken: Boolean(deps.publicWsUrl),
-    });
-    if (!ok) {
-      ws.close(4003, 'Forbidden');
-      return;
-    }
-
-    const client: ConnectedClient = {
-      ws,
-      sessionId: deps.currentSessionId(),
-    };
-    deps.clients.set(ws, client);
-
-    // Register this client with the Goal handler so it receives phase events
-    deps.goalHandler.addClient(ws);
-    deps.specsHandler.addClient(ws);
-    deps.sddBoardHandler.addClient(ws);
-    deps.sddWizardHandler?.addClient(ws);
-    deps.worktreeHandler.addClient(ws);
-    deps.terminalHandler.addClient(ws);
-
-    // A client is back — cancel any scheduled auto-deny of pending confirms
-    // and replay the prompts so a refreshed tab can still answer them.
-    if (confirmDrainTimer) {
-      clearTimeout(confirmDrainTimer);
-      confirmDrainTimer = null;
-    }
-    for (const confirm of deps.pendingConfirms.values()) {
-      if (confirm.payload) {
-        deps.send(ws, { type: 'tool.confirm_needed', payload: confirm.payload } as WSServerMessage);
-      }
-    }
-
-    // Per-connection rate limiting — disabled unless WEBUI_RATE_LIMIT > 0.
-    let msgCount = 0;
-    let windowResetAt = Date.now() + 60_000;
-
-    ws.on('message', async (data) => {
-      if (deps.rateLimitMax > 0) {
-        const now = Date.now();
-        if (now > windowResetAt) {
-          msgCount = 0;
-          windowResetAt = now + 60_000;
-        }
-        if (++msgCount > deps.rateLimitMax) {
-          deps.send(ws, {
-            type: 'error',
-            payload: deps.sessionPayload({ phase: 'rate_limit', message: 'Too many messages. Please wait.' }),
-          });
-          return;
-        }
-      }
-      let msg: WSClientMessage;
+    // COOKIE PERSISTENCE AFTER TOKEN ROTATION:
+    // The HttpOnly ws_token cookie, once set by /ws-auth, survives a process
+    // restart. On the next process the expectedToken is a fresh random value,
+    // so the old cookie alone would fail the token check. However, on a
+    // loopback bind with requireToken=false (default), the loopback-bootstrap
+    // path at layer 3 accepts the connection before the cookie is ever
+    // compared — the old cookie is harmless because no token is needed.
+    //
+    // This means a token rotation (e.g. the operator sets a new accessToken
+    // in config) does NOT invalidate already-distributed cookies for loopback
+    // clients. The mitigating factors:
+    //   - Loopback bind + requireToken=false already trusts any local process
+    //     that can reach 127.0.0.1 — a trivial perimeter.
+    //   - A LAN/0.0.0.0 bind with requireToken=true DOES enforce cookie
+    //     matching against the new expectedToken on every reconnect.
+    // If stronger isolation is needed, set requireToken=true or rebind the
+    // server to a non-loopback interface with token enforcement.
+    authenticate: (ws, req) => {
+      const allowed = verifyWsClient({
+        origin: req.headers.origin,
+        url: req.url ?? '/',
+        hostHeader: req.headers.host,
+        remoteAddress: req.socket.remoteAddress,
+        cookieHeader: req.headers.cookie,
+        wsHost: deps.host,
+        expectedToken: deps.wsToken,
+        requireToken: deps.requireToken,
+        allowedHostnames: deps.publicHostnames,
+        allowBrowserUrlToken: Boolean(deps.publicWsUrl),
+      });
+      if (!allowed) ws.close(4003, 'Forbidden');
+      return allowed;
+    },
+    createClient: (ws) => ({ ws, sessionId: deps.currentSessionId() }),
+    registerClient: (ws) => {
+      for (const handler of clientHandlers) handler.addClient(ws);
+    },
+    decode: (raw) => decodeProtocolFrame(raw, 'client'),
+    dispatch: deps.handleMessage,
+    send: deps.send,
+    sessionPayload: deps.sessionPayload,
+    rateLimitMax: deps.rateLimitMax,
+    onClose: (ws) => deps.abortControllers.delete(ws),
+    buildInitialPayload: async () => {
+      const payload = { ...(await deps.buildSessionStartPayload({}, deps.needsSetup)) };
       try {
-        msg = JSON.parse(data.toString()) as WSClientMessage;
-      } catch (err) {
-        console.error(
-          JSON.stringify({
-            level: 'error',
-            event: 'webui_server.message_parse_failed',
-            message: err instanceof Error ? err.message : String(err),
-            timestamp: new Date().toISOString(),
-          }),
-        );
-        return;
+        const replay = await deps.loadReplay?.();
+        if (replay?.messages.length) {
+          payload['replayMessages'] =
+            replay.messages.length > REPLAY_MESSAGE_CAP
+              ? replay.messages.slice(-REPLAY_MESSAGE_CAP)
+              : replay.messages;
+        }
+        const usage = replay?.usage;
+        if (
+          usage &&
+          usage.input + usage.output + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0) > 0
+        ) {
+          payload['replayUsage'] = usage;
+        }
+      } catch {
+        // Replay is best-effort.
+        console.debug('[WebUI] Failed to load replay');
       }
       try {
-        await deps.handleMessage(ws, client, msg);
-      } catch (err) {
-        console.error(
-          JSON.stringify({
-            level: 'error',
-            event: 'webui_server.message_handler_failed',
-            message: err instanceof Error ? err.message : String(err),
-            timestamp: new Date().toISOString(),
-          }),
-        );
+        const sessions = await deps.loadAgentSessions?.();
+        if (sessions?.length) payload['agentSessions'] = sessions;
+      } catch {
+        // Worker replay is independently best-effort.
+        console.debug('[WebUI] Failed to load agent sessions');
       }
-    });
-
-    ws.on('close', () => {
-      deps.clients.delete(ws);
-      // Drop this socket's in-flight run controller (if any). We do NOT
-      // abort the run here — a tab close may be a reload, and the user
-      // may reconnect. The controller is removed so a future
-      // `case 'abort'` from a reconnected socket starts clean. The
-      // `handleUserMessage` finally-block also clears its entry, so
-      // this is a safety net for an unclean close mid-run.
-      deps.abortControllers.delete(ws);
-      // If the last client leaves while a permission prompt is pending, deny
-      // it so the agent loop doesn't hang waiting for an answer that will
-      // never arrive (the terminal no longer prompts in --webui mode). The
-      // deny is deferred by a grace window: a browser refresh drops the
-      // client count to zero for a moment, and an instant drain would deny
-      // a prompt the user is about to see again (confirms are replayed on
-      // connect).
-      if (deps.clients.size === 0 && deps.pendingConfirms.size > 0 && !confirmDrainTimer) {
-        confirmDrainTimer = setTimeout(() => {
-          confirmDrainTimer = null;
-          if (deps.clients.size === 0) {
-            resolveAllPendingConfirms(deps.pendingConfirms, 'no');
-          }
-        }, CONFIRM_DRAIN_GRACE_MS);
-        confirmDrainTimer.unref?.();
-      }
-    });
-
-    // Send session.start to the new client — per-model cost rates
-    // and context-window cap so the frontend can compute accurate
-    // live costs. The auth token is no longer in the payload: the
-    // cookie path (`/ws-auth` → `Set-Cookie: ws_token=…`) is the
-    // C-2 recommended delivery (Phase 1.4) and `?token=…` from
-    // the server-printed URL is the back-compat fallback. Including
-    // the token here would re-introduce the C-598 query-string
-    // exposure class.
-    const base = await deps.buildSessionStartPayload({}, deps.needsSetup);
-    const payload = { ...base };
-    try {
-      const replay = await deps.loadReplay?.();
-      if (replay?.messages && replay.messages.length > 0) {
-        payload['replayMessages'] =
-          replay.messages.length > REPLAY_MESSAGE_CAP
-            ? replay.messages.slice(-REPLAY_MESSAGE_CAP)
-            : replay.messages;
-      }
-      const usage = replay?.usage;
-      if (
-        usage &&
-        usage.input + usage.output + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0) > 0
-      ) {
-        payload['replayUsage'] = usage;
-      }
-    } catch {
-      // Best-effort. The frontend can still use localStorage if the replay
-      // load races a writer or the store is unavailable.
-    }
-    try {
-      const agentSessions = await deps.loadAgentSessions?.();
-      if (agentSessions && agentSessions.length > 0) {
-        payload['agentSessions'] = agentSessions;
-      }
-    } catch {
-      // Worker replay is independent and best-effort.
-    }
-    deps.send(ws, {
-      type: 'session.start',
-      payload,
-    });
-  };
+      return payload;
+    },
+  });
 }

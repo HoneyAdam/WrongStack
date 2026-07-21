@@ -20,7 +20,7 @@
  * @public
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
@@ -251,24 +251,38 @@ function resolveTestCommand(
   };
 }
 
-function runOnce(command: ResolvedTestCommand, timeoutMs: number): { output: string; error?: string } {
-  try {
-    const output = execFileSync(command.cmd, command.args, {
-      encoding: 'utf-8',
-      timeout: timeoutMs,
-      cwd: process.cwd(),
-      stdio: ['pipe', 'pipe', 'pipe'],
-      shell: false,
-    });
-    return { output };
-  } catch (err: unknown) {
-    const e = err as { stdout?: string; stderr?: string; killed?: boolean; message?: string };
-    if (e.killed) {
-      return { output: e.stdout ?? '', error: `timeout after ${timeoutMs}ms` };
-    }
-    const output = `${e.stdout ?? ''}\n${e.stderr ?? ''}`.trim();
-    return { output, error: e.message ?? 'test command exited with non-zero code' };
-  }
+function runOnce(
+  command: ResolvedTestCommand,
+  timeoutMs: number,
+): Promise<{ output: string; error?: string }> {
+  return new Promise((resolveRun) => {
+    execFile(
+      command.cmd,
+      command.args,
+      {
+        encoding: 'utf8',
+        timeout: timeoutMs,
+        cwd: process.cwd(),
+        windowsHide: true,
+        maxBuffer: 10 * 1024 * 1024,
+        shell: false,
+      },
+      (error, stdout, stderr) => {
+        if (!error) {
+          resolveRun({ output: stdout });
+          return;
+        }
+        if ((error as Error & { killed?: boolean }).killed) {
+          resolveRun({ output: stdout, error: `timeout after ${timeoutMs}ms` });
+          return;
+        }
+        resolveRun({
+          output: `${stdout}\n${stderr}`.trim(),
+          error: error.message || 'test command exited with non-zero code',
+        });
+      },
+    );
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -383,7 +397,7 @@ const plugin: Plugin = {
         const runErrors: string[] = [];
 
         for (let run = 1; run <= requestedRuns; run += 1) {
-          const { output, error } = runOnce(command, cfg.timeoutMs);
+          const { output, error } = await runOnce(command, cfg.timeoutMs);
           state.runCount += 1;
           if (error) {
             state.errorCount += 1;

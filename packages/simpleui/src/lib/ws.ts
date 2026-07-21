@@ -1,3 +1,16 @@
+import {
+  createSurfaceConnectionState,
+  DEFAULT_SURFACE_CONNECTION_CONFIG,
+  decodeProtocolFrame,
+  decodeProtocolMessage,
+  enqueueBounded,
+  markConnectionActivity,
+  markConnectionConnecting,
+  markConnectionOpen,
+  planConnectionReconnect,
+  type SurfaceConnectionState,
+  stopConnection,
+} from '@wrongstack/webui-server/protocol';
 import type { ServerMessage } from '../types.js';
 
 function pageToken(): string | null {
@@ -73,10 +86,18 @@ export interface SimpleSocketOptions {
   onState: (state: 'connecting' | 'open' | 'closed') => void;
 }
 
+const SIMPLE_CONNECTION_CONFIG = {
+  ...DEFAULT_SURFACE_CONNECTION_CONFIG,
+  maxReconnectAttempts: Number.POSITIVE_INFINITY,
+  initialBackoffMs: 750,
+  maxBackoffMs: 15_000,
+  jitterRatio: 0.25,
+  queueLimit: 100,
+};
+
 export class SimpleSocket {
   private socket: WebSocket | null = null;
-  private stopped = false;
-  private reconnectAttempt = 0;
+  private connectionState: SurfaceConnectionState = createSurfaceConnectionState();
   private timer: ReturnType<typeof setTimeout> | undefined;
   private queue: string[] = [];
   private listeners: Set<(msg: ServerMessage) => void> = new Set();
@@ -92,50 +113,57 @@ export class SimpleSocket {
   }
 
   async connect(): Promise<void> {
-    if (this.stopped) return;
+    if (this.connectionState.stopped) return;
+    this.connectionState = markConnectionConnecting(this.connectionState);
     this.options.onState('connecting');
     const url = await exchangeAuthCookie(defaultWsUrl());
-    if (this.stopped) return;
+    if (this.connectionState.stopped) return;
 
     const socket = new WebSocket(url);
     this.socket = socket;
     socket.addEventListener('open', () => {
       if (this.socket !== socket) return;
-      this.reconnectAttempt = 0;
+      this.connectionState = markConnectionOpen(this.connectionState);
       this.options.onState('open');
       for (const message of this.queue.splice(0)) socket.send(message);
     });
     socket.addEventListener('message', (event) => {
-      try {
-        const parsed = JSON.parse(String(event.data)) as ServerMessage;
-        if (parsed && typeof parsed.type === 'string') {
-          this.options.onMessage(parsed);
-          for (const fn of this.listeners) fn(parsed);
-        }
-      } catch {
-        // Ignore malformed server frames; the next valid frame keeps the UI alive.
-      }
+      this.connectionState = markConnectionActivity(this.connectionState);
+      const decoded = decodeProtocolFrame(String(event.data), 'server');
+      if (!decoded.ok) return;
+      const message = decoded.message as ServerMessage;
+      this.options.onMessage(message);
+      for (const fn of this.listeners) fn(message);
     });
     socket.addEventListener('close', (event) => {
       if (this.socket === socket) this.socket = null;
-      if (this.stopped) return;
-      if (event.code === 1000) return; // intentional shutdown — don't reconnect
+      if (this.connectionState.stopped) return;
+      if (event.code === 1000) {
+        this.connectionState = stopConnection(this.connectionState);
+        return;
+      }
       this.options.onState('closed');
-      const baseDelay = Math.min(15_000, 750 * 2 ** this.reconnectAttempt++);
-      const jitter = Math.random() * 1000;
-      const delay = baseDelay + jitter;
-      this.timer = setTimeout(() => void this.connect(), delay);
+      const reconnect = planConnectionReconnect(this.connectionState, SIMPLE_CONNECTION_CONFIG);
+      this.connectionState = reconnect.state;
+      if (reconnect.plan) {
+        this.timer = setTimeout(() => void this.connect(), reconnect.plan.delayMs);
+      }
     });
     socket.addEventListener('error', () => socket.close());
   }
 
   send(type: string, payload: Record<string, unknown> = {}): void {
-    const serialized = JSON.stringify({ type, payload });
+    const decoded = decodeProtocolMessage({ type, payload }, 'client');
+    if (!decoded.ok) {
+      throw new Error(decoded.issue.message);
+    }
+    const serialized = JSON.stringify(decoded.message);
     if (this.socket?.readyState === WebSocket.OPEN) {
       this.socket.send(serialized);
       return;
     }
-    if (this.queue.length >= 100) {
+    const queued = enqueueBounded(this.queue, serialized, SIMPLE_CONNECTION_CONFIG.queueLimit);
+    if (queued.dropped !== null) {
       console.warn(
         JSON.stringify({
           level: 'warn',
@@ -144,13 +172,12 @@ export class SimpleSocket {
           timestamp: new Date().toISOString(),
         }),
       );
-      this.queue.shift();
     }
-    this.queue.push(serialized);
+    this.queue = queued.queue;
   }
 
   close(): void {
-    this.stopped = true;
+    this.connectionState = stopConnection(this.connectionState);
     if (this.timer) clearTimeout(this.timer);
     this.socket?.close();
     this.socket = null;

@@ -3,11 +3,47 @@ import type { Logger } from '../types/logger.js';
 import type { Plugin, PluginAPI, PluginDependency } from '../types/plugin.js';
 import { toErrorMessage } from '../utils/error.js';
 import { validateAgainstSchema } from '../utils/json-schema-validate.js';
+import { resolvePluginManifestConfig, validatePluginConfigMetadata } from './config.js';
 
-/** Internal map tracking the API instance each plugin received during setup,
- *  so unloadPlugins can call teardown with the same API (not a fresh one).
- *  Using a WeakMap avoids pinning plugins in memory after teardown. */
-const pluginApiMap = new WeakMap<Plugin, PluginAPI>();
+interface PluginRegistration {
+  plugin: Plugin;
+  api: PluginAPI;
+  cleanupApi: PluginAPI & { drainCleanup?: (() => void) | undefined };
+  cleanupDrained: boolean;
+  disposed: boolean;
+}
+
+/**
+ * Compatibility registry for callers that still use `unloadPlugins(loaded)`.
+ * New hosts should use the handle returned by `loadPlugins`; that handle owns
+ * an exact, isolated registration set even when two hosts load the same Plugin
+ * object concurrently.
+ */
+const legacyRegistrations = new WeakMap<Plugin, PluginRegistration[]>();
+
+export interface PluginLoadFailure {
+  plugin: Plugin;
+  err: unknown;
+}
+
+export interface PluginHostHandle {
+  loaded: Plugin[];
+  failed: PluginLoadFailure[];
+  readonly disposed: boolean;
+  /** Dispose successfully loaded plugins in reverse dependency order. */
+  dispose(): Promise<void>;
+}
+
+class PluginLifecycleTimeoutError extends Error {
+  constructor(
+    readonly pluginName: string,
+    readonly phase: 'setup' | 'teardown',
+    readonly timeoutMs: number,
+  ) {
+    super(`Plugin "${pluginName}" ${phase} exceeded ${timeoutMs} ms`);
+    this.name = 'PluginLifecycleTimeoutError';
+  }
+}
 
 /**
  * Stable plugin API contract version. This is intentionally independent of
@@ -33,7 +69,7 @@ const pluginApiMap = new WeakMap<Plugin, PluginAPI>();
 export const KERNEL_API_VERSION = '0.1.10';
 
 export interface LoadPluginsOptions {
-  apiFactory: (plugin: Plugin) => PluginAPI;
+  apiFactory: (plugin: Plugin, resolvedOptions: Readonly<Record<string, unknown>>) => PluginAPI;
   log: Logger;
   kernelApiVersion?: string | undefined;
   /**
@@ -42,7 +78,7 @@ export interface LoadPluginsOptions {
    * against it before calling `setup`. Pass `Config.plugins` shaped
    * `{ [name]: { options } }` or any flat record.
    */
-  pluginOptions?: Record<string, unknown>;
+  pluginOptions?: Record<string, Record<string, unknown>>;
   /**
    * When true, the loader throws a PluginError if a plugin calls an API
    * method that contradicts its declared `capabilities` — instead of
@@ -98,20 +134,6 @@ function normalizeDep(d: string | PluginDependency): PluginDependency {
  * defaults fill in where overrides are missing. Nested objects are
  * NOT deep-merged — the override value replaces wholesale.
  */
-function shallowMerge(
-  defaults: Record<string, unknown>,
-  overrides: unknown,
-): Record<string, unknown> {
-  if (overrides === undefined || overrides === null) return { ...defaults };
-  if (typeof overrides !== 'object') return { ...defaults };
-  const ov = overrides as Record<string, unknown>;
-  const out: Record<string, unknown> = { ...defaults };
-  for (const key of Object.keys(ov)) {
-    out[key] = ov[key];
-  }
-  return out;
-}
-
 function topoSort(plugins: Plugin[]): Plugin[] {
   const map = new Map<string, Plugin>();
   for (const p of plugins) map.set(p.name, p);
@@ -178,13 +200,109 @@ function topoSort(plugins: Plugin[]): Plugin[] {
   return order;
 }
 
+function lifecycleTimeoutMs(
+  configured: number | undefined,
+  fallback: number,
+  phase: 'setup' | 'teardown',
+): number {
+  const value = configured ?? fallback;
+  if (!Number.isFinite(value) || value < 0) {
+    throw new RangeError(`Plugin ${phase} timeout must be a finite non-negative number`);
+  }
+  return value;
+}
+
+async function runWithDeadline(
+  plugin: Plugin,
+  phase: 'setup' | 'teardown',
+  timeoutMs: number,
+  operation: (signal: AbortSignal) => void | Promise<void>,
+): Promise<void> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutError = new PluginLifecycleTimeoutError(plugin.name, phase, timeoutMs);
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      controller.abort(timeoutError);
+      reject(timeoutError);
+    }, timeoutMs);
+  });
+  const work = Promise.resolve().then(() => operation(controller.signal));
+  try {
+    await Promise.race([work, deadline]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+function registerLegacy(registration: PluginRegistration): void {
+  const registrations = legacyRegistrations.get(registration.plugin) ?? [];
+  registrations.push(registration);
+  legacyRegistrations.set(registration.plugin, registrations);
+}
+
+function unregisterLegacy(registration: PluginRegistration): void {
+  const registrations = legacyRegistrations.get(registration.plugin);
+  if (!registrations) return;
+  const index = registrations.indexOf(registration);
+  if (index >= 0) registrations.splice(index, 1);
+  if (registrations.length === 0) legacyRegistrations.delete(registration.plugin);
+}
+
+function drainCleanup(registration: PluginRegistration, log: Logger): void {
+  if (registration.cleanupDrained) return;
+  registration.cleanupDrained = true;
+  try {
+    registration.cleanupApi.drainCleanup?.call(registration.cleanupApi);
+  } catch (err) {
+    log.error(`Plugin "${registration.plugin.name}" cleanup drain failed`, { err });
+  }
+}
+
+async function disposeRegistration(
+  registration: PluginRegistration,
+  opts: LoadPluginsOptions,
+  context: 'shutdown' | 'setup rollback',
+): Promise<void> {
+  if (registration.disposed) return;
+  registration.disposed = true;
+  const { plugin, api } = registration;
+  try {
+    if (typeof plugin.teardown === 'function') {
+      const timeoutMs = lifecycleTimeoutMs(opts.teardownTimeoutMs, 10_000, 'teardown');
+      await runWithDeadline(plugin, 'teardown', timeoutMs, (signal) =>
+        plugin.teardown!(api, { signal }),
+      );
+    }
+    opts.log.info(`Plugin "${plugin.name}" disposed (${context})`);
+  } catch (err) {
+    opts.log.error(`Plugin "${plugin.name}" teardown failed during ${context}`, {
+      err,
+      reason: err instanceof PluginLifecycleTimeoutError ? 'teardown deadline exceeded' : undefined,
+    });
+  } finally {
+    drainCleanup(registration, opts.log);
+    unregisterLegacy(registration);
+  }
+}
+
+async function disposeRegistrations(
+  registrations: PluginRegistration[],
+  opts: LoadPluginsOptions,
+): Promise<void> {
+  for (const registration of [...registrations].reverse()) {
+    await disposeRegistration(registration, opts, 'shutdown');
+  }
+}
+
 export async function loadPlugins(
   plugins: Plugin[],
   opts: LoadPluginsOptions,
-): Promise<{ loaded: Plugin[]; failed: { plugin: Plugin; err: unknown }[] }> {
+): Promise<PluginHostHandle> {
   const kernelVersion = opts.kernelApiVersion ?? KERNEL_API_VERSION;
   const loaded: Plugin[] = [];
-  const failed: { plugin: Plugin; err: unknown }[] = [];
+  const failed: PluginLoadFailure[] = [];
+  const registrations: PluginRegistration[] = [];
 
   // Conflict check
   const names = new Set(plugins.map((p) => p.name));
@@ -228,63 +346,97 @@ export async function loadPlugins(
       failed.push({ plugin, err });
       continue;
     }
-    // Merge defaultConfig (plugin defaults) with user-provided pluginOptions.
-    // User values take precedence over plugin defaults. The merged result
-    // is fed to configSchema validation and eventually to setup().
-    if (plugin.defaultConfig && opts.pluginOptions) {
-      const userOpts = opts.pluginOptions[plugin.name];
-      const merged = shallowMerge(plugin.defaultConfig, userOpts);
-      opts.pluginOptions[plugin.name] = merged;
+    const metadataIssues = validatePluginConfigMetadata(plugin);
+    if (metadataIssues.length > 0) {
+      const err = new PluginError({
+        message: `Plugin "${plugin.name}" config metadata invalid — ${metadataIssues.join('; ')}`,
+        code: ERROR_CODES.PLUGIN_LOAD_FAILED,
+        pluginName: plugin.name,
+        context: { issues: metadataIssues },
+      });
+      opts.log.error(err.message);
+      failed.push({ plugin, err });
+      continue;
+    }
+
+    const resolution = resolvePluginManifestConfig(
+      plugin,
+      undefined,
+      opts.pluginOptions?.[plugin.name],
+    );
+    const hasResolvedOptions = plugin.defaultConfig !== undefined || resolution.configured;
+    if (opts.pluginOptions && hasResolvedOptions) {
+      opts.pluginOptions[plugin.name] = resolution.options;
     }
 
     // configSchema validation — runs before setup() so a bad config never
     // reaches plugin code. The plugin's options are looked up by plugin name
     // in the host-supplied options bag.
-    if (plugin.configSchema && opts.pluginOptions) {
-      const pluginOpts = opts.pluginOptions[plugin.name];
-      if (pluginOpts !== undefined) {
-        const result = validateAgainstSchema(pluginOpts, plugin.configSchema);
-        if (!result.ok) {
-          const firstErr = result.errors[0];
-          const detail = firstErr ? `${firstErr.path}: ${firstErr.message}` : 'config invalid';
-          const err = new PluginError({
-            message: `Plugin "${plugin.name}" config invalid — ${detail}`,
-            code: ERROR_CODES.PLUGIN_LOAD_FAILED,
-            pluginName: plugin.name,
-            context: { errors: result.errors },
-          });
-          opts.log.error(err.message);
-          failed.push({ plugin, err });
-          continue;
-        }
+    if (plugin.configSchema && hasResolvedOptions) {
+      const result = validateAgainstSchema(resolution.options, plugin.configSchema);
+      if (!result.ok) {
+        const firstErr = result.errors[0];
+        const detail = firstErr ? `${firstErr.path}: ${firstErr.message}` : 'config invalid';
+        const err = new PluginError({
+          message: `Plugin "${plugin.name}" config invalid — ${detail}`,
+          code: ERROR_CODES.PLUGIN_LOAD_FAILED,
+          pluginName: plugin.name,
+          context: { errors: result.errors },
+        });
+        opts.log.error(err.message);
+        failed.push({ plugin, err });
+        continue;
       }
     }
+    let registration: PluginRegistration | undefined;
     try {
-      const rawApi = opts.apiFactory(plugin);
+      const rawApi = opts.apiFactory(
+        plugin,
+        resolution.options,
+      ) as PluginRegistration['cleanupApi'];
       const api = plugin.capabilities
         ? wrapApiForCapabilityCheck(plugin, rawApi, opts.log, opts.enforceCapabilities)
         : rawApi;
-      const setupTimeoutMs = opts.setupTimeoutMs ?? 30_000;
-      const setupController = new AbortController();
-      const setupTimeout = setTimeout(() => setupController.abort(), setupTimeoutMs);
-      try {
-        await plugin.setup(api, { signal: setupController.signal });
-      } finally {
-        clearTimeout(setupTimeout);
-      }
-      pluginApiMap.set(plugin, api);
+      registration = {
+        plugin,
+        api,
+        cleanupApi: rawApi,
+        cleanupDrained: false,
+        disposed: false,
+      };
+      const setupTimeoutMs = lifecycleTimeoutMs(opts.setupTimeoutMs, 30_000, 'setup');
+      await runWithDeadline(plugin, 'setup', setupTimeoutMs, (signal) =>
+        plugin.setup(api, { signal }),
+      );
+      registrations.push(registration);
+      registerLegacy(registration);
       loaded.push(plugin);
       opts.log.info(`Plugin "${plugin.name}" loaded`);
     } catch (err) {
-      const isAbort = err instanceof DOMException && err.name === 'AbortError';
-      opts.log.error(
-        `Plugin "${plugin.name}" setup failed`,
-        isAbort ? { err, reason: 'setup timed out or aborted' } : { err },
-      );
+      opts.log.error(`Plugin "${plugin.name}" setup failed`, {
+        err,
+        reason: err instanceof PluginLifecycleTimeoutError ? 'setup deadline exceeded' : undefined,
+      });
       failed.push({ plugin, err });
+      if (registration) await disposeRegistration(registration, opts, 'setup rollback');
     }
   }
-  return { loaded, failed };
+  let disposed = false;
+  let disposePromise: Promise<void> | undefined;
+  return {
+    loaded,
+    failed,
+    get disposed() {
+      return disposed;
+    },
+    dispose() {
+      if (!disposePromise) {
+        disposed = true;
+        disposePromise = disposeRegistrations(registrations, opts);
+      }
+      return disposePromise;
+    },
+  };
 }
 
 /**
@@ -292,47 +444,33 @@ export async function loadPlugins(
  * best-effort: errors are caught and logged so a single misbehaving plugin
  * can't abort the host shutdown sequence.
  *
- * Pass the result of a prior `loadPlugins(...)` call's `loaded` array, plus
- * the original `LoadPluginsOptions` so the same `apiFactory` (and the same
- * PluginAPI surface the plugin saw during `setup`) is used for `teardown`.
+ * @deprecated Prefer `loadPlugins(...).dispose()`. The handle has exact host
+ * ownership and remains unambiguous when the same Plugin object is loaded by
+ * more than one host. This legacy path shares a process-wide registry, so
+ * when multiple hosts load the same Plugin object, `unloadPlugins` may
+ * dispose another host's registration. Use the handle's `dispose()` instead.
  */
 export async function unloadPlugins(
   loadedPlugins: Plugin[],
   opts: LoadPluginsOptions,
 ): Promise<void> {
-  // Reverse order — last loaded is first torn down, mirroring stack-style
-  // resource ownership when plugin B depends on plugin A.
   const ordered = [...loadedPlugins].reverse();
   for (const plugin of ordered) {
-    if (typeof plugin.teardown !== 'function') continue;
-    try {
-      // Use the same API instance the plugin received during setup,
-      // so its accumulated cleanup functions are properly drained.
-      // The plugin MUST be in pluginApiMap since it was registered there
-      // during loadPlugins — if it is missing, that is a programming error.
-      const api = pluginApiMap.get(plugin);
-      if (!api) {
-        throw new Error(
-          `Plugin "${plugin.name}" API not found in pluginApiMap — was setup() called?`,
-        );
+    const candidates = legacyRegistrations.get(plugin);
+    let registration: PluginRegistration | undefined;
+    if (candidates) {
+      for (let index = candidates.length - 1; index >= 0; index -= 1) {
+        if (!candidates[index]!.disposed) {
+          registration = candidates[index];
+          break;
+        }
       }
-      const teardownTimeoutMs = opts.teardownTimeoutMs ?? 10_000;
-      const teardownController = new AbortController();
-      const teardownTimeout = setTimeout(() => teardownController.abort(), teardownTimeoutMs);
-      try {
-        await plugin.teardown!(api, { signal: teardownController.signal });
-      } finally {
-        clearTimeout(teardownTimeout);
-      }
-      pluginApiMap.delete(plugin);
-      opts.log.info(`Plugin "${plugin.name}" torn down`);
-    } catch (err) {
-      const isAbort = err instanceof DOMException && err.name === 'AbortError';
-      opts.log.error(
-        `Plugin "${plugin.name}" teardown failed`,
-        isAbort ? { err, reason: 'teardown timed out or aborted' } : { err },
-      );
     }
+    if (!registration) {
+      opts.log.error(`Plugin "${plugin.name}" has no active loader registration`);
+      continue;
+    }
+    await disposeRegistration(registration, opts, 'shutdown');
   }
 }
 
@@ -458,8 +596,7 @@ function wrapApiForCapabilityCheck(
           },
         });
   // Wrap registerHook — same pattern as the other subsystems. A plugin that
-  // declared `hooks: false` (or one that never declared any capabilities
-  // at all and is therefore non-official) gets warned/throws on registerHook.
+  // explicitly declared `hooks: false` gets warned/throws on registerHook.
   // Per-hook matchers and payloads are unchanged; only the call is gated.
   const wrappedHooks =
     caps.hooks !== false

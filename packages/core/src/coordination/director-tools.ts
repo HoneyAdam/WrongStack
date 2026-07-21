@@ -14,12 +14,12 @@ import type { JSONSchema, Tool } from '../types/tool.js';
 import { toErrorMessage } from '../utils/error.js';
 import { type AgentDefinition, getAgentDefinition } from './agents/index.js';
 import type { CollabSessionOptions } from './collab-debug.js';
+import type { Director } from './director.js';
 import {
-  type Director,
   FleetCostCapError,
   FleetSpawnBudgetError,
   FleetTokenCapError,
-} from './director.js';
+} from './director/director-errors.js';
 import { dispatchAgent } from './dispatcher.js';
 import { validateFleetEventEmission } from './fleet-event-validation.js';
 

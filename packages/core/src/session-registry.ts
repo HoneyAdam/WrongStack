@@ -188,6 +188,11 @@ const AGENT_STALE_MS = 5 * 60_000;
 const STALE_LOCK_MS = 10_000;
 const STALE_TMP_MS = 60_000;
 const MAX_STALE_TMP_FILES = 20;
+// Directory enumeration and per-file stats are substantially more expensive
+// than the tiny registry write itself on networked/antivirus-scanned homes.
+// Temp files cannot become stale faster than STALE_TMP_MS, so scanning once in
+// that window is sufficient even though heartbeats write every five seconds.
+const TEMP_PRUNE_INTERVAL_MS = STALE_TMP_MS;
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -224,6 +229,8 @@ export class SessionRegistry {
   private readonly filePath: string;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private currentSessionId: string | null = null;
+  private lastTempPruneAt = 0;
+  private tempPrunePromise: Promise<void> | null = null;
   /**
    * Last full entry this process registered. Kept so the heartbeat can
    * re-create our entry if it ever goes missing — e.g. our initial register()
@@ -601,14 +608,31 @@ export class SessionRegistry {
   }
 
   private async writeAtomicLocked(registry: Record<string, SessionRegistryEntry>): Promise<void> {
-    await this.pruneStaleTempFiles();
+    await this.maybePruneStaleTempFiles();
     await this.writeAtomicFile(registry);
   }
 
   /** Legacy write without lock — used by heartbeat for performance. */
   private async writeAtomic(registry: Record<string, SessionRegistryEntry>): Promise<void> {
-    await this.pruneStaleTempFiles();
+    await this.maybePruneStaleTempFiles();
     await this.writeAtomicFile(registry);
+  }
+
+  private async maybePruneStaleTempFiles(): Promise<void> {
+    if (this.tempPrunePromise) {
+      await this.tempPrunePromise;
+      return;
+    }
+    const now = Date.now();
+    if (now - this.lastTempPruneAt < TEMP_PRUNE_INTERVAL_MS) return;
+
+    this.lastTempPruneAt = now;
+    this.tempPrunePromise = this.pruneStaleTempFiles();
+    try {
+      await this.tempPrunePromise;
+    } finally {
+      this.tempPrunePromise = null;
+    }
   }
 
   private async writeAtomicFile(registry: Record<string, SessionRegistryEntry>): Promise<void> {

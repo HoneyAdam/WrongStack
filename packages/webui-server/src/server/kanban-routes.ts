@@ -58,13 +58,15 @@ import {
 } from '@wrongstack/kanban';
 import { applySessionKanbanTaskToSource } from '@wrongstack/tools/session-kanban';
 import type { WebSocket } from 'ws';
-import type { WSClientMessage } from './types.js';
+import type { WSClientMessage, WSServerMessage } from './types.js';
+import { handleKanbanTaskDispatch, type KanbanTaskDispatcher } from './kanban-dispatch.js';
 import { send } from './ws-utils.js';
 
 export interface KanbanRouteContext {
   projectRoot: string;
   context?: Context | undefined;
-  broadcast?: ((msg: object) => void) | undefined;
+  broadcast?: ((msg: WSServerMessage) => void) | undefined;
+  dispatchTask?: KanbanTaskDispatcher | undefined;
 }
 
 export interface KanbanBoardPage {
@@ -85,9 +87,8 @@ export function paginateKanbanBoards(
   const activeSessionIds = new Set(input.activeSessionIds ?? []);
   const isActive = (board: KanbanBoardSummary) =>
     board.presence?.some((entry) => entry.active) === true ||
-    board.tags?.some(
-      (tag) => tag.startsWith('session:') && activeSessionIds.has(tag.slice(8)),
-    ) === true;
+    board.tags?.some((tag) => tag.startsWith('session:') && activeSessionIds.has(tag.slice(8))) ===
+      true;
   const sorted = [...boards].sort((left, right) => {
     const activityOrder = Number(isActive(right)) - Number(isActive(left));
     return activityOrder || right.updatedAt.localeCompare(left.updatedAt);
@@ -190,10 +191,9 @@ export async function handleKanbanRoute(
           ok(ws, type, boards);
           return true;
         }
-        const activeSessionIds =
-          Array.isArray(payload?.activeSessionIds)
-            ? payload.activeSessionIds.filter((id): id is string => typeof id === 'string')
-            : [];
+        const activeSessionIds = Array.isArray(payload?.activeSessionIds)
+          ? payload.activeSessionIds.filter((id): id is string => typeof id === 'string')
+          : [];
         ok(
           ws,
           type,
@@ -1023,14 +1023,10 @@ export async function handleKanbanRoute(
         return true;
       }
       case 'kanban.task.dispatch':
-        fail(
-          ws,
-          type,
-          'Kanban agent dispatch is only available from the CLI-hosted WebUI runtime.',
-        );
+        await handleKanbanTaskDispatch(ws, payload, ctx);
         return true;
       case 'kanban.capabilities':
-        ok(ws, type, { dispatchSupported: false });
+        ok(ws, type, { dispatchSupported: Boolean(ctx.dispatchTask) });
         return true;
       case 'kanban.task.remove': {
         const boardId = payload?.boardId as string | undefined;

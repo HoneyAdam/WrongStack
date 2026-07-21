@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 import type { ModelCell, RawRun } from './types.js';
 
 /** Everything needed to run one (task × cell) subprocess. */
@@ -202,7 +202,18 @@ export function treeKill(child: ChildProcess): void {
   /* v8 ignore next -- a successfully-spawned child always has a pid; the guard is defensive. */
   if (child.pid === undefined) return;
   if (process.platform === 'win32') {
-    spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
+    const killer = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    killer.once('error', () => {
+      try {
+        child.kill();
+      } catch {
+        /* already gone */
+      }
+    });
+    killer.unref();
     return;
   }
   try {

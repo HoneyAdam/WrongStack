@@ -221,10 +221,9 @@ describe('buildProviderConfigFromPreset', () => {
   it('omits optional fields when the preset does not define them', () => {
     // Currently every preset has quirks/models — guard against future
     // presets that legitimately lack one.
-    const cfg = buildProviderConfigFromPreset({
-      ...TRUSTED_PROVIDER_PRESETS.zai,
-      quirks: undefined,
-    });
+    const preset = { ...TRUSTED_PROVIDER_PRESETS.zai! };
+    delete preset.quirks;
+    const cfg = buildProviderConfigFromPreset(preset);
     expect(cfg.quirks).toBeUndefined();
   });
 });
@@ -330,4 +329,3 @@ describe('rehydrateCanonicalProviderConfig', () => {
     expect(dest.quirks).toEqual(preset.quirks);
   });
 });
-

@@ -24,9 +24,9 @@ import { normalizeTextKey } from './middleware/turn-memory.js';
 import type {
   CandidateDecision,
   CreateCandidateInput,
+  LegacyImportResult,
   ListSuperPageOptions,
   ListSuperPageResult,
-  LegacyImportResult,
   MemoryAnchor,
   MemoryAudienceContext,
   MemoryCandidate,
@@ -41,13 +41,16 @@ import type {
   SuperMemoryHygieneOptions,
   SuperMemoryHygieneReport,
   SuperMemoryManifest,
+  SuperMemoryAuditRecord,
+  SuperMemoryRecord,
   SuperMemorySearchOptions,
   SuperMemoryStatus,
   SuperMemoryStats,
   SuperMemoryStoreOptions,
   UpdateSuperMemoryInput,
 } from './types.js';
-import { SUPER_MEMORY_SCHEMA_VERSION } from './types.js';
+import type { MemoryEntry, MemoryScope } from '@wrongstack/core';
+import { SUPER_MEMORY_SCHEMA_VERSION, toLegacyEntry } from './types.js';
 import { resolveSuperMemoryPaths } from './paths.js';
 import {
   collectStringValues,
@@ -150,6 +153,7 @@ function loadDatabaseSync(): typeof DatabaseSync {
 // ─── Schema ─────────────────────────────────────────────────────────────
 
 const SQLITE_SCHEMA_VERSION = 1;
+const LEGACY_JSONL_MIGRATION_KEY = 'legacy_jsonl_migrated';
 
 function initSchema(db: DatabaseSync): void {
   db.exec('PRAGMA journal_mode = WAL');
@@ -329,11 +333,10 @@ export class SqliteSuperMemoryStore {
       }
     });
 
-    // Auto-migrate from JSONL if db is empty and JSONL exists
-    const countRow = this.db.prepare('SELECT COUNT(*) AS n FROM memories').get() as { n: number };
-    if ((countRow as { n: number }).n === 0 && fs.existsSync(this.paths.memoriesLog)) {
-      await this.migrateFromJsonl();
-    }
+    // Import every legacy JSONL memory artifact exactly once. This also runs
+    // when the database already contains rows, because older releases allowed
+    // users to switch back to JSONL and create revisions after SQLite existed.
+    await this.migrateFromJsonl();
 
     this.initialized = true;
   }
@@ -341,39 +344,146 @@ export class SqliteSuperMemoryStore {
   // ─── JSONL migration ────────────────────────────────────────────────
 
   private async migrateFromJsonl(): Promise<void> {
-    type SuperMemoryRecord = { recordType: 'memory'; memory: SuperMemory };
-    const records = await readJsonl<SuperMemoryRecord>(this.paths.memoriesLog);
-    const insertMem = this.db.prepare(`
-      INSERT OR REPLACE INTO memories
-        (id, data, status, kind, scope, importance, confidence, freshness, updated_at, created_at, audience, tags)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const tx = this.db.exec('BEGIN');
-    try {
-      for (const rec of records) {
-        if (rec.recordType !== 'memory' || !rec.memory) continue;
-        const m = rec.memory;
-        insertMem.run(
-          m.id,
-          JSON.stringify(m),
-          m.status,
-          m.kind,
-          m.scope,
-          m.importance,
-          m.confidence,
-          m.freshness,
-          m.updatedAt,
-          m.createdAt,
-          m.audience ? JSON.stringify(m.audience) : null,
-          JSON.stringify(m.tags),
+    const legacyPaths = [
+      this.paths.memoriesLog,
+      this.paths.candidatesLog,
+      this.paths.edgesLog,
+      this.paths.auditLog,
+    ];
+    if (!legacyPaths.some((filePath) => fs.existsSync(filePath))) return;
+
+    const alreadyMigrated = this.db
+      .prepare('SELECT value FROM schema_meta WHERE key = ?')
+      .get(LEGACY_JSONL_MIGRATION_KEY);
+    if (alreadyMigrated) return;
+
+    const readLegacy = <T>(filePath: string): Promise<T[]> =>
+      readJsonl<T>(filePath, (line) => {
+        throw new Error(
+          `Cannot migrate corrupt legacy Super Memory JSONL: ${line.filePath}:${line.lineNumber}: ${line.error}`,
         );
+      });
+
+    const [memoryRows, candidateRows, edgeRows, auditRows] = await Promise.all([
+      readLegacy<unknown>(this.paths.memoriesLog),
+      readLegacy<unknown>(this.paths.candidatesLog),
+      readLegacy<unknown>(this.paths.edgesLog),
+      readLegacy<unknown>(this.paths.auditLog),
+    ]);
+
+    const latestMemories = new Map<string, SuperMemory>();
+    for (const row of memoryRows) {
+      if (!isMigratableMemoryRecord(row)) continue;
+      const incoming = row.memory;
+      const current = latestMemories.get(incoming.id);
+      if (!current || shouldReplaceMigratedMemory(current, incoming)) {
+        latestMemories.set(incoming.id, incoming);
       }
+    }
+
+    const latestCandidates = new Map<string, MemoryCandidate>();
+    for (const row of candidateRows) {
+      if (isMigratableCandidate(row)) latestCandidates.set(row.id, row);
+    }
+
+    const latestEdges = new Map<string, MemoryGraphEdge>();
+    for (const row of edgeRows) {
+      if (isMigratableEdge(row)) latestEdges.set(row.id, row);
+    }
+
+    const audits = auditRows.filter(isMigratableAuditRecord);
+    let migratedMemories = 0;
+    let migratedCandidates = 0;
+    let migratedEdges = 0;
+
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      // A second process may have completed migration while this process was
+      // reading the source files. Re-check under SQLite's write transaction.
+      const migratedByPeer = this.db
+        .prepare('SELECT value FROM schema_meta WHERE key = ?')
+        .get(LEGACY_JSONL_MIGRATION_KEY);
+      if (migratedByPeer) {
+        this.db.exec('COMMIT');
+        return;
+      }
+
+      for (const incoming of latestMemories.values()) {
+        const existingRow = this.db.prepare('SELECT data FROM memories WHERE id = ?').get(incoming.id) as
+          | { data: string }
+          | undefined;
+        const existing = existingRow ? this.rowToMemory(existingRow) : undefined;
+        if (existing && !shouldReplaceMigratedMemory(existing, incoming)) continue;
+        this.upsertMemory(incoming);
+        migratedMemories++;
+      }
+
+      const upsertCandidate = this.db.prepare(
+        'INSERT OR REPLACE INTO candidates (id, data, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+      );
+      for (const candidate of latestCandidates.values()) {
+        const existingRow = this.db.prepare('SELECT data FROM candidates WHERE id = ?').get(candidate.id) as
+          | { data: string }
+          | undefined;
+        if (existingRow) {
+          const existing = JSON.parse(existingRow.data) as MemoryCandidate;
+          if (existing.updatedAt.localeCompare(candidate.updatedAt) > 0) continue;
+        }
+        upsertCandidate.run(
+          candidate.id,
+          JSON.stringify(candidate),
+          candidate.status,
+          candidate.createdAt,
+          candidate.updatedAt,
+        );
+        migratedCandidates++;
+      }
+
+      const upsertEdge = this.db.prepare(
+        `INSERT INTO edges (from_node, to_node, relation, weight, created_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(from_node, to_node, relation) DO UPDATE SET
+           weight = excluded.weight,
+           created_at = excluded.created_at`,
+      );
+      const deleteEdge = this.db.prepare(
+        'DELETE FROM edges WHERE from_node = ? AND to_node = ? AND relation = ?',
+      );
+      for (const edge of latestEdges.values()) {
+        if (edge.deletedAt) {
+          deleteEdge.run(edge.from, edge.to, edge.relation);
+          continue;
+        }
+        upsertEdge.run(edge.from, edge.to, edge.relation, edge.weight, edge.createdAt);
+        migratedEdges++;
+      }
+
+      const insertAudit = this.db.prepare(
+        'INSERT INTO audit_log (event, at, trace_id, data) VALUES (?, ?, ?, ?)',
+      );
+      for (const audit of audits) {
+        insertAudit.run(audit.event, audit.at, audit.traceId ?? null, JSON.stringify(audit));
+      }
+
+      insertAudit.run(
+        'memory.legacy_jsonl_migrated',
+        this.nowIso(),
+        this.traceId ?? null,
+        JSON.stringify({
+          memories: migratedMemories,
+          candidates: migratedCandidates,
+          edges: migratedEdges,
+          auditRecords: audits.length,
+        }),
+      );
+      this.db
+        .prepare('INSERT INTO schema_meta (key, value) VALUES (?, 1)')
+        .run(LEGACY_JSONL_MIGRATION_KEY);
       this.db.exec('COMMIT');
     } catch (err) {
       this.db.exec('ROLLBACK');
       throw err;
     }
-    void tx;
   }
 
   // ─── Core helpers ───────────────────────────────────────────────────
@@ -568,28 +678,16 @@ export class SqliteSuperMemoryStore {
   }
 
   async deleteSuper(id: string, reason?: string): Promise<{ deleted: true; id: string }> {
-    await this.initialize();
-    await this.runMutation(() => {
-      const row = this.db.prepare('SELECT data FROM memories WHERE id = ?').get(id) as
-        | { data: string }
-        | undefined;
-      const memory = row ? this.rowToMemory(row) : undefined;
-      const edgeCount = this.db
-        .prepare('SELECT COUNT(*) AS n FROM edges WHERE from_node = ? OR to_node = ?')
-        .get(`mem:${id}`, `mem:${id}`) as { n: number };
-      this.db.prepare('DELETE FROM memories WHERE id = ?').run(id);
-      this.db.prepare('DELETE FROM edges WHERE from_node = ? OR to_node = ?').run(`mem:${id}`, `mem:${id}`);
-      this.audit('memory.deleted', { memoryId: id, reason });
-      this.events?.emit(
-        'memory.deleted',
-        this.eventPayload({
-          memoryId: id,
-          reason: reason ?? 'Manually deleted via SQLite API.',
-          persistence: memory?.persistence ?? 'long_lived',
-          removedEdges: edgeCount.n,
-          contextPolicy: memory?.contextPolicy === 'never' ? ('never' as const) : ('eligible' as const),
-        }),
-      );
+    // Soft-delete shim. The SQLite backend used to ship its own
+    // un-audited-by-force SQL path here; it now routes through
+    // `deleteSuperMemory` (which sets status: 'deleted', preserving
+    // the tombstone for audit/recovery) so the same force/permanent
+    // guard, edge cascade, audit entry, and event payload apply to
+    // every caller.
+    // Pass `force: true` because this method historically implied
+    // "operator-driven, no questions asked" (it predates the guard).
+    await this.deleteSuperMemory(id, reason ?? 'Manually deleted via SQLite API.', {
+      force: true,
     });
     return { deleted: true, id };
   }
@@ -632,10 +730,17 @@ export class SqliteSuperMemoryStore {
   async searchSuper(query: string, opts?: SuperMemorySearchOptions): Promise<SuperMemory[]> {
     await this.initialize();
     const limit = opts?.limit ?? 20;
+    const automaticContext = opts?.includeStatuses === undefined;
     const statusFilter = opts?.includeStatuses ?? ['active'];
     const scopeFilter = opts?.scope;
     const scopeClause = scopeFilter ? ' AND scope = ?' : '';
     const scopeParams = scopeFilter ? [scopeFilter] : [];
+    // When includeStatuses is not explicitly provided (automatic context
+    // retrieval), exclude memories marked contextPolicy='never' — mirrors
+    // the canonical SuperMemoryStore.searchSuper (store.ts:1992).
+    const neverInjectClause = automaticContext
+      ? ` AND (json_extract(data, '$.contextPolicy') IS NULL OR json_extract(data, '$.contextPolicy') != 'never')`
+      : '';
 
     // Empty query → direct table scan (bypasses FTS5 which is slower for list-all)
     const trimmedQuery = query.trim();
@@ -644,7 +749,7 @@ export class SqliteSuperMemoryStore {
       const rows = this.db
         .prepare(
           `SELECT data FROM memories
-           WHERE status IN (${placeholders})${scopeClause}
+           WHERE status IN (${placeholders})${scopeClause}${neverInjectClause}
            ORDER BY importance DESC, updated_at DESC
            LIMIT ?`,
         )
@@ -660,7 +765,7 @@ export class SqliteSuperMemoryStore {
         .prepare(
           `SELECT m.data FROM memories m
            JOIN memories_fts f ON m.rowid = f.rowid
-           WHERE m.status IN (${placeholders})${scopeFilter ? ' AND m.scope = ?' : ''}
+           WHERE m.status IN (${placeholders})${scopeFilter ? ' AND m.scope = ?' : ''}${neverInjectClause}
            AND memories_fts MATCH ?
            ORDER BY bm25(memories_fts) DESC, m.importance DESC
            LIMIT ?`,
@@ -677,7 +782,7 @@ export class SqliteSuperMemoryStore {
     const rows = this.db
       .prepare(
         `SELECT data FROM memories
-         WHERE status IN (${placeholders})${scopeClause}
+         WHERE status IN (${placeholders})${scopeClause}${neverInjectClause}
          AND LOWER(json_extract(data, '$.text')) LIKE ? ESCAPE '\\'
          ORDER BY importance DESC
          LIMIT ?`,
@@ -1041,19 +1146,53 @@ export class SqliteSuperMemoryStore {
     const stale: string[] = [];
     const verified: string[] = [];
 
+    // Resolve duplicate anchor paths once, then probe them with bounded async
+    // concurrency. The previous nested existsSync loop could block the process
+    // for thousands of filesystem calls during a large hygiene run.
+    const anchorPaths = new Set<string>();
     for (const m of active) {
-      let allValid = true;
       for (const anchor of m.anchors) {
-        if (anchor.type === 'file' || anchor.type === 'symbol' || anchor.type === 'test' || anchor.type === 'git') {
-          if (anchor.path) {
-            const abs = path.resolve(this.projectRoot, anchor.path);
-            if (!fs.existsSync(abs)) {
-              allValid = false;
-              break;
-            }
-          }
+        if (
+          anchor.path &&
+          (anchor.type === 'file' ||
+            anchor.type === 'symbol' ||
+            anchor.type === 'test' ||
+            anchor.type === 'git')
+        ) {
+          anchorPaths.add(path.resolve(this.projectRoot, anchor.path));
         }
       }
+    }
+    const pathsToVerify = [...anchorPaths];
+    const existingPaths = new Set<string>();
+    let nextPath = 0;
+    const verifyWorker = async (): Promise<void> => {
+      while (nextPath < pathsToVerify.length) {
+        const anchorPath = pathsToVerify[nextPath++]!;
+        try {
+          await fs.promises.access(anchorPath);
+          existingPaths.add(anchorPath);
+        } catch {
+          // Missing or inaccessible anchors are stale.
+        }
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(32, pathsToVerify.length) }, () => verifyWorker()),
+    );
+
+    for (const m of active) {
+      const allValid = m.anchors.every(
+        (anchor) =>
+          !anchor.path ||
+          !(
+            anchor.type === 'file' ||
+            anchor.type === 'symbol' ||
+            anchor.type === 'test' ||
+            anchor.type === 'git'
+          ) ||
+          existingPaths.has(path.resolve(this.projectRoot, anchor.path)),
+      );
       if (allValid) verified.push(m.id);
       else stale.push(m.id);
     }
@@ -1561,6 +1700,194 @@ export class SqliteSuperMemoryStore {
     return result;
   }
 
+  // ─── Alias methods matching SuperMemoryStore's public API ──────────
+  // The WebUI/TUI memory handlers use a duck-type check (isSuperMemoryStore)
+  // that probes for these exact method names. The SQLite store implemented
+  // the same logic under different names (getStats, listMemories, updateSuper,
+  // deleteSuper). These thin aliases bridge the naming gap so the duck-type
+  // check passes and memory.super.* handlers route correctly.
+
+  async stats(): Promise<SuperMemoryStats> {
+    return this.getStats();
+  }
+
+  async listSuper(statuses?: SuperMemoryStatus[]): Promise<SuperMemory[]> {
+    await this.initialize();
+    if (statuses && statuses.length > 0) {
+      // Validate against the known set so unknown statuses raise instead of
+      // silently returning an empty result (mirrors listSuperPage at line 848).
+      const valid = statuses.filter((s) => SQLITE_VALID_STATUSES.has(s));
+      if (valid.length === 0) return [];
+      const placeholders = valid.map(() => '?').join(',');
+      const rows = this.db
+        .prepare(
+          `SELECT data FROM memories WHERE status IN (${placeholders}) ORDER BY updated_at DESC`,
+        )
+        .all(...valid) as Array<{ data: string }>;
+      return rows.map((r) => this.rowToMemory(r));
+    }
+    const rows = this.db
+      .prepare('SELECT data FROM memories ORDER BY updated_at DESC')
+      .all() as Array<{ data: string }>;
+    return rows.map((r) => this.rowToMemory(r));
+  }
+
+  async getSuperMemory(id: string): Promise<SuperMemory | null> {
+    await this.initialize();
+    const row = this.db.prepare('SELECT data FROM memories WHERE id = ?').get(id) as
+      | { data: string }
+      | undefined;
+    return row ? this.rowToMemory(row) : null;
+  }
+
+  async updateSuperMemory(
+    id: string,
+    patch: UpdateSuperMemoryInput,
+  ): Promise<SuperMemory> {
+    return this.updateSuper(id, patch);
+  }
+
+  async search(
+    query: string,
+    scope: MemoryScope = 'project-memory',
+    limit?: number,
+  ): Promise<MemoryEntry[]> {
+    const memories = await this.searchSuper(query, {
+      legacyScope: scope,
+      limit,
+      // Do NOT pass includeStatuses — let searchSuper apply its default
+      // (['active']) AND the contextPolicy !== 'never' filter that only
+      // fires when includeStatuses is undefined (automatic context).
+      // Mirrors canonical SuperMemoryStore.search (store.ts:2253-2259).
+    });
+    return memories
+      .filter((memory) => memory.contextPolicy !== 'never')
+      .map(toLegacyEntry);
+  }
+
+  async deleteSuperMemory(
+    id: string,
+    reason = 'Manually deleted via API.',
+    options: { force?: boolean; neverInject?: boolean } = {},
+  ): Promise<void> {
+    // All mutation-state-dependent checks (not-found, idempotency, and the
+    // force/permanent guard) live INSIDE runMutation so they read the same
+    // row snapshot that the actual delete operates on. This prevents a TOCTOU
+    // race where a concurrent write flips the row's status or persistence
+    // between the guard check and the mutation (multiple peer reviews flagged
+    // this as the canonical store reads inside the mutation for the same reason).
+    await this.runMutation(() => {
+      const row = this.db.prepare('SELECT data FROM memories WHERE id = ?').get(id) as
+        | { data: string }
+        | undefined;
+      if (!row) throw new Error(`Super Memory "${id}" not found.`);
+      const fresh = this.rowToMemory(row);
+      if (fresh.status === 'deleted') return; // Idempotent
+
+      // Mirror the canonical guard from SuperMemoryStore.deleteSuperMemory
+      // (packages/super-memory/src/store.ts:1569-1597). All checks run
+      // on the fresh snapshot inside the mutation lock.
+      if (!options.force) {
+        if (fresh.persistence === 'permanent') {
+          throw new Error(
+            `Super Memory "${id}" is marked 'permanent' and cannot be deleted. ` +
+              `Pass { force: true } to override; the override will be recorded in the audit log.`,
+          );
+        }
+        throw new Error(
+          `Super Memory "${id}" cannot be deleted without explicit authorization. ` +
+            `Pass { force: true } to the memory_delete tool, or resolve a review candidate ` +
+            `via memory_candidates({ action: 'resolve', decision: 'delete' }). ` +
+            `The force flag is recorded in the audit log.`,
+        );
+      }
+
+      const nodeId = `mem:${id}`;
+      const edgeCount = this.db
+        .prepare('SELECT COUNT(*) AS n FROM edges WHERE from_node = ? OR to_node = ?')
+        .get(nodeId, nodeId) as { n: number };
+
+      // Cascade: clean up references in other memories. Mirrors the reference
+      // cleanup logic of SuperMemoryStore.cascadeDeleteUnlocked (store.ts:1650-1671),
+      // but uses direct upsertMemory() instead of updateMemory() — so these
+      // cascade updates do NOT write an appendRecord audit entry. This is an
+      // accepted divergence: the canonical JSONL store's appendRecord writes a
+      // history line per mutation, but the SQLite store has no equivalent
+      // append-only audit log for individual mutations within a runMutation
+      // block. The outer memory.deleted audit entry (below) is the authoritative
+      // record.
+      const refs = this.db
+        .prepare(
+          `SELECT id, data FROM memories WHERE id != ? AND status != 'deleted'`,
+        )
+        .all(id) as Array<{ id: string; data: string }>;
+      for (const ref of refs) {
+        const other = this.rowToMemory(ref);
+        const patch: Partial<SuperMemory> = {};
+        if (other.supersedes?.includes(id)) {
+          patch.supersedes = other.supersedes.filter((s) => s !== id);
+        }
+        if (other.contradicts?.includes(id)) {
+          patch.contradicts = other.contradicts.filter((c) => c !== id);
+        }
+        if (other.supersededBy === id) {
+          patch.supersededBy = undefined;
+        }
+        if (Object.keys(patch).length > 0) {
+          // Preserve updatedAt so the hygiene scanner's freshness scores
+          // are not artificially reset by a cascade reference cleanup
+          // (matches SuperMemoryStore.cascadeDeleteUnlocked:1668).
+          const updated: SuperMemory = {
+            ...other,
+            ...patch,
+            revision: other.revision + 1,
+          };
+          this.upsertMemory(updated);
+        }
+      }
+
+      // Soft-delete: set status to 'deleted' (preserve tombstone for audit/recovery).
+      // Matches SuperMemoryStore.cascadeDeleteUnlocked behaviour (store.ts:1673-1677).
+      const softDeleted: SuperMemory = {
+        ...fresh,
+        status: 'deleted',
+        revision: fresh.revision + 1,
+        updatedAt: this.nowIso(),
+        ...(options.neverInject === true ? { contextPolicy: 'never' as const } : {}),
+      };
+      this.upsertMemory(softDeleted);
+      this.db.prepare('DELETE FROM edges WHERE from_node = ? OR to_node = ?').run(nodeId, nodeId);
+
+      this.audit('memory.deleted', {
+        memoryId: id,
+        reason,
+        details: {
+          removedEdges: edgeCount.n,
+          force: options.force === true,
+          contextPolicy: options.neverInject === true ? 'never' : 'eligible',
+        },
+      });
+      this.events?.emit(
+        'memory.deleted',
+        this.eventPayload({
+          memoryId: id,
+          reason,
+          persistence: fresh.persistence ?? 'long_lived',
+          removedEdges: edgeCount.n,
+          contextPolicy: options.neverInject === true ? ('never' as const) : ('eligible' as const),
+        }),
+      );
+      this.events?.emit(
+        'memory.updated',
+        this.eventPayload({
+          memoryId: id,
+          status: 'deleted',
+          contextPolicy: options.neverInject === true ? ('never' as const) : ('eligible' as const),
+        }),
+      );
+    });
+  }
+
   close(): void {
     if (this.db) {
       this.db.close();
@@ -1571,6 +1898,66 @@ export class SqliteSuperMemoryStore {
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.min(1, Math.max(0, value));
+}
+
+function isMigratableMemoryRecord(value: unknown): value is SuperMemoryRecord {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Partial<SuperMemoryRecord>;
+  const memory = record.memory as Partial<SuperMemory> | undefined;
+  return record.recordType === 'memory'
+    && !!memory
+    && typeof memory.id === 'string'
+    && Number.isInteger(memory.revision)
+    && (memory.revision ?? 0) >= 1
+    && typeof memory.status === 'string'
+    && typeof memory.kind === 'string'
+    && typeof memory.scope === 'string'
+    && typeof memory.text === 'string'
+    && typeof memory.importance === 'number'
+    && Number.isFinite(memory.importance)
+    && typeof memory.confidence === 'number'
+    && Number.isFinite(memory.confidence)
+    && typeof memory.freshness === 'number'
+    && Number.isFinite(memory.freshness)
+    && Array.isArray(memory.tags)
+    && Array.isArray(memory.anchors)
+    && Array.isArray(memory.sources)
+    && typeof memory.createdAt === 'string'
+    && typeof memory.updatedAt === 'string';
+}
+
+/** Match the JSONL replay rule while never replacing a newer SQLite revision. */
+function shouldReplaceMigratedMemory(current: SuperMemory, incoming: SuperMemory): boolean {
+  if (incoming.revision !== current.revision) return incoming.revision > current.revision;
+  return current.status === 'deleted' && incoming.status !== 'deleted';
+}
+
+function isMigratableCandidate(value: unknown): value is MemoryCandidate {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<MemoryCandidate>;
+  return typeof candidate.id === 'string'
+    && typeof candidate.status === 'string'
+    && typeof candidate.text === 'string'
+    && typeof candidate.createdAt === 'string'
+    && typeof candidate.updatedAt === 'string';
+}
+
+function isMigratableEdge(value: unknown): value is MemoryGraphEdge {
+  if (!value || typeof value !== 'object') return false;
+  const edge = value as Partial<MemoryGraphEdge>;
+  return typeof edge.id === 'string'
+    && typeof edge.from === 'string'
+    && typeof edge.to === 'string'
+    && typeof edge.relation === 'string'
+    && typeof edge.weight === 'number'
+    && Number.isFinite(edge.weight)
+    && typeof edge.createdAt === 'string';
+}
+
+function isMigratableAuditRecord(value: unknown): value is SuperMemoryAuditRecord {
+  if (!value || typeof value !== 'object') return false;
+  const audit = value as Partial<SuperMemoryAuditRecord>;
+  return typeof audit.event === 'string' && typeof audit.at === 'string';
 }
 
 /**

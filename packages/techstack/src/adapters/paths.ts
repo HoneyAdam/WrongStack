@@ -16,6 +16,7 @@
  */
 
 import { existsSync } from 'node:fs';
+import { access } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import type { Evidence, Workspace } from '../types.js';
 import type { InventoryOptions } from './interface.js';
@@ -58,4 +59,13 @@ export function lockfileEvidence(path: string): Evidence {
 /** Lightweight existence check shared by adapters that probe fallback paths. */
 export function fileExists(filePath: string): boolean {
   return existsSync(filePath);
+}
+
+export async function fileExistsAsync(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }

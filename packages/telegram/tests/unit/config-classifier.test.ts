@@ -1,11 +1,6 @@
-import type { TelegramPluginConfig } from '../../src/config.js';
+import { type TelegramPluginConfig } from '../../src/config.js';
 import { describe, expect, it } from 'vitest';
-import {
-  HOT_RELOAD_KEYS,
-  RESTART_REQUIRED_KEYS,
-  classifyReload,
-  diffConfigKeys,
-} from '../../src/config-classifier.js';
+import { diffConfigKeys } from '../../src/config-classifier.js';
 
 const baseConfig: TelegramPluginConfig = {
   botToken: 'test:token',
@@ -55,57 +50,6 @@ describe('P2.3 — atomic live-reconfigure classifier gate', () => {
     const next: TelegramPluginConfig = { botToken: 'A', pollIntervalSec: 5 };
     const diff = diffConfigKeys(previous, next);
     expect(diff).toEqual([{ key: 'pollIntervalSec', classification: 'hot' }]);
-  });
-});
-
-describe('classifyReload', () => {
-  it.each([
-    ...Array.from(HOT_RELOAD_KEYS).map((k) => [k, 'hot'] as const),
-    ...Array.from(RESTART_REQUIRED_KEYS).map((k) => [k, 'restart-required'] as const),
-  ])('classifies %s as %s', (key, expected) => {
-    expect(classifyReload(key)).toBe(expected);
-  });
-
-  it('defaults unknown keys to restart-required so new fields are never silently hot', () => {
-    // Force the cast: if TelegramPluginConfig gains a new field, this
-    // compile-time cast surfaces the update path. At runtime the classifier
-    // must default to the conservative answer until the field is mapped.
-    expect(classifyReload('notARegisteredKey' as keyof TelegramPluginConfig)).toBe(
-      'restart-required',
-    );
-  });
-
-  it('HOT_RELOAD_KEYS and RESTART_REQUIRED_KEYS do not overlap', () => {
-    for (const key of HOT_RELOAD_KEYS) {
-      expect(RESTART_REQUIRED_KEYS.has(key)).toBe(false);
-    }
-  });
-});
-
-describe('HOT_RELOAD_KEYS rationale', () => {
-  it.each([
-    'inboundMode',
-    'allowedUsers',
-    'allowedChats',
-    'allowedOutboundChats',
-    'pollIntervalSec',
-    'notifyOnSessionEnd',
-    'notifyOnDelegate',
-    'longToolThresholdMs',
-    'maxMessageLength',
-  ])('treats %s as hot because it is read on every relevant call', (key) => {
-    expect(HOT_RELOAD_KEYS.has(key as keyof TelegramPluginConfig)).toBe(true);
-  });
-
-  it.each([
-    'botToken',
-    'notifyChatId',
-    'offsetStoragePath',
-    'singleInstanceLock',
-    'outboundQueuePerChat',
-    'outboundQueueConcurrency',
-  ])('treats %s as restart-required because it is consumed at setup time', (key) => {
-    expect(RESTART_REQUIRED_KEYS.has(key as keyof TelegramPluginConfig)).toBe(true);
   });
 });
 

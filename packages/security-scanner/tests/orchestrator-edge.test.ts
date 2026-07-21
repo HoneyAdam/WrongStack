@@ -13,18 +13,36 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SecurityScannerOrchestrator } from '../src/orchestrator.js';
-import type { Provider, Response } from '@wrongstack/core/types/provider.js';
+import type { Provider, Response } from '@wrongstack/core';
 
 const textResponse = (text: string): Response =>
-  ({ content: [{ type: 'text', text }], stopReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 1 } }) as never as Response;
+  ({
+    content: [{ type: 'text', text }],
+    stopReason: 'end_turn',
+    usage: { inputTokens: 1, outputTokens: 1 },
+  }) as never as Response;
 
 const fakeProvider = (complete: Provider['complete']): Provider =>
-  ({ id: 'fake', capabilities: {} as never, stream: (async function* () {})() as never, complete }) as never as Provider;
+  ({
+    id: 'fake',
+    capabilities: {} as never,
+    stream: (async function* () {})() as never,
+    complete,
+  }) as never as Provider;
 
 const SKILL_JSON = JSON.stringify({
   name: 'custom-skill',
   description: 'desc',
-  patterns: [{ id: 'p1', name: 'SQLi', severity: 'high', description: 'sql injection', fileExtensions: ['.ts'], remediation: 'parameterize' }],
+  patterns: [
+    {
+      id: 'p1',
+      name: 'SQLi',
+      severity: 'high',
+      description: 'sql injection',
+      fileExtensions: ['.ts'],
+      remediation: 'parameterize',
+    },
+  ],
   targetFiles: ['**/*.ts'],
 });
 
@@ -55,10 +73,14 @@ describe('SecurityScannerOrchestrator - timeout and signal', () => {
   it('accepts timeoutMs option and aborts after timeout (falls back)', async () => {
     // The LLM call hangs but listens to the abort signal
     const complete = vi.fn<Provider['complete']>().mockImplementation(
-      (_req, opts) => new Promise<never>((_resolve, reject) => {
-        if (opts?.signal?.aborted) { reject(new Error('aborted')); return; }
-        opts?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
-      }),
+      (_req, opts) =>
+        new Promise<never>((_resolve, reject) => {
+          if (opts?.signal?.aborted) {
+            reject(new Error('aborted'));
+            return;
+          }
+          opts?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+        }),
     );
     const orch = new SecurityScannerOrchestrator();
     stubGitignore(orch);
@@ -78,11 +100,15 @@ describe('SecurityScannerOrchestrator - timeout and signal', () => {
   it('accepts an external signal and aborts when it fires (falls back)', async () => {
     const ac = new AbortController();
     const complete = vi.fn<Provider['complete']>().mockImplementation(
-      (_req, opts) => new Promise<never>((_resolve, reject) => {
-        const signal = opts?.signal;
-        if (signal?.aborted) { reject(new Error('signal already aborted')); return; }
-        signal?.addEventListener('abort', () => reject(new Error('Aborted by signal')));
-      }),
+      (_req, opts) =>
+        new Promise<never>((_resolve, reject) => {
+          const signal = opts?.signal;
+          if (signal?.aborted) {
+            reject(new Error('signal already aborted'));
+            return;
+          }
+          signal?.addEventListener('abort', () => reject(new Error('Aborted by signal')));
+        }),
     );
     const orch = new SecurityScannerOrchestrator();
     stubGitignore(orch);
@@ -169,13 +195,25 @@ describe('SecurityScannerOrchestrator - completeWithRetry abort during backoff',
       maxAttempts: vi.fn().mockReturnValue(3) as never,
     };
     const orch = new SecurityScannerOrchestrator(retryPolicy as never);
-    const req = { model: 'm', system: [{ type: 'text' as const, text: 's' }], messages: [{ role: 'user' as const, content: 'hi' }], maxTokens: 16 };
+    const req = {
+      model: 'm',
+      system: [{ type: 'text' as const, text: 's' }],
+      messages: [{ role: 'user' as const, content: 'hi' }],
+      maxTokens: 16,
+    };
 
-    const provider = fakeProvider(
-      vi.fn().mockRejectedValue(new Error('ECONNRESET retry me')),
-    );
+    const provider = fakeProvider(vi.fn().mockRejectedValue(new Error('ECONNRESET retry me')));
     const callRetry = (ac: AbortController) =>
-      (orch as never as { completeWithRetry: (p: Provider, r: typeof req, a: AbortController, n?: number) => Promise<Response> }).completeWithRetry(provider, req, ac);
+      (
+        orch as never as {
+          completeWithRetry: (
+            p: Provider,
+            r: typeof req,
+            a: AbortController,
+            n?: number,
+          ) => Promise<Response>;
+        }
+      ).completeWithRetry(provider, req, ac);
 
     const ac = new AbortController();
     const promise = callRetry(ac);

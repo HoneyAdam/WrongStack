@@ -46,6 +46,7 @@ import type {
   SessionReader,
 } from '@wrongstack/core';
 import type { DefaultTokenCounter } from '@wrongstack/core/infrastructure';
+import type { TrustBoundary } from '@wrongstack/core/security';
 /** Session shape returned by `SessionStore.create()`. */
 type Session = Awaited<ReturnType<SessionStore['create']>>;
 import {
@@ -96,6 +97,7 @@ import type { WstackPaths } from '@wrongstack/core/utils';
 import { toErrorMessage } from '@wrongstack/core/utils';
 
 interface AgentServicesInput {
+  trustBoundary: TrustBoundary;
   config: Config;
   wpaths: WstackPaths;
   logger: Logger;
@@ -586,7 +588,13 @@ export async function createAgentServices(input: AgentServicesInput): Promise<Ag
     projectRoot,
     boardsDir: wpaths.projectSddBoards,
   });
-  const terminalHandler = new TerminalWebSocketHandler(() => workingDir, logger);
+  const terminalHandler = new TerminalWebSocketHandler(
+    () => workingDir,
+    logger,
+    undefined,
+    undefined,
+    input.trustBoundary,
+  );
   const collabHandler = new CollaborationWebSocketHandler(
     events,
     logger,

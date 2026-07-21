@@ -72,6 +72,15 @@ export type ScanScope = 'quick' | 'standard' | 'deep';
 
 export type SeverityLevel = 'critical' | 'high' | 'medium' | 'low' | 'all';
 
+export type SecurityFindingCategory =
+  | 'secrets'
+  | 'injection'
+  | 'config'
+  | 'dependency'
+  | 'filesystem';
+
+export type SecurityPatternConfidence = 'high' | 'medium' | 'low';
+
 export interface SecurityPattern {
   id: string;
   name: string;
@@ -81,6 +90,8 @@ export interface SecurityPattern {
   fileExtensions: string[];
   falsePositiveMarkers: string[];
   remediation: string;
+  category?: SecurityFindingCategory | undefined;
+  confidence?: SecurityPatternConfidence | undefined;
 }
 
 export interface GeneratedSecuritySkill {

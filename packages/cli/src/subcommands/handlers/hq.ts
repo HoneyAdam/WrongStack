@@ -34,9 +34,11 @@ import {
   type HqToken,
 } from '@wrongstack/core';
 import type { HqServerHandle } from '../../hq-server.js';
+import { resolveAuditActor } from '../../hq-server/audit-actor.js';
 import type { SubcommandDeps, SubcommandHandler } from '../index.js';
-import * as os from 'node:os';
 import * as fs from 'node:fs/promises';
+
+export { resolveAuditActor } from '../../hq-server/audit-actor.js';
 
 /**
  * Build a free-form actor string for the auth audit log. Combines the OS
@@ -48,16 +50,6 @@ import * as fs from 'node:fs/promises';
  * `startHqServer`'s first-run bootstrap so every audit entry point
  * produces the same actor shape.
  */
-export function resolveAuditActor(): string {
-  const user = (process.env.USERNAME ?? process.env.USER ?? '').toString();
-  try {
-    const host = os.hostname();
-    return user ? `${user}@${host}` : `cli@${host}`;
-  } catch {
-    return user ? `${user}@unknown` : 'cli';
-  }
-}
-
 function resolveDataDir(deps: SubcommandDeps): string {
   const override = typeof deps.flags?.['data-dir'] === 'string' ? deps.flags['data-dir'] : undefined;
   return resolveHqDataDir(override);

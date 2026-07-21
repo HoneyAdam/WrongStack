@@ -93,7 +93,12 @@ vi.mock('@wrongstack/techstack', () => {
   };
 });
 
-type SlashResult = { message?: string; runText?: string; metadata?: Record<string, unknown> };
+type SlashResult = {
+  exit?: boolean | undefined;
+  message?: string | undefined;
+  runText?: string | undefined;
+  metadata?: Record<string, unknown> | undefined;
+};
 
 function expectSlashResult(value: void | SlashResult): SlashResult {
   expect(value).toBeTruthy();

@@ -30,6 +30,7 @@
     "@fontsource-variable/manrope": "^5.2.8",
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@wrongstack/tools": "workspace:*",
+    "@wrongstack/webui-server": "workspace:*",
     "lucide-react": "^1.25.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

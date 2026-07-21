@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
@@ -35,7 +35,7 @@ export function resolveSimpleUiDistDir(deps: SimpleUiDistDeps = {}): string {
 
 export interface EnsureSimpleUiDistDeps extends SimpleUiDistDeps {
   /** Override the build command runner (tests). Receives the workspace root cwd. */
-  runBuild?: (cwd: string) => void;
+  runBuild?: (cwd: string) => void | Promise<void>;
   /** Override the workspace-root finder (tests). Receives the simpleui package dir. */
   findWorkspaceRoot?: (packageDir: string) => string;
 }
@@ -49,7 +49,9 @@ export interface EnsureSimpleUiDistDeps extends SimpleUiDistDeps {
  * automatically (~600 ms) and retries resolution. The build output is
  * printed to stderr so the user sees what happened.
  */
-export function ensureSimpleUiDistDir(deps: EnsureSimpleUiDistDeps = {}): string {
+export async function ensureSimpleUiDistDir(
+  deps: EnsureSimpleUiDistDeps = {},
+): Promise<string> {
   try {
     return resolveSimpleUiDistDir(deps);
   } catch {
@@ -88,16 +90,10 @@ export function ensureSimpleUiDistDir(deps: EnsureSimpleUiDistDeps = {}): string
 
   const runBuild =
     deps.runBuild ??
-    ((cwd: string): void => {
-      execSync('pnpm --filter @wrongstack/simpleui build', {
-        cwd,
-        stdio: 'inherit',
-        timeout: 120_000,
-      });
-    });
+    ((cwd: string) => runPnpmBuild(cwd, '@wrongstack/simpleui', 120_000));
 
   try {
-    runBuild(workspaceRoot);
+    await runBuild(workspaceRoot);
   } catch (err) {
     throw new Error(
       `SimpleUI auto-build failed: ${err instanceof Error ? err.message : String(err)}. ` +
@@ -107,4 +103,29 @@ export function ensureSimpleUiDistDir(deps: EnsureSimpleUiDistDeps = {}): string
 
   // Retry resolution — throws the original descriptive error if still missing.
   return resolveSimpleUiDistDir(deps);
+}
+
+function runPnpmBuild(cwd: string, workspace: string, timeoutMs: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('pnpm', ['--filter', workspace, 'build'], {
+      cwd,
+      shell: process.platform === 'win32',
+      stdio: 'inherit',
+      windowsHide: true,
+    });
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error(`build timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    timer.unref?.();
+    child.once('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve();
+      else reject(new Error(`pnpm build exited with code ${String(code)}`));
+    });
+  });
 }

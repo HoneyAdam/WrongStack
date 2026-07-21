@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@source "../../providers/src/provider-definitions.ts";
+@source "../../providers/src/trusted-presets.ts";
 
 /* ===========================================================================
    WrongStack WebUI — Operator Workbench

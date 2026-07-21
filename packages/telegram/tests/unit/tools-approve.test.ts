@@ -499,6 +499,33 @@ describe('telegram_approve with bot allowlist', () => {
     expect(sendSpy).not.toHaveBeenCalled();
   });
 
+  it('allows group approval when getAllowGroupApprovals resolves true with configured users', async () => {
+    const bot = makeBot({ allowedUsers: ['1'], allowedChats: ['-100'] });
+    const sendSpy = vi.spyOn(bot, 'sendMessageWithKeyboard');
+    const tool = makeTelegramApproveTool({
+      bot,
+      getDefaultChatId: () => '-100',
+      getAllowedUserIds: () => ['1'],
+      getAllowGroupApprovals: () => true,
+      maxMessageLength: 4000,
+      log,
+    });
+
+    // Positive path: the group gate passes and the prompt is actually sent,
+    // and the tool settles cleanly (no callback → approved=false, timeout).
+    const result = await tool.execute(
+      { prompt: 'Group ok?', timeout_ms: 100 },
+      { session: { id: 'telegram-test' } } as never,
+      { signal: new AbortController().signal },
+    );
+
+    expect(sendSpy).toHaveBeenCalledTimes(1);
+    expect(result.prompt_message_id).toBe(42);
+    expect(result.approved).toBe(false);
+    expect(result.from).toBe('timeout');
+    bot.stop();
+  });
+
   it('a non-allowlisted user pressing Deny cannot consume the request', async () => {
     const bot = makeBot({ allowedUsers: ['1'], allowedChats: ['999'] });
     const tool = makeTool(bot, '999', ['1']);

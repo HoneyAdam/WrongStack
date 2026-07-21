@@ -51,36 +51,6 @@ const HOTSPOTS: readonly Hotspot[] = [
 ] as const;
 
 /**
- * Temporary debt baseline.
- *
- * These are current non-command modules that still import from slash-commands/.
- * The guardrail blocks new violations while follow-up refactors move shared logic
- * into cli/services/*.
- */
-const TEMPORARY_SLASH_COMMAND_IMPORT_ALLOWLIST = new Set<string>([
-  'packages/cli/src/execution.ts',
-  'packages/cli/src/project-picker.ts',
-  'packages/cli/src/repl.ts',
-  'packages/cli/src/webui-server/ws-handlers/projects.ts',
-  'packages/cli/src/cli-main.ts',
-  'packages/cli/src/cli-eternal-flag.ts',
-  'packages/cli/src/boot/dispatch-webui.ts',
-  'packages/cli/src/boot/system-prompt-builder.ts',
-  // Extracted from execution.ts (Phase C3/C5) — carry its pre-existing violations.
-  'packages/cli/src/boot/tui-project-picker-callback.ts',
-  'packages/cli/src/boot/tui-sdd-callback.ts',
-  'packages/cli/src/next-task-predictor.ts',
-  // Extracted from cli-main.ts (Phase D, PR #241) — carries the same slash-command
-  // imports as cli-main.ts itself (which is already on the allowlist above).
-  'packages/cli/src/wiring/director-setup.ts',
-  // Extracted from boot.ts (boot/wiring refactor) — boot.ts no longer imports
-  // slash-commands directly; these carry its pre-existing statusline/autonomy
-  // imports until they move into cli/services/*.
-  'packages/cli/src/execute-deps.ts',
-  'packages/cli/src/wiring/controllers.ts',
-]);
-
-/**
  * Permanent architectural allowance: this file is the dedicated registration
  * bridge that wires slash commands into the runtime.
  */
@@ -119,8 +89,17 @@ function isSlashCommandImporter(relPath: string): boolean {
   return false;
 }
 
-function isAllowedBaselineViolation(relPath: string): boolean {
-  return TEMPORARY_SLASH_COMMAND_IMPORT_ALLOWLIST.has(relPath);
+async function loadSlashCommandImportExceptions(): Promise<Set<string>> {
+  const document = JSON.parse(
+    await fs.readFile(path.resolve(REPO_ROOT, 'architecture/exceptions.json'), 'utf8'),
+  ) as {
+    exceptions?: Array<{ id?: string; kind?: string; members?: string[] }>;
+  };
+  const exception = document.exceptions?.find(
+    (item) => item.id === 'ARCH-SLASH-IMPORT-01' && item.kind === 'slash-command-import',
+  );
+  if (!exception?.members) throw new Error('ARCH-SLASH-IMPORT-01 is missing from architecture/exceptions.json');
+  return new Set(exception.members);
 }
 
 function extractSlashCommandImports(text: string): string[] {
@@ -163,6 +142,7 @@ describe('architecture guardrails', () => {
 
   it('blocks new non-command imports from slash-commands/', async () => {
     const files = await walk(CLI_SRC);
+    const temporaryAllowlist = await loadSlashCommandImportExceptions();
     const failures: string[] = [];
 
     for (const absPath of files) {
@@ -174,7 +154,7 @@ describe('architecture guardrails', () => {
       const specs = extractSlashCommandImports(text);
       if (specs.length === 0) continue;
 
-      if (isAllowedBaselineViolation(relPath)) continue;
+      if (temporaryAllowlist.has(relPath)) continue;
 
       for (const spec of specs) {
         failures.push(
@@ -193,6 +173,7 @@ describe('architecture guardrails', () => {
 
   it('tracks the temporary slash-command import baseline explicitly', async () => {
     const files = await walk(CLI_SRC);
+    const temporaryAllowlist = await loadSlashCommandImportExceptions();
     const actualViolators = new Set<string>();
 
     for (const absPath of files) {
@@ -206,7 +187,7 @@ describe('architecture guardrails', () => {
     }
 
     expect([...actualViolators].sort()).toEqual(
-      [...TEMPORARY_SLASH_COMMAND_IMPORT_ALLOWLIST].sort(),
+      [...temporaryAllowlist].sort(),
     );
   });
 });

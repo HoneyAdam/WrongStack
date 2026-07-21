@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import type * as http from 'node:http';
 import { WebSocket } from 'ws';
+import type { TrustBoundary } from '@wrongstack/core/security';
 import {
   buildTranscriptFromEvents,
   type HqSnapshot,
@@ -42,11 +43,12 @@ import {
   validateHqCommand,
   verifyHqPassword,
 } from '@wrongstack/core';
-import { HQ_HTML } from '../hq-dashboard-html.js';
+import { HQ_HTML } from '../hq-recovery-html.js';
 import { resolveHqDistDir, serveHqStatic } from '../hq-static-serve.js';
 import * as HqServerAuth from './auth.js';
 import * as HqServerSnapshot from './snapshot.js';
 import * as HqServerUtils from './utils.js';
+import { authorizeHqCommand } from './trust-boundary.js';
 
 // ── Re-exports for hq-server.ts backward compat ────────────────────────────
 
@@ -77,6 +79,7 @@ export const hqRuntimeMarkerPath = HqServerUtils.hqRuntimeMarkerPath;
 
 import type {
   ConnectedClient,
+  HqRouterMutableAuth,
   HqSnapshotBroadcaster,
   ProjectDetail,
   TranscriptRing,
@@ -96,24 +99,13 @@ function isLoopbackRequest(req: http.IncomingMessage): boolean {
 
 // ── Router dependency interface ────────────────────────────────────────────
 
-export interface HqRouterMutableAuth {
-  operatorPolicy: HqRedactionPolicy;
-  operatorPolicyOverride: Partial<HqRedactionPolicy> | undefined;
-  browserTokens: Set<string>;
-  clientTokens: Set<string>;
-  browserTokenObjs: Map<string, { id: string; capabilities?: string[] }>;
-  clientTokenObjs: Map<string, HqToken>;
-  passwordHash?: string | undefined;
-  cookieSecret?: string | undefined;
-  alertRules: HqAlertRuleConfig | undefined;
-}
-
 export interface HqRouterMailboxGateway {
   mailbox: GlobalMailbox;
   router: ReturnType<typeof createMailboxHttpRouter>;
 }
 
 export interface HqRouterDeps {
+  trustBoundary: TrustBoundary;
   host: string;
   listeningPort: number;
   trustedPublicOrigins: Set<string>;
@@ -174,6 +166,7 @@ export function createHqRouter(deps: HqRouterDeps): (req: http.IncomingMessage, 
     authorizeMailboxGateway,
     getMailboxGateway,
     getTokenStats,
+    trustBoundary,
   } = deps;
 
   return async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
@@ -219,7 +212,7 @@ export function createHqRouter(deps: HqRouterDeps): (req: http.IncomingMessage, 
       const hqDistDir = resolveHqDistDir();
       const isApiOrWsPath = url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws/');
       if (hqDistDir !== null && !isApiOrWsPath) {
-        const served = serveHqStatic(req, res, url.pathname, hqDistDir);
+        const served = await serveHqStatic(req, res, url.pathname, hqDistDir);
         if (served.handled) return;
       }
 
@@ -299,7 +292,17 @@ export function createHqRouter(deps: HqRouterDeps): (req: http.IncomingMessage, 
 
       // ── Command ───────────────────────────────────────────────────
       if (url.pathname === '/api/command' && req.method === 'POST') {
-        await handleApiCommand(req, res, url, mutableAuth, sessions, clients, browsers, auditLog);
+        await handleApiCommand(
+          req,
+          res,
+          url,
+          mutableAuth,
+          sessions,
+          clients,
+          browsers,
+          auditLog,
+          trustBoundary,
+        );
         return;
       }
 
@@ -791,6 +794,7 @@ async function handleApiCommand(
   clients: Map<WebSocket, ConnectedClient>,
   browsers: Set<WebSocket>,
   auditLog: HqCommandAuditLog,
+  trustBoundary: TrustBoundary,
 ): Promise<void> {
   const auth = authenticateBrowserRequest(req, url, mutableAuth, sessions);
   const inBrowserTokenMode = mutableAuth.browserTokens.size > 0;
@@ -884,6 +888,21 @@ async function handleApiCommand(
     return;
   }
 
+  const enqueuedBy = auth === 'cookie' ? 'password-session' : (tokenObj?.id ?? 'open-mode');
+  const authorization = await authorizeHqCommand({
+    boundary: trustBoundary,
+    command: validated,
+    commandId,
+    enqueuedBy,
+    authMethod: auth === 'cookie' ? 'session' : 'bearer-token',
+    target,
+  });
+  if (!authorization.allowed) {
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: `command denied: ${authorization.reason}` }));
+    return;
+  }
+
   target.commandQueue.push(queued);
   if (target.commandQueue.length > 200)
     target.commandQueue.splice(0, target.commandQueue.length - 200);
@@ -892,7 +911,7 @@ async function handleApiCommand(
     commandId,
     type: validated.type,
     clientId: target.clientId,
-    enqueuedBy: auth === 'cookie' ? 'password-session' : (tokenObj?.id ?? 'open-mode'),
+    enqueuedBy,
     enqueuedAt: queued.createdAt,
     status: 'queued',
   };

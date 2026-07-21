@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { access } from 'node:fs/promises';
 import * as path from 'node:path';
 import type { Context, SlashCommand } from '@wrongstack/core';
 import { color } from '@wrongstack/core';
@@ -13,22 +13,32 @@ import { toErrorMessage } from '@wrongstack/core/utils';
  * Goal: give the subagent enough breadcrumbs to generate useful suggestions
  * without overwhelming it with raw message dumps.
  */
-function collectContext(opts: { cwd: string; projectRoot: string }): string {
+function readGitStatus(projectRoot: string, includeBranch: boolean): Promise<string> {
+  const args = ['status', '--short'];
+  if (includeBranch) args.push('--branch');
+  return new Promise((resolve) => {
+    execFile(
+      'git',
+      args,
+      {
+        cwd: projectRoot,
+        encoding: 'utf8',
+        timeout: 5000,
+        windowsHide: true,
+        maxBuffer: 1024 * 1024,
+      },
+      (error, stdout) => resolve(error ? '' : stdout.trim()),
+    );
+  });
+}
+
+async function collectContext(opts: { cwd: string; projectRoot: string }): Promise<string> {
   const parts: string[] = [];
 
   // ── Git status ──────────────────────────────────────────────────────────
-  try {
-    const gitStatus = execFileSync('git', ['status', '--short', '--branch'], {
-      cwd: opts.projectRoot,
-      encoding: 'utf8',
-      timeout: 5000,
-      windowsHide: true,
-    }).trim();
-    if (gitStatus) {
-      parts.push('### Git Status', '```', gitStatus, '```');
-    }
-  } catch {
-    // not a git repo or git unavailable
+  const gitStatus = await readGitStatus(opts.projectRoot, true);
+  if (gitStatus) {
+    parts.push('### Git Status', '```', gitStatus, '```');
   }
 
   // ── Working directory hint ──────────────────────────────────────────────
@@ -99,7 +109,7 @@ export function buildSuggestCommand(opts: SlashCommandContext): SlashCommand {
 
       // ── Fast path: heuristic suggestions (no subagent) ──────────────────
       if (fast) {
-        const suggestions = generateHeuristicSuggestions(opts);
+        const suggestions = await generateHeuristicSuggestions(opts);
         setSuggestions(suggestions);
         opts.onSuggestions?.(suggestions);
         const display = formatSuggestions(suggestions);
@@ -109,7 +119,7 @@ export function buildSuggestCommand(opts: SlashCommandContext): SlashCommand {
       // ── Full path: subagent-powered suggestions ─────────────────────────
       if (!opts.onSpawnAndWait) {
         // Fall back to heuristic if subagent not available
-        const suggestions = generateHeuristicSuggestions(opts);
+        const suggestions = await generateHeuristicSuggestions(opts);
         setSuggestions(suggestions);
         opts.onSuggestions?.(suggestions);
         const display =
@@ -132,7 +142,7 @@ export function buildSuggestCommand(opts: SlashCommandContext): SlashCommand {
         };
       }
 
-      const contextText = collectContext({
+      const contextText = await collectContext({
         cwd: opts.cwd,
         projectRoot: opts.projectRoot,
       });
@@ -193,56 +203,63 @@ function parseSuggestions(raw: string): string[] {
  * Generate heuristic suggestions without an LLM subagent.
  * Fast, deterministic, good enough for common patterns.
  */
-function generateHeuristicSuggestions(opts: SlashCommandContext): string[] {
+async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function generateHeuristicSuggestions(opts: SlashCommandContext): Promise<string[]> {
   const suggestions: string[] = [];
 
-  try {
-    const gitStatus = execFileSync('git', ['status', '--short'], {
-      cwd: opts.projectRoot,
-      encoding: 'utf8',
-      timeout: 5000,
-      windowsHide: true,
-    }).trim();
+  const gitStatus = await readGitStatus(opts.projectRoot, false);
+  if (gitStatus) {
+    const staged = gitStatus.split('\n').filter((l) => /^[MADRC]/.test(l)).length;
+    const unstaged = gitStatus.split('\n').filter((l) => /^.[MADRC]/.test(l)).length;
+    const untracked = gitStatus.split('\n').filter((l) => l.startsWith('??')).length;
 
-    if (gitStatus) {
-      const staged = gitStatus.split('\n').filter((l) => /^[MADRC]/.test(l)).length;
-      const unstaged = gitStatus.split('\n').filter((l) => /^.[MADRC]/.test(l)).length;
-      const untracked = gitStatus.split('\n').filter((l) => l.startsWith('??')).length;
-
-      if (staged > 0) {
-        suggestions.push(`Commit ${staged} staged file(s) with a descriptive message`);
-      }
-      if (unstaged > 0) {
-        suggestions.push(
-          `Review and stage the ${unstaged} modified file(s), fixing any issue you find`,
-        );
-      }
-      if (untracked > 0) {
-        suggestions.push(
-          `Review the ${untracked} untracked file(s) and add each to Git or .gitignore as appropriate`,
-        );
-      }
+    if (staged > 0) {
+      suggestions.push(`Commit ${staged} staged file(s) with a descriptive message`);
     }
-  } catch {
-    // not a git repo
+    if (unstaged > 0) {
+      suggestions.push(
+        `Review and stage the ${unstaged} modified file(s), fixing any issue you find`,
+      );
+    }
+    if (untracked > 0) {
+      suggestions.push(
+        `Review the ${untracked} untracked file(s) and add each to Git or .gitignore as appropriate`,
+      );
+    }
   }
 
   // Project-shape hints — detect common files and suggest relevant actions.
   const root = opts.projectRoot;
-  const has = (...rel: string[]): boolean => rel.some((r) => existsSync(path.join(root, r)));
-  if (has('package.json')) {
+  const has = async (...rel: string[]): Promise<boolean> =>
+    (await Promise.all(rel.map((item) => pathExists(path.join(root, item))))).some(Boolean);
+  const [hasNode, hasDocker, hasMake, hasPython, hasCi] = await Promise.all([
+    has('package.json'),
+    has('Dockerfile', 'docker-compose.yml', 'compose.yaml'),
+    has('Makefile'),
+    has('pyproject.toml', 'requirements.txt', 'setup.py'),
+    has('.github/workflows'),
+  ]);
+  if (hasNode) {
     suggestions.push('Run the npm/pnpm test suite and fix any failures');
   }
-  if (has('Dockerfile', 'docker-compose.yml', 'compose.yaml')) {
+  if (hasDocker) {
     suggestions.push('Build the Docker image, verify the container starts, and fix any failures');
   }
-  if (has('Makefile')) {
+  if (hasMake) {
     suggestions.push('Run the relevant make build and test targets, then fix any failures');
   }
-  if (has('pyproject.toml', 'requirements.txt', 'setup.py')) {
+  if (hasPython) {
     suggestions.push('Run pytest and the Python linters, then fix any failures');
   }
-  if (has('.github/workflows')) {
+  if (hasCi) {
     suggestions.push('Inspect the latest CI workflow run and fix any failures');
   }
 

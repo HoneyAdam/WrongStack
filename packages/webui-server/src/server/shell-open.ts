@@ -43,6 +43,19 @@ export interface ShellOpenRequest {
   target: ShellOpenTarget;
 }
 
+/**
+ * Optional security options for `handleShellOpen`.
+ *
+ * `projectRoot`, when provided, confines the resolved path to the project
+ * directory — the OS file manager / terminal will never be launched at a
+ * location outside the project. This is defense-in-depth: the TrustBoundary
+ * authorization may use a permissive compatibility policy, so the path
+ * containment must be enforced at the executor as well.
+ */
+export interface ShellOpenOptions {
+  projectRoot?: string;
+}
+
 export interface ShellOpenResult {
   success: boolean;
   message: string;
@@ -64,9 +77,29 @@ function shellQuote(s: string): string {
 export async function handleShellOpen(
   req: ShellOpenRequest,
   logger: Logger,
+  options?: ShellOpenOptions,
 ): Promise<ShellOpenResult> {
   try {
     const resolved = path.resolve(req.path);
+
+    // SECURITY: when a projectRoot is provided, confine the path to the
+    // project directory. Without this, a WebSocket client can open the OS
+    // file manager or terminal at ANY existing path on the system
+    // (/etc, ~/.ssh, C:\Windows). The TrustBoundary policy may be the
+    // permissive compatibility default, so containment is enforced here
+    // as defense-in-depth.
+    if (options?.projectRoot) {
+      const root = path.resolve(options.projectRoot);
+      const relative = path.relative(root, resolved);
+      const escapes = relative.startsWith('..') || path.isAbsolute(relative);
+      if (escapes) {
+        return {
+          success: false,
+          message: 'Path must be inside the project directory.',
+        };
+      }
+    }
+
     await fs.access(resolved);
     if (METACHAR_REGEX.test(resolved)) {
       return { success: false, message: 'Path contains unsupported characters.' };

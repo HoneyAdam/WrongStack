@@ -250,10 +250,9 @@ export interface PluginAPI {
 
 /**
  * Capability declaration — informs the host which subsystems a plugin
- * intends to touch. Used for diagnostics and per-plugin enable/disable UX
- * (e.g. "this plugin registers tools — disable to remove them"). Not
- * enforced at runtime: a plugin that declares `tools: false` can still
- * call `api.tools.register()`, but the host can flag the discrepancy.
+ * intends to touch. An omitted field is unspecified, `true` declares use,
+ * and `false` explicitly denies use. Hosts may warn on a contradiction or
+ * reject it when strict capability enforcement is enabled.
  */
 export interface PluginCapabilities {
   /** Will register tools via `api.tools.register()`. */
@@ -287,9 +286,8 @@ export interface PluginCapabilities {
   toolMutateCapabilities?: string[] | undefined;
   /**
    * Will register in-process lifecycle hooks via `api.registerHook()`. When
-   * false (or omitted by a non-official plugin), the loader either logs a
-   * warning or throws — see `LoadPluginsOptions.enforceCapabilities`.
-   * Official plugins are not gated.
+   * explicitly false, the loader either logs a warning or throws — see
+   * `LoadPluginsOptions.enforceCapabilities`.
    */
   hooks?: boolean | undefined;
 }
@@ -307,6 +305,20 @@ export interface PluginDependency {
   version?: string | undefined;
 }
 
+export type PluginConfigFieldLifecycle = 'hot' | 'restart' | 'immutable';
+
+export interface PluginConfigFieldMetadata {
+  /** How a running host may apply a changed value. */
+  lifecycle: PluginConfigFieldLifecycle;
+  /** Redact this field in diagnostics, audit output, and operator-facing diffs. */
+  secret?: boolean | undefined;
+  description?: string | undefined;
+}
+
+export type PluginConfigFields<T extends object = Record<string, unknown>> = {
+  [K in keyof T]-?: PluginConfigFieldMetadata;
+};
+
 export interface Plugin {
   name: string;
   version?: string | undefined;
@@ -316,8 +328,8 @@ export interface Plugin {
   apiVersion: string;
   /**
    * Capability hints — what subsystems the plugin will register against.
-   * Optional; provided for diagnostics and UX. The loader does not enforce
-   * these, but mismatch is surfaced via logger at warn level.
+   * Explicit `false` values are warned by default and rejected when the host
+   * enables strict enforcement; omitted fields remain unspecified.
    */
   capabilities?: PluginCapabilities | undefined;
   /**
@@ -326,6 +338,10 @@ export interface Plugin {
    * and rejects the plugin with a clear error path on failure.
    */
   configSchema?: JSONSchema | undefined;
+  /** Alternate configuration names accepted during migration to `name`. */
+  configAliases?: string[] | undefined;
+  /** Field-level reload and redaction semantics for plugin configuration. */
+  configFields?: Record<string, PluginConfigFieldMetadata> | undefined;
   /**
    * Mandatory plugin dependencies — loading fails if any are absent or
    * version-incompatible. Accepts both the legacy string-array form and
@@ -336,7 +352,7 @@ export interface Plugin {
   optionalDeps?: (string | PluginDependency)[] | undefined;
   conflictsWith?: string[] | undefined;
   /**
-   * Default configuration values, deep-merged under the plugin's options
+   * Default configuration values, shallow-merged under the plugin's options
    * key before `configSchema` validation. User-provided values take
    * precedence over defaults — this is a fallback, not an override.
    *

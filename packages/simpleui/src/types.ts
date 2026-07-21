@@ -1,3 +1,5 @@
+import type { CanonicalServerMessage } from '@wrongstack/webui-server/protocol';
+
 export type ConnectionState = 'connecting' | 'open' | 'closed';
 
 export interface ChatMessage {
@@ -132,7 +134,6 @@ export interface TimelineEntry {
   toolCall?: ToolCallInfo | undefined;
 }
 
-export interface ServerMessage {
-  type: string;
-  payload?: Record<string, unknown> | undefined;
+export interface ServerMessage extends CanonicalServerMessage {
+  payload: Record<string, unknown>;
 }

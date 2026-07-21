@@ -5,18 +5,19 @@ import {
   countShellHooks,
   GlobalMailbox,
   type HealthRegistry,
-  type HqPublisher,
   HookRegistry,
   HookRunner,
+  type HqPublisher,
   type Logger,
-  type ModelsRegistry,
   type MetricsRuntimeStatus,
-  normalizeTokenSavingTier,
+  type ModelsRegistry,
   NotifierImpl,
+  normalizeTokenSavingTier,
+  type PluginHostHandle,
+  type PromptLoader,
   type Provider,
   type ProviderConfig,
   type ProviderRegistry,
-  type PromptLoader,
   type SecretVault,
   type SessionWriter,
   type SkillLoader,
@@ -27,10 +28,10 @@ import {
   type WstackPaths,
 } from '@wrongstack/core';
 import {
+  createVaultBackedMcpAuthorizationProviderFactory,
   MCPAuthorizationManager,
   MCPRegistry,
   MCPVaultTokenStore,
-  createVaultBackedMcpAuthorizationProviderFactory,
 } from '@wrongstack/mcp';
 import type { EventWiring } from '../boot/event-wiring.js';
 import { refreshRuntimeModelCatalog, resolveRuntimeMaxContext } from '../context-limit.js';
@@ -107,6 +108,7 @@ export interface LifecyclePluginsResult {
   slashRegistry: SlashCommandRegistry;
   hqPublisherRef: { current: HqPublisher | undefined };
   brainMailbox: GlobalMailbox;
+  pluginHost: PluginHostHandle | undefined;
 }
 
 /**
@@ -329,7 +331,7 @@ export async function setupLifecycleAndPlugins(
   const brainMailbox = new GlobalMailbox(wpaths.projectDir, events, () => hqPublisherRef.current);
   const notifier = new NotifierImpl();
 
-  await setupPlugins({
+  const pluginHost = await setupPlugins({
     config,
     container,
     events,
@@ -385,5 +387,6 @@ export async function setupLifecycleAndPlugins(
     slashRegistry,
     hqPublisherRef,
     brainMailbox,
+    pluginHost,
   };
 }

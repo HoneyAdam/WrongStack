@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import type {
   AgentPipelines,
   Config,
@@ -7,10 +8,11 @@ import type {
   ExtensionRegistry,
   HealthRegistry,
   Logger,
-  MetricsSinkView,
   MetricsRuntimeStatus,
+  MetricsSinkView,
   ModelsRegistry,
   Plugin,
+  PluginHostHandle,
   PromptLoader,
   ProviderRegistry,
   SessionWriter,
@@ -18,11 +20,11 @@ import type {
   SlashCommandRegistry,
   ToolRegistry,
 } from '@wrongstack/core';
-import { join } from 'node:path';
-import { loadPlugins } from '@wrongstack/core';
+import { loadPlugins, resolvePluginConfig } from '@wrongstack/core';
 import type { MCPRegistry } from '@wrongstack/mcp';
-import { PLUGIN_AUDIT_ENTRIES } from '../plugin-management.js';
+import { OFFICIAL_PLUGIN_FACTORIES } from '@wrongstack/plugins/factories';
 import createApi from '../plugin-api-factory.js';
+import { PLUGIN_AUDIT_ENTRIES } from '../plugin-management.js';
 import { patchConfig } from '../utils.js';
 
 // ---------------------------------------------------------------------------
@@ -211,10 +213,6 @@ export const BUILTIN_PLUGIN_FACTORIES: (() => Promise<Plugin>)[] = [
     return createSyncPlugin();
   },
   async () => {
-    const { createSecurityPlugin } = await import('@wrongstack/core');
-    return createSecurityPlugin();
-  },
-  async () => {
     const { createChimeraPlugin } = await import('@wrongstack/core');
     return createChimeraPlugin();
   },
@@ -227,77 +225,16 @@ export const BUILTIN_PLUGIN_FACTORIES: (() => Promise<Plugin>)[] = [
     return createSkillsPlugin();
   },
   // ── Workspace plugins (@wrongstack/plugins subpath exports) ──────────
-  async () => (await import('@wrongstack/plugins/agent-handoff')).default,
-  async () => (await import('@wrongstack/plugins/cost-tracker')).default,
-  async () => (await import('@wrongstack/plugins/file-watcher')).default,
-  async () => (await import('@wrongstack/plugins/git-autocommit')).default,
-  async () => (await import('@wrongstack/plugins/auto-doc')).default,
-  async () => (await import('@wrongstack/plugins/shell-check')).default,
-  async () => (await import('@wrongstack/plugins/cron')).default,
-  async () => (await import('@wrongstack/plugins/template-engine')).default,
-  async () => (await import('@wrongstack/plugins/semver-bump')).default,
-  async () => (await import('@wrongstack/plugins/secret-scanner')).default,
-  async () => (await import('@wrongstack/plugins/todo-tracker')).default,
-  async () => (await import('@wrongstack/plugins/token-budget')).default,
-  async () => (await import('@wrongstack/plugins/lint-gate')).default,
-  async () => (await import('@wrongstack/plugins/branch-guard')).default,
-  async () => (await import('@wrongstack/plugins/diff-summary')).default,
-  async () => (await import('@wrongstack/plugins/commit-validator')).default,
-  async () => (await import('@wrongstack/plugins/format-on-save')).default,
-  async () => (await import('@wrongstack/plugins/test-runner-gate')).default,
-  async () => (await import('@wrongstack/plugins/import-organizer')).default,
-  async () => (await import('@wrongstack/plugins/knowledge-graph')).default,
-  async () => (await import('@wrongstack/plugins/todo-listener')).default,
-  async () => (await import('@wrongstack/plugins/session-recap')).default,
-  async () => (await import('@wrongstack/plugins/spec-linker')).default,
-  async () => (await import('@wrongstack/plugins/loop-breaker')).default,
-  async () => (await import('@wrongstack/plugins/path-guard')).default,
-  async () => (await import('@wrongstack/plugins/process-guard')).default,
-  async () => (await import('@wrongstack/plugins/context-pins')).default,
-  async () => (await import('@wrongstack/plugins/checkpoint')).default,
-  async () => (await import('@wrongstack/plugins/error-lens')).default,
-  async () => (await import('@wrongstack/plugins/dep-guard')).default,
-  async () => (await import('@wrongstack/plugins/config-validator')).default,
-  async () => (await import('@wrongstack/plugins/notify-hub')).default,
-  async () => (await import('@wrongstack/plugins/changelog-writer')).default,
-  async () => (await import('@wrongstack/plugins/injection-shield')).default,
-  async () => (await import('@wrongstack/plugins/llm-cache')).default,
-  async () => (await import('@wrongstack/plugins/model-router')).default,
-  async () => (await import('@wrongstack/plugins/pr-drafter')).default,
-  async () => (await import('@wrongstack/plugins/prompt-firewall')).default,
-  async () => (await import('@wrongstack/plugins/auto-escalate')).default,
-  async () => (await import('@wrongstack/plugins/test-coverage-gate')).default,
-  async () => (await import('@wrongstack/plugins/type-gate')).default,
-  async () => (await import('@wrongstack/plugins/token-throttle')).default,
-  async () => (await import('@wrongstack/plugins/plugin-stack-observer')).default,
-  async () => (await import('@wrongstack/plugins/dead-code-detector')).default,
-  async () => (await import('@wrongstack/plugins/dependency-vulnerability-gate')).default,
-  async () => (await import('@wrongstack/plugins/migration-planner')).default,
-  async () => (await import('@wrongstack/plugins/semantic-search-indexer')).default,
-  async () => (await import('@wrongstack/plugins/auto-i18n-extractor')).default,
-  async () => (await import('@wrongstack/plugins/doc-sync-guard')).default,
-  async () => (await import('@wrongstack/plugins/api-compatibility-gate')).default,
-  async () => (await import('@wrongstack/plugins/performance-regression-gate')).default,
-  async () => (await import('@wrongstack/plugins/test-flake-detector')).default,
-  async () => (await import('@wrongstack/plugins/schema-evolution-guard')).default,
-  async () => (await import('@wrongstack/plugins/license-audit-gate')).default,
-  async () => (await import('@wrongstack/plugins/accessibility-auditor')).default,
-  async () => (await import('@wrongstack/plugins/security-hotspot-scanner')).default,
-  async () => (await import('@wrongstack/plugins/duplicate-code-detector')).default,
-  async () => (await import('@wrongstack/plugins/code-metrics')).default,
-  async () => (await import('@wrongstack/plugins/refactor-suggester')).default,
-  async () => (await import('@wrongstack/plugins/test-generator')).default,
-  async () => (await import('@wrongstack/plugins/release-notes-generator')).default,
-  async () => (await import('@wrongstack/plugins/smart-rename')).default,
-  async () => (await import('@wrongstack/plugins/feature-flag-tracker')).default,
-  async () => (await import('@wrongstack/plugins/interface-contract-guard')).default,
+  ...OFFICIAL_PLUGIN_FACTORIES,
   // ── LSP plugin ──────────────────────────────────────────────────────
   async () => (await import('@wrongstack/plug-lsp')).default,
   // ── Telegram plugin ─────────────────────────────────────────────────
   async () => (await import('@wrongstack/telegram')).default,
 ];
 
-export async function setupPlugins(params: PluginsWiringDeps): Promise<void> {
+export async function setupPlugins(
+  params: PluginsWiringDeps,
+): Promise<PluginHostHandle | undefined> {
   const {
     config,
     container,
@@ -404,7 +341,7 @@ export async function setupPlugins(params: PluginsWiringDeps): Promise<void> {
   const allPlugins = [...builtinPlugins, ...userPlugins];
   if (allPlugins.length === 0) return;
 
-  const pluginOptions = buildPluginOptions(config);
+  const pluginOptions = buildPluginOptions(config, allPlugins);
 
   // Workspace plugins that persist project-scoped state read ONLY their own
   // namespaced `config.extensions[name]` options — they never see the
@@ -447,7 +384,7 @@ export async function setupPlugins(params: PluginsWiringDeps): Promise<void> {
     promptLoader,
   } as Partial<Config>);
 
-  await loadPlugins(allPlugins, {
+  const pluginHost = await loadPlugins(allPlugins, {
     log,
     pluginOptions,
     apiFactory: (plugin) =>
@@ -484,16 +421,24 @@ export async function setupPlugins(params: PluginsWiringDeps): Promise<void> {
   log.info(
     `[setupPlugins] loaded ${builtinPlugins.length} built-in, ${userPlugins.length} user plugin(s)`,
   );
+  return pluginHost;
 }
 
-function buildPluginOptions(config: Config): Record<string, Record<string, unknown>> {
+function buildPluginOptions(
+  config: Config,
+  plugins: readonly Plugin[],
+): Record<string, Record<string, unknown>> {
   const options: Record<string, Record<string, unknown>> = {};
-  for (const entry of config.plugins ?? []) {
-    if (typeof entry !== 'object') continue;
-    if (entry.options) options[entry.name] = { ...entry.options };
-  }
   for (const [name, value] of Object.entries(config.extensions ?? {})) {
-    options[name] = { ...(options[name] ?? {}), ...value };
+    options[name] = { ...value };
+  }
+  for (const plugin of plugins) {
+    const resolved = resolvePluginConfig({
+      name: plugin.name,
+      aliases: plugin.configAliases,
+      config,
+    });
+    if (resolved.configured) options[plugin.name] = resolved.options;
   }
   return options;
 }

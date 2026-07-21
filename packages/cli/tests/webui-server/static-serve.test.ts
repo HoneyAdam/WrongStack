@@ -63,9 +63,9 @@ describe('startStaticServe', () => {
     vi.restoreAllMocks();
   });
 
-  it('returns null when dist cannot be resolved (webui unbuilt)', () => {
+  it('returns null when dist cannot be resolved (webui unbuilt)', async () => {
     const createServer = vi.fn();
-    const handle = startStaticServe(baseOpts, {
+    const handle = await startStaticServe(baseOpts, {
       resolveDist: () => null,
       createServer,
     });
@@ -74,14 +74,14 @@ describe('startStaticServe', () => {
     expect(createServer).not.toHaveBeenCalled();
   });
 
-  it('threads options into createHttpServer and listens on httpPort/host', () => {
+  it('threads options into createHttpServer and listens on httpPort/host', async () => {
     const fake = new FakeServer();
     const createServer = vi.fn(() => fake as never as Server);
 
-    const handle = startStaticServe(baseOpts, {
+    const handle = (await startStaticServe(baseOpts, {
       resolveDist: () => '/resolved/dist',
       createServer,
-    }) as StaticServeHandle;
+    })) as StaticServeHandle;
 
     expect(handle).not.toBeNull();
     expect(createServer).toHaveBeenCalledTimes(1);
@@ -101,12 +101,12 @@ describe('startStaticServe', () => {
     expect(handle.server).toBe(fake);
   });
 
-  it('threads an explicit frontend directory through the resolver', () => {
+  it('threads an explicit frontend directory through the resolver', async () => {
     const fake = new FakeServer();
     const resolveDist = vi.fn(() => '/resolved/simpleui-dist');
     const createServer = vi.fn(() => fake as never as Server);
 
-    startStaticServe(
+    await startStaticServe(
       { ...baseOpts, distDir: '/packages/simpleui/dist' },
       { resolveDist, createServer },
     );
@@ -117,17 +117,17 @@ describe('startStaticServe', () => {
     );
   });
 
-  it('passes apiToken to createHttpServer when provided', () => {
+  it('passes apiToken to createHttpServer when provided', async () => {
     const fake = new FakeServer();
     const createServer = vi.fn(() => fake as never as Server);
 
-    const handle = startStaticServe(
+    const handle = (await startStaticServe(
       { ...baseOpts, apiToken: 'test-token-123' },
       {
         resolveDist: () => '/resolved/dist',
         createServer,
       },
-    ) as StaticServeHandle;
+    )) as StaticServeHandle;
 
     expect(handle).not.toBeNull();
     expect(createServer).toHaveBeenCalledWith({
@@ -141,11 +141,11 @@ describe('startStaticServe', () => {
     });
   });
 
-  it('passes public WS URL and requireToken to createHttpServer when provided', () => {
+  it('passes public WS URL and requireToken to createHttpServer when provided', async () => {
     const fake = new FakeServer();
     const createServer = vi.fn(() => fake as never as Server);
 
-    const handle = startStaticServe(
+    const handle = (await startStaticServe(
       {
         ...baseOpts,
         publicWsUrl: 'wss://wrongstack-ws.example.com',
@@ -155,7 +155,7 @@ describe('startStaticServe', () => {
         resolveDist: () => '/resolved/dist',
         createServer,
       },
-    ) as StaticServeHandle;
+    )) as StaticServeHandle;
 
     expect(handle).not.toBeNull();
     expect(createServer).toHaveBeenCalledWith({
@@ -169,15 +169,15 @@ describe('startStaticServe', () => {
     });
   });
 
-  it('does not swallow a real createServer failure', () => {
+  it('does not swallow a real createServer failure', async () => {
     const boom = new Error('createHttpServer exploded');
-    expect(() =>
+    await expect(
       startStaticServe(baseOpts, {
         resolveDist: () => '/resolved/dist',
         createServer: () => {
           throw boom;
         },
       }),
-    ).toThrow(boom);
+    ).rejects.toThrow(boom);
   });
 });

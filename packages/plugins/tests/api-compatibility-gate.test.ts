@@ -5,12 +5,17 @@ vi.mock('node:fs', () => ({
   readFileSync: vi.fn(),
 }));
 
-vi.mock('node:child_process', () => ({
-  execFileSync: vi.fn(),
+vi.mock('node:fs/promises', () => ({
+  readFile: vi.fn(),
 }));
 
-const { execFileSync } = await import('node:child_process');
+vi.mock('node:child_process', () => ({
+  execFile: vi.fn(),
+}));
+
+const { execFile } = await import('node:child_process');
 const { existsSync, readFileSync } = await import('node:fs');
+const { readFile } = await import('node:fs/promises');
 const plugin = (await import('../src/api-compatibility-gate')).default;
 
 interface MockApi {
@@ -44,10 +49,22 @@ function makeApi(overrides: { extensions?: Record<string, unknown> } = {}): Mock
 
 type HookResult = { decision?: string; reason?: string; additionalContext?: string } | undefined;
 
-function getHook(api: MockApi): (input: unknown) => HookResult {
+function getHook(api: MockApi): (input: unknown) => Promise<HookResult> {
   const call = api.registerHook.mock.calls[0];
   if (!call) throw new Error('hook not registered');
-  return (call as unknown[])[2] as (input: unknown) => HookResult;
+  return (call as unknown[])[2] as (input: unknown) => Promise<HookResult>;
+}
+
+function mockGitVersion(stdout: string | null): void {
+  vi.mocked(execFile).mockImplementationOnce(((
+    _command: string,
+    _args: string[],
+    _options: unknown,
+    callback: (error: Error | null, stdout: string, stderr: string) => void,
+  ) => {
+    callback(stdout === null ? new Error('not a git repo') : null, stdout ?? '', '');
+    return {};
+  }) as never);
 }
 
 function getTool(api: MockApi, name: string): (input: unknown) => Promise<unknown> {
@@ -58,7 +75,8 @@ function getTool(api: MockApi, name: string): (input: unknown) => Promise<unknow
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(execFileSync).mockReset();
+  vi.mocked(execFile).mockReset();
+  vi.mocked(readFile).mockReset();
   vi.mocked(readFileSync).mockReset();
   vi.mocked(existsSync).mockReset().mockReturnValue(false);
 });
@@ -90,14 +108,12 @@ describe('api-compatibility-gate plugin', () => {
       toolResult: { content: '', isError: false },
     });
     expect(result).toBeUndefined();
-    expect(execFileSync).not.toHaveBeenCalled();
+    expect(execFile).not.toHaveBeenCalled();
   });
 
   it('detects removed exports and warns by default', async () => {
-    vi.mocked(execFileSync).mockReturnValue(
-      'export const foo = 1;\nexport function bar() {}\n',
-    );
-    vi.mocked(readFileSync).mockReturnValue('export const foo = 1;\n');
+    mockGitVersion('export const foo = 1;\nexport function bar() {}\n');
+    vi.mocked(readFile).mockResolvedValue('export const foo = 1;\n');
 
     const api = makeApi();
     plugin.setup(api as never);
@@ -108,10 +124,11 @@ describe('api-compatibility-gate plugin', () => {
       toolResult: { content: '', isError: false },
     });
 
-    expect(execFileSync).toHaveBeenCalledWith(
+    expect(execFile).toHaveBeenCalledWith(
       'git',
       ['show', 'HEAD:src/index.ts'],
       expect.any(Object),
+      expect.any(Function),
     );
     expect(result?.additionalContext).toContain('bar');
     expect(result?.additionalContext).toContain('removed exported identifiers');
@@ -119,10 +136,8 @@ describe('api-compatibility-gate plugin', () => {
   });
 
   it('detects added exports and reports them alongside removals', async () => {
-    vi.mocked(execFileSync).mockReturnValue(
-      'export const foo = 1;\nexport function bar() {}\n',
-    );
-    vi.mocked(readFileSync).mockReturnValue(
+    mockGitVersion('export const foo = 1;\nexport function bar() {}\n');
+    vi.mocked(readFile).mockResolvedValue(
       'export const foo = 1;\nexport const baz = 2;\n',
     );
 
@@ -141,8 +156,8 @@ describe('api-compatibility-gate plugin', () => {
   });
 
   it('returns no context when exports are only added', async () => {
-    vi.mocked(execFileSync).mockReturnValue('export const foo = 1;\n');
-    vi.mocked(readFileSync).mockReturnValue(
+    mockGitVersion('export const foo = 1;\n');
+    vi.mocked(readFile).mockResolvedValue(
       'export const foo = 1;\nexport const baz = 2;\n',
     );
 
@@ -159,8 +174,8 @@ describe('api-compatibility-gate plugin', () => {
   });
 
   it('block severity returns a block decision on removed exports', async () => {
-    vi.mocked(execFileSync).mockReturnValue('export const foo = 1;\nexport function bar() {}\n');
-    vi.mocked(readFileSync).mockReturnValue('export const foo = 1;\n');
+    mockGitVersion('export const foo = 1;\nexport function bar() {}\n');
+    vi.mocked(readFile).mockResolvedValue('export const foo = 1;\n');
 
     const api = makeApi({
       extensions: { 'api-compatibility-gate': { severity: 'block' } },
@@ -178,8 +193,8 @@ describe('api-compatibility-gate plugin', () => {
   });
 
   it('enabled:false disables the hook', async () => {
-    vi.mocked(execFileSync).mockReturnValue('export const foo = 1;\n');
-    vi.mocked(readFileSync).mockReturnValue('');
+    mockGitVersion('export const foo = 1;\n');
+    vi.mocked(readFile).mockResolvedValue('');
 
     const api = makeApi({
       extensions: { 'api-compatibility-gate': { enabled: false } },
@@ -193,13 +208,11 @@ describe('api-compatibility-gate plugin', () => {
     });
 
     expect(result).toBeUndefined();
-    expect(execFileSync).not.toHaveBeenCalled();
+    expect(execFile).not.toHaveBeenCalled();
   });
 
   it('skips when git history is unavailable', async () => {
-    vi.mocked(execFileSync).mockImplementation(() => {
-      throw new Error('not a git repo');
-    });
+    mockGitVersion(null);
 
     const api = makeApi();
     plugin.setup(api as never);
@@ -226,7 +239,7 @@ describe('api-compatibility-gate plugin', () => {
     });
 
     expect(result).toBeUndefined();
-    expect(execFileSync).not.toHaveBeenCalled();
+    expect(execFile).not.toHaveBeenCalled();
   });
 
   it('skips when the tool result itself errored', async () => {
@@ -240,7 +253,7 @@ describe('api-compatibility-gate plugin', () => {
     });
 
     expect(result).toBeUndefined();
-    expect(execFileSync).not.toHaveBeenCalled();
+    expect(execFile).not.toHaveBeenCalled();
   });
 
   it('recognizes package entry points via package.json', async () => {
@@ -253,9 +266,8 @@ describe('api-compatibility-gate plugin', () => {
       }
       return 'export const foo = 1;\n';
     });
-    vi.mocked(execFileSync).mockReturnValue(
-      'export const foo = 1;\nexport function bar() {}\n',
-    );
+    vi.mocked(readFile).mockResolvedValue('export const foo = 1;\n');
+    mockGitVersion('export const foo = 1;\nexport function bar() {}\n');
 
     vi.spyOn(process, 'cwd').mockReturnValue('fake-root');
 
@@ -272,8 +284,8 @@ describe('api-compatibility-gate plugin', () => {
   });
 
   it('api_compat_status reports counters and last result', async () => {
-    vi.mocked(execFileSync).mockReturnValue('export const foo = 1;\nexport function bar() {}\n');
-    vi.mocked(readFileSync).mockReturnValue('export const foo = 1;\n');
+    mockGitVersion('export const foo = 1;\nexport function bar() {}\n');
+    vi.mocked(readFile).mockResolvedValue('export const foo = 1;\n');
 
     const api = makeApi();
     plugin.setup(api as never);

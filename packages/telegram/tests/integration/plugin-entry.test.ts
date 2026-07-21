@@ -135,6 +135,12 @@ const _originalFetch = globalThis.fetch;
 describe('plugin entry', () => {
   it('publishes a fail-closed outbound target default', () => {
     expect(plugin.defaultConfig).toMatchObject({ allowedOutboundChats: [] });
+    expect(plugin.configAliases).toContain('@wrongstack/telegram');
+    expect(plugin.configFields?.['botToken']).toMatchObject({
+      lifecycle: 'restart',
+      secret: true,
+    });
+    expect(plugin.configFields?.['offsetStoragePath']?.lifecycle).toBe('immutable');
   });
 
   beforeEach(() => {

@@ -1154,7 +1154,7 @@ Official plugin alias: `wstack plugin install telegram`.
 
 ## ACP Package
 
-`@wrongstack/acp` provides WrongStack's ACP (Agent Communication Protocol) integration in two directions:
+`@wrongstack/acp` provides WrongStack's Agent Client Protocol integration in two directions:
 
 **DIR-2 — WrongStack as ACP Server:** `WrongStackACPServer` runs inside a host process and exposes WrongStack tools over stdio JSON-RPC to external ACP clients.
 
@@ -1163,15 +1163,16 @@ Official plugin alias: `wstack plugin install telegram`.
 ```text
 packages/acp/src/
   agent/           StdioTransport, WrongStackACPServer, ACPToolsRegistry, ACPProtocolHandler.
-  client/          ToolTranslator for mapping external tool schemas to core tool format.
+  client/          ACPSession plus transport, permission, file, terminal, and tool adapters.
   integration/     ACP subagent runner (makeACPSubagentRunner, makeACPSubagentRunnerWithStop).
   registry/        ACP agent registry (fetch + cache, ensemble registry).
-  types/           ACP message types (acp-messages).
-  sdk.ts           Public SDK surface (WrongStackACPServer, agent descriptor helpers).
+  types/acp-v1.ts  Stable WrongStack-owned v1 protocol contracts (`/v1` and root).
+  legacy.ts        Deprecated pre-v1 draft envelope compatibility (`/legacy`).
+  sdk.ts           Official upstream SDK and experimental transport re-exports (`/sdk`).
   win32-cmd.ts     Windows command-line quoting helpers.
 ```
 
-The package declares `@wrongstack/core` as a peer dependency and is used by the CLI's multi-agent host to support ACP-capable subagents.
+The package depends on `@wrongstack/core` and the official ACP SDK, and is used by the CLI's multi-agent host to support ACP-capable subagents.
 
 ## Plugins Package
 

@@ -39,6 +39,7 @@ import {
   DefaultModelsRegistry,
   isStdinTTY,
   type ModelsRegistry,
+  normalizeTokenSavingTier,
   type SecretVault,
   TOKENS,
   ToolRegistry,
@@ -46,7 +47,7 @@ import {
   writeErr,
 } from '@wrongstack/core';
 import { createDefaultContainer } from '@wrongstack/runtime';
-import { builtinToolsPack } from '@wrongstack/tools';
+import { registerBuiltinToolTier } from '@wrongstack/tools/tool-tier';
 import { parseArgs } from './arg-parser.js';
 import { discoverAndMergeProviders } from './boot/auto-discover-providers.js';
 import { maybeRestoreDefaultProfileFromBackup } from './boot/config-backup-recovery.js';
@@ -55,7 +56,6 @@ import { bootConfig } from './boot-config.js';
 import { ReadlineInputReader } from './input-reader.js';
 import { printLaunchHints } from './launch-hints.js';
 import { type PickerResult, runPicker, saveToGlobalConfig } from './picker.js';
-import { activeProfileConfigPath } from './profile-config-path.js';
 import {
   LaunchAbortedError,
   maybeAskAboutIndexing,
@@ -63,6 +63,7 @@ import {
   runLaunchPrompts,
   runProjectCheck,
 } from './pre-launch.js';
+import { activeProfileConfigPath } from './profile-config-path.js';
 import { resolveActiveApiKey } from './provider-config-utils.js';
 import { isKeylessLocalProvider, visibleModelIds } from './provider-helpers.js';
 import { TerminalRenderer } from './renderer.js';
@@ -87,10 +88,13 @@ async function validateSavedProviderModel(
   const saved = config.providers?.[providerId];
   const lookupId = saved?.type && saved.type !== providerId ? saved.type : providerId;
   const catalogProvider = await modelsRegistry.getProvider(lookupId).catch(() => undefined);
-  if (!catalogProvider && !saved?.family) return { ok: false, reason: `provider "${providerId}" is no longer available` };
+  if (!catalogProvider && !saved?.family)
+    return { ok: false, reason: `provider "${providerId}" is no longer available` };
 
   const hasCredential =
-    (catalogProvider?.envVars ?? saved?.envVars ?? []).some((envVar) => Boolean(process.env[envVar])) ||
+    (catalogProvider?.envVars ?? saved?.envVars ?? []).some((envVar) =>
+      Boolean(process.env[envVar]),
+    ) ||
     (saved !== undefined && resolveActiveApiKey(saved) !== undefined) ||
     isKeylessLocalProvider({
       apiBase: saved?.baseUrl ?? catalogProvider?.apiBase,
@@ -105,7 +109,10 @@ async function validateSavedProviderModel(
     saved,
   );
   if (visible.length > 0 && !visible.includes(modelId)) {
-    return { ok: false, reason: `model "${modelId}" is no longer available for provider "${providerId}"` };
+    return {
+      ok: false,
+      reason: `model "${modelId}" is no longer available for provider "${providerId}"`,
+    };
   }
   return { ok: true };
 }
@@ -352,10 +359,10 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
     const sessionStore = container.resolve(TOKENS.SessionStore);
     const skillLoader = container.resolve(TOKENS.SkillLoader);
     const toolRegistryForSubcmd = new ToolRegistry();
-    toolRegistryForSubcmd.registerAllOrThrow(
-      [...(builtinToolsPack.tools ?? [])],
-      builtinToolsPack.name,
-    );
+    registerBuiltinToolTier({
+      registry: toolRegistryForSubcmd,
+      tier: normalizeTokenSavingTier(config.features.tokenSavingMode),
+    });
     const code = await subcommands[first]?.(positional.slice(1), {
       config,
       renderer,
@@ -518,11 +525,7 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
         const prevModel = config.model;
         config = patchConfig(config, { provider: picked.provider, model: picked.model });
         if (picked.provider !== prevProvider || picked.model !== prevModel) {
-          const saved = await saveToGlobalConfig(
-            profileConfigPath,
-            picked.provider,
-            picked.model,
-          );
+          const saved = await saveToGlobalConfig(profileConfigPath, picked.provider, picked.model);
           if (saved) {
             renderer.writeInfo(`Saved ${picked.provider}/${picked.model} as default.\n`);
           } else {
@@ -680,8 +683,7 @@ export async function boot(argv: string[]): Promise<BootContext | number> {
     // Respect an explicit opt-out (--no-autonomy or defaultMode 'off'); otherwise
     // default to 'auto' so non-interactive sessions self-drive too.
     const nonInteractiveAutonomy: 'off' | 'auto' =
-      !simpleUiFullAuto &&
-      (flags['no-autonomy'] === true || config.autonomy?.defaultMode === 'off')
+      !simpleUiFullAuto && (flags['no-autonomy'] === true || config.autonomy?.defaultMode === 'off')
         ? 'off'
         : 'auto';
     const effectiveChoices = config.launch
@@ -771,9 +773,7 @@ async function checkGitInCwd(opts: {
         renderer.write(`  ${color.green('✓')} Git repository initialized\n`);
         hasCwdGit = true;
       } catch (err) {
-        renderer.writeError(
-          `git init failed: ${toErrorMessage(err)}\n`,
-        );
+        renderer.writeError(`git init failed: ${toErrorMessage(err)}\n`);
       }
     }
   }

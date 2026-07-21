@@ -236,7 +236,7 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
       flagBoolean(['webui-require-token', 'require-token']) ?? envFlag('WEBUI_REQUIRE_TOKEN');
     if (isSimpleUi) {
       const { ensureSimpleUiDistDir } = await import('../simpleui-dist.js');
-      frontendDistDir = ensureSimpleUiDistDir();
+      frontendDistDir = await ensureSimpleUiDistDir();
     }
   } catch (err) {
     renderer.setSilent(false);

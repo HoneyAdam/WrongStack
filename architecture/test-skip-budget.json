@@ -1,0 +1,260 @@
+{
+  "schemaVersion": 1,
+  "declarations": [
+    {
+      "file": "packages/acp/tests/ensemble-registry.test.ts",
+      "kind": "runIf",
+      "fingerprint": "fe294960de54574e"
+    },
+    {
+      "file": "packages/acp/tests/security-hardening.test.ts",
+      "kind": "runtime-skip",
+      "fingerprint": "274cfc3c464b9e6d"
+    },
+    {
+      "file": "packages/acp/tests/security-hardening.test.ts",
+      "kind": "runtime-skip",
+      "fingerprint": "8c370e3250d384cb"
+    },
+    {
+      "file": "packages/acp/tests/security-hardening.test.ts",
+      "kind": "runtime-skip",
+      "fingerprint": "8c370e3250d384cb"
+    },
+    {
+      "file": "packages/cli/tests/auth-panel-tui-e2e.test.ts",
+      "kind": "skipIf",
+      "fingerprint": "6ec5e9ce19834641"
+    },
+    {
+      "file": "packages/cli/tests/boot/system-prompt.test.ts",
+      "kind": "skip",
+      "fingerprint": "1fb86d48fd43738d"
+    },
+    {
+      "file": "packages/cli/tests/hq-visual-smoke.test.ts",
+      "kind": "skipIf",
+      "fingerprint": "a2d5376526a22703"
+    },
+    {
+      "file": "packages/cli/tests/slash-sdd.test.ts",
+      "kind": "skip",
+      "fingerprint": "38e0b6fa5f8dfbda"
+    },
+    {
+      "file": "packages/cli/tests/slash-sdd.test.ts",
+      "kind": "skip",
+      "fingerprint": "7de2dc942d7da5ff"
+    },
+    {
+      "file": "packages/cli/tests/slash-sdd.test.ts",
+      "kind": "skip",
+      "fingerprint": "818c37eb32f6cabd"
+    },
+    {
+      "file": "packages/cli/tests/slash-sdd.test.ts",
+      "kind": "skip",
+      "fingerprint": "8cb168c2f9b81d1d"
+    },
+    {
+      "file": "packages/cli/tests/slash-sdd.test.ts",
+      "kind": "skip",
+      "fingerprint": "9fd9c77e204d76a4"
+    },
+    {
+      "file": "packages/cli/tests/slash-sdd.test.ts",
+      "kind": "skip",
+      "fingerprint": "af306d6331acb08e"
+    },
+    {
+      "file": "packages/cli/tests/slash-sdd.test.ts",
+      "kind": "skip",
+      "fingerprint": "bae91ba24f8ae106"
+    },
+    {
+      "file": "packages/cli/tests/slash-sdd.test.ts",
+      "kind": "skip",
+      "fingerprint": "c361e2e2c8bc3180"
+    },
+    {
+      "file": "packages/cli/tests/slash-sdd.test.ts",
+      "kind": "skip",
+      "fingerprint": "ee35e0a6d94b4b21"
+    },
+    {
+      "file": "packages/core/tests/coordination/autonomous-coordinator.test.ts",
+      "kind": "skip",
+      "fingerprint": "3f67de1d231d0365"
+    },
+    {
+      "file": "packages/core/tests/coordination/package-author-tracker.test.ts",
+      "kind": "skipIf",
+      "fingerprint": "6c1dfd9f1895e5c4"
+    },
+    {
+      "file": "packages/core/tests/coordination/subagent-budget.test.ts",
+      "kind": "skip",
+      "fingerprint": "5b741789af0df2f0"
+    },
+    {
+      "file": "packages/core/tests/coordination/subagent-budget.test.ts",
+      "kind": "skip",
+      "fingerprint": "62f2b913f5a21f0e"
+    },
+    {
+      "file": "packages/core/tests/coordination/subagent-budget.test.ts",
+      "kind": "skip",
+      "fingerprint": "8a61d88630f3993c"
+    },
+    {
+      "file": "packages/core/tests/core/system-prompt-builder-h-guidance.test.ts",
+      "kind": "skip",
+      "fingerprint": "9bd984814fad43a3"
+    },
+    {
+      "file": "packages/core/tests/worktree/worktree-manager.test.ts",
+      "kind": "skipIf",
+      "fingerprint": "5fa25ae1a877547c"
+    },
+    {
+      "file": "packages/core/tests/worktree/worktree-manager.test.ts",
+      "kind": "skipIf",
+      "fingerprint": "a869eae099367227"
+    },
+    {
+      "file": "packages/plug-lsp/tests/e2e/typescript.test.ts",
+      "kind": "skipIf",
+      "fingerprint": "31cfbc566a723022"
+    },
+    {
+      "file": "packages/sdd/tests/sdd-interview-driver.test.ts",
+      "kind": "skip",
+      "fingerprint": "46a5ff27fae8ada5"
+    },
+    {
+      "file": "packages/super-memory/tests/feedback-counters.test.ts",
+      "kind": "skipIf",
+      "fingerprint": "8e909ca24c740b5c"
+    },
+    {
+      "file": "packages/tools/tests/_win32-resolve.test.ts",
+      "kind": "skipIf",
+      "fingerprint": "1c95f6dfd19e4e92"
+    },
+    {
+      "file": "packages/tools/tests/_win32-resolve.test.ts",
+      "kind": "skipIf",
+      "fingerprint": "453fcb50fcdbb44e"
+    },
+    {
+      "file": "packages/tools/tests/_win32-resolve.test.ts",
+      "kind": "skipIf",
+      "fingerprint": "d191ac8ee9dbc9ac"
+    },
+    {
+      "file": "packages/tools/tests/_win32-resolve.test.ts",
+      "kind": "skipIf",
+      "fingerprint": "d60623c9e3dedfea"
+    },
+    {
+      "file": "packages/tools/tests/_win32-resolve.test.ts",
+      "kind": "skipIf",
+      "fingerprint": "fabe0658019e72c5"
+    },
+    {
+      "file": "packages/tools/tests/bash-kill-guard-paths.test.ts",
+      "kind": "runIf",
+      "fingerprint": "8da6adbe04ea2901"
+    },
+    {
+      "file": "packages/tools/tests/bash-treekill-win32.test.ts",
+      "kind": "runIf",
+      "fingerprint": "c0819fc3befcf009"
+    },
+    {
+      "file": "packages/tools/tests/codebase-index-worker.test.ts",
+      "kind": "skipIf",
+      "fingerprint": "5ca532d70768276c"
+    },
+    {
+      "file": "packages/tools/tests/design.test.ts",
+      "kind": "skipIf",
+      "fingerprint": "23fb6be57c432e62"
+    },
+    {
+      "file": "packages/tools/tests/exec-kill-guard.test.ts",
+      "kind": "runIf",
+      "fingerprint": "5973b5e905b1679e"
+    },
+    {
+      "file": "packages/tools/tests/exec-spawn.test.ts",
+      "kind": "conditional-skip",
+      "fingerprint": "3d8020154c36355e"
+    },
+    {
+      "file": "packages/tools/tests/exec-spawn.test.ts",
+      "kind": "conditional-skip",
+      "fingerprint": "9e7be086e030a25e"
+    },
+    {
+      "file": "packages/tools/tests/exec-spawn.test.ts",
+      "kind": "skip",
+      "fingerprint": "8cbbdfc421d67cef"
+    },
+    {
+      "file": "packages/tools/tests/exec-spawn.test.ts",
+      "kind": "skip",
+      "fingerprint": "e9dd96a56b23b9cb"
+    },
+    {
+      "file": "packages/tools/tests/win32-resolve.test.ts",
+      "kind": "skipIf",
+      "fingerprint": "30afc64215499037"
+    },
+    {
+      "file": "packages/tools/tests/win32-resolve.test.ts",
+      "kind": "skipIf",
+      "fingerprint": "e8a8b69ec14729ac"
+    },
+    {
+      "file": "packages/tui/tests/git-info.comprehensive.test.ts",
+      "kind": "conditional-skip",
+      "fingerprint": "44f3d283d9f05369"
+    },
+    {
+      "file": "packages/tui/tests/git-info.comprehensive.test.ts",
+      "kind": "conditional-suite-alias",
+      "fingerprint": "8f55431b5ecc6852"
+    },
+    {
+      "file": "packages/tui/tests/git-info.comprehensive.test.ts",
+      "kind": "skip",
+      "fingerprint": "a742ee572fa819fa"
+    },
+    {
+      "file": "packages/tui/tests/git-info.test.ts",
+      "kind": "conditional-skip",
+      "fingerprint": "44f3d283d9f05369"
+    },
+    {
+      "file": "packages/tui/tests/git-info.test.ts",
+      "kind": "conditional-suite-alias",
+      "fingerprint": "8f55431b5ecc6852"
+    },
+    {
+      "file": "packages/tui/tests/git-info.test.ts",
+      "kind": "skip",
+      "fingerprint": "a742ee572fa819fa"
+    },
+    {
+      "file": "packages/tui/tests/use-working-dir-chip.test.ts",
+      "kind": "skipIf",
+      "fingerprint": "64d5454ccdda1aab"
+    },
+    {
+      "file": "packages/tui/tests/working-dir-chip.test.ts",
+      "kind": "skipIf",
+      "fingerprint": "64d5454ccdda1aab"
+    }
+  ]
+}

@@ -55,13 +55,10 @@ Configuration lives under `superMemory.storage`, `superMemory.inject`, and `supe
 
 ## Storage
 
-- Canonical revisions: `.wrongstack/memories/memories.jsonl`
-- Candidates and audit: `candidates.jsonl`, `audit.jsonl`
-- Graph: `graph/edges.jsonl`
-- Rebuildable indexes: `indexes/*.json`
-- Recovery snapshot: `snapshots/latest.json`
-- Hygiene history: `hygiene/runs.jsonl`
+- Canonical SQLite database: `.wrongstack/memories/super-memory.db`
+- The same database stores revisions, review candidates, audit history, and graph edges.
+- Legacy `memories.jsonl`, `candidates.jsonl`, `audit.jsonl`, and `graph/edges.jsonl` files are imported once and then retained only as recovery backups.
 
-Writes are deduplicated and metadata-merged before append. A project-wide mutation lock keeps concurrent surfaces from creating competing revisions, while readers refresh their cache when another process appends to the canonical log. Graph nodes connect memories to symbols, files, parent directories, sessions, tools, and source records.
+Writes are deduplicated and metadata-merged in WAL-backed SQLite transactions. A project-wide mutation lock keeps concurrent surfaces from creating competing revisions. Graph nodes connect memories to symbols, files, parent directories, sessions, tools, and source records.
 
 Code: `packages/super-memory/`, `packages/cli/src/slash-commands/memory.ts`.

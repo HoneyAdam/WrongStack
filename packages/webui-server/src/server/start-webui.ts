@@ -7,15 +7,7 @@
  * service construction (Phase 1c), route/dispatcher/connection wiring
  * (Phase 1b/1a), WS + HTTP server creation, and graceful shutdown.
  */
-import {
-  resolvePorts,
-  createSessionStartPayload,
-  createWsServers,
-  armEvents,
-  startHttpServer,
-  registerShutdown,
-} from './server-runtime.js';
-import { createPreContextServices } from './pre-context-services.js';
+
 import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import {
@@ -27,26 +19,26 @@ import {
   resolveSessionLoggingConfig,
   watchProviderConfig,
 } from '@wrongstack/core';
+import { createCompatibilityTrustBoundary } from '@wrongstack/core/security';
 import { toErrorMessage } from '@wrongstack/core/utils';
 import { makeProviderFromConfig } from '@wrongstack/providers';
 import { type PackageOperation, toLanguagePackageInput } from '@wrongstack/techstack';
-import {
-  ensureSessionShell,
-} from '@wrongstack/tools';
-import { bootConfig, patchConfig } from './boot.js';
+import { ensureSessionShell } from '@wrongstack/tools';
 import { createAgentServices } from './backend-services.js';
+import { bootConfig, patchConfig } from './boot.js';
 import { createConnectionHandler } from './connection-handler.js';
+import { createEternalSubscription } from './eternal-iteration-broadcast.js';
+import { unregisterInstance } from './instance-registry.js';
 import { createMessageDispatcher } from './message-dispatcher.js';
 import type { PendingConfirm } from './pending-confirms.js';
+import { createPreContextServices } from './pre-context-services.js';
 import {
+  type ConfigWriteLockHolder,
+  type PrefHelperDeps,
   persistPrefsToConfig as persistPrefsToConfigImpl,
   prefSnapshot as prefSnapshotImpl,
   updateGlobalConfig as updateGlobalConfigImpl,
-  type PrefHelperDeps,
-  type ConfigWriteLockHolder,
 } from './pref-helpers.js';
-import { createEternalSubscription } from './eternal-iteration-broadcast.js';
-import { unregisterInstance } from './instance-registry.js';
 import {
   ensureProjectDataDir,
   generateProjectSlug,
@@ -60,12 +52,17 @@ import {
   type WebuiDeps,
   type WebuiMutableState,
 } from './routes.js';
-import type { FileWatcherMetrics } from './setup-events.js';
 import {
-  broadcast,
-  resolveAuthToken,
-} from './ws-utils.js';
+  armEvents,
+  createSessionStartPayload,
+  createWsServers,
+  registerShutdown,
+  resolvePorts,
+  startHttpServer,
+} from './server-runtime.js';
+import type { FileWatcherMetrics } from './setup-events.js';
 import type { WebUIOptions } from './types.js';
+import { broadcast, resolveAuthToken } from './ws-utils.js';
 
 export async function startWebUI(
   opts: WebUIOptions & {
@@ -122,7 +119,8 @@ export async function startWebUI(
   // Resolve the active profile config path so updateGlobalConfig writes settings
   // to the canonical profile file (~/.wrongstack/profiles/<name>/config.json)
   // instead of the thin root bootstrap (~/.wrongstack/config.json).
-  const activeProfile = (config as { activeProfile?: string | undefined }).activeProfile ?? 'default';
+  const activeProfile =
+    (config as { activeProfile?: string | undefined }).activeProfile ?? 'default';
   const profileConfigPath = wpaths.profileConfig(activeProfile);
   const prefHelperDeps: PrefHelperDeps = { profileConfigPath, vault, logger };
   const updateGlobalConfig = async (
@@ -173,16 +171,38 @@ export async function startWebUI(
   // sessionStartedAt, modeId). Those stay as `let` here so state setters
   // can update them.
   const preContext = await createPreContextServices({
-    config, wpaths, logger, opts, vault, globalConfigPath,
-    projectRoot, workingDir, needsProvider,
+    config,
+    wpaths,
+    logger,
+    opts,
+    vault,
+    globalConfigPath,
+    projectRoot,
+    workingDir,
+    needsProvider,
     touchProject: (root, wd) => touchProjectEntry(root, wd),
   });
   const {
-    modelsRegistry, container, configStore, providerRegistry, toolRegistry,
-    memoryStore, events, mcpRegistry, sessionReader,
-    annotationsStore, tokenCounter, modeStore, customModeStore,
-    skillLoader, skillInstaller, promptsCtx, modelCapabilitiesRef,
-    provider, context, sessionIdentity,
+    modelsRegistry,
+    container,
+    configStore,
+    providerRegistry,
+    toolRegistry,
+    memoryStore,
+    events,
+    mcpRegistry,
+    sessionReader,
+    annotationsStore,
+    tokenCounter,
+    modeStore,
+    customModeStore,
+    skillLoader,
+    skillInstaller,
+    promptsCtx,
+    modelCapabilitiesRef,
+    provider,
+    context,
+    sessionIdentity,
   } = preContext;
   let sessionStore = preContext.sessionStore;
   let session = preContext.session;
@@ -197,13 +217,16 @@ export async function startWebUI(
   const persistPrefsToConfig = async (payload: Record<string, unknown>): Promise<void> =>
     persistPrefsToConfigImpl(prefHelperDeps, configWriteLock, payload);
 
-
   // ── Post-context agent services (pipelines, compaction, agent, Brain,
   // per-feature WS handlers) — built in ./backend-services.ts (Phase 1c).
   // The factory returns everything startWebUI needs to wire routes + the
   // dispatcher; the updateAutoCompactionMaxContext closure captures the
   // live autoCompactor / modelCapabilitiesRef it built.
+  const trustBoundary =
+    opts.trustBoundary ??
+    createCompatibilityTrustBoundary({ policyId: 'webui-trusted-host-compat-v1' });
   const agentServices = await createAgentServices({
+    trustBoundary,
     config,
     wpaths,
     logger,
@@ -239,8 +262,8 @@ export async function startWebUI(
     compactor,
     autoCompactor,
     agent,
-    permissionPolicy,
     toolExecutor,
+    permissionPolicy,
     pipelines,
     brain,
     brainSettings,
@@ -271,7 +294,8 @@ export async function startWebUI(
     getProjectRoot: () => projectRoot,
     getWorkingDir: () => workingDir,
     getModeId: () => modeId,
-    getContextMode: () => String(context.meta['contextWindowMode'] ?? DEFAULT_CONTEXT_WINDOW_MODE_ID),
+    getContextMode: () =>
+      String(context.meta['contextWindowMode'] ?? DEFAULT_CONTEXT_WINDOW_MODE_ID),
     getNeedsSetup: () => needsSetup,
     modelsRegistry,
   });
@@ -295,10 +319,20 @@ export async function startWebUI(
   // locking browsers out of the WS upgrade when requireToken is active.
   const accessToken = resolveAuthToken(opts.accessToken);
   const httpServer = startHttpServer({
-    wsHost, httpPort, wsToken: accessToken, publicWsUrl, publicUrl, requireToken,
-    globalRoot: wpaths.globalRoot, globalConfigPath, projectRoot,
-    openBrowser: !!opts.open, watcherMetrics: watcherMetricsRef,
-    onFleetPing: () => { void eventArming.getFleetBroadcast()?.(); },
+    wsHost,
+    httpPort,
+    wsToken: accessToken,
+    publicWsUrl,
+    publicUrl,
+    requireToken,
+    globalRoot: wpaths.globalRoot,
+    globalConfigPath,
+    projectRoot,
+    openBrowser: !!opts.open,
+    watcherMetrics: watcherMetricsRef,
+    onFleetPing: () => {
+      void eventArming.getFleetBroadcast()?.();
+    },
     onTechStackEvent: (event) => broadcast(clients, event),
     // Read through `context` on every call rather than capturing: the running
     // loop swaps provider/model when the user switches (same live source the
@@ -360,11 +394,7 @@ export async function startWebUI(
     distDir: opts.distDir,
   });
 
-  const wsResult = createWsServers(
-    httpServer,
-    ports,
-    accessToken,
-  );
+  const wsResult = createWsServers(httpServer, ports, accessToken);
   const { wssPrimary, wssSecondary, clients } = wsResult;
 
   // Subscribe to working directory changes from the CLI.
@@ -376,11 +406,20 @@ export async function startWebUI(
   // Eternal-autonomy iteration broadcast.
   let eternalSubscription: { dispose: () => void } | null = null;
   if (opts.subscribeEternalIteration) {
-    eternalSubscription = createEternalSubscription(opts.subscribeEternalIteration, broadcast, () => clients);
+    eternalSubscription = createEternalSubscription(
+      opts.subscribeEternalIteration,
+      broadcast,
+      () => clients,
+    );
   }
 
   let _runLock: AbortController | null = null;
-  const runLockControl = { get: () => _runLock, set: (ctrl: AbortController | null) => { _runLock = ctrl; } };
+  const runLockControl = {
+    get: () => _runLock,
+    set: (ctrl: AbortController | null) => {
+      _runLock = ctrl;
+    },
+  };
 
   const pendingConfirms = new Map<string, PendingConfirm>();
 
@@ -388,15 +427,36 @@ export async function startWebUI(
   // events to the session JSONL with the same contract as the CLI. The
   // getter form resolves the CURRENT writer on every append so events
   // follow session.new / session.resume swaps.
-  const sessionLogging = resolveSessionLoggingConfig(config as never as Parameters<typeof resolveSessionLoggingConfig>[0]);
-  const sessionBridge = createSessionEventBridge(() => context.session ?? session, sessionLogging.auditLevel, { sampling: sessionLogging.sampling });
+  const sessionLogging = resolveSessionLoggingConfig(
+    config as never as Parameters<typeof resolveSessionLoggingConfig>[0],
+  );
+  const sessionBridge = createSessionEventBridge(
+    () => context.session ?? session,
+    sessionLogging.auditLevel,
+    { sampling: sessionLogging.sampling },
+  );
 
   // Event arming + WS error handlers live in ./server-runtime.ts (Phase 1e).
   // The WS server's 'listening' event fires when the shared HTTP server
   // starts listening below.
-  const eventArming = armEvents(wssPrimary, wssSecondary, wsHost, httpPort, {
-    events, broadcast, clients, config, context, pendingConfirms, globalConfigPath, sessionBridge, wpaths,
-  }, watcherMetricsRef);
+  const eventArming = armEvents(
+    wssPrimary,
+    wssSecondary,
+    wsHost,
+    httpPort,
+    {
+      events,
+      broadcast,
+      clients,
+      config,
+      context,
+      pendingConfirms,
+      globalConfigPath,
+      sessionBridge,
+      wpaths,
+    },
+    watcherMetricsRef,
+  );
 
   // Start the shared HTTP+WebSocket server. The WS server is attached to this
   // HTTP server via {server: httpServer}, so a single listen() binds both the
@@ -412,13 +472,19 @@ export async function startWebUI(
   // without IPv6 (or with net.ipv6.bindv6only conflicts) raise EAFNOSUPPORT /
   // EADDRNOTAVAIL, which we swallow silently.
   if (wsHost === '127.0.0.1') {
-    httpServer.listen(httpPort, '::1', () => {
-      console.log(`[WebUI] HTTP server running on http://[::1]:${httpPort}`);
-    }).on('error', (err: NodeJS.ErrnoException) => {
-      if (err.code !== 'EAFNOSUPPORT' && err.code !== 'EADDRNOTAVAIL' && err.code !== 'EADDRINUSE') {
-        throw err;
-      }
-    });
+    httpServer
+      .listen(httpPort, '::1', () => {
+        console.log(`[WebUI] HTTP server running on http://[::1]:${httpPort}`);
+      })
+      .on('error', (err: NodeJS.ErrnoException) => {
+        if (
+          err.code !== 'EAFNOSUPPORT' &&
+          err.code !== 'EADDRNOTAVAIL' &&
+          err.code !== 'EADDRINUSE'
+        ) {
+          throw err;
+        }
+      });
   }
 
   // ── Project manifest helpers ──────────────────────────────────────────
@@ -509,6 +575,7 @@ export async function startWebUI(
   };
 
   const deps: WebuiDeps = {
+    trustBoundary,
     agent,
     context,
     container,
@@ -605,10 +672,18 @@ export async function startWebUI(
           providers: snapshot.providers,
           ...(snapshot.apiKey !== undefined ? { apiKey: snapshot.apiKey } : {}),
           ...(snapshot.baseUrl !== undefined ? { baseUrl: snapshot.baseUrl } : {}),
-          ...(snapshot.fallbackModels !== undefined ? { fallbackModels: snapshot.fallbackModels } : {}),
-          ...(snapshot.fallbackProfiles !== undefined ? { fallbackProfiles: snapshot.fallbackProfiles } : {}),
-          ...(snapshot.favoriteModels !== undefined ? { favoriteModels: snapshot.favoriteModels } : {}),
-          ...(snapshot.favoriteModelsOnly !== undefined ? { favoriteModelsOnly: snapshot.favoriteModelsOnly } : {}),
+          ...(snapshot.fallbackModels !== undefined
+            ? { fallbackModels: snapshot.fallbackModels }
+            : {}),
+          ...(snapshot.fallbackProfiles !== undefined
+            ? { fallbackProfiles: snapshot.fallbackProfiles }
+            : {}),
+          ...(snapshot.favoriteModels !== undefined
+            ? { favoriteModels: snapshot.favoriteModels }
+            : {}),
+          ...(snapshot.favoriteModelsOnly !== undefined
+            ? { favoriteModelsOnly: snapshot.favoriteModelsOnly }
+            : {}),
           ...(snapshot.modelMatrix !== undefined ? { modelMatrix: snapshot.modelMatrix } : {}),
           ...(snapshot.fallbackAuto !== undefined ? { fallbackAuto: snapshot.fallbackAuto } : {}),
         } as never);
@@ -666,7 +741,6 @@ export async function startWebUI(
   const handleMessage = createMessageDispatcher({
     state,
     deps,
-    cb,
     routes,
     promptsCtx,
     codebaseIndexing,
@@ -707,7 +781,11 @@ export async function startWebUI(
 
   registerShutdown({
     flushSession: async () => {
-      await session.append({ type: 'session_end', ts: new Date().toISOString(), usage: tokenCounter.total() });
+      await session.append({
+        type: 'session_end',
+        ts: new Date().toISOString(),
+        usage: tokenCounter.total(),
+      });
       await session.close();
     },
     clients: () => clients.keys(),
@@ -720,14 +798,27 @@ export async function startWebUI(
       await mcpRegistry.stopAll().catch(() => undefined);
       await sessionIdentity.stop();
       eventArming.getDispose()?.();
-      if (eternalSubscription) { eternalSubscription.dispose(); eternalSubscription = null; }
+      if (eternalSubscription) {
+        eternalSubscription.dispose();
+        eternalSubscription = null;
+      }
       codebaseIndexing.dispose();
-      if (config.superMemory?.enabled !== false && config.superMemory?.hygiene?.autoAfterSession !== false) {
-        const candidate = memoryStore as unknown as { hygiene?: (options?: object) => Promise<unknown> };
-        await candidate.hygiene?.({
-          retentionDays: config.superMemory?.hygiene?.retentionDays,
-          archiveLowConfidenceAfterDays: config.superMemory?.hygiene?.archiveLowConfidenceAfterDays,
-        }).catch((err: unknown) => logger.warn(`super-memory session hygiene failed: ${toErrorMessage(err)}`));
+      if (
+        config.superMemory?.enabled !== false &&
+        config.superMemory?.hygiene?.autoAfterSession !== false
+      ) {
+        const candidate = memoryStore as unknown as {
+          hygiene?: (options?: object) => Promise<unknown>;
+        };
+        await candidate
+          .hygiene?.({
+            retentionDays: config.superMemory?.hygiene?.retentionDays,
+            archiveLowConfidenceAfterDays:
+              config.superMemory?.hygiene?.archiveLowConfidenceAfterDays,
+          })
+          .catch((err: unknown) =>
+            logger.warn(`super-memory session hygiene failed: ${toErrorMessage(err)}`),
+          );
       }
       await unregisterInstance(process.pid, path.dirname(globalConfigPath));
     },

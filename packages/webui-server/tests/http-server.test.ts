@@ -19,7 +19,7 @@ import {
   decodeSessionId,
   injectWsConfig,
   isInsideDist,
-} from '@wrongstack/webui-server';
+} from '../src/index.js';
 
 let distDir: string;
 let server: import('node:http').Server;
@@ -33,6 +33,8 @@ beforeAll(async () => {
     '<!doctype html><title>root</title>',
   );
   await fs.writeFile(path.join(distDir, 'app.js'), 'console.log(1);');
+  await fs.mkdir(path.join(distDir, 'assets'));
+  await fs.writeFile(path.join(distDir, 'assets', 'app-deadbeef.js'), 'console.log(2);');
   await fs.writeFile(
     path.join(distDir, 'manifest.json'),
     '{"name":"test"}',
@@ -162,7 +164,15 @@ describe('createHttpServer', () => {
     const res = await fetch(`${baseUrl}/app.js`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('application/javascript');
+    expect(res.headers.get('cache-control')).toBe('public, max-age=3600');
     expect(await res.text()).toBe('console.log(1);');
+  });
+
+  it('serves Vite assets with immutable caching', async () => {
+    const res = await fetch(`${baseUrl}/assets/app-deadbeef.js`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+    expect(await res.text()).toBe('console.log(2);');
   });
 
   it('serves .json with application/json', async () => {

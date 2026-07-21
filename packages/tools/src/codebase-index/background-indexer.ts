@@ -14,8 +14,8 @@
  * 1. **Serialization** — every write run (startup scan, per-edit incremental,
  *    external file-watch, manual reindex) goes through one process-wide
  *    promise-chain mutex so two runs never race the same `index.db` writer.
- * 2. **Debounce** — rapid successive edits to the same file coalesce into a
- *    single reindex, keyed per `(indexDir, file)`.
+ * 2. **Debounce** — rapid successive edits to the same file coalesce, then
+ *    files that become ready in the same event-loop turn share one index run.
  * 3. **Watchdog** — every operation is raced against a timeout. In worker
  *    mode a timeout hard-terminates the worker (it respawns lazily on the
  *    next request); inline it aborts the run's signal. Either way the mutex
@@ -62,7 +62,7 @@ import type {
  * worker is truly stuck — it does not slow down the happy path.
  */
 const DEFAULT_FULL_INDEX_TIMEOUT_MS = 240_000;
-/** Watchdog timeout for a single-file incremental reindex. */
+/** Watchdog timeout for one incremental reindex batch. */
 const DEFAULT_INCREMENTAL_TIMEOUT_MS = 60_000;
 /**
  * Watchdog timeout for read operations (search / stats).
@@ -414,9 +414,80 @@ function circuitOpenError(): CircuitOpenError {
 // ─── Debounce ────────────────────────────────────────────────────────────────
 const DEFAULT_DEBOUNCE_MS = 400;
 const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+interface ReadyReindexBatch {
+  projectRoot: string;
+  indexDir?: string | undefined;
+  files: Set<string>;
+  timeoutMs: number;
+  onErrors: Set<(err: unknown) => void>;
+  flush?: ReturnType<typeof setImmediate> | undefined;
+}
+const readyReindexBatches = new Map<string, ReadyReindexBatch>();
 
-function debounceKey(indexDir: string | undefined, file: string): string {
-  return `${indexDir ?? ''}|${file}`;
+function debounceKey(projectRoot: string, indexDir: string | undefined, file: string): string {
+  return JSON.stringify([projectRoot, indexDir ?? '', file]);
+}
+
+function reindexBatchKey(projectRoot: string, indexDir: string | undefined): string {
+  return JSON.stringify([projectRoot, indexDir ?? '']);
+}
+
+function flushReadyReindexBatch(key: string): void {
+  const batch = readyReindexBatches.get(key);
+  if (!batch) return;
+  readyReindexBatches.delete(key);
+
+  if (!indexCircuitBreaker.allowRequest()) {
+    const error = circuitOpenError();
+    for (const onError of batch.onErrors) onError(error);
+    return;
+  }
+
+  void withMutex(() =>
+    callIndexOp(
+      'index',
+      {
+        projectRoot: batch.projectRoot,
+        files: [...batch.files].sort(),
+        indexDir: batch.indexDir,
+      },
+      { timeoutMs: batch.timeoutMs },
+    ),
+  ).then(
+    () => indexCircuitBreaker.recordSuccess(),
+    (err) => {
+      indexCircuitBreaker.recordFailure(err);
+      for (const onError of batch.onErrors) onError(err);
+    },
+  );
+}
+
+function addReadyReindex(opts: {
+  projectRoot: string;
+  file: string;
+  indexDir?: string | undefined;
+  timeoutMs: number;
+  onError?: ((err: unknown) => void) | undefined;
+}): void {
+  const key = reindexBatchKey(opts.projectRoot, opts.indexDir);
+  const existing = readyReindexBatches.get(key);
+  if (existing) {
+    existing.files.add(opts.file);
+    existing.timeoutMs = Math.max(existing.timeoutMs, opts.timeoutMs);
+    if (opts.onError) existing.onErrors.add(opts.onError);
+    return;
+  }
+
+  const batch: ReadyReindexBatch = {
+    projectRoot: opts.projectRoot,
+    indexDir: opts.indexDir,
+    files: new Set([opts.file]),
+    timeoutMs: opts.timeoutMs,
+    onErrors: new Set(opts.onError ? [opts.onError] : []),
+  };
+  batch.flush = setImmediate(() => flushReadyReindexBatch(key));
+  batch.flush.unref?.();
+  readyReindexBatches.set(key, batch);
 }
 
 // ─── Public API ──────────────────────────────────────────────────────────────
@@ -532,30 +603,22 @@ export function enqueueReindex(opts: {
   const ms = opts.debounceMs ?? DEFAULT_DEBOUNCE_MS;
 
   for (const file of files) {
-    const key = debounceKey(opts.indexDir, file);
+    const key = debounceKey(opts.projectRoot, opts.indexDir, file);
     const existing = debounceTimers.get(key);
     if (existing) clearTimeout(existing);
     const timer = setTimeout(() => {
       debounceTimers.delete(key);
-      // Checked at fire time (not enqueue time) so an edit made while the
-      // circuit is open is dropped instead of queuing behind a wedged mutex.
-      if (!indexCircuitBreaker.allowRequest()) {
-        opts.onError?.(circuitOpenError());
-        return;
-      }
-      void withMutex(() =>
-        callIndexOp(
-          'index',
-          { projectRoot: opts.projectRoot, files: [file], indexDir: opts.indexDir },
-          { timeoutMs: opts.timeoutMs ?? DEFAULT_INCREMENTAL_TIMEOUT_MS },
-        ),
-      ).then(
-        () => indexCircuitBreaker.recordSuccess(),
-        (err) => {
-          indexCircuitBreaker.recordFailure(err);
-          opts.onError?.(err);
-        },
-      );
+      // All per-file debounce timers that expire in this event-loop turn are
+      // folded into one worker/SQLite operation per project index. This keeps
+      // same-file debounce semantics while avoiding N full index lifecycles
+      // for watcher bursts such as branch switches or generated-file updates.
+      addReadyReindex({
+        projectRoot: opts.projectRoot,
+        file,
+        indexDir: opts.indexDir,
+        timeoutMs: opts.timeoutMs ?? DEFAULT_INCREMENTAL_TIMEOUT_MS,
+        onError: opts.onError,
+      });
     }, ms);
     // Don't keep the event loop alive solely for a pending reindex.
     timer.unref?.();
@@ -567,6 +630,10 @@ export function enqueueReindex(opts: {
 export function cancelPendingReindexes(): void {
   for (const t of debounceTimers.values()) clearTimeout(t);
   debounceTimers.clear();
+  for (const batch of readyReindexBatches.values()) {
+    if (batch.flush) clearImmediate(batch.flush);
+  }
+  readyReindexBatches.clear();
 }
 
 /**

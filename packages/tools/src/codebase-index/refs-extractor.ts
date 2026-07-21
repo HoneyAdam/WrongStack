@@ -1,7 +1,7 @@
 /** Cross-reference extraction for languages not handled by ts-parser.ts. */
 
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { mkdir, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import type { Ref, SymbolLang } from './schema.js';
 
@@ -103,47 +103,58 @@ const runnerOptions = {
   windowsHide: true,
 };
 
-let goRunner: { command: string; argsPrefix: string[] } | undefined;
-let pythonScriptPath: string | undefined;
+let goRunnerPromise: Promise<{ command: string; argsPrefix: string[] } | null> | undefined;
+let pythonScriptPathPromise: Promise<string | null> | undefined;
 
 function helperDirectory(name: string): string {
   return path.join(process.env.TEMP ?? process.env.TMP ?? '/tmp', name);
 }
 
-function initializeGoRunner(): { command: string; argsPrefix: string[] } | null {
-  if (goRunner) return goRunner;
-  try {
+function runFile(command: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, runnerOptions, (error, stdout) => {
+      if (error) reject(error);
+      else resolve(stdout);
+    });
+  });
+}
+
+function initializeGoRunner(): Promise<{ command: string; argsPrefix: string[] } | null> {
+  goRunnerPromise ??= (async () => {
+    try {
     const directory = helperDirectory('ws-go-refs');
-    mkdirSync(directory, { recursive: true });
+    await mkdir(directory, { recursive: true });
     const scriptPath = path.join(directory, 'refs.go');
     const executablePath = path.join(directory, 'refs.exe');
-    writeFileSync(scriptPath, GO_REFS_SCRIPT, 'utf8');
+    await writeFile(scriptPath, GO_REFS_SCRIPT, 'utf8');
     try {
-      execFileSync('go', ['build', '-o', executablePath, scriptPath], runnerOptions);
-      goRunner = { command: executablePath, argsPrefix: [] };
+      await runFile('go', ['build', '-o', executablePath, scriptPath]);
+      return { command: executablePath, argsPrefix: [] };
     } catch {
       // Remember the failed compilation so subsequent files go straight to
       // `go run` instead of paying the same failed build cost each time.
-      goRunner = { command: 'go', argsPrefix: ['run', scriptPath] };
+      return { command: 'go', argsPrefix: ['run', scriptPath] };
     }
-    return goRunner;
-  } catch {
-    return null;
-  }
+    } catch {
+      return null;
+    }
+  })();
+  return goRunnerPromise;
 }
 
-function initializePythonRunner(): string | null {
-  if (pythonScriptPath) return pythonScriptPath;
-  try {
-    const directory = helperDirectory('ws-py-refs');
-    mkdirSync(directory, { recursive: true });
-    const scriptPath = path.join(directory, 'refs.py');
-    writeFileSync(scriptPath, PY_REFS_SCRIPT, 'utf8');
-    pythonScriptPath = scriptPath;
-    return scriptPath;
-  } catch {
-    return null;
-  }
+function initializePythonRunner(): Promise<string | null> {
+  pythonScriptPathPromise ??= (async () => {
+    try {
+      const directory = helperDirectory('ws-py-refs');
+      await mkdir(directory, { recursive: true });
+      const scriptPath = path.join(directory, 'refs.py');
+      await writeFile(scriptPath, PY_REFS_SCRIPT, 'utf8');
+      return scriptPath;
+    } catch {
+      return null;
+    }
+  })();
+  return pythonScriptPathPromise;
 }
 
 function parseRunnerOutput(stdout: string): Ref[] {
@@ -174,23 +185,21 @@ function parseRunnerOutput(stdout: string): Ref[] {
   }
 }
 
-function extractGoRefs(filePath: string): Ref[] {
-  const runner = initializeGoRunner();
+async function extractGoRefs(filePath: string): Promise<Ref[]> {
+  const runner = await initializeGoRunner();
   if (!runner) return [];
   try {
-    return parseRunnerOutput(
-      execFileSync(runner.command, [...runner.argsPrefix, filePath], runnerOptions),
-    );
+    return parseRunnerOutput(await runFile(runner.command, [...runner.argsPrefix, filePath]));
   } catch {
     return [];
   }
 }
 
-function extractPythonRefs(filePath: string): Ref[] {
-  const scriptPath = initializePythonRunner();
+async function extractPythonRefs(filePath: string): Promise<Ref[]> {
+  const scriptPath = await initializePythonRunner();
   if (!scriptPath) return [];
   try {
-    return parseRunnerOutput(execFileSync('python', [scriptPath, filePath], runnerOptions));
+    return parseRunnerOutput(await runFile('python', [scriptPath, filePath]));
   } catch {
     return [];
   }

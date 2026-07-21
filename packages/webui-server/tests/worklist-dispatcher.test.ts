@@ -1,9 +1,6 @@
+import { handleWorklistMessage, type WorklistContext } from '@wrongstack/webui-server';
 import { describe, expect, it, vi } from 'vitest';
 import type { WebSocket } from 'ws';
-import {
-  handleWorklistMessage,
-  type WorklistContext,
-} from '@wrongstack/webui-server';
 
 function createMockWs() {
   const ws = {
@@ -25,7 +22,6 @@ function makeCtx(): WorklistContext {
       todos: [{ id: 't1', content: 'do thing', status: 'pending' } as never],
       meta: {},
       session: { id: 's1' },
-      state: undefined,
     },
     send: (w, m) => (w as never as { send: (d: string) => void }).send(JSON.stringify(m)),
     broadcast: vi.fn(),
@@ -46,7 +42,8 @@ describe('handleWorklistMessage dispatcher', () => {
     const ws = createMockWs();
     await handleWorklistMessage(ctx, ws, { type: 'plan.template_use', payload: {} });
     // Invalid payload → error result, no plan broadcast.
-    expect(ws.sent[0]?.type).toBe('error');
+    expect(ws.sent[0]?.type).toBe('key.operation_result');
+    expect(ws.sent[0]?.payload?.success).toBe(false);
     expect(ctx.broadcast).not.toHaveBeenCalled();
   });
 

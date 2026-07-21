@@ -23,6 +23,7 @@ import {
   OpenAICompatibleProvider,
 } from './openai-compatible.js';
 import { OpenAIProvider } from './openai.js';
+import { projectCompatibleProviderPresets } from './provider-definitions.js';
 import { createWireFormatFactory } from './wire-format.js';
 import { mistralWireFormat } from './presets/mistral.js';
 import { ollamaWireFormat, vllmWireFormat, lmstudioWireFormat } from './presets/local-llm.js';
@@ -96,6 +97,22 @@ export { googleWireFormat } from './presets/google.js';
 export { ollamaWireFormat, vllmWireFormat, lmstudioWireFormat } from './presets/local-llm.js';
 export { capabilitiesFor } from './capabilities.js';
 export { capabilitiesForFamily, CAPABILITIES_BY_FAMILY } from './family-capabilities.js';
+export {
+  LOCAL_PROVIDER_DEFINITIONS,
+  PROVIDER_DEFINITIONS,
+  projectCompatibleProviderPresets,
+  projectLocalProviderPresets,
+  projectPopularProviderCatalog,
+  resolveProviderDefinition,
+  type CompatibleProviderProjection,
+  type LocalProviderPresetProjection,
+  type PopularProviderProjection,
+  type ProviderCatalogMetadata,
+  type ProviderDefinition,
+  type OpenAICompatiblePolicyId,
+  type ProviderReferral,
+  type ProviderUsage,
+} from './provider-definitions.js';
 export { parseProviderHttpError } from './error-parse.js';
 export { normalizeAnthropic, normalizeOpenAI } from './stop-reason.js';
 export { toolsToAnthropic } from './tool-format/to-anthropic.js';
@@ -129,30 +146,8 @@ export interface CompatiblePreset {
   autoDiscover?: boolean | undefined;
 }
 
-export const COMPATIBLE_PRESETS: Record<string, CompatiblePreset> = {
-  omniroute: {
-    defaultBaseUrl: 'http://localhost:20128/v1',
-    // omniroute fronts reasoning models (Claude via Claude Code, etc.) and
-    // leaks a stray </think> into the content stream — strip it. See #N.
-    quirks: { stripThinkTags: true },
-    autoDiscover: true,
-  },
-
-  // OpenRouter — meta-provider routing to 400+ models.
-  // The trusted preset (trusted-presets.ts) hydrates the base URL and
-  // recommended starter models during provider-add. This entry provides
-  // the fallback base URL when the factory's `makeProvider` needs it and
-  // enables model auto-discovery so users can browse the full catalog
-  // without hand-entering model IDs.
-  // https://openrouter.ai/docs/quickstart
-  openrouter: {
-    defaultBaseUrl: 'https://openrouter.ai/api/v1',
-    // Auto-discover models from OpenRouter's /v1/models catalog. The
-    // response includes 400+ entries — the discovery layer maps them to
-    // internal ModelDevModel shape automatically.
-    autoDiscover: true,
-  },
-};
+export const COMPATIBLE_PRESETS: Record<string, CompatiblePreset> =
+  projectCompatibleProviderPresets();
 
 export interface BuildFactoriesOptions {
   registry: ModelsRegistry;

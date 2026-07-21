@@ -1,5 +1,10 @@
+import { createCompatibilityTrustBoundary } from '@wrongstack/core/security';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WebSocket } from 'ws';
+
+// Allow-all boundary for killAll tests (which use 'critical' risk, now denied
+// by default from remote-client actors). kill (high) is still allowed by default.
+const allowBoundary = createCompatibilityTrustBoundary({ denyCriticalRiskRemoteClient: false });
 
 // Mock the registry the handlers reach via dynamic `@wrongstack/tools` import.
 const registry = vi.hoisted(() => ({
@@ -75,7 +80,7 @@ describe('process WebSocket handlers', () => {
     it('refuses to kill a protected process', async () => {
       registry.get.mockReturnValue({ protected: true });
       const ws = createMockWs();
-      await handleProcessKill(ws, { pid: 42 });
+      await handleProcessKill(ws, { pid: 42 }, allowBoundary);
       expect(registry.kill).not.toHaveBeenCalled();
       expect(ws.sent[0]?.payload.success).toBe(false);
       expect(String(ws.sent[0]?.payload.message)).toContain('protected');
@@ -84,7 +89,7 @@ describe('process WebSocket handlers', () => {
     it('kills an unprotected process', async () => {
       registry.get.mockReturnValue({ protected: false });
       const ws = createMockWs();
-      await handleProcessKill(ws, { pid: 42 });
+      await handleProcessKill(ws, { pid: 42 }, allowBoundary);
       expect(registry.kill).toHaveBeenCalledWith(42);
       expect(ws.sent[0]?.payload.success).toBe(true);
     });
@@ -93,7 +98,7 @@ describe('process WebSocket handlers', () => {
   describe('handleProcessKillAll', () => {
     it('kills all and confirms', async () => {
       const ws = createMockWs();
-      await handleProcessKillAll(ws);
+      await handleProcessKillAll(ws, allowBoundary);
       expect(registry.killAll).toHaveBeenCalledOnce();
       expect(ws.sent[0]?.payload.success).toBe(true);
     });

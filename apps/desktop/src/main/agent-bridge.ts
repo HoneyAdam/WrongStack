@@ -4,6 +4,18 @@
  */
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
+import {
+  createSurfaceConnectionState,
+  DEFAULT_SURFACE_CONNECTION_CONFIG,
+  decodeProtocolFrame,
+  markConnectionActivity,
+  markConnectionConnecting,
+  markConnectionOpen,
+  planConnectionReconnect,
+  resetConnection,
+  type SurfaceConnectionState,
+  stopConnection,
+} from '@wrongstack/webui-server/protocol';
 import WebSocket from 'ws';
 import type {
   DesktopConversationMessage,
@@ -28,6 +40,7 @@ interface ConversationInternal {
   reconnectAttempt: number;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
   reconnectUrl: string | null;
+  connectionState: SurfaceConnectionState;
 }
 
 interface ServerMessage {
@@ -53,6 +66,15 @@ const RECONNECT_CONFIG = {
   backoffMultiplier: 2,
   /** Jitter factor (0-1) to add randomness to delays */
   jitterFactor: 0.1,
+};
+
+const DESKTOP_CONNECTION_CONFIG = {
+  ...DEFAULT_SURFACE_CONNECTION_CONFIG,
+  maxReconnectAttempts: RECONNECT_CONFIG.maxAttempts,
+  initialBackoffMs: RECONNECT_CONFIG.initialDelayMs,
+  maxBackoffMs: RECONNECT_CONFIG.maxDelayMs,
+  backoffMultiplier: RECONNECT_CONFIG.backoffMultiplier,
+  jitterRatio: RECONNECT_CONFIG.jitterFactor,
 };
 
 // ============================================================================
@@ -85,15 +107,16 @@ export class DesktopAgentBridge extends EventEmitter {
     const conversation = this.getOrCreate(runtimeId);
     this.cancelReconnect(conversation);
     conversation.reconnectAttempt = 0;
+    conversation.connectionState = resetConnection(conversation.connectionState);
     void this.ensureConnected(runtimeId, wsUrl);
   }
 
   async ensureConnected(runtimeId: string, wsUrl: string): Promise<DesktopConversationSnapshot> {
     const conversation = this.getOrCreate(runtimeId);
-    
+
     // If already connected, return immediately
     if (conversation.ws?.readyState === WebSocket.OPEN) return publicConversation(conversation);
-    
+
     // If currently connecting, wait for it
     if (conversation.connectPromise) {
       await conversation.connectPromise;
@@ -108,6 +131,7 @@ export class DesktopAgentBridge extends EventEmitter {
     // Start fresh connection
     conversation.reconnectUrl = wsUrl;
     conversation.reconnectAttempt = 0;
+    conversation.connectionState = resetConnection(conversation.connectionState);
     await this.connect(runtimeId, wsUrl);
     return publicConversation(conversation);
   }
@@ -117,11 +141,12 @@ export class DesktopAgentBridge extends EventEmitter {
    */
   private async connect(runtimeId: string, wsUrl: string): Promise<void> {
     const conversation = this.getOrCreate(runtimeId);
-    
+
     // Cancel any pending reconnect timer
     this.cancelReconnect(conversation);
 
     conversation.status = 'connecting';
+    conversation.connectionState = markConnectionConnecting(conversation.connectionState);
     conversation.error = undefined;
     this.emitChanged(conversation);
     this.emitReconnectEvent(conversation, 'connecting');
@@ -144,7 +169,7 @@ export class DesktopAgentBridge extends EventEmitter {
         conversation.error = undefined;
         conversation.connectPromise = null;
         conversation.reconnectAttempt = 0;
-        conversation.reconnectUrl = null;
+        conversation.connectionState = markConnectionOpen(conversation.connectionState);
         this.emitChanged(conversation);
         this.emitReconnectEvent(conversation, 'connected');
         resolve();
@@ -172,13 +197,13 @@ export class DesktopAgentBridge extends EventEmitter {
         clearTimeout(timeout);
         if (conversation.ws === ws) conversation.ws = null;
         conversation.connectPromise = null;
-        
+
         if (conversation.status !== 'error') {
           conversation.status = 'disconnected';
         }
         conversation.activeAssistantMessageId = null;
         this.emitChanged(conversation);
-        
+
         // Schedule reconnection if applicable
         if (conversation.reconnectUrl && conversation.status === 'disconnected') {
           this.scheduleReconnect(conversation);
@@ -191,36 +216,30 @@ export class DesktopAgentBridge extends EventEmitter {
    * Schedule a reconnection attempt with exponential backoff.
    */
   private scheduleReconnect(conversation: ConversationInternal): void {
-    // Check if reconnection is enabled and within limits
-    if (RECONNECT_CONFIG.maxAttempts === 0) return;
-    if (conversation.reconnectAttempt >= RECONNECT_CONFIG.maxAttempts) {
+    const reconnect = planConnectionReconnect(
+      conversation.connectionState,
+      DESKTOP_CONNECTION_CONFIG,
+    );
+    conversation.connectionState = reconnect.state;
+    conversation.reconnectAttempt = reconnect.state.reconnectAttempt;
+    if (!reconnect.plan) {
       this.emitReconnectEvent(conversation, 'exhausted');
       return;
     }
-
-    // Calculate delay with exponential backoff and jitter
-    const baseDelay = Math.min(
-      RECONNECT_CONFIG.initialDelayMs *
-        RECONNECT_CONFIG.backoffMultiplier ** conversation.reconnectAttempt,
-      RECONNECT_CONFIG.maxDelayMs,
-    );
-    
-    // Add jitter
-    const jitter = baseDelay * RECONNECT_CONFIG.jitterFactor * Math.random();
-    const delay = Math.floor(baseDelay + jitter);
-
-    conversation.reconnectAttempt++;
-    this.emitReconnectEvent(conversation, 'scheduled', { delay, attempt: conversation.reconnectAttempt });
+    this.emitReconnectEvent(conversation, 'scheduled', {
+      delay: reconnect.plan.delayMs,
+      attempt: reconnect.plan.attempt,
+    });
 
     conversation.reconnectTimer = setTimeout(() => {
       conversation.reconnectTimer = null;
       if (!conversation.reconnectUrl) return;
-      
+
       // Check if still disconnected
       if (conversation.ws?.readyState !== WebSocket.OPEN) {
         void this.connect(conversation.runtimeId, conversation.reconnectUrl);
       }
-    }, delay);
+    }, reconnect.plan.delayMs);
   }
 
   /**
@@ -257,13 +276,14 @@ export class DesktopAgentBridge extends EventEmitter {
   ): Promise<DesktopConversationSnapshot> {
     const trimmed = content.trim();
     if (!trimmed) return this.snapshot(runtimeId);
-    
+
     // Reset reconnection state on manual action
     const conversation = this.getOrCreate(runtimeId);
     conversation.reconnectAttempt = 0;
-    
+    conversation.connectionState = resetConnection(conversation.connectionState);
+
     await this.ensureConnected(runtimeId, wsUrl);
-    
+
     // Refresh conversation after connect
     const conv = this.getOrCreate(runtimeId);
     this.appendMessage(conv, {
@@ -290,7 +310,8 @@ export class DesktopAgentBridge extends EventEmitter {
     // Reset reconnection state on manual action
     const conversation = this.getOrCreate(runtimeId);
     conversation.reconnectAttempt = 0;
-    
+    conversation.connectionState = resetConnection(conversation.connectionState);
+
     await this.ensureConnected(runtimeId, wsUrl);
     const conv = this.getOrCreate(runtimeId);
     this.send(conv, {
@@ -305,12 +326,13 @@ export class DesktopAgentBridge extends EventEmitter {
   close(runtimeId: string): void {
     const conversation = this.conversations.get(runtimeId);
     if (!conversation) return;
-    
+
     // Cancel reconnection and clear state
     this.cancelReconnect(conversation);
     conversation.reconnectAttempt = 0;
     conversation.reconnectUrl = null;
-    
+    conversation.connectionState = stopConnection(conversation.connectionState);
+
     conversation.ws?.close();
     conversation.ws = null;
     conversation.connectPromise = null;
@@ -326,12 +348,10 @@ export class DesktopAgentBridge extends EventEmitter {
   }
 
   private handleServerMessage(conversation: ConversationInternal, raw: string): void {
-    let message: ServerMessage;
-    try {
-      message = JSON.parse(raw) as ServerMessage;
-    } catch {
-      return;
-    }
+    const decoded = decodeProtocolFrame(raw, 'server');
+    if (!decoded.ok) return;
+    conversation.connectionState = markConnectionActivity(conversation.connectionState);
+    const message = decoded.message as ServerMessage;
     const payload = message.payload ?? {};
     switch (message.type) {
       case 'session.start': {
@@ -448,6 +468,7 @@ export class DesktopAgentBridge extends EventEmitter {
       reconnectAttempt: 0,
       reconnectTimer: null,
       reconnectUrl: null,
+      connectionState: createSurfaceConnectionState(),
     };
     this.conversations.set(runtimeId, conversation);
     return conversation;

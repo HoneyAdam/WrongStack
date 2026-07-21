@@ -25,6 +25,7 @@ import { getCostRates } from './usage-cost.js';
 import { resolveProviderModelMetadata } from './model-catalog.js';
 import type { ConnectedClient } from './types.js';
 import { toErrorMessage } from '@wrongstack/core/utils';
+import { protocolAdvertisement } from '../protocol/index.js';
 
 // ── Port resolution ─────────────────────────────────────────────────────
 
@@ -107,6 +108,8 @@ export function createSessionStartPayload(g: SessionStartPayloadGetters): () => 
   cwd: string;
   mode: string;
   contextMode: string;
+  protocolVersion: number;
+  protocolCapabilities: string[];
   needsSetup?: boolean | undefined;
 }> {
   return async () => {
@@ -146,6 +149,7 @@ export function createSessionStartPayload(g: SessionStartPayloadGetters): () => 
       sessionId: string; model: string; provider: string; maxContext: number;
       inputCost: number; outputCost: number; cacheReadCost: number;
       projectName: string; projectRoot: string; cwd: string; mode: string; contextMode: string;
+      protocolVersion: number; protocolCapabilities: string[];
       needsSetup?: boolean | undefined;
     } = {
       sessionId: g.getSessionId(),
@@ -160,6 +164,7 @@ export function createSessionStartPayload(g: SessionStartPayloadGetters): () => 
       cwd: g.getWorkingDir(),
       mode: g.getModeId(),
       contextMode: g.getContextMode(),
+      ...protocolAdvertisement(),
     };
     if (g.getNeedsSetup()) result.needsSetup = true;
     return result;
