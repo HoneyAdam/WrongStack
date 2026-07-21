@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Brain: deterministic rule tier.** `brain.rules` is evaluated before anything that costs tokens — match on source, risk band, fallback, offered options and question/context patterns; `defer` carves exceptions out of broader rules. An invalid pattern disables only its own rule and is reported via `/brain rules`.
+- **Brain: replay trace.** `brain.trace` records one JSONL row per decision — every tier the ladder ran, every pool target called (including the failures the fallback loop swallowed), every council seat's vote, timings and tokens. Rows convert to `BrainEvaluationCaseV1` fixtures for offline replay. Disabled by default; `content: none | redacted | full`.
+- **Brain: decision provenance and `/brain stats`.** `brain.decision_*` events now carry the resolving `tier`, so deterministic decisions can be told apart from ones that cost a provider call.
+- **Brain: LLM quality gate.** Empty or hedging responses ("I don't know", "insufficient evidence") are no longer presented as decisions; optional `minConfidence` floor; configurable `maxTokens`; `denyIsTerminal` distinguishes a genuine model refusal from a dead pool.
+- **Brain: LLM circuit breaker.** A dead pool previously cost `models.length × decisionTimeoutMs` on *every* decision; it is now skipped after N consecutive failures, with a half-open probe and per-target health ordering.
+- **Brain: decision cache.** `brain.cache` (off by default) replays a previous council/LLM verdict for an identical repeated question. Deterministic tiers and `ask_human` are never cached, and a decision the ledger later observes to have failed is evicted.
+- **Brain: configurable heuristics, monitor and escalation.** `brain.heuristics` switches each built-in pattern individually (plus a custom resolution vocabulary); `brain.monitor` gains `enabled`, `policy` (`llm | steer | observe`), per-signal toggles, `fileEditTools`, and the previously unreachable `errorStormWindowMs` / `stallCheckIntervalMs`; `brain.terminalPolicy` selects the headless escalation variant.
+- **Brain: remaining council/ledger knobs.** `council.perCallTimeoutMs`, `maxConcurrency` (previously pinned at 3), `distinctness`, `judgeMaxTokens`, custom `seats`; `ledger.maxMemoryEntries`, `interventionRetryWindowMs`.
+- New `/brain` subcommands (`stats`, `rules`, `heuristics`, `llm`, `trace`, `cache`, `escalation`, `monitor`), with matching controls in the WebUI Brain settings and the TUI Brain panel.
+
+### Fixed
+
+- **Brain: `maxAutoRisk: 'all'` behaved as `'high'`.** The ceiling was looked up in a table keyed by *request* risk, which has no `all` entry, so it silently resolved to the fallback level — `critical` requests were auto-denied by the very tier configured to be permissive, and never reached the LLM.
+- **Brain: Brain settings changes deleted un-surfaced config blocks.** `apply()` persists the whole canonical config, and its builder omitted `brain.trace`, `brain.llm` and the new `council.*` fields, so changing any Brain setting erased them from the user's config file. A round-trip guard now asserts the property for every top-level and nested field.
+- **Brain: council token usage always reported zero.** The council adapter's LLM caller discarded provider usage and hardcoded `{input: 0, output: 0, total: 0}`, making the cost of every council decision structurally invisible.
+- **Brain: file-churn signal never fired for non-standard edit tools.** The tracked tool names were a fixed set; hosts whose edit tools are named differently got no churn detection and no way to notice.
+- **Brain: the single-LLM prompt had no trust boundary.** The council voter prompt marked question/context as untrusted evidence; the single-model tier did not, while the monitor injects raw tool output straight into that context.
+- **Brain: truncated responses became decisions.** A response cut off at the token budget was accepted as a verdict; `stopReason: 'max_tokens'` is now surfaced.
+
+### Changed
+
+- Super Memory now defaults to the indexed SQLite/FTS5 backend. Existing JSONL records migrate automatically; `engine: "jsonl"` remains available as an explicit compatibility option and as a fallback when `node:sqlite` is unavailable.
+- Chronicle WebUI facet aggregation now scans each journal snapshot once for all requested fields instead of re-reading every partition once per facet; older servers remain supported through the existing single-facet protocol.
+- Codebase watcher bursts now batch files whose debounce windows expire together into one worker/SQLite index operation while preserving per-file debounce behavior.
+- Session listings now reuse cached summary arrays and incrementally consume appended `_index.jsonl` ranges, avoiding full index reparses after cross-process session updates.
+- Chronicle file observation now hashes project files with bounded concurrency and reuses complete rescan fingerprints, eliminating the second stat/read/SHA-256 pass when `fs.watch` omits a filename.
+- `loadPlugins()` now returns a `PluginHostHandle` (with `.loaded`, `.failed`, `.dispose()`, `.disposed`) instead of the loose `{ loaded, failed }` object. Destructuring `const { loaded, failed } = await loadPlugins(...)` remains compatible. `unloadPlugins()` is deprecated — prefer `handle.dispose()` for unambiguous host-scoped teardown.
+
 ## [0.293.0] — 2026-07-20
 
 > **API stabilization patch.** Deprecated compatibility shims are removed,

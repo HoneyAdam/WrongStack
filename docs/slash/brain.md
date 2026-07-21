@@ -11,22 +11,42 @@ decisions through one shared Brain instance, bound at
 ```
 /brain                  Status: autonomy ceiling + recent decisions
 /brain status           Same
+/brain stats            Per-tier decision counts — how often a model is actually called
 /brain risk <level>     Set the autonomy ceiling: off | low | medium | high | all
 /brain ask <question>   Consult the Brain directly for a decision
 ```
 
-## How the Brain decides — three tiers
+## How the Brain decides — the tier ladder
 
-1. **Policy** (`DefaultBrainArbiter`) — deterministic rules. Low-risk
-   requests with a recommended option are answered instantly; safe
-   fallbacks (`continue`/`deny`) resolve without any LLM call.
-2. **LLM** (`createAutonomyBrain`) — when the policy would escalate and
-   the request's risk is **within the live ceiling**, the LLM decision
-   engine (risk gate → heuristics → LLM evaluation) gets a chance to
-   answer. It always sees the live provider/model, so `/setmodel`
-   switches apply immediately.
-3. **Human** (`HumanEscalatingBrainArbiter` + `BrainDecisionQueue`) —
-   anything left becomes an interactive prompt (TUI overlay / REPL).
+Cheapest first; each tier only runs when the one above declined.
+
+1. **Rules** (`brain.rules`) — a configured deterministic table, matched on
+   source / risk band / fallback / offered options / question+context
+   patterns. First match wins; a rule whose action is `defer` explicitly
+   hands the request to the next tier. Costs nothing.
+2. **Policy** (`DefaultBrainArbiter`) — built-in deterministic behaviour.
+   Low-risk requests with a recommended option are answered instantly;
+   safe fallbacks (`continue`/`deny`) resolve without any LLM call. The
+   pattern heuristics behind it are individually switchable via
+   `brain.heuristics` (see `/brain heuristics`).
+3. **Cache** (`brain.cache`, off by default) — replays a previous
+   council/LLM verdict for an identical repeated question. Deterministic
+   tiers are never cached, and a decision the ledger later observes to
+   have FAILED is evicted.
+4. **Council** (`brain.council`) — a multi-LLM panel for questions at or
+   above the council floor. Quorum, veto and weighted majority are
+   resolved by pure deterministic maths; only ties reach a judge model.
+5. **LLM** (`createAutonomyBrain`) — the single-model tier, within the
+   live ceiling. Sees the live provider/model, so `/setmodel` switches
+   apply immediately. Guarded by a quality gate (`/brain llm`) and a
+   circuit breaker so a dead pool stops costing a full timeout sweep on
+   every decision.
+6. **Escalation** — in `interactive` mode an actual prompt; in `headless`
+   mode the terminal policy (`/brain escalation`) resolves it without a
+   human.
+
+`/brain stats` shows how the traffic actually split, which is the number
+to watch: every decision resolved above tier 4 is free.
 
 ## The autonomy ceiling (`/brain risk`)
 
@@ -62,6 +82,46 @@ Without an LLM tier (ceiling `off`, or no provider), the monitor degrades
 safely: the policy resolves the `continue` fallback and the Brain observes
 without interfering.
 
+## Making the Brain cheaper and more predictable
+
+Every knob below is live-editable and persists to the active profile config.
+
+```
+/brain stats                          # where are decisions actually resolved?
+/brain rules                          # the deterministic table + compile errors
+/brain heuristics                     # the 5 built-in patterns
+/brain heuristics deadlock off        # turn one off when its guess is wrong for you
+/brain llm                            # quality gate + circuit state
+/brain llm uncertain on               # "I don't know" is not an answer
+/brain llm confidence 0.6             # reject low-confidence verdicts
+/brain llm breaker 3 60000            # skip a dead pool after 3 failures
+/brain cache on                       # replay repeated council/LLM verdicts
+/brain escalation deny-all            # headless escalations never auto-approve
+/brain monitor policy observe         # record signals, never steer (no model call)
+```
+
+The highest-leverage change is usually a `brain.rules` entry, not a model
+swap: a rule resolves the question before any tier that costs tokens. See
+[configuration.md](../configuration.md#brain--decision-layer-autonomy-rules-council-trace).
+
+## Replay trace
+
+```
+/brain trace on                       # record how each decision was made
+/brain trace content redacted         # keep the shape, drop the free text
+```
+
+One JSONL row per decision in `<project>/.wrongstack/brain-trace.jsonl`:
+every tier the ladder ran, every pool target called (**including the
+failures the fallback loop otherwise swallows**), every council seat's
+vote, timings and token totals. Rows convert to replayable fixtures via
+`brainTraceToEvaluationCase()` and run offline through
+`runBrainEvaluation()`, which never dispatches the decisions it replays.
+
+Disabled by default — enabling it is the opt-in that permits production
+decision content on disk. `content: none` still records models, timings,
+tokens and vote ids.
+
 ## Examples
 
 ```
@@ -74,12 +134,22 @@ without interfering.
 
 | Event | When |
 |-------|------|
-| `brain.decision_answered` | Brain answered (policy or LLM tier) |
+| `brain.decision_answered` | Brain answered (carries `tier`) |
 | `brain.decision_ask_human` | Brain escalated to the human |
 | `brain.decision_denied` | Brain denied the request |
 | `brain.intervention` | BrainMonitor engaged (with `intervened: true/false`) |
+| `brain.outcome` | An earlier decision's real-world result became observable |
+| `brain.tier_transition` | One step of the ladder: tier, outcome, whether it was terminal |
+| `brain.llm_call` | One attempt against one pool target — model, timing, tokens, failures |
+| `brain.council_vote` | One council seat's observable vote |
+| `brain.council_resolved` | Quorum/veto/majority resolution + judge usage |
 
-`/brain status` shows the last 20 of these for the session.
+`brain.decision_*` carries a `tier` field (`rule`, `policy`, `heuristic`,
+`cache`, `ledger-guard`, `council`, `llm`, `terminal`, `human`) so surfaces
+can distinguish a free decision from one that cost a provider call —
+that is what `/brain stats` counts.
+
+`/brain status` shows the last 20 decisions for the session.
 
 ## WebUI
 

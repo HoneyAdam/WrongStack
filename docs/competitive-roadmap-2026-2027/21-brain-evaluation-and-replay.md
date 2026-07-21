@@ -43,6 +43,40 @@ Remaining work: explicit sanitized production-to-fixture capture, frozen prompt/
 LLM runs, stability sampling, comparison reports, CI/release thresholds, and curated checked-in
 adversarial fixture suites.
 
+### 2026-07-21 — Production capture, frozen call metadata, and the deterministic tier
+
+Closes the "sanitized production-to-fixture capture" and "frozen prompt/model metadata for LLM
+runs" items from the previous entry.
+
+- Added four decision-internal events. `brain.llm_call` records EVERY pool target attempted per
+  decision — model, provider, attempt index, duration, token usage, truncation, and the failures
+  the fallback loop previously swallowed in a bare `catch {}`. `brain.council_vote` /
+  `brain.council_resolved` re-emit each seat's observable vote plus the deterministic
+  quorum/veto/majority resolution (the data already existed on `CouncilResult` and was discarded
+  by the adapter). `brain.tier_transition` records each rung of the ladder and why the chain did
+  or did not stop there.
+- Added `BrainTraceRecorder`: correlates those events into one JSONL row per decision in its own
+  file, deliberately NOT the ledger — per-call rows would evict the bounded decision history that
+  `digestFor()` / `failureStreakFor()` scan. Content policy is `none` / `redacted` / `full`, and
+  the whole trace is disabled by default: enabling it IS the opt-in for production decision
+  content on disk. `none` still records models, timings, tokens, vote ids and quorum/veto.
+- Added `brainTraceToEvaluationCase()`, reusing the existing `BrainEvaluationCaseV1` format rather
+  than introducing a second one. The observed decision becomes an expectation only under
+  `pinObservedDecision` — a captured decision is evidence of what happened, not an assertion that
+  it was correct, and freezing it wholesale would bake current bugs into the suite.
+- Added decision provenance (`markDecisionTier` / `BrainDecisionTier`) recorded out of band via a
+  `WeakMap` keyed on the request object, so the public `BrainDecision` union — compared
+  structurally throughout the Brain tests — stays untouched. `brain.decision_*` now carries the
+  resolving `tier`, which is what separates deterministic correctness from model variance in
+  reports.
+- Fixed the token accounting the reports depend on: `CouncilResult.usage` reported hardcoded zeros
+  for every seat because the adapter's LLM caller discarded provider usage. `stopReason:
+  'max_tokens'` is now surfaced too — a response truncated at the 200-token budget was previously
+  turned into a decision silently.
+
+Remaining work: stability sampling across repeated runs, comparison reports between policy
+revisions, CI/release thresholds, and curated checked-in adversarial fixture suites.
+
 ## Acceptance criteria
 
 - Replay never dispatches, terminates, approves, or mutates external state.
