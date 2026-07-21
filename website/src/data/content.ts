@@ -1900,4 +1900,9 @@ export const securityFacts = [
     title: 'Loopback first',
     body: 'WebUI, mailbox and MCP surfaces default to local-only access. Remote WebUI binds require token protection.',
   },
+  {
+    icon: ShieldCheck,
+    title: 'Read-only mode',
+    body: 'Research and explore without risk. Session-scoped toggle prevents filesystem writes, shell commands and memory mutations — only .md reports under .temp_files/ are allowed.',
+  },
 ] as const;
