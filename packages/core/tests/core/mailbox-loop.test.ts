@@ -443,6 +443,9 @@ describe('createMailboxChecker', () => {
       mailbox: mb,
       agentId: 'leader@a1b2',
       aliases: ['leader'],
+      // This test is about alias fan-out and dedup, not broadcast retention:
+      // open the floor so `msg()`'s fixed past timestamp stays deliverable.
+      broadcastFloor: '1970-01-01T00:00:00.000Z',
     });
     const result = await check();
     expect(result.map((m) => m.id).sort()).toEqual(['m_bcast', 'm_direct']);
@@ -493,6 +496,8 @@ describe('createMailboxChecker', () => {
       mailbox: mb,
       agentId: 'leader@a1b2',
       include: (m) => m.type !== 'control',
+      // Testing the include predicate, not broadcast retention.
+      broadcastFloor: '1970-01-01T00:00:00.000Z',
     });
 
     const result = await check();
@@ -600,5 +605,86 @@ describe('createMailboxChecker', () => {
     expect(result).toEqual([]);
     // The throw must NOT have propagated an ackMany attempt either.
     expect((mb.ackMany as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+  });
+});
+
+// ── broadcast floor ───────────────────────────────────────────────────────
+// Regression: read receipts are keyed by `agentId`, which is derived from the
+// session id. A NEW session therefore gets an identity present in no `readBy`
+// map, so `unreadBy` matched the entire retained backlog and the leader
+// re-processed broadcasts from work that had already shipped.
+
+describe('createMailboxChecker — broadcast floor', () => {
+  const FLOOR = '2026-07-21T12:00:00.000Z';
+
+  it('drops broadcasts sent before this session existed', async () => {
+    const mb = fakeMailbox([
+      [msg({ type: 'broadcast', id: 'm_old', to: '*', timestamp: '2026-07-21T09:48:30.000Z' })],
+    ]);
+    const check = createMailboxChecker({
+      mailbox: mb,
+      agentId: 'leader@new1',
+      broadcastFloor: FLOOR,
+    });
+
+    expect(await check()).toEqual([]);
+  });
+
+  it('does NOT ack the broadcasts it drops', async () => {
+    // Acking would stamp this session onto the whole backlog on the very
+    // first check — the write amplification that produced 26k ack records
+    // against 630 messages. Dropped broadcasts must simply age out.
+    const mb = fakeMailbox([
+      [msg({ type: 'broadcast', id: 'm_old', to: '*', timestamp: '2026-07-20T00:00:00.000Z' })],
+    ]);
+    const check = createMailboxChecker({
+      mailbox: mb,
+      agentId: 'leader@new1',
+      broadcastFloor: FLOOR,
+    });
+
+    await check();
+    expect(mb.ackManyMock).not.toHaveBeenCalled();
+  });
+
+  it('still delivers broadcasts sent after the floor', async () => {
+    const mb = fakeMailbox([
+      [msg({ type: 'broadcast', id: 'm_new', to: '*', timestamp: '2026-07-21T12:00:01.000Z' })],
+    ]);
+    const check = createMailboxChecker({
+      mailbox: mb,
+      agentId: 'leader@new1',
+      broadcastFloor: FLOOR,
+    });
+
+    expect((await check()).map((m) => m.id)).toEqual(['m_new']);
+  });
+
+  it('never filters DIRECTED mail, however old', async () => {
+    // A human running `wstack mailbox send --to leader` and then starting a
+    // session expects delivery. Only ambient broadcasts are floored.
+    const old = '2026-01-01T00:00:00.000Z';
+    const mb = fakeMailbox([
+      [
+        msg({ type: 'note', id: 'm_direct', to: 'leader@new1', timestamp: old }),
+        msg({ type: 'ask', id: 'm_alias', to: 'leader', timestamp: old }),
+      ],
+    ]);
+    const check = createMailboxChecker({
+      mailbox: mb,
+      agentId: 'leader@new1',
+      broadcastFloor: FLOOR,
+    });
+
+    expect((await check()).map((m) => m.id).sort()).toEqual(['m_alias', 'm_direct']);
+  });
+
+  it('defaults the floor to checker construction time', async () => {
+    const mb = fakeMailbox([
+      [msg({ type: 'broadcast', id: 'm_past', to: '*', timestamp: '2020-01-01T00:00:00.000Z' })],
+    ]);
+    const check = createMailboxChecker({ mailbox: mb, agentId: 'leader@new1' });
+
+    expect(await check()).toEqual([]);
   });
 });

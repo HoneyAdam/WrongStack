@@ -55,6 +55,28 @@ export interface MailboxLoopOptions {
   sessionId?: string | (() => string) | undefined;
   /** Mark returned messages as read. Defaults to true for normal delivery. */
   ack?: boolean | undefined;
+  /**
+   * ISO timestamp below which project-wide broadcasts (`to: '*'`) are ignored.
+   * Defaults to the moment this checker is constructed — i.e. a broadcast is
+   * delivered only to sessions that were live when it was sent.
+   *
+   * Without this floor, every NEW session replayed the whole retained
+   * broadcast backlog. Read receipts are keyed by `agentId`, which is derived
+   * from the session id (`base@sha256(sessionId)`), so a new session gets an
+   * identity that appears in no existing `readBy` map and `unreadBy` matches
+   * everything within the 24h retention window. Observed in the wild: 630
+   * messages carrying 26,406 ack records — 240 distinct reader identities,
+   * single messages acked up to 61 times — with leaders repeatedly reasoning
+   * about "peer noise" from work that had already been committed.
+   *
+   * Scoped to broadcasts on purpose. Directed mail (unique id, base alias,
+   * `@session:` scope) was addressed deliberately and must still be delivered
+   * even if it was sent before this session existed; a human running
+   * `wstack mailbox send --to leader` and then starting a session expects it
+   * to arrive. Broadcasts are ambient announcements ("X joined the fleet",
+   * "task success") and were 619 of those 630 messages.
+   */
+  broadcastFloor?: string | undefined;
 }
 
 export function createMailboxChecker(
@@ -66,6 +88,7 @@ export function createMailboxChecker(
     typeof opts.sessionId === 'function' ? opts.sessionId : () => opts.sessionId;
 
   const injectedIds = new Set<string>();
+  const broadcastFloor = opts.broadcastFloor ?? new Date().toISOString();
 
   return async (): Promise<MailboxMessage[]> => {
     try {
@@ -90,6 +113,13 @@ export function createMailboxChecker(
       for (const batch of batches) {
         for (const m of batch) {
           if (seen.has(m.id)) continue;
+          // Pre-existing broadcasts are dropped WITHOUT an ack. Acking them
+          // would stamp this session's identity onto the entire retained
+          // backlog on first check — the exact write amplification that
+          // produced 26k ack records against 630 messages. Left unread they
+          // simply age out with the 24h retention sweep, and they cannot
+          // starve new mail: query sorts newest-first before applying `limit`.
+          if (m.to === '*' && m.timestamp < broadcastFloor) continue;
           if (opts.include && !opts.include(m)) continue;
           seen.add(m.id);
           messages.push(m);
