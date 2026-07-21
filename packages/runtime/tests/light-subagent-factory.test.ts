@@ -4,6 +4,7 @@ import {
   DefaultConfigStore,
   DefaultSecretScrubber,
   type Provider,
+  ProviderError,
   ProviderRegistry,
   type SessionWriter,
   TOKENS,
@@ -292,5 +293,59 @@ describe('makeLightSubagentFactory', () => {
 
     expect(r.agent.ctx.model).toBe('anthropic-test-model');
     expect(r.agent.ctx.provider.id).toBe('anthropic');
+  });
+
+  // ── fallback must not drift the worker onto the leader's model ──────────
+  //
+  // The fallback extension reads `getConfig().provider/.model` as "the primary
+  // to prefer and to restore to". It used to be handed the raw ConfigStore —
+  // i.e. the LEADER's pair — while the worker ran on its own assigned model.
+  // Two consequences: the leader's model was injected into the chain ahead of
+  // the worker's own `fallbackModels`, and after any hop `beforeRun` restored
+  // the worker onto the leader's model and kept it there for the rest of the
+  // run.
+  it('restores a worker to its OWN model after a hop, never the leaders', async () => {
+    const deps = makeDeps(true, {
+      provider: 'noop',
+      model: 'leader-m',
+      providers: { noop: { type: 'noop' }, alt: { type: 'alt' } },
+    } as never);
+    const factory = makeLightSubagentFactory(deps);
+    const r = await factory({
+      id: 's1',
+      provider: 'alt',
+      model: 'worker-m',
+      fallbackModels: ['noop/backup-m'],
+    } as never);
+
+    expect(r.agent.ctx.model).toBe('worker-m');
+
+    // Drive one hop: the worker's own model fails with a capacity error, so
+    // the chain runs and lands on some other candidate.
+    let call = 0;
+    const runner = r.agent.extensions.wrapProviderRunner(async () => {
+      call += 1;
+      if (call === 1) throw new ProviderError('rate limited', 429, true, 'alt');
+      return {
+        content: [{ type: 'text', text: 'ok' }],
+        stopReason: 'end_turn',
+        usage: { input: 0, output: 0 },
+        model: r.agent.ctx.model,
+      } as never;
+    });
+    await runner(r.agent.ctx as never, { model: 'worker-m', messages: [] } as never);
+
+    // The chain must land on the worker's OWN configured fallback. When the
+    // extension was handed the leader's config, `primaryTarget` put the
+    // leader's pair in the chain AHEAD of the explicit `fallbackModels`, so
+    // this landed on 'leader-m' instead.
+    expect(r.agent.ctx.model).toBe('backup-m');
+    expect(r.agent.ctx.provider.id).toBe('noop');
+
+    // beforeRun is the half-open probe back to the primary. It correctly
+    // declines here — the worker's own model just failed, so it is inside its
+    // cooldown — but it must never drag the worker onto the leader's model.
+    await r.agent.extensions.runBeforeRun(r.agent.ctx as never);
+    expect(r.agent.ctx.model).not.toBe('leader-m');
   });
 });
