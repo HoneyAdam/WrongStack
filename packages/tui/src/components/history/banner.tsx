@@ -81,31 +81,31 @@ function useBrandMarkAnimation(enabled: boolean): 0 | 1 {
   return brandMarkPinkRow(frame);
 }
 
-// Four-row half-block lettering echoes the crisp construction of the logo
-// while giving the curves and diagonals a cleaner silhouette than solid 5×5
-// tiles. At 59 columns it still fits a standard 80-column terminal. The open
-// round letters (G, S, C) share a `▄███▀` top terminal and the W settles on
-// rounded valley points, so the wordmark reads as one consistent family.
-const PIXEL_GLYPHS: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
-  W: Object.freeze(['█   █', '█   █', '█ █ █', ' ▀ ▀ ']),
-  R: Object.freeze(['████▄', '█   █', '████▀', '█  ▀▄']),
-  O: Object.freeze(['▄███▄', '█   █', '█   █', '▀███▀']),
-  N: Object.freeze(['█▄  █', '█ █ █', '█  ▀█', '█   █']),
-  G: Object.freeze(['▄███▀', '█    ', '█  ██', '▀███▀']),
-  S: Object.freeze(['▄███▀', '▀███▄', '    █', '████▀']),
-  T: Object.freeze(['█████', '  █  ', '  █  ', '  █  ']),
-  A: Object.freeze(['▄███▄', '█   █', '█████', '█   █']),
-  C: Object.freeze(['▄███▀', '█    ', '█    ', '▀███▄']),
-  K: Object.freeze(['█  ▄▀', '█▄▀  ', '█▀▄  ', '█  ▀▄']),
+// The startup wordmark uses a compact 5×5 block face. Every glyph is five
+// columns wide and five rows tall, composing to 59 columns so the full mark
+// fits comfortably inside an 80-column terminal while staying legible.
+const WORDMARK_GLYPHS: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
+  W: Object.freeze(['█   █', '█   █', '█ █ █', '██ ██', '█   █']),
+  R: Object.freeze(['████ ', '█   █', '████ ', '█  █ ', '█   █']),
+  O: Object.freeze([' ███ ', '█   █', '█   █', '█   █', ' ███ ']),
+  N: Object.freeze(['█   █', '██  █', '█ █ █', '█  ██', '█   █']),
+  G: Object.freeze([' ████', '█    ', '█ ███', '█   █', ' ████']),
+  S: Object.freeze([' ████', '█    ', ' ███ ', '    █', '████ ']),
+  T: Object.freeze(['█████', '  █  ', '  █  ', '  █  ', '  █  ']),
+  A: Object.freeze([' ███ ', '█   █', '█████', '█   █', '█   █']),
+  C: Object.freeze([' ████', '█    ', '█    ', '█    ', ' ████']),
+  K: Object.freeze(['█   █', '█  █ ', '███  ', '█  █ ', '█   █']),
 });
 
 const WORDMARK = 'WRONGSTACK';
-const WORDMARK_ROWS = 4;
-const GLYPH_WIDTH = 5;
+const WORDMARK_ROWS = 5;
+const GLYPH_WIDTH = WORDMARK_GLYPHS.W?.[0]?.length ?? 5;
 const WORDMARK_WIDTH = WORDMARK.length * GLYPH_WIDTH + WORDMARK.length - 1;
 const WORDMARK_LINES = Object.freeze(
   Array.from({ length: WORDMARK_ROWS }, (_, row) =>
-    [...WORDMARK].map((letter) => PIXEL_GLYPHS[letter]?.[row] ?? ' '.repeat(GLYPH_WIDTH)).join(' '),
+    [...WORDMARK]
+      .map((letter) => WORDMARK_GLYPHS[letter]?.[row] ?? ' '.repeat(GLYPH_WIDTH))
+      .join(' '),
   ),
 );
 

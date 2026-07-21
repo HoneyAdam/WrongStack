@@ -133,9 +133,12 @@ describe('<Banner />', () => {
     const frame = lastFrame() ?? '';
     unmount();
 
-    // The wordmark uses compact half-block lettering to echo the SVG mark.
-    expect(frame).toContain('█   █ ████▄');
-    expect(frame).toContain('▀ ▀  █  ▀▄');
+    // The wordmark uses a compact 5×5 block face (59 columns wide). Assert the
+    // full first and last rendered rows so the entire mark — not just a prefix —
+    // is covered. Rows 0 and 4 end in a block (no trailing space), so they are
+    // robust against the centering padding Ink adds around the wordmark.
+    expect(frame).toContain('█   █ ████   ███  █   █  ████  ████ █████  ███   ████ █   █');
+    expect(frame).toContain('█   █ █   █  ███  █   █  ████ ████    █   █   █  ████ █   █');
     expect(frame).toContain('BUILT ON THE WRONG STACK. SHIPPED ANYWAY.');
     expect(frame).toContain('anthropic › claude-test');
     expect(frame).toContain('•••• XYZ');
@@ -217,7 +220,7 @@ describe('<Banner />', () => {
     unmount();
 
     expect(frame.split('\n').every((line) => visibleLength(line) <= termWidth)).toBe(true);
-    expect(frame.includes('█   █ ████▄')).toBe(termWidth >= 65);
+    expect(frame.includes('█   █ ████   ███  █   █  ████  ████ █████  ███   ████ █   █')).toBe(termWidth >= 65);
   });
 });
 
