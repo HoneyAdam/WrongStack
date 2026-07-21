@@ -90,7 +90,7 @@ describe('createAutonomyBrain — LLM pool', () => {
     expect(second.complete).toHaveBeenCalledTimes(1);
   });
 
-  it('uses the request fallback when the whole pool is down', async () => {
+  it('reports an entirely dead pool as unavailable', async () => {
     const brain = createAutonomyBrain({
       targets: [
         { provider: throwingProvider(), model: 'a' },
@@ -98,8 +98,11 @@ describe('createAutonomyBrain — LLM pool', () => {
       ],
     });
     const d = await brain.decide(req({ fallback: 'continue' }));
-    expect(d).toMatchObject({ type: 'answer' });
-    if (d.type === 'answer') expect(d.text).toContain('unavailable');
+    // Every target was tried and none answered — that is an unavailable pool,
+    // not a decision to continue. The tiered ladder converts it back into the
+    // caller's continue fallback, attributed to the policy tier.
+    expect(d.type).toBe('deny');
+    if (d.type === 'deny') expect(d.reason).toContain('unavailable');
   });
 
   it('requires at least one LLM source', () => {

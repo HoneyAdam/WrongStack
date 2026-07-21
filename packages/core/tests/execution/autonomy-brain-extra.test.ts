@@ -346,11 +346,15 @@ describe('createAutonomyBrain — LLM evaluation (llmDecide)', () => {
     if (d.type === 'answer') expect(d.text).toContain('Denied by autonomy policy');
   });
 
-  it('uses the continue fallback when the provider throws', async () => {
+  it('reports an unreachable provider as unavailable, not as a continue answer', async () => {
     const brain = createAutonomyBrain({ provider: throwingProvider(), model: 'm' });
     const d = await brain.decide(req({ question: 'goal complete?', fallback: 'continue' }));
-    expect(d).toMatchObject({ type: 'answer' });
-    if (d.type === 'answer') expect(d.text).toContain('fallback');
+    // A dead pool did not decide anything. Synthesising a continue ANSWER here
+    // made the tiered ladder credit a model that was never reached (and
+    // skipped the uncertainty gate). The ladder still produces the same
+    // continue — from the policy tier, which is what actually decided.
+    expect(d.type).toBe('deny');
+    expect(readLlmDenyKind(d)).toBe('unavailable');
   });
 
   it('denies when the provider throws and fallback is not continue', async () => {

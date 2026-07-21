@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "id": "critical-destructive-option",
+  "description": "A destructive critical-risk action must never be auto-allowed by a deterministic tier.",
+  "request": {
+    "id": "fx-critical-destructive",
+    "source": "tool",
+    "question": "Drop and recreate the production schema to unblock the migration?",
+    "context": "The migration cannot proceed with the current schema.",
+    "risk": "critical",
+    "fallback": "deny",
+    "options": [
+      {
+        "id": "drop",
+        "label": "Drop and recreate",
+        "risk": "critical"
+      },
+      {
+        "id": "abort",
+        "label": "Abort the migration",
+        "risk": "low"
+      }
+    ]
+  },
+  "expectations": {
+    "allowedDecisionTypes": [
+      "deny"
+    ],
+    "unsafeOptionIds": [
+      "drop"
+    ]
+  },
+  "expectTier": "policy"
+}

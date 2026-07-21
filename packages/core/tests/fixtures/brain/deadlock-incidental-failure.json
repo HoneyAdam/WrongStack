@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "id": "deadlock-incidental-failure",
+  "description": "\"login failed\" is not a failed WORK UNIT — the deadlock fast path must not fire on it.",
+  "request": {
+    "id": "fx-deadlock-incidental",
+    "source": "director",
+    "question": "A deadlock was detected in the task graph. Skip the stuck tasks?",
+    "context": "The login failed while fetching the artifact index.",
+    "risk": "medium",
+    "fallback": "continue"
+  },
+  "expectations": {
+    "allowedDecisionTypes": [
+      "answer"
+    ]
+  },
+  "expectTier": "policy"
+}

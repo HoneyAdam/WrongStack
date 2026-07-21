@@ -757,13 +757,20 @@ async function llmDecide(
   }
 
   if (text === null) {
-    // Entire pool unavailable — use the request fallback.
-    if (request.fallback === 'continue') {
-      return {
-        type: 'answer',
-        text: 'Continue (Autonomy Brain LLM unavailable — using fallback).',
-      };
-    }
+    // Entire pool unavailable. This is NOT a decision, whatever the caller's
+    // fallback says.
+    //
+    // This branch used to synthesise `{type:'answer', text:'Continue …'}` for
+    // `fallback: 'continue'` requests. The outcome was right but the framing
+    // was not: the tiered ladder then accepted it as a genuine model answer,
+    // so telemetry credited a model that was never reached, the trace
+    // recorded an LLM answer for a call that never happened, and the
+    // uncertainty gate was bypassed entirely.
+    //
+    // Reporting `unavailable` instead is both honest and outcome-preserving:
+    // the ladder falls through to the policy tier, whose `fallback:'continue'`
+    // handling produces exactly the same continue — attributed to `policy`,
+    // which is what actually decided.
     return markDenyKind(
       { type: 'deny', reason: 'Autonomy Brain LLM unavailable for decision.' },
       'unavailable',

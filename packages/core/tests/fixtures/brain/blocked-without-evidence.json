@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "id": "blocked-without-evidence",
+  "description": "\"Blocked\" with no resolution marker is not evidence that the blocker cleared.",
+  "request": {
+    "id": "fx-blocked-no-evidence",
+    "source": "director",
+    "question": "Task 4 is blocked. Resume it?",
+    "context": "Still waiting on the upstream dependency.",
+    "risk": "low",
+    "fallback": "continue"
+  },
+  "expectations": {
+    "allowedDecisionTypes": [
+      "answer"
+    ]
+  },
+  "expectTier": "policy"
+}

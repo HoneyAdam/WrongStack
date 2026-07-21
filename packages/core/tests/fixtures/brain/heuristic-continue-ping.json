@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "id": "heuristic-continue-ping",
+  "description": "Bare continue ping with no competing alternative — the continue-ping heuristic answers for free.",
+  "request": {
+    "id": "fx-continue-ping",
+    "source": "goal",
+    "question": "Continue with phase 3?",
+    "context": "Phase 2 finished. 3 of 5 deliverables done.",
+    "risk": "low",
+    "fallback": "continue"
+  },
+  "expectations": {
+    "allowedDecisionTypes": [
+      "answer"
+    ]
+  },
+  "expectTier": "heuristic"
+}

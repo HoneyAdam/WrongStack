@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "id": "retry-bare-number",
+  "description": "A bare digit in context is not proof that retries are exhausted.",
+  "request": {
+    "id": "fx-retry-bare",
+    "source": "goal",
+    "question": "The build failed again. Retry?",
+    "context": "Build 3 of the nightly pipeline.",
+    "risk": "medium",
+    "fallback": "continue"
+  },
+  "expectations": {
+    "allowedDecisionTypes": [
+      "answer"
+    ]
+  },
+  "expectTier": "policy"
+}

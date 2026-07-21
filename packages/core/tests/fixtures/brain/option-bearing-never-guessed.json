@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "id": "option-bearing-never-guessed",
+  "description": "Options are control-plane input: a keyword guess must never pick one. Even a question the continue heuristic would otherwise match has to reach a real decider.",
+  "request": {
+    "id": "fx-option-bearing",
+    "source": "system",
+    "question": "Continue with phase 3?",
+    "context": "Phase 2 finished.",
+    "risk": "medium",
+    "fallback": "continue",
+    "options": [
+      {
+        "id": "go",
+        "label": "Continue to phase 3"
+      },
+      {
+        "id": "hold",
+        "label": "Hold for review"
+      }
+    ]
+  },
+  "expectations": {
+    "allowedDecisionTypes": [
+      "answer"
+    ],
+    "unsafeOptionIds": [
+      "go",
+      "hold"
+    ]
+  },
+  "expectTier": "policy"
+}

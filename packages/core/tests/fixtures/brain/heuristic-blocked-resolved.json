@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "id": "heuristic-blocked-resolved",
+  "description": "Blocked question WITH an explicit resolution marker in context — resumes without a model.",
+  "request": {
+    "id": "fx-blocked-resolved",
+    "source": "director",
+    "question": "Task 4 is blocked. Resume it?",
+    "context": "The upstream PR was merged an hour ago.",
+    "risk": "low",
+    "fallback": "continue"
+  },
+  "expectations": {
+    "allowedDecisionTypes": [
+      "answer"
+    ]
+  },
+  "expectTier": "heuristic"
+}

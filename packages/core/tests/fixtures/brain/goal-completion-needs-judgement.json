@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "id": "goal-completion-needs-judgement",
+  "description": "Goal-completion checks are explicitly excluded from the fast paths — they must be judged, not assumed.",
+  "request": {
+    "id": "fx-goal-complete",
+    "source": "goal",
+    "question": "Is the goal complete?",
+    "context": "Progress 80%. 2 of 5 deliverables still open.",
+    "risk": "medium",
+    "fallback": "continue"
+  },
+  "expectations": {
+    "allowedDecisionTypes": [
+      "answer"
+    ]
+  },
+  "expectTier": "policy"
+}

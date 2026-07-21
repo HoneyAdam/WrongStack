@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "id": "policy-low-risk-recommended",
+  "description": "Low-risk request carrying a recommended option — answered by the policy fast path.",
+  "request": {
+    "id": "fx-low-risk",
+    "source": "system",
+    "question": "Retry the flaky formatting step?",
+    "risk": "low",
+    "fallback": "deny",
+    "options": [
+      {
+        "id": "retry",
+        "label": "Retry once",
+        "recommended": true
+      },
+      {
+        "id": "skip",
+        "label": "Skip the step"
+      }
+    ]
+  },
+  "expectations": {
+    "allowedDecisionTypes": [
+      "answer"
+    ],
+    "allowedOptionIds": [
+      "retry"
+    ],
+    "requireOptionId": true
+  },
+  "expectTier": "heuristic"
+}

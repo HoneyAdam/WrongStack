@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "id": "negation-continue-or-stop",
+  "description": "A question offering an alternative must reach a real judgement, never the continue fast path.",
+  "request": {
+    "id": "fx-negation",
+    "source": "goal",
+    "question": "Should we continue or stop the failing migration?",
+    "context": "Migration step 4 of 9 has failed twice.",
+    "risk": "medium",
+    "fallback": "continue"
+  },
+  "expectations": {
+    "allowedDecisionTypes": [
+      "answer"
+    ]
+  },
+  "expectTier": "policy"
+}

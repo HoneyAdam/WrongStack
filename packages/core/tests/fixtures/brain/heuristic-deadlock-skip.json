@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "id": "heuristic-deadlock-skip",
+  "description": "Deadlock anchored to failed work units — skip and continue, deterministically.",
+  "request": {
+    "id": "fx-deadlock",
+    "source": "director",
+    "question": "A deadlock was detected in the task graph. How should we proceed?",
+    "context": "3 failed tasks are blocking the remaining 6.",
+    "risk": "medium",
+    "fallback": "continue"
+  },
+  "expectations": {
+    "allowedDecisionTypes": [
+      "answer"
+    ]
+  },
+  "expectTier": "heuristic"
+}
