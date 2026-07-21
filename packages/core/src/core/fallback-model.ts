@@ -454,14 +454,31 @@ export function createFallbackModelExtension(deps: FallbackModelDeps): AgentExte
           markPrimaryFailure(cfg);
         }
 
+        // Gate ONCE, on the error that TRIGGERED the fallback — not per entry
+        // on `lastErr`.
+        //
+        // `lastErr` is reassigned by every failed attempt below, so the old
+        // per-entry check let ONE bad candidate abort the whole chain: a model
+        // id that no longer exists on its provider answers 404, which
+        // classifies as `invalid_request` (not fallback-worthy), and the next
+        // iteration hit `break`. Every healthy entry after it went untried and
+        // the turn died with "model not found" while a working fallback sat
+        // one slot down. Stale entries are easy to acquire — `resolveRefs`
+        // never validates `fallbackModels` against the provider's model list,
+        // `buildProvider` ignores the model argument entirely, and
+        // `config.providers[].models` is an unrefreshed snapshot.
+        //
+        // A per-entry failure now just moves to the next candidate; only the
+        // triggering error decides whether we fall back at all.
+        const status = shouldFallback(firstErr_);
+        if (status === null) throw firstErr_; // not a fallback-worthy error
+
         for (const entry of usableChain) {
           if (
             !evaluateModelCalendar(cfg.modelAvailabilitySchedule, entry.providerId, entry.model)
               .allowed
           )
             continue;
-          const status = shouldFallback(lastErr);
-          if (status === null) break; // not a fallback-worthy error
 
           // Re-check tracker availability right before attempting this entry.
           // The chain was computed from a snapshot of `isAvailable`, but an

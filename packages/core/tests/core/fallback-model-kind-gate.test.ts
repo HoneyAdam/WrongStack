@@ -159,4 +159,56 @@ describe('fallback-model kind gating', () => {
     expect(res).toBe(okResponse);
     expect(buildProvider).toHaveBeenCalled();
   });
+
+  // ── one bad candidate must not abort the rest of the chain ─────────────
+  //
+  // The gate used to be re-evaluated per entry against `lastErr`, which every
+  // failed attempt reassigns. A model id that no longer exists on its
+  // provider answers 404 → `invalid_request` → not fallback-worthy → `break`,
+  // so every healthy entry after it went untried. Stale entries are easy to
+  // acquire: `resolveRefs` never validates `fallbackModels` against the
+  // provider's model list and `buildProvider` ignores the model argument, so
+  // a retired model sits in the chain looking perfectly valid.
+  it('skips a chain entry whose model 404s and still tries the next one', async () => {
+    const config = {
+      provider: 'primary',
+      model: 'model-a',
+      fallbackModels: ['stale/retired-model', 'other/model-b'],
+      providers: {
+        primary: { type: 'openai', apiKey: 'k1' },
+        stale: { type: 'openai', apiKey: 'k2' },
+        other: { type: 'openai', apiKey: 'k3' },
+      },
+    } as never as Config;
+    const { ext, ctx, request, buildProvider } = makeHarness(config);
+
+    const inner = vi
+      .fn()
+      // primary is rate limited → fallback-worthy, chain starts
+      .mockRejectedValueOnce(new ProviderError('rate limited', 429, true, 'primary'))
+      // first candidate's model was retired → 404 / invalid_request
+      .mockRejectedValueOnce(new ProviderError('model not found', 404, false, 'stale'))
+      // second candidate is healthy
+      .mockResolvedValueOnce(okResponse);
+
+    const res = await ext.wrapProviderRunner?.(ctx, request, inner);
+
+    expect(res).toBe(okResponse);
+    expect(buildProvider).toHaveBeenCalledWith('stale', 'retired-model');
+    expect(buildProvider).toHaveBeenCalledWith('other', 'model-b');
+    expect(ctx.model).toBe('model-b');
+  });
+
+  // The gate itself must survive: a request-shaped PRIMARY failure still
+  // refuses to hop at all, because it would fail identically anywhere.
+  it('still refuses to hop when the TRIGGERING error is request-shaped', async () => {
+    const { ext, ctx, request, buildProvider } = makeHarness();
+    const inner = vi
+      .fn()
+      .mockRejectedValueOnce(new ProviderError('bad request', 400, false, 'primary'));
+
+    await expect(ext.wrapProviderRunner?.(ctx, request, inner)).rejects.toThrow('bad request');
+    expect(buildProvider).not.toHaveBeenCalled();
+    expect(inner).toHaveBeenCalledTimes(1);
+  });
 });
