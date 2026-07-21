@@ -53,6 +53,9 @@ function applyOpenRouter(body: Record<string, unknown>, req: Request): void {
 }
 
 function applyDeepSeek(body: Record<string, unknown>, req: Request): void {
+  // Older/unknown DeepSeek models keep the generic compatible contract.
+  // V4 is the first family with this exact thinking/effort combination.
+  if (!req.model.toLowerCase().includes('deepseek-v4')) return;
   delete body['reasoning_effort'];
   const r = req.reasoning;
   if (r?.enabled !== undefined) {
@@ -105,7 +108,6 @@ function applyKimi(body: Record<string, unknown>, req: Request): void {
 }
 
 function applyZai(body: Record<string, unknown>, req: Request): void {
-  delete body['reasoning_effort'];
   const r = req.reasoning;
   if (r?.enabled !== undefined) {
     body['thinking'] = { type: r.enabled ? 'enabled' : 'disabled' };
