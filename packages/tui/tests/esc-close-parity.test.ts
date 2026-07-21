@@ -56,7 +56,7 @@ const TOGGLE_PANELS: Array<{ field: string; setState: (s: ReturnType<typeof base
   { field: 'worktreeMonitorOpen', setState: (s) => { s.worktreeMonitorOpen = true; } },
   { field: 'coordinator.monitorOpen', setState: (s) => { s.coordinator = { ...s.coordinator, monitorOpen: true }; } },
   { field: 'goalRun.monitorOpen', setState: (s) => { if (s.goalRun) s.goalRun = { ...s.goalRun, monitorOpen: true }; } },
-  { field: 'sddBoard.monitorOpen', setState: (s) => { s.sddBoard = { monitorOpen: true, phases: undefined, {}, focusColumn: -1 }; } },
+  { field: 'sddBoard.monitorOpen', setState: (s) => { s.sddBoard = { monitorOpen: true } as never; } },
   { field: 'settingsPicker.open', setState: (s) => { s.settingsPicker = { ...s.settingsPicker, open: true }; } },
   { field: 'statuslinePicker.open', setState: (s) => { s.statuslinePicker = { ...s.statuslinePicker, open: true }; } },
   { field: 'projectPicker.open', setState: (s) => { s.projectPicker = { ...s.projectPicker, open: true }; } },
