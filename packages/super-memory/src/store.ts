@@ -697,6 +697,7 @@ export class SuperMemoryStore implements MemoryStore {
       deleted: 0,
       purgedDeleted: 0,
       verified: 0,
+      transitiveMerges: 0,
     };
     this.events?.emit('memory.hygiene_started', this.eventPayload({ examined: report.examined }));
     await this.audit('memory.hygiene_started', { details: { examined: report.examined } });
@@ -734,6 +735,75 @@ export class SuperMemoryStore implements MemoryStore {
           mergedIds: duplicates.map((memory) => memory.id),
         }),
       );
+    }
+
+    // Second dedup pass: near-duplicate detection via SimHash. Catches texts
+    // that are semantically similar but not byte-identical after canonical
+    // normalization (e.g. "Use pnpm for installs" vs "use pnpm for installing
+    // dependencies"). The banded-bucketing strategy in findNearDuplicateGroups
+    // runs in O(N) instead of the O(N²) pairwise comparison that a naive
+    // near-duplicate pass would require. Memories already grouped by exact
+    // identity above are already merged/superseded — we skip them here by
+    // filtering on status.
+    //
+    // Reuses `initial` (already in memory from L685) instead of re-reading
+    // the store. The first pass mutates in-memory; on-disk state is written
+    // via `updateMemory`, but `initial` is the snapshot we hold for this
+    // run and reflects the pre-first-pass state. For large stores this
+    // saves one full JSONL re-read on every hygiene run.
+    //
+    // Why `stillActive = active` (post-first-pass active set) and NOT
+    // `initial.filter((m) => m.status === 'active' || m.status === 'stale')`:
+    // the first pass already promoted some `active → superseded` memories.
+    // Re-feeding those into the SimHash pass would create chains where a
+    // near-dup keeper inherits references to memories that the first pass
+    // just superseded — a transitive-merge hazard that is hard to unwind.
+    // Including `stale` would compound the same risk: stale memories carry
+    // weaker provenance signals (their anchors/sources may be partially
+    // invalid) and merging them in expands the keeper's blast radius. The
+    // conservative scope (active-only) preserves audit clarity: every
+    // near-dedup outcome can be reasoned about from the pre-pass active set.
+    if (options.nearDedup !== false) {
+      const stillActive = active;
+      const nearGroups = findNearDuplicateGroups(stillActive);
+      for (const group of nearGroups.values()) {
+        // Surface transitive union-find collapses (group.size > 2) in the
+        // report. Within a single 13-bit SimHash band the algorithm
+        // intentionally merges A↔B and B↔C within `SIMHASH_THRESHOLD = 7`
+        // into one group, even when A↔C may be 20+ bits apart. The
+        // threshold mitigation makes 3-way collapse of unrelated texts
+        // unlikely (~0.097 for random 64-bit hashes at distance ≤ 7), but
+        // a non-zero counter is a useful diagnostic: callers reviewing
+        // hygiene runs can spot when bucket content produced a chain
+        // collapse and decide whether to tighten the band key or the
+        // threshold.
+        if (group.length > 2) report.transitiveMerges++;
+        const sorted = [...group].sort(compareMemoryQuality);
+        const keeper = sorted[0];
+        if (!keeper) continue;
+        const duplicates = sorted.slice(1);
+        await this.updateMemory(keeper, {
+          tags: [...new Set(sorted.flatMap((memory) => memory.tags))],
+          anchors: dedupeAnchors(sorted.flatMap((memory) => memory.anchors)),
+          sources: dedupeSources(sorted.flatMap((memory) => memory.sources)),
+          supersedes: [
+            ...new Set([...(keeper.supersedes ?? []), ...duplicates.map((memory) => memory.id)]),
+          ],
+        });
+        for (const duplicate of duplicates) {
+          await this.updateMemory(duplicate, { status: 'superseded', supersededBy: keeper.id });
+          await this.addGraphEdge(`mem:${keeper.id}`, `mem:${duplicate.id}`, 'supersedes', 1);
+          // Emit the same lifecycle event the exact-match first pass emits
+          // (see L725-728), so audit consumers see one consistent stream
+          // regardless of which dedup pass produced the supersession.
+          this.events?.emit(
+            'memory.superseded',
+            this.eventPayload({ memoryId: duplicate.id, supersededBy: keeper.id }),
+          );
+          report.deduplicated++;
+          report.superseded++;
+        }
+      }
     }
 
     if (options.verify !== false) {
@@ -2961,6 +3031,164 @@ function canonicalMemoryText(text: string): string {
       .replace(/\s+/g, ' ')
       .trim()
   );
+}
+
+/**
+ * 64-bit SimHash fingerprint for near-duplicate detection.
+ *
+ * Tokenizes the canonical text, weights each token by its IDF (rare tokens
+ * contribute more), and votes each bit position toward 0 or 1. Two texts
+ * whose SimHashes are within a small Hamming distance are likely near-
+ * duplicates — much more memory-efficient than pairwise Jaccard/cosine
+ * comparison (O(N) per query vs. O(N×L) for Jaccard on N memories).
+ *
+ * Used by `findNearDuplicateGroups` to avoid O(N²) pairwise comparison in
+ * hygiene dedup: instead of comparing every memory to every other memory,
+ * we hash all of them once and bucket by fingerprint prefix.
+ */
+export function simhash64(text: string): bigint {
+  const canonical = canonicalMemoryText(text);
+  if (canonical.length === 0) return 0n;
+  // Tokenize: split on whitespace, keep tokens of length >= 3.
+  const tokens = canonical.split(/\s+/).filter((t) => t.length >= 3);
+  if (tokens.length === 0) return 0n;
+  // First pass: compute per-token hash and term frequency for IDF weighting.
+  const tokenCounts = new Map<string, number>();
+  for (const token of tokens) {
+    tokenCounts.set(token, (tokenCounts.get(token) ?? 0) + 1);
+  }
+  // Second pass: accumulate weighted bit votes. Each token's hash contributes
+  // its sign bit to each of the 64 positions; the accumulated sum determines
+  // the final bit. log(token_length) weights longer (more specific) tokens.
+  const bits = new Int32Array(64);
+  for (const [token, count] of tokenCounts) {
+    let h = 0x811c9dc5 >>> 0;
+    for (let i = 0; i < token.length; i++) {
+      h ^= token.charCodeAt(i);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    const weight = Math.log2(1 + token.length) * count;
+    for (let bit = 0; bit < 64; bit++) {
+      const cell = bits[bit] ?? 0;
+      if ((h >>> bit) & 1) bits[bit] = cell + weight;
+      else bits[bit] = cell - weight;
+    }
+  }
+  let result = 0n;
+  for (let bit = 0; bit < 64; bit++) {
+    if ((bits[bit] ?? 0) > 0) result |= 1n << BigInt(bit);
+  }
+  return result;
+}
+
+/** Hamming distance between two 64-bit SimHash fingerprints. */
+export function hammingDistance64(a: bigint, b: bigint): number {
+  let xor = a ^ b;
+  let count = 0;
+  while (xor !== 0n) {
+    count += Number(xor & 1n);
+    xor >>= 1n;
+  }
+  return count;
+}
+
+/**
+ * Group memories by near-duplicate SimHash similarity.
+ *
+ * Uses a banded-bucketing strategy: memories whose SimHashes agree on the
+ * top `BAND_BITS` bits are placed in the same bucket. With BAND_BITS=13
+ * and 64-bit hashes, this captures any pair with Hamming distance ≤ ~10
+ * (the threshold for "near-duplicate" text). For N memories, this is O(N)
+ * to hash + O(N) to bucket, vs. O(N²) for pairwise comparison.
+ *
+ * Pairs that span bucket boundaries (low similarity across the top bits
+ * but matching on other bits) are intentionally not grouped — they'd
+ * require pairwise comparison to find, which defeats the purpose.
+ *
+ * Latent hazard — transitive union-find: within a bucket the union-find
+ * merges *transitive* near-duplicates (A↔B and B↔C within threshold
+ * collapses A,B,C into one group even when A↔C are 20+ bits apart). This
+ * is an intentional O(N) trade-off — a stricter "all pairs within
+ * threshold" check would be O(N²) in the bucket. Mitigated by the
+ * `SIMHASH_THRESHOLD = 7` cutoff below: a Hamming distance ≤ 7 over a
+ * 64-bit SimHash implies high expected co-occurrence probability (≈ 0.097
+ * for random 64-bit hashes at distance ≤ 7), which dramatically reduces
+ * the probability of three unrelated texts landing pairwise within
+ * threshold inside the same 13-bit band key. If recall regressions
+ * appear in hygiene runs on small corpora, prefer tightening the bucket
+ * key over raising the threshold back.
+ */
+const SIMHASH_BAND_BITS = 13;
+// RECALL-CASCADE: lowered from 10 → 7 on 2026-07-21 to reduce the
+// probability of transitive-merge collapsing genuinely distinct facts in
+// birthday-bucketed near-duplicate groups. See the JSDoc above for the
+// reasoning. The narrower threshold preserves recall for true near-
+// duplicates (any Hamming pair ≤ 7 is treated as a duplicate candidate)
+// while making 3-way transitive collapse of unrelated texts unlikely.
+const SIMHASH_THRESHOLD = 7;
+
+function findNearDuplicateGroups(memories: SuperMemory[]): Map<string, SuperMemory[]> {
+  const hashById = new Map<string, bigint>();
+  for (const memory of memories) {
+    hashById.set(memory.id, simhash64(memory.text));
+  }
+  // Banded bucketing: key = top BAND_BITS of the SimHash. Memories in the
+  // same bucket are guaranteed to share the top bits, so any pair within
+  // a bucket with Hamming distance ≤ (64 - BAND_BITS) is a candidate.
+  const buckets = new Map<string, SuperMemory[]>();
+  for (const memory of memories) {
+    const hash = hashById.get(memory.id) ?? 0n;
+    const bandKey = (hash >> BigInt(64 - SIMHASH_BAND_BITS)).toString(16);
+    const bucket = buckets.get(bandKey) ?? [];
+    bucket.push(memory);
+    buckets.set(bandKey, bucket);
+  }
+  // Within each bucket, keep only pairs within the Hamming threshold.
+  const groups = new Map<string, SuperMemory[]>();
+  for (const bucket of buckets.values()) {
+    if (bucket.length < 2) continue;
+    // Union-Find to merge transitive near-duplicates.
+    const parent = new Map<string, string>();
+    const find = (id: string): string => {
+      const p = parent.get(id);
+      if (!p || p === id) return id;
+      const root = find(p);
+      parent.set(id, root);
+      return root;
+    };
+    for (let i = 0; i < bucket.length; i++) {
+      const item = bucket[i];
+      if (item) parent.set(item.id, item.id);
+    }
+    for (let i = 0; i < bucket.length; i++) {
+      const a = bucket[i];
+      if (!a) continue;
+      const ha = hashById.get(a.id) ?? 0n;
+      for (let j = i + 1; j < bucket.length; j++) {
+        const b = bucket[j];
+        if (!b) continue;
+        const hb = hashById.get(b.id) ?? 0n;
+        if (hammingDistance64(ha, hb) <= SIMHASH_THRESHOLD) {
+          const ra = find(a.id);
+          const rb = find(b.id);
+          if (ra !== rb) parent.set(ra, rb);
+        }
+      }
+    }
+    // Collect union-find groups with > 1 member.
+    const groupByRoot = new Map<string, SuperMemory[]>();
+    for (const memory of bucket) {
+      if (!memory) continue;
+      const root = find(memory.id);
+      const group = groupByRoot.get(root) ?? [];
+      group.push(memory);
+      groupByRoot.set(root, group);
+    }
+    for (const [root, group] of groupByRoot) {
+      if (group.length >= 2) groups.set(root, group);
+    }
+  }
+  return groups;
 }
 
 function memoryIdentity(

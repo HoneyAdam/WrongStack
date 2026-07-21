@@ -317,6 +317,26 @@ export interface SuperMemoryHygieneOptions {
   unusedMinInjections?: number | undefined;
   verify?: boolean | undefined;
   /**
+   * Run a second dedup pass that catches near-duplicate texts (semantically
+   * similar but not byte-identical after canonical normalization) via SimHash
+   * bucketing. Default: true.
+   *
+   * Set to `false` to skip the pass for any of:
+   * - Small corpora (< ~200 active memories) where the O(N) bucketing cost
+   *   is dominated by the I/O of `updateMemory` writes, not by the analysis.
+   * - Experimental recall-tuning sessions where you want exact-match dedup
+   *   behavior preserved verbatim so you can isolate recall regressions to
+   *   the cache layer rather than the dedup layer.
+   * - Stores where transitive-merge audit clarity matters more than recall
+   *   compression — the near-dedup keeper inherits the merged `tags` /
+   *   `anchors` / `sources` of all near-duplicate members, which can
+   *   obscure the provenance of any single memory.
+   *
+   * The pass only operates on the post-first-pass `active` set, so memories
+   * already superseded by exact-identity dedup are not re-fed in.
+   */
+  nearDedup?: boolean | undefined;
+  /**
    * OPT-IN, destructive: physically remove records that are ALREADY
    * `status: 'deleted'` and whose deletion is older than this many days,
    * compacting them out of the JSONL log entirely.
@@ -359,6 +379,15 @@ export interface SuperMemoryHygieneReport {
    */
   purgedDeleted: number;
   verified: number;
+  /**
+   * Number of near-dup groups in the SimHash pass whose size exceeded 2
+   * (transitive union-find collapse). See `findNearDuplicateGroups` for the
+   * trade-off; the `SIMHASH_THRESHOLD = 7` mitigation makes 3-way collapse
+   * of unrelated texts unlikely, but a non-zero counter on a real corpus
+   * is a signal that the threshold or band-bits may want re-tuning.
+   * Always 0 when `nearDedup === false`.
+   */
+  transitiveMerges: number;
 }
 
 /**

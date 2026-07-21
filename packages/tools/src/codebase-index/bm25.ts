@@ -61,22 +61,11 @@ export function buildBm25Index(docs: IndexableDoc[]): Bm25Index {
     return { id: d.id, tokens, raw: d.text, len: tokens.length };
   });
 
-  const df: Record<string, number> = {};
-  for (const doc of documents) {
-    const seen = new Set<string>();
-    for (const t of doc.tokens) {
-      if (!seen.has(t)) {
-        df[t] = (df[t] ?? 0) + 1;
-        seen.add(t);
-      }
-    }
-  }
-
   const N = documents.length;
   const totalLen = documents.reduce((sum, d) => sum + d.len, 0);
   const avgLen = N === 0 ? 0 : totalLen / N;
 
-  return new Bm25Index(documents, df, N, avgLen);
+  return new Bm25Index(documents, N, avgLen);
 }
 
 export class Bm25Index {
@@ -84,7 +73,6 @@ export class Bm25Index {
 
   constructor(
     private documents: Bm25Doc[],
-    _df: Record<string, number>,
     private N: number,
     avgLen: number,
   ) {
@@ -94,6 +82,21 @@ export class Bm25Index {
   score(query: string, filter?: (id: number) => boolean): Array<{ id: number; score: number }> {
     const qTokens = tokenise(query);
     if (qTokens.length === 0) return [];
+
+    // Precompute document frequency per query term once, outside the
+    // per-document loop. The SQLite FTS path uses token-prefix matching;
+    // we mirror that contract here so fallback ranking has identical recall.
+    // Previously this was recomputed for every (document, term) pair —
+    // O(D²QT) — making large indexes (5500+ symbols) hit the 30s search
+    // watchdog on every query.
+    const dfByTerm = new Map<string, number>();
+    for (const qTerm of qTokens) {
+      let dfVal = 0;
+      for (const candidate of this.documents) {
+        if (candidate.tokens.some((t) => t.startsWith(qTerm))) dfVal++;
+      }
+      dfByTerm.set(qTerm, dfVal);
+    }
 
     const results: Array<{ id: number; score: number }> = [];
 
@@ -108,13 +111,7 @@ export class Bm25Index {
         }
         if (tf === 0) continue;
 
-        // The SQLite FTS path uses token-prefix matching. Compute document
-        // frequency with the same contract so fallback ranking has identical
-        // recall instead of selecting LIKE candidates and then dropping them.
-        let dfVal = 0;
-        for (const candidate of this.documents) {
-          if (candidate.tokens.some((t) => t.startsWith(qTerm))) dfVal++;
-        }
+        const dfVal = dfByTerm.get(qTerm) ?? 0;
         if (dfVal === 0) continue;
 
         const idf = Math.log((this.N - dfVal + 0.5) / (dfVal + 0.5) + 1);

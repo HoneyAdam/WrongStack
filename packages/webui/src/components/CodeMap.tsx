@@ -113,8 +113,21 @@ const AGENT_COLORS = [
   'bg-destructive text-destructive-foreground',
 ] as const;
 
+/**
+ * Module-level memo cache for `normalizedPath`. Path strings are stable
+ * across renders — the same file path always normalizes to the same string —
+ * so caching by the raw input is safe and eliminates the per-render regex
+ * cost. `sameFile()` calls `normalizedPath` twice per comparison, and
+ * `activityMatchesNode` invokes it once per activity × node pair, so the
+ * total call count can reach 10K+ per render for medium graphs.
+ */
+const normalizedPathCache = new Map<string, string>();
 function normalizedPath(filePath: string): string {
-  return filePath.replace(/\\/g, '/').replace(/^\.\//, '').toLocaleLowerCase();
+  const cached = normalizedPathCache.get(filePath);
+  if (cached !== undefined) return cached;
+  const normalized = filePath.replace(/\\/g, '/').replace(/^\.\//, '').toLocaleLowerCase();
+  normalizedPathCache.set(filePath, normalized);
+  return normalized;
 }
 
 function sameFile(left: string | undefined, right: string | undefined): boolean {
@@ -1932,7 +1945,7 @@ function CodeMapInner(): React.ReactElement {
               nodesDraggable={false}
               edgesFocusable={false}
               elementsSelectable={false}
-              onlyRenderVisibleElements={canvasGraph.nodes.length > 80}
+              onlyRenderVisibleElements={canvasGraph.nodes.length > 30}
               minZoom={0.08}
               maxZoom={2.2}
               proOptions={{ hideAttribution: true }}
