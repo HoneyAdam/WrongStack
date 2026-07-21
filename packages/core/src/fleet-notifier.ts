@@ -25,6 +25,7 @@
  */
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { isPidAlive } from './utils/pid.js';
 
 const INSTANCES_FILE = 'webui-instances.json';
 const DISCOVERY_TTL_MS = 2_500;
@@ -38,15 +39,8 @@ interface InstanceRecordLike {
   projectRoot: string;
 }
 
-function pidAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code !== 'ESRCH';
-  }
-}
+/** Shared probe — see utils/pid.ts. */
+const pidAlive = isPidAlive;
 
 /** Normalise a project root for cross-process comparison (case-insensitive on Windows). */
 function normRoot(root: string): string {

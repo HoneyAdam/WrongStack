@@ -44,6 +44,7 @@ import * as fsp from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { isPidAlive } from '../utils/pid.js';
 
 export const MAILBOX_BRIDGE_LOCK_FILENAME = '.mailbox-bridge.lock';
 export const MAILBOX_BRIDGE_TOKEN_FILENAME = '.mailbox.token';
@@ -356,6 +357,10 @@ async function atomicWriteJson(targetPath: string, value: unknown): Promise<void
 function isProcessAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   if (pid === process.pid) return true;
+  // win32: tasklist is AUTHORITATIVE here and must run first. `process.kill`
+  // can report a terminated-but-unreaped pid as alive, and this predicate
+  // decides whether a lock may be broken — a false "alive" wedges every
+  // subsequent boot into `unhealthy` with no bridge. Prefer the subprocess.
   if (os.platform() === 'win32') {
     try {
       const out = execFileSync('tasklist', ['/FI', `PID eq ${pid}`, '/NH', '/FO', 'CSV'], {
@@ -372,12 +377,9 @@ function isProcessAlive(pid: number): boolean {
       return false;
     }
   }
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
-  }
+  // POSIX: the shared probe, which reports EPERM ("alive, not ours to
+  // signal") as alive rather than dead.
+  return isPidAlive(pid);
 }
 
 /**

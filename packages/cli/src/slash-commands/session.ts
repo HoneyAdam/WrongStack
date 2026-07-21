@@ -1,5 +1,5 @@
 import type { SessionRegistry, SlashCommand } from '@wrongstack/core';
-import { color, SessionRecovery } from '@wrongstack/core';
+import { color, isPidAlive, SessionRecovery } from '@wrongstack/core';
 import type { SlashCommandContext } from './index.js';
 import { toErrorMessage } from '@wrongstack/core/utils';
 
@@ -557,10 +557,9 @@ async function killSession(
     };
   }
 
-  // Check if the process is still alive
-  try {
-    process.kill(entry.pid, 0);
-  } catch {
+  // Check if the process is still alive. Uses the shared probe so an EPERM
+  // (alive, owned by another user) isn't reported to the user as "gone".
+  if (!isPidAlive(entry.pid)) {
     return {
       message: color.dim(
         `Session ${sessionId} (PID ${entry.pid}) is no longer running. It will be pruned automatically.`,

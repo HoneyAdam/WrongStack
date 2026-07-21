@@ -259,6 +259,38 @@ describe('cross-process session discovery', () => {
     expect(active.find((s) => s.sessionId === 'sess-dead')).toBeUndefined();
   });
 
+  it('drops a dead PID after two missed heartbeats, not a full stale window', async () => {
+    // Regression: the PID probe used to sit behind STALE_TIMEOUT_MS (30s), so
+    // a session killed without markClosing (SIGKILL, taskkill /F, the
+    // rapid-Ctrl+C exit path) kept its last written status. For an idle TUI
+    // that status is literally 'idle', so /sessions, Fleet HQ and the HQ
+    // routes all showed a live-looking session on a dead pid for up to 30s.
+    const root = await freshRoot();
+    const reg = new SessionRegistry(root);
+
+    await reg.register({
+      sessionId: 'sess-killed',
+      projectSlug: 'killed',
+      projectRoot: '/killed',
+      projectName: 'Killed Project',
+      workingDir: '/killed',
+      pid: await deadPid(),
+      startedAt: new Date(Date.now() - 60_000).toISOString(),
+    });
+
+    // Age the heartbeat past two beats (10s) but keep it well inside the
+    // 30s stale window — the exact gap the old ordering left uncovered.
+    const registryPath = path.join(root, 'session-registry.json');
+    const data = JSON.parse(await fs.readFile(registryPath, 'utf8')) as Record<string, unknown>;
+    const entry = data['sess-killed'] as Record<string, unknown>;
+    entry['lastHeartbeatAt'] = new Date(Date.now() - 15_000).toISOString();
+    entry['status'] = 'idle';
+    await fs.writeFile(registryPath, JSON.stringify(data, null, 2));
+
+    expect(await reg.get('sess-killed')).toBeUndefined();
+    expect((await reg.list()).find((s) => s.sessionId === 'sess-killed')).toBeUndefined();
+  });
+
   it('agent status updates are reflected in discovery', async () => {
     const root = await freshRoot();
     const reg = new SessionRegistry(root);

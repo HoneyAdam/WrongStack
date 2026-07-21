@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { SessionStore } from '../types/session.js';
 import { ensureDir } from '../utils/atomic-write.js';
+import { isPidAlive } from '../utils/pid.js';
 
 /**
  * Per-project lockfile used for crash detection. The CLI writes one of
@@ -224,24 +225,5 @@ function isLockFile(v: unknown): v is LockFile {
   );
 }
 
-/**
- * Probe whether a process is alive without sending it a real signal.
- *
- * Unix: `process.kill(pid, 0)` succeeds for our own processes, throws
- *   EPERM for others (still alive, just not ours), and throws ESRCH
- *   when the PID is gone.
- * Windows (Node 22+): same call returns true if the process exists,
- *   throws otherwise.
- */
-function defaultIsPidAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    /* v8 ignore next -- platform/permission-specific: EPERM means alive but owned by another user */
-    if (code === 'EPERM') return true; // alive, but owned by someone else
-    return false;
-  }
-}
+/** Default probe — the shared helper. Tests inject a deterministic stub. */
+const defaultIsPidAlive = isPidAlive;

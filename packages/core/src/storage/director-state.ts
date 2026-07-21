@@ -2,6 +2,7 @@ import * as fsp from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { atomicWrite } from '../utils/atomic-write.js';
 import { toErrorMessage } from '../utils/error.js';
+import { isPidAlive } from '../utils/pid.js';
 
 /**
  * Director state checkpoint — written incrementally throughout a fleet
@@ -122,15 +123,14 @@ export async function acquireDirectorStateLock(
   if (existing) {
     try {
       const lock = JSON.parse(existing) as DirectorStateLock;
-      // Check if the process is still alive
-      try {
-        process.kill(lock.pid, 0);
-        // Signal success means the process is alive — another director
-        // owns this checkpoint. Refuse.
-        return false;
-      } catch {
-        // ESRCH means the process is dead — stale lock. We'll overwrite.
-      }
+      // A live owner still holds this checkpoint — refuse. Only a genuinely
+      // dead pid makes the lock stale and overwritable.
+      //
+      // This used to inline `process.kill(lock.pid, 0)` with a bare catch,
+      // which treated EPERM ("alive, but you may not signal it" — another
+      // user, or an elevated process) as dead and stole the lock from a
+      // running director. isPidAlive reports EPERM as alive.
+      if (isPidAlive(lock.pid)) return false;
     } catch {
       // Malformed lock — treat as stale.
     }

@@ -16,6 +16,7 @@
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { isPidAlive } from './utils/pid.js';
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -168,6 +169,10 @@ export interface SessionRegistryEntry {
 const REGISTRY_FILE = 'session-registry.json';
 const HEARTBEAT_INTERVAL_MS = 5_000;
 const STALE_TIMEOUT_MS = 30_000; // entry considered stale after 30s without heartbeat
+// A live session heartbeats every HEARTBEAT_INTERVAL_MS, so two missed beats
+// already mean something is wrong — cheap enough to confirm with a PID probe
+// from then on, instead of waiting out the full stale window.
+const PID_CHECK_AFTER_MS = HEARTBEAT_INTERVAL_MS * 2;
 // A session that announced `closing` (heartbeat stopped) is dropped this long
 // after its last heartbeat, so the fleet view doesn't keep a dead client around.
 const CLOSING_GRACE_MS = 15_000;
@@ -186,14 +191,12 @@ const MAX_STALE_TMP_FILES = 20;
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-function pidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
+/**
+ * Liveness probe for registry entries. Delegates to the shared helper so this
+ * module can't drift back to the bare-catch variant, which reported a live
+ * but non-signalable process (EPERM) as dead and pruned its session.
+ */
+const pidAlive = isPidAlive;
 
 /**
  * Parse registry file contents, tolerating corruption. A system crash can
@@ -276,7 +279,7 @@ export class SessionRegistry {
           continue;
         }
         const heartbeatAge = now - new Date(existing.lastHeartbeatAt).getTime();
-        if (heartbeatAge > STALE_TIMEOUT_MS && !pidAlive(existing.pid)) {
+        if (heartbeatAge > PID_CHECK_AFTER_MS && !pidAlive(existing.pid)) {
           delete registry[id];
         }
       }
@@ -463,11 +466,24 @@ export class SessionRegistry {
           pruned = true;
           continue;
         }
+        // A dead PID is definitive, and this probe used to sit behind the full
+        // STALE_TIMEOUT_MS window. That meant a session killed without
+        // `markClosing` (SIGKILL, taskkill /F, the rapid-Ctrl+C
+        // `process.exit(130)` path) kept its last written status — for an idle
+        // TUI, literally `'idle'` — so every reader showed a live-looking
+        // session on a dead pid for up to 30s. Probing after two missed
+        // heartbeats cuts that to ~10s while still leaving healthy entries
+        // (which heartbeat every 5s) untouched on the hot read path.
+        if (heartbeatAge > PID_CHECK_AFTER_MS && !pidAlive(entry.pid)) {
+          delete registry[id];
+          pruned = true;
+          continue;
+        }
         if (heartbeatAge <= STALE_TIMEOUT_MS) continue;
 
-        // A dead PID is definitive. A live PID can still be an orphaned Node
-        // host, so it receives only a short lost grace before expiry.
-        if (!pidAlive(entry.pid) || heartbeatAge > STALE_TIMEOUT_MS + LOST_GRACE_MS) {
+        // Live PID but no heartbeat: can be an orphaned Node host, so it gets
+        // a short lost grace before expiry.
+        if (heartbeatAge > STALE_TIMEOUT_MS + LOST_GRACE_MS) {
           delete registry[id];
           pruned = true;
           continue;

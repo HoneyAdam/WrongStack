@@ -11,7 +11,13 @@
 import * as fs from 'node:fs/promises';
 import * as net from 'node:net';
 import * as path from 'node:path';
-import { color, HQ_CLI_DEFAULT_HOST, isLoopbackHost, resolveHqDataDir } from '@wrongstack/core';
+import {
+  color,
+  HQ_CLI_DEFAULT_HOST,
+  isLoopbackHost,
+  isPidAlive,
+  resolveHqDataDir,
+} from '@wrongstack/core';
 import { DEFAULT_PORT } from '../hq-server.js';
 import type { HqQuickTunnelHandle } from '../hq-tunnel.js';
 
@@ -32,15 +38,10 @@ async function isHqAlreadyRunning(dataDir: string): Promise<HqRuntimeMarker | nu
     fd = await fs.open(markerPath, 'r');
     const content = await fd.read().then(({ buffer }) => buffer.toString('utf8'));
     const marker = JSON.parse(content) as HqRuntimeMarker;
-    if (marker.pid) {
-      try {
-        // Signal 0 checks if the process exists without sending anything.
-        process.kill(marker.pid, 0);
-        return marker; // PID is alive
-      } catch {
-        // PID is dead — stale marker, ignore.
-      }
-    }
+    // A live pid means an HQ is already up and we should attach to it. The
+    // inline `process.kill` this replaced treated EPERM as dead, so an HQ
+    // owned by another user would be missed and a second one started on top.
+    if (marker.pid && isPidAlive(marker.pid)) return marker;
     return null;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
