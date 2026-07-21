@@ -27,6 +27,15 @@ export interface SuperMemoryWiringDeps {
 let lastAutoHygieneAt = 0;
 const AUTO_HYGIENE_INTERVAL_MS = 60 * 60_000; // 1 hour
 
+/**
+ * Test-only: reset the auto-hygiene throttle so the next teardown always
+ * runs hygiene. Used by the regression test to verify the throttle skips
+ * on the second call within the interval.
+ */
+export function _resetAutoHygieneThrottleForTesting(): void {
+  lastAutoHygieneAt = 0;
+}
+
 export function setupSuperMemory(deps: SuperMemoryWiringDeps): () => Promise<void> {
   const cfg = deps.config.superMemory;
   const noop = async () => {};
