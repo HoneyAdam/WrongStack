@@ -89,6 +89,18 @@ export function resolveDistDir(explicitDistDir?: string): string | null {
 }
 
 /**
+ * Injectable seams for `ensureDistDir`. Both default to the real
+ * implementations; tests override them to assert the auto-build path
+ * without spawning `pnpm` or walking the real filesystem.
+ */
+export interface EnsureDistDeps {
+  /** Build command runner (tests override to no-op or assert cwd). */
+  runBuild?: (cwd: string) => void;
+  /** Workspace-root finder (tests return a fake monorepo root). */
+  findWorkspaceRoot?: (packageDir: string) => string | null;
+}
+
+/**
  * Resolve the WebUI dist, auto-building it when missing.
  *
  * Mirrors the SimpleUI cold-start recovery in `simpleui-dist.ts`:
@@ -98,41 +110,61 @@ export function resolveDistDir(explicitDistDir?: string): string | null {
  * retries resolution. Falls back to `null` (WS-only) if the build
  * fails or the package cannot be resolved.
  */
-export function ensureDistDir(explicitDistDir?: string): string | null {
+export function ensureDistDir(
+  explicitDistDir?: string,
+  deps: EnsureDistDeps = {},
+): string | null {
   const resolved = resolveDistDir(explicitDistDir);
   if (resolved !== null) return resolved;
   if (explicitDistDir) return null; // explicit path given but missing — don't guess
 
   // Locate the workspace root to run the pnpm build command.
-  const requireFromHere = createRequire(import.meta.url);
   let packageDir: string;
   try {
-    packageDir = path.dirname(requireFromHere.resolve('@wrongstack/webui/package.json'));
+    packageDir = path.dirname(
+      createRequire(import.meta.url).resolve('@wrongstack/webui/package.json'),
+    );
   } catch {
     return null; // package not resolvable — can't auto-build
   }
 
-  let workspaceRoot: string | null = null;
-  let dir = packageDir;
-  for (let i = 0; i < 10; i++) {
-    if (existsSync(path.join(dir, 'pnpm-workspace.yaml'))) {
-      workspaceRoot = dir;
-      break;
-    }
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  if (!workspaceRoot) return null; // not in a pnpm workspace — can't auto-build
+  const findRoot =
+    deps.findWorkspaceRoot ??
+    ((pkgDir: string): string | null => {
+      let dir = pkgDir;
+      for (let i = 0; i < 10; i++) {
+        if (existsSync(path.join(dir, 'pnpm-workspace.yaml'))) return dir;
+        const parent = path.dirname(dir);
+        if (parent === dir) return null;
+        dir = parent;
+      }
+      return null; // not in a pnpm workspace — can't auto-build
+    });
 
-  console.warn(JSON.stringify({ level: 'warn', event: 'webui.auto_build', message: 'Frontend not built — building now', timestamp: new Date().toISOString() }));
+  const workspaceRoot = findRoot(packageDir);
+  if (workspaceRoot === null) return null;
+
+  console.warn(
+    JSON.stringify({
+      level: 'warn',
+      event: 'webui.auto_build',
+      message: 'Frontend not built — building now',
+      timestamp: new Date().toISOString(),
+    }),
+  );
+
+  const runBuild =
+    deps.runBuild ??
+    ((cwd: string): void => {
+      execSync('pnpm --filter @wrongstack/webui build', {
+        cwd,
+        stdio: 'inherit',
+        timeout: 180_000,
+      });
+    });
 
   try {
-    execSync('pnpm --filter @wrongstack/webui build', {
-      cwd: workspaceRoot,
-      stdio: 'inherit',
-      timeout: 180_000,
-    });
+    runBuild(workspaceRoot);
   } catch {
     return null; // build failed — degrade to WS-only
   }
@@ -147,7 +179,9 @@ export function ensureDistDir(explicitDistDir?: string): string | null {
  * a real port.
  */
 export interface StaticServeDeps {
-  resolveDist?: (explicitDistDir?: string) => string | null;
+  resolveDist?: (explicitDistDir?: string, deps?: EnsureDistDeps) => string | null;
+  ensureDist?: (explicitDistDir?: string, deps?: EnsureDistDeps) => string | null;
+  ensureDistDeps?: EnsureDistDeps;
   createServer?: (opts: CreateHttpServerOptions) => Server;
 }
 
@@ -156,9 +190,15 @@ export function startStaticServe(
   deps: StaticServeDeps = {},
 ): StaticServeHandle | null {
   const resolveDist = deps.resolveDist ?? ensureDistDir;
+  const ensureDist = (explicit: string | undefined) =>
+    deps.ensureDist
+      ? deps.ensureDist(explicit, deps.ensureDistDeps)
+      : ensureDistDir(explicit, deps.ensureDistDeps);
   const create = deps.createServer ?? createHttpServer;
 
-  const distDir = resolveDist(opts.distDir);
+  const distDir = deps.resolveDist
+    ? resolveDist(opts.distDir, deps.ensureDistDeps)
+    : ensureDist(opts.distDir);
   if (distDir === null) return null;
 
   const server = create({
