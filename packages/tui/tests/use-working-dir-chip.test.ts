@@ -1,7 +1,6 @@
 import React from 'react';
 import { render } from 'ink-testing-library';
-import { act } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Text } from '../src/ink.js';
 import type { Context } from '@wrongstack/core';
 import { formatWorkingDirChip, useWorkingDirChip } from '../src/hooks/use-working-dir-chip.js';

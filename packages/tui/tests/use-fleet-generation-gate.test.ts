@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import React, { useState } from 'react';
 import { render } from 'ink-testing-library';
 import { Text } from '../src/ink.js';

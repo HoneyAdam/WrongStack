@@ -220,7 +220,7 @@ describe('queue-slash.ts — delete edge cases', () => {
   it('delete with "del" alias works', async () => {
     const { handleQueueCommand } = await import('../src/queue-slash.js');
     let deletedPositions: number[] = [];
-    const _result = handleQueueCommand('del 1', {
+    handleQueueCommand('del 1', {
       getQueue: () => [{ id: 'q1', displayText: 'msg', text: 'msg', priority: 'normal', sendMode: 'queue' }],
       clear: () => {},
       deleteAt: (positions: number[]) => { deletedPositions = positions; },
@@ -246,7 +246,7 @@ describe('queue-slash.ts — delete edge cases', () => {
   it('delete with rm alias works', async () => {
     const { handleQueueCommand } = await import('../src/queue-slash.js');
     let called = false;
-    const _result = handleQueueCommand('rm 1', {
+    handleQueueCommand('rm 1', {
       getQueue: () => [{ id: 'q1', displayText: 'm', text: 'm', priority: 'normal', sendMode: 'queue' }],
       clear: () => {},
       deleteAt: () => { called = true; },

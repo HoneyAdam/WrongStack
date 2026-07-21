@@ -1,6 +1,6 @@
 import { render } from 'ink-testing-library';
-import React, { useEffect } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import React from 'react';
+import { describe, expect, it, vi } from 'vitest';
 import { useAutonomousCoordinator } from '../src/hooks/use-autonomous-coordinator.js';
 import { Text } from '../src/ink.js';
 

@@ -1,6 +1,6 @@
 import React from 'react';
 import { render } from 'ink-testing-library';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Text } from '../src/ink.js';
 import {
   statuslineHiddenDiffers,

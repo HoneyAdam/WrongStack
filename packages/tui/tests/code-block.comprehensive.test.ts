@@ -2,9 +2,7 @@ import { render } from 'ink-testing-library';
 import React from 'react';
 import { describe, expect, it } from 'vitest';
 import {
-  CodeBlock,
   DiffBlock,
-  DiffFileBlock,
   applyWashTokens,
   extractDiffPreview,
   extractMultiFileDiffs,
@@ -12,8 +10,6 @@ import {
   formatDiffStats,
   formatMultiDiffSummary,
   summarizeMultiFileDiffs,
-  parseUnifiedDiff,
-  DIFF_MAX_LINES,
   MULTI_DIFF_SUMMARY_THRESHOLD,
 } from '../src/components/history/code-block.js';
 

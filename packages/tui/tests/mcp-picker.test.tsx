@@ -133,9 +133,8 @@ describe('McpPicker', () => {
         selected: 0,
       }),
     );
-    const frame = view.lastFrame() ?? '';
-    // Should still render, fallback status text
-    view.unmount();
+    // Should still render, fallback status text — and unmount cleanly (no throw on unknown status).
+    expect(() => view.unmount()).not.toThrow();
   });
 
   it('renders tool count when > 0', () => {

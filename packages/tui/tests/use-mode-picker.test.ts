@@ -1,6 +1,6 @@
 import { render } from 'ink-testing-library';
 import React from 'react';
-import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Mode } from '@wrongstack/core';
 import { Text } from '../src/ink.js';
 import { buildModePickerOptions, useModePicker, type GetModesResult } from '../src/hooks/use-mode-picker.js';
