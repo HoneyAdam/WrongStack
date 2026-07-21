@@ -55,12 +55,15 @@ export function PreferenceSelect<T extends string>({
   value,
   options,
   onChange,
+  disabled,
 }: {
   label: string;
   hint?: string | undefined;
   value: T;
   options: Array<{ value: T; label: string }>;
   onChange: (v: T) => void;
+  /** Blocks the select while an in-flight write is reconciling. */
+  disabled?: boolean | undefined;
 }) {
   const inputId = useId();
   return (
@@ -72,8 +75,9 @@ export function PreferenceSelect<T extends string>({
       <select
         id={inputId}
         value={value}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.value as T)}
-        className="shrink-0 h-8 rounded-md border bg-background px-2 text-xs"
+        className="shrink-0 h-8 rounded-md border bg-background px-2 text-xs disabled:opacity-50"
       >
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>

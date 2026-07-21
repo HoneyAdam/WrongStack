@@ -1,8 +1,13 @@
 import { Box, Text, useStdout } from '../ink.js';
 import type React from 'react';
 import {
+  BRAIN_READONLY_ROW_KINDS,
+  type BrainDenyIsTerminal,
+  type BrainHeuristicKey,
   type BrainPanelRow,
   type BrainPanelSettings,
+  type BrainTerminalPolicyValue,
+  type BrainTraceContent,
   brainPanelRows,
 } from './brain-panel-model.js';
 
@@ -43,6 +48,32 @@ const RISK_COLORS: Record<BrainRiskLevel, string> = {
   medium: 'yellow',
   high: 'red',
   all: 'magenta',
+};
+
+const TERMINAL_POLICY_DESCS: Record<BrainTerminalPolicyValue, string> = {
+  conservative: 'accept a recommended option at low/medium risk, else deny',
+  'deny-all': 'never auto-accept — every headless escalation denies',
+  'continue-on-recommended': 'accept a recommended option at ANY risk',
+};
+
+const DENY_TERMINAL_DESCS: Record<BrainDenyIsTerminal, string> = {
+  never: 'a deny always falls through to escalation',
+  'when-decided': 'a real refusal is terminal, infra failures fall through',
+  always: 'any deny ends the decision (a dead pool then denies)',
+};
+
+const TRACE_CONTENT_DESCS: Record<BrainTraceContent, string> = {
+  none: 'metadata only — no question/context text on disk',
+  redacted: 'free text truncated',
+  full: 'full content — required for replayable fixtures',
+};
+
+const HEURISTIC_META: Record<BrainHeuristicKey, { label: string; dim: string }> = {
+  lowRiskAutoAnswer: { label: 'low-risk auto', dim: 'auto-answer low-risk asks that carry a recommendation' },
+  blockedResolved: { label: 'blocked-resolved', dim: 'blocked + a resolution marker in context → continue' },
+  deadlockSkip: { label: 'deadlock-skip', dim: 'deadlock + failed work units → skip and continue' },
+  retryExhausted: { label: 'retry-exhausted', dim: 'demonstrably exhausted retries → mark failed, move on' },
+  continuePing: { label: 'continue-ping', dim: 'bare continue ping with no alternative → continue' },
 };
 
 function fmtMs(ms: number | undefined, fallback: string): string {
@@ -122,6 +153,99 @@ function rowText(row: BrainPanelRow, s: BrainPanelSettings): { label: string; va
         value: s.autoDenyAfterFailures === undefined ? 'default (3)' : s.autoDenyAfterFailures === 0 ? 'off' : String(s.autoDenyAfterFailures),
         dim: 'deny after N observed consecutive failures',
       };
+    case 'terminalPolicy':
+      return {
+        label: 'Terminal policy',
+        value: s.terminalPolicy,
+        dim: TERMINAL_POLICY_DESCS[s.terminalPolicy],
+      };
+    case 'heuristic': {
+      const meta = HEURISTIC_META[row.key];
+      return {
+        label: `  ${meta.label}`,
+        value: s.heuristics[row.key] ? 'ON' : 'off',
+        dim:
+          row.key === 'blockedResolved' && s.heuristics.blockedResolvedMarkers?.length
+            ? `${meta.dim} · markers: ${s.heuristics.blockedResolvedMarkers.join(', ')}`
+            : meta.dim,
+      };
+    }
+    case 'llmMaxTokens':
+      return {
+        label: 'LLM max tokens',
+        value: String(s.llmMaxTokens),
+        dim: 'output budget per decision call',
+      };
+    case 'llmRejectUncertain':
+      return {
+        label: '  reject uncertain',
+        value: s.llmRejectUncertain ? 'ON' : 'off',
+        dim: 'treat an empty/hedging answer as "could not decide"',
+      };
+    case 'llmMinConfidence':
+      return {
+        label: '  min confidence',
+        value: s.llmMinConfidence === 0 ? 'off' : s.llmMinConfidence.toFixed(2),
+        dim: 'reject answers below this self-reported confidence',
+      };
+    case 'llmDenyIsTerminal':
+      return {
+        label: '  deny terminal',
+        value: s.llmDenyIsTerminal,
+        dim: DENY_TERMINAL_DESCS[s.llmDenyIsTerminal],
+      };
+    case 'cacheToggle':
+      return {
+        label: 'Decision cache',
+        value: s.cacheEnabled ? 'ON' : 'off',
+        dim: 'replay a previous council/LLM verdict for an identical question',
+      };
+    case 'cacheTtl':
+      return { label: '  ttl', value: fmtMs(s.cacheTtlMs, '5m'), dim: 'entry lifetime' };
+    case 'cacheMaxEntries':
+      return { label: '  max entries', value: String(s.cacheMaxEntries), dim: 'live entry cap' };
+    case 'cacheStats':
+      return {
+        label: '  stats',
+        value: `${s.cacheHits} hit / ${s.cacheMisses} miss`,
+        dim: `${s.cacheSize} live entries · read-only`,
+      };
+    case 'traceToggle':
+      return {
+        label: 'Replay trace',
+        value: s.traceEnabled ? 'ON' : 'off',
+        dim: 'per-decision JSONL of every tier, pool call and council vote',
+      };
+    case 'traceContent':
+      return {
+        label: '  content',
+        value: s.traceContent,
+        dim: TRACE_CONTENT_DESCS[s.traceContent],
+      };
+    case 'tracePath':
+      return {
+        label: '  path',
+        value: s.tracePath ?? 'default',
+        dim: '<project>/.wrongstack/brain-trace.jsonl · read-only',
+      };
+    case 'circuit':
+      return {
+        label: 'LLM circuit',
+        value: s.circuitState ?? 'n/a',
+        dim: `${s.circuitFailures ?? 0} consecutive failures · read-only`,
+      };
+    case 'rulesSummary':
+      return {
+        label: 'Rules',
+        value: s.ruleCount === 0 ? 'none' : `${s.ruleCount} configured`,
+        dim: 'deterministic table, evaluated before any provider call · read-only',
+      };
+    case 'ruleErrors':
+      return {
+        label: '  rule errors',
+        value: `${s.ruleErrors.length} dropped`,
+        dim: s.ruleErrors.join(' · '),
+      };
     default:
       return { label: '', value: '' };
   }
@@ -172,15 +296,18 @@ export function BrainPanel({
         <Box marginTop={1} flexDirection="column">
           {brainPanelRows(settings).map((r, i) => {
             const focused = i === (row ?? 0);
+            const readOnly = BRAIN_READONLY_ROW_KINDS.has(r.kind);
             const { label, value, dim } = rowText(r, settings);
+            const key = `${r.kind}-${'index' in r ? r.index : 'key' in r ? r.key : 0}`;
             return (
-              <Text key={`${r.kind}-${'index' in r ? r.index : 0}`} wrap="truncate-end">
+              <Text key={key} wrap="truncate-end">
                 {focused ? <Text color="magenta">{'› '}</Text> : '  '}
-                <Text bold={focused}>{label.padEnd(18)}</Text>
+                <Text bold={focused} dimColor={readOnly}>{label.padEnd(18)}</Text>
                 <Text
-                  color={r.kind === 'risk' ? RISK_COLORS[settings.riskLevel] : focused ? 'cyan' : undefined}
+                  color={r.kind === 'risk' ? RISK_COLORS[settings.riskLevel] : focused && !readOnly ? 'cyan' : undefined}
                   bold={r.kind === 'risk' || r.kind === 'mode'}
                   inverse={focused}
+                  dimColor={readOnly}
                 >
                   {value}
                 </Text>

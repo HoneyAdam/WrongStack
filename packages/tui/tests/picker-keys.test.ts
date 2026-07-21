@@ -1220,13 +1220,14 @@ describe('usePickerKeys — brain panel', () => {
 
   it('handles brain panel voter modifier keys', () => {
     const onBrainVoterMod = vi.fn();
-    // Settings with council enabled, 1 voter, no pool
+    // Settings with council enabled, 1 voter, no pool.
     // Rows: mode(0), risk(1), poolAdd(2), timeout(3), humanTimeout(4),
-    //        councilToggle(5), councilMinRisk(6), voter(7), voterAdd(8), judge(9), ledgerToggle(10)
-    // Row 7 = voter(index=0)
+    //        terminalPolicy(5), councilToggle(6), councilMinRisk(7), voter(8),
+    //        voterAdd(9), judge(10), ledgerToggle(11), heuristics(12-16), …
+    // Row 8 = voter(index=0)
     const host = makeHost(
       baseState({
-        brainPanel: { open: true, view: 'settings', row: 7, settings: { mode: 'interactive', riskLevel: 'medium', strategy: 'fallback', pool: [], poolResolved: [], usingSessionModel: false, councilEnabled: true, councilMinRisk: 'medium', voters: [{ label: 'Voter 1' }], councilSeats: ['Voter 1'], ledgerEnabled: false }, busy: false },
+        brainPanel: { open: true, view: 'settings', row: 8, settings: { mode: 'interactive', riskLevel: 'medium', strategy: 'fallback', pool: [], poolResolved: [], usingSessionModel: false, councilEnabled: true, councilMinRisk: 'medium', voters: [{ label: 'Voter 1' }], councilSeats: ['Voter 1'], ledgerEnabled: false }, busy: false },
       }),
       { onBrainVoterMod },
     );

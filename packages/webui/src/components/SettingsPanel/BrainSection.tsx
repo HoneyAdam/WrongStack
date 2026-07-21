@@ -61,6 +61,105 @@ const FRACTIONS: Array<{ value: string; label: string }> = [
   { value: '1', label: 'All' },
 ];
 
+/** Effective-valued numbers: the snapshot always carries a resolved number, so
+ *  the default is a LABELLED concrete option rather than a `default` sentinel. */
+const LLM_MAX_TOKENS: Array<{ value: string; label: string }> = [
+  { value: '100', label: '100' },
+  { value: '200', label: '200 (default)' },
+  { value: '400', label: '400' },
+  { value: '800', label: '800' },
+  { value: '1600', label: '1600' },
+];
+
+const MIN_CONFIDENCE: Array<{ value: string; label: string }> = [
+  { value: '0', label: 'Off (default)' },
+  { value: '0.3', label: '0.3' },
+  { value: '0.5', label: '0.5' },
+  { value: '0.7', label: '0.7' },
+  { value: '0.9', label: '0.9' },
+];
+
+const DECISION_LOG_SIZES: Array<{ value: string; label: string }> = [
+  { value: '10', label: '10' },
+  { value: '20', label: '20 (default)' },
+  { value: '50', label: '50' },
+  { value: '100', label: '100' },
+];
+
+const CACHE_TTLS: Array<{ value: string; label: string }> = [
+  { value: '60000', label: '1m' },
+  { value: '300000', label: '5m (default)' },
+  { value: '900000', label: '15m' },
+  { value: '3600000', label: '1h' },
+];
+
+const CACHE_MAX_ENTRIES: Array<{ value: string; label: string }> = [
+  { value: '50', label: '50' },
+  { value: '200', label: '200 (default)' },
+  { value: '500', label: '500' },
+  { value: '1000', label: '1000' },
+];
+
+/** Optional-valued knobs: `default` clears the field back to core's default. */
+const COUNCIL_CALL_TIMEOUTS: Array<{ value: string; label: string }> = [
+  { value: 'default', label: 'Default' },
+  { value: '10000', label: '10s' },
+  { value: '20000', label: '20s' },
+  { value: '30000', label: '30s' },
+  { value: '60000', label: '60s' },
+];
+
+const COUNCIL_CONCURRENCY: Array<{ value: string; label: string }> = [
+  { value: 'default', label: 'Default' },
+  { value: '1', label: '1 (serial)' },
+  { value: '2', label: '2' },
+  { value: '3', label: '3' },
+  { value: '5', label: '5' },
+];
+
+const JUDGE_MAX_TOKENS: Array<{ value: string; label: string }> = [
+  { value: 'default', label: 'Default' },
+  { value: '200', label: '200' },
+  { value: '400', label: '400' },
+  { value: '800', label: '800' },
+  { value: '1600', label: '1600' },
+];
+
+const LEDGER_MEMORY_ENTRIES: Array<{ value: string; label: string }> = [
+  { value: 'default', label: 'Default (500)' },
+  { value: '100', label: '100' },
+  { value: '500', label: '500' },
+  { value: '1000', label: '1000' },
+  { value: '5000', label: '5000' },
+];
+
+const INTERVENTION_WINDOWS: Array<{ value: string; label: string }> = [
+  { value: 'default', label: 'Default (10m)' },
+  { value: '120000', label: '2m' },
+  { value: '600000', label: '10m' },
+  { value: '1800000', label: '30m' },
+  { value: '3600000', label: '1h' },
+];
+
+/**
+ * Presets plus the live value when the config holds something off-menu — a
+ * hand-edited config must not render as an empty select (which would then
+ * write the first preset back on the next change).
+ */
+function withCurrent(
+  options: Array<{ value: string; label: string }>,
+  current: string,
+): Array<{ value: string; label: string }> {
+  return options.some((o) => o.value === current)
+    ? options
+    : [...options, { value: current, label: current }];
+}
+
+/** `undefined` snapshot field → the `default` sentinel used by the selects. */
+function optionalValue(n: number | undefined): string {
+  return n !== undefined ? String(n) : 'default';
+}
+
 function RiskDot({ level }: { level: RiskLevel }) {
   return <span className={cn('inline-block h-2.5 w-2.5 rounded-full', RISK_COLORS[level])} />;
 }
@@ -261,6 +360,7 @@ export function BrainSection(): ReactElement {
                 { value: 'headless', label: 'Headless (never ask)' },
               ]}
               onChange={(mode) => sendPatch({ mode })}
+              disabled={busy}
             />
             <PreferenceSelect
               label="Decision timeout"
@@ -270,6 +370,7 @@ export function BrainSection(): ReactElement {
               onChange={(v) =>
                 sendPatch({ decisionTimeoutMs: v === 'default' ? null : Number(v) })
               }
+              disabled={busy}
             />
             <PreferenceSelect
               label="Human answer timeout"
@@ -277,6 +378,276 @@ export function BrainSection(): ReactElement {
               value={config.humanTimeoutMs ? String(config.humanTimeoutMs) : 'off'}
               options={HUMAN_TIMEOUTS}
               onChange={(v) => sendPatch({ humanTimeoutMs: v === 'off' ? null : Number(v) })}
+              disabled={busy}
+            />
+            <PreferenceSelect
+              label="Terminal policy"
+              hint="How a headless escalation resolves with no human available. Conservative accepts a recommended option at low/medium risk; deny-all never auto-accepts; continue-on-recommended accepts a recommended option at ANY risk."
+              value={config.terminalPolicy}
+              options={[
+                { value: 'conservative', label: 'Conservative (default)' },
+                { value: 'deny-all', label: 'Deny all' },
+                { value: 'continue-on-recommended', label: 'Continue on recommended' },
+              ]}
+              onChange={(terminalPolicy) => sendPatch({ terminalPolicy })}
+              disabled={busy}
+            />
+            <PreferenceSelect
+              label="Decision log size"
+              hint="Rolling in-memory decision log kept for the status view."
+              value={String(config.decisionLogMaxEntries)}
+              options={withCurrent(DECISION_LOG_SIZES, String(config.decisionLogMaxEntries))}
+              onChange={(v) => sendPatch({ decisionLogMaxEntries: Number(v) })}
+              disabled={busy}
+            />
+          </div>
+
+          {/* Deterministic rules (read-only) */}
+          <div className="space-y-1 rounded-md border border-border/70 bg-muted/20 p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Deterministic rules</span>
+              <Badge variant="outline" className="text-[10px]">
+                {config.rules.length} configured
+              </Badge>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Evaluated before any provider call — first match wins. Edit them in the global config
+              file; this view is read-only.
+            </p>
+            {config.rules.length > 0 && (
+              <div className="space-y-1">
+                {config.rules.map((rule, i) => (
+                  <div
+                    key={`${rule.id}-${i}`}
+                    className="flex items-center gap-2 rounded-md border border-border/50 bg-background/40 px-2 py-1.5 text-xs"
+                  >
+                    <span className="text-muted-foreground w-4 shrink-0">{i + 1}.</span>
+                    <span className="flex-1 truncate font-mono">{rule.id}</span>
+                    <Badge variant="outline" className="text-[10px] shrink-0">
+                      {rule.then.action}
+                    </Badge>
+                    {rule.enabled === false && (
+                      <Badge variant="outline" className="text-[10px] shrink-0">
+                        off
+                      </Badge>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {config.ruleErrors.length > 0 && (
+              <div className="space-y-1 rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5">
+                <span className="text-xs font-medium text-warning">
+                  {config.ruleErrors.length} rule(s) dropped
+                </span>
+                {config.ruleErrors.map((err) => (
+                  <p key={err} className="text-xs text-warning">
+                    {err}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Heuristics */}
+          <div className="space-y-1 rounded-md border border-border/70 bg-muted/20 p-3">
+            <span className="text-sm font-medium">Heuristics</span>
+            <p className="text-xs text-muted-foreground">
+              Free pattern guesses that settle a question before any model runs. All on by default —
+              turn one off when its guess is wrong for your workload.
+            </p>
+            <PreferenceToggle
+              label="Low-risk auto-answer"
+              hint="Auto-answer low-risk requests that already carry a recommended option."
+              value={config.heuristics.lowRiskAutoAnswer}
+              onChange={() =>
+                sendPatch({
+                  heuristics: { lowRiskAutoAnswer: !config.heuristics.lowRiskAutoAnswer },
+                })
+              }
+              disabled={busy}
+            />
+            <PreferenceToggle
+              label="Blocked-resolved"
+              hint="'blocked …' plus an explicit resolution marker in the context resolves to continue."
+              value={config.heuristics.blockedResolved}
+              onChange={() =>
+                sendPatch({ heuristics: { blockedResolved: !config.heuristics.blockedResolved } })
+              }
+              disabled={busy}
+            />
+            <PreferenceToggle
+              label="Deadlock skip"
+              hint="'deadlock' plus failed work units in the context resolves to skip and continue."
+              value={config.heuristics.deadlockSkip}
+              onChange={() =>
+                sendPatch({ heuristics: { deadlockSkip: !config.heuristics.deadlockSkip } })
+              }
+              disabled={busy}
+            />
+            <PreferenceToggle
+              label="Retry exhausted"
+              hint="'failed'/'retry' plus demonstrably exhausted retries marks the unit failed and moves on."
+              value={config.heuristics.retryExhausted}
+              onChange={() =>
+                sendPatch({ heuristics: { retryExhausted: !config.heuristics.retryExhausted } })
+              }
+              disabled={busy}
+            />
+            <PreferenceToggle
+              label="Continue ping"
+              hint="A bare continue/proceed ping with no competing alternative resolves to continue."
+              value={config.heuristics.continuePing}
+              onChange={() =>
+                sendPatch({ heuristics: { continuePing: !config.heuristics.continuePing } })
+              }
+              disabled={busy}
+            />
+            {config.heuristics.blockedResolvedMarkers &&
+              config.heuristics.blockedResolvedMarkers.length > 0 && (
+                <p className="truncate text-xs text-muted-foreground">
+                  Markers: {config.heuristics.blockedResolvedMarkers.join(', ')}
+                </p>
+              )}
+          </div>
+
+          {/* LLM quality gate */}
+          <div className="space-y-1 rounded-md border border-border/70 bg-muted/20 p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">LLM quality</span>
+              {config.circuit && (
+                <Badge
+                  variant={config.circuit.state === 'closed' ? 'outline' : 'default'}
+                  className="text-[10px]"
+                >
+                  circuit {config.circuit.state} · {config.circuit.consecutiveFailures} fail
+                </Badge>
+              )}
+            </div>
+            <PreferenceSelect
+              label="Response budget"
+              hint="Output tokens per decision call. A Brain response is one decision plus a one-sentence rationale."
+              value={String(config.llm.maxTokens)}
+              options={withCurrent(LLM_MAX_TOKENS, String(config.llm.maxTokens))}
+              onChange={(v) => sendPatch({ llm: { maxTokens: Number(v) } })}
+              disabled={busy}
+            />
+            <PreferenceToggle
+              label="Reject uncertain answers"
+              hint="Treat a declined or empty response as 'this tier could not decide' instead of accepting it as an answer."
+              value={config.llm.rejectUncertain}
+              onChange={() => sendPatch({ llm: { rejectUncertain: !config.llm.rejectUncertain } })}
+              disabled={busy}
+            />
+            <PreferenceSelect
+              label="Minimum confidence"
+              hint="Reject answers whose self-reported confidence is below this. Responses reporting no confidence always pass."
+              value={String(config.llm.minConfidence)}
+              options={withCurrent(MIN_CONFIDENCE, String(config.llm.minConfidence))}
+              onChange={(v) => sendPatch({ llm: { minConfidence: Number(v) } })}
+              disabled={busy}
+            />
+            <PreferenceSelect
+              label="Deny is terminal"
+              hint="Whether a deny from the single-LLM tier ends the decision. 'when-decided' makes a genuine refusal terminal while infrastructure failures still escalate."
+              value={config.llm.denyIsTerminal}
+              options={[
+                { value: 'never', label: 'Never (default)' },
+                { value: 'when-decided', label: 'When decided' },
+                { value: 'always', label: 'Always' },
+              ]}
+              onChange={(denyIsTerminal) => sendPatch({ llm: { denyIsTerminal } })}
+              disabled={busy}
+            />
+          </div>
+
+          {/* Replay trace */}
+          <div className="space-y-1 rounded-md border border-border/70 bg-muted/20 p-3">
+            <span className="text-sm font-medium">Replay trace</span>
+            <PreferenceToggle
+              label="Record decision traces"
+              hint="Per-decision JSONL of every tier, pool target and council vote, with timings and token usage. Off by default — enabling it writes decision content to disk."
+              value={config.trace.enabled}
+              onChange={() => sendPatch({ trace: { enabled: !config.trace.enabled } })}
+              disabled={busy}
+            />
+            <PreferenceSelect
+              label="Trace content"
+              hint="'full' keeps question and context (needed to replay a decision); 'redacted' truncates free text; 'none' records metadata only."
+              value={config.trace.content}
+              options={[
+                { value: 'full', label: 'Full (default)' },
+                { value: 'redacted', label: 'Redacted' },
+                { value: 'none', label: 'Metadata only' },
+              ]}
+              onChange={(content) => sendPatch({ trace: { content } })}
+              disabled={busy}
+            />
+            {config.trace.path && (
+              <p className="truncate text-xs text-muted-foreground">{config.trace.path}</p>
+            )}
+          </div>
+
+          {/* Decision cache */}
+          <div className="space-y-1 rounded-md border border-border/70 bg-muted/20 p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Decision cache</span>
+              <Badge variant="outline" className="text-[10px]">
+                {config.cache.hits} hit / {config.cache.misses} miss · {config.cache.size} live
+              </Badge>
+            </div>
+            <PreferenceToggle
+              label="Replay identical verdicts"
+              hint="Reuse a previous council/LLM verdict for an identical repeated question. Deterministic tiers and ask-human are never cached; a decision the ledger observes to have failed is evicted."
+              value={config.cache.enabled}
+              onChange={() => sendPatch({ cache: { enabled: !config.cache.enabled } })}
+              disabled={busy}
+            />
+            <PreferenceSelect
+              label="Entry lifetime"
+              hint="How long a cached verdict stays replayable."
+              value={String(config.cache.ttlMs)}
+              options={withCurrent(CACHE_TTLS, String(config.cache.ttlMs))}
+              onChange={(v) => sendPatch({ cache: { ttlMs: Number(v) } })}
+              disabled={busy}
+            />
+            <PreferenceSelect
+              label="Maximum entries"
+              hint="Cap on live cached verdicts."
+              value={String(config.cache.maxEntries)}
+              options={withCurrent(CACHE_MAX_ENTRIES, String(config.cache.maxEntries))}
+              onChange={(v) => sendPatch({ cache: { maxEntries: Number(v) } })}
+              disabled={busy}
+            />
+          </div>
+
+          {/* Monitor */}
+          <div className="space-y-1 rounded-md border border-border/70 bg-muted/20 p-3">
+            <span className="text-sm font-medium">Monitor</span>
+            <p className="text-xs text-muted-foreground">
+              Distress-signal self-activation. The monitor is built once at boot, so these apply to
+              the next session rather than live.
+            </p>
+            <PreferenceToggle
+              label="Watch for distress signals"
+              hint="Tool-failure streaks, error storms, agent stalls and file churn engage the Brain on their own."
+              value={config.monitor.enabled !== false}
+              onChange={() =>
+                sendPatch({ monitor: { enabled: config.monitor.enabled === false } })
+              }
+              disabled={busy}
+            />
+            <PreferenceSelect
+              label="Signal policy"
+              hint="How a detected signal resolves. 'llm' consults the Brain; 'steer' always intervenes and 'observe' never does — both without a provider call."
+              value={config.monitor.policy ?? 'llm'}
+              options={[
+                { value: 'llm', label: 'Consult the Brain (default)' },
+                { value: 'steer', label: 'Always steer' },
+                { value: 'observe', label: 'Observe only' },
+              ]}
+              onChange={(policy) => sendPatch({ monitor: { policy } })}
+              disabled={busy}
             />
           </div>
 
@@ -297,6 +668,7 @@ export function BrainSection(): ReactElement {
               onChange={() => {
                 if (!config.usingSessionModel) sendPatch({ models: null });
               }}
+              disabled={busy}
             />
             {config.models.length > 0 && (
               <div className="space-y-1">
@@ -370,6 +742,7 @@ export function BrainSection(): ReactElement {
                   { value: 'round-robin', label: 'Round-robin' },
                 ]}
                 onChange={(strategy) => sendPatch({ strategy })}
+                disabled={busy}
               />
             )}
           </div>
@@ -387,6 +760,7 @@ export function BrainSection(): ReactElement {
               hint="High-stakes questions are voted on by independent seats (executor / skeptic-with-veto / auditor) instead of one model. Needs ≥2 resolvable voters (explicit seats below, or a ≥2-model pool)."
               value={config.council.enabled}
               onChange={() => sendPatch({ council: { enabled: !config.council.enabled } })}
+              disabled={busy}
             />
             {config.council.enabled && config.councilLabels.length > 0 && voters.length === 0 && (
               <p className="text-xs text-muted-foreground">
@@ -462,6 +836,7 @@ export function BrainSection(): ReactElement {
                 { value: 'critical', label: 'Critical only' },
               ]}
               onChange={(minRisk) => sendPatch({ council: { minRisk } })}
+              disabled={busy}
             />
             <div className="flex items-start justify-between gap-3 py-2">
               <div className="min-w-0 flex-1">
@@ -502,6 +877,7 @@ export function BrainSection(): ReactElement {
               value={config.council.quorum !== undefined ? String(config.council.quorum) : 'default'}
               options={FRACTIONS}
               onChange={(v) => sendPatch({ council: { quorum: v === 'default' ? null : Number(v) } })}
+              disabled={busy}
             />
             <PreferenceSelect
               label="Approval"
@@ -513,7 +889,64 @@ export function BrainSection(): ReactElement {
               onChange={(v) =>
                 sendPatch({ council: { approval: v === 'default' ? null : Number(v) } })
               }
+              disabled={busy}
             />
+            <PreferenceSelect
+              label="Per-seat timeout"
+              hint="Time budget for a single seat's vote. Slower than the decision timeout means one stalled seat holds up the vote."
+              value={optionalValue(config.council.perCallTimeoutMs)}
+              options={withCurrent(
+                COUNCIL_CALL_TIMEOUTS,
+                optionalValue(config.council.perCallTimeoutMs),
+              )}
+              onChange={(v) =>
+                sendPatch({ council: { perCallTimeoutMs: v === 'default' ? null : Number(v) } })
+              }
+              disabled={busy}
+            />
+            <PreferenceSelect
+              label="Max concurrency"
+              hint="How many seats vote in parallel. Lower this when the pool shares one rate-limited provider."
+              value={optionalValue(config.council.maxConcurrency)}
+              options={withCurrent(
+                COUNCIL_CONCURRENCY,
+                optionalValue(config.council.maxConcurrency),
+              )}
+              onChange={(v) =>
+                sendPatch({ council: { maxConcurrency: v === 'default' ? null : Number(v) } })
+              }
+              disabled={busy}
+            />
+            <PreferenceSelect
+              label="Seat distinctness"
+              hint="Reject duplicate seats: 'model' requires distinct models, 'provider' requires independent providers so one outage cannot sway the vote."
+              value={config.council.distinctness}
+              options={[
+                { value: 'none', label: 'None (default)' },
+                { value: 'model', label: 'Distinct models' },
+                { value: 'provider', label: 'Distinct providers' },
+              ]}
+              onChange={(distinctness) => sendPatch({ council: { distinctness } })}
+              disabled={busy}
+            />
+            <PreferenceSelect
+              label="Judge response budget"
+              hint="Output tokens for the tie-breaking judge call."
+              value={optionalValue(config.council.judgeMaxTokens)}
+              options={withCurrent(JUDGE_MAX_TOKENS, optionalValue(config.council.judgeMaxTokens))}
+              onChange={(v) =>
+                sendPatch({ council: { judgeMaxTokens: v === 'default' ? null : Number(v) } })
+              }
+              disabled={busy}
+            />
+            {config.council.seats.length > 0 && (
+              <p className="truncate text-xs text-muted-foreground">
+                Seat template:{' '}
+                {config.council.seats
+                  .map((seat) => (seat.veto ? `${seat.persona} (veto)` : seat.persona))
+                  .join(', ')}
+              </p>
+            )}
           </div>
 
           {/* Ledger */}
@@ -524,6 +957,7 @@ export function BrainSection(): ReactElement {
               hint="Persists every decision and its observed outcome; similar past outcomes are fed back into future Brain prompts."
               value={config.ledger.enabled}
               onChange={() => sendPatch({ ledger: { enabled: !config.ledger.enabled } })}
+              disabled={busy}
             />
             <PreferenceSelect
               label="Auto-deny after failures"
@@ -545,6 +979,35 @@ export function BrainSection(): ReactElement {
                   ledger: { autoDenyAfterFailures: v === 'default' ? null : Number(v) },
                 })
               }
+              disabled={busy}
+            />
+            <PreferenceSelect
+              label="In-memory entries"
+              hint="Ring size held in memory, and the number of past entries seeded from disk at boot."
+              value={optionalValue(config.ledger.maxMemoryEntries)}
+              options={withCurrent(
+                LEDGER_MEMORY_ENTRIES,
+                optionalValue(config.ledger.maxMemoryEntries),
+              )}
+              onChange={(v) =>
+                sendPatch({ ledger: { maxMemoryEntries: v === 'default' ? null : Number(v) } })
+              }
+              disabled={busy}
+            />
+            <PreferenceSelect
+              label="Intervention retry window"
+              hint="A same-kind monitor intervention re-firing inside this window marks the previous steer as a failure."
+              value={optionalValue(config.ledger.interventionRetryWindowMs)}
+              options={withCurrent(
+                INTERVENTION_WINDOWS,
+                optionalValue(config.ledger.interventionRetryWindowMs),
+              )}
+              onChange={(v) =>
+                sendPatch({
+                  ledger: { interventionRetryWindowMs: v === 'default' ? null : Number(v) },
+                })
+              }
+              disabled={busy}
             />
             {config.ledger.path && (
               <p className="truncate text-xs text-muted-foreground">{config.ledger.path}</p>

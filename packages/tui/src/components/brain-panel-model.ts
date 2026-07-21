@@ -17,6 +17,24 @@ export interface BrainPanelVoter {
   weight?: number | undefined;
 }
 
+/** Editable heuristic toggles, mirroring `BrainConfigSnapshot.heuristics`. */
+export interface BrainPanelHeuristics {
+  lowRiskAutoAnswer: boolean;
+  blockedResolved: boolean;
+  deadlockSkip: boolean;
+  retryExhausted: boolean;
+  continuePing: boolean;
+  /** Custom resolution-marker word list (undefined = built-in list). Read-only here. */
+  blockedResolvedMarkers?: string[] | undefined;
+}
+
+/** Keys of the boolean heuristic toggles — the setter's `key` argument. */
+export type BrainHeuristicKey = keyof Omit<BrainPanelHeuristics, 'blockedResolvedMarkers'>;
+
+export type BrainDenyIsTerminal = 'never' | 'when-decided' | 'always';
+export type BrainTraceContent = 'none' | 'redacted' | 'full';
+export type BrainTerminalPolicyValue = 'conservative' | 'deny-all' | 'continue-on-recommended';
+
 /** Display-mapped snapshot of the live Brain settings. */
 export interface BrainPanelSettings {
   mode: 'headless' | 'interactive';
@@ -38,6 +56,33 @@ export interface BrainPanelSettings {
   judgeLabel?: string | undefined;
   ledgerEnabled: boolean;
   autoDenyAfterFailures?: number | undefined;
+  /** Headless escalation variant. */
+  terminalPolicy: BrainTerminalPolicyValue;
+  /** Effective heuristic toggles (defaults already filled in by the host). */
+  heuristics: BrainPanelHeuristics;
+  /** Single-LLM tier quality gate. */
+  llmMaxTokens: number;
+  llmRejectUncertain: boolean;
+  llmMinConfidence: number;
+  llmDenyIsTerminal: BrainDenyIsTerminal;
+  /** Decision cache: effective settings + LIVE counters (counters read-only). */
+  cacheEnabled: boolean;
+  cacheTtlMs: number;
+  cacheMaxEntries: number;
+  cacheHits: number;
+  cacheMisses: number;
+  cacheSize: number;
+  /** Replay trace. `tracePath` is read-only (edited via config). */
+  traceEnabled: boolean;
+  traceContent: BrainTraceContent;
+  tracePath?: string | undefined;
+  /** Live LLM circuit-breaker state; undefined = no breaker wired. READ-ONLY. */
+  circuitState?: string | undefined;
+  circuitFailures?: number | undefined;
+  /** Deterministic rule table summary. READ-ONLY. */
+  ruleCount: number;
+  /** Compile diagnostics from the last assembly, one per dropped rule. READ-ONLY. */
+  ruleErrors: string[];
 }
 
 /**
@@ -66,6 +111,23 @@ export interface BrainPanelHost {
   clearJudge(): Promise<string | null>;
   setLedgerEnabled(on: boolean): Promise<string | null>;
   setAutoDeny(count: number | undefined): Promise<string | null>;
+  setTerminalPolicy(policy: BrainTerminalPolicyValue): Promise<string | null>;
+  setHeuristic(key: BrainHeuristicKey, on: boolean): Promise<string | null>;
+  /**
+   * NOTE the numeric LLM/cache knobs take a plain number: the underlying
+   * `BrainConfigPatch` validators reject `null` for these fields ("must be a
+   * positive integer"), so there is no "clear back to default" step here —
+   * the preset ladders are number-only.
+   */
+  setLlmMaxTokens(tokens: number): Promise<string | null>;
+  setLlmRejectUncertain(on: boolean): Promise<string | null>;
+  setLlmMinConfidence(value: number): Promise<string | null>;
+  setLlmDenyIsTerminal(mode: BrainDenyIsTerminal): Promise<string | null>;
+  setCacheEnabled(on: boolean): Promise<string | null>;
+  setCacheTtl(ms: number): Promise<string | null>;
+  setCacheMaxEntries(count: number): Promise<string | null>;
+  setTraceEnabled(on: boolean): Promise<string | null>;
+  setTraceContent(content: BrainTraceContent): Promise<string | null>;
 }
 
 /** One selectable row of the settings view. */
@@ -83,23 +145,89 @@ export type BrainPanelRow =
   | { kind: 'voterAdd' }
   | { kind: 'judge' }
   | { kind: 'ledgerToggle' }
-  | { kind: 'autoDeny' };
+  | { kind: 'autoDeny' }
+  | { kind: 'terminalPolicy' }
+  | { kind: 'heuristic'; key: BrainHeuristicKey }
+  | { kind: 'llmMaxTokens' }
+  | { kind: 'llmRejectUncertain' }
+  | { kind: 'llmMinConfidence' }
+  | { kind: 'llmDenyIsTerminal' }
+  | { kind: 'cacheToggle' }
+  | { kind: 'cacheTtl' }
+  | { kind: 'cacheMaxEntries' }
+  | { kind: 'traceToggle' }
+  | { kind: 'traceContent' }
+  // ── read-only rows: rendered dim, never adjustable ──
+  | { kind: 'cacheStats' }
+  | { kind: 'tracePath' }
+  | { kind: 'circuit' }
+  | { kind: 'rulesSummary' }
+  | { kind: 'ruleErrors' };
 
-/** Derive the selectable rows for a settings snapshot. */
+/**
+ * Rows that only REPORT live/derived state. They are rendered dim and are
+ * skipped by the adjust/enter handlers — there is nothing to write back.
+ */
+export const BRAIN_READONLY_ROW_KINDS: ReadonlySet<BrainPanelRow['kind']> = new Set([
+  'cacheStats',
+  'tracePath',
+  'circuit',
+  'rulesSummary',
+  'ruleErrors',
+] satisfies Array<BrainPanelRow['kind']>);
+
+/** Heuristic rows, in display order. */
+export const BRAIN_HEURISTIC_KEYS: readonly BrainHeuristicKey[] = [
+  'lowRiskAutoAnswer',
+  'blockedResolved',
+  'deadlockSkip',
+  'retryExhausted',
+  'continuePing',
+];
+
+/**
+ * Derive the selectable rows for a settings snapshot.
+ *
+ * Array/optional reads are defensive: this is a pure display function driven
+ * by whatever the host last pushed over `brainSettingsLoaded`, and a host that
+ * predates a field (or an older persisted payload) must render fewer rows, not
+ * crash the whole TUI.
+ */
 export function brainPanelRows(settings: BrainPanelSettings): BrainPanelRow[] {
   const rows: BrainPanelRow[] = [{ kind: 'mode' }, { kind: 'risk' }];
-  for (let i = 0; i < settings.pool.length; i += 1) rows.push({ kind: 'poolModel', index: i });
+  const pool = settings.pool ?? [];
+  const voters = settings.voters ?? [];
+  for (let i = 0; i < pool.length; i += 1) rows.push({ kind: 'poolModel', index: i });
   rows.push({ kind: 'poolAdd' });
-  if (settings.pool.length > 1) rows.push({ kind: 'strategy' });
+  if (pool.length > 1) rows.push({ kind: 'strategy' });
   rows.push({ kind: 'timeout' }, { kind: 'humanTimeout' });
+  rows.push({ kind: 'terminalPolicy' });
   rows.push({ kind: 'councilToggle' });
-  if (settings.councilEnabled || settings.voters.length > 0) {
+  if (settings.councilEnabled || voters.length > 0) {
     rows.push({ kind: 'councilMinRisk' });
-    for (let i = 0; i < settings.voters.length; i += 1) rows.push({ kind: 'voter', index: i });
+    for (let i = 0; i < voters.length; i += 1) rows.push({ kind: 'voter', index: i });
     rows.push({ kind: 'voterAdd' }, { kind: 'judge' });
   }
   rows.push({ kind: 'ledgerToggle' });
   if (settings.ledgerEnabled) rows.push({ kind: 'autoDeny' });
+  for (const key of BRAIN_HEURISTIC_KEYS) rows.push({ kind: 'heuristic', key });
+  rows.push(
+    { kind: 'llmMaxTokens' },
+    { kind: 'llmRejectUncertain' },
+    { kind: 'llmMinConfidence' },
+    { kind: 'llmDenyIsTerminal' },
+  );
+  if (settings.circuitState !== undefined) rows.push({ kind: 'circuit' });
+  rows.push({ kind: 'cacheToggle' });
+  if (settings.cacheEnabled) {
+    rows.push({ kind: 'cacheTtl' }, { kind: 'cacheMaxEntries' }, { kind: 'cacheStats' });
+  }
+  rows.push({ kind: 'traceToggle' });
+  if (settings.traceEnabled) {
+    rows.push({ kind: 'traceContent' }, { kind: 'tracePath' });
+  }
+  rows.push({ kind: 'rulesSummary' });
+  if ((settings.ruleErrors ?? []).length > 0) rows.push({ kind: 'ruleErrors' });
   return rows;
 }
 
@@ -120,6 +248,21 @@ export const HUMAN_TIMEOUT_PRESETS: ReadonlyArray<number | undefined> = [
   300_000,
 ];
 export const AUTO_DENY_PRESETS: ReadonlyArray<number | undefined> = [undefined, 0, 2, 3, 5];
+/**
+ * Number-only ladders. The Brain patch validators reject `null` for these
+ * fields, so there is no `undefined` ("back to default") rung — the default
+ * value itself is the first rung.
+ */
+export const LLM_MAX_TOKENS_PRESETS: readonly number[] = [200, 400, 800, 1_600, 3_200];
+export const LLM_MIN_CONFIDENCE_PRESETS: readonly number[] = [0, 0.3, 0.5, 0.7, 0.9];
+export const CACHE_TTL_PRESETS: readonly number[] = [
+  60_000,
+  300_000,
+  900_000,
+  1_800_000,
+  3_600_000,
+];
+export const CACHE_MAX_ENTRIES_PRESETS: readonly number[] = [50, 100, 200, 500, 1_000];
 export const PERSONA_CYCLE = ['executor', 'skeptic', 'auditor'] as const;
 
 /** Cycle helper: step through a preset ladder from the current value. */

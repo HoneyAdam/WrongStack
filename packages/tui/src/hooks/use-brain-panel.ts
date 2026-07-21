@@ -10,12 +10,33 @@ import type { Action } from '../app-state.js';
 import type { BrainRiskLevel } from '../components/brain-panel.js';
 import {
   AUTO_DENY_PRESETS,
+  type BrainDenyIsTerminal,
   type BrainPanelHost,
   type BrainPanelRow,
+  type BrainTerminalPolicyValue,
+  type BrainTraceContent,
+  CACHE_MAX_ENTRIES_PRESETS,
+  CACHE_TTL_PRESETS,
   cyclePreset,
   DECISION_TIMEOUT_PRESETS,
   HUMAN_TIMEOUT_PRESETS,
+  LLM_MAX_TOKENS_PRESETS,
+  LLM_MIN_CONFIDENCE_PRESETS,
 } from '../components/brain-panel-model.js';
+
+/** Step through a fixed enum ladder, wrapping in both directions. */
+function cycleEnum<T extends string>(values: readonly T[], current: T, delta: number): T {
+  const at = values.indexOf(current);
+  return values[(((at >= 0 ? at : 0) + delta) % values.length + values.length) % values.length] as T;
+}
+
+const TERMINAL_POLICIES: readonly BrainTerminalPolicyValue[] = [
+  'conservative',
+  'deny-all',
+  'continue-on-recommended',
+];
+const DENY_TERMINAL_MODES: readonly BrainDenyIsTerminal[] = ['never', 'when-decided', 'always'];
+const TRACE_CONTENT_MODES: readonly BrainTraceContent[] = ['none', 'redacted', 'full'];
 
 /** Selection returned by the shared model-pick overlay (null = cancelled). */
 export type ModelPickSelection = { providerId: string; model: string } | null;
@@ -184,6 +205,61 @@ export function useBrainPanel(opts: UseBrainPanelOptions): BrainPanelController 
         case 'voter':
           runBrainMutation(() => host.cycleVoterPersona(row.index));
           return;
+        case 'terminalPolicy': {
+          const next = cycleEnum(TERMINAL_POLICIES, settings.terminalPolicy, delta);
+          runBrainMutation(() => host.setTerminalPolicy(next), `Terminal policy → ${next}`);
+          return;
+        }
+        case 'heuristic': {
+          const key = row.key;
+          runBrainMutation(() => host.setHeuristic(key, !settings.heuristics[key]));
+          return;
+        }
+        case 'llmMaxTokens':
+          runBrainMutation(() =>
+            host.setLlmMaxTokens(cyclePreset(LLM_MAX_TOKENS_PRESETS, settings.llmMaxTokens, delta)),
+          );
+          return;
+        case 'llmRejectUncertain':
+          runBrainMutation(() => host.setLlmRejectUncertain(!settings.llmRejectUncertain));
+          return;
+        case 'llmMinConfidence':
+          runBrainMutation(() =>
+            host.setLlmMinConfidence(
+              cyclePreset(LLM_MIN_CONFIDENCE_PRESETS, settings.llmMinConfidence, delta),
+            ),
+          );
+          return;
+        case 'llmDenyIsTerminal': {
+          const next = cycleEnum(DENY_TERMINAL_MODES, settings.llmDenyIsTerminal, delta);
+          runBrainMutation(() => host.setLlmDenyIsTerminal(next));
+          return;
+        }
+        case 'cacheToggle':
+          runBrainMutation(() => host.setCacheEnabled(!settings.cacheEnabled));
+          return;
+        case 'cacheTtl':
+          runBrainMutation(() =>
+            host.setCacheTtl(cyclePreset(CACHE_TTL_PRESETS, settings.cacheTtlMs, delta)),
+          );
+          return;
+        case 'cacheMaxEntries':
+          runBrainMutation(() =>
+            host.setCacheMaxEntries(
+              cyclePreset(CACHE_MAX_ENTRIES_PRESETS, settings.cacheMaxEntries, delta),
+            ),
+          );
+          return;
+        case 'traceToggle':
+          runBrainMutation(() => host.setTraceEnabled(!settings.traceEnabled));
+          return;
+        case 'traceContent': {
+          const next = cycleEnum(TRACE_CONTENT_MODES, settings.traceContent, delta);
+          runBrainMutation(() => host.setTraceContent(next));
+          return;
+        }
+        // Read-only rows (cacheStats, tracePath, circuit, rulesSummary,
+        // ruleErrors) intentionally fall through — nothing to write back.
         default:
           return;
       }
@@ -197,6 +273,13 @@ export function useBrainPanel(opts: UseBrainPanelOptions): BrainPanelController 
         case 'mode':
         case 'strategy':
         case 'ledgerToggle':
+        case 'heuristic':
+        case 'llmRejectUncertain':
+        case 'cacheToggle':
+        case 'traceToggle':
+        case 'terminalPolicy':
+        case 'llmDenyIsTerminal':
+        case 'traceContent':
           handleBrainAdjust(row, 1);
           return;
         case 'councilToggle': {

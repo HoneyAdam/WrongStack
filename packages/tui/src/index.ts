@@ -11,9 +11,14 @@ export type {
   AuthProviderRow,
 } from './components/auth-panel-model.js';
 export type {
+  BrainDenyIsTerminal,
+  BrainHeuristicKey,
+  BrainPanelHeuristics,
   BrainPanelHost,
   BrainPanelSettings,
   BrainPanelVoter,
+  BrainTerminalPolicyValue,
+  BrainTraceContent,
 } from './components/brain-panel-model.js';
 export { replaySessionEvents, replaySessionMessages } from './components/history/replay.js';
 export type { PluginPickerItem } from './components/plugin-picker.js';

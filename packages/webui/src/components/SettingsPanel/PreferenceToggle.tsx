@@ -23,9 +23,12 @@ export function PreferenceToggle({
   onChange,
   configKey,
   value,
+  disabled,
 }: {
   label: string;
   hint?: string | undefined;
+  /** Blocks the switch while an in-flight write is reconciling. */
+  disabled?: boolean | undefined;
   selector?: ((s: ReturnType<typeof useUIStore.getState>) => boolean) | null | undefined;
   onChange?: (() => void) | undefined;
   configKey?: 'soundOnComplete' | undefined;
@@ -64,10 +67,12 @@ export function PreferenceToggle({
         role="switch"
         aria-checked={on}
         aria-label={label}
+        disabled={disabled}
         onClick={handleToggle}
         className={cn(
           'shrink-0 relative inline-flex h-5 w-9 rounded-full border transition-colors',
           on ? 'bg-primary border-primary' : 'bg-muted border-input hover:bg-muted/80',
+          disabled && 'opacity-50 cursor-not-allowed',
         )}
       >
         <span
