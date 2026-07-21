@@ -842,6 +842,12 @@ export function StatusBar({
         ) : null}
       </Text>
     ) : null;
+  const cpuStatusChip =
+    typeof cpuPercent === 'number' && showChip('cpu') ? (
+      <Text color={isNoColor ? undefined : cpuPercent > 80 ? theme.error : cpuPercent > 50 ? theme.warn : theme.success}>
+        {glyphs.cpu} {Math.round(cpuPercent)}%
+      </Text>
+    ) : null;
   const superMemoryStatusChip = null;
 
   // ── Memory context detail line (4th row) ──────────────────────────────
@@ -977,11 +983,6 @@ export function StatusBar({
     typeof processCount === 'number' && processCount > 0 && showChip('processes') ? (
       <Text color={isNoColor ? undefined : theme.error}>
         {glyphs.process} {processCount} process{processCount === 1 ? '' : 'es'}
-      </Text>
-    ) : null,
-    typeof cpuPercent === 'number' && showChip('cpu') ? (
-      <Text color={isNoColor ? undefined : cpuPercent > 80 ? theme.error : cpuPercent > 50 ? theme.warn : theme.success}>
-        {glyphs.cpu} {Math.round(cpuPercent)}%
       </Text>
     ) : null,
     hint && showChip('hint') ? <Text dimColor={!isNoColor}>{hint}</Text> : null,
@@ -1275,6 +1276,7 @@ export function StatusBar({
                 : `${glyphs.audit} ${sideEffectCount} audit${sideEffectCount === 1 ? '' : 's'}`}
             </Text>
           ) : null,
+          cpuStatusChip,
           memoryStatusChip,
         ].filter((c): c is React.ReactElement => c !== null)}
         budget={Math.max(12, termWidth)}

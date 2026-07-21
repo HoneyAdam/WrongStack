@@ -76,7 +76,7 @@ const UNICODE: UiGlyphs = Object.freeze({
   index: '⊛',
   queue: '◴',
   process: '⚡',
-  cpu: '🔲',
+  cpu: '▦',
   brain: '✦',
   auto: '◴',
   segmentStart: '◖',
