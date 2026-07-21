@@ -1,10 +1,9 @@
 import type React from 'react';
+import { useEffect, useState } from 'react';
 import { Box, Text } from '../../ink.js';
-import type { HistoryEntry } from './types.js';
-import { shortenPath } from './utils.js';
 import { mixHex } from '../animation-style.js';
-import { useEffect, useMemo, useState } from 'react';
-import type { AutonomyAgentStatus } from './types.js';
+import type { AutonomyAgentStatus, HistoryEntry } from './types.js';
+import { shortenPath } from './utils.js';
 
 // Canonical palette from website/public/wrongstack.svg. The mark itself keeps
 // these exact colours; only the large terminal wordmark interpolates between
@@ -25,48 +24,30 @@ const TEXT = '#F5F2E9';
 const MARK_COLS = 5;
 const PINK_HOME = 1; // resting column for the pink block (0-indexed)
 
-// ── Pink-square slide animation ──────────────────────────────────────────
-// The pink block slides left, sweeps right across the mark, then settles
-// back to its home position. 40 frames × 100ms = 4-second loop.
-const SLIDE_INTERVAL_MS = 100;
-const PINK_SLIDE_FRAMES: readonly number[] = Object.freeze([
-  // rest at home (8 frames = 0.8s)
-  1, 1, 1, 1, 1, 1, 1, 1,
-  // ease left to column 0 (3 frames)
-  1, 0, 0,
-  // brief pause at left extreme (2 frames)
-  0, 0,
-  // sweep right across to column 4 (7 frames)
-  1, 2, 2, 3, 3, 4, 4,
-  // brief pause at right extreme (2 frames)
-  4, 4,
-  // settle back to home (7 frames)
-  3, 3, 2, 2, 1, 1, 1,
-  // rest at home (11 frames = 1.1s)
-  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+// ── Pink-square bounce animation ─────────────────────────────────────────
+// The real mark offsets its pink tile by half a block. In the terminal we
+// occasionally lift that tile by one text row, then let it settle. The long
+// resting section makes this feel like a small logo gesture instead of a
+// loading spinner.
+const BOUNCE_INTERVAL_MS = 160;
+const PINK_BOUNCE_FRAMES: readonly (0 | 1)[] = Object.freeze([
+  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1,
 ]);
 
-// Static top row — orange blocks with a gap at the pink's home column.
-// Never depends on animation state, so it lives at module scope.
-const ROW0_HOME: ReadonlyArray<string | null> = Object.freeze(
-  Array.from({ length: MARK_COLS }, (_, i) =>
-    i === PINK_HOME ? null : STACK_ORANGE,
-  ),
-);
+export function brandMarkPinkRow(frame: number): 0 | 1 {
+  const index = Math.max(0, Math.trunc(frame)) % PINK_BOUNCE_FRAMES.length;
+  return PINK_BOUNCE_FRAMES[index] ?? 1;
+}
 
-function BrandMark({ pinkCol = PINK_HOME }: { pinkCol?: number }): React.ReactElement {
-  // Only rebuild the dynamic rows when pinkCol actually changes.
-  const rows = useMemo(
-    () => [
-      ROW0_HOME,
-      Array.from({ length: MARK_COLS }, (_, i) =>
-        i === pinkCol ? SIGNAL_PINK : STACK_ORANGE,
-      ),
-      Array.from({ length: MARK_COLS }, (_, i) =>
-        i === pinkCol ? SIGNAL_PINK : null,
-      ),
-    ],
-    [pinkCol],
+function BrandMark({ pinkRow = 1 }: { pinkRow?: 0 | 1 }): React.ReactElement {
+  const rows = Array.from({ length: 3 }, (_, row) =>
+    Array.from({ length: MARK_COLS }, (_, column) => {
+      if (column === PINK_HOME && (row === pinkRow || row === pinkRow + 1)) {
+        return SIGNAL_PINK;
+      }
+      if (row < 2 && column !== PINK_HOME) return STACK_ORANGE;
+      return null;
+    }),
   );
 
   return (
@@ -85,66 +66,62 @@ function BrandMark({ pinkCol = PINK_HOME }: { pinkCol?: number }): React.ReactEl
   );
 }
 
-/** Hook that drives the pink-square slide animation (4s loop). */
-function useBrandMarkAnimation(enabled: boolean): number {
+/** Hook that drives the mark's restrained vertical bounce. */
+function useBrandMarkAnimation(enabled: boolean): 0 | 1 {
   const [frame, setFrame] = useState(0);
 
   useEffect(() => {
     if (!enabled) return;
     const interval = setInterval(() => {
-      setFrame((f) => (f + 1) % PINK_SLIDE_FRAMES.length);
-    }, SLIDE_INTERVAL_MS);
+      setFrame((f) => (f + 1) % PINK_BOUNCE_FRAMES.length);
+    }, BOUNCE_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [enabled]);
 
-  return PINK_SLIDE_FRAMES[frame] ?? PINK_HOME;
+  return brandMarkPinkRow(frame);
 }
 
-// Five-row pixel lettering echoes the crisp block construction of the logo.
-// At 59 columns it fits a standard 80-column terminal without looking cramped.
-// Refined for consistent stroke weight and terminal legibility at small sizes.
+// Four-row half-block lettering echoes the crisp construction of the logo
+// while giving the curves and diagonals a cleaner silhouette than solid 5×5
+// tiles. At 59 columns it still fits a standard 80-column terminal. The open
+// round letters (G, S, C) share a `▄███▀` top terminal and the W settles on
+// rounded valley points, so the wordmark reads as one consistent family.
 const PIXEL_GLYPHS: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
-  W: Object.freeze(['█   █', '█   █', '█ █ █', '█ █ █', ' █ █ ']),
-  R: Object.freeze(['████ ', '█   █', '████ ', '█  █ ', '█   █']),
-  O: Object.freeze([' ███ ', '█   █', '█   █', '█   █', ' ███ ']),
-  N: Object.freeze(['█   █', '██  █', '█ █ █', '█  ██', '█   █']),
-  G: Object.freeze([' ████', '█    ', '█  ██', '█   █', ' ███ ']),
-  S: Object.freeze([' ████', '█    ', ' ███ ', '    █', '████ ']),
-  T: Object.freeze(['█████', '  █  ', '  █  ', '  █  ', '  █  ']),
-  A: Object.freeze([' ███ ', '█   █', '█████', '█   █', '█   █']),
-  C: Object.freeze([' ████', '█    ', '█    ', '█    ', ' ████']),
-  K: Object.freeze(['█  █ ', '█ █  ', '██   ', '█ █  ', '█  █ ']),
+  W: Object.freeze(['█   █', '█   █', '█ █ █', ' ▀ ▀ ']),
+  R: Object.freeze(['████▄', '█   █', '████▀', '█  ▀▄']),
+  O: Object.freeze(['▄███▄', '█   █', '█   █', '▀███▀']),
+  N: Object.freeze(['█▄  █', '█ █ █', '█  ▀█', '█   █']),
+  G: Object.freeze(['▄███▀', '█    ', '█  ██', '▀███▀']),
+  S: Object.freeze(['▄███▀', '▀███▄', '    █', '████▀']),
+  T: Object.freeze(['█████', '  █  ', '  █  ', '  █  ']),
+  A: Object.freeze(['▄███▄', '█   █', '█████', '█   █']),
+  C: Object.freeze(['▄███▀', '█    ', '█    ', '▀███▄']),
+  K: Object.freeze(['█  ▄▀', '█▄▀  ', '█▀▄  ', '█  ▀▄']),
 });
 
 const WORDMARK = 'WRONGSTACK';
-const WORDMARK_ROWS = 5;
+const WORDMARK_ROWS = 4;
 const GLYPH_WIDTH = 5;
 const WORDMARK_WIDTH = WORDMARK.length * GLYPH_WIDTH + WORDMARK.length - 1;
 const WORDMARK_LINES = Object.freeze(
   Array.from({ length: WORDMARK_ROWS }, (_, row) =>
-    [...WORDMARK]
-      .map((letter) => PIXEL_GLYPHS[letter]?.[row] ?? ' '.repeat(GLYPH_WIDTH))
-      .join(' '),
+    [...WORDMARK].map((letter) => PIXEL_GLYPHS[letter]?.[row] ?? ' '.repeat(GLYPH_WIDTH)).join(' '),
   ),
 );
 
-export function bannerGradientColor(position: number, length: number, phase = 0): string {
-  // The phase offset creates a slow shimmer: the gradient midpoint oscillates
-  // left/right over time, giving the wordmark a living quality.
-  const raw = length > 1 ? position / (length - 1) : 0.5;
-  const shimmer = Math.sin(phase * 0.15) * 0.2;
-  const progress = Math.max(0, Math.min(1, raw + shimmer));
+export function bannerGradientColor(position: number, length: number): string {
+  const progress = length > 1 ? position / (length - 1) : 0.5;
   return mixHex(STACK_ORANGE, SIGNAL_PINK, progress);
 }
 
-function GradientText({ text, phase = 0 }: { text: string; phase?: number }): React.ReactElement {
+function GradientText({ text }: { text: string }): React.ReactElement {
   return (
     <Text bold>
       {[...text].map((character, index) =>
         character === ' ' ? (
           ' '
         ) : (
-          <Text key={index} color={bannerGradientColor(index, text.length, phase)}>
+          <Text key={index} color={bannerGradientColor(index, text.length)}>
             {character}
           </Text>
         ),
@@ -153,24 +130,11 @@ function GradientText({ text, phase = 0 }: { text: string; phase?: number }): Re
   );
 }
 
-/** Slow shimmer tick for the wordmark gradient (200ms per frame). */
-const SHIMMER_INTERVAL_MS = 200;
-
-function PixelWordmark({ animated = false }: { animated?: boolean }): React.ReactElement {
-  const [phase, setPhase] = useState(0);
-
-  useEffect(() => {
-    if (!animated) return;
-    const interval = setInterval(() => {
-      setPhase((p) => p + 1);
-    }, SHIMMER_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [animated]);
-
+function PixelWordmark(): React.ReactElement {
   return (
     <Box flexDirection="column" alignItems="center">
       {WORDMARK_LINES.map((line, row) => (
-        <GradientText key={row} text={line} phase={phase} />
+        <GradientText key={row} text={line} />
       ))}
     </Box>
   );
@@ -387,8 +351,8 @@ export function Banner({
   const version = trunc(entry.version, Math.max(1, contentWidth - 1));
   const route = `${entry.provider} › ${entry.model}`;
 
-  // Animate the brand mark and wordmark only in full (non-compact) layout.
-  const pinkCol = useBrandMarkAnimation(!compact);
+  // Keep motion to the small brand mark and only in the full layout.
+  const pinkRow = useBrandMarkAnimation(!compact);
 
   return (
     <Box
@@ -407,7 +371,7 @@ export function Banner({
       </Box>
 
       <Box justifyContent="center" marginTop={compact ? 0 : 1}>
-        <BrandMark pinkCol={pinkCol} />
+        <BrandMark pinkRow={pinkRow} />
       </Box>
 
       {compact ? (
@@ -422,7 +386,7 @@ export function Banner({
       ) : (
         <>
           <Box justifyContent="center" marginTop={1}>
-            <PixelWordmark animated />
+            <PixelWordmark />
           </Box>
           <Box justifyContent="center" marginTop={1}>
             <Text color={MUTED} italic>
