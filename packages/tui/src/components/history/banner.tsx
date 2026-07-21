@@ -81,30 +81,165 @@ function useBrandMarkAnimation(enabled: boolean): 0 | 1 {
   return brandMarkPinkRow(frame);
 }
 
-// The startup wordmark uses a compact 5×5 block face. Every glyph is five
-// columns wide and five rows tall, composing to 59 columns so the full mark
-// fits comfortably inside an 80-column terminal while staying legible.
-const WORDMARK_GLYPHS: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
-  W: Object.freeze(['█   █', '█   █', '█ █ █', '█ █ █', '██ ██']),
-  R: Object.freeze(['████ ', '█   █', '████ ', '█  █ ', '█   █']),
-  O: Object.freeze([' ███ ', '█   █', '█   █', '█   █', ' ███ ']),
-  N: Object.freeze(['█   █', '██  █', '█ █ █', '█  ██', '█   █']),
-  G: Object.freeze([' ████', '█    ', '█ ███', '█   █', ' ████']),
-  S: Object.freeze([' ████', '█    ', ' ███ ', '    █', '████ ']),
-  T: Object.freeze(['█████', '  █  ', '  █  ', '  █  ', '  █  ']),
-  A: Object.freeze([' ███ ', '█   █', '█████', '█   █', '█   █']),
-  C: Object.freeze([' ████', '█    ', '█    ', '█    ', ' ████']),
-  K: Object.freeze(['█   █', '█  █ ', '███  ', '█  █ ', '█   █']),
+// ── Soft 5×5 wordmark ─────────────────────────────────────────────────────
+//
+// Each letter is designed on a 5×5 grid where every cell carries a *density*
+// in {0,1,2,3}.  Rendering expands every cell into two terminal rows:
+//
+//   0 = empty        (top ' '  bottom ' ')
+//   1 = lower half   (top ' '  bottom '▄')
+//   2 = upper half   (top '▀'  bottom ' ')
+//   3 = full         (top '▀'  bottom '█')
+//
+// The half-block density values let diagonals and slanted strokes fade in
+// and out smoothly (e.g. the W's centre "V" can drop from full → upper-half
+// → empty across the three columns) instead of the previous hard
+// "either fully lit or fully blank" look.  The result is a 10-row × 5-col
+// glyph per letter, keeping the same 53-column footprint as the old design
+// (9 letters × 5 cols + 8 letter-spacers) while doubling the vertical
+// resolution of the curves.
+//
+// Glyph tables are written as 5 rows of 5 single-digit tokens.  A small
+// helper below decodes them into the 10 terminal lines the renderer paints.
+const WORDMARK_GLYPH_DENSITY: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
+  W: Object.freeze([
+    '30003',
+    '30003',
+    '30303',
+    '32323',
+    '33033',
+  ]),
+  R: Object.freeze([
+    '33002',
+    '30003',
+    '33002',
+    '30230',
+    '30003',
+  ]),
+  O: Object.freeze([
+    '02330',
+    '30003',
+    '30003',
+    '30003',
+    '02330',
+  ]),
+  N: Object.freeze([
+    '30003',
+    '33003',
+    '30303',
+    '30033',
+    '30003',
+  ]),
+  G: Object.freeze([
+    '02332',
+    '30000',
+    '30233',
+    '30003',
+    '02330',
+  ]),
+  S: Object.freeze([
+    '02332',
+    '30000',
+    '02330',
+    '00003',
+    '33220',
+  ]),
+  T: Object.freeze([
+    '33333',
+    '00200',
+    '00200',
+    '00200',
+    '00200',
+  ]),
+  A: Object.freeze([
+    '02330',
+    '30003',
+    '33333',
+    '30003',
+    '30003',
+  ]),
+  C: Object.freeze([
+    '02332',
+    '30000',
+    '30000',
+    '30000',
+    '02332',
+  ]),
+  K: Object.freeze([
+    '30003',
+    '30030',
+    '33300',
+    '30030',
+    '30003',
+  ]),
 });
 
 const WORDMARK = 'WRONGSTACK';
-const WORDMARK_ROWS = 5;
-const GLYPH_WIDTH = WORDMARK_GLYPHS.W?.[0]?.length ?? 5;
+const WORDMARK_GLYPH_ROWS = 5;
+const WORDMARK_GLYPH_COLS = 5;
+const WORDMARK_RENDER_ROWS = WORDMARK_GLYPH_ROWS * 2; // 10
+const GLYPH_WIDTH = WORDMARK_GLYPH_COLS;
 const WORDMARK_WIDTH = WORDMARK.length * GLYPH_WIDTH + WORDMARK.length - 1;
+
+// Map a single cell density (0..3) to the character painted on the *upper*
+// half of the 2-row cell.  The lower half is computed by the same table
+// shifted one position down, so density 3 ('█' on both rows) yields the
+// classic fully-filled block.
+const CELL_TOP: Readonly<Record<0 | 1 | 2 | 3, string>> = Object.freeze({
+  0: ' ',
+  1: ' ',
+  2: '▀',
+  3: '▀',
+});
+const CELL_BOTTOM: Readonly<Record<0 | 1 | 2 | 3, string>> = Object.freeze({
+  0: ' ',
+  1: '▄',
+  2: ' ',
+  3: '█',
+});
+
+/**
+ * Decode a 5-row density table into 10 terminal lines of 5 characters each.
+ * Exported for testing.
+ */
+export function decodeSoftGlyph(density: ReadonlyArray<string>): ReadonlyArray<string> {
+  if (density.length !== WORDMARK_GLYPH_ROWS) {
+    throw new Error(`soft glyph must be ${WORDMARK_GLYPH_ROWS} rows, got ${density.length}`);
+  }
+  const out: string[] = [];
+  for (let row = 0; row < WORDMARK_GLYPH_ROWS; row++) {
+    const tokens = density[row] ?? '';
+    if (tokens.length !== WORDMARK_GLYPH_COLS) {
+      throw new Error(`soft glyph row must be ${WORDMARK_GLYPH_COLS} columns, got ${tokens.length}`);
+    }
+    let topChunk = '';
+    let bottomChunk = '';
+    for (let col = 0; col < WORDMARK_GLYPH_COLS; col++) {
+      const token = tokens[col];
+      const value = (token === '0' || token === '1' || token === '2' || token === '3'
+        ? (Number(token) as 0 | 1 | 2 | 3)
+        : 0);
+      topChunk += CELL_TOP[value];
+      bottomChunk += CELL_BOTTOM[value];
+    }
+    out.push(topChunk, bottomChunk);
+  }
+  return Object.freeze(out);
+}
+
+const WORDMARK_GLYPH_LINES: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze(
+  Object.fromEntries(
+    Object.keys(WORDMARK_GLYPH_DENSITY).flatMap((letter) => {
+      const glyph = WORDMARK_GLYPH_DENSITY[letter];
+      return glyph ? [[letter, decodeSoftGlyph(glyph)] as const] : [];
+    }),
+  ),
+);
+
 const WORDMARK_LINES = Object.freeze(
-  Array.from({ length: WORDMARK_ROWS }, (_, row) =>
+  Array.from({ length: WORDMARK_RENDER_ROWS }, (_, row) =>
     [...WORDMARK]
-      .map((letter) => WORDMARK_GLYPHS[letter]?.[row] ?? ' '.repeat(GLYPH_WIDTH))
+      .map((letter) => WORDMARK_GLYPH_LINES[letter]?.[row] ?? ' '.repeat(GLYPH_WIDTH))
       .join(' '),
   ),
 );
