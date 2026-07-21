@@ -27,14 +27,23 @@ import {
  */
 
 let projectDir: string;
+/**
+ * The user's repo root. Deliberately a SEPARATE directory from
+ * `projectDir` (WrongStack's `~/.wrongstack/projects/<slug>` state dir) —
+ * conflating the two is the bug these tests guard against.
+ */
+let projectRoot: string;
 const _spawnedPid = 0;
 
 beforeEach(async () => {
   projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'mailbox-bootstrap-test-'));
+  projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'mailbox-bootstrap-root-'));
+  lastSpawnCwd = null;
 });
 
 afterEach(async () => {
   await fs.rm(projectDir, { recursive: true, force: true });
+  await fs.rm(projectRoot, { recursive: true, force: true });
 });
 
 // ── Helpers ────────────────────────────────────────────────────────────
@@ -85,15 +94,34 @@ function _failingProbe(): ProbeFn {
   return async () => false;
 }
 
-function makeSpawnFnWritingLock(host: string, port: number, token: string): SpawnFn {
+/** cwd handed to the most recent spawn stub — asserted by the cwd tests. */
+let lastSpawnCwd: string | null = null;
+
+/**
+ * Stub for `wstack mailbox serve`.
+ *
+ * `lockDir` is explicit and is NOT derived from `cwd`: the real
+ * subcommand resolves its state dir via `resolveProjectDir(projectRoot)`,
+ * so the lock lands in `~/.wrongstack/projects/<slug>` while its cwd is
+ * the repo root. An earlier version of this stub wrote the lock into
+ * `cwd`, which silently encoded the bug where the bridge was spawned
+ * inside its own state directory.
+ */
+function makeSpawnFnWritingLock(
+  host: string,
+  port: number,
+  token: string,
+  lockDir: string,
+): SpawnFn {
   return async (_args, cwd) => {
+    lastSpawnCwd = cwd;
     // Use the test process's own PID so `isProcessAlive` accepts the
     // lock as live — `readLiveLock` checks both PID and /healthz, and
     // a fake PID would always be stale. The host server IS this
     // test process anyway (we proxy through node:http on localhost),
     // so the lock PID matches reality.
-    const lockPath = path.join(cwd, MAILBOX_BRIDGE_LOCK_FILENAME);
-    const tokenPath = path.join(cwd, '.mailbox.token');
+    const lockPath = path.join(lockDir, MAILBOX_BRIDGE_LOCK_FILENAME);
+    const tokenPath = path.join(lockDir, '.mailbox.token');
     const lock = {
       pid: process.pid,
       host,
@@ -138,6 +166,7 @@ describe('tryAcquireMailboxBridge', () => {
 
       const handle = await tryAcquireMailboxBridge({
         projectDir,
+        projectRoot,
         probeFn: liveProbe(),
         spawnFn: () => {
           throw new Error('spawnFn should not be called when joining');
@@ -158,8 +187,9 @@ describe('tryAcquireMailboxBridge', () => {
     try {
       const handle = await tryAcquireMailboxBridge({
         projectDir,
+        projectRoot,
         probeFn: liveProbe(),
-        spawnFn: makeSpawnFnWritingLock('127.0.0.1', owner.port, 'b'.repeat(64)),
+        spawnFn: makeSpawnFnWritingLock('127.0.0.1', owner.port, 'b'.repeat(64), projectDir),
       });
 
       expect(handle.source).toBe('spawned');
@@ -200,6 +230,7 @@ describe('tryAcquireMailboxBridge', () => {
 
     const handle = await tryAcquireMailboxBridge({
       projectDir,
+      projectRoot,
       timeoutMs: 1500,
       spawnFn: () => {
         throw new Error('spawnFn should NOT be called when joining an existing lock');
@@ -249,6 +280,7 @@ describe('tryAcquireMailboxBridge', () => {
       let spawnCalled = false;
       const handle = await tryAcquireMailboxBridge({
         projectDir,
+        projectRoot,
         timeoutMs: 2000,
         spawnFn: (...args) => {
           spawnCalled = true;
@@ -256,7 +288,12 @@ describe('tryAcquireMailboxBridge', () => {
           // stale lock) and bind a port; our stub writes a fresh live
           // lock pointing at the running healthz server, using the
           // test process PID so it reads back as live.
-          return makeSpawnFnWritingLock('127.0.0.1', owner.port, 'e'.repeat(64))(...args);
+          return makeSpawnFnWritingLock(
+            '127.0.0.1',
+            owner.port,
+            'e'.repeat(64),
+            projectDir,
+          )(...args);
         },
       });
 
@@ -275,6 +312,7 @@ describe('tryAcquireMailboxBridge', () => {
   it('returns source=failed when spawn throws', async () => {
     const handle = await tryAcquireMailboxBridge({
       projectDir,
+      projectRoot,
       probeFn: liveProbe(),
       spawnFn: () => {
         throw new Error('spawn failed in test');
@@ -298,6 +336,7 @@ describe('tryAcquireMailboxBridge', () => {
     };
     const handle = await tryAcquireMailboxBridge({
       projectDir,
+      projectRoot,
       probeFn: liveProbe(),
       spawnFn: noopSpawn,
       timeoutMs: 500, // keep the test fast
@@ -333,8 +372,9 @@ describe('tryAcquireMailboxBridge', () => {
         // Bootstrap project B — must not pick up project A's lock.
         const handleB = await tryAcquireMailboxBridge({
           projectDir: projectB,
+          projectRoot,
           probeFn: liveProbe(),
-          spawnFn: makeSpawnFnWritingLock('127.0.0.1', ownerB.port, 'e'.repeat(64)),
+          spawnFn: makeSpawnFnWritingLock('127.0.0.1', ownerB.port, 'e'.repeat(64), projectB),
         });
         expect(handleB.source).toBe('spawned');
         expect(handleB.token).toBe('e'.repeat(64));
@@ -365,6 +405,34 @@ describe('tryAcquireMailboxBridge', () => {
     expect(result.kind).toBe('probe-failed');
     if (result.kind === 'probe-failed') {
       expect(result.lock.token).toBe(lock.lock.token);
+    }
+  });
+
+  // ── Regression: nested-project registration ──────────────────────────
+  //
+  // The bridge was spawned with cwd = `projectDir`
+  // (`~/.wrongstack/projects/<slug>`). `wstack mailbox serve` re-derives
+  // its project identity from `process.cwd()`, found no project marker
+  // above the state dir, and fell back to cwd — registering a SECOND,
+  // nested project `<slug>-<hash>` with its own lock, token, meta.json
+  // and `projects.json` entry. The parent kept polling the correct
+  // `projectDir`, never saw that lock, timed out after 5 s and respawned
+  // a fresh bridge on every boot (observed: generation 166 vs 5).
+  it('spawns the bridge with cwd = projectRoot, never the state dir', async () => {
+    const owner = await startHealthzServer();
+    try {
+      const handle = await tryAcquireMailboxBridge({
+        projectDir,
+        projectRoot,
+        probeFn: liveProbe(),
+        spawnFn: makeSpawnFnWritingLock('127.0.0.1', owner.port, 'f'.repeat(64), projectDir),
+      });
+
+      expect(handle.source).toBe('spawned');
+      expect(lastSpawnCwd).toBe(projectRoot);
+      expect(lastSpawnCwd).not.toBe(projectDir);
+    } finally {
+      await owner.close();
     }
   });
 });

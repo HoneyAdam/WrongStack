@@ -93,6 +93,11 @@ export async function bootConfig(options: BootConfigOptions = {}): Promise<BootC
   // override (tests / sandboxed runs redirect all global state through it).
   const wpaths = resolveWstackPaths({ projectRoot });
 
+  // Refuse to treat WrongStack's own state directory as a project. Must run
+  // BEFORE the mkdir/registerProjectInManifest block below, or the bogus
+  // namespace gets materialized on disk before we can complain about it.
+  assertProjectRootOutsideStateDir(projectRoot, wpaths.globalRoot);
+
   // Ensure the directories every consumer relies on exist. This is the union
   // of what the cli and webui boot paths created independently — creating all
   // three eagerly is harmless and removes the "new wpath added to one copy
@@ -498,6 +503,44 @@ async function migrateProfileFiles(wpaths: WstackPaths): Promise<void> {
       // best-effort — never block boot
     }
   }
+}
+
+/**
+ * Refuse to boot when the resolved project root lives inside
+ * `<globalRoot>/projects` — the per-project state namespace WrongStack itself
+ * owns (`~/.wrongstack/projects/<slug>`, or under `WRONGSTACK_HOME`).
+ *
+ * When this happens it means a caller spawned a WrongStack process with a
+ * state path as its cwd; `DefaultPathResolver` then finds no project marker,
+ * walks up, hits the home-directory stop, and falls back to cwd — so the state
+ * directory itself becomes the "project". Boot would go on to register a
+ * nested slug (`<slug>-<hash>`) with its own `meta.json`, `projects.json`
+ * entry, mailbox lock and token, splitting coordination state across two
+ * namespaces — with the nested one always winning `lastSeen`.
+ *
+ * Deliberately scoped to `projects/` rather than all of `globalRoot`: a user
+ * may legitimately point `WRONGSTACK_HOME` at a directory that also contains
+ * real repositories (our own bridge tests do exactly this), and refusing those
+ * would be a false positive. Nothing under `projects/` is ever a real repo, so
+ * the narrow check has no such ambiguity.
+ *
+ * Loud on purpose — the symptom is far harder to diagnose than a refused boot
+ * that names the offending directory.
+ */
+export function assertProjectRootOutsideStateDir(projectRoot: string, globalRoot: string): void {
+  const stateNamespace = path.resolve(globalRoot, 'projects');
+  const rel = path.relative(stateNamespace, path.resolve(projectRoot));
+  // Outside → the relative path escapes upward, or is absolute (other drive).
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return;
+  // `rel === ''` means projectRoot IS `projects/`; anything else is nested.
+  throw new Error(
+    `Refusing to start: the resolved project root is inside WrongStack's per-project ` +
+      `state directory.\n` +
+      `  project root: ${projectRoot}\n` +
+      `  state dir:    ${stateNamespace}\n` +
+      `This usually means a WrongStack process was spawned with a state path as its ` +
+      `working directory. Start from a real project directory, or pass --cwd <path>.`,
+  );
 }
 
 async function writeProjectMeta(paths: WstackPaths, projectRoot: string): Promise<void> {

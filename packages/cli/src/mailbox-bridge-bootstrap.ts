@@ -55,7 +55,27 @@ export interface MailboxBridgeHandle {
 }
 
 export interface BootstrapOptions {
+  /**
+   * WrongStack's per-project STATE directory
+   * (`~/.wrongstack/projects/<slug>`). Owns the lock file and is what we
+   * poll for the spawned bridge's lock. NEVER pass this as the child's
+   * cwd — see `projectRoot`.
+   */
   projectDir: string;
+  /**
+   * The real project root (the user's repo, e.g. `D:\repos\Foo`) — used
+   * as the spawned bridge's cwd.
+   *
+   * This MUST be distinct from `projectDir`. `wstack mailbox serve`
+   * re-derives its own project identity from `process.cwd()` via
+   * `DefaultPathResolver`, so spawning it inside the state directory made
+   * it resolve `~/.wrongstack/projects/<slug>` as its project root and
+   * register a second, nested project (`<slug>-<hash>`) — with its own
+   * lock, token and `projects.json` entry. The parent then polled the
+   * correct `projectDir`, never saw that lock, timed out, and respawned a
+   * fresh bridge on every single boot.
+   */
+  projectRoot: string;
   /**
    * Function used to spawn `wstack mailbox serve` if no live
    * instance is found. Defaults to a real `child_process.spawn`
@@ -137,7 +157,10 @@ export async function tryAcquireMailboxBridge(
   try {
     // SpawnFn is declared async — must await, otherwise `child` is a
     // Promise and `child.pid`/`child.unref()` blow up at runtime.
-    child = await spawnFn(['mailbox', 'serve'], opts.projectDir);
+    //
+    // cwd MUST be the real project root, not `projectDir`: the child
+    // re-derives its project identity from cwd. See BootstrapOptions.
+    child = await spawnFn(['mailbox', 'serve'], opts.projectRoot);
   } catch {
     return {
       url: '',

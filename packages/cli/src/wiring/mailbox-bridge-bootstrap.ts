@@ -64,6 +64,7 @@ export async function bootstrapMailboxBridgeAtStartup(params: {
   try {
     handle = await tryAcquireMailboxBridge({
       projectDir,
+      projectRoot: params.projectRoot,
       ...(params.timeoutMs !== undefined ? { timeoutMs: params.timeoutMs } : {}),
     });
   } catch (err) {

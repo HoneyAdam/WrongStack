@@ -1,4 +1,5 @@
 export {
+  assertProjectRootOutsideStateDir,
   type BootConfigOptions,
   type BootConfigResult,
   bootConfig,
