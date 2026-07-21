@@ -170,8 +170,8 @@ describe('pruneToolInput', () => {
 describe('firstSelectable', () => {
   it('returns index of first non-divider item', () => {
     const items = [
-      { key: '__divider__', label: '--', kind: 'action' },
-      { key: 'proj-a', label: 'Project A', kind: 'project' },
+      { key: '__divider__', label: '--', kind: 'action' as const },
+      { key: 'proj-a', label: 'Project A', kind: 'project' as const },
     ];
     expect(firstSelectable(items)).toBe(1);
   });
@@ -182,14 +182,14 @@ describe('firstSelectable', () => {
 
   it('returns 0 when all items are dividers', () => {
     const items = [
-      { key: '__divider__', label: '--', kind: 'action' },
+      { key: '__divider__', label: '--', kind: 'action' as const },
     ];
     expect(firstSelectable(items)).toBe(0);
   });
 
   it('returns 0 when first item is selectable', () => {
     const items = [
-      { key: 'proj-a', label: 'A', kind: 'project' },
+      { key: 'proj-a', label: 'A', kind: 'project' as const },
     ];
     expect(firstSelectable(items)).toBe(0);
   });
@@ -197,10 +197,10 @@ describe('firstSelectable', () => {
 
 describe('skipDivider', () => {
   const items = [
-    { key: '__divider__', label: '--', kind: 'action' },
-    { key: 'proj-a', label: 'A', kind: 'project' },
-    { key: '__divider__', label: '--', kind: 'action' },
-    { key: 'proj-b', label: 'B', kind: 'project' },
+    { key: '__divider__', label: '--', kind: 'action' as const },
+    { key: 'proj-a', label: 'A', kind: 'project' as const },
+    { key: '__divider__', label: '--', kind: 'action' as const },
+    { key: 'proj-b', label: 'B', kind: 'project' as const },
   ];
 
   it('skips forward over dividers', () => {
@@ -231,8 +231,8 @@ describe('skipDivider', () => {
 
   it('stays at index when all items are dividers', () => {
     const allDividers = [
-      { key: '__divider__', label: '--', kind: 'action' },
-      { key: '__divider__', label: '--', kind: 'action' },
+      { key: '__divider__', label: '--', kind: 'action' as const },
+      { key: '__divider__', label: '--', kind: 'action' as const },
     ];
     expect(skipDivider(allDividers, 1, 1)).toBe(1);
     expect(skipDivider(allDividers, 1, -1)).toBe(1);
