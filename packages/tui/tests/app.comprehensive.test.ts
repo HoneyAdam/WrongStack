@@ -258,7 +258,7 @@ describe('reducer', () => {
     it('clears toolStream when toolUseId matches', () => {
       const state = {
         ...emptyState(),
-        toolStream: { toolUseId: 'tool-1', name: 'bash', text: 'in-flight', startedAt: 1 },
+        toolStream: { toolUseId: 'tool-1', name: 'bash', text: 'in-flight', startedAt: 1 } as never,
       };
       const next = reducer(state, { type: 'toolStreamClear', toolUseId: 'tool-1' });
       expect(next.toolStream).toBeNull();

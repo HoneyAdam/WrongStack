@@ -30,7 +30,7 @@ describe('SddBoardOverlay', () => {
     expect(frame).toContain('runnin');
     expect(frame).toContain('wave 1');
     view.unmount();
-  });
+  } as never);
 
   it('shows progress counts', () => {
     const view = render(React.createElement(SddBoardOverlay, { snapshot }));
@@ -39,14 +39,14 @@ describe('SddBoardOverlay', () => {
     expect(frame).toContain('2');
     expect(frame).toContain('0%');
     view.unmount();
-  });
+  } as never);
 
   it('shows in-progress count when > 0', () => {
     const view = render(React.createElement(SddBoardOverlay, { snapshot }));
     const frame = view.lastFrame() ?? '';
     expect(frame).toContain('▶1');
     view.unmount();
-  });
+  } as never);
 
   it('shows failed count when > 0', () => {
     const snap = { ...snapshot, progress: { ...snapshot.progress, failed: 1 } };
@@ -54,7 +54,7 @@ describe('SddBoardOverlay', () => {
     const frame = view.lastFrame() ?? '';
     expect(frame).toContain('✗1');
     view.unmount();
-  });
+  } as never);
 
   it('shows empty state when no tasks', () => {
     const snap = { ...snapshot, tasks: [], columns: [], progress: { total: 0, completed: 0, inProgress: 0, failed: 0, percentComplete: 0 } };
@@ -62,7 +62,7 @@ describe('SddBoardOverlay', () => {
     const frame = view.lastFrame() ?? '';
     expect(frame).toContain('No active SDD run');
     view.unmount();
-  });
+  } as never);
 
   it('shows deadlock diagnostics', () => {
     const snap = {
@@ -73,7 +73,7 @@ describe('SddBoardOverlay', () => {
     const frame = view.lastFrame() ?? '';
     expect(frame).toContain('Deadlock');
     view.unmount();
-  });
+  } as never);
 
   it('renders task cards with status icons', () => {
     const view = render(React.createElement(SddBoardOverlay, { snapshot }));
@@ -83,7 +83,7 @@ describe('SddBoardOverlay', () => {
     expect(frame).toContain('t1');
     expect(frame).toContain('t2');
     view.unmount();
-  });
+  } as never);
 
   it('focuses a specific column when focusColumn provided', () => {
     const view = render(React.createElement(SddBoardOverlay, { snapshot, focusColumn: 0 }));
@@ -93,7 +93,7 @@ describe('SddBoardOverlay', () => {
     expect(frame).toContain('column');
     expect(frame).toContain('1/2');
     view.unmount();
-  });
+  } as never);
 
   it('shows recent activity feed', () => {
     const view = render(React.createElement(SddBoardOverlay, { snapshot }));
@@ -101,7 +101,7 @@ describe('SddBoardOverlay', () => {
     expect(frame).toContain('Recent activity');
     expect(frame).toContain('Task started');
     view.unmount();
-  });
+  } as never);
 
   it('renders all task display statuses', () => {
     const statuses: Array<{ displayStatus: string; icon: string }> = [
@@ -129,19 +129,19 @@ describe('SddBoardOverlay', () => {
       expect(frame).toContain(`Task ${s.displayStatus}`);
     }
     view.unmount();
-  });
+  } as never);
 
   it('shows agent name for in-progress tasks', () => {
     const view = render(React.createElement(SddBoardOverlay, { snapshot }));
     const frame = view.lastFrame() ?? '';
     expect(frame).toContain('agent-1');
     view.unmount();
-  });
+  } as never);
 
   it('shows dependencies when present', () => {
     const view = render(React.createElement(SddBoardOverlay, { snapshot }));
     const frame = view.lastFrame() ?? '';
     expect(frame).toContain('t1');
     view.unmount();
-  });
+  } as never);
 });
