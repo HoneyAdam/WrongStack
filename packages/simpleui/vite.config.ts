@@ -1,8 +1,57 @@
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
+import type { Plugin } from 'vite';
+
+/**
+ * Development-only Vite plugin that injects a `<meta name="wrongstack-ws-url">`
+ * tag into `index.html` so the frontend connects to the correct WebSocket
+ * backend instead of deriving `ws://127.0.0.1:3466` from the page origin.
+ *
+ * ### Why this exists
+ *
+ * SimpleUI uses a shared-port design: in production (`wstack --simpleui`) the
+ * backend webui-server serves both the frontend **and** the WebSocket chat
+ * protocol on the same port. The frontend's `defaultWsUrl()` (in `lib/ws.ts`)
+ * derives the WS URL from `window.location.host`, which works because both
+ * HTTP and WS ride the same server.
+ *
+ * In development, Vite serves the frontend on port 3466 but does **not** host
+ * the WrongStack chat-protocol WebSocket — it only has its own HMR WebSocket.
+ * Without this meta tag the frontend tries to open a chat WS to the Vite
+ * server, which fails with "WebSocket connection failed".
+ *
+ * ### How to use
+ *
+ *   # Terminal 1: start the backend on a custom port (default 3466 is taken
+ *   # by the Vite dev server in this workflow)
+ *   wstack --simpleui --port 3467
+ *
+ *   # Terminal 2:
+ *   WRONGSTACK_BACKEND_PORT=3467 pnpm dev
+ *
+ * When `WRONGSTACK_BACKEND_PORT` is unset, the meta tag defaults to port 3466,
+ * which matches the production default — useful when the backend runs on the
+ * default port and Vite uses a non-default port, or for CI smoke tests.
+ */
+function injectWsUrlPlugin(): Plugin {
+  const backendPort = process.env['WRONGSTACK_BACKEND_PORT'] || '3466';
+  const backendHost = process.env['WRONGSTACK_BACKEND_HOST'] || '127.0.0.1';
+  const wsUrl = `ws://${backendHost}:${backendPort}`;
+  const metaTag = `<meta name="wrongstack-ws-url" content="${wsUrl}" />`;
+  return {
+    name: 'inject-ws-url',
+    // Only inject during `vite dev` — `vite build` must produce a clean
+    // artifact that the production server can serve without a hardcoded WS URL.
+    apply: 'serve' as const,
+    transformIndexHtml(html) {
+      if (html.includes('name="wrongstack-ws-url"')) return html;
+      return html.replace('</head>', `  ${metaTag}\n  </head>`);
+    },
+  };
+}
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), injectWsUrlPlugin()],
   server: {
     host: '127.0.0.1',
     port: 3466,
@@ -19,6 +68,16 @@ export default defineConfig({
         "object-src 'none'",
         "frame-ancestors 'none'",
       ].join('; '),
+    },
+    proxy: {
+      // Proxy the /ws-auth cookie-exchange endpoint to the backend so the
+      // HttpOnly cookie is set on the backend's loopback origin, which the
+      // WS connection (pointed at the same backend origin via the meta tag
+      // above) will then send automatically.
+      '/ws-auth': {
+        target: `http://${process.env['WRONGSTACK_BACKEND_HOST'] || '127.0.0.1'}:${process.env['WRONGSTACK_BACKEND_PORT'] || '3466'}`,
+        changeOrigin: true,
+      },
     },
   },
   build: {

@@ -25,8 +25,40 @@ status/BTW/note/broadcast traffic is kept out of model context; actionable
 steer/ask/assign/result/review messages still reach the agent so autonomous
 coordination does not silently lose work.
 
-Build it with `pnpm --filter @wrongstack/simpleui build`, then launch with
-`wstack --simpleui --open`.
+## Production
+
+Build the frontend, then launch the backend (which serves both the built
+frontend and the WebSocket chat protocol on the same port):
+
+```sh
+pnpm --filter @wrongstack/simpleui build
+wstack --simpleui --open
+```
+
+The server binds to `127.0.0.1:3466` by default.
+
+## Development (hot-reload)
+
+During UI development, the Vite dev server serves the frontend on port 3466,
+but it does **not** host the WrongStack chat-protocol WebSocket. You need
+the backend running on a separate port.
+
+### Workflow
+
+```sh
+# Terminal 1: start the backend on a custom port
+wstack --simpleui --port 3467
+
+# Terminal 2: start Vite dev server, pointing at the backend
+WRONGSTACK_BACKEND_PORT=3467 pnpm dev
+```
+
+The Vite dev server injects a `<meta name="wrongstack-ws-url">` tag into
+`index.html` so the frontend connects its WebSocket to the backend instead
+of trying to open it against the Vite server. Port 3467 is just an example —
+use any free port.
+
+## Autonomous profile
 
 For an explicit, runtime-only autonomous profile, launch with
 `wstack simpleui --full-auto --open`. This enables YOLO, Director, autonomy,
