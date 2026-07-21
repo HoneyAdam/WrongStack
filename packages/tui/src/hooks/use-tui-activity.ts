@@ -1,5 +1,6 @@
 import { type Agent, loadGoal, resolveWstackPaths } from '@wrongstack/core';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import * as os from 'node:os';
 import type { Action, State } from '../app-reducer.js';
 import { type HeapSample, startHeapWatchdog, takeHeapSample } from '../heap-watchdog.js';
 import { isRandomTuiThinkingWord, pickRandomTuiThinkingWord } from '../thinking-word.js';
@@ -128,6 +129,24 @@ export function useTuiActivity({
   // Reuse the existing 10s shell clock so diagnostics do not add another
   // timer or idle render loop just to refresh the status-line chip.
   const processMemory = useMemo<HeapSample>(() => takeHeapSample(), [nowTick]);
+  // CPU usage percentage (0-100) for this Node.js process. Uses process.cpuUsage()
+  // delta between ticks, normalized by elapsed wall-clock time and core count.
+  // Works on all platforms (including Windows where os.loadavg() returns 0).
+  // Reuse nowTick (10s clock) for refresh cadence.
+  const cpuPrevRef = useRef<{ cpu: NodeJS.CpuUsage; time: bigint } | null>(null);
+  const cpuPercent = useMemo<number | undefined>(() => {
+    const now = process.hrtime.bigint();
+    const cpuNow = process.cpuUsage();
+    const prev = cpuPrevRef.current;
+    cpuPrevRef.current = { cpu: cpuNow, time: now };
+    if (!prev) return undefined; // First tick — no baseline yet
+    const cpuDeltaUsec = (cpuNow.user - prev.cpu.user) + (cpuNow.system - prev.cpu.system);
+    const wallMs = Number(now - prev.time) / 1e6;
+    if (wallMs <= 0) return undefined;
+    // cpuDeltaUsec is in microseconds; wall time in ms. Ratio gives core-utilization.
+    const cores = os.cpus().length || 1;
+    return Math.min(100, Math.round((cpuDeltaUsec / 1000) / wallMs / cores * 100));
+  }, [nowTick]);
   useEffect(() => {
     const approxChars = (value: unknown): number => {
       try {
@@ -204,6 +223,7 @@ export function useTuiActivity({
     workingTimeMs,
     fleetWorkingTimeMs,
     processMemory,
+    cpuPercent,
     enhanceDots,
     refreshGoalSummary,
   };

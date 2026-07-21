@@ -44,7 +44,8 @@ export type StatuslineItem =
   | 'enhance'
   | 'debug_stream'
   | 'next_steps'
-  | 'memory_context';
+  | 'memory_context'
+  | 'cpu';
 
 /**
  * Metadata for a temporarily-visible chip (one that appeared due to data,
@@ -128,6 +129,7 @@ const ITEM_DESCRIPTIONS: Record<StatuslineItem, string> = {
   debug_stream: 'Stream debug telemetry',
   next_steps: 'Next-step auto-submit countdown',
   memory_context: 'Memory context detail line (matched/injected/filtered/active counts)',
+  cpu: 'CPU usage percentage (system load average)',
 };
 
 /**
@@ -162,6 +164,7 @@ export const ITEM_LINE: Record<StatuslineItem, number> = {
   // Line 2 — session context: workdir/project first, then mode, git, goals,
   // memory pressure (RAM/heap), countdowns, tools.
   auto_proceed: 2,
+  cpu: 2,
   eternal_stage: 2,
   git: 2,
   goal: 2,

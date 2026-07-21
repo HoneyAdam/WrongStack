@@ -35,6 +35,7 @@ export interface UiGlyphs {
   index: string;
   queue: string;
   process: string;
+  cpu: string;
   brain: string;
   auto: string;
   segmentStart: string;
@@ -75,6 +76,7 @@ const UNICODE: UiGlyphs = Object.freeze({
   index: '⊛',
   queue: '◴',
   process: '⚡',
+  cpu: '🔲',
   brain: '✦',
   auto: '◴',
   segmentStart: '◖',
@@ -146,6 +148,7 @@ const ASCII: UiGlyphs = Object.freeze({
   index: 'i',
   queue: 'q',
   process: '!',
+  cpu: 'c',
   brain: '*',
   auto: 'a',
   segmentStart: '[',
