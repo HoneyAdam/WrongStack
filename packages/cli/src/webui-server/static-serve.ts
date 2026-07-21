@@ -1,3 +1,5 @@
+import { execSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import type { Server } from 'node:http';
@@ -87,6 +89,58 @@ export function resolveDistDir(explicitDistDir?: string): string | null {
 }
 
 /**
+ * Resolve the WebUI dist, auto-building it when missing.
+ *
+ * Mirrors the SimpleUI cold-start recovery in `simpleui-dist.ts`:
+ * after a fresh clone, `git clean`, or dependency update the `dist/`
+ * directory (gitignored) may not exist. Instead of silently degrading
+ * to WS-only, this function runs the Vite build automatically and
+ * retries resolution. Falls back to `null` (WS-only) if the build
+ * fails or the package cannot be resolved.
+ */
+export function ensureDistDir(explicitDistDir?: string): string | null {
+  const resolved = resolveDistDir(explicitDistDir);
+  if (resolved !== null) return resolved;
+  if (explicitDistDir) return null; // explicit path given but missing — don't guess
+
+  // Locate the workspace root to run the pnpm build command.
+  const requireFromHere = createRequire(import.meta.url);
+  let packageDir: string;
+  try {
+    packageDir = path.dirname(requireFromHere.resolve('@wrongstack/webui/package.json'));
+  } catch {
+    return null; // package not resolvable — can't auto-build
+  }
+
+  let workspaceRoot: string | null = null;
+  let dir = packageDir;
+  for (let i = 0; i < 10; i++) {
+    if (existsSync(path.join(dir, 'pnpm-workspace.yaml'))) {
+      workspaceRoot = dir;
+      break;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  if (!workspaceRoot) return null; // not in a pnpm workspace — can't auto-build
+
+  console.warn(JSON.stringify({ level: 'warn', event: 'webui.auto_build', message: 'Frontend not built — building now', timestamp: new Date().toISOString() }));
+
+  try {
+    execSync('pnpm --filter @wrongstack/webui build', {
+      cwd: workspaceRoot,
+      stdio: 'inherit',
+      timeout: 180_000,
+    });
+  } catch {
+    return null; // build failed — degrade to WS-only
+  }
+
+  return resolveDistDir(explicitDistDir);
+}
+
+/**
  * Injectable seams for `startStaticServe`. Both default to
  * the real implementations; tests override them to assert
  * the wiring without resolving the webui package or binding
@@ -101,7 +155,7 @@ export function startStaticServe(
   opts: StaticServeOptions,
   deps: StaticServeDeps = {},
 ): StaticServeHandle | null {
-  const resolveDist = deps.resolveDist ?? resolveDistDir;
+  const resolveDist = deps.resolveDist ?? ensureDistDir;
   const create = deps.createServer ?? createHttpServer;
 
   const distDir = resolveDist(opts.distDir);
