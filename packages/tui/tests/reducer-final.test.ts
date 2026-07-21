@@ -37,8 +37,8 @@ describe('reducer — final correct branches', () => {
   // ── ShadowUpdate patches shadow (key is 'shadow', not 'running') ─
   it('shadowUpdate patches shadow key', () => {
     const s = initial({ shadowPanel: { open: true, running: false, model: '', intervalMs: 5000, activeId: null, hint: undefined } } as never);
-    const r = reducer(s, { type: 'shadowUpdate', shadow: { running: true } });
-    expect(r.shadowPanel.shadow).toEqual({ running: true });
+    const r = reducer(s, { type: 'shadowUpdate', shadow: { running: true, activeId: null, model: "", intervalMs: 30000 } as never });
+    expect(r.shadowPanel.shadow).toEqual({ running: true, activeId: null, model: "", intervalMs: 30000 } as never);
   });
   it('shadowHint sets hint', () => {
     const s = initial({ shadowPanel: { open: true, running: false, model: '', intervalMs: 5000, activeId: null, hint: undefined } } as never);
@@ -48,7 +48,7 @@ describe('reducer — final correct branches', () => {
   // ── Auth panel flow (reducer sets flat fields, not sub-object) ───
   it('authFlowStart sets flat flow fields', () => {
     const s = initial({ authPanel: { open: true, view: 'list' as const, providers: [], presets: [], catalog: [], selected: 0, filter: '', busy: false, hint: '' } } as never);
-    const r = reducer(s, { type: 'authFlowStart', title: 'OAuth Login', providerId: 'openai', kind: 'oauth' });
+    const r = reducer(s, { type: 'authFlowStart', title: 'OAuth Login', providerId: 'openai', kind: 'oauth' } as never);
     expect(r.authPanel.view).toBe('flow');
     expect(r.authPanel.flowTitle).toBe('OAuth Login');
     expect(r.authPanel.log).toEqual([]);
@@ -61,7 +61,7 @@ describe('reducer — final correct branches', () => {
   });
   it('authFlowDone sets results', () => {
     const s = initial({ authPanel: { open: true, view: 'flow' as const, providers: [], presets: [], catalog: [], selected: 0, filter: '', busy: true, hint: '', log: [], flowTitle: 'Test', flowDone: false } } as never);
-    const r = reducer(s, { type: 'authFlowDone', ok: true, key: 'sk-...' });
+    const r = reducer(s, { type: 'authFlowDone', ok: true, key: 'sk-...' } as never);
     expect(r.authPanel.flowDone).toBe(true);
     expect(r.authPanel.flowOk).toBe(true);
     expect(r.authPanel.busy).toBe(false);
@@ -110,9 +110,9 @@ describe('reducer — final correct branches', () => {
   // ── Goal run task active (needs taskId, not worker) ──────────────
   it('goalRunTaskActive adds/removes by taskId', () => {
     const s = initial({ goalRun: { title: 'Build', phases: { p1: { id: 'p1', title: 'P1', status: 'running' as const, tasks: [{ id: 't1', title: 'Task 1' }], activeTasks: [] } }, runningPhaseIds: ['p1'], elapsedMs: 0, monitorOpen: false } } as never);
-    const add = reducer(s, { type: 'goalRunTaskActive', phaseId: 'p1', taskId: 't1', active: true });
-    expect(add.goalRun?.phases.p1.activeTasks).toHaveLength(1);
-    const remove = reducer(add, { type: 'goalRunTaskActive', phaseId: 'p1', taskId: 't1', active: false });
-    expect(remove.goalRun?.phases.p1.activeTasks).toHaveLength(0);
+    const add = reducer(s, { type: 'goalRunTaskActive', phaseId: 'p1', taskId: 't1', active: true } as never);
+    expect(add.goalRun?.phases.p1!.activeTasks).toHaveLength(1);
+    const remove = reducer(add, { type: 'goalRunTaskActive', phaseId: 'p1', taskId: 't1', active: false } as never);
+    expect(remove.goalRun?.phases.p1!.activeTasks).toHaveLength(0);
   });
 });

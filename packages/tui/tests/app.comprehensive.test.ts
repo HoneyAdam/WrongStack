@@ -39,8 +39,8 @@ function emptyState(): State {
     brain: { state: 'idle' },
     nextId: 0,
     historyGen: 0,
-    picker: { open: false, query: '', matches: [], selected: 0 },
-    slashPicker: { open: false, query: '', matches: [], selected: 0 },
+    picker: { open: false, query: '', matches: [] as never, selected: 0 },
+    slashPicker: { open: false, query: '', matches: [] as never, selected: 0 },
     runningTools: new Map(),
     queue: [],
     nextQueueId: 0,
@@ -103,13 +103,13 @@ describe('renderRunningTools', () => {
 describe('selectedSlashCommandLine', () => {
   it('returns null when picker is closed', () => {
     expect(
-      selectedSlashCommandLine({ open: false, matches: [{ name: 'help', description: 'Show help', category: 'App', isBuiltin: true }], selected: 0 }),
+      selectedSlashCommandLine({ open: false, matches: [{ name: 'help', description: 'Show help', category: 'App', isBuiltin: true }] as never as never, selected: 0 }),
     ).toBeNull();
   });
 
   it('returns null when there are no matches', () => {
     expect(
-      selectedSlashCommandLine({ open: true, matches: [], selected: 0 }),
+      selectedSlashCommandLine({ open: true, matches: [] as never, selected: 0 }),
     ).toBeNull();
   });
 
@@ -117,7 +117,7 @@ describe('selectedSlashCommandLine', () => {
     const matches = [
       { name: 'clear', description: 'Clear history', category: 'App', isBuiltin: true },
       { name: 'help', description: 'Show help', category: 'App', isBuiltin: true },
-    ];
+    ] as never;
     expect(selectedSlashCommandLine({ open: true, matches, selected: 0 })).toBe('/clear');
     expect(selectedSlashCommandLine({ open: true, matches, selected: 1 })).toBe('/help');
   });
@@ -125,14 +125,14 @@ describe('selectedSlashCommandLine', () => {
   it('returns null when selected index is out of bounds', () => {
     const matches = [
       { name: 'clear', description: 'Clear history', category: 'App', isBuiltin: true },
-    ];
+    ] as never;
     expect(selectedSlashCommandLine({ open: true, matches, selected: 5 })).toBeNull();
   });
 
   it('returns null when selected index is negative', () => {
     const matches = [
       { name: 'clear', description: 'Clear history', category: 'App', isBuiltin: true },
-    ];
+    ] as never;
     expect(selectedSlashCommandLine({ open: true, matches, selected: -1 })).toBeNull();
   });
 });
