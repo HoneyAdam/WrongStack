@@ -49,6 +49,7 @@ export interface StatuslineConfig {
   enhance?: boolean | undefined;
   debug_stream?: boolean | undefined;
   next_steps?: boolean | undefined;
+  cpu?: boolean | undefined;
 }
 
 export const DEFAULTS: StatuslineConfig = {
@@ -88,6 +89,7 @@ export const DEFAULTS: StatuslineConfig = {
   enhance: true,
   debug_stream: true,
   next_steps: true,
+  cpu: true,
 };
 
 export type StatuslineConfigKey = keyof StatuslineConfig;
@@ -129,6 +131,7 @@ export const STATUSLINE_CONFIG_KEYS: StatuslineConfigKey[] = [
   'next_steps',
   'mailbox',
   'fleet_agents',
+  'cpu',
 ];
 
 function resolveConfigPath(): string {
@@ -274,6 +277,7 @@ const ITEM_DESCRIPTIONS: Record<keyof StatuslineConfig, string> = {
   enhance: 'Prompt-enhance countdown',
   debug_stream: 'Stream debug telemetry',
   next_steps: 'Next-step auto-submit countdown',
+  cpu: 'CPU usage percentage (system load average)',
 };
 
 const ALL_CONFIG_KEYS = STATUSLINE_CONFIG_KEYS;

@@ -452,6 +452,8 @@ export interface StatusBarProps {
   processCount?: number | undefined;
   /** Current RSS/heap sample for this CLI process. */
   processMemory?: HeapSample | undefined;
+  /** CPU usage percentage (0-100). Derived from process.cpuUsage delta. */
+  cpuPercent?: number | undefined;
   /** Items to hide from the status bar. Canonical set: {@link StatuslineItem}. */
   hiddenItems?: StatuslineItem[] | undefined;
   /** Statusline density. Detailed is the default to preserve the full multi-line display. */
@@ -586,6 +588,7 @@ export function StatusBar({
   workingDir,
   processCount,
   processMemory,
+  cpuPercent,
   context,
   estimatedContextTokens,
   superMemory,
@@ -800,6 +803,7 @@ export function StatusBar({
     typeof processCount === 'number' && processCount > 0 && showChip('processes')
       ? `proc ${processCount}`
       : '',
+    typeof cpuPercent === 'number' && showChip('cpu') ? `cpu ${Math.round(cpuPercent)}%` : '',
   ].filter(Boolean);
 
   const stateStatusChip =
@@ -973,6 +977,11 @@ export function StatusBar({
     typeof processCount === 'number' && processCount > 0 && showChip('processes') ? (
       <Text color={isNoColor ? undefined : theme.error}>
         {glyphs.process} {processCount} process{processCount === 1 ? '' : 'es'}
+      </Text>
+    ) : null,
+    typeof cpuPercent === 'number' && showChip('cpu') ? (
+      <Text color={isNoColor ? undefined : cpuPercent > 80 ? theme.error : cpuPercent > 50 ? theme.warn : theme.success}>
+        {glyphs.cpu} {Math.round(cpuPercent)}%
       </Text>
     ) : null,
     hint && showChip('hint') ? <Text dimColor={!isNoColor}>{hint}</Text> : null,

@@ -833,6 +833,7 @@ export function App({
     workingTimeMs,
     fleetWorkingTimeMs,
     processMemory,
+    cpuPercent,
     enhanceDots,
     refreshGoalSummary,
   } = useTuiActivity({
@@ -7427,6 +7428,7 @@ export function App({
               subagentCount={visibleSubagentCount}
               processCount={getProcessRegistry().activeCount}
               processMemory={processMemory}
+              cpuPercent={cpuPercent}
               // The composer top rail owns the working/idle indicator, so only
               // suppress the duplicate `state` chip. Keep `model` governed by
               // the user's statusline settings so the live provider/model route
