@@ -85,7 +85,7 @@ function useBrandMarkAnimation(enabled: boolean): 0 | 1 {
 // columns wide and five rows tall, composing to 59 columns so the full mark
 // fits comfortably inside an 80-column terminal while staying legible.
 const WORDMARK_GLYPHS: Readonly<Record<string, ReadonlyArray<string>>> = Object.freeze({
-  W: Object.freeze(['█   █', '█   █', '█ █ █', '██ ██', '█   █']),
+  W: Object.freeze(['█   █', '█   █', '█ █ █', '█ █ █', '██ ██']),
   R: Object.freeze(['████ ', '█   █', '████ ', '█  █ ', '█   █']),
   O: Object.freeze([' ███ ', '█   █', '█   █', '█   █', ' ███ ']),
   N: Object.freeze(['█   █', '██  █', '█ █ █', '█  ██', '█   █']),
