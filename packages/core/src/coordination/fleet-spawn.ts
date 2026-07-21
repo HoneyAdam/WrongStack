@@ -373,8 +373,8 @@ export async function assign(
     return taskWithId.id;
   }
   if (task.subagentId) {
-    const entry = host.manifestEntries.get(task.subagentId);
-    if (entry) (entry as { taskIds: string[] }).taskIds.push(taskWithId.id);
+    const entry = host.manifestEntries.get(task.subagentId) as ManifestEntry | undefined;
+    if (entry) entry.taskIds.push(taskWithId.id);
   }
   await host.coordinator.assign(taskWithId);
   // Snapshot task metadata for completion-event titles + state checkpoint
@@ -447,10 +447,10 @@ export async function remove(host: DirectorFleetHost, subagentId: string): Promi
 
   // Delegate nickname cleanup to FleetManager when available; otherwise handle
   // it directly here. This frees the slot so the same name can be reused.
+  const entry = host.manifestEntries.get(subagentId) as ManifestEntry | undefined;
   if (host.fleetManager) {
     host.fleetManager.removeSubagent(subagentId);
   } else {
-    const entry = host.manifestEntries.get(subagentId) as { name?: string } | undefined;
     if (entry?.name) {
       const nicknameKey = nicknameKeyFromDisplay(entry.name);
       if (nicknameKey) host.usedNicknames.delete(nicknameKey);
@@ -458,12 +458,9 @@ export async function remove(host: DirectorFleetHost, subagentId: string): Promi
   }
 
   // Remove all local state entries for this subagent.
-  // taskOwners and taskDescriptions are keyed by taskId, not subagentId.
-  // Iterate the subagent's owned task IDs rather than using subagentId as the
+  // taskOwners, taskDescriptions, and taskWorktrees are keyed by taskId —
+  // iterate the subagent's owned task IDs rather than using subagentId as the
   // key (which would never match).
-  const entry = host.manifestEntries.get(subagentId) as
-    | { taskIds?: string[] }
-    | undefined;
   if (entry?.taskIds) {
     for (const tid of entry.taskIds) {
       host.taskOwners.delete(tid);
