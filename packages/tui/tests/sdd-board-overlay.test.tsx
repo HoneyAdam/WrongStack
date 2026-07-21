@@ -21,7 +21,7 @@ const snapshot = {
 
 describe('SddBoardOverlay', () => {
   it('renders the header with title and status', () => {
-    const view = render(React.createElement(SddBoardOverlay, { snapshot }));
+    const view = render(React.createElement(SddBoardOverlay, { snapshot } as never));
     const frame = view.lastFrame() ?? '';
     // Ink wraps text so "SDD BOARD" may appear across lines
     expect(frame).toContain('SDD');
@@ -33,7 +33,7 @@ describe('SddBoardOverlay', () => {
   });
 
   it('shows progress counts', () => {
-    const view = render(React.createElement(SddBoardOverlay, { snapshot }));
+    const view = render(React.createElement(SddBoardOverlay, { snapshot } as never));
     const frame = view.lastFrame() ?? '';
     expect(frame).toContain('✓0');
     expect(frame).toContain('2');
@@ -42,7 +42,7 @@ describe('SddBoardOverlay', () => {
   });
 
   it('shows in-progress count when > 0', () => {
-    const view = render(React.createElement(SddBoardOverlay, { snapshot }));
+    const view = render(React.createElement(SddBoardOverlay, { snapshot } as never));
     const frame = view.lastFrame() ?? '';
     expect(frame).toContain('▶1');
     view.unmount();
@@ -50,7 +50,7 @@ describe('SddBoardOverlay', () => {
 
   it('shows failed count when > 0', () => {
     const snap = { ...snapshot, progress: { ...snapshot.progress, failed: 1 } };
-    const view = render(React.createElement(SddBoardOverlay, { snapshot: snap }));
+    const view = render(React.createElement(SddBoardOverlay, { snapshot: snap } as never));
     const frame = view.lastFrame() ?? '';
     expect(frame).toContain('✗1');
     view.unmount();
@@ -58,7 +58,7 @@ describe('SddBoardOverlay', () => {
 
   it('shows empty state when no tasks', () => {
     const snap = { ...snapshot, tasks: [], columns: [], progress: { total: 0, completed: 0, inProgress: 0, failed: 0, percentComplete: 0 } };
-    const view = render(React.createElement(SddBoardOverlay, { snapshot: snap }));
+    const view = render(React.createElement(SddBoardOverlay, { snapshot: snap } as never));
     const frame = view.lastFrame() ?? '';
     expect(frame).toContain('No active SDD run');
     view.unmount();
@@ -69,14 +69,14 @@ describe('SddBoardOverlay', () => {
       ...snapshot,
       diagnostics: { deadlockChains: [{ blocked: 't2', blockedBy: ['t1'] }] },
     };
-    const view = render(React.createElement(SddBoardOverlay, { snapshot: snap }));
+    const view = render(React.createElement(SddBoardOverlay, { snapshot: snap } as never));
     const frame = view.lastFrame() ?? '';
     expect(frame).toContain('Deadlock');
     view.unmount();
   });
 
   it('renders task cards with status icons', () => {
-    const view = render(React.createElement(SddBoardOverlay, { snapshot }));
+    const view = render(React.createElement(SddBoardOverlay, { snapshot } as never));
     const frame = view.lastFrame() ?? '';
     expect(frame).toContain('Research');
     expect(frame).toContain('Implement');
@@ -86,7 +86,7 @@ describe('SddBoardOverlay', () => {
   });
 
   it('focuses a specific column when focusColumn provided', () => {
-    const view = render(React.createElement(SddBoardOverlay, { snapshot, focusColumn: 0 }));
+    const view = render(React.createElement(SddBoardOverlay, { snapshot, focusColumn: 0 } as never));
     const frame = view.lastFrame() ?? '';
     expect(frame).toContain('Start');
     // Ink wraps text, "column 1/2" may be on adjacent lines
@@ -96,7 +96,7 @@ describe('SddBoardOverlay', () => {
   });
 
   it('shows recent activity feed', () => {
-    const view = render(React.createElement(SddBoardOverlay, { snapshot }));
+    const view = render(React.createElement(SddBoardOverlay, { snapshot } as never));
     const frame = view.lastFrame() ?? '';
     expect(frame).toContain('Recent activity');
     expect(frame).toContain('Task started');
@@ -123,7 +123,7 @@ describe('SddBoardOverlay', () => {
       ...snapshot, tasks, columns: cols,
       progress: { total: tasks.length, completed: 0, inProgress: 0, failed: 0, percentComplete: 0 },
     };
-    const view = render(React.createElement(SddBoardOverlay, { snapshot: snap }));
+    const view = render(React.createElement(SddBoardOverlay, { snapshot: snap } as never));
     const frame = view.lastFrame() ?? '';
     for (const s of statuses) {
       expect(frame).toContain(`Task ${s.displayStatus}`);
@@ -132,14 +132,14 @@ describe('SddBoardOverlay', () => {
   });
 
   it('shows agent name for in-progress tasks', () => {
-    const view = render(React.createElement(SddBoardOverlay, { snapshot }));
+    const view = render(React.createElement(SddBoardOverlay, { snapshot } as never));
     const frame = view.lastFrame() ?? '';
     expect(frame).toContain('agent-1');
     view.unmount();
   });
 
   it('shows dependencies when present', () => {
-    const view = render(React.createElement(SddBoardOverlay, { snapshot }));
+    const view = render(React.createElement(SddBoardOverlay, { snapshot } as never));
     const frame = view.lastFrame() ?? '';
     expect(frame).toContain('t1');
     view.unmount();

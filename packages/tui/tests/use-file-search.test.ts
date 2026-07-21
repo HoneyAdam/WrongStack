@@ -1,6 +1,7 @@
 import { render } from 'ink-testing-library';
-import React, { act } from 'react';
-import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
+import React from 'react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 import type { InputBuilder } from '@wrongstack/core';
 import { Text } from '../src/ink.js';
 import { detectAtToken, useFileSearch } from '../src/hooks/use-file-search.js';

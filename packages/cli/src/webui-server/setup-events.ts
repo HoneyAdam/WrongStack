@@ -387,6 +387,8 @@ export function createSetupEvents(deps: SetupEventsDeps): () => void {
             repeatCount: e.repeatCount,
             iteration: e.iteration,
             kind: e.kind,
+            action: e.action,
+            scope: e.scope,
           }),
         });
       }),

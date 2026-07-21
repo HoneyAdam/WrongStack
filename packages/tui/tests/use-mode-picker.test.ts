@@ -1,6 +1,6 @@
 import { render } from 'ink-testing-library';
 import React from 'react';
-import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Mode } from '@wrongstack/core';
 import { Text } from '../src/ink.js';
 import { buildModePickerOptions, useModePicker, type GetModesResult } from '../src/hooks/use-mode-picker.js';
@@ -18,8 +18,8 @@ describe('buildModePickerOptions', () => {
     const options = buildModePickerOptions(result);
     expect(options).toHaveLength(2);
     // Check what the actual output structure looks like
-    expect(options[0].id).toBe('chat');
-    expect(options[1].id).toBe('agent');
+    expect(options[0]!.id).toBe('chat');
+    expect(options[1]!.id).toBe('agent');
     // The active one should be marked - check for any truthy "active" or "isActive" property
     const activeProp = Object.keys(options[0]).find(k => k.toLowerCase().includes('active'));
     expect(activeProp).toBeTruthy();
@@ -29,11 +29,11 @@ describe('buildModePickerOptions', () => {
   it('handles null activeId', () => {
     const result: GetModesResult = { modes: mockModes, activeId: null };
     const options = buildModePickerOptions(result);
-    expect(options.every((o) => !o.active)).toBe(true);
+    expect(options.every((o) => !o.isActive)).toBe(true);
   });
 
   it('handles empty modes array', () => {
-    const result: GetModesResult = { modes: [], activeId: null };
+    const result: GetModesResult = { modes: [] as never as never, activeId: null };
     expect(buildModePickerOptions(result)).toEqual([]);
   });
 });

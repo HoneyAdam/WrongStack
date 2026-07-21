@@ -1,6 +1,6 @@
 import { render } from 'ink-testing-library';
 import React from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { Banner } from '../src/components/history/banner.js';
 import type { AutonomyAgentStatus } from '../src/components/history/types.js';
 

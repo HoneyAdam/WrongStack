@@ -426,6 +426,25 @@ describe('agent-loop fingerprint detector', () => {
     });
   });
 
+  it('default mode: tolerates three repeated observation-only reads', async () => {
+    const read: Tool = { ...echoTool('read'), riskTier: 'safe', capabilities: ['fs.read'] };
+    const repeatedRead = (id: string) => ({
+      content: [{ type: 'tool_use' as const, id, name: 'read', input: { path: 'same.txt' } }],
+      stopReason: 'tool_use' as const,
+    });
+    const provider = new MockProvider([
+      repeatedRead('r1'), repeatedRead('r2'), repeatedRead('r3'),
+      { content: [{ type: 'text', text: 'done' }], stopReason: 'end_turn' },
+    ]);
+    const { agent, tmp } = await buildAgent(provider, [read]);
+    cleanupDirs.push(tmp);
+    const detected: unknown[] = [];
+    (agent as never as { events: EventBus }).events.on('tool.loop_detected', () => detected.push(true));
+
+    expect((await agent.run('inspect', { maxIterations: 20 })).status).toBe('done');
+    expect(detected).toEqual([]);
+  });
+
   it('per-call window detector: catches the same call repeated non-consecutively (interleaved)', async () => {
     // The iteration detector CANNOT see this pattern — the repeated read is
     // interleaved with other calls, so the consecutive streak never exceeds 1.

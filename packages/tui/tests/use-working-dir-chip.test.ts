@@ -1,7 +1,7 @@
 import React from 'react';
 import { render } from 'ink-testing-library';
-import { act } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { Text } from '../src/ink.js';
 import type { Context } from '@wrongstack/core';
 import { formatWorkingDirChip, useWorkingDirChip } from '../src/hooks/use-working-dir-chip.js';
@@ -151,7 +151,7 @@ describe('useWorkingDirChip', () => {
   it('handles undefined workingDir from context', () => {
     let result: string | undefined = 'should-change';
     function Harness(): React.ReactElement {
-      result = useWorkingDirChip(makeContext({ workingDir: undefined }), '/project');
+      result = useWorkingDirChip(makeContext({ workingDir: undefined as never }), '/project');
       return React.createElement(Text, null, 'test');
     }
     render(React.createElement(Harness));

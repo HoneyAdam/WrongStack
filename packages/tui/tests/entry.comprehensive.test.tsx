@@ -1,6 +1,6 @@
 import { render } from 'ink-testing-library';
 import React from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { Entry, type HistoryEntry } from '../src/components/history.js';
 
 function renderEntry(entry: HistoryEntry, opts: { termWidth?: number; showModelReasoning?: boolean } = {}): string {

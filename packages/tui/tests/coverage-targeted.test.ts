@@ -71,20 +71,20 @@ describe('ink.tsx — branch gaps', () => {
     // Just verify it renders without error with a known color name.
     const el = Text({ color: 'cyan', children: 'hello' }) as NonNullable<ReturnType<typeof Text>>;
     expect(el).toBeDefined();
-    expect(el.props.color).toBe('#94e2d5'); // pastel cyan
+    expect((el as never).props.color).toBe('#94e2d5'); // pastel cyan
   });
 
   it('Text renders without color prop (undefined)', () => {
     // colorProps returns {} when softColor returns undefined.
     const el = Text({ children: 'plain' }) as NonNullable<ReturnType<typeof Text>>;
     expect(el).toBeDefined();
-    expect(el.props.color).toBeUndefined();
+    expect((el as never).props.color).toBeUndefined();
   });
 
   it('Text renders with backgroundColor that resolves', () => {
     const el = Text({ backgroundColor: 'blue', children: 'bg test' }) as NonNullable<ReturnType<typeof Text>>;
     expect(el).toBeDefined();
-    expect(el.props.backgroundColor).toBe('#89b4fa');
+    expect((el as never).props.backgroundColor).toBe('#89b4fa');
   });
 
   it('Box component can be rendered via createElement', async () => {
@@ -100,7 +100,7 @@ describe('ink.tsx — branch gaps', () => {
     const { Box } = await import('../src/ink.js');
     const el = React.createElement(Box, {}, 'plain box');
     expect(el).toBeDefined();
-    expect(el.props.borderColor).toBeUndefined();
+    expect((el as never).props.borderColor).toBeUndefined();
   });
 });
 
@@ -275,7 +275,7 @@ describe('queue-slash.ts — branch gaps', () => {
       ...emptyDeps,
       getQueue: () => [
         {
-          id: 'q1', displayText: 'msg1', text: 'msg1',
+          id: 1, displayText: 'msg1', text: 'msg1',
           priority: 'normal', sendMode: 'queue',
         },
       ],
@@ -313,7 +313,7 @@ describe('helpers.ts — branch gaps', () => {
 
   it('firstSelectable returns 0 for empty or divider-only lists', () => {
     expect(firstSelectable([])).toBe(0);
-    expect(firstSelectable([{ key: '__divider__' }])).toBe(0);
+    expect(firstSelectable([{ key: '__divider__', label: '--', kind: 'action' as const }])).toBe(0);
   });
 
   it('skipDivider wraps around and handles all-dividers', () => {

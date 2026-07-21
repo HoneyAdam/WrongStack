@@ -5,11 +5,11 @@ import { initial } from './reducer.test.js';
 describe('reducer — remaining branches', () => {
   // ── Plugin picker ────────────────────────────────────────────────────
   it('pluginPicker open/close/move/setItems/busy/hint', () => {
-    let s = reducer(initial(), { type: 'pluginPickerOpen', items: [{ id: 'p1' }] });
+    let s = reducer(initial(), { type: 'pluginPickerOpen', items: [{ id: 'p1' }] as never });
     expect(s.pluginPicker.open).toBe(true);
     s = reducer(s, { type: 'pluginPickerMove', delta: 1 });
     expect(s.pluginPicker.selected).toBe(0);
-    s = reducer(s, { type: 'pluginPickerSetItems', items: [{ id: 'a' }, { id: 'b' }] });
+    s = reducer(s, { type: 'pluginPickerSetItems', items: [{ id: 'a' }, { id: 'b' }] as never });
     expect(s.pluginPicker.items).toHaveLength(2);
     s = reducer(s, { type: 'pluginPickerBusy', busy: true });
     expect(s.pluginPicker.busy).toBe(true);
@@ -24,11 +24,11 @@ describe('reducer — remaining branches', () => {
 
   // ── MCP picker ──────────────────────────────────────────────────────
   it('mcpPicker open/close/move/setItems/busy/hint', () => {
-    let s = reducer(initial(), { type: 'mcpPickerOpen', items: [{ id: 'm1' }] });
+    let s = reducer(initial(), { type: 'mcpPickerOpen', items: [{ id: 'm1' }] as never });
     expect(s.mcpPicker.open).toBe(true);
     s = reducer(s, { type: 'mcpPickerMove', delta: 1 });
     expect(s.mcpPicker.selected).toBe(0);
-    s = reducer(s, { type: 'mcpPickerSetItems', items: [{ id: 'x' }, { id: 'y' }] });
+    s = reducer(s, { type: 'mcpPickerSetItems', items: [{ id: 'x' }, { id: 'y' }] as never });
     expect(s.mcpPicker.items).toHaveLength(2);
     s = reducer(s, { type: 'mcpPickerBusy', busy: true });
     expect(s.mcpPicker.busy).toBe(true);
@@ -84,7 +84,7 @@ describe('reducer — remaining branches', () => {
 
   // ── Shadow panel ────────────────────────────────────────────────────
   it('shadowOpen/Close', () => {
-    const s = reducer(initial(), { type: 'shadowOpen' });
+    const s = reducer(initial(), { type: 'shadowOpen' } as never);
     expect(s.shadowPanel.open).toBe(true);
     expect(reducer(s, { type: 'shadowClose' }).shadowPanel.open).toBe(false);
   });
@@ -111,7 +111,7 @@ describe('reducer — remaining branches', () => {
 
   // ── escConfirmOpen/Close ────────────────────────────────────────────
   it('escConfirmOpen/Close', () => {
-    const open = reducer(initial(), { type: 'escConfirmOpen' });
+    const open = reducer(initial(), { type: 'escConfirmOpen' } as never);
     expect(open.escConfirm).toBeDefined();
     expect(reducer(open, { type: 'escConfirmClose' }).escConfirm).toBeNull();
   });

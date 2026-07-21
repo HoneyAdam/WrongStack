@@ -1,6 +1,6 @@
 import { render } from 'ink-testing-library';
 import React from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { SessionsPanel, type LiveSessionEntry } from '../src/components/sessions-panel.js';
 
 function session(overrides: Partial<LiveSessionEntry> = {}): LiveSessionEntry {

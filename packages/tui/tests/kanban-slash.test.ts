@@ -65,8 +65,8 @@ function task(
 function summary(
   id: string,
   title: string,
-  extras: Partial<KanbanBoardSummary> = {},
-): KanbanBoardSummary {
+  extras: Partial<KanbanAuditSummary> = {},
+): KanbanAuditSummary {
   return {
     id,
     title,
@@ -537,8 +537,8 @@ describe('/kanban use — bridge success contract', () => {
     mockListBoards.mockResolvedValue([summary('b-1', 'Demo', { updatedAt: NOW })]);
     mockGetBoard.mockResolvedValue(board('b-1', 'Demo', [column('backlog', 'Backlog', 0)]));
     const deps = makeDeps({
-      onPanelOpen: { current: undefined },
-      onBoardFocus: { current: undefined },
+      onPanelOpen: { current: undefined } as never,
+      onBoardFocus: { current: undefined } as never,
     });
     const cmd = createKanbanSlashCommand(deps);
     const result = await cmd.run('use Demo');
@@ -551,7 +551,7 @@ describe('/kanban use — bridge success contract', () => {
     mockListBoards.mockResolvedValue([summary('b-1', 'Demo', { updatedAt: NOW })]);
     mockGetBoard.mockResolvedValue(board('b-1', 'Demo', [column('backlog', 'Backlog', 0)]));
     const deps = makeDeps({
-      onPanelOpen: { current: undefined },
+      onPanelOpen: { current: undefined } as never,
       onBoardFocus: { current: vi.fn(() => true) },
     });
     const cmd = createKanbanSlashCommand(deps);
@@ -626,7 +626,7 @@ describe('renderHealthReport — queue-health partitioning', () => {
 
 // ── /kanban audit — Kanban Cleaner projection ──────────────────────────────
 
-import type { KanbanAuditSummary } from '@wrongstack/kanban';
+import type { KanbanBoardSummary as KanbanAuditSummary } from '@wrongstack/kanban';
 
 function makeAudit(overrides: Partial<KanbanAuditSummary> = {}): KanbanAuditSummary {
   const issues = overrides.issues ?? [
@@ -647,8 +647,8 @@ function makeAudit(overrides: Partial<KanbanAuditSummary> = {}): KanbanAuditSumm
       message: 'Add a description',
     },
   ];
-  const errorCount = issues.filter((i) => i.severity === 'error').length;
-  const warningCount = issues.filter((i) => i.severity === 'warning').length;
+  const errorCount = issues.filter((i: { severity: string; taskId?: string }) => i.severity === 'error').length;
+  const warningCount = issues.filter((i: { severity: string; taskId?: string }) => i.severity === 'warning').length;
   return {
     generatedAt: '2026-07-18T12:00:00.000Z',
     boardIds: ['b-1'],
@@ -660,7 +660,7 @@ function makeAudit(overrides: Partial<KanbanAuditSummary> = {}): KanbanAuditSumm
     lastDispatchedAt: undefined,
     lastStaleRecoveredAt: undefined,
     issues,
-    affectedTaskCount: new Set(issues.map((i) => i.taskId)).size,
+    affectedTaskCount: new Set(issues.map((i: { severity: string; taskId?: string }) => i.taskId)).size,
     ...overrides,
   };
 }

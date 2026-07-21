@@ -1,8 +1,8 @@
 import { render } from 'ink-testing-library';
 import React from 'react';
 import { describe, expect, it } from 'vitest';
+import { bannerGradientColor, brandMarkPinkRow } from '../src/components/history/banner.js';
 import { Banner, shortenPath } from '../src/components/history.js';
-import { bannerGradientColor } from '../src/components/history/banner.js';
 
 // ── ANSI / OSC 8 stripping ──
 // Ink writes raw escape sequences to stdout — OSC 8 hyperlink framing and
@@ -133,8 +133,12 @@ describe('<Banner />', () => {
     const frame = lastFrame() ?? '';
     unmount();
 
-    // The wordmark uses crisp five-row pixel lettering to echo the SVG mark.
-    expect(frame).toContain('█   █ ████');
+    // The wordmark uses a compact 5×5 block face (59 columns wide). Assert the
+    // full first and last rendered rows so the entire mark — not just a prefix —
+    // is covered. Rows 0 and 4 end in a block (no trailing space), so they are
+    // robust against the centering padding Ink adds around the wordmark.
+    expect(frame).toContain('█   █ ████   ███  █   █  ████  ████ █████  ███   ████ █   █');
+    expect(frame).toContain('█   █ █   █  ███  █   █  ████ ████    █   █   █  ████ █   █');
     expect(frame).toContain('BUILT ON THE WRONG STACK. SHIPPED ANYWAY.');
     expect(frame).toContain('anthropic › claude-test');
     expect(frame).toContain('•••• XYZ');
@@ -216,7 +220,7 @@ describe('<Banner />', () => {
     unmount();
 
     expect(frame.split('\n').every((line) => visibleLength(line) <= termWidth)).toBe(true);
-    expect(frame.includes('█   █ ████')).toBe(termWidth >= 65);
+    expect(frame.includes('█   █ ████   ███  █   █  ████  ████ █████  ███   ████ █   █')).toBe(termWidth >= 65);
   });
 });
 
@@ -227,6 +231,17 @@ describe('banner brand gradient', () => {
     expect(colors[0]?.toUpperCase()).toBe('#FD9F02');
     expect(colors.at(-1)?.toUpperCase()).toBe('#FE2E5F');
     expect(new Set(colors)).toHaveLength(colors.length);
+  });
+});
+
+describe('banner brand mark motion', () => {
+  it('rests at the branded offset and only makes a short vertical bounce', () => {
+    const cycle = Array.from({ length: 18 }, (_, frame) => brandMarkPinkRow(frame));
+
+    expect(cycle.slice(0, 14)).toEqual(Array(14).fill(1));
+    expect(cycle.slice(14, 16)).toEqual([0, 0]);
+    expect(cycle.slice(16)).toEqual([1, 1]);
+    expect(brandMarkPinkRow(18)).toBe(1);
   });
 });
 

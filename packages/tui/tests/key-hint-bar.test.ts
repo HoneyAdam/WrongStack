@@ -22,13 +22,13 @@ describe('KeyHintBar context priority', () => {
   it('idle shows brand link instead of keybinding hints', () => {
     const h = hintsFor({});
     expect(h).toHaveLength(1);
-    expect(h[0].label).toBe('github.com/wrongstack/wrongstack');
-    expect(h[0].key).toBe('');
+    expect(h[0]!.label).toBe('github.com/wrongstack/wrongstack');
+    expect(h[0]!.key).toBe('');
   });
 
   it('idle hint is the same in managed viewport', () => {
     const h = hintsFor({ managed: true });
     expect(h).toHaveLength(1);
-    expect(h[0].label).toBe('github.com/wrongstack/wrongstack');
+    expect(h[0]!.label).toBe('github.com/wrongstack/wrongstack');
   });
 });

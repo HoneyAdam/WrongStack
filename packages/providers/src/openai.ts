@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Capabilities, ReasoningEffort, Request, ResponseFormat, StopReason, StreamEvent, Usage } from '@wrongstack/core';
+import type { Capabilities, Request, ResponseFormat, StopReason, StreamEvent, Usage } from '@wrongstack/core';
 import { type ProviderError, safeParse } from '@wrongstack/core';
 import { parseToolInput } from './_tool-input.js';
 import { type HeadersLike, parseProviderHttpError } from './error-parse.js';
@@ -7,6 +7,7 @@ import { capabilitiesForFamily } from './family-capabilities.js';
 import { applyPromptCacheKey } from './prompt-cache-key.js';
 import { parseSSE } from './sse.js';
 import { normalizeOpenAI } from './stop-reason.js';
+import { shouldEmitReasoningEffort } from './openai-shared.js';
 import { type ConvertOptions, messagesToOpenAI, toolsToOpenAI } from './tool-format/to-openai.js';
 import { WireAdapter, type WireAdapterStreamOptions } from './wire-adapter.js';
 
@@ -127,8 +128,8 @@ export class OpenAIProvider extends WireAdapter {
       if (req.topLogprobs !== undefined) body['top_logprobs'] = req.topLogprobs;
     }
     if (req.stopSequences) body['stop'] = req.stopSequences;
-    if (req.reasoning?.effort !== undefined && isOpenAIEffort(req.reasoning.effort)) {
-      body['reasoning_effort'] = req.reasoning.effort;
+    if (shouldEmitReasoningEffort(req)) {
+      body['reasoning_effort'] = req.reasoning?.effort;
     }
     if (req.responseFormat) {
       body['response_format'] = responseFormatToOpenAI(req.responseFormat);
@@ -161,18 +162,6 @@ export class OpenAIProvider extends WireAdapter {
       return rest;
     });
   }
-}
-
-/**
- * OpenAI's Chat Completions API accepts `reasoning_effort` only for these
- * values. `minimal`, `xhigh`, and `max` are broader WrongStack-internal
- * effort levels that get mapped down or filtered out here — sending an
- * unrecognized `reasoning_effort` would cause a 400.
- */
-const OPENAI_EFFORT_VALUES = new Set<ReasoningEffort>(['none', 'low', 'medium', 'high']);
-
-function isOpenAIEffort(effort: ReasoningEffort): boolean {
-  return OPENAI_EFFORT_VALUES.has(effort);
 }
 
 /**

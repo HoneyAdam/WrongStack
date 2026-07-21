@@ -3,7 +3,7 @@ import React, { act } from 'react';
 import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { Text } from '../src/ink.js';
 import { useInputHistoryPersistence } from '../src/hooks/use-input-history-persistence.js';
-import type { Action, State } from '../src/app-reducer.js';
+import type { State } from '../src/app-reducer.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

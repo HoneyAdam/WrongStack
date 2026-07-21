@@ -15,7 +15,7 @@ function makeJob(overrides: Partial<CronListResult['jobs'][number]> = {}): CronL
   };
 }
 
-function snapshot(jobs: CronListResult['jobs'][]): CronListResult {
+function snapshot(jobs: CronListResult['jobs']): CronListResult {
   return {
     ok: true,
     count: jobs.length,

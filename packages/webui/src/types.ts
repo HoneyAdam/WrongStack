@@ -483,6 +483,8 @@ export interface WSToolLoopDetected {
     repeatCount: number;
     iteration: number;
     kind?: 'tool' | 'message' | 'mixed' | undefined;
+    action?: 'steer' | 'cut' | undefined;
+    scope?: 'iteration' | 'call' | undefined;
   };
 }
 

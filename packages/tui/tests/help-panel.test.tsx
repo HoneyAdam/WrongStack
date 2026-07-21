@@ -1,6 +1,6 @@
 import { render } from 'ink-testing-library';
 import React from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { HelpPanel, type HelpEntry } from '../src/components/help-panel.js';
 
 function makeEntry(overrides: Partial<HelpEntry> = {}): HelpEntry {

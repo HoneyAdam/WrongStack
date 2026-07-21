@@ -126,11 +126,9 @@ describe('startHeapWatchdog', () => {
     }
   });
 
-  it('re-arms warn after falling below threshold minus margin', () => {
+  it('warn fires at least once with warnAt=0 across multiple ticks', () => {
     vi.useFakeTimers();
     try {
-      const warnAt = 1.0; // Very high — load is always below it
-      const criticalAt = 2.0; // Never reached
       // With warnAt=1.0 and load always < 1, warn never fires
       const calls: string[] = [];
       const stop = startHeapWatchdog({

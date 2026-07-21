@@ -1,4 +1,4 @@
-import { normalizeTextKey, overlapCoefficient, tokenize } from './turn-memory.js';
+import { normalizeTextKey, tokenize } from './turn-memory.js';
 
 export interface InjectionTrackerOptions {
   /** How long an injection stays matchable. Default: 2 hours. */
@@ -21,6 +21,9 @@ export interface InjectionTrackerOptions {
 interface TrackedInjection {
   textKey: string;
   tokens: number;
+  /** Cached token set — built once at record() time so consumeMatches()
+   *  never re-tokenizes the memory text on every assistant turn. */
+  tokenSet: Set<string>;
   at: number;
 }
 
@@ -58,6 +61,10 @@ export class InjectionTracker {
     string,
     { memoryIds: Set<string>; at: number }
   >();
+  /** Throttle prune() to at most once per interval — the TTL is 2 hours,
+   *  so pruning on every single operation is pure waste. */
+  private lastPruneAt = 0;
+  private static readonly PRUNE_INTERVAL_MS = 30_000;
 
   constructor(opts: InjectionTrackerOptions = {}) {
     this.ttlMs = opts.ttlMs ?? 2 * 60 * 60_000;
@@ -75,10 +82,11 @@ export class InjectionTracker {
     renderedContextText?: string,
   ): void {
     const textKey = normalizeTextKey(text);
-    const tokens = tokenize(textKey).length;
+    const tokenSet = new Set(tokenize(textKey));
+    const tokens = tokenSet.size;
     if (tokens < this.minTokens) return;
     this.prune(now);
-    this.entries.set(memoryId, { textKey, tokens, at: now });
+    this.entries.set(memoryId, { textKey, tokens, tokenSet, at: now });
     const contextKey = `${sessionId ?? '<no-session>'}\0${memoryId}`;
     this.contextEntries.set(contextKey, {
       memoryId,
@@ -143,15 +151,27 @@ export class InjectionTracker {
   /**
    * Return the memory ids whose registered text is referenced by
    * `assistantText`, consuming them so each injection counts at most one use.
+   *
+   * The assistant text is tokenized once; each entry's token set was cached
+   * at record() time, so this loop is O(entries × |tokenSet|) set lookups
+   * instead of O(entries × tokenize_cost) re-normalizations.
    */
   consumeMatches(assistantText: string, now = Date.now()): string[] {
     if (this.entries.size === 0) return [];
     const textKey = normalizeTextKey(assistantText);
     if (!textKey) return [];
     this.prune(now);
+    const assistantTokens = new Set(tokenize(textKey));
+    if (assistantTokens.size === 0) return [];
     const matched: string[] = [];
     for (const [memoryId, entry] of this.entries) {
-      if (overlapCoefficient(entry.textKey, textKey) >= this.matchThreshold) {
+      // Overlap coefficient (Szymkiewicz–Simpson) using the cached token set.
+      let intersection = 0;
+      for (const token of entry.tokenSet) {
+        if (assistantTokens.has(token)) intersection++;
+      }
+      const smaller = Math.min(entry.tokenSet.size, assistantTokens.size);
+      if (smaller > 0 && intersection / smaller >= this.matchThreshold) {
         matched.push(memoryId);
         this.entries.delete(memoryId);
       }
@@ -166,6 +186,7 @@ export class InjectionTracker {
   }
 
   private prune(now: number): void {
+    // Overflow eviction is a hard memory bound — always runs.
     if (this.entries.size > this.maxEntries) {
       const overflow = this.entries.size - this.maxEntries;
       let dropped = 0;
@@ -175,6 +196,24 @@ export class InjectionTracker {
         dropped++;
       }
     }
+    if (this.contextEntries.size > this.maxEntries) {
+      const overflow = this.contextEntries.size - this.maxEntries;
+      let dropped = 0;
+      for (const key of this.contextEntries.keys()) {
+        if (dropped >= overflow) break;
+        this.contextEntries.delete(key);
+        dropped++;
+      }
+    }
+
+    // TTL sweeps are O(n) over all three maps — throttle to once per
+    // interval. The interval is min(PRUNE_INTERVAL_MS, ttlMs) so short-TTL
+    // configurations (tests, session-scoped trackers) still prune promptly
+    // while the production 2-hour TTL gets the full 30s throttle benefit.
+    const interval = Math.min(InjectionTracker.PRUNE_INTERVAL_MS, this.ttlMs);
+    if (now - this.lastPruneAt < interval) return;
+    this.lastPruneAt = now;
+
     const cutoff = now - this.ttlMs;
     for (const [key, entry] of this.entries) {
       if (entry.at < cutoff) this.entries.delete(key);
@@ -184,15 +223,6 @@ export class InjectionTracker {
     }
     for (const [key, entry] of this.activeContextBySession) {
       if (entry.at < cutoff) this.activeContextBySession.delete(key);
-    }
-    if (this.contextEntries.size > this.maxEntries) {
-      const overflow = this.contextEntries.size - this.maxEntries;
-      let dropped = 0;
-      for (const key of this.contextEntries.keys()) {
-        if (dropped >= overflow) break;
-        this.contextEntries.delete(key);
-        dropped++;
-      }
     }
   }
 }

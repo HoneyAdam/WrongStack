@@ -45,7 +45,7 @@ describe('runTui exports', () => {
 describe('RunTuiOptions type', () => {
   it('accepts only required fields', () => {
     // The minimal RunTuiOptions shape.
-    const opts: RunTuiOptions = {
+    const opts: RunTuiOptions | Record<string, unknown> = {
       agent: {} as never,
       slashRegistry: {} as never,
       attachments: {} as never,
@@ -56,7 +56,7 @@ describe('RunTuiOptions type', () => {
   });
 
   it('accepts optional banner and yolo fields', () => {
-    const opts: RunTuiOptions = {
+    const opts: RunTuiOptions | Record<string, unknown> = {
       agent: {} as never,
       slashRegistry: {} as never,
       attachments: {} as never,
@@ -71,7 +71,7 @@ describe('RunTuiOptions type', () => {
 
   it('accepts optional callback fields', () => {
     const onQueueChange = vi.fn();
-    const opts: RunTuiOptions = {
+    const opts: RunTuiOptions | Record<string, unknown> = {
       agent: {} as never,
       slashRegistry: {} as never,
       attachments: {} as never,
@@ -83,7 +83,7 @@ describe('RunTuiOptions type', () => {
   });
 
   it('accepts optional string fields (appVersion, provider, etc.)', () => {
-    const opts: RunTuiOptions = {
+    const opts: RunTuiOptions | Record<string, unknown> = {
       agent: {} as never,
       slashRegistry: {} as never,
       attachments: {} as never,
@@ -104,7 +104,7 @@ describe('RunTuiOptions type', () => {
   it('accepts optional function fields (getYolo, getAutonomy, etc.)', () => {
     const getYolo = () => true;
     const getAutonomy = () => 'off' as const;
-    const opts: RunTuiOptions = {
+    const opts: RunTuiOptions | Record<string, unknown> = {
       agent: {} as never,
       slashRegistry: {} as never,
       attachments: {} as never,
@@ -121,7 +121,7 @@ describe('RunTuiOptions type', () => {
     const secretInputController = {
       readSecret: vi.fn().mockResolvedValue('secret'),
     };
-    const opts: RunTuiOptions = {
+    const opts: RunTuiOptions | Record<string, unknown> = {
       agent: {} as never,
       slashRegistry: {} as never,
       attachments: {} as never,
@@ -133,7 +133,7 @@ describe('RunTuiOptions type', () => {
   });
 
   it('accepts the full set of boolean / number optionals', () => {
-    const opts: RunTuiOptions = {
+    const opts: RunTuiOptions | Record<string, unknown> = {
       agent: {} as never,
       slashRegistry: {} as never,
       attachments: {} as never,
@@ -158,11 +158,11 @@ describe('RunTuiOptions type', () => {
 describe('AutonomyStage type re-export', () => {
   it('is a string literal union type that can hold any valid stage', () => {
     const stages: AutonomyStage[] = [
-      'off',
-      'suggest',
-      'auto',
-      'eternal',
-      'eternal-parallel',
+      'off' as const,
+      'suggest' as const,
+      'auto' as const,
+      'eternal' as const,
+      'eternal-parallel' as const,
     ];
     expect(stages).toHaveLength(5);
     expect(stages[0]).toBe('off');
@@ -360,7 +360,7 @@ describe('runTui type compatibility', () => {
     // TypeScript will enforce this at compile time. At runtime we
     // can only verify the function accepts the call without throwing
     // during argument evaluation (before the TTY guard).
-    const opts: RunTuiOptions = {
+    const opts: RunTuiOptions | Record<string, unknown> = {
       agent: {} as never,
       slashRegistry: {} as never,
       attachments: {} as never,

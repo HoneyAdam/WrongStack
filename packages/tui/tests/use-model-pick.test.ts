@@ -1,6 +1,6 @@
 import { render } from 'ink-testing-library';
 import React from 'react';
-import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Text } from '../src/ink.js';
 import { useModelPickRequest } from '../src/hooks/use-model-pick.js';
 

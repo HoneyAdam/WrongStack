@@ -132,6 +132,41 @@ describe('DefaultModelsRegistry', () => {
     expect(m?.cost?.input).toBe(3);
   });
 
+  it('normalizes models.dev reasoning_options and interleaved metadata', async () => {
+    const reg = new DefaultModelsRegistry({
+      cacheFile,
+      seed: {
+        gateway: {
+          id: 'gateway',
+          name: 'Gateway',
+          npm: '@ai-sdk/openai-compatible',
+          models: {
+            frontier: {
+              id: 'frontier',
+              name: 'Frontier',
+              reasoning: true,
+              reasoning_options: [
+                { type: 'toggle' },
+                { type: 'effort', values: ['low', 'high', 'max'] },
+              ],
+              interleaved: { field: 'reasoning_content' },
+            },
+          },
+        },
+      },
+    });
+
+    const model = await reg.getModel('gateway', 'frontier');
+
+    expect(model?.capabilities.reasoningConfig).toEqual({
+      default: 'enabled',
+      disableSupported: true,
+      effortSupported: true,
+      effortLevels: ['low', 'high', 'max'],
+      preserveThinking: 'always_on',
+    });
+  });
+
   it('suggestModel returns the newest', async () => {
     const reg = new DefaultModelsRegistry({ cacheFile, seed: SAMPLE });
     expect(await reg.suggestModel('anthropic')).toBe('claude-opus-4-7');

@@ -135,11 +135,11 @@ describe('terminal-title.ts — event handler coverage', () => {
     });
     // 5 event handlers: iteration.started, text_delta, thinking_delta, tool.started, tool.executed
     expect(events.length).toBe(5);
-    expect(events[0].event).toBe('iteration.started');
-    expect(events[1].event).toBe('provider.text_delta');
-    expect(events[2].event).toBe('provider.thinking_delta');
-    expect(events[3].event).toBe('tool.started');
-    expect(events[4].event).toBe('tool.executed');
+    expect(events[0]!.event).toBe('iteration.started');
+    expect(events[1]!.event).toBe('provider.text_delta');
+    expect(events[2]!.event).toBe('provider.thinking_delta');
+    expect(events[3]!.event).toBe('tool.started');
+    expect(events[4]!.event).toBe('tool.executed');
     stop();
   });
 });
@@ -220,8 +220,8 @@ describe('queue-slash.ts — delete edge cases', () => {
   it('delete with "del" alias works', async () => {
     const { handleQueueCommand } = await import('../src/queue-slash.js');
     let deletedPositions: number[] = [];
-    const _result = handleQueueCommand('del 1', {
-      getQueue: () => [{ id: 'q1', displayText: 'msg', text: 'msg', priority: 'normal', sendMode: 'queue' }],
+    handleQueueCommand('del 1', {
+      getQueue: () => [{ id: 1, displayText: 'msg', priority: 'normal', sendMode: 'queue' }],
       clear: () => {},
       deleteAt: (positions: number[]) => { deletedPositions = positions; },
     });
@@ -231,10 +231,10 @@ describe('queue-slash.ts — delete edge cases', () => {
   it('delete with uniqueValid set removes duplicates', async () => {
     const { handleQueueCommand } = await import('../src/queue-slash.js');
     let deletedPositions: number[] = [];
-    const _result = handleQueueCommand('delete 1 1 2', {
+    handleQueueCommand('delete 1 1 2', {
       getQueue: () => [
-        { id: 'q1', displayText: 'a', text: 'a', priority: 'normal', sendMode: 'queue' },
-        { id: 'q2', displayText: 'b', text: 'b', priority: 'normal', sendMode: 'queue' },
+        { id: 1, displayText: 'a', priority: 'normal', sendMode: 'queue' },
+        { id: 2, displayText: 'b', priority: 'normal', sendMode: 'queue' },
       ],
       clear: () => {},
       deleteAt: (positions: number[]) => { deletedPositions = positions; },
@@ -246,8 +246,8 @@ describe('queue-slash.ts — delete edge cases', () => {
   it('delete with rm alias works', async () => {
     const { handleQueueCommand } = await import('../src/queue-slash.js');
     let called = false;
-    const _result = handleQueueCommand('rm 1', {
-      getQueue: () => [{ id: 'q1', displayText: 'm', text: 'm', priority: 'normal', sendMode: 'queue' }],
+    handleQueueCommand('rm 1', {
+      getQueue: () => [{ id: 1, displayText: 'm', priority: 'normal', sendMode: 'queue' }],
       clear: () => {},
       deleteAt: () => { called = true; },
     });
@@ -268,7 +268,7 @@ describe('highlight.ts — remaining branch gaps', () => {
     // At least one of the $ vars should be colored cyan
     const varTokens = r1.tokens.filter(t => t.text.startsWith('$'));
     expect(varTokens.length).toBeGreaterThan(0);
-    expect(varTokens[0].color).toBe('cyan');
+    expect(varTokens[0]!.color).toBe('cyan');
   });
 
   it('tokenizeBash handles flag after first word', async () => {

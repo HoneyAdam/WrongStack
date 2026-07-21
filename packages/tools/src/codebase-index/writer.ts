@@ -39,7 +39,7 @@ import type {
 } from './schema.js';
 import { SCHEMA_VERSION } from './schema.js';
 import { lspKindToInternalKind } from './lsp-kind.js';
-import { buildBm25Index, buildIndexableText, tokenise } from './bm25.js';
+import { Bm25Index, buildBm25Index, buildIndexableText, tokenise } from './bm25.js';
 const DB_FILE = 'index.db';
 
 function escapeLike(value: string): string {
@@ -282,6 +282,25 @@ export class IndexStore {
    * and reuse it. Cleared in {@link close} when the connection is torn down.
    */
   private readonly stmtCache = new Map<string, ReturnType<DatabaseSync['prepare']>>();
+  /**
+   * Cached full-corpus BM25 index for the FTS5-unavailable fallback path.
+   * Built lazily on the first `searchRankedFallback` call and invalidated
+   * (via `bm25Dirty`) whenever the `symbols` table is mutated. Computing
+   * IDF over the full corpus is also more correct than the old per-query
+   * candidate-subset IDF.
+   *
+   * Cache-lifecycle invariants (single source of truth lives at the
+   * `invalidateBm25()` helper — see its docblock for the "every mutation
+   * MUST call this" contract):
+   *   - declaration: this field + `bm25Dirty` (here)
+   *   - invalidation: `invalidateBm25()` flips the flag and nulls the cache
+   *   - build: `getOrBuildBm25()` rebuilds against current `symbols` rows
+   *   - teardown: `close()` resets the flag and nulls the cache
+   */
+  private bm25Cache: Bm25Index | null = null;
+  // Dirty on open so the first getOrBuildBm25() rebuilds against current rows;
+  // an empty or pre-existing corpus makes a stale IDF table meaningless.
+  private bm25Dirty = true;
 
   /** Prepare-once helper: compile `sql` on first use, reuse thereafter. */
   private stmt(sql: string): ReturnType<DatabaseSync['prepare']> {
@@ -461,6 +480,11 @@ export class IndexStore {
         for (const row of rows) {
           insert.run(row.id, buildIndexableText(row.name, row.signature, row.doc_comment));
         }
+        // The drift repair doesn't mutate `symbols`, but the drift may have
+        // been caused by an external mutation that left the BM25 cache stale.
+        // Invalidate so the next fallback search rebuilds from the repaired
+        // FTS state rather than serving a frozen corpus.
+        this.invalidateBm25();
       }
     } catch {
       // SQLite built without FTS5 — searchRanked falls back to LIKE + BM25.
@@ -481,6 +505,7 @@ export class IndexStore {
    *          use them for refs without re-reading from the DB.
    */
   insertSymbols(symbols: IndexSymbol[]): IndexSymbol[] {
+    this.invalidateBm25();
     return this.runWithRetry(() => {
       // BEGIN IMMEDIATE takes a write lock immediately (does not wait for the
       // first INSERT). This serializes writers: the next process blocks here
@@ -532,6 +557,7 @@ export class IndexStore {
   }
 
   deleteSymbolsForFile(file: string): void {
+    this.invalidateBm25();
     this.runWithRetry(() => {
       if (this.ftsAvailable) {
         this.stmt(
@@ -548,6 +574,7 @@ export class IndexStore {
    * dropped the `files` row, leaving its symbols orphaned but still searchable.
    */
   deleteFile(file: string): void {
+    this.invalidateBm25();
     this.runWithRetry(() => {
       this.db.exec('BEGIN IMMEDIATE');
       try {
@@ -818,6 +845,51 @@ export class IndexStore {
     };
   }
 
+  /**
+   * Invalidate the cached BM25 index.
+   *
+   * **Contract: every method that mutates `symbols` MUST call this before
+   * returning.** (`refs` mutations do not affect the BM25 fallback because
+   * the corpus is built from `symbols.text` via `getAllIndexable()` and the
+   * BM25 score is filtered by the LIKE-selected candidate set in
+   * `searchRankedFallback`.) Today the call sites are `repairDrift`,
+   * `insertSymbols`, `deleteSymbolsForFile`, `deleteFile`, `clearAll`, and
+   * `commitBatch`. A future mutation that adds a new write path (e.g.
+   * `renameFile`, `updateSignature`) MUST also call this — otherwise the
+   * FTS5-unavailable fallback will serve stale search results. The
+   * `close()` reset at L1820-1821 tears the cache down on store shutdown,
+   * which is the only legitimate place that flips the flag outside this
+   * helper.
+   *
+   * Called *before* `runWithRetry` on purpose: if the write fails all
+   * retries the flag stays set, forcing a rebuild on the next search rather
+   * than trusting a cache that may not reflect the intended mutation.
+   * Do not move this inside the retry closure.
+   */
+  private invalidateBm25(): void {
+    this.bm25Dirty = true;
+    this.bm25Cache = null;
+  }
+
+  /**
+   * Return the cached full-corpus BM25 index, rebuilding it only when the
+   * symbols table has been mutated since the last build. The full-corpus IDF
+   * is more correct than the old per-query candidate-subset IDF, and the
+   * amortized build cost drops from O(symbols × tokens) per search to once
+   * per write batch.
+   *
+   * Note: the first call after a long idle (or on a freshly opened store)
+   * pays the full corpus rebuild synchronously on the search path. For a
+   * 5 500+ symbol corpus this is a visible one-time latency spike.
+   */
+  private getOrBuildBm25(): Bm25Index {
+    if (this.bm25Cache && !this.bm25Dirty) return this.bm25Cache;
+    const docs = this.getAllIndexable();
+    this.bm25Cache = buildBm25Index(docs);
+    this.bm25Dirty = false;
+    return this.bm25Cache;
+  }
+
   /** Legacy ranked path: LIKE candidates + in-process BM25 + JS snippets. */
   private searchRankedFallback(
     query: string,
@@ -839,12 +911,10 @@ export class IndexStore {
     }
 
     const candidateById = new Map(candidates.map((c) => [c.id, c]));
-    const bm25 = buildBm25Index(
-      candidates.map((c) => ({
-        id: c.id,
-        text: buildIndexableText(c.name, c.signature, c.docComment),
-      })),
-    );
+    // Use the cached full-corpus BM25 index instead of rebuilding from the
+    // LIKE candidate subset on every query. The filter restricts scoring to
+    // candidates; full-corpus IDF is more correct than subset IDF.
+    const bm25 = this.getOrBuildBm25();
     const scored = bm25.score(query, (id) => candidateById.has(id));
     const q = query.trim().toLowerCase();
     const rank = (id: number): number => {
@@ -965,6 +1035,7 @@ export class IndexStore {
   }
 
   clearAll(): void {
+    this.invalidateBm25();
     this.runWithRetry(() => {
       this.db.exec('BEGIN IMMEDIATE');
       try {
@@ -1066,6 +1137,7 @@ export class IndexStore {
     if (entries.length === 0 && (options.deleteForFiles?.length ?? 0) === 0) {
       return [];
     }
+    this.invalidateBm25();
     return this.runWithRetry(() => {
       this.db.exec('BEGIN IMMEDIATE');
       try {
@@ -1659,12 +1731,33 @@ export class IndexStore {
     // Collect refs FROM symbols in this file (outgoing) and TO symbols in this
     // file (incoming), so the graph shows both callers and callees.
     const symIds = new Set(syms.map((s) => s.id));
+    // Two index-friendly JOINs (outgoing + incoming) UNIONed together.
+    // The previous `from_id IN (SELECT … WHERE file = ?) OR to_id IN (SELECT
+    // … WHERE file = ?)` form could not be flattened by the SQLite planner and
+    // degenerated to a sequential scan over `refs` for every graph render.
+    // Each JOIN drives off `idx_s_file` (symbols.file) and probes `refs` via
+    // `idx_r_from` / `idx_r_to_id`. UNION (not UNION ALL) deduplicates on the
+    // projection tuple `(from_id, to_id, to_name, call_type, line)`. A row
+    // whose both endpoints are in the file would in principle appear once in
+    // each branch and collapse to one; distinct physical rows have distinct
+    // `(from_id, to_id, to_name, call_type, line)` tuples under the `refs`
+    // schema, so dedup is a no-op in practice and the row set matches the
+    // original OR query exactly. `r.id` is intentionally NOT projected: it
+    // would be dead (never read by the consumer) and would slightly widen
+    // the dedup tuple without changing correctness. If a non-PK column is
+    // ever added to the projection, revisit this comment — it can re-introduce
+    // real duplicates that UNION would silently drop.
     const refRows = this.db
       .prepare(
         `SELECT r.from_id, r.to_id, r.to_name, r.call_type, r.line
        FROM refs r
-       WHERE r.from_id IN (SELECT id FROM symbols WHERE file = ?)
-          OR r.to_id IN (SELECT id FROM symbols WHERE file = ?)`,
+       JOIN symbols s ON s.id = r.from_id
+       WHERE s.file = ?
+       UNION
+       SELECT r.from_id, r.to_id, r.to_name, r.call_type, r.line
+       FROM refs r
+       JOIN symbols s ON s.id = r.to_id
+       WHERE s.file = ?`,
       )
       .all(fileFilter, fileFilter) as {
       from_id: number;
@@ -1747,6 +1840,10 @@ export class IndexStore {
     // Drop cached StatementSync references before closing; db.close() finalizes
     // them, and keeping the map would retain handles to a dead connection.
     this.stmtCache.clear();
+    // Release the BM25 cache and mark dirty so a hypothetical reopen starts
+    // from a clean slate instead of serving a stale index.
+    this.bm25Dirty = true;
+    this.bm25Cache = null;
     try {
       this.db.close();
     } catch {

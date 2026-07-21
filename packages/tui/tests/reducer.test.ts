@@ -551,7 +551,7 @@ describe('TUI reducer', () => {
             toolName: 'bash',
             input: {},
             resolve: () => {},
-            destructive: false,
+            destructive: false, suggestedPattern: 'test-pattern',
           },
         ],
         debugStreamStats: {

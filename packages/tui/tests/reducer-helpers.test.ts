@@ -13,96 +13,10 @@ import {
   pruneToolInput,
   skipDivider,
 } from '../src/reducers/helpers.js';
+import { createTestState } from './helpers/create-test-state.js';
 
-function stubState(over: Partial<State> = {}): State {
-  return {
-    entries: [],
-    buffer: '',
-    cursor: 0,
-    streamingText: '',
-    toolStream: null,
-    status: 'idle',
-    interrupts: 0,
-    steeringPending: false,
-    steerSnapshot: null,
-    hint: '',
-    brain: { state: 'idle' },
-    brainPrompt: null,
-    nextId: 1,
-    historyGen: 0,
-    picker: { open: false, query: '', matches: [], selected: 0 },
-    slashPicker: { open: false, query: '', matches: [], selected: 0 },
-    runningTools: new Map(),
-    queue: [],
-    nextQueueId: 1,
-    inputHistory: [],
-    historyIndex: 0,
-    historyDraft: '',
-    modelPicker: { open: false, step: 'provider' as const, providerOptions: [], modelOptions: [], filteredOptions: [], selected: 0, searchQuery: '' },
-    autonomyPicker: { open: false, options: [], selected: 0 },
-    modePicker: { open: false, modes: [], selected: 0 },
-    designPicker: { open: false, kits: [], selected: 0, stack: 'web' as const },
-    promptPicker: { open: false, all: [], categories: [], recentSlugs: [], catIndex: 0, selected: 0 },
-    resumePicker: { open: false, sessions: [], selected: 0, busy: false, hint: undefined, error: undefined },
-    settingsPicker: { open: false, field: 0, lastSettingsField: 0, filter: '', mode: 'off' as const, delayMs: 0, titleAnimation: true, yolo: false, fleetChat: 'off' as const, chime: false, confirmExit: true, nextPrediction: false, featureMcp: true, featurePlugins: true, featureMemory: true, featureSkills: true, featureModelsRegistry: true, tokenSavingTier: 'off' as const, allowOutsideProjectRoot: true, contextAutoCompact: true, contextStrategy: 'hybrid' as const, contextMode: 'balanced' as const, maxConcurrent: 10, logLevel: 'info' as const, auditLevel: 'standard' as const, indexOnStart: true, multiDiffSummaryThreshold: 5, maxIterations: 500, autoProceedMaxIterations: 50, enhanceDelayMs: 60000, enhanceEnabled: true, enhanceLanguage: 'original' as const, debugStream: false, statuslineMode: 'detailed' as const, reasoningMode: 'auto' as const, reasoningEffort: 'high' as const, reasoningPreserve: false, thinkingWord: 'thinking', thinkingWordEditing: false, thinkingWordDraft: '', cacheTtl: 'default' as const, configScope: 'global' as const, animationStyle: 'rainbow' as const },
-    statuslinePicker: { open: false, field: 0, hiddenItems: [], visibleChips: [], hint: undefined },
-    pluginPicker: { open: false, items: [], selected: 0, busy: false, hint: undefined },
-    mcpPicker: { open: false, items: [], selected: 0, busy: false, hint: undefined },
-    toolsPicker: { open: false, items: [], selected: 0, busy: false, hint: undefined, filter: undefined },
-    brainPanel: { open: true, riskLevel: 'high' as const, log: [], selected: 0, hint: undefined },
-    helpPanel: { open: true, entries: [], selected: 0, filter: '', hint: undefined },
-    shadowPanel: { open: true, shadow: { activeId: null, running: false, model: '', intervalMs: 30000 }, hint: undefined },
-    authPanel: { open: true, view: 'list' as const, busy: true, providers: [], presets: [], catalog: [], selected: 0, filter: '', flowTitle: '', log: [], flowDone: false },
-    projectPicker: { open: true, allItems: [], items: [], selected: 0, filter: '', hint: undefined },
-    fKeyPicker: { open: false, selected: 0 },
-    confirmQueue: [],
-    shellCommandWarning: null,
-    enhance: null,
-    enhanceEnabled: true,
-    enhanceBusy: false,
-    continueConfirm: null,
-    escConfirm: null,
-    sendModePicker: null,
-    contextChipVersion: 0,
-    fleet: {},
-    leader: { iterations: 0, toolCalls: 0, recentTools: [], currentTool: undefined, startedAt: Date.now(), lastEventAt: Date.now(), iterating: false },
-    fleetCost: 0,
-    fleetTokens: { input: 0, output: 0 },
-    fleetConcurrency: 4,
-    fleetChat: 'off' as const,
-    monitorOpen: true,
-    agentsMonitorOpen: true,
-    helpOpen: true,
-    todosMonitorOpen: true,
-    queuePanelOpen: true,
-    processListOpen: true,
-    auditPanelOpen: true,
-    planPanelOpen: true,
-    kanbanPanelOpen: true,
-    goalPanelOpen: true,
-    sessionsPanelOpen: true,
-    sessionResumeConfirm: null,
-    collabSession: null,
-    checkpoints: [],
-    rewindOverlay: null,
-    eternalStage: null,
-    goalSummary: null,
-    goalRun: { monitorOpen: true } as never,
-    sddBoard: { monitorOpen: true } as never,
-    worktrees: {},
-    worktreeMonitorOpen: true,
-    coordinator: { goals: [], timeline: [], knowledgeCount: 0, monitorOpen: true, healthy: false },
-    scrollOffset: 0,
-    totalLines: 0,
-    viewportRows: 0,
-    pendingNewLines: 0,
-    debugStreamStats: null,
-    countdown: null,
-    cronMonitorOpen: true,
-    contextPanelOpen: true,
-    goalKanbanPanelOpen: true,
-    ...over,
-  };
+function stubState(over: Partial<State> | Record<string, unknown> = {}): State {
+  return createTestState(over);
 }
 
 describe('clampContextLoad', () => {
@@ -256,8 +170,8 @@ describe('pruneToolInput', () => {
 describe('firstSelectable', () => {
   it('returns index of first non-divider item', () => {
     const items = [
-      { key: '__divider__' as const, label: '--' },
-      { key: 'proj-a' as const, label: 'Project A', path: '/a' },
+      { key: '__divider__', label: '--', kind: 'action' as const },
+      { key: 'proj-a', label: 'Project A', kind: 'project' as const },
     ];
     expect(firstSelectable(items)).toBe(1);
   });
@@ -268,14 +182,14 @@ describe('firstSelectable', () => {
 
   it('returns 0 when all items are dividers', () => {
     const items = [
-      { key: '__divider__' as const, label: '--' },
+      { key: '__divider__', label: '--', kind: 'action' as const },
     ];
     expect(firstSelectable(items)).toBe(0);
   });
 
   it('returns 0 when first item is selectable', () => {
     const items = [
-      { key: 'proj-a' as const, label: 'A', path: '/a' },
+      { key: 'proj-a', label: 'A', kind: 'project' as const },
     ];
     expect(firstSelectable(items)).toBe(0);
   });
@@ -283,10 +197,10 @@ describe('firstSelectable', () => {
 
 describe('skipDivider', () => {
   const items = [
-    { key: '__divider__' as const, label: '--' },
-    { key: 'proj-a' as const, label: 'A', path: '/a' },
-    { key: '__divider__' as const, label: '--' },
-    { key: 'proj-b' as const, label: 'B', path: '/b' },
+    { key: '__divider__', label: '--', kind: 'action' as const },
+    { key: 'proj-a', label: 'A', kind: 'project' as const },
+    { key: '__divider__', label: '--', kind: 'action' as const },
+    { key: 'proj-b', label: 'B', kind: 'project' as const },
   ];
 
   it('skips forward over dividers', () => {
@@ -317,8 +231,8 @@ describe('skipDivider', () => {
 
   it('stays at index when all items are dividers', () => {
     const allDividers = [
-      { key: '__divider__' as const, label: '--' },
-      { key: '__divider__' as const, label: '--' },
+      { key: '__divider__', label: '--', kind: 'action' as const },
+      { key: '__divider__', label: '--', kind: 'action' as const },
     ];
     expect(skipDivider(allDividers, 1, 1)).toBe(1);
     expect(skipDivider(allDividers, 1, -1)).toBe(1);

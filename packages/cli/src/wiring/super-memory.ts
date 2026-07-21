@@ -16,6 +16,26 @@ export interface SuperMemoryWiringDeps {
   getSessionId?: (() => string | undefined) | undefined;
 }
 
+/**
+ * Auto-hygiene throttle: skip the post-session hygiene pass if one ran
+ * within the last hour. Hygiene is an O(N) full-corpus scan; running it
+ * after every short session wastes CPU and IO. The throttle is keyed by
+ * process lifetime — a single shared timestamp across all teardown
+ * callbacks in the same Node process. Operators can force a run via the
+ * /memory hygiene slash command, which bypasses the throttle.
+ */
+let lastAutoHygieneAt = 0;
+const AUTO_HYGIENE_INTERVAL_MS = 60 * 60_000; // 1 hour
+
+/**
+ * Test-only: reset the auto-hygiene throttle so the next teardown always
+ * runs hygiene. Used by the regression test to verify the throttle skips
+ * on the second call within the interval.
+ */
+export function _resetAutoHygieneThrottleForTesting(): void {
+  lastAutoHygieneAt = 0;
+}
+
 export function setupSuperMemory(deps: SuperMemoryWiringDeps): () => Promise<void> {
   const cfg = deps.config.superMemory;
   const noop = async () => {};
@@ -78,12 +98,23 @@ export function setupSuperMemory(deps: SuperMemoryWiringDeps): () => Promise<voi
     };
     await candidate.flushPendingCounters?.call(candidate);
     if (cfg?.hygiene?.autoAfterSession === false) return;
+    // Throttle: skip auto-hygiene if it ran less than AUTO_HYGIENE_INTERVAL_MS ago.
+    // Manual /memory hygiene slash command bypasses this — it calls
+    // memoryStore.hygiene() directly without going through this teardown.
+    const now = Date.now();
+    if (now - lastAutoHygieneAt < AUTO_HYGIENE_INTERVAL_MS) {
+      deps.logger.debug(
+        `super-memory auto-hygiene skipped: last run ${Math.round((now - lastAutoHygieneAt) / 1000)}s ago (throttle: ${AUTO_HYGIENE_INTERVAL_MS / 1000}s)`,
+      );
+      return;
+    }
     await candidate.hygiene?.call(candidate, {
       retentionDays: cfg?.hygiene?.retentionDays,
       archiveLowConfidenceAfterDays: cfg?.hygiene?.archiveLowConfidenceAfterDays,
       archiveUnusedAfterDays: cfg?.hygiene?.archiveUnusedAfterDays,
       unusedMinInjections: cfg?.hygiene?.unusedMinInjections,
     });
+    lastAutoHygieneAt = now;
   };
 }
 

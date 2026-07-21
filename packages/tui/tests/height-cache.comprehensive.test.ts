@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   EntryHeightCache,
   computeWindow,
-  DEFAULT_ENTRY_HEIGHT,
 } from '../src/height-cache.js';
 
 describe('EntryHeightCache', () => {
@@ -193,6 +192,7 @@ describe('EntryHeightCache', () => {
       c.record(20, 6);
       c.record(30, 2);
       const changed = c.retain([10, 30, 40]); // 40 not in heights
+      void changed;
       // 20 removed, 40 not in heights so filtered out
       expect(c.size).toBe(2);
       expect(c.getHeight(10)).toBe(4);

@@ -1,0 +1,209 @@
+import type { ReasoningEffort, Request } from '@wrongstack/core';
+
+/**
+ * Apply contracts that look OpenAI-compatible at the transport level but use
+ * provider/model-specific reasoning and tool parameters. This runs after the
+ * generic Chat Completions body builder so known providers can remove unsafe
+ * generic fields before restoring only values their public API accepts.
+ */
+export function applyOpenAICompatiblePolicy(
+  body: Record<string, unknown>,
+  req: Request,
+  providerId: string,
+): void {
+  if (providerId === 'openrouter') {
+    applyOpenRouter(body, req);
+    return;
+  }
+  if (providerId === 'deepseek') {
+    applyDeepSeek(body, req);
+    return;
+  }
+  if (providerId === 'moonshotai' || providerId === 'kimi-for-coding') {
+    applyKimi(body, req);
+    return;
+  }
+  if (providerId === 'zai' || providerId === 'zai-coding-plan') {
+    applyZai(body, req);
+    return;
+  }
+  if (providerId.startsWith('alibaba')) {
+    applyAlibaba(body, req);
+    return;
+  }
+  if (providerId === 'xai') {
+    applyXai(body, req);
+    return;
+  }
+  if (providerId === 'groq') applyGroq(body, req);
+  else if (providerId === 'perplexity') applyPerplexity(body, req);
+}
+
+function applyOpenRouter(body: Record<string, unknown>, req: Request): void {
+  delete body['reasoning_effort'];
+  const input = req.reasoning;
+  if (!input) return;
+
+  const reasoning: Record<string, unknown> = {};
+  if (input.effort !== undefined) reasoning['effort'] = input.effort;
+  else if (input.enabled !== undefined) reasoning['enabled'] = input.enabled;
+  if (input.display === 'omitted') reasoning['exclude'] = true;
+  else if (input.display === 'summarized') reasoning['exclude'] = false;
+  if (Object.keys(reasoning).length > 0) body['reasoning'] = reasoning;
+}
+
+function applyDeepSeek(body: Record<string, unknown>, req: Request): void {
+  // Older/unknown DeepSeek models keep the generic compatible contract.
+  // V4 is the first family with this exact thinking/effort combination.
+  if (!req.model.toLowerCase().includes('deepseek-v4')) return;
+  delete body['reasoning_effort'];
+  const r = req.reasoning;
+  if (r?.enabled !== undefined) {
+    body['thinking'] = { type: r.enabled ? 'enabled' : 'disabled' };
+  }
+  if (r?.enabled !== false && (r?.effort === 'high' || r?.effort === 'max')) {
+    body['reasoning_effort'] = r.effort;
+  }
+
+  // DeepSeek V4 thinking mode ignores these sampling controls. Omitting them
+  // also protects gateways that validate the combination strictly.
+  const thinking = r?.enabled !== false;
+  if (thinking) {
+    delete body['temperature'];
+    delete body['top_p'];
+    delete body['frequency_penalty'];
+    delete body['presence_penalty'];
+    forceAutoToolChoice(body, req);
+  }
+}
+
+function applyKimi(body: Record<string, unknown>, req: Request): void {
+  delete body['reasoning_effort'];
+  delete body['thinking'];
+  const r = req.reasoning;
+  const model = req.model.toLowerCase();
+
+  if (model.includes('k3')) {
+    if (r?.enabled !== false && isOneOf(r?.effort, ['low', 'high', 'max'])) {
+      body['reasoning_effort'] = r?.effort;
+    }
+    forceAutoToolChoice(body, req);
+    return;
+  }
+  if (model.includes('k2.7') || model.includes('for-coding')) {
+    // K2.7 Code is always-thinking and rejects the thinking parameter.
+    forceAutoToolChoice(body, req);
+    return;
+  }
+  if (model.includes('k2.6') || model.includes('k2.5')) {
+    if (r?.enabled !== undefined) {
+      const thinking: Record<string, unknown> = { type: r.enabled ? 'enabled' : 'disabled' };
+      if (model.includes('k2.6') && r.preserve === true) thinking['keep'] = 'all';
+      body['thinking'] = thinking;
+    } else if (model.includes('k2.6') && r?.preserve === true) {
+      body['thinking'] = { type: 'enabled', keep: 'all' };
+    }
+    if (r?.enabled !== false) forceAutoToolChoice(body, req);
+  }
+}
+
+function applyZai(body: Record<string, unknown>, req: Request): void {
+  const r = req.reasoning;
+  if (r?.enabled !== undefined) {
+    body['thinking'] = { type: r.enabled ? 'enabled' : 'disabled' };
+  }
+  // GLM-5.2 advertises only the two named effort levels. Other GLM models use
+  // the thinking toggle and must not receive a guessed effort value.
+  if (
+    req.model.toLowerCase().includes('glm-5.2') &&
+    r?.enabled !== false &&
+    (r?.effort === 'high' || r?.effort === 'max')
+  ) {
+    body['reasoning_effort'] = r.effort;
+  }
+}
+
+function applyAlibaba(body: Record<string, unknown>, req: Request): void {
+  delete body['reasoning_effort'];
+  const r = req.reasoning;
+  if (r?.enabled !== undefined) body['enable_thinking'] = r.enabled;
+  if (r?.enabled !== false && r?.effort && r.effort !== 'none') {
+    body['enable_thinking'] = true;
+    body['thinking_budget'] = deriveBudget(req.maxTokens ?? 8192, r.effort, 32_768);
+  }
+  if (body['enable_thinking'] === true) forceAutoToolChoice(body, req);
+}
+
+function applyXai(body: Record<string, unknown>, req: Request): void {
+  delete body['reasoning_effort'];
+  const model = req.model.toLowerCase();
+  if (!model.includes('grok-4.5')) return;
+  const effort = req.reasoning?.effort;
+  if (req.reasoning?.enabled !== false && isOneOf(effort, ['low', 'medium', 'high'])) {
+    body['reasoning_effort'] = effort;
+  }
+  // xAI documents these as incompatible with reasoning models.
+  delete body['presence_penalty'];
+  delete body['frequency_penalty'];
+  delete body['stop'];
+}
+
+function applyGroq(body: Record<string, unknown>, req: Request): void {
+  delete body['reasoning_effort'];
+  const model = req.model.toLowerCase();
+  const effort = req.reasoning?.effort;
+  if (model.includes('qwen3.6')) {
+    if (req.reasoning?.enabled === false || effort === 'none') body['reasoning_effort'] = 'none';
+    else if (req.reasoning?.enabled === true || effort !== undefined) {
+      body['reasoning_effort'] = 'default';
+    }
+    if (
+      (req.tools?.length ?? 0) > 0 ||
+      (req.responseFormat !== undefined && req.responseFormat.type !== 'text')
+    ) {
+      body['reasoning_format'] = 'parsed';
+    }
+  } else if (model.includes('gpt-oss') && isOneOf(effort, ['low', 'medium', 'high'])) {
+    body['reasoning_effort'] = effort;
+    body['include_reasoning'] = true;
+  }
+}
+
+function applyPerplexity(body: Record<string, unknown>, req: Request): void {
+  delete body['reasoning_effort'];
+  const model = req.model.toLowerCase();
+  if (!model.includes('reasoning-pro') && !model.includes('deep-research')) return;
+  const effort = req.reasoning?.effort;
+  if (
+    req.reasoning?.enabled !== false &&
+    isOneOf(effort, ['minimal', 'low', 'medium', 'high'])
+  ) {
+    body['reasoning_effort'] = effort;
+  }
+}
+
+function forceAutoToolChoice(body: Record<string, unknown>, req: Request): void {
+  if (!req.tools || req.tools.length === 0) return;
+  const choice = body['tool_choice'];
+  if (choice !== undefined && choice !== 'auto' && choice !== 'none') {
+    body['tool_choice'] = 'auto';
+  }
+}
+
+function isOneOf<T extends string>(value: T | undefined, allowed: readonly T[]): value is T {
+  return value !== undefined && allowed.includes(value);
+}
+
+function deriveBudget(maxTokens: number, effort: ReasoningEffort, cap: number): number {
+  const ratio =
+    effort === 'minimal'
+      ? 0.1
+      : effort === 'low'
+        ? 0.2
+        : effort === 'medium'
+          ? 0.5
+          : effort === 'high'
+            ? 0.8
+            : 0.95;
+  return Math.max(1, Math.min(Math.floor(maxTokens * ratio), cap, Math.max(1, maxTokens - 1)));
+}
