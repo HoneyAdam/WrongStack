@@ -1,16 +1,21 @@
 // Security domain: secret scrubbing, vault encryption, permission policies
-export { DefaultSecretScrubber } from './secret-scrubber.js';
+
 export {
-  DefaultSecretVault,
-  type SecretVaultOptions,
-  rewriteConfigEncrypted,
-  migratePlaintextSecrets,
-  rotateConfigKeys,
-} from './secret-vault.js';
+  DANGEROUS_FOR_SUBAGENTS,
+  getDangerousCapabilities,
+  hasCapability,
+  hasDangerousCapabilityForSubagents,
+  ToolCapabilities,
+  type ToolCapability,
+} from './capabilities.js';
 export { decryptConfigSecrets, encryptConfigSecrets, isSecretField } from './config-secrets.js';
 export {
-  DefaultPermissionPolicy,
+  evaluateToolKanbanBoundary,
+  type ToolKanbanBoundaryEvaluation,
+} from './kanban-boundary.js';
+export {
   AutoApprovePermissionPolicy,
+  DefaultPermissionPolicy,
   type PermissionPolicyOptions,
 } from './permission-policy.js';
 export {
@@ -22,16 +27,43 @@ export {
   type TrustPolicyValidationResult,
   validateTrustPolicy,
 } from './permission-policy-schema.js';
-
+export { DefaultSecretScrubber } from './secret-scrubber.js';
 export {
-  ToolCapabilities,
-  DANGEROUS_FOR_SUBAGENTS,
-  type ToolCapability,
-  hasDangerousCapabilityForSubagents,
-  hasCapability,
-  getDangerousCapabilities,
-} from './capabilities.js';
+  ReadOnlyPermissionPolicy,
+} from './readonly-permission-policy.js';
 export {
-  evaluateToolKanbanBoundary,
-  type ToolKanbanBoundaryEvaluation,
-} from './kanban-boundary.js';
+  DefaultSecretVault,
+  migratePlaintextSecrets,
+  rewriteConfigEncrypted,
+  rotateConfigKeys,
+  type SecretVaultOptions,
+} from './secret-vault.js';
+export type {
+  CompatibilityTrustBoundaryOptions,
+  TrustActor,
+  TrustActorKind,
+  TrustAllowDecision,
+  TrustAttribute,
+  TrustAuthContext,
+  TrustAuthMethod,
+  TrustBoundary,
+  TrustBoundaryAuditEntry,
+  TrustBoundaryDecision,
+  TrustBoundaryRequest,
+  TrustConfirmDecision,
+  TrustDecodeIssue,
+  TrustDecodeResult,
+  TrustDenyDecision,
+  TrustRisk,
+  TrustScope,
+  TrustScopedTokenDecision,
+  TrustSubject,
+  TrustSurface,
+} from './trust-boundary.js';
+export {
+  createCompatibilityTrustBoundary,
+  decodeTrustBoundaryDecision,
+  decodeTrustBoundaryRequest,
+  isTrustDecisionAllowed,
+  TRUST_BOUNDARY_VERSION,
+} from './trust-boundary.js';
