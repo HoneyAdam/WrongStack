@@ -29,7 +29,7 @@ function key(overrides: Partial<KeyEvent> = {}): KeyEvent {
   };
 }
 
-function baseState(overrides: Partial<State> = {}): State {
+function baseState(overrides: Partial<State> | Record<string, unknown> = {}): State {
   return {
     authPanel: { open: false },
     modelPicker: {
