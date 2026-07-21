@@ -1,6 +1,7 @@
 import type { Request } from '@wrongstack/core';
 import type { Capabilities, ReasoningEffort } from '@wrongstack/core';
 import { capabilitiesForFamily } from './family-capabilities.js';
+import { applyOpenAICompatiblePolicy } from './openai-compatible-policy.js';
 import { OpenAIProvider } from './openai.js';
 import type { WireAdapterStreamOptions } from './wire-adapter.js';
 
@@ -129,6 +130,7 @@ export class OpenAICompatibleProvider extends OpenAIProvider {
     // Many OpenAI-compatible servers (Together, Fireworks, DeepSeek, etc.)
     // accept the `top_k` parameter even though real OpenAI rejects it.
     if (req.topK !== undefined) body['top_k'] = req.topK;
+    applyOpenAICompatiblePolicy(body, req, this.id);
     return body;
   }
 

@@ -16,6 +16,7 @@ import { AnthropicOAuthProvider } from './anthropic-oauth.js';
 import { GitHubCopilotProvider } from './github-copilot.js';
 import { GoogleProvider } from './google.js';
 import { OpenAICodexProvider } from './openai-codex.js';
+import { OpenCodeGoProvider } from './opencode-go.js';
 import {
   type CompatibilityQuirks,
   isCompatibilityQuirks,
@@ -27,6 +28,8 @@ import { mistralWireFormat } from './presets/mistral.js';
 import { ollamaWireFormat, vllmWireFormat, lmstudioWireFormat } from './presets/local-llm.js';
 export { AnthropicProvider, type AnthropicProviderOptions } from './anthropic.js';
 export { OpenAIProvider, type OpenAIProviderOptions } from './openai.js';
+export { MiniMaxProvider, type MiniMaxProviderOptions } from './minimax.js';
+export { OpenCodeGoProvider, type OpenCodeGoProviderOptions } from './opencode-go.js';
 export {
   OpenAICompatibleProvider,
   type OpenAICompatibleOptions,
@@ -366,6 +369,17 @@ function makeProvider(p: ResolvedProvider, cfg: ProviderConfig): Provider {
         quirks: validateQuirks(p.id, cfg.quirks),
       });
     case 'openai-compatible': {
+      // Provider/model discovery remains owned by models.dev. This adapter
+      // only selects the gateway's per-model wire protocol.
+      if (p.id === 'opencode-go') {
+        return new OpenCodeGoProvider({
+          id: p.id,
+          apiKey: expectDefined(apiKey),
+          baseUrl,
+          headers: cfg.headers,
+          models: p.models,
+        });
+      }
       // Use a tuned preset when available (Mistral, Ollama, vLLM, LM Studio, …).
       if (p.id === 'mistral') {
         return createWireFormatFactory(mistralWireFormat, {

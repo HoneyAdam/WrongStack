@@ -3,7 +3,12 @@
  * We keep `unknown` for fields we don't read so the cached payload stays faithful.
  */
 
-import type { ReasoningConfig } from './provider.js';
+import type { ReasoningConfig, ReasoningEffort } from './provider.js';
+
+export type ModelsDevReasoningOption =
+  | { type: 'toggle' }
+  | { type: 'effort'; values?: ReasoningEffort[] | undefined }
+  | { type: 'budget_tokens'; min?: number | undefined; max?: number | undefined };
 
 export interface ModelsDevModel {
   id: string;
@@ -17,6 +22,10 @@ export interface ModelsDevModel {
   description?: string | undefined;
   attachment?: boolean | undefined;
   reasoning?: boolean | undefined;
+  /** Native models.dev reasoning controls; normalized to reasoningConfig by the registry. */
+  reasoning_options?: ModelsDevReasoningOption | ModelsDevReasoningOption[] | undefined;
+  /** Provider field that must be replayed for interleaved reasoning/tool turns. */
+  interleaved?: { field?: string | undefined } | boolean | undefined;
   reasoningConfig?: ReasoningConfig | undefined;
   tool_call?: boolean | undefined;
   temperature?: boolean | undefined;

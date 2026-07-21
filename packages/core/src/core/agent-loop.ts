@@ -927,6 +927,17 @@ export function createAgentLoopHandler(
             const hasText = res.content.some(isTextBlock);
             const kind: 'tool' | 'message' | 'mixed' =
               toolUses.length > 0 && hasText ? 'mixed' : toolUses.length > 0 ? 'tool' : 'message';
+            const observationRepeat =
+              loopCfg.mode === 'steer-then-cut' &&
+              toolUses.length > 0 &&
+              toolUses.every((use) => {
+                const tool = a.tools.get(use.name);
+                return (
+                  tool?.mutating === false &&
+                  (tool.riskTier === 'safe' || (tool.capabilities?.length ?? 0) > 0)
+                );
+              });
+            const repeatMultiplier = observationRepeat ? 2 : 1;
             const detail =
               kind === 'tool'
                 ? `"${names}" called with effectively identical inputs ${toolLoopCount} times in a row`
@@ -934,7 +945,9 @@ export function createAgentLoopHandler(
                   ? `"${names}" + same text repeated ${toolLoopCount} times in a row`
                   : `same assistant text repeated ${toolLoopCount} times in a row`;
 
-            const cutAt = loopCfg.mode === 'cut' ? loopCfg.steerThreshold : loopCfg.cutThreshold;
+            const cutAt =
+              (loopCfg.mode === 'cut' ? loopCfg.steerThreshold : loopCfg.cutThreshold) *
+              repeatMultiplier;
             if (toolLoopCount >= cutAt) {
               a.logger.warn(`Loop detected: ${detail} — stopping to prevent infinite loop.`);
               a.events.emit('tool.loop_detected', {
@@ -961,7 +974,7 @@ export function createAgentLoopHandler(
 
             if (
               loopCfg.mode === 'steer-then-cut' &&
-              toolLoopCount >= loopCfg.steerThreshold &&
+              toolLoopCount >= loopCfg.steerThreshold * repeatMultiplier &&
               !iterationSteerDone
             ) {
               iterationSteerDone = true;
@@ -1003,7 +1016,13 @@ export function createAgentLoopHandler(
               if (steeredCallKeys.has(key)) continue;
               let count = 0;
               for (const k of recentCallKeys) if (k === key) count++;
-              if (count < loopCfg.callRepeatThreshold) continue;
+              const tool = a.tools.get(u.name);
+              const observationThreshold =
+                tool?.mutating === false &&
+                (tool.riskTier === 'safe' || (tool.capabilities?.length ?? 0) > 0)
+                  ? loopCfg.callRepeatThreshold * 2
+                  : loopCfg.callRepeatThreshold;
+              if (count < observationThreshold) continue;
               steeredCallKeys.add(key);
               const preview = JSON.stringify(u.input ?? {}).slice(0, 160);
               a.logger.warn(

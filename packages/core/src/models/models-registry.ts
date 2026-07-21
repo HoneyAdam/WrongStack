@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type {
   ModelsDevPayload,
+  ModelsDevModel,
   ModelsDevProvider,
   ModelsRegistry,
   ResolvedModel,
@@ -14,6 +15,7 @@ import { atomicWrite } from '../utils/atomic-write.js';
 import { toErrorMessage } from '../utils/error.js';
 import { mergeModelsPayload } from '../utils/merge-models-payload.js';
 import { FetchError } from '../types/errors.js';
+import type { ReasoningConfig, ReasoningEffort } from '../types/provider.js';
 
 const DEFAULT_URL = 'https://models.dev/api.json';
 /** Env var to override the models.dev base URL (e.g. for self-hosted mirrors). */
@@ -427,7 +429,7 @@ export class DefaultModelsRegistry implements ModelsRegistry {
       apiBase: p.api,
       envVars: p.env ?? [],
       doc: p.doc,
-      models: Object.values(p.models ?? {}),
+      models: Object.values(p.models ?? {}).map(normalizeModelsDevModel),
       npm: p.npm,
     };
   }
@@ -453,6 +455,40 @@ export class DefaultModelsRegistry implements ModelsRegistry {
   cacheLocation(): string {
     return path.resolve(this.cacheFile);
   }
+}
+
+const REASONING_EFFORTS = new Set<ReasoningEffort>([
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+]);
+
+/** Convert models.dev's native reasoning_options schema into runtime policy. */
+function normalizeModelsDevModel(model: ModelsDevModel): ModelsDevModel {
+  if (model.reasoningConfig) return model;
+  const raw = model.reasoning_options;
+  const options = raw === undefined ? [] : Array.isArray(raw) ? raw : [raw];
+  if (model.reasoning !== true && options.length === 0) return model;
+
+  const toggle = options.some((option) => option.type === 'toggle');
+  const efforts = options
+    .filter((option): option is Extract<typeof option, { type: 'effort' }> => option.type === 'effort')
+    .flatMap((option) => option.values ?? [])
+    .filter((effort): effort is ReasoningEffort => REASONING_EFFORTS.has(effort));
+  const effortLevels = [...new Set(efforts)];
+  const disableSupported = toggle || effortLevels.includes('none');
+  const reasoningConfig: ReasoningConfig = {
+    default: disableSupported ? 'enabled' : 'always_on',
+    disableSupported,
+    effortSupported: effortLevels.length > 0,
+    effortLevels,
+    preserveThinking: model.interleaved ? 'always_on' : 'unsupported',
+  };
+  return { ...model, reasoningConfig };
 }
 
 /** Render a seconds-duration as a human-friendly "Xh Ym" or "Xd" string. */

@@ -627,13 +627,14 @@ export function wsToVizEvent(
     case 'tool.loop_detected': {
       const tools = payload.tools as string ?? '';
       const kind = payload.kind as string ?? 'loop';
+      const isSteer = payload.action === 'steer';
       return {
-        id: nextId(), kind: 'error', timestamp: Date.now(),
+        id: nextId(), kind: isSteer ? 'agent:status' : 'error', timestamp: Date.now(),
         source: tools || kind, target: 'leader',
         label: `${kind} loop x${payload.repeatCount as number ?? 0}`,
         magnitude: payload.repeatCount as number ?? 1,
         data: payload as Record<string, unknown>,
-        color: NODE_COLORS.error,
+        color: isSteer ? NODE_COLORS.agent : NODE_COLORS.error,
         flowGroup: 'tool',
       };
     }

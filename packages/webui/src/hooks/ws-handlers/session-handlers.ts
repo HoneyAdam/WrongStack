@@ -656,14 +656,20 @@ export function handleToolLoopDetected(msg: WSServerMessage) {
     repeatCount: number;
     iteration: number;
     kind?: string | undefined;
+    action?: 'steer' | 'cut' | undefined;
+    scope?: 'iteration' | 'call' | undefined;
   };
   const subject = p.tools || p.kind || 'assistant response';
+  if (p.action === 'steer') {
+    toast.info(`Possible repetition noticed for ${subject}; changing approach.`);
+    return;
+  }
   useChatStore.getState().addMessage({
     role: 'assistant',
-    content: `Loop guard triggered: ${subject} repeated ${p.repeatCount} time(s) at iteration ${p.iteration}.`,
+    content: `Loop guard stopped the turn: ${subject} made no progress ${p.repeatCount} time(s) (iteration ${p.iteration + 1}).`,
     isError: true,
   });
-  toast.warn('Loop guard triggered');
+  toast.warn('Loop guard stopped the turn');
 }
 
 export function handleDelegateStarted(msg: WSServerMessage) {

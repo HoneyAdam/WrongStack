@@ -18,6 +18,7 @@ import { stripCacheControl } from '../object-utils.js';
 interface MistralStreamState {
   model: string;
   started: boolean;
+  inThinking: boolean;
   // OpenAI-style tool_call accumulators keyed by `index`
   toolCalls: Map<
     number,
@@ -39,7 +40,7 @@ export const mistralWireFormat = defineWireFormat<MistralStreamState>({
     const maxOutput = req.maxTokens ?? ctx.capabilities.maxOutput ?? 8192;
     const body: Record<string, unknown> = {
       model: req.model,
-      messages: messagesToOpenAI(stripCacheControl(req.system), req.messages),
+      messages: messagesToMistral(req),
       max_tokens: maxOutput,
       stream: true,
     };
@@ -58,16 +59,21 @@ export const mistralWireFormat = defineWireFormat<MistralStreamState>({
     }
     if (req.temperature !== undefined) body['temperature'] = req.temperature;
     if (req.topP !== undefined) body['top_p'] = req.topP;
-    if (req.topK !== undefined) body['top_k'] = req.topK;
     if (req.frequencyPenalty !== undefined) body['frequency_penalty'] = req.frequencyPenalty;
     if (req.presencePenalty !== undefined) body['presence_penalty'] = req.presencePenalty;
-    if (req.seed !== undefined) body['seed'] = req.seed;
+    if (req.seed !== undefined) body['random_seed'] = req.seed;
+    if (req.reasoning?.effort !== undefined) {
+      body['reasoning_effort'] = req.reasoning.effort;
+    } else if (req.reasoning?.enabled === false) {
+      body['reasoning_effort'] = 'none';
+    }
     if (req.stopSequences) body['stop'] = req.stopSequences;
     return body;
   },
   createStreamState: (fallbackModel) => ({
     model: fallbackModel,
     started: false,
+    inThinking: false,
     toolCalls: new Map(),
   }),
   parseStreamEvent: (msg, state): StreamEvent[] => {
@@ -76,7 +82,16 @@ export const mistralWireFormat = defineWireFormat<MistralStreamState>({
       model?: string | undefined;
       choices?: {
         delta?: {
-          content?: string | undefined;
+          content?:
+            | string
+            | Array<
+                | { type: 'text'; text?: string | undefined }
+                | {
+                    type: 'thinking';
+                    thinking?: string | Array<{ type?: string; text?: string | undefined }>;
+                  }
+              >
+            | undefined;
           tool_calls?: {
             index: number;
             id?: string | undefined;
@@ -96,10 +111,31 @@ export const mistralWireFormat = defineWireFormat<MistralStreamState>({
       out.push({ type: 'message_start', model: state.model });
     }
     const choice = ev.choices?.[0];
-    if (choice?.delta?.content) {
-      out.push({ type: 'text_delta', text: choice.delta.content });
+    const content = choice?.delta?.content;
+    if (typeof content === 'string' && content.length > 0) {
+      closeThinking(out, state);
+      out.push({ type: 'text_delta', text: content });
+    } else if (Array.isArray(content)) {
+      for (const chunk of content) {
+        if (chunk.type === 'thinking') {
+          const thinking =
+            typeof chunk.thinking === 'string'
+              ? chunk.thinking
+              : (chunk.thinking ?? []).map((part) => part.text ?? '').join('');
+          if (thinking.length === 0) continue;
+          if (!state.inThinking) {
+            state.inThinking = true;
+            out.push({ type: 'thinking_start' });
+          }
+          out.push({ type: 'thinking_delta', text: thinking });
+        } else if (chunk.type === 'text' && chunk.text) {
+          closeThinking(out, state);
+          out.push({ type: 'text_delta', text: chunk.text });
+        }
+      }
     }
     for (const tc of choice?.delta?.tool_calls ?? []) {
+      closeThinking(out, state);
       let block = state.toolCalls.get(tc.index);
       if (!block) {
         block = {
@@ -129,6 +165,7 @@ export const mistralWireFormat = defineWireFormat<MistralStreamState>({
       }
     }
     if (choice?.finish_reason) {
+      closeThinking(out, state);
       // Close out tool calls with parsed JSON
       for (const block of state.toolCalls.values()) {
         if (block.id && block.name) {
@@ -154,6 +191,26 @@ export const mistralWireFormat = defineWireFormat<MistralStreamState>({
     return out;
   },
 });
+
+function messagesToMistral(req: Request): unknown[] {
+  return messagesToOpenAI(stripCacheControl(req.system), req.messages).map((message) => {
+    if (message.role !== 'assistant' || !message.reasoning_content) return message;
+    const { reasoning_content: reasoning, ...rest } = message;
+    const content: Array<Record<string, unknown>> = [
+      { type: 'thinking', thinking: [{ type: 'text', text: reasoning }] },
+    ];
+    if (typeof message.content === 'string' && message.content.length > 0) {
+      content.push({ type: 'text', text: message.content });
+    }
+    return { ...rest, content };
+  });
+}
+
+function closeThinking(out: StreamEvent[], state: MistralStreamState): void {
+  if (!state.inThinking) return;
+  state.inThinking = false;
+  out.push({ type: 'thinking_stop' });
+}
 
 function mapStopReason(reason: string): StopReason {
   switch (reason) {
