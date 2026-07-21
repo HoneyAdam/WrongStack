@@ -129,7 +129,7 @@ describe('<Banner /> — additional coverage', () => {
     const longCwd = '/a/very/deep/nested/project/directory/for/testing';
     const { lastFrame, unmount } = render(
       React.createElement(Banner, {
-        termWidth: 60,
+        termWidth: 50,
         entry: {
           id: 0, kind: 'banner', version: '1.0.0',
           provider: 'p', model: 'm',
