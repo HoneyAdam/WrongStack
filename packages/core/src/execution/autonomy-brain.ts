@@ -27,9 +27,22 @@
  *   });
  */
 
-import type { Provider } from '../types/provider.js';
-import type { BrainArbiter, BrainDecision, BrainDecisionRequest } from '../coordination/brain.js';
-import { COMPETING_ALTERNATIVE, isBlockedResolved } from '../coordination/brain-heuristics.js';
+import type { Provider, Usage } from '../types/provider.js';
+import {
+  BRAIN_RISK_LEVELS,
+  type BrainArbiter,
+  type BrainDecision,
+  type BrainDecisionRequest,
+} from '../coordination/brain.js';
+import {
+  type BrainHeuristicsConfig,
+  COMPETING_ALTERNATIVE,
+  isBlockedResolved,
+  resolveBrainHeuristics,
+} from '../coordination/brain-heuristics.js';
+import { markDecisionTier } from '../coordination/brain-telemetry.js';
+import type { BrainCircuitBreaker } from './brain-circuit.js';
+import type { EventBus } from '../kernel/events.js';
 import { readBundledInstructionText } from '../utils/instruction-file.js';
 import { safeParse } from '../utils/safe-json.js';
 
@@ -64,6 +77,35 @@ export interface AutonomyBrainOptions {
   maxAutoRisk?: 'low' | 'medium' | 'high' | 'all' | undefined;
   /** Timeout for each decision call (ms). Default: 15_000. */
   decisionTimeoutMs?: number | undefined;
+  /** Per-heuristic toggles for `quickDecide`. Omitted fields default to enabled. */
+  heuristics?: BrainHeuristicsConfig | undefined;
+  /**
+   * Bus for `brain.llm_call` trace events — one per pool target per decision,
+   * including the failures the fallback loop otherwise swallows.
+   */
+  events?: EventBus | undefined;
+  /** Include raw response text in trace events. Off by default (production content). */
+  traceContent?: boolean | undefined;
+  /** Output budget per decision call. Default `DEFAULT_BRAIN_MAX_TOKENS` (200). */
+  maxTokens?: number | undefined;
+  /**
+   * Reject responses in which the model declined to decide ("I don't know",
+   * "insufficient evidence", empty text) instead of presenting them as an
+   * answer. Default true — an empty or hedging response is not a decision.
+   */
+  rejectUncertain?: boolean | undefined;
+  /**
+   * Reject answers whose self-reported `confidence` is below this (0..1).
+   * Default 0 = off. Responses that report no confidence are never rejected
+   * by this gate.
+   */
+  minConfidence?: number | undefined;
+  /**
+   * Failure memory for the pool. When the breaker is open the tier is skipped
+   * outright instead of paying `pool.length × decisionTimeoutMs` again for a
+   * conclusion the previous decision already reached.
+   */
+  circuit?: BrainCircuitBreaker | undefined;
   /**
    * Decision-history digest for the LLM prompt (typically
    * `BrainDecisionLedger.digestFor`): how similar past decisions went and
@@ -78,15 +120,35 @@ export interface AutonomyBrainOptions {
   onDecision?: ((summary: string, decision: BrainDecision, request: BrainDecisionRequest) => void) | undefined;
 }
 
-const RISK_LEVELS: Record<string, number> = {
-  low: 0,
-  medium: 1,
-  high: 2,
-  critical: 3,
-};
+/** Re-exported under the historical local name; canonical copy lives with `BrainRisk`. */
+const RISK_LEVELS = BRAIN_RISK_LEVELS;
 
 /** Runtime-adjustable autonomy ceiling for the tiered brain. */
 export type BrainAutoRisk = 'off' | 'low' | 'medium' | 'high' | 'all';
+
+/**
+ * Resolve an autonomy ceiling to a level comparable against `RISK_LEVELS`.
+ *
+ * `RISK_LEVELS` is keyed by REQUEST risk (`low|medium|high|critical`), but a
+ * ceiling is keyed by `BrainAutoRisk`, whose `'off'` and `'all'` values have
+ * no entry there. Looking a ceiling up directly therefore silently produced
+ * the fallback level — `'all'` resolved to `2` (= `high`), so
+ * `createAutonomyBrain({ maxAutoRisk: 'all' })` auto-denied every `critical`
+ * request despite being explicitly configured as permissive (see
+ * `assembleBrainTiers`, which passes `'all'` precisely to keep the inner tier
+ * ungated and let the tiered ceiling do the gating).
+ *
+ * Both the tiered arbiter and the single-LLM brain now share this one
+ * resolver so the two ladders cannot drift apart again.
+ *
+ * @returns `-1` for `'off'` (nothing is auto-decidable), `3` for `'all'`
+ *   (including `critical`), otherwise the matching `RISK_LEVELS` entry.
+ */
+export function resolveRiskCeiling(ceiling: BrainAutoRisk | undefined): number {
+  if (ceiling === 'off') return -1;
+  if (ceiling === 'all') return 3;
+  return RISK_LEVELS[ceiling ?? 'medium'] ?? 1;
+}
 
 export interface TieredBrainArbiterOptions {
   /** Fast deterministic policy layer (DefaultBrainArbiter). Consulted first. */
@@ -112,6 +174,17 @@ export interface TieredBrainArbiterOptions {
   council?: BrainArbiter | undefined;
   /** Live council risk floor. Default 'high'. Read on every decision. */
   getCouncilMinRisk?: (() => 'medium' | 'high' | 'critical') | undefined;
+  /**
+   * Whether an LLM-tier `deny` ends the decision. Read per decision.
+   * Default 'never' — see `BrainConfig.llm.denyIsTerminal`.
+   */
+  getDenyIsTerminal?: (() => 'never' | 'when-decided' | 'always') | undefined;
+  /**
+   * Bus for `brain.tier_transition` events — one per tier the ladder ran,
+   * recording what it returned and why the chain did or did not stop there.
+   * Without it a decision's path through the ladder is unrecoverable.
+   */
+  events?: EventBus | undefined;
 }
 
 /**
@@ -136,8 +209,29 @@ export interface TieredBrainArbiterOptions {
  *      terminal policy) or the legacy `HumanEscalatingBrainArbiter`.
  */
 export function createTieredBrainArbiter(opts: TieredBrainArbiterOptions): BrainArbiter {
+  const trace = (
+    request: BrainDecisionRequest,
+    tier: 'policy' | 'council' | 'llm',
+    outcome: 'answer' | 'deny' | 'ask_human' | 'error' | 'skipped',
+    terminal: boolean,
+    startedAt: number,
+    reason?: string,
+  ): void => {
+    opts.events?.emit('brain.tier_transition', {
+      sessionId: request.sessionId,
+      requestId: request.id,
+      tier,
+      outcome,
+      terminal,
+      ...(reason ? { reason } : {}),
+      durationMs: Date.now() - startedAt,
+      at: Date.now(),
+    });
+  };
+
   return {
     async decide(request: BrainDecisionRequest): Promise<BrainDecision> {
+      const policyAt = Date.now();
       const policyDecision = await opts.policy.decide(request);
       // Provisional = the policy merely echoed the request's continue
       // fallback (no optionId means it did not pick a concrete option).
@@ -145,35 +239,91 @@ export function createTieredBrainArbiter(opts: TieredBrainArbiterOptions): Brain
         policyDecision.type === 'answer' &&
         policyDecision.optionId === undefined &&
         request.fallback === 'continue';
-      if (policyDecision.type !== 'ask_human' && !provisionalContinue) return policyDecision;
+      if (policyDecision.type !== 'ask_human' && !provisionalContinue) {
+        trace(request, 'policy', policyDecision.type, true, policyAt);
+        return policyDecision;
+      }
+      trace(
+        request,
+        'policy',
+        policyDecision.type,
+        false,
+        policyAt,
+        provisionalContinue ? 'provisional continue — forwarded for a real judgement' : 'policy escalated',
+      );
 
-      const ceiling = opts.getMaxAutoRisk?.() ?? 'medium';
-      if (ceiling === 'off') return policyDecision;
-      const ceilingLevel = ceiling === 'all' ? 3 : (RISK_LEVELS[ceiling] ?? 1);
+      // 'off' resolves to -1, so the comparison below short-circuits every
+      // request back to the policy decision without a special case.
+      const ceilingLevel = resolveRiskCeiling(opts.getMaxAutoRisk?.() ?? 'medium');
       const requestLevel = RISK_LEVELS[request.risk] ?? 2;
-      if (requestLevel > ceilingLevel) return policyDecision;
+      if (requestLevel > ceilingLevel) {
+        trace(request, 'llm', 'skipped', false, policyAt, `risk ${request.risk} exceeds the autonomy ceiling`);
+        return policyDecision;
+      }
 
       // COUNCIL — high-stakes questions get the multi-LLM panel.
       if (opts.council) {
         const floor = opts.getCouncilMinRisk?.() ?? 'high';
         const floorLevel = RISK_LEVELS[floor] ?? 2;
         if (requestLevel >= floorLevel) {
+          const councilAt = Date.now();
           try {
             const councilDecision = await opts.council.decide(request);
-            if (councilDecision.type !== 'ask_human') return councilDecision;
-          } catch {
+            if (councilDecision.type !== 'ask_human') {
+              markDecisionTier(request, 'council');
+              trace(request, 'council', councilDecision.type, true, councilAt);
+              return councilDecision;
+            }
+            trace(request, 'council', 'ask_human', false, councilAt, 'council abstained');
+          } catch (err) {
             // Council failure degrades to the single-LLM tier below.
+            trace(
+              request,
+              'council',
+              'error',
+              false,
+              councilAt,
+              err instanceof Error ? err.message : String(err),
+            );
           }
+        } else {
+          trace(request, 'council', 'skipped', false, policyAt, `risk ${request.risk} below the council floor`);
         }
       }
 
-      if (!opts.autonomous) return policyDecision;
+      if (!opts.autonomous) {
+        trace(request, 'llm', 'skipped', false, policyAt, 'no LLM tier configured');
+        return policyDecision;
+      }
+      const llmAt = Date.now();
       try {
         const llmDecision = await opts.autonomous.decide(request);
-        if (llmDecision.type === 'answer') return llmDecision;
-      } catch {
+        if (llmDecision.type === 'answer') {
+          trace(request, 'llm', 'answer', true, llmAt);
+          return llmDecision;
+        }
+        // A deny may be a real refusal or just a dead pool. `readLlmDenyKind`
+        // tells them apart; without that distinction every refusal had to be
+        // discarded to stay safe against infrastructure failures.
+        if (llmDecision.type === 'deny') {
+          const policy = opts.getDenyIsTerminal?.() ?? 'never';
+          const kind = readLlmDenyKind(llmDecision);
+          const terminal =
+            policy === 'always' || (policy === 'when-decided' && kind === undefined);
+          if (terminal) {
+            markDecisionTier(request, 'llm');
+            trace(request, 'llm', 'deny', true, llmAt, `denyIsTerminal: ${policy}`);
+            return llmDecision;
+          }
+        }
+        trace(request, 'llm', llmDecision.type, false, llmAt, 'non-answer discarded by the ladder');
+      } catch (err) {
         // LLM layer is best-effort — fall through to the escalation tier.
+        trace(request, 'llm', 'error', false, llmAt, err instanceof Error ? err.message : String(err));
       }
+      // The LLM tier marked itself before we rejected its non-answer; restore
+      // the provenance to the decision we are actually returning.
+      markDecisionTier(request, 'policy');
       return policyDecision;
     },
   };
@@ -185,7 +335,7 @@ export function createTieredBrainArbiter(opts: TieredBrainArbiterOptions): Brain
  */
 export function createAutonomyBrain(opts: AutonomyBrainOptions): BrainArbiter {
   const maxRisk = opts.maxAutoRisk ?? 'high';
-  const maxRiskLevel = RISK_LEVELS[maxRisk] ?? 2;
+  const maxRiskLevel = resolveRiskCeiling(maxRisk);
   const timeoutMs = opts.decisionTimeoutMs ?? 15_000;
   const targets: BrainLlmTarget[] =
     opts.targets && opts.targets.length > 0
@@ -217,18 +367,58 @@ export function createAutonomyBrain(opts: AutonomyBrainOptions): BrainArbiter {
       }
 
       // HEURISTIC — fast pattern-match
-      const heuristic = quickDecide(request);
+      const heuristic = quickDecide(request, opts.heuristics);
       if (heuristic) {
+        markDecisionTier(request, 'heuristic');
         opts.onDecision?.(formatDecisionSummary(heuristic, request), heuristic, request);
         return heuristic;
       }
 
+      // CIRCUIT BREAKER — a dead pool must not cost a full timeout sweep on
+      // every decision. Skipping here returns the same `unavailable` deny the
+      // sweep would have produced, so the ladder behaves identically minus
+      // the wait.
+      if (opts.circuit && !opts.circuit.shouldAttempt()) {
+        const decision = markDenyKind(
+          {
+            type: 'deny',
+            reason: 'Autonomy Brain LLM tier is circuit-broken after repeated failures.',
+          },
+          'unavailable',
+        );
+        opts.onDecision?.(formatDecisionSummary(decision, request), decision, request);
+        return decision;
+      }
+
       // LLM EVALUATION — complex decisions. Try the pool in order; the first
       // target that produces a usable response wins.
-      const start = strategy === 'round-robin' ? rrCursor++ % targets.length : 0;
-      const ordered = [...targets.slice(start), ...targets.slice(0, start)];
+      // Wrap the cursor in place rather than letting it grow unbounded, so a
+      // long-lived session cannot drift it toward Number.MAX_SAFE_INTEGER.
+      let start = 0;
+      if (strategy === 'round-robin') {
+        start = rrCursor;
+        rrCursor = (rrCursor + 1) % targets.length;
+      }
+      const rotated = [...targets.slice(start), ...targets.slice(0, start)];
+      // Known-bad targets go last so a recovered model is still reached.
+      const ordered = opts.circuit
+        ? opts.circuit.orderTargets(rotated, (t) => t.label ?? t.model)
+        : rotated;
       const digest = opts.getDecisionDigest?.(request);
-      const llmDecision = await llmDecide(request, ordered, timeoutMs, digest);
+      const llmDecision = await llmDecide(
+        request,
+        ordered,
+        timeoutMs,
+        digest,
+        opts.events ? { events: opts.events, content: opts.traceContent === true } : undefined,
+        opts.maxTokens,
+        {
+          rejectUncertain: opts.rejectUncertain ?? true,
+          minConfidence: opts.minConfidence ?? 0,
+        },
+        opts.circuit,
+      );
+      markDecisionTier(request, 'llm');
       opts.onDecision?.(formatDecisionSummary(llmDecision, request), llmDecision, request);
       return llmDecision;
     },
@@ -271,16 +461,20 @@ export function formatDecisionSummary(
  * itself declared continue the safe fallback AND the question offers no
  * alternative — "Should we continue or stop?" must reach the LLM.
  */
-export function quickDecide(request: BrainDecisionRequest): BrainDecision | null {
+export function quickDecide(
+  request: BrainDecisionRequest,
+  heuristics?: BrainHeuristicsConfig | undefined,
+): BrainDecision | null {
   if (request.options?.length) return null;
 
+  const h = resolveBrainHeuristics(heuristics);
   const q = request.question.toLowerCase();
   const ctx = request.context?.toLowerCase() ?? '';
 
   // Deadlock with failed tasks → skip and continue. The context must mention
   // "failed" anchored to a work-unit noun (task, step, job, …) so that
   // incidental mentions like "login failed" don't trigger the fast path.
-  if (q.includes('deadlock') && /\bfailed\s+(?:task|step|job|build|test|phase|stage|item|unit)s?\b/.test(ctx)) {
+  if (h.deadlockSkip && q.includes('deadlock') && /\bfailed\s+(?:task|step|job|build|test|phase|stage|item|unit)s?\b/.test(ctx)) {
     return {
       type: 'answer',
       text: 'Skip deadlocked tasks and continue with remaining work. Failed tasks will be reported in the final summary.',
@@ -292,6 +486,7 @@ export function quickDecide(request: BrainDecisionRequest): BrainDecision | null
   // an explicit exhausted marker or a concrete ≥3 attempt/failure count —
   // a bare "3" anywhere in the context is not evidence.
   if (
+    h.retryExhausted &&
     (q.includes('failed') || q.includes('retry')) &&
     (/\bexhausted\b/.test(ctx) ||
       /\b(?:[3-9]|\d{2,})\s+(?:consecutive\s+)?(?:times|attempts|retries|failures)\b/.test(ctx) ||
@@ -308,7 +503,11 @@ export function quickDecide(request: BrainDecisionRequest): BrainDecision | null
   // to have declared continue safe and no competing alternative in the
   // question. The context must contain an explicit resolution marker so
   // that "blocked by X" without evidence of resolution still reaches the LLM.
-  if (request.fallback === 'continue' && isBlockedResolved(q, ctx)) {
+  if (
+    h.blockedResolved &&
+    request.fallback === 'continue' &&
+    isBlockedResolved(q, ctx, h.blockedResolvedMarkers)
+  ) {
     return {
       type: 'answer',
       text: 'Blocker resolved. Continue with the previously blocked work.',
@@ -324,6 +523,7 @@ export function quickDecide(request: BrainDecisionRequest): BrainDecision | null
   // Plain continue/proceed ping whose caller declared continue safe, with no
   // competing alternative in the question → yes without burning an LLM call.
   if (
+    h.continuePing &&
     request.fallback === 'continue' &&
     /\b(?:continue|proceed)\b/.test(q) &&
     !/\b(?:stop|abort|halt|cancel|pause|rollback)\b/.test(q) &&
@@ -376,17 +576,74 @@ export async function completeBrainLlm(
   target: BrainLlmTarget,
   input: { system: string; user: string; timeoutMs: number; maxTokens?: number | undefined },
 ): Promise<string> {
+  return (await completeBrainLlmDetailed(target, input)).text;
+}
+
+/** Text plus the observable call metadata a trace/quality gate needs. */
+export interface BrainLlmCallResult {
+  text: string;
+  usage?: Usage | undefined;
+  /**
+   * `'max_tokens'` means the response was CUT OFF. With the default 200-token
+   * budget a rationale can be truncated mid-sentence, and the free-text path
+   * would happily turn that fragment into a decision — so callers must be
+   * able to see it.
+   */
+  stopReason?: string | undefined;
+}
+
+/**
+ * One Brain LLM call, returning the metadata `completeBrainLlm` discards.
+ *
+ * Usage was previously thrown away at this boundary, which is why the council
+ * adapter reported hardcoded zero tokens for every seat and why "what do
+ * Brain decisions cost" had no answer.
+ */
+export async function completeBrainLlmDetailed(
+  target: BrainLlmTarget,
+  input: { system: string; user: string; timeoutMs: number; maxTokens?: number | undefined },
+): Promise<BrainLlmCallResult> {
   const signal = AbortSignal.timeout(input.timeoutMs);
   const response = await target.provider.complete(
     {
       model: target.model,
       system: [{ type: 'text', text: input.system }],
       messages: [{ role: 'user', content: input.user || 'Decide.' }],
-      maxTokens: input.maxTokens ?? 200,
+      maxTokens: input.maxTokens ?? DEFAULT_BRAIN_MAX_TOKENS,
     },
     { signal },
   );
-  return extractText(response).trim();
+  return {
+    text: extractText(response).trim(),
+    usage: extractUsage(response),
+    stopReason: extractStopReason(response),
+  };
+}
+
+/**
+ * Output budget for a Brain decision call.
+ *
+ * Deliberately small — a Brain response is one decision plus a one-sentence
+ * rationale, not prose. Raise it via `brain.llm.maxTokens` if truncation
+ * shows up in the trace as `stopReason: 'max_tokens'`.
+ */
+export const DEFAULT_BRAIN_MAX_TOKENS = 200;
+
+function extractUsage(result: unknown): Usage | undefined {
+  if (!result || typeof result !== 'object') return undefined;
+  const usage = (result as { usage?: unknown }).usage;
+  if (!usage || typeof usage !== 'object') return undefined;
+  const u = usage as Record<string, unknown>;
+  const input = typeof u.input === 'number' ? u.input : undefined;
+  const output = typeof u.output === 'number' ? u.output : undefined;
+  if (input === undefined && output === undefined) return undefined;
+  return { input: input ?? 0, output: output ?? 0 };
+}
+
+function extractStopReason(result: unknown): string | undefined {
+  if (!result || typeof result !== 'object') return undefined;
+  const reason = (result as { stopReason?: unknown }).stopReason;
+  return typeof reason === 'string' ? reason : undefined;
 }
 
 /**
@@ -395,26 +652,107 @@ export async function completeBrainLlm(
  * crafted system prompt that establishes the brain's identity, purpose,
  * and decision-making framework.
  */
+export type BrainLlmDenyKind =
+  /** No target in the pool produced a response (transport/timeout). */
+  | 'unavailable'
+  /** A response came back but carried no exact valid option id. */
+  | 'unparseable'
+  /** The model considered the question and refused. */
+  | 'refused';
+
+/**
+ * Why a Brain LLM call ended in `deny`.
+ *
+ * `llmDecide` historically collapsed three very different situations into one
+ * bare `{type:'deny'}`: a dead provider pool, an unparseable response, and a
+ * model that genuinely refused. Callers could not tell them apart, so
+ * `createTieredBrainArbiter` had to treat ALL of them as infrastructure noise
+ * and fall through — which meant a real refusal could never be terminal.
+ *
+ * The kind is recorded out of band (keyed by the decision object's identity)
+ * so the `BrainDecision` union — and every consumer that structurally
+ * compares decisions — stays untouched.
+ */
+const denyKinds = new WeakMap<object, BrainLlmDenyKind>();
+
+/** Tag a deny decision with the reason it was produced. */
+function markDenyKind(decision: BrainDecision, kind: BrainLlmDenyKind): BrainDecision {
+  denyKinds.set(decision, kind);
+  return decision;
+}
+
+/**
+ * Read the reason a Brain LLM tier denied, when known. Returns undefined for
+ * decisions that did not come from `llmDecide` (policy denials, council
+ * denials, ledger-guard denials), which callers should treat as decided.
+ */
+export function readLlmDenyKind(decision: BrainDecision): BrainLlmDenyKind | undefined {
+  return denyKinds.get(decision);
+}
+
 async function llmDecide(
   request: BrainDecisionRequest,
   targets: BrainLlmTarget[],
   timeoutMs: number,
   digest?: string | undefined,
+  trace?: { events: EventBus; content: boolean } | undefined,
+  maxTokens?: number | undefined,
+  quality?: { rejectUncertain: boolean; minConfidence: number } | undefined,
+  circuit?: BrainCircuitBreaker | undefined,
 ): Promise<BrainDecision> {
   const systemPrompt = readBundledInstructionText('llm/autonomy-brain.md');
   const userMessage = withDecisionDigest(buildBrainUserMessage(request), digest);
 
   let text: string | null = null;
-  for (const target of targets) {
+  for (const [attempt, target] of targets.entries()) {
+    const startedAt = Date.now();
     try {
-      text = await completeBrainLlm(target, {
+      const result = await completeBrainLlmDetailed(target, {
         system: systemPrompt,
         user: userMessage,
         timeoutMs,
+        maxTokens,
+      });
+      text = result.text;
+      circuit?.recordSuccess(target.label ?? target.model);
+      trace?.events.emit('brain.llm_call', {
+        sessionId: request.sessionId,
+        requestId: request.id,
+        tier: 'llm',
+        providerId: target.provider.id,
+        model: target.model,
+        label: target.label,
+        attempt,
+        ok: true,
+        durationMs: Date.now() - startedAt,
+        // A truncated response is a quality problem, not a transport one —
+        // surface it rather than letting a half-sentence become a decision.
+        ...(result.stopReason === 'max_tokens'
+          ? { error: 'response truncated at maxTokens' }
+          : {}),
+        ...(trace.content ? { responseText: text } : {}),
+        ...(result.usage ? { usage: result.usage } : {}),
+        at: Date.now(),
       });
       break;
-    } catch {
-      // This target is unavailable/slow — fall through to the next one.
+    } catch (err) {
+      // This target is unavailable/slow — fall through to the next one. The
+      // failure used to vanish here, which is precisely why a silently
+      // degraded pool was undetectable.
+      circuit?.recordFailure(target.label ?? target.model);
+      trace?.events.emit('brain.llm_call', {
+        sessionId: request.sessionId,
+        requestId: request.id,
+        tier: 'llm',
+        providerId: target.provider.id,
+        model: target.model,
+        label: target.label,
+        attempt,
+        ok: false,
+        durationMs: Date.now() - startedAt,
+        error: err instanceof Error ? err.message : String(err),
+        at: Date.now(),
+      });
     }
   }
 
@@ -426,32 +764,134 @@ async function llmDecide(
         text: 'Continue (Autonomy Brain LLM unavailable — using fallback).',
       };
     }
-    return { type: 'deny', reason: 'Autonomy Brain LLM unavailable for decision.' };
+    return markDenyKind(
+      { type: 'deny', reason: 'Autonomy Brain LLM unavailable for decision.' },
+      'unavailable',
+    );
   }
 
   // Option-bearing decisions are control-plane input, not prose. Accept the
   // canonical JSON envelope and the historical leading `[id]` form, but
   // never substring-match an id anywhere in free text: a response such as
   // "do not spawn; wait" must not select the earlier `spawn` option.
+  const minConfidence = quality?.minConfidence ?? 0;
+  const rejectUncertain = quality?.rejectUncertain ?? true;
+  const confidence = extractConfidence(text);
+  const belowConfidence = minConfidence > 0 && confidence !== undefined && confidence < minConfidence;
+
   if (request.options?.length) {
     const parsed = parseOptionDecision(text, request.options);
-    if (parsed) {
+    if (parsed && !belowConfidence) {
       return parsed;
     }
+    return markDenyKind(
+      {
+        type: 'deny',
+        reason: belowConfidence
+          ? `Autonomy Brain reported confidence ${confidence} below the ${minConfidence} floor.`
+          : 'Autonomy Brain returned no exact valid option id.',
+      },
+      'unparseable',
+    );
+  }
+
+  // Free-text answer. A response that declined to decide, or that is empty
+  // because the provider returned an unrecognised shape, must NOT be dressed
+  // up as a decision — the caller would act on it.
+  const envelope = parseFreeTextDecision(text);
+  if (rejectUncertain && (!envelope || belowConfidence)) {
+    return markDenyKind(
+      {
+        type: 'deny',
+        reason: belowConfidence
+          ? `Autonomy Brain reported confidence ${confidence} below the ${minConfidence} floor.`
+          : 'Autonomy Brain returned no usable decision (empty or declined).',
+      },
+      'unparseable',
+    );
+  }
+
+  return {
+    type: 'answer',
+    text:
+      envelope?.decision ||
+      (request.fallback === 'continue' ? 'Continue execution.' : 'Denied by autonomy policy.'),
+    rationale: envelope?.rationale ?? envelope?.decision ?? undefined,
+  };
+}
+
+/** Read a self-reported confidence out of a raw response, if it carries one. */
+export function extractConfidence(rawText: string): number | undefined {
+  const text = rawText.trim();
+  const wholeFence = /^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n?```$/i.exec(text);
+  const candidate = wholeFence ? (wholeFence[1] ?? '').trim() : text;
+  const parsed = safeParse<{ confidence?: unknown }>(candidate, 16_384);
+  if (!parsed.ok || !parsed.value) return undefined;
+  const value = parsed.value.confidence;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  return Math.min(1, Math.max(0, value));
+}
+
+/**
+ * Phrases that mean the model declined to decide.
+ *
+ * The optionless path used to wrap ANY returned prose in
+ * `{type:'answer'}` — so "I don't have enough information to say" became a
+ * decision the caller would act on, indistinguishable from a real judgement.
+ * Word-boundary anchored to avoid matching inside longer words.
+ */
+const LLM_NON_ANSWER =
+  /\b(?:insufficient evidence|not enough (?:information|context|evidence)|cannot determine|can't determine|unable to determine|i (?:don't|do not) know|unclear|please (?:clarify|specify)|need more (?:information|context|detail)|as an ai)\b/i;
+
+/** Does this free-text response decline to decide? */
+export function isNonAnswer(text: string): boolean {
+  const trimmed = text.trim();
+  return trimmed.length === 0 || LLM_NON_ANSWER.test(trimmed);
+}
+
+/** Structured envelope a Brain LLM may return for an optionless question. */
+export interface BrainFreeTextEnvelope {
+  decision: string;
+  rationale?: string | undefined;
+  confidence?: number | undefined;
+}
+
+/**
+ * Parse the optionless response.
+ *
+ * Accepts the structured envelope the prompt now asks for, and falls back to
+ * bare prose so older/simpler models keep working. Returns null when the
+ * model declined to decide — the caller must then fall through rather than
+ * present the refusal as an answer.
+ */
+export function parseFreeTextDecision(rawText: string): BrainFreeTextEnvelope | null {
+  const text = rawText.trim();
+  if (text.length === 0) return null;
+
+  const wholeFence = /^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n?```$/i.exec(text);
+  const candidate = wholeFence ? (wholeFence[1] ?? '').trim() : text;
+  const parsed = safeParse<{ decision?: unknown; rationale?: unknown; confidence?: unknown }>(
+    candidate,
+    16_384,
+  );
+  if (parsed.ok && parsed.value && typeof parsed.value.decision === 'string') {
+    const decision = parsed.value.decision.trim();
+    if (isNonAnswer(decision)) return null;
     return {
-      type: 'deny',
-      reason: 'Autonomy Brain returned no exact valid option id.',
+      decision,
+      rationale:
+        typeof parsed.value.rationale === 'string' && parsed.value.rationale.trim()
+          ? parsed.value.rationale.trim()
+          : undefined,
+      confidence:
+        typeof parsed.value.confidence === 'number' && Number.isFinite(parsed.value.confidence)
+          ? Math.min(1, Math.max(0, parsed.value.confidence))
+          : undefined,
     };
   }
 
-  // Free-text answer
-  return {
-    type: 'answer',
-    text: text || (request.fallback === 'continue'
-      ? 'Continue execution.'
-      : 'Denied by autonomy policy.'),
-    rationale: text || undefined,
-  };
+  if (isNonAnswer(text)) return null;
+  return { decision: text };
 }
 
 export function parseOptionDecision(

@@ -1,0 +1,449 @@
+/**
+ * BrainTraceRecorder — the replayable record of HOW a Brain decision was made.
+ *
+ * `BrainDecisionLedger` answers "what did the Brain decide, and did it work
+ * out" — it is a learning loop with a bounded ring and outcome correlation.
+ * This module answers a different question: "what actually happened inside
+ * the ladder", at a granularity that lets a decision be reconstructed and
+ * replayed offline through `runBrainEvaluation`.
+ *
+ * The two are deliberately SEPARATE files. Trace rows are per-call and
+ * high-volume; folding them into the ledger's ring would evict the decision
+ * history that `digestFor()` / `failureStreakFor()` scan, quietly breaking
+ * the learning loop.
+ *
+ * Recorded per decision:
+ *   - `brain.tier_transition` — every tier the ladder ran, what it returned,
+ *     and why the chain did or did not stop there.
+ *   - `brain.llm_call` — every pool target attempted, including the failures
+ *     the fallback loop swallows, with model, timing and usage.
+ *   - `brain.council_vote` / `brain.council_resolved` — each seat's observable
+ *     vote plus the deterministic quorum/veto/majority resolution.
+ *   - the request and final decision, which together form the replay fixture.
+ *
+ * ## Content policy
+ * Trace is DISABLED by default. Enabling it is the opt-in; `content: 'full'`
+ * is then the default because a fixture without the question and context
+ * cannot be replayed. `content: 'redacted'` keeps the shape and metadata but
+ * truncates free text, and `'none'` records metadata only. See
+ * `docs/competitive-roadmap-2026-2027/21-brain-evaluation-and-replay.md`.
+ *
+ * @module brain-trace
+ */
+
+import { appendFile, mkdir, readFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
+import type { EventBus } from '../kernel/events.js';
+import type { BrainDecision, BrainDecisionRequest } from './brain.js';
+import type { BrainDecisionTier } from './brain-telemetry.js';
+
+/** How much free text a trace may record. */
+export type BrainTraceContentMode = 'none' | 'redacted' | 'full';
+
+/** Characters of free text kept per field in `redacted` mode. */
+export const BRAIN_TRACE_REDACTED_MAX = 120;
+
+export interface BrainTraceLlmCall {
+  tier: 'llm' | 'council' | 'judge';
+  providerId?: string | undefined;
+  model: string;
+  label?: string | undefined;
+  attempt: number;
+  ok: boolean;
+  durationMs: number;
+  error?: string | undefined;
+  responseText?: string | undefined;
+  usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number } | undefined;
+  at: number;
+}
+
+export interface BrainTraceCouncilVote {
+  seatId: string;
+  persona: string;
+  status: 'valid' | 'invalid' | 'failed' | 'cancelled';
+  providerId?: string | undefined;
+  model?: string | undefined;
+  optionId?: string | undefined;
+  stance?: string | undefined;
+  rationale?: string | undefined;
+  weight?: number | undefined;
+  veto?: boolean | undefined;
+  durationMs?: number | undefined;
+  error?: string | undefined;
+  at: number;
+}
+
+export interface BrainTraceCouncilResolution {
+  status: string;
+  resolution: string;
+  optionId?: string | undefined;
+  configuredSeatCount: number;
+  validVoteCount: number;
+  distinctTargetCount: number;
+  judgeUsed: boolean;
+  usage?:
+    | {
+        calls: number;
+        inputTokens: number;
+        outputTokens: number;
+        totalTokens: number;
+        durationMs: number;
+      }
+    | undefined;
+  reason?: string | undefined;
+  at: number;
+}
+
+export interface BrainTraceTierStep {
+  tier: BrainDecisionTier;
+  outcome: 'answer' | 'deny' | 'ask_human' | 'error' | 'skipped';
+  terminal: boolean;
+  reason?: string | undefined;
+  durationMs?: number | undefined;
+  at: number;
+}
+
+export const BRAIN_TRACE_VERSION = 1 as const;
+
+/** One complete decision, start to finish. Appended as a single JSONL row. */
+export interface BrainTraceRecord {
+  version: typeof BRAIN_TRACE_VERSION;
+  requestId: string;
+  sessionId?: string | undefined;
+  startedAt: number;
+  completedAt: number;
+  durationMs: number;
+  /** The request as issued. Free-text fields follow the content mode. */
+  request: BrainDecisionRequest;
+  /** The decision the caller received. */
+  decision?: BrainDecision | undefined;
+  /** Tier that produced `decision`, when provenance was recorded. */
+  tier?: BrainDecisionTier | undefined;
+  steps: BrainTraceTierStep[];
+  llmCalls: BrainTraceLlmCall[];
+  councilVotes: BrainTraceCouncilVote[];
+  councilResolution?: BrainTraceCouncilResolution | undefined;
+  /** Totals across every provider call this decision made. */
+  totals: {
+    llmCalls: number;
+    failedLlmCalls: number;
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
+}
+
+export interface BrainTraceRecorderOptions {
+  events: EventBus;
+  /** JSONL file trace records are appended to. */
+  filePath: string;
+  /** Free-text policy. Default 'full' — see the module docs. */
+  content?: BrainTraceContentMode | undefined;
+  /**
+   * Cap on concurrently open (undecided) decisions. A decision whose
+   * `brain.decision_*` event never arrives would otherwise leak its partial
+   * record forever. Oldest entries are dropped past this. Default 200.
+   */
+  maxOpenRecords?: number | undefined;
+}
+
+const truncate = (value: string, max: number): string =>
+  value.length > max ? `${value.slice(0, max - 1)}…` : value;
+
+/** Apply the content policy to one free-text field. */
+export function applyContentMode(
+  value: string | undefined,
+  mode: BrainTraceContentMode,
+): string | undefined {
+  if (value === undefined) return undefined;
+  if (mode === 'none') return undefined;
+  if (mode === 'redacted') return truncate(value, BRAIN_TRACE_REDACTED_MAX);
+  return value;
+}
+
+/**
+ * Strip a request down to what the content policy allows. Structure
+ * (ids, risk, fallback, option ids) is always preserved: it is what makes a
+ * fixture runnable, and it carries no free-text production content.
+ */
+export function sanitizeRequest(
+  request: BrainDecisionRequest,
+  mode: BrainTraceContentMode,
+): BrainDecisionRequest {
+  const question = applyContentMode(request.question, mode);
+  return {
+    ...request,
+    question: question ?? '[redacted]',
+    context: applyContentMode(request.context, mode),
+    options: request.options?.map((option) => ({
+      ...option,
+      label: applyContentMode(option.label, mode) ?? option.id,
+      consequence: applyContentMode(option.consequence, mode),
+    })),
+  };
+}
+
+/** Strip a decision's free text under the content policy. */
+export function sanitizeDecision(
+  decision: BrainDecision,
+  mode: BrainTraceContentMode,
+): BrainDecision {
+  switch (decision.type) {
+    case 'answer':
+      return {
+        ...decision,
+        text: applyContentMode(decision.text, mode) ?? '',
+        rationale: applyContentMode(decision.rationale, mode),
+      };
+    case 'deny':
+      return { ...decision, reason: applyContentMode(decision.reason, mode) ?? '' };
+    case 'ask_human':
+      return {
+        ...decision,
+        prompt: applyContentMode(decision.prompt, mode) ?? '',
+        rationale: applyContentMode(decision.rationale, mode),
+      };
+  }
+}
+
+interface OpenRecord {
+  requestId: string;
+  sessionId?: string | undefined;
+  startedAt: number;
+  request: BrainDecisionRequest;
+  steps: BrainTraceTierStep[];
+  llmCalls: BrainTraceLlmCall[];
+  councilVotes: BrainTraceCouncilVote[];
+  councilResolution?: BrainTraceCouncilResolution | undefined;
+}
+
+/**
+ * Correlates the Brain's per-call events into one record per decision and
+ * appends it as JSONL when the decision resolves.
+ */
+export class BrainTraceRecorder {
+  private readonly open = new Map<string, OpenRecord>();
+  private readonly unsubscribers: Array<() => void> = [];
+  private writeChain: Promise<unknown> = Promise.resolve();
+  private dirReady = false;
+
+  private readonly content: BrainTraceContentMode;
+  private readonly maxOpenRecords: number;
+
+  constructor(private readonly opts: BrainTraceRecorderOptions) {
+    this.content = opts.content ?? 'full';
+    this.maxOpenRecords = opts.maxOpenRecords ?? 200;
+  }
+
+  start(): void {
+    const { events } = this.opts;
+
+    this.unsubscribers.push(
+      events.on('brain.decision_requested', (e) => {
+        this.open.set(e.request.id, {
+          requestId: e.request.id,
+          sessionId: e.sessionId,
+          startedAt: e.at,
+          request: sanitizeRequest(e.request, this.content),
+          steps: [],
+          llmCalls: [],
+          councilVotes: [],
+        });
+        this.evictOverflow();
+      }),
+
+      events.on('brain.tier_transition', (e) => {
+        this.open.get(e.requestId)?.steps.push({
+          tier: e.tier,
+          outcome: e.outcome,
+          terminal: e.terminal,
+          reason: e.reason,
+          durationMs: e.durationMs,
+          at: e.at,
+        });
+      }),
+
+      events.on('brain.llm_call', (e) => {
+        this.open.get(e.requestId)?.llmCalls.push({
+          tier: e.tier,
+          providerId: e.providerId,
+          model: e.model,
+          label: e.label,
+          attempt: e.attempt,
+          ok: e.ok,
+          durationMs: e.durationMs,
+          error: e.error,
+          responseText: applyContentMode(e.responseText, this.content),
+          // Provider `Usage` is {input, output, cache*}; normalize to the
+          // council's {input,output,total} token vocabulary so both sources
+          // aggregate into one set of totals.
+          usage: e.usage
+            ? {
+                inputTokens: e.usage.input,
+                outputTokens: e.usage.output,
+                totalTokens: e.usage.input + e.usage.output,
+              }
+            : undefined,
+          at: e.at,
+        });
+      }),
+
+      events.on('brain.council_vote', (e) => {
+        this.open.get(e.requestId)?.councilVotes.push({
+          seatId: e.seatId,
+          persona: e.persona,
+          status: e.status,
+          providerId: e.providerId,
+          model: e.model,
+          optionId: e.optionId,
+          stance: applyContentMode(e.stance, this.content),
+          rationale: applyContentMode(e.rationale, this.content),
+          weight: e.weight,
+          veto: e.veto,
+          durationMs: e.durationMs,
+          error: e.error,
+          at: e.at,
+        });
+      }),
+
+      events.on('brain.council_resolved', (e) => {
+        const record = this.open.get(e.requestId);
+        if (!record) return;
+        record.councilResolution = {
+          status: e.status,
+          resolution: e.resolution,
+          optionId: e.optionId,
+          configuredSeatCount: e.configuredSeatCount,
+          validVoteCount: e.validVoteCount,
+          distinctTargetCount: e.distinctTargetCount,
+          judgeUsed: e.judgeUsed,
+          usage: e.usage,
+          reason: applyContentMode(e.reason, this.content),
+          at: e.at,
+        };
+      }),
+    );
+
+    for (const name of [
+      'brain.decision_answered',
+      'brain.decision_denied',
+      'brain.decision_ask_human',
+    ] as const) {
+      this.unsubscribers.push(
+        events.on(name, (e) => {
+          this.close(e.request.id, e.decision, e.tier, e.at);
+        }),
+      );
+    }
+  }
+
+  /** Unsubscribe and drain pending writes. Safe to call twice. */
+  async stop(): Promise<void> {
+    for (const off of this.unsubscribers) off();
+    this.unsubscribers.length = 0;
+    this.open.clear();
+    await this.writeChain.catch(() => {});
+  }
+
+  /** Decisions still awaiting their resolution event. */
+  get openCount(): number {
+    return this.open.size;
+  }
+
+  private evictOverflow(): void {
+    // A decision whose resolution event never arrives (a host that bypasses
+    // ObservableBrainArbiter, a crash mid-ladder) would pin its partial
+    // record forever; bound the map rather than leak.
+    while (this.open.size > this.maxOpenRecords) {
+      const oldest = this.open.keys().next();
+      if (oldest.done) break;
+      this.open.delete(oldest.value);
+    }
+  }
+
+  private close(
+    requestId: string,
+    decision: BrainDecision,
+    tier: BrainDecisionTier | undefined,
+    at: number,
+  ): void {
+    const record = this.open.get(requestId);
+    if (!record) return;
+    this.open.delete(requestId);
+
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let totalTokens = 0;
+    for (const call of record.llmCalls) {
+      inputTokens += call.usage?.inputTokens ?? 0;
+      outputTokens += call.usage?.outputTokens ?? 0;
+      totalTokens += call.usage?.totalTokens ?? 0;
+    }
+    if (record.councilResolution?.usage) {
+      inputTokens += record.councilResolution.usage.inputTokens;
+      outputTokens += record.councilResolution.usage.outputTokens;
+      totalTokens += record.councilResolution.usage.totalTokens;
+    }
+
+    const full: BrainTraceRecord = {
+      version: BRAIN_TRACE_VERSION,
+      requestId,
+      sessionId: record.sessionId,
+      startedAt: record.startedAt,
+      completedAt: at,
+      durationMs: Math.max(0, at - record.startedAt),
+      request: record.request,
+      decision: sanitizeDecision(decision, this.content),
+      tier,
+      steps: record.steps,
+      llmCalls: record.llmCalls,
+      councilVotes: record.councilVotes,
+      councilResolution: record.councilResolution,
+      totals: {
+        llmCalls: record.llmCalls.length,
+        failedLlmCalls: record.llmCalls.filter((c) => !c.ok).length,
+        inputTokens,
+        outputTokens,
+        totalTokens,
+      },
+    };
+    this.append(full);
+  }
+
+  private append(record: BrainTraceRecord): void {
+    this.writeChain = this.writeChain
+      .then(async () => {
+        if (!this.dirReady) {
+          await mkdir(dirname(this.opts.filePath), { recursive: true });
+          this.dirReady = true;
+        }
+        await appendFile(this.opts.filePath, `${JSON.stringify(record)}\n`, 'utf8');
+      })
+      .catch(() => {
+        // Tracing is best-effort — it must never destabilize the host.
+      });
+  }
+}
+
+/** Read trace records back from a JSONL file, skipping corrupt rows. */
+export async function readBrainTrace(filePath: string): Promise<BrainTraceRecord[]> {
+  let raw: string;
+  try {
+    raw = await readFile(filePath, 'utf8');
+  } catch {
+    return [];
+  }
+  const records: BrainTraceRecord[] = [];
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const parsed = JSON.parse(line) as BrainTraceRecord;
+      if (parsed?.version === BRAIN_TRACE_VERSION && typeof parsed.requestId === 'string') {
+        records.push(parsed);
+      }
+    } catch {
+      // A partial tail is still useful history.
+    }
+  }
+  return records;
+}

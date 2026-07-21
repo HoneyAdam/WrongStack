@@ -47,6 +47,31 @@ export interface BrainInterventionInput {
   body: string;
 }
 
+/**
+ * How a detected distress signal is resolved.
+ *
+ * - `llm` (default) — consult the Brain. Historically the ONLY behaviour, and
+ *   an expensive one: the monitor's request carries options, `medium` risk and
+ *   `fallback: 'ask_human'`, which defeats `quickDecide` (it declines
+ *   option-bearing requests) and the low-risk policy fast path alike, so every
+ *   engagement reached a provider. Deterministic handling is available without
+ *   leaving this mode by adding a `brain.rules` entry matching
+ *   `source: 'system'` with `offersOption: 'steer'` — the rule tier runs in
+ *   front of everything that costs tokens.
+ * - `steer` — always intervene, no Brain call at all.
+ * - `observe` — never intervene; only emit `brain.intervention` for the
+ *   surfaces. Useful to measure how often signals fire before acting on them.
+ */
+export type BrainMonitorPolicy = 'llm' | 'steer' | 'observe';
+
+/** Per-signal kill switches. Omitted = enabled. */
+export interface BrainMonitorSignalToggles {
+  toolFailureStreak?: boolean | undefined;
+  errorStorm?: boolean | undefined;
+  agentStall?: boolean | undefined;
+  fileChurn?: boolean | undefined;
+}
+
 export interface BrainMonitorOptions {
   events: EventBus;
   brain: BrainArbiter;
@@ -90,10 +115,30 @@ export interface BrainMonitorOptions {
   fileChurnWindowMs?: number | undefined;
   /** Minimum gap between engagements of the same signal kind (ms). Default 120_000. */
   cooldownMs?: number | undefined;
+  /** Master kill switch. Default true; false makes `start()` a no-op. */
+  enabled?: boolean | undefined;
+  /** How an engagement is resolved. Default 'llm'. */
+  policy?: BrainMonitorPolicy | undefined;
+  /** Per-signal kill switches. Omitted signals stay enabled. */
+  signals?: BrainMonitorSignalToggles | undefined;
+  /**
+   * Tool names whose successful execution counts as a file edit for the
+   * churn signal. Replaces the built-in set; matched case-insensitively.
+   * Needed by hosts whose edit tools are named differently — otherwise the
+   * churn signal silently never fires for them.
+   */
+  fileEditTools?: readonly string[] | undefined;
 }
 
 /** Tools whose successful execution mutates a file we can churn-track. */
-const FILE_EDIT_TOOLS = new Set(['edit', 'write', 'patch', 'multi_edit', 'multiedit', 'str_replace']);
+export const DEFAULT_FILE_EDIT_TOOLS: readonly string[] = [
+  'edit',
+  'write',
+  'patch',
+  'multi_edit',
+  'multiedit',
+  'str_replace',
+];
 
 /** Best-effort path extraction from a file-editing tool's input. */
 function editedPath(input: unknown): string | undefined {
@@ -122,6 +167,10 @@ export class BrainMonitor {
   private readonly fileChurnThreshold: number;
   private readonly fileChurnWindowMs: number;
   private readonly cooldownMs: number;
+  private readonly enabled: boolean;
+  private readonly policy: BrainMonitorPolicy;
+  private readonly signals: Required<BrainMonitorSignalToggles>;
+  private readonly fileEditTools: ReadonlySet<string>;
 
   /** Resolve the leader's own session id for event filtering. */
   private resolveLeaderSessionId(): string | undefined {
@@ -138,9 +187,21 @@ export class BrainMonitor {
     this.fileChurnThreshold = opts.fileChurnThreshold ?? 5;
     this.fileChurnWindowMs = opts.fileChurnWindowMs ?? 600_000;
     this.cooldownMs = opts.cooldownMs ?? 120_000;
+    this.enabled = opts.enabled ?? true;
+    this.policy = opts.policy ?? 'llm';
+    this.signals = {
+      toolFailureStreak: opts.signals?.toolFailureStreak ?? true,
+      errorStorm: opts.signals?.errorStorm ?? true,
+      agentStall: opts.signals?.agentStall ?? true,
+      fileChurn: opts.signals?.fileChurn ?? true,
+    };
+    this.fileEditTools = new Set(
+      (opts.fileEditTools ?? DEFAULT_FILE_EDIT_TOOLS).map((name) => name.toLowerCase()),
+    );
   }
 
   start(): void {
+    if (!this.enabled) return;
     this.unsubscribers.push(
       this.opts.events.on('tool.executed', (e) => {
         // Ignore subagent tool events — only respond to the leader's own tool activity
@@ -149,6 +210,7 @@ export class BrainMonitor {
 
         this.lastProgressAt = Date.now();
         this.trackFileChurn(e.name, e.ok, e.input);
+        if (!this.signals.toolFailureStreak) return;
         if (e.ok) {
           this.failStreaks.delete(e.name);
           return;
@@ -172,7 +234,7 @@ export class BrainMonitor {
     );
 
     // ── Agent-stall watchdog ─────────────────────────────────────────────
-    if (this.stallMs > 0) {
+    if (this.stallMs > 0 && this.signals.agentStall) {
       this.unsubscribers.push(
         this.opts.events.on('agent.run.started', (e) => {
           // Ignore subagent run events — only track the leader's runs
@@ -218,6 +280,7 @@ export class BrainMonitor {
 
     this.unsubscribers.push(
       this.opts.events.on('error', (e) => {
+        if (!this.signals.errorStorm) return;
         // Ignore subagent errors — only respond to the leader's own errors
         const lsid = this.resolveLeaderSessionId();
         if (lsid && e.sessionId && e.sessionId !== lsid) return;
@@ -256,7 +319,8 @@ export class BrainMonitor {
 
   /** Sliding-window count of successful edits per file → churn signal. */
   private trackFileChurn(toolName: string, ok: boolean, input: unknown): void {
-    if (!ok || !FILE_EDIT_TOOLS.has(toolName.toLowerCase())) return;
+    if (!this.signals.fileChurn) return;
+    if (!ok || !this.fileEditTools.has(toolName.toLowerCase())) return;
     const path = editedPath(input);
     if (!path) return;
     const now = Date.now();
@@ -315,7 +379,24 @@ export class BrainMonitor {
         // createTieredBrainArbiter before any human escalation.
         fallback: 'ask_human',
       };
-      const decision = await this.opts.brain.decide(request);
+      // Deterministic policies resolve the signal WITHOUT consulting the
+      // Brain at all — no provider call, no rule evaluation, no escalation.
+      const decision: BrainDecision =
+        this.policy === 'steer'
+          ? {
+              type: 'answer',
+              optionId: 'steer',
+              text: 'Steer the agent with corrective guidance',
+              rationale: `Monitor policy "steer": ${kind.replace(/_/g, ' ')} always warrants a steer.`,
+            }
+          : this.policy === 'observe'
+            ? {
+                type: 'answer',
+                optionId: 'continue',
+                text: 'Let the agent continue unaided',
+                rationale: `Monitor policy "observe": signals are recorded but never acted on.`,
+              }
+            : await this.opts.brain.decide(request);
       const intervened = await this.maybeIntervene(kind, request, decision);
       this.opts.events.emit('brain.intervention', {
         sessionId: request.sessionId,

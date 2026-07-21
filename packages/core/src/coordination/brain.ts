@@ -8,11 +8,34 @@
  */
 
 import type { EventBus } from '../kernel/events.js';
-import { isBlockedResolved } from './brain-heuristics.js';
+import {
+  type BrainHeuristicsConfig,
+  isBlockedResolved,
+  type ResolvedBrainHeuristics,
+  resolveBrainHeuristics,
+} from './brain-heuristics.js';
+import { markDecisionTier, readDecisionTier } from './brain-telemetry.js';
 
 export type BrainDecisionSource = 'goal' | 'director' | 'tool' | 'user' | 'system';
 
 export type BrainRisk = 'low' | 'medium' | 'high' | 'critical';
+
+/**
+ * Canonical ordering of request risk, lowest first. The single source of
+ * truth for every risk comparison in the Brain (tier ceilings, council
+ * floors, rule `minRisk`/`maxRisk` bounds) — keeping it here, next to the
+ * type it orders, stops the ladders from drifting apart.
+ *
+ * Typed as `Record<string, number>` on purpose: callers index it with values
+ * that arrive from config/JSON and may not be valid `BrainRisk` members, and
+ * are expected to supply their own `?? default` for that case.
+ */
+export const BRAIN_RISK_LEVELS: Record<string, number> = {
+  low: 0,
+  medium: 1,
+  high: 2,
+  critical: 3,
+};
 
 export type BrainFallback = 'ask_human' | 'deny' | 'continue';
 
@@ -79,7 +102,18 @@ export class ObservableBrainArbiter implements BrainArbiter {
         : decision.type === 'deny'
           ? 'brain.decision_denied'
           : 'brain.decision_answered';
-    this.events.emit(event, { sessionId: request.sessionId, request, decision, at: Date.now() });
+    // Provenance is recorded inside the chain (this decorator sits outside
+    // it), so surfaces can tell a free deterministic answer from one that
+    // cost a council/LLM call. Optional: chains that predate the marking, or
+    // arbiters wired directly, simply report no tier.
+    const tier = readDecisionTier(request);
+    this.events.emit(event, {
+      sessionId: request.sessionId,
+      request,
+      decision,
+      at: Date.now(),
+      ...(tier ? { tier } : {}),
+    });
     return decision;
   }
 }
@@ -119,6 +153,7 @@ export class BrainDecisionQueue {
       if (!pending) return;
       this.pending.delete(answer.id);
       if (pending.timer) clearTimeout(pending.timer);
+      markDecisionTier(pending.request, 'human');
       if (answer.deny) {
         pending.resolve({ type: 'deny', reason: answer.text ?? 'Denied by human.' });
         return;
@@ -149,6 +184,9 @@ export class BrainDecisionQueue {
       if (this.opts.timeoutMs && this.opts.timeoutMs > 0) {
         entry.timer = setTimeout(() => {
           this.pending.delete(request.id);
+          // Nobody answered — this resolves through the terminal policy, not
+          // through human authority.
+          markDecisionTier(request, 'terminal');
           resolve(
             this.opts.onTimeout?.(request) ?? {
               type: 'deny',
@@ -190,9 +228,29 @@ export type BrainEscalationMode = 'interactive' | 'headless';
  * The rationale names the terminal policy so decision logs/ledgers make the
  * degradation visible instead of silent.
  */
-export function terminalPolicyDecision(request: BrainDecisionRequest): BrainDecision {
+export type BrainTerminalPolicy = 'conservative' | 'deny-all' | 'continue-on-recommended';
+
+export function terminalPolicyDecision(
+  request: BrainDecisionRequest,
+  policy: BrainTerminalPolicy = 'conservative',
+): BrainDecision {
+  if (policy === 'deny-all') {
+    return {
+      type: 'deny',
+      reason:
+        `Headless terminal policy "deny-all": "${request.question}" was not auto-approved ` +
+        '(risk: ' +
+        request.risk +
+        '). The proposed action was not taken.',
+    };
+  }
   const recommended = request.options?.find((option) => option.recommended);
-  if (recommended && (request.risk === 'low' || request.risk === 'medium')) {
+  const acceptRecommended =
+    recommended !== undefined &&
+    (policy === 'continue-on-recommended' ||
+      request.risk === 'low' ||
+      request.risk === 'medium');
+  if (recommended && acceptRecommended) {
     return {
       type: 'answer',
       optionId: recommended.id,
@@ -236,6 +294,8 @@ export class EscalationRoutingBrainArbiter implements BrainArbiter {
     private readonly inner: BrainArbiter,
     private readonly queue: BrainDecisionQueue | undefined,
     private readonly getMode: () => BrainEscalationMode,
+    /** Live terminal-policy variant, read per decision. Default 'conservative'. */
+    private readonly getTerminalPolicy?: () => BrainTerminalPolicy,
   ) {}
 
   async decide(request: BrainDecisionRequest): Promise<BrainDecision> {
@@ -244,7 +304,8 @@ export class EscalationRoutingBrainArbiter implements BrainArbiter {
     if (this.getMode() === 'interactive' && this.queue) {
       return this.queue.requestHumanDecision(request);
     }
-    return terminalPolicyDecision(request);
+    markDecisionTier(request, 'terminal');
+    return terminalPolicyDecision(request, this.getTerminalPolicy?.() ?? 'conservative');
   }
 }
 
@@ -266,8 +327,13 @@ export class HumanEscalatingBrainArbiter implements BrainArbiter {
 }
 
 export interface DefaultBrainArbiterOptions {
-  /** Allow deterministic auto-answering for low-risk requests. Default true. */
+  /**
+   * Allow deterministic auto-answering for low-risk requests. Default true.
+   * @deprecated Prefer `heuristics.lowRiskAutoAnswer`; this still wins when set.
+   */
   allowLowRiskAutoAnswer?: boolean | undefined;
+  /** Per-heuristic toggles. Omitted fields default to enabled. */
+  heuristics?: BrainHeuristicsConfig | undefined;
 }
 
 /**
@@ -278,15 +344,22 @@ export interface DefaultBrainArbiterOptions {
  * policy object to wire before an LLM-backed Brain exists.
  */
 export class DefaultBrainArbiter implements BrainArbiter {
-  private readonly allowLowRiskAutoAnswer: boolean;
+  private readonly heuristics: ResolvedBrainHeuristics;
 
   constructor(opts: DefaultBrainArbiterOptions = {}) {
-    this.allowLowRiskAutoAnswer = opts.allowLowRiskAutoAnswer ?? true;
+    const resolved = resolveBrainHeuristics(opts.heuristics);
+    // The legacy standalone flag still wins when explicitly passed, so hosts
+    // that predate `heuristics` keep their behaviour.
+    this.heuristics = {
+      ...resolved,
+      lowRiskAutoAnswer: opts.allowLowRiskAutoAnswer ?? resolved.lowRiskAutoAnswer,
+    };
   }
 
   async decide(request: BrainDecisionRequest): Promise<BrainDecision> {
     const recommended = request.options?.find((option) => option.recommended);
-    if (this.allowLowRiskAutoAnswer && request.risk === 'low' && recommended) {
+    if (this.heuristics.lowRiskAutoAnswer && request.risk === 'low' && recommended) {
+      markDecisionTier(request, 'heuristic');
       return {
         type: 'answer',
         optionId: recommended.id,
@@ -301,8 +374,20 @@ export class DefaultBrainArbiter implements BrainArbiter {
     // AND explicit resolution evidence in the context. Skips option-bearing
     // requests (options are control-plane input demanding a structured
     // choice, not a keyword guess — same discipline as quickDecide).
-    if (!request.options?.length && request.fallback === 'continue' && request.context) {
-      if (isBlockedResolved(request.question.toLowerCase(), request.context.toLowerCase())) {
+    if (
+      this.heuristics.blockedResolved &&
+      !request.options?.length &&
+      request.fallback === 'continue' &&
+      request.context
+    ) {
+      if (
+        isBlockedResolved(
+          request.question.toLowerCase(),
+          request.context.toLowerCase(),
+          this.heuristics.blockedResolvedMarkers,
+        )
+      ) {
+        markDecisionTier(request, 'heuristic');
         return {
           type: 'answer',
           text: 'Blocker resolved. Continue with the previously blocked work.',
@@ -311,6 +396,12 @@ export class DefaultBrainArbiter implements BrainArbiter {
       }
     }
 
+    // Fallback semantics. A `continue` answer here is only PROVISIONAL (the
+    // tiered arbiter forwards it to the LLM tier), and `ask_human` is always
+    // handed onward, so both marks get overwritten by whichever tier actually
+    // resolves. Marking anyway keeps the policy visible when no later tier
+    // takes over.
+    markDecisionTier(request, 'policy');
     switch (request.fallback) {
       case 'deny':
         return {

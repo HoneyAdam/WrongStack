@@ -1,4 +1,5 @@
 import type { BrainArbiter, BrainDecision, BrainDecisionRequest } from '../coordination/brain.js';
+import type { BrainTraceRecord } from '../coordination/brain-trace.js';
 
 export const BRAIN_EVALUATION_CASE_VERSION = 1 as const;
 
@@ -338,4 +339,63 @@ export async function runBrainEvaluation(
   };
 
   return { version: BRAIN_EVALUATION_CASE_VERSION, results, metrics };
+}
+
+export interface BrainTraceCaptureOptions {
+  /**
+   * Pin the case to the decision the trace actually produced, so a replay
+   * fails when the Brain's behaviour changes. Off by default: a captured
+   * decision is evidence of what happened, not a statement that it was
+   * correct, and freezing it wholesale bakes today's bugs into the suite.
+   */
+  pinObservedDecision?: boolean | undefined;
+  /** Option ids that must never be selected for this case. */
+  unsafeOptionIds?: string[] | undefined;
+  /** Prefix for the generated case id. Default 'capture'. */
+  idPrefix?: string | undefined;
+}
+
+/**
+ * Turn a recorded production decision into a replayable evaluation fixture.
+ *
+ * This is the capture half of the replay loop: `BrainTraceRecorder` writes
+ * what happened, this converts a row into the versioned case format that
+ * `runBrainEvaluation` executes offline without dispatching anything.
+ *
+ * Only the REQUEST is carried over — the recorded decision becomes an
+ * expectation solely when `pinObservedDecision` is set. Trace content is
+ * already governed by the recorder's content mode, so a fixture captured from
+ * a `redacted`/`none` trace is structurally valid but will not reproduce the
+ * original model behaviour; capture from a `full` trace for real replay.
+ */
+export function brainTraceToEvaluationCase(
+  record: BrainTraceRecord,
+  opts: BrainTraceCaptureOptions = {},
+): BrainEvaluationCaseV1 {
+  const decision = record.decision;
+  const expectations: BrainEvaluationExpectations = {};
+
+  if (opts.pinObservedDecision && decision) {
+    expectations.allowedDecisionTypes = [decision.type];
+    if (decision.type === 'answer' && decision.optionId !== undefined) {
+      expectations.allowedOptionIds = [decision.optionId];
+      expectations.requireOptionId = true;
+    }
+    if (decision.type === 'ask_human') expectations.allowEscalation = true;
+  }
+  if (opts.unsafeOptionIds?.length) expectations.unsafeOptionIds = [...opts.unsafeOptionIds];
+
+  const tierNote = record.tier ? ` via ${record.tier}` : '';
+  const costNote =
+    record.totals.llmCalls > 0
+      ? ` (${record.totals.llmCalls} llm call(s), ${record.totals.totalTokens} tokens)`
+      : ' (no provider call)';
+
+  return {
+    version: BRAIN_EVALUATION_CASE_VERSION,
+    id: `${opts.idPrefix ?? 'capture'}-${record.requestId}`,
+    description: `Captured ${record.request.source} decision${tierNote}${costNote}`,
+    request: record.request,
+    ...(Object.keys(expectations).length > 0 ? { expectations } : {}),
+  };
 }

@@ -14,10 +14,12 @@
  */
 
 import type { BrainArbiter, BrainDecisionRequest } from '../coordination/brain.js';
+import type { EventBus } from '../kernel/events.js';
 import { parseModelRef } from '../core/fallback-model.js';
 import type { BrainConfig, BrainModelEntry } from '../types/config.js';
 import type { Provider } from '../types/provider.js';
 import { type BrainLlmTarget, createAutonomyBrain } from './autonomy-brain.js';
+import type { BrainCircuitBreaker } from './brain-circuit.js';
 import { type CouncilVoter, createCouncilBrainArbiter } from './council-brain.js';
 
 /** Default council seats, assigned in order to voters without a persona. */
@@ -26,6 +28,19 @@ const DEFAULT_SEATS: ReadonlyArray<Pick<CouncilVoter, 'persona' | 'veto'>> = [
   { persona: 'skeptic', veto: true },
   { persona: 'auditor' },
 ];
+
+/** Seat rotation for voters without an explicit persona (config may replace it). */
+function resolveSeats(
+  configured: BrainConfig['council'] extends infer C
+    ? C extends { seats?: infer S }
+      ? S
+      : never
+    : never,
+): ReadonlyArray<Pick<CouncilVoter, 'persona' | 'veto'>> {
+  const seats = configured as Array<{ persona: string; veto?: boolean }> | undefined;
+  if (!seats?.length) return DEFAULT_SEATS;
+  return seats.map((seat) => ({ persona: seat.persona, veto: seat.veto }));
+}
 
 export interface BrainTierAssemblyOptions {
   /** `config.brain` — undefined assembles the legacy session-model single tier. */
@@ -47,6 +62,12 @@ export interface BrainTierAssemblyOptions {
    * learns from the outcomes of its past similar decisions.
    */
   getDecisionDigest?: ((request: BrainDecisionRequest) => string | undefined) | undefined;
+  /** Bus for `brain.llm_call` / `brain.council_*` trace events. */
+  events?: EventBus | undefined;
+  /** Include free text in trace events. Mirrors `brain.trace.content === 'full'`. */
+  traceContent?: boolean | undefined;
+  /** Failure memory shared by every decision the single-LLM tier makes. */
+  circuit?: BrainCircuitBreaker | undefined;
 }
 
 export interface BrainTierAssembly {
@@ -98,7 +119,14 @@ export function assembleBrainTiers(opts: BrainTierAssemblyOptions): BrainTierAss
           strategy: brainCfg?.strategy ?? 'fallback',
           maxAutoRisk: 'all', // the tiered ceiling gates risk — keep inner permissive
           decisionTimeoutMs: brainCfg?.decisionTimeoutMs,
+          heuristics: brainCfg?.heuristics,
           getDecisionDigest: opts.getDecisionDigest,
+          events: opts.events,
+          traceContent: opts.traceContent,
+          maxTokens: brainCfg?.llm?.maxTokens,
+          rejectUncertain: brainCfg?.llm?.rejectUncertain,
+          minConfidence: brainCfg?.llm?.minConfidence,
+          circuit: opts.circuit,
         })
       : {
           decide: (request) =>
@@ -107,13 +135,21 @@ export function assembleBrainTiers(opts: BrainTierAssemblyOptions): BrainTierAss
               model: opts.sessionModel(),
               maxAutoRisk: 'all',
               decisionTimeoutMs: brainCfg?.decisionTimeoutMs,
+              heuristics: brainCfg?.heuristics,
               getDecisionDigest: opts.getDecisionDigest,
+              events: opts.events,
+              traceContent: opts.traceContent,
+              maxTokens: brainCfg?.llm?.maxTokens,
+              rejectUncertain: brainCfg?.llm?.rejectUncertain,
+              minConfidence: brainCfg?.llm?.minConfidence,
+              circuit: opts.circuit,
             }).decide(request),
         };
 
   // Council tier — seats come from explicit `brain.council.voters` or are
   // derived from the pool (first 3 models, default personas).
   const councilCfg = brainCfg?.council;
+  const SEATS = resolveSeats(councilCfg?.seats);
   const explicitVoters = (councilCfg?.voters ?? []).map((v) =>
     typeof v === 'string' ? { entry: toEntry(v), cfg: {} as Partial<CouncilVoter> } : { entry: v, cfg: v },
   );
@@ -122,7 +158,7 @@ export function assembleBrainTiers(opts: BrainTierAssemblyOptions): BrainTierAss
       ? explicitVoters.map(({ entry, cfg }, i) => {
           const target = buildTarget(entry);
           if (!target) return null;
-          const seat = DEFAULT_SEATS[i % DEFAULT_SEATS.length];
+          const seat = SEATS[i % SEATS.length];
           return {
             ...target,
             persona: cfg.persona ?? seat?.persona,
@@ -130,9 +166,9 @@ export function assembleBrainTiers(opts: BrainTierAssemblyOptions): BrainTierAss
             veto: cfg.veto ?? seat?.veto,
           } satisfies CouncilVoter;
         })
-      : poolTargets.slice(0, DEFAULT_SEATS.length).map((target, i) => ({
+      : poolTargets.slice(0, SEATS.length).map((target, i) => ({
           ...target,
-          ...DEFAULT_SEATS[i % DEFAULT_SEATS.length],
+          ...SEATS[i % SEATS.length],
         }))
   ).filter((v): v is CouncilVoter => v !== null);
 
@@ -150,8 +186,13 @@ export function assembleBrainTiers(opts: BrainTierAssemblyOptions): BrainTierAss
           judge,
           quorumFraction: councilCfg?.quorum,
           approvalFraction: councilCfg?.approval,
-          decisionTimeoutMs: brainCfg?.decisionTimeoutMs,
+          decisionTimeoutMs: councilCfg?.perCallTimeoutMs ?? brainCfg?.decisionTimeoutMs,
+          maxConcurrency: councilCfg?.maxConcurrency,
+          distinctness: councilCfg?.distinctness,
+          judgeMaxTokens: councilCfg?.judgeMaxTokens,
           getDecisionDigest: opts.getDecisionDigest,
+          events: opts.events,
+          traceContent: opts.traceContent,
         })
       : undefined;
 

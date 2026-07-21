@@ -33,6 +33,7 @@ import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { EventBus } from '../kernel/events.js';
 import type { BrainArbiter, BrainDecision, BrainDecisionRequest } from './brain.js';
+import { markDecisionTier } from './brain-telemetry.js';
 
 export interface BrainLedgerEntry {
   at: number;
@@ -129,6 +130,7 @@ export function createLedgerGuardBrainArbiter(
       if (denyAfter > 0) {
         const streak = opts.failureStreakFor(request);
         if (streak >= denyAfter) {
+          markDecisionTier(request, 'ledger-guard');
           return {
             type: 'deny',
             reason:

@@ -7,6 +7,7 @@ import {
 } from '../../src/execution/council-brain.js';
 import type { BrainLlmTarget } from '../../src/execution/autonomy-brain.js';
 import type { Provider } from '../../src/types/provider.js';
+import { EventBus } from '../../src/kernel/events.js';
 
 const req = (over: Partial<BrainDecisionRequest> = {}): BrainDecisionRequest => ({
   id: 'c1',
@@ -201,5 +202,90 @@ describe('createCouncilBrainArbiter — construction', () => {
     expect(() => createCouncilBrainArbiter({ voters: [] as BrainLlmTarget[] })).toThrow(
       /at least one voter/,
     );
+  });
+});
+
+describe('council trace emission', () => {
+  it('re-emits every seat vote and the resolution onto the bus', async () => {
+    const events = new EventBus();
+    const votes: unknown[] = [];
+    const resolutions: unknown[] = [];
+    events.on('brain.council_vote', (e) => votes.push(e));
+    events.on('brain.council_resolved', (e) => resolutions.push(e));
+
+    const arbiter = createCouncilBrainArbiter({
+      voters: [
+        { provider: fakeProvider('{"optionId":"go","rationale":"safe"}'), model: 'm1', persona: 'executor' },
+        { provider: fakeProvider('{"optionId":"go","rationale":"fine"}'), model: 'm2', persona: 'skeptic', veto: true },
+      ],
+      events,
+      traceContent: true,
+    });
+
+    await arbiter.decide({
+      id: 'req-trace',
+      source: 'director',
+      question: 'Proceed?',
+      risk: 'high',
+      fallback: 'deny',
+      options: [
+        { id: 'go', label: 'Go' },
+        { id: 'stop', label: 'Stop' },
+      ],
+    });
+
+    expect(votes).toHaveLength(2);
+    expect(votes[0]).toMatchObject({ requestId: 'req-trace', seatId: 'voter-0' });
+    // Seat weight/veto come from the configured seats, not from the vote row.
+    expect(votes[1]).toMatchObject({ seatId: 'voter-1', veto: true });
+    expect(resolutions).toHaveLength(1);
+    expect(resolutions[0]).toMatchObject({
+      requestId: 'req-trace',
+      configuredSeatCount: 2,
+      judgeUsed: false,
+    });
+  });
+
+  it('omits vote rationales when trace content is off', async () => {
+    const events = new EventBus();
+    const votes: Array<{ rationale?: string }> = [];
+    events.on('brain.council_vote', (e) => votes.push(e as never));
+
+    const arbiter = createCouncilBrainArbiter({
+      voters: [
+        { provider: fakeProvider('{"optionId":"go","rationale":"secret"}'), model: 'm1' },
+        { provider: fakeProvider('{"optionId":"go","rationale":"secret"}'), model: 'm2' },
+      ],
+      events,
+    });
+    await arbiter.decide({
+      id: 'req-quiet',
+      source: 'director',
+      question: 'Proceed?',
+      risk: 'high',
+      fallback: 'deny',
+      options: [{ id: 'go', label: 'Go' }],
+    });
+
+    expect(votes.length).toBeGreaterThan(0);
+    for (const vote of votes) expect(vote.rationale).toBeUndefined();
+  });
+
+  it('does not emit at all when no bus is wired', async () => {
+    const arbiter = createCouncilBrainArbiter({
+      voters: [
+        { provider: fakeProvider('{"optionId":"go"}'), model: 'm1' },
+        { provider: fakeProvider('{"optionId":"go"}'), model: 'm2' },
+      ],
+    });
+    const decision = await arbiter.decide({
+      id: 'req-nobus',
+      source: 'director',
+      question: 'Proceed?',
+      risk: 'high',
+      fallback: 'deny',
+      options: [{ id: 'go', label: 'Go' }],
+    });
+    expect(decision.type).toBe('answer');
   });
 });

@@ -313,3 +313,280 @@ describe('resolveBrainConfigDefaults', () => {
     ]);
   });
 });
+
+describe('createBrainRuntime — deterministic rules', () => {
+  it('lets a rule settle the request without touching the LLM tier', async () => {
+    const session = fakeProvider('Continue execution.');
+    const rt = createBrainRuntime(
+      baseOpts(
+        {
+          rules: [
+            {
+              id: 'monitor-observe',
+              when: { source: 'system', offersOption: 'continue' },
+              then: { action: 'answer', optionId: 'continue' },
+            },
+          ],
+        },
+        { sessionProvider: () => session },
+      ),
+    );
+
+    const decision = await rt.arbiter.decide(
+      req({
+        options: [
+          { id: 'steer', label: 'Steer', recommended: true },
+          { id: 'continue', label: 'Let it continue' },
+        ],
+      }),
+    );
+
+    expect(decision).toMatchObject({ type: 'answer', optionId: 'continue' });
+    expect(session.complete).not.toHaveBeenCalled();
+  });
+
+  it('falls through to the normal chain when no rule matches', async () => {
+    const session = fakeProvider('Continue execution.');
+    const rt = createBrainRuntime(
+      baseOpts(
+        {
+          maxAutoRisk: 'all',
+          rules: [{ id: 'tools-only', when: { source: 'tool' }, then: { action: 'deny' } }],
+        },
+        { sessionProvider: () => session },
+      ),
+    );
+
+    await rt.arbiter.decide(req());
+    expect(session.complete).toHaveBeenCalled();
+  });
+
+  it('exposes rules and compile diagnostics on the snapshot', () => {
+    const rt = createBrainRuntime(
+      baseOpts({
+        rules: [
+          { id: 'ok', when: { question: 'continue' }, then: { action: 'answer', text: 'yes' } },
+          { id: 'broken', when: { question: '(' }, then: { action: 'answer', text: 'no' } },
+        ],
+      }),
+    );
+
+    const snap = rt.getSnapshot();
+    expect(snap.rules.map((r) => r.id)).toEqual(['ok', 'broken']);
+    // A bad pattern disables only its own rule, and stays visible.
+    expect(snap.ruleErrors).toHaveLength(1);
+    expect(snap.ruleErrors[0]).toContain('broken');
+  });
+
+  it('rejects an invalid rule table on apply() instead of silently dropping rules', () => {
+    const rt = createBrainRuntime(baseOpts(undefined));
+    expect(() =>
+      rt.apply(
+        { rules: [{ id: 'bad', when: { question: '(' }, then: { action: 'answer', text: 'x' } }] },
+        { persist: false },
+      ),
+    ).toThrow(/Invalid Brain rule/);
+  });
+
+  it('clears the table with null and round-trips through getConfig', () => {
+    const rt = createBrainRuntime(
+      baseOpts({
+        rules: [{ id: 'keep', when: {}, then: { action: 'answer', text: 'yes' } }],
+      }),
+    );
+    expect(rt.getConfig().rules).toHaveLength(1);
+
+    rt.apply({ rules: null }, { persist: false });
+    expect(rt.getConfig().rules).toBeUndefined();
+    expect(rt.getSnapshot().rules).toEqual([]);
+  });
+});
+
+describe('createBrainRuntime — heuristic toggles', () => {
+  // Deliberately avoids the words "continue"/"proceed": the separate
+  // continue-ping heuristic would otherwise answer first and mask whether the
+  // blocked-resolved toggle had any effect.
+  const blockedResolved = req({
+    question: 'The task is blocked. Resume it?',
+    context: 'The upstream PR was merged.',
+    fallback: 'continue',
+    risk: 'low',
+  });
+
+  it('answers via the blocked-resolved heuristic by default', async () => {
+    const session = fakeProvider('LLM answer');
+    const rt = createBrainRuntime(baseOpts(undefined, { sessionProvider: () => session }));
+    const decision = await rt.arbiter.decide(blockedResolved);
+    expect(decision).toMatchObject({ type: 'answer' });
+    expect(session.complete).not.toHaveBeenCalled();
+  });
+
+  it('stops guessing once the heuristic is turned off', async () => {
+    const session = fakeProvider('LLM answer');
+    const rt = createBrainRuntime(
+      baseOpts(
+        { maxAutoRisk: 'all', heuristics: { blockedResolved: false } },
+        { sessionProvider: () => session },
+      ),
+    );
+    await rt.arbiter.decide(blockedResolved);
+    // With the free guess disabled the question has to reach a real model.
+    expect(session.complete).toHaveBeenCalled();
+  });
+
+  it('honours a custom resolution vocabulary', async () => {
+    const session = fakeProvider('LLM answer');
+    const rt = createBrainRuntime(
+      baseOpts(
+        { maxAutoRisk: 'all', heuristics: { blockedResolvedMarkers: ['yayinlandi'] } },
+        { sessionProvider: () => session },
+      ),
+    );
+    const complete = session.complete as unknown as ReturnType<typeof vi.fn>;
+
+    // Replacing the list REPLACES it — the built-in "merged" marker no longer
+    // counts as evidence, so the question has to reach a model.
+    await rt.arbiter.decide(blockedResolved);
+    expect(complete).toHaveBeenCalled();
+
+    complete.mockClear();
+    const decision = await rt.arbiter.decide(
+      req({
+        question: 'The task is blocked. Resume it?',
+        context: 'Paket yayinlandi.',
+        fallback: 'continue',
+        risk: 'low',
+      }),
+    );
+    expect(decision).toMatchObject({ type: 'answer' });
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it('disables the low-risk fast path when asked', async () => {
+    const lowRisk = req({
+      risk: 'low',
+      fallback: 'deny',
+      options: [{ id: 'go', label: 'Go', recommended: true }],
+    });
+
+    const on = createBrainRuntime(baseOpts(undefined));
+    expect(await on.arbiter.decide(lowRisk)).toMatchObject({ type: 'answer', optionId: 'go' });
+
+    const off = createBrainRuntime(baseOpts({ heuristics: { lowRiskAutoAnswer: false } }));
+    expect(await off.arbiter.decide(lowRisk)).toMatchObject({ type: 'deny' });
+  });
+
+  it('reports effective toggles on the snapshot and round-trips through getConfig', () => {
+    const rt = createBrainRuntime(baseOpts({ heuristics: { continuePing: false } }));
+    expect(rt.getSnapshot().heuristics).toMatchObject({
+      continuePing: false,
+      deadlockSkip: true,
+      lowRiskAutoAnswer: true,
+    });
+
+    rt.apply({ heuristics: { deadlockSkip: false } }, { persist: false });
+    // Sub-patches MERGE — the earlier toggle must survive.
+    expect(rt.getConfig().heuristics).toEqual({ continuePing: false, deadlockSkip: false });
+
+    rt.apply({ heuristics: null }, { persist: false });
+    expect(rt.getConfig().heuristics).toBeUndefined();
+    expect(rt.getSnapshot().heuristics.continuePing).toBe(true);
+  });
+
+  it('rejects a non-boolean toggle', () => {
+    const rt = createBrainRuntime(baseOpts(undefined));
+    expect(() =>
+      rt.apply({ heuristics: { deadlockSkip: 'yes' as never } }, { persist: false }),
+    ).toThrow(/expected a boolean/);
+  });
+});
+
+describe('createBrainRuntime — config round-trip (brain-config-roundtrip)', () => {
+  // `apply()` persists getConfig() WHOLESALE. Any BrainConfig field that
+  // getConfig() forgets to copy is silently deleted from the user's config
+  // the next time they change any Brain setting. This asserts the property
+  // for EVERY top-level key rather than for a hand-listed few, so a field
+  // added later fails here instead of eating someone's config.
+  const fullConfig: BrainConfig = {
+    mode: 'interactive',
+    maxAutoRisk: 'high',
+    models: ['prov-a/model-a'],
+    strategy: 'round-robin',
+    decisionTimeoutMs: 9_000,
+    humanTimeoutMs: 45_000,
+    rules: [{ id: 'r1', when: { source: 'tool' }, then: { action: 'deny' } }],
+    heuristics: { continuePing: false },
+    llm: { maxTokens: 512, rejectUncertain: false, minConfidence: 0.4 },
+    trace: { enabled: true, content: 'redacted', maxOpenRecords: 50 },
+    council: {
+      enabled: true,
+      minRisk: 'critical',
+      quorum: 0.6,
+      perCallTimeoutMs: 20_000,
+      maxConcurrency: 5,
+      distinctness: 'provider',
+      judgeMaxTokens: 400,
+      seats: [{ persona: 'security', veto: true }],
+    },
+    ledger: {
+      enabled: true,
+      autoDenyAfterFailures: 5,
+      maxMemoryEntries: 100,
+      interventionRetryWindowMs: 90_000,
+    },
+    monitor: { policy: 'observe', stallCheckIntervalMs: 10_000 },
+    terminalPolicy: 'deny-all',
+    decisionLogMaxEntries: 40,
+    cache: { enabled: true, ttlMs: 60_000, maxEntries: 25 },
+  };
+
+  it('preserves every configured top-level field through getConfig()', () => {
+    const rt = createBrainRuntime(baseOpts(fullConfig));
+    const out = rt.getConfig();
+    for (const key of Object.keys(fullConfig)) {
+      expect(out, `getConfig() dropped "${key}"`).toHaveProperty(key);
+    }
+  });
+
+  it('preserves NESTED council/ledger fields too', () => {
+    // getConfig() rebuilds `council` field-by-field rather than spreading it,
+    // so a newly added sub-field is dropped exactly like a top-level one.
+    const rt = createBrainRuntime(baseOpts(fullConfig));
+    const out = rt.getConfig();
+    for (const key of Object.keys(fullConfig.council ?? {})) {
+      expect(out.council, `getConfig() dropped "council.${key}"`).toHaveProperty(key);
+    }
+    for (const key of Object.keys(fullConfig.ledger ?? {})) {
+      expect(out.ledger, `getConfig() dropped "ledger.${key}"`).toHaveProperty(key);
+    }
+  });
+
+  it('does not lose boot-only blocks when an unrelated setting is applied', () => {
+    const rt = createBrainRuntime(baseOpts(fullConfig));
+    rt.apply({ maxAutoRisk: 'low' }, { persist: false });
+
+    const out = rt.getConfig();
+    expect(out.maxAutoRisk).toBe('low');
+    // `trace` and `llm` have no patch surface yet — changing something else
+    // must not erase them.
+    expect(out.trace).toEqual(fullConfig.trace);
+    expect(out.llm).toEqual(fullConfig.llm);
+    expect(out.monitor).toEqual(fullConfig.monitor);
+  });
+
+  it('writes the same object it would persist', async () => {
+    const persisted: BrainConfig[] = [];
+    const rt = createBrainRuntime(
+      baseOpts(fullConfig, {
+        persist: async (config) => {
+          persisted.push(config);
+        },
+      }),
+    );
+    await rt.apply({ mode: 'headless' }).persisted;
+
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]?.trace).toEqual(fullConfig.trace);
+    expect(persisted[0]?.llm).toEqual(fullConfig.llm);
+  });
+});

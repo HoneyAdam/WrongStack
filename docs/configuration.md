@@ -65,6 +65,7 @@ WrongStack uses a layered configuration system. Settings are merged from multipl
 | `modelRuntime` | `object` | — | Runtime request controls for the leader/default request path: reasoning, prompt-cache TTL, and gated generation parameters. |
 | `modelMatrix` | `Record<string, ModelMatrixEntry>` | — | Per-role/phase/`*` subagent routing matrix. Entries can override provider/model/fallback profile and role-specific runtime controls. |
 | `fleet` | `FleetConfig` | — | Fleet budgets, supervision, worktrees, peer awareness, and subagent lifecycle. User config only; stripped from in-project config. |
+| `brain` | `BrainConfig` | — | Decision layer: autonomy ceiling, deterministic rules, heuristics, LLM quality gate + circuit breaker, council, decision cache, replay trace, ledger, monitor. See [`brain`](#brain--decision-layer-autonomy-rules-council-trace). User config only; stripped from in-project config. |
 | `hooks` | `object` | — | Lifecycle shell hooks keyed by event. See [`hooks`](#hooks--lifecycle-hooks) below and [hooks.md](./hooks.md). |
 | `cwd` | `string` | `process.cwd()` | Working directory. Overridden by `--cwd` CLI flag. Director Mode is permanently on — no `--director` flag or config field exists. |
 
@@ -717,6 +718,231 @@ project config. Store it in the active profile or private `config.local.json`.
 ```
 
 Each key is a plugin name. The value is a free-form object validated by the plugin's `configSchema`. Plugins read their namespace via `configStore.getExtension(pluginName)`.
+
+---
+
+## `brain` — Decision layer (autonomy, rules, council, trace)
+
+The Brain is the authority layer between the agents and you. Every autonomous
+subsystem routes its blocking decisions through it. Questions descend a ladder,
+cheapest tier first, and stop at the first tier that can answer:
+
+```
+rules → policy/heuristics → cache → council → single LLM → escalation
+```
+
+Everything above `council` is free. `/brain stats` reports how the traffic
+actually split — that number, not the model choice, is what governs Brain cost.
+
+```jsonc
+{
+  "brain": {
+    "mode": "headless",          // headless (never blocks on a human) | interactive
+    "maxAutoRisk": "high",       // off | low | medium | high | all
+    "models": ["anthropic/claude-haiku-4-5"],  // pool; default = your fallbackModels
+    "strategy": "fallback",      // fallback | round-robin
+    "decisionTimeoutMs": 15000,
+    "humanTimeoutMs": 120000,    // interactive only; 0 = wait forever
+    "terminalPolicy": "conservative"  // headless escalation: conservative | deny-all | continue-on-recommended
+  }
+}
+```
+
+### `brain.rules` — deterministic rule table
+
+Evaluated **before** anything that costs tokens. First match wins; `defer`
+hands the request on to the next tier, which is how you carve an exception out
+of a broader rule.
+
+```jsonc
+{
+  "brain": {
+    "rules": [
+      {
+        "id": "monitor-observe-low",
+        "description": "Let the agent continue on its own for low-risk monitor signals",
+        "when": {
+          "source": "system",          // goal | director | tool | user | system
+          "maxRisk": "medium",         // also: risk, minRisk, fallback, hasOptions
+          "offersOption": "continue",
+          "question": "failed \\d+ times",   // case-insensitive regex
+          "notQuestion": "\\bor\\b"          // negative guard
+        },
+        "then": { "action": "answer", "optionId": "continue" }
+      }
+    ]
+  }
+}
+```
+
+Actions: `answer` (needs `optionId` or `text`), `deny`, `escalate`, `defer`.
+An `answer` naming an option the request does not offer fails **open** — it
+defers instead of inventing an option id. A `context` pattern never matches
+when there is no context to inspect. An invalid regex disables only its own
+rule and is reported through `/brain rules`.
+
+### `brain.heuristics` — the built-in patterns
+
+All default `true`; each is independently switchable.
+
+| Field | Fires when |
+|---|---|
+| `lowRiskAutoAnswer` | low-risk request carrying a recommended option |
+| `blockedResolved` | question mentions "blocked" + context shows an explicit resolution marker |
+| `deadlockSkip` | "deadlock" + failed work units in context |
+| `retryExhausted` | "failed"/"retry" + demonstrably exhausted retries |
+| `continuePing` | bare continue/proceed question with no competing alternative |
+
+`blockedResolvedMarkers` replaces the resolution vocabulary
+(`["resolved","fixed","merged",…]`). Entries are matched as whole words and are
+regex-**escaped**, so it is a word list, not a pattern.
+
+### `brain.llm` — quality gate for the single-model tier
+
+```jsonc
+{
+  "brain": {
+    "llm": {
+      "maxTokens": 200,            // a decision + one-sentence rationale
+      "rejectUncertain": true,     // "I don't know" / empty is NOT an answer
+      "minConfidence": 0,          // 0 = off; reject self-reported confidence below this
+      "denyIsTerminal": "never",   // never | when-decided | always
+      "circuitBreaker": { "failureThreshold": 3, "cooldownMs": 60000 }
+    }
+  }
+}
+```
+
+`denyIsTerminal` exists because the tier reports three different things as
+`deny`: a dead pool, an unparseable response, and a model that genuinely
+refused. `when-decided` makes only the real refusal terminal.
+
+The circuit breaker matters more than it looks: without it a dead pool costs
+`models.length × decisionTimeoutMs` on **every** decision, forever.
+
+### `brain.council` — multi-LLM panel
+
+Convened for questions at or above `minRisk` (default `high`). Quorum, veto and
+weighted majority are pure deterministic maths; only ties reach a judge model.
+
+```jsonc
+{
+  "brain": {
+    "council": {
+      "enabled": true,             // default: ≥2 voters/pool models
+      "minRisk": "high",
+      "voters": ["anthropic/claude-haiku-4-5", "openai/gpt-5"],
+      "quorum": 0.5,
+      "approval": 0.5,
+      "judge": "anthropic/claude-opus-4-8",
+      "perCallTimeoutMs": 15000,
+      "maxConcurrency": 3,         // 1..8
+      "distinctness": "none",      // none | model | provider — warn on a non-diverse panel
+      "seats": [                   // replaces the executor/skeptic(veto)/auditor rotation
+        { "persona": "security", "veto": true },
+        { "persona": "maintainer" }
+      ]
+    }
+  }
+}
+```
+
+A same-model "council" agrees with itself; `distinctness` surfaces that.
+
+### `brain.cache` — replay repeated verdicts
+
+```jsonc
+{ "brain": { "cache": { "enabled": false, "ttlMs": 300000, "maxEntries": 200 } } }
+```
+
+Only `council`/`llm` verdicts are cached — deterministic tiers are already free
+and `ask_human` is a request for input, not a verdict. A decision the ledger
+later observes to have **failed** is evicted, so the cache cannot cement a bad
+call.
+
+### `brain.trace` — replayable decision log
+
+```jsonc
+{
+  "brain": {
+    "trace": {
+      "enabled": false,            // opt-in: this writes decision content to disk
+      "path": "<project>/.wrongstack/brain-trace.jsonl",
+      "content": "full",           // none | redacted | full
+      "maxOpenRecords": 200
+    }
+  }
+}
+```
+
+One JSONL row per decision: every tier the ladder ran, every pool target it
+called (**including the failures the fallback loop otherwise swallows**), every
+council seat's vote, timings and token totals. Rows convert to replayable
+evaluation fixtures via `brainTraceToEvaluationCase()`.
+
+`content: "none"` still records models, timings, tokens, vote ids and
+quorum/veto — enough to answer "what is the LLM doing" without storing any
+production text.
+
+### `brain.ledger` — outcome memory + deterministic guard
+
+```jsonc
+{
+  "brain": {
+    "ledger": {
+      "enabled": true,
+      "autoDenyAfterFailures": 3,      // 0 disables the guard
+      "maxMemoryEntries": 500,
+      "interventionRetryWindowMs": 600000
+    }
+  }
+}
+```
+
+Records each decision and correlates it with its real-world outcome. Once the
+last N approvals of a decision group all ended in observed failures, the guard
+denies outright — no model call. A later success lifts it automatically.
+
+### `brain.monitor` — self-activation
+
+Watches the event bus for distress signals and consults the Brain proactively.
+
+```jsonc
+{
+  "brain": {
+    "monitor": {
+      "enabled": true,
+      "policy": "llm",               // llm | steer | observe
+      "signals": { "toolFailureStreak": true, "errorStorm": true, "agentStall": true, "fileChurn": true },
+      "toolFailureStreak": 3,
+      "errorStormCount": 4,
+      "errorStormWindowMs": 60000,
+      "stallMs": 300000,             // 0 disables
+      "stallCheckIntervalMs": 30000,
+      "fileChurnThreshold": 5,
+      "fileChurnWindowMs": 600000,
+      "fileEditTools": ["edit", "write", "patch"],
+      "cooldownMs": 120000
+    }
+  }
+}
+```
+
+`policy: "steer"` / `"observe"` resolve signals with **no model call at all**.
+Monitor engagements can also be made deterministic while staying on `"llm"` by
+adding a `brain.rules` entry matching `source: "system"`.
+
+`fileEditTools` **replaces** the built-in list — set it if your edit tools are
+named differently, or the churn signal will never fire for them.
+
+The monitor is constructed at boot, so `monitor` changes apply on the next
+session; every other `brain` field applies live.
+
+**Security:** `brain` is on the in-project config deny list — a repo-committed
+`.wrongstack/config.json` cannot raise the autonomy ceiling, switch the Brain
+to headless, enable the trace, or point decisions at an attacker-chosen
+provider. Only the trusted active-profile config is honoured. Manage at runtime
+with `/brain` (see `docs/slash/brain.md`).
 
 ---
 

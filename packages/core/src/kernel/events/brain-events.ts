@@ -1,4 +1,5 @@
 import type { BrainDecision, BrainDecisionRequest } from '../../coordination/brain.js';
+import type { BrainDecisionTier } from '../../coordination/brain-telemetry.js';
 import type { Usage } from '../../types/provider.js';
 import type { BrainInterventionKind } from '../events.js';
 
@@ -13,12 +14,20 @@ export interface BrainEventMap {
     request: BrainDecisionRequest;
     decision: BrainDecision;
     at: number;
+    /**
+     * Which tier resolved the decision (`rule`/`policy`/`heuristic`/`cache`/
+     * `ledger-guard` are free; `council`/`llm` cost a provider call). Absent
+     * when the arbiter chain recorded no provenance.
+     */
+    tier?: BrainDecisionTier | undefined;
   };
   'brain.decision_ask_human': {
     sessionId?: string | undefined;
     request: BrainDecisionRequest;
     decision: BrainDecision;
     at: number;
+    /** See `brain.decision_answered`. */
+    tier?: BrainDecisionTier | undefined;
   };
   'brain.human_answered': {
     sessionId?: string | undefined;
@@ -33,6 +42,8 @@ export interface BrainEventMap {
     request: BrainDecisionRequest;
     decision: BrainDecision;
     at: number;
+    /** See `brain.decision_answered`. */
+    tier?: BrainDecisionTier | undefined;
   };
   /**
    * Fired by the BrainMonitor when it PROACTIVELY engaged (self-activation):
@@ -63,6 +74,103 @@ export interface BrainEventMap {
     requestId: string;
     outcome: 'success' | 'failure';
     detail?: string | undefined;
+    at: number;
+  };
+  /**
+   * One ATTEMPT against one model in a Brain LLM tier.
+   *
+   * The single-LLM tier walks its pool with a bare `catch {}`, and the council
+   * resolves seats internally, so until this event existed there was no way to
+   * answer "which model actually decided, which ones timed out, and what did
+   * it cost" — the pool could be silently degraded for an entire session.
+   *
+   * Emitted once per target per decision (so a fallback chain produces
+   * several), including failures. Text fields are populated only when trace
+   * content capture is enabled; the metadata is always safe to record.
+   */
+  'brain.llm_call': {
+    sessionId?: string | undefined;
+    /** `BrainDecisionRequest.id` this call belongs to. */
+    requestId: string;
+    /** Which tier issued the call. */
+    tier: 'llm' | 'council' | 'judge';
+    providerId?: string | undefined;
+    model: string;
+    /** Display label, e.g. "anthropic/claude-haiku". */
+    label?: string | undefined;
+    /** 0-based position in the pool/fallback order for this decision. */
+    attempt: number;
+    ok: boolean;
+    durationMs: number;
+    /** Failure message when `ok` is false. */
+    error?: string | undefined;
+    /** Raw response text — only when trace content capture is on. */
+    responseText?: string | undefined;
+    usage?: Usage | undefined;
+    at: number;
+  };
+  /** One council seat's observable vote. No hidden chain-of-thought is retained. */
+  'brain.council_vote': {
+    sessionId?: string | undefined;
+    requestId: string;
+    seatId: string;
+    persona: string;
+    status: 'valid' | 'invalid' | 'failed' | 'cancelled';
+    providerId?: string | undefined;
+    model?: string | undefined;
+    optionId?: string | undefined;
+    /** Free-text stance for optionless questions. Content-gated. */
+    stance?: string | undefined;
+    /** Vote rationale. Content-gated. */
+    rationale?: string | undefined;
+    weight?: number | undefined;
+    veto?: boolean | undefined;
+    durationMs?: number | undefined;
+    error?: string | undefined;
+    at: number;
+  };
+  /** How the council's votes resolved — the deterministic half of a council decision. */
+  'brain.council_resolved': {
+    sessionId?: string | undefined;
+    requestId: string;
+    status: 'decided' | 'denied' | 'abstained' | 'failed' | 'cancelled';
+    /** majority | veto | refusal | judge | first_stance | none */
+    resolution: string;
+    optionId?: string | undefined;
+    configuredSeatCount: number;
+    validVoteCount: number;
+    distinctTargetCount: number;
+    judgeUsed: boolean;
+    usage?:
+      | {
+          calls: number;
+          inputTokens: number;
+          outputTokens: number;
+          totalTokens: number;
+          durationMs: number;
+        }
+      | undefined;
+    /** Abstain/failure reason. Content-gated. */
+    reason?: string | undefined;
+    at: number;
+  };
+  /**
+   * A step in the rules → policy → council → LLM → escalation ladder: which
+   * tier ran, what it returned, and whether the chain moved on. This is the
+   * detailed form of the `tier` field on `brain.decision_*`, and it is what
+   * makes a decision reconstructable after the fact.
+   */
+  'brain.tier_transition': {
+    sessionId?: string | undefined;
+    requestId: string;
+    tier: BrainDecisionTier;
+    /** What this tier produced, or 'error' when it threw. */
+    outcome: 'answer' | 'deny' | 'ask_human' | 'error' | 'skipped';
+    /** True when the chain accepted this tier's result and stopped here. */
+    terminal: boolean;
+    /** Why the chain moved on (risk ceiling, council floor, non-answer, throw). */
+    reason?: string | undefined;
+    durationMs?: number | undefined;
     at: number;
   };
   'token.threshold': { sessionId?: string | undefined; used: number; limit: number };

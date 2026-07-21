@@ -37,6 +37,7 @@ export {
   formatHumanPrompt,
   HumanEscalatingBrainArbiter,
   ObservableBrainArbiter,
+  type BrainTerminalPolicy,
   terminalPolicyDecision,
 } from './coordination/brain.js';
 export {
@@ -51,7 +52,73 @@ export {
   type BrainInterventionInput,
   BrainMonitor,
   type BrainMonitorOptions,
+  type BrainMonitorPolicy,
+  type BrainMonitorSignalToggles,
+  DEFAULT_FILE_EDIT_TOOLS,
 } from './coordination/brain-monitor.js';
+export {
+  BLOCKED_RESOLVED_MARKERS,
+  type BrainHeuristicsConfig,
+  compileResolutionMarkers,
+  DEFAULT_BRAIN_HEURISTICS,
+  isBlockedResolved,
+  type ResolvedBrainHeuristics,
+  resolveBrainHeuristics,
+} from './coordination/brain-heuristics.js';
+export {
+  applyRule,
+  BRAIN_RULE_PATTERN_MAX,
+  BRAIN_RULE_SUBJECT_MAX,
+  type BrainRule,
+  type BrainRuleAction,
+  type BrainRuleCompileResult,
+  type BrainRuleMatch,
+  type CompiledBrainRule,
+  compileBrainRules,
+  createRuleBrainArbiter,
+  evaluateBrainRules,
+  type RuleBrainArbiterOptions,
+  ruleMatches,
+} from './coordination/brain-rules.js';
+export {
+  type BrainCacheStats,
+  BrainDecisionCache,
+  type BrainDecisionCacheOptions,
+  brainCacheKey,
+  type CachingBrainArbiterOptions,
+  createCachingBrainArbiter,
+} from './coordination/brain-cache.js';
+export {
+  BrainCircuitBreaker,
+  type BrainCircuitOptions,
+  type BrainCircuitSnapshot,
+  type BrainCircuitState,
+} from './execution/brain-circuit.js';
+export {
+  applyContentMode,
+  BRAIN_TRACE_REDACTED_MAX,
+  BRAIN_TRACE_VERSION,
+  type BrainTraceContentMode,
+  type BrainTraceCouncilResolution,
+  type BrainTraceCouncilVote,
+  type BrainTraceLlmCall,
+  type BrainTraceRecord,
+  BrainTraceRecorder,
+  type BrainTraceRecorderOptions,
+  type BrainTraceTierStep,
+  readBrainTrace,
+  sanitizeDecision,
+  sanitizeRequest,
+} from './coordination/brain-trace.js';
+export {
+  type BrainDecisionTier,
+  BrainTierCounter,
+  type BrainTierStats,
+  DETERMINISTIC_BRAIN_TIERS,
+  isDeterministicTier,
+  markDecisionTier,
+  readDecisionTier,
+} from './coordination/brain-telemetry.js';
 export {
   type CollabBusState,
   CollaborationBus,
@@ -417,6 +484,8 @@ export {
   type BrainEvaluationFailureCode,
   type BrainEvaluationMetrics,
   type BrainEvaluationReport,
+  type BrainTraceCaptureOptions,
+  brainTraceToEvaluationCase,
   runBrainEvaluation,
   validateBrainEvaluationCase,
 } from './execution/brain-evaluation.js';
@@ -615,6 +684,8 @@ export { DefaultPluginAPI, definePlugin, type PluginAPIInit } from './plugin/api
 export {
   KERNEL_API_VERSION,
   type LoadPluginsOptions,
+  type PluginHostHandle,
+  type PluginLoadFailure,
   loadPlugins,
   unloadPlugins,
 } from './plugin/loader.js';

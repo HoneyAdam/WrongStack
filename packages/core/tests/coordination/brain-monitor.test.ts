@@ -232,3 +232,119 @@ describe('BrainMonitor', () => {
     m.stop();
   });
 });
+
+describe('BrainMonitor — deterministic policies and kill switches', () => {
+  let events: EventBus;
+  let interventions: BrainInterventionInput[];
+  let intervene: (input: BrainInterventionInput) => Promise<void>;
+  let brain: BrainArbiter & { decide: ReturnType<typeof vi.fn> };
+
+  beforeEach(() => {
+    events = new EventBus();
+    interventions = [];
+    intervene = async (input) => {
+      interventions.push(input);
+    };
+    brain = { decide: vi.fn(async (): Promise<BrainDecision> => STEER) };
+  });
+
+  const failThrice = () => {
+    for (let i = 0; i < 3; i++) events.emit('tool.executed', failedTool('edit'));
+  };
+
+  it("policy 'steer' intervenes without consulting the Brain", async () => {
+    const monitor = new BrainMonitor({ events, brain, intervene, policy: 'steer' });
+    monitor.start();
+    failThrice();
+    await settle();
+
+    expect(interventions).toHaveLength(1);
+    expect(brain.decide).not.toHaveBeenCalled();
+    monitor.stop();
+  });
+
+  it("policy 'observe' records the signal but never steers or calls the Brain", async () => {
+    const seen = vi.fn();
+    events.on('brain.intervention', seen);
+    const monitor = new BrainMonitor({ events, brain, intervene, policy: 'observe' });
+    monitor.start();
+    failThrice();
+    await settle();
+
+    expect(interventions).toHaveLength(0);
+    expect(brain.decide).not.toHaveBeenCalled();
+    // The engagement is still visible to the surfaces — observing is the
+    // point of this mode, so the event must not be suppressed too.
+    expect(seen).toHaveBeenCalledWith(expect.objectContaining({ intervened: false }));
+    monitor.stop();
+  });
+
+  it("policy 'llm' still consults the Brain (unchanged default)", async () => {
+    const monitor = new BrainMonitor({ events, brain, intervene });
+    monitor.start();
+    failThrice();
+    await settle();
+
+    expect(brain.decide).toHaveBeenCalledTimes(1);
+    expect(interventions).toHaveLength(1);
+    monitor.stop();
+  });
+
+  it('enabled:false makes start() a no-op', async () => {
+    const monitor = new BrainMonitor({ events, brain, intervene, enabled: false });
+    monitor.start();
+    failThrice();
+    await settle();
+
+    expect(brain.decide).not.toHaveBeenCalled();
+    expect(interventions).toHaveLength(0);
+    monitor.stop();
+  });
+
+  it('a disabled signal never engages while the others still do', async () => {
+    const monitor = new BrainMonitor({
+      events,
+      brain,
+      intervene,
+      signals: { toolFailureStreak: false },
+      errorStormCount: 2,
+    });
+    monitor.start();
+
+    failThrice();
+    await settle();
+    expect(brain.decide).not.toHaveBeenCalled();
+
+    events.emit('error', { phase: 'tool', err: new Error('a') });
+    events.emit('error', { phase: 'tool', err: new Error('b') });
+    await settle();
+    expect(brain.decide).toHaveBeenCalledTimes(1);
+    monitor.stop();
+  });
+
+  it('tracks churn for custom edit tool names', async () => {
+    const monitor = new BrainMonitor({
+      events,
+      brain,
+      intervene,
+      signals: { toolFailureStreak: false },
+      fileEditTools: ['apply_diff'],
+      fileChurnThreshold: 2,
+    });
+    monitor.start();
+
+    // A built-in name is no longer tracked once the list is replaced.
+    for (let i = 0; i < 3; i++) {
+      events.emit('tool.executed', { ...okTool('edit'), input: { file_path: '/a.ts' } });
+    }
+    await settle();
+    expect(brain.decide).not.toHaveBeenCalled();
+
+    for (let i = 0; i < 2; i++) {
+      events.emit('tool.executed', { ...okTool('apply_diff'), input: { file_path: '/a.ts' } });
+    }
+    await settle();
+    expect(brain.decide).toHaveBeenCalledTimes(1);
+    monitor.stop();
+  });
+});

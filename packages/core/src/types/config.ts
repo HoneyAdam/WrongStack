@@ -1,3 +1,5 @@
+import type { BrainHeuristicsConfig } from '../coordination/brain-heuristics.js';
+import type { BrainRule } from '../coordination/brain-rules.js';
 import type { ContextWindowModeId } from './context-window.js';
 import type { ConfiguredHook, HookEvent } from './hooks.js';
 import type { WireFamily } from './models-registry.js';
@@ -1328,6 +1330,28 @@ export interface BrainCouncilConfig {
   /** Fraction of cast vote weight the winning option must exceed. Default 0.5. */
   approval?: number | undefined;
   /**
+   * Per-seat completion timeout (ms). Defaults to `brain.decisionTimeoutMs`,
+   * then 15000 — set it when council seats need a longer budget than the
+   * single-LLM tier.
+   */
+  perCallTimeoutMs?: number | undefined;
+  /** Seats polled concurrently, 1..8. Default 3. */
+  maxConcurrency?: number | undefined;
+  /**
+   * Warn when the panel is not diverse enough: 'none' (default), 'model'
+   * (seats must use distinct models) or 'provider' (distinct providers).
+   * A same-model "council" agrees with itself and adds cost without adding
+   * independence.
+   */
+  distinctness?: 'none' | 'model' | 'provider' | undefined;
+  /** Output budget for the judge call. Default follows the seat budget. */
+  judgeMaxTokens?: number | undefined;
+  /**
+   * Persona rotation for seats without an explicit one. Replaces the built-in
+   * executor / skeptic(veto) / auditor cycle.
+   */
+  seats?: Array<{ persona: string; veto?: boolean | undefined }> | undefined;
+  /**
    * Tie-breaker / synthesizer model (`parseModelRef` grammar or entry).
    * Sees every vote's rationale and issues the final structured decision.
    * Default: the first pool/voter model.
@@ -1370,12 +1394,113 @@ export interface BrainConfig {
   /** Per-LLM-call decision timeout (ms). Default 15000. */
   decisionTimeoutMs?: number | undefined;
   /**
+   * Quality gate for the single-LLM tier — what counts as a usable answer.
+   * The tier used to wrap ANY returned text in an `answer`, so an empty
+   * response or an "I don't know" became a decision the caller acted on.
+   */
+  llm?:
+    | {
+        /**
+         * Output budget per decision call. Default 200. A Brain response is
+         * one decision plus a one-sentence rationale; raise this only if the
+         * trace shows responses truncated at `maxTokens`.
+         */
+        maxTokens?: number | undefined;
+        /**
+         * Treat a declined/empty response as "this tier could not decide"
+         * rather than as an answer. Default true.
+         */
+        rejectUncertain?: boolean | undefined;
+        /**
+         * Reject answers whose self-reported confidence is below this (0..1).
+         * Default 0 = off. Responses reporting no confidence always pass.
+         */
+        minConfidence?: number | undefined;
+        /**
+         * Whether a `deny` from the single-LLM tier ends the decision.
+         *
+         * The tier reports three very different things as `deny`: a dead
+         * provider pool, an unparseable response, and a model that actually
+         * refused. Historically all three fell through to the escalation
+         * tier, so a genuine refusal could never be terminal.
+         *
+         * - 'never'        — always fall through (default; legacy behaviour)
+         * - 'when-decided' — a real refusal is terminal, infrastructure
+         *                    failures still fall through
+         * - 'always'       — any deny is terminal (strict; a dead pool then
+         *                    denies the request instead of escalating)
+         */
+        denyIsTerminal?: 'never' | 'when-decided' | 'always' | undefined;
+        /**
+         * Failure memory for the pool. A dead pool otherwise costs
+         * `models.length × decisionTimeoutMs` on EVERY decision.
+         */
+        circuitBreaker?:
+          | {
+              /** Consecutive failures before the tier is skipped. Default 3. 0 disables. */
+              failureThreshold?: number | undefined;
+              /** How long the tier stays skipped before one probe is allowed (ms). Default 60000. */
+              cooldownMs?: number | undefined;
+            }
+          | undefined;
+      }
+    | undefined;
+  /**
    * Interactive mode only: how long an ask-human prompt may stay unanswered
    * before it resolves through the terminal policy instead of blocking
    * forever. Default (resolved at boot): 120000. Set 0 to wait indefinitely
    * (legacy behavior).
    */
   humanTimeoutMs?: number | undefined;
+  /**
+   * Deterministic rule table, evaluated BEFORE the policy tier and therefore
+   * before anything that costs a provider call. First match wins; a rule
+   * whose action is `defer` explicitly hands the request to the next tier.
+   *
+   * This is the intended place to make the Brain cheaper and more
+   * predictable: any question the operator can characterise up front
+   * (question/context patterns, source, risk band, offered options) can be
+   * settled here for free instead of being sent to a model.
+   *
+   * Invalid rules are dropped with a reported error rather than taking the
+   * Brain down. Like the rest of `brain`, this is honoured only from the
+   * active-profile config — never from a repo-committed one.
+   */
+  rules?: BrainRule[] | undefined;
+  /**
+   * Toggles for the built-in pattern heuristics (low-risk fast path,
+   * blocked-resolved, deadlock-skip, retry-exhausted, continue-ping). Every
+   * flag defaults to enabled, so omitting this block preserves the historical
+   * behaviour. Turn one off when its guess is wrong for your workload, or
+   * replace `blockedResolvedMarkers` to match your own vocabulary.
+   */
+  heuristics?: BrainHeuristicsConfig | undefined;
+  /**
+   * How a headless escalation resolves when no human is available.
+   * - 'conservative' (default) — accept a caller-recommended option at
+   *   low/medium risk, honour `fallback: 'continue'`, otherwise deny.
+   * - 'deny-all' — never auto-accept; every escalation denies.
+   * - 'continue-on-recommended' — accept a recommended option at ANY risk.
+   */
+  terminalPolicy?: 'conservative' | 'deny-all' | 'continue-on-recommended' | undefined;
+  /** Rolling in-memory decision log size for `/brain status`. Default 20. */
+  decisionLogMaxEntries?: number | undefined;
+  /**
+   * Replay a previous COUNCIL/LLM verdict for an identical repeated question
+   * instead of paying for it again. Deterministic tiers are never cached
+   * (they are already free) and `ask_human` is never cached. A decision the
+   * ledger later observes to have FAILED is evicted, so the cache cannot
+   * cement a bad call. Disabled by default — caching a judgement is opt-in.
+   */
+  cache?:
+    | {
+        enabled?: boolean | undefined;
+        /** Entry lifetime (ms). Default 300000. */
+        ttlMs?: number | undefined;
+        /** Maximum live entries. Default 200. */
+        maxEntries?: number | undefined;
+      }
+    | undefined;
   /** Multi-LLM council for high-stakes decisions. */
   council?: BrainCouncilConfig | undefined;
   /**
@@ -1394,6 +1519,42 @@ export interface BrainConfig {
          * 0 disables.
          */
         autoDenyAfterFailures?: number | undefined;
+        /** In-memory ring size, also the seed size read from disk. Default 500. */
+        maxMemoryEntries?: number | undefined;
+        /**
+         * A same-kind monitor intervention re-firing within this window marks
+         * the previous steer as a failure. Default 600000 (10 min).
+         */
+        interventionRetryWindowMs?: number | undefined;
+      }
+    | undefined;
+  /**
+   * Replay trace: a per-decision JSONL record of HOW the ladder decided —
+   * every tier it ran, every pool target it called (including the failures
+   * the fallback loop swallows), and every council seat's vote, with timings
+   * and token usage. Rows convert to `BrainEvaluationCaseV1` fixtures for
+   * offline replay via `runBrainEvaluation`.
+   *
+   * DISABLED by default: enabling it is the opt-in that permits production
+   * decision content to be written to disk. Kept in its own file rather than
+   * the ledger, whose bounded ring powers the learning loop.
+   */
+  trace?:
+    | {
+        /** Default false. */
+        enabled?: boolean | undefined;
+        /** JSONL path. Default `<project>/.wrongstack/brain-trace.jsonl`. */
+        path?: string | undefined;
+        /**
+         * Free-text policy once enabled. Default 'full' — a fixture without
+         * the question and context cannot reproduce the original decision.
+         * 'redacted' truncates free text; 'none' records metadata only
+         * (models, timings, tokens, vote ids, quorum/veto), which still
+         * answers "what is the LLM doing" without storing content.
+         */
+        content?: 'none' | 'redacted' | 'full' | undefined;
+        /** Cap on concurrently open (undecided) records. Default 200. */
+        maxOpenRecords?: number | undefined;
       }
     | undefined;
   /**
@@ -1402,16 +1563,46 @@ export interface BrainConfig {
    */
   monitor?:
     | {
+        /** Master kill switch. Default true. */
+        enabled?: boolean | undefined;
+        /**
+         * How a detected signal is resolved. Default 'llm' (consult the
+         * Brain). 'steer' always intervenes and 'observe' never does — both
+         * without any provider call. Note that monitor engagements can also
+         * be made deterministic while staying on 'llm' by adding a
+         * `brain.rules` entry matching `source: 'system'`.
+         */
+        policy?: 'llm' | 'steer' | 'observe' | undefined;
+        /** Per-signal kill switches. Omitted signals stay enabled. */
+        signals?:
+          | {
+              toolFailureStreak?: boolean | undefined;
+              errorStorm?: boolean | undefined;
+              agentStall?: boolean | undefined;
+              fileChurn?: boolean | undefined;
+            }
+          | undefined;
         /** Consecutive failures of the same tool before engaging. Default 3. */
         toolFailureStreak?: number | undefined;
-        /** Errors within 60s before engaging. Default 4. */
+        /** Errors within the storm window before engaging. Default 4. */
         errorStormCount?: number | undefined;
+        /** Sliding window for the error-storm signal (ms). Default 60000. */
+        errorStormWindowMs?: number | undefined;
         /** Active run with no progress for this long → stall signal (ms). Default 300000. 0 disables. */
         stallMs?: number | undefined;
+        /** How often the stall watchdog ticks (ms). Default 30000. */
+        stallCheckIntervalMs?: number | undefined;
         /** Edits to the same file within the churn window before engaging. Default 5. */
         fileChurnThreshold?: number | undefined;
         /** Sliding window for the file-churn signal (ms). Default 600000. */
         fileChurnWindowMs?: number | undefined;
+        /**
+         * Tool names that count as file edits for the churn signal. REPLACES
+         * the built-in list (edit, write, patch, multi_edit, multiedit,
+         * str_replace); set it when your edit tools are named differently, or
+         * the churn signal will never fire for them.
+         */
+        fileEditTools?: string[] | undefined;
         /** Per-signal re-engagement cooldown (ms). Default 120000. */
         cooldownMs?: number | undefined;
       }

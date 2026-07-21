@@ -22,9 +22,10 @@ import type {
   BrainDecisionRequest,
 } from '../coordination/brain.js';
 import {
-  completeBrainLlm,
+  completeBrainLlmDetailed,
   type BrainLlmTarget,
 } from './autonomy-brain.js';
+import type { EventBus } from '../kernel/events.js';
 import { CouncilOrchestrator } from './council-orchestrator.js';
 import type { CouncilLLMCaller, CouncilModelTarget, CouncilProfileConfig, CouncilSeatConfig } from '../types/council.js';
 import type { OneShotLLMInput, OneShotLLMResult } from '../types/one-shot-llm.js';
@@ -67,8 +68,25 @@ export interface CouncilBrainOptions {
   approvalFraction?: number | undefined;
   /** Per-voter completion timeout in ms. Default 15 000. */
   decisionTimeoutMs?: number | undefined;
+  /** Seats polled concurrently, 1..8. Default 3 (the orchestrator's default). */
+  maxConcurrency?: number | undefined;
+  /** Panel-diversity warning policy. Default 'none'. */
+  distinctness?: 'none' | 'model' | 'provider' | undefined;
+  /** Output budget for the judge call. */
+  judgeMaxTokens?: number | undefined;
   /** Optional digest of past decisions for context. */
   getDecisionDigest?: ((request: BrainDecisionRequest) => string | undefined) | undefined;
+  /**
+   * Bus for per-seat vote and resolution trace events. Optional: the council
+   * decides identically without it, but nothing downstream can reconstruct
+   * HOW a panel reached its verdict.
+   */
+  events?: EventBus | undefined;
+  /**
+   * Include vote rationales / stances / reasons in the emitted trace events.
+   * Off by default — this is production decision content.
+   */
+  traceContent?: boolean | undefined;
 }
 
 // ── Factory ────────────────────────────────────────────────────────────────
@@ -88,8 +106,9 @@ export function createCouncilBrainArbiter(opts: CouncilBrainOptions): BrainArbit
   function makeSeatCallerForVoter(target: BrainLlmTarget): CouncilLLMCaller {
     return {
       async call(input: OneShotLLMInput): Promise<OneShotLLMResult> {
+        const startedAt = Date.now();
         try {
-          const raw = await completeBrainLlm(
+          const result = await completeBrainLlmDetailed(
             { provider: target.provider, model: input.model ?? target.model },
             {
               system: typeof input.system === 'string'
@@ -102,12 +121,21 @@ export function createCouncilBrainArbiter(opts: CouncilBrainOptions): BrainArbit
               maxTokens: input.maxTokens,
             },
           );
+          // Real usage and timing — these used to be hardcoded zeros, which
+          // made `CouncilResult.usage` (and therefore the cost of every
+          // council decision) permanently report 0 tokens.
+          const inputTokens = result.usage?.input ?? 0;
+          const outputTokens = result.usage?.output ?? 0;
           return {
-            text: raw,
+            text: result.text,
             model: target.model,
             provider: target.provider.id,
-            tokens: { input: 0, output: 0, total: 0 },
-            durationMs: 0,
+            tokens: {
+              input: inputTokens,
+              output: outputTokens,
+              total: inputTokens + outputTokens,
+            },
+            durationMs: Date.now() - startedAt,
             fromFallback: false,
           };
         } catch (error) {
@@ -174,12 +202,16 @@ export function createCouncilBrainArbiter(opts: CouncilBrainOptions): BrainArbit
     quorumFraction: opts.quorumFraction ?? 0.5,
     approvalFraction: opts.approvalFraction ?? 0.5,
     perCallTimeoutMs: opts.decisionTimeoutMs ?? 15_000,
-    distinctness: 'none',
+    ...(opts.judgeMaxTokens !== undefined ? { judgeMaxTokens: opts.judgeMaxTokens } : {}),
+    distinctness: opts.distinctness ?? 'none',
   };
 
   // ── Orchestrator with per-seat callers ───────────────────────────────
   const orchestrator = new CouncilOrchestrator({
     defaultProfile: 'brain-council-adapter',
+    // Previously never passed, so the panel was pinned at the orchestrator's
+    // default of 3 concurrent seats no matter how many voters were configured.
+    ...(opts.maxConcurrency !== undefined ? { maxConcurrency: opts.maxConcurrency } : {}),
     seatCaller,
     judgeCaller: opts.judge
       ? makeSeatCallerForVoter(opts.judge)
@@ -209,6 +241,51 @@ export function createCouncilBrainArbiter(opts: CouncilBrainOptions): BrainArbit
       };
 
       const result = await orchestrator.ask(question);
+
+      // ── Trace ────────────────────────────────────────────────────────
+      // `CouncilResult` already carries every seat's observable vote, the
+      // quorum counts, judge usage and token usage; the adapter used to
+      // discard all of it and surface only the verdict. Re-emitting it here
+      // needs no orchestrator changes and is what makes a council decision
+      // reconstructable.
+      if (opts.events) {
+        const at = Date.now();
+        for (const vote of result.votes) {
+          const seat = seats.find((s) => s.id === vote.seatId);
+          opts.events.emit('brain.council_vote', {
+            sessionId: request.sessionId,
+            requestId: request.id,
+            seatId: vote.seatId,
+            persona: vote.persona,
+            status: vote.status,
+            providerId: vote.provider,
+            model: vote.model,
+            optionId: vote.optionId,
+            ...(opts.traceContent
+              ? { stance: vote.stance, rationale: vote.rationale }
+              : {}),
+            weight: seat?.weight,
+            veto: seat?.veto,
+            durationMs: vote.durationMs,
+            error: vote.error,
+            at,
+          });
+        }
+        opts.events.emit('brain.council_resolved', {
+          sessionId: request.sessionId,
+          requestId: request.id,
+          status: result.status,
+          resolution: result.resolution,
+          optionId: result.optionId,
+          configuredSeatCount: result.configuredSeatCount,
+          validVoteCount: result.validVoteCount,
+          distinctTargetCount: result.distinctTargetCount,
+          judgeUsed: result.judgeUsed,
+          usage: result.usage,
+          ...(opts.traceContent ? { reason: result.reason } : {}),
+          at,
+        });
+      }
 
       // Handle failures and cancellations
       if (result.status === 'cancelled' || result.status === 'failed') {
