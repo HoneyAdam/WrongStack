@@ -2,7 +2,7 @@ import type { Config, Logger, Plugin, PluginAPI, SlashCommand } from '@wrongstac
 import { expectDefined } from '@wrongstack/core';
 import type { TelegramIncomingMessage } from './bot.js';
 import { TelegramBot } from './bot.js';
-import { PLUGIN_NAME, readTelegramConfig, telegramConfigSchema } from './config.js';
+import { PLUGIN_NAME, readTelegramConfig, readTelegramConfigFromConfig, telegramConfigSchema } from './config.js';
 import type { SessionEndedLike, ToolExecutedLike } from './format.js';
 import { formatDelegateCompleted, formatSessionEnded, formatToolExecuted } from './format.js';
 import { lockPathForToken, PollLock } from './poll-lock.js';
@@ -14,6 +14,7 @@ import { TelegramBotOutbound } from './bot-queue.js';
 import { TelegramNotificationChannel } from './notification-channel.js';
 import { makeTelegramReadTool } from './tools/telegram-read.js';
 import { makeTelegramSendTool } from './tools/telegram-send.js';
+import { diffConfigKeys } from './config-classifier.js';
 
 // ---------------------------------------------------------------------------
 // Teardown state
@@ -95,7 +96,12 @@ function registerCommand(api: PluginAPI, command: SlashCommand, cleanups: Array<
   });
 }
 
-/** Read the Telegram section from a full Config object. */
+/** Read the Telegram section from a full Config object.
+ * Delegates to {@link readTelegramConfigFromConfig} for the canonical
+ * extension-slice extraction + default merge, then applies the runtime
+ * coercions that `RuntimeConfig` requires (String chatId, array copies).
+ * `allowGroupApprovals` is not part of `TelegramPluginConfig` so it is
+ * still read from the raw extension slice. */
 function telegramFromConfig(cfg: Config): {
   notifyChatId: string | number | undefined;
   allowedOutboundChats: Array<string | number>;
@@ -106,28 +112,19 @@ function telegramFromConfig(cfg: Config): {
   longToolThresholdMs: number;
   maxMessageLength: number;
 } {
+  const tg = readTelegramConfigFromConfig(cfg);
+  // allowGroupApprovals is not in TelegramPluginConfig; read from raw ext.
   const ext =
     (cfg.extensions as Record<string, Record<string, unknown>> | undefined)?.[PLUGIN_NAME] ?? {};
   return {
-    notifyChatId: ext.notifyChatId !== undefined ? String(ext.notifyChatId) : undefined,
-    allowedOutboundChats: Array.isArray(ext.allowedOutboundChats)
-      ? ext.allowedOutboundChats.filter(
-          (chatId): chatId is string | number =>
-            typeof chatId === 'string' || typeof chatId === 'number',
-        )
-      : [],
-    allowedUserIds: Array.isArray(ext.allowedUsers)
-      ? ext.allowedUsers.filter(
-          (userId): userId is string | number =>
-            typeof userId === 'string' || typeof userId === 'number',
-        )
-      : [],
+    notifyChatId: tg.notifyChatId !== undefined ? String(tg.notifyChatId) : undefined,
+    allowedOutboundChats: [...(tg.allowedOutboundChats ?? [])],
+    allowedUserIds: [...(tg.allowedUsers ?? [])],
     allowGroupApprovals: ext.allowGroupApprovals === true,
-    notifyOnSessionEnd: ext.notifyOnSessionEnd === true,
-    notifyOnDelegate: ext.notifyOnDelegate !== false, // default true
-    longToolThresholdMs:
-      typeof ext.longToolThresholdMs === 'number' ? ext.longToolThresholdMs : 30_000,
-    maxMessageLength: typeof ext.maxMessageLength === 'number' ? ext.maxMessageLength : 4000,
+    notifyOnSessionEnd: tg.notifyOnSessionEnd ?? false,
+    notifyOnDelegate: tg.notifyOnDelegate ?? true,
+    longToolThresholdMs: tg.longToolThresholdMs ?? 30_000,
+    maxMessageLength: tg.maxMessageLength ?? 4000,
   };
 }
 
@@ -400,30 +397,58 @@ const plugin: Plugin = {
         }),
       );
 
-      // ---- Live config updates ----
+      // ---- Live config updates (P2.3 — atomic reconfiguration) ----
       // api.config is frozen at setup, but onConfigChange fires whenever the
       // ConfigStore is updated (from CLI /settings, WebUI prefSync, /telegram-settings).
-      // Update the mutable runtime refs so all handlers pick up the new values
-      // on the next event — no restart needed.
+      //
+      // P2.2 classifies each changed key as HOT (apply live) or RESTART
+      // (requires bot rebuild).  HOT keys mutate the shared runtimeCfg so
+      // every handler picks up the new value on the next event.  RESTART
+      // keys are logged with a restart hint — the operator must restart the
+      // plugin for those to take effect.  A future iteration will attempt
+      // an atomic bot rebuild for restart keys (build → health-check →
+      // swap → rollback on failure).
       const unlistenConfig = api.onConfigChange((next, prev) => {
+        // Build full TelegramPluginConfig snapshots for the P2.2 classifier.
+        const nextTg = readTelegramConfigFromConfig(next);
+        const prevTg = readTelegramConfigFromConfig(prev);
+        const changedKeys = diffConfigKeys(prevTg, nextTg);
+        const hotKeys = changedKeys.filter(c => c.classification === 'hot').map(c => c.key);
+        const restartKeys = changedKeys.filter(c => c.classification === 'restart-required').map(c => c.key);
+
+        // Phase 1: Apply hot keys to the shared runtime config.
+        // Only keys classified as hot-reload-safe are applied live.
+        // Restart-required keys (notifyChatId, outboundQueue*) keep
+        // their previous values until the operator restarts the plugin.
         const fresh = telegramFromConfig(next);
         const was = telegramFromConfig(prev);
-        runtimeCfg.notifyChatId = fresh.notifyChatId;
-        runtimeCfg.allowedOutboundChats = fresh.allowedOutboundChats;
-        runtimeCfg.allowedUserIds = fresh.allowedUserIds;
+        const hotSet = new Set(hotKeys);
+        if (hotSet.has('allowedOutboundChats')) runtimeCfg.allowedOutboundChats = fresh.allowedOutboundChats;
+        if (hotSet.has('allowedUsers')) runtimeCfg.allowedUserIds = fresh.allowedUserIds;
+        if (hotSet.has('notifyOnSessionEnd')) runtimeCfg.notifyOnSessionEnd = fresh.notifyOnSessionEnd;
+        if (hotSet.has('notifyOnDelegate')) runtimeCfg.notifyOnDelegate = fresh.notifyOnDelegate;
+        if (hotSet.has('longToolThresholdMs')) runtimeCfg.longToolThresholdMs = fresh.longToolThresholdMs;
+        if (hotSet.has('maxMessageLength')) runtimeCfg.maxMessageLength = fresh.maxMessageLength;
+        // allowGroupApprovals is not a TelegramPluginConfig key, so
+        // diffConfigKeys never classifies it.  Apply unconditionally —
+        // it is a simple flag read at event time with no setup-time
+        // side effects.
         runtimeCfg.allowGroupApprovals = fresh.allowGroupApprovals;
-        runtimeCfg.notifyOnSessionEnd = fresh.notifyOnSessionEnd;
-        runtimeCfg.notifyOnDelegate = fresh.notifyOnDelegate;
-        runtimeCfg.longToolThresholdMs = fresh.longToolThresholdMs;
-        runtimeCfg.maxMessageLength = fresh.maxMessageLength;
-        // When notifyChatId or maxMessageLength changes, rebuild the
-        // notification channel so it always reflects the live config.
-        if (fresh.notifyChatId !== was.notifyChatId || fresh.maxMessageLength !== was.maxMessageLength) {
+        // notifyChatId is RESTART-REQUIRED: the inbound allowlist
+        // (built at setup) still uses the old value.  Applying the new
+        // one here would make outbound notifications target a chat the
+        // inbound allowlist does not yet recognise.  Deferred to restart.
+
+        // When maxMessageLength changes (hot), rebuild the notification
+        // channel so it picks up the new limit.  notifyChatId changes
+        // are deferred to restart, so the channel keeps the current
+        // (old) chat ID.
+        if (hotSet.has('maxMessageLength') && fresh.maxMessageLength !== was.maxMessageLength) {
           notifyChannel =
-            fresh.notifyChatId !== undefined
+            runtimeCfg.notifyChatId !== undefined
               ? new TelegramNotificationChannel({
                   bot,
-                  chatId: fresh.notifyChatId,
+                  chatId: runtimeCfg.notifyChatId,
                   maxMessageLength: fresh.maxMessageLength,
                   enqueueNotification: (chatId, text) =>
                     outbound.enqueueNotification(chatId, text),
@@ -431,7 +456,22 @@ const plugin: Plugin = {
                 })
               : undefined;
         }
-        log.debug('Telegram notification settings updated from config', {
+
+        // Phase 2: Surface restart-required keys.
+        if (restartKeys.length > 0) {
+          log.warn(
+            'Telegram config changed restart-required keys — restart the plugin for these to take effect',
+            { restartKeys, hotKeys },
+          );
+          api.emitCustom('telegram:restart_required', {
+            keys: restartKeys,
+            message: `Restart required for: ${restartKeys.join(', ')}`,
+          });
+        }
+
+        log.debug('Telegram config updated', {
+          hotApplied: hotKeys,
+          restartRequired: restartKeys,
           notifyOnSessionEnd: runtimeCfg.notifyOnSessionEnd,
           notifyOnDelegate: runtimeCfg.notifyOnDelegate,
           longToolThresholdMs: runtimeCfg.longToolThresholdMs,

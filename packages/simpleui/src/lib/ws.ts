@@ -25,17 +25,15 @@ function configuredWsUrl(): string | null {
   }
 }
 
-function defaultWsUrl(): URL {
+export function defaultWsUrl(): URL {
   const configured = configuredWsUrl();
   if (configured) return new URL(configured);
   // Shared-port design: WS shares the HTTP port, so derive the WS URL
-  // from the page origin. No separate WS port or meta tag needed.
+  // from the exact page origin. Preserving `location.host` matters: changing
+  // localhost to 127.0.0.1 makes the socket cross-origin, so `connect-src
+  // 'self'` blocks it and the host-scoped auth cookie is not sent.
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.hostname.toLowerCase();
-  const port = window.location.port;
-  const loopback = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(host);
-  const hostPart = loopback ? '127.0.0.1' : host;
-  const url = new URL(`${protocol}//${hostPart}${port ? `:${port}` : ''}`);
+  const url = new URL(`${protocol}//${window.location.host}`);
   const token = pageToken();
   if (token) url.searchParams.set('token', token);
   return url;
@@ -61,10 +59,7 @@ async function exchangeAuthCookie(url: URL): Promise<URL> {
       cache: 'no-store',
     });
     if (!response.ok) return url;
-    const sameHost =
-      url.hostname === window.location.hostname ||
-      (url.hostname === '127.0.0.1' &&
-        ['localhost', '127.0.0.1'].includes(window.location.hostname));
+    const sameHost = url.hostname === window.location.hostname;
     if (sameHost) url.searchParams.delete('token');
     scrubPageToken();
   } catch {
@@ -91,7 +86,9 @@ export class SimpleSocket {
   /** Subscribe to all incoming messages. Returns an unsubscribe function. */
   onMessage(fn: (msg: ServerMessage) => void): () => void {
     this.listeners.add(fn);
-    return () => { this.listeners.delete(fn); };
+    return () => {
+      this.listeners.delete(fn);
+    };
   }
 
   async connect(): Promise<void> {

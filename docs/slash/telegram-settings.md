@@ -24,7 +24,7 @@ Alias: `/tg-settings`.
 A bot token must be configured first — the status view warns and points to:
 
 ```
-/telegram-setup <botToken> [chatId]
+/telegram-setup
 ```
 
 ## Examples

@@ -1,4 +1,4 @@
-import type { PluginAPI } from '@wrongstack/core';
+import type { Config, PluginAPI } from '@wrongstack/core';
 
 export const PLUGIN_NAME = 'telegram';
 
@@ -165,6 +165,17 @@ export function readTelegramConfig(
     ...opts,
     inboundMode,
   };
+}
+
+/**
+ * Read the Telegram config section from a raw `Config` snapshot.
+ * Used by `api.onConfigChange` callbacks that receive `(next: Config, prev: Config)`
+ * rather than a `PluginAPI`.  Delegates to {@link readTelegramConfig} so the
+ * merge logic (legacy plugins, extension opts, inbound-mode resolution,
+ * defaults) stays in one place.
+ */
+export function readTelegramConfigFromConfig(cfg: Config): TelegramPluginConfig {
+  return readTelegramConfig({ config: cfg });
 }
 
 function resolveInboundMode(

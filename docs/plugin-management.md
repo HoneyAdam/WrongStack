@@ -268,5 +268,5 @@ Then set Telegram-specific options under `extensions.telegram`.
 }
 ```
 
-After restart, the plugin registers `telegram_read`, `telegram_send`, and the
+After restart, the plugin registers `telegram_read`, `telegram_send`, `telegram_approve`, and the
 `/telegram:*` slash commands declared by the plugin.

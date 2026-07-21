@@ -56,7 +56,7 @@ export const helpCmd: SubcommandHandler = async (_args, deps) => {
     '  --desktop                    Open WrongStack Desktop (requires @wrongstack/desktop)',
     '  --hq [--host <h>] [--port <n>] [--password <secret>] [--tunnel] [--open]',
     '                               Start HQ; --tunnel publishes a temporary HTTPS URL',
-    '  --webui [--host <h>] [--webui-port <n>] [--ws-port <n>] [--webui-token <t>] [--open]',
+    '  --webui [--host <h>] [--port <n>] [--webui-token <t>] [--open]',
     '          [--webui-public-url <url>] [--webui-public-ws-url <url>] [--webui-require-token]',
     '                               Serve the browser UI + WS bridge (prints a token URL,',
     "                               --open pops the browser; shares this terminal's agent)",

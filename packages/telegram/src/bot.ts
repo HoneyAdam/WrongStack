@@ -130,6 +130,8 @@ export class TelegramBot {
   private readonly standbyRetryMs: number;
   private standbyTimer: ReturnType<typeof setTimeout> | null = null;
   private standbyAnnounced = false;
+  /** True while a poll() call is in flight (between getUpdates and schedulePoll). */
+  #pollInFlight = false;
 
   // Circular buffer for incoming messages
   private readonly bufferMax: number;

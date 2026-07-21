@@ -1146,8 +1146,8 @@ The plugin declares `@wrongstack/core` as a peer dependency and registers:
 
 | Surface | Registered items |
 |---|---|
-| Tools | `telegram-send`, `telegram-read` |
-| Slash commands | `/telegram` for status and configuration |
+| Tools | `telegram_send`, `telegram_read`, `telegram_approve` |
+| Slash commands | `/telegram-health` (aliases: `/telegram`, `/tgstat`, `/tgs`), `/telegram:send`, `/telegram:chatid` |
 | Events | Subscribes to agent events for notification forwarding |
 
 Official plugin alias: `wstack plugin install telegram`.

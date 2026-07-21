@@ -202,8 +202,7 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
   };
 
   let webuiHost: string;
-  let webuiHttpPort: number;
-  let webuiWsPort: number;
+  let webuiPort: number;
   let webuiAccessToken: string | undefined;
   let webuiPublicUrl: string | undefined;
   let webuiPublicWsUrl: string | undefined;
@@ -215,20 +214,17 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
       process.env['WEBUI_HOST'] ??
       process.env['WS_HOST'] ??
       '127.0.0.1';
-    // SimpleUI uses different default ports (3466 HTTP / 3467 WS) so it can
-    // run alongside the regular WebUI (3456 / 3457) without port conflicts.
-    // Both auto-advance if the requested port is taken.
-    const defaultHttpPort = isSimpleUi ? 3466 : 3456;
-    const defaultWsPort = isSimpleUi ? 3467 : 3457;
-    webuiHttpPort = parsePort(
-      flagValue(['webui-port', 'http-port']) ?? process.env['WEBUI_PORT'] ?? process.env['PORT'],
-      defaultHttpPort,
-      '--webui-port',
-    );
-    webuiWsPort = parsePort(
-      flagValue(['ws-port']) ?? flagValue(['port']) ?? process.env['WS_PORT'],
-      defaultWsPort,
-      '--ws-port',
+    // HTTP and WebSocket upgrades share one listener. Keep the older
+    // --http-port/--ws-port and environment names as aliases, but resolve
+    // exactly one port so `--port` also controls the page users open.
+    const defaultPort = isSimpleUi ? 3466 : 3456;
+    webuiPort = parsePort(
+      flagValue(['webui-port', 'http-port', 'port', 'ws-port']) ??
+        process.env['WEBUI_PORT'] ??
+        process.env['PORT'] ??
+        process.env['WS_PORT'],
+      defaultPort,
+      '--port',
     );
     webuiAccessToken =
       flagValue(['webui-token']) ?? process.env['WEBUI_TOKEN'] ?? process.env['WEBUI_AUTH_TOKEN'];
@@ -255,8 +251,7 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
     session,
     surface: isSimpleUi ? 'simpleui' : 'webui',
     host: webuiHost,
-    port: webuiWsPort,
-    httpPort: webuiHttpPort,
+    port: webuiPort,
     frontendDistDir,
     accessToken: webuiAccessToken,
     publicUrl: webuiPublicUrl,
@@ -300,9 +295,9 @@ export async function runWebUIDispatch(ctx: WebUIDispatchContext): Promise<numbe
     sddSubagentFactory,
     onKanbanDispatch,
     // Print the "open this" banner only once the server is actually
-    // listening, using the RESOLVED ports. Requested ports auto-advance past
+    // listening, using the RESOLVED port. Requested ports auto-advance past
     // busy ports inside runWebUI, so a banner printed up-front lies whenever
-    // 3456/3457 are taken (a second instance, leftover sockets).
+    // the default when it is taken (a second instance, leftover socket).
     onListening: ({ url }) => {
       const surface = isSimpleUi ? 'SimpleUI' : 'WebUI';
       renderer.writeInfo(color.green(`  ✦ ${surface} running → ${color.bold(url)}`));
