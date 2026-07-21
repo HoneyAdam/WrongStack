@@ -55,6 +55,7 @@ function createMockService(): SuperMemoryServiceLike {
         deleted: 0,
         purgedDeleted: 0,
         verified: 0,
+        transitiveMerges: 0,
       };
     },
     async listCandidates() {
