@@ -1,5 +1,6 @@
 import React from 'react';
 import { render } from 'ink-testing-library';
+import { act } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { Text } from '../src/ink.js';
 import type { Context } from '@wrongstack/core';

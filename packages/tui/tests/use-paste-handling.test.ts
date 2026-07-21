@@ -1,6 +1,6 @@
 import { render } from 'ink-testing-library';
 import React from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InputBuilder } from '@wrongstack/core';
 import { Text } from '../src/ink.js';
 import { usePasteHandling, type UsePasteHandlingOptions } from '../src/hooks/use-paste-handling.js';
